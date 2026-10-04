@@ -5,7 +5,7 @@
 //! `wasm_bindgen_futures` — wasm32-only, so they can't run on this host. But
 //! everything they DO — decode a `.mlut` grid, fold it (plus its content-
 //! identity key) into the [`raw_gpu::FullChainInputs`] the live chain
-//! consumes every tick — is the platform-neutral `chain_inputs_for_model` /
+//! consumes every tick — is the platform-neutral `chain_inputs_with_status` /
 //! `build_full_chain_inputs` plumbing this file exercises directly, the same
 //! split `tests.rs` uses for `render_gpu_core`. Session set/clear is a session
 //! FIELD write (`self.film_lut = Some(lut)`) feeding these exact functions, so
@@ -58,8 +58,8 @@ fn chain_inputs_fold_film_lut_size_key_and_data() {
     let whites_anchor_ev = super::develop_prefix_rgba(&raw_img, &bytes, ext, &model, 16)
         .expect("prefix anchor")
         .4;
-    let no_look =
-        super::chain_inputs_for_model(&raw_img, &bytes, ext, &model, None, 0, whites_anchor_ev);
+    let (no_look, _) =
+        super::chain_inputs_with_status(&raw_img, &bytes, ext, &model, None, 0, whites_anchor_ev);
     assert_eq!(no_look.whites_anchor_ev, whites_anchor_ev);
     assert_eq!(no_look.film_lut_size, 0, "no look ⇒ size 0");
     assert_eq!(no_look.film_lut_key, 0, "no look ⇒ key 0");
@@ -70,7 +70,7 @@ fn chain_inputs_fold_film_lut_size_key_and_data() {
     assert_eq!(no_look.film_strength, 72.0);
 
     let lut = solid_red_lut();
-    let loaded = super::chain_inputs_for_model(
+    let (loaded, _) = super::chain_inputs_with_status(
         &raw_img,
         &bytes,
         ext,
@@ -90,8 +90,8 @@ fn chain_inputs_fold_film_lut_size_key_and_data() {
     // Clearing (the `set_film_lut(&[], _)` / `clear_film_lut` contract) must
     // reproduce the no-look inputs exactly — a session that loads then clears
     // a look renders identically to one that never loaded it.
-    let cleared =
-        super::chain_inputs_for_model(&raw_img, &bytes, ext, &model, None, 0, whites_anchor_ev);
+    let (cleared, _) =
+        super::chain_inputs_with_status(&raw_img, &bytes, ext, &model, None, 0, whites_anchor_ev);
     assert_eq!(cleared.film_lut_size, no_look.film_lut_size);
     assert_eq!(cleared.film_lut_key, no_look.film_lut_key);
     assert_eq!(cleared.film_lut_data, no_look.film_lut_data);
@@ -133,14 +133,14 @@ fn set_and_clear_film_lut_round_trips_through_the_same_session() {
         super::develop_prefix_rgba(&raw_img, &bytes, ext, &model, target).expect("develop");
     let session = LiveSession::new(&ctx, &rgba, w, h).expect("session upload");
 
-    let no_look_inputs =
-        super::chain_inputs_for_model(&raw_img, &bytes, ext, &model, None, 0, whites_anchor_ev);
+    let (no_look_inputs, _) =
+        super::chain_inputs_with_status(&raw_img, &bytes, ext, &model, None, 0, whites_anchor_ev);
     let baseline = pollster::block_on(session.render_async(&ctx, &no_look_inputs, None))
         .expect("baseline render ok")
         .expect("baseline render");
 
     let lut = solid_red_lut();
-    let loaded_inputs = super::chain_inputs_for_model(
+    let (loaded_inputs, _) = super::chain_inputs_with_status(
         &raw_img,
         &bytes,
         ext,
@@ -170,8 +170,8 @@ fn set_and_clear_film_lut_round_trips_through_the_same_session() {
 
     // Clear ⇒ back to `(None, 0)` inputs ⇒ byte-identical to the baseline —
     // the same session, same develop, only the film fields reverted.
-    let cleared_inputs =
-        super::chain_inputs_for_model(&raw_img, &bytes, ext, &model, None, 0, whites_anchor_ev);
+    let (cleared_inputs, _) =
+        super::chain_inputs_with_status(&raw_img, &bytes, ext, &model, None, 0, whites_anchor_ev);
     let cleared = pollster::block_on(session.render_async(&ctx, &cleared_inputs, None))
         .expect("cleared render ok")
         .expect("cleared render");

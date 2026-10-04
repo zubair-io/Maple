@@ -151,6 +151,7 @@ export async function coldOpen2d(
       support.lensCorrectionCaInert,
       support.cameraSupport,
       support.lensProfile,
+      decoded.autoFit,
     );
 
     // Record the dispatched intent before releasing queued edits (#4101).
@@ -187,6 +188,13 @@ export async function coldOpen2d(
     }
   } catch (e) {
     console.error('Decode failed for', filename, e);
+    if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
+    if (host.state.adjustmentFor(assetId)().profile === 'Auto')
+      host.state.seedLensProfile(
+        assetId,
+        host.state.lensCorrectionsFor(assetId).lensProfile ?? null,
+        false,
+      );
     if (!host.hasProvisionalPreview(assetId)) {
       host.imageBitmap()?.close();
       host.imageBitmap.set(null);
@@ -230,7 +238,7 @@ export async function runRender2d(
     // #3479: every render reply is authoritative about the imported profile
     // it consumed — the panel enables per calibrated family from this.
     if (host.currentAssetId)
-      host.state.seedLensProfile(host.currentAssetId, decoded.lensProfile ?? null);
+      host.state.seedLensProfile(host.currentAssetId, decoded.lensProfile ?? null, decoded.autoFit);
     host.canvasSvc.currentPixels.set(decoded);
     const bitmap = await imageDataToBitmap(decoded);
     if (generation !== host.renderGeneration) {

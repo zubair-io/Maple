@@ -205,6 +205,26 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     expect(render).toHaveBeenLastCalledWith('Auto', params);
   });
 
+  it('publishes actual Auto provenance only for current XMP replies', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
+    const present = new ImageCanvasGpuPresent(host);
+    const render = vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
+      colorSpace: 'srgb',
+      autoFit: true,
+    });
+    const params = new Float32Array(19);
+    await present.render('Auto', 1, params);
+    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith('asset-1', null, true);
+    const count = vi.mocked(host.state.seedLensProfile).mock.calls.length;
+    await present.render('Auto', 1, params);
+    expect(vi.mocked(host.state.seedLensProfile).mock.calls).toHaveLength(count);
+    render.mockResolvedValue({ colorSpace: 'srgb', autoFit: false });
+    await present.render('Auto', 0);
+    expect(vi.mocked(host.state.seedLensProfile).mock.calls).toHaveLength(count);
+    await present.render('Auto', 1);
+    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith('asset-1', null, false);
+  });
+
   it('(a) successful GPU present test -> open() returns true and active stays set', async () => {
     const host = makeHost(() => Promise.resolve(makeOpenedSession()));
     const gpuPresent = new ImageCanvasGpuPresent(host);

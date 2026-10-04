@@ -1,6 +1,7 @@
 import './cold-profile-ui';
 import { geometryGestureWorkflow } from './geometry-gesture-workflow';
 import { lensGestureWorkflow } from './lens-gesture-workflow';
+import './auto-fit-status-ui';
 import { comparisonWorkflow } from './comparison';
 import { Component, createComponent, inject, type ApplicationRef } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';

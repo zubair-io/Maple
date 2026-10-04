@@ -35,6 +35,7 @@ pub struct MapleRender {
     lens_correction_ca_inert: bool,
     camera_support: Option<raw_core::support_tiers::RenderSupport>,
     lens_profile_json: Option<String>,
+    auto_fit: Option<bool>,
 }
 
 impl MapleRender {
@@ -62,6 +63,7 @@ impl MapleRender {
         lens_correction_ca_inert: bool,
         camera_support: Option<raw_core::support_tiers::RenderSupport>,
         lens_profile_json: Option<String>,
+        auto_fit: Option<bool>,
     ) -> Self {
         Self {
             width,
@@ -75,6 +77,7 @@ impl MapleRender {
             lens_correction_ca_inert,
             camera_support,
             lens_profile_json,
+            auto_fit,
         }
     }
 }
@@ -144,6 +147,12 @@ impl MapleRender {
     /// Resolver facts for the imported LCP profile the model named, as JSON
     /// (`crate::lens_profile::metadata`, #3479) — `None` when no profile is
     /// selected or the named profile is not registered. Read once per reply.
+    /// Actual outcome of this render's Auto fit, never an extraction prediction.
+    #[wasm_bindgen(getter)]
+    pub fn auto_fit(&self) -> Option<bool> {
+        self.auto_fit
+    }
+
     #[wasm_bindgen(getter)]
     pub fn lens_profile_json(&self) -> Option<String> {
         self.lens_profile_json.clone()
@@ -243,8 +252,8 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
     let source = Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext });
     match crate::cpu_budget::clamp_develop_long_edge(raw_img.width, raw_img.height, None) {
         None => {
-            let (w, h, bytes) = raw_core::pipeline::render_from_raw_with_quality_and_source(
-                &raw_img, &model, quality, source,
+            let (w, h, bytes, auto_fit) = raw_core::pipeline::render_from_raw_with_auto_fit(
+                &raw_img, &model, quality, source, None, None,
             )
             .map_err(|e| JsError::new(&e.to_string()))?;
             Ok(MapleRender {
@@ -259,12 +268,18 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 lens_correction_ca_inert,
                 camera_support,
                 lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
+                auto_fit,
             })
         }
         Some(cap) => {
             let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
-            let (w, h, bytes) = raw_core::pipeline::render_sized_from_raw_with_quality_and_source(
-                &raw_img, &model, quality, source, cap,
+            let (w, h, bytes, auto_fit) = raw_core::pipeline::render_from_raw_with_auto_fit(
+                &raw_img,
+                &model,
+                quality,
+                source,
+                Some(cap),
+                None,
             )
             .map_err(|e| JsError::new(&e.to_string()))?;
             Ok(MapleRender {
@@ -279,6 +294,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 lens_correction_ca_inert,
                 camera_support,
                 lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
+                auto_fit,
             })
         }
     }
@@ -345,12 +361,13 @@ pub fn render_bytes_sized(
     )
     .unwrap_or(max_long_edge);
     let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
-    let (w, h, bytes) = raw_core::pipeline::render_sized_from_raw_with_quality_and_source(
+    let (w, h, bytes, auto_fit) = raw_core::pipeline::render_from_raw_with_auto_fit(
         &raw_img,
         &model,
         quality,
         Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext }),
-        effective_long_edge,
+        Some(effective_long_edge),
+        None,
     )
     .map_err(|e| JsError::new(&e.to_string()))?;
     Ok(MapleRender {
@@ -365,6 +382,7 @@ pub fn render_bytes_sized(
         lens_correction_ca_inert,
         camera_support,
         lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
+        auto_fit,
     })
 }
 
@@ -449,6 +467,7 @@ pub fn develop_non_raw(
         lens_correction_ca_inert: true,
         camera_support: None,
         lens_profile_json: None,
+        auto_fit: (model.profile == raw_core::xmp::Profile::Auto).then_some(false),
     })
 }
 

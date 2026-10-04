@@ -321,86 +321,13 @@ pub(crate) fn develop_prefix_rgba(
     ))
 }
 
-/// Fit the Auto Profile curve + residual LUT against the embedded JPEG (the SAME
-/// entry `apply_auto_profile` shares a cache with — see #924 / #972) and flatten
-/// them into the `(profile_curve_flat, residual_lut_size, residual_lut_data)` shape
-/// [`build_full_chain_inputs`] consumes. A `None` (Neutral, no preview, degenerate
-/// fit) collapses to identity → the chain's view tail is pure AgX, matching
-/// `Profile::Neutral`. The fit is keyed on the RAW BYTES (not the model), so after
-/// the first call it is cache-served — re-running it per slider tick is cheap.
 #[cfg(any(target_arch = "wasm32", test))]
-fn fit_profile_artifacts(
-    raw_img: &raw_core::image::RawImage,
-    raw: &[u8],
-    ext: &str,
-    model: &AdjustmentModel,
-) -> (Vec<f32>, usize, Vec<f32>) {
-    let (curve, lut) = match model.profile {
-        // Deliberately `Full` (not AMaZE, #940): the fit compares a
-        // downscaled develop against the embedded JPEG to derive a global
-        // tone curve — demosaic quality cannot move that fit, and the
-        // cheaper develop keeps the (bytes-keyed, cached) fit fast.
-        Profile::Auto => fit_auto_profile_from_raw(
-            raw_img,
-            model,
-            RenderQuality::Full,
-            RawInput::Bytes { bytes: raw, ext },
-        )
-        .unwrap_or((None, None)),
-        _ => (None, None),
-    };
-    let profile_curve_flat = curve
-        .map(|c| c.to_flat())
-        .unwrap_or_else(|| auto_profile::curve::ProfileCurve::identity().to_flat());
-    let (residual_lut_size, residual_lut_data) = match lut {
-        Some(l) => (l.size, l.data),
-        None => {
-            let id = auto_profile::lut::ColorLut::identity(auto_profile::DEFAULT_LUT_SIZE);
-            (id.size, id.data)
-        }
-    };
-    (profile_curve_flat, residual_lut_size, residual_lut_data)
-}
-
-/// Assemble the [`FullChainInputs`] for `model` from the RAW + the (cache-served)
-/// Auto Profile fit. The view-tail-and-WB shape the live chain re-applies every
-/// render; cheap (no decode, no GPU compile), so the persistent session rebuilds
-/// it per tick from the latest model while reusing the uploaded prefix buffer.
-///
-/// `film_lut` / `film_lut_key` (epic #2683, Task 9) are the session-resident
-/// baked film-look grid + its content-identity key — see
-/// [`model::build_full_chain_inputs`]'s doc for why they ride alongside the
-/// model instead of inside it. One-shot callers with no loaded look pass
-/// `(None, 0)`.
+#[path = "gpu_render/auto_fit_status.rs"]
+mod auto_fit_status;
 #[cfg(any(target_arch = "wasm32", test))]
-pub(crate) fn chain_inputs_for_model(
-    raw_img: &raw_core::image::RawImage,
-    raw: &[u8],
-    ext: &str,
-    model: &AdjustmentModel,
-    film_lut: Option<&raw_core::film::FilmLut>,
-    film_lut_key: u32,
-    whites_anchor_ev: f32,
-) -> FullChainInputs<'static> {
-    let (profile_curve_flat, residual_lut_size, residual_lut_data) =
-        fit_profile_artifacts(raw_img, raw, ext, model);
-    build_full_chain_inputs(
-        model,
-        profile_curve_flat,
-        residual_lut_size,
-        residual_lut_data,
-        // The decoded frame's own noise characterisation drives the NR stages'
-        // per-pixel modulation on the GPU exactly as it does in `develop`
-        // (#1714) — both read `RawImage::{noise_profile, iso}`.
-        NoiseProfileInputs {
-            profile: raw_img.noise_profile.clone().unwrap_or_default(),
-            iso: raw_img.iso,
-        },
-        film_lut,
-        film_lut_key,
-        whites_anchor_ev,
-    )
-}
+pub(crate) use auto_fit_status::chain_inputs_with_status;
+#[cfg(test)]
+pub(crate) use auto_fit_status::fit_profile_artifacts_with_status;
 
 /// The decode-boundary + GPU-chain CORE, factored out of [`render_bytes_gpu`] so
 /// a NATIVE (Metal) host test can drive the exact same plumbing the wasm entry
@@ -417,7 +344,7 @@ pub(crate) fn chain_inputs_for_model(
 /// This is the ONE-SHOT u8-readback path (the W1 parity gate + the gpu-off-bundle
 /// fallback). The persistent zero-readback path
 /// ([`crate::web_live_session::WebLiveSession`]) reuses the SAME
-/// [`develop_prefix_rgba`] / [`chain_inputs_for_model`] helpers but uploads once
+/// [`develop_prefix_rgba`] / [`chain_inputs_with_status`] helpers but uploads once
 /// and presents to a surface instead of reading back.
 ///
 /// `max_long_edge` (#1080): optional viewport target from the JS caller, in real
@@ -425,7 +352,7 @@ pub(crate) fn chain_inputs_for_model(
 /// upscaled), so the returned surface is viewport-sized, not full sensor res.
 /// `None`/`0` → [`DEFAULT_TARGET_LONG_EDGE`]; either way the target is clamped to
 /// the device's texture cap via [`effective_target_long_edge`].
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(test)]
 async fn render_gpu_core(
     raw_img: &raw_core::image::RawImage,
     raw: &[u8],
@@ -433,6 +360,19 @@ async fn render_gpu_core(
     model: &AdjustmentModel,
     max_long_edge: Option<u32>,
 ) -> Result<(u32, u32, Vec<u8>), String> {
+    render_gpu_core_with_status(raw_img, raw, ext, model, max_long_edge)
+        .await
+        .map(|(w, h, bytes, _)| (w, h, bytes))
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+async fn render_gpu_core_with_status(
+    raw_img: &raw_core::image::RawImage,
+    raw: &[u8],
+    ext: &str,
+    model: &AdjustmentModel,
+    max_long_edge: Option<u32>,
+) -> Result<(u32, u32, Vec<u8>, Option<bool>), String> {
     // Context FIRST: the effective develop target clamps to this device's
     // texture cap, so the device must exist before the sized develop runs.
     // Fallible (#1079): no adapter / device surfaces as an Err so the worker
@@ -445,7 +385,8 @@ async fn render_gpu_core(
     let (rgba, w, h, _prefix_model, whites_anchor_ev, nr_sampling_scale) =
         develop_prefix_rgba(raw_img, raw, ext, model, target)?;
     // Film looks are session-resident; one-shot renders have no uploaded LUT.
-    let mut inputs = chain_inputs_for_model(raw_img, raw, ext, model, None, 0, whites_anchor_ev);
+    let (mut inputs, auto_fit) =
+        chain_inputs_with_status(raw_img, raw, ext, model, None, 0, whites_anchor_ev);
     GpuWhiteBalance::resolve(raw_img)?.apply(model, &mut inputs);
     inputs.nr_sampling_scale = nr_sampling_scale;
 
@@ -463,12 +404,8 @@ async fn render_gpu_core(
 
     // EXIF-orient the u8 surface last, exactly as `render_bytes` does (the GPU
     // chain is orientation-agnostic; the develop buffer is in sensor framing).
-    Ok(raw_core::image::apply_orientation(
-        &rgb,
-        w,
-        h,
-        raw_img.orientation,
-    ))
+    let (w, h, rgb) = raw_core::image::apply_orientation(&rgb, w, h, raw_img.orientation);
+    Ok((w, h, rgb, auto_fit))
 }
 
 /// Render a RAW from bytes to a u8 RGB display surface via the GPU live chain
@@ -521,9 +458,10 @@ pub async fn render_bytes_gpu(
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
 
-    let (ow, oh, oriented) = render_gpu_core(&raw_img, &raw, &ext, &model, max_long_edge)
-        .await
-        .map_err(|e| JsError::new(&e))?;
+    let (ow, oh, oriented, auto_fit) =
+        render_gpu_core_with_status(&raw_img, &raw, &ext, &model, max_long_edge)
+            .await
+            .map_err(|e| JsError::new(&e))?;
 
     // Preserve native oriented dims for fit/100% zoom on viewport-sized output.
     let (full_w, full_h) = raw_core::pipeline::native_render_dims(&raw_img);
@@ -540,6 +478,7 @@ pub async fn render_bytes_gpu(
         raw_img.lens_correction_ca_inert(),
         camera_support,
         crate::lens_profile::metadata(&raw_img, &model),
+        auto_fit,
     ))
 }
 

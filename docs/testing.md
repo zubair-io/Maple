@@ -651,3 +651,30 @@ The fixture disables Samba's temporary-directory mkdir path using
 All directories, credentials and server state belong to the test; system
 Sharing and account credentials are untouched. This qualifies real SMB
 protocol behavior against the owned server, not any particular user's NAS.
+
+### Actual per-image Auto matching (#4096)
+
+The Profile section reads whether the already-completed render applied a curve or
+residual LUT. Pending means no evaluated outcome yet; unavailable covers any
+completed fit without usable artifacts, including fit errors. It never infers a
+missing embedded JPEG from an unsuccessful fit. Selected Neutral is described
+separately. Scalar GPU ticks retain the image's outcome without another fit,
+source probe, or metadata message; existing render generation guards drop stale
+replies.
+
+With physical fixtures provisioned, these explicit gates fail if a fixture is
+missing. They check active `test_0007.DNG` and unavailable `test_0018.dng`, preserve
+original bytes, and verify that both public render entries return the same frame
+for path and byte sources. Both entries share an implementation; this compatibility
+check does not independently prove pixel identity against an earlier revision:
+
+```bash
+cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --lib actual_auto_status_ -- --include-ignored --test-threads=1
+cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-wasm --features gpu --lib actual_gpu_fit_status_physical_4096 -- --include-ignored
+cd src/web && bun x playwright test --config=playwright.auto-fit.config.ts
+```
+
+The browser gate mounts the shipping Profile section and image canvas with real
+OPFS originals, sidecars, and WASM worker. It checks accessible status copy,
+selected Neutral, durable reopen, and image changes. It is separate from the
+fixture-independent workflow and GPU pixel corpus gates.

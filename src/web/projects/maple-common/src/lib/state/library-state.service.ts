@@ -267,6 +267,7 @@ export class LibraryStateService {
     lensCorrectionCaInert: boolean,
     cameraSupport?: CameraSupport | null,
     lensProfile?: LensProfileResolution | null,
+    autoFit?: boolean,
   ): void {
     this.store.lensCorrections.seed(
       id,
@@ -274,6 +275,7 @@ export class LibraryStateService {
       lensCorrectionCaInert,
       cameraSupport,
       lensProfile,
+      autoFit,
     );
   }
 
@@ -281,8 +283,8 @@ export class LibraryStateService {
    *  (#3479); `null` clears it. Same interface-only reachability as
    *  `seedLensCorrections` above. */
   // fallow-ignore-next-line unused-class-member
-  seedLensProfile(id: AssetId, lensProfile: LensProfileResolution | null): void {
-    this.store.lensCorrections.seedProfile(id, lensProfile);
+  seedLensProfile(id: AssetId, lensProfile: LensProfileResolution | null, autoFit?: boolean): void {
+    this.store.lensCorrections.seedProfile(id, lensProfile, autoFit);
   }
 
   /** Per-asset lens-correction capability (#3182); the fail-closed default

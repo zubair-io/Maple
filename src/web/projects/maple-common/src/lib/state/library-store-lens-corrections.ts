@@ -29,6 +29,8 @@ export interface LensCorrectionCapability {
    *  consumed (#3479); absent when the sidecar named none or the worker
    *  held no copy of it. */
   lensProfile?: LensProfileResolution;
+  /** Actual Auto artifacts from the latest completed render (#4096). */
+  autoFit?: boolean;
 }
 
 /**
@@ -58,6 +60,7 @@ export class LensCorrectionCapabilities {
     lensCorrectionCaInert: boolean,
     cameraSupport?: CameraSupport | null,
     lensProfile?: LensProfileResolution | null,
+    autoFit?: boolean,
   ): void {
     this.byAsset.update((map) => {
       const next = new Map(map);
@@ -67,6 +70,7 @@ export class LensCorrectionCapabilities {
         lensCorrectionCaInert,
         ...(cameraSupport !== undefined ? { cameraSupport: cameraSupport ?? undefined } : {}),
         ...(lensProfile !== undefined ? { lensProfile: lensProfile ?? undefined } : {}),
+        ...(autoFit !== undefined ? { autoFit } : {}),
       });
       return next;
     });
@@ -78,11 +82,15 @@ export class LensCorrectionCapabilities {
    * verdict the sidecar no longer names. Leaves the decode-time opcode
    * facts alone; an asset with no decode yet keeps the fail-closed default.
    */
-  seedProfile(id: AssetId, lensProfile: LensProfileResolution | null): void {
+  seedProfile(id: AssetId, lensProfile: LensProfileResolution | null, autoFit?: boolean): void {
     this.byAsset.update((map) => {
       const current = map.get(id) ?? DEFAULT_LENS_CORRECTION_CAPABILITY;
       const next = new Map(map);
-      next.set(id, { ...current, lensProfile: lensProfile ?? undefined });
+      next.set(id, {
+        ...current,
+        lensProfile: lensProfile ?? undefined,
+        ...(autoFit !== undefined ? { autoFit } : {}),
+      });
       return next;
     });
   }

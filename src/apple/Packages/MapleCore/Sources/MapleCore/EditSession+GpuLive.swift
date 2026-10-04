@@ -113,6 +113,8 @@ extension EditSession {
     whitesAnchorEv: Float = .nan,
     nrSamplingScale: Float = 1
   ) async -> Bool {
+    let fitRevision = autoFitRevision
+    let fitAssetID = asset.id
     guard GpuLiveFlag.isEnabled, let driver = gpuLiveDriver else {
       editSessionLogger.notice("GPU-TRACE reject flag-or-driver gen=\(gen ?? 0)")
       return false
@@ -243,6 +245,7 @@ extension EditSession {
       }
     }
 
+    let achievedAutoFit: Bool?
     // Cloud RAWs need the same fit as local files. The session stages
     // their bytes once for the path-only FFI (#3357).
     if resolvedIsRaw, m.profile == .auto,
@@ -251,8 +254,10 @@ extension EditSession {
       let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
       let accessing = scope.startAccessingSecurityScopedResource()
       defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-      await driver.fitAutoProfileIfNeeded(
+      achievedAutoFit = await driver.fitAutoProfileIfNeeded(
         rawPath: url.path, model: m, quality: .preview)
+    } else {
+      achievedAutoFit = false
     }
 
     // Film look (epic #2683, Task 10): resolve + push BEFORE this present,
@@ -397,6 +402,10 @@ extension EditSession {
     // pixels. Do not wake histograms or claim that a stale frame is ready.
     guard didPresent, !Task.isCancelled else { return true }
     if let gen, gen != (await renderActor.currentGeneration()) { return true }
+    if let achievedAutoFit {
+      publishAutoFit(
+        achievedAutoFit, assetID: fitAssetID, profile: m.profile, revision: fitRevision)
+    }
     editSessionLogger.notice("GPU-TRACE present OK gen=\(gen ?? 0)")
     lastPublishedRenderGeneration = gen
     if !gpuFramePresented { gpuFramePresented = true }

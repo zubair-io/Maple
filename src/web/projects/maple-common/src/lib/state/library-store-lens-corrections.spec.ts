@@ -60,6 +60,18 @@ describe('LensCorrectionCapabilities', () => {
     expect(caps.for(ASSET_A).lensCorrectionCaInert).toBe(true);
   });
 
+  it('retains actual Auto results per image without changing them on scalar ticks', () => {
+    const caps = new LensCorrectionCapabilities();
+    expect(caps.for(ASSET_A).autoFit).toBeUndefined();
+    caps.seed(ASSET_A, false, true, undefined, undefined, true);
+    caps.seedProfile(ASSET_B, null, false);
+    caps.seedProfile(ASSET_A, null);
+    expect(caps.for(ASSET_A).autoFit).toBe(true);
+    expect(caps.for(ASSET_B).autoFit).toBe(false);
+    caps.seedProfile(ASSET_A, null, false);
+    expect(caps.for(ASSET_A).autoFit).toBe(false);
+  });
+
   it('keeps per-asset capabilities independent', () => {
     const caps = new LensCorrectionCapabilities();
     caps.seed(ASSET_A, true, false);

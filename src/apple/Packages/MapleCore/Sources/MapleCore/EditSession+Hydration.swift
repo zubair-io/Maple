@@ -38,6 +38,7 @@ extension EditSession {
   /// render is scheduled only if the editor has already requested pixels.
   public func loadSidecar() async {
     guard !hasLoadedSidecar else { return }
+    resetAutoFitStatus()
     let startingModel = model
     let startingCulling = culling
     let startingTransaction = transactions.nextID

@@ -349,10 +349,7 @@ export class ImageCanvasGpuPresent {
       // pseudo fallback (today's flag-on behaviour, no regression).
       this.host.canvasSvc.currentPixels.set(info.scopePixels ?? null);
 
-      // Same cold-open bookkeeping as the 2D path so #846 dedups identically.
-      // The session dims are viewport-sized (#1080); record the NATIVE dims the
-      // reply carries so the asset record + zoom math keep the fit/100% contract
-      // (#1101). `?? info` covers producers that never size down.
+      // Decode reports native dimensions separately from viewport pixels.
       const nativeW = info.nativeWidth ?? info.width;
       const nativeH = info.nativeHeight ?? info.height;
       this.host.state.updateAssetDimensions(assetId, nativeW, nativeH);
@@ -363,7 +360,6 @@ export class ImageCanvasGpuPresent {
         info.asShotTint,
         hasCalibratedWhiteBalance(info.cameraSupport),
       );
-      // #3182 — see `decodeSupportFrom` in `image-canvas.render2d.ts`.
       const support = decodeSupportFrom(info);
       this.host.state.seedLensCorrections(
         assetId,
@@ -371,6 +367,7 @@ export class ImageCanvasGpuPresent {
         support.lensCorrectionCaInert,
         support.cameraSupport,
         support.lensProfile,
+        info.autoFit,
       );
       // Release queued edits only after recording the frame's actual intent (#4101).
       if (this.host.lastRenderedXmp === null) {
@@ -420,10 +417,13 @@ export class ImageCanvasGpuPresent {
       // bumped the generation while this render was in flight — drop its result so
       // a stale scope readback can't overwrite a fresher frame's.
       if (generation !== this.host.renderGeneration) return false;
-      // #3479: an XMP render re-develops the prefix and reports which imported
-      // profile it consumed; a scalar-params tick carries no verdict.
+      // Scalar ticks retain per-image provenance; only an XMP reply refreshes it.
       if (!fastParams && this.host.currentAssetId)
-        this.host.state.seedLensProfile(this.host.currentAssetId, rendered.lensProfile ?? null);
+        this.host.state.seedLensProfile(
+          this.host.currentAssetId,
+          rendered.lensProfile ?? null,
+          rendered.autoFit,
+        );
       this.scalarPrefixReady = params !== undefined;
       // Scopes are no longer fed from this reply (#3397): the readback now
       // arrives as a `scope-sample` broadcast, mirrored into `currentPixels`

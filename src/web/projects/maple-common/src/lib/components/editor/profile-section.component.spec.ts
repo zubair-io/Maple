@@ -10,13 +10,18 @@ import { XmpParserService } from '../../xmp/xmp-parser.service';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 
 describe('ProfileSectionComponent', () => {
+  const outcomes = signal<Record<string, boolean | undefined>>({});
   const assetId = 'asset-1';
   let library: ReturnType<typeof makeLibraryStub> & {
     focusedAssetId: ReturnType<typeof signal<string | null>>;
   };
 
   beforeEach(() => {
-    library = Object.assign(makeLibraryStub(), { focusedAssetId: signal<string | null>(assetId) });
+    outcomes.set({});
+    library = Object.assign(makeLibraryStub(), {
+      focusedAssetId: signal<string | null>(assetId),
+      lensCorrectionsFor: (id: string) => ({ autoFit: outcomes()[id] }),
+    });
     TestBed.configureTestingModule({
       imports: [ProfileSectionComponent],
       providers: [
@@ -33,13 +38,33 @@ describe('ProfileSectionComponent', () => {
     return fixture;
   }
 
-  it('shows Auto as the default and explains the embedded-preview fallback', () => {
+  it('shows Auto as the default and waits for the actual fit', () => {
     const fixture = render();
     const selected = fixture.nativeElement.querySelector('[role="radio"][aria-checked="true"]');
     expect(selected.textContent.trim()).toBe('Auto');
-    expect(fixture.nativeElement.textContent).toContain(
-      'Uses Neutral when no preview is available',
-    );
+    expect(fixture.nativeElement.textContent).toContain('Checking Auto matching for this image…');
+  });
+
+  it('announces actual matching and generic unavailability for the focused image', () => {
+    const fixture = render();
+    const status = fixture.nativeElement.querySelector('[role="status"]');
+    expect(status.getAttribute('aria-live')).toBe('polite');
+    outcomes.set({ [assetId]: true });
+    fixture.detectChanges();
+    expect(status.textContent).toContain('matched to this image’s embedded camera preview');
+    outcomes.set({ [assetId]: false });
+    fixture.detectChanges();
+    expect(status.textContent.trim()).toBe('Auto matching is unavailable for this image.');
+    expect(status.textContent).not.toContain('no preview');
+    library.focusedAssetId.set('asset-2');
+    fixture.detectChanges();
+    expect(status.textContent).toContain('Checking Auto matching');
+    outcomes.set({ [assetId]: true });
+    fixture.detectChanges();
+    expect(status.textContent).toContain('Checking Auto matching');
+    library.focusedAssetId.set(assetId);
+    fixture.detectChanges();
+    expect(status.textContent).toContain('matched to this image’s embedded camera preview');
   });
 
   it('selects Neutral as one undoable edit and persists the same render intent', () => {
@@ -56,7 +81,7 @@ describe('ProfileSectionComponent', () => {
     const parser = TestBed.inject(XmpParserService);
     const xmp = serializer.serialize(library.adjustmentFor(assetId)());
     expect(parser.parseAdjustmentModel(xmp).model.profile).toBe('Neutral');
-    expect(fixture.nativeElement.textContent).toContain('fixed AgX view transform');
+    expect(fixture.nativeElement.textContent).toContain('fixed base rendering');
 
     editor.undo();
     fixture.detectChanges();

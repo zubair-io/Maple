@@ -202,7 +202,8 @@ public actor GpuLiveSession {
   ///
   /// `quality` MUST match the decode quality (the editor decodes at `.preview`),
   /// or the fitted curve won't match the displayed pixels.
-  public func fitAutoProfile(rawPath: String, quality: PipelineRenderer.Quality) {
+  @discardableResult
+  public func fitAutoProfile(rawPath: String, quality: PipelineRenderer.Quality) -> Bool {
     let curveLen = Int(MAPLE_PROFILE_CURVE_FLAT_LEN)
     var curve = [Float](repeating: 0, count: curveLen)
     var present: Int32 = 0
@@ -250,7 +251,7 @@ public actor GpuLiveSession {
           "maple_gpu_fit_auto_profile rc=\(rc): \(Self.lastError() ?? "?", privacy: .public)")
       }
       autoProfile = nil
-      return
+      return false
     }
 
     let n = Int(lutSize)
@@ -262,6 +263,7 @@ public actor GpuLiveSession {
     gpuLiveLog.notice(
       "Auto Profile: fitted curve(present=\(present == 1)) + residual(edge=\(n)) for \(rawPath, privacy: .public)"
     )
+    return present == 1 || n > 0
   }
 
   /// Render the gated chain for `model` (decode-boundary contract via
