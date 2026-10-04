@@ -46,6 +46,7 @@ pub(super) fn encode(
     intent_path: &Path,
     protected_path: &Path,
     output: &Path,
+    reference_path: Option<&Path>,
 ) -> ProbeResult<()> {
     if output.exists() {
         return Err("choose a fresh large RAW research output".into());
@@ -57,7 +58,25 @@ pub(super) fn encode(
     inputs.protected.verify(&protected)?;
     let mask = removal_mask_from_bytes(&intent)?;
     let protection = removal_mask_from_bytes(&protected)?;
-    let window = large_masks::window(&mask)?;
+    let reference: Option<Context> = reference_path
+        .map(|path| -> ProbeResult<Context> {
+            let context: Context = serde_json::from_slice(&std::fs::read(path)?)?;
+            if context.plate != ProbePlate::LinearCalibrationV1
+                || context.release_qualified
+                || context.source_anchor.as_ref() != Some(&inputs.source)
+                || context.original != inputs.source.original
+                || (context.source_width, context.source_height)
+                    != (inputs.source.width, inputs.source.height)
+            {
+                return Err("reference context source or calibration recipe differs".into());
+            }
+            Ok(context)
+        })
+        .transpose()?;
+    let window = match &reference {
+        Some(context) => context.window,
+        None => large_masks::window(&mask)?,
+    };
     let planes = large_masks::planes(&mask, &protection, window)?;
     let (bytes, raw) = decode_raw(raw_path)?;
     inputs.source.original.verify(&bytes)?;
@@ -116,6 +135,15 @@ pub(super) fn encode(
         encoding,
         release_qualified: false,
     };
+    if let Some(reference) = &reference {
+        if reference.scene != context.scene
+            || reference.model_input != context.model_input
+            || serde_json::to_value(&reference.encoding)?
+                != serde_json::to_value(&context.encoding)?
+        {
+            return Err("reference context pixels or model input recipe changed".into());
+        }
+    }
     std::fs::create_dir_all(output)?;
     for (name, data) in [
         ("scene.f32", scene),
@@ -139,6 +167,7 @@ pub(super) fn encode(
         output.join("preparation.json"),
         serde_json::to_vec_pretty(&serde_json::json!({
             "release_qualified": false, "window": window, "joined_tile_mismatch_channels": mismatches,
+            "reference_context": reference_path,
             "model_input_native_size": [SIDE,SIDE], "whole_frame_oracle": true, "resampled": false,
             "hole_pixels": planes[..(SIDE*SIDE) as usize].iter().filter(|v| **v == 1.0).count(),
             "mask_strategy": "Union of unchanged shared native mask preparation; one joint model inference, no independently reconstructed pieces"
