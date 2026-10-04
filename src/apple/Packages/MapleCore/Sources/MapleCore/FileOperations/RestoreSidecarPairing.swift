@@ -14,7 +14,7 @@ enum RestoreSidecarPairing {
       pattern: "^" + stem + FilenameVocabulary.pairedSidecarSuffixPattern + "$",
       options: .caseInsensitive)
     let workflow = try NSRegularExpression(
-      pattern: "^" + stem + "\\.v(?:" + WorkflowContract.uuidPattern + ")\\.xmp$")
+      pattern: "^(?i:" + stem + ")\\.v(?:" + WorkflowContract.uuidPattern + ")\\.xmp$")
     return names.filter { name in
       let range = NSRange(name.startIndex..<name.endIndex, in: name)
       return canonical.firstMatch(in: name, range: range) != nil
