@@ -109,6 +109,8 @@ public sealed partial class MainWindow
                     _infoPaneOpen = name.EndsWith("info", StringComparison.Ordinal);
                     UpdateInfoPane();
                 }
+                if (_mode == ShellMode.Preview && _infoPaneOpen)
+                    await WaitForInspectorVisualReadyAsync();
                 await Task.Delay(300);
                 root.UpdateLayout();
                 if (!HasRequestedSize()) throw new InvalidOperationException("Visual viewport changed before capture.");
@@ -187,6 +189,25 @@ public sealed partial class MainWindow
             before != Services.Xmp.XmpWriter.Serialize(
                 new Services.Xmp.XmpSidecarDocument { Adjustments = ViewModel.Adjustments }))
             throw new InvalidOperationException("Editor visual comparison is hidden or mutated the document.");
+    }
+
+    private async Task WaitForInspectorVisualReadyAsync()
+    {
+        var photo = ViewModel.SelectedPhoto
+            ?? throw new InvalidOperationException("Inspector visual checkpoint has no photo.");
+        var deadline = Environment.TickCount64 + 10000;
+        while (!ReferenceEquals(photo, _metadataPhoto) || ExtraInfoRows.Children.Count == 0 ||
+            ExtraInfoRows.Children.OfType<TextBlock>().Any(row => row.Text == "Loading metadata…"))
+        {
+            if (!ReferenceEquals(photo, ViewModel.SelectedPhoto) || _closing ||
+                !_infoPaneOpen || _mode != ShellMode.Preview)
+                throw new InvalidOperationException("Inspector visual hydration lost its photo or mode.");
+            if (Environment.TickCount64 >= deadline)
+                throw new TimeoutException("Inspector metadata did not settle before the visual checkpoint.");
+            await Task.Delay(50);
+        }
+        if (ExtraInfoRows.Children.OfType<Maple.UI.Atoms.MuiButton>().Any())
+            throw new InvalidOperationException("Inspector metadata failed; its retry state is not qualification evidence.");
     }
 
     private async Task VerifyPreviewToggleScrollAsync(string output)
