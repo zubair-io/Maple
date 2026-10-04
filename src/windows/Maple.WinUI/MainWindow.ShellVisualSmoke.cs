@@ -31,7 +31,7 @@ public sealed partial class MainWindow
         var adjustments = ViewModel.Adjustments;
         try
         {
-            var narrow = Array.IndexOf(Environment.GetCommandLineArgs(), "--shell-visual-checkpoints-narrow") >= 0;
+            var narrow = Environment.GetCommandLineArgs().Contains("--shell-visual-checkpoints-narrow");
             var logicalSize = narrow ? new SizeInt32(1024, 768) : new SizeInt32(1440, 960);
             var scale = root.XamlRoot.RasterizationScale;
             var clientSize = new SizeInt32(
