@@ -106,7 +106,8 @@ struct CloudFolderTreeRow: View {
   private var isOnChainToCurrent: Bool {
     guard let current = cloudCurrentPath else { return false }
     if current == absPath { return false }  // self, not ancestor
-    return current.hasPrefix(absPath + "/")
+    let prefix = absPath.hasSuffix("/") ? absPath : absPath + "/"
+    return current.hasPrefix(prefix)
   }
 
   private var dirs: [FsDirEntry] {
@@ -156,11 +157,21 @@ struct CloudFolderTreeRow: View {
             }
           }
         ),
+        expandOnPress: true,
         depth: depth,
         loading: isLoading,
         active: isSelected,
-        pressed: { onPickPath(serverURL, libraryFolderID, absPath) }
+        pressed: {
+          if hasChildren && !isExpanded {
+            withAnimation(.easeInOut(duration: 0.12)) {
+              setExpanded(true)
+            }
+          }
+          onPickPath(serverURL, libraryFolderID, absPath)
+        }
       )
+      .id(absPath)
+      .preference(key: SelectedFolderRowPreferenceKey.self, value: isSelected ? absPath : nil)
       // Overlay, not background: MuiTreeRow paints its own opaque active
       // background, which would hide a background-layer drop highlight when
       // the drop target is also the selected row.
