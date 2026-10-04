@@ -72,7 +72,12 @@ export async function searchWithReadingDiversity(
   };
   // None of these requests can consume the permuted head. Preserve the
   // original wire request and avoid gathering unused match metadata.
-  if (offset >= HEAD_SIZE || limit === 0 || (request.q as string).trim().length === 0) {
+  if (
+    offset >= HEAD_SIZE ||
+    limit === 0 ||
+    typeof request.q !== 'string' ||
+    request.q.trim().length === 0
+  ) {
     return search(offset, limit, false);
   }
   // The same permutation is recomputed for every page. Never insert a new ID
@@ -82,7 +87,10 @@ export async function searchWithReadingDiversity(
   const prefix = reordered.slice(offset, Math.min(offset + limit, HEAD_SIZE));
   const tailStart = Math.max(offset, HEAD_SIZE);
   const tailSize = Math.max(0, offset + limit - tailStart);
-  const tail = tailSize > 0 ? await search(tailStart, tailSize, false) : null;
+  const tail =
+    tailSize > 0 && head.hits.length === HEAD_SIZE
+      ? await search(tailStart, tailSize, false)
+      : null;
   return {
     hits: [...prefix, ...(tail?.hits ?? [])],
     estimatedTotalHits: head.estimatedTotalHits,
