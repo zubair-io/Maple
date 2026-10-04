@@ -243,6 +243,8 @@ Wrapper contract tests run without native tools: `python3 src/windows/scripts/te
 
 For Info focus qualification (#4190), run the built executable with `--lifecycle-smoke <owned-RAW-copy> <fresh-output-directory> gpu --inspector-focus-checkpoints`. Each `inspector-focus-*.ready` file requests one real keyboard or pointer input; capture the native window and accessibility state after that input, then write its `.continue` acknowledgment. A caption-click checkpoint establishes foreground activation before the harness assigns initial keyboard focus. The harness then checks actual native focus, Preview/Info state, document identity, undo depth and RAW hash across fifteen transitions, including Enter/Space activation after pointer transitions and the Browse Info / Rating entry point. `inspector-focus-result.json` covers these transitions; inspect terminal `lifecycle.json` separately for the full lifecycle result. This does not establish Narrator speech, cloud enrichment or other DPI qualification.
 
+Shell visual checkpoints stage an adjacent XMP snapshot before scanning their disposable library. Each checkpoint and the final lifecycle report identify `shellVisualMetadataFixture` as `sidecar-backed` or `sidecar-free`, with `shellVisualSourceSidecarHash`; the library manifest also records every staged hash. A sidecar-free pass qualifies baseline layout only. Inspector metadata qualification requires a sidecar-backed run and captured evidence of the required fields; sidecar presence alone does not prove field coverage. Runs without shell visual checkpoints report null for these fields.
+
 ```powershell
 # Qualification run (Windows, after building the app and maple-cli)
 pwsh src/windows/scripts/qualify-winui.ps1 -Raw C:\path\to\photo.dng

@@ -223,6 +223,8 @@ namespace Maple.WinUI
                 File.WriteAllText(reportPath, JsonSerializer.Serialize(new
                 {
                     passed = true,
+                    shellVisualMetadataFixture = ShellVisualMetadataFixture,
+                    shellVisualSourceSidecarHash = _shellVisualSourceSidecarHash,
                     exportRecipeEditorRoundTrip = true,
                     hwnd = hwnd.ToInt64(),
                     renderPath = actualPath,
