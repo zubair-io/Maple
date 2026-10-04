@@ -71,6 +71,24 @@
 
       <maple-managed-https />
 
+      <section>
+        <div class="set-subhead">Public domain</div>
+        <label class="flabel" for="network-public-origin">Browser-facing server URL</label>
+        <mui-input
+          inputId="network-public-origin"
+          ariaLabel="Browser-facing server URL"
+          [(value)]="fPublicOrigin"
+          placeholder="https://photos.example.com"
+          autocomplete="url"
+          (committed)="save()"
+        />
+        <p class="set-fhint mt-2">
+          Used for backup authorization callbacks. Include the external port when your reverse proxy
+          uses one. Use HTTPS; HTTP is allowed only for browser-local loopback access. Leave blank
+          to use the enabled managed HTTPS domain and port.
+        </p>
+      </section>
+
       <!-- Editable override ---------------------------------------------------- -->
       <section>
         <div class="set-subhead">Override</div>

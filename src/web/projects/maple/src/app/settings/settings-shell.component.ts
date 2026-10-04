@@ -19,6 +19,7 @@ export type SettingsSection =
   | 'users'
   | 'observability'
   | 'network'
+  | 'backup'
   | 'pano'
   | 'map'
   | 'cloudflare';
@@ -67,6 +68,14 @@ const ITEMS: readonly NavItem[] = [
     sub: 'Copy a folder into a library',
   },
   { id: 'people', label: 'People', icon: 'people', link: '/settings/people', ownerOnly: true },
+  {
+    id: 'backup',
+    label: 'Backup',
+    icon: 'copy',
+    link: '/settings/backup',
+    ownerOnly: true,
+    sub: 'Folder + Google Drive destinations',
+  },
   {
     id: 'observability',
     label: 'Observability',

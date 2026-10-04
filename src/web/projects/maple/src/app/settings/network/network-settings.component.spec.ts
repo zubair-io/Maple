@@ -151,6 +151,7 @@ describe('NetworkSettingsComponent', () => {
       enabled: true,
       local_ip_override: '10.0.0.9',
       local_port_override: 8080,
+      public_origin: null,
     });
     req.flush(OVERRIDDEN);
     await Promise.resolve();
@@ -175,6 +176,7 @@ describe('NetworkSettingsComponent', () => {
       enabled: true,
       local_ip_override: null,
       local_port_override: null,
+      public_origin: null,
     });
     req.flush(AUTO_DETECTED);
     await Promise.resolve();
@@ -206,6 +208,21 @@ describe('NetworkSettingsComponent', () => {
     fixture.detectChanges();
 
     expect(el().textContent).toContain('nope');
+  });
+
+  it('loads and saves the browser-facing callback origin through central Network config', async () => {
+    await loadWith({ ...AUTO_DETECTED, public_origin: 'https://photos.example.com' });
+    const field = el().querySelector<HTMLInputElement>('#network-public-origin');
+    if (!field) throw new Error('missing public origin input');
+    expect(field.value).toBe('https://photos.example.com');
+    field.value = ' https://maple.example.com ';
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    clickSave();
+    const req = http.expectOne('/api/network/config');
+    expect(req.request.body.public_origin).toBe('https://maple.example.com');
+    req.flush({ ...AUTO_DETECTED, public_origin: 'https://maple.example.com' });
+    await Promise.resolve();
   });
 
   // ── APNs push-to-signal (#1025) — independent load/save ─────────────────
