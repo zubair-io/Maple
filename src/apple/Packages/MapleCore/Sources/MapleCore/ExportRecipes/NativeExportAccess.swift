@@ -102,6 +102,9 @@ final class NativeExportAccess: @unchecked Sendable {
       ? try NativeExportStorage.identity(output) : nil
     for source in originals {
       guard outputIdentity != source.identity else { throw ExportError.originalDestination }
+      if let authorized = source.authorizedIdentity {
+        guard outputIdentity != authorized else { throw ExportError.originalDestination }
+      }
       guard let current = sources[source.id] else {
         throw NativeExportError.message(
           "Original identity is unavailable. Start a new export from the full selection.")
