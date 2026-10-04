@@ -10,6 +10,29 @@ namespace Maple.WinUI.Tests;
 public unsafe class ProfileArtifactNativeTests
 {
     [NativeComposeFact]
+    public void ResidualOnlyCompositionPreservesWhiteAcrossNativeBinding()
+    {
+        RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
+        var residual = new float[24];
+        for (var b = 0; b < 2; b++)
+            for (var g = 0; g < 2; g++)
+                for (var r = 0; r < 2; r++)
+                {
+                    var offset = ((b * 2 + g) * 2 + r) * 3;
+                    residual[offset] = r;
+                    residual[offset + 1] = g;
+                    residual[offset + 2] = b;
+                }
+        var output = Enumerable.Repeat(-7f, 24).ToArray();
+        fixed (float* input = residual)
+        fixed (float* destination = output)
+            Assert.Equal(0, RawFfi.maple_compose_auto_profile_lut(null, 0, input,
+                (nuint)residual.Length, 2, 2, destination, (nuint)output.Length));
+        Assert.Equal(residual, output);
+        Assert.Equal(new[] { 1f, 1f, 1f }, output[^3..]);
+    }
+
+    [NativeComposeFact]
     public void ComposeOptionalAndInvalidTailsPreserveDestination()
     {
         RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
