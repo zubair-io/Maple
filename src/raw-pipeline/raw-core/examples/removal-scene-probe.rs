@@ -46,6 +46,9 @@ enum Command {
         /// #3941: retain an earlier source-bound context to isolate mask edits.
         #[arg(long)]
         reference_context: Option<PathBuf>,
+        /// #3941: isolate reversible photographic contrast on the same native pixels.
+        #[arg(long)]
+        photographic_contrast: bool,
     },
     /// Validate and bake one joint native 2048 result; never writes XMP.
     LargeBake {
@@ -452,6 +455,7 @@ fn main() -> ProbeResult<()> {
             protected,
             output,
             reference_context,
+            photographic_contrast,
         } => large::encode(
             &raw,
             &inputs,
@@ -459,6 +463,7 @@ fn main() -> ProbeResult<()> {
             &protected,
             &output,
             reference_context.as_deref(),
+            photographic_contrast,
         ),
         Command::LargeBake {
             raw,

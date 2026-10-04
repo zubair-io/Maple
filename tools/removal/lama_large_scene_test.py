@@ -106,7 +106,12 @@ class ActualLargeContextTests(unittest.TestCase):
         self.refused_bake("source, geometry or plate differs")
 
     def test_native_bake_rejects_changed_encoding_before_publication(self):
-        self.edit("context.json", lambda v: v["encoding"].update(span=7))
+        self.edit(
+            "context.json",
+            lambda v: v["encoding"].update(
+                {"span": 7} if "span" in v["encoding"] else {"high": 7}
+            ),
+        )
         self.refused_bake(
             "model input differs from recorded source and encoding recipe"
         )
@@ -142,6 +147,15 @@ class ActualLargeContextTests(unittest.TestCase):
     def test_reference_context_changed_scene_refuses_before_publication(self):
         self.edit(
             "context.json", lambda value: value.update(scene="blake3:" + "0" * 64)
+        )
+        self.refused_reference_encode("reference context pixels or model input recipe")
+
+    def test_reference_context_changed_encoding_refuses_before_publication(self):
+        self.edit(
+            "context.json",
+            lambda v: v["encoding"].update(
+                {"span": 7} if "span" in v["encoding"] else {"high": 7}
+            ),
         )
         self.refused_reference_encode("reference context pixels or model input recipe")
 
