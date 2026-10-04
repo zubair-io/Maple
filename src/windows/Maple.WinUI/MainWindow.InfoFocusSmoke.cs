@@ -70,12 +70,13 @@ public sealed partial class MainWindow
         {
             var path = Path.Combine(output, "inspector-focus-" + name);
             if (File.Exists(path + ".continue")) throw new InvalidOperationException("Fresh Info checkpoints required.");
-            await File.WriteAllTextAsync(path + ".ready", JsonSerializer.Serialize(new
+            await File.WriteAllTextAsync(path + ".ready.tmp", JsonSerializer.Serialize(new
             {
                 name, input, mode = _mode.ToString(), infoOpen = _infoPaneOpen,
                 focus = FocusManager.GetFocusedElement(Content.XamlRoot) is DependencyObject focused
                     ? AutomationProperties.GetName(focused) : null
             }));
+            File.Move(path + ".ready.tmp", path + ".ready", overwrite: true);
             var deadline = Environment.TickCount64 + 180000;
             while (!File.Exists(path + ".continue"))
             {
