@@ -13,7 +13,8 @@ public sealed partial class MainWindow
     // strict native-patch assertion for supported fixtures.
     private async Task VerifySourceSizeFallbackAsync(string raw, string output)
     {
-        var photo = new PhotoItem { FilePath = raw, FileName = Path.GetFileName(raw), Format = "DNG" };
+        var photo = new PhotoItem { FilePath = raw, FileName = Path.GetFileName(raw),
+            Format = Path.GetExtension(raw).TrimStart('.').ToUpperInvariant() };
         ViewModel.AllPhotos.Add(photo);
         ViewModel.ApplyFilters();
         ViewModel.SelectedPhoto = photo;
@@ -40,7 +41,7 @@ public sealed partial class MainWindow
         if (_sourceGeometryError == null || ZoomReadout.Text != _sourceGeometryError
             || _nativeGeometry != null || NativeDetailOverlay.Visibility == Visibility.Visible)
             throw new InvalidOperationException("Actual Size/refresh claimed native detail for an unsupported source.");
-        ClearNativeDetailSource();
+        ViewModel.SelectedPhoto = null;
         if (_sourceGeometryError != null || ZoomReadout.Text != "Fit")
             throw new InvalidOperationException("Source change retained the previous source failure.");
     }
