@@ -60,14 +60,18 @@ public sealed partial class MainWindow
         else if (NativeDetailOverlay.Visibility != Visibility.Visible
             || NativeDetailOverlay.Source is not WriteableBitmap || !ZoomReadout.Text.EndsWith("native detail"))
             throw new InvalidOperationException($"Supported source did not present native detail: {ZoomReadout.Text}");
+        if (!tileFallback && (!double.IsFinite(NativeDetailOverlay.ActualWidth)
+            || !double.IsFinite(NativeDetailOverlay.ActualHeight)
+            || NativeDetailOverlay.ActualWidth <= 0 || NativeDetailOverlay.ActualHeight <= 0))
+            throw new InvalidOperationException("Visible native overlay has no finite rendered dimensions.");
         var before = Services.Xmp.XmpWriter.Serialize(new Services.Xmp.XmpSidecarDocument { Adjustments = document });
         var after = Services.Xmp.XmpWriter.Serialize(new Services.Xmp.XmpSidecarDocument { Adjustments = ViewModel.Adjustments });
         if (before != after) throw new InvalidOperationException("Actual Size changed the adjustment document.");
         await File.WriteAllTextAsync(Path.Combine(output, "native-detail-result.json"), JsonSerializer.Serialize(new
             { passed = true, tileFallback, physicalScale, scale = DisplayScale, status = ZoomReadout.Text,
                 sourceWidth = geometry.CropWidth, sourceHeight = geometry.CropHeight,
-                overlayWidth = tileFallback ? (double?)null : NativeDetailOverlay.Width,
-                overlayHeight = tileFallback ? (double?)null : NativeDetailOverlay.Height,
+                overlayWidth = tileFallback ? (double?)null : NativeDetailOverlay.ActualWidth,
+                overlayHeight = tileFallback ? (double?)null : NativeDetailOverlay.ActualHeight,
                 documentUnchanged = true }));
     }
 }
