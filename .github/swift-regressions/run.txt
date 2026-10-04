@@ -358,6 +358,7 @@ BrowseCancellationOwnershipTests
 # AI removal (#1472 / #3955): real committed RAW/XMP/companions and native FFI.
 LocalRelocationJournalTests
 LocalRemovalAssetStoreTests
+LocalRemovalDirectoryPublicationTests
 LocalRemovalRelocateTests
 NativeDetailRemovalTests
 NativeSavedRemovalSessionTests

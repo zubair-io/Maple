@@ -19,11 +19,11 @@ public actor LocalRemovalAssetStore {
       request: request, prior: prior, mask: mask, patch: patch)
     try RemovalBridge.verifySource(records: records, rawURL: rawURL)
     let names = try RemovalBridge.assetNames(records: records)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let publicationDirectories = try createDirectory()
     try publish(mask, names: names)
     try Task.checkCancellation()
     try publish(patch, names: names)
-    try syncDirectory()
+    try syncDirectories(publicationDirectories)
     // A previously accepted edit with missing assets must not disappear from
     // the proposed stack. Publication may leave safe orphans if this fails.
     _ = try readAssets(records: records)
@@ -72,12 +72,12 @@ public actor LocalRemovalAssetStore {
       try RemovalBridge.verifyAsset(name: name, data: assets[name]!)
     }
     guard !names.isEmpty else { return }
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let publicationDirectories = try createDirectory()
     for name in names {
       try Task.checkCancellation()
       try publish(assets[name]!, names: [name])
     }
-    try syncDirectory()
+    try syncDirectories(publicationDirectories)
     _ = try readAssets(records: records)
   }
 
@@ -109,10 +109,31 @@ public actor LocalRemovalAssetStore {
     }
   }
 
-  private func syncDirectory() throws {
-    let descriptor = open(directory.path, O_RDONLY | O_DIRECTORY)
-    guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-    defer { close(descriptor) }
-    guard fsync(descriptor) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+  private func createDirectory() throws -> [URL] {
+    // A synced child is not durable until the directory entry naming it is
+    // also synced. Transfers may create several destination ancestors (#3940).
+    var missing: [URL] = []
+    var ancestor = directory
+    while !FileManager.default.fileExists(atPath: ancestor.path) {
+      missing.append(ancestor)
+      ancestor = ancestor.deletingLastPathComponent()
+    }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let parents = missing.map { $0.deletingLastPathComponent() }
+    let carrier = [
+      directory, directory.deletingLastPathComponent(), rawURL.deletingLastPathComponent(),
+    ]
+    return Set(carrier + parents).sorted { $0.pathComponents.count > $1.pathComponents.count }
+  }
+
+  private func syncDirectories(_ directories: [URL]) throws {
+    for directory in directories {
+      let descriptor = open(directory.path, O_RDONLY | O_DIRECTORY)
+      guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+      defer { close(descriptor) }
+      guard fsync(descriptor) == 0 else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+      }
+    }
   }
 }
