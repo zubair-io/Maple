@@ -38,7 +38,7 @@ let active: {
   host: HTMLElement;
   name: string;
 } | null = null;
-async function dispose() {
+function resetHarness() {
   release?.();
   release = null;
   pending = false;
@@ -46,6 +46,9 @@ async function dispose() {
   dispatched = undefined;
   edits = [];
   gateIntent = null;
+}
+async function dispose() {
+  resetHarness();
   if (!active) return;
   const library = active.app.injector.get(LibraryStateService);
   const id = library.focusedAssetId();
@@ -53,6 +56,20 @@ async function dispose() {
   active.app.destroy();
   active.host.remove();
   active = null;
+}
+async function stagePhysicalFolder(app: ApplicationRef, files: string[], name?: string) {
+  const root = await navigator.storage.getDirectory();
+  const folderName = name ?? 'maple-cold-profile-' + crypto.randomUUID();
+  const native = await root.getDirectoryHandle(folderName, { create: true });
+  const folder = { native, name: folderName, read: true, write: true };
+  const access = app.injector.get(FolderAccessService);
+  if (!name)
+    for (const filename of files) {
+      const response = await fetch('/physical-raw/' + filename);
+      if (!response.ok) throw Error('Missing physical fixture: ' + filename);
+      await access.writeFile(folder, filename, new Uint8Array(await response.arrayBuffer()));
+    }
+  return folder;
 }
 Object.assign(window, {
   coldProfileUI: {
@@ -109,17 +126,8 @@ Object.assign(window, {
             return result;
           };
         }
-        const root = await navigator.storage.getDirectory();
-        const folderName = name ?? 'maple-cold-profile-' + crypto.randomUUID();
-        const native = await root.getDirectoryHandle(folderName, { create: true });
-        const folder = { native, name: folderName, read: true, write: true };
-        const access = app.injector.get(FolderAccessService);
-        if (!name)
-          for (const filename of files) {
-            const response = await fetch('/physical-raw/' + filename);
-            if (!response.ok) throw Error('Missing physical fixture: ' + filename);
-            await access.writeFile(folder, filename, new Uint8Array(await response.arrayBuffer()));
-          }
+        const folder = await stagePhysicalFolder(app, files, name);
+        const folderName = folder.name;
         const library = app.injector.get(LibraryStateService);
         await library.openFolder(folder);
         const first = library.assets().find((a) => a.filename === files[0]);
@@ -145,13 +153,7 @@ Object.assign(window, {
         active = { app, component, host, name: folderName };
         return folderName;
       } catch (error) {
-        release?.();
-        release = null;
-        pending = false;
-        completed = false;
-        dispatched = undefined;
-        edits = [];
-        gateIntent = null;
+        resetHarness();
         app.destroy();
         host.remove();
         throw error;
