@@ -65,11 +65,11 @@ public sealed partial class MainWindow
         var before = Services.Xmp.SidecarStore.SnapshotHash(Services.Xmp.SidecarStore.ReadSnapshot(photo.FilePath));
         var model = ViewModel.Adjustments;
         var depth = ViewModel.UndoCount;
+        CancelInspectorHydration();
         // Deny the production hydration read without changing the sidecar.
         MuiButton retry;
-        using (var locked = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        using (var locked = await LockSidecarAsync())
         {
-            CancelInspectorHydration();
             HydrateInspector();
             await WaitAsync(() => ExtraInfoRows.Children.OfType<MuiButton>().Any());
             Content.UpdateLayout();
@@ -90,6 +90,21 @@ public sealed partial class MainWindow
         if (!ReferenceEquals(photo, ViewModel.SelectedPhoto) || !ReferenceEquals(model, ViewModel.Adjustments) ||
             depth != ViewModel.UndoCount || before != Services.Xmp.SidecarStore.SnapshotHash(Services.Xmp.SidecarStore.ReadSnapshot(photo.FilePath)))
             throw new InvalidOperationException("Metadata Retry changed the photo, history or sidecar.");
+
+        async Task<FileStream> LockSidecarAsync()
+        {
+            var deadline = Environment.TickCount64 + 10000;
+            while (true)
+            {
+                try { return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None); }
+                catch (IOException error) when ((error.HResult & 0xffff) is 32 or 33)
+                {
+                    if (Environment.TickCount64 >= deadline)
+                        throw new TimeoutException("Prior metadata read did not release the sidecar for Retry qualification.", error);
+                    await Task.Delay(25);
+                }
+            }
+        }
 
         static async Task WaitAsync(Func<bool> predicate)
         {
