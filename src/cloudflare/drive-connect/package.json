@@ -1,0 +1,22 @@
+{
+	"name": "maple-drive-connect",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Callback-only Google OAuth relay (#4230)",
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"test": "vitest run",
+		"typecheck": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
+		"cf-typegen": "wrangler types",
+		"smoke": "node scripts/smoke.mjs"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-plugin": "^1.3.6",
+		"@types/node": "^26.1.0",
+		"typescript": "^5.5.2",
+		"vitest": "~4.1.11",
+		"wrangler": "^4.107.0"
+	}
+}

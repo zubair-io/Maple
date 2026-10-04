@@ -1,0 +1,33 @@
+name: Deploy Drive callback relay
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: deploy-drive-connect
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: src/cloudflare/drive-connect
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Validate deployment credentials
+        run: node -e 'if (!process.env.CLOUDFLARE_API_TOKEN || !process.env.CLOUDFLARE_ACCOUNT_ID) throw new Error("Cloudflare deployment credentials required")'
+      - name: Ensure production signing key is already provisioned
+        run: |
+          npx wrangler secret list > "$RUNNER_TEMP/drive-relay-secrets.json"
+          node -e 'const fs=require("node:fs");const keys=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/drive-relay-secrets.json","utf8"));if(!keys.some(k=>k.name==="RELAY_SIGNING_KEY")) throw new Error("Provision production RELAY_SIGNING_KEY before deployment")'
+      - run: npx wrangler deploy --dry-run
+      - run: npm run deploy

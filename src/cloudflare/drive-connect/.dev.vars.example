@@ -1,0 +1,2 @@
+# Local development only. Set production with wrangler secret put.
+RELAY_SIGNING_KEY="local-development-only-change-for-each-operator-32-bytes"
