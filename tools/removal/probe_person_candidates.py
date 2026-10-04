@@ -17,7 +17,7 @@ from probe_mobile_sam import session
 from probe_person_mask_overlap import common_pixels, content_digest, read_mask
 
 
-def run(report_path, raw, artifacts, shared_probe, output):
+def run(report_path, raw, artifacts, shared_probe, output, instance_report=None):
     report_bytes = report_path.read_bytes()
     native = json.loads(report_bytes)
     original = raw.read_bytes()
@@ -50,12 +50,33 @@ def run(report_path, raw, artifacts, shared_probe, output):
     records = {row["id"]: row for row in native["detectedMasks"]}
     if set(records) != {row["id"] for row in native["detected"]}:
         raise ValueError("Retained instance IDs differ from production detections")
+    if instance_report is not None:
+        proposals = json.loads(instance_report.read_text())
+        if (
+            proposals["nativeReportSHA256"] != sha256(report_path)
+            or proposals["selectionInput"] != selection
+            or proposals["rawSHA256"] != sha256(raw)
+        ):
+            raise ValueError(
+                "Joint instance proposals refer to different production inputs"
+            )
+        native["detected"] = [
+            {"id": row["id"], "bounds": row["sourceXYXY"], "score": row["score"]}
+            for row in proposals["cases"]
+        ]
+        # These are new actual boxes, not a replay of retained SAM proposals.
+        # Do not compare their output to unrelated production instance IDs.
+        records = {}
     content_w, content_h = selection["contentSize"]
     masks_by_policy = {"production": {}, "whole_object_token": {}}
     cases = []
     for person in native["detected"]:
         identifier = person["id"]
-        retained = read_mask(report_path.parent, records[identifier], size)
+        retained = (
+            read_mask(report_path.parent, records[identifier], size)
+            if records
+            else None
+        )
         x, y, right, bottom = person["bounds"]
         if not (0 <= x < right <= size[0] and 0 <= y < bottom <= size[1]):
             raise ValueError("Invalid retained XYXY detector box")
@@ -142,7 +163,9 @@ def run(report_path, raw, artifacts, shared_probe, output):
             return data, mask
 
         data, production = replay(scores[0].tolist(), "production")
-        matches = content_digest(data) == records[identifier]["digest"]
+        matches = (
+            content_digest(data) == records[identifier]["digest"] if records else None
+        )
         candidates = []
         for token in range(4):
             binary = logits[0, token, :content_h, :content_w] > 0
@@ -163,7 +186,9 @@ def run(report_path, raw, artifacts, shared_probe, output):
                     "proxyPixels": pixels,
                     "nativePixels": int(mask[1].sum()),
                     "maskDigest": content_digest(candidate_bytes),
-                    "commonWithRetained": common_pixels(mask, retained),
+                    "commonWithRetained": common_pixels(mask, retained)
+                    if records
+                    else None,
                 }
             )
             if token == 0:
@@ -192,6 +217,7 @@ def run(report_path, raw, artifacts, shared_probe, output):
         ]
     result = {
         "nativeReportSHA256": sha256(report_path),
+        "instanceReportSHA256": sha256(instance_report) if instance_report else None,
         "rawSHA256": sha256(raw),
         "sharedProbeSHA256": sha256(shared_probe),
         "selectionInput": selection,
@@ -203,12 +229,12 @@ def run(report_path, raw, artifacts, shared_probe, output):
         "cases": cases,
         "overlapPairs": pairs,
         "releaseQualified": False,
-        "scope": "Exact retained production tensor, actual box prompts and all four SAM tokens through the shared native boundary. Token 0 comparison is diagnostic; no ownership, complete-silhouette or photographic fill qualification.",
+        "scope": "Exact retained production tensor, actual box prompts and all four SAM tokens through the shared native boundary. Optional joint-instance boxes are bound to that same source and have no expected production SAM asset. Token comparisons are diagnostic; no ownership, complete-silhouette or photographic fill qualification.",
     }
     (output / "report.json").write_text(json.dumps(result, indent=2) + "\n")
     if raw.read_bytes() != original:
         raise ValueError("Original RAW changed")
-    if not all(case["productionReplayedExactly"] for case in cases):
+    if any(case["productionReplayedExactly"] is False for case in cases):
         raise ValueError(
             "Runtime replay differs; do not attribute changes to token choice alone"
         )
@@ -218,4 +244,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ["report_path", "raw", "artifacts", "shared_probe", "output"]:
         parser.add_argument(name, type=Path)
+    parser.add_argument("--instance-report", type=Path)
     run(**vars(parser.parse_args()))
