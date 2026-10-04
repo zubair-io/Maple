@@ -205,32 +205,51 @@ struct LibrarySidebar: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      ScrollView {
-        // Source sections with nothing connected are omitted
-        // entirely, separators included (#2925) — Settings →
-        // Sources is where they're registered and recovered.
-        // Photos is the deliberate exception; see
-        // `LibrarySidebarVM.showsPhotosSection`.
-        VStack(alignment: .leading, spacing: 0) {
-          timelineRow
-          mapRow
-          separator
-          cloudServersSection
-          if hasVisibleCloudServers { separator }
-          if shouldRenderFoldersSection {
-            foldersSection
+      ScrollViewReader { proxy in
+        ScrollView {
+          // Source sections with nothing connected are omitted
+          // entirely, separators included (#2925) — Settings →
+          // Sources is where they're registered and recovered.
+          // Photos is the deliberate exception; see
+          // `LibrarySidebarVM.showsPhotosSection`.
+          VStack(alignment: .leading, spacing: 0) {
+            timelineRow
+            mapRow
             separator
+            cloudServersSection
+            if hasVisibleCloudServers { separator }
+            if shouldRenderFoldersSection {
+              foldersSection
+              separator
+            }
+            photosSection
+            if shouldRenderConnectionsSection {
+              separator
+              connectionsSection
+            }
           }
-          photosSection
-          if shouldRenderConnectionsSection {
-            separator
-            connectionsSection
-          }
+          .padding(.vertical, 4)
+          .coordinateSpace(name: "sidebarFolderScroll")
         }
-        .padding(.vertical, 4)
+        .onPreferenceChange(SidebarFolderRevealPreference.self) { row in
+          #if os(macOS)
+            if let row {
+              Task { @MainActor in
+                await Task.yield()
+                proxy.scrollTo(row.id)
+              }
+            }
+          #endif
+        }
       }
     }
     .background(MapleTokens.sidebar)
+    .onChange(of: selection, initial: true) { _, _ in
+      #if os(macOS)
+        if case .folder = selection { showFolders = true }
+        if case .smbShare = selection { showConnections = true }
+      #endif
+    }
     .task {
       await refreshAll()
       subscribeToPhotoLibraryChangesIfAuthorized()
@@ -447,6 +466,7 @@ struct LibrarySidebar: View {
           icon: "network",
           label: "Network (SMB)",
           hasChildren: !savedShares.isEmpty,
+          selection: selection,
           onAdd: onAddSMB
         ) {
           ForEach(savedShares, id: \.self) { share in
@@ -980,6 +1000,7 @@ private struct DisclosureRow<Content: View>: View {
   let icon: String
   let label: String
   let hasChildren: Bool
+  let selection: LibrarySelection
   /// When nil, the trailing "+" button is suppressed — used for read-only
   /// groups (e.g. Self Hosted, which gains new servers only via Settings).
   let onAdd: (() -> Void)?
@@ -1033,6 +1054,11 @@ private struct DisclosureRow<Content: View>: View {
       if expanded {
         content()
       }
+    }
+    .onChange(of: selection, initial: true) { _, selection in
+      #if os(macOS)
+        if case .smbShare = selection { expanded = true }
+      #endif
     }
   }
 }

@@ -25,9 +25,9 @@
 // `SMBShareRow`); depth > 0 renders a subfolder discovered by
 // `SMBFileOperations.listSubdirectories`.
 
-import SwiftUI
 import MapleCore
 import MapleUI
+import SwiftUI
 
 struct SMBFolderTreeRow: View {
   let share: SMBCredentialStore.SavedShare
@@ -76,7 +76,8 @@ struct SMBFolderTreeRow: View {
   /// Drag-onto-source-tree, share ROOT only (depth == 0) — SMB has no
   /// per-subfolder drop target yet (`AssetDropDestination.smb` carries only
   /// a `SavedShare`, no path); see `AssetDropTypes.swift`.
-  var onDropAssets: (SMBCredentialStore.SavedShare, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _ in }
+  var onDropAssets: (SMBCredentialStore.SavedShare, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _ in
+  }
   var onDropURLs: ([URL]) -> Bool = { _ in false }
   var selectedAssetCount: Int = 0
 
@@ -104,10 +105,12 @@ struct SMBFolderTreeRow: View {
   }
 
   private var newFolderDraftIsValid: Bool {
-    FilenameValidation.isValidPathComponent(newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+    FilenameValidation.isValidPathComponent(
+      newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines))
   }
   private var renameDraftIsValid: Bool {
-    FilenameValidation.isValidPathComponent(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+    FilenameValidation.isValidPathComponent(
+      renameDraft.trimmingCharacters(in: .whitespacesAndNewlines))
   }
 
   var body: some View {
@@ -130,7 +133,16 @@ struct SMBFolderTreeRow: View {
         depth: depth,
         loading: isLoading,
         active: isSelected,
-        pressed: { onPick(share) }
+        pressed: {
+          #if os(macOS)
+            setExpanded(true)
+          #endif
+          onPick(share)
+        }
+      )
+      .sidebarFolderReveal(
+        id: "smb:\(share.host):\(share.share):\(share.username):\(path)",
+        selected: depth == 0 && isSelected
       )
       .overlay(
         RoundedRectangle(cornerRadius: 6)
@@ -138,11 +150,14 @@ struct SMBFolderTreeRow: View {
           .allowsHitTesting(false)
       )
       .applyingIf(depth == 0) { view in
-        view.dropDestination(for: DraggedAssetPayload.self, action: { payloads, _ in
-          guard let payload = payloads.first, !payload.ids.isEmpty else { return false }
-          onDropAssets(share, Set(payload.ids), MapleDragModifier.isCopyRequested())
-          return true
-        }, isTargeted: { targeted in isDropTargeted = targeted })
+        view.dropDestination(
+          for: DraggedAssetPayload.self,
+          action: { payloads, _ in
+            guard let payload = payloads.first, !payload.ids.isEmpty else { return false }
+            onDropAssets(share, Set(payload.ids), MapleDragModifier.isCopyRequested())
+            return true
+          }, isTargeted: { targeted in isDropTargeted = targeted }
+        )
         .urlDropDestination(perform: onDropURLs)
       }
       .contextMenu {
@@ -221,9 +236,10 @@ struct SMBFolderTreeRow: View {
         .disabled(!newFolderDraftIsValid)
         Button("Cancel", role: .cancel) {}
       } message: {
-        Text(newFolderDraftIsValid
-          ? "Creates a new folder inside \(depth == 0 ? "\(share.host) / \(share.share)" : displayName)."
-          : FilenameValidation.invalidNameMessage)
+        Text(
+          newFolderDraftIsValid
+            ? "Creates a new folder inside \(depth == 0 ? "\(share.host) / \(share.share)" : displayName)."
+            : FilenameValidation.invalidNameMessage)
       }
       .alert("Rename Folder", isPresented: $showRenameAlert) {
         TextField("Name", text: $renameDraft)
@@ -237,13 +253,22 @@ struct SMBFolderTreeRow: View {
       } message: {
         Text(renameDraftIsValid ? " " : FilenameValidation.invalidNameMessage)
       }
-      .confirmationDialog("Move to Trash", isPresented: $showTrashConfirm, titleVisibility: .visible) {
+      .confirmationDialog(
+        "Move to Trash", isPresented: $showTrashConfirm, titleVisibility: .visible
+      ) {
         Button("Move to Trash", role: .destructive) {
           onTrashFolder?(share, path)
         }
         Button("Cancel", role: .cancel) {}
       } message: {
-        Text("\"\(displayName)\" and everything inside it will move to this share's Trash. Recursive — every asset underneath goes too.")
+        Text(
+          "\"\(displayName)\" and everything inside it will move to this share's Trash. Recursive — every asset underneath goes too."
+        )
+      }
+      .onChange(of: isSelected, initial: true) { _, selected in
+        #if os(macOS)
+          if depth == 0 && selected { setExpanded(true) }
+        #endif
       }
       .onChange(of: refreshGeneration) { _, _ in
         if isExpanded { refresh() }
@@ -256,8 +281,11 @@ struct SMBFolderTreeRow: View {
           Text("Couldn't load")
             .font(MapleTokens.Typography.body)
             .foregroundStyle(.red)
-            .padding(.leading, MapleTokens.Spacing.rowHorizontal
-              + CGFloat(depth + 1) * MapleTokens.Spacing.treeIndent)
+            .padding(
+              .leading,
+              MapleTokens.Spacing.rowHorizontal
+                + CGFloat(depth + 1) * MapleTokens.Spacing.treeIndent
+            )
             .padding(.vertical, 4)
         } else {
           ForEach(children, id: \.path) { child in
@@ -326,13 +354,15 @@ struct SMBFolderTreeRow: View {
 
 // MARK: - Conditional modifier helper
 
-private extension View {
+extension View {
   /// Applies `transform` only when `condition` is true — used above to
   /// attach the drop-destination modifiers to the share-root row only
   /// without duplicating the whole `contextMenu`/`alert` chain in two
   /// separate `if` branches.
   @ViewBuilder
-  func applyingIf<Transformed: View>(_ condition: Bool, _ transform: (Self) -> Transformed) -> some View {
+  fileprivate func applyingIf<Transformed: View>(
+    _ condition: Bool, _ transform: (Self) -> Transformed
+  ) -> some View {
     if condition {
       transform(self)
     } else {

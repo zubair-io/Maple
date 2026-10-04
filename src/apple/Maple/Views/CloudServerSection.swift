@@ -129,6 +129,18 @@ struct CloudServerSection: View {
         }
       }
     }
+    .onChange(of: cloudCurrentPath, initial: true) { _, path in
+      #if os(macOS)
+        if path != nil { isExpanded = true }
+      #endif
+    }
+    .onChange(of: selection) { _, selection in
+      #if os(macOS)
+        if case .cloudLibrary(let server, _) = selection, server == serverURL {
+          isExpanded = true
+        }
+      #endif
+    }
     .alert("Rename server", isPresented: $showRenameAlert) {
       TextField("Display name", text: $renameDraft)
       Button("Save") { onRename(renameDraft) }

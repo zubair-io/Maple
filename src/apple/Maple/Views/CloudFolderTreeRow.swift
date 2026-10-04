@@ -98,15 +98,21 @@ struct CloudFolderTreeRow: View {
 
   /// True when the grid is showing this exact row's path.
   private var isSelected: Bool {
-    cloudCurrentPath == absPath
+    selection == .cloudLibrary(serverID: serverURL, folderID: libraryFolderID)
+      && cloudCurrentPath == absPath
   }
 
   /// True when this row is an ancestor of the currently-browsed path
   /// (i.e. it should auto-expand to keep the chain visible).
   private var isOnChainToCurrent: Bool {
-    guard let current = cloudCurrentPath else { return false }
+    guard selection == .cloudLibrary(serverID: serverURL, folderID: libraryFolderID),
+      let current = cloudCurrentPath
+    else { return false }
+    #if os(macOS)
+      if current == absPath { return true }
+    #endif
     if current == absPath { return false }  // self, not ancestor
-    return current.hasPrefix(absPath + "/")
+    return current.hasPrefix(absPath == "/" ? "/" : absPath + "/")
   }
 
   private var dirs: [FsDirEntry] {
@@ -159,7 +165,16 @@ struct CloudFolderTreeRow: View {
         depth: depth,
         loading: isLoading,
         active: isSelected,
-        pressed: { onPickPath(serverURL, libraryFolderID, absPath) }
+        pressed: {
+          #if os(macOS)
+            setExpanded(true)
+          #endif
+          onPickPath(serverURL, libraryFolderID, absPath)
+        }
+      )
+      .sidebarFolderReveal(
+        id: "cloud:\(serverURL.absoluteString):\(libraryFolderID):\(absPath)",
+        selected: isSelected
       )
       // Overlay, not background: MuiTreeRow paints its own opaque active
       // background, which would hide a background-layer drop highlight when
@@ -310,6 +325,10 @@ struct CloudFolderTreeRow: View {
         // Clear the one-shot flag when the user navigates the grid to
         // a different path so we re-evaluate auto-expand against the
         // new chain on the next render.
+        didAutoExpand = false
+        autoExpandIfOnChain()
+      }
+      .onChange(of: selection) { _, _ in
         didAutoExpand = false
         autoExpandIfOnChain()
       }
