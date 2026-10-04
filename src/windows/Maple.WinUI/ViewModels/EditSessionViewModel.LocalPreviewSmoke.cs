@@ -73,6 +73,9 @@ public partial class EditSessionViewModel
             throw new InvalidOperationException("Stale selection published an edited preview");
 
         session.SelectedPhoto = null;
+        // The transfer journal canonicalizes paths. Both valid Windows separator
+        // spellings must identify the same visible unselected target (#4144).
+        photo.FilePath = Path.GetFullPath(fixture).Replace('\\', '/');
         session.AllPhotos.Add(photo);
         var snapshot = await TransferSnapshot.ReadAsync(fixture, null, CancellationToken.None);
         var incoming = baseline.Clone();
@@ -85,12 +88,23 @@ public partial class EditSessionViewModel
         await session.RefreshLocalTransferThumbnailsAsync(job);
         if (photo.ThumbnailPath == coldThumbnail || session.SelectedPhoto != null)
             throw new InvalidOperationException("Unselected transfer target did not refresh its thumbnail");
+        photo.FilePath = Path.GetFullPath(fixture);
         // A later external edit must not be mistaken for the journal's write.
         File.WriteAllText(sidecar, XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = baseline }));
         var transferredThumbnail = photo.ThumbnailPath;
         await session.RefreshLocalTransferThumbnailsAsync(job);
         if (photo.ThumbnailPath != transferredThumbnail)
             throw new InvalidOperationException("Stale transfer checkpoint refreshed an externally changed target");
+        snapshot = await TransferSnapshot.ReadAsync(fixture, null, CancellationToken.None);
+        incoming.Exposure = .5;
+        patch = AdjustmentTransfer.Build(new(incoming, snapshot.Document.WbScaleVersion, null), new[] { "tone" });
+        job = await LocalTransferJob.CreateAsync(Path.Combine(Path.GetDirectoryName(fixture)!, "canonical-thumbnail-transfer"),
+            new[] { new TransferJobInput(fixture, photo.FileName, snapshot.ExpectedHash!, patch) });
+        result = await job.RunAsync(false, CancellationToken.None);
+        if (result.Applied != 1) throw new InvalidOperationException("Canonical thumbnail transfer fixture failed");
+        await session.RefreshLocalTransferThumbnailsAsync(job);
+        if (photo.ThumbnailPath == transferredThumbnail || session.SelectedPhoto != null)
+            throw new InvalidOperationException("Canonical unselected transfer target did not refresh its thumbnail");
 
         static byte[] Digest(string uri) => SHA256.HashData(File.ReadAllBytes(new Uri(uri).LocalPath));
 
