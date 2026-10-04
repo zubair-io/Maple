@@ -205,29 +205,49 @@ struct LibrarySidebar: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      ScrollView {
-        // Source sections with nothing connected are omitted
-        // entirely, separators included (#2925) — Settings →
-        // Sources is where they're registered and recovered.
-        // Photos is the deliberate exception; see
-        // `LibrarySidebarVM.showsPhotosSection`.
-        VStack(alignment: .leading, spacing: 0) {
-          timelineRow
-          mapRow
-          separator
-          cloudServersSection
-          if hasVisibleCloudServers { separator }
-          if shouldRenderFoldersSection {
-            foldersSection
+      ScrollViewReader { proxy in
+        ScrollView {
+          // Source sections with nothing connected are omitted
+          // entirely, separators included (#2925) — Settings →
+          // Sources is where they're registered and recovered.
+          // Photos is the deliberate exception; see
+          // `LibrarySidebarVM.showsPhotosSection`.
+          VStack(alignment: .leading, spacing: 0) {
+            timelineRow
+            mapRow
             separator
+            cloudServersSection
+            if hasVisibleCloudServers { separator }
+            if shouldRenderFoldersSection {
+              foldersSection
+              separator
+            }
+            photosSection
+            if shouldRenderConnectionsSection {
+              separator
+              connectionsSection
+            }
           }
-          photosSection
-          if shouldRenderConnectionsSection {
-            separator
-            connectionsSection
+          .padding(.vertical, 4)
+        }
+        .onPreferenceChange(SelectedFolderRowPreferenceKey.self) { selectedPath in
+          guard let selectedPath else { return }
+          withAnimation(.easeInOut(duration: 0.15)) {
+            proxy.scrollTo(selectedPath)
           }
         }
-        .padding(.vertical, 4)
+        .onChange(of: selection) { _, newSelection in
+          handleSelectionChange(newSelection, proxy: proxy)
+        }
+        .onChange(of: cloudCurrentPath) { _, newPath in
+          guard let newPath else { return }
+          if case .cloudLibrary(let serverURL, _) = selection,
+            cloudServersExpanded[serverURL] == false
+          {
+            cloudServersExpanded[serverURL] = true
+          }
+          revealFolderRow(newPath, proxy: proxy)
+        }
       }
     }
     .background(MapleTokens.sidebar)
@@ -736,6 +756,51 @@ struct LibrarySidebar: View {
   private var selectedPathBinding: String? {
     if case .folder(let path) = selection { return path }
     return nil
+  }
+
+  private func handleSelectionChange(_ newSelection: LibrarySelection, proxy: ScrollViewProxy) {
+    switch newSelection {
+    case .folder(let path):
+      if !showFolders { showFolders = true }
+      revealFolderRow(path, proxy: proxy)
+    case .cloudLibrary(let serverURL, _):
+      if cloudServersExpanded[serverURL] == false {
+        cloudServersExpanded[serverURL] = true
+      }
+      if let path = pathFor(server: serverURL) {
+        revealFolderRow(path, proxy: proxy)
+      }
+    case .smbShare(let share):
+      if !showConnections { showConnections = true }
+      revealFolderRow("smb:\(share.host)/\(share.share)", proxy: proxy)
+    default:
+      break
+    }
+  }
+
+  private func revealFolderRow(_ id: String, proxy: ScrollViewProxy) {
+    withAnimation(.easeInOut(duration: 0.15)) {
+      proxy.scrollTo(id)
+    }
+    Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(50))
+      withAnimation(.easeInOut(duration: 0.15)) {
+        proxy.scrollTo(id)
+      }
+      try? await Task.sleep(for: .milliseconds(150))
+      withAnimation(.easeInOut(duration: 0.15)) {
+        proxy.scrollTo(id)
+      }
+    }
+  }
+}
+
+// MARK: - SelectedFolderRowPreferenceKey
+
+struct SelectedFolderRowPreferenceKey: PreferenceKey {
+  static var defaultValue: String? = nil
+  static func reduce(value: inout String?, nextValue: () -> String?) {
+    value = nextValue() ?? value
   }
 }
 

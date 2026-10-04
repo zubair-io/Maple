@@ -11,6 +11,10 @@ public struct MuiTreeRow: View {
   /// children.
   public let expandable: Bool
   @Binding public var expanded: Bool
+  /// When true, clicking the row body expands children if currently
+  /// collapsed, in addition to calling `pressed`. Chevron clicks continue
+  /// to toggle expand/collapse.
+  public let expandOnPress: Bool
   /// Indentation level — each level adds one indent unit.
   public let depth: Int
   public let count: Int?
@@ -24,6 +28,7 @@ public struct MuiTreeRow: View {
     icon: String = "folder",
     expandable: Bool = false,
     expanded: Binding<Bool> = .constant(false),
+    expandOnPress: Bool = false,
     depth: Int = 0,
     count: Int? = nil,
     loading: Bool = false,
@@ -35,6 +40,7 @@ public struct MuiTreeRow: View {
     self.icon = icon
     self.expandable = expandable
     self._expanded = expanded
+    self.expandOnPress = expandOnPress
     self.depth = depth
     self.count = count
     self.loading = loading
@@ -44,52 +50,65 @@ public struct MuiTreeRow: View {
   }
 
   public var body: some View {
-    Button {
-      guard !disabled else { return }
-      pressed?()
-    } label: {
-      HStack(spacing: MuiTokens.spacingXs) {
-        if expandable {
-          Button {
+    HStack(spacing: MuiTokens.spacingXs) {
+      if expandable {
+        Button {
+          withAnimation(.easeInOut(duration: 0.12)) {
             expanded.toggle()
-          } label: {
-            MuiIcon(name: "chevron_right", size: .sm, color: MuiTokens.textMuted)
-              .rotationEffect(.degrees(expanded ? 90 : 0))
           }
-          .buttonStyle(.plain)
-          .accessibilityLabel(expanded ? "Collapse" : "Expand")
-        } else {
-          Color.clear.frame(width: MuiIconSize.sm.points, height: MuiIconSize.sm.points)
+        } label: {
+          MuiIcon(name: "chevron_right", size: .sm, color: MuiTokens.textMuted)
+            .rotationEffect(.degrees(expanded ? 90 : 0))
+            .frame(width: MuiIconSize.sm.points, height: MuiIconSize.sm.points)
+            .contentShape(Rectangle())
         }
-
-        MuiIcon(name: icon, size: .sm, color: MuiTokens.textMuted)
-        MuiText(label, variant: .rowLabel, truncate: true)
-
-        Spacer(minLength: MuiTokens.spacingXs)
-
-        if loading {
-          MuiSpinner(size: .sm)
-        } else if let count {
-          MuiBadge(variant: .count, value: "\(count)")
-        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(expanded ? "Collapse" : "Expand")
+      } else {
+        Color.clear.frame(width: MuiIconSize.sm.points, height: MuiIconSize.sm.points)
       }
-      .padding(.leading, CGFloat(depth) * 16)
-      .padding(.horizontal, MuiTokens.spacingMd)
-      .padding(.vertical, MuiTokens.spacingSm)
-      .frame(minHeight: 44)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(rowBackground)
-      .overlay(alignment: .leading) {
-        if active {
-          Rectangle().fill(MuiTokens.primary).frame(width: 2)
+
+      Button {
+        guard !disabled else { return }
+        if expandOnPress && expandable && !expanded {
+          withAnimation(.easeInOut(duration: 0.12)) {
+            expanded = true
+          }
         }
+        pressed?()
+      } label: {
+        HStack(spacing: MuiTokens.spacingXs) {
+          MuiIcon(name: icon, size: .sm, color: MuiTokens.textMuted)
+          MuiText(label, variant: .rowLabel, truncate: true)
+
+          Spacer(minLength: MuiTokens.spacingXs)
+
+          if loading {
+            MuiSpinner(size: .sm)
+          } else if let count {
+            MuiBadge(variant: .count, value: "\(count)")
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel(label)
+      .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
+    }
+    .padding(.leading, CGFloat(depth) * 16)
+    .padding(.horizontal, MuiTokens.spacingMd)
+    .padding(.vertical, MuiTokens.spacingSm)
+    .frame(minHeight: 44)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(rowBackground)
+    .overlay(alignment: .leading) {
+      if active {
+        Rectangle().fill(MuiTokens.primary).frame(width: 2)
       }
     }
-    .buttonStyle(.plain)
     .disabled(disabled)
     .opacity(disabled ? 0.45 : 1)
-    .accessibilityLabel(label)
-    .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
   }
 
   private var rowBackground: Color {
