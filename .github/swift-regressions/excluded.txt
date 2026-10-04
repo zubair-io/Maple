@@ -204,3 +204,4 @@ PhotographicRemovalOrientationTests fixture requires gitignored portrait RAW and
 PhotographicRemovalPaintTests fixture requires gitignored Bologna RAW and pinned ONNX/ORT corpus (#3984); exercised locally, absent in fixture-free CI which rejects skips
 PhotographicRemovalSmartPaintTests fixture requires gitignored Bologna RAW and pinned ONNX/ORT corpus (#3984 / #3941); exercised locally, absent in fixture-free CI which rejects skips
 LocalRemovalRecoveryProbeTests host requires the owned Darwin post-rename permission-revocation dylib and direct XCTest child (#3940); mandatory local trace audit rejects skipped probes
+SceneLinearHalfShadowMetalTests gpu requires real Metal half-texture readback; exercised locally with exhaustive signed shadows (#4211)

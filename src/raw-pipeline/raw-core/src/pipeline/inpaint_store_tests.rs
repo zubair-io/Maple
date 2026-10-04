@@ -44,6 +44,37 @@ fn roundtrips_header_and_pixels() {
 }
 
 #[test]
+fn shadow_pixels_and_coverage_roundtrip_without_subnormal_bias() {
+    // #4211: exact IEEE half values prove actual durable/blob transport,
+    // not the former loose 0.01 absolute tolerance that hides shadow loss.
+    let pixels = (1..=0x0400)
+        .map(|bits| {
+            let value = half::f16::from_bits(bits).to_f32();
+            [value, -value, value]
+        })
+        .collect::<Vec<_>>();
+    let coverage = pixels.iter().map(|p| p[0]).collect::<Vec<_>>();
+    let patch = InpaintPatch {
+        width: 1024,
+        height: 1,
+        origin: [0.0, 0.0],
+        extent: [1.0, 1.0],
+        pixels,
+        coverage,
+    };
+    let bytes = patch_to_bytes(&patch).unwrap();
+    assert_eq!(&bytes[..8], b"MIPF\x01\x00\x00\x00");
+    assert_eq!(&bytes[32..38], &[1, 0, 1, 128, 1, 0]);
+    let decoded = patch_from_bytes(&bytes).unwrap();
+    assert_eq!(decoded.pixels, patch.pixels);
+    assert_eq!(decoded.coverage, patch.coverage);
+    let blob = patches_to_blob(&[patch.clone()]).unwrap();
+    let relayed = patches_from_blob(&blob).unwrap();
+    assert_eq!(relayed[0].pixels, patch.pixels);
+    assert_eq!(relayed[0].coverage, patch.coverage);
+}
+
+#[test]
 fn bad_magic_errors() {
     let mut bytes = patch_to_bytes(&sample()).unwrap();
     bytes[0] = b'X';
