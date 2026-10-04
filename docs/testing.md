@@ -677,6 +677,15 @@ cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-wasm --features gp
 cd src/web && bun x playwright test --config=playwright.auto-fit.config.ts
 ```
 
+The Apple gate requires the active physical `test_0006.DNG`, unavailable
+`test_0018.dng`, and committed synthetic RAW. It exercises CPU publication, GPU
+fit outcomes, concurrent fit joining, image/profile generation guards, and reopen
+without skipping a missing required physical fixture:
+
+```bash
+swift test --package-path src/apple/Packages/MapleCore -c release --filter 'testAutoFitStatusRejectsOldImageAndProfileReplies|testActualAutoFitOutcomeWithAndWithoutEmbeddedPreview'
+```
+
 The browser gate mounts the shipping Profile section and image canvas with real
 OPFS originals, sidecars, and WASM worker. It checks accessible status copy,
 selected Neutral, durable reopen, and image changes. It is separate from the
