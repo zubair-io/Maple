@@ -1,3 +1,4 @@
+import { renderModelForCrop } from './image-canvas.crop';
 // image-canvas.render2d.spec.ts — the WASM-CPU render call sites.
 //
 // #3171: `runRender2d` threads the focused asset's resolved film-look LUT
@@ -82,6 +83,7 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
       currentAssetId: ASSET_ID,
       renderGeneration: 1,
       lastRenderedXmp: null,
+      captureRenderSerializer: () => host.serializeForRender.bind(host),
       recordPaintedDims: vi.fn(),
     } as unknown as Render2dHost;
     return { host, decode };
@@ -226,6 +228,57 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
     expect(host.lastRenderedXmp).toContain('papp:Profile="Neutral"');
     expect(host.lastRenderedXmp).not.toBe(serializer.serialize(model()));
   });
+
+  it.each([false, true])(
+    'retains dispatched crop posture when active=%s toggles during CPU open',
+    async (active) => {
+      const cropActive = signal(active);
+      const opened = {
+        ...defaultAdjustmentModel(),
+        profile: 'Neutral' as const,
+        whiteBalancePreset: 'Custom' as const,
+        temperature: 4800,
+        tint: 12,
+        crop: { ...defaultAdjustmentModel().crop, left: 0.2 },
+      };
+      const { host, decode } = harness(undefined);
+      const serialize = (value: typeof opened, crop: boolean) =>
+        JSON.stringify(renderModelForCrop(value, crop));
+      Object.assign(host.state, {
+        adjustmentFor: () => () => opened,
+        updateAssetDimensions: vi.fn(),
+        seedAsShotWhiteBalance: vi.fn(),
+        seedLensCorrections: vi.fn(),
+      });
+      Object.assign(host, {
+        serializeForRender: (value: typeof opened) => serialize(value, cropActive()),
+        captureRenderSerializer: () => {
+          const snapshot = cropActive();
+          return (value: typeof opened) => serialize(value, snapshot);
+        },
+        fastTargetPx: () => 512,
+        recordNativeDims: vi.fn(),
+        markColdOpenDone: vi.fn(),
+        hasProvisionalPreview: () => false,
+        clearProvisionalPreview: vi.fn(),
+        scheduleRefine: vi.fn(),
+      });
+      let finish!: (value: DecodedImage) => void;
+      decode.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const opening = coldOpen2d(host, ASSET_ID, 'photo.dng', 'dng', new Uint8Array([1]));
+      const dispatched = decode.mock.calls[0]![2];
+      cropActive.set(!active);
+      finish(decoded);
+      await opening;
+      expect(host.lastRenderedXmp).toBe(dispatched);
+      expect(host.lastRenderedXmp).not.toBe(host.serializeForRender(opened));
+    },
+  );
 
   it("seeds the render reply's imported-profile verdict on every re-render (#3479)", async () => {
     const reference = `lcp1:${'a'.repeat(64)}`;

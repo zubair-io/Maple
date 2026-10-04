@@ -1,3 +1,4 @@
+import { EditorStateService } from '../../editor/editor-state.service';
 import {
   cameraWhiteBalanceReading,
   seedWhiteBalanceModel,
@@ -161,6 +162,21 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
     models.set(id, sig);
     sig.set({ ...sig(), ...patch });
   }
+
+  it.each([false, true])('captures real component crop serialization while active=%s', (active) => {
+    const editor = TestBed.inject(EditorStateService);
+    editor.armedTool.set(active ? 'crop' : 'exposure');
+    const opened = {
+      ...defaultAdjustmentModel(),
+      crop: { ...defaultAdjustmentModel().crop, left: 0.2 },
+    };
+    const component = fixture.componentInstance;
+    const serializeOpened = component.captureRenderSerializer();
+    const dispatched = component.serializeForRender(opened);
+    editor.armedTool.set(active ? 'exposure' : 'crop');
+    expect(serializeOpened(opened)).toBe(dispatched);
+    expect(serializeOpened(opened)).not.toBe(component.serializeForRender(opened));
+  });
 
   it('cold open issues exactly one viewport-sized decode and records native dims', async () => {
     focused.set(fakeAsset('a'));
