@@ -99,8 +99,8 @@ public actor RenderActor {
   /// stripped model itself and compare by value (`==`): a hash would be a
   /// collision risk for zero benefit on a single in-memory comparison.
   ///
-  /// `nil` = "no sidecar on disk at decode time" (the FFI used
-  /// `AdjustmentModel::default()`, which is already in the stripped state).
+  /// Missing sidecars use the stripped default model, matching the decode
+  /// prefix. `nil` means no cached buffer identity has been captured.
   /// The rendered-preview DISK cache (`RenderedPreviewCache`) and the
   /// deep-zoom tile cache KEEP sidecar-mtime — they depend on the FULL
   /// model and are cross-session; only this in-memory cache changes.
@@ -118,7 +118,7 @@ public actor RenderActor {
   /// hot path allocation-free (CLAUDE.md § Performance invariants) while
   /// the baked model remains the authoritative key — mtime can only make
   /// us do MORE work (parse on a same-baked save), never serve a stale
-  /// buffer. `nil` mirrors `decodedBakedModel == nil` (no sidecar).
+  /// buffer. `nil` here means no sidecar mtime was observed.
   var decodedSidecarMtime: Date?
   var decodedSidecarURL: URL?
 
@@ -206,7 +206,8 @@ public actor RenderActor {
   var decodeTask:
     Task<
       (
-        CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Float, Float, Bool, Bool, Bool, RawCameraSupport?
+        CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Float, Float, Bool, Bool, Bool,
+        RawCameraSupport?
       )?,
       Never
     >?
