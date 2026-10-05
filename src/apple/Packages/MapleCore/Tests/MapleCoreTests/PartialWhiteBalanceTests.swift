@@ -271,6 +271,13 @@ final class PartialWhiteBalanceTests: XCTestCase {
     XCTAssertNotNil(session.renderError)
     XCTAssertNotNil(session.partialWhiteBalanceImportError)
     XCTAssertNotNil(session.model.partialWhiteBalance)
+    session.publishAutoFit(
+      true, assetID: session.asset.id, profile: .auto, revision: session.autoFitRevision)
+    await session.decodeAndRender(targetSize: nil, phase: .fast)
+    XCTAssertEqual(session.autoFitStatus, .active, "A WB failure cannot overwrite an achieved fit")
+    session.resetAutoFitStatus()
+    await session.decodeAndRender(targetSize: nil, phase: .fast)
+    XCTAssertEqual(session.autoFitStatus, .unavailable, "An unfinished fit settles on WB failure")
     XCTAssertEqual(session.model.exposure, 1.25)
     let library = BatchAdjustmentLibrary(
       id: "test", resolve: { _ in AssetRef(url: raw) }, session: { _ in session },

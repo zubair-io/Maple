@@ -45,6 +45,8 @@ export const DEFAULT_LENS_CORRECTION_CAPABILITY: LensCorrectionCapability = {
 };
 
 export class LensCorrectionCapabilities {
+  // Auto revisions track profile intent only. Lens verdicts retain #3479's
+  // render-generation-guarded XMP reply contract and are independent of Auto.
   private readonly fitRevisions = new Map<AssetId, number>();
   readonly byAsset: WritableSignal<Map<AssetId, LensCorrectionCapability>> = signal(new Map());
 

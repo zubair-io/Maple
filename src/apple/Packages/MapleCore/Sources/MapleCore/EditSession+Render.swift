@@ -64,7 +64,7 @@ extension EditSession {
 
   func decodeAndRender(targetSize: CGSize?, phase: RenderPhase, gen: UInt64? = nil) async {
     if let error = partialWhiteBalanceImportError, model.partialWhiteBalance != nil {
-      if model.profile == .auto { autoFitStatus = .unavailable }
+      settleAutoFitFailure(assetID: asset.id, profile: model.profile, revision: autoFitRevision)
       renderError = error
       return
     }

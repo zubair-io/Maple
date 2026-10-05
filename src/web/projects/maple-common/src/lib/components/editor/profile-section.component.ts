@@ -37,7 +37,7 @@ export class ProfileSectionComponent {
       ? this.autoFit() === true
         ? 'Color and contrast matched to this image’s embedded camera preview.'
         : this.autoFit() === false
-          ? 'Auto matching is unavailable for this image.'
+          ? 'Auto matching is unavailable for this image; using Neutral rendering.'
           : 'Checking Auto matching for this image…'
       : 'Uses a fixed base rendering.',
   );
