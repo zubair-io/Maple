@@ -4,6 +4,8 @@ import type {
   WorkflowVariantSelection,
   WorkflowVariantSelectionService,
 } from '../../xmp/workflow-variant-selection.service';
+import type { Asset } from '../../models/asset';
+import { settleFailedAutoFit } from './image-canvas.fit-failure';
 import { ImageCanvasVariantPreviews } from './image-canvas.variant-previews';
 
 /** Branch selection shares the existing RAW/live session and invalidates late render publications. */
@@ -30,7 +32,11 @@ export class ImageCanvasAdjustmentEffect {
         const changed = this.changed(selection);
         const previous = this.selection;
         this.selection = selection;
-        if (!host.currentBytes || asset.id !== host.currentAssetId) return;
+        if (asset.id !== host.currentAssetId) return;
+        if (!host.currentBytes) {
+          this.settleUnavailableSource(asset);
+          return;
+        }
         if (!host.coldOpenDone) {
           this.restartColdOpen(changed, asset.id, asset.filename);
           return;
@@ -53,6 +59,19 @@ export class ImageCanvasAdjustmentEffect {
   reset(): void {
     this.selection = null;
     this.previews.clear();
+  }
+
+  private settleUnavailableSource(asset: Asset): void {
+    const host = this.host;
+    const failed = host.byteLoadError()?.id === asset.id;
+    const noSource = !asset.absPath && !asset.id.includes(':') && !host.state.bytesFor(asset.id);
+    if (failed || noSource)
+      settleFailedAutoFit(
+        host,
+        asset.id,
+        host.renderGeneration,
+        host.state.autoFitRevisionFor(asset.id),
+      );
   }
 
   private restartColdOpen(changed: boolean, id: string, filename: string): void {

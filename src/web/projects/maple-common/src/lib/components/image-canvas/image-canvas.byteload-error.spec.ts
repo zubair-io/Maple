@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ImageCanvasComponent } from './image-canvas.component';
 import { LibraryStateService } from '../../state/library-state.service';
 import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
+import { EmbeddedPreviewService } from '../../raw-pipeline/embedded-preview.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import { defaultAdjustmentModel } from '../../models/adjustment-model';
@@ -39,6 +40,9 @@ describe('ImageCanvasComponent — recoverable byte-load error (#2407)', () => {
   let decodeSpy: ReturnType<typeof vi.fn>;
   let bytesForAssetSpy: ReturnType<typeof vi.fn>;
   let fixture: ComponentFixture<ImageCanvasComponent>;
+  let model: WritableSignal<ReturnType<typeof defaultAdjustmentModel>>;
+  let capabilities: LensCorrectionCapabilities;
+  let previewSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -47,7 +51,8 @@ describe('ImageCanvasComponent — recoverable byte-load error (#2407)', () => {
       Promise.resolve(decodedAt(mle)),
     );
     bytesForAssetSpy = vi.fn();
-    const model = signal(defaultAdjustmentModel());
+    model = signal(defaultAdjustmentModel());
+    previewSpy = vi.fn().mockRejectedValue(new Error('embedded preview unavailable'));
 
     (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
       observe() {}
@@ -65,7 +70,7 @@ describe('ImageCanvasComponent — recoverable byte-load error (#2407)', () => {
       Promise.resolve({ close: vi.fn() } as unknown as ImageBitmap),
     );
 
-    const capabilities = new LensCorrectionCapabilities();
+    capabilities = new LensCorrectionCapabilities();
     const stateStub = {
       focusedAsset: focused,
       adjustmentFor: () => model,
@@ -86,6 +91,7 @@ describe('ImageCanvasComponent — recoverable byte-load error (#2407)', () => {
       imports: [ImageCanvasComponent],
       providers: [
         XmpSerializerService,
+        { provide: EmbeddedPreviewService, useValue: { extractEmbeddedPreview: previewSpy } },
         { provide: LibraryStateService, useValue: stateStub },
         {
           provide: RawPipelineService,
@@ -114,6 +120,100 @@ describe('ImageCanvasComponent — recoverable byte-load error (#2407)', () => {
     fixture.detectChanges();
     await vi.advanceTimersByTimeAsync(0);
   }
+
+  async function changeProfile(profile: 'Auto' | 'Neutral'): Promise<void> {
+    capabilities.resetAutoFit(focused()!.id);
+    model.set({ ...model(), profile });
+    await settle();
+  }
+
+  for (const terminal of ['no source', 'fetch failed', 'normalization failed'])
+    it(`settles Auto after Neutral following terminal ${terminal}`, async () => {
+      const source = new Uint8Array([4, 5, 6]);
+      if (terminal === 'normalization failed') bytesForAssetSpy.mockResolvedValueOnce(source);
+      else bytesForAssetSpy.mockRejectedValueOnce({ status: 404 });
+      const id = terminal === 'no source' ? 'imported-without-source' : 'photos:failed';
+      focused.set({
+        id,
+        filename: terminal === 'normalization failed' ? 'photo.x3f' : 'photo.dng',
+      } as Asset);
+      await settle();
+      expect(capabilities.for(id).autoFit).toBe(false);
+      if (terminal === 'normalization failed')
+        expect(previewSpy).toHaveBeenCalledWith(source, 'x3f');
+      await changeProfile('Neutral');
+      await changeProfile('Auto');
+      expect(capabilities.for(id).autoFit).toBe(false);
+      expect(decodeSpy).not.toHaveBeenCalled();
+      expect(source).toEqual(new Uint8Array([4, 5, 6]));
+    });
+
+  it('keeps a genuine pending byte request pending across profile changes', async () => {
+    bytesForAssetSpy.mockReturnValue(new Promise(() => undefined));
+    focused.set({ id: 'photos:pending', filename: 'photo.dng' } as Asset);
+    await settle();
+    await changeProfile('Neutral');
+    await changeProfile('Auto');
+    expect(capabilities.for('photos:pending').autoFit).toBeUndefined();
+    expect(bytesForAssetSpy).toHaveBeenCalledOnce();
+    expect(decodeSpy).not.toHaveBeenCalled();
+  });
+
+  it('clears terminal provenance when an explicit retry starts a new request', async () => {
+    bytesForAssetSpy
+      .mockRejectedValueOnce({ status: 404 })
+      .mockReturnValueOnce(new Promise(() => undefined));
+    focused.set({ id: 'photos:retry', filename: 'photo.dng' } as Asset);
+    await settle();
+    expect(capabilities.for('photos:retry').autoFit).toBe(false);
+    fixture.componentInstance.retryByteLoad();
+    await settle();
+    expect(capabilities.for('photos:retry').autoFit).toBeUndefined();
+    expect(fixture.componentInstance.byteLoadError()).toBeNull();
+    expect(bytesForAssetSpy).toHaveBeenCalledTimes(2);
+  });
+
+  for (const newer of [
+    'accepted bytes',
+    'completed active',
+    'completed unavailable',
+    'different asset',
+  ])
+    it(`does not replay terminal failure over ${newer}`, async () => {
+      const id = 'photos:failed';
+      bytesForAssetSpy.mockRejectedValueOnce({ status: 404 });
+      focused.set({ id, filename: 'photo.dng' } as Asset);
+      await settle();
+      await changeProfile('Neutral');
+      capabilities.resetAutoFit(id);
+      model.set({ ...model(), profile: 'Auto' });
+      const component = fixture.componentInstance;
+      if (newer === 'accepted bytes') component.currentBytes = new Uint8Array([7, 8, 9]);
+      if (newer === 'different asset') component.currentAssetId = 'photos:new';
+      if (newer.startsWith('completed'))
+        capabilities.seedProfile(
+          id,
+          null,
+          newer === 'completed active',
+          capabilities.autoFitRevisionFor(id),
+        );
+      await settle();
+      expect(capabilities.for(id).autoFit).toBe(
+        newer === 'completed active' ? true : newer === 'completed unavailable' ? false : undefined,
+      );
+      expect(decodeSpy).not.toHaveBeenCalled();
+    });
+
+  it('ignores a Retry for an error belonging to the previous asset', async () => {
+    bytesForAssetSpy.mockRejectedValueOnce({ status: 404 });
+    focused.set({ id: 'photos:failed', filename: 'photo.dng' } as Asset);
+    await settle();
+    fixture.componentInstance.currentAssetId = 'photos:new';
+    const revision = capabilities.autoFitRevisionFor('photos:failed');
+    fixture.componentInstance.retryByteLoad();
+    expect(capabilities.autoFitRevisionFor('photos:failed')).toBe(revision);
+    expect(bytesForAssetSpy).toHaveBeenCalledOnce();
+  });
 
   it('renders a named, retryable error overlay when bytesForAsset rejects (no silent blank canvas)', async () => {
     bytesForAssetSpy.mockRejectedValueOnce({ status: 503, url: '/api/image/photos/trip/a.dng' });

@@ -56,6 +56,7 @@ import { CanvasPickOverlayComponent } from './canvas-pick-overlay.component';
 import { runRender2d, type Render2dHost } from './image-canvas.render2d';
 import { canUseLiveFastPath, buildLiveParams } from './image-canvas.live-params';
 import { settleFailedAutoFit } from './image-canvas.fit-failure';
+import { retryFailedByteLoad } from './image-canvas.byteload';
 import { fetchAndLoadBytes, type ByteLoadError, type ByteLoadHost } from './image-canvas.byteload';
 import { GpuFallbackNoticeService } from '../gpu-fallback-notice/gpu-fallback-notice.service';
 import { EmbeddedPreviewService } from '../../raw-pipeline/embedded-preview.service';
@@ -437,8 +438,7 @@ export class ImageCanvasComponent
 
   /** `ByteLoadHost`: re-attempt the fetch behind `byteLoadError` (Retry button). */
   retryByteLoad(): void {
-    const err = this.byteLoadError();
-    if (err) fetchAndLoadBytes(this, err.id, err.filename);
+    retryFailedByteLoad(this);
   }
 
   // ── GpuPresentHost ───────────────────────────────────────────────────────
