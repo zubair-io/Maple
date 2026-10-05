@@ -1,0 +1,53 @@
+{
+  "native_sha256": "86d57b4d00e422a67d9462feb7f8e9981671f493995dd4f8e23ce9852c5c6ada",
+  "native_bytes": 26481648,
+  "producer_source_commit": "50d3ab6023eb3f96c9322ab73a87a356168af67f",
+  "producer_raw_tree": "c92c22b929f3cb0bd4c7b0e0366ca5d31fabab5b",
+  "builder_tree": "60dc1934aa84d450ab2b6f878a36af7800023a5c",
+  "copied_from_retained_qualified_producer": true,
+  "generator": "generate.ts",
+  "generator_command": "MAPLE_NAPI=0 MAPLE_NATIVE_LIB=/path/to/qualified/libraw_ffi.dylib bun test-fixtures/raster-metadata/avif-validation/generate.ts",
+  "bun": "1.4.2 (744846f84)",
+  "builder_source_tree": "c172d4773b6917e09abcb364fe63abe88aa53088",
+  "deterministic_repeat_byte_identical": true,
+  "fixtures": [
+    {
+      "name": "srgb-rgb.avif",
+      "bytes": 6982,
+      "sha256": "2138379e8759e924641d101a4e0ab27d61049bd2464509c2b50fa55ab367e9dc"
+    },
+    {
+      "name": "srgb-rgba.avif",
+      "bytes": 7162,
+      "sha256": "bb15c4bf6d49c0621ce087835a65ee93f2e403bf65a4df7e29b780c94aaf1a7c"
+    },
+    {
+      "name": "p3-rgb.avif",
+      "bytes": 7006,
+      "sha256": "8fec6585fc9d1388928a2a690a59aa48ec9fcc61ec57b1276dfd4099c66b2768"
+    },
+    {
+      "name": "p3-rgba.avif",
+      "bytes": 7186,
+      "sha256": "17a6a98d07ecb71e7b52b445364cac5d0e4336e364a21825dde2b2f9a1f49e0a"
+    },
+    {
+      "name": "oversized-srgb.avif",
+      "bytes": 6989,
+      "sha256": "ec62375c924da977d43c8f2884b8ce6efed96a98233cec59ec956c7d2e21b5a2"
+    },
+    {
+      "name": "kept-srgb.avif",
+      "bytes": 6982,
+      "sha256": "2138379e8759e924641d101a4e0ab27d61049bd2464509c2b50fa55ab367e9dc"
+    }
+  ],
+  "initial_validator_source_commit": "e945d86c0c4b39f315e26798f4b785d671dc7ca4",
+  "initial_validator_native_sha256": "6fe9487e12d11b5ea368d29fbff3f9eccd40f774720d758bb09921f8d27a7a65",
+  "qualifying_validator_source_commit": "87503f018b72594a881e3751cb15fe3bee189e59",
+  "qualifying_validator_raw_tree": "c92c22b929f3cb0bd4c7b0e0366ca5d31fabab5b",
+  "qualifying_validator_native_sha256": "1e122999d895c1aadc1a539105f56c6d9a49260234249c691c6ae131f82cc179",
+  "qualifying_validator_native_bytes": 26482096,
+  "qualifying_validator_build": "cargo build --locked --release --manifest-path src/raw-pipeline/Cargo.toml -p raw-ffi",
+  "validator_has_own_rebuilt_binary": true
+}
