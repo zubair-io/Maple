@@ -92,6 +92,32 @@ pub(super) fn suppress_false_colour(
         if covariance <= 0.0 || variance == 0.0 {
             return Some(mean_colour);
         }
+        let slope = covariance / variance;
+        // Covariance alone cannot distinguish a colour edge from a luminance
+        // ramp. Accept the affine relation only when the actual sensor samples
+        // support it within f32 arithmetic roundoff. The tolerance scales with
+        // the values, preserving near-black/HDR exposure equivariance.
+        let supports_affine = |g: f32, c: f32| {
+            let predicted = mean_colour + slope * (g - mean_green);
+            let scale = predicted.abs().max(c.abs()).max(mean_colour.abs());
+            (predicted - c).abs() <= 32.0 * f32::EPSILON * scale.max(f32::MIN_POSITIVE)
+        };
+        if samples.iter().any(|&(g, c)| !supports_affine(g, c)) {
+            return Some(mean_colour);
+        }
+        if count == 2 {
+            // Two cardinal samples always fit a line. Validate it against the
+            // next same-colour sites on that axis; these are witnesses only,
+            // never averaged into the nearest-value estimate or its bounds.
+            for (dx, dy) in [(-3_isize, 0_isize), (3, 0), (0, -3), (0, 3)] {
+                let (nx, ny) = ((x as isize + dx) as usize, (y as isize + dy) as usize);
+                if color_at(nx, ny) == t
+                    && !supports_affine(green[ny * w + nx], cfa_flat[ny * w + nx])
+                {
+                    return Some(mean_colour);
+                }
+            }
+        }
         let min_green = samples
             .iter()
             .map(|&(g, _)| g)
@@ -114,7 +140,7 @@ pub(super) fn suppress_false_colour(
             .iter()
             .map(|&(_, c)| c)
             .fold(f32::NEG_INFINITY, f32::max);
-        let interpolated = mean_colour + covariance / variance * (center_green - mean_green);
+        let interpolated = mean_colour + slope * (center_green - mean_green);
         Some(interpolated.clamp(min_colour, max_colour))
     };
 
