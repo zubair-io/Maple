@@ -104,10 +104,11 @@ struct CloudFolderTreeRow: View {
   /// True when this row is an ancestor of the currently-browsed path
   /// (i.e. it should auto-expand to keep the chain visible).
   private var isOnChainToCurrent: Bool {
-    guard let current = cloudCurrentPath else { return false }
-    if current == absPath { return false }  // self, not ancestor
-    let prefix = absPath.hasSuffix("/") ? absPath : absPath + "/"
-    return current.hasPrefix(prefix)
+    SidebarReveal.isCloudAncestor(candidatePath: absPath, currentPath: cloudCurrentPath)
+  }
+
+  private var rowId: String {
+    SidebarReveal.cloudRowId(serverURL: serverURL, path: absPath)
   }
 
   private var dirs: [FsDirEntry] {
@@ -162,16 +163,11 @@ struct CloudFolderTreeRow: View {
         loading: isLoading,
         active: isSelected,
         pressed: {
-          if hasChildren && !isExpanded {
-            withAnimation(.easeInOut(duration: 0.12)) {
-              setExpanded(true)
-            }
-          }
           onPickPath(serverURL, libraryFolderID, absPath)
         }
       )
-      .id(absPath)
-      .preference(key: SelectedFolderRowPreferenceKey.self, value: isSelected ? absPath : nil)
+      .id(rowId)
+      .preference(key: SelectedFolderRowPreferenceKey.self, value: isSelected ? rowId : nil)
       // Overlay, not background: MuiTreeRow paints its own opaque active
       // background, which would hide a background-layer drop highlight when
       // the drop target is also the selected row.

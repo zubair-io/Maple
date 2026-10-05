@@ -241,12 +241,13 @@ struct LibrarySidebar: View {
         }
         .onChange(of: cloudCurrentPath) { _, newPath in
           guard let newPath else { return }
-          if case .cloudLibrary(let serverURL, _) = selection,
-            cloudServersExpanded[serverURL] == false
-          {
-            cloudServersExpanded[serverURL] = true
+          if case .cloudLibrary(let serverURL, _) = selection {
+            if cloudServersExpanded[serverURL] == false {
+              cloudServersExpanded[serverURL] = true
+            }
+            revealFolderRow(
+              SidebarReveal.cloudRowId(serverURL: serverURL, path: newPath), proxy: proxy)
           }
-          revealFolderRow(newPath, proxy: proxy)
         }
       }
     }
@@ -768,11 +769,13 @@ struct LibrarySidebar: View {
         cloudServersExpanded[serverURL] = true
       }
       if let path = pathFor(server: serverURL) {
-        revealFolderRow(path, proxy: proxy)
+        revealFolderRow(SidebarReveal.cloudRowId(serverURL: serverURL, path: path), proxy: proxy)
       }
     case .smbShare(let share):
       if !showConnections { showConnections = true }
-      revealFolderRow("smb:\(share.host)/\(share.share)", proxy: proxy)
+      revealFolderRow(
+        SidebarReveal.smbRowId(host: share.host, share: share.share, path: "", depth: 0),
+        proxy: proxy)
     default:
       break
     }
@@ -781,16 +784,6 @@ struct LibrarySidebar: View {
   private func revealFolderRow(_ id: String, proxy: ScrollViewProxy) {
     withAnimation(.easeInOut(duration: 0.15)) {
       proxy.scrollTo(id)
-    }
-    Task { @MainActor in
-      try? await Task.sleep(for: .milliseconds(50))
-      withAnimation(.easeInOut(duration: 0.15)) {
-        proxy.scrollTo(id)
-      }
-      try? await Task.sleep(for: .milliseconds(150))
-      withAnimation(.easeInOut(duration: 0.15)) {
-        proxy.scrollTo(id)
-      }
     }
   }
 }

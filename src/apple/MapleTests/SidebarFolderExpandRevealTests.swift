@@ -1,5 +1,5 @@
 // SidebarFolderExpandRevealTests.swift — unit tests for sidebar folder expansion,
-// explicit collapse preservation, and reveal contracts (Issue #4152).
+// explicit chevron toggle preservation, and reveal contracts (Issue #4152).
 
 import Foundation
 import MapleUI
@@ -28,11 +28,8 @@ final class SidebarFolderExpandRevealTests: XCTestCase {
     XCTAssertFalse(expanded)
     XCTAssertTrue(row.expandOnPress)
 
-    // Simulating pressing the row
-    if row.expandOnPress && row.expandable && !expanded {
-      expanded = true
-    }
-    row.pressed?()
+    // Trigger row press action through production handler
+    row.handleRowPress()
 
     XCTAssertTrue(
       expanded, "Clicking a collapsed folder row with expandOnPress must expand children")
@@ -53,11 +50,8 @@ final class SidebarFolderExpandRevealTests: XCTestCase {
 
     XCTAssertTrue(expanded)
 
-    // Simulating pressing the row when already expanded
-    if row.expandOnPress && row.expandable && !expanded {
-      expanded = true
-    }
-    row.pressed?()
+    // Trigger row press action through production handler
+    row.handleRowPress()
 
     XCTAssertTrue(expanded, "Clicking an already-expanded folder row must NOT collapse it")
     XCTAssertTrue(pressedFired, "Clicking the row must fire pressed callback")
@@ -77,14 +71,14 @@ final class SidebarFolderExpandRevealTests: XCTestCase {
 
     XCTAssertTrue(expanded)
 
-    // Chevron click explicitly toggles expanded
-    expanded.toggle()
+    // Chevron click explicitly toggles expanded via production handler
+    row.handleChevronToggle()
 
     XCTAssertFalse(expanded, "Clicking the chevron toggle on an expanded row must collapse it")
     XCTAssertFalse(pressedFired, "Clicking the chevron must NOT fire the row's pressed handler")
 
     // Chevron click again expands it
-    expanded.toggle()
+    row.handleChevronToggle()
     XCTAssertTrue(expanded, "Clicking the chevron toggle on a collapsed row must re-expand it")
     XCTAssertFalse(pressedFired, "Chevron toggle must still NOT fire the row's pressed handler")
   }
@@ -115,44 +109,65 @@ final class SidebarFolderExpandRevealTests: XCTestCase {
     XCTAssertEqual(current, "/photos/2026/Spring", "New non-nil nextValue updates the key value")
   }
 
-  // MARK: - Ancestor Chain Matching
+  // MARK: - Production Ancestor Chain & Row ID Matching (SidebarReveal)
 
   func testAncestorChainMatchingForLocalPaths() {
-    let rootPath = "/Users/photographer/Pictures/Library"
-    let subPath = "/Users/photographer/Pictures/Library/2026"
-    let deepPath = "/Users/photographer/Pictures/Library/2026/Spring"
-    let siblingPath = "/Users/photographer/Pictures/Library/2025"
+    let root = URL(fileURLWithPath: "/Users/photographer/Pictures/Library")
+    let sub = URL(fileURLWithPath: "/Users/photographer/Pictures/Library/2026")
+    let deep = "/Users/photographer/Pictures/Library/2026/Spring"
+    let sibling = URL(fileURLWithPath: "/Users/photographer/Pictures/Library/2025")
 
-    let isAncestor: (String, String) -> Bool = { candidate, selected in
-      guard selected != candidate else { return false }
-      let candidateComponents = URL(fileURLWithPath: candidate).pathComponents
-      let selectedComponents = URL(fileURLWithPath: selected).pathComponents
-      guard selectedComponents.count > candidateComponents.count else { return false }
-      return Array(selectedComponents.prefix(candidateComponents.count)) == candidateComponents
-    }
+    XCTAssertTrue(SidebarReveal.isLocalAncestor(candidate: root, selectedPath: sub.path))
+    XCTAssertTrue(SidebarReveal.isLocalAncestor(candidate: root, selectedPath: deep))
+    XCTAssertTrue(SidebarReveal.isLocalAncestor(candidate: sub, selectedPath: deep))
 
-    XCTAssertTrue(isAncestor(rootPath, subPath))
-    XCTAssertTrue(isAncestor(rootPath, deepPath))
-    XCTAssertTrue(isAncestor(subPath, deepPath))
-
-    XCTAssertFalse(isAncestor(rootPath, rootPath), "Folder cannot be an ancestor of itself")
-    XCTAssertFalse(isAncestor(deepPath, subPath), "Child is not ancestor of parent")
-    XCTAssertFalse(isAncestor(siblingPath, subPath), "Sibling is not ancestor")
+    XCTAssertFalse(
+      SidebarReveal.isLocalAncestor(candidate: root, selectedPath: root.path),
+      "Folder cannot be an ancestor of itself")
+    XCTAssertFalse(
+      SidebarReveal.isLocalAncestor(candidate: URL(fileURLWithPath: deep), selectedPath: sub.path),
+      "Child is not ancestor of parent")
+    XCTAssertFalse(
+      SidebarReveal.isLocalAncestor(candidate: sibling, selectedPath: sub.path),
+      "Sibling is not ancestor")
   }
 
   func testAncestorChainMatchingForCloudPaths() {
-    let isOnChain: (String, String?) -> Bool = { absPath, currentPath in
-      guard let current = currentPath, current != absPath else { return false }
-      let prefix = absPath.hasSuffix("/") ? absPath : absPath + "/"
-      return current.hasPrefix(prefix)
-    }
+    XCTAssertTrue(
+      SidebarReveal.isCloudAncestor(candidatePath: "/photos", currentPath: "/photos/2026"))
+    XCTAssertTrue(
+      SidebarReveal.isCloudAncestor(
+        candidatePath: "/photos/2026", currentPath: "/photos/2026/April"))
+    XCTAssertTrue(SidebarReveal.isCloudAncestor(candidatePath: "/", currentPath: "/photos"))
 
-    XCTAssertTrue(isOnChain("/photos", "/photos/2026"))
-    XCTAssertTrue(isOnChain("/photos/2026", "/photos/2026/April"))
-    XCTAssertTrue(isOnChain("/", "/photos"))
+    XCTAssertFalse(
+      SidebarReveal.isCloudAncestor(candidatePath: "/photos", currentPath: "/photos"),
+      "Exact match is not an ancestor")
+    XCTAssertFalse(
+      SidebarReveal.isCloudAncestor(candidatePath: "/photos/2025", currentPath: "/photos/2026"),
+      "Sibling is not on chain")
+    XCTAssertFalse(
+      SidebarReveal.isCloudAncestor(candidatePath: "/photos", currentPath: nil),
+      "Nil current path is not on chain")
+  }
 
-    XCTAssertFalse(isOnChain("/photos", "/photos"), "Exact match is not an ancestor")
-    XCTAssertFalse(isOnChain("/photos/2025", "/photos/2026"), "Sibling is not on chain")
-    XCTAssertFalse(isOnChain("/photos", nil), "Nil current path is not on chain")
+  func testRowIdNamespacingForCloudAndSMB() {
+    let serverA = URL(string: "https://serverA.local:8080")!
+    let serverB = URL(string: "https://serverB.local:8080")!
+    let cloudIdA = SidebarReveal.cloudRowId(serverURL: serverA, path: "/photos")
+    let cloudIdB = SidebarReveal.cloudRowId(serverURL: serverB, path: "/photos")
+
+    XCTAssertNotEqual(cloudIdA, cloudIdB, "Cloud row IDs across different servers must not collide")
+    XCTAssertEqual(cloudIdA, "https://serverA.local:8080/photos")
+
+    let smbRoot1 = SidebarReveal.smbRowId(host: "nas1", share: "photos", path: "", depth: 0)
+    let smbRoot2 = SidebarReveal.smbRowId(host: "nas2", share: "photos", path: "", depth: 0)
+    let smbSub1 = SidebarReveal.smbRowId(host: "nas1", share: "photos", path: "/2026", depth: 1)
+    let smbSub2 = SidebarReveal.smbRowId(host: "nas2", share: "photos", path: "/2026", depth: 1)
+
+    XCTAssertNotEqual(smbRoot1, smbRoot2)
+    XCTAssertNotEqual(
+      smbSub1, smbSub2, "SMB subfolder row IDs across different shares must not collide")
+    XCTAssertEqual(smbSub1, "smb:nas1/photos/2026")
   }
 }

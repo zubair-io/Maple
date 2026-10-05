@@ -49,13 +49,28 @@ public struct MuiTreeRow: View {
     self.pressed = pressed
   }
 
+  public func handleChevronToggle() {
+    guard !disabled, expandable else { return }
+    withAnimation(.easeInOut(duration: 0.12)) {
+      expanded.toggle()
+    }
+  }
+
+  public func handleRowPress() {
+    guard !disabled else { return }
+    if expandOnPress && expandable && !expanded {
+      withAnimation(.easeInOut(duration: 0.12)) {
+        expanded = true
+      }
+    }
+    pressed?()
+  }
+
   public var body: some View {
     HStack(spacing: MuiTokens.spacingXs) {
       if expandable {
         Button {
-          withAnimation(.easeInOut(duration: 0.12)) {
-            expanded.toggle()
-          }
+          handleChevronToggle()
         } label: {
           MuiIcon(name: "chevron_right", size: .sm, color: MuiTokens.textMuted)
             .rotationEffect(.degrees(expanded ? 90 : 0))
@@ -69,13 +84,7 @@ public struct MuiTreeRow: View {
       }
 
       Button {
-        guard !disabled else { return }
-        if expandOnPress && expandable && !expanded {
-          withAnimation(.easeInOut(duration: 0.12)) {
-            expanded = true
-          }
-        }
-        pressed?()
+        handleRowPress()
       } label: {
         HStack(spacing: MuiTokens.spacingXs) {
           MuiIcon(name: icon, size: .sm, color: MuiTokens.textMuted)
