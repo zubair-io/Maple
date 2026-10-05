@@ -455,3 +455,10 @@ pub use scene_linear_chain_patches::{
 #[path = "scene_linear_chain_encode_entry.rs"]
 mod scene_linear_chain_encode_entry;
 pub use scene_linear_chain_encode_entry::*;
+
+// The 10-bit display-encode entry (#1626) lives in a sibling module
+// (file-size budget); the `#[no_mangle]` symbol is unaffected by module
+// placement.
+#[path = "scene_linear_chain_encode_u10_entry.rs"]
+mod scene_linear_chain_encode_u10_entry;
+pub use scene_linear_chain_encode_u10_entry::*;

@@ -120,6 +120,43 @@ pub fn encode_display_srgb_f32(in_f32_rgba: &[f32], width: u32, height: u32) -> 
     encode_display_f32(in_f32_rgba, width, height, TargetPrimaries::Srgb)
 }
 
+/// 10-bit sibling of [`encode_display_f32`] (#1626): the same canonical
+/// display encode (Oklab gamut compression against the target primaries'
+/// hull, then the sRGB/P3-shared gamma OETF), quantized to packed 10-bit
+/// RGB triplets (`0..=1023`) via
+/// [`crate::view::quantize10::dither_and_quantize_u10`] instead of f32 RGBA.
+///
+/// Input: packed f32 RGBA display-linear Rec.2020, row-major, 4 lanes per
+/// pixel (alpha read but ignored). Output: flat row-major `Vec<u16>`, 3
+/// lanes per pixel, the buffer a 10-bit-capable display surface presents
+/// natively. The dithered 8-bit path stays the universal fallback.
+pub fn encode_display_u10_f32(
+    in_f32_rgba: &[f32],
+    width: u32,
+    height: u32,
+    target: TargetPrimaries,
+) -> Result<Vec<u16>> {
+    use crate::image::{ColorSpace, Image};
+    use crate::view::quantize10::dither_and_quantize_u10;
+
+    // Length validation + the canonical encode run inside the f32 entry —
+    // this helper only swaps the terminal pack from f32 RGBA to u10 RGB,
+    // so it cannot drift from the reference encode.
+    let encoded = encode_display_f32(in_f32_rgba, width, height, target)?;
+    let mut img = Image {
+        width,
+        height,
+        pixels: encoded
+            .chunks_exact(4)
+            .map(|c| [c[0], c[1], c[2]])
+            .collect(),
+        space: ColorSpace::DisplayEncodedSrgb,
+        nr_sampling_scale: 1.0,
+        whites_anchor_ev: None,
+    };
+    Ok(dither_and_quantize_u10(&mut img))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,5 +261,57 @@ mod tests {
             "P3 and sRGB targets produced near-identical output ({diff}) on a saturated \
              wide-gamut input — the target_primaries param looks inert"
         );
+    }
+
+    /// #1626: the 10-bit helper must byte-match the reference composition
+    /// (`encode_display_f32` then `dither_and_quantize_u10`) — it is
+    /// literally that composition, so any divergence is a bug. Black and
+    /// white pin the endpoints; every lane stays in `0..=1023`.
+    #[test]
+    fn encode_display_u10_f32_matches_reference_composition() {
+        use crate::image::{ColorSpace, Image};
+        use crate::view::quantize10::dither_and_quantize_u10;
+
+        let cases: [[f32; 3]; 4] = [
+            [0.0, 0.0, 0.0],
+            [1.0, 1.0, 1.0],
+            [0.0, 0.8, 0.0],
+            [0.46, 0.46, 0.46],
+        ];
+        for rgb in cases {
+            let input = vec![rgb[0], rgb[1], rgb[2], 1.0];
+            let out = encode_display_u10_f32(&input, 1, 1, TargetPrimaries::Srgb)
+                .expect("encode_display_u10_f32");
+            assert_eq!(out.len(), 3);
+
+            let f32_out = encode_display_f32(&input, 1, 1, TargetPrimaries::Srgb)
+                .expect("encode_display_f32");
+            let mut ref_img = Image {
+                width: 1,
+                height: 1,
+                pixels: vec![[f32_out[0], f32_out[1], f32_out[2]]],
+                space: ColorSpace::DisplayEncodedSrgb,
+                nr_sampling_scale: 1.0,
+                whites_anchor_ev: None,
+            };
+            assert_eq!(out, dither_and_quantize_u10(&mut ref_img));
+            for &lane in &out {
+                assert!(lane <= 1023, "lane {lane} out of 10-bit range");
+            }
+        }
+        let black =
+            encode_display_u10_f32(&[0.0, 0.0, 0.0, 1.0], 1, 1, TargetPrimaries::Srgb).unwrap();
+        assert_eq!(black, vec![0, 0, 0]);
+        let white =
+            encode_display_u10_f32(&[1.0, 1.0, 1.0, 1.0], 1, 1, TargetPrimaries::Srgb).unwrap();
+        assert_eq!(white, vec![1023, 1023, 1023]);
+    }
+
+    /// Length mismatch on the 10-bit helper errors (no panic) — the guard
+    /// rides inside the wrapped f32 entry.
+    #[test]
+    fn encode_display_u10_f32_rejects_size_mismatch() {
+        let r = encode_display_u10_f32(&[0.0; 10], 4, 4, TargetPrimaries::Srgb);
+        assert!(r.is_err(), "size mismatch must error");
     }
 }

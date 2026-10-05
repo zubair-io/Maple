@@ -8,6 +8,7 @@ pub mod encode;
 pub mod gamma;
 pub mod grade_inverse;
 pub mod look;
+pub mod quantize10;
 pub mod quantize16;
 
 /// Phase-0 inpainting de-risk gate (#1473) — end-to-end synthetic-raw
