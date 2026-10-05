@@ -411,6 +411,14 @@ export class LibraryStateService {
     return this.fetch_.flushPendingXmpWrites();
   }
 
+  settlePendingIndexWrites(): Promise<void> {
+    return this.fetch_.settlePendingIndexWrites();
+  }
+
+  flushPendingIndexWrites(): Promise<void> {
+    return this.fetch_.flushPendingIndexWrites();
+  }
+
   // ── Developed-preview persist flush (#2018) ─────────────────────────────────
   /** Immediately fire every pending developed-preview persist. Call on
    * navigate-away / close / editor-teardown — see

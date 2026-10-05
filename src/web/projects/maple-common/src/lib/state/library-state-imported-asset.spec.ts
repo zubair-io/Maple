@@ -233,6 +233,34 @@ describe('LibraryStateService.addImportedAsset', () => {
     );
   });
 
+  it('settles and cancels pending index writes cleanly on teardown (#4287)', async () => {
+    const fetcher = TestBed.inject(LibraryFetch);
+    const mapleCache = TestBed.inject(MapleCacheService);
+    const writeSpy = vi.spyOn(mapleCache, 'writeIndex').mockResolvedValue();
+
+    const folder = { name: 'Summer Photos', read: true, write: true };
+    await svc.openFolder(folder);
+
+    // Schedule an index write
+    (fetcher as unknown as { _scheduleIndexWrite(): void })._scheduleIndexWrite();
+
+    // Settle pending index writes cancels the scheduled timer
+    await svc.settlePendingIndexWrites();
+    expect(writeSpy).not.toHaveBeenCalled();
+
+    // Schedule again and flush
+    (fetcher as unknown as { _scheduleIndexWrite(): void })._scheduleIndexWrite();
+    await svc.flushPendingIndexWrites();
+    expect(writeSpy).toHaveBeenCalled();
+
+    // After destruction, scheduled writes do not run
+    writeSpy.mockClear();
+    fetcher.ngOnDestroy();
+    (fetcher as unknown as { _scheduleIndexWrite(): void })._scheduleIndexWrite();
+    await svc.flushPendingIndexWrites();
+    expect(writeSpy).not.toHaveBeenCalled();
+  });
+
   it('replaces stale adjustments and passthroughs when a folder is reopened', async () => {
     const folderAccess = TestBed.inject(FolderAccessService);
     const xmpStore = TestBed.inject(XmpStoreService);

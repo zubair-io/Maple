@@ -8,7 +8,7 @@
 
 import { firstValueFrom } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Injectable, effect, inject } from '@angular/core';
+import { Injectable, OnDestroy, effect, inject } from '@angular/core';
 import { FOLDER_LISTING_CACHE } from '../api/folder-listing-cache';
 import { Asset, AssetId, ColorLabel, Flag } from '../models/asset';
 import { GridFolderItem, SidebarEntry } from '../models/folder';
@@ -100,7 +100,7 @@ interface PendingApiSidecar {
 }
 
 @Injectable({ providedIn: 'root' })
-export class LibraryFetch {
+export class LibraryFetch implements OnDestroy {
   private readonly store = inject(LibraryStore);
   private readonly status = inject(LibraryStatusService);
   private readonly selection = inject(LibrarySelection);
@@ -124,6 +124,8 @@ export class LibraryFetch {
 
   // ── Index write debounce ──────────────────────────────────────────────────
   private _indexWriteTimer: ReturnType<typeof setTimeout> | null = null;
+  private _indexWriteInFlight: Promise<void> | null = null;
+  private _destroyed = false;
 
   // ── Auto-scan-on-open fire-once guard (#804) ───────────────────────────────
   // Registered-library ids we've already triggered a content-aware `/scan`
@@ -1388,10 +1390,75 @@ export class LibraryFetch {
   // ── Index write debounce ───────────────────────────────────────────────────
 
   private _scheduleIndexWrite(): void {
+    if (this._destroyed) return;
     if (this._indexWriteTimer) clearTimeout(this._indexWriteTimer);
     this._indexWriteTimer = setTimeout(() => {
-      void this._writeIndex();
+      this._indexWriteTimer = null;
+      if (this._destroyed) return;
+      const write = this._writeIndex()
+        .catch((err) => {
+          console.warn('LibraryFetch: failed to write index.json', err);
+        })
+        .finally(() => {
+          if (this._indexWriteInFlight === write) {
+            this._indexWriteInFlight = null;
+          }
+        });
+      this._indexWriteInFlight = write;
     }, 500);
+  }
+
+  /**
+   * Cancel any scheduled index-write timer and wait for any active in-flight
+   * index write to complete.
+   */
+  async settlePendingIndexWrites(): Promise<void> {
+    if (this._indexWriteTimer) {
+      clearTimeout(this._indexWriteTimer);
+      this._indexWriteTimer = null;
+    }
+    if (this._indexWriteInFlight) {
+      try {
+        await this._indexWriteInFlight;
+      } catch {
+        // Settle ignores errors
+      }
+    }
+  }
+
+  /**
+   * Flush any pending index write immediately and wait for it to complete.
+   */
+  async flushPendingIndexWrites(): Promise<void> {
+    if (this._indexWriteTimer) {
+      clearTimeout(this._indexWriteTimer);
+      this._indexWriteTimer = null;
+      const write = this._writeIndex()
+        .catch((err) => {
+          console.warn('LibraryFetch: failed to write index.json', err);
+        })
+        .finally(() => {
+          if (this._indexWriteInFlight === write) {
+            this._indexWriteInFlight = null;
+          }
+        });
+      this._indexWriteInFlight = write;
+    }
+    if (this._indexWriteInFlight) {
+      try {
+        await this._indexWriteInFlight;
+      } catch {
+        // Settle ignores errors
+      }
+    }
+  }
+
+  ngOnDestroy(): void {
+    this._destroyed = true;
+    if (this._indexWriteTimer) {
+      clearTimeout(this._indexWriteTimer);
+      this._indexWriteTimer = null;
+    }
   }
 
   // Complexity is pre-existing and out of scope for #2976 (which touched
@@ -1399,15 +1466,18 @@ export class LibraryFetch {
   // reasoning as browse-shell.component.ts's onKeydown suppression (#2293).
   // fallow-ignore-next-line complexity
   private async _writeIndex(): Promise<void> {
+    if (this._destroyed) return;
     const folder = this.store.currentFolder();
     if (!folder?.write || !this.store.folderIndex) return;
 
     // Rebuild the index from current signal state.
     let index = this.mapleCache.emptyIndex();
     const folderSlug = await this._hostedFolderSlug(folder);
+    if (this._destroyed) return;
     const assets = this.store.assets().filter((a) => a.folderId === `f-${folderSlug}`);
 
     for (const asset of assets) {
+      if (this._destroyed) return;
       const sha = await sha256Prefix16(asset.filename);
       const existing = this.store.folderIndex.assets.find((a) => a.filename === asset.filename);
       const record: IndexedAsset = {
@@ -1429,6 +1499,7 @@ export class LibraryFetch {
       index = this.mapleCache.patchAssetInIndex(index, record);
     }
 
+    if (this._destroyed) return;
     this.store.folderIndex = index;
     await this.mapleCache.writeIndex(folder, index);
   }

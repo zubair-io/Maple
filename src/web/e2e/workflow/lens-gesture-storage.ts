@@ -70,13 +70,19 @@ export async function lensGestureStorage(deployment: CycleDeployment, xml: strin
       },
       initial,
       async dispose() {
+        await library.settlePendingIndexWrites();
         app.destroy();
         if (folder) await root.removeEntry(name, { recursive: true });
       },
     };
   } catch (error) {
-    app.destroy();
-    if (folder) await root.removeEntry(name, { recursive: true });
+    try {
+      await library.settlePendingIndexWrites();
+      app.destroy();
+      if (folder) await root.removeEntry(name, { recursive: true });
+    } catch (cleanupError) {
+      console.warn('lensGestureStorage cleanup failed:', cleanupError);
+    }
     throw error;
   }
 }
