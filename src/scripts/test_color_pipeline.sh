@@ -62,29 +62,29 @@ HUE_BINS="${HUE_BINS:-12}"
 err() { printf "test_color_pipeline: %s\n" "$*" >&2; }
 
 require_cmd() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    err "required command not found: $1"
-    exit 2
-  fi
+	if ! command -v "$1" >/dev/null 2>&1; then
+		err "required command not found: $1"
+		exit 2
+	fi
 }
 
 require_cmd python3
 
 if [[ ! -f "$COMPARE_PY" ]]; then
-  err "compare_images.py not found at $COMPARE_PY"
-  exit 2
+	err "compare_images.py not found at $COMPARE_PY"
+	exit 2
 fi
 
 if [[ ! -f "$MANIFEST" ]]; then
-  echo "test_color_pipeline: manifest not found at $MANIFEST — skipping"
-  echo "test_color_pipeline: (gitignored references; CI without references is a soft pass)"
-  exit 0
+	echo "test_color_pipeline: manifest not found at $MANIFEST — skipping"
+	echo "test_color_pipeline: (gitignored references; CI without references is a soft pass)"
+	exit 0
 fi
 
 if [[ ! -f "$BUDGETS" ]]; then
-  echo "test_color_pipeline: budgets file not found at $BUDGETS — skipping"
-  echo "test_color_pipeline: (run after Task 3 to seed budgets.json from current numbers)"
-  exit 0
+	echo "test_color_pipeline: budgets file not found at $BUDGETS — skipping"
+	echo "test_color_pipeline: (run after Task 3 to seed budgets.json from current numbers)"
+	exit 0
 fi
 
 # Build maple-cli, rebuilding whenever it is stale — not only when missing
@@ -104,24 +104,24 @@ fi
 # build) — that override is how a machine without a Rust toolchain, or a
 # deliberate A/B against a specific binary, opts out.
 if [[ -n "${MAPLE_CLI:-}" ]]; then
-  echo "test_color_pipeline: using caller-provided MAPLE_CLI=$MAPLE_CLI (no rebuild)"
-  if [[ ! -x "$MAPLE_CLI" ]]; then
-    err "MAPLE_CLI override is not an executable: $MAPLE_CLI"
-    exit 2
-  fi
+	echo "test_color_pipeline: using caller-provided MAPLE_CLI=$MAPLE_CLI (no rebuild)"
+	if [[ ! -x "$MAPLE_CLI" ]]; then
+		err "MAPLE_CLI override is not an executable: $MAPLE_CLI"
+		exit 2
+	fi
 else
-  require_cmd cargo
-  echo "test_color_pipeline: building maple-cli (release; cargo rebuilds only if stale) ..."
-  ( cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli >/dev/null )
-  MAPLE_CLI="$MAPLE_CLI_RELEASE"
+	require_cmd cargo
+	echo "test_color_pipeline: building maple-cli (release; cargo rebuilds only if stale) ..."
+	(cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli >/dev/null)
+	MAPLE_CLI="$MAPLE_CLI_RELEASE"
 fi
 
 # ----- workspace -----------------------------------------------------------
 WORKDIR="$(mktemp -d -t maple-calibrate-XXXXXX)"
 if [[ -z "${KEEP_TMP:-}" ]]; then
-  trap 'rm -rf "$WORKDIR"' EXIT
+	trap 'rm -rf "$WORKDIR"' EXIT
 else
-  echo "test_color_pipeline: KEEP_TMP set — candidates in $WORKDIR"
+	echo "test_color_pipeline: KEEP_TMP set — candidates in $WORKDIR"
 fi
 
 CANDIDATES_DIR="$WORKDIR/candidates"
@@ -148,9 +148,9 @@ echo "test_color_pipeline: rendering candidates (neutral) ..."
 # --no-bundled-lens: the ACR references were rendered without lens-profile
 # corrections, so the colour gate measures colour with the same geometry
 # (#3564); embedded DNG corrections still apply on both sides.
-batch_args=( batch --manifest "$MANIFEST" --out-dir "$CANDIDATES_DIR" --profile neutral --no-bundled-lens )
+batch_args=(batch --manifest "$MANIFEST" --out-dir "$CANDIDATES_DIR" --profile neutral --no-bundled-lens)
 if [[ -n "$FILTER" ]]; then
-  batch_args+=( --cases-filter "$FILTER" )
+	batch_args+=(--cases-filter "$FILTER")
 fi
 # maple-cli batch returns non-zero if ANY case fails (e.g. unsupported X3F).
 # That's expected with a heterogeneous fixture set — don't abort the script,
@@ -160,8 +160,8 @@ fi
 batch_neutral_exit=0
 "$MAPLE_CLI" "${batch_args[@]}" 2>&1 | sed 's/^/  /' || batch_neutral_exit=$?
 if [[ "$batch_neutral_exit" -ne 0 ]]; then
-  echo "test_color_pipeline: WARNING — maple-cli batch (neutral) exited $batch_neutral_exit;"
-  echo "test_color_pipeline: cases it failed to render are counted as skipped(no-candidate) below"
+	echo "test_color_pipeline: WARNING — maple-cli batch (neutral) exited $batch_neutral_exit;"
+	echo "test_color_pipeline: cases it failed to render are counted as skipped(no-candidate) below"
 fi
 echo ""
 
@@ -177,12 +177,12 @@ echo "test_color_pipeline: rendering candidates (auto) ..."
 # nothing else in the manifest. If FILTER is already narrower (e.g.
 # "test_0007"), honour it; otherwise default to "baseline".
 auto_filter="${FILTER:-baseline}"
-auto_batch_args=( batch --manifest "$MANIFEST" --out-dir "$AUTO_CANDIDATES_DIR" --profile auto --cases-filter "$auto_filter" --no-bundled-lens )
+auto_batch_args=(batch --manifest "$MANIFEST" --out-dir "$AUTO_CANDIDATES_DIR" --profile auto --cases-filter "$auto_filter" --no-bundled-lens)
 batch_auto_exit=0
 "$MAPLE_CLI" "${auto_batch_args[@]}" 2>&1 | sed 's/^/  /' || batch_auto_exit=$?
 if [[ "$batch_auto_exit" -ne 0 ]]; then
-  echo "test_color_pipeline: WARNING — maple-cli batch (auto) exited $batch_auto_exit;"
-  echo "test_color_pipeline: cases it failed to render are counted as skipped(no-candidate) below"
+	echo "test_color_pipeline: WARNING — maple-cli batch (auto) exited $batch_auto_exit;"
+	echo "test_color_pipeline: cases it failed to render are counted as skipped(no-candidate) below"
 fi
 echo ""
 
@@ -250,6 +250,7 @@ def pick_reference(outputs: list[dict]) -> Optional[dict]:
 
 per_fixture: dict[str, list[dict]] = defaultdict(list)
 all_rows: list[dict] = []
+case_records: list[dict] = []
 skipped_no_ref = 0
 skipped_no_cand = 0
 skipped_no_raw = 0
@@ -267,17 +268,38 @@ for case in sorted(cases, key=lambda c: c["name"]):
     # but we want to surface the skip cleanly.
     if not os.path.exists(case["raw"]):
         skipped_no_raw += 1
+        case_records.append({
+            "fixture": fixture,
+            "case": case_label,
+            "profile": "neutral",
+            "resolution": preferred_res,
+            "status": "skipped_no_raw",
+        })
         continue
 
     flat = name.replace("/", "_")
     cand_path = os.path.join(cand_dir, f"{flat}.png")
     if not os.path.exists(cand_path):
         skipped_no_cand += 1
+        case_records.append({
+            "fixture": fixture,
+            "case": case_label,
+            "profile": "neutral",
+            "resolution": preferred_res,
+            "status": "skipped_no_candidate",
+        })
         continue
 
     ref = pick_reference(case.get("outputs", []))
     if ref is None:
         skipped_no_ref += 1
+        case_records.append({
+            "fixture": fixture,
+            "case": case_label,
+            "profile": "neutral",
+            "resolution": preferred_res,
+            "status": "skipped_no_reference",
+        })
         continue
     try:
         metrics = compare_images.diff_manifest_case(cand_path, case.get("outputs", []), preferred_res,
@@ -288,6 +310,14 @@ for case in sorted(cases, key=lambda c: c["name"]):
         print(f"{fixture:<12} {case_label:<22} {'DIFF':>9}  diff failed: {e}",
               file=sys.stderr)
         errors += 1
+        case_records.append({
+            "fixture": fixture,
+            "case": case_label,
+            "profile": "neutral",
+            "resolution": preferred_res,
+            "status": "error",
+            "error": str(e),
+        })
         continue
 
     row = {
@@ -323,6 +353,15 @@ for case in sorted(cases, key=lambda c: c["name"]):
             if abs(v) > bud["bias"]:
                 breach.append(f"bias_{n} {v:+.4f}>{bud['bias']:.4f}")
     row["breach"] = breach
+    case_records.append({
+        "fixture": fixture,
+        "case": case_label,
+        "profile": "neutral",
+        "resolution": preferred_res,
+        "status": "breach" if breach else "passed",
+        "breaches": breach,
+        "mean": row["mean"],
+    })
 
     # Tabular row.
     n_pix_str = f"{row['n_pixels'] / 1e6:5.2f}M" if row["n_pixels"] >= 1e6 else f"{row['n_pixels']:>8}"
@@ -429,8 +468,10 @@ summary = {
 print(json.dumps(summary))
 qual_path = os.environ.get("MAPLE_QUAL_SUMMARY")
 if qual_path:
+    qual_entry = dict(summary)
+    qual_entry["cases"] = case_records
     with open(qual_path, "a") as qf:
-        qf.write(json.dumps(summary) + "\n")
+        qf.write(json.dumps(qual_entry) + "\n")
 
 sys.exit(1 if (errors > 0 or breach_count > 0 or fail_no_comparisons) else 0)
 PY
@@ -488,6 +529,7 @@ def pick_reference(outputs):
 
 per_fixture: dict = defaultdict(list)
 all_rows = []
+case_records: list[dict] = []
 skipped_no_ref = 0
 skipped_no_cand = 0
 skipped_no_raw = 0
@@ -500,17 +542,38 @@ for case in sorted(cases, key=lambda c: c["name"]):
 
     if not os.path.exists(case["raw"]):
         skipped_no_raw += 1
+        case_records.append({
+            "fixture": fixture,
+            "case": case_label,
+            "profile": "auto",
+            "resolution": preferred_res,
+            "status": "skipped_no_raw",
+        })
         continue
 
     flat = name.replace("/", "_")
     cand_path = os.path.join(cand_dir, f"{flat}.png")
     if not os.path.exists(cand_path):
         skipped_no_cand += 1
+        case_records.append({
+            "fixture": fixture,
+            "case": case_label,
+            "profile": "auto",
+            "resolution": preferred_res,
+            "status": "skipped_no_candidate",
+        })
         continue
 
     ref = pick_reference(case.get("outputs", []))
     if ref is None:
         skipped_no_ref += 1
+        case_records.append({
+            "fixture": fixture,
+            "case": case_label,
+            "profile": "auto",
+            "resolution": preferred_res,
+            "status": "skipped_no_reference",
+        })
         continue
     try:
         metrics = compare_images.diff_manifest_case(cand_path, case.get("outputs", []), preferred_res,
@@ -521,6 +584,14 @@ for case in sorted(cases, key=lambda c: c["name"]):
         print(f"{fixture:<12} {case_label:<22} {'DIFF':>9}  diff failed: {e}",
               file=sys.stderr)
         errors += 1
+        case_records.append({
+            "fixture": fixture,
+            "case": case_label,
+            "profile": "auto",
+            "resolution": preferred_res,
+            "status": "error",
+            "error": str(e),
+        })
         continue
 
     row = {
@@ -553,6 +624,15 @@ for case in sorted(cases, key=lambda c: c["name"]):
             if abs(v) > bud["bias"]:
                 breach.append(f"bias_{n} {v:+.4f}>{bud['bias']:.4f}")
     row["breach"] = breach
+    case_records.append({
+        "fixture": fixture,
+        "case": case_label,
+        "profile": "auto",
+        "resolution": preferred_res,
+        "status": "breach" if breach else "passed",
+        "breaches": breach,
+        "mean": row["mean"],
+    })
 
     n_pix_str = f"{row['n_pixels'] / 1e6:5.2f}M" if row["n_pixels"] >= 1e6 else f"{row['n_pixels']:>8}"
     verdict = "FAIL" if breach else "PASS"
@@ -621,8 +701,10 @@ summary = {
 print(json.dumps(summary))
 qual_path = os.environ.get("MAPLE_QUAL_SUMMARY")
 if qual_path:
+    qual_entry = dict(summary)
+    qual_entry["cases"] = case_records
     with open(qual_path, "a") as qf:
-        qf.write(json.dumps(summary) + "\n")
+        qf.write(json.dumps(qual_entry) + "\n")
 
 sys.exit(1 if (errors > 0 or breach_count > 0 or fail_no_comparisons) else 0)
 PY_AUTO
@@ -698,6 +780,7 @@ def pick_reference(outputs):
 
 per_fixture: dict = defaultdict(list)
 all_rows = []
+case_records: list[dict] = []
 skipped_no_ref = 0
 skipped_no_cand = 0
 skipped_no_raw = 0
@@ -710,17 +793,38 @@ for case in sorted(cases, key=lambda c: c["name"]):
 
     if not os.path.exists(case["raw"]):
         skipped_no_raw += 1
+        case_records.append({
+            "fixture": fixture,
+            "case": case_label,
+            "profile": "detail-fullres",
+            "resolution": preferred_res,
+            "status": "skipped_no_raw",
+        })
         continue
 
     flat = name.replace("/", "_")
     cand_path = os.path.join(cand_dir, f"{flat}.png")
     if not os.path.exists(cand_path):
         skipped_no_cand += 1
+        case_records.append({
+            "fixture": fixture,
+            "case": case_label,
+            "profile": "detail-fullres",
+            "resolution": preferred_res,
+            "status": "skipped_no_candidate",
+        })
         continue
 
     ref = pick_reference(case.get("outputs", []))
     if ref is None:
         skipped_no_ref += 1
+        case_records.append({
+            "fixture": fixture,
+            "case": case_label,
+            "profile": "detail-fullres",
+            "resolution": preferred_res,
+            "status": "skipped_no_reference",
+        })
         continue
     try:
         metrics = compare_images.diff_manifest_case(cand_path, case.get("outputs", []), preferred_res,
@@ -731,6 +835,14 @@ for case in sorted(cases, key=lambda c: c["name"]):
         print(f"{fixture:<12} {case_label:<22} {'DIFF':>9}  diff failed: {e}",
               file=sys.stderr)
         errors += 1
+        case_records.append({
+            "fixture": fixture,
+            "case": case_label,
+            "profile": "detail-fullres",
+            "resolution": preferred_res,
+            "status": "error",
+            "error": str(e),
+        })
         continue
 
     row = {
@@ -763,6 +875,15 @@ for case in sorted(cases, key=lambda c: c["name"]):
             if abs(v) > bud["bias"]:
                 breach.append(f"bias_{n} {v:+.4f}>{bud['bias']:.4f}")
     row["breach"] = breach
+    case_records.append({
+        "fixture": fixture,
+        "case": case_label,
+        "profile": "detail-fullres",
+        "resolution": preferred_res,
+        "status": "breach" if breach else "passed",
+        "breaches": breach,
+        "mean": row["mean"],
+    })
 
     n_pix_str = f"{row['n_pixels'] / 1e6:5.2f}M" if row["n_pixels"] >= 1e6 else f"{row['n_pixels']:>8}"
     verdict = "FAIL" if breach else "PASS"
@@ -831,8 +952,10 @@ summary = {
 print(json.dumps(summary))
 qual_path = os.environ.get("MAPLE_QUAL_SUMMARY")
 if qual_path:
+    qual_entry = dict(summary)
+    qual_entry["cases"] = case_records
     with open(qual_path, "a") as qf:
-        qf.write(json.dumps(summary) + "\n")
+        qf.write(json.dumps(qual_entry) + "\n")
 
 sys.exit(1 if (errors > 0 or breach_count > 0 or fail_no_comparisons) else 0)
 PY_DETAIL
@@ -844,20 +967,12 @@ PY_DETAIL
 # and a batch that produced nothing trips the compared==0 gate instead.
 echo ""
 echo "test_color_pipeline: batch exits: neutral=$batch_neutral_exit auto=$batch_auto_exit; diff passes: neutral=$neutral_exit auto=$auto_exit detail=$detail_exit"
-# Capability-registry evidence line (#2430): one comparison per
-# budgets.json cell across the three passes. `executed` is every comparison
-# made, `failed` every budget breach or diff error; cases a pass skipped by
-# design (a sharpen/nr case in the `down` pass, a non-baseline case in the
-# auto pass) are covered by their own pass, so a genuinely missing
-# comparison shows up as executed < expected in the record, not as a skip.
-python3 - "$MAPLE_QUAL_SUMMARY" <<'PY_QUAL'
-import json, sys
-rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
-executed = sum(r.get("compared", 0) for r in rows)
-failed = sum(r.get("breaches", 0) + r.get("errors", 0) for r in rows)
-print(f"qualification: executed={executed} failed={failed} skipped=0")
-PY_QUAL
+# Capability-registry evidence line (#2430, #4226): unique declared fixture/case
+# identities across the three passes. Executed comparisons (806 in the canonical
+# corpus) are reported alongside unique budget cases (796), preventing
+# CountMismatch when dual-resolution cases execute in multiple passes.
+python3 "$REPO_ROOT/src/scripts/color_qualification_accounting.py" "$MAPLE_QUAL_SUMMARY"
 if [[ "$neutral_exit" -ne 0 ]] || [[ "$auto_exit" -ne 0 ]] || [[ "$detail_exit" -ne 0 ]]; then
-  exit 1
+	exit 1
 fi
 exit 0
