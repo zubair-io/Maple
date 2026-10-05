@@ -1,3 +1,7 @@
+import {
+  LensCorrectionCapabilities,
+  type LensCorrectionCapability,
+} from '../state/library-store-lens-corrections';
 // editor-state.test-helpers.ts — shared test double for the EditorStateService specs.
 //
 // Extracted from `editor-state.service.spec.ts` (#1153) so the
@@ -28,6 +32,7 @@ export interface LibraryStub {
   bytesFor(id: string): Uint8Array | undefined;
   bytesForAsset(id: string): Promise<Uint8Array>;
   adjustmentFor(id: string): Signal<AdjustmentModel>;
+  lensCorrectionsFor(id: string): LensCorrectionCapability;
   updateAdjustment(id: string, patch: Partial<AdjustmentModel>): void;
   asShotWbFor(id: string): { temperature: number; tint: number } | undefined;
 }
@@ -44,6 +49,7 @@ export interface LibraryStub {
  * the specs directly, and only the state it captures is ever private.
  */
 export function makeLibraryStub(): LibraryStub {
+  const capabilities = new LensCorrectionCapabilities();
   const models = new Map<string, ReturnType<typeof signal<AdjustmentModel>>>();
   const asShot = new Map<string, { temperature: number; tint: number }>();
   const bytesCache = new Map<string, Uint8Array>();
@@ -57,6 +63,7 @@ export function makeLibraryStub(): LibraryStub {
   };
 
   return {
+    lensCorrectionsFor: capabilities.for.bind(capabilities),
     assets: signal([{ id: 'asset-1', filename: 'test.dng' }]),
 
     updateCount: 0,

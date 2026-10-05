@@ -28,10 +28,18 @@ export class ProfileSectionComponent {
   readonly profile = computed<AdjustmentModel['profile']>(
     () => this.adjustment()?.profile ?? 'Auto',
   );
+  readonly autoFit = computed(() => {
+    const id = this.library.focusedAssetId();
+    return id ? this.library.lensCorrectionsFor(id).autoFit : undefined;
+  });
   readonly description = computed(() =>
     this.profile() === 'Auto'
-      ? "Fits color and contrast to the camera's embedded preview. Uses Neutral when no preview is available."
-      : 'Uses the fixed AgX view transform without matching the embedded preview.',
+      ? this.autoFit() === true
+        ? 'Color and contrast matched to this image’s embedded camera preview.'
+        : this.autoFit() === false
+          ? 'Auto matching is unavailable for this image.'
+          : 'Checking Auto matching for this image…'
+      : 'Uses a fixed base rendering.',
   );
 
   select(value: string): void {

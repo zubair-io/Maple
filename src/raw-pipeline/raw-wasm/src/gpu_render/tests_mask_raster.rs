@@ -5,7 +5,7 @@
 //! — resolve the parsed model's `Mask::Bitmap` layer against the registry,
 //! then fold the raster into the [`raw_gpu::FullChainInputs`] the live chain
 //! binds as its mask plane — is the platform-neutral `mask_registry::
-//! parse_model` + `chain_inputs_for_model` plumbing this file exercises
+//! parse_model` + `chain_inputs_with_status` plumbing this file exercises
 //! directly, the same split `tests_film.rs` uses. The GPU pass itself is
 //! parity-gated against the CPU reference in `raw_gpu::local_adjustments::
 //! tests_bitmap` and, inside the full chain, in raw-ffi's
@@ -51,7 +51,7 @@ fn sidecar_with_person_skin(digest: &str) -> String {
 /// Pure-plumbing gate (no GPU): a registered raster reaches the chain inputs
 /// as exactly one `GpuMaskRaster` carrying its id and pixels, and the flat
 /// layer wire names that id — so the mask pass samples it. Skips when the
-/// synthetic DNG fixture is absent (`chain_inputs_for_model` needs a decoded
+/// synthetic DNG fixture is absent (`chain_inputs_with_status` needs a decoded
 /// frame for the Auto Profile fit), mirroring `tests_film.rs`.
 #[test]
 fn chain_inputs_carry_a_registered_bitmap_raster() {
@@ -80,7 +80,7 @@ fn chain_inputs_carry_a_registered_bitmap_raster() {
         other => panic!("expected Bitmap, got {other:?}"),
     }
 
-    let inputs = super::chain_inputs_for_model(
+    let (inputs, _) = super::chain_inputs_with_status(
         &raw_img,
         &bytes,
         ext,
@@ -107,7 +107,7 @@ fn chain_inputs_carry_a_registered_bitmap_raster() {
     mask_registry::release(id);
     let unresolved =
         mask_registry::parse_model(Some(&sidecar_with_person_skin(digest))).expect("parse");
-    let inputs = super::chain_inputs_for_model(
+    let (inputs, _) = super::chain_inputs_with_status(
         &raw_img,
         &bytes,
         ext,

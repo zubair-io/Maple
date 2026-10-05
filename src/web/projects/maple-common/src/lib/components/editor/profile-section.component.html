@@ -8,4 +8,11 @@
     (valueChange)="select($event)"
   />
 </div>
-<p class="mt-2 text-xs leading-4 text-text-muted">{{ description() }}</p>
+<p
+  role="status"
+  aria-live="polite"
+  data-testid="profile-auto-status"
+  class="mt-2 text-xs leading-4 text-text-muted"
+>
+  {{ description() }}
+</p>

@@ -1,3 +1,5 @@
+import { testPlatformPresent } from './image-canvas.platform-probe';
+import { settleFailedAutoFit } from './image-canvas.fit-failure';
 import { coldOpenRenderedModel } from './image-canvas.cold-open-intent';
 import { hasCalibratedWhiteBalance } from '../../state/camera-support';
 // ImageCanvasGpuPresent — the GPU live-render present path for ImageCanvasComponent
@@ -29,7 +31,11 @@ import { hasCalibratedWhiteBalance } from '../../state/camera-support';
 
 import { effect, signal, untracked } from '@angular/core';
 import type { ElementRef, Injector, WritableSignal } from '@angular/core';
-import type { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
+import type {
+  RawPipelineService,
+  OpenedLiveSession,
+  RenderedLiveSession,
+} from '../../raw-pipeline/raw-pipeline.service';
 import type { LibraryStateService } from '../../state/library-state.service';
 import type { ImageCanvasService } from './image-canvas.service';
 import type { XmpSerializerService } from '../../xmp/xmp-serializer.service';
@@ -115,7 +121,8 @@ export class ImageCanvasGpuPresent {
   private canvasEl: HTMLCanvasElement | null = null;
   // A scalar request cannot replace frozen prefix fields such as Profile.
   // Establish a compatible prefix through full XMP before using the fast path.
-  private scalarPrefixReady = false;
+  private scalarPrefixRevision: number | undefined;
+  private scalarPrefixAsset: AssetId | null = null;
 
   /**
    * Set to `true` once a black-present is detected for this session (#1572). When
@@ -163,91 +170,7 @@ export class ImageCanvasGpuPresent {
    * Returns true if working, false if broken/black canvas readback is produced.
    */
   static async testGpuPresent(): Promise<boolean> {
-    if (typeof (globalThis as any).vitest !== 'undefined') return true;
-    if (typeof window === 'undefined' || typeof navigator === 'undefined') return true;
-    if (typeof OffscreenCanvas === 'undefined') return false;
-
-    // 1. Probe WebGL2 composition
-    try {
-      const canvas = new OffscreenCanvas(4, 4);
-      const gl = canvas.getContext('webgl2');
-      if (!gl) return false;
-      gl.clearColor(0.5, 0.75, 1.0, 1.0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-
-      const temp2d = new OffscreenCanvas(4, 4);
-      const ctx = temp2d.getContext('2d');
-      if (!ctx) return false;
-      ctx.drawImage(canvas, 0, 0);
-      const imgData = ctx.getImageData(0, 0, 4, 4);
-      const pixel = imgData.data;
-      if (pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0 && pixel[3] === 0) {
-        return false; // Broken presentation
-      }
-    } catch {
-      return false;
-    }
-
-    // 2. Probe WebGPU composition if supported
-    const nav = navigator as any;
-    if (nav.gpu) {
-      try {
-        const adapter = await nav.gpu.requestAdapter();
-        if (!adapter) return false;
-        const device = await adapter.requestDevice();
-        if (!device) return false;
-
-        const canvas = new OffscreenCanvas(4, 4);
-        const context = (canvas as any).getContext('webgpu');
-        if (!context) {
-          device.destroy();
-          return false;
-        }
-
-        const format = nav.gpu.getPreferredCanvasFormat();
-        context.configure({
-          device,
-          format,
-          usage: 16 | 1, // GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
-        });
-
-        const encoder = device.createCommandEncoder();
-        const renderPass = encoder.beginRenderPass({
-          colorAttachments: [
-            {
-              view: context.getCurrentTexture().createView(),
-              clearValue: { r: 0.5, g: 0.75, b: 1.0, a: 1.0 },
-              loadOp: 'clear',
-              storeOp: 'store',
-            },
-          ],
-        });
-        renderPass.end();
-        device.queue.submit([encoder.finish()]);
-
-        await device.queue.onSubmittedWorkDone();
-
-        const temp2d = new OffscreenCanvas(4, 4);
-        const ctx = temp2d.getContext('2d');
-        if (!ctx) {
-          device.destroy();
-          return false;
-        }
-        ctx.drawImage(canvas, 0, 0);
-        const imgData = ctx.getImageData(0, 0, 4, 4);
-        const pixel = imgData.data;
-
-        device.destroy();
-
-        if (pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0 && pixel[3] === 0) {
-          return false; // Broken WebGPU presentation
-        }
-      } catch {
-        return false;
-      }
-    }
-
-    return true;
+    return testPlatformPresent();
   }
 
   constructor(private readonly host: GpuPresentHost) {}
@@ -268,27 +191,8 @@ export class ImageCanvasGpuPresent {
    * behaves identically — only the render mechanism differs.
    */
   async open(assetId: AssetId, bytes: Uint8Array, ext: string): Promise<boolean> {
-    this.scalarPrefixReady = false;
-    // Skip the GPU probe entirely for the rest of this page session once a
-    // black-present has been confirmed (#1572). No teardown needed — nothing opened.
-    if (ImageCanvasGpuPresent.presentBroken) return false;
-    // `OffscreenCanvas` / `transferControlToOffscreen` must exist (they do on every
-    // WebGPU-capable browser; guard so an old browser falls back cleanly).
-    if (typeof OffscreenCanvas === 'undefined') return false;
-
-    // #2415: on an insecure LAN http:// origin (or a browser with no WebGPU at
-    // all) the session-open below would fail for the same reason on EVERY
-    // attempt. Classify it up front (cheap, synchronous) — `insecure-context`
-    // only when the origin itself is insecure, so the notice's "serve HTTPS"
-    // pointer is never shown for a browser that just lacks WebGPU — and skip
-    // the doomed worker round-trip. Any failure past this gate (a gpu-off WASM
-    // bundle, a decode error, a broken present) reports `session-open-failed`
-    // in the catch below.
-    const preOpenReason = ImageCanvasGpuPresent.preOpenFallbackReason();
-    if (preOpenReason !== null) {
-      this.host.gpuFallback.report(preOpenReason);
-      return false;
-    }
+    this.scalarPrefixRevision = undefined;
+    if (!this.canOpen()) return false;
 
     // Run the one-time GPU presentation check before opening the session.
     if (!ImageCanvasGpuPresent.presentTested) {
@@ -302,6 +206,8 @@ export class ImageCanvasGpuPresent {
       }
     }
 
+    const state: LibraryStateService = this.host.state;
+    const fitRevision = state.autoFitRevisionFor(assetId);
     this.host.loading.set(true);
     performance.mark(`maple:open:${assetId}:start`);
     try {
@@ -334,50 +240,7 @@ export class ImageCanvasGpuPresent {
         return true; // superseded; the newer open/teardown owns the canvas now
       }
 
-      this.colorSpace.set(info.colorSpace);
-      this.active.set(true);
-      // A GPU session is up — drop any fallback notice from an earlier failed
-      // asset/session so the UI doesn't keep reporting a degraded path that's
-      // no longer true.
-      this.host.gpuFallback.clear();
-      // Clear the 2D bitmap so the (hidden) 2D canvas doesn't retain stale pixels.
-      this.host.imageBitmap()?.close();
-      this.host.imageBitmap.set(null);
-      // Feed the scopes from the GPU readback of the first presented frame (#1045);
-      // null when the worker couldn't snapshot the surface → scopes use their
-      // pseudo fallback (today's flag-on behaviour, no regression).
-      this.host.canvasSvc.currentPixels.set(info.scopePixels ?? null);
-
-      // Same cold-open bookkeeping as the 2D path so #846 dedups identically.
-      // The session dims are viewport-sized (#1080); record the NATIVE dims the
-      // reply carries so the asset record + zoom math keep the fit/100% contract
-      // (#1101). `?? info` covers producers that never size down.
-      const nativeW = info.nativeWidth ?? info.width;
-      const nativeH = info.nativeHeight ?? info.height;
-      this.host.state.updateAssetDimensions(assetId, nativeW, nativeH);
-      this.host.recordNativeDims(nativeW, nativeH);
-      this.host.state.seedAsShotWhiteBalance(
-        assetId,
-        info.asShotTemperature,
-        info.asShotTint,
-        hasCalibratedWhiteBalance(info.cameraSupport),
-      );
-      // #3182 — see `decodeSupportFrom` in `image-canvas.render2d.ts`.
-      const support = decodeSupportFrom(info);
-      this.host.state.seedLensCorrections(
-        assetId,
-        support.hasLensCorrections,
-        support.lensCorrectionCaInert,
-        support.cameraSupport,
-        support.lensProfile,
-      );
-      // Release queued edits only after recording the frame's actual intent (#4101).
-      if (this.host.lastRenderedXmp === null) {
-        this.host.lastRenderedXmp = this.host.serializeForRender(
-          coldOpenRenderedModel(openModel, info),
-        );
-      }
-      this.host.markColdOpenDone();
+      this.publishOpenedFrame(assetId, info, openModel, fitRevision);
       performance.mark(`maple:open:${assetId}:paint`);
       performance.measure(
         `maple:open`,
@@ -398,6 +261,82 @@ export class ImageCanvasGpuPresent {
     }
   }
 
+  private canOpen(): boolean {
+    // Skip the GPU probe entirely for the rest of this page session once a
+    // black-present has been confirmed (#1572). No teardown needed — nothing opened.
+    if (ImageCanvasGpuPresent.presentBroken) return false;
+    // `OffscreenCanvas` / `transferControlToOffscreen` must exist (they do on every
+    // WebGPU-capable browser; guard so an old browser falls back cleanly).
+    if (typeof OffscreenCanvas === 'undefined') return false;
+
+    // #2415: on an insecure LAN http:// origin (or a browser with no WebGPU at
+    // all) the session-open below would fail for the same reason on EVERY
+    // attempt. Classify it up front (cheap, synchronous) — `insecure-context`
+    // only when the origin itself is insecure, so the notice's "serve HTTPS"
+    // pointer is never shown for a browser that just lacks WebGPU — and skip
+    // the doomed worker round-trip. Any failure past this gate (a gpu-off WASM
+    // bundle, a decode error, a broken present) reports `session-open-failed`
+    // in the catch below.
+    const preOpenReason = ImageCanvasGpuPresent.preOpenFallbackReason();
+    if (preOpenReason !== null) {
+      this.host.gpuFallback.report(preOpenReason);
+      return false;
+    }
+
+    return true;
+  }
+
+  private publishOpenedFrame(
+    assetId: AssetId,
+    info: OpenedLiveSession,
+    openModel: AdjustmentModel,
+    fitRevision: number,
+  ): void {
+    this.colorSpace.set(info.colorSpace);
+    this.active.set(true);
+    // A GPU session is up — drop any fallback notice from an earlier failed
+    // asset/session so the UI doesn't keep reporting a degraded path that's
+    // no longer true.
+    this.host.gpuFallback.clear();
+    // Clear the 2D bitmap so the (hidden) 2D canvas doesn't retain stale pixels.
+    this.host.imageBitmap()?.close();
+    this.host.imageBitmap.set(null);
+    // Feed the scopes from the GPU readback of the first presented frame (#1045);
+    // null when the worker couldn't snapshot the surface → scopes use their
+    // pseudo fallback (today's flag-on behaviour, no regression).
+    this.host.canvasSvc.currentPixels.set(info.scopePixels ?? null);
+
+    // Decode reports native dimensions separately from viewport pixels.
+    const nativeW = info.nativeWidth ?? info.width;
+    const nativeH = info.nativeHeight ?? info.height;
+    this.host.state.updateAssetDimensions(assetId, nativeW, nativeH);
+    this.host.recordNativeDims(nativeW, nativeH);
+    this.host.state.seedAsShotWhiteBalance(
+      assetId,
+      info.asShotTemperature,
+      info.asShotTint,
+      hasCalibratedWhiteBalance(info.cameraSupport),
+    );
+    const support = decodeSupportFrom(info);
+    const state: LibraryStateService = this.host.state;
+    state.seedLensCorrections(
+      assetId,
+      support.hasLensCorrections,
+      support.lensCorrectionCaInert,
+      support.cameraSupport,
+      support.lensProfile,
+      info.autoFit,
+      fitRevision,
+    );
+    // Release queued edits only after recording the frame's actual intent (#4101).
+    if (this.host.lastRenderedXmp === null) {
+      this.host.lastRenderedXmp = this.host.serializeForRender(
+        coldOpenRenderedModel(openModel, info),
+      );
+    }
+    this.host.markColdOpenDone();
+  }
+
   /**
    * Re-render the open session for `xmp` and present to the OffscreenCanvas (the #846
    * edit path). The display present itself is zero-readback (the OffscreenCanvas holds
@@ -411,29 +350,59 @@ export class ImageCanvasGpuPresent {
    * the stale result" intent.
    */
   async render(xmp: string, generation: number, params?: Float32Array): Promise<boolean> {
-    const fastParams = this.scalarPrefixReady ? params : undefined;
+    const state: LibraryStateService = this.host.state;
+    const fitAsset = this.host.currentAssetId;
+    const fitRevision = fitAsset ? state.autoFitRevisionFor(fitAsset) : undefined;
+    const fastParams =
+      fitRevision !== undefined &&
+      fitAsset === this.scalarPrefixAsset &&
+      fitRevision === this.scalarPrefixRevision
+        ? params
+        : undefined;
     // Clear before dispatch: a rapid Neutral -> Auto flip must send full XMP
     // even while the Neutral request is still queued in the worker (#2441).
-    if (!fastParams) this.scalarPrefixReady = false;
+    if (!fastParams) this.scalarPrefixRevision = undefined;
     try {
       const rendered = await this.host.pipeline.renderLiveSession(xmp, fastParams);
       // Stale guard (same intent as the 2D path's generation check): a newer edit
       // bumped the generation while this render was in flight — drop its result so
       // a stale scope readback can't overwrite a fresher frame's.
       if (generation !== this.host.renderGeneration) return false;
-      // #3479: an XMP render re-develops the prefix and reports which imported
-      // profile it consumed; a scalar-params tick carries no verdict.
-      if (!fastParams && this.host.currentAssetId)
-        this.host.state.seedLensProfile(this.host.currentAssetId, rendered.lensProfile ?? null);
-      this.scalarPrefixReady = params !== undefined;
+      this.publishRenderedStatus(rendered, fastParams, params, fitAsset, fitRevision);
       // Scopes are no longer fed from this reply (#3397): the readback now
       // arrives as a `scope-sample` broadcast, mirrored into `currentPixels`
       // by the component's scope effect.
       return true;
     } catch (e) {
       console.error('[image-canvas] GPU session re-render failed:', e);
+      settleFailedAutoFit(this.host, fitAsset, generation, fitRevision);
       return false;
     }
+  }
+
+  private publishRenderedStatus(
+    rendered: RenderedLiveSession,
+    fastParams: Float32Array | undefined,
+    params: Float32Array | undefined,
+    fitAsset: AssetId | null,
+    fitRevision: number | undefined,
+  ): void {
+    const state: LibraryStateService = this.host.state;
+    // Scalar ticks retain per-image provenance; only an XMP reply refreshes it.
+    if (!fastParams && this.host.currentAssetId)
+      this.host.state.seedLensProfile(
+        this.host.currentAssetId,
+        rendered.lensProfile ?? null,
+        rendered.autoFit,
+        fitRevision,
+      );
+    this.scalarPrefixAsset = fitAsset;
+    this.scalarPrefixRevision =
+      params !== undefined &&
+      fitAsset !== null &&
+      fitRevision === state.autoFitRevisionFor(fitAsset)
+        ? fitRevision
+        : undefined;
   }
 
   /**
@@ -452,7 +421,7 @@ export class ImageCanvasGpuPresent {
 
   /** Tear down the GPU live session + remove its canvas element. Idempotent. */
   teardown(): void {
-    this.scalarPrefixReady = false;
+    this.scalarPrefixRevision = undefined;
     if (this.active() || this.canvasEl) {
       this.host.pipeline.closeLiveSession();
     }

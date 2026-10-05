@@ -1,3 +1,4 @@
+import { expectProfileCanvas } from './profile-canvas-proof';
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -85,27 +86,7 @@ for (const gpu of [false, true]) {
       expect(state.dispatched).toContain('papp:Profile="Neutral"');
       expect(state.gateIntent).toContain('papp:Profile="Neutral"');
       expect(state.edits.some((xmp: string) => xmp.includes('papp:Profile="Auto"'))).toBe(true);
-      await expect
-        .poll(
-          () =>
-            page.evaluate((gpu) => {
-              const surface = document.querySelector(
-                gpu ? 'canvas[data-gpu-live]' : 'editor-image-canvas .canvas-wrap canvas',
-              ) as HTMLCanvasElement | null;
-              if (!surface || !surface.width || !surface.height) return false;
-              const wrap = surface.closest('.canvas-wrap')?.getBoundingClientRect();
-              if (!wrap || wrap.width < 1 || wrap.height < 1) return false;
-              const probe = document.createElement('canvas');
-              probe.width = probe.height = 32;
-              const context = probe.getContext('2d');
-              if (!context) return false;
-              context.drawImage(surface, 0, 0, 32, 32);
-              const rgba = context.getImageData(0, 0, 32, 32).data;
-              return Array.from(rgba).some((value, index) => index % 4 !== 3 && value > 16);
-            }, gpu),
-          { timeout: 10000 },
-        )
-        .toBe(true);
+      await expectProfileCanvas(page, gpu);
       await page.screenshot({ path: test.info().outputPath('auto-after-cold-open.png') });
       await page.evaluate(() => Reflect.get(window, 'coldProfileUI').dispose());
     });

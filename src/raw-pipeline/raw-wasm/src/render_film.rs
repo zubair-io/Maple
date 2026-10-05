@@ -58,11 +58,12 @@ pub fn render_bytes_with_film(
     let source = Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext });
     match crate::cpu_budget::clamp_develop_long_edge(raw_img.width, raw_img.height, None) {
         None => {
-            let (w, h, bytes) = raw_core::pipeline::render_from_raw_with_quality_source_and_film(
+            let (w, h, bytes, auto_fit) = raw_core::pipeline::render_from_raw_with_auto_fit(
                 &raw_img,
                 &model,
                 quality,
                 source,
+                None,
                 film_lut.as_ref(),
             )
             .map_err(|e| JsError::new(&e.to_string()))?;
@@ -78,20 +79,20 @@ pub fn render_bytes_with_film(
                 lens_correction_ca_inert,
                 camera_support,
                 crate::lens_profile::metadata(&raw_img, &model),
+                auto_fit,
             ))
         }
         Some(cap) => {
             let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
-            let (w, h, bytes) =
-                raw_core::pipeline::render_sized_from_raw_with_quality_source_and_film(
-                    &raw_img,
-                    &model,
-                    quality,
-                    source,
-                    cap,
-                    film_lut.as_ref(),
-                )
-                .map_err(|e| JsError::new(&e.to_string()))?;
+            let (w, h, bytes, auto_fit) = raw_core::pipeline::render_from_raw_with_auto_fit(
+                &raw_img,
+                &model,
+                quality,
+                source,
+                Some(cap),
+                film_lut.as_ref(),
+            )
+            .map_err(|e| JsError::new(&e.to_string()))?;
             Ok(MapleRender::new(
                 w,
                 h,
@@ -104,6 +105,7 @@ pub fn render_bytes_with_film(
                 lens_correction_ca_inert,
                 camera_support,
                 crate::lens_profile::metadata(&raw_img, &model),
+                auto_fit,
             ))
         }
     }
@@ -182,12 +184,12 @@ pub fn render_bytes_sized_with_film(
     )
     .unwrap_or(max_long_edge);
     let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
-    let (w, h, bytes) = raw_core::pipeline::render_sized_from_raw_with_quality_source_and_film(
+    let (w, h, bytes, auto_fit) = raw_core::pipeline::render_from_raw_with_auto_fit(
         &raw_img,
         &model,
         quality,
         Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext }),
-        effective_long_edge,
+        Some(effective_long_edge),
         film_lut.as_ref(),
     )
     .map_err(|e| JsError::new(&e.to_string()))?;
@@ -203,5 +205,6 @@ pub fn render_bytes_sized_with_film(
         lens_correction_ca_inert,
         camera_support,
         crate::lens_profile::metadata(&raw_img, &model),
+        auto_fit,
     ))
 }

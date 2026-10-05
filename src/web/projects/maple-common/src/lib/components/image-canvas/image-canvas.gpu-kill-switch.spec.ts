@@ -119,6 +119,8 @@ describe('ImageCanvasComponent — GPU kill switch tears down an open session (#
         return models.get(id)!;
       },
       bytesFor: () => new Uint8Array([0x44, 0x4e, 0x47]),
+      resetAutoFit: vi.fn(),
+      autoFitRevisionFor: () => 0,
       seedAsShotWhiteBalance: vi.fn(),
       seedLensCorrections: vi.fn(),
       seedLensProfile: vi.fn(),

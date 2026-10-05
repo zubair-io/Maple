@@ -33,6 +33,7 @@
     "format:check": "bash scripts/format.sh --check",
     "test": "ng test",
     "e2e": "playwright test",
+    "e2e:auto-fit": "playwright test --config playwright.auto-fit.config.ts",
     "e2e:cold-profile": "playwright test --config playwright.cold-profile.config.ts",
     "e2e:production": "playwright test --config playwright.production.config.ts",
     "e2e:production-artifacts": "MAPLE_E2E_ARTIFACT_ONLY=1 playwright test e2e/production/brand-assets.spec.ts e2e/production/source-picker-drawer.spec.ts e2e/production/service-worker.spec.ts e2e/production/service-worker-update.spec.ts e2e/production/welcome-intake.spec.ts e2e/production/editor-cross-width.spec.ts --config=playwright.production.config.ts",

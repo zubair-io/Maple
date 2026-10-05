@@ -1,3 +1,4 @@
+import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
 // editor-shell-subtool-row.spec.ts — colour/effects sub-tool row reachability
 // through the REAL shell template (#1807 Task 4, review finding #3).
 //
@@ -98,7 +99,10 @@ describe('EditorShellComponent — colour/effects sub-tool row reachability (#18
 
     const route = { url: of([]), snapshot: { paramMap: convertToParamMap({}), url: [] } };
 
+    const capabilities = new LensCorrectionCapabilities();
     const stateStub = {
+      resetAutoFit: capabilities.resetAutoFit.bind(capabilities),
+      autoFitRevisionFor: capabilities.autoFitRevisionFor.bind(capabilities),
       backend: 'self-hosted',
       focusedAsset: focused,
       focusedAssetId: () => focused()?.id ?? null,

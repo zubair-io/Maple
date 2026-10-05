@@ -1,3 +1,4 @@
+import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
 // editor-shell-black-white.spec.ts — canvas-first editor (A) B&W / gray-mixer
 // port (#276).
 //
@@ -94,7 +95,10 @@ describe('EditorShellComponent — B&W / gray-mixer port (#276)', () => {
       snapshot: { paramMap: convertToParamMap({}), url: [] },
     };
 
+    const capabilities = new LensCorrectionCapabilities();
     const stateStub = {
+      resetAutoFit: capabilities.resetAutoFit.bind(capabilities),
+      autoFitRevisionFor: capabilities.autoFitRevisionFor.bind(capabilities),
       backend: 'self-hosted',
       focusedAsset: focused,
       focusedAssetId: () => focused()?.id ?? null,

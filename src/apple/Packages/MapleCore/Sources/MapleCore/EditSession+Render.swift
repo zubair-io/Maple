@@ -64,6 +64,7 @@ extension EditSession {
 
   func decodeAndRender(targetSize: CGSize?, phase: RenderPhase, gen: UInt64? = nil) async {
     if let error = partialWhiteBalanceImportError, model.partialWhiteBalance != nil {
+      if model.profile == .auto { autoFitStatus = .unavailable }
       renderError = error
       return
     }
@@ -93,6 +94,7 @@ extension EditSession {
     if deepDenoiseEngaged { deepDenoiseProgress.start() }
     defer { if deepDenoiseEngaged { deepDenoiseProgress.stop() } }
     let asset = self.asset
+    let fitRevision = autoFitRevision
     // #1781: adopt the decode-exported WB slider frame BEFORE capturing
     // the model + anchor (this snapshot is also the freshness read).
     let snapshot = await renderActor.snapshot(forAsset: asset)
@@ -222,6 +224,7 @@ extension EditSession {
 
     do {
       let image: CIImage
+      let achievedAutoFit: Bool
       let isRaw = asset.isRaw
       let assetID = asset.id
       if let cached, cacheFresh {
@@ -282,6 +285,7 @@ extension EditSession {
         // FilmExport.swift`'s non-RAW export path is untouched, still
         // tracked under #2713.
         let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
+        achievedAutoFit = profileLUT != nil
         MemoryProbe.sample(
           "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
         // The fit is a multi-second suspension on a cold image, and the
@@ -414,6 +418,7 @@ extension EditSession {
         // FFI struct itself, closing the gap for this (interactive
         // canvas) path.
         let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
+        achievedAutoFit = profileLUT != nil
         MemoryProbe.sample(
           "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
         // Same bail as the cached branch: the fit suspension may have
@@ -474,6 +479,7 @@ extension EditSession {
           return
         }
       }
+      publishAutoFit(achievedAutoFit, assetID: asset.id, profile: m.profile, revision: fitRevision)
       renderedPreview = displayImage
       lastPublishedRenderGeneration = gen
       previewIsFullRender = true
@@ -535,6 +541,7 @@ extension EditSession {
       editSessionLogger.error(
         "decodeAndRender failed gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) error=\(String(describing: error), privacy: .public)"
       )
+      settleAutoFitFailure(assetID: asset.id, profile: m.profile, revision: fitRevision)
       renderError = error
       // Terminal failure once the decode is done (e.g. an unreadable file):
       // no full-quality frame is coming, so settle the cold-open indicator
