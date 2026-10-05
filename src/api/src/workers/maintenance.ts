@@ -63,7 +63,7 @@ let mirrorConfigReload: ReturnType<typeof setInterval> | null = null;
 let derivativeAudit: DerivativeAuditHandle | null = null;
 let generatedSearch: GeneratedSearchHandle | null = null;
 let backupMaintenance: ReturnType<typeof setInterval> | null = null;
-let backupMaintenanceRunning = false;
+let activeBackupMaintenance: { controller: AbortController; task: Promise<void> } | null = null;
 
 /** Start every maintenance job. Idempotent — a second call is a no-op while a
  * prior set is still running. */
@@ -76,11 +76,23 @@ export function startMaintenanceJobs(): void {
 
 /** Stop every maintenance job (cancels timers, unregisters the workers). Safe to
  * call when nothing is running. */
-export function stopMaintenanceJobs(): void {
+export async function stopMaintenanceJobs(): Promise<void> {
   if (backupMaintenance) {
     clearInterval(backupMaintenance);
     backupMaintenance = null;
   }
+  const active = activeBackupMaintenance;
+  active?.controller.abort(new Error('Backup maintenance stopped'));
+  try {
+    stopOtherMaintenanceJobs();
+  } finally {
+    // Aborting a request starts cancellation; its cleanup and SQLite work
+    // must finish before worker-main closes the database pool.
+    await active?.task;
+  }
+}
+
+function stopOtherMaintenanceJobs(): void {
   trashGc?.stop();
   trashGc = null;
   changeLogGc?.stop();
@@ -106,22 +118,22 @@ export function stopMaintenanceJobs(): void {
 }
 
 function startBackupMaintenance(): void {
-  if (!backupMaintenance) {
-    const tick = async () => {
-      if (backupMaintenanceRunning) return;
-      backupMaintenanceRunning = true;
-      try {
-        await maintainBackup();
-      } catch {
-        log.warn('backup lifecycle maintenance requires retry');
-      } finally {
-        backupMaintenanceRunning = false;
-      }
+  if (!backupMaintenance && !activeBackupMaintenance) {
+    const tick = () => {
+      if (!backupMaintenance || activeBackupMaintenance) return;
+      const controller = new AbortController();
+      const task = Promise.resolve()
+        .then(() => maintainBackup(controller.signal))
+        .catch(() => {
+          if (!controller.signal.aborted) log.warn('backup lifecycle maintenance requires retry');
+        })
+        .finally(() => {
+          activeBackupMaintenance = null;
+        });
+      activeBackupMaintenance = { controller, task };
     };
-    backupMaintenance = setInterval(() => {
-      void tick();
-    }, 60_000);
-    void tick();
+    backupMaintenance = setInterval(tick, 60_000);
+    tick();
   }
 }
 

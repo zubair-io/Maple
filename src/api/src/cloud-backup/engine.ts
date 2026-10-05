@@ -69,6 +69,28 @@ export class BackupEngine {
     readonly provider: ProviderFactory,
     readonly repo: BackupRepository = new BackupRepository(),
   ) {}
+  /** A completed sequence needs no source reads or provider calls on another target's retry. */
+  private async verifiedCurrent(
+    entry: BackupEntry,
+    destination: BackupDestination,
+  ): Promise<boolean> {
+    const rows = await this.repo.db.read<{ id: string }>(
+      `SELECT e.id FROM backup_entries e JOIN backup_destinations d ON d.id=e.destination_id
+      WHERE e.id=? AND e.sequence=? AND e.verified_sequence=e.sequence AND e.state!='purged'
+      AND d.id=? AND d.enabled=1 AND d.generation=? AND d.root_id IS ? AND d.account_id IS ?
+      AND NOT EXISTS (SELECT 1 FROM backup_lifecycle l WHERE l.asset_id=e.asset_id
+        AND ((l.phase='prepared' AND l.library_id=d.library_id) OR l.kind='purge'))`,
+      [
+        entry.id,
+        entry.sequence,
+        destination.id,
+        destination.generation,
+        destination.rootId,
+        destination.accountId,
+      ],
+    );
+    return rows.length > 0;
+  }
   async publish(
     provider: BackupProvider,
     destination: BackupDestination,
@@ -161,7 +183,11 @@ export class BackupEngine {
       destination,
       entry,
       `libraries/${destination.libraryId}/descriptor.json`,
-      jsonSource({ version: 1, libraryId: destination.libraryId, format: 'maple-photo-backup' }),
+      jsonSource({
+        version: 1,
+        libraryId: destination.libraryId,
+        format: 'maple-photo-backup',
+      }),
       signal,
     );
     await this.publish(
@@ -188,6 +214,9 @@ export class BackupEngine {
       location.ordinal,
       location.relative_path,
     );
+    if (signal?.aborted) return false;
+    if (initial.verified_sequence === initial.sequence)
+      return this.verifiedCurrent(initial, destination);
     const owner = crypto.randomUUID();
     if (initial.state === 'purged' || !(await repo.claim(initial, owner))) return false;
     const lease = startEntryLease(repo, destination, initial, owner, signal);

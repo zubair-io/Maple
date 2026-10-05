@@ -5,12 +5,19 @@ import type { PurgeRecord, BackupObject, UploadCheckpoint, BackupProvider } from
 import { relativeBackupPath, fileHash, jailedFile } from './inventory.ts';
 import type { BackupDestination } from './repository.ts';
 
-async function removeLocal(root: string, relative: string, expected: string | null): Promise<void> {
+async function removeLocal(
+  root: string,
+  relative: string,
+  expected: string | null,
+  signal?: AbortSignal,
+): Promise<void> {
+  signal?.throwIfAborted();
   relativeBackupPath(relative);
   const canonical = await realpath(root);
   if (!(await existingPurgePath(canonical, relative))) return;
   const target = await jailedFile(canonical, relative);
   await verifyLocalPurge(canonical, relative, target, expected);
+  signal?.throwIfAborted();
   try {
     await unlink(path.join(canonical, ...relative.split('/')));
   } catch (error) {
@@ -54,23 +61,28 @@ export async function drainPurges(
   destination: BackupDestination,
   signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   for (const row of await engine.repo.purges(destination.id)) {
+    signal?.throwIfAborted();
     if (row.completed) continue;
     const record: PurgeRecord = JSON.parse(row.record);
     let revision = row.revision;
     try {
-      if (destination.kind === 'folder') await purgeFolder(engine, destination, row.entry_id);
+      if (destination.kind === 'folder')
+        await purgeFolder(engine, destination, row.entry_id, signal);
       else {
         const publishedRevision = await purgeRemote(engine, destination, record, signal);
         if (publishedRevision === null) continue;
         revision = publishedRevision;
       }
+      signal?.throwIfAborted();
       await engine.repo.db.write(
         `UPDATE backup_purges SET completed=1,last_error=NULL WHERE destination_id=? AND entry_id=?
         AND revision=? AND NOT EXISTS (SELECT 1 FROM backup_entries WHERE id=? AND lease_until>?)`,
         [destination.id, record.entryId, revision, record.entryId, Date.now()],
       );
     } catch {
+      signal?.throwIfAborted();
       await engine.repo.db.write(
         `UPDATE backup_purges SET last_error='Destination cleanup requires retry' WHERE destination_id=? AND entry_id=?`,
         [destination.id, record.entryId],
@@ -83,6 +95,7 @@ async function purgeFolder(
   engine: BackupEngine,
   destination: BackupDestination,
   entryId: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   if (!destination.path) throw new Error('Mirror root unavailable');
   const entries = await engine.repo.entries(destination.id);
@@ -93,8 +106,10 @@ async function purgeFolder(
       })
     : null;
   if (!manifest) throw new Error('Mirror purge inventory unavailable');
-  for (const file of manifest.localFiles)
-    await removeLocal(destination.path, file.path, file.sha256);
+  for (const file of manifest.localFiles) {
+    signal?.throwIfAborted();
+    await removeLocal(destination.path, file.path, file.sha256, signal);
+  }
 }
 
 async function purgeRemote(
@@ -106,10 +121,12 @@ async function purgeRemote(
   // Disabled or disconnected destinations still owe erasure. Connection
   // failures leave an explicit obligation, never a fabricated success.
   const provider = await engine.provider(destination);
+  signal?.throwIfAborted();
   const source = jsonSource(record);
   const key = `purges/${record.entryId}.json`;
   const savedRecord = await engine.repo.object(destination.id, key);
   const existing = await provider.inspect(key, signal, savedRecord.object?.locator);
+  signal?.throwIfAborted();
   if (!existing) {
     const object = await provider.publish(key, source, {
       signal,
@@ -117,8 +134,11 @@ async function purgeRemote(
       saveCheckpoint: async (checkpoint) =>
         engine.repo.saveObject(destination.id, record.entryId, key, null, checkpoint),
     });
+    // If publication won a cancellation race, preserve its locator as an
+    // erasure obligation before exiting. Shutdown drains this SQLite write.
     await engine.repo.saveObject(destination.id, record.entryId, key, object, null);
   } else if (existing.sha256 !== source.sha256) throw new Error('Purge record integrity mismatch');
+  signal?.throwIfAborted();
   await engine.repo.db.write(
     `UPDATE backup_purges SET published=1 WHERE destination_id=? AND entry_id=?`,
     [destination.id, record.entryId],
@@ -130,6 +150,7 @@ async function purgeRemote(
   const revision = current!.revision;
   const prefix = entryPrefix(record.libraryId, record.entryId);
   await removeRemoteEntry(engine, destination.id, provider, prefix, signal);
+  signal?.throwIfAborted();
   // A transfer already inside an external request may still complete.
   // Keep the obligation open until its renewable lease has elapsed.
   const entries = await engine.repo.entries(destination.id);
@@ -157,12 +178,17 @@ async function removeRemoteEntry(
     [destinationId, prefix.length, prefix],
   );
   for (const saved of pending) {
+    signal?.throwIfAborted();
     if (saved.checkpoint) {
       await provider.abort(JSON.parse(saved.checkpoint) as UploadCheckpoint, signal);
     }
+    signal?.throwIfAborted();
     // Persisted IDs remain erasure obligations even if a user moved the
     // object out of the root. The adapter then reports blocked ancestry.
     if (saved.object) await provider.remove(JSON.parse(saved.object) as BackupObject, signal);
   }
-  for await (const object of provider.list(prefix, signal)) await provider.remove(object, signal);
+  for await (const object of provider.list(prefix, signal)) {
+    signal?.throwIfAborted();
+    await provider.remove(object, signal);
+  }
 }

@@ -13,23 +13,28 @@
 # WebSocket implementation doesn't fire the `upgrade` event that bridge
 # needs, so `bun run test` hangs indefinitely under this package specifically.
 #
-# Two jobs, one per standalone Worker in this directory:
+# Three jobs, one per standalone Worker in this directory:
 #   cloudflare-test     — the thumbnail-cache Worker (src/cloudflare/).
 #   cloudflare-ssr-test — the Hosted production SSR Worker
 #                         (src/cloudflare/ssr/, #2474) that fronts the Azure
 #                         Blob origin for mapleaperture.com.
-# Both run typecheck + vitest (@cloudflare/vitest-pool-workers) on every
-# push/PR that touches src/cloudflare/.
+#   cloudflare-drive-connect-test — callback-only Google Drive relay
+#                                   (src/cloudflare/drive-connect/, #4230).
+# All run typecheck + vitest on every push/PR that touches src/cloudflare/
+# or this workflow. The relay uses @cloudflare/vitest-plugin.
 #
-# No auto-deploy job for either Worker. wrangler.jsonc is gitignored in each
+# No auto-deploy job for these Workers. wrangler.jsonc is gitignored in the
+# thumbnail-cache and SSR packages
 # (it holds per-operator values — origin URL, R2 bucket name, route/zone —
 # not project source; see each directory's wrangler.jsonc.example), so CI
 # has no real config to deploy with. Each operator (including this
 # project's own Cloudflare account) deploys manually from their machine:
 # `npm run deploy` in the relevant directory, using their own local
 # wrangler.jsonc.
+# The callback relay has committed narrow routes and a protected, manually
+# dispatched deploy-drive-connect.yml workflow; production secrets stay external.
 #
-# Both test jobs generate their own throwaway wrangler.jsonc from
+# The thumbnail-cache and SSR test jobs generate throwaway wrangler.jsonc from
 # wrangler.jsonc.example — fine for typecheck/tests, which only need a
 # structurally valid config, not real account values.
 

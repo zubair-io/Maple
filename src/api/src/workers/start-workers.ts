@@ -202,7 +202,7 @@ export async function stopWorkers(): Promise<void> {
 
   // Stop maintenance jobs first so their timers don't fire mid-shutdown.
   try {
-    stopMaintenanceJobs();
+    await stopMaintenanceJobs();
   } catch (e) {
     log.warn({ err: e }, 'error stopping maintenance jobs');
   }
