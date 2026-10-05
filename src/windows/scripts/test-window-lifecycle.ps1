@@ -29,7 +29,7 @@ $hostInfo = @{
 }
 $hostInfo | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $root 'host.json')
 $failures = @()
-foreach ($mode in @('gpu', 'cpu', 'empty')) {
+foreach ($mode in @('gpu', 'cpu', 'empty', 'media-cell')) {
     $output = Join-Path $root $mode
     New-Item -ItemType Directory -Force $output | Out-Null
     $start = [Diagnostics.ProcessStartInfo]::new($app)
@@ -49,6 +49,17 @@ foreach ($mode in @('gpu', 'cpu', 'empty')) {
         }
         if ($process.ExitCode -ne 0) { throw "$mode app exited $($process.ExitCode); inspect lifecycle.json" }
         $report = Get-Content (Join-Path $output 'lifecycle.json') -Raw | ConvertFrom-Json
+        if ($mode -eq 'media-cell') {
+            $checks = @(Get-Content (Join-Path $output 'media-cell-provider.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
+            $metadataChecks = @(Get-Content (Join-Path $output 'media-metadata.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
+            if (-not $report.passed -or $report.scope -ne 'media-cell-provider-only' -or
+                $checks.Count -eq 0 -or $metadataChecks.Count -eq 0 -or
+                @($checks + $metadataChecks | Where-Object { -not $_.passed }).Count -gt 0) {
+                throw 'Media cell provider proof incomplete'
+            }
+            Write-Output 'Media cell and visible metadata provider qualification passed'
+            continue
+        }
         if (-not $report.passed -or $report.renderPath -ne $mode -or
             -not $report.rendererStopped -or $report.panelReleases -ne 1 -or $report.hwnd -eq 0) {
             throw "$mode lifecycle proof incomplete"
