@@ -44,5 +44,12 @@ test('protected deployment validates both bundles and deploys pages before accep
 	assert.ok(pageDryRun >= 0 && relayDryRun >= 0);
 	assert.ok(pageDeploy > pageDryRun && pageDeploy > relayDryRun);
 	assert.ok(relayDeploy > pageDeploy);
-	assert.ok(workflow.indexOf('Provision production RELAY_SIGNING_KEY') < pageDeploy);
+	assert.ok(workflow.indexOf('node scripts/prepare-deploy-secrets.mjs') < pageDeploy);
+	assert.match(workflow, /RELAY_SIGNING_KEY: \$\{\{ secrets\.RELAY_SIGNING_KEY \}\}/);
+	assert.match(
+		workflow,
+		/npm run deploy -- --secrets-file "\$RUNNER_TEMP\/drive-relay-secrets\.json"/,
+	);
+	assert.match(workflow, /Remove temporary deployment secret\n\s+if: always\(\)/);
+	assert.doesNotMatch(workflow, /wrangler secret list/);
 });
