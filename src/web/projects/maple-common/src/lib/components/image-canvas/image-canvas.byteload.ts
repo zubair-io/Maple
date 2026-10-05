@@ -26,10 +26,12 @@ export interface ByteLoadError {
 export interface ByteLoadHost {
   currentAssetId: AssetId | null;
   readonly renderGeneration: number;
+  byteLoadGeneration: number;
   readonly imageBitmap: WritableSignal<ImageBitmap | null>;
   readonly byteLoadError: WritableSignal<ByteLoadError | null>;
   readonly state: Pick<
     LibraryStateService,
+    | 'bytesFor'
     | 'bytesForAsset'
     | 'autoFitRevisionFor'
     | 'adjustmentFor'
@@ -46,19 +48,18 @@ export interface ByteLoadHost {
  *  continuations) drops the result if the user has since moved to a
  *  different asset. */
 export function fetchAndLoadBytes(host: ByteLoadHost, assetId: AssetId, filename: string): void {
-  const generation = host.renderGeneration;
-  const fitRevision = host.state.autoFitRevisionFor(assetId);
+  const request = ++host.byteLoadGeneration;
   host.imageBitmap.set(null);
   host.canvasSvc.currentPixels.set(null);
   host.byteLoadError.set(null);
-  host.state
-    .bytesForAsset(assetId)
+  const retained = host.state.bytesFor(assetId);
+  (retained ? Promise.resolve(retained) : host.state.bytesForAsset(assetId))
     .then((fetched) => {
-      if (host.currentAssetId !== assetId) return; // user moved on
+      if (host.currentAssetId !== assetId || request !== host.byteLoadGeneration) return; // user moved on
       void host.loadReal(assetId, filename, fetched);
     })
     .catch((err: unknown) => {
-      if (host.currentAssetId !== assetId) return; // user moved on
+      if (host.currentAssetId !== assetId || request !== host.byteLoadGeneration) return; // user moved on
       const status = (err as { status?: number } | null)?.status;
       const url = (err as { url?: string } | null)?.url;
       console.error('[image-canvas] bytesForAsset failed:', { status, url, err });
@@ -66,6 +67,11 @@ export function fetchAndLoadBytes(host: ByteLoadHost, assetId: AssetId, filename
       // (never reached a server) both read as a network-level problem.
       const reason = typeof status === 'number' && status > 0 ? `HTTP ${status}` : 'Network error';
       host.byteLoadError.set({ id: assetId, filename, reason });
-      settleFailedAutoFit(host, assetId, generation, fitRevision);
+      settleFailedAutoFit(
+        host,
+        assetId,
+        host.renderGeneration,
+        host.state.autoFitRevisionFor(assetId),
+      );
     });
 }
