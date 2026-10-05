@@ -5,9 +5,11 @@
 //! almost everywhere, but it collapses at isolated high-frequency colour
 //! edges: a 1-px bright-blue line crossing a near-neutral region has a
 //! *flat* (B−G) field, so the reconstruction sets B≈G and the line's colour
-//! is lost. A value-domain (bilinear) interpolation — averaging the actual
-//! blue samples — preserves it. ACR's renderer keeps such edges, so AMaZE's
-//! constant-hue result drifts far from the reference precisely there
+//! is lost. Value-domain interpolation from the nearest sensor samples
+//! preserves it. Reconstructed green guides bounded interpolation between
+//! those samples so luminance ramps do not invent false chroma (#4123).
+//! ACR's renderer keeps such edges, so AMaZE's constant-hue result drifts
+//! far from the reference precisely there
 //! (test_0007 baseline_auto, the cluster of ΔE≈50 yellow-vs-magenta pixels).
 //!
 //! This stage blends each *reconstructed* channel toward its value-domain
@@ -44,50 +46,76 @@ pub(super) fn suppress_false_colour(
     const EPS: f32 = 1e-6;
     let color_at = |x: usize, y: usize| pattern.color_at(x as u32, y as u32) as usize;
 
-    // Value-domain estimate of channel `t` at (x, y): the bilinear value
-    // interpolation the constant-hue path replaces. Only the *nearest* same-
-    // colour samples are used (the immediate Bayer neighbours of that
-    // colour), so a sharp 1-px colour edge is preserved rather than averaged
-    // away.
-    let value_estimate = |x: usize, y: usize, t: usize| -> f32 {
-        // Pass 1: distance-1 cardinal same-colour neighbours.
-        let mut sum = 0.0_f32;
-        let mut cnt = 0.0_f32;
-        for (dx, dy) in [(-1_isize, 0_isize), (1, 0), (0, -1), (0, 1)] {
-            let nx = x as isize + dx;
-            let ny = y as isize + dy;
-            if nx < 0 || ny < 0 || nx >= w as isize || ny >= h as isize {
-                continue;
+    // Use only the nearest same-colour sensor sites. A luminance guide
+    // must interpolate colour at the centre, rather than favour the nearer
+    // guide value and distort an affine colour ramp (#4123). The fixed
+    // four-site scratch is local: no image allocation or distant sample.
+    let value_estimate = |x: usize, y: usize, t: usize| -> Option<f32> {
+        let mut samples = [(0.0_f32, 0.0_f32); 4];
+        let mut count = 0;
+        for offsets in [
+            [(-1_isize, 0_isize), (1, 0), (0, -1), (0, 1)],
+            [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)],
+        ] {
+            for (dx, dy) in offsets {
+                let nx = x as isize + dx;
+                let ny = y as isize + dy;
+                if nx < 0 || ny < 0 || nx >= w as isize || ny >= h as isize {
+                    continue;
+                }
+                let (nx, ny) = (nx as usize, ny as usize);
+                if color_at(nx, ny) == t {
+                    samples[count] = (green[ny * w + nx], cfa_flat[ny * w + nx]);
+                    count += 1;
+                }
             }
-            let (nxu, nyu) = (nx as usize, ny as usize);
-            if color_at(nxu, nyu) == t {
-                sum += cfa_flat[nyu * w + nxu];
-                cnt += 1.0;
-            }
-        }
-        if cnt > 0.0 {
-            return sum / cnt;
-        }
-        // Pass 2: distance-√2 diagonal same-colour neighbours (used when the
-        // target colour is not a cardinal neighbour of this site, e.g. the
-        // opposite-chroma channel at an R/B site).
-        for (dx, dy) in [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)] {
-            let nx = x as isize + dx;
-            let ny = y as isize + dy;
-            if nx < 0 || ny < 0 || nx >= w as isize || ny >= h as isize {
-                continue;
-            }
-            let (nxu, nyu) = (nx as usize, ny as usize);
-            if color_at(nxu, nyu) == t {
-                sum += cfa_flat[nyu * w + nxu];
-                cnt += 1.0;
+            if count > 0 {
+                break;
             }
         }
-        if cnt > 0.0 {
-            sum / cnt
-        } else {
-            0.0
+        if count == 0 {
+            return None;
         }
+        let samples = &samples[..count];
+        let mean_green = samples.iter().map(|&(g, _)| g).sum::<f32>() / count as f32;
+        let mean_colour = samples.iter().map(|&(_, c)| c).sum::<f32>() / count as f32;
+        let covariance = samples
+            .iter()
+            .map(|&(g, c)| (g - mean_green) * (c - mean_colour))
+            .sum::<f32>();
+        let variance = samples
+            .iter()
+            .map(|&(g, _)| (g - mean_green).powi(2))
+            .sum::<f32>();
+        // Flat or opposing colour evidence is a colour edge, not a
+        // positive luminance ramp. Preserve the existing value-domain mean.
+        if covariance <= 0.0 || variance == 0.0 {
+            return Some(mean_colour);
+        }
+        let min_green = samples
+            .iter()
+            .map(|&(g, _)| g)
+            .fold(f32::INFINITY, f32::min);
+        let max_green = samples
+            .iter()
+            .map(|&(g, _)| g)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let center_green = green[y * w + x];
+        // No sensor evidence supports extrapolation: keep the reconstructed
+        // hue instead of manufacturing a colour beyond the measured range.
+        if center_green < min_green || center_green > max_green {
+            return None;
+        }
+        let min_colour = samples
+            .iter()
+            .map(|&(_, c)| c)
+            .fold(f32::INFINITY, f32::min);
+        let max_colour = samples
+            .iter()
+            .map(|&(_, c)| c)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let interpolated = mean_colour + covariance / variance * (center_green - mean_green);
+        Some(interpolated.clamp(min_colour, max_colour))
     };
 
     // Local green high-frequency content: how much the centre green departs
@@ -131,7 +159,9 @@ pub(super) fn suppress_false_colour(
                         continue;
                     }
                     let c_hue = px[t];
-                    let c_val = value_estimate(x, y, t);
+                    let Some(c_val) = value_estimate(x, y, t) else {
+                        continue;
+                    };
                     // Disagreement between the two estimates, normalised by
                     // the local channel magnitude.
                     let mag = c_hue.abs() + c_val.abs() + EPS;
