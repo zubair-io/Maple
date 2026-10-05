@@ -1,6 +1,6 @@
 //! AMaZE stage 5 F–G: split the colour-difference field into G−R / G−B, the
 //! `(1.325, −0.175, −0.075)` directional chroma sharpening, and the final
-//! per-pixel assembly into the tile's slice of the output frame. 1:1 port of
+//! per-pixel assembly into the tile's slice of the output frame. Port of
 //! the scalar branch of `amaze_demosaic_RT.cc` (engine 1396–1559).
 
 use super::nyquist::rb_coset_start;
@@ -61,15 +61,17 @@ pub(super) fn finish_tile(
                     + (d[hf(i, p1)] - d[hf(i, -p1)]).abs()
                     + (d[hf(i, p1)] - d[hf(i, p3)]).abs()
                     + (d[hf(i, -p1)] - d[hf(i, p3)]).abs());
+            // Each far tap must remain on the same diagonal as its near
+            // pair: the SW/SE weights reflect the NE/NW geometry (#4123).
             let wtsw = 1.0
                 / (EPS
                     + (d[hf(i, -p1)] - d[hf(i, p1)]).abs()
-                    + (d[hf(i, -p1)] - d[hf(i, m3)]).abs()
+                    + (d[hf(i, -p1)] - d[hf(i, -p3)]).abs()
                     + (d[hf(i, p1)] - d[hf(i, -p3)]).abs());
             let wtse = 1.0
                 / (EPS
                     + (d[hf(i, m1)] - d[hf(i, -m1)]).abs()
-                    + (d[hf(i, m1)] - d[hf(i, -p3)]).abs()
+                    + (d[hf(i, m1)] - d[hf(i, m3)]).abs()
                     + (d[hf(i, -m1)] - d[hf(i, m3)]).abs());
 
             let sharp = (wtnw
