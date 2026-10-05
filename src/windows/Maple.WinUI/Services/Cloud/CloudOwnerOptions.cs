@@ -23,7 +23,7 @@ public static class CloudOwnerOptions
     /// older server would ignore <c>owner=</c> and silently broaden results.</param>
     /// <param name="knownLabels">Labels from earlier facets, so a selected
     /// owner that now has zero results keeps its email rather than an id.</param>
-    public static IReadOnlyList<CloudOwnerOption> Build(IReadOnlyList<CloudOwnerFacet>? owners,
+    public static IReadOnlyList<CloudOwnerOption> Build(IReadOnlyList<CloudSearchBucket>? owners,
         string? currentUserId, string selectedId, IReadOnlyDictionary<string, string> knownLabels)
     {
         var choices = new List<CloudOwnerOption> { new("", AllOwners) };
@@ -32,11 +32,14 @@ public static class CloudOwnerOptions
             var me = string.IsNullOrEmpty(currentUserId) ? null : currentUserId;
             if (me != null)
             {
-                var mine = owners.FirstOrDefault(owner => SameId(owner.Id, me));
-                choices.Add(new(mine?.Id ?? me, mine == null ? MyUploads : $"{MyUploads} ({mine.Count})"));
+                var mine = owners.FirstOrDefault(owner => SameId(owner.Id ?? owner.Value, me));
+                choices.Add(new(mine?.Id ?? mine?.Value ?? me, mine == null ? MyUploads : $"{MyUploads} ({mine.Count})"));
             }
-            foreach (var owner in owners.Where(owner => me == null || !SameId(owner.Id, me)))
-                choices.Add(new(owner.Id, $"{Label(owner.Id, owner.Email)} ({owner.Count})"));
+            foreach (var owner in owners.Where(owner => me == null || !SameId(owner.Id ?? owner.Value, me)))
+            {
+                var id = owner.Id ?? owner.Value;
+                choices.Add(new(id, $"{Label(id, owner.Email)} ({owner.Count})"));
+            }
         }
         // A zero-result filter or an unavailable facet must not silently
         // clear the selected owner.
