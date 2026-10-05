@@ -1414,13 +1414,19 @@ export class LibraryFetch {
 
   /** Close actual index streams before relinquishing an owned folder (#4287). */
   async flushPendingIndexWrites(): Promise<void> {
+    const failures: unknown[] = [];
     while (this._indexWriteTimer !== null || this._indexWrites.size > 0) {
       if (this._indexWriteTimer !== null) {
         clearTimeout(this._indexWriteTimer);
         this._indexWriteTimer = null;
         this._startIndexWrite();
       }
-      await Promise.all(this._indexWrites);
+      for (const result of await Promise.allSettled(this._indexWrites)) {
+        if (result.status === 'rejected') failures.push(result.reason);
+      }
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'Folder index writes failed after all streams settled');
     }
   }
 
