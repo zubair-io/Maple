@@ -24,8 +24,8 @@ Anything marked bearer or stricter returns the standard error envelope on failur
 | ------ | ---------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/api/health`                | public | Liveness, plus whether the library database is open. Backs the Docker health check                                                                    |
 | GET    | `/api/network/local-address` | public | This server's LAN address and port, so clients on the same network can prefer it over the public URL. Same trust tier as `/api/health` — no user data |
-| GET    | `/api/network/config`        | bearer | Effective network config plus per-field source                                                                                                        |
-| PUT    | `/api/network/config`        | bearer | Validate and save the operator's LAN-address override                                                                                                 |
+| GET    | `/api/network/config`        | owner  | Effective network config plus per-field source                                                                                                        |
+| PUT    | `/api/network/config`        | owner  | Validate and save the operator's LAN-address override                                                                                                 |
 
 ## Authentication
 
@@ -92,13 +92,13 @@ A library is a registered root folder with a slug. `:id` is the folder's 24-char
 | POST   | `/api/folders/:id/restore-folder` | +file  | Restore a recursively trashed folder                                                                                                      |
 | POST   | `/api/library/relocate-count`     | bearer | Count how many of the given `addresses` would move into their canonical `<year>/<region>/<city>/` folder                                  |
 | POST   | `/api/library/relocate`           | bearer | Perform that relocation, sidecars included. Per-asset error isolation; crash-safe copy → verify → repoint → delete                        |
-| GET    | `/api/folders/:id/mirror`         | bearer | This library's configured mirror (backup) locations                                                                                       |
-| PUT    | `/api/folders/:id/mirror`         | bearer | Replace the mirror set; validates roots and reloads the in-memory registry                                                                |
-| POST   | `/api/mirror/test`                | bearer | Validate a candidate mirror path without saving                                                                                           |
-| GET    | `/api/mirror/status`              | bearer | Mirror queue depth (pending, dead) plus live reconcile progress                                                                           |
-| POST   | `/api/mirror/reconcile`           | bearer | Run a full scan-then-copy reconcile now                                                                                                   |
-| POST   | `/api/mirror/retry-dead`          | bearer | Re-arm dead-lettered mirror copies                                                                                                        |
-| GET    | `/api/mirror/orphans`             | bearer | Dry-run report of mirror files with no primary counterpart. Deletes nothing                                                               |
+| GET    | `/api/folders/:id/mirror`         | owner  | This library's configured mirror (backup) locations                                                                                       |
+| PUT    | `/api/folders/:id/mirror`         | owner  | Replace the mirror set; validates roots and reloads the in-memory registry                                                                |
+| POST   | `/api/mirror/test`                | owner  | Validate a candidate mirror path without saving                                                                                           |
+| GET    | `/api/mirror/status`              | owner  | Mirror queue depth (pending, dead) plus live reconcile progress                                                                           |
+| POST   | `/api/mirror/reconcile`           | owner  | Run a full scan-then-copy reconcile now                                                                                                   |
+| POST   | `/api/mirror/retry-dead`          | owner  | Re-arm dead-lettered mirror copies                                                                                                        |
+| GET    | `/api/mirror/orphans`             | owner  | Dry-run report of mirror files with no primary counterpart. Deletes nothing                                                               |
 
 Media uploaded through `/api/folders/:id/upload` is attributed to the authenticated uploader, including when the filesystem watcher creates the asset first. Client-supplied owner headers are ignored. Internal writers without a principal preserve existing attribution; a principal whose user row is absent leaves new assets unassigned and keeps an existing asset's owner.
 

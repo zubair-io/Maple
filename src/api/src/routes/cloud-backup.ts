@@ -15,6 +15,10 @@ import { ObjectId } from '../db/object-id.ts';
 import type { BackupDestination, BackupRepository } from '../cloud-backup/repository.ts';
 import { resumeRecoveryJob } from '../cloud-backup/recovery-jobs.ts';
 
+class BackupRequestError extends Error {
+  readonly status = 400;
+}
+
 const repo: BackupRepository = backupEngine.repo;
 const Id = t.Object({ id: t.String({ format: 'uuid' }) });
 const Recovery = t.Object({
@@ -25,16 +29,16 @@ const Recovery = t.Object({
 });
 async function destination(id: string): Promise<BackupDestination> {
   const row = await repo.destination(id);
-  if (!row) throw new Error('Backup destination not found');
+  if (!row) throw new BackupRequestError('Backup destination not found');
   return row;
 }
 async function validateMirror(libraryId: string, target: string) {
   const [library] = await repo.db.read<{ path: string }>(`SELECT path FROM folders WHERE id=?`, [
     libraryId,
   ]);
-  if (!library) throw new Error('Library not found');
+  if (!library) throw new BackupRequestError('Library not found');
   const valid = await validateRoot(target);
-  if (!valid.ok) throw new Error(valid.error);
+  if (!valid.ok) throw new BackupRequestError(valid.error);
   const libraries = await repo.db.read<{ path: string }>(`SELECT path FROM folders`);
   const roots = [
     ...libraries.map((l) => path.resolve(l.path)),
@@ -49,7 +53,7 @@ async function validateMirror(libraryId: string, target: string) {
         root.startsWith(canonical + path.sep),
     )
   )
-    throw new Error('Mirror path overlaps a library or another destination');
+    throw new BackupRequestError('Mirror path overlaps a library or another destination');
   return canonical;
 }
 async function projection(row: BackupDestination) {
@@ -104,7 +108,7 @@ export const cloudBackupRoutes = new Elysia({ name: 'cloudBackup', prefix: '/api
   .use(requireAuth)
   .use(requireOwner)
   .onError(({ error, set }) => {
-    if (Number(set.status) < 400 || !set.status) set.status = 400;
+    if (error instanceof BackupRequestError) set.status = 400;
     return { error: error instanceof Error ? error.message : 'Backup request failed' };
   })
   .get('/destinations', async () => {
@@ -115,7 +119,7 @@ export const cloudBackupRoutes = new Elysia({ name: 'cloudBackup', prefix: '/api
     '/destinations',
     async ({ body }) => {
       const [library] = await repo.db.read(`SELECT id FROM folders WHERE id=?`, [body.libraryId]);
-      if (!library) throw new Error('Library not found');
+      if (!library) throw new BackupRequestError('Library not found');
       const target =
         body.kind === 'folder' ? await validateMirror(body.libraryId, body.path ?? '') : null;
       const row = await repo.createDestination({
@@ -159,9 +163,11 @@ export const cloudBackupRoutes = new Elysia({ name: 'cloudBackup', prefix: '/api
     async ({ params }) => {
       const row = await destination(params.id);
       if ((await repo.purges(row.id)).some((p) => !p.completed))
-        throw new Error('Finish pending purges before removing this destination');
+        throw new BackupRequestError('Finish pending purges before removing this destination');
       if ((await repo.entries(row.id)).some((e) => e.lease_until > Date.now()))
-        throw new Error('Pause the destination and wait for active transfers before removing it');
+        throw new BackupRequestError(
+          'Pause the destination and wait for active transfers before removing it',
+        );
       const [deleted] = await repo.db.transaction([
         {
           sql: `DELETE FROM backup_destinations WHERE id=? AND NOT EXISTS
@@ -178,7 +184,8 @@ export const cloudBackupRoutes = new Elysia({ name: 'cloudBackup', prefix: '/api
           params: [row.id, row.id],
         },
       ]);
-      if (!deleted?.changes) throw new Error('Destination has pending cleanup or active transfers');
+      if (!deleted?.changes)
+        throw new BackupRequestError('Destination has pending cleanup or active transfers');
       if (row.kind === 'folder') await projectFolderDestination(row.libraryId, repo);
       return { ok: true };
     },
@@ -276,7 +283,7 @@ async function validateDestinationUpdate(
   body: { path?: string; enabled?: boolean },
 ): Promise<void> {
   if (body.path && body.path !== row.path)
-    throw new Error(
+    throw new BackupRequestError(
       'Create a new folder destination to change its path; existing purge obligations retain their root',
     );
   if (!body.enabled) return;
@@ -285,8 +292,8 @@ async function validateDestinationUpdate(
 async function validateEnabledDestination(row: BackupDestination): Promise<void> {
   if (row.kind === 'folder' && row.path) {
     const valid = await validateRoot(row.path);
-    if (!valid.ok) throw new Error(valid.error);
+    if (!valid.ok) throw new BackupRequestError(valid.error);
   }
   if (row.kind === 'google-drive' && !row.rootId)
-    throw new Error('Connect Google Drive and create or attach a backup folder first');
+    throw new BackupRequestError('Connect Google Drive and create or attach a backup folder first');
 }

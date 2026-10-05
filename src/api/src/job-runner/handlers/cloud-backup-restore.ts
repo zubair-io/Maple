@@ -3,6 +3,18 @@ import { backupEngine } from '../../cloud-backup/runtime.ts';
 import { recoverBackup, type RecoveryRequest } from '../../cloud-backup/restore.ts';
 import type { BackupDestination } from '../../cloud-backup/repository.ts';
 
+function recoverySelection(
+  payload: Record<string, unknown>,
+): Pick<RecoveryRequest, 'entryId' | 'sequence'> {
+  const entryId = payload['entryId'];
+  const sequence = payload['sequence'];
+  if (entryId === undefined && sequence === undefined) return {};
+  if (typeof entryId !== 'string' || !entryId)
+    throw new Error('Invalid recovery version selection');
+  if (typeof sequence !== 'number') throw new Error('Invalid recovery version selection');
+  return { entryId, sequence };
+}
+
 function recoveryPayload(payload: Record<string, unknown>): {
   destinationId: string;
   request: RecoveryRequest;
@@ -18,9 +30,7 @@ function recoveryPayload(payload: Record<string, unknown>): {
     request: {
       targetPath: payload['targetPath'],
       includeTrash: payload['includeTrash'],
-      ...(typeof payload['entryId'] === 'string' && typeof payload['sequence'] === 'number'
-        ? { entryId: payload['entryId'], sequence: payload['sequence'] }
-        : {}),
+      ...recoverySelection(payload),
     },
   };
 }

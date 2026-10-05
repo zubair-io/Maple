@@ -18,7 +18,7 @@
  *                                    `scrub-mirror-orphans` migration in
  *                                    /settings/workers, not a route here.
  *
- * Mounted behind `requireAuth` — see `src/index.ts`.
+ * All routes enforce `requireAuth` and `requireOwner` in this plugin.
  *
  * Setting a mirror here makes every durable write/move the server performs
  * under the library's primary root replicate to each enabled mirror root (see
@@ -29,7 +29,7 @@
 
 import { Elysia, t } from 'elysia';
 import * as path from 'node:path';
-import { realpath } from 'node:fs/promises';
+import { realpath } from '../fs/mirrored.ts';
 import { child as childLogger } from '../log.ts';
 import { findFolderById } from '../db/repos/folders.repo.ts';
 import { replaceFolderDestinations } from '../cloud-backup/local-mirror-bridge.ts';
@@ -42,6 +42,7 @@ import { benchedMirrors } from '../fs/mirror-read.ts';
 import { runMirrorScrubOnce } from '../workers/mirror/scrub.ts';
 import { getMirrorReconcileProgress, startMirrorReconcileNow } from './mirror-reconcile-runner.ts';
 import type { MirrorLocation } from '../db/schema.ts';
+import { requireAuth, requireOwner } from '../auth/middleware.ts';
 
 const log = childLogger('mirror:routes');
 
@@ -101,6 +102,9 @@ async function mirrorFolder(rawId: string): Promise<FolderWithId | Response> {
 }
 
 export const mirrorRoutes = new Elysia()
+  // Every endpoint in this plugin is operator backup configuration or diagnostics.
+  .use(requireAuth)
+  .use(requireOwner)
   .get('/api/folders/:id/mirror', async ({ params }) => {
     const folder = await mirrorFolder(params.id);
     if (folder instanceof Response) return folder;
