@@ -110,9 +110,15 @@ async function googleTokens(
 			method: 'POST',
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 			body: parameters,
-			redirect: 'error',
+			// Workers supports manual/follow rather than redirect:'error'. Never
+			// forward credentials to a provider-selected redirect destination.
+			redirect: 'manual',
 			signal: AbortSignal.any([request.signal, AbortSignal.timeout(30000)]),
 		});
+		if (response.status >= 300 && response.status < 400) {
+			await response.body?.cancel();
+			throw new BrokerError('temporarily_unavailable', 502);
+		}
 		const body = await boundedResponseJson(response, 16384);
 		if (!response.ok) throw providerError(body, response.status);
 		return body;

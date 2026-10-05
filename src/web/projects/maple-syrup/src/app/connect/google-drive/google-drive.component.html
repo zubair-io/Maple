@@ -1,8 +1,9 @@
 <main class="mx-auto max-w-xl p-6 space-y-6">
   <h1 class="text-2xl font-semibold">Connect Google Drive</h1>
   <p class="text-text-muted">
-    Maple backs up your photos to its own visible folder in Google Drive. Your server exchanges and
-    stores the credentials.
+    Maple backs up your photos to its own visible folder in Google Drive. Your server stores your
+    Google credentials. With Maple’s application, the proxy processes tokens without storing them;
+    with your own application, your server exchanges tokens directly with Google.
   </p>
   @if (vm$ | async; as vm) {
     @if (vm.error) {
@@ -30,11 +31,12 @@
       >
     } @else {
       <p>
-        Open Settings → Backup on your Maple server, provide your Google application’s client ID and
-        client secret, and choose Connect Google Drive. Then paste the displayed callback URL here.
+        Open Settings → Backup on your Maple server and select Maple’s Google application, or bring
+        your own client ID and secret. Choose Connect Google Drive, then paste the displayed
+        callback URL here.
       </p>
       <p class="text-text-muted">
-        For the relay flow, register
+        With your own application and relay routing, register
         <code class="break-all">https://mapleeditor.com/api/connect/google-drive/callback</code> as
         your Google application’s authorized redirect URI.
       </p>

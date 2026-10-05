@@ -59,6 +59,17 @@ function retryAfter(response: Response): number | null {
     : Math.max(0, Date.parse(raw) - Date.now());
   return Number.isFinite(retry) ? retry : null;
 }
+/** Drive uses 308 as upload progress, rather than an HTTP redirect.
+ * https://developers.google.com/workspace/drive/api/guides/manage-uploads */
+function resumableProgress(url: URL, init: RequestInit, response: Response): boolean {
+  return (
+    response.status === 308 &&
+    init.method === 'PUT' &&
+    url.pathname === '/upload/drive/v3/files' &&
+    !!url.searchParams.get('upload_id') &&
+    !response.headers.has('location')
+  );
+}
 export class DriveClient {
   constructor(
     private token: () => Promise<string>,
@@ -69,7 +80,9 @@ export class DriveClient {
     const token = await this.token();
     const response = await this.transport(parsed, {
       ...init,
-      redirect: 'error',
+      // Native Bun rejects 308 even without Location under redirect:'error'.
+      // Manual mode never forwards credentials and lets us validate progress.
+      redirect: 'manual',
       signal: signal
         ? AbortSignal.any([signal, AbortSignal.timeout(120_000)])
         : AbortSignal.timeout(120_000),
@@ -80,7 +93,8 @@ export class DriveClient {
     }).catch(() => {
       throw new GoogleDriveError(0, null);
     });
-    if (!response.ok && response.status !== 308) {
+    if (!response.ok && !resumableProgress(parsed, init, response)) {
+      await response.body?.cancel().catch(() => {});
       throw new GoogleDriveError(response.status, retryAfter(response));
     }
     return response;
