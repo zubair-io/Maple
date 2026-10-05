@@ -222,8 +222,9 @@ final class MCPHTTPServerTests: XCTestCase {
       let bundle = try XCTUnwrap(MCPClientSetup.claudeExtensionURL)
       XCTAssertGreaterThan(try Data(contentsOf: bundle).count, 0)
       let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent(
-          "ClaudeDesktop/server/index.js")
+        .deletingLastPathComponent().deletingLastPathComponent().appending(
+          path:
+            "ClaudeDesktop/server/index.js")
       let messages = [
         request("initialize", params: ["protocolVersion": "2025-06-18"]), request("tools/list"),
         request("tools/call", params: ["name": "maple_get_active_photo", "arguments": [:]]),

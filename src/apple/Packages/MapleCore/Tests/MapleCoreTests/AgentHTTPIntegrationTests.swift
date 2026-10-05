@@ -11,8 +11,9 @@
     func testHTTPEditsPreserveRevisionUndoSidecarAndOriginal() async throws {
       var appleRoot = URL(fileURLWithPath: #filePath)
       for _ in 0..<5 { appleRoot.deleteLastPathComponent() }
-      let fixture = appleRoot.appendingPathComponent(
-        "MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng")
+      let fixture = appleRoot.appending(
+        path:
+          "MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng")
       let dir = try SidecarContractIO.makeTempDirectory(prefix: "agent-http")
       defer { try? FileManager.default.removeItem(at: dir) }
       let raw = dir.appendingPathComponent("grey.dng")
