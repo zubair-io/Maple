@@ -27,7 +27,27 @@ namespace Maple.UI
             set => SetValue(BacklinksProperty, value);
         }
 
-        public event EventHandler<string>? BacklinkActivated;
+        private EventHandler<string>? _backlinkActivated;
+        public event EventHandler<string>? BacklinkActivated
+        {
+            add { _backlinkActivated += value; UpdateActions(); }
+            remove { _backlinkActivated -= value; UpdateActions(); }
+        }
+
+        private void OnRowPressed(object? sender, EventArgs e)
+        {
+            if (sender is MuiListRow { Tag: string id }) _backlinkActivated?.Invoke(this, id);
+        }
+
+        private void UpdateActions()
+        {
+            foreach (var child in _rows.Children)
+            {
+                if (child is not MuiListRow row) continue;
+                row.Pressed -= OnRowPressed;
+                if (_backlinkActivated != null) row.Pressed += OnRowPressed;
+            }
+        }
 
         private readonly StackPanel _root = new() { Orientation = Orientation.Vertical, Spacing = 2 };
         private readonly StackPanel _rows = new() { Orientation = Orientation.Vertical, Spacing = 2 };
@@ -50,9 +70,8 @@ namespace Maple.UI
             _rows.Children.Clear();
             foreach (var backlink in backlinks)
             {
-                var row = new MuiListRow { Label = backlink.Label, IconName = backlink.IconName };
-                var id = backlink.Id;
-                row.Pressed += (_, _) => BacklinkActivated?.Invoke(this, id);
+                var row = new MuiListRow { Label = backlink.Label, IconName = backlink.IconName, Tag = backlink.Id };
+                if (_backlinkActivated != null) row.Pressed += OnRowPressed;
                 _rows.Children.Add(row);
             }
         }
