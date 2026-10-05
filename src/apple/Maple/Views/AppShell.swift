@@ -90,9 +90,9 @@ struct AppShell: View {
   /// out of Browse / the editor for the lifetime of the app session —
   /// matches the ticket's "session-scoped" contract.
   @State private var adjustmentClipboard = AdjustmentClipboard()
-  /// Non-nil when the Settings sheet should open on a specific tab.
-  /// Set to `.pano` by the PanoMergeView "Configure in Settings → Pano"
-  /// callback so the sheet lands directly on the Pano tab. (#1241)
+  /// Non-nil when Settings should open on a specific tab. On iOS, controls
+  /// sheet presentation and initial tab; on macOS, tab selection is persisted
+  /// via SettingsNavigation before triggering openSettingsAction (#4245).
   @State private var settingsInitialTab: SettingsTab? = nil
   #if os(macOS)
     @Environment(\.openSettings) private var openSettingsAction

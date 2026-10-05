@@ -370,9 +370,9 @@ struct MapleApp: App {
 
 // MARK: - SettingsView (cross-platform)
 
-/// Tab identifiers for `SettingsView`.  Callers (e.g. `AppShell`) can pass
-/// a binding to pre-select a tab — used by the not-provisioned pano error
-/// flow so "Configure in Settings → Pano" opens directly on the Pano tab.
+/// Settings view presented in macOS native Settings scene or iOS modal sheet.
+/// Uses `SettingsTab` (from `SettingsNavigation.swift`) for tab identifiers.
+/// Callers can pass an optional `initialTab` (e.g. for deep-linking into Pano).
 struct SettingsView: View {
   /// Optional pre-selected tab.  `nil` defaults to the General tab.
   /// Provided by callers that want to deep-link into a specific tab

@@ -30,21 +30,10 @@ final class SettingsNavigationTests: XCTestCase {
     }
   }
 
-  func testTargetTabDefaultsToGeneralWhenKeyIsAbsent() {
-    let tab = SettingsNavigation.targetTab(defaults: testDefaults)
-    XCTAssertEqual(tab, .general)
-  }
-
-  func testTargetTabDefaultsToGeneralWhenKeyIsInvalid() {
-    testDefaults.set("invalid_tab_name", forKey: SettingsNavigation.tabDefaultsKey)
-    let tab = SettingsNavigation.targetTab(defaults: testDefaults)
-    XCTAssertEqual(tab, .general)
-  }
-
-  func testSetAndGetTargetTabRoundTrips() {
+  func testSetTargetTabWritesRawValueToDefaults() {
     for tab in SettingsTab.allCases {
       SettingsNavigation.setTargetTab(tab, defaults: testDefaults)
-      XCTAssertEqual(SettingsNavigation.targetTab(defaults: testDefaults), tab)
+      XCTAssertEqual(testDefaults.string(forKey: SettingsNavigation.tabDefaultsKey), tab.rawValue)
     }
   }
 

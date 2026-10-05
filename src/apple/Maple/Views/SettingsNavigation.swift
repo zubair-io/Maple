@@ -1,7 +1,6 @@
 // SettingsNavigation.swift — Settings tab destinations and navigation helpers (#4245).
 
 import Foundation
-import SwiftUI
 
 /// Settings tab destinations across macOS and iOS shells.
 enum SettingsTab: String, CaseIterable, Identifiable {
@@ -22,16 +21,6 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 enum SettingsNavigation {
   /// The UserDefaults key used to persist and deep-link the active settings tab.
   static let tabDefaultsKey = "cm.settings.tab"
-
-  /// Retrieves the persisted target tab, falling back to `.general`.
-  static func targetTab(defaults: UserDefaults = .standard) -> SettingsTab {
-    guard let raw = defaults.string(forKey: tabDefaultsKey),
-      let tab = SettingsTab(rawValue: raw)
-    else {
-      return .general
-    }
-    return tab
-  }
 
   /// Sets the target tab in UserDefaults for cross-window / cross-scene navigation.
   static func setTargetTab(_ tab: SettingsTab, defaults: UserDefaults = .standard) {
