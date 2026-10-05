@@ -213,37 +213,37 @@ final class AgentEditServiceTests: XCTestCase {
     XCTAssertEqual(session.model.whiteBalancePreset, .custom)
   }
 
-  func testAgentEditOverTheSocketPersistsToARealSidecar() async throws {
-    let dir = try SidecarContractIO.makeTempDirectory(prefix: "agent-bridge")
-    let raw = dir.appendingPathComponent("grey.dng")
-    try FileManager.default.copyItem(at: Self.syntheticDNG, to: raw)
-    let session = EditSession(asset: AssetRef(url: raw), model: .default, culling: CullingState())
-    let service = AgentEditService()
-    service.activate(session)
-    let controller = AgentBridgeController(service: service)
-    let socket = URL(fileURLWithPath: "/tmp/agent-\(UUID().uuidString.prefix(8)).sock").path
-    controller.start(path: socket)
-    defer { controller.stop() }
-    XCTAssertTrue(controller.isListening, controller.lastError ?? "")
+  #if os(macOS)
+    func testAgentEditOverHTTPPersistsToARealSidecar() async throws {
+      let dir = try SidecarContractIO.makeTempDirectory(prefix: "agent-bridge")
+      defer { try? FileManager.default.removeItem(at: dir) }
+      let raw = dir.appendingPathComponent("grey.dng")
+      try FileManager.default.copyItem(at: Self.syntheticDNG, to: raw)
+      let session = EditSession(asset: AssetRef(url: raw), model: .default, culling: CullingState())
+      let service = AgentEditService()
+      service.activate(session)
+      try await AgentHTTPTestClient.withService(service) { client in
+        let state = try await client.send(
+          AgentRequest(id: 1, tool: "maple_get_active_photo", arguments: [:])
+        ).outcome.get().result
+        let seen = try XCTUnwrap(state["revision"])
+        let edited = try await client.send(
+          AgentRequest(
+            id: 2, tool: "maple_set_adjustments",
+            arguments: [
+              "expected_revision": seen, "adjustments": ["exposure": 1.25, "whites": -12],
+            ])
+        ).outcome.get().result
+        XCTAssertEqual(edited["applied"]?["exposure"], 1.25)
 
-    let client = AgentSocketClient(path: socket, timeout: 10)
-    let state = try await Task.detached {
-      try client.send(AgentRequest(id: 1, tool: "maple_get_active_photo", arguments: [:]))
-    }.value.outcome.get().result
-    let seen = try XCTUnwrap(state["revision"])
-    let edited = try await Task.detached {
-      try client.send(
-        AgentRequest(
-          id: 2, tool: "maple_set_adjustments",
-          arguments: ["expected_revision": seen, "adjustments": ["exposure": 1.25, "whites": -12]]))
-    }.value.outcome.get().result
-    XCTAssertEqual(edited["applied"]?["exposure"], 1.25)
-
-    for _ in 0..<5 { await Task.yield() }
-    await session.flushPendingSidecarWrite()
-    let reopened = EditSession(asset: AssetRef(url: raw), model: .default, culling: CullingState())
-    await reopened.loadSidecar()
-    XCTAssertEqual(reopened.model.exposure, 1.25)
-    XCTAssertEqual(reopened.model.whites, -12)
-  }
+        for _ in 0..<5 { await Task.yield() }
+        await session.flushPendingSidecarWrite()
+        let reopened = EditSession(
+          asset: AssetRef(url: raw), model: .default, culling: CullingState())
+        await reopened.loadSidecar()
+        XCTAssertEqual(reopened.model.exposure, 1.25)
+        XCTAssertEqual(reopened.model.whites, -12)
+      }
+    }
+  #endif
 }

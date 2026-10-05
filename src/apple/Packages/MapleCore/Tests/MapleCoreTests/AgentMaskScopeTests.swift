@@ -262,7 +262,11 @@ final class AgentMaskScopeTests: XCTestCase {
         "expected_revision":"\(initialRevision)","kind":"person_skin",
         "params":{"person_index":\(invalid)}}}
         """
-      let request = try XCTUnwrap(AgentRequest(json: JSONValue.decode(Data(json.utf8))))
+      let fields = try JSONValue.decode(Data(json.utf8))
+      let request = AgentRequest(
+        id: 1,
+        tool: try XCTUnwrap(fields["tool"]?.stringValue),
+        arguments: try XCTUnwrap(fields["arguments"]?.objectValue))
       guard case .failure(let error) = await service.handle(request).outcome else {
         XCTFail("Accepted person_index=\(invalid)")
         continue

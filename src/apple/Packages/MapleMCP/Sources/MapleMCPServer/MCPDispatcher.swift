@@ -5,8 +5,8 @@ import MapleAgentWire
 /// clients send per-request `_meta` (and may probe with `server/discover`);
 /// legacy clients (2025-11-25, 2025-06-18) open with `initialize`. Tool calls
 /// are forwarded to the running app; nothing here holds photo state.
-public final class MCPDispatcher {
-  public typealias Forward = (AgentRequest) throws -> AgentResponse
+public enum MCPDispatcher {
+  public typealias Forward = @Sendable (AgentRequest) async throws -> AgentResponse
 
   public static let modernVersions = ["2026-07-28"]
   public static let legacyVersions = ["2025-11-25", "2025-06-18"]
@@ -21,33 +21,12 @@ public final class MCPDispatcher {
     latest `revision` each time. Prefer small, explainable moves and re-inspect after each one.
     """
 
-  private let forward: Forward
-  private var nextRequestID = 0
-
-  public init(forward: @escaping Forward) {
-    self.forward = forward
-  }
-
-  /// The response for `message`, or nil when it is a notification.
-  public func handle(_ message: JSONValue) -> JSONValue? {
-    nextRequestID += 1
-    switch Self.route(message, requestID: nextRequestID) {
-    case .reply(let reply): return reply
-    case .tool(let id, let request):
-      do { return Self.toolReply(id: id, response: try forward(request)) } catch {
-        return Self.result(id: id, Self.toolError(Self.unreachableMessage(error)))
-      }
-    }
-  }
-
-  /// HTTP runs inside Maple and awaits the editor directly, while the stdio
-  /// executable keeps its synchronous socket forwarding. Both share routing
-  /// and result serialization, including image content and readable errors.
+  /// Await the live editor through the app-owned HTTP endpoint.
   public static func handle(
     _ message: JSONValue,
-    forwarding forward: @Sendable (AgentRequest) async throws -> AgentResponse
+    forwarding forward: Forward
   ) async -> JSONValue? {
-    switch route(message, requestID: 1) {
+    switch route(message) {
     case .reply(let reply): return reply
     case .tool(let id, let request):
       do { return toolReply(id: id, response: try await forward(request)) } catch {
@@ -61,7 +40,7 @@ public final class MCPDispatcher {
     case tool(id: JSONValue, request: AgentRequest)
   }
 
-  private static func route(_ message: JSONValue, requestID: Int) -> Route {
+  private static func route(_ message: JSONValue) -> Route {
     guard case .object(let fields) = message, fields["jsonrpc"] == "2.0",
       let method = fields["method"]?.stringValue
     else {
@@ -100,7 +79,7 @@ public final class MCPDispatcher {
       return .tool(
         id: id,
         request: AgentRequest(
-          id: requestID, tool: name, arguments: params["arguments"]?.objectValue ?? [:]))
+          id: 1, tool: name, arguments: params["arguments"]?.objectValue ?? [:]))
     default:
       return .reply(Self.error(id: id, code: -32601, message: "Method not found: \(method)"))
     }
@@ -156,12 +135,6 @@ public final class MCPDispatcher {
   }
 
   static func unreachableMessage(_ error: Error) -> String {
-    if case .system(let call, let code) = error as? AgentSocketError, call == "connect",
-      code == ENOENT || code == ECONNREFUSED
-    {
-      return
-        "maple_unavailable: Maple isn't running, or AI agent access is off. Ask the photographer to open Maple and turn on Settings → General → AI Agents."
-    }
     return "maple_unavailable: Could not reach Maple (\(error))."
   }
 

@@ -127,7 +127,11 @@ final class AgentBrowseTests: XCTestCase {
           {"id":1,"tool":"\(tool)","arguments":{"asset_id":"\(asset.id.uuidString)",
           "asset_ids":["\(asset.id.uuidString)"],"\(key)":\(invalid)}}
           """
-        let request = try XCTUnwrap(AgentRequest(json: JSONValue.decode(Data(json.utf8))))
+        let fields = try JSONValue.decode(Data(json.utf8))
+        let request = AgentRequest(
+          id: 1,
+          tool: try XCTUnwrap(fields["tool"]?.stringValue),
+          arguments: try XCTUnwrap(fields["arguments"]?.objectValue))
         guard case .failure(let error) = await service.handle(request).outcome else {
           XCTFail("Accepted \(key)=\(invalid)")
           continue
@@ -151,65 +155,64 @@ final class AgentBrowseTests: XCTestCase {
     XCTAssertEqual(defaults.result["photos"]?.arrayValue?.count, 1)
   }
 
-  func testSocketCullingPersistsRealSidecarAndRejectsUnsafeRating() async throws {
-    var fixture = URL(fileURLWithPath: #filePath)
-    for _ in 0..<5 { fixture.deleteLastPathComponent() }
-    fixture.append(path: "MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng")
-    let dir = try SidecarContractIO.makeTempDirectory(prefix: "agent-browse")
-    defer { try? FileManager.default.removeItem(at: dir) }
-    let raw = dir.appendingPathComponent("grey.dng")
-    try FileManager.default.copyItem(at: fixture, to: raw)
-    let original = try Data(contentsOf: raw)
-    let asset = AssetRef(url: raw)
-    let session = EditSession(asset: asset, model: .default, culling: CullingState())
-    let browse = BrowseViewModel()
-    browse.assets = [asset]
-    let adapter = AppShellBrowseAdapter(
-      browseVM: browse, getSessions: { [asset.id: session] }, ensureSessionHandler: { _ in session }
-    )
-    let service = AgentEditService()
-    service.browseDelegate = adapter
-    service.activate(session)
-    let controller = AgentBridgeController(service: service)
-    let socket = "/tmp/browse-\(UUID().uuidString.prefix(8)).sock"
-    controller.start(path: socket)
-    defer { controller.stop() }
-    XCTAssertTrue(controller.isListening, controller.lastError ?? "")
-    let client = AgentSocketClient(path: socket, timeout: 10)
-    let rated = try await Task.detached {
-      try client.send(
-        AgentRequest(
-          id: 1, tool: "maple_set_rating",
-          arguments: [
-            "asset_id": .string(asset.id.uuidString), "rating": 4,
-          ]))
-    }.value.outcome.get()
-    XCTAssertEqual(rated.result["rating"], 4)
-    let rejectedRating = try await Task.detached {
-      try client.send(
-        AgentRequest(
-          id: 2, tool: "maple_set_rating",
-          arguments: [
-            "asset_id": .string(asset.id.uuidString), "rating": .number(1e100),
-          ]))
-    }.value.outcome
-    guard case .failure(let error) = rejectedRating else { return XCTFail("expected rejection") }
-    XCTAssertEqual(error.code, "invalid_arguments")
-    let flagged = try await Task.detached {
-      try client.send(
-        AgentRequest(
-          id: 3, tool: "maple_set_flag",
-          arguments: [
-            "asset_id": .string(asset.id.uuidString), "flag": "pick",
-          ]))
-    }.value.outcome.get()
-    XCTAssertEqual(flagged.result["flag"], "pick")
-    let reopened = EditSession(asset: AssetRef(url: raw), model: .default, culling: CullingState())
-    await reopened.loadSidecar()
-    XCTAssertEqual(reopened.culling.stars, 4)
-    XCTAssertEqual(reopened.culling.flag, .pick)
-    XCTAssertEqual(try Data(contentsOf: raw), original)
-  }
+  #if os(macOS)
+    func testHTTPCullingPersistsRealSidecarAndRejectsUnsafeRating() async throws {
+      var fixture = URL(fileURLWithPath: #filePath)
+      for _ in 0..<5 { fixture.deleteLastPathComponent() }
+      fixture.append(path: "MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng")
+      let dir = try SidecarContractIO.makeTempDirectory(prefix: "agent-browse")
+      defer { try? FileManager.default.removeItem(at: dir) }
+      let raw = dir.appendingPathComponent("grey.dng")
+      try FileManager.default.copyItem(at: fixture, to: raw)
+      let original = try Data(contentsOf: raw)
+      let asset = AssetRef(url: raw)
+      let session = EditSession(asset: asset, model: .default, culling: CullingState())
+      let browse = BrowseViewModel()
+      browse.assets = [asset]
+      let adapter = AppShellBrowseAdapter(
+        browseVM: browse, getSessions: { [asset.id: session] },
+        ensureSessionHandler: { _ in session }
+      )
+      let service = AgentEditService()
+      service.browseDelegate = adapter
+      service.activate(session)
+      try await AgentHTTPTestClient.withService(service) { client in
+        let rated = try await client.send(
+          AgentRequest(
+            id: 1, tool: "maple_set_rating",
+            arguments: [
+              "asset_id": .string(asset.id.uuidString), "rating": 4,
+            ])
+        ).outcome.get()
+        XCTAssertEqual(rated.result["rating"], 4)
+        let rejectedRating = try await client.send(
+          AgentRequest(
+            id: 2, tool: "maple_set_rating",
+            arguments: [
+              "asset_id": .string(asset.id.uuidString), "rating": .number(1e100),
+            ])
+        ).outcome
+        guard case .failure(let error) = rejectedRating else {
+          return XCTFail("expected rejection")
+        }
+        XCTAssertEqual(error.code, "invalid_arguments")
+        let flagged = try await client.send(
+          AgentRequest(
+            id: 3, tool: "maple_set_flag",
+            arguments: [
+              "asset_id": .string(asset.id.uuidString), "flag": "pick",
+            ])
+        ).outcome.get()
+        XCTAssertEqual(flagged.result["flag"], "pick")
+        let reopened = EditSession(
+          asset: AssetRef(url: raw), model: .default, culling: CullingState())
+        await reopened.loadSidecar()
+        XCTAssertEqual(reopened.culling.stars, 4)
+        XCTAssertEqual(reopened.culling.flag, .pick)
+        XCTAssertEqual(try Data(contentsOf: raw), original)
+      }
+    }
+  #endif
 
   func testListPhotosReturnsCaptureExifInsteadOfFilesystemCreationDate() async throws {
     let dir = try SidecarContractIO.makeTempDirectory(prefix: "agent-capture-date")
