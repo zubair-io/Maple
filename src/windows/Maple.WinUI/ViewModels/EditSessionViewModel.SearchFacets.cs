@@ -18,7 +18,7 @@ public partial class EditSessionViewModel
     [ObservableProperty] private string _searchFacetStatus = "";
     // Asset-owner filter (#3817): a user id, or "" for all owners.
     [ObservableProperty] private string _cloudOwnerFilter = "";
-    [ObservableProperty] private CloudOwnerFacet[]? _ownerFacets;
+    [ObservableProperty] private CloudSearchBucket[]? _ownerFacets;
     private readonly Dictionary<string, string> _ownerLabels = new(StringComparer.OrdinalIgnoreCase);
 
     partial void OnColorFilterChanged(string value) => ApplyFilters();
@@ -45,8 +45,11 @@ public partial class EditSessionViewModel
             var facets = facetsTask.Result;
             if (_libraryCts != owner || owner.IsCancellationRequested || !_isCloudTimeline) return;
             var owners = ownersTask.Result?.Owners;
-            foreach (var bucket in owners ?? Array.Empty<CloudOwnerFacet>())
-                _ownerLabels[bucket.Id] = CloudOwnerOptions.Label(bucket.Id, bucket.Email);
+            foreach (var bucket in owners ?? Array.Empty<CloudSearchBucket>())
+            {
+                var id = bucket.Id ?? bucket.Value;
+                _ownerLabels[id] = CloudOwnerOptions.Label(id, bucket.Email);
+            }
             SearchFacetStatus = facets == null ? "This server does not provide search facets." : "";
             // Before SearchFacets: its change notification refreshes the controls.
             OwnerFacets = owners;

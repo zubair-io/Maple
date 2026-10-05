@@ -22,8 +22,18 @@ public sealed record CloudSearchQuery
     public string? Places { get; init; }
     public string? LibraryId { get; init; }
     public string? PathPrefix { get; init; }
+    private readonly string? _owner;
     /// <summary>Asset owner's user id (#3817); the server filters on assets.owner_id.</summary>
-    public string? OwnerId { get; init; }
+    public string? Owner
+    {
+        get => _owner;
+        init => _owner = value;
+    }
+    public string? OwnerId
+    {
+        get => _owner;
+        init => _owner = value;
+    }
     public DateTimeOffset? From { get; init; }
     public DateTimeOffset? Through { get; init; }
     public CloudSearchSort Sort { get; init; } = CloudSearchSort.CapturedDescending;
@@ -45,7 +55,7 @@ public sealed record CloudSearchQuery
         Add("rating", MinimumRating?.ToString(CultureInfo.InvariantCulture));
         Add("flag", Flag); Add("color", Color); Add("ext", Extension);
         Add("people", People); Add("place", Places);
-        Add("libraryId", LibraryId); Add("pathPrefix", PathPrefix); Add("owner", OwnerId);
+        Add("libraryId", LibraryId); Add("pathPrefix", PathPrefix); Add("owner", Owner);
         Add("from", From?.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture));
         Add("to", Through?.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture));
         Add("sort", Sort switch
