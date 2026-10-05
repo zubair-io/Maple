@@ -78,7 +78,7 @@ import XCTest
 
     private func expect(_ element: XCUIElement, label: String) {
       let match = XCTNSPredicateExpectation(
-        predicate: NSPredicate(format: "exists == 1 AND label == %@", label), object: element)
+        predicate: NSPredicate(format: "exists == 1 AND value == %@", label), object: element)
       XCTAssertEqual(XCTWaiter.wait(for: [match], timeout: 90), .completed)
     }
 
