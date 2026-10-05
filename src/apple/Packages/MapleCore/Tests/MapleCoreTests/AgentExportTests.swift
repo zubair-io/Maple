@@ -222,6 +222,48 @@ final class AgentExportTests: XCTestCase {
     if !cancel { XCTAssertEqual(error.code, "stale_revision") }
     XCTAssertFalse(FileManager.default.fileExists(atPath: exports.path))
   }
+
+  func testSafeStemBoundsUTF8Length() {
+    let plain = AgentPhotoExporter.safeStem(from: "photo_test")
+    XCTAssertEqual(plain, "photo_test")
+
+    let empty = AgentPhotoExporter.safeStem(from: "")
+    XCTAssertEqual(empty, "Photo")
+
+    let dot = AgentPhotoExporter.safeStem(from: ".")
+    XCTAssertEqual(dot, "Photo")
+
+    // Multibyte string exceeding byte budget: 60 emoji characters (each 4 bytes = 240 bytes)
+    let emojis = String(repeating: "📸", count: 60)
+    let stem = AgentPhotoExporter.safeStem(from: emojis, maxBytes: 120)
+    XCTAssertLessThanOrEqual(stem.utf8.count, 120)
+    XCTAssertEqual(stem.utf8.count, 120)
+    XCTAssertEqual(stem.count, 30)
+  }
+
+  func testConcurrentExportsAreRejectedAsBusy() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "agent-export-concurrent")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let exports = root.appendingPathComponent("Exports")
+    let started = expectation(description: "First export in flight")
+    let source = ExportSourceGate(bytes: try sourceBytes(), started: started)
+    let session = EditSession(
+      asset: AssetRef(displayName: "source.png", hintExtension: "png") { await source.read() })
+    let service = AgentEditService(exportDirectory: exports)
+    service.activate(session)
+    let revision = AgentEditService.revision(of: session)
+
+    let first = Task { await call(service, revision: revision) }
+    await fulfillment(of: [started], timeout: 10)
+
+    // Second overlapping export should immediately fail with busy
+    let second = await call(service, revision: revision)
+    XCTAssertEqual(second.outcome.failureCode, "busy")
+
+    await source.release()
+    let firstResult = await first.value
+    XCTAssertEqual(firstResult.outcome.failureCode, nil)
+  }
 }
 
 extension Result where Success == AgentPayload, Failure == AgentError {

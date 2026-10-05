@@ -48,7 +48,7 @@
           Text("Keep Maple open while your AI tool uses it.")
             .font(.caption)
             .foregroundStyle(.secondary)
-          if let setupError { Text(setupError).foregroundStyle(MuiTokens.errorText) }
+          if let setupError { Text(setupError).foregroundStyle(MapleTokens.errorText) }
         }
       }
       .listRowBackground(MapleTokens.surface)
@@ -69,7 +69,7 @@
           MuiIcon(name: "warning", size: .xs)
         }
         .font(.caption)
-        .foregroundStyle(MuiTokens.errorText)
+        .foregroundStyle(MapleTokens.errorText)
         Button("Retry") { controller.setEnabled(true) }
       } else if controller.isHTTPStarting {
         ProgressView("Starting MCP server…")

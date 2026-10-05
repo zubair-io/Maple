@@ -12,7 +12,7 @@ enum AgentPhotoExporter {
   ) async throws -> AgentPayload {
     let asset = session.asset
     let name = URL(fileURLWithPath: asset.displayName).deletingPathExtension().lastPathComponent
-    let stem = name.isEmpty || name == "." || name == ".." ? "Photo" : String(name.prefix(100))
+    let stem = safeStem(from: name)
     let sourceScope = asset.scopeParentURL ?? asset.primaryURL
     let reading = sourceScope?.startAccessingSecurityScopedResource() ?? false
     defer { if reading { sourceScope?.stopAccessingSecurityScopedResource() } }
@@ -53,5 +53,17 @@ enum AgentPhotoExporter {
       "format": .string(ExportOptions.defaults.format.rawValue),
       "byte_count": .int(data.count),
     ])
+  }
+
+  static func safeStem(from name: String, maxBytes: Int = 120) -> String {
+    var stem = ""
+    var count = 0
+    for char in name {
+      let charBytes = char.utf8.count
+      if count + charBytes > maxBytes { break }
+      stem.append(char)
+      count += charBytes
+    }
+    return stem.isEmpty || stem == "." || stem == ".." ? "Photo" : stem
   }
 }

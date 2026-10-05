@@ -32,6 +32,8 @@ final class MCPHTTPChannelHandler: ChannelInboundHandler {
     case .head(let incoming):
       guard head == nil else { return respond(.badRequest, context: context) }
       head = incoming
+      deadline?.cancel()
+      deadline = context.eventLoop.scheduleTask(in: .seconds(10)) { context.close(promise: nil) }
       let port = context.channel.localAddress?.port ?? 0
       if let error = MCPHTTPProtocol.validateEndpoint(incoming, port: port, token: token) {
         respond(error, context: context)

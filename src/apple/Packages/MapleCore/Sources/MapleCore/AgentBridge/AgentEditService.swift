@@ -18,6 +18,7 @@ public final class AgentEditService {
   public weak var browseDelegate: (any AgentBrowseDelegate)?
   private weak var activeSession: EditSession?
   private let exportDirectory: URL?
+  private var isExporting = false
 
   public init(exportDirectory: URL? = nil) {
     self.exportDirectory = exportDirectory
@@ -59,8 +60,14 @@ public final class AgentEditService {
         throw AgentError(
           code: "invalid_arguments", message: "Export accepts only `expected_revision`.")
       }
+      guard !isExporting else {
+        throw AgentError(
+          code: "busy", message: "Maple is already exporting a photo. Retry shortly.")
+      }
       let session = try editableSession(arguments)
       let revision = Self.revision(of: session)
+      isExporting = true
+      defer { isExporting = false }
       return try await AgentPhotoExporter.export(
         session: session, revision: revision, directory: exportDirectory
       ) {
