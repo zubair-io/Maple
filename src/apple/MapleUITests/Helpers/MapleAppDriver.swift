@@ -199,7 +199,10 @@ import XCTest
     func canvasElement() -> XCUIElement {
       app.descendants(matching: .any)
         .matching(
-          NSPredicate(format: "label == 'Editor canvas' AND value == 'canvas-render-ready'")
+          NSPredicate(
+            format:
+              "identifier == 'canvas-render-ready' OR (label == 'Editor canvas' AND value == 'canvas-render-ready')"
+          )
         )
         .firstMatch
     }

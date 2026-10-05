@@ -209,7 +209,8 @@ extension EditSession {
         self.asset.id == assetID,
         NativeDetailLOD.shouldRender(
           pixelScale: pixelScale,
-          visibleRect: viewportSourceRect
+          visibleRect: viewportSourceRect,
+          imageSize: nativeImageSize
         )
       else { return true }
       guard let materialised else {

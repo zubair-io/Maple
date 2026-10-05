@@ -138,7 +138,10 @@ extension RenderActor {
       exportWbFrame.flatMap { frame -> ImageEditPipeline.AsShotWB? in
         guard frame.isPresent else { return nil }
         return .init(temperature: Double(frame.sceneCCT), tint: Double(frame.asShotTint))
-      } ?? asShot
+      }
+      ?? (exportDecodeResult.cameraSupport?.resolution == .rawlerFallback
+        ? .init(temperature: 6500.0, tint: 0.0)
+        : asShot)
     return await Task.detached(priority: .userInitiated) {
       autoreleasepool {
         pipeline.processSceneLinear(

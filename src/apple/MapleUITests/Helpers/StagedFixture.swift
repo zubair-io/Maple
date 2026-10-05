@@ -18,7 +18,7 @@ import Foundation
 
 #if os(macOS)
 
-struct StagedFixture {
+  struct StagedFixture {
     /// The tmp directory. Also the folder Maple treats as the library root,
     /// so its `.maple/` subtree is this case's private cache.
     let directory: URL
@@ -30,27 +30,46 @@ struct StagedFixture {
     /// Copy `raw` + `sidecar` into a fresh tmp directory, renaming the
     /// sidecar to the canonical `<stem>.xmp`. `label` only flavours the
     /// directory name so a leaked dir is traceable to its harness.
-    static func stage(raw rawURL: URL,
-                      sidecar sidecarURL: URL,
-                      label: String) throws -> StagedFixture {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("maple-\(label)-\(UUID().uuidString)",
-                                    isDirectory: true)
-        try FileManager.default.createDirectory(at: directory,
-                                                withIntermediateDirectories: true)
-        let stagedRaw = directory.appendingPathComponent(rawURL.lastPathComponent)
-        let stagedSidecar = directory
-            .appendingPathComponent(rawURL.deletingPathExtension().lastPathComponent)
-            .appendingPathExtension("xmp")
-        try FileManager.default.copyItem(at: rawURL, to: stagedRaw)
-        try FileManager.default.copyItem(at: sidecarURL, to: stagedSidecar)
-        return StagedFixture(directory: directory, raw: stagedRaw, sidecar: stagedSidecar)
+    static func stage(
+      raw rawURL: URL,
+      sidecar sidecarURL: URL,
+      label: String
+    ) throws -> StagedFixture {
+      let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(
+          "maple-\(label)-\(UUID().uuidString)",
+          isDirectory: true)
+      try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true)
+      let previewsDir =
+        directory
+        .appendingPathComponent(".maple", isDirectory: true)
+        .appendingPathComponent("previews", isDirectory: true)
+      try FileManager.default.createDirectory(
+        at: previewsDir,
+        withIntermediateDirectories: true)
+      try? FileManager.default.setAttributes(
+        [.posixPermissions: 0o777], ofItemAtPath: directory.path)
+      try? FileManager.default.setAttributes(
+        [.posixPermissions: 0o777], ofItemAtPath: directory.appendingPathComponent(".maple").path)
+      try? FileManager.default.setAttributes(
+        [.posixPermissions: 0o777], ofItemAtPath: previewsDir.path)
+
+      let stagedRaw = directory.appendingPathComponent(rawURL.lastPathComponent)
+      let stagedSidecar =
+        directory
+        .appendingPathComponent(rawURL.deletingPathExtension().lastPathComponent)
+        .appendingPathExtension("xmp")
+      try FileManager.default.copyItem(at: rawURL, to: stagedRaw)
+      try FileManager.default.copyItem(at: sidecarURL, to: stagedSidecar)
+      return StagedFixture(directory: directory, raw: stagedRaw, sidecar: stagedSidecar)
     }
 
     /// Best-effort teardown. Callers `defer` this.
     func remove() {
-        try? FileManager.default.removeItem(at: directory)
+      try? FileManager.default.removeItem(at: directory)
     }
-}
+  }
 
-#endif // os(macOS)
+#endif  // os(macOS)
