@@ -79,10 +79,11 @@ export function insertJobSql(fenced: boolean): string {
  * There are at most a handful of shapes, all well inside the worker's
  * prepared-statement cache.
  */
-export function listJobsSql(statusCount: number, byKind: boolean): string {
+export function listJobsSql(statusCount: number, byKind: boolean, excludeKind: boolean): string {
   const clauses = [
     ...(statusCount > 0 ? [`status IN (${placeholders(statusCount)})`] : []),
     ...(byKind ? ['kind = ?'] : []),
+    ...(excludeKind ? ['kind != ?'] : []),
   ];
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
   return `SELECT ${JOB_COLUMNS} FROM jobs ${where} ORDER BY created_at DESC, id DESC LIMIT ?`;

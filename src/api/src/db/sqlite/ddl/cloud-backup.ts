@@ -40,7 +40,15 @@ WHEN EXISTS (SELECT 1 FROM backup_purges WHERE destination_id=OLD.id AND complet
 BEGIN
   SELECT RAISE(ABORT,'Backup destination has pending cleanup or active transfers');
 END;
-CREATE TRIGGER backup_asset_dirty AFTER UPDATE OF mtime,sidecar_ver,hidden,apple_rendered_path ON assets
+-- UPDATE OF also fires for no-op assignments during discovery. Compare values,
+-- including nullable lifecycle fields, before invalidating verified content.
+CREATE TRIGGER backup_asset_dirty AFTER UPDATE OF mtime,size,sidecar_ver,hidden,apple_rendered_path,
+  original_path,deleted_at,deleted_reason ON assets
+WHEN OLD.mtime IS NOT NEW.mtime OR OLD.size IS NOT NEW.size
+ OR OLD.sidecar_ver IS NOT NEW.sidecar_ver OR OLD.hidden IS NOT NEW.hidden
+ OR OLD.apple_rendered_path IS NOT NEW.apple_rendered_path
+ OR OLD.original_path IS NOT NEW.original_path OR OLD.deleted_at IS NOT NEW.deleted_at
+ OR OLD.deleted_reason IS NOT NEW.deleted_reason
 BEGIN
   UPDATE backup_entries SET sequence=sequence+1,snapshot_hash=NULL,retry_at=0,
     lease_owner=NULL,lease_until=0 WHERE asset_id=NEW.id AND state!='purged';
@@ -48,6 +56,8 @@ BEGIN
     WHERE asset_id=NEW.id AND stage='cloud-backup';
 END;
 CREATE TRIGGER backup_location_dirty AFTER UPDATE OF path,filename,library_id ON asset_locations
+WHEN OLD.path IS NOT NEW.path OR OLD.filename IS NOT NEW.filename
+ OR OLD.library_id IS NOT NEW.library_id
 BEGIN
   UPDATE backup_entries SET sequence=sequence+1,snapshot_hash=NULL,retry_at=0,
     lease_owner=NULL,lease_until=0 WHERE asset_id=NEW.asset_id AND ordinal=NEW.ordinal AND state!='purged';

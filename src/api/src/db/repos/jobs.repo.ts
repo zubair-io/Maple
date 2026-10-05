@@ -76,6 +76,8 @@ export interface ListJobsFilter {
    * `running` in one query. */
   statuses?: JobStatus[];
   kind?: JobKind;
+  /** Exclude owner-only recovery jobs before pagination for member lists. */
+  excludeKind?: JobKind;
   limit?: number;
 }
 
@@ -205,8 +207,13 @@ export async function listJobs(
   const statuses = filter.statuses?.length ? filter.statuses : filter.status ? [filter.status] : [];
   const limit = Math.max(1, Math.min(200, filter.limit ?? 50));
   const rows = await sqliteDb(dbOverride).read<JobRow>(
-    listJobsSql(statuses.length, filter.kind !== undefined),
-    [...statuses, ...(filter.kind === undefined ? [] : [filter.kind]), limit],
+    listJobsSql(statuses.length, filter.kind !== undefined, filter.excludeKind !== undefined),
+    [
+      ...statuses,
+      ...(filter.kind === undefined ? [] : [filter.kind]),
+      ...(filter.excludeKind === undefined ? [] : [filter.excludeKind]),
+      limit,
+    ],
   );
   return rows.map(toJobDoc);
 }
