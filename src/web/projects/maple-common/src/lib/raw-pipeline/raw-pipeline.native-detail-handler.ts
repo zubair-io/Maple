@@ -62,12 +62,13 @@ export class NativeDetailWorker {
       );
       try {
         const rgb = patch.take_rgb();
+        const buffer = new Uint8Array(rgb).buffer;
         const reply: NativeDetailResponse = {
           id: req.id,
           type: 'native-detail-success',
           width: patch.width,
           height: patch.height,
-          rgb: rgb.buffer as ArrayBuffer,
+          rgb: buffer,
         };
         this.deps.post(reply, [reply.rgb]);
       } finally {

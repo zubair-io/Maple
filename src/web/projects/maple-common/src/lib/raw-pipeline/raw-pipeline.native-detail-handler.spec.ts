@@ -71,6 +71,7 @@ describe('worker native-detail handle lifetime', () => {
       width: 5,
       height: 6,
     });
+    expect(postMessage.mock.lastCall?.[0].rgb).toBeInstanceOf(ArrayBuffer);
   });
 
   it('frees the patch even if transferring its pixels fails', async () => {
