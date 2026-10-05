@@ -6,12 +6,16 @@
   /// Uses the app's Keychain, never a preference or an environment variable.
   actor AgentMCPTokenStore {
     static let shared = AgentMCPTokenStore()
+    private let service: String
+
+    init(service: String = "\(Bundle.main.bundleIdentifier ?? "app.justmaple.aperture").mcp") {
+      self.service = service
+    }
 
     func loadOrCreate() throws -> String {
       let query: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String:
-          "\(Bundle.main.bundleIdentifier ?? "app.justmaple.aperture").mcp",
+        kSecAttrService as String: service,
         kSecAttrAccount as String: "localhost",
       ]
       var lookup = query
@@ -25,11 +29,18 @@
       {
         return token
       }
-      guard found == errSecItemNotFound else {
-        throw failure(found == errSecSuccess ? errSecDecode : found)
+      if found == errSecSuccess {
+        let deleted = SecItemDelete(query as CFDictionary)
+        guard deleted == errSecSuccess || deleted == errSecItemNotFound else {
+          throw failure(deleted)
+        }
+      } else if found != errSecItemNotFound {
+        throw failure(found)
       }
       var random = [UInt8](repeating: 0, count: 32)
-      let generated = SecRandomCopyBytes(kSecRandomDefault, random.count, &random)
+      let generated = random.withUnsafeMutableBytes {
+        SecRandomCopyBytes(kSecRandomDefault, $0.count, $0.baseAddress!)
+      }
       guard generated == errSecSuccess else { throw failure(generated) }
       let token = random.map { String(format: "%02x", $0) }.joined()
       var insertion = query
