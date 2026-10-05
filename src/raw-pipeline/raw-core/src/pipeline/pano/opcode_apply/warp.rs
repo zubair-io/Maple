@@ -208,9 +208,9 @@ pub fn warp_rectilinear_reach_px(
         d * plane.kr[3],
     ];
 
+    let candidates = find_radial_extrema_u(kr_eff);
     let mut max_disp = 0.0f64;
-    for i in 0..=128 {
-        let u = i as f64 / 128.0;
+    for u in candidates {
         let rr = u * u;
         let ratio = kr_eff[0] + rr * (kr_eff[1] + rr * (kr_eff[2] + rr * kr_eff[3]));
         let disp = norm_radius * u * (ratio - 1.0).abs();
@@ -219,4 +219,89 @@ pub fn warp_rectilinear_reach_px(
         }
     }
     max_disp.ceil() as usize + 2
+}
+
+/// Find all candidate radii `u in [0, 1]` where the degree-seven displacement
+/// polynomial `p(u) = u * (ratio(u) - 1.0)` can attain an extremum.
+///
+/// Since `p(u) = (kr[0] - 1)*u + kr[1]*u^3 + kr[2]*u^5 + kr[3]*u^7`, its
+/// derivative `p'(u)` is a cubic in `t = u^2 in [0, 1]`. Extrema occur only
+/// at endpoints or roots of `p'(u) = 0`.
+fn find_radial_extrema_u(kr_eff: [f64; 4]) -> Vec<f64> {
+    let mut candidates = vec![0.0, 1.0];
+    for i in 1..256 {
+        candidates.push(i as f64 / 256.0);
+    }
+
+    let a = 7.0 * kr_eff[3];
+    let b = 5.0 * kr_eff[2];
+    let c = 3.0 * kr_eff[1];
+    let d = kr_eff[0] - 1.0;
+
+    let eval_q = |t: f64| ((a * t + b) * t + c) * t + d;
+
+    if a.abs() < 1e-12 {
+        if b.abs() < 1e-12 {
+            if c.abs() > 1e-12 {
+                let t = -d / c;
+                if (0.0..=1.0).contains(&t) {
+                    candidates.push(t.sqrt());
+                }
+            }
+        } else {
+            let disc = c * c - 4.0 * b * d;
+            if disc >= 0.0 {
+                let s = disc.sqrt();
+                for t in [(-c - s) / (2.0 * b), (-c + s) / (2.0 * b)] {
+                    if (0.0..=1.0).contains(&t) {
+                        candidates.push(t.sqrt());
+                    }
+                }
+            }
+        }
+    } else {
+        // Monotonicity intervals of q(t) bounded by roots of q'(t) = 3*a*t^2 + 2*b*t + c
+        let disc = b * b - 3.0 * a * c;
+        let mut pts = vec![0.0f64];
+        if disc > 0.0 {
+            let s = disc.sqrt();
+            let t1 = (-b - s) / (3.0 * a);
+            let t2 = (-b + s) / (3.0 * a);
+            if t1 > 0.0 && t1 < 1.0 {
+                pts.push(t1);
+            }
+            if t2 > 0.0 && t2 < 1.0 {
+                pts.push(t2);
+            }
+        }
+        pts.push(1.0);
+        pts.sort_by(|x, y| x.partial_cmp(y).unwrap());
+
+        for w in pts.windows(2) {
+            let (t_lo, t_hi) = (w[0], w[1]);
+            let (q_lo, q_hi) = (eval_q(t_lo), eval_q(t_hi));
+            if q_lo.abs() < 1e-12 {
+                candidates.push(t_lo.sqrt());
+            }
+            if q_hi.abs() < 1e-12 {
+                candidates.push(t_hi.sqrt());
+            }
+            if q_lo * q_hi < 0.0 {
+                let mut lo = t_lo;
+                let mut hi = t_hi;
+                for _ in 0..24 {
+                    let mid = 0.5 * (lo + hi);
+                    if eval_q(lo) * eval_q(mid) <= 0.0 {
+                        hi = mid;
+                    } else {
+                        lo = mid;
+                    }
+                }
+                let root_t = 0.5 * (lo + hi);
+                candidates.push(root_t.sqrt());
+            }
+        }
+    }
+
+    candidates
 }
