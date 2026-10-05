@@ -67,7 +67,7 @@ public sealed partial class MainWindow
             if (_closing) return;
             if (e.PropertyName == nameof(ViewModel.SearchText) && SearchBox.Text != ViewModel.SearchText)
                 SearchBox.Text = ViewModel.SearchText;
-            if (e.PropertyName is nameof(ViewModel.SearchFacets) or nameof(ViewModel.CloudConnected))
+            if (e.PropertyName is nameof(ViewModel.SearchFacets) or nameof(ViewModel.OwnerFacets) or nameof(ViewModel.CloudConnected))
                 UpdateSearchFacetControls();
             if (e.PropertyName is nameof(ViewModel.ActiveSectionName) or nameof(ViewModel.CurrentFolderPath))
             {

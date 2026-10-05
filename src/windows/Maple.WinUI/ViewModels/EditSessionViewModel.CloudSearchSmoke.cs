@@ -89,9 +89,12 @@ public partial class EditSessionViewModel
             session.CloudPlaceFilter = "Paris, France";
             session.CloudHiddenFilter = Services.Cloud.CloudHiddenFilter.Only;
             session.ColorFilter = "red";
+            Require(session.OwnerFilterOptions().Count == 2, "owner facet did not offer its owner");
+            session.CloudOwnerFilter = SmokeOwnerId;
             await Wait(() => handler.Queries.Count == 7);
             Require(handler.Queries[^1].Contains("people=Ada") && handler.Queries[^1].Contains("place=Paris%2C%20France")
-                && handler.Queries[^1].Contains("hidden=only") && handler.Queries[^1].Contains("color=red"),
+                && handler.Queries[^1].Contains("hidden=only") && handler.Queries[^1].Contains("color=red")
+                && handler.Queries[^1].Contains("owner=" + SmokeOwnerId),
                 "facet changes did not reach the server together");
             facetsPage.SetResult(Page("facet-match.dng", false, null, 0, 1));
             await Wait(() => !session.IsLibraryLoading);
@@ -108,6 +111,8 @@ public partial class EditSessionViewModel
         }
     }
 
+    private const string SmokeOwnerId = "664000000000000000000001";
+
     private sealed class SearchResponses : HttpMessageHandler
     {
         private readonly Queue<TaskCompletionSource<HttpResponseMessage>> _responses = new();
@@ -123,7 +128,7 @@ public partial class EditSessionViewModel
             if (request.RequestUri!.AbsolutePath == "/api/search/facets")
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("""{"total":1,"people":[{"value":"Ada","count":1}],"places":[{"value":"Paris, France","count":1}],"supportedFilters":["people","place","hidden"]}"""),
+                    Content = new StringContent("""{"total":1,"people":[{"value":"Ada","count":1}],"places":[{"value":"Paris, France","count":1}],"owners":[{"id":"664000000000000000000001","email":"ada@example.com","count":1}],"supportedFilters":["people","place","hidden"]}"""),
                 });
             if (request.RequestUri!.AbsolutePath != "/api/search") return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
             Queries.Add(request.RequestUri.Query);

@@ -456,6 +456,7 @@
                                             </ComboBox>
                                             <ComboBox x:Name="PeopleSearchBox" Header="People" SelectionChanged="OnSearchFacetSelected" AutomationProperties.Name="Filter by person"/>
                                             <ComboBox x:Name="PlaceSearchBox" Header="Places" SelectionChanged="OnSearchFacetSelected" AutomationProperties.Name="Filter by place"/>
+                                            <ComboBox x:Name="OwnerSearchBox" Header="Owner" SelectionChanged="OnSearchFacetSelected" AutomationProperties.Name="Filter by owner"/>
                                             <ComboBox x:Name="HiddenSearchBox" Header="Hidden photos" SelectedIndex="0" SelectionChanged="OnSearchFacetSelected" AutomationProperties.Name="Hidden photos filter">
                                                 <ComboBoxItem Content="Exclude hidden"/><ComboBoxItem Content="Only hidden"/><ComboBoxItem Content="Include hidden"/>
                                             </ComboBox>
