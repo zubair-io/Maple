@@ -171,6 +171,8 @@ Registration uses the Win32 `CfRegisterSyncRoot` path rather than the WinRT `Sto
 
 ## Settings, registration, diagnostics
 
+`Services/DiagLog.cs` queues timestamped records to one background writer for `%LOCALAPPDATA%\Maple\maple.log`. UI/render callers never perform diagnostic file I/O (#4281). The queue holds at most 256 records; bursts drop new records and report the dropped count when writing resumes. Storage/permission failures are best-effort, and process exit allows at most 250ms to drain. An unresponsive disk can lose pending diagnostics without holding renderer locks or extending shutdown indefinitely. `DiagnosticLogQueueTests` covers a stalled writer, overflow, bounded shutdown, real-file ordering and write-failure recovery.
+
 `Services/AppSettings.cs` persists to a JSON file under `%LOCALAPPDATA%\Maple`. Its invariant: every partial write goes through `AppSettings.Update`, which reloads then writes — a long-lived cached instance calling `Save()` would serialize a stale snapshot over fields other code paths had since changed. Cloud refresh tokens are protected with DPAPI.
 
 `SettingsWindow.cs` composes the Settings surface directly on Maple.UI (`MuiSettingsShell` + `MuiListRow` nav + one `MuiSettingsSection` per section) with six sections: Library, Maple Cloud, Interface, Panorama, Storage, About. Actions that already have an owner in `MainWindow` (cloud connect, sidebar preference) are passed in as callbacks rather than reimplemented.
