@@ -34,6 +34,13 @@ namespace Maple.WinUI
             var reportPath = Path.Combine(output, "lifecycle.json");
             try
             {
+                if (expectedPath == "media-metadata-input")
+                {
+                    await VerifyMediaCellMetadataAsync(output, true);
+                    await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(new
+                        { passed = true, scope = "media-metadata-provider-and-OS-input" }));
+                    return;
+                }
                 if (expectedPath is "media-cell" or "media-cell-input")
                 {
                     await VerifyMediaCellAutomationAsync(output, expectedPath == "media-cell-input");

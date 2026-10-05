@@ -183,8 +183,8 @@ namespace Maple.UI
 
             Tapped += (_, e) => { if (IsEnabled && !IsFromMetadata(e.OriginalSource)) InvokeAction(); };
             KeyDown += OnKeyDown;
-            // Ignore metadata keys in OnKeyDown; handling every key here
-            // prevents the TextBox from processing native editing input.
+            // OnKeyDown excludes metadata descendants while their native
+            // editors retain control over handled keys and Tab traversal.
             _metaRow.Tapped += (_, e) => e.Handled = true;
             _renameField.Renamed += (_, name) => { Filename = name; Renamed?.Invoke(this, name); };
             _ratingFlags.RatingChanged += (_, value) => Rating = value;
