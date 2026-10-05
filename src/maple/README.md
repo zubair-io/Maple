@@ -326,6 +326,47 @@ libheif's prebuilt decoders — sharp's included — cannot read one at all, so
 can decode the output. sharp's third value, `12`, throws: Maple's `ravif`
 encoder has no 12-bit path.
 
+**AVIF quality numbers are deliberately encoder-specific (#3583).** Maple uses
+ravif/rav1e with YCbCr coding; Sharp uses libheif/libaom. Equal `quality`
+values do not promise equal quantizers, fidelity, or file size. Choose quality
+from your output's fidelity and size requirements rather than transferring a
+number between encoders. We retain the existing cross-decoder fidelity and
+size ratchets in `test/oracle.test.ts`; this documents the difference rather
+than changing the codec, defaults, or those ceilings.
+
+Measured on Apple arm64 with ravif 0.13.0 / rav1e 0.8.1 (the qualified
+native build), Sharp 0.34.5, libvips 8.17.3, libheif 1.20.2 and libaom 3.13.1. Both encoders used 8-bit, effort 4 and 4:4:4; Sharp decoded both
+outputs. The input is the oracle's deterministic 64×64 RGB gradient with
+bounded noise, not a camera photograph. PSNR compares decoded RGB8 against
+that input; sizes include the complete AVIF container.
+
+| Quality | Maple bytes | Maple PSNR dB | Sharp bytes | Sharp PSNR dB |
+| ------- | ----------: | ------------: | ----------: | ------------: |
+| 30      |         397 |        28.669 |         329 |        28.850 |
+| 50      |         584 |        30.105 |         703 |        31.442 |
+| 60      |         764 |        31.397 |        1108 |        35.461 |
+| 80      |        1122 |        34.861 |        1700 |        40.579 |
+| 95      |        2321 |        44.795 |        2938 |        47.050 |
+
+A separate Sharp quality 1–100 sweep selects the closest **whole-file size**
+for each Maple row (not an identical rate or a universal quality mapping):
+
+| Maple quality / bytes / PSNR dB | Nearest Sharp quality / bytes / PSNR dB |
+| ------------------------------- | --------------------------------------- |
+| 30 / 397 / 28.669               | 39 / 378 / 28.978                       |
+| 50 / 584 / 30.105               | 46 / 580 / 30.563                       |
+| 60 / 764 / 31.397               | 51 / 796 / 32.121                       |
+| 80 / 1122 / 34.861              | 60 / 1108 / 35.461                      |
+| 95 / 2321 / 44.795              | 90 / 2329 / 44.693                      |
+
+These rows show why the equal-number gap alone is not a rate/fidelity
+comparison. They do not establish a content-independent ranking or latency
+claim. Reproduce with `MAPLE_NAPI=0 bun scripts/bench-avif-quality.ts` from `src/maple`
+after installing its development dependencies and building the native library;
+the JSON includes Sharp codec versions, the resolved native library SHA256,
+input SHA256, output SHA256s and all sweep
+rows. The public `maple(...).avif(...).toBuffer()` path is measured directly.
+
 **PNG `compressionLevel` collapses onto three zlib tiers.** The pure-Rust
 `png` encoder exposes fastest / default / best, not ten levels, so sharp's
 0-9 maps as `0` → zlib 1, `1-6` → zlib 6, `7-9` → zlib 9. Within a tier the
