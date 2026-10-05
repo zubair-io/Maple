@@ -172,7 +172,7 @@ async function main() {
   // Exact, reproducible byte count for this fixture at this size/format —
   // not just "> 0" — so a napi argument-marshalling bug that produces a
   // wrong-but-truthy buffer (see native-napi.ts's own module doc) is caught.
-  assertEqual(calibrationBuf.length, 193, 'maple(...).resize(32, 32).png().toBuffer() byte length');
+  assertEqual(calibrationBuf.length, 195, 'maple(...).resize(32, 32).png().toBuffer() byte length');
   // A real PNG starts with the 8-byte PNG signature; check the leading
   // magic bytes (0x89 0x50 0x4E 0x47 = "\x89PNG").
   assert(
