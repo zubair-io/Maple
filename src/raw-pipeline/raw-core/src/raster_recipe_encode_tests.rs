@@ -46,6 +46,7 @@ fn jpeg_embeds_icc_exif_and_xmp() {
         &rgb(2, 2, 90),
         &RasterOutput::Jpeg(JpegOptions::default()),
         &meta(Some(&icc), Some(EXIF_TIFF), Some(XMP_PACKET), None),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     let found = read_sidecars(&bytes);
@@ -64,6 +65,7 @@ fn jpeg_with_no_resolved_metadata_embeds_none_at_all() {
         &rgb(2, 2, 90),
         &RasterOutput::Jpeg(JpegOptions::default()),
         &meta(None, None, None, None),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     let found = read_sidecars(&bytes);
@@ -78,6 +80,7 @@ fn jpeg_writes_the_requested_density() {
         &rgb(2, 2, 90),
         &RasterOutput::Jpeg(JpegOptions::default()),
         &meta(None, None, None, Some(300.0)),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     let density = read_sidecars(&bytes).density.unwrap();
@@ -91,6 +94,7 @@ fn png_embeds_icc_exif_xmp_and_density() {
         &rgb(2, 2, 120),
         &RasterOutput::Png(PngOptions::default()),
         &meta(Some(&icc), Some(EXIF_TIFF), Some(XMP_PACKET), Some(72.0)),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     let found = read_sidecars(&bytes);
@@ -111,6 +115,7 @@ fn png_keeps_the_alpha_channel() {
         &rgba,
         &RasterOutput::Png(PngOptions::default()),
         &meta(None, None, None, None),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     let decoded = crate::raster::decode_raster(&bytes, Some("png")).unwrap();
@@ -129,6 +134,7 @@ fn webp_embeds_icc_and_exif_but_stays_untagged_without_them() {
         &rgb(2, 2, 64),
         &RasterOutput::Webp { lossless: true },
         &meta(Some(&icc), Some(EXIF_TIFF), None, None),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     let found = read_sidecars(&tagged);
@@ -139,6 +145,7 @@ fn webp_embeds_icc_and_exif_but_stays_untagged_without_them() {
         &rgb(2, 2, 64),
         &RasterOutput::Webp { lossless: true },
         &meta(None, None, None, None),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     assert!(read_sidecars(&untagged).icc.is_none());
@@ -151,6 +158,7 @@ fn tiff_embeds_the_icc_profile() {
         &rgb(2, 2, 200),
         &RasterOutput::Tiff(TiffOptions::default()),
         &meta(Some(&icc), None, None, None),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     assert_eq!(read_sidecars(&bytes).icc.as_deref(), Some(icc.as_slice()));
@@ -163,6 +171,7 @@ fn avif_embeds_exif() {
         &rgb(4, 4, 50),
         &RasterOutput::Avif(crate::raster_encode_avif::AvifOptions::default()),
         &meta(None, Some(EXIF_TIFF), None, None),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     assert_eq!(read_sidecars(&bytes).exif.as_deref(), Some(EXIF_TIFF));
@@ -177,7 +186,8 @@ fn webp_lossy_is_refused_through_the_output_enum() {
     assert!(encode_raster_output(
         &rgb(2, 1, 3),
         &RasterOutput::Webp { lossless: false },
-        &ResolvedMetadata::default()
+        &ResolvedMetadata::default(),
+        crate::view::encode::TargetPrimaries::Srgb
     )
     .is_err());
 }
@@ -198,6 +208,7 @@ fn webp_lossless_output_without_the_avif_feature_is_a_named_error() {
         &rgb(2, 1, 3),
         &RasterOutput::Webp { lossless: true },
         &ResolvedMetadata::default(),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap_err();
     assert!(
@@ -213,6 +224,7 @@ fn a_jpeg_output_flattens_alpha_over_black() {
         &rgba,
         &RasterOutput::Jpeg(JpegOptions::default()),
         &ResolvedMetadata::default(),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     let decoded = crate::raster::decode_raster(&bytes, Some("jpeg")).unwrap();
@@ -225,6 +237,7 @@ fn tiff_with_no_resolved_icc_embeds_none() {
         &rgb(2, 2, 200),
         &RasterOutput::Tiff(TiffOptions::default()),
         &meta(None, None, None, None),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     assert!(read_sidecars(&bytes).icc.is_none());
@@ -335,6 +348,7 @@ fn the_encode_path_itself_applies_the_gate() {
         &rgb(2, 2, 200),
         &RasterOutput::Tiff(TiffOptions::default()),
         &meta(None, Some(EXIF_TIFF), None, None),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap_err();
     assert!(
@@ -383,6 +397,7 @@ fn tiff_writes_the_resolved_orientation_as_tag_274() {
             &rgb(2, 2, 200),
             &RasterOutput::Tiff(TiffOptions::default()),
             &meta,
+            crate::view::encode::TargetPrimaries::Srgb,
         )
         .unwrap();
         assert_eq!(
@@ -402,6 +417,7 @@ fn tiff_writes_no_orientation_tag_when_none_is_resolved() {
         &rgb(2, 2, 200),
         &RasterOutput::Tiff(TiffOptions::default()),
         &ResolvedMetadata::default(),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     assert_eq!(tiff_orientation(&bytes), None);
@@ -420,6 +436,7 @@ fn tiff_still_embeds_an_icc_profile_alongside_the_orientation() {
         &rgb(2, 2, 200),
         &RasterOutput::Tiff(TiffOptions::default()),
         &meta,
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     assert_eq!(tiff_orientation(&bytes), Some(6));

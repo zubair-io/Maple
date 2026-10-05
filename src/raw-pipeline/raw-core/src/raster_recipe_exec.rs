@@ -11,7 +11,7 @@ use crate::raster::RasterImage;
 /// every validation error in the pipeline is reported the same way).
 pub(crate) use crate::raster_recipe::bad;
 use crate::raster_recipe::{Layer, Op, Recipe, RecipeInput};
-use crate::raster_recipe_colour::{apply_colour_op, output_primaries};
+use crate::raster_recipe_colour::apply_colour_op;
 use crate::raster_recipe_output::output_from_wire;
 
 use crate::raster_composite::{composite, BlendMode, CompositeLayer, Gravity};
@@ -240,7 +240,7 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
     // maximal run of them; every other op comes back as a chunk of one. No
     // filter op rotates primaries, so a run threads the incoming value
     // straight back out.
-    let (processed, _primaries) = recipe
+    let (processed, op_primaries) = recipe
         .ops
         .chunk_by(|a, b| is_resize_filter_op(a) && is_resize_filter_op(b))
         .try_fold(
@@ -258,7 +258,6 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
     // A `withIccProfile('srgb'|'p3')` names an output space, so it moves them
     // there on top of whatever `toColourspace` did — see
     // `named_profile_primaries`.
-    let op_primaries = output_primaries(recipe)?;
     let primaries = named_profile_primaries(recipe).unwrap_or(op_primaries);
     let processed = if primaries == op_primaries {
         processed
@@ -267,7 +266,7 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
     };
     let metadata =
         resolve_output_metadata(recipe, input, aux, primaries, auto_oriented, &processed)?;
-    let bytes = encode_raster_output(&processed, &output, &metadata)?;
+    let bytes = encode_raster_output(&processed, &output, &metadata, primaries)?;
     let channels = channels_written(&processed, &output);
     Ok(RecipeResult {
         width: processed.width,

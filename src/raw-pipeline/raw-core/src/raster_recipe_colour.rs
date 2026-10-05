@@ -19,7 +19,7 @@
 //! straight over the FFI rather than through the builder.
 
 use crate::raster::RasterImage;
-use crate::raster_recipe::{bad, Op, Recipe};
+use crate::raster_recipe::{bad, Op};
 use crate::view::encode::TargetPrimaries;
 
 /// The wire spelling accepted by `toColourspace`. Only the two primaries
@@ -34,20 +34,6 @@ pub(crate) fn primaries_from_wire(s: &str) -> crate::error::Result<TargetPrimari
             "unsupported colourspace '{other}' (expected srgb, display-p3 or p3)"
         ))),
     }
-}
-
-/// The primaries the encoder tags with: the last `toColourspace` in the op
-/// list, or sRGB.
-pub(crate) fn output_primaries(recipe: &Recipe) -> crate::error::Result<TargetPrimaries> {
-    recipe
-        .ops
-        .iter()
-        .rev()
-        .find_map(|op| match op {
-            Op::ToColourspace { space } => Some(primaries_from_wire(space)),
-            _ => None,
-        })
-        .unwrap_or(Ok(TargetPrimaries::Srgb))
 }
 
 fn require_finite(name: &str, v: f64) -> crate::error::Result<()> {
