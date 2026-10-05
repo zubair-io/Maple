@@ -84,6 +84,7 @@ mod tests {
                 icc: Some(&profile),
                 ..Default::default()
             },
+            P3,
         )
         .unwrap();
         let container = crate::avif_decode::parse_container(&encoded).unwrap();
@@ -114,5 +115,186 @@ mod tests {
             .icc
             .unwrap();
         assert!(profile == crate::icc::profile_for(Srgb));
+    }
+    fn recipe_avif(channels: u8, depth: u8, ops: &str, metadata: &str, aux: &[u8]) -> Vec<u8> {
+        let recipe = crate::raster_recipe::parse_recipe(&format!(
+            r#"{{"v":1,"input":{{"kind":"raw","width":16,"height":16,"channels":{channels}}},"ops":{ops},"metadata":{metadata},"output":{{"format":"avif","quality":100,"effort":0,"bitdepth":{depth}}}}}"#
+        )).unwrap();
+        let pixel = if channels == 3 {
+            vec![210, 75, 40]
+        } else {
+            vec![210, 75, 40, 137]
+        };
+        crate::raster_recipe_exec::run_recipe(&recipe, &pixel.repeat(256), aux)
+            .unwrap()
+            .bytes
+    }
+
+    fn assert_recipe_colour(
+        bytes: &[u8],
+        channels: u8,
+        depth: u8,
+        primaries: u32,
+        profile: Option<&[u8]>,
+    ) {
+        let container = crate::avif_decode::parse_container(bytes).unwrap();
+        let header = crate::avif_decode::sequence_header(&container.primary_item).unwrap();
+        assert_eq!(
+            (header.pri as u32, header.trc as u32, header.mtrx as u32),
+            (primaries, 13, 6)
+        );
+        assert_eq!(header.hbd, u8::from(depth == 10));
+        let nclx = [
+            b"nclx".as_slice(),
+            &(primaries as u16).to_be_bytes(),
+            &[0, 13, 0, 6, 128],
+        ]
+        .concat();
+        let descriptions: Vec<_> = bytes
+            .windows(4)
+            .enumerate()
+            .filter(|(_, b)| *b == b"nclx")
+            .map(|(i, _)| &bytes[i..i + 11])
+            .collect();
+        // The serializer omits CICP only for its exact implicit sRGB default.
+        if primaries == 12 || !descriptions.is_empty() {
+            assert!(descriptions.iter().all(|b| *b == nclx));
+            assert!(!descriptions.is_empty(), "P3 needs explicit container CICP");
+        }
+        assert_eq!(
+            crate::raster_meta::read_sidecars(bytes).icc.as_deref(),
+            profile
+        );
+        let decoded = crate::avif_decode::decode_avif(bytes).unwrap();
+        assert_eq!(
+            (decoded.width, decoded.height, decoded.channels),
+            (16, 16, channels)
+        );
+        assert_eq!(decoded.data.len(), 256 * usize::from(channels));
+        let pixel = if channels == 3 {
+            vec![210, 75, 40]
+        } else {
+            vec![210, 75, 40, 137]
+        };
+        let max_error = decoded
+            .data
+            .iter()
+            .zip(pixel.repeat(256))
+            .map(|(a, b)| a.abs_diff(b))
+            .max()
+            .unwrap();
+        assert!(
+            max_error <= 3,
+            "recipe re-open colour/alpha error {max_error}"
+        );
+        if channels == 4 {
+            let alpha =
+                crate::avif_decode::sequence_header(container.alpha_item.as_deref().unwrap())
+                    .unwrap();
+            assert_ne!(alpha.pri as u32, 12, "alpha has independent signalling");
+        }
+    }
+
+    #[test]
+    fn custom_p3_icc_recipe_follows_actual_p3_samples() {
+        let standard = crate::icc::profile_for(P3);
+        let mut custom = standard.clone();
+        // ICC header creator signature only: matrix, TRCs, tag offsets and length stay identical.
+        custom[80..84].copy_from_slice(b"TEST");
+        assert_ne!(custom, standard);
+        assert_eq!(&custom[128..], &standard[128..]);
+        for channels in [3, 4] {
+            for depth in [8, 10] {
+                let metadata = format!(r#"{{"icc":{{"off":0,"len":{}}}}}"#, custom.len());
+                let ops = r#"[{"op":"toColourspace","space":"display-p3"}]"#;
+                let encoded = recipe_avif(channels, depth, ops, &metadata, &custom);
+                assert_recipe_colour(&encoded, channels, depth, 12, Some(&custom));
+                let standard_metadata =
+                    format!(r#"{{"icc":{{"off":0,"len":{}}}}}"#, standard.len());
+                let standard_encoded =
+                    recipe_avif(channels, depth, ops, &standard_metadata, &standard);
+                let custom_item = crate::avif_decode::parse_container(&encoded).unwrap();
+                let standard_item = crate::avif_decode::parse_container(&standard_encoded).unwrap();
+                assert_eq!(
+                    custom_item.primary_item, standard_item.primary_item,
+                    "ICC description must not change sample signalling or encoding"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn p3_icc_bytes_do_not_convert_srgb_recipe_samples() {
+        let profile = crate::icc::profile_for(P3);
+        let metadata = format!(r#"{{"icc":{{"off":0,"len":{}}}}}"#, profile.len());
+        for channels in [3, 4] {
+            for depth in [8, 10] {
+                assert_recipe_colour(
+                    &recipe_avif(channels, depth, "[]", &metadata, &profile),
+                    channels,
+                    depth,
+                    1,
+                    Some(&profile),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn named_p3_and_reversed_conversion_follow_actual_samples() {
+        for channels in [3, 4] {
+            for depth in [8, 10] {
+                let named = recipe_avif(channels, depth, "[]", r#"{"iccName":"p3"}"#, &[]);
+                assert_recipe_colour(
+                    &named,
+                    channels,
+                    depth,
+                    12,
+                    Some(&crate::icc::profile_for(P3)),
+                );
+                let named_override = recipe_avif(
+                    channels,
+                    depth,
+                    r#"[{"op":"toColourspace","space":"p3"}]"#,
+                    r#"{"iccName":"srgb"}"#,
+                    &[],
+                );
+                assert_recipe_colour(
+                    &named_override,
+                    channels,
+                    depth,
+                    1,
+                    Some(&crate::icc::profile_for(Srgb)),
+                );
+                let reversed = recipe_avif(
+                    channels,
+                    depth,
+                    r#"[{"op":"toColourspace","space":"p3"},{"op":"toColourspace","space":"srgb"}]"#,
+                    r#"{"iccName":"srgb"}"#,
+                    &[],
+                );
+                assert_recipe_colour(
+                    &reversed,
+                    channels,
+                    depth,
+                    1,
+                    Some(&crate::icc::profile_for(Srgb)),
+                );
+            }
+        }
+    }
+    #[test]
+    fn untagged_default_recipe_retains_srgb_samples() {
+        for channels in [3, 4] {
+            for depth in [8, 10] {
+                assert_recipe_colour(
+                    &recipe_avif(channels, depth, "[]", "{}", &[]),
+                    channels,
+                    depth,
+                    1,
+                    None,
+                );
+            }
+        }
     }
 }

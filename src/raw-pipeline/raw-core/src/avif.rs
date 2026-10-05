@@ -83,6 +83,7 @@ pub fn encode_tagged(
             icc: Some(&profile),
             ..Default::default()
         },
+        primaries,
     )
 }
 

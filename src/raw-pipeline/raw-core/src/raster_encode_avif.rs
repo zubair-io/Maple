@@ -154,6 +154,7 @@ pub fn encode_avif_opts(
     raster: &RasterImage,
     options: &AvifOptions,
     meta: &EmbeddedMetadata<'_>,
+    primaries: crate::view::encode::TargetPrimaries,
 ) -> Result<Vec<u8>> {
     // The vendored `rav1e` never reaches true AV1 lossless mode: its
     // `base_q_idx` is floored at 1 (`select_ac_qi(..).max(1)` in
@@ -214,9 +215,8 @@ pub fn encode_avif_opts(
         .with_speed(speed)
         .with_bit_depth(depth)
         .with_internal_color_model(ColorModel::YCbCr);
-    let base = if meta.icc
-        == Some(crate::icc::profile_for(crate::view::encode::TargetPrimaries::P3).as_slice())
-    {
+    // CICP describes the samples; arbitrary ICC bytes are a tag-only override.
+    let base = if primaries == crate::view::encode::TargetPrimaries::P3 {
         base.with_display_p3()
     } else {
         base

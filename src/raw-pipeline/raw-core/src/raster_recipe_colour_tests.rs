@@ -4,7 +4,7 @@
 //! `raster_colour_lab.rs`). `super` is `raster_recipe_colour`.
 
 use super::*;
-use crate::raster_recipe::parse_recipe;
+use crate::raster_recipe::{parse_recipe, Recipe};
 use crate::raster_recipe_exec::run_recipe;
 
 fn run(json: &str, input: &[u8], aux: &[u8]) -> crate::raster_recipe_exec::RecipeResult {
@@ -184,17 +184,6 @@ fn an_unknown_colourspace_is_named() {
     .unwrap();
     let err = run_recipe(&recipe, &[1, 2, 3], &[]).unwrap_err();
     assert!(format!("{err}").contains("cmyk"), "got: {err}");
-}
-
-#[test]
-fn p3_is_the_output_primaries_of_the_last_tocolourspace_op() {
-    let recipe = parse_recipe(
-        r#"{"v":1,"input":{"kind":"raw","width":1,"height":1,"channels":3},
-            "ops":[{"op":"toColourspace","space":"display-p3"},
-                   {"op":"toColourspace","space":"srgb"}],"output":{"format":"raw"}}"#,
-    )
-    .unwrap();
-    assert_eq!(output_primaries(&recipe).unwrap(), TargetPrimaries::Srgb);
 }
 
 #[test]
