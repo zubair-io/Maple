@@ -77,6 +77,9 @@ struct AppShell: View {
   /// mid-present can come back torn with nothing scheduled to repaint it.
   /// On `.active` we ask the active editor session for one re-present.
   @Environment(\.scenePhase) private var scenePhase
+  #if os(macOS)
+    @Environment(\.openSettings) private var openSettings
+  #endif
   @State private var showSettings = false
   // Held in @State (not constructed inside the .sheet content closure) so a
   // re-render of AppShell while the sheet is open cannot rebuild the view model
@@ -959,10 +962,12 @@ struct AppShell: View {
       // #944 copy/paste/sync adjustments.
       clipboard: adjustmentClipboard
     )
-    .sheet(isPresented: $showSettings, onDismiss: { settingsInitialTab = nil }) {
-      SettingsView(initialTab: settingsInitialTab, sessionFor: sessionFor)
+    #if os(iOS)
+      .sheet(isPresented: $showSettings, onDismiss: { settingsInitialTab = nil }) {
+        SettingsView(initialTab: settingsInitialTab, sessionFor: sessionFor)
         .frame(minWidth: 540, minHeight: 480)
-    }
+      }
+    #endif
     .sheet(item: $batchMetadataVM) { vm in
       BatchMetadataSheet(vm: vm, onDismiss: { batchMetadataVM = nil })
     }
@@ -1017,8 +1022,7 @@ struct AppShell: View {
         // can configure paths without the sheet stacking on top.
         onOpenPanoSettings: {
           dismissPanoramaMerge()
-          settingsInitialTab = .pano
-          showSettings = true
+          showAppSettings(initialTab: .pano)
         }
       )
       #if os(macOS)
@@ -1364,8 +1368,7 @@ struct AppShell: View {
           // Settings → Pano on iPhone as well.
           onOpenPanoSettings: {
             dismissPanoramaMerge()
-            settingsInitialTab = .pano
-            showSettings = true
+            showAppSettings(initialTab: .pano)
           }
         )
       }
@@ -1484,7 +1487,7 @@ struct AppShell: View {
       browseDisplayMode: $browseDisplayMode,
       onOpenSearch: { toggleSearch() },
       onOpenFolder: { showFilePicker = true },
-      onSettings: { showSettings = true },
+      onSettings: { showAppSettings() },
       // M1 multi-select (#1236): show the Select/Done toggle in browse mode only.
       isSelecting: browseVM.isSelecting,
       onToggleSelect: mode == .browse
@@ -1496,6 +1499,21 @@ struct AppShell: View {
           }
         } : nil
     )
+  }
+
+  // MARK: - Settings navigation
+
+  private func showAppSettings(initialTab: SettingsTab? = nil) {
+    #if os(macOS)
+      if let initialTab {
+        SettingsNavigation.shared.selectedTab =
+          initialTab == .pano && !FeatureFlags.isPanoramaEnabled ? .general : initialTab
+      }
+      openSettings()
+    #else
+      settingsInitialTab = initialTab
+      showSettings = true
+    #endif
   }
 
   // MARK: - Batch metadata actions (M4, #1629)

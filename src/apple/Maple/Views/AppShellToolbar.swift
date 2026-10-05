@@ -147,9 +147,6 @@ struct AppShellToolbar: ToolbarContent {
         }
         .accessibilityLabel("Settings")
         .accessibilityIdentifier("settings-button")
-        #if os(macOS)
-          .keyboardShortcut(",", modifiers: .command)
-        #endif
       }
     }
   }
