@@ -531,21 +531,21 @@ namespace Maple.WinUI.Services
                     pixels = _bgra != null && _bgra.Length == byteCount ? _bgra : new byte[byteCount];
                     scratch = _chainScratch;
                 }
-
+                // #4289: SetImage may clear caches during the native call.
                 RenderEngine.RenderTick(image, state, ref scratch, pixels, _activeFilm);
-
+                _beforeHistogramPublishForSmoke?.Invoke();
                 lock (_gate)
                 {
                     if (!IsCurrentFrame(image)) return;
                     _bgra = pixels;
                     _chainScratch = scratch;
                     HistogramReady?.Invoke(ComputeHistogram(pixels));
-                    EmitClipSource(pixels, image.Width, image.Height);
+                    EmitClipSource(image.Width, image.Height);
                 }
             }
             catch (Exception ex)
             {
-                DiagLog.Write($"[render] EmitHistogram failed: {ex}");
+                DiagLog.Write($"[histogram] {ex}");
                 if (IsCurrentFrame(image)) RenderFailed?.Invoke(ex.Message);
             }
         }
