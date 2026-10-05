@@ -32,7 +32,7 @@ fn live_frames_borrow_large_host_artifacts_without_copying() {
 }
 
 #[test]
-fn absent_or_malformed_artifacts_share_valid_identity_storage() {
+fn absent_or_malformed_artifacts_curve_is_empty_and_luts_share_identity_storage() {
     let mut params: MapleGpuLiveParams = unsafe { std::mem::zeroed() };
     let empty_curve = unsafe { curve_flat_or_empty(&params) };
     assert!(empty_curve.is_empty());

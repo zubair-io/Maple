@@ -308,7 +308,8 @@ pub use grain::{apply_grain, GrainOptions, GrainPass};
 pub use hsl::{apply_hsl, HslPass};
 pub use image::GpuImage;
 pub use live_chain::{
-    build_live_chain, build_live_split, chain_signature, dehaze_is_active, VIEW_TAIL_PASS_COUNT,
+    build_live_chain, build_live_split, chain_signature, dehaze_is_active, view_tail_pass_count,
+    VIEW_TAIL_PASS_COUNT,
 };
 pub use live_session::LiveSession;
 pub use local_adjustments::{

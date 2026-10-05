@@ -49,10 +49,11 @@
 //! - `local_adjustments` (#1698): omit unless some layer in the flat stack sets
 //!   some control — see [`crate::local_adjustments_are_active`].
 //! - `capture_sharpening`: already gated via `Option` (generalised here).
-//! - View tail (`agx`, `display_encode`, `srgb_gamma`, `auto_profile_curve`,
-//!   `residual_lut`) ALWAYS run — even a neutral image must go through the view
-//!   transform to become a display image. `dither` (P4b terminal) is appended by
-//!   the live session, not here (this builder is f32-RGBA, like `build_split`).
+//! - View tail (`agx`, `display_encode`, `srgb_gamma`, and when present,
+//!   `auto_profile_curve` + `residual_lut`) — an image must go through the view
+//!   transform to become a display image. When the Auto curve is absent (e.g.
+//!   in neutral RAW rendering), `auto_profile_curve` is omitted. `dither`
+//!   (P4b terminal) is appended by the live session, not here.
 
 use crate::agx::AgxPass;
 use crate::auto_profile_curve::AutoProfileCurvePass;
@@ -83,21 +84,6 @@ use crate::tone_curves::ToneCurvesPass;
 use crate::vibrance::VibrancePass;
 use crate::vignette::VignettePass;
 use crate::white_balance::WhiteBalancePass;
-
-// Compile-time guard: `active_mask` packs `input_shape` into the top 2 bits
-// of a u32 (shift left by 30). That encoding supports at most 4 variants
-// (discriminants 0–3). If a 5th variant (discriminant 4) is ever added, the
-// shift would produce a value with bit 32 set, which is out-of-range for u32
-// in debug (overflow panic) or silently truncated in release. The assert below
-// turns that scenario into a compile error with a clear message instead.
-// There is no `const fn` way to iterate an enum's discriminants in stable Rust,
-// so we assert on the known highest discriminant value directly.
-const _: () = assert!(
-    InputShape::SrgbGammaEncoded8 as u32 <= 3,
-    "InputShape has a variant with discriminant > 3; active_mask's 2-bit \
-     `input_shape` pack in the top 2 bits of u32 (shift 30) would overflow. \
-     Widen the encoding or increase the shift before adding a 5th variant."
-);
 
 /// Push the local-adjustments stage (#1698) in whichever of its two shapes
 /// this model needs.
@@ -149,6 +135,8 @@ use noop::*;
 // file-size budget (same split shape as `noop` / `tests`).
 #[path = "live_chain/signature.rs"]
 mod signature;
+#[cfg(test)]
+pub(crate) use signature::active_mask;
 pub use signature::chain_signature;
 
 /// Build the LIVE develop+view chain for `inputs`, OMITTING every no-op pass
@@ -431,114 +419,28 @@ pub fn dehaze_is_active(inputs: &FullChainInputs) -> bool {
     inputs.dehaze.abs() >= SLIDER_EPS
 }
 
-/// The number of view-tail passes for a RAW input shape (`agx`, `display_encode`,
-/// `srgb_gamma`, `auto_profile_curve`, `residual_lut`). A neutral RAW chain has
-/// exactly this many passes; each engaged slider adds one (or, for the spatial
-/// stages, still one `Pass` — they orchestrate their own sub-dispatches). NON-RAW
-/// shapes skip the whole LOOK portion — `agx` (#1513) plus `auto_profile_curve`
-/// + `residual_lut` (#1516) — leaving only the colorimetric encode
-/// (`display_encode` + `srgb_gamma`), so a neutral non-RAW chain has
-/// `VIEW_TAIL_PASS_COUNT - 3`. Public so the live-session terminal-`dither`
-/// wiring (C2/C3) and the tests can assert the floor without re-counting by hand.
+/// The maximum number of view-tail passes for a RAW input shape when an Auto
+/// profile curve is present (`agx`, `display_encode`, `srgb_gamma`,
+/// `auto_profile_curve`, `residual_lut`). When the Auto curve is absent (e.g.
+/// in neutral RAW rendering without an Auto curve), `AutoProfileCurvePass` is
+/// omitted, yielding `VIEW_TAIL_PASS_COUNT - 1` (4 passes). Each engaged slider
+/// adds one (or, for spatial stages, one orchestrating pass). NON-RAW shapes skip
+/// the LOOK portion — `agx` plus `auto_profile_curve` + `residual_lut` — leaving
+/// only the colorimetric encode (`display_encode` + `srgb_gamma`), so a neutral
+/// non-RAW chain has `VIEW_TAIL_PASS_COUNT - 3` (2 passes). Public so terminal-dither
+/// wiring and tests can assert expected floors without re-counting by hand.
 pub const VIEW_TAIL_PASS_COUNT: usize = 5;
 
-/// The active-stage bitmask — which gated passes [`build_live_split`] includes
-/// for `inputs`, one bit per scene-linear stage (the view tail is always-on, so
-/// it isn't represented). SINGLE-SOURCED with the builder: every bit uses the
-/// exact same predicate the corresponding `if` in `build_live_split` uses, so the
-/// mask can't disagree with which passes actually get pushed. Used by
-/// [`chain_signature`] to key the live pool's bind-group cache.
-fn active_mask(inputs: &FullChainInputs) -> u32 {
-    let mut m = 0u32;
-    let is_raw_shape = inputs.input_shape == InputShape::PostDcpRec2020Fp16;
-    // Encode input_shape in the top 2 bits of the mask so a shape change lands
-    // in a fresh pool bucket (different passes = different bind-group layouts).
-    // The 2-bit mask `& 0b11` is defensive: variant values 0/1/2 are safe, but
-    // a future 4th variant (discriminant 3) would still fit; variant 4 (next
-    // power of two) would shift into bit 32 and overflow a u32 in debug mode
-    // (silent truncation in release). The mask guarantees correctness today and
-    // turns any future out-of-range discriminant into a collision (detectable)
-    // rather than UB. See also the compile-time assert below.
-    m |= ((inputs.input_shape as u32) & 0b11) << 30;
-    // Bit 0: capture_sharpening — RAW-only (#1331); always 0 for non-RAW shapes.
-    if is_raw_shape && inputs.capture_sharpening.is_some() {
-        m |= 1 << 0;
+/// Returns the expected view-tail pass count for `inputs` based on input shape
+/// and Auto curve presence.
+pub fn view_tail_pass_count(inputs: &FullChainInputs) -> usize {
+    if inputs.input_shape != InputShape::PostDcpRec2020Fp16 {
+        VIEW_TAIL_PASS_COUNT - 3
+    } else if inputs.profile_curve_flat.len() == crate::PROFILE_CURVE_FLAT_LEN {
+        VIEW_TAIL_PASS_COUNT
+    } else {
+        VIEW_TAIL_PASS_COUNT - 1
     }
-    // Bit 1: WB — engaged for ALL shapes when the slider is outside the skip
-    // band (the builder now includes WB unconditionally for non-RAW too).
-    if !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
-        m |= 1 << 1;
-    }
-    if !scene_tone_is_noop(&inputs.tone) {
-        m |= 1 << 2;
-    }
-    if !tone_curves_is_noop(&inputs.tone_curves) {
-        m |= 1 << 3;
-    }
-    if inputs.vibrance.abs() >= SLIDER_EPS {
-        m |= 1 << 4;
-    }
-    if inputs.saturation.abs() >= SLIDER_EPS {
-        m |= 1 << 5;
-    }
-    if !hsl_pass_for(inputs).is_noop() {
-        m |= 1 << 15;
-    }
-    if inputs.clarity.abs() >= SLIDER_EPS {
-        m |= 1 << 6;
-    }
-    if inputs.texture.abs() >= SLIDER_EPS {
-        m |= 1 << 7;
-    }
-    if inputs.dehaze.abs() >= SLIDER_EPS {
-        m |= 1 << 8;
-    }
-    if local_adjustments_are_active(&inputs.local_adjustments, inputs.scope.layer) {
-        m |= 1 << 16;
-    }
-    // Bit 19: defringe (#3411) — same predicate as the `build_live_split`
-    // gate above. Only presence changes the dispatch/bind-group shape (the
-    // six sliders ride a fixed-size params uniform), so no content hash is
-    // folded in.
-    if inputs.defringe.is_engaged() {
-        m |= 1 << 19;
-    }
-    if inputs.vignette_amount.abs() >= SLIDER_EPS {
-        m |= 1 << 9;
-    }
-    if inputs.sharpen_amount.abs() >= SLIDER_EPS {
-        m |= 1 << 10;
-    }
-    if inputs.nr_luminance.abs() >= SLIDER_EPS {
-        m |= 1 << 11;
-    }
-    if inputs.nr_color.abs() >= SLIDER_EPS {
-        m |= 1 << 12;
-    }
-    if inputs.grain_amount.abs() >= SLIDER_EPS {
-        m |= 1 << 13;
-    }
-    if !color_grade_is_identity(&crate::full_chain::color_grade_sliders(inputs)) {
-        m |= 1 << 14;
-    }
-    // Bit 17: film look (epic #2683, Task 7) — same predicate as the
-    // `build_live_split` gate (loaded LUT + engaged strength).
-    if inputs.film_lut_size > 0 && inputs.film_strength > SLIDER_EPS {
-        m |= 1 << 17;
-    }
-    // Bit 18: display-referred tone curves (#2232) — same predicate as the
-    // `build_live_split` gate above. Fixed-stride pooled buffer (NUM_SLOTS ×
-    // SLOT_STRIDE, like `tone_curves`'), so no extra content-hash fold is
-    // needed below — only presence changes the dispatch/bind-group shape.
-    if !display_tone_curve_is_identity(&inputs.display_tone_curves) {
-        m |= 1 << 18;
-    }
-    // Bit 20: Auto Profile curve pass (#4216) — RAW-only, engaged when host supplies
-    // a curve of PROFILE_CURVE_FLAT_LEN.
-    if is_raw_shape && inputs.profile_curve_flat.len() == crate::PROFILE_CURVE_FLAT_LEN {
-        m |= 1 << 20;
-    }
-    m
 }
 
 // Parity tests live in a sibling file to keep this module under the 600-LOC
