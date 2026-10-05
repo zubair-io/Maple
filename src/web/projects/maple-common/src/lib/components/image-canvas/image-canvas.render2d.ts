@@ -111,6 +111,7 @@ export async function coldOpen2d(
 ): Promise<void> {
   host.loading.set(true);
   const generation = host.renderGeneration;
+  const previousBitmap = host.imageBitmap();
   const state: LibraryStateService = host.state;
   const fitRevision = state.autoFitRevisionFor(assetId);
   const sizing = { maxLongEdge: host.fastTargetPx(), qualityPreview: true };
@@ -125,15 +126,15 @@ export async function coldOpen2d(
     const decoded = await host.pipeline.decode(bytes, ext, openXmp, sizing.maxLongEdge, true);
     if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
 
-    publishColdOpenMetadata(host, assetId, decoded, openModel, fitRevision);
-
-    host.canvasSvc.currentPixels.set(decoded);
-
     const bitmap = await imageDataToBitmap(decoded);
     if (assetId !== host.currentAssetId || generation !== host.renderGeneration) {
       bitmap.close();
       return;
     }
+    host.imageBitmap()?.close();
+    host.imageBitmap.set(bitmap);
+    host.canvasSvc.currentPixels.set(decoded);
+    publishColdOpenMetadata(host, assetId, decoded, openModel, fitRevision);
     host.nativeDetail?.recordBase({
       assetId,
       generation,
@@ -141,8 +142,6 @@ export async function coldOpen2d(
       displayXmp: host.lastRenderedXmp!,
       sizing,
     });
-    host.imageBitmap()?.close();
-    host.imageBitmap.set(bitmap);
     host.recordPaintedDims(decoded.width, decoded.height);
     host.clearProvisionalPreview(assetId);
     performance.mark(`maple:open:${assetId}:paint`);
@@ -155,7 +154,7 @@ export async function coldOpen2d(
   } catch (e) {
     console.error('Decode failed for', filename, e);
     if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
-    settleColdOpenFailure(host, assetId, generation, fitRevision);
+    settleColdOpenFailure(host, assetId, generation, fitRevision, previousBitmap);
   } finally {
     host.loading.set(false);
   }
@@ -166,9 +165,10 @@ function settleColdOpenFailure(
   assetId: AssetId,
   generation: number,
   fitRevision: number,
+  previousBitmap: ImageBitmap | null,
 ): void {
   settleFailedAutoFit(host, assetId, generation, fitRevision);
-  if (!host.hasProvisionalPreview(assetId)) {
+  if (host.imageBitmap() === previousBitmap && !host.hasProvisionalPreview(assetId)) {
     host.imageBitmap()?.close();
     host.imageBitmap.set(null);
   }
@@ -253,8 +253,16 @@ export async function runRender2d(
       filmLut,
     );
     // Stale guard: a newer edit (or asset switch) bumped the generation.
-    if (generation !== host.renderGeneration) return;
+    if (generation !== host.renderGeneration || fitAsset !== host.currentAssetId) return;
 
+    const bitmap = await imageDataToBitmap(decoded);
+    if (generation !== host.renderGeneration || fitAsset !== host.currentAssetId) {
+      bitmap.close();
+      return;
+    }
+    host.imageBitmap()?.close();
+    host.imageBitmap.set(bitmap);
+    host.canvasSvc.currentPixels.set(decoded);
     // #3479: every render reply is authoritative about the imported profile
     // it consumed — the panel enables per calibrated family from this.
     if (host.currentAssetId)
@@ -264,14 +272,6 @@ export async function runRender2d(
         decoded.autoFit,
         fitRevision,
       );
-    host.canvasSvc.currentPixels.set(decoded);
-    const bitmap = await imageDataToBitmap(decoded);
-    if (generation !== host.renderGeneration) {
-      bitmap.close();
-      return;
-    }
-    host.imageBitmap()?.close();
-    host.imageBitmap.set(bitmap);
     host.recordPaintedDims(decoded.width, decoded.height);
     host.lastRenderedXmp = xmp;
     if (host.currentAssetId)

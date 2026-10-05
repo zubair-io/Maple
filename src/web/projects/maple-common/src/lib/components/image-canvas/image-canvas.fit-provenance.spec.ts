@@ -33,6 +33,7 @@ function harness() {
   const state = {
     autoFitRevisionFor: caps.autoFitRevisionFor.bind(caps),
     resetAutoFit: caps.resetAutoFit.bind(caps),
+    lensCorrectionsFor: caps.for.bind(caps),
     seedLensCorrections: caps.seed.bind(caps),
     seedLensProfile: caps.seedProfile.bind(caps),
     updateAssetDimensions: vi.fn(),
@@ -78,7 +79,10 @@ beforeEach(() => {
     vi.fn(async () => ({ close: vi.fn() })),
   );
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 for (const route of ['CPU', 'GPU']) {
   describe(`${route} actual store fit provenance before effect flush`, () => {
@@ -193,3 +197,75 @@ it('invalidates an already ready scalar prefix across rapid profile transitions 
   expect(host.renderGeneration).toBe(1);
   expect(host.pipeline.renderLiveSession.mock.calls[2][1]).toBeUndefined();
 });
+
+async function heldBitmap(route: string) {
+  const { host, caps } = harness();
+  caps.resetAutoFit(ID);
+  const previous = { close: vi.fn() } as unknown as ImageBitmap;
+  host.imageBitmap.set(previous as never);
+  const converted = pending<ImageBitmap>();
+  let reject!: (error: Error) => void;
+  const conversion = new Promise<ImageBitmap>((resolve, fail) => {
+    reject = fail;
+    converted.promise.then(resolve);
+  });
+  const bitmap = { close: vi.fn() } as unknown as ImageBitmap;
+  const convert = vi.fn(() => conversion);
+  vi.stubGlobal('createImageBitmap', convert);
+  host.pipeline.decode.mockResolvedValue(frame);
+  const work =
+    route === 'cold open'
+      ? coldOpen2d(host as unknown as Render2dHost, ID, 'owned.dng', 'dng', new Uint8Array([1]))
+      : runRender2d(
+          host as unknown as Render2dHost,
+          '<owned/>',
+          1,
+          { maxLongEdge: 512, qualityPreview: true },
+          new Uint8Array([1]),
+          'dng',
+        );
+  await vi.waitFor(() => expect(convert).toHaveBeenCalledOnce());
+  expect(caps.for(ID).autoFit).toBeUndefined();
+  expect(host.canvasSvc.currentPixels()).toBeNull();
+  expect(host.imageBitmap()).toBe(previous);
+  return { host, caps, previous, bitmap, work, resolve: converted.resolve, reject };
+}
+
+for (const route of ['rerender', 'cold open']) {
+  for (const outcome of ['success', 'generation', 'asset', 'revision']) {
+    it(`${route} publishes fit only with its accepted bitmap: ${outcome}`, async () => {
+      const h = await heldBitmap(route);
+      if (outcome === 'generation') h.host.renderGeneration++;
+      if (outcome === 'asset') h.host.currentAssetId = 'replacement' as AssetId;
+      if (outcome === 'revision') h.caps.resetAutoFit(ID);
+      h.resolve(h.bitmap);
+      await h.work;
+      if (outcome === 'generation' || outcome === 'asset') {
+        expect(h.bitmap.close).toHaveBeenCalledOnce();
+        expect(h.host.imageBitmap()).toBe(h.previous);
+        expect(h.caps.for(ID).autoFit).toBeUndefined();
+      } else {
+        expect(h.host.imageBitmap()).toBe(h.bitmap);
+        expect(h.caps.for(ID).autoFit).toBe(outcome === 'revision' ? undefined : true);
+      }
+    });
+  }
+  for (const completed of [false, true]) {
+    it(`${route} rejects an unpainted fit and retains independently completed frame ${completed}`, async () => {
+      const h = await heldBitmap(route);
+      if (completed) {
+        h.host.imageBitmap.set(h.bitmap as never);
+        h.caps.seedProfile(ID, null, true, h.caps.autoFitRevisionFor(ID));
+      }
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      h.reject(new Error('actual bitmap conversion rejected'));
+      await h.work;
+      expect(h.host.imageBitmap()).toBe(
+        completed ? h.bitmap : route === 'cold open' ? null : h.previous,
+      );
+      expect(h.caps.for(ID).autoFit).toBe(completed);
+      expect(h.previous.close).toHaveBeenCalledTimes(route === 'cold open' && !completed ? 1 : 0);
+      expect(h.bitmap.close).not.toHaveBeenCalled();
+    });
+  }
+}
