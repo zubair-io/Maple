@@ -39,6 +39,9 @@ public sealed partial class MainWindow
             throw new InvalidOperationException("Crop Redo lost geometry or reintroduced a transient constraint.");
         ViewModel.Undo();
         await ReadyAsync();
+        if (ViewModel.Adjustments.Crop != before || CropToolbar.SelectedAspectId != "free"
+            || CropOverlay.AspectRatio != null)
+            throw new InvalidOperationException("Final Crop Undo did not restore the starting document and free constraint.");
         ExitCropMode();
     }
 }
