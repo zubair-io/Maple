@@ -13,6 +13,7 @@ import {
   effect,
   inject,
   input,
+  output,
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
@@ -28,7 +29,7 @@ import { MapleIconComponent } from '../../icons/maple-icon.component';
   imports: [AssetThumbComponent, MapleIconComponent],
   styleUrl: './filmstrip.component.scss',
   host: {
-    class: 'flex flex-col w-[110px] min-w-[110px] overflow-hidden',
+    class: 'flex flex-col w-full overflow-hidden',
   },
   templateUrl: './filmstrip.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -42,8 +43,11 @@ export class FilmstripComponent implements AfterViewInit, OnDestroy {
 
   private cleanupEffect?: () => void;
 
-  /** Collapse toggle — hides the thumbnails, leaving the FILMSTRIP header. */
+  /** Collapse toggle — collapsed, the strip shrinks to a vertical FILM tab (#1542). */
   readonly collapsed = signal(false);
+
+  /** Emits on every collapse/expand so the host rail can shrink to tab width. */
+  readonly collapsedChange = output<boolean>();
 
   /** Which route family `select()` navigates into: the editor (`'edit'`,
    * default — unchanged behavior for the existing editor filmstrip) or the
@@ -74,6 +78,12 @@ export class FilmstripComponent implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.cleanupEffect?.();
+  }
+
+  toggleCollapsed(): void {
+    const next = !this.collapsed();
+    this.collapsed.set(next);
+    this.collapsedChange.emit(next);
   }
 
   select(asset: Asset): void {

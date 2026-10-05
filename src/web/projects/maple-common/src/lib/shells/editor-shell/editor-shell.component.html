@@ -276,12 +276,14 @@
     <!-- ── Left filmstrip rail (tablet/desktop) ──────────────────── -->
     @if (isTabletPlus() && hasMultiplePhotos()) {
       <div
-        class="pointer-events-auto absolute top-1/2 left-3 w-[110px] -translate-y-1/2 overflow-hidden rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg-heavy)] shadow-[var(--pro-glass-shadow)] [backdrop-filter:var(--pro-glass-blur-heavy)]"
+        class="pointer-events-auto absolute top-1/2 left-3 -translate-y-1/2 overflow-hidden rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg-heavy)] shadow-[var(--pro-glass-shadow)] [backdrop-filter:var(--pro-glass-blur-heavy)]"
+        [class.w-[110px]]="!filmstripCollapsed()"
+        [class.w-[30px]]="filmstripCollapsed()"
         role="region"
         aria-label="Filmstrip"
         data-editor-region="filmstrip"
       >
-        <editor-filmstrip />
+        <editor-filmstrip (collapsedChange)="filmstripCollapsed.set($event)" />
       </div>
     }
 

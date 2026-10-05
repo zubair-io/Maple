@@ -14,7 +14,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-import { drawCanvas2d, type Draw2dInputs } from './image-canvas.draw2d';
+import { BEFORE_TREATMENT_FILTER, drawCanvas2d, type Draw2dInputs } from './image-canvas.draw2d';
 
 /** Stand-in for `Image` that records instances and fires loads on demand.
  *  `onload` (assigned at construction, before any per-frame listener) fires
@@ -55,6 +55,7 @@ interface FakeCtx {
   fillRect: ReturnType<typeof vi.fn>;
   createLinearGradient: ReturnType<typeof vi.fn>;
   fillStyle: string;
+  filter: string;
   imageSmoothingEnabled: boolean;
   imageSmoothingQuality: string;
 }
@@ -71,6 +72,7 @@ function fakeCtx(): FakeCtx {
     fillRect: vi.fn(),
     createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
     fillStyle: '',
+    filter: 'none',
     imageSmoothingEnabled: false,
     imageSmoothingQuality: 'low',
   };
@@ -223,5 +225,42 @@ describe('drawCanvas2d — gradient placeholder image cache (PR #1124 review)', 
     expect(FakeImage.instances).toHaveLength(1); // no new Image, no reload
     expect(ctx.drawImage).not.toHaveBeenCalled();
     expect(ctx.createLinearGradient).toHaveBeenCalledTimes(2); // fallback both frames
+  });
+});
+
+describe('drawCanvas2d — desaturated before treatment (#1542)', () => {
+  function splitInputs(before: ImageBitmap | null): Draw2dInputs {
+    return {
+      wrapW: 800,
+      wrapH: 600,
+      canvasW: 400,
+      canvasH: 300,
+      pan: { x: 0, y: 0 },
+      bitmap: {} as ImageBitmap,
+      before,
+      split: 0.5,
+      gradientUrl: undefined,
+    };
+  }
+
+  it('paints the before bitmap with the treatment, the after side without, and resets the filter', () => {
+    const ctx = fakeCtx();
+    const canvas = fakeCanvas(ctx);
+    const filtersAtDraw: string[] = [];
+    ctx.drawImage.mockImplementation(() => {
+      filtersAtDraw.push(ctx.filter);
+    });
+    drawCanvas2d(canvas, splitInputs({} as ImageBitmap));
+    // Before half first (treated), after half second (untreated).
+    expect(filtersAtDraw).toEqual([BEFORE_TREATMENT_FILTER, 'none']);
+    expect(ctx.filter).toBe('none');
+  });
+
+  it('leaves the filter untouched when no before baseline is available', () => {
+    const ctx = fakeCtx();
+    const canvas = fakeCanvas(ctx);
+    drawCanvas2d(canvas, splitInputs(null));
+    expect(ctx.drawImage).toHaveBeenCalledTimes(1); // after half only
+    expect(ctx.filter).toBe('none');
   });
 });

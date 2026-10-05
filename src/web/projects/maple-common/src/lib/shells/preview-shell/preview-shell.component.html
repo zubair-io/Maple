@@ -100,9 +100,11 @@
     </div>
 
     <div
-      class="preview-filmstrip-rail absolute top-[74px] bottom-[82px] left-3 z-10 w-[110px] overflow-hidden rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg-heavy)] pointer-events-auto shadow-[var(--pro-glass-shadow)] [backdrop-filter:var(--pro-glass-blur-heavy)]"
+      class="preview-filmstrip-rail absolute top-[74px] bottom-[82px] left-3 z-10 overflow-hidden rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg-heavy)] pointer-events-auto shadow-[var(--pro-glass-shadow)] [backdrop-filter:var(--pro-glass-blur-heavy)]"
+      [class.w-[110px]]="!filmstripCollapsed()"
+      [class.w-[30px]]="filmstripCollapsed()"
     >
-      <editor-filmstrip routeMode="view" />
+      <editor-filmstrip routeMode="view" (collapsedChange)="filmstripCollapsed.set($event)" />
     </div>
 
     <div

@@ -86,6 +86,8 @@ export class PreviewShellComponent implements OnDestroy {
 
   /** Flag popover open/closed (Flag button in the bottom action bar). */
   readonly flagOpen = signal(false);
+  /** True when the filmstrip is collapsed — the rail shrinks from 110px to the FILM tab (#1542). */
+  readonly filmstripCollapsed = signal(false);
   /** Info sheet/pane open/closed (Info button in the bottom action bar).
    * Initialises from the persisted `cm.preview.infoOpen` preference at
    * tablet+ (defaulting to open), and from `false` below the tablet
