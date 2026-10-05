@@ -65,7 +65,26 @@ namespace Maple.UI
             set => SetValue(EmptyTitleProperty, value);
         }
 
-        public event EventHandler<IReadOnlyList<string>>? SelectionChanged;
+        private EventHandler<IReadOnlyList<string>>? _selectionChanged;
+        public event EventHandler<IReadOnlyList<string>>? SelectionChanged
+        {
+            add { _selectionChanged += value; UpdateActions(); }
+            remove { _selectionChanged -= value; UpdateActions(); }
+        }
+
+        private void OnRowPressed(object? sender, EventArgs e)
+        {
+            if (sender is MuiListRow { Tag: string id }) Select(id, MuiPointerModifierReader.CurrentModifier());
+        }
+
+        private void UpdateActions()
+        {
+            foreach (var row in _rowControls.Values)
+            {
+                row.Pressed -= OnRowPressed;
+                if (_selectionChanged != null) row.Pressed += OnRowPressed;
+            }
+        }
 
         private readonly Grid _host = new();
         private readonly ScrollViewer _scroll = new();
@@ -104,8 +123,9 @@ namespace Maple.UI
                     Label = item.Label,
                     IconName = item.IconName,
                     TrailingContent = item.TrailingContent,
+                    Tag = item.Id,
                 };
-                row.Pressed += (_, _) => Select(item.Id, MuiPointerModifierReader.CurrentModifier());
+                if (_selectionChanged != null) row.Pressed += OnRowPressed;
                 _rowControls[item.Id] = row;
                 _rows.Children.Add(row);
             }
@@ -125,7 +145,7 @@ namespace Maple.UI
             var current = SelectedIds is null ? new HashSet<string>() : new HashSet<string>(SelectedIds);
             var next = MuiCollectionGridSelection.Apply(orderedIds, current, _anchorId, id, modifier);
             _anchorId = MuiCollectionGridSelection.NextAnchor(_anchorId, id, modifier);
-            SelectionChanged?.Invoke(this, next.ToList());
+            _selectionChanged?.Invoke(this, next.ToList());
         }
     }
 }

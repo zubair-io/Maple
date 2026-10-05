@@ -94,7 +94,27 @@ namespace Maple.UI
 
         public event EventHandler? AddLinearRequested;
         public event EventHandler? AddRadialRequested;
-        public event EventHandler<int>? LayerSelected;
+        private EventHandler<int>? _layerSelected;
+        public event EventHandler<int>? LayerSelected
+        {
+            add { _layerSelected += value; UpdateLayerActions(); }
+            remove { _layerSelected -= value; UpdateLayerActions(); }
+        }
+
+        private void OnLayerPressed(object? sender, EventArgs e)
+        {
+            if (sender is MuiListRow { Tag: int index }) _layerSelected?.Invoke(this, index);
+        }
+
+        private void UpdateLayerActions()
+        {
+            foreach (var child in _layerList.Children)
+            {
+                if (child is not MuiListRow row) continue;
+                row.Pressed -= OnLayerPressed;
+                if (_layerSelected != null) row.Pressed += OnLayerPressed;
+            }
+        }
         public event EventHandler<int>? LayerDeleteRequested;
         public event EventHandler<double>? FeatherChanged;
         public event EventHandler<bool>? InvertChanged;
@@ -200,9 +220,10 @@ namespace Maple.UI
                     Label = row.Name,
                     Active = row.Selected,
                     TrailingContent = delete,
+                    Tag = index,
                 };
                 AutomationProperties.SetName(listRow, string.IsNullOrEmpty(row.Subtitle) ? row.Name : $"{row.Name}, {row.Subtitle}");
-                listRow.Pressed += (_, _) => LayerSelected?.Invoke(this, index);
+                if (_layerSelected != null) listRow.Pressed += OnLayerPressed;
                 _layerList.Children.Add(listRow);
             }
             _selectedHost.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;

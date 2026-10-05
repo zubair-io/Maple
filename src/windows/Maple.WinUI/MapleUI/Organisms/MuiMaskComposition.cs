@@ -14,7 +14,27 @@ namespace Maple.UI
     public sealed class MuiMaskComposition : ContentControl
     {
         public event EventHandler<(bool Linear, string Combine)>? AddRequested;
-        public event EventHandler<int>? Selected;
+        private EventHandler<int>? _selected;
+        public event EventHandler<int>? Selected
+        {
+            add { _selected += value; UpdateActions(); }
+            remove { _selected -= value; UpdateActions(); }
+        }
+
+        private void OnRowPressed(object? sender, EventArgs e)
+        {
+            if (sender is MuiListRow { Tag: int index }) _selected?.Invoke(this, index);
+        }
+
+        private void UpdateActions()
+        {
+            foreach (var child in _list.Children)
+            {
+                if (child is not MuiListRow row) continue;
+                row.Pressed -= OnRowPressed;
+                if (_selected != null) row.Pressed += OnRowPressed;
+            }
+        }
         public event EventHandler<int>? DeleteRequested;
         public event EventHandler<string>? CombineChanged;
         public event EventHandler<bool>? ComponentInverted;
@@ -97,10 +117,10 @@ namespace Maple.UI
                 var delete = new MuiButton { IconName = "trash", Variant = MuiButtonVariant.Ghost, ButtonSize = MuiButtonSize.Sm, IsEnabled = rows.Count > 1 };
                 AutomationProperties.SetName(delete, $"Delete {item.Name} component");
                 delete.Click += (_, _) => DeleteRequested?.Invoke(this, selectedIndex);
-                var row = new MuiListRow { Label = item.Name, Active = item.Selected, TrailingContent = delete };
+                var row = new MuiListRow { Label = item.Name, Active = item.Selected, TrailingContent = delete, Tag = index };
                 AutomationProperties.SetName(row, $"{item.Name}, {item.Combine.ToLowerInvariant()}{(item.Inverted ? ", inverted" : "")}");
                 AutomationProperties.SetAutomationId(row, $"editor-mask-component-{index}");
-                row.Pressed += (_, _) => Selected?.Invoke(this, selectedIndex);
+                if (_selected != null) row.Pressed += OnRowPressed;
                 _list.Children.Add(row);
             }
         }

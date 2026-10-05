@@ -14,6 +14,7 @@ public sealed partial class MainWindow
 {
     private static async Task VerifyListRowCallersAsync(string output)
     {
+        await VerifyListRowWrapperActionsAsync(output);
         var preview = new MuiPreviewList { Items = new[] { new MuiPreviewItem("rename", "Before", "After") } };
         var feed = new MuiNotificationFeed { Entries = new[]
         {
