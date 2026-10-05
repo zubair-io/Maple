@@ -10,6 +10,7 @@
 // instead; the canvas template renders it and a Retry button re-invokes this
 // same function, clearing the error first so a stale rejection can't linger.
 
+import { settleFailedAutoFit } from './image-canvas.fit-failure';
 import type { WritableSignal } from '@angular/core';
 import type { AssetId } from '../../models/asset';
 import type { LibraryStateService } from '../../state/library-state.service';
@@ -24,9 +25,17 @@ export interface ByteLoadError {
 
 export interface ByteLoadHost {
   currentAssetId: AssetId | null;
+  readonly renderGeneration: number;
   readonly imageBitmap: WritableSignal<ImageBitmap | null>;
   readonly byteLoadError: WritableSignal<ByteLoadError | null>;
-  readonly state: Pick<LibraryStateService, 'bytesForAsset'>;
+  readonly state: Pick<
+    LibraryStateService,
+    | 'bytesForAsset'
+    | 'autoFitRevisionFor'
+    | 'adjustmentFor'
+    | 'lensCorrectionsFor'
+    | 'seedLensProfile'
+  >;
   readonly canvasSvc: Pick<ImageCanvasService, 'currentPixels'>;
   loadReal(assetId: AssetId, filename: string, bytes: Uint8Array): Promise<void>;
 }
@@ -37,6 +46,8 @@ export interface ByteLoadHost {
  *  continuations) drops the result if the user has since moved to a
  *  different asset. */
 export function fetchAndLoadBytes(host: ByteLoadHost, assetId: AssetId, filename: string): void {
+  const generation = host.renderGeneration;
+  const fitRevision = host.state.autoFitRevisionFor(assetId);
   host.imageBitmap.set(null);
   host.canvasSvc.currentPixels.set(null);
   host.byteLoadError.set(null);
@@ -55,5 +66,6 @@ export function fetchAndLoadBytes(host: ByteLoadHost, assetId: AssetId, filename
       // (never reached a server) both read as a network-level problem.
       const reason = typeof status === 'number' && status > 0 ? `HTTP ${status}` : 'Network error';
       host.byteLoadError.set({ id: assetId, filename, reason });
+      settleFailedAutoFit(host, assetId, generation, fitRevision);
     });
 }

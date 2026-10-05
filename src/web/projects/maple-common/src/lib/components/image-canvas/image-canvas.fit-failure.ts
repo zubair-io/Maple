@@ -4,7 +4,10 @@ import type { LibraryStateService } from '../../state/library-state.service';
 /** A failed current request settles pending provenance, preserving a completed fit. */
 export function settleFailedAutoFit(
   host: {
-    readonly state: LibraryStateService;
+    readonly state: Pick<
+      LibraryStateService,
+      'autoFitRevisionFor' | 'adjustmentFor' | 'lensCorrectionsFor' | 'seedLensProfile'
+    >;
     readonly currentAssetId: AssetId | null;
     readonly renderGeneration: number;
   },
