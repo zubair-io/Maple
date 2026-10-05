@@ -68,7 +68,7 @@ public sealed partial class MainWindow
             rail.IsCollapsed = true;
             host.UpdateLayout();
             Check("toggle-preserves-state", rail.ActiveId == "photo-1" && secondPeer.HasKeyboardFocus()
-                && ReferenceEquals(FilmstripCells(rail).Skip(1).First(), second) && scroll.VerticalOffset == offset);
+                && ReferenceEquals(FilmstripCells(rail).Skip(1).First(), second) && Math.Abs(scroll.VerticalOffset - offset) < 0.1);
             items[1] = new MuiFilmstripItem("photo-1", null, "Renamed photo", Metadata: "DNG · 9 KB");
             rail.Items = items.ToArray();
             Check("metadata-refresh-preserves-cell", ReferenceEquals(FilmstripCells(rail).Skip(1).First(), second)
@@ -135,6 +135,7 @@ public sealed partial class MainWindow
             }
         }
         finally { window.Close(); }
+        await VerifyMediaCellMetadataAsync(output, nativeInput);
 
         void Check(string name, bool passed)
         {
