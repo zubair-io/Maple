@@ -126,6 +126,14 @@ public sealed partial class MainWindow
                 host.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, e) =>
                 {
                     if (!e.GetCurrentPoint(decorative).Properties.IsLeftButtonPressed) return;
+                    // Decorative glyphs can route through the row rather than their
+                    // own visual. Require the actual pointer inside the glyph bounds.
+                    if (decorative.TrailingContent is FrameworkElement trailing)
+                    {
+                        var point = e.GetCurrentPoint(trailing).Position;
+                        if (point.X >= 0 && point.Y >= 0 && point.X < trailing.ActualWidth
+                            && point.Y < trailing.ActualHeight) { Record("decorative-pointer", 4); return; }
+                    }
                     for (var source = e.OriginalSource as DependencyObject; source != null;
                         source = VisualTreeHelper.GetParent(source))
                     {
