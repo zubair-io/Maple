@@ -72,7 +72,6 @@ export class SubjectMaskServer {
   private readonly base = inject(API_BASE_URL);
 
   // Called through the lazy module injector in subject-mask-server-bridge.ts.
-  // fallow-ignore-next-line unused-class-member
   detectPersons(assetKey: string): Observable<SubjectMaskDetection> {
     const url = `${this.base}/subject-masks/persons?asset=${encodeURIComponent(assetKey)}`;
     return this.http.get<unknown>(url).pipe(map(parseSubjectMaskDetection));
@@ -80,7 +79,6 @@ export class SubjectMaskServer {
 
   /** Download the digest's PNG bytes verbatim — the caller decodes (one
    *  decode site, shared with the cache path) and persists them. */
-  // fallow-ignore-next-line unused-class-member
   fetchRasterBytes(digest: string): Observable<ArrayBuffer> {
     return this.http.get(`${this.base}/subject-masks/raster/${digest}`, {
       responseType: 'arraybuffer',

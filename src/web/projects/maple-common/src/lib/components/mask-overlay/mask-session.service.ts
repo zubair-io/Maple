@@ -320,39 +320,49 @@ export class MaskSessionService {
         this.detectMessage.set('Every detected person already has a mask.');
         return;
       }
-      const layers: LocalAdjustment[] = [];
-      try {
-        for (const candidate of fresh) {
-          const recipe = {
-            person: candidate.person,
-            facialSkin: true,
-            bodySkin: true,
-            model: detection.model,
-            digest: subjectMaskDigest(asset.id, candidate.person, true, true, detection.model),
-          };
-          const rasterId = await this.subjects.ensureRaster(recipe);
-          layers.push({
-            mask: { kind: 'bitmap', recipe, rasterId },
-            range: defaultRangeRefinement(),
-            adjustments: {},
-          });
-        }
-      } catch (err) {
-        // All-or-nothing: rasters registered for layers that will never be
-        // added are released (unless a remaining layer names them).
-        this.subjects.releaseDigests(bitmapDigestsIn(layers), this.layers());
-        throw err;
-      }
+      const layers = await this.buildPersonLayers(asset.id, detection, fresh);
       this.addLayers(layers);
     } catch (err) {
-      this.detectMessage.set(
-        err instanceof SubjectMaskError
-          ? err.message
-          : `Subject detection failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      this.detectMessage.set(this.formatDetectError(err));
     } finally {
       this.detectInFlight.set(false);
     }
+  }
+
+  private async buildPersonLayers(
+    assetId: string,
+    detection: Awaited<ReturnType<SubjectMaskService['detect']>>,
+    fresh: Awaited<ReturnType<SubjectMaskService['detect']>>['persons'],
+  ): Promise<LocalAdjustment[]> {
+    const layers: LocalAdjustment[] = [];
+    try {
+      for (const candidate of fresh) {
+        const recipe = {
+          person: candidate.person,
+          facialSkin: true,
+          bodySkin: true,
+          model: detection.model,
+          digest: subjectMaskDigest(assetId, candidate.person, true, true, detection.model),
+        };
+        const rasterId = await this.subjects.ensureRaster(recipe);
+        layers.push({
+          mask: { kind: 'bitmap', recipe, rasterId },
+          range: defaultRangeRefinement(),
+          adjustments: {},
+        });
+      }
+      return layers;
+    } catch (err) {
+      // All-or-nothing: rasters registered for layers that will never be
+      // added are released (unless a remaining layer names them).
+      this.subjects.releaseDigests(bitmapDigestsIn(layers), this.layers());
+      throw err;
+    }
+  }
+
+  private formatDetectError(err: unknown): string {
+    if (err instanceof SubjectMaskError) return err.message;
+    return `Subject detection failed: ${err instanceof Error ? err.message : String(err)}`;
   }
 
   /** Open a continuous gesture: commits ONE undo snapshot per gesture. */
