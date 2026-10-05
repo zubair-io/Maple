@@ -312,24 +312,23 @@ fn render_scene_linear_tile_renders_active_capture_sharpening() {
 }
 
 /// Tile entry rejects a DNG carrying OpcodeList3 with an "OpcodeList3"
-/// error (#1932). The tile develop chain never applied opcodes, so an
-/// opcode-carrying DNG would render with spatial/color disagreement and
-/// seams vs the full render; WarpRectilinear's gather is untileable
-/// regardless. Rejecting here forces the full-image render (which applies
-/// opcodes correctly). Same fake-RawImage rationale as the dehaze test —
-/// the guard fires before any decode work.
+/// DNG OpcodeList3 (#1932, #4288): the tile entry refuses unsupported OpcodeList3
+/// forms (such as tangential distortion kt != 0 or GainMap) with an error mentioning
+/// "OpcodeList3" rather than a silent error. Supported radial-only WarpRectilinear
+/// opcodes succeed via bounded source gathering.
 #[test]
 fn render_scene_linear_tile_rejects_opcode_list3() {
     use crate::pipeline::pano::opcodes::{
         ActiveAreaRect, OpcodeList3, PanoOpcode, WarpPlaneParams, WarpRectilinearOpcode,
     };
     let mut raw = fake_raw(2048, 2048);
+    // Tangential distortion (kt != 0) is unsupported in the tile path
     raw.opcode_list3 = Some((
         OpcodeList3 {
             opcodes: vec![PanoOpcode::WarpRectilinear(WarpRectilinearOpcode {
                 planes: vec![WarpPlaneParams {
                     kr: [1.0, 0.0, 0.0, 0.0],
-                    kt: [0.0, 0.0],
+                    kt: [0.1, 0.0],
                 }],
                 center_x: 0.5,
                 center_y: 0.5,
@@ -354,7 +353,7 @@ fn render_scene_linear_tile_rejects_opcode_list3() {
     );
     assert!(
         r.is_err(),
-        "tile path must error when OpcodeList3 is present"
+        "tile path must error when unsupported OpcodeList3 is present"
     );
     let msg = format!("{}", r.unwrap_err());
     assert!(

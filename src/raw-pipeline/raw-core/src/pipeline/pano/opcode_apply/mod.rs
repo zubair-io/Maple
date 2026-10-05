@@ -42,6 +42,12 @@
 //!   remain unbounded, including the kernel’s negative lobes (#3633).
 
 mod cubic;
+mod warp;
+
+pub use crate::pipeline::pano::opcodes::WarpRectilinearOpcode;
+pub use warp::{
+    apply_warp_rectilinear, apply_warp_rectilinear_windowed, warp_rectilinear_reach_px,
+};
 
 use rayon::prelude::*;
 
@@ -50,7 +56,6 @@ use crate::types::adjustment::{AdjustmentModel, LensProfileEnable};
 
 use super::opcodes::{
     ActiveAreaRect, FixVignetteRadialOpcode, GainMapOpcode, OpcodeList3, PanoOpcode,
-    WarpRectilinearOpcode,
 };
 
 /// User strength for each family of lens correction the DNG carries, as a
@@ -266,136 +271,6 @@ fn sample_lattice(gm: &GainMapOpcode, grid_v: f64, grid_h: f64, map_plane: u32) 
     top + (bot - top) * fv
 }
 
-/// The `WarpRectilinear` coefficient set that maps every position to
-/// itself: unit radial ratio, no tangential terms.
-const IDENTITY_WARP_KR: [f64; 4] = [1.0, 0.0, 0.0, 0.0];
-
-/// Blend one plane's warp toward the identity at the user's distortion /
-/// CA strengths (#376).
-///
-/// The source-position displacement `Δ(K) = warp_source(K) − position` is
-/// **affine in the coefficient set `K`** about the identity set (the radial
-/// ratio is linear in `kr`, the tangential terms are linear in `kt`), so
-/// blending coefficient sets once per plane is exactly equivalent to
-/// blending the per-pixel displacements — at zero per-pixel cost.
-///
-/// The blend splits the vendor's warp into the part common to every plane
-/// (geometric distortion, carried by the green reference set `g`) and each
-/// plane's deviation from it (lateral CA):
-///
-/// ```text
-/// Δ' = distortion·Δ(g) + ca·(Δ(p) − Δ(g))
-///    = ca·Δ(p) + (distortion − ca)·Δ(g)
-/// ```
-///
-/// The second form is the one evaluated here because it is exact at the
-/// default: with `distortion == ca == 1.0` every coefficient reduces to
-/// `1.0·p + 0.0·g + 0.0·identity`, i.e. `p` itself, bit-for-bit.
-fn blend_warp_toward_identity(
-    plane: &super::opcodes::WarpPlaneParams,
-    green: &super::opcodes::WarpPlaneParams,
-    distortion: f64,
-    ca: f64,
-) -> super::opcodes::WarpPlaneParams {
-    let common = distortion - ca;
-    let identity_weight = 1.0 - distortion;
-    super::opcodes::WarpPlaneParams {
-        kr: std::array::from_fn(|i| {
-            ca * plane.kr[i] + common * green.kr[i] + identity_weight * IDENTITY_WARP_KR[i]
-        }),
-        // The identity set has no tangential terms, so it contributes nothing.
-        kt: std::array::from_fn(|i| ca * plane.kt[i] + common * green.kt[i]),
-    }
-}
-
-/// Resample the active area through the rectilinear warp model:
-/// for each output pixel, evaluate the corrected→uncorrected mapping
-/// per plane and cubic-sample the input. Pixels outside the active
-/// area pass through unchanged.
-///
-/// `distortion` and `ca` are `0..=1` strengths (see
-/// [`LensCorrectionScales`]); both at 1.0 is the vendor-authored warp.
-pub fn apply_warp_rectilinear(
-    image: &mut Image,
-    warp: &WarpRectilinearOpcode,
-    aa: ActiveAreaRect,
-    distortion: f32,
-    ca: f32,
-) {
-    // Both families scaled off: the blended warp is exactly the identity
-    // and the resample would be a no-op — skip the whole pass.
-    if distortion == 0.0 && ca == 0.0 {
-        return;
-    }
-    let width = image.width as usize;
-    let (aa_w, aa_h) = (aa.width as f64, aa.height as f64);
-    // Optical center in ActiveArea pixel coordinates: Lerp(0, dim, c),
-    // dng_sdk convention (integer pixel indices as positions).
-    let cx = warp.center_x * aa_w;
-    let cy = warp.center_y * aa_h;
-    // Normalization radius: max distance from the center to the four
-    // corners of the active bounds (dng_sdk `MaxDistancePointToRect`,
-    // square pixels).
-    let norm_radius = f64::hypot(
-        cx.abs().max((aa_w - cx).abs()),
-        cy.abs().max((aa_h - cy).abs()),
-    );
-    if norm_radius <= 0.0 {
-        return;
-    }
-    let inv_r = 1.0 / norm_radius;
-    // Per image plane, the coefficient set (N = 1 broadcasts), blended
-    // toward identity at the user's distortion / CA strengths. Plane 1
-    // (green) is the reference the distortion component is carried by;
-    // with N = 1 every plane already shares it, so `ca` has nothing to
-    // act on and the blend collapses to a pure distortion scale.
-    let set_for = |p: usize| warp.planes[p.min(warp.planes.len() - 1)];
-    let green = set_for(1);
-    let (d, c) = (distortion as f64, ca as f64);
-    let plane_sets: [super::opcodes::WarpPlaneParams; 3] =
-        std::array::from_fn(|p| blend_warp_toward_identity(&set_for(p), &green, d, c));
-    let all_same = plane_sets[1] == plane_sets[0] && plane_sets[2] == plane_sets[0];
-
-    let src = image.pixels.clone(); // gather source (warp can't run in place)
-    let (aa_top, aa_left) = (aa.top as usize, aa.left as usize);
-    let (aa_wu, aa_hu) = (aa.width as usize, aa.height as usize);
-
-    image
-        .pixels
-        .par_chunks_mut(width)
-        .skip(aa_top)
-        .take(aa_hu)
-        .enumerate()
-        .for_each(|(row, row_px)| {
-            let dy = row as f64 - cy;
-            for col in 0..aa_wu {
-                let dx = col as f64 - cx;
-                let out = &mut row_px[aa_left + col];
-                if all_same {
-                    let (sx, sy) = warp_source(&plane_sets[0], dx, dy, cx, cy, inv_r, norm_radius);
-                    *out = cubic::sample(
-                        &src,
-                        width,
-                        aa_top,
-                        aa_left,
-                        aa_wu,
-                        aa_hu,
-                        sx,
-                        sy,
-                        [0, 1, 2],
-                    );
-                } else {
-                    for (p, set) in plane_sets.iter().enumerate() {
-                        let (sx, sy) = warp_source(set, dx, dy, cx, cy, inv_r, norm_radius);
-                        out[p] =
-                            cubic::sample(&src, width, aa_top, aa_left, aa_wu, aa_hu, sx, sy, [p])
-                                [0];
-                    }
-                }
-            }
-        });
-}
-
 /// Apply a `FixVignetteRadial` opcode: multiply every plane by the radial
 /// gain `g(t) = 1 + k0·t + k1·t² + k2·t³ + k3·t⁴ + k4·t⁵`, where `t` is the
 /// squared center distance normalized so `t = 1` at the farthest corner of
@@ -460,38 +335,6 @@ pub fn apply_fix_vignette_radial(
                 }
             }
         });
-}
-
-/// The corrected→uncorrected position mapping for one plane, in
-/// ActiveArea pixel coordinates (dng_sdk `GetSrcPixelPosition`, square
-/// pixels): radial ratio polynomial + tangential terms in normalized
-/// units, scaled back by the normalization radius.
-#[inline]
-fn warp_source(
-    set: &super::opcodes::WarpPlaneParams,
-    dx: f64,
-    dy: f64,
-    cx: f64,
-    cy: f64,
-    inv_r: f64,
-    norm_radius: f64,
-) -> (f64, f64) {
-    let dnx = dx * inv_r;
-    let dny = dy * inv_r;
-    let rr = (dnx * dnx + dny * dny).min(1.0);
-    let [kr0, kr1, kr2, kr3] = set.kr;
-    let ratio = kr0 + rr * (kr1 + rr * (kr2 + rr * kr3));
-    let [kt0, kt1] = set.kt;
-    if kt0 == 0.0 && kt1 == 0.0 {
-        (cx + dx * ratio, cy + dy * ratio)
-    } else {
-        let tan_h = kt1 * (rr + 2.0 * dnx * dnx) + 2.0 * kt0 * dnx * dny;
-        let tan_v = kt0 * (rr + 2.0 * dny * dny) + 2.0 * kt1 * dnx * dny;
-        (
-            cx + norm_radius * (dnx * ratio + tan_h),
-            cy + norm_radius * (dny * ratio + tan_v),
-        )
-    }
 }
 
 /// Bilinear sample at continuous ActiveArea coords, sticky-edge clamped
