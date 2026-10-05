@@ -9,7 +9,7 @@ extension EditSessionDecodedCacheTests {
       .deletingLastPathComponent().deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent()
       .deletingLastPathComponent()
-      .appendingPathComponent("MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng")
+      .appending(path: "MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng")
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent("first-sidecar-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -23,7 +23,6 @@ extension EditSessionDecodedCacheTests {
     let actor = RenderActor(pipeline: ImageEditPipeline())
     let target = CGSize(width: 64, height: 64)
 
-    trace("FIRST_SIDECAR_TRACE phase=cold-no-XMP")
     let cold = await actor.sharedDecode(asset: asset, target: target) { image, _ in image }
     XCTAssertNotNil(cold, "The control must execute the real RAW native binding")
     let coldPixels = try sceneLinearPixels(XCTUnwrap(cold))
@@ -46,12 +45,9 @@ extension EditSessionDecodedCacheTests {
       "The first saved fields must affect only the live chain, not the decoded prefix")
 
     let afterSave = await actor.snapshot(forAsset: asset)
-    trace(
-      "FIRST_SIDECAR_TRACE phase=first-XMP fresh=\(afterSave.isFresh) bufferGeneration=\(before)")
     // Use the actual freshness boundary to decide whether production would
     // need another scene-linear native call; no seeded image or mock sidecar.
     if !afterSave.isFresh {
-      trace("FIRST_SIDECAR_TRACE phase=redevelop-after-first-XMP")
       let repeated = await actor.sharedDecode(asset: asset, target: target) { image, _ in image }
       XCTAssertNotNil(repeated)
       XCTAssertEqual(
@@ -59,7 +55,6 @@ extension EditSessionDecodedCacheTests {
         "The redundant native prefix must be pixel-identical for GPU-only edits")
     }
     let after = await actor._testDecodeGeneration()
-    trace("FIRST_SIDECAR_TRACE phase=complete bufferGeneration=\(after)")
     XCTAssertTrue(afterSave.isFresh, "A first GPU-only sidecar must preserve cache freshness")
     XCTAssertEqual(
       before, after, "A first GPU-only sidecar must retain the decoded buffer identity")
@@ -73,7 +68,7 @@ extension EditSessionDecodedCacheTests {
       .deletingLastPathComponent().deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent()
       .deletingLastPathComponent()
-      .appendingPathComponent("test-fixtures/raws/test_0007.DNG")
+      .appending(path: "test-fixtures/raws/test_0007.DNG")
     guard FileManager.default.fileExists(atPath: fixture.path) else {
       throw XCTSkip("Physical nonflat test_0007.DNG fixture is not present")
     }
@@ -117,10 +112,6 @@ extension EditSessionDecodedCacheTests {
     let restoredGeneration = await actor._testDecodeGeneration()
     XCTAssertGreaterThan(restoredGeneration, changedGeneration)
     XCTAssertEqual(try Data(contentsOf: raw), originalBytes)
-  }
-
-  private func trace(_ message: String) {
-    FileHandle.standardError.write(Data((message + "\n").utf8))
   }
 
   private func sceneLinearPixels(_ image: CIImage) throws -> [Float] {
