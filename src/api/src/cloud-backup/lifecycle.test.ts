@@ -159,3 +159,40 @@ test('a durable purge prevents admitting a new backup location or destination fo
   await expect(repo.ensureEntry(second.id, assetId, 0, 'photo.dng')).rejects.toThrow();
   expect(await repo.entries(second.id)).toHaveLength(0);
 });
+test('an interrupted purge marker resumes its reserved upload before erasure can complete', async () => {
+  using live = await createLiveTestDatabase();
+  const repo = new BackupRepository(live.handle);
+  const libraryId = insertFolder(live.db);
+  const assetId = insertAsset(live.db);
+  const destination = await repo.createDestination({
+    libraryId,
+    kind: 'google-drive',
+    name: 'Drive',
+    path: null,
+  });
+  const entry = await repo.ensureEntry(destination.id, assetId, 0, 'photo.dng');
+  await preparePurge(assetId, repo);
+  const provider = new TestProvider();
+  const publish = provider.publish.bind(provider);
+  const checkpoint = { provider: 'test', version: 1 as const, state: { reservation: 'stable-id' } };
+  let interrupted = true;
+  provider.publish = async (key, source, options) => {
+    if (interrupted) {
+      interrupted = false;
+      await options.saveCheckpoint(checkpoint);
+      throw new Error('lost upload response');
+    }
+    expect(options.checkpoint).toEqual(checkpoint);
+    return publish(key, source, options);
+  };
+  const engine = new BackupEngine(async () => provider, repo);
+  await drainPurges(engine, destination);
+  expect((await repo.purges(destination.id))[0]!.completed).toBe(0);
+  await drainPurges(engine, destination);
+  expect((await repo.purges(destination.id))[0]!.completed).toBe(1);
+  const saved = await repo.object(destination.id, `purges/${entry.id}.json`);
+  expect(saved.checkpoint).toBeNull();
+  expect(saved.object?.locator).toBe(
+    provider.objects.get(`purges/${entry.id}.json`)!.object.locator,
+  );
+});

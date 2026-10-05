@@ -65,14 +65,17 @@ export async function drainPurges(
         const provider = await engine.provider(destination);
         const source = jsonSource(record);
         const key = `purges/${record.entryId}.json`;
-        const existing = await provider.inspect(key, signal);
-        if (!existing)
-          await provider.publish(key, source, {
+        const savedRecord = await engine.repo.object(destination.id, key);
+        const existing = await provider.inspect(key, signal, savedRecord.object?.locator);
+        if (!existing) {
+          const object = await provider.publish(key, source, {
             signal,
+            checkpoint: savedRecord.checkpoint,
             saveCheckpoint: async (checkpoint) =>
               engine.repo.saveObject(destination.id, record.entryId, key, null, checkpoint),
           });
-        else if (existing.sha256 !== source.sha256)
+          await engine.repo.saveObject(destination.id, record.entryId, key, object, null);
+        } else if (existing.sha256 !== source.sha256)
           throw new Error('Purge record integrity mismatch');
         await engine.repo.db.write(
           `UPDATE backup_purges SET published=1 WHERE destination_id=? AND entry_id=?`,
