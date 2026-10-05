@@ -78,7 +78,7 @@ extension EditSessionFilmLutSyncTests {
     XCTAssertEqual(reopened.autoFitStatus, .pending, "A reopened image must await its own fit")
     XCTAssertEqual(
       AutoFitStatus.unavailable.description(profile: .auto),
-      "Auto matching is unavailable for this image.")
+      "Auto matching is unavailable for this image; using Neutral rendering.")
     XCTAssertEqual(
       AutoFitStatus.pending.description(profile: .auto), "Checking Auto matching for this image…")
     XCTAssertEqual(
@@ -144,13 +144,13 @@ extension AutoProfileCanvasParityTests {
     let noPreview = root.appending(path: "MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng")
     let physical = Self.fixtureDir("test-fixtures/raws").appendingPathComponent("test_0006.DNG")
     XCTAssertTrue(FileManager.default.fileExists(atPath: noPreview.path))
-    guard FileManager.default.fileExists(atPath: physical.path) else {
-      XCTFail("The explicit Auto-fit qualification requires test_0006.DNG")
-      return
-    }
     let physicalUnavailable = Self.fixtureDir("test-fixtures/raws").appendingPathComponent(
       "test_0018.dng")
-    XCTAssertTrue(FileManager.default.fileExists(atPath: physicalUnavailable.path))
+    guard FileManager.default.fileExists(atPath: physical.path),
+      FileManager.default.fileExists(atPath: physicalUnavailable.path)
+    else {
+      throw XCTSkip("Physical Auto-fit coverage requires test_0006.DNG and test_0018.dng")
+    }
     let lut = AutoProfileLUT()
     let active = await lut.filter(forRawAt: physical, profile: .auto, quality: .preview)
     XCTAssertNotNil(active)

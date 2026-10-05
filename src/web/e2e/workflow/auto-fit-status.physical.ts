@@ -49,9 +49,12 @@ for (const gpu of [false, true])
       (filename) => Reflect.get(window, 'autoFitStatusUI').focus(filename),
       files[1],
     );
-    await expect(status).toHaveText('Auto matching is unavailable for this image.', {
-      timeout: 120000,
-    });
+    await expect(status).toHaveText(
+      'Auto matching is unavailable for this image; using Neutral rendering.',
+      {
+        timeout: 120000,
+      },
+    );
     expect(await page.evaluate(() => Reflect.get(window, 'autoFitStatusUI').state())).toEqual({
       profile: 'Auto',
       gpuActive: gpu,

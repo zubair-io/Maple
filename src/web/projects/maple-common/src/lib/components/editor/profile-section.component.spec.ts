@@ -54,7 +54,9 @@ describe('ProfileSectionComponent', () => {
     expect(status.textContent).toContain('matched to this image’s embedded camera preview');
     outcomes.set({ [assetId]: false });
     fixture.detectChanges();
-    expect(status.textContent.trim()).toBe('Auto matching is unavailable for this image.');
+    expect(status.textContent.trim()).toBe(
+      'Auto matching is unavailable for this image; using Neutral rendering.',
+    );
     expect(status.textContent).not.toContain('no preview');
     library.focusedAssetId.set('asset-2');
     fixture.detectChanges();
