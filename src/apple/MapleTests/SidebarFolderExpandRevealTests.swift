@@ -169,5 +169,19 @@ final class SidebarFolderExpandRevealTests: XCTestCase {
     XCTAssertNotEqual(
       smbSub1, smbSub2, "SMB subfolder row IDs across different shares must not collide")
     XCTAssertEqual(smbSub1, "smb:nas1/photos/2026")
+
+    let smbUserAlice = SidebarReveal.smbRowId(
+      host: "nas1", share: "photos", username: "alice", path: "/2026", depth: 1)
+    let smbUserBob = SidebarReveal.smbRowId(
+      host: "nas1", share: "photos", username: "bob", path: "/2026", depth: 1)
+    let smbAnon = SidebarReveal.smbRowId(
+      host: "nas1", share: "photos", username: nil, path: "/2026", depth: 1)
+
+    XCTAssertNotEqual(
+      smbUserAlice, smbUserBob, "SMB row IDs for different users on same share must not collide")
+    XCTAssertNotEqual(
+      smbUserAlice, smbAnon, "SMB row IDs with and without username must not collide")
+    XCTAssertEqual(smbUserAlice, "smb:alice@nas1/photos/2026")
+    XCTAssertEqual(smbAnon, "smb:nas1/photos/2026")
   }
 }
