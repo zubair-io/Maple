@@ -54,6 +54,8 @@ mod nyquist;
 mod scratch;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_fcs_edges;
 
 use crate::image::{CfaPattern, ColorSpace, Image};
 use rayon::prelude::*;
