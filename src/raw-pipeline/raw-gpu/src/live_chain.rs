@@ -143,7 +143,7 @@ mod mask;
 #[path = "live_chain/signature.rs"]
 mod signature;
 #[cfg(test)]
-pub(crate) use signature::active_mask;
+pub(crate) use mask::active_mask;
 pub use signature::chain_signature;
 
 /// Build the LIVE develop+view chain for `inputs`, OMITTING every no-op pass
@@ -451,9 +451,11 @@ pub fn view_tail_pass_count(inputs: &FullChainInputs) -> usize {
     }
     VIEW_TAIL_PASS_COUNT - 2
         + usize::from(profile_curve_is_active(&inputs.profile_curve_flat))
-        + usize::from(residual_lut_is_active(inputs.residual_lut_size, &inputs.residual_lut_data))
+        + usize::from(residual_lut_is_active(
+            inputs.residual_lut_size,
+            &inputs.residual_lut_data,
+        ))
 }
-
 
 // Parity tests live in a sibling file to keep this module under the 600-LOC
 // budget (mirrors full_chain / dehaze's tests.rs split). They drive the SHARED
