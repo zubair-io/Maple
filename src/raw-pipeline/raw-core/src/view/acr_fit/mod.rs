@@ -3,19 +3,18 @@
 //! The module is split into two tiers:
 //!
 //! **Always compiled** (`model.rs`, `tonescale.rs`, `field.rs`,
-//! `from_pairs.rs`, `bake.rs`): `AcrModel`, `Tonescale`, `HueChromaField`,
-//! `FitStats`, `apply_model`, the JSON round-trip, the tonescale/field fit
-//! stages, (Auto 2.0 M0/M1, #1740) the JPEG-pair front-end
-//! `solve_acr_model_from_display_pairs` that runs the same tonescale + field
-//! fit against a real photo's scattered `auto_profile::pairs::DisplayPair`
-//! correspondences instead of a synthetic chart, and (M1) `bake_acr_model_lut`
-//! / `acr_model_as_profile_artifacts`, which compose a fitted `AcrModel` into
-//! the SAME `(ProfileCurve, ColorLut)` shape Auto 1.0's
-//! `auto_profile::bake_auto_profile_lut` produces. These are pure solver
-//! math with no dependency on the chart-only tooling below, and Auto 2.0 —
-//! the DEFAULT Auto Profile fit since the #1740 M2 flip (`MAPLE_AUTO1=1`
-//! restores Auto 1.0; see `pipeline::render::auto_fit`) — needs
-//! `solve_acr_model_from_display_pairs` + the bake in the normal build, not
+//! `from_pairs.rs`, `bake.rs`, `wb.rs`): `AcrModel`, `Tonescale`,
+//! `HueChromaField`, `FitStats`, `apply_model`, the JSON round-trip, the
+//! tonescale/field fit stages, (Auto 2.0 M0/M1, #1740) the JPEG-pair
+//! front-end `solve_acr_model_from_display_pairs` (same fit, run against a
+//! real photo's scattered `DisplayPair`s instead of a chart), (M1)
+//! `bake_acr_model_lut` / `acr_model_as_profile_artifacts` (compose a fitted
+//! `AcrModel` into the SAME `(ProfileCurve, ColorLut)` shape Auto 1.0's bake
+//! produces), and (M3) `wb::estimate_illuminant_gains` (the fitted WB
+//! component as gains + temperature/tint for shell surfacing). Pure solver
+//! math with no dependency on the chart-only tooling below; Auto 2.0 — the
+//! DEFAULT fit since the M2 flip (`MAPLE_AUTO1=1` restores Auto 1.0; see
+//! `pipeline::render::auto_fit`) — needs it all in the normal build, not
 //! just under `test-support`.
 //!
 //! **Test-support only** (this file's chart-fit tooling — spec JSON parsing,
@@ -32,12 +31,14 @@ pub mod bake;
 pub mod field;
 pub mod from_pairs;
 pub mod tonescale;
+pub mod wb;
 
 pub use bake::{acr_model_as_profile_artifacts, bake_acr_model_lut};
 pub use from_pairs::{
     neutral_samples_from_pairs, solve_acr_model_from_display_pairs, sweep_samples_from_pairs,
 };
 pub use tonescale::{KnotRange, NeutralSample};
+pub use wb::{estimate_illuminant_gains, WbEstimate};
 
 #[cfg(feature = "test-support")]
 use field::{fit_field, SweepSample};

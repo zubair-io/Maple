@@ -54,7 +54,7 @@ use crate::view::auto_profile::pairs::DisplayPair;
 /// mid-lattice knots (test_0006 baseline_auto mean ΔE00 4.40 → 3.75 on the
 /// ACR-parity harness, no measurable cost on the fixtures that were
 /// already well-anchored).
-const NEUTRAL_CHROMA_FRAC: f32 = 0.15;
+pub(crate) const NEUTRAL_CHROMA_FRAC: f32 = 0.15;
 
 /// Rec.2020 luma coefficients (ITU-R BT.2020), matching `field.rs` /
 /// `model.rs`'s `apply_model`.

@@ -2,31 +2,26 @@
 //! report comparing the Auto 1.0 free residual LUT against the structured
 //! fit-acr solver's JPEG-pair front-end, on ONE RAW file's own embedded JPEG.
 //!
-//! This is a measurement-only tool. It does not change what ships: no
-//! pipeline wiring, no profile switch. It develops the RAW through the exact
-//! PINNED Auto Profile fit prefix (mirroring
-//! `raw_core::pipeline::render::auto_fit::develop_display_for_auto_fit`,
-//! which is private to `raw-core` — this command replicates it stage-for-
-//! stage from the public API so the fit-quality comparison samples the SAME
-//! buffer the real Auto 1.0 fit runs against), samples the display-space
-//! `(maple, jpeg)` pairs `auto_profile::pairs::sample_display_pairs` already
-//! builds for the free-LUT fit, then runs BOTH models against them.
+//! Measurement-only: no pipeline wiring, no profile switch. It develops the
+//! RAW through the exact PINNED Auto Profile fit prefix (replicating the
+//! private `pipeline::render::auto_fit::develop_display_for_auto_fit`
+//! stage-for-stage from the public API, so the comparison samples the SAME
+//! buffer the shipping fit runs against), samples the display-space
+//! `(maple, jpeg)` pairs `sample_display_pairs` builds, then runs BOTH
+//! models against them.
 //!
-//! Auto 1.0 is `fit_curve_from_preview_display` (the #550 tone curve)
-//! composed with `fit_lut_from_pairs` (the free residual LUT, same 49-node
-//! grid the shipping fit uses — `auto_profile::lut_fit::LUT_SIZE`, private,
-//! so mirrored here as [`AUTO1_LUT_SIZE`]) as `curve ∘ residual`, exactly the
-//! CPU render path's `fit_auto_profile_artifacts` order. Auto 2.0 is
-//! `solve_acr_model_from_display_pairs` (tonescale + hue/chroma field) on the
-//! SAME pre-curve pairs.
+//! Auto 1.0 is the #550 tone curve composed with the free residual LUT on
+//! the shipping 49-node grid (private `lut_fit::LUT_SIZE`, mirrored as
+//! [`AUTO1_LUT_SIZE`]) as `curve ∘ residual`, in `fit_auto_profile_artifacts`
+//! order; Auto 2.0 is `solve_acr_model_from_display_pairs` (tonescale +
+//! hue/chroma field) on the SAME pre-curve pairs.
 //!
-//! For each, it reports: mean/RMS ΔE00 of the model's prediction vs the
-//! measured JPEG pairs; smoothness (max second-difference of the model's own
-//! residual along the neutral grey diagonal, reusing the
-//! `no_second_difference_spike_across_sparse_boundary` instrument's shape);
-//! and correction magnitude at three fully-saturated sRGB primary probe
-//! points (colors a real photo's JPEG correspondence set almost never
-//! actually reaches, so both fits must extrapolate/default there).
+//! For each it reports mean/RMS ΔE00 vs the measured pairs, smoothness (max
+//! second-difference of the model's own residual along the neutral diagonal —
+//! the `no_second_difference_spike_across_sparse_boundary` instrument's
+//! shape), and correction magnitude at three fully-saturated sRGB primaries
+//! (colors real correspondence sets almost never reach, so both fits must
+//! extrapolate/default there); plus the M3 WB-offset JSON for the pair set.
 //!
 //! Feature gate: `test-support` (the fit-acr solver only compiles under it).
 
@@ -49,7 +44,9 @@ mod imp {
     use raw_core::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality};
     use raw_core::stages::{color_grade, grain};
     use raw_core::types::adjustment::AutoExposureMode;
-    use raw_core::view::acr_fit::{apply_model, solve_acr_model_from_display_pairs, AcrModel};
+    use raw_core::view::acr_fit::{
+        apply_model, estimate_illuminant_gains, solve_acr_model_from_display_pairs, AcrModel,
+    };
     use raw_core::view::auto_profile::fit_display::fit_curve_from_preview_display;
     use raw_core::view::auto_profile::lut::{fit_lut_from_pairs, ColorLut};
     use raw_core::view::auto_profile::pairs::{sample_display_pairs, DisplayPair};
@@ -200,7 +197,7 @@ mod imp {
             .and_then(|s| s.to_str())
             .unwrap_or("unknown");
 
-        let report = match &model2_result {
+        let mut report = match &model2_result {
             Ok(model2) => {
                 let auto2_metrics = auto2_predict_metrics(&pairs, model2);
                 let auto2_smoothness = auto2_smoothness_second_diff(model2);
@@ -229,6 +226,9 @@ mod imp {
                 Some(e.clone()),
             ),
         };
+
+        let wb = estimate_illuminant_gains(&pairs);
+        report.push_str(&format!("wb_offset: {}\n", wb.to_json()));
 
         eprintln!("{report}");
         std::fs::write(report_path, &report)
