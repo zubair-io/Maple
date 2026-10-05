@@ -16,6 +16,7 @@ public sealed partial class MainWindow
     private bool _browseListDetail;
     private bool _syncingBrowseSelection;
     private bool _browseListCollapsed;
+    private bool _restoreBrowseOptionsFocus;
     private DataTemplate? _expandedBrowseTemplate;
 
     private void InitializeBrowseDesign()
@@ -79,6 +80,10 @@ public sealed partial class MainWindow
 
     private void OnToggleBrowseView(object sender, RoutedEventArgs e)
     {
+        // Keep the view switch in Options without leaving the flyout over the
+        // newly selected presentation or focus inside its hidden content.
+        _restoreBrowseOptionsFocus = ReferenceEquals(sender, BrowseViewButton);
+        BrowseOptionsFlyout.Hide();
         var anchor = BrowseScrollAnchor();
         var selected = ViewModel.SelectedPhotos.ToArray();
         var primary = ViewModel.SelectedPhoto;
@@ -89,6 +94,13 @@ public sealed partial class MainWindow
         if (_browseListDetail && ViewModel.SelectedPhoto == null && ViewModel.Photos.Count > 0)
             RestoreBrowseSelection(new[] { ViewModel.Photos[0] }, ViewModel.Photos[0]);
         RestoreBrowseAnchor(anchor);
+    }
+
+    private void OnBrowseOptionsClosed(object sender, object e)
+    {
+        if (!_restoreBrowseOptionsFocus) return;
+        _restoreBrowseOptionsFocus = false;
+        BrowseOptionsButton.Focus(FocusState.Keyboard);
     }
 
     private void UpdateBrowsePresentation()
