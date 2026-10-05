@@ -71,6 +71,32 @@ describe('generateThumb — AVIF validation wiring', () => {
       await fs.rm(dir, { recursive: true, force: true });
     }
   });
+
+  it('never publishes ICC-tagged AVIF bytes from the unknown-format copy fallback', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'thumb-avifval-icc-'));
+    try {
+      const fixture = path.resolve(
+        import.meta.dir,
+        '../../../../test-fixtures/raster-metadata/avif-validation/p3-rgb.avif',
+      );
+      const original = await fs.readFile(fixture);
+      const src = path.join(dir, 'legacy.bmp');
+      await fs.writeFile(src, original);
+      const thumbPath = path.join(dir, 'thumb.avif');
+
+      await generateThumb(src, thumbPath);
+
+      await expect(fs.stat(thumbPath)).rejects.toThrow();
+      const validation = await validateAvifOutput(src, 512);
+      expect(validation.ok).toBe(false);
+      if (!validation.ok) expect(validation.reason).toContain('unexpected embedded ICC profile');
+      expect((await fs.readdir(dir)).filter((name) => name.includes('.tmp.'))).toEqual([]);
+      expect(await fs.readFile(src)).toEqual(original);
+      expect(await fs.readFile(fixture)).toEqual(original);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('generatePreview — AVIF validation wiring', () => {
