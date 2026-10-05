@@ -1,3 +1,5 @@
+import { fsAccessWriteFile } from '../../projects/maple-common/src/lib/folder-access/fs-access-backend';
+import { LibraryFetch } from '../../projects/maple-common/src/lib/state/library-fetch.service';
 import { cycleApplication } from './cycle-workflow-environment';
 import { lensGestureStorage } from './lens-gesture-storage';
 import { LibraryStore } from '../../projects/maple-common/src/lib/state/library-store.service';
@@ -5,7 +7,7 @@ import { XmpSerializerService } from '../../projects/maple-common/src/lib/xmp/xm
 import { defaultAdjustmentModel } from '../../projects/maple-common/src/lib/models/adjustment-model';
 
 /** Fence a real OPFS index stream, without replacing sidecar I/O (#4287). */
-export async function lensIndexCleanupBoundary() {
+export async function lensIndexCleanupBoundary(failedWriter = false) {
   const owner = await cycleApplication('Hosted');
   const xml = owner.injector.get(XmpSerializerService).serialize(defaultAdjustmentModel());
   owner.destroy();
@@ -45,6 +47,57 @@ export async function lensIndexCleanupBoundary() {
   try {
     active.app.injector.get(LibraryStore).assets.update((assets) => [...assets]);
     await entered.promise;
+    if (failedWriter) {
+      const file = 'failed-index-control.bin';
+      const original = new Uint8Array([19, 42, 255, 0]);
+      await fsAccessWriteFile(folder, file, original);
+      const failureGate = checkpoint();
+      const data = new Uint8Array([1, 2, 3]);
+      structuredClone(data.buffer, { transfer: [data.buffer] });
+      const failed = failureGate.promise.then(() => fsAccessWriteFile(folder, file, data));
+      const writes = Reflect.get(active.app.injector.get(LibraryFetch), '_indexWrites') as Set<
+        Promise<void>
+      >;
+      writes.add(failed);
+      void failed.then(
+        () => writes.delete(failed),
+        () => writes.delete(failed),
+      );
+      let flushFinished = false;
+      const flush = active.library.flushPendingIndexWrites().then(
+        () => {
+          flushFinished = true;
+          return null;
+        },
+        (error: unknown) => {
+          flushFinished = true;
+          return error;
+        },
+      );
+      failureGate.resolve();
+      const primary = await failed.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      // A real OPFS read lets prior Promise reactions finish while the index close is fenced.
+      const saved = new Uint8Array(
+        await (await (await folder.native.getFileHandle(file)).getFile()).arrayBuffer(),
+      );
+      const flushFinishedBeforeIndexClose = flushFinished;
+      release.resolve();
+      await closed.promise;
+      const error = await flush;
+      await active.dispose();
+      return {
+        flushFinishedBeforeIndexClose,
+        originalTypeError: primary instanceof TypeError,
+        failurePreserved: error instanceof AggregateError && error.errors.includes(primary),
+        originalBytesPreserved:
+          saved.length === original.length &&
+          saved.every((value, index) => value === original[index]),
+        realIndexStreamClosed: writeClosed,
+      };
+    }
     const disposal = active.dispose().then(
       () => ({ cleanupSucceeded: true, error: null }),
       (error: unknown) => ({ cleanupSucceeded: false, error: String(error) }),

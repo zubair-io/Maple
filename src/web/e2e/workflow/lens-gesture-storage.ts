@@ -31,13 +31,17 @@ export async function lensGestureStorage(deployment: CycleDeployment, xml: strin
   const access = app.injector.get(FolderAccessService);
   const library: LibraryStateService = app.injector.get(LibraryStateService);
   async function dispose() {
-    try {
-      await library.flushPendingXmpWrites();
-      await library.flushPendingIndexWrites();
-    } finally {
-      app.destroy();
-    }
-    if (folder) await root.removeEntry(name, { recursive: true });
+    // XMP settles first; any index work it schedules must drain afterwards.
+    const xmp = await Promise.allSettled([library.flushPendingXmpWrites()]);
+    const index = await Promise.allSettled([library.flushPendingIndexWrites()]);
+    app.destroy();
+    const removal = folder
+      ? await Promise.allSettled([root.removeEntry(name, { recursive: true })])
+      : [];
+    const failures = [...xmp, ...index, ...removal].flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : [],
+    );
+    if (failures.length > 0) throw new AggregateError(failures, 'Gesture storage cleanup failed');
   }
   try {
     if (folder) {
