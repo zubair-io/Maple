@@ -774,7 +774,8 @@ struct LibrarySidebar: View {
     case .smbShare(let share):
       if !showConnections { showConnections = true }
       revealFolderRow(
-        SidebarReveal.smbRowId(host: share.host, share: share.share, path: "", depth: 0),
+        SidebarReveal.smbRowId(
+          host: share.host, share: share.share, username: share.username, path: "", depth: 0),
         proxy: proxy)
     default:
       break

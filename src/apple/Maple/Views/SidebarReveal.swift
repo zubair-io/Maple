@@ -27,11 +27,19 @@ enum SidebarReveal {
   }
 
   /// Generates a unique scroll/preference identifier for an SMB share folder row.
-  static func smbRowId(host: String, share: String, path: String, depth: Int) -> String {
+  static func smbRowId(
+    host: String, share: String, username: String? = nil, path: String, depth: Int
+  ) -> String {
+    let base: String
+    if let username, !username.isEmpty {
+      base = "smb:\(username)@\(host)/\(share)"
+    } else {
+      base = "smb:\(host)/\(share)"
+    }
     if depth == 0 {
-      return "smb:\(host)/\(share)"
+      return base
     }
     let normalizedPath = path.hasPrefix("/") ? path : "/" + path
-    return "smb:\(host)/\(share)" + normalizedPath
+    return base + normalizedPath
   }
 }

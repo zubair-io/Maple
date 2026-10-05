@@ -114,7 +114,8 @@ struct SMBFolderTreeRow: View {
   }
 
   private var rowId: String {
-    SidebarReveal.smbRowId(host: share.host, share: share.share, path: path, depth: depth)
+    SidebarReveal.smbRowId(
+      host: share.host, share: share.share, username: share.username, path: path, depth: depth)
   }
 
   var body: some View {

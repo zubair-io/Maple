@@ -98,6 +98,8 @@ public struct MuiTreeRow: View {
             MuiBadge(variant: .count, value: "\(count)")
           }
         }
+        .padding(.vertical, MuiTokens.spacingSm)
+        .frame(minHeight: 44)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
       }
@@ -107,8 +109,6 @@ public struct MuiTreeRow: View {
     }
     .padding(.leading, CGFloat(depth) * 16)
     .padding(.horizontal, MuiTokens.spacingMd)
-    .padding(.vertical, MuiTokens.spacingSm)
-    .frame(minHeight: 44)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(rowBackground)
     .overlay(alignment: .leading) {
