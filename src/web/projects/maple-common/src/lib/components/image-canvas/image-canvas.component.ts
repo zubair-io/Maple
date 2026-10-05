@@ -57,6 +57,7 @@ import { runRender2d, type Render2dHost } from './image-canvas.render2d';
 import { canUseLiveFastPath, buildLiveParams } from './image-canvas.live-params';
 import { settleFailedAutoFit } from './image-canvas.fit-failure';
 import { retryFailedByteLoad } from './image-canvas.byteload';
+import { canvasDownloadProgress, canvasDeepDenoiseProgress } from './image-canvas.progress';
 import { fetchAndLoadBytes, type ByteLoadError, type ByteLoadHost } from './image-canvas.byteload';
 import { GpuFallbackNoticeService } from '../gpu-fallback-notice/gpu-fallback-notice.service';
 import { EmbeddedPreviewService } from '../../raw-pipeline/embedded-preview.service';
@@ -199,27 +200,10 @@ export class ImageCanvasComponent
   protected readonly gestures = this.zoomHost.gestures;
   readonly zoomLabel = this.zoomHost.zoomLabel;
 
-  // Download progress view-model for the open-progress bar: non-null only
-  // while a genuine network download is in flight for the FOCUSED asset
-  // (stale-asset guard); null hides the bar (cached/local/decode phase).
-  readonly downloadProgress = computed(() => {
-    const p = this.state.openDownloadProgress();
-    const a = this.state.focusedAsset();
-    if (!p || !a || p.id !== a.id) return null;
-    const pct =
-      p.total && p.total > 0 ? Math.min(100, Math.round((p.loaded / p.total) * 100)) : null;
-    return { loaded: p.loaded, total: p.total, pct };
-  });
-
-  // BM3D deep-denoise progress view-model (#1153). Non-null only while the
-  // stage is genuinely running; the percentage is raw-core's own overall
-  // completion across both passes, so the bar is determinate by construction
-  // (spec § 3.2 requires visible, real progress — never a simulated sweep).
-  readonly deepDenoiseProgress = computed(() => {
-    const p = this.pipeline.deepDenoiseProgress();
-    if (!p) return null;
-    return { pass: p.pass, pct: Math.round(Math.min(1, Math.max(0, p.fraction)) * 100) };
-  });
+  readonly downloadProgress = computed(() =>
+    canvasDownloadProgress(this.state.openDownloadProgress(), this.state.focusedAsset()),
+  );
+  readonly deepDenoiseProgress = computed(() => canvasDeepDenoiseProgress(this.pipeline));
 
   // Source extent makes 100% pixel-perfect; applied crops keep the painted aspect.
   private effectivePx = computed(() => {
