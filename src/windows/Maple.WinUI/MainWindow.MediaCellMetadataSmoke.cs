@@ -36,13 +36,13 @@ public sealed partial class MainWindow
                 ?? throw new InvalidOperationException("Visible media rename control missing.");
             Check("metadata-controls-visible", rating.ActualWidth > 0 && rename.ActualWidth > 0);
             if (!nativeInput) return;
-            host.AddHandler(UIElement.GotFocusEvent, new RoutedEventHandler((_, _) =>
+            host.GotFocus += (_, _) =>
             {
                 var focused = FocusManager.GetFocusedElement(host.XamlRoot);
                 File.AppendAllText(Path.Combine(output, "media-metadata-focus.jsonl"),
                     JsonSerializer.Serialize(new { type = focused?.GetType().FullName,
                         name = focused is FrameworkElement element ? element.Name : null }) + Environment.NewLine);
-            }), true);
+            };
             var enter = false;
             var space = false;
             rating.RatingChanged += (_, _) => ratings++;
