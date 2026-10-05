@@ -44,13 +44,13 @@ fn absent_or_malformed_artifacts_share_valid_identity_storage() {
     assert_eq!(size, 2);
     assert_eq!(second_lut.len(), 2 * 2 * 2 * 3);
     assert_eq!(first_lut, second_lut.as_ptr());
+    assert!(matches!(second_lut, Cow::Borrowed(_)));
+    drop(second_lut);
+
     let malformed_curve = [0.5f32; 10];
     params.profile_curve_ptr = malformed_curve.as_ptr();
     params.profile_curve_len = malformed_curve.len();
     assert!(unsafe { curve_flat_or_empty(&params) }.is_empty());
-    assert!(matches!(second_lut, Cow::Borrowed(_)));
-
-    drop(second_lut);
     let truncated = [0.5f32; 3];
     params.residual_lut_ptr = truncated.as_ptr();
     params.residual_lut_len = truncated.len();

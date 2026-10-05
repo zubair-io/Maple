@@ -26,7 +26,7 @@ use super::*;
 use raw_core::image::{ColorSpace, Image};
 use raw_core::types::{ToneCurve, ToneCurveMode, WbMethod};
 use raw_core::view::auto_profile::apply::apply_curve;
-use raw_core::view::auto_profile::curve::{ChannelCurve, ProfileCurve};
+use raw_core::view::auto_profile::curve::ProfileCurve;
 use raw_core::view::auto_profile::lut::ColorLut;
 use raw_core::xmp::AdjustmentModel;
 // Shared fixtures/param builders live in `gpu_live_test_support.rs` (600-LOC
