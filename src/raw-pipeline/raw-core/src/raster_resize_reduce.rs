@@ -264,7 +264,7 @@ fn mask_stage(len: usize, out_len: usize, shrink: f64, extra: f64, filter: Filte
     // `vips_embed` pads this many copies before the first sample.
     let pad = n.div_ceil(2) as i64 - 1;
     let table: Vec<Vec<i16>> = (0..=PHASES)
-        .map(|phase| fixed_mask(filter, n, shrink, phase as f32 as f64 / PHASES as f64))
+        .map(|phase| fixed_mask(filter, n, shrink, phase as f64 / PHASES as f64))
         .collect();
     let mut taps = Vec::with_capacity(out_len * n);
     let mut masks = Vec::with_capacity(out_len * n);

@@ -163,15 +163,16 @@ fn resolve_shrink(src: &RasterImage, options: &ResizeOptions) -> (f64, f64) {
 ///    a 9x9 box gives an exact 4.5 where sharp answers 5, and a 17x17 box
 ///    an exact 8.5 where sharp answers 9.
 ///
-/// KNOWN GAP: at heavy downscales this is still one pixel out on the
-/// derived axis, in either direction, because libvips does not resize in
-/// one step — it splits the scale into an integer `vips_shrink` plus a
-/// residual `vips_reduce` and rounds at each stage, which no single closed
-/// form reproduces. Measured against sharp 0.34.5 / libvips 8.17.3 on a
-/// 400x200 source: an `inside` 19x19 box gives 19x10 in sharp and 19x9
-/// here (one pixel low), while a 31x31 box gives 31x15 in sharp and 31x16
-/// here (one pixel high). Widening the pin further means porting
-/// `vips_resize`'s staging, which is a separate piece of work — see
+/// KNOWN GAP: at heavy downscales dimension sizing is still one pixel out
+/// on the derived axis, in either direction, because libvips does not
+/// resize in one step — it splits the scale into an integer `vips_shrink`
+/// plus a residual `vips_reduce` and rounds dimensions at each stage, which
+/// no single closed form reproduces. Pixel staging is now complete (#4177),
+/// but per-stage dimension rounding remains open. Measured against sharp
+/// 0.34.5 / libvips 8.17.3 on a 400x200 source: an `inside` 19x19 box gives
+/// 19x10 in sharp and 19x9 here (one pixel low), while a 31x31 box gives
+/// 31x15 in sharp and 31x16 here (one pixel high). Widening the dimension
+/// pin further means porting `vips_resize`'s stage dimension rounding — see
 /// `src/maple/README.md` § sharp parity.
 fn scaled_dim(dim: u32, shrink: f64) -> u32 {
     ((dim as f64 * (1.0 / shrink)) + 0.5).floor().max(1.0) as u32
