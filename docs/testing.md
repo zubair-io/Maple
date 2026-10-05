@@ -657,7 +657,10 @@ The Profile section reads whether the already-completed render applied a curve o
 residual LUT. Pending means no evaluated outcome yet; unavailable covers any
 completed fit without usable artifacts, including fit errors. It never infers a
 missing embedded JPEG from an unsuccessful fit. Selected Neutral is described
-separately. Scalar GPU ticks retain the image's outcome without another fit,
+separately. Unavailable does not promise Neutral-equivalent pixels: an extractable
+but unusable preview can leave the existing Auto exposure policy in effect even
+when neither fit artifact is applied. The UI reports that camera-preview matching
+was not applied without changing that rendering policy. Scalar GPU ticks retain the image's outcome without another fit,
 source probe, or metadata message; existing render generation guards drop stale
 replies.
 

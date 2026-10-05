@@ -55,7 +55,7 @@ describe('ProfileSectionComponent', () => {
     outcomes.set({ [assetId]: false });
     fixture.detectChanges();
     expect(status.textContent.trim()).toBe(
-      'Auto matching is unavailable for this image; using Neutral rendering.',
+      'Auto matching is unavailable for this image; camera-preview matching was not applied.',
     );
     expect(status.textContent).not.toContain('no preview');
     library.focusedAssetId.set('asset-2');

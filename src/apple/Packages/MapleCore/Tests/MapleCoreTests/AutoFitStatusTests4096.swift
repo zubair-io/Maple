@@ -101,7 +101,7 @@ extension EditSessionFilmLutSyncTests {
     XCTAssertEqual(reopened.autoFitStatus, .pending, "A reopened image must await its own fit")
     XCTAssertEqual(
       AutoFitStatus.unavailable.description(profile: .auto),
-      "Auto matching is unavailable for this image; using Neutral rendering.")
+      "Auto matching is unavailable for this image; camera-preview matching was not applied.")
     XCTAssertEqual(
       AutoFitStatus.pending.description(profile: .auto), "Checking Auto matching for this image…")
     XCTAssertEqual(

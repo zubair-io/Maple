@@ -12,7 +12,8 @@ import XCTest
             "Color and contrast matched to this image’s embedded camera preview."
           ),
           (
-            "test_0018.dng", "Auto matching is unavailable for this image; using Neutral rendering."
+            "test_0018.dng",
+            "Auto matching is unavailable for this image; camera-preview matching was not applied."
           ),
         ] {
           let source = try UITestFixtureRoot.locate(name)
