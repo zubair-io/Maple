@@ -55,6 +55,7 @@ import { cropStraightenTransform, renderModelForCrop } from './image-canvas.crop
 import { CanvasPickOverlayComponent } from './canvas-pick-overlay.component';
 import { runRender2d, type Render2dHost } from './image-canvas.render2d';
 import { canUseLiveFastPath, buildLiveParams } from './image-canvas.live-params';
+import { settleFailedAutoFit } from './image-canvas.fit-failure';
 import { fetchAndLoadBytes, type ByteLoadError, type ByteLoadHost } from './image-canvas.byteload';
 import { GpuFallbackNoticeService } from '../gpu-fallback-notice/gpu-fallback-notice.service';
 import { EmbeddedPreviewService } from '../../raw-pipeline/embedded-preview.service';
@@ -305,7 +306,8 @@ export class ImageCanvasComponent
           return;
         }
 
-        // Mock asset (no source) — clear real bitmap, fall back to gradient.
+        settleFailedAutoFit(this, a.id, this.renderGeneration, this.state.autoFitRevisionFor(a.id));
+        // Asset without a source — clear real bitmap, fall back to gradient.
         this.imageBitmap.set(null);
         this.canvasSvc.currentPixels.set(null);
       },

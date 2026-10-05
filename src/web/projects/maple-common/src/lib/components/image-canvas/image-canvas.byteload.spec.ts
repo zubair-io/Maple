@@ -136,5 +136,6 @@ describe('ImageCanvasComponent — async byte-fetch gate (#1562)', () => {
 
     expect(bytesForAssetSpy).not.toHaveBeenCalled();
     expect(decodeSpy).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.state.lensCorrectionsFor('a-film').autoFit).toBe(false);
   });
 });
