@@ -75,3 +75,13 @@ export function fetchAndLoadBytes(host: ByteLoadHost, assetId: AssetId, filename
       );
     });
 }
+
+/** Retry only the current failed asset, starting a fresh fit provenance revision. */
+export function retryFailedByteLoad(
+  host: ByteLoadHost & { readonly state: Pick<LibraryStateService, 'resetAutoFit'> },
+): void {
+  const error = host.byteLoadError();
+  if (!error || error.id !== host.currentAssetId) return;
+  host.state.resetAutoFit(error.id);
+  fetchAndLoadBytes(host, error.id, error.filename);
+}
