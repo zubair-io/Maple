@@ -42,6 +42,7 @@ public sealed class CloudMapView : Grid, IDisposable
     internal FrameworkElement BackControl => _back;
     internal double CanvasHeight => _browser.ActualHeight;
     internal CloudMapViewport? Viewport => _viewport;
+    internal long RequestGeneration => _generation;
     internal event Action<string>? QualificationDiagnostic;
 
     public void FocusNavigation() => _back.Focus(FocusState.Keyboard);
