@@ -27,11 +27,8 @@ namespace Maple.UI
     /// <see cref="Pressed"/> — the same "meta row owns its own
     /// interaction" contract the web template's
     /// <c>(click)="$event.stopPropagation()"</c> on <c>.meta</c> gives.
-    /// WinUI's routed-event <see cref="TappedRoutedEventArgs.Handled"/>
-    /// (and the matching flag on <see cref="KeyRoutedEventArgs"/>) does
-    /// the same job here: a handler added to an ancestor via plain
-    /// <c>+=</c> is skipped once a descendant has marked the event
-    /// Handled, so no separate stopPropagation-equivalent API is needed.
+    /// Metadata taps stop at the row; the cell's key handler ignores
+    /// metadata descendants without swallowing their native text editing.
     /// </summary>
     public sealed class MuiMediaCell : ContentControl
     {
@@ -186,10 +183,9 @@ namespace Maple.UI
 
             Tapped += (_, e) => { if (IsEnabled && !IsFromMetadata(e.OriginalSource)) InvokeAction(); };
             KeyDown += OnKeyDown;
-            // The meta row owns its own tap/key interaction — see the class
-            // doc comment for why marking these Handled is enough.
+            // Ignore metadata keys in OnKeyDown; handling every key here
+            // prevents the TextBox from processing native editing input.
             _metaRow.Tapped += (_, e) => e.Handled = true;
-            _metaRow.KeyDown += (_, e) => e.Handled = true;
             _renameField.Renamed += (_, name) => { Filename = name; Renamed?.Invoke(this, name); };
             _ratingFlags.RatingChanged += (_, value) => Rating = value;
             _ratingFlags.FlagChanged += (_, value) => Flag = value;
