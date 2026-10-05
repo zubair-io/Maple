@@ -79,6 +79,7 @@ describe('ImageCanvasRawOpen', () => {
       scheduleRefine: vi.fn(),
     } as unknown as Render2dHost;
     rawOpen = new ImageCanvasRawOpen(host, {
+      byteLoadError: signal(null),
       embeddedPreview: {
         extractEmbeddedPreview: vi.fn(
           options.extractPreview ??

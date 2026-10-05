@@ -161,6 +161,7 @@ export class ImageCanvasComponent
   currentExt = '';
   private readonly rawOpen = new ImageCanvasRawOpen(this, {
     embeddedPreview: this.embeddedPreview,
+    byteLoadError: this.byteLoadError,
     imageBitmap: this.imageBitmap,
     currentAssetId: () => this.currentAssetId,
     coldOpenDone: () => this.coldOpenDone,
@@ -174,6 +175,7 @@ export class ImageCanvasComponent
   });
   // Public for `GpuPresentHost` (the helper drops stale session renders on it); component-bumped.
   renderGeneration = 0;
+  byteLoadGeneration = 0;
   // Long edge of the bitmap currently painted; refine runs only when sharper.
   private paintedLongEdge = 0;
   // Cold open seeds As-Shot WB before the adjustment effect may render.
@@ -259,6 +261,7 @@ export class ImageCanvasComponent
       () => {
         const a = this.state.focusedAsset();
         if (!a) {
+          this.byteLoadGeneration++;
           this.nativeDetail.reset();
           this.currentAssetId = null;
           this.renderGeneration++;
@@ -269,6 +272,7 @@ export class ImageCanvasComponent
         }
         if (a.id === this.currentAssetId) return; // same asset, skip
         this.currentAssetId = a.id;
+        this.byteLoadGeneration++;
         this.state.resetAutoFit(a.id);
         this.adjustmentEffect.reset();
         // New asset → invalidate any in-flight adjustment re-render and drop

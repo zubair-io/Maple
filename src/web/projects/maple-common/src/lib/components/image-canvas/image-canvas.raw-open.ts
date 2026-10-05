@@ -2,11 +2,14 @@ import type { WritableSignal } from '@angular/core';
 import type { AssetId } from '../../models/asset';
 import type { EmbeddedPreviewService } from '../../raw-pipeline/embedded-preview.service';
 import { isNonRawExtension } from '../../state/raw-extensions';
-import { editorInput } from './image-canvas.input';
+import { settleFailedAutoFit } from './image-canvas.fit-failure';
+import type { ByteLoadError } from './image-canvas.byteload';
+import { editorInput, type EditorInput } from './image-canvas.input';
 import { coldOpen2d, type Render2dHost } from './image-canvas.render2d';
 
 interface RawOpenDependencies {
   readonly embeddedPreview: Pick<EmbeddedPreviewService, 'extractEmbeddedPreview'>;
+  readonly byteLoadError: WritableSignal<ByteLoadError | null>;
   readonly imageBitmap: WritableSignal<ImageBitmap | null>;
   readonly currentAssetId: () => AssetId | null;
   readonly coldOpenDone: () => boolean;
@@ -18,6 +21,7 @@ interface RawOpenDependencies {
 
 /** Coordinates embedded-preview presentation with the final GPU/CPU RAW open. */
 export class ImageCanvasRawOpen {
+  private loadGeneration = 0;
   private provisionalAssetId: AssetId | null = null;
 
   constructor(
@@ -26,6 +30,7 @@ export class ImageCanvasRawOpen {
   ) {}
 
   reset(): void {
+    this.loadGeneration++;
     this.provisionalAssetId = null;
   }
 
@@ -38,12 +43,15 @@ export class ImageCanvasRawOpen {
   }
 
   async load(assetId: AssetId, filename: string, bytes: Uint8Array): Promise<void> {
+    const request = ++this.loadGeneration;
+    this.deps.byteLoadError.set(null);
     const sourceExt = filename.split('.').pop()?.toLowerCase() ?? '';
     if (!isNonRawExtension(sourceExt) && sourceExt !== 'x3f') {
       void this.showEmbeddedPreview(assetId, bytes, sourceExt);
     }
 
-    const input = await editorInput(filename, bytes, this.deps.embeddedPreview);
+    const input = await this.normalizeInput(assetId, filename, bytes, request);
+    if (!input || !this.ownsLoad(assetId, request)) return;
     this.deps.setCurrentInput(input.bytes, input.ext);
     if (this.deps.gpuEnabled() && !isNonRawExtension(input.ext)) {
       if (await this.deps.openGpu(assetId, input.bytes, input.ext)) {
@@ -52,6 +60,35 @@ export class ImageCanvasRawOpen {
       }
     }
     await coldOpen2d(this.host, assetId, filename, input.ext, input.bytes);
+  }
+
+  private ownsLoad(assetId: AssetId, request: number): boolean {
+    return request === this.loadGeneration && assetId === this.deps.currentAssetId();
+  }
+
+  private normalizeInput(
+    assetId: AssetId,
+    filename: string,
+    bytes: Uint8Array,
+    request: number,
+  ): Promise<EditorInput | null> {
+    return editorInput(filename, bytes, this.deps.embeddedPreview).catch((error: unknown) => {
+      if (this.ownsLoad(assetId, request)) {
+        console.error('[image-canvas] input normalization failed:', error);
+        this.deps.byteLoadError.set({
+          id: assetId,
+          filename,
+          reason: 'Embedded preview unavailable; retry or choose another image',
+        });
+        settleFailedAutoFit(
+          this.host,
+          assetId,
+          this.host.renderGeneration,
+          this.host.state.autoFitRevisionFor(assetId),
+        );
+      }
+      return null;
+    });
   }
 
   private async showEmbeddedPreview(
