@@ -117,20 +117,23 @@ final class BrowseLoadingPerformanceTests: XCTestCase {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: folder) }
+    let original = Data("owned superseded listing fixture".utf8)
+    let photo = folder.appendingPathComponent("photo.dng")
+    try original.write(to: photo)
+
+    let fence = BrowseFilesystemFence()
     let browser = BrowseViewModel()
+    browser.folderEnumerationCheckpoint = { await fence.enter() }
     let listing = Task { await browser.loadFolder(url: folder) }
-    // The detached directory walk necessarily suspends its MainActor caller.
-    // Invalidate it at that boundary, before its result can be published.
-    for _ in 0..<10_000 {
-      if browser.isLoading { break }
-      await Task.yield()
-    }
+    await fulfillment(of: [fence.entered], timeout: 5)
     XCTAssertTrue(browser.isLoading)
     browser.setPhotosAuthNeeded(canRequest: false)
+    await fence.release()
     await listing.value
     XCTAssertTrue(browser.photosAuthNeeded)
     XCTAssertFalse(browser.photosAuthCanRequest)
     XCTAssertTrue(browser.assets.isEmpty)
+    XCTAssertEqual(try Data(contentsOf: photo), original)
   }
 
   @MainActor
@@ -176,5 +179,22 @@ final class BrowseLoadingPerformanceTests: XCTestCase {
       await Task.yield()
     }
     XCTFail("Producer never reached the thumbnail queue")
+  }
+}
+
+private actor BrowseFilesystemFence {
+  nonisolated let entered = XCTestExpectation(description: "Actual I/O reached publication fence")
+  private var continuation: CheckedContinuation<Void, Never>?
+
+  func enter() async {
+    await withCheckedContinuation { continuation in
+      self.continuation = continuation
+      entered.fulfill()
+    }
+  }
+
+  func release() {
+    continuation?.resume()
+    continuation = nil
   }
 }
