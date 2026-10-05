@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { BackupObject } from '../provider.ts';
-import { backupObject, type GoogleDriveProvider } from './provider.ts';
+import type { GoogleDriveProvider } from './provider.ts';
+import { backupObject, assertObjectIdentity } from './object.ts';
 
 export async function verifiedGoogleObject(
   provider: GoogleDriveProvider,
@@ -11,12 +12,7 @@ export async function verifiedGoogleObject(
   await heartbeat?.();
   const file = await provider.client.metadata(expected.locator, signal);
   const object = backupObject(file, provider.rootId);
-  if (
-    object.key !== expected.key ||
-    object.size !== expected.size ||
-    object.sha256 !== expected.sha256
-  )
-    throw new Error('Google immutable upload conflicted.');
+  assertObjectIdentity(object, expected, 'Google immutable upload conflicted.');
   await heartbeat?.();
   if (file.sha256Checksum) return object;
   const reader = (await provider.download(object, signal)).getReader();

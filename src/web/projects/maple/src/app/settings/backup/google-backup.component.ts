@@ -1,3 +1,4 @@
+import { SettingsAction } from '../settings-action';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -67,9 +68,13 @@ export class GoogleBackupComponent {
   protected readonly secret = signal('');
   protected readonly callbackMode = signal<'relay' | 'direct'>('relay');
   protected readonly rootId = signal('');
-  protected readonly busy = signal(false);
-  protected readonly error = signal('');
-  protected readonly message = signal('');
+  private readonly actions = new SettingsAction(() => {
+    this.changed.emit();
+    this.refresh();
+  });
+  protected readonly busy = this.actions.busy;
+  protected readonly error = this.actions.error;
+  protected readonly message = this.actions.message;
   protected readonly modes = [
     { value: 'relay', label: 'Hosted callback proxy' },
     { value: 'direct', label: 'Direct to this server' },
@@ -106,7 +111,7 @@ export class GoogleBackupComponent {
   }
   protected async save(connect = false): Promise<void> {
     if (!this.canSave() || this.busy() || (connect && !this.canConnect())) return;
-    await this.perform(async () => {
+    await this.actions.run(async () => {
       await firstValueFrom(
         this.api.saveGoogleConfig(this.destinationId(), {
           clientId: this.clientId().trim(),
@@ -134,7 +139,7 @@ export class GoogleBackupComponent {
   protected async attachRoot(): Promise<void> {
     const config = this.config();
     if (!this.rootId().trim() || !config?.connected) return;
-    await this.perform(async () => {
+    await this.actions.run(async () => {
       await firstValueFrom(
         this.api.saveGoogleConfig(this.destinationId(), {
           clientId: config.clientId,
@@ -146,7 +151,7 @@ export class GoogleBackupComponent {
     });
   }
   protected async createRoot(): Promise<void> {
-    await this.perform(async () => {
+    await this.actions.run(async () => {
       await firstValueFrom(this.api.createGoogleRoot(this.destinationId()));
       this.message.set(
         'Maple Photo Backup folder created. Resume cloud-backup in Workers to begin.',
@@ -154,7 +159,7 @@ export class GoogleBackupComponent {
     });
   }
   protected async disconnect(clear = false): Promise<void> {
-    await this.perform(async () => {
+    await this.actions.run(async () => {
       await firstValueFrom(this.api.disconnectGoogle(this.destinationId()));
       if (clear)
         await firstValueFrom(
@@ -178,21 +183,6 @@ export class GoogleBackupComponent {
       this.message.set('Callback URL copied.');
     } catch {
       this.error.set('Clipboard access was denied. Select and copy the displayed URL.');
-    }
-  }
-  private async perform(action: () => Promise<void>): Promise<void> {
-    if (this.busy()) return;
-    this.busy.set(true);
-    this.error.set('');
-    this.message.set('');
-    try {
-      await action();
-      this.changed.emit();
-      this.refresh();
-    } catch (error) {
-      this.error.set(errorMessage(error));
-    } finally {
-      this.busy.set(false);
     }
   }
 }

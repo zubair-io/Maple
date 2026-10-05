@@ -33,7 +33,7 @@
  */
 
 import * as path from 'node:path';
-import { committedLifecycleStatements } from '../../cloud-backup/lifecycle.ts';
+import { committedLifecycleStatements } from '../../cloud-backup/lifecycle-commit.ts';
 import type { ObjectId } from '../object-id.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
 import { meiliRearmStatement, relocateCacheRearmStatements } from './assets.stage-rearm.ts';

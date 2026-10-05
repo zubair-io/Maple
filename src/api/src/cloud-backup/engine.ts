@@ -8,6 +8,7 @@ import {
   releaseCapture,
   type InventoryLocation,
 } from './inventory.ts';
+import { startEntryLease } from './entry-lease.ts';
 import type { BackupManifest, BackupObject, BackupProvider, PublishSource } from './provider.ts';
 
 export function jsonSource(value: unknown): PublishSource {
@@ -29,10 +30,44 @@ export function entryPrefix(libraryId: string, entryId: string): string {
 }
 export type ProviderFactory = (destination: BackupDestination) => Promise<BackupProvider>;
 
+type CapturedFiles = Awaited<ReturnType<typeof captureInventory>>;
+interface TransferContext {
+  destination: BackupDestination;
+  entry: BackupEntry;
+  owner: string;
+  provider: BackupProvider;
+  signal: AbortSignal;
+}
+function lifecycleMetadata(location: InventoryLocation) {
+  const state = location.relative_path.startsWith('.maple/trash/')
+    ? ('trash' as const)
+    : ('active' as const);
+  const originalPath =
+    state === 'trash' && location.original_path
+      ? path.relative(location.root, location.original_path).split(path.sep).join('/')
+      : location.relative_path;
+  return {
+    state,
+    originalPath,
+    deletedAt: state === 'trash' ? location.deleted_at : null,
+    hidden: Boolean(location.hidden),
+  };
+}
+function snapshotHash(location: InventoryLocation, files: CapturedFiles): string {
+  const { state, originalPath, deletedAt, hidden } = lifecycleMetadata(location);
+  return jsonSource({
+    state,
+    originalPath,
+    path: location.relative_path,
+    deletedAt,
+    hidden,
+    files: files.map((file) => [file.path, file.role, file.source.sha256, file.source.size]),
+  }).sha256;
+}
 export class BackupEngine {
   constructor(
     readonly provider: ProviderFactory,
-    readonly repo = new BackupRepository(),
+    readonly repo: BackupRepository = new BackupRepository(),
   ) {}
   async publish(
     provider: BackupProvider,
@@ -64,130 +99,120 @@ export class BackupEngine {
     await this.repo.saveObject(destination.id, entry.id, key, object, null);
     return object;
   }
+  private async assertFence(ctx: TransferContext, message: string): Promise<void> {
+    if (!(await this.repo.fence(ctx.entry, ctx.destination, ctx.owner))) throw new Error(message);
+  }
+  private async publishFiles(
+    ctx: TransferContext,
+    files: CapturedFiles,
+  ): Promise<BackupManifest['files']> {
+    const prefix = entryPrefix(ctx.destination.libraryId, ctx.entry.id);
+    const objects: BackupManifest['files'] = [];
+    for (const file of files) {
+      ctx.signal.throwIfAborted();
+      await this.assertFence(ctx, 'Backup lease or lifecycle changed');
+      const object = await this.publish(
+        ctx.provider,
+        ctx.destination,
+        ctx.entry,
+        `${prefix}blobs/${file.source.sha256}`,
+        file.source,
+        ctx.signal,
+      );
+      objects.push({ path: file.path, role: file.role, object });
+    }
+    return objects;
+  }
+  private async validateCurrentInventory(
+    ctx: TransferContext,
+    location: InventoryLocation,
+    files: CapturedFiles,
+  ): Promise<void> {
+    await validateCapture(location, files, ctx.signal);
+    const current = (
+      await assetInventory(location.asset_id, ctx.destination.libraryId, this.repo)
+    ).find((item) => item.ordinal === location.ordinal);
+    if (!current || JSON.stringify(current) !== JSON.stringify(location))
+      throw new Error('Backup asset changed before catalog publication');
+    await this.assertFence(ctx, 'Backup asset changed before catalog publication');
+  }
+  private async publishCatalog(
+    ctx: TransferContext,
+    location: InventoryLocation,
+    files: BackupManifest['files'],
+  ): Promise<boolean> {
+    const { destination, entry, provider, signal } = ctx;
+    const { state, originalPath, deletedAt, hidden } = lifecycleMetadata(location);
+    const manifest: BackupManifest = {
+      version: 1,
+      libraryId: destination.libraryId,
+      entryId: entry.id,
+      assetId: location.asset_id,
+      sequence: entry.sequence,
+      state,
+      originalPath,
+      currentPath: location.relative_path,
+      deletedAt,
+      hidden,
+      files,
+    };
+    await this.publish(
+      provider,
+      destination,
+      entry,
+      `libraries/${destination.libraryId}/descriptor.json`,
+      jsonSource({ version: 1, libraryId: destination.libraryId, format: 'maple-photo-backup' }),
+      signal,
+    );
+    await this.publish(
+      provider,
+      destination,
+      entry,
+      `${entryPrefix(destination.libraryId, entry.id)}manifests/${entry.sequence}.json`,
+      jsonSource(manifest),
+      signal,
+    );
+    await this.assertFence(ctx, 'Backup changed during catalog publication');
+    const repo: BackupRepository = this.repo;
+    return repo.finish(entry, destination, ctx.owner, manifest);
+  }
   async transfer(
     destination: BackupDestination,
     location: InventoryLocation,
     signal?: AbortSignal,
   ): Promise<boolean> {
-    const initial = await this.repo.ensureEntry(
+    const repo: BackupRepository = this.repo;
+    const initial = await repo.ensureEntry(
       destination.id,
       location.asset_id,
       location.ordinal,
       location.relative_path,
     );
     const owner = crypto.randomUUID();
-    if (initial.state === 'purged' || !(await this.repo.claim(initial, owner))) return false;
-    const leaseAbort = new AbortController();
-    const transferSignal = signal
-      ? AbortSignal.any([signal, leaseAbort.signal])
-      : leaseAbort.signal;
-    let leasedEntry = initial;
-    let files: Awaited<ReturnType<typeof captureInventory>> | undefined;
-    let renewing = false;
-    const heartbeat = setInterval(() => {
-      if (renewing) return;
-      renewing = true;
-      void this.repo
-        .fence(leasedEntry, destination, owner)
-        .then((valid) => {
-          if (!valid) leaseAbort.abort(new Error('Backup lease or configuration changed'));
-        })
-        .catch(() => leaseAbort.abort(new Error('Backup lease renewal failed')))
-        .finally(() => {
-          renewing = false;
-        });
-    }, 20_000);
+    if (initial.state === 'purged' || !(await repo.claim(initial, owner))) return false;
+    const lease = startEntryLease(repo, destination, initial, owner, signal);
+    let files: CapturedFiles | undefined;
     try {
-      files = await captureInventory(location, transferSignal);
-      const state = location.relative_path.startsWith('.maple/trash/')
-        ? ('trash' as const)
-        : ('active' as const);
-      const originalPath =
-        state === 'trash' && location.original_path
-          ? path.relative(location.root, location.original_path).split(path.sep).join('/')
-          : location.relative_path;
-      const snapshot = jsonSource({
-        state,
-        originalPath,
-        path: location.relative_path,
-        deletedAt: state === 'trash' ? location.deleted_at : null,
-        hidden: Boolean(location.hidden),
-        files: files.map((f) => [f.path, f.role, f.source.sha256, f.source.size]),
-      });
-      const entry = await this.repo.reserveSnapshot(initial, owner, snapshot.sha256);
-      leasedEntry = entry;
-      if (!(await this.repo.fence(entry, destination, owner)))
+      files = await captureInventory(location, lease.signal);
+      const entry = await repo.reserveSnapshot(initial, owner, snapshotHash(location, files));
+      lease.update(entry);
+      if (!(await repo.fence(entry, destination, owner)))
         throw new Error('Backup configuration or lifecycle changed');
       const provider = await this.provider(destination);
-      await provider.probe(transferSignal);
-      const prefix = entryPrefix(destination.libraryId, entry.id);
-      const objects: BackupManifest['files'] = [];
-      for (const file of files) {
-        transferSignal.throwIfAborted();
-        if (!(await this.repo.fence(entry, destination, owner)))
-          throw new Error('Backup lease or lifecycle changed');
-        const object = await this.publish(
-          provider,
-          destination,
-          entry,
-          `${prefix}blobs/${file.source.sha256}`,
-          file.source,
-          transferSignal,
-        );
-        objects.push({ path: file.path, role: file.role, object });
-      }
-      await validateCapture(location, files, transferSignal);
-      const current = (
-        await assetInventory(location.asset_id, destination.libraryId, this.repo)
-      ).find((item) => item.ordinal === location.ordinal);
-      if (
-        !current ||
-        JSON.stringify(current) !== JSON.stringify(location) ||
-        !(await this.repo.fence(entry, destination, owner))
-      ) {
-        throw new Error('Backup asset changed before catalog publication');
-      }
-      const manifest: BackupManifest = {
-        version: 1,
-        libraryId: destination.libraryId,
-        entryId: entry.id,
-        assetId: location.asset_id,
-        sequence: entry.sequence,
-        state,
-        originalPath,
-        currentPath: location.relative_path,
-        deletedAt: state === 'trash' ? location.deleted_at : null,
-        hidden: Boolean(location.hidden),
-        files: objects,
-      };
-      await this.publish(
-        provider,
-        destination,
-        entry,
-        `libraries/${destination.libraryId}/descriptor.json`,
-        jsonSource({ version: 1, libraryId: destination.libraryId, format: 'maple-photo-backup' }),
-        transferSignal,
-      );
-      await this.publish(
-        provider,
-        destination,
-        entry,
-        `${prefix}manifests/${entry.sequence}.json`,
-        jsonSource(manifest),
-        transferSignal,
-      );
-      if (!(await this.repo.fence(entry, destination, owner)))
-        throw new Error('Backup changed during catalog publication');
-      return await this.repo.finish(entry, destination, owner, manifest);
+      await provider.probe(lease.signal);
+      const ctx = { destination, entry, owner, provider, signal: lease.signal };
+      const objects = await this.publishFiles(ctx, files);
+      await this.validateCurrentInventory(ctx, location, files);
+      return await this.publishCatalog(ctx, location, objects);
     } catch (error) {
-      await this.repo.fail(
+      await repo.fail(
         initial,
         owner,
         error instanceof Error ? error.message : 'Backup transfer failed',
       );
       return false;
     } finally {
-      clearInterval(heartbeat);
+      lease.stop();
       if (files) await releaseCapture(files);
     }
   }

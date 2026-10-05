@@ -266,6 +266,25 @@ describe('requestContext: integration via buildApp()', () => {
 });
 
 describe('requestContext: raw Response wrapping (fix for static-UI 403)', () => {
+  test('HEAD error Responses keep headers and status without adding a body', async () => {
+    const app = appWith((a) =>
+      a.head(
+        '/head-error',
+        () => new Response(null, { status: 403, headers: { 'X-Source': 'raw' } }),
+      ),
+    );
+    const res = await app.handle(
+      new Request('http://localhost/head-error', {
+        method: 'HEAD',
+        headers: { 'X-Request-Id': 'head-trace' },
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(res.headers.get('X-Source')).toBe('raw');
+    expect(res.headers.get('X-Request-Id')).toBe('head-trace');
+    expect(await res.text()).toBe('');
+  });
+
   test("non-JSON error Response (e.g. `new Response('Forbidden', { status: 403 })`) is wrapped into the envelope", async () => {
     const app = appWith((a) =>
       a.get('/forbidden', () => new Response('Forbidden', { status: 403 })),

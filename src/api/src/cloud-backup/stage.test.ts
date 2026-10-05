@@ -1,7 +1,17 @@
 import { expect, test } from 'bun:test';
-import { createTestDatabase, testSqliteDb } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import {
+  createTestDatabase,
+  createLiveTestDatabase,
+  insertFolder,
+  insertAsset,
+  insertLocation,
+  testSqliteDb,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { insertStageState } from '../db/repos/assets.test-helpers.ts';
 import { seedClaimableAsset, stageRow } from '../db/repos/stage-runtime.test-helpers.ts';
 import { stageResultStatements } from '../db/repos/stage-writeback.ts';
+import { BackupRepository } from './repository.ts';
+import { maintainBackup } from './runtime.ts';
 import { claimStageBatch } from '../db/repos/stage-claim.ts';
 
 test('backup deferral remains pending without spending attempts and cannot release a reclaimed lease', async () => {
@@ -65,4 +75,32 @@ test('only backup can admit indexed Trash and damaged originals; missing locatio
   expect(backup.claimed.map((r) => r.asset_id).sort()).toEqual([trash, damaged].sort());
   expect(backup.claimed.some((r) => r.asset_id === missing)).toBe(false);
   expect((await claimStageBatch({ ...request, stage: 'thumb' }, db)).claimed).toEqual([]);
+});
+
+test('lifecycle maintenance preserves verified stages and durable retry leases', async () => {
+  using live = await createLiveTestDatabase();
+  const libraryId = insertFolder(live.db, { path: '/backup-maintenance-fixture' });
+  const repo = new BackupRepository(live.handle);
+  const destination = await repo.createDestination({
+    libraryId,
+    kind: 'google-drive',
+    name: 'Drive',
+    path: null,
+  });
+  await repo.updateDestination(destination.id, { enabled: true });
+  const verified = insertAsset(live.db);
+  const retry = insertAsset(live.db);
+  insertLocation(live.db, { assetId: verified, libraryId });
+  insertLocation(live.db, { assetId: retry, libraryId });
+  insertStageState(live.db, verified, 'cloud-backup', { version: 1 });
+  insertStageState(live.db, retry, 'cloud-backup', {
+    attempts: 3,
+    nextAttemptAt: '2099-01-01T00:00:00Z',
+  });
+  const beforeVerified = stageRow(live.db, verified, 'cloud-backup');
+  const beforeRetry = stageRow(live.db, retry, 'cloud-backup');
+  await maintainBackup();
+  await maintainBackup();
+  expect(stageRow(live.db, verified, 'cloud-backup')).toEqual(beforeVerified);
+  expect(stageRow(live.db, retry, 'cloud-backup')).toEqual(beforeRetry);
 });

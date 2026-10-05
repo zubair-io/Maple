@@ -12,10 +12,10 @@ import { readRemoteCatalog } from '../cloud-backup/catalog.ts';
 import { recoveryPreview } from '../cloud-backup/restore.ts';
 import { createJob, getJob } from '../db/repos/jobs.repo.ts';
 import { ObjectId } from '../db/object-id.ts';
-import type { BackupDestination } from '../cloud-backup/repository.ts';
+import type { BackupDestination, BackupRepository } from '../cloud-backup/repository.ts';
 import { resumeRecoveryJob } from '../cloud-backup/recovery-jobs.ts';
 
-const repo = backupEngine.repo;
+const repo: BackupRepository = backupEngine.repo;
 const Id = t.Object({ id: t.String({ format: 'uuid' }) });
 const Recovery = t.Object({
   targetPath: t.String({ maxLength: 4096 }),
@@ -61,14 +61,15 @@ async function projection(row: BackupDestination) {
     bytes: number;
     lastError: string | null;
   }>(
-    `SELECT SUM(CASE WHEN state!='purged' AND verified_sequence<sequence THEN 1 ELSE 0 END) AS pending,
-      SUM(CASE WHEN state!='purged' AND verified_sequence=sequence THEN 1 ELSE 0 END) AS verified,
-      SUM(CASE WHEN state='trash' THEN 1 ELSE 0 END) AS trash,
-      SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END) AS blocked,
+    `SELECT COALESCE(SUM(CASE WHEN state!='purged' AND verified_sequence<sequence THEN 1 ELSE 0 END),0) AS pending,
+      COALESCE(SUM(CASE WHEN state!='purged' AND verified_sequence=sequence THEN 1 ELSE 0 END),0) AS verified,
+      COALESCE(SUM(CASE WHEN state='trash' THEN 1 ELSE 0 END),0) AS trash,
+      COALESCE(SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END),0) AS blocked,
       COALESCE(SUM((SELECT SUM(json_extract(value,'$.object.size')) FROM json_each(manifest,'$.files'))),0) AS bytes,
       MAX(last_error) AS lastError FROM backup_entries WHERE destination_id=?`,
     [row.id],
   );
+  if (!status) throw new Error('Backup status query failed');
   const purges = await repo.purges(row.id);
   const [coverage] = await repo.db.read<{ pending: number; missing: number; prepared: number }>(
     `SELECT
@@ -81,19 +82,20 @@ async function projection(row: BackupDestination) {
     (SELECT COUNT(*) FROM backup_lifecycle WHERE library_id=? AND phase='prepared') AS prepared`,
     [row.id, row.libraryId, row.libraryId, row.libraryId],
   );
+  if (!coverage) throw new Error('Backup coverage query failed');
   return {
     ...row,
     status: {
-      pending: row.kind === 'google-drive' ? (coverage?.pending ?? 0) : (status?.pending ?? 0),
-      missing: coverage?.missing ?? 0,
-      prepared: coverage?.prepared ?? 0,
-      verified: status?.verified ?? 0,
-      trash: status?.trash ?? 0,
-      blocked: (status?.blocked ?? 0) + (coverage?.prepared ?? 0),
-      bytes: status?.bytes ?? 0,
-      lastError: coverage?.prepared
+      pending: row.kind === 'google-drive' ? coverage.pending : status.pending,
+      missing: coverage.missing,
+      prepared: coverage.prepared,
+      verified: status.verified,
+      trash: status.trash,
+      blocked: status.blocked + coverage.prepared,
+      bytes: status.bytes,
+      lastError: coverage.prepared
         ? 'Interrupted local move requires recovery or retry'
-        : (status?.lastError ?? null),
+        : status.lastError,
       purgePending: purges.filter((p) => !p.completed).length,
     },
   };
@@ -138,16 +140,7 @@ export const cloudBackupRoutes = new Elysia({ name: 'cloudBackup', prefix: '/api
     '/destinations/:id',
     async ({ params, body }) => {
       const row = await destination(params.id);
-      if (body.path && body.path !== row.path)
-        throw new Error(
-          'Create a new folder destination to change its path; existing purge obligations retain their root',
-        );
-      if (body.enabled && row.kind === 'folder' && row.path) {
-        const valid = await validateRoot(row.path);
-        if (!valid.ok) throw new Error(valid.error);
-      }
-      if (body.enabled && row.kind === 'google-drive' && !row.rootId)
-        throw new Error('Connect Google Drive and create or attach a backup folder first');
+      await validateDestinationUpdate(row, body);
       await repo.updateDestination(row.id, { name: body.name, enabled: body.enabled });
       if (row.kind === 'folder') await projectFolderDestination(row.libraryId, repo);
       return { destination: await projection(await destination(row.id)) };
@@ -277,3 +270,23 @@ export const cloudBackupRoutes = new Elysia({ name: 'cloudBackup', prefix: '/api
       }),
     },
   );
+
+async function validateDestinationUpdate(
+  row: BackupDestination,
+  body: { path?: string; enabled?: boolean },
+): Promise<void> {
+  if (body.path && body.path !== row.path)
+    throw new Error(
+      'Create a new folder destination to change its path; existing purge obligations retain their root',
+    );
+  if (!body.enabled) return;
+  await validateEnabledDestination(row);
+}
+async function validateEnabledDestination(row: BackupDestination): Promise<void> {
+  if (row.kind === 'folder' && row.path) {
+    const valid = await validateRoot(row.path);
+    if (!valid.ok) throw new Error(valid.error);
+  }
+  if (row.kind === 'google-drive' && !row.rootId)
+    throw new Error('Connect Google Drive and create or attach a backup folder first');
+}

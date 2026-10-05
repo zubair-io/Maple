@@ -23,6 +23,7 @@ import {
   resolveNetworkConfig,
   saveNetworkConfig,
   validateLocalAddress,
+  type NetworkConfig,
   type ResolvedNetworkConfig,
 } from '../network/network-config.repo.ts';
 import { managedHttps, type HttpsEndpoint } from '../network/managed-https.ts';
@@ -81,6 +82,50 @@ const NetworkConfigBody = t.Object({
   local_port_override: t.Optional(t.Union([t.Number(), t.Null()])),
 });
 
+type NetworkConfigPatch = Pick<
+  NetworkConfig,
+  'public_origin' | 'enabled' | 'local_ip_override' | 'local_port_override'
+>;
+
+function parsePublicOrigin(raw: string | null | undefined): string | null | undefined {
+  if (raw == null) return raw;
+  try {
+    return validatePublicOrigin(raw);
+  } catch {
+    return null;
+  }
+}
+
+/** Validate the complete patch before writing any part of the settings row. */
+function validateNetworkPatch(
+  body: NetworkConfigPatch,
+): { patch: NetworkConfigPatch } | { error: string } {
+  const publicOrigin = parsePublicOrigin(body.public_origin);
+  if (body.public_origin && !publicOrigin) {
+    return {
+      error: 'Invalid public_origin: use HTTPS, or HTTP loopback, without a path or credentials',
+    };
+  }
+  const ipOverride =
+    body.local_ip_override === undefined ? undefined : validateLocalAddress(body.local_ip_override);
+  if (ipOverride && typeof ipOverride === 'object') {
+    return { error: `Invalid local_ip_override: ${ipOverride.error}` };
+  }
+  if (body.local_port_override != null && !isValidPort(body.local_port_override)) {
+    return {
+      error: 'Invalid local_port_override: must be an integer between 1 and 65535',
+    };
+  }
+  // The repository treats undefined fields as omitted and null as explicit clears.
+  return {
+    patch: {
+      ...body,
+      public_origin: publicOrigin,
+      local_ip_override: ipOverride,
+    },
+  };
+}
+
 export const networkSettingsRoutes = new Elysia({ prefix: '/api/network' })
   .use(requireAuth)
   .use(requireOwner)
@@ -89,52 +134,12 @@ export const networkSettingsRoutes = new Elysia({ prefix: '/api/network' })
   .put(
     '/config',
     async ({ body, set }) => {
-      const publicOrigin =
-        body.public_origin == null
-          ? body.public_origin
-          : (() => {
-              try {
-                return validatePublicOrigin(body.public_origin);
-              } catch {
-                return null;
-              }
-            })();
-      if (body.public_origin && !publicOrigin) {
+      const validated = validateNetworkPatch(body);
+      if ('error' in validated) {
         set.status = 400;
-        return {
-          error:
-            'Invalid public_origin: use HTTPS, or HTTP loopback, without a path or credentials',
-        };
+        return { error: validated.error };
       }
-      let ipOverride: string | null | undefined;
-      if (body.local_ip_override !== undefined) {
-        const validated = validateLocalAddress(body.local_ip_override);
-        if (validated && typeof validated === 'object' && 'error' in validated) {
-          set.status = 400;
-          return { error: `Invalid local_ip_override: ${validated.error}` };
-        }
-        ipOverride = validated as string | null;
-      }
-
-      if (
-        body.local_port_override !== undefined &&
-        body.local_port_override !== null &&
-        !isValidPort(body.local_port_override)
-      ) {
-        set.status = 400;
-        return {
-          error: 'Invalid local_port_override: must be an integer between 1 and 65535',
-        };
-      }
-
-      await saveNetworkConfig({
-        ...(publicOrigin !== undefined ? { public_origin: publicOrigin } : {}),
-        ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
-        ...(ipOverride !== undefined ? { local_ip_override: ipOverride } : {}),
-        ...(body.local_port_override !== undefined
-          ? { local_port_override: body.local_port_override }
-          : {}),
-      });
+      await saveNetworkConfig(validated.patch);
 
       return resolveNetworkConfig(await loadNetworkConfig());
     },

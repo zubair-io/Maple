@@ -1,7 +1,6 @@
 /** Record explicit human/retention intent BEFORE bytes or their asset row disappear (#4228). */
 import * as path from 'node:path';
 import { BackupRepository } from './repository.ts';
-import type { SqlStatement } from '../db/sqlite/protocol.ts';
 import { assetInventory, jailedFile, fileHash } from './inventory.ts';
 import { listPairedSidecarsStrict } from '../fs/xmp-conflict.ts';
 import { stat, realpath } from '../fs/mirrored.ts';
@@ -72,85 +71,85 @@ export async function runLifecycleMove<T>(id: string, move: () => Promise<T>): P
 }
 /** Reconcile only recorded, verified destinations after a process interruption. */
 export async function reconcileLifecycle(repo = new BackupRepository()): Promise<void> {
-  const rows = await repo.db.read<{
-    id: string;
-    asset_id: string;
-    library_id: string;
-    source_path: string;
-    target_path: string | null;
-    source_sha256: string | null;
-    kind: 'trash' | 'restore';
-    root: string;
-  }>(`SELECT l.*,f.path AS root FROM backup_lifecycle l
+  const rows = await repo.db.read<LifecycleMove>(`SELECT l.*,f.path AS root FROM backup_lifecycle l
     JOIN folders f ON f.id=l.library_id WHERE l.phase='prepared' AND l.kind IN ('trash','restore')`);
   for (const row of rows) {
-    if (activeIntents.has(row.id)) continue;
-    const source = path.join(row.root, relativeBackupPath(row.source_path));
-    try {
-      await stat(source);
-      await finishLocalLifecycle(row.id, true, repo);
-      continue;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') continue;
-    }
-    if (!row.target_path || !row.source_sha256) continue;
-    const target = path.join(row.root, relativeBackupPath(row.target_path));
-    try {
-      const jailed = await jailedFile(row.root, row.target_path);
-      const canonicalTarget = path.join(await realpath(row.root), row.target_path);
-      if (
-        jailed !== canonicalTarget ||
-        (await digest(jailed)) !== row.source_sha256 ||
-        (await jailedFile(row.root, row.target_path)) !== jailed
-      )
-        continue;
-      const { markSoftDeleted, restoreFromTrash } = await import('../db/repos/assets.trash.ts');
-      const args = {
-        id: new ObjectId(row.asset_id),
-        libraryId: new ObjectId(row.library_id),
-        libraryRoot: row.root,
-        newAbsPath: target,
-        source: {
-          libraryId: new ObjectId(row.library_id),
-          path:
-            path.posix.dirname(row.source_path) === '.' ? '' : path.posix.dirname(row.source_path),
-          filename: path.posix.basename(row.source_path),
-        },
-        dbOverride: repo.db,
-      };
-      if (row.kind === 'trash') await markSoftDeleted({ ...args, originalAbsPath: source });
-      else {
-        const info = await stat(target);
-        await restoreFromTrash({ ...args, size: info.size, mtimeMs: info.mtimeMs });
-      }
-      await finishLocalLifecycle(row.id, false, repo);
-    } catch (error) {
-      await repo.db.write(`UPDATE backup_lifecycle SET last_error=? WHERE id=?`, [
-        error instanceof Error ? error.message.slice(0, 300) : 'Local relocation recovery failed',
-        row.id,
-      ]);
-    }
+    if (!activeIntents.has(row.id)) await reconcileMove(row, repo);
   }
 }
-export function committedLifecycleStatements(
-  assetId: string,
-  libraryId: string,
-  sourcePath: string,
-  currentPath: string,
-  state: 'active' | 'trash',
-): SqlStatement[] {
-  return [
-    {
-      sql: `UPDATE backup_lifecycle SET phase='applied' WHERE asset_id=? AND library_id=? AND source_path=? AND phase='prepared'`,
-      params: [assetId, libraryId, sourcePath],
+
+interface LifecycleMove {
+  id: string;
+  asset_id: string;
+  library_id: string;
+  source_path: string;
+  target_path: string | null;
+  source_sha256: string | null;
+  kind: 'trash' | 'restore';
+  root: string;
+}
+async function reconcileMove(row: LifecycleMove, repo: BackupRepository): Promise<void> {
+  if (!(await interruptedSourceAbsent(row, repo))) return;
+  if (!row.target_path || !row.source_sha256) return;
+  const source = path.join(row.root, relativeBackupPath(row.source_path));
+  const target = path.join(row.root, relativeBackupPath(row.target_path));
+  try {
+    if (!(await verifiedLifecycleTarget(row))) return;
+    await applyRecoveredMove(row, source, target, repo);
+    await finishLocalLifecycle(row.id, false, repo);
+  } catch (error) {
+    await repo.db.write(`UPDATE backup_lifecycle SET last_error=? WHERE id=?`, [
+      error instanceof Error ? error.message.slice(0, 300) : 'Local relocation recovery failed',
+      row.id,
+    ]);
+  }
+}
+async function interruptedSourceAbsent(
+  row: LifecycleMove,
+  repo: BackupRepository,
+): Promise<boolean> {
+  const source = path.join(row.root, relativeBackupPath(row.source_path));
+  try {
+    await stat(source);
+    await finishLocalLifecycle(row.id, true, repo);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT';
+  }
+}
+async function verifiedLifecycleTarget(row: LifecycleMove): Promise<boolean> {
+  const jailed = await jailedFile(row.root, row.target_path!);
+  const canonicalTarget = path.join(await realpath(row.root), row.target_path!);
+  return (
+    jailed === canonicalTarget &&
+    (await digest(jailed)) === row.source_sha256 &&
+    (await jailedFile(row.root, row.target_path!)) === jailed
+  );
+}
+async function applyRecoveredMove(
+  row: LifecycleMove,
+  source: string,
+  target: string,
+  repo: BackupRepository,
+): Promise<void> {
+  const { markSoftDeleted, restoreFromTrash } = await import('../db/repos/assets.trash.ts');
+  const args = {
+    id: new ObjectId(row.asset_id),
+    libraryId: new ObjectId(row.library_id),
+    libraryRoot: row.root,
+    newAbsPath: target,
+    source: {
+      libraryId: new ObjectId(row.library_id),
+      path: path.posix.dirname(row.source_path) === '.' ? '' : path.posix.dirname(row.source_path),
+      filename: path.posix.basename(row.source_path),
     },
-    {
-      sql: `UPDATE backup_entries SET source_path=?,state=?,sequence=sequence+1,snapshot_hash=NULL,retry_at=0
-      WHERE asset_id=? AND source_path=? AND destination_id IN
-      (SELECT id FROM backup_destinations WHERE library_id=?) AND state!='purged'`,
-      params: [currentPath, state, assetId, sourcePath, libraryId],
-    },
-  ];
+    dbOverride: repo.db,
+  };
+  if (row.kind === 'trash') await markSoftDeleted({ ...args, originalAbsPath: source });
+  else {
+    const info = await stat(target);
+    await restoreFromTrash({ ...args, size: info.size, mtimeMs: info.mtimeMs });
+  }
 }
 
 export async function preparePurge(assetId: string, repo = new BackupRepository()): Promise<void> {

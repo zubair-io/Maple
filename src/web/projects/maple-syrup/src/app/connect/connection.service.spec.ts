@@ -59,6 +59,14 @@ describe('Hosted Google connection boundary', () => {
       '#invalid!',
       '#' + 'x'.repeat(16385),
       '#' + encoded({ ticket: 'signed.ticket', code: 'c', error: 'access_denied' }),
+      '#' + encoded({ ticket: 'signed.ticket', code: 'code with space' }),
+      '#' + encoded({ ticket: 'signed.ticket', code: 'c'.repeat(4097) }),
+      '#' + encoded({ ticket: 'signed.ticket', error: 'AccessDenied' }),
+      '#' + encoded({ ticket: 'missing-signature', code: 'code' }),
+      '#' + encoded({ ticket: 'x'.repeat(4096) + '.proof', code: 'code' }),
+      '#' + encoded({ ticket: 123, code: 'code' }),
+      '#' + encoded([]),
+      '#' + encoded(null),
     ]) {
       const replaceState = vi.fn();
       captureConnectionFragment(
@@ -67,6 +75,39 @@ describe('Hosted Google connection boundary', () => {
       );
       expect(replaceState).toHaveBeenCalled();
       expect(takeConnectionFragment()).toBeNull();
+    }
+  });
+  it('clears history before decoding and retains only a bounded setup authorization URL', () => {
+    const replaceState = vi.fn();
+    const decode = globalThis.atob.bind(globalThis);
+    const decodeSpy = vi.spyOn(globalThis, 'atob').mockImplementation((value) => {
+      expect(replaceState).toHaveBeenCalledWith(null, '', '/connect/google-drive?ngsw-bypass=true');
+      return decode(value);
+    });
+    try {
+      captureConnectionFragment(
+        {
+          pathname: '/connect/google-drive',
+          hash: '#' + encoded({ ticket: 'signed.ticket', authorizationUrl: authUrl() }),
+          search: '',
+        },
+        { replaceState },
+      );
+      expect(takeConnectionFragment()).toEqual({
+        ticket: 'signed.ticket',
+        authorizationUrl: authUrl(),
+      });
+      captureConnectionFragment(
+        {
+          pathname: '/connect/google-drive',
+          hash: '#' + encoded({ ticket: 'signed.ticket', authorizationUrl: 'x'.repeat(8193) }),
+          search: '',
+        },
+        { replaceState },
+      );
+      expect(takeConnectionFragment()).toBeNull();
+    } finally {
+      decodeSpy.mockRestore();
     }
   });
   it('does not change editor navigation fragments', () => {
@@ -96,6 +137,20 @@ describe('Hosted Google connection boundary', () => {
     expect(validateConnectionTicket(ticket)).toEqual(ticket);
     for (const changes of [
       { expiresAt: 0 },
+      { expiresAt: Date.now() + 600001 },
+      { expiresAt: Number.MAX_SAFE_INTEGER + 1 },
+      { expiresAt: 'tomorrow' },
+      { nonce: 'n'.repeat(42) },
+      { nonce: 123 },
+      { challenge: 'c'.repeat(44) },
+      { challenge: ' '.repeat(43) },
+      { clientId: 'client.test' },
+      { clientId: null },
+      { version: 2 },
+      { redirectUri: 'https://other.test/callback' },
+      { returnUrl: ticket.returnUrl + '?query=1' },
+      { returnUrl: ticket.returnUrl + '#fragment' },
+      { returnUrl: 'https://' + 'a'.repeat(2049) },
       { returnUrl: 'http://photos.lan/api/cloud-backup/google/callback' },
       { returnUrl: 'https://user:pass@photos.lan/api/cloud-backup/google/callback' },
       { returnUrl: 'https://photos.lan/unrelated' },

@@ -17,7 +17,7 @@ import {
   preparePurge,
 } from './lifecycle.ts';
 import { BackupEngine, entryPrefix, jsonSource } from './engine.ts';
-import { TestProvider } from './test-provider.test-helpers.ts';
+import { createTestProvider } from './test-provider.test-helpers.ts';
 import { drainPurges } from './purge.ts';
 
 test('restart completes a recorded verified Trash move, while an unperformed move is cancelled', async () => {
@@ -91,7 +91,7 @@ test('offline folder purge cannot delete a newer photo that reused the recorded 
     await preparePurge(assetId, repo);
     await fs.unlink(path.join(root, relative));
     await fs.writeFile(path.join(mirror, relative), 'newer photo');
-    const engine = new BackupEngine(async () => new TestProvider(), repo);
+    const engine = new BackupEngine(async () => createTestProvider(), repo);
     await drainPurges(engine, destination);
     expect((await repo.purges(destination.id))[0]!.completed).toBe(0);
     expect(await fs.readFile(path.join(mirror, relative), 'utf8')).toBe('newer photo');
@@ -117,7 +117,7 @@ test('a late moved upload between final list and completion cannot clear its era
   const assetId = insertAsset(live.db);
   const entry = await repo.ensureEntry(destination.id, assetId, 0, 'photo.dng');
   await preparePurge(assetId, repo);
-  const provider = new TestProvider();
+  const provider = createTestProvider();
   const prefix = entryPrefix(libraryId, entry.id);
   const list = provider.list.bind(provider);
   let rounds = 0;
@@ -172,7 +172,7 @@ test('an interrupted purge marker resumes its reserved upload before erasure can
   });
   const entry = await repo.ensureEntry(destination.id, assetId, 0, 'photo.dng');
   await preparePurge(assetId, repo);
-  const provider = new TestProvider();
+  const provider = createTestProvider();
   const publish = provider.publish.bind(provider);
   const checkpoint = { provider: 'test', version: 1 as const, state: { reservation: 'stable-id' } };
   let interrupted = true;

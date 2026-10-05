@@ -67,13 +67,28 @@ export async function commitTokens(
   epoch: number,
   lease?: string,
 ) {
+  // New consent invalidates any renewal that started with the previous grant,
+  // even when the OAuth application settings did not change. Renewals retain
+  // the epoch and must still hold their exact unexpired lease.
+  const advance = lease ? 0 : 1;
   const result = await sqliteDb().write(
-    `UPDATE backup_google_connections SET credentials = ?
+    `UPDATE backup_google_connections SET credentials = ?, epoch = epoch + ?,
+    refresh_owner = CASE WHEN ?=1 THEN NULL ELSE refresh_owner END,
+    refresh_until = CASE WHEN ?=1 THEN 0 ELSE refresh_until END
     WHERE destination_id = ? AND epoch = ?${lease ? ' AND refresh_owner = ? AND refresh_until > ?' : ''}`,
-    [await seal(config, id), id, epoch, ...(lease ? [lease, Date.now()] : [])],
+    [
+      await seal(config, id),
+      advance,
+      advance,
+      advance,
+      id,
+      epoch,
+      ...(lease ? [lease, Date.now()] : []),
+    ],
   );
   if (result.changes !== 1)
     throw new GoogleConnectionError('Google connection changed; start Connect again.');
+  return epoch + advance;
 }
 export async function savePending(flow: PendingFlow): Promise<void> {
   await sqliteDb().transaction([
