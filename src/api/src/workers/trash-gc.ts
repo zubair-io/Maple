@@ -1,17 +1,19 @@
 /**
  * Trash garbage collector — purges trashed assets older than the
  * retention window. Per asset where `deleted_at < now - retentionDays`:
- *   1. Unlink the file at `abs_path` (already in .maple/trash/...).
- *   2. Unlink every paired sidecar.
- *   3. Delete the asset row from SQLite.
+ *   1. Resolve and unlink the recorded Apple-rendered companion, if present.
+ *   2. Unlink the file at `abs_path` (already in .maple/trash/...).
+ *   3. Unlink every paired sidecar.
+ *   4. Delete the asset row from SQLite.
  * EXCEPT reaped rows (`deleted_reason: 'reaped'`, #2977): those have no
- * trashed copy — steps 1–2 are skipped entirely and the purge is a pure
- * DB delete, so a file that quietly returned to the original location can
- * never be unlinked by this sweep.
+ * trashed copy — steps 1–3 are skipped entirely. Reaped rows with backup
+ * entries remain until explicit permanent delete; elapsed absence does not
+ * authorize backup erasure. Other reaped rows are DB-only cleanup, so a file
+ * that quietly returned to the original location is never unlinked.
  *
- * Idempotent. Best-effort on per-file failures: a failed unlink is logged
- * and the asset row is still deleted so subsequent runs don't keep
- * retrying the same broken row.
+ * Idempotent. Companion resolution/unlink failure retains the row and its
+ * association for retry. Original/sidecar unlinks retain their existing
+ * best-effort behavior: failures are logged before the row is deleted.
  *
  * The candidate query and the delete both live in the repositories
  * (`listTrashedBefore`, `hardDelete`) rather than here, so the one thing this
@@ -25,10 +27,11 @@
 
 import { unlink } from 'node:fs/promises';
 import { listTrashedBefore, type TrashedAsset } from '../db/repos/assets.sweeps.ts';
-import { hardDelete } from '../db/repos/assets.trash.ts';
+import { deleteReapedWithoutActiveBackup, hardDelete } from '../db/repos/assets.trash.ts';
 import { preparePurge } from '../cloud-backup/lifecycle.ts';
 import { listPairedSidecars } from '../fs/xmp-conflict.ts';
-import { assetAbsPath } from '../indexer/images.repo.ts';
+import { assetAbsPath, assetLibraryPath } from '../indexer/images.repo.ts';
+import { resolvePurgeCompanion } from '../library/purge-rendered-companion.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -79,18 +82,28 @@ async function unlinkTolerantly(target: string, message: string): Promise<boolea
   }
 }
 
-/** Purge one trashed asset: its file, its sidecars, then its row. */
+/** Missing/reaped assets have no user Trash intent, even after the local GC clock expires. */
+async function purgeReapedRow(doc: TrashedAsset): Promise<PurgeOutcome> {
+  const result = await deleteReapedWithoutActiveBackup(doc._id);
+  if (!result.deletedCount)
+    log.info(
+      { assetId: doc._id.toHexString(), reason: 'reaped-row-retained' },
+      'retaining reaped asset with backups or changed live state',
+    );
+  return { purged: result.deletedCount > 0, errors: 0 };
+}
+
+/** Purge one intentionally trashed asset, or clean up an unbacked reaped row. */
 async function purgeTrashedAsset(
   doc: TrashedAsset,
   libs: ReadonlyMap<string, string>,
 ): Promise<PurgeOutcome> {
   // A reaped row (#2977) has NO trashed file copy — its locations point at
   // ORIGINAL library paths, where a file may have quietly returned without a
-  // revive having run yet. Never touch disk for these: purge is a pure DB
-  // delete. (Orphaned previews are cache-gc's job.)
+  // revive having run yet. Never touch disk for these. Backed rows need an
+  // explicit permanent-delete intent; local retention cannot erase them.
   if (doc.deleted_reason === 'reaped') {
-    await hardDelete(doc._id);
-    return { purged: true, errors: 0 };
+    return purgeReapedRow(doc);
   }
 
   const absPath = assetAbsPath(doc, libs);
@@ -103,6 +116,20 @@ async function purgeTrashedAsset(
   }
 
   await preparePurge(doc._id.toHexString());
+  try {
+    const companion = await resolvePurgeCompanion(
+      assetLibraryPath(doc, libs)!,
+      doc.apple_rendered_path,
+      absPath,
+    );
+    if (companion) await unlink(companion);
+  } catch (error) {
+    log.warn(
+      { _id: doc._id.toHexString(), err: String(error) },
+      'purge companion cleanup requires retry',
+    );
+    return { purged: false, errors: 1 };
+  }
   const originalOk = await unlinkTolerantly(absPath, 'purge unlink failed');
   const sidecarResults: boolean[] = [];
   for (const sidecar of await listPairedSidecars(absPath)) {

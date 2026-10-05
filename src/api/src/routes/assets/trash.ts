@@ -35,6 +35,8 @@ import { listPairedSidecars } from '../../fs/xmp-conflict.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { trashAssetById, restoreAssetById } from '../../library/asset-trash.ts';
 import { preparePurge } from '../../cloud-backup/lifecycle.ts';
+import { assetLibraryPath } from '../../indexer/images.repo.ts';
+import { resolvePurgeCompanion } from '../../library/purge-rendered-companion.ts';
 import type { RestoreAssetOutcome } from '../../library/asset-trash.ts';
 import { findCoreInfoById, hardDelete, parseAssetId } from '../../db/assets.repo.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
@@ -101,8 +103,10 @@ async function purgeTrashedAsset(
 ): Promise<{ error: string } | undefined> {
   // A reaped row (#2977) has NO trashed copy — its fileinfo paths point at
   // ORIGINAL library locations, where a file may have quietly returned.
-  // An explicit purge of one is a pure DB delete: never unlink anything.
+  // Explicit permanent delete authorizes backup erasure, but never unlink a
+  // returned original at these stored local paths.
   if (info.deleted_reason === 'reaped') {
+    await preparePurge(id.toHexString());
     await hardDelete(id);
     set.status = 204;
     await recordAndPublishAssetChange({
@@ -115,8 +119,19 @@ async function purgeTrashedAsset(
   }
   const located = await resolveAssetAbsPathOrRespond(info, set);
   if ('error' in located) return located;
-  const { absPath } = located;
+  const { absPath, libs } = located;
   await preparePurge(id.toHexString());
+  try {
+    const companion = await resolvePurgeCompanion(
+      assetLibraryPath(info, libs)!,
+      info.apple_rendered_path,
+      absPath,
+    );
+    if (companion) await unlink(companion);
+  } catch {
+    set.status = 500;
+    return { error: 'Apple-rendered companion cleanup requires retry' };
+  }
   try {
     await unlink(absPath);
   } catch {

@@ -67,7 +67,7 @@ const ASSET_CORE_COLUMNS = `
   id, size, mtime, indexed_at,
   rating, flag, color_label, has_xmp, sidecar_ver,
   hidden, hidden_reason, hidden_ack, is_screenshot,
-  deleted_at, deleted_reason, original_path, maple_id,
+  deleted_at, deleted_reason, original_path, apple_rendered_path, maple_id,
   exif, place, owner_id`;
 
 export const ASSET_CORE_BY_ID_SQL = `SELECT ${ASSET_CORE_COLUMNS} FROM assets WHERE id = ?`;
