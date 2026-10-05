@@ -366,3 +366,76 @@ fn fcs_preserves_value_recovery_on_non_affine_colour_edges() {
         }
     }
 }
+
+#[test]
+fn fcs_recovers_two_level_colour_edges_without_inventing_a_ramp() {
+    let side = 24usize;
+    for pattern in [
+        CfaPattern::Rggb,
+        CfaPattern::Grbg,
+        CfaPattern::Gbrg,
+        CfaPattern::Bggr,
+    ] {
+        for channel in [0usize, 2] {
+            for exposure in [0.001f32, 0.1, 1.0, 4.0] {
+                let (x, y) = (6..side - 6)
+                    .flat_map(|y| (6..side - 6).map(move |x| (x, y)))
+                    .find(|&(x, y)| pattern.color_at(x as u32, y as u32) == 1)
+                    .unwrap();
+                let vertical = pattern.color_at(x as u32, (y - 1) as u32) as usize == channel;
+                let truth: Vec<[f32; 3]> = (0..side * side)
+                    .map(|i| {
+                        let high = if vertical {
+                            i / side >= y
+                        } else {
+                            i % side >= x
+                        };
+                        let (g, c) = if high {
+                            (0.94900435, 0.94900435)
+                        } else {
+                            (0.08700694, 0.39600214)
+                        };
+                        let mut p = [0.1 * exposure, g * exposure, 0.1 * exposure];
+                        p[channel] = c * exposure;
+                        p
+                    })
+                    .collect();
+                let green: Vec<_> = truth.iter().map(|p| p[1]).collect();
+                let cfa: Vec<_> = truth
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        p[pattern.color_at((i % side) as u32, (i / side) as u32) as usize]
+                    })
+                    .collect();
+                let mut image =
+                    Image::new(side as u32, side as u32, ColorSpace::CameraNativeLinearRgb);
+                image.pixels = truth.clone();
+                let i = y * side + x;
+                let hue = 1.1035019 * exposure;
+                image.pixels[i][channel] = hue;
+                let target = (0.39600214 + 0.94900435) * 0.5 * exposure;
+                let mean = 0.25 * (green[i - 1] + green[i + 1] + green[i - side] + green[i + side]);
+                let hf = (green[i] - mean).abs() / (green[i].abs() + mean.abs() + 1e-6);
+                let disagreement = (target - hue).abs() / (target.abs() + hue.abs() + 1e-6);
+                let alpha = (5.0 * hf * disagreement).clamp(0.0, 1.0);
+                let expected = (1.0 - alpha) * hue + alpha * target;
+                fcs::suppress_false_colour(
+                    &mut image,
+                    &cfa,
+                    &green,
+                    side,
+                    side,
+                    pattern,
+                    fcs::FALSE_COLOUR_SUPPRESS_STRENGTH,
+                );
+                assert!((image.pixels[i][channel]-expected).abs()<=1e-6*exposure,"{pattern:?} channel={channel} exposure={exposure} actual={} expected={expected}",image.pixels[i][channel]);
+                for (i, p) in image.pixels.iter().enumerate() {
+                    let c = pattern.color_at((i % side) as u32, (i / side) as u32) as usize;
+                    assert_eq!(p[c], truth[i][c]);
+                    assert_eq!(p[1], green[i]);
+                }
+            }
+        }
+    }
+}

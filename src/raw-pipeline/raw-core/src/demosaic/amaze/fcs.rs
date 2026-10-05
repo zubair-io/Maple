@@ -109,13 +109,32 @@ pub(super) fn suppress_false_colour(
             // Two cardinal samples always fit a line. Validate it against the
             // next same-colour sites on that axis; these are witnesses only,
             // never averaged into the nearest-value estimate or its bounds.
+            let distinct_guide = |g: f32, other: f32| {
+                (g - other).abs()
+                    > 32.0 * f32::EPSILON * g.abs().max(other.abs()).max(f32::MIN_POSITIVE)
+            };
+            let mut independent_guide = false;
             for (dx, dy) in [(-3_isize, 0_isize), (3, 0), (0, -3), (0, 3)] {
                 let (nx, ny) = ((x as isize + dx) as usize, (y as isize + dy) as usize);
-                if color_at(nx, ny) == t
-                    && !supports_affine(green[ny * w + nx], cfa_flat[ny * w + nx])
-                {
+                if color_at(nx, ny) != t {
+                    continue;
+                }
+                let guide = green[ny * w + nx];
+                if !supports_affine(guide, cfa_flat[ny * w + nx]) {
                     return Some(mean_colour);
                 }
+                independent_guide |= samples.iter().all(|&(g, _)| distinct_guide(guide, g));
+            }
+            // Repeated two-level plateaus cannot distinguish an affine fit
+            // from a genuine colour step. A third guide level supplies that
+            // evidence. A zero pedestal is the independently constrained
+            // constant-chromaticity luminance edge and remains supported.
+            let pedestal = mean_colour - slope * mean_green;
+            let scale = mean_colour.abs().max((slope * mean_green).abs());
+            if !independent_guide
+                && pedestal.abs() > 32.0 * f32::EPSILON * scale.max(f32::MIN_POSITIVE)
+            {
+                return Some(mean_colour);
             }
         }
         let min_green = samples
