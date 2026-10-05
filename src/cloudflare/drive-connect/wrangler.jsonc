@@ -4,6 +4,10 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2026-10-04",
 	"compatibility_flags": ["nodejs_compat"],
+	"secrets": {
+		"required": ["RELAY_SIGNING_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+	},
+	"logpush": false,
 	"workers_dev": false,
 	"preview_urls": false,
 	"observability": {

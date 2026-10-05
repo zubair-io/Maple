@@ -24,6 +24,7 @@ export interface BackupDestination {
 }
 
 export interface GoogleBackupConfig {
+  clientMode: 'maple' | 'own';
   clientId: string;
   clientSecretSet: boolean;
   callbackMode: 'direct' | 'relay';
@@ -33,11 +34,12 @@ export interface GoogleBackupConfig {
   rootId: string | null;
   callbackUrl: string | null;
   googleRedirectUri: string | null;
-  mapleClientAvailable: false;
+  mapleClientAvailable: boolean;
 }
 
 export interface GoogleBackupConfigPatch {
-  clientId: string;
+  clientMode?: 'maple' | 'own';
+  clientId?: string;
   clientSecret?: string | null;
   callbackMode: 'direct' | 'relay';
   rootId?: string;

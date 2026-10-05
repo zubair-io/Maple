@@ -10,18 +10,22 @@ export const FLOW_COOKIE = 'maple_drive_flow';
 export const FLOW_TTL = 10 * 60_000;
 
 export interface GoogleConfig {
+  clientMode: 'maple' | 'own';
   clientId: string;
   clientSecret: string;
   callbackMode: 'direct' | 'relay';
   refreshToken: string | null;
+  relayGrant: string | null;
   accountId: string | null;
   accountEmail: string | null;
 }
 export const DEFAULT_GOOGLE_CONFIG: GoogleConfig = {
+  clientMode: 'maple',
   clientId: '',
   clientSecret: '',
   callbackMode: 'relay',
   refreshToken: null,
+  relayGrant: null,
   accountId: null,
   accountEmail: null,
 };
@@ -60,14 +64,15 @@ export function validateDirectCallback(callback: string): void {
 
 export function publicConfig(config: GoogleConfig, callback: string | null) {
   return {
+    clientMode: config.clientMode,
     clientId: config.clientId,
-    clientSecretSet: !!config.clientSecret,
+    clientSecretSet: config.clientMode === 'own' && !!config.clientSecret,
     callbackMode: config.callbackMode,
     connected: !!config.refreshToken,
     accountId: config.accountId,
     accountEmail: config.accountEmail,
     callbackUrl: callback,
     googleRedirectUri: config.callbackMode === 'relay' ? RELAY_CALLBACK : callback,
-    mapleClientAvailable: false,
+    mapleClientAvailable: true,
   };
 }

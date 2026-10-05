@@ -20,6 +20,7 @@ import {
   MuiInputComponent,
   MuiSelectComponent,
   type GoogleBackupConfig,
+  type GoogleBackupConfigPatch,
 } from '@maple-common';
 
 type ConfigView =
@@ -81,10 +82,11 @@ export class GoogleBackupComponent {
   ];
   protected readonly canSave = computed(
     () =>
-      this.bringOwn() &&
-      !!this.clientId().trim() &&
-      (!!this.secret().trim() ||
-        (!!this.config()?.clientSecretSet && this.clientId().trim() === this.config()?.clientId)),
+      !this.bringOwn() ||
+      (!!this.clientId().trim() &&
+        (!!this.secret().trim() ||
+          (!!this.config()?.clientSecretSet &&
+            this.clientId().trim() === this.config()?.clientId))),
   );
   protected readonly canConnect = computed(
     () => this.canSave() && !!this.config()?.callbackUrl && !this.busy(),
@@ -96,12 +98,26 @@ export class GoogleBackupComponent {
       const config = this.config();
       if (!config || this.seededConfig === config) return;
       this.seededConfig = config;
-      this.bringOwn.set(!!config.clientId);
-      this.clientId.set(config.clientId);
+      const own = config.clientMode ? config.clientMode === 'own' : !!config.clientId;
+      this.bringOwn.set(own);
+      this.clientId.set(own ? config.clientId : '');
       this.secret.set('');
       this.callbackMode.set(config.callbackMode);
       this.rootId.set(config.rootId ?? '');
     });
+  }
+  protected setBringOwn(own: boolean): void {
+    this.secret.set('');
+    this.bringOwn.set(own);
+  }
+  private clientSettings(): GoogleBackupConfigPatch {
+    if (!this.bringOwn()) return { clientMode: 'maple', callbackMode: 'relay' };
+    return {
+      clientMode: 'own',
+      clientId: this.clientId().trim(),
+      callbackMode: this.callbackMode(),
+      ...(this.secret().trim() ? { clientSecret: this.secret().trim() } : {}),
+    };
   }
   protected setMode(mode: string): void {
     if (mode === 'relay' || mode === 'direct') this.callbackMode.set(mode);
@@ -112,13 +128,7 @@ export class GoogleBackupComponent {
   protected async save(connect = false): Promise<void> {
     if (!this.canSave() || this.busy() || (connect && !this.canConnect())) return;
     await this.actions.run(async () => {
-      await firstValueFrom(
-        this.api.saveGoogleConfig(this.destinationId(), {
-          clientId: this.clientId().trim(),
-          callbackMode: this.callbackMode(),
-          ...(this.secret().trim() ? { clientSecret: this.secret().trim() } : {}),
-        }),
-      );
+      await firstValueFrom(this.api.saveGoogleConfig(this.destinationId(), this.clientSettings()));
       this.secret.set('');
       if (!connect) {
         this.message.set('Google application settings saved.');
@@ -142,7 +152,10 @@ export class GoogleBackupComponent {
     await this.actions.run(async () => {
       await firstValueFrom(
         this.api.saveGoogleConfig(this.destinationId(), {
-          clientId: config.clientId,
+          clientMode: config.clientMode ?? (config.clientId ? 'own' : 'maple'),
+          ...(config.clientMode === 'own' || (!config.clientMode && config.clientId)
+            ? { clientId: config.clientId }
+            : {}),
           callbackMode: config.callbackMode,
           rootId: this.rootId().trim(),
         }),
@@ -159,14 +172,16 @@ export class GoogleBackupComponent {
     });
   }
   protected async disconnect(clear = false): Promise<void> {
+    const config = this.config();
     await this.actions.run(async () => {
       await firstValueFrom(this.api.disconnectGoogle(this.destinationId()));
       if (clear)
         await firstValueFrom(
           this.api.saveGoogleConfig(this.destinationId(), {
-            clientId: '',
+            clientMode: 'own',
+            clientId: config?.rootId ? config.clientId : '',
             clientSecret: null,
-            callbackMode: this.callbackMode(),
+            callbackMode: config?.callbackMode ?? this.callbackMode(),
           }),
         );
       this.secret.set('');

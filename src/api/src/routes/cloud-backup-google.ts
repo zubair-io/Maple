@@ -36,7 +36,8 @@ export interface GoogleRouteDependencies {
 }
 const IdParams = t.Object({ destinationId: t.String({ format: 'uuid' }) });
 const ConfigBody = t.Object({
-  clientId: t.String({ maxLength: 256 }),
+  clientMode: t.Optional(t.Union([t.Literal('maple'), t.Literal('own')])),
+  clientId: t.Optional(t.String({ maxLength: 256 })),
   clientSecret: t.Optional(t.Union([t.String({ maxLength: 4096 }), t.Null()])),
   callbackMode: t.Union([t.Literal('direct'), t.Literal('relay')]),
   rootId: t.Optional(t.String({ maxLength: 200 })),
@@ -86,12 +87,20 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
   const configure = async (id: string, body: GoogleConfigPatch) => {
     const destination = await requireDestination(id);
     const current = await loadConnection(id);
-    const { changed, config } = configuredGoogleClient(body, current.config);
+    const { changed, config } = await configuredGoogleClient(body, current.config, deps.transport);
+    if (
+      destination.rootId &&
+      (config.clientMode !== current.config.clientMode ||
+        config.clientId !== current.config.clientId)
+    )
+      throw new GoogleConnectionError(
+        'This backup folder belongs to its current OAuth client. Create another destination to change applications.',
+      );
     if (changed) {
       // Fence before saving: an old-generation request cannot publish in an
       // await gap between the credential change and destination invalidation.
       await deps.connectionChanged(id);
-      if (!(await saveConfig(id, config, current.epoch)))
+      if (!(await saveConfig(id, config, current.epoch, destination.rootId)))
         throw new GoogleConnectionError('Configuration changed; reload and retry.');
     }
     if (body.rootId && body.rootId !== destination.rootId) {
@@ -166,7 +175,7 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
         if (
           !(await saveConfig(
             params.destinationId,
-            { ...current.config, refreshToken: null },
+            { ...current.config, refreshToken: null, relayGrant: null },
             current.epoch,
           ))
         )

@@ -46,6 +46,8 @@ test('protected deployment validates both bundles and deploys pages before accep
 	assert.ok(relayDeploy > pageDeploy);
 	assert.ok(workflow.indexOf('node scripts/prepare-deploy-secrets.mjs') < pageDeploy);
 	assert.match(workflow, /RELAY_SIGNING_KEY: \$\{\{ secrets\.RELAY_SIGNING_KEY \}\}/);
+	assert.match(workflow, /GOOGLE_CLIENT_ID: \$\{\{ secrets\.GOOGLE_CLIENT_ID \}\}/);
+	assert.match(workflow, /GOOGLE_CLIENT_SECRET: \$\{\{ secrets\.GOOGLE_CLIENT_SECRET \}\}/);
 	assert.match(
 		workflow,
 		/npm run deploy -- --secrets-file "\$RUNNER_TEMP\/drive-relay-secrets\.json"/,

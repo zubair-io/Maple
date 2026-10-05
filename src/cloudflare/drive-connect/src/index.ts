@@ -8,64 +8,38 @@ import {
 	verifyTicket,
 } from './ticket';
 
+import { json, HEADERS, boundedJson } from './http';
+import { brokerConfig, brokerRequest } from './broker';
+
 const PREFIX = '/api/connect/google-drive';
-const HEADERS = {
-	'Cache-Control': 'no-store, no-transform',
-	'Referrer-Policy': 'no-referrer',
-	'X-Content-Type-Options': 'nosniff',
-	'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
-	'Cross-Origin-Resource-Policy': 'same-origin',
-};
-function json(data: unknown, status = 200): Response {
-	return Response.json(data, { status, headers: HEADERS });
-}
-async function boundedJson(request: Request): Promise<Record<string, unknown>> {
-	if (!request.headers.get('content-type')?.startsWith('application/json'))
-		throw new Error('JSON required');
-	const reader = request.body?.getReader();
-	if (!reader) throw new Error('Body required');
-	const chunks: Uint8Array[] = [];
-	let length = 0;
-	try {
-		for (;;) {
-			const { value, done } = await reader.read();
-			if (done) break;
-			length += value.length;
-			if (length > 8192) throw new Error('Body too large');
-			chunks.push(value);
-		}
-	} finally {
-		await reader.cancel();
-	}
-	const bytes = new Uint8Array(length);
-	let offset = 0;
-	for (const chunk of chunks) {
-		bytes.set(chunk, offset);
-		offset += chunk.length;
-	}
-	const data: unknown = JSON.parse(
-		new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes),
-	);
-	if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid request');
-	return data as Record<string, unknown>;
-}
 export default {
 	async fetch(request, env): Promise<Response> {
 		const url = new URL(request.url);
 		if (url.protocol !== 'https:' || !HOSTS.has(url.hostname))
 			return json({ error: 'Unknown host' }, 404);
-		const allowedMethod =
-			url.pathname === `${PREFIX}/callback`
-				? 'GET'
-				: [`${PREFIX}/start`, `${PREFIX}/validate`].includes(url.pathname)
-					? 'POST'
-					: null;
+		const allowedMethod = [`${PREFIX}/callback`, `${PREFIX}/config`].includes(url.pathname)
+			? 'GET'
+			: [
+						`${PREFIX}/start`,
+						`${PREFIX}/validate`,
+						`${PREFIX}/exchange`,
+						`${PREFIX}/refresh`,
+				  ].includes(url.pathname)
+				? 'POST'
+				: null;
 		if (!allowedMethod) return json({ error: 'Not found' }, 404);
 		if (request.method !== allowedMethod)
 			return new Response(null, {
 				status: 405,
 				headers: { ...HEADERS, Allow: allowedMethod },
 			});
+		if (url.pathname === `${PREFIX}/config`) return brokerConfig(env);
+		if ([`${PREFIX}/exchange`, `${PREFIX}/refresh`].includes(url.pathname))
+			return brokerRequest(
+				url.pathname.endsWith('/exchange') ? 'exchange' : 'refresh',
+				request,
+				env,
+			);
 		if (!env.RELAY_SIGNING_KEY) return json({ error: 'Relay unavailable' }, 503);
 		// Browsers may only call the relay from its own Hosted origin. Bun's
 		// server-to-server start request has no Origin; no instance fetch occurs.

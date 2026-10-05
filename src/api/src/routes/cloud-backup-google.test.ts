@@ -1,12 +1,13 @@
 import { expect, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { signAccessToken } from '../auth/tokens.ts';
-import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { createLiveTestDatabase, insertFolder } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { buildGoogleBackupRoutes } from './cloud-backup-google.ts';
 import { GOOGLE_BACKUP_DDL, saveConfig } from '../cloud-backup/google/repo.ts';
 import { insertUser } from '../db/repos/auth.users.repo.ts';
 import { DEFAULT_GOOGLE_CONFIG, DRIVE_SCOPE } from '../cloud-backup/google/config.ts';
 import type { GoogleFetch } from '../cloud-backup/google/oauth.ts';
+import { BackupRepository } from '../cloud-backup/repository.ts';
 
 const destinationId = 'e9aa2f31-ccdd-4e77-9999-0619988bac3c';
 const origin = 'https://photos.example.com';
@@ -14,12 +15,18 @@ const secret = 'google-route-test-secret-must-be-long';
 function routes(transport?: GoogleFetch) {
   const { owner, callback } = buildGoogleBackupRoutes({
     origin: async () => origin,
-    destination: async () => ({ kind: 'google-drive', rootId: null, generation: 0 }),
+    destination: (id) => new BackupRepository().destination(id),
     attachRoot: async () => {},
     connectionChanged: async () => {},
     transport,
   });
   return new Elysia().use(new Elysia({ name: 'isolatedGoogleOwner' }).use(owner)).use(callback);
+}
+function insertDestination(db: Parameters<typeof insertFolder>[0]) {
+  db.query(
+    `INSERT INTO backup_destinations(id,library_id,kind,name,created_at)
+    VALUES(?,?,'google-drive','Google route test',?)`,
+  ).run(destinationId, insertFolder(db), new Date().toISOString());
 }
 test('owner gate stays isolated from cookie/state guarded callback; member cannot configure credentials', async () => {
   const previous = process.env.MAPLE_JWT_SECRET;
@@ -71,6 +78,7 @@ test('owner gate stays isolated from cookie/state guarded callback; member canno
 
 test('TLS terminating proxy uses bound browser origin and callback cookie without trusting forwarded headers', async () => {
   using db = await createLiveTestDatabase();
+  insertDestination(db.db);
   if (!db.db.query("SELECT 1 FROM sqlite_master WHERE name='backup_google_connections'").get())
     db.db.exec(GOOGLE_BACKUP_DDL);
   const user = await insertUser({
@@ -83,6 +91,7 @@ test('TLS terminating proxy uses bound browser origin and callback cookie withou
     destinationId,
     {
       ...DEFAULT_GOOGLE_CONFIG,
+      clientMode: 'own',
       clientId: '12345-example.apps.googleusercontent.com',
       clientSecret: 'local-secret',
       callbackMode: 'direct',
@@ -150,6 +159,7 @@ test('TLS terminating proxy uses bound browser origin and callback cookie withou
 });
 test('public projection and write-only saved secret never echo credentials', async () => {
   using db = await createLiveTestDatabase();
+  insertDestination(db.db);
   if (!db.db.query("SELECT 1 FROM sqlite_master WHERE name='backup_google_connections'").get())
     db.db.exec(GOOGLE_BACKUP_DDL);
   const previous = process.env.MAPLE_JWT_SECRET;
@@ -185,7 +195,7 @@ test('public projection and write-only saved secret never echo credentials', asy
     expect(body).not.toContain('do-not-echo');
     expect(JSON.parse(body)).toMatchObject({
       clientSecretSet: true,
-      mapleClientAvailable: false,
+      mapleClientAvailable: true,
       callbackUrl: `${origin}/api/cloud-backup/google/callback`,
     });
     const cleared = await app.handle(

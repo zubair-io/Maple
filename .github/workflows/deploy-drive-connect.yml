@@ -1,4 +1,4 @@
-name: Deploy Drive connection pages and callback relay
+name: Deploy Drive connection pages and OAuth proxy
 on:
   workflow_dispatch:
 permissions:
@@ -28,9 +28,11 @@ jobs:
         run: npm ci
       - name: Validate deployment credentials
         run: node -e 'if (!process.env.CLOUDFLARE_API_TOKEN || !process.env.CLOUDFLARE_ACCOUNT_ID) throw new Error("Cloudflare deployment credentials required")'
-      - name: Prepare production routing secret for atomic first deployment
+      - name: Prepare production routing and Google client secrets for atomic deployment
         env:
           RELAY_SIGNING_KEY: ${{ secrets.RELAY_SIGNING_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         run: node scripts/prepare-deploy-secrets.mjs "$RUNNER_TEMP/drive-relay-secrets.json"
       - name: Validate connection page Worker bundle
         working-directory: src/cloudflare/ssr

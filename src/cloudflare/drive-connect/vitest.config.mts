@@ -7,6 +7,8 @@ export default defineConfig({
 			miniflare: {
 				bindings: {
 					RELAY_SIGNING_KEY: 'test-only-secret-at-least-thirty-two-bytes-long',
+					GOOGLE_CLIENT_ID: '12345678-managed.apps.googleusercontent.com',
+					GOOGLE_CLIENT_SECRET: 'test-only-managed-client-secret',
 				},
 			},
 		}),
