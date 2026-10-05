@@ -8,12 +8,7 @@ import { defaultAdjustmentModel } from '../../projects/maple-common/src/lib/mode
 
 /** Fence a real OPFS index stream, without replacing sidecar I/O (#4287). */
 export async function lensIndexCleanupBoundary(failedWriter = false) {
-  const owner = await cycleApplication('Hosted');
-  const xml = owner.injector.get(XmpSerializerService).serialize(defaultAdjustmentModel());
-  owner.destroy();
-  const active = await lensGestureStorage('Hosted', xml);
-  const folder = active.library.currentFolder();
-  if (!folder?.native) throw Error('Owned OPFS folder required');
+  const { active, folder, native } = await createLensCleanupStorage();
   const root = await navigator.storage.getDirectory();
   const files = FileSystemFileHandle.prototype;
   const directories = FileSystemDirectoryHandle.prototype;
@@ -81,7 +76,7 @@ export async function lensIndexCleanupBoundary(failedWriter = false) {
       );
       // A real OPFS read lets prior Promise reactions finish while the index close is fenced.
       const saved = new Uint8Array(
-        await (await (await folder.native.getFileHandle(file)).getFile()).arrayBuffer(),
+        await (await (await native.getFileHandle(file)).getFile()).arrayBuffer(),
       );
       const flushFinishedBeforeIndexClose = flushFinished;
       release.resolve();
@@ -128,4 +123,15 @@ function checkpoint() {
   let resolve!: () => void;
   const promise = new Promise<void>((done) => (resolve = done));
   return { promise, resolve };
+}
+
+/** Shared real two-photo OPFS fixture for the index and XMP stream fences. */
+export async function createLensCleanupStorage() {
+  const owner = await cycleApplication('Hosted');
+  const xml = owner.injector.get(XmpSerializerService).serialize(defaultAdjustmentModel());
+  owner.destroy();
+  const active = await lensGestureStorage('Hosted', xml);
+  const folder = active.library.currentFolder();
+  if (!folder?.native) throw Error('Owned OPFS folder required');
+  return { active, folder, native: folder.native, xml };
 }

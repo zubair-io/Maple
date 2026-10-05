@@ -29,3 +29,24 @@ test('A failed actual writer cannot finish index flush before another real strea
   expect(result.originalBytesPreserved).toBe(true);
   expect(result.realIndexStreamClosed).toBe(true);
 });
+
+test('A failed real XMP writer cannot finish flush before the other sidecar closes', async ({
+  page,
+}, testInfo) => {
+  await page.goto('http://localhost:4520');
+  await page.waitForFunction(() => Reflect.get(window, 'workflowUI')?.ready);
+  const result = await page.evaluate(() =>
+    Reflect.get(window, 'workflowUI').lensXmpCleanupBoundary(),
+  );
+  await testInfo.attach('real-opfs-xmp-concurrent-failure', {
+    body: JSON.stringify(result),
+    contentType: 'application/json',
+  });
+  expect(result.flushFinishedBeforeOtherClose).toBe(false);
+  expect(result.primaryAndAbortErrorsPreserved).toBe(true);
+  expect(result.failedRetryRetained).toBe(true);
+  expect(result.failedSidecarUnchanged).toBe(true);
+  expect(result.retryPublished).toBe(true);
+  expect(result.otherSidecarPublished).toBe(true);
+  expect(result.originalBytesPreserved).toBe(true);
+});
