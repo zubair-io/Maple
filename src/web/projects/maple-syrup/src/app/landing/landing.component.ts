@@ -15,7 +15,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import {
   FolderAccessError,
   FolderAccessService,
@@ -45,7 +45,7 @@ export const SINGLE_FILE_PERSISTENCE = new InjectionToken<typeof persistFile>(
 @Component({
   selector: 'app-landing',
   standalone: true,
-  imports: [MuiBannerComponent, MuiCommandMenuComponent, MuiListRowComponent],
+  imports: [RouterLink, MuiBannerComponent, MuiCommandMenuComponent, MuiListRowComponent],
   templateUrl: './landing.component.html',
   host: { class: 'block w-full h-[100dvh] bg-bg text-text-main overflow-auto' },
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -23,8 +23,58 @@
         storage); they are not uploaded to our servers as part of normal editing. On macOS, iOS, and
         iPadOS, photos never leave your device unless you explicitly turn on a cloud feature or
         connect the app to a Self Hosted server you control. If you run Self Hosted, your photo
-        library, metadata, and edit history are stored on infrastructure you operate, and Just Maple
-        has no access to them.
+        library, metadata, and edit history are stored on infrastructure you operate. Optional
+        integrations can send data to services you connect, as described below.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="mt-0 mb-3 text-[20px] font-semibold text-[#292524]">
+        Optional Google Drive backup
+      </h2>
+      <p>
+        Self Hosted can back up selected photo libraries to a visible Maple folder in your Google
+        Drive. Backup includes indexed originals, paired XMP sidecars, recorded rendered companions,
+        and metadata needed to recover them, including Maple Trash state. Photos and backup files
+        transfer directly between your Self Hosted server and Google; they do not pass through
+        Maple's connection proxy. Google processes data stored in Drive under its own terms and
+        privacy policy.
+      </p>
+      <p>
+        Maple requests the Google Drive drive.file permission, which provides per-file access to
+        files created or opened with the application. It does not request access to your entire
+        Drive. Maple additionally checks that backup operations concern its owned backup folder and
+        artifacts. Google enforces per-file access, rather than a permission restricted to one
+        folder. Your server reads the connected account's name and email to identify that
+        connection.
+      </p>
+      <p>
+        With Maple's Google application, a connection proxy hosted on Cloudflare temporarily
+        processes authorization codes, PKCE verifiers, access tokens, and refresh tokens to connect
+        your account and renew authorization. The proxy also processes the server callback address
+        and signed connection metadata. It does not store these credentials or provide a photo
+        download endpoint. Because it processes tokens, the proxy has technical access to the Drive
+        authorization they permit during processing. Cloudflare processes these requests as our
+        hosting provider. Your server stores the refresh token and renewal grant encrypted in its
+        local database; protect that server and its database backups.
+      </p>
+      <p>
+        If you bring your own Google client ID and secret, your server exchanges and renews tokens
+        directly with Google and stores the client secret and refresh token encrypted locally.
+        Choosing Maple's optional callback relay in this mode sends the initial authorization code,
+        signed state, and callback address through the relay, but token exchange and renewal remain
+        direct. Access tokens are held in server memory. Connection pages do not store handoff
+        credentials in browser local storage or IndexedDB.
+      </p>
+      <p>
+        Google Drive data is used to connect your account and provide backup and recovery. Just
+        Maple does not sell this data, use it for advertising, or use it to train AI models. Maple's
+        use and transfer of information received from Google APIs adheres to the
+        <a
+          class="text-[#993629] underline"
+          href="https://developers.google.com/terms/api-services-user-data-policy"
+          >Google API Services User Data Policy</a
+        >, including its Limited Use requirements.
       </p>
     </section>
 
@@ -74,9 +124,20 @@
     <section>
       <h2 class="mt-0 mb-3 text-[20px] font-semibold text-[#292524]">Your choices</h2>
       <p>
-        You can clear Maple Hosted's local data at any time from your browser's site settings.
-        Because your photos and library live on your own device or your own Self Hosted server,
-        deleting a file there is how you delete it — Just Maple doesn't retain a separate copy. To
+        You can clear Maple Hosted's local data at any time from your browser's site settings. Just
+        Maple does not retain a separate hosted copy of your photo library. If backup is enabled,
+        moving an item to Maple Trash retains its backup for restore. Explicit permanent deletion or
+        intentional Trash retention expiry schedules deletion from configured backup destinations;
+        offline or disconnected destinations can leave that deletion pending. A missing source file
+        alone does not authorize deleting its backup.
+      </p>
+      <p>
+        Disconnecting Drive clears the server's stored authorization credentials and stops
+        authenticated operations; it does not delete existing backups or revoke the Google account's
+        application grant. You can revoke that grant in your Google Account settings. Revoking
+        Maple's shared application can affect other Maple connections using that account. Removing a
+        backup destination leaves its remote files behind and ends future deletion tracking. Review
+        retained backups in Drive and preserve your server's database while deletion is pending. To
         ask about data an operator's Self Hosted deployment may hold on your behalf, contact that
         operator directly.
       </p>

@@ -22,7 +22,9 @@
         You retain all rights to the photos and other files you open, import, or store with the
         Service. We do not claim ownership over your content. Maple is a non-destructive editor:
         edits you make are written to sidecar files alongside your originals, and your original
-        files are never modified or deleted by the Service.
+        files are never modified by editing. File-management actions you request can move originals
+        to Trash, restore them, or permanently delete them. Intentional Trash retention expiry can
+        also delete trashed files.
       </p>
     </section>
 
@@ -32,9 +34,13 @@
         Maple Hosted runs entirely in your browser — your photos are decoded, edited, and rendered
         on your own device, and are not uploaded to our servers unless you explicitly enable a
         feature that requires it. If you run Self Hosted, your photos and library live on
-        infrastructure you control, and we have no access to them. You're responsible for keeping
-        your account credentials (where applicable) confidential and for all activity under your
-        account.
+        infrastructure you control. Optional Google Drive backup sends selected library files
+        directly from your server to Google. Using Maple's Google application requires its hosted
+        connection proxy to temporarily process authorization and renewal credentials, as described
+        in our <a class="text-[#993629] underline" routerLink="/privacy">Privacy Policy</a>. You can
+        instead provide your own Google application credentials for direct token exchange and
+        renewal. You're responsible for keeping your account credentials (where applicable)
+        confidential and for all activity under your account.
       </p>
       <p>
         You agree not to use the Service to process content you don't have the rights to, to attempt
@@ -51,6 +57,15 @@
         do not guarantee that the Service will be uninterrupted, error-free, or free of data loss,
         and we recommend keeping independent backups of your photo library regardless of which mode
         of the Service you use.
+      </p>
+      <p>
+        Backup status covers the indexed files admitted by that destination, not every file on a
+        device or a complete server/database backup. Review pending and blocked work before relying
+        on a backup. Trash preserves backup files for restore; explicit permanent deletion or
+        intentional retention expiry schedules their removal. Offline destinations may owe deletion
+        until they reconnect. Disconnecting or removing a destination does not itself delete the
+        remote backup. Third-party storage availability, permissions, quotas, retention, and
+        policies can affect backup, recovery, and deletion.
       </p>
     </section>
 

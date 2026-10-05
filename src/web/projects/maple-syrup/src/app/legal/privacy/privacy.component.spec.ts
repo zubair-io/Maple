@@ -21,6 +21,6 @@ describe('PrivacyComponent', () => {
     expect(text).toContain('do not send diagnostics directly to Just Maple');
     expect(text).toContain('Apple may provide crash reports');
     expect(text).toContain('Just Maple does not receive this data');
-    expect(text).toContain('Effective September 21, 2026');
+    expect(text).toContain('Effective October 5, 2026');
   });
 });
