@@ -1,8 +1,7 @@
 /** Record explicit human/retention intent BEFORE bytes or their asset row disappear (#4228). */
 import * as path from 'node:path';
 import { BackupRepository } from './repository.ts';
-import { assetInventory, jailedFile, fileHash } from './inventory.ts';
-import { listPairedSidecarsStrict } from '../fs/xmp-conflict.ts';
+import { jailedFile, fileHash } from './inventory.ts';
 import { stat, realpath } from '../fs/mirrored.ts';
 import { ObjectId } from '../db/object-id.ts';
 import { relativeBackupPath } from './inventory.ts';
@@ -17,15 +16,10 @@ import {
 } from './lifecycle-lease.ts';
 import type { LifecycleCommit } from './lifecycle-commit.ts';
 import { trashPurgeGuard, type TrashPurgeCandidate } from './trash-purge-admission.ts';
+import { inventoryFolderPurges } from './folder-purge-inventory.ts';
 
 async function digest(file: string): Promise<string> {
   return fileHash(file);
-}
-
-function localPurgePaths(root: string, companion: string | null, files: string[]): string[] {
-  const companionPaths = companion ? [relativeBackupPath(companion)] : [];
-  const filePaths = files.map((file) => path.relative(root, file).split(path.sep).join('/'));
-  return [...new Set([...companionPaths, ...filePaths])];
 }
 
 export async function prepareLifecycle(
@@ -178,61 +172,6 @@ async function applyRecoveredMove(
   }
 }
 
-async function inventoryPurge(assetId: string, repo: BackupRepository): Promise<void> {
-  const destinations = await repo.destinations();
-  // Local mirror deletes need a durable exact-path obligation too. No cloud
-  // upload is issued for folder targets; the existing mirror writer owns them.
-  for (const destination of destinations.filter((d) => d.kind === 'folder')) {
-    for (const location of await assetInventory(assetId, destination.libraryId, repo)) {
-      if (!location.relative_path.startsWith('.maple/trash/')) continue;
-      const entry = await repo.ensureEntry(
-        destination.id,
-        assetId,
-        location.ordinal,
-        location.relative_path,
-      );
-      const original = path.join(location.root, location.relative_path);
-      const sidecars = await listPairedSidecarsStrict(original).catch(
-        (error: NodeJS.ErrnoException) => {
-          if (error.code === 'ENOENT') return [];
-          throw error;
-        },
-      );
-      const files = localPurgePaths(location.root, location.apple_rendered_path, [
-        original,
-        ...sidecars,
-      ]);
-      const previous = entry.manifest
-        ? (JSON.parse(entry.manifest) as {
-            localFiles?: Array<{ path: string; sha256: string | null }>;
-          })
-        : null;
-      const localFiles = await Promise.all(
-        files.map(async (relative) => {
-          try {
-            return {
-              path: relative,
-              sha256: await fileHash(await jailedFile(location.root, relative)),
-            };
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-            return {
-              path: relative,
-              sha256: previous?.localFiles?.find((f) => f.path === relative)?.sha256 ?? null,
-            };
-          }
-        }),
-      );
-      const merged = new Map((previous?.localFiles ?? []).map((file) => [file.path, file]));
-      for (const file of localFiles) merged.set(file.path, file);
-      await repo.db.write(`UPDATE backup_entries SET manifest=? WHERE id=?`, [
-        JSON.stringify({ localFiles: [...merged.values()] }),
-        entry.id,
-      ]);
-    }
-  }
-}
-
 interface ReplacementLocation {
   libraryId: string;
   path: string;
@@ -241,7 +180,7 @@ interface ReplacementLocation {
 
 /** Normal permanent deletion intentionally includes all recorded locations. */
 export async function preparePurge(assetId: string, repo = new BackupRepository()): Promise<void> {
-  await inventoryPurge(assetId, repo);
+  await inventoryFolderPurges(assetId, repo);
   if (!(await recordPurgeIntent(assetId, repo)))
     throw new Error('Asset changed or has a pending backup lifecycle; retry permanent deletion.');
 }
@@ -252,7 +191,7 @@ export async function prepareTrashPurge(
   expected: TrashPurgeCandidate,
   repo = new BackupRepository(),
 ): Promise<boolean> {
-  await inventoryPurge(assetId, repo);
+  await inventoryFolderPurges(assetId, repo);
   return recordPurgeIntent(assetId, repo, { trash: expected });
 }
 
@@ -263,7 +202,7 @@ export async function prepareIdenticalReplacementPurge(
   location: ReplacementLocation,
   repo = new BackupRepository(),
 ): Promise<boolean> {
-  await inventoryPurge(assetId, repo);
+  await inventoryFolderPurges(assetId, repo);
   return recordPurgeIntent(assetId, repo, { replacement: location });
 }
 

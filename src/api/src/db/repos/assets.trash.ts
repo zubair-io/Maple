@@ -257,12 +257,17 @@ export async function deleteReapedWithoutActiveBackup(
   dbOverride?: SqliteDb,
   expected?: TrashPurgeCandidate,
 ): Promise<DeleteOutcome> {
-  // Guard in the DELETE: a revive or new backup after candidate selection
-  // must preserve the row. preparePurge marks entries purged atomically with intent.
+  // Paused mirrors retain copies even though their writer creates no entries.
+  // Removed destinations have no remaining configured cleanup authority. An
+  // explicit purge intent authorizes DB-only cleanup while durable erasure retries.
   const guard = expected ? trashPurgeGuard(expected) : { sql: '', params: [] };
   const result = await sqliteDb(dbOverride).write(
-    `DELETE FROM assets AS a WHERE id=? AND deleted_reason='reaped' ${guard.sql} AND NOT EXISTS
-      (SELECT 1 FROM backup_entries WHERE asset_id=a.id AND state!='purged') AND NOT EXISTS
+    `DELETE FROM assets AS a WHERE id=? AND deleted_reason='reaped' ${guard.sql} AND
+      (EXISTS(SELECT 1 FROM backup_lifecycle WHERE asset_id=a.id AND kind='purge') OR
+        (NOT EXISTS(SELECT 1 FROM backup_entries e JOIN backup_destinations d ON d.id=e.destination_id
+          WHERE e.asset_id=a.id AND e.state!='purged') AND NOT EXISTS
+        (SELECT 1 FROM asset_locations l JOIN backup_destinations d ON d.library_id=l.library_id
+          WHERE l.asset_id=a.id AND d.kind='folder'))) AND NOT EXISTS
       (SELECT 1 FROM backup_lifecycle WHERE asset_id=a.id AND (phase='prepared' OR lease_until>unixepoch('subsec')*1000))`,
     [id.toHexString(), ...guard.params],
   );

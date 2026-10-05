@@ -14,6 +14,7 @@ import { createJob, getJob } from '../db/repos/jobs.repo.ts';
 import { ObjectId } from '../db/object-id.ts';
 import type { BackupDestination, BackupRepository } from '../cloud-backup/repository.ts';
 import { resumeRecoveryJob } from '../cloud-backup/recovery-jobs.ts';
+import { removedDestinationStatements } from '../cloud-backup/destination-removal.ts';
 
 class BackupRequestError extends Error {
   readonly status = 400;
@@ -177,17 +178,7 @@ export const cloudBackupRoutes = new Elysia({ name: 'cloudBackup', prefix: '/api
         },
         // Only discard local destination state after its guarded removal. Global
         // asset lifecycle records and remote backup files retain their own lifetime.
-        ...[
-          'backup_google_oauth',
-          'backup_google_connections',
-          'backup_objects',
-          'backup_entries',
-          'backup_purges',
-        ].map((table) => ({
-          sql: `DELETE FROM ${table} WHERE destination_id=? AND NOT EXISTS
-            (SELECT 1 FROM backup_destinations WHERE id=?)`,
-          params: [row.id, row.id],
-        })),
+        ...removedDestinationStatements(row.id),
       ]);
       if (!deleted?.changes)
         throw new BackupRequestError('Destination has pending cleanup or active transfers');
