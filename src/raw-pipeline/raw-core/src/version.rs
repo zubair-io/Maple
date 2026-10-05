@@ -111,7 +111,10 @@
 /// - 9 — tiled NLM, fixed general-kernel reseed boundaries and canonical
 ///   exponential lookup bits remove target/pool-dependent rounding (#4273).
 /// - 10 — evaluate highlights gain in f64 for native/WASM rounding parity (#4306, #4325).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 10;
+/// - 11 — guided highlight reconstruction: clipped regions wider than 7 px
+///   draw chromaticity from a per-cell bilateral-weighted gather and a
+///   scene-median fallback instead of collapsing to neutral (#1690).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 11;
 
 #[cfg(test)]
 mod tests {

@@ -23,11 +23,42 @@
 //! and each clipped target reads its original value before its sole write.
 //! The neighborhood scan runs only on clipped pixels; a scene without clips
 //! returns before allocating the mask.
+//!
+//! Guided extension (#1690): the 7×7 pass above is tier 1 and is bit-identical
+//! to the pre-#1690 behavior whenever it finds ≥4 witnesses. Pixels it cannot
+//! support (fewer than 4 witnesses — interiors of clipped regions wider than
+//! 7 px, where the old code collapsed to a neutral fallback) are deferred to
+//! two further tiers in `highlight_recovery/guided.rs`. Tier 2 estimates the
+//! missing chromaticity once per 16×16 cell from a strided regional field,
+//! gathering the surrounding 5×5 cells with bilateral weights on
+//! known-channel chromaticity, so a bright highlight draws on its dimmer
+//! same-surface surround while cells across a hue edge contribute ~nothing;
+//! every deferred pixel in the cell shares its estimate, modulated by its own
+//! surviving channels. Tier 3, when even the gather finds no support, blends
+//! the neutral fallback halfway toward a scene-median chromaticity sampled
+//! once per render, so an intentionally warm blown sunset stays warm instead
+//! of collapsing to white. Tier 2 blends toward the same scene-aware
+//! fallback, so the tier-2/tier-3 boundary is continuous. Fully clipped
+//! pixels keep the neutral-white anchor: past full saturation there is no
+//! scene evidence left to follow.
+//!
+//! Per-pixel texture always comes from the target's own surviving channels
+//! (`known_level × ratio`): neighbors supply chromaticity, never luminance.
+//! Tiers 2–3 are computed per render, so tile renders may differ slightly
+//! from full-frame renders inside clipped regions wider than 7 px (cell phase
+//! and scene sampling vary); tier 1 — the overwhelmingly common case — reads
+//! within 3 px and stays exactly tile-stable.
 
 use crate::{
     image::{ColorSpace, CropRect, Image},
     xmp::HighlightRecoveryMode,
 };
+
+#[path = "highlight_recovery/guided.rs"]
+mod guided;
+#[cfg(test)]
+use guided::chroma_weight;
+use guided::{resolve_deferred, scene_median, CellField, SkipGrid, SKIP_GRID_TRIGGER};
 
 /// Per-channel clip margin in post-WB camera RGB at zero BaselineExposure.
 /// Scale it with the pixels and ceilings when baseline exposure is applied.
@@ -174,6 +205,19 @@ fn apply_chromatic_adaptation(
     // Keep this mask frozen: even a reconstructed value below threshold must
     // remain excluded. Every accepted witness is therefore still original.
 
+    // Tier-3 prior (#1690): scene-median chromaticity over the region,
+    // sampled once. `None` when nothing unclipped exists to sample.
+    let scene_chroma = scene_median(img, &clip_mask, left, top, right, bottom);
+
+    // Pixels tier 1 cannot support, resolved together after the loop. Stays
+    // empty (and the field unbuilt) for scenes without large clipped
+    // regions — the common case costs one branch per clipped pixel.
+    let mut deferred: Vec<u32> = Vec::new();
+    let mut field: Option<CellField> = None;
+    // Tier-1 skip grid, built once past the deferred trigger; lets deep
+    // clipped interiors skip the 49-tap scan they would fail anyway.
+    let mut skip_grid: Option<SkipGrid> = None;
+
     // Pass 2: reconstruct each clipped pixel.
     for y in top..bottom {
         for x in left..right {
@@ -209,62 +253,84 @@ fn apply_chromatic_adaptation(
             if known_level <= denominator_floor {
                 continue;
             }
-            let neutral_level = (0..3)
-                .filter(|c| (m >> c) & 1 == 0)
-                .map(|c| p_in[c])
-                .fold(f32::NEG_INFINITY, f32::max);
+            if skip_grid.is_none() && deferred.len() >= SKIP_GRID_TRIGGER {
+                skip_grid = Some(SkipGrid::build(&clip_mask, img.width, img.height));
+            }
             let mut sum_ratio = [0.0f32; 3];
             let mut count = 0u32;
-            for dy in -NEIGHBOR_RADIUS..=NEIGHBOR_RADIUS {
-                let ny = y + dy;
-                if ny < top || ny >= bottom {
-                    continue;
-                }
-                for dx in -NEIGHBOR_RADIUS..=NEIGHBOR_RADIUS {
-                    let nx = x + dx;
-                    if nx < left || nx >= right {
+            let scan = skip_grid
+                .as_ref()
+                .map_or(true, |g| g.may_have_witness(x, y));
+            if scan {
+                for dy in -NEIGHBOR_RADIUS..=NEIGHBOR_RADIUS {
+                    let ny = y + dy;
+                    if ny < top || ny >= bottom {
                         continue;
                     }
-                    let n_idx = (ny * w + nx) as usize;
-                    if clip_mask[n_idx] != 0 {
-                        continue;
-                    }
-                    let np = img.pixels[n_idx];
-                    // Negative demosaic undershoot is valid scene data, but
-                    // cannot be evidence for extrapolating positive saturation.
-                    // Reject the witness; never clamp or modify its channels.
-                    if np.iter().any(|v| !v.is_finite() || *v < 0.0) {
-                        continue;
-                    }
-                    let witness_level = known_mean(np);
-                    if witness_level > denominator_floor {
-                        for c in 0..3 {
-                            if (m >> c) & 1 == 1 {
-                                sum_ratio[c] += np[c] / witness_level;
-                            }
+                    for dx in -NEIGHBOR_RADIUS..=NEIGHBOR_RADIUS {
+                        let nx = x + dx;
+                        if nx < left || nx >= right {
+                            continue;
                         }
-                        count += 1;
+                        let n_idx = (ny * w + nx) as usize;
+                        if clip_mask[n_idx] != 0 {
+                            continue;
+                        }
+                        let np = img.pixels[n_idx];
+                        // Negative demosaic undershoot is valid scene data, but
+                        // cannot be evidence for extrapolating positive saturation.
+                        // Reject the witness; never clamp or modify its channels.
+                        if np.iter().any(|v| !v.is_finite() || *v < 0.0) {
+                            continue;
+                        }
+                        let witness_level = known_mean(np);
+                        if witness_level > denominator_floor {
+                            for c in 0..3 {
+                                if (m >> c) & 1 == 1 {
+                                    sum_ratio[c] += np[c] / witness_level;
+                                }
+                            }
+                            count += 1;
+                        }
                     }
                 }
             }
-            let confidence = if count < 4 {
-                0.0
-            } else {
-                count as f32 / NEIGHBOR_WINDOW_AREA
-            };
-            let mut p_out = p_in;
-            for c in 0..3 {
-                if (m >> c) & 1 == 1 {
-                    let ratio = if count > 0 {
-                        sum_ratio[c] / count as f32
-                    } else {
-                        1.0
-                    };
-                    p_out[c] = neutral_level + confidence * (known_level * ratio - neutral_level);
+            if count >= 4 {
+                // Tier 1 has solid support: the pre-#1690 formula, unchanged.
+                let neutral_level = (0..3)
+                    .filter(|c| (m >> c) & 1 == 0)
+                    .map(|c| p_in[c])
+                    .fold(f32::NEG_INFINITY, f32::max);
+                let confidence = count as f32 / NEIGHBOR_WINDOW_AREA;
+                let mut p_out = p_in;
+                for c in 0..3 {
+                    if (m >> c) & 1 == 1 {
+                        let ratio = sum_ratio[c] / count as f32;
+                        p_out[c] =
+                            neutral_level + confidence * (known_level * ratio - neutral_level);
+                    }
                 }
+                img.pixels[idx] = p_out;
+                continue;
             }
-            img.pixels[idx] = p_out;
+            // Tier 1 cannot support this pixel: defer it to the guided
+            // tiers, which resolve all deferred pixels together below.
+            deferred.push(idx as u32);
+            field
+                .get_or_insert_with(|| CellField::new(img.width, img.height))
+                .mark_and_accum(x, y, m, p_in);
         }
+    }
+    if let Some(field) = field.as_mut() {
+        resolve_deferred(
+            field,
+            img,
+            &clip_mask,
+            &deferred,
+            scene_chroma,
+            (left, top, right, bottom),
+            denominator_floor,
+        );
     }
 }
 
@@ -275,3 +341,7 @@ mod tests;
 #[cfg(test)]
 #[path = "highlight_recovery/tests_mask_aware.rs"]
 mod tests_mask_aware;
+
+#[cfg(test)]
+#[path = "highlight_recovery/tests_guided.rs"]
+mod tests_guided;
