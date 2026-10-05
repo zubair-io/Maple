@@ -473,8 +473,8 @@ async function handleSceneLinearDecode(req: DecodeSceneLinearRequest): Promise<v
     // `take_fp16_rgba()` (#1080): unlike the `fp16_rgba` getter (which CLONES
     // the full frame and leaves the wasm copy alive until free/GC), the take
     // MOVES them out, so peak memory is one frame, not two. wasm-bindgen
-    // returns a Uint16Array; slice its underlying buffer so we can transfer it
-    // (avoid the main thread holding a copy).
+    // returns a Uint16Array; copy into an owned ArrayBuffer so the transfer list
+    // never receives a SharedArrayBuffer (avoid the main thread holding a copy).
     const width = result.width;
     const height = result.height;
     const nativeWidth = result.full_width;
