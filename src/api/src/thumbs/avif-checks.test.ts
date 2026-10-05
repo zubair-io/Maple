@@ -18,10 +18,23 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { maple } from 'maple';
 import { checkAvifOutput } from './avif-checks.ts';
-import { solidAvif, solidJpeg } from '../test-support/synth-image.ts';
+import { solidAvif, solidJpeg, solidRgb } from '../test-support/synth-image.ts';
 
 // `import.meta.dir` is src/api/src/thumbs; fixture lives under src/api/tests/fixtures.
 const FIXTURE_HEIC = resolve(import.meta.dir, '..', '..', 'tests', 'fixtures', 'sample.heic');
+// These real inputs were encoded by the qualified #3580 producer. Validation
+// depends on its ICC probe support in parent PR #4193, not main's earlier probe.
+// See the fixture README for separate producer/validator provenance.
+const ICC_FIXTURES = resolve(
+  import.meta.dir,
+  '..',
+  '..',
+  '..',
+  '..',
+  'test-fixtures',
+  'raster-metadata',
+  'avif-validation',
+);
 
 describe('checkAvifOutput (maple)', () => {
   const withDir = async (fn: (dir: string) => Promise<void>) => {
@@ -38,6 +51,65 @@ describe('checkAvifOutput (maple)', () => {
       const p = join(dir, 'ok.avif');
       await writeFile(p, await solidAvif(200, 100, [10, 20, 30]));
       expect(await checkAvifOutput(p, 256)).toEqual({ ok: true });
+    }));
+
+  for (const profile of ['srgb', 'p3'] as const) {
+    it(`rejects a complete AVIF carrying a real ${profile} ICC profile`, () =>
+      withDir(async (dir) => {
+        for (const layout of ['rgb', 'rgba']) {
+          const p = join(dir, `${layout}.avif`);
+          await writeFile(p, await readFile(join(ICC_FIXTURES, `${profile}-${layout}.avif`)));
+          const meta = await maple(p).metadata();
+          expect([meta.width, meta.height]).toEqual([20, 10]);
+          expect(meta.hasProfile).toBe(true);
+          expect(meta.icc!.length).toBeGreaterThan(128);
+          expect(await maple(p).validateIntegrity()).toEqual({ ok: true });
+          const result = await checkAvifOutput(p, 256);
+          expect(result.ok).toBe(false);
+          if (!result.ok) expect(result.reason).toContain('unexpected embedded ICC profile');
+        }
+      }));
+  }
+
+  it('rejects an AVIF whose source ICC was retained by withMetadata', () =>
+    withDir(async (dir) => {
+      const p = join(dir, 'kept-profile.avif');
+      await writeFile(p, await readFile(join(ICC_FIXTURES, 'kept-srgb.avif')));
+      expect((await maple(p).metadata()).hasProfile).toBe(true);
+      expect(await maple(p).validateIntegrity()).toEqual({ ok: true });
+      const result = await checkAvifOutput(p, 256);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toContain('unexpected embedded ICC profile');
+    }));
+
+  it('rejects an untagged 10-bit AVIF with the probe rgb16 sample space', () =>
+    withDir(async (dir) => {
+      const p = join(dir, 'ten-bit.avif');
+      await writeFile(
+        p,
+        await maple(solidRgb(20, 10, [90, 140, 200]))
+          .avif({ bitdepth: 10, effort: 1 })
+          .toBuffer(),
+      );
+      const meta = await maple(p).metadata();
+      expect(meta.hasProfile).toBe(false);
+      expect(meta.space).toBe('rgb16');
+      expect(await maple(p).validateIntegrity()).toEqual({ ok: true });
+      const result = await checkAvifOutput(p, 256);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toBe('unexpected colourspace "rgb16" (expected srgb)');
+    }));
+
+  it('rejects oversized tagged AVIF on dimensions before its ICC profile', () =>
+    withDir(async (dir) => {
+      const p = join(dir, 'big-tagged.avif');
+      await writeFile(p, await readFile(join(ICC_FIXTURES, 'oversized-srgb.avif')));
+      const meta = await maple(p).metadata();
+      expect(meta.width).toBe(300);
+      expect(meta.hasProfile).toBe(true);
+      const result = await checkAvifOutput(p, 256);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toContain('exceed expected long edge');
     }));
 
   it('rejects a non-AVIF container', () =>

@@ -2,9 +2,9 @@
  * Post-encode validation of an AVIF this pipeline wrote (see the doc comment
  * in `validate-avif.ts`). Checks run cheapest-first: container and dimensions
  * from the header probe, then a full pixel decode last. Maple
- * decodes AVIF with a pure-Rust AV1 decoder (#3496); the retired implementation
- * also checked `space`/ICC, which our encoder never writes, so those
- * checks are gone with it.
+ * decodes AVIF with a pure-Rust AV1 decoder (#3496). Cache derivatives must
+ * match the producer's untagged 8-bit sRGB convention; general-purpose
+ * image/export callers can author metadata that is inappropriate for this cache.
  *
  * The FFI child's dispatch (`ffi/raw_ffi-dispatch.ts`) is this module's only
  * PIXEL-WORK consumer — imported at module scope there, inside the isolated
@@ -40,7 +40,12 @@ function errMessage(e: unknown): string {
  *     only, since `fit: 'inside', withoutEnlargement: true` (this pipeline's
  *     resize contract) legitimately leaves a source smaller than the target
  *     un-upscaled.
- *  3. Integrity: a full pixel decode must succeed. `.metadata()` alone is
+ *  3. Colour metadata: reject embedded ICC profiles and any probe sample
+ *     space other than `srgb`. This pipeline's bare AVIF encoder writes
+ *     untagged 8-bit sRGB derivatives. The probe's `space` describes channel
+ *     layout/sample depth (`rgb16`, `b-w`, etc.), not CICP primaries; it does
+ *     not prove an arbitrary AVIF's colour signalling is sRGB.
+ *  4. Integrity: a full pixel decode must succeed. `.metadata()` alone is
  *     NOT sufficient — it can return a plausible width/height read straight
  *     from the AVIF's meta/header box even when the pixel payload is
  *     truncated. Catching a truncated/corrupt encode requires forcing a real
@@ -78,6 +83,16 @@ export async function checkAvifOutput(
       ok: false,
       reason: `dimensions ${meta.width}x${meta.height} exceed expected long edge ${expectedLongEdgePx} (+${DIMENSION_TOLERANCE_PX}px tolerance)`,
     };
+  }
+  if (meta.hasProfile) {
+    return {
+      ok: false,
+      reason:
+        'unexpected embedded ICC profile — this pipeline writes untagged sRGB AVIF by convention',
+    };
+  }
+  if (meta.space !== 'srgb') {
+    return { ok: false, reason: `unexpected colourspace "${meta.space}" (expected srgb)` };
   }
   const intact = await image.validateIntegrity();
   return intact.ok ? { ok: true } : { ok: false, reason: `pixel decode failed: ${intact.error}` };
