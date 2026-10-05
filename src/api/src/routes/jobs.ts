@@ -150,12 +150,13 @@ export function createJobsRoutes(dbOverride?: SqliteDb) {
         const { query } = context;
         const filter = parseListFilter(query);
         if (typeof filter === 'string') return status(400, { error: filter });
-        const docs = await listJobs(filter, dbOverride);
         const owner = Reflect.get(context, 'auth')?.user?.role === 'owner';
+        const docs = await listJobs(
+          { ...filter, ...(owner ? {} : { excludeKind: 'cloud_backup_restore' as const }) },
+          dbOverride,
+        );
         return {
-          jobs: docs
-            .filter((doc) => owner || doc.kind !== 'cloud_backup_restore')
-            .map((doc) => projectJob(doc)),
+          jobs: docs.map((doc) => projectJob(doc)),
         };
       },
       { query: ListQuery },

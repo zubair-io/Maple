@@ -181,6 +181,8 @@ export async function readRemoteCatalog(
     entries.push(manifest);
   }
   const purgeVersions = new Map<string, PurgeRecord>();
+  // The second read fences tombstones published during the paged library scan.
+  // Keep both observations: a concurrent purge must not reappear in the preview.
   for (const purge of [...first, ...(await readPurges(provider, signal))]) {
     if ((purgeVersions.get(purge.entryId)?.sequence ?? 0) < purge.sequence)
       purgeVersions.set(purge.entryId, purge);

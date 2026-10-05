@@ -199,6 +199,9 @@ async function publishRecoveryFile(
   signal.throwIfAborted();
   if ((await safeParent(journal.root, file.path)) !== target)
     throw new Error('Recovery parent changed');
+  // The root is inode-pinned, but link() cannot pin parent directory names.
+  // The owner must keep other processes from replacing target parents between
+  // this check and publication; exclusive linking still prevents overwrites.
   await link(temp, target); // exclusive publication, never rename-overwrite
   const dir = await open(path.dirname(target), 'r');
   try {
