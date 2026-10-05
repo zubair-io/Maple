@@ -174,7 +174,7 @@ ThumbnailLoaderSidecarTests slow render or decode workload that costs minutes on
 ThumbnailLoaderSourcelessTests slow render or decode workload that costs minutes on the runner
 ThumbnailLoaderTests slow render or decode workload that costs minutes on the runner
 ThumbnailLoaderWriteBackTests slow render or decode workload that costs minutes on the runner
-TokenStoreTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
+TokenStoreTests host uses the real Keychain and skips only when the runner lacks its entitlement
 ToneCurvePerfTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 VideoThumbnailTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 WhiteBalanceAuthoringParityTests gpu needs a real Metal device

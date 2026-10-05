@@ -1,6 +1,7 @@
 // TokenStoreTests.swift
 import Security
 import XCTest
+
 @testable import MapleCore
 
 final class TokenStoreTests: XCTestCase {
@@ -23,7 +24,8 @@ final class TokenStoreTests: XCTestCase {
     do {
       try TokenStore.save(tokens, server: server)
     } catch let nsErr as NSError
-      where nsErr.domain == "TokenStore" && nsErr.code == Int(errSecMissingEntitlement) {
+      where nsErr.domain == "TokenStore" && nsErr.code == Int(errSecMissingEntitlement)
+    {
       throw XCTSkip("Keychain entitlement not granted: \(nsErr)")
     }
   }
@@ -33,7 +35,8 @@ final class TokenStoreTests: XCTestCase {
     do {
       return try TokenStore.load(server: server)
     } catch let nsErr as NSError
-      where nsErr.domain == "TokenStore" && nsErr.code == Int(errSecMissingEntitlement) {
+      where nsErr.domain == "TokenStore" && nsErr.code == Int(errSecMissingEntitlement)
+    {
       throw XCTSkip("Keychain entitlement not granted: \(nsErr)")
     }
   }
@@ -58,4 +61,55 @@ final class TokenStoreTests: XCTestCase {
     TokenStore.clear(server: serverURL)
     XCTAssertNil(try loadOrSkip(server: serverURL))
   }
+
+  #if os(macOS)
+    func testMCPTokenPersistsAcrossStoreInstances() async throws {
+      try await withMCPKeychain { service in
+        let token = try await AgentMCPTokenStore(service: service).loadOrCreate()
+        XCTAssertEqual(token.utf8.count, 64)
+        XCTAssertTrue(token.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) })
+        let reloaded = try await AgentMCPTokenStore(service: service).loadOrCreate()
+        XCTAssertEqual(reloaded, token)
+      }
+    }
+
+    func testMCPTokenReplacesMalformedKeychainItems() async throws {
+      for seed in [Data(), Data("short".utf8), Data(repeating: 65, count: 64), Data([0xff])] {
+        try await withMCPKeychain(seed: seed) { service in
+          let token = try await AgentMCPTokenStore(service: service).loadOrCreate()
+          XCTAssertEqual(token.utf8.count, 64)
+          XCTAssertTrue(token.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) })
+          let reloaded = try await AgentMCPTokenStore(service: service).loadOrCreate()
+          XCTAssertEqual(reloaded, token, "The replacement must persist to the real Keychain")
+        }
+      }
+    }
+
+    private func withMCPKeychain(
+      seed: Data? = nil, _ body: (String) async throws -> Void
+    ) async throws {
+      let service = "app.justmaple.tests.mcp.\(UUID().uuidString)"
+      let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: service,
+        kSecAttrAccount as String: "localhost",
+      ]
+      defer { SecItemDelete(query as CFDictionary) }
+      do {
+        if let seed {
+          var insertion = query
+          insertion[kSecValueData as String] = seed
+          let status = SecItemAdd(insertion as CFDictionary, nil)
+          guard status == errSecSuccess else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+          }
+        }
+        try await body(service)
+      } catch let error as NSError
+        where error.domain == NSOSStatusErrorDomain && error.code == Int(errSecMissingEntitlement)
+      {
+        throw XCTSkip("Keychain entitlement not granted: \(error)")
+      }
+    }
+  #endif
 }
