@@ -19,6 +19,7 @@ public sealed partial class MainWindow
 {
     private static async Task VerifyListRowAutomationAsync(string output, bool nativeInput)
     {
+        await VerifyListRowCallersAsync(output);
         var actionCount = 0;
         var toggle = new ToggleSwitch { Header = "Trailing option" };
         var row = new MuiListRow { Label = "Navigation", TrailingContent = toggle };
@@ -128,7 +129,8 @@ public sealed partial class MainWindow
                     for (var source = e.OriginalSource as DependencyObject; source != null;
                         source = VisualTreeHelper.GetParent(source))
                     {
-                        if (ReferenceEquals(source, decorative)) { Record("decorative-pointer", 4); return; }
+                        if (ReferenceEquals(source, decorative.TrailingContent)) { Record("decorative-pointer", 4); return; }
+                        if (ReferenceEquals(source, decorative)) return;
                         if (ReferenceEquals(source, host)) return;
                     }
                 }), true);
