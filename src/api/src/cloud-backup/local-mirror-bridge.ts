@@ -4,6 +4,7 @@ import { listFolders } from '../db/repos/folders.repo.ts';
 import type { MirrorLocation } from '../db/schema.ts';
 import { BackupRepository } from './repository.ts';
 import { setMirrorRoots } from '../fs/mirror-registry.ts';
+import { removedDestinationStatements } from './destination-removal.ts';
 
 export async function migrateFolderDestinations(repo = new BackupRepository()): Promise<void> {
   const folders = await listFolders(repo.db);
@@ -68,10 +69,13 @@ export async function replaceFolderDestinations(
   await repo.db.transaction([
     ...current
       .filter((d) => !mirrors.some((m) => m.path === d.path))
-      .map((d) => ({
-        sql: `DELETE FROM backup_destinations WHERE id=?`,
-        params: [d.id],
-      })),
+      .flatMap((d) => [
+        {
+          sql: `DELETE FROM backup_destinations WHERE id=?`,
+          params: [d.id],
+        },
+        ...removedDestinationStatements(d.id),
+      ]),
     ...mirrors.map((m) => ({
       sql: `INSERT INTO backup_destinations(id,library_id,kind,name,enabled,path,created_at)
         VALUES(?,?,'folder',?,?,?,?) ON CONFLICT(library_id,kind,path)

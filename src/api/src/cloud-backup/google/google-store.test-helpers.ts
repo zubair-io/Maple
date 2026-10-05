@@ -110,6 +110,10 @@ class GoogleStore {
     return Response.json(metadata(file));
   }
   private uploadRequest(method: string, init?: RequestInit) {
+    if (method === 'DELETE') {
+      this.active = null;
+      return new Response(null, { status: 204 });
+    }
     if (method === 'POST') return this.startUpload(init);
     if (method === 'PUT') return this.uploadChunk(init);
     throw new Error(`Unexpected upload method ${method}`);

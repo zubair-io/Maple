@@ -45,18 +45,21 @@ test('maintenance cancellation after local byte verification preserves the file 
   const f = await recoveryFixture();
   const controller = new AbortController();
   const fileHash = inventory.fileHash;
+  let draining = false;
   const hashSpy = spyOn(inventory, 'fileHash').mockImplementation(async (file) => {
     const digest = await fileHash(file);
-    controller.abort(new Error('Shutdown after verification'));
+    if (draining) controller.abort(new Error('Shutdown after verification'));
     return digest;
   });
   try {
     const mirror = path.join(f.root, 'mirror');
+    const library = path.join(f.root, 'library');
     await mkdir(mirror);
+    await mkdir(library);
     const filename = path.join(mirror, 'photo.jpg');
     await writeFile(filename, 'original-photo-bytes');
     const sha256 = await fileHash(filename);
-    const libraryId = insertFolder(f.live.db, { path: f.root });
+    const libraryId = insertFolder(f.live.db, { path: library });
     const assetId = insertAsset(f.live.db);
     insertLocation(f.live.db, { libraryId, assetId });
     const destination = await backupEngine.repo.createDestination({
@@ -71,6 +74,7 @@ test('maintenance cancellation after local byte verification preserves the file 
       entry.id,
     ]);
     await preparePurge(assetId, backupEngine.repo);
+    draining = true;
     await expect(drainPurges(backupEngine, destination, controller.signal)).rejects.toThrow(
       'Shutdown after verification',
     );

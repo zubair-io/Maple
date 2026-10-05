@@ -3,7 +3,7 @@ import { unlink, lstat, realpath } from '../fs/mirrored.ts';
 import { type BackupEngine, jsonSource, entryPrefix } from './engine.ts';
 import type { PurgeRecord, BackupObject, UploadCheckpoint, BackupProvider } from './provider.ts';
 import { relativeBackupPath, fileHash, jailedFile } from './inventory.ts';
-import type { BackupDestination } from './repository.ts';
+import type { BackupDestination, BackupRepository } from './repository.ts';
 
 async function removeLocal(
   root: string,
@@ -56,37 +56,119 @@ async function verifyLocalPurge(
   )
     throw new Error('Mirror purge file changed during verification');
 }
+type PurgeRow = Awaited<ReturnType<BackupRepository['purges']>>[number];
+
 export async function drainPurges(
   engine: BackupEngine,
   destination: BackupDestination,
   signal?: AbortSignal,
 ): Promise<void> {
   signal?.throwIfAborted();
-  for (const row of await engine.repo.purges(destination.id)) {
+  const pending = (await engine.repo.purges(destination.id)).filter((row) => !row.completed);
+  if (destination.kind !== 'folder') {
+    await drainRemoteBatch(engine, destination, pending, signal);
+    return;
+  }
+  for (const row of pending) {
     signal?.throwIfAborted();
-    if (row.completed) continue;
     const record: PurgeRecord = JSON.parse(row.record);
-    let revision = row.revision;
     try {
-      if (destination.kind === 'folder')
-        await purgeFolder(engine, destination, row.entry_id, signal);
-      else {
-        const publishedRevision = await purgeRemote(engine, destination, record, signal);
-        if (publishedRevision === null) continue;
-        revision = publishedRevision;
-      }
-      signal?.throwIfAborted();
-      await engine.repo.db.write(
-        `UPDATE backup_purges SET completed=1,last_error=NULL WHERE destination_id=? AND entry_id=?
-        AND revision=? AND NOT EXISTS (SELECT 1 FROM backup_entries WHERE id=? AND lease_until>?)`,
-        [destination.id, record.entryId, revision, record.entryId, Date.now()],
-      );
+      await purgeFolder(engine, destination, row.entry_id, signal);
+      await completePurge(engine, destination.id, record.entryId, row.revision, signal);
     } catch {
+      await retryPurge(engine, destination.id, record.entryId, signal);
+    }
+  }
+}
+async function completePurge(
+  engine: BackupEngine,
+  destinationId: string,
+  entryId: string,
+  revision: number,
+  signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
+  await engine.repo.db.write(
+    `UPDATE backup_purges SET completed=1,last_error=NULL WHERE destination_id=? AND entry_id=?
+      AND revision=? AND NOT EXISTS (SELECT 1 FROM backup_entries WHERE id=? AND lease_until>?)`,
+    [destinationId, entryId, revision, entryId, Date.now()],
+  );
+}
+async function retryPurge(
+  engine: BackupEngine,
+  destinationId: string,
+  entryId: string,
+  signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
+  await engine.repo.db.write(
+    `UPDATE backup_purges SET last_error='Destination cleanup requires retry' WHERE destination_id=? AND entry_id=? AND completed=0`,
+    [destinationId, entryId],
+  );
+}
+interface RemotePurge {
+  entryId: string;
+  revision: number;
+}
+async function drainRemoteBatch(
+  engine: BackupEngine,
+  destination: BackupDestination,
+  rows: PurgeRow[],
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!rows.length) return;
+  const ready = new Map<string, RemotePurge>();
+  try {
+    const provider = await engine.provider(destination);
+    for (const row of rows) {
       signal?.throwIfAborted();
-      await engine.repo.db.write(
-        `UPDATE backup_purges SET last_error='Destination cleanup requires retry' WHERE destination_id=? AND entry_id=?`,
-        [destination.id, record.entryId],
-      );
+      try {
+        const record: PurgeRecord = JSON.parse(row.record);
+        if (record.libraryId !== destination.libraryId || record.entryId !== row.entry_id)
+          throw new Error('Purge identity does not match its destination entry');
+        const revision = await publishPurgeMarker(engine, destination, provider, record, signal);
+        const prefix = entryPrefix(record.libraryId, record.entryId);
+        await removeSavedRemoteObjects(engine, destination.id, provider, prefix, signal);
+        ready.set(prefix, { entryId: record.entryId, revision });
+      } catch {
+        await retryPurge(engine, destination.id, row.entry_id, signal);
+      }
+    }
+    // Google stores objects flat in the dedicated root. Share two streaming
+    // inventories across the batch, including portable objects from earlier
+    // versions that lack any newly introduced entry-specific search index.
+    const libraryPrefix = `libraries/${destination.libraryId}/entries/`;
+    await scanRemoteBatch(engine, destination.id, provider, libraryPrefix, ready, true, signal);
+    await scanRemoteBatch(engine, destination.id, provider, libraryPrefix, ready, false, signal);
+    for (const row of ready.values())
+      await completePurge(engine, destination.id, row.entryId, row.revision, signal);
+  } catch {
+    signal?.throwIfAborted();
+    // A failed or incomplete inventory cannot prove absence for any entry.
+    for (const row of rows) await retryPurge(engine, destination.id, row.entry_id, signal);
+  }
+}
+async function scanRemoteBatch(
+  engine: BackupEngine,
+  destinationId: string,
+  provider: BackupProvider,
+  libraryPrefix: string,
+  ready: Map<string, RemotePurge>,
+  remove: boolean,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!ready.size) return;
+  for await (const object of provider.list(libraryPrefix, signal)) {
+    signal?.throwIfAborted();
+    const prefix = object.key.split('/').slice(0, 4).join('/') + '/';
+    const row = ready.get(prefix);
+    if (!row || !object.key.startsWith(libraryPrefix)) continue;
+    try {
+      if (!remove) throw new Error('Purge cleanup still pending');
+      await provider.remove(object, signal);
+    } catch {
+      await retryPurge(engine, destinationId, row.entryId, signal);
+      ready.delete(prefix);
     }
   }
 }
@@ -98,8 +180,10 @@ async function purgeFolder(
   signal?: AbortSignal,
 ): Promise<void> {
   if (!destination.path) throw new Error('Mirror root unavailable');
-  const entries = await engine.repo.entries(destination.id);
-  const entry = entries.find((e) => e.id === entryId);
+  const [entry] = await engine.repo.db.read<{ manifest: string | null }>(
+    'SELECT manifest FROM backup_entries WHERE destination_id=? AND id=?',
+    [destination.id, entryId],
+  );
   const manifest = entry?.manifest
     ? (JSON.parse(entry.manifest) as {
         localFiles: Array<{ path: string; sha256: string | null }>;
@@ -112,15 +196,15 @@ async function purgeFolder(
   }
 }
 
-async function purgeRemote(
+async function publishPurgeMarker(
   engine: BackupEngine,
   destination: BackupDestination,
+  provider: BackupProvider,
   record: PurgeRecord,
   signal?: AbortSignal,
-): Promise<number | null> {
+): Promise<number> {
   // Disabled or disconnected destinations still owe erasure. Connection
   // failures leave an explicit obligation, never a fabricated success.
-  const provider = await engine.provider(destination);
   signal?.throwIfAborted();
   const source = jsonSource(record);
   const key = `purges/${record.entryId}.json`;
@@ -147,21 +231,10 @@ async function purgeRemote(
     `SELECT revision FROM backup_purges WHERE destination_id=? AND entry_id=?`,
     [destination.id, record.entryId],
   );
-  const revision = current!.revision;
-  const prefix = entryPrefix(record.libraryId, record.entryId);
-  await removeRemoteEntry(engine, destination.id, provider, prefix, signal);
-  signal?.throwIfAborted();
-  // A transfer already inside an external request may still complete.
-  // Keep the obligation open until its renewable lease has elapsed.
-  const entries = await engine.repo.entries(destination.id);
-  if (entries.some((e) => e.id === record.entryId && e.lease_until > Date.now())) return null;
-  const remaining: BackupObject[] = [];
-  for await (const object of provider.list(prefix, signal)) remaining.push(object);
-  if (remaining.length) throw new Error('Purge cleanup still pending');
-  return revision;
+  return current!.revision;
 }
 
-async function removeRemoteEntry(
+async function removeSavedRemoteObjects(
   engine: BackupEngine,
   destinationId: string,
   provider: BackupProvider,
@@ -174,8 +247,8 @@ async function removeRemoteEntry(
     checkpoint: string | null;
   }>(
     `SELECT key,object,checkpoint FROM backup_objects
-          WHERE destination_id=? AND substr(key,1,?)=?`,
-    [destinationId, prefix.length, prefix],
+          WHERE destination_id=? AND key>=? AND key<?`,
+    [destinationId, prefix, prefix.slice(0, -1) + '0'],
   );
   for (const saved of pending) {
     signal?.throwIfAborted();
@@ -186,9 +259,5 @@ async function removeRemoteEntry(
     // Persisted IDs remain erasure obligations even if a user moved the
     // object out of the root. The adapter then reports blocked ancestry.
     if (saved.object) await provider.remove(JSON.parse(saved.object) as BackupObject, signal);
-  }
-  for await (const object of provider.list(prefix, signal)) {
-    signal?.throwIfAborted();
-    await provider.remove(object, signal);
   }
 }

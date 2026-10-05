@@ -127,7 +127,7 @@ test('a late moved upload between final list and completion cannot clear its era
   let rounds = 0;
   provider.list = async function* (key, signal) {
     yield* list(key, signal);
-    if (key === prefix && ++rounds === 2) {
+    if (key === `libraries/${libraryId}/entries/` && ++rounds === 2) {
       const source = jsonSource('late original bytes');
       const object = await provider.publish(prefix + 'blobs/' + source.sha256, source, {
         saveCheckpoint: async () => {},
