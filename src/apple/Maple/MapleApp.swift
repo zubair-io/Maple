@@ -180,6 +180,7 @@ struct MapleApp: App {
       // sidebar only shows Self Hosted once at least one server is paired.
       Settings {
         SettingsView(sessionFor: { server in session(for: server) })
+          .preferredColorScheme(.dark)
       }
 
       // Per-server administration (#2766). A separate resizable window
@@ -451,8 +452,11 @@ struct SettingsView: View {
         .accessibilityIdentifier("settings.tab.about")
     }
     #if os(macOS)
-      .frame(width: 540, height: 480)
+      // Height bumped from 480pt to 500pt to comfortably display the MCP
+      // connection blocks (socket endpoint and config snippet) in General (#4243).
+      .frame(width: 540, height: 500)
     #endif
+    .preferredColorScheme(.dark)
     .onAppear {
       if let tab = initialTab {
         let panoDisabled = tab == .pano && !FeatureFlags.isPanoramaEnabled

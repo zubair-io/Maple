@@ -90,7 +90,9 @@ struct SelfHostedSettingsTab: View {
       // rendered flat against the page `bg`, breaking parity with
       // Backup/About on the phone shell.
       Group {
-        let label = Text("Maple Cloud Servers").font(.headline)
+        let label = Text("Maple Cloud Servers")
+          .font(.headline)
+          .foregroundStyle(MapleTokens.textMain)
         if isPhoneShell {
           // Padding insets the text FIRST, then the frame
           // stretches that already-padded content to the full
@@ -118,10 +120,10 @@ struct SelfHostedSettingsTab: View {
         Group {
           let emptyState = VStack(spacing: 6) {
             Text("No paired servers.")
-              .foregroundStyle(.secondary)
+              .foregroundStyle(MapleTokens.textMuted)
             Text("Click \"Add Server…\" to pair a Maple Cloud instance.")
               .font(.caption)
-              .foregroundStyle(.secondary)
+              .foregroundStyle(MapleTokens.textMuted)
           }
           .frame(maxWidth: .infinity)
           .padding(.vertical, 24)
@@ -140,12 +142,13 @@ struct SelfHostedSettingsTab: View {
           ForEach(registry.servers, id: \.self) { url in
             HStack {
               MuiIcon(name: "dns", size: .sm)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(MapleTokens.textMuted)
               VStack(alignment: .leading, spacing: 2) {
                 Text(url.host ?? url.absoluteString)
+                  .foregroundStyle(MapleTokens.textMain)
                 Text(url.absoluteString)
                   .font(.caption)
-                  .foregroundStyle(.secondary)
+                  .foregroundStyle(MapleTokens.textMuted)
                 localAddressStatus(for: url)
               }
               Spacer()
@@ -279,12 +282,12 @@ struct SelfHostedSettingsTab: View {
         }
       }
       .font(.caption)
-      .foregroundStyle(status.isConnectedLocally ? .primary : .secondary)
+      .foregroundStyle(status.isConnectedLocally ? MapleTokens.textMain : MapleTokens.textMuted)
       .accessibilityElement(children: .combine)
     } else {
       Text("Checking local address…")
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(MapleTokens.textMuted)
     }
   }
 

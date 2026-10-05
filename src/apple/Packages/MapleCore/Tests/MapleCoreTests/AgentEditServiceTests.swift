@@ -246,4 +246,47 @@ final class AgentEditServiceTests: XCTestCase {
     XCTAssertEqual(reopened.model.exposure, 1.25)
     XCTAssertEqual(reopened.model.whites, -12)
   }
+
+  func testAgentBridgeControllerExposesEffectiveSocketPathAndMCPSnippet() throws {
+    let service = AgentEditService()
+    let controller = AgentBridgeController(service: service)
+
+    // Unstarted controller falls back to default socket path
+    let defaultPath = controller.effectiveSocketPath
+    XCTAssertFalse(defaultPath.isEmpty)
+    XCTAssertTrue(defaultPath.hasSuffix("maple-agent.sock"))
+
+    let customSocket = "/tmp/test-mcp-\(UUID().uuidString.prefix(8)).sock"
+    controller.start(path: customSocket)
+    defer { controller.stop() }
+
+    XCTAssertEqual(controller.effectiveSocketPath, customSocket)
+
+    let snippet = controller.mcpConfigurationSnippet
+    let data = try XCTUnwrap(snippet.data(using: .utf8))
+    let json = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: data) as? [String: Any]
+    )
+    let mcpServers = try XCTUnwrap(json["mcpServers"] as? [String: Any])
+    let mapleServer = try XCTUnwrap(mcpServers["maple"] as? [String: Any])
+    XCTAssertEqual(mapleServer["command"] as? String, "maple-mcp")
+    XCTAssertEqual(mapleServer["args"] as? [String], ["--socket", customSocket])
+
+    // After stop, custom socket path is cleared and reverts to default path
+    controller.stop()
+    XCTAssertEqual(controller.effectiveSocketPath, defaultPath)
+
+    // Verify paths with special characters are validly JSON-escaped
+    let specialSocket = "/tmp/test-\"quoted\"-\(UUID().uuidString.prefix(6)).sock"
+    controller.start(path: specialSocket)
+    defer { controller.stop() }
+    let specialSnippet = controller.mcpConfigurationSnippet
+    let specialData = try XCTUnwrap(specialSnippet.data(using: .utf8))
+    let specialJson = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: specialData) as? [String: Any]
+    )
+    let specialMcp = try XCTUnwrap(specialJson["mcpServers"] as? [String: Any])
+    let specialMaple = try XCTUnwrap(specialMcp["maple"] as? [String: Any])
+    XCTAssertEqual(specialMaple["args"] as? [String], ["--socket", specialSocket])
+  }
 }

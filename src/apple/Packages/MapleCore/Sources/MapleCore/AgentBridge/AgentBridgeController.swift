@@ -61,12 +61,50 @@ public final class AgentBridgeController {
   func stop() {
     server?.stop()
     server = nil
+    socketPath = nil
     isListening = false
   }
 
-  private static func defaultSocketPath() -> String? {
+  public static func defaultSocketPath() -> String? {
     FileManager.default
       .containerURL(forSecurityApplicationGroupIdentifier: AgentSocketLocation.appGroup)
       .map(AgentSocketLocation.path(inGroupContainer:))
+  }
+
+  /// The active socket path if currently listening, falling back to the app-group
+  /// container default path or the user-domain fallback socket path.
+  public var effectiveSocketPath: String {
+    socketPath ?? Self.defaultSocketPath() ?? AgentSocketLocation.defaultPath()
+  }
+
+  /// Formatted JSON snippet for registering Maple as an MCP server in an MCP client
+  /// (such as Claude Desktop's `claude_desktop_config.json`).
+  public var mcpConfigurationSnippet: String {
+    let path = effectiveSocketPath
+    let config: [String: Any] = [
+      "mcpServers": [
+        "maple": [
+          "command": "maple-mcp",
+          "args": ["--socket", path],
+        ]
+      ]
+    ]
+    guard
+      let data = try? JSONSerialization.data(
+        withJSONObject: config, options: [.prettyPrinted, .sortedKeys]),
+      let string = String(data: data, encoding: .utf8)
+    else {
+      return """
+        {
+          "mcpServers": {
+            "maple": {
+              "command": "maple-mcp",
+              "args": ["--socket", "\(path)"]
+            }
+          }
+        }
+        """
+    }
+    return string
   }
 }
