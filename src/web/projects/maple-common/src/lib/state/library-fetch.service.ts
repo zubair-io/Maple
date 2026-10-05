@@ -8,7 +8,7 @@
 
 import { firstValueFrom } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Injectable, effect, inject } from '@angular/core';
+import { DestroyRef, Injectable, effect, inject } from '@angular/core';
 import { FOLDER_LISTING_CACHE } from '../api/folder-listing-cache';
 import { Asset, AssetId, ColorLabel, Flag } from '../models/asset';
 import { GridFolderItem, SidebarEntry } from '../models/folder';
@@ -124,6 +124,7 @@ export class LibraryFetch {
 
   // ── Index write debounce ──────────────────────────────────────────────────
   private _indexWriteTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly _indexWrites = new Set<Promise<void>>();
 
   // ── Auto-scan-on-open fire-once guard (#804) ───────────────────────────────
   // Registered-library ids we've already triggered a content-aware `/scan`
@@ -143,6 +144,10 @@ export class LibraryFetch {
   private readonly _apiAdjustmentPatches = new Map<AssetId, Partial<AdjustmentModel>>();
 
   constructor() {
+    inject(DestroyRef).onDestroy(() => {
+      if (this._indexWriteTimer) clearTimeout(this._indexWriteTimer);
+      this._indexWriteTimer = null;
+    });
     // Debounced index write: re-fires 500ms after the last culling change.
     effect(() => {
       const assets = this.store.assets();
@@ -1390,8 +1395,33 @@ export class LibraryFetch {
   private _scheduleIndexWrite(): void {
     if (this._indexWriteTimer) clearTimeout(this._indexWriteTimer);
     this._indexWriteTimer = setTimeout(() => {
-      void this._writeIndex();
+      this._indexWriteTimer = null;
+      this._startIndexWrite();
     }, 500);
+  }
+
+  private _startIndexWrite(): void {
+    const write = this._writeIndex();
+    this._indexWrites.add(write);
+    void write.then(
+      () => this._indexWrites.delete(write),
+      (error: unknown) => {
+        this._indexWrites.delete(write);
+        console.warn('LibraryFetch: failed to prepare the folder index', error);
+      },
+    );
+  }
+
+  /** Close actual index streams before relinquishing an owned folder (#4287). */
+  async flushPendingIndexWrites(): Promise<void> {
+    while (this._indexWriteTimer !== null || this._indexWrites.size > 0) {
+      if (this._indexWriteTimer !== null) {
+        clearTimeout(this._indexWriteTimer);
+        this._indexWriteTimer = null;
+        this._startIndexWrite();
+      }
+      await Promise.all(this._indexWrites);
+    }
   }
 
   // Complexity is pre-existing and out of scope for #2976 (which touched

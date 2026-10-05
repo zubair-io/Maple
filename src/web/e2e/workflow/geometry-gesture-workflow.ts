@@ -1,3 +1,4 @@
+import { coalesceGestureFocus, disposeGestureStorage } from './gesture-boundary';
 import { createComponent } from '@angular/core';
 import { type CycleDeployment } from './cycle-workflow-environment';
 import { lensGestureStorage } from './lens-gesture-storage';
@@ -21,6 +22,7 @@ export async function geometryGestureWorkflow(deployment: CycleDeployment) {
   const panel = ref.instance;
   const defaults = defaultAdjustmentModel();
   const evidence: string[] = [];
+  let workflowFailure: { error: unknown } | null = null;
   const assert = (ok: boolean, message: string) => {
     if (!ok) throw Error(`${deployment}: ${message}`);
   };
@@ -33,11 +35,7 @@ export async function geometryGestureWorkflow(deployment: CycleDeployment) {
       panel.onValueChange(field, first);
       await active.library.flushPendingXmpWrites();
       assert((await saved(0, field)) === first, `${field} initial tick was not immediate`);
-      active.library.focusedAssetId.set(route === 'none' ? null : active.ids[1]);
-      if (route === 'roundtrip') active.library.focusedAssetId.set(active.ids[0]);
-      const focused = active.library.focusedAssetId();
-      if (focused) active.editor.bind(focused);
-      else active.editor.endEdit();
+      if (!coalesceGestureFocus(active, route)) active.editor.endEdit();
       // Binding legitimately completes A's transaction/history publication.
       await active.library.flushPendingXmpWrites();
       const before = await Promise.all([active.read(0), active.read(1)]);
@@ -93,8 +91,11 @@ export async function geometryGestureWorkflow(deployment: CycleDeployment) {
         'Original bytes changed',
       );
     return { deployment, evidence, originalBytesPreserved: true };
+  } catch (error) {
+    workflowFailure = { error };
+    throw error;
   } finally {
     ref.destroy();
-    await active.dispose();
+    await disposeGestureStorage(active, workflowFailure);
   }
 }

@@ -438,6 +438,12 @@ jobs:
           python3 ../../tools/check_export_retry_evidence.py test-results/export-original-retry/results.json self-hosted
           cp test-results/export-original-retry/results.json "$RUNNER_TEMP/self-hosted-export-retry-results.json"
       # Committed synthetic RAWs: no external fixture download or skip path.
+      - name: Qualify real OPFS index and failed-write cleanup
+        id: opfs_cleanup_report
+        working-directory: src/web
+        run: |
+          bun x playwright test --config playwright.workflow.config.ts lens-index-cleanup.spec.ts opfs-write-failure.spec.ts
+          cp test-results/workflow/results.json "$RUNNER_TEMP/lens-index-cleanup-results.json"
       - name: Qualify white balance, Auto Tone and lens gestures
         working-directory: src/web
         run: |
@@ -464,6 +470,12 @@ jobs:
           python3 ../../tools/check_web_cycle_evidence.py test-results/workflow/results.json
       # Playwright cleans test-results before its next run. Restore the separate
       # editor reports afterwards, including when the cycle gate failed.
+      - name: Restore OPFS index cleanup report
+        if: always() && steps.opfs_cleanup_report.outcome == 'success'
+        working-directory: src/web
+        run: |
+          mkdir -p test-results/workflow
+          cp "$RUNNER_TEMP/lens-index-cleanup-results.json" test-results/workflow/lens-index-cleanup-results.json
       - name: Restore white balance and Auto Tone report
         if: always() && steps.wb_report.outcome == 'success'
         working-directory: src/web
