@@ -171,6 +171,10 @@ namespace Maple.WinUI
                     await VerifyBrowseScrollingAsync(grouped: true);
                     RecordSmokeStage(output, "immediate-undo");
                     await VerifyImmediateUndoAsync();
+                    RecordSmokeStage(output, "histogram-image-replacement");
+                    await RenderScheduler.VerifyHistogramReplacementAsync(
+                        renderer.DetailSource ?? throw new InvalidOperationException("Histogram requires a decoded image"),
+                        ViewModel.Adjustments.Clone());
                     RecordSmokeStage(output, "preview-recovery");
                     await VerifyPreviewRecoveryAsync(raw, output);
                     RecordSmokeStage(output, "cloud-opening");
