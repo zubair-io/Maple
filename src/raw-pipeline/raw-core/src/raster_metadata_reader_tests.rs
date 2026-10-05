@@ -76,9 +76,13 @@ pub(super) fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
     let mut fixtures: Vec<_> = outputs
         .into_iter()
         .map(|(name, output)| {
-            let bytes =
-                crate::raster_recipe_encode::encode_raster_output(&pixels, &output, &metadata)
-                    .unwrap();
+            let bytes = crate::raster_recipe_encode::encode_raster_output(
+                &pixels,
+                &output,
+                &metadata,
+                crate::view::encode::TargetPrimaries::Srgb,
+            )
+            .unwrap();
             (
                 name,
                 if name == "tiff" {

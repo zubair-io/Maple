@@ -167,6 +167,7 @@ fn metadata_reader_avif_preserves_real_alpha_and_all_container_transforms() {
         &pixels,
         &RasterOutput::Avif(options),
         &Default::default(),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     assert!(

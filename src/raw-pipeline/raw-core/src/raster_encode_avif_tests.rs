@@ -66,7 +66,13 @@ fn pixi_bits(bytes: &[u8]) -> Vec<u8> {
 #[test]
 fn encodes_an_avif_that_decodes_back() {
     let src = gradient(32, 24, false);
-    let bytes = encode_avif_opts(&src, &opts(), &EmbeddedMetadata::default()).unwrap();
+    let bytes = encode_avif_opts(
+        &src,
+        &opts(),
+        &EmbeddedMetadata::default(),
+        crate::view::encode::TargetPrimaries::Srgb,
+    )
+    .unwrap();
     assert_eq!(&bytes[4..8], b"ftyp");
     let decoded = crate::avif_decode::decode_avif(&bytes).unwrap();
     assert_eq!((decoded.width, decoded.height), (32, 24));
@@ -76,7 +82,13 @@ fn encodes_an_avif_that_decodes_back() {
 #[test]
 fn alpha_survives_an_avif_round_trip() {
     let src = gradient(32, 24, true);
-    let bytes = encode_avif_opts(&src, &opts(), &EmbeddedMetadata::default()).unwrap();
+    let bytes = encode_avif_opts(
+        &src,
+        &opts(),
+        &EmbeddedMetadata::default(),
+        crate::view::encode::TargetPrimaries::Srgb,
+    )
+    .unwrap();
     let decoded = crate::avif_decode::decode_avif(&bytes).unwrap();
     assert_eq!(decoded.channels, 4);
     assert!(decoded.data[3] > 200, "the opaque half lost its alpha");
@@ -98,6 +110,7 @@ fn the_default_bit_depth_is_eight_in_the_pixi_box() {
         &gradient(32, 24, false),
         &opts(),
         &EmbeddedMetadata::default(),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     assert_eq!(pixi_bits(&bytes), vec![8, 8, 8]);
@@ -107,6 +120,7 @@ fn the_default_bit_depth_is_eight_in_the_pixi_box() {
         &gradient(32, 24, false),
         &AvifOptions::default(),
         &EmbeddedMetadata::default(),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     assert_eq!(pixi_bits(&defaulted), vec![8, 8, 8]);
@@ -124,6 +138,7 @@ fn bitdepth_ten_is_honoured_and_reaches_the_pixi_box() {
             ..opts()
         },
         &EmbeddedMetadata::default(),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     assert_eq!(pixi_bits(&bytes), vec![10, 10, 10]);
@@ -139,6 +154,7 @@ fn the_rgba_path_also_writes_eight_bit() {
         &gradient(32, 24, true),
         &opts(),
         &EmbeddedMetadata::default(),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     assert!(
@@ -160,6 +176,7 @@ fn bitdepth_twelve_is_a_named_error() {
             ..opts()
         },
         &EmbeddedMetadata::default(),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap_err();
     let message = format!("{err}");
@@ -180,6 +197,7 @@ fn four_two_zero_is_a_named_error_not_a_silent_four_four_four() {
             ..opts()
         },
         &EmbeddedMetadata::default(),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap_err();
     let message = format!("{err}");
@@ -200,6 +218,7 @@ fn lossless_is_a_named_error_not_a_silent_lossy_encode() {
             ..opts()
         },
         &EmbeddedMetadata::default(),
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap_err();
     let message = format!("{err}");
@@ -348,6 +367,7 @@ fn an_exif_item_is_written_into_the_container() {
             exif: Some(&exif),
             ..Default::default()
         },
+        crate::view::encode::TargetPrimaries::Srgb,
     )
     .unwrap();
     assert!(

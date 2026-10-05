@@ -199,6 +199,7 @@ pub fn encode_raster_output(
     raster: &RasterImage,
     output: &RasterOutput,
     resolved: &ResolvedMetadata,
+    _primaries: crate::view::encode::TargetPrimaries,
 ) -> Result<Vec<u8>> {
     // `Raw` is the one output with nothing to check: it is a pixel dump
     // with no header of any kind, not a container that dropped a field it
@@ -219,7 +220,9 @@ pub fn encode_raster_output(
         RasterOutput::Png(o) => crate::raster_encode_png::encode_png_opts(raster, o, meta),
         RasterOutput::Webp { lossless } => encode_webp_lossless(raster, *lossless, meta),
         #[cfg(feature = "avif-encode")]
-        RasterOutput::Avif(o) => crate::raster_encode_avif::encode_avif_opts(raster, o, meta),
+        RasterOutput::Avif(o) => {
+            crate::raster_encode_avif::encode_avif_opts(raster, o, meta, _primaries)
+        }
         // NOT flattened: `encode_tiff_opts` writes a 4-channel raster as RGB
         // plus one unassociated alpha sample (`ExtraSamples` = 2), which is
         // byte-for-byte the declaration `sharp().tiff()` writes for an RGBA
