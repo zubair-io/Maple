@@ -7,6 +7,22 @@ into — see the production-blocker writeup at `#2474`. This is a standalone
 deploy unit: no shared imports with `src/api` or `src/web` (same convention
 as the sibling thumbnail-cache Worker one level up).
 
+## Google Drive connection pages
+
+`wrangler.drive-connect.jsonc` is a separate public deployment configuration for
+`maple-drive-connect-pages`, using this same Worker code and the current
+`hornbeam/mapleaperture` origin. It assigns only `/connect/google-drive*` on
+`mapleeditor.com`, `maple-editor.com` and `mapleaperture.com`. It disables
+observability, Logpush, preview URLs and source maps so connection pages avoid
+the primary Hosted Worker's invocation logs. Other routes and the existing
+legacy `ssr` / `maple-hosted-ssr` domain assignments are preserved.
+
+The protected `.github/workflows/deploy-drive-connect.yml` validates both
+deployment bundles and deploys these pages with `--config wrangler.drive-connect.jsonc`
+before the callback relay. The latest Hosted Azure bundle, zone/account logging
+exclusions and actual Google Web-client S256 verification remain release gates.
+See [the relay deployment guide](../drive-connect/README.md).
+
 ## What it does, and why it exists
 
 Azure Blob Storage has no SPA-fallback or custom-header support of its own —

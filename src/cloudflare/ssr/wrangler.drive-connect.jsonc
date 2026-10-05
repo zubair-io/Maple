@@ -1,0 +1,28 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "maple-drive-connect-pages",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-10-04",
+	"workers_dev": false,
+	"preview_urls": false,
+	"observability": { "enabled": false },
+	"logpush": false,
+	"upload_source_maps": false,
+	"vars": {
+		"ORIGIN_BASE_URL": "https://hornbeam.blob.core.windows.net/mapleaperture",
+	},
+	"routes": [
+		{
+			"pattern": "https://mapleeditor.com/connect/google-drive*",
+			"zone_name": "mapleeditor.com",
+		},
+		{
+			"pattern": "https://maple-editor.com/connect/google-drive*",
+			"zone_name": "maple-editor.com",
+		},
+		{
+			"pattern": "https://mapleaperture.com/connect/google-drive*",
+			"zone_name": "mapleaperture.com",
+		},
+	],
+}

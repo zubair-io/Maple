@@ -235,6 +235,29 @@ All six require a bearer — they write files and reconcile deletions. Resume id
 | POST   | `/api/libraries/:libraryId/backup/sidecar`        | bearer | Write an XMP sidecar next to a previously uploaded asset, addressed by `X-Maple-Target-Rel-Path`                                                                                                           |
 | POST   | `/api/libraries/:libraryId/backup/notify-deleted` | bearer | Body `{ phasset_local_ids }`; marks the cloud copies `deleted_from_photos`. The rows and bytes stay                                                                                                        |
 
+## Library backup destinations
+
+All configuration/catalog/recovery routes below require an authenticated **owner**. This backs registered server libraries up to destinations, independently of Apple Photos ingestion above. See [Cloud backup](cloud-backup.md) for the portable catalog, Trash/purge contract, setup and release gates.
+
+| Method         | Path                                                            | Purpose                                                                                                                              |
+| -------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| GET / POST     | `/api/cloud-backup/destinations`                                | List destination status / create a folder or Google Drive destination for a registered library                                       |
+| PATCH / DELETE | `/api/cloud-backup/destinations/:id`                            | Update controls / remove configuration; pending cleanup or active leases prevent removal                                             |
+| POST           | `/api/cloud-backup/destinations/:id/retry`                      | Retry destination work independently                                                                                                 |
+| GET            | `/api/cloud-backup/destinations/:id/catalog`                    | Read remote version history and purge-filtered recoverable entries                                                                   |
+| POST           | `/api/cloud-backup/destinations/:id/restore/preview`            | Validate an empty target, selected versions, space, collisions and remote coverage                                                   |
+| POST           | `/api/cloud-backup/destinations/:id/restore`                    | Validate preview and create a durable recovery job                                                                                   |
+| GET            | `/api/cloud-backup/destinations/:id/restore/jobs`               | List this destination's active and recent recovery jobs                                                                              |
+| POST           | `/api/cloud-backup/destinations/:id/restore/jobs/:jobId/resume` | Resume a failed/cancelled job with its existing checkpoint and ownership journal                                                     |
+| GET / PUT      | `/api/cloud-backup/google/:destinationId/config`                | Redacted configuration / save or clear local client credentials and callback mode; attach an existing owned root after authorization |
+| POST           | `/api/cloud-backup/google/:destinationId/start`                 | Start owner/cookie/state/PKCE-bound consent; browser origin must match the centrally configured callback origin                      |
+| POST           | `/api/cloud-backup/google/:destinationId/root`                  | Create and bind a visible owned backup root after authorization                                                                      |
+| POST           | `/api/cloud-backup/google/:destinationId/disconnect`            | Clear local authorization and fence transfers while retaining remote data and purge obligations                                      |
+
+Recovery bodies are `{ targetPath, includeTrash, entryId?, sequence? }`; `entryId` and `sequence` must occur together to select one exact generation. Omitting both selects each entry's latest recoverable generation. The generic owner-only `GET /api/jobs/:id` and `POST /api/jobs/:id/cancel` inspect/cancel recovery; the generic job-creation route does not accept unchecked recovery jobs.
+
+`GET /api/cloud-backup/google/callback` is the browser OAuth return route. It requires the dedicated initiating flow cookie, exact one-use pending state and local verifier, and verifies the initiating owner remains authorized. It does not rely on a browser navigation carrying a bearer. Both callback modes exchange and refresh directly with Google inside Bun; there is no public token-renewal route. Exclude callback queries from reverse-proxy logs. Public Hosted/Worker paths are listed in [Cloud backup](cloud-backup.md).
+
 ## Imports and jobs
 
 | Method | Path                      | Auth   | Purpose                                                                                                                                                                           |
