@@ -90,13 +90,21 @@ Folder destinations continue to use the existing mirror writer and scan/copy/scr
 
 Moving a photo to Maple Trash keeps backup bytes and publishes its Trash state. Restoring from Trash publishes active state again. Cloud recovery can include Trash and preserves its actual `.maple/trash/` path, original path, hidden state and original deletion timestamp; it does not reset the retention clock or create an active alias over another photo.
 
+Trash moves have a durable owner and renewable lease shared by the HTTP and background processes. Verified copies are committed to the catalog before their sources are removed; a lost lease or failed catalog write retains the source. A watcher identity with backup history cannot be silently discarded during restore. Maple can choose the next free restore name when that identity still occupies the requested catalog path.
+
+Replacing an upload uses the same Trash workflow. Redundant-copy cleanup requires complete byte identity and a single unchanged location; any XMP or recorded Apple companion keeps the old identity in Trash. Merging deduplicated asset rows preserves their stable backup history and fences old transfer owners.
+
 Permanent deletion and retention expiry of intentionally trashed photos first record a durable intent in SQLite before local bytes and the asset row disappear. Cloud cleanup first publishes `purges/<entryId>.json`, then removes that entry's versions, blobs and unfinished uploads. Recovery excludes a published purged entry even if physical cleanup is incomplete. Local mirrors keep exact-path and byte-identity obligations, so a newer file reused at an old Trash path is not deliberately removed as the previous photo.
+
+Purge admission checks the selected deletion timestamp, reason, locations and companion association in that same transaction. Retention skips changed candidates and continues; an explicit deletion returns HTTP 409 so the owner can refresh the Trash view. A photo restored after selection keeps its files and cloud history.
 
 Photos marked reaped because all indexed locations are missing keep their catalog rows when backup entries exist, even after the local retention window expires. This skip is logged and counted as scanned without a purge or error. Only explicit permanent deletion authorizes erasing their backups; a returned original or sidecar at the stored location remains untouched. Reaped rows without backups retain the existing database-only cleanup behavior.
 
 Offline, disabled or disconnected targets can still owe erasure. A disconnected target cannot fulfill it until the owner reconnects. The destination cannot be removed while its purge or transfer obligations remain open. A pending purge is not a statement that every remote byte has already been erased.
 
 Removing an otherwise idle destination leaves its remote files intact and ends Maple's tracking of that copy. Later primary-library deletions will no longer propagate there. Review or remove the retained backup separately before discarding its credentials or root ID; adding it again cannot reconstruct local deletion intents that were never recorded for that destination.
+
+Destination removal atomically clears its local credentials, entries, object mappings, upload checkpoints and completed purge records. Pending erasure or active transfers block removal; stale workers cannot admit new work for a removed destination.
 
 Preserve the original SQLite database while purges are pending. Until a tombstone reaches the remote root, an offline purge intent exists only in that local ledger. If the database is lost before publication, fresh-server recovery cannot infer that intent from the older backup alone. After publication, the portable remote purge journal suppresses recovery independently of the original database.
 

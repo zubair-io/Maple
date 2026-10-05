@@ -56,6 +56,7 @@ export interface LocationAddress {
 /** A trashed asset the retention sweep may purge. */
 export interface TrashedAsset {
   _id: ObjectId;
+  deleted_at: string;
   deleted_reason: string | null;
   fileinfo: FileInfo[];
   apple_rendered_path?: string;
@@ -159,16 +160,18 @@ export async function listTrashedBefore(
   const db = sqliteDb(dbOverride);
   const rows = await db.read<{
     id: string;
+    deleted_at: string;
     deleted_reason: string | null;
     apple_rendered_path: string | null;
   }>(
-    `SELECT id, deleted_reason, apple_rendered_path FROM assets
+    `SELECT id, deleted_at, deleted_reason, apple_rendered_path FROM assets
       WHERE deleted_at IS NOT NULL AND deleted_at < ?
       ORDER BY deleted_at`,
     [cutoffIso],
   );
   return withFileinfo(db, rows, (row, fileinfo) => ({
     _id: toObjectId(row.id),
+    deleted_at: row.deleted_at,
     deleted_reason: row.deleted_reason,
     ...(row.apple_rendered_path ? { apple_rendered_path: row.apple_rendered_path } : {}),
     fileinfo,

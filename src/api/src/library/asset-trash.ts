@@ -33,12 +33,19 @@ import { composeSearchBlob } from '../enrichment/search-blob.ts';
 import { classifyMediaType } from '../indexer/media-types.ts';
 import { recordAndPublishAssetChange } from '../db/repos/changes.repo.ts';
 import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
-import { findCoreInfoById, markSoftDeleted, restoreFromTrash } from '../db/repos/assets.repo.ts';
+import {
+  findCoreInfoById,
+  markSoftDeleted,
+  restoreFromTrash,
+  restoreBackupDestinationOccupied,
+} from '../db/repos/assets.repo.ts';
 import {
   prepareLifecycle,
   recordLifecycleTarget,
   finishLocalLifecycle,
   runLifecycleMove,
+  lifecycleCommit,
+  fenceLifecycleMove,
 } from '../cloud-backup/lifecycle.ts';
 import type { AssetCoreInfo } from '../db/repos/assets.repo.ts';
 import type { FileInfo } from '../db/schema.ts';
@@ -181,6 +188,7 @@ export async function trashAssetById(
   const folder = await findFolderById(libraryId);
   if (!folder) return { kind: 'no-folder' };
   const absPathResolved = path.join(folder.path, entryPath, entryFilename);
+  const originalAbsPath = absPathResolved;
 
   const intent = await prepareLifecycle(
     id.toHexString(),
@@ -189,8 +197,24 @@ export async function trashAssetById(
     path.relative(folder.path, absPathResolved).split(path.sep).join('/'),
   );
   const result = await runLifecycleMove(intent, () =>
-    moveToTrash(absPathResolved, folder.path, (target) =>
-      recordLifecycleTarget(intent, folder.path, absPathResolved, target),
+    moveToTrash(
+      absPathResolved,
+      folder.path,
+      (target) => recordLifecycleTarget(intent, folder.path, absPathResolved, target),
+      () => fenceLifecycleMove(intent),
+      async (target) => {
+        // Repoint only the matched location after verifying every copied byte,
+        // before removing any original. The transaction fences the lease owner.
+        await markSoftDeleted({
+          id,
+          libraryRoot: folder.path,
+          libraryId,
+          newAbsPath: target,
+          originalAbsPath: absPathResolved,
+          source: { libraryId, path: entryPath, filename: entryFilename },
+          lifecycle: await lifecycleCommit(intent),
+        });
+      },
     ),
   );
   if (result.kind !== 'ok') {
@@ -198,19 +222,6 @@ export async function trashAssetById(
     return { kind: 'error', error: result.error };
   }
 
-  // `source` tells the repo to rewrite ONLY the matched fileinfo entry
-  // instead of clobbering the whole array — when the asset has multiple
-  // `fileinfo[]` (deduped across libraries) this preserves the non-trashed
-  // locations.
-  const originalAbsPath = absPathResolved;
-  await markSoftDeleted({
-    id,
-    libraryRoot: folder.path,
-    libraryId,
-    newAbsPath: result.newAbsPath,
-    originalAbsPath,
-    source: { libraryId, path: entryPath, filename: entryFilename },
-  });
   await finishLocalLifecycle(intent);
 
   await tombstoneInSearch(id, info.maple_id);
@@ -477,8 +488,34 @@ export async function restoreAssetById(
     path.relative(folder.path, trashedAbsPath).split(path.sep).join('/'),
   );
   const result = await runLifecycleMove(intent, () =>
-    moveOutOfTrash(trashedAbsPath, targetResolution.targetAbs, (target) =>
-      recordLifecycleTarget(intent, folder.path, trashedAbsPath, target),
+    moveOutOfTrash(
+      trashedAbsPath,
+      targetResolution.targetAbs,
+      (target) => recordLifecycleTarget(intent, folder.path, trashedAbsPath, target),
+      () => fenceLifecycleMove(intent),
+      async (target) => {
+        const { size, mtimeMs } = await restatRestoredFile(target, info.size);
+        await restoreFromTrash({
+          id,
+          libraryRoot: folder.path,
+          libraryId: assetFolderId,
+          newAbsPath: target,
+          size,
+          mtimeMs,
+          source: {
+            libraryId: entrySpec.libraryId,
+            path: entrySpec.path,
+            filename: entrySpec.filename,
+          },
+          lifecycle: await lifecycleCommit(intent),
+        });
+      },
+      (candidate) =>
+        restoreBackupDestinationOccupied(
+          id,
+          assetFolderId,
+          path.relative(folder.path, candidate).split(path.sep).join('/'),
+        ),
     ),
   );
   if (result.kind !== 'ok') {
@@ -491,23 +528,6 @@ export async function restoreAssetById(
     result.newAbsPath,
     info.size,
   );
-
-  // The trashed fileinfo entry to repoint — the SAME `entrySpec` every
-  // step above already used, so this can't disagree with `trashedAbsPath`
-  // or `assetFolderId`.
-  await restoreFromTrash({
-    id,
-    libraryRoot: folder.path,
-    libraryId: assetFolderId,
-    newAbsPath: result.newAbsPath,
-    size: restoredSize,
-    mtimeMs: restoredMtimeMs,
-    source: {
-      libraryId: entrySpec.libraryId,
-      path: entrySpec.path,
-      filename: entrySpec.filename,
-    },
-  });
   await finishLocalLifecycle(intent);
 
   await reindexRestoredInSearch(id, info, restoredFilename, assetFolderId);

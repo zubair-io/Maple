@@ -37,7 +37,12 @@ interface StagedFile {
  * A losing claim rolls back only this attempt's files and retains ALL sources
  * so the caller can retry the next restore name. Ordinary Replace operations
  * continue to use relocateFile; restore never authorizes replacement. */
-export async function restoreFilePair(source: string, destination: string): Promise<boolean> {
+export async function restoreFilePair(
+  source: string,
+  destination: string,
+  beforeSourceDelete?: () => Promise<void>,
+  onVerified?: (destination: string) => Promise<void>,
+): Promise<boolean> {
   const sidecars = await listPairedSidecars(source);
   const pairs = [
     { source, destination },
@@ -69,8 +74,15 @@ export async function restoreFilePair(source: string, destination: string): Prom
       published.push(entry.destination);
       if (index === 0 && (await listPairedSidecars(destination)).length > 0) return false;
     }
+    await beforeSourceDelete?.();
+    await onVerified?.(destination);
+    committed = onVerified !== undefined;
+    await beforeSourceDelete?.();
     committed = true;
     for (const entry of staged) {
+      // After any source was removed, retain published copies even if a later
+      // ownership check fails: rollback would discard the only remaining bytes.
+      await beforeSourceDelete?.();
       await fs.unlink(entry.source).catch((error) => {
         log.warn(
           { source: entry.source, error: String(error) },

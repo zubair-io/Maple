@@ -1,4 +1,6 @@
 /** Durable backup state deliberately survives deletion of an asset row (#4228). */
+import { CLOUD_BACKUP_PURGE_LOCATION_DDL } from './cloud-backup-purge-guard.ts';
+
 export const CLOUD_BACKUP_DDL = `
 CREATE TABLE backup_destinations (
   id TEXT PRIMARY KEY, library_id TEXT NOT NULL, kind TEXT NOT NULL,
@@ -26,9 +28,31 @@ CREATE TABLE backup_objects (
 CREATE TABLE backup_lifecycle (
   id TEXT PRIMARY KEY, asset_id TEXT NOT NULL, library_id TEXT,
   source_path TEXT, target_path TEXT, source_sha256 TEXT, kind TEXT NOT NULL, phase TEXT NOT NULL,
-  created_at TEXT NOT NULL, last_error TEXT
+  created_at TEXT NOT NULL, last_error TEXT, lease_owner TEXT,
+  lease_until INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX backup_lifecycle_pending ON backup_lifecycle(phase,created_at);
+CREATE INDEX backup_lifecycle_pending ON backup_lifecycle(phase,lease_until);
+CREATE TRIGGER backup_lifecycle_move_guard BEFORE INSERT ON backup_lifecycle
+WHEN NEW.kind IN ('trash','restore') AND EXISTS
+ (SELECT 1 FROM backup_lifecycle WHERE asset_id=NEW.asset_id AND
+   (kind='purge' OR phase='prepared' OR (phase='applied' AND lease_until>unixepoch('subsec')*1000)))
+BEGIN
+  SELECT RAISE(ABORT,'Asset has a pending backup lifecycle operation');
+END;
+CREATE TRIGGER backup_lifecycle_purge_guard BEFORE INSERT ON backup_lifecycle
+WHEN NEW.kind='purge' AND EXISTS
+ (SELECT 1 FROM backup_lifecycle WHERE asset_id=NEW.asset_id AND
+   (phase='prepared' OR (phase='applied' AND lease_until>unixepoch('subsec')*1000)))
+BEGIN
+  SELECT RAISE(ABORT,'Asset has a pending backup lifecycle operation');
+END;
+CREATE TRIGGER backup_lifecycle_commit_guard BEFORE UPDATE OF phase ON backup_lifecycle
+WHEN NEW.phase='applied' AND NEW.lease_owner IS NOT NULL AND
+ (OLD.phase!='prepared' OR OLD.lease_owner IS NOT NEW.lease_owner
+  OR OLD.lease_until<=unixepoch('subsec')*1000)
+BEGIN
+  SELECT RAISE(ABORT,'Lifecycle preparation lease lost');
+END;
 CREATE TABLE backup_purges (
   destination_id TEXT NOT NULL, entry_id TEXT NOT NULL, record TEXT NOT NULL,
   published INTEGER NOT NULL DEFAULT 0, completed INTEGER NOT NULL DEFAULT 0,
@@ -72,4 +96,5 @@ BEGIN
   UPDATE stage_state SET version=0,attempts=0,dead=0,next_attempt_at=NULL
     WHERE asset_id=NEW.asset_id AND stage='cloud-backup';
 END;
+${CLOUD_BACKUP_PURGE_LOCATION_DDL}
 `;

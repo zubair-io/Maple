@@ -360,6 +360,12 @@ export async function unlink(p: string): Promise<void> {
   if (targets.length) schedule(() => Promise.all(targets.map((t) => removeMirror(t))));
 }
 
+/** Permanent purge records mirror erasure durably and verifies its byte identity
+ * before unlinking there. The primary delete must not bypass that obligation. */
+export function unlinkPrimaryForPurge(p: string): Promise<void> {
+  return realFs.unlink(p);
+}
+
 export async function mkdir(
   p: string,
   options?: Parameters<typeof realFs.mkdir>[1],

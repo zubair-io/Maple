@@ -10,11 +10,10 @@ import { Elysia, t } from 'elysia';
 import { ObjectId } from '../db/object-id.ts';
 // Mirror-aware drop-in: uploads, folder moves, and mkdir replicate to the
 // library's backup root(s). `rename` is directory-aware for folder moves.
-import { readdir, open, rename, stat, unlink, mkdir, utimes } from '../fs/mirrored.ts';
+import { readdir, rename, stat, mkdir } from '../fs/mirrored.ts';
 import type { Dirent, Stats } from 'node:fs';
 import * as nodePath from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { sha1 } from '@noble/hashes/legacy.js';
 import {
   findFolderById,
   findFolderByPath,
@@ -29,17 +28,11 @@ import {
   listFolderTrash,
   resetFolderStages,
 } from '../db/repos/folder-assets.repo.ts';
-import { findAssetToReplaceAtAddress, upsertUploadedAsset } from '../db/repos/assets.address.ts';
-import { hardDelete, markSoftDeleted } from '../db/repos/assets.trash.ts';
-import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
+import { isIndexedUpload, streamUploadedBody, finalizeUploadedFile } from './folders.upload.ts';
+import { parseFolderTrashPage, folderTrashItem } from './folders.trash-page.ts';
 import { validateRoot } from '../fs/root.ts';
 import { rootsConnected } from '../fs/root-connectivity.ts';
-import { RAW_EXTENSIONS } from '../fs/browse.ts';
-import { BITMAP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
-import { STUB_IMAGE_EXTENSIONS, AUDIO_EXTENSIONS } from '../fs/browse.ts';
-import { moveToTrash } from '../fs/trash.ts';
 import { DUPLICATES_DIR_NAME } from '../fs/duplicates.ts';
-import { listPairedSidecars } from '../fs/xmp-conflict.ts';
 import { child as childLogger } from '../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
 import { requireFileAccessBeforeHandle } from '../auth/middleware.ts';
@@ -47,30 +40,8 @@ import { handleEvent } from '../workers/discover/index.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { slugify, dedupeSlug } from '../library/slug.ts';
 import { realpathJailCheck } from '../library/address.ts';
-import { assetAbsPath } from '../indexer/images.repo.ts';
-import { ALL_STAGE_NAMES } from '../workers/stages/manifest.ts';
-import { classifyMediaType } from '../indexer/media-types.ts';
 import { safeObjectId } from '../db/object-id.ts';
 import type { FolderWithId } from '../db/schema.ts';
-import type { AssetOwnerSummary } from '../db/assets.transform.ts';
-
-// Mirror of the hash stage's prefix-SHA-1: first 64 KB. Reused here so a
-// duplicate upload whose content is byte-identical to the file being
-// replaced can drop the trash entry instead of leaving a redundant copy.
-const SHA1_HEAD_BYTES = 64 * 1024;
-async function sha1HeadHex(absPath: string): Promise<string> {
-  const fd = await open(absPath, 'r');
-  try {
-    const buf = new Uint8Array(SHA1_HEAD_BYTES);
-    const { bytesRead } = await fd.read(buf, 0, buf.length, 0);
-    const digest = sha1(buf.subarray(0, bytesRead));
-    let s = '';
-    for (let i = 0; i < digest.length; i++) s += digest[i]!.toString(16).padStart(2, '0');
-    return s;
-  } finally {
-    await fd.close();
-  }
-}
 
 const log = childLogger('folders');
 
@@ -219,6 +190,15 @@ async function folderOrError(rawId: string): Promise<FolderWithId | Response> {
   if (id === null) return Response.json({ error: 'Invalid folder id' }, { status: 400 });
   const folder = await findFolderById(id);
   return folder ?? Response.json({ error: 'Folder not found' }, { status: 404 });
+}
+
+/** Upload and mkdir share the same library and target-header admission. */
+async function folderTargetOrError(rawId: string, headers: Record<string, string | undefined>) {
+  const folder = await folderOrError(rawId);
+  if (folder instanceof Response) return folder;
+  const validated = decodeAndValidateTargetPath(headers);
+  if (!validated.ok) return Response.json({ error: validated.error }, { status: validated.status });
+  return { folder, target: validated.target, parts: validated.parts };
 }
 
 /**
@@ -593,33 +573,11 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
     async (ctx) => {
       const { params, headers, request, set } = ctx;
       const ownerId = (ctx as { auth?: { user?: { sub?: string } } }).auth?.user?.sub;
-      const folder = await folderOrError(params.id);
-      if (folder instanceof Response) return folder;
-      const folderId = folder._id;
-
-      const validated = decodeAndValidateTargetPath(headers);
-      if (!validated.ok) {
-        set.status = validated.status;
-        return { error: validated.error };
-      }
-      const { target, parts } = validated;
+      const destination = await folderTargetOrError(params.id, headers);
+      if (destination instanceof Response) return destination;
+      const { folder, target, parts } = destination;
       const filename = parts[parts.length - 1]!;
-      const dot = filename.lastIndexOf('.');
-      const ext = dot >= 0 ? filename.slice(dot + 1).toLowerCase() : '';
-      // Any file type may be uploaded and stored on disk so the File
-      // Provider can sync everything. Only image/video/stub/audio files get
-      // an `AssetDoc` — the catalog stays media-only. Everything else
-      // (documents, archives, extensionless files) is stored + synced but
-      // never indexed. Stub images (eip/braw/afphoto/ai) and audio
-      // (mp3/wav/m4a/aac, #1835) get an AssetDoc too — metadata-only, no
-      // thumbnail — so an uploaded stub/audio file is indexed rather than
-      // silently stored-but-uncataloged.
-      const isMedia =
-        RAW_EXTENSIONS.has(ext) ||
-        BITMAP_EXTENSIONS.has(ext) ||
-        PSD_HDR_EXTENSIONS.has(ext) ||
-        STUB_IMAGE_EXTENSIONS.has(ext) ||
-        AUDIO_EXTENSIONS.has(ext);
+      const isMedia = isIndexedUpload(filename);
 
       const absPath = nodePath.join(folder.path, target);
 
@@ -633,281 +591,27 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // to trash, so a duplicate upload never destroys the prior copy.
       const tmp = nodePath.join(dir, `.upload-${randomUUID()}`);
       try {
-        const stream = request.body as ReadableStream<Uint8Array> | null;
-        if (stream === null) {
-          const fh = await open(tmp, 'w');
-          await fh.close();
-        } else {
-          const sink = Bun.file(tmp).writer();
-          try {
-            const reader = stream.getReader();
-            try {
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                if (value && value.byteLength > 0) sink.write(value);
-              }
-            } finally {
-              reader.releaseLock();
-            }
-            await sink.flush();
-          } finally {
-            await sink.end();
-          }
-        }
-      } catch (err) {
-        try {
-          await unlink(tmp);
-        } catch {}
-        set.status = 500;
-        return {
-          error: `Upload write failed: ${err instanceof Error ? err.message : String(err)}`,
-        };
-      }
-
-      // Serialize the post-write critical section per destination path
-      // so two concurrent requests don't both miss the asset-doc upsert
-      // and double-insert. The streaming write to the unique tmp above
-      // is safe in parallel — only the stat→trash→rename→upsert chain
-      // needs ordering. See `withUploadLock` for the rationale.
-      return await withUploadLock(absPath, async () => {
-        // If a file already lives at the target, move it to trash (RAW +
-        // paired sidecars, with `.N` collision suffix) before the rename
-        // overwrites it. Tracks the trashed doc's id + prefix-hash + size
-        // so the post-write step can purge the trash entry when the new
-        // upload is byte-identical to what we just moved aside.
-        //
-        // Concurrent-upload race: another request to the same target may
-        // move the file between our `stat` and our `moveToTrash`. If
-        // `moveToTrash` fails AND the file is now gone, treat it as
-        // benign (the peer handled the trash + doc update); otherwise
-        // surface the error.
-        type Trashed = {
-          docId: ObjectId;
-          newAbsPath: string;
-          sha1_head?: string;
-          size?: number;
-        };
-        let trashed: Trashed | undefined;
-        // Non-media files have no AssetDoc and no trash semantics — a
-        // re-upload simply overwrites the bytes via the atomic rename below.
-        if (isMedia)
-          try {
-            await stat(absPath);
-            // Pre-compute the target location that's about to be overwritten
-            // so we can look up the existing row by `(library_id, path,
-            // filename)` instead of the retired `abs_path` field.
-            const preRelDirRaw = nodePath.dirname(target);
-            const preRelDir =
-              preRelDirRaw === '.' || preRelDirRaw === ''
-                ? ''
-                : preRelDirRaw.split(nodePath.sep).join('/');
-            const existing = await findAssetToReplaceAtAddress(folderId, preRelDir, filename);
-            const moved = await moveToTrash(absPath, folder.path);
-            if (moved.kind === 'ok') {
-              if (existing) {
-                // Repoint the asset at the trash destination and stamp it
-                // soft-deleted, so cache resolution and restore can still find
-                // the row. Passing no `source` keeps the historical
-                // single-entry contract: every location is replaced by the one
-                // that now holds the bytes. `live_location_count` follows from
-                // the triggers on `asset_locations`, so the stale-count bug the
-                // hand-maintained field had (#1302) cannot recur.
-                await markSoftDeleted({
-                  id: existing._id,
-                  libraryRoot: folder.path,
-                  libraryId: folderId,
-                  newAbsPath: moved.newAbsPath,
-                  originalAbsPath: absPath,
-                });
-                trashed = {
-                  docId: existing._id,
-                  newAbsPath: moved.newAbsPath,
-                  sha1_head: existing.sha1_head ?? undefined,
-                  size: existing.size,
-                };
-                // Mirror the DELETE route: emit a delete change so consumers
-                // (e.g. WorkingSetEnumerator, which removes items only on
-                // `.delete`) drop the pre-existing asset. The subsequent
-                // `create` for the new bytes still publishes below.
-                await recordAndPublishAssetChange({
-                  kind: 'delete',
-                  asset_id: existing._id,
-                  folder_id: folderId,
-                  abs_path: absPath,
-                }).catch(() => {});
-              }
-            } else {
-              let stillThere = false;
-              try {
-                await stat(absPath);
-                stillThere = true;
-              } catch {}
-              if (stillThere) {
-                try {
-                  await unlink(tmp);
-                } catch {}
-                set.status = 500;
-                return { error: `Upload trash failed: ${moved.error}` };
-              }
-              // Benign race — peer moved the file, peer owns its trash + doc
-              // update. We proceed to rename our tmp into place.
-            }
-          } catch (err) {
-            if ((err as { code?: string }).code !== 'ENOENT') {
-              try {
-                await unlink(tmp);
-              } catch {}
-              set.status = 500;
-              return {
-                error: `Upload pre-trash failed: ${err instanceof Error ? err.message : String(err)}`,
-              };
-            }
-          }
-
-        try {
-          await rename(tmp, absPath);
-        } catch (err) {
-          try {
-            await unlink(tmp);
-          } catch {}
-          set.status = 500;
-          return {
-            error: `Upload rename failed: ${err instanceof Error ? err.message : String(err)}`,
-          };
-        }
-
-        const st = await stat(absPath);
-        const mtimeHeader = headers['x-maple-file-mtime'];
-        if (typeof mtimeHeader === 'string' && /^\d+$/.test(mtimeHeader)) {
-          const epoch = parseInt(mtimeHeader, 10);
-          try {
-            await utimes(absPath, epoch, epoch);
-          } catch {}
-        }
-
-        // Non-media: bytes are stored + synced, but we create no AssetDoc.
-        // Emit a path-addressed change (`asset_id: null`) so File Provider
-        // clients see the new file without waiting for a re-enumeration —
-        // `WorkingSetEnumerator.enumerateChanges` (#2535) resolves these via
-        // `(folder_id, relative_path)` instead of an asset id.
-        if (!isMedia) {
-          await recordAndPublishAssetChange({
-            kind: 'create',
-            asset_id: null,
-            folder_id: folderId,
-            abs_path: absPath,
-            relative_path: target,
-          }).catch((err) => {
-            log.warn(
-              {
-                folderId: folderId.toHexString(),
-                relativePath: target,
-                err: err instanceof Error ? err.message : err,
-              },
-              'change-feed emit failed after non-media upload (best-effort, ignoring)',
-            );
-          });
-          set.status = 201;
-          return {
-            abs_path: absPath,
-            size: st.size,
-            mtime: new Date(st.mtimeMs).toISOString(),
-          };
-        }
-
-        // If the file we just trashed had the same prefix-hash and size
-        // as the new upload, the trash entry would be a redundant copy
-        // of the freshly-written file — discard it (RAW + any paired
-        // sidecars that `moveToTrash` relocated alongside).
-        if (trashed && typeof trashed.sha1_head === 'string' && typeof trashed.size === 'number') {
-          try {
-            const newHead = await sha1HeadHex(absPath);
-            if (newHead === trashed.sha1_head && st.size === trashed.size) {
-              const sidecars = await listPairedSidecars(trashed.newAbsPath);
-              try {
-                await unlink(trashed.newAbsPath);
-              } catch {}
-              for (const sidecar of sidecars) {
-                try {
-                  await unlink(sidecar);
-                } catch {}
-              }
-              await hardDelete(trashed.docId);
-              trashed = undefined;
-            }
-          } catch (err) {
-            log.warn(
-              {
-                absPath,
-                err: err instanceof Error ? err.message : String(err),
-              },
-              'duplicate-upload identical-content check failed — leaving trash entry in place',
-            );
-          }
-        }
-
-        const nowIso = new Date().toISOString();
-        // The canonical location mirrors the validated target path split into
-        // (library-relative directory, filename, library_id). POSIX-normalize
-        // `path.sep` → `/` so the stored path obeys the FileInfo docstring
-        // contract on every host.
-        const relDirRaw = nodePath.dirname(target);
-        const relDir =
-          relDirRaw === '.' || relDirRaw === '' ? '' : relDirRaw.split(nodePath.sep).join('/');
-        // Create-or-update by `(library_id, path, filename)` to race-safely
-        // cooperate with the discover watcher. If the watcher's chokidar tick
-        // observed the just-written file first and already created a row, the
-        // insert loses to the UNIQUE index and we update size/mtime over the
-        // top; if we win the race, we own the insert.
-        let assetID: ObjectId;
-        try {
-          assetID = await upsertUploadedAsset({
-            libraryId: folderId,
-            ownerId,
-            path: relDir,
+        await streamUploadedBody(tmp, request.body as ReadableStream<Uint8Array> | null);
+        // Serialize only the publication/Trash/catalog section. Body writes
+        // remain streamed in parallel to independent temporary paths.
+        const result = await withUploadLock(absPath, () =>
+          finalizeUploadedFile({
+            folder,
+            target,
             filename,
-            size: st.size,
-            mtimeMs: st.mtimeMs,
-            indexedAt: nowIso,
-            mediaKind: classifyMediaType(filename),
-            stages: ALL_STAGE_NAMES,
-          });
-        } catch (err) {
-          // A constraint violation or anything else: undo the file move so we
-          // don't leak an orphan file with no catalog row backing it. The
-          // address race is already handled inside the upsert.
-          try {
-            await unlink(absPath);
-          } catch {}
-          set.status = 500;
-          return {
-            error: `Upload metadata failed: ${err instanceof Error ? err.message : String(err)}`,
-          };
-        }
-
-        // Best-effort change-feed emit so File Provider clients see the
-        // new asset without waiting for the discover watcher to notice
-        // the file. `.catch(() => {})` honours the Phase 5b guarantee
-        // that change-feed failure is non-fatal to the primary write.
-        await recordAndPublishAssetChange({
-          kind: 'create',
-          asset_id: assetID,
-          folder_id: folderId,
-          abs_path: absPath,
-        }).catch(() => {});
-
+            absPath,
+            tmp,
+            isMedia,
+            mtimeHeader: headers['x-maple-file-mtime'],
+            ownerId,
+          }),
+        );
         set.status = 201;
-        // `mtime` is emitted as an ISO-8601 string (matches the rest of
-        // the API and the Swift `Date` decoder); the raw `st.mtimeMs`
-        // float would corrupt an `Int64` decoder client-side.
-        return {
-          asset_id: assetID.toHexString(),
-          abs_path: absPath,
-          size: st.size,
-          mtime: new Date(st.mtimeMs).toISOString(),
-        };
-      });
+        return result;
+      } catch (error) {
+        set.status = 500;
+        return { error: error instanceof Error ? error.message : String(error) };
+      }
     },
     {
       // Skip Elysia body parsing — the handler consumes `request.body`
@@ -968,15 +672,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   .post(
     '/:id/mkdir',
     async ({ params, headers, set }) => {
-      const folder = await folderOrError(params.id);
-      if (folder instanceof Response) return folder;
-
-      const validated = decodeAndValidateTargetPath(headers);
-      if (!validated.ok) {
-        set.status = validated.status;
-        return { error: validated.error };
-      }
-      const absPath = nodePath.join(folder.path, validated.target);
+      const destination = await folderTargetOrError(params.id, headers);
+      if (destination instanceof Response) return destination;
+      const absPath = nodePath.join(destination.folder.path, destination.target);
       try {
         await mkdir(absPath, { recursive: true });
       } catch (err) {
@@ -1092,22 +790,12 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       if (folder instanceof Response) return folder;
       const folderId = folder._id;
 
-      // Parse + validate `limit`. `Number("abc")` is `NaN`, which
-      // `Math.min/max` preserve, and a `NaN` bound as a `LIMIT` is not a
-      // page size anyone asked for. Reject non-numeric / out-of-range
-      // values with 400 and clamp valid values into [1, 500].
-      const limitRaw = query.limit;
-      let limit = 100;
-      if (typeof limitRaw === 'string' && limitRaw.length > 0) {
-        const parsed = Number.parseInt(limitRaw, 10);
-        if (!Number.isFinite(parsed) || parsed < 1) {
-          set.status = 400;
-          return { error: 'Invalid limit — must be a positive integer' };
-        }
-        limit = Math.min(500, parsed);
+      const options = parseFolderTrashPage(query);
+      if ('error' in options) {
+        set.status = 400;
+        return { error: options.error };
       }
-      const cursor =
-        typeof query.cursor === 'string' && query.cursor.length > 0 ? query.cursor : null;
+      const { limit, cursor } = options;
 
       // One more row than the page, so "is there another page" is answered by
       // the read rather than by a second count.
@@ -1119,58 +807,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
 
       const rootPrefix = folder.path.endsWith('/') ? folder.path : folder.path + '/';
       const libs = await loadLibraryRoots();
-      const items: Array<{
-        asset_id: string;
-        filename: string;
-        original_relative_path: string;
-        trash_relative_path: string;
-        size: number;
-        mtime: string;
-        deleted_at: string;
-        /** 'user' — user-initiated trash (restorable copy in .maple/trash);
-         * 'reaped' — the missing-reaper soft-deleted it, no copy exists
-         * (#2977). Additive field; older clients ignore it. */
-        reason: 'user' | 'reaped';
-        owner_id: string | null;
-        owner: AssetOwnerSummary | null;
-      }> = [];
-      for (const doc of pageDocs) {
-        const primary = doc.fileinfo.find((e) => !e.deleted_at) ?? doc.fileinfo[0];
-        if (!primary) continue;
-        const isReaped = doc.deleted_reason === 'reaped';
-        // A reaped row has no original_path and no trash copy — both wire
-        // paths carry the stored (now-vanished) library-relative location.
-        const storedRel =
-          primary.path === '' ? primary.filename : `${primary.path}/${primary.filename}`;
-        const orig = doc.original_path ?? '';
-        const originalRel = isReaped
-          ? storedRel
-          : orig.startsWith(rootPrefix)
-            ? orig.slice(rootPrefix.length)
-            : orig;
-        const absPath = isReaped ? null : assetAbsPath(doc, libs);
-        if (!isReaped && !absPath) continue;
-        const trashRel = isReaped
-          ? storedRel
-          : absPath!.startsWith(rootPrefix)
-            ? absPath!.slice(rootPrefix.length)
-            : absPath!;
-        // `mtime` is `fs.stat().mtimeMs`, an epoch-millisecond number. Emit
-        // ISO-8601 over the wire so the Swift `Date` decoder reads it.
-        const mtimeIso = new Date(doc.mtime).toISOString();
-        items.push({
-          asset_id: doc._id.toHexString(),
-          filename: primary.filename,
-          original_relative_path: originalRel,
-          trash_relative_path: trashRel,
-          size: doc.size,
-          mtime: mtimeIso,
-          deleted_at: doc.deleted_at,
-          reason: isReaped ? 'reaped' : 'user',
-          owner_id: doc.owner_id,
-          owner: doc.owner,
-        });
-      }
+      const items = pageDocs
+        .map((doc) => folderTrashItem(doc, rootPrefix, libs))
+        .filter((item) => item !== null);
       return {
         items,
         next_cursor: nextCursor,
