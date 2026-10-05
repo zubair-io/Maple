@@ -94,6 +94,9 @@ struct AppShell: View {
   /// Set to `.pano` by the PanoMergeView "Configure in Settings → Pano"
   /// callback so the sheet lands directly on the Pano tab. (#1241)
   @State private var settingsInitialTab: SettingsTab? = nil
+  #if os(macOS)
+    @Environment(\.openSettings) private var openSettingsAction
+  #endif
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   /// Whether the S5 editor's right-hand Info inspector is shown on the
   /// Mac/iPad pane shell. The editor's `(i)` button toggles this (#875
@@ -959,10 +962,12 @@ struct AppShell: View {
       // #944 copy/paste/sync adjustments.
       clipboard: adjustmentClipboard
     )
-    .sheet(isPresented: $showSettings, onDismiss: { settingsInitialTab = nil }) {
-      SettingsView(initialTab: settingsInitialTab, sessionFor: sessionFor)
+    #if os(iOS)
+      .sheet(isPresented: $showSettings, onDismiss: { settingsInitialTab = nil }) {
+        SettingsView(initialTab: settingsInitialTab, sessionFor: sessionFor)
         .frame(minWidth: 540, minHeight: 480)
-    }
+      }
+    #endif
     .sheet(item: $batchMetadataVM) { vm in
       BatchMetadataSheet(vm: vm, onDismiss: { batchMetadataVM = nil })
     }
@@ -1017,8 +1022,7 @@ struct AppShell: View {
         // can configure paths without the sheet stacking on top.
         onOpenPanoSettings: {
           dismissPanoramaMerge()
-          settingsInitialTab = .pano
-          showSettings = true
+          openSettingsWindow(tab: .pano)
         }
       )
       #if os(macOS)
@@ -1364,8 +1368,7 @@ struct AppShell: View {
           // Settings → Pano on iPhone as well.
           onOpenPanoSettings: {
             dismissPanoramaMerge()
-            settingsInitialTab = .pano
-            showSettings = true
+            openSettingsWindow(tab: .pano)
           }
         )
       }
@@ -1452,6 +1455,21 @@ struct AppShell: View {
     #endif
   }
 
+  /// Opens Settings. On macOS, routes to the native Settings scene window
+  /// and updates the target tab if specified; on iOS, presents SettingsView as a sheet (#4245).
+  @MainActor
+  private func openSettingsWindow(tab: SettingsTab? = nil) {
+    if let tab {
+      SettingsNavigation.setTargetTab(tab)
+    }
+    #if os(macOS)
+      openSettingsAction()
+    #else
+      settingsInitialTab = tab
+      showSettings = true
+    #endif
+  }
+
   // MARK: - Toolbar
 
   /// Wires `AppShell` state into `AppShellToolbar` (defined in
@@ -1484,7 +1502,7 @@ struct AppShell: View {
       browseDisplayMode: $browseDisplayMode,
       onOpenSearch: { toggleSearch() },
       onOpenFolder: { showFilePicker = true },
-      onSettings: { showSettings = true },
+      onSettings: { openSettingsWindow() },
       // M1 multi-select (#1236): show the Select/Done toggle in browse mode only.
       isSelecting: browseVM.isSelecting,
       onToggleSelect: mode == .browse

@@ -180,11 +180,12 @@ struct MapleApp: App {
       // sidebar only shows Self Hosted once at least one server is paired.
       Settings {
         SettingsView(sessionFor: { server in session(for: server) })
+          .preferredColorScheme(.dark)
       }
 
       // Per-server administration (#2766). A separate resizable window
       // rather than a Settings tab: the Settings scene is a fixed
-      // 540×480 and the Workers table arriving in #2768 is eight columns
+      // 700×500 and the Workers table arriving in #2768 is eight columns
       // wide. Keyed by server URL so two servers can be administered
       // side by side.
       WindowGroup(id: "server-admin", for: URL.self) { $server in
@@ -372,18 +373,6 @@ struct MapleApp: App {
 /// Tab identifiers for `SettingsView`.  Callers (e.g. `AppShell`) can pass
 /// a binding to pre-select a tab — used by the not-provisioned pano error
 /// flow so "Configure in Settings → Pano" opens directly on the Pano tab.
-enum SettingsTab: String {
-  case general
-  case backup
-  case selfHosted
-  case sources
-  case pano
-  case observability
-  case finder
-  case mapleUIGallery
-  case about
-}
-
 struct SettingsView: View {
   /// Optional pre-selected tab.  `nil` defaults to the General tab.
   /// Provided by callers that want to deep-link into a specific tab
@@ -396,7 +385,7 @@ struct SettingsView: View {
   /// pass `MapleApp.session(for:)`.
   var sessionFor: @MainActor (URL) -> AuthSession = AppShell.defaultSessionResolver
 
-  @State private var selectedTab: SettingsTab = .general
+  @AppStorage(SettingsNavigation.tabDefaultsKey) private var selectedTab: SettingsTab = .general
 
   var body: some View {
     TabView(selection: $selectedTab) {
@@ -451,16 +440,21 @@ struct SettingsView: View {
         .accessibilityIdentifier("settings.tab.about")
     }
     #if os(macOS)
-      .frame(width: 540, height: 480)
+      .frame(width: 700, height: 500)
     #endif
     .onAppear {
       if let tab = initialTab {
-        let panoDisabled = tab == .pano && !FeatureFlags.isPanoramaEnabled
-        if panoDisabled {
-          selectedTab = .general
-        } else {
-          selectedTab = tab
-        }
+        selectedTab = SettingsNavigation.resolveInitialTab(
+          requested: tab,
+          isPanoEnabled: FeatureFlags.isPanoramaEnabled
+        )
+      } else if selectedTab == .pano && !FeatureFlags.isPanoramaEnabled {
+        selectedTab = .general
+      }
+    }
+    .onChange(of: selectedTab) { _, newTab in
+      if newTab == .pano && !FeatureFlags.isPanoramaEnabled {
+        selectedTab = .general
       }
     }
   }
