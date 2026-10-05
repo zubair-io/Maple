@@ -31,9 +31,8 @@
 // S2 (#623) swaps the center column for the responsive `LibraryGrid`
 // (chosen by AppShellCenterColumn based on the layout env), and the
 // `PhoneLibraryStub` wrapper has been renamed `PhoneLibraryView` now
-// that the stub text is gone. S7 fills PhoneSearchStub. S8 (#1903)
-// replaces the embedded SettingsView with an iOS Settings-style List
-// (`PhoneSettingsView`).
+// that the stub text is gone. S7 fills PhoneSearchStub. #4253 unifies
+// Settings into one responsive page across macOS and iOS (SettingsView).
 
 #if os(iOS)
 
@@ -379,12 +378,7 @@
 
         Tab("Settings", systemImage: "gearshape", value: "settings") {
           NavigationStack {
-            // S8 (#1903): grouped List + push, replacing the S1a
-            // placeholder that embedded SettingsView (itself a
-            // TabView) and produced a nested footer tab bar.
-            PhoneSettingsView(sessionFor: sessionFor)
-              .navigationTitle("Settings")
-              .navigationBarTitleDisplayMode(.inline)
+            SettingsView(sessionFor: sessionFor)
           }
         }
       }

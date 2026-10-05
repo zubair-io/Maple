@@ -1,5 +1,8 @@
 # Responsive Program — S8: Settings Tab Content
 
+> [!NOTE]
+> Under issue #4253, `PhoneSettingsView` was consolidated with `SettingsView` into a single shared responsive Settings page across macOS, iPadOS, and iOS. Narrow layouts render the grouped list with push/back navigation, while wide layouts render category navigation beside the selected pane.
+
 Eighth and final sub-project of the responsive program (epic [#577](https://github.com/zubair-io/Maple/issues/577)). Replaces the S1a interim Settings tab content (`SettingsView()` as-is — a TabView-in-TabView) with a phone-native iOS Settings.app-style List + push pattern.
 
 No mockup exists in `/Users/riabuz/Projects/_Maple/mobile/maple-mobile-editor.html` for Settings — this spec proposes an iOS-Settings-style starting point. Reviewer can push back during PR design review.

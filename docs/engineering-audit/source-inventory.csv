@@ -1220,7 +1220,6 @@ src/apple/Maple/Views/PanoSelectionBar.swift,src/apple,src/apple/Maple,implement
 src/apple/Maple/Views/PanoSettingsView.swift,src/apple,src/apple/Maple,implementation,.swift,391
 src/apple/Maple/Views/PhoneLibraryView.swift,src/apple,src/apple/Maple,implementation,.swift,191
 src/apple/Maple/Views/PhoneSearchTab.swift,src/apple,src/apple/Maple,implementation,.swift,266
-src/apple/Maple/Views/PhoneSettingsView.swift,src/apple,src/apple/Maple,implementation,.swift,141
 src/apple/Maple/Views/PhoneTabShell.swift,src/apple,src/apple/Maple,implementation,.swift,347
 src/apple/Maple/Views/PillHeader.swift,src/apple,src/apple/Maple,implementation,.swift,179
 src/apple/Maple/Views/PresetsPanel.swift,src/apple,src/apple/Maple,implementation,.swift,281

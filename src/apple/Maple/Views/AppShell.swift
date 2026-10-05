@@ -964,7 +964,9 @@ struct AppShell: View {
     )
     #if os(iOS)
       .sheet(isPresented: $showSettings, onDismiss: { settingsInitialTab = nil }) {
-        SettingsView(initialTab: settingsInitialTab, sessionFor: sessionFor)
+        NavigationStack {
+          SettingsView(initialTab: settingsInitialTab, sessionFor: sessionFor)
+        }
         .frame(minWidth: 540, minHeight: 480)
       }
     #endif

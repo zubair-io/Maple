@@ -13,13 +13,10 @@
 
     var body: some View {
       // Bare Form (no NavigationStack) — this view is pushed inside the
-      // Settings tab's own NavigationStack from PhoneSettingsView, and a
-      // second nested NavigationStack there produces a duplicate nav bar
-      // (the exact nested-chrome bug responsive-program S8 (#1903) fixed
-      // for the Settings tab itself). The Mac/iPad `SettingsView` TabView
-      // "Files" tab renders this bare too, matching its sibling tabs
-      // (General/Backup/Cloud/Pano), none of which show an in-content
-      // title either.
+      // Settings tab's own NavigationStack, and a second nested
+      // NavigationStack there produces a duplicate nav bar. The wide
+      // `SettingsView` renders this bare too, matching its sibling panes
+      // (General/Backup/Cloud/Pano).
       Form {
         Section {
           if registry.servers.isEmpty {

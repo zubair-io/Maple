@@ -179,7 +179,9 @@ struct MapleApp: App {
       // Settings scene. Self-Hosted server management lives here — the
       // sidebar only shows Self Hosted once at least one server is paired.
       Settings {
-        SettingsView(sessionFor: { server in session(for: server) })
+        NavigationStack {
+          SettingsView(sessionFor: { server in session(for: server) })
+        }
       }
 
       // Per-server administration (#2766). A separate resizable window
