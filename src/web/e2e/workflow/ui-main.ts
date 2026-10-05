@@ -1,3 +1,4 @@
+import { lensXmpCleanupBoundary } from './lens-xmp-cleanup';
 import { opfsWriteFailure } from './opfs-write-failure';
 import './cold-profile-ui';
 import { geometryGestureWorkflow } from './geometry-gesture-workflow';
@@ -197,6 +198,7 @@ function attach(app: ApplicationRef, local: HostedFixture | null, server: Fixtur
 Reflect.set(window, 'workflowUI', {
   opfsWriteFailure,
   lensIndexCleanupBoundary,
+  lensXmpCleanupBoundary,
   lensGestureWorkflow,
   geometryGestureWorkflow,
   comparisonWorkflow,

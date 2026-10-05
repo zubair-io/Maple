@@ -421,8 +421,8 @@ export class XmpStoreService {
       );
     }
     this._pendingWrites.clear();
-    await Promise.all(new Set([...this._inFlightWrites.values(), ...writes]));
-    await Promise.all(
+    await settleWrites(new Set([...this._inFlightWrites.values(), ...writes]));
+    await settleWrites(
       [...this.retryWrites.values()].flatMap((scope) => scope.map((write) => write.run())),
     );
   }
@@ -546,4 +546,13 @@ export class XmpStoreService {
   private _sidecarFilename(rawFilename: string): string {
     return rawFilename.replace(/\.[^.]+$/, '.xmp');
   }
+}
+
+/** A failed sidecar must not relinquish its folder while sibling streams remain open. */
+async function settleWrites(writes: Iterable<Promise<void>>): Promise<void> {
+  const results = await Promise.allSettled(writes);
+  const errors = results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []));
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1)
+    throw new AggregateError(errors, 'Sidecar writes failed after all streams settled');
 }
