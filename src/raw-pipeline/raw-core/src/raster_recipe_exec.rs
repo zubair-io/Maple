@@ -3,7 +3,6 @@
 //! state — the ops list IS the pipeline.
 
 use crate::error::Result;
-use crate::icc;
 use crate::raster::RasterImage;
 /// Re-exported `pub(crate)` — `raster_recipe_geometry` and
 /// `raster_recipe_resize` reach it as `raster_recipe_exec::bad`, while

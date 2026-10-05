@@ -87,6 +87,9 @@ const AXIS_UNITS_PER_STOP: f32 = 12.5;
 /// Top of the region axis.
 const AXIS_MAX: f32 = 100.0;
 
+// Test-only today: no production caller (splits come from the model);
+// ungate if one appears.
+#[cfg(test)]
 /// ACR's `crs:ParametricShadowSplit` default — `model.parametric_shadow_split`
 /// (#2320) now drives the curve builder for real (#3152); this literal
 /// survives as the documented default and as the fallback GPU/FFI hosts
@@ -94,8 +97,10 @@ const AXIS_MAX: f32 = 100.0;
 /// `raw-ffi::gpu_live` and `raw_gpu::tone_curves::prep`).
 pub(super) const DEFAULT_SPLIT_SHADOW: f32 = 25.0;
 /// ACR's `crs:ParametricMidtoneSplit` default. See [`DEFAULT_SPLIT_SHADOW`].
+#[cfg(test)]
 pub(super) const DEFAULT_SPLIT_MIDTONE: f32 = AXIS_MIDTONE;
 /// ACR's `crs:ParametricHighlightSplit` default. See [`DEFAULT_SPLIT_SHADOW`].
+#[cfg(test)]
 pub(super) const DEFAULT_SPLIT_HIGHLIGHT: f32 = 75.0;
 
 /// Minimum axis-unit gap [`ordered_splits`] enforces between adjacent

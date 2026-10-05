@@ -152,7 +152,7 @@
 //! "< 2.5 stops DR" threshold is gone. It resolves non-zero on every one of the
 //! nineteen reference fixtures.
 
-use crate::image::{ColorSpace, Image};
+use crate::image::Image;
 use crate::stages::scene_tone_controls as stc;
 use crate::view::agx;
 use crate::view::agx_inverse::{inverse_agx_pixel, srgb_gamma_inv};
@@ -219,7 +219,7 @@ const SOLVE_ITERS: usize = 24;
 // why the M0 linear `[0, 1]` binning was a correctness bug, not just coarse.
 #[path = "auto_adjustments_tone_histogram.rs"]
 mod histogram;
-pub(crate) use histogram::{LogLumaHistogram, MID_GRAY};
+pub(crate) use histogram::LogLumaHistogram;
 
 // ---------------------------------------------------------------------------
 // Result

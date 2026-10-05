@@ -35,18 +35,14 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use crate::camera::Camera;
-use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
-use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
+use crate::features::FeatureSet;
 use crate::graph::{
     build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
     GraphImage, MatchGraph, ReverifySummary,
 };
 use crate::ingest::FramePriors;
-use crate::matching::{LightGlueMatcher, MatcherOptions};
-use crate::models::ModelDir;
 use crate::refine::{refine_correspondences, RefineOptions};
 use crate::robust::RobustOptions;
-use crate::stitch::interleave_planar;
 use crate::strategy::StrategyReport;
 use crate::tile::frame_cache::TileFrameCache;
 use crate::tile::placement::{solve_tile_poses, TileConstraint};

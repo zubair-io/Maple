@@ -97,7 +97,6 @@ use crate::gain::{solve_gains_streaming, GainOptions};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{
     build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
-    GraphImage,
 };
 use crate::ingest::{ingest_file_proxy, FrameMeta};
 
