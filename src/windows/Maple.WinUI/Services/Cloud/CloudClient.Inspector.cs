@@ -16,6 +16,8 @@ public sealed class CloudInspectorMetadata
     [JsonPropertyName("faces")] public JsonElement Faces { get; set; }
     [JsonPropertyName("place")] public JsonElement Place { get; set; }
     [JsonPropertyName("vision")] public JsonElement Vision { get; set; }
+    // Populated owner summary (#3817); null for unattributed assets.
+    [JsonPropertyName("owner")] public CloudAssetOwner? Owner { get; set; }
 
     public IReadOnlyList<(string Label, string Value)> Rows()
     {
@@ -31,11 +33,19 @@ public sealed class CloudInspectorMetadata
             Add("GPS", lat.GetRawText() + ", " + lon.GetRawText());
         if (Vision.ValueKind == JsonValueKind.Object && Vision.TryGetProperty("tags", out var tags) && tags.ValueKind == JsonValueKind.Array)
             Add("Tags", string.Join(", ", tags.EnumerateArray().Where(t => t.ValueKind == JsonValueKind.String).Select(t => t.GetString())));
+        if (Owner != null) Add("Owner", CloudOwnerOptions.Label(Owner.Id, Owner.Email));
         return rows;
     }
 
     private static string? String(JsonElement element, string property) => element.ValueKind == JsonValueKind.Object &&
         element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+}
+
+/// <summary>AssetDetailDto's populated owner summary (#3817).</summary>
+public sealed class CloudAssetOwner
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("email")] public string? Email { get; set; }
 }
 
 public sealed partial class CloudClient
