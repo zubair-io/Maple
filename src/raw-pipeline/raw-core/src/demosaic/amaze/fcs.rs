@@ -103,7 +103,38 @@ pub(super) fn suppress_false_colour(
             (predicted - c).abs() <= 32.0 * f32::EPSILON * scale.max(f32::MIN_POSITIVE)
         };
         if samples.iter().any(|&(g, c)| !supports_affine(g, c)) {
-            return Some(mean_colour);
+            // A colour junction may mix separate luminance ramps. Use the
+            // supported diagonal whose measured guides are closest, rather
+            // than importing the bright opposite edge into its value estimate.
+            if count != 4 {
+                return Some(mean_colour);
+            }
+            let center = green[y * w + x];
+            let distance =
+                |a: usize, b: usize| (samples[a].0 - center).abs() + (samples[b].0 - center).abs();
+            let (d0, d1) = (distance(0, 3), distance(1, 2));
+            if d0 == d1 {
+                return Some(mean_colour);
+            }
+            let (a, b) = if d0 < d1 {
+                (samples[0], samples[3])
+            } else {
+                (samples[1], samples[2])
+            };
+            if (b.0 - a.0) * (b.1 - a.1) <= 0.0 {
+                return Some(mean_colour);
+            }
+            if center < a.0.min(b.0) || center > a.0.max(b.0) {
+                // This non-affine colour junction does not support the chosen
+                // luminance pair. Keep the existing sensor value correction;
+                // only a supported affine ramp below can retain hue outside
+                // its measured guide range.
+                return Some(mean_colour);
+            }
+            return Some(
+                (a.1 + (b.1 - a.1) * (center - a.0) / (b.0 - a.0))
+                    .clamp(a.1.min(b.1), a.1.max(b.1)),
+            );
         }
         if count == 2 {
             // Two cardinal samples always fit a line. Validate it against the
