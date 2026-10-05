@@ -10,7 +10,8 @@ public sealed class DiagnosticLogQueueTests
     {
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        var writer = new DiagnosticLogQueue(_ => { entered.Set(); release.Wait(); });
+        var lines = new List<string>();
+        var writer = new DiagnosticLogQueue(message => { entered.Set(); release.Wait(); lines.Add(message); });
         try
         {
             writer.Write("first");
@@ -30,6 +31,8 @@ public sealed class DiagnosticLogQueueTests
             release.Set();
             Assert.True(writer.Shutdown(TimeSpan.FromSeconds(5)));
         }
+        Assert.Contains(lines, line => line.StartsWith("[diagnostics] dropped "));
+        Assert.True(lines.Count <= 258); // In-flight record, bounded queue, drop report.
     }
 
     [Fact]
