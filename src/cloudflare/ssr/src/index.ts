@@ -150,7 +150,9 @@ async function spaFallback(originBaseUrl: string, connectionPage = false): Promi
 		headers.delete('Last-Modified');
 		headers.set(
 			'Content-Security-Policy',
-			"default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'none'; frame-ancestors 'none'; frame-src 'none'; img-src 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'none'",
+			// Angular's <base href="/"> resolves hashed bundles from the app root.
+			// Permit that same-origin base while blocking external base injection.
+			"default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'none'; frame-ancestors 'none'; frame-src 'none'; img-src 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'none'",
 		);
 	}
 	return new Response(indexResponse.body, {

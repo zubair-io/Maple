@@ -3,6 +3,7 @@ import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import worker from '../src/index';
 
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
+const fetchWorker: ExportedHandlerFetchHandler<Env> = worker.fetch;
 
 // A one-byte-magic WASM header ("\0asm") followed by version bytes, enough
 // to prove the body survives the proxy untouched — a `.text()`-decoded body
@@ -17,7 +18,7 @@ beforeAll(() => {
 
 afterEach(() => fetchMock.assertNoPendingInterceptors());
 
-function navigationRequest(url: string): Request {
+function navigationRequest(url: string): Request<unknown, IncomingRequestCfProperties> {
 	return new IncomingRequest(url, {
 		headers: { 'sec-fetch-mode': 'navigate', accept: 'text/html' },
 	});
@@ -34,7 +35,7 @@ describe('Hosted SSR Worker', () => {
 
 		const request = new IncomingRequest('https://mapleaperture.com/raw_wasm_bg.wasm');
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await fetchWorker(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
@@ -56,7 +57,7 @@ describe('Hosted SSR Worker', () => {
 					'cache-control': 'no-cache',
 				},
 			});
-		const response = await worker.fetch(
+		const response = await fetchWorker(
 			new IncomingRequest('https://mapleaperture.com/assets/fonts/Lato-Regular.woff2'),
 			env,
 			createExecutionContext(),
@@ -78,7 +79,7 @@ describe('Hosted SSR Worker', () => {
 				.reply(404, '<Error>BlobNotFound</Error>', {
 					headers: { 'content-type': 'application/xml' },
 				});
-			const response = await worker.fetch(
+			const response = await fetchWorker(
 				new IncomingRequest(`https://mapleaperture.com/missing.${extension}`),
 				env,
 				createExecutionContext(),
@@ -97,7 +98,7 @@ describe('Hosted SSR Worker', () => {
 
 		const request = new IncomingRequest('https://mapleaperture.com/assets/icon.png');
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await fetchWorker(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
@@ -115,7 +116,7 @@ describe('Hosted SSR Worker', () => {
 
 		const request = new IncomingRequest('https://mapleaperture.com/main.abc123.js');
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await fetchWorker(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.headers.get('cross-origin-opener-policy')).toBe('same-origin');
@@ -138,7 +139,7 @@ describe('Hosted SSR Worker', () => {
 
 		const request = new IncomingRequest('https://mapleaperture.com/raw_wasm_bg.wasm');
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await fetchWorker(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.headers.get('cache-control')).toBeNull();
@@ -157,7 +158,7 @@ describe('Hosted SSR Worker', () => {
 
 		const request = new IncomingRequest('https://mapleaperture.com/main.abc123.js');
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await fetchWorker(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.headers.get('cache-control')).toBe('public, max-age=3600');
@@ -178,7 +179,7 @@ describe('Hosted SSR Worker', () => {
 
 		const request = new IncomingRequest('https://mapleaperture.com/assets/icon.png');
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await fetchWorker(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.headers.get('x-ms-request-id')).toBeNull();
@@ -200,7 +201,7 @@ describe('Hosted SSR Worker', () => {
 
 		const request = navigationRequest('https://mapleaperture.com/browse/lib/photo.dng');
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await fetchWorker(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
@@ -222,7 +223,7 @@ describe('Hosted SSR Worker', () => {
 			headers: { accept: '*/*' },
 		});
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await fetchWorker(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(404);
@@ -239,7 +240,7 @@ describe('Hosted SSR Worker', () => {
 
 		const request = navigationRequest('https://mapleaperture.com/');
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await fetchWorker(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
@@ -263,7 +264,7 @@ describe('Hosted SSR Worker', () => {
 					etag: '"build-1"',
 				},
 			});
-		const response = await worker.fetch(
+		const response = await fetchWorker(
 			navigationRequest('https://mapleaperture.com/index.html'),
 			env,
 			createExecutionContext(),
@@ -308,7 +309,7 @@ describe('Hosted SSR Worker', () => {
 			},
 		});
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await fetchWorker(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
@@ -327,7 +328,7 @@ describe('Hosted SSR Worker', () => {
 
 		const request = navigationRequest('https://mapleaperture.com/browse/lib/photo.dng');
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await fetchWorker(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		// A masked 200 here would render as a blank successful-looking
@@ -348,7 +349,7 @@ describe('Hosted SSR Worker', () => {
 			method: 'HEAD',
 		});
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await fetchWorker(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
@@ -368,7 +369,7 @@ describe('Hosted SSR Worker', () => {
 
 		const request = new IncomingRequest('https://mapleaperture.com/assets/icon.png?utm_source=x');
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await fetchWorker(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
@@ -401,7 +402,7 @@ describe('Hosted SSR Worker', () => {
 			},
 		});
 		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
+		const response = await fetchWorker(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
@@ -409,6 +410,61 @@ describe('Hosted SSR Worker', () => {
 });
 
 describe('Hosted Google connection security', () => {
+	it.each(
+		['mapleeditor.com', 'maple-editor.com', 'mapleaperture.com'].flatMap((host) =>
+			['/connect/google-drive', '/connect/google-drive/return'].map((pathname) => ({
+				host,
+				pathname,
+			})),
+		),
+	)(
+		'preserves the Angular root base under the strict connection CSP on $host$pathname',
+		async ({ host, pathname }) => {
+			const shell =
+				'<!doctype html><html><head><base href="/"><link rel="stylesheet" href="styles-HASH.css"></head><body><app-root></app-root><script type="module" src="main-HASH.js"></script></body></html>';
+			fetchMock
+				.get('https://origin.test')
+				.intercept({ path: '/mapleaperture/index.html', method: 'GET' })
+				.reply(200, shell, { headers: { 'content-type': 'text/html' } });
+			const response = await fetchWorker(
+				navigationRequest(`https://${host}${pathname}`),
+				env,
+				createExecutionContext(),
+			);
+			expect(response.status).toBe(200);
+			expect(await response.text()).toBe(shell);
+			const policy = response.headers.get('content-security-policy')!;
+			expect(policy.split(';').map((directive) => directive.trim())).toContain("base-uri 'self'");
+			expect(policy).not.toContain("base-uri 'none'");
+			expect(policy).toContain("script-src 'self'");
+			expect(policy).toContain("connect-src 'self'");
+			expect(policy).toContain("worker-src 'none'");
+			expect(policy).toContain("frame-ancestors 'none'");
+			expect(policy).toContain("form-action 'none'");
+			expect(response.headers.get('cache-control')).toBe('no-store, no-transform');
+			expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+		},
+	);
+	it('does not expand base-uri when origin HTML contains an external base', async () => {
+		const shell = '<html><head><base href="https://external.test/"></head><body></body></html>';
+		fetchMock
+			.get('https://origin.test')
+			.intercept({ path: '/mapleaperture/index.html', method: 'GET' })
+			.reply(200, shell, { headers: { 'content-type': 'text/html' } });
+		const response = await fetchWorker(
+			navigationRequest('https://mapleeditor.com/connect/google-drive'),
+			env,
+			createExecutionContext(),
+		);
+		expect(await response.text()).toBe(shell);
+		expect(
+			response.headers
+				.get('content-security-policy')!
+				.split(';')
+				.find((directive) => directive.trim().startsWith('base-uri'))
+				?.trim(),
+		).toBe("base-uri 'self'");
+	});
 	it('serves an uncached static shell and never forwards callback query material', async () => {
 		fetchMock
 			.get('https://origin.test')
@@ -420,7 +476,7 @@ describe('Hosted Google connection security', () => {
 					'last-modified': 'yesterday',
 				},
 			});
-		const response = await worker.fetch(
+		const response = await fetchWorker(
 			navigationRequest('https://mapleeditor.com/connect/google-drive/return?ngsw-bypass=true'),
 			env,
 			createExecutionContext(),
@@ -432,7 +488,7 @@ describe('Hosted Google connection security', () => {
 		expect(response.headers.get('referrer-policy')).toBe('no-referrer');
 	});
 	it('fails API paths closed when the specific relay route is absent', async () => {
-		const response = await worker.fetch(
+		const response = await fetchWorker(
 			navigationRequest('https://mapleeditor.com/api/connect/google-drive/unknown'),
 			env,
 			createExecutionContext(),
