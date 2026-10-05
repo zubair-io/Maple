@@ -123,10 +123,10 @@ For `RenderQuality::Preview` the demosaic is a half-res quad, so the trim coordi
 
 ## Caches
 
-| Cache                         | Where                                 | Keyed on                                                                         | Scope                                                |
-| ----------------------------- | ------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `RawImageCache`               | `MapleCore/Cache/RawImageCache.swift` | `(URL, mtime)`                                                                   | single entry, process-wide `.shared`, in-memory only |
-| `NativeDetailRenderer` handle | `NativeDetailRenderer.swift`          | `(URL, source mtime, stripped baked model)`                                      | one handle per session                               |
+| Cache                         | Where                                 | Keyed on                                    | Scope                                                |
+| ----------------------------- | ------------------------------------- | ------------------------------------------- | ---------------------------------------------------- |
+| `RawImageCache`               | `MapleCore/Cache/RawImageCache.swift` | `(URL, mtime)`                              | single entry, process-wide `.shared`, in-memory only |
+| `NativeDetailRenderer` handle | `NativeDetailRenderer.swift`          | `(URL, source mtime, stripped baked model)` | one handle per session                               |
 
 `RawImageCache` holds the opaque `MapleRawHandle` from the rawler decode. It cannot be persisted to disk — the handle is a pointer to a heap-allocated decode result. Its most important property is the `pendingDecodes` map: without it, N concurrent tile requests each start their own decode, which on iPad meant 20 visible tiles triggering 20 parallel decodes of a 100 MP RAW at 7–22 s each under memory contention. Second-through-Nth callers now await the first caller's task.
 
