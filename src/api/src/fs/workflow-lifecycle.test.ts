@@ -93,6 +93,31 @@ describe('portable variant asset lifecycle', () => {
       Promise.allSettled(semantic),
       Promise.all(ordinary),
     ]);
+    if (
+      results.filter((result) => result.status === 'fulfilled').length !== 1 ||
+      ordinaryResults.some((result) => !result.ok)
+    ) {
+      const saved = await fs.readFile(source.sidecar, 'utf8').then(
+        (xml) => ({ xml }),
+        (error: unknown) => ({ readError: String(error) }),
+      );
+      const diagnostics = {
+        runtime: { bun: Bun.version, platform: process.platform },
+        primary: source.primary,
+        sidecar: source.sidecar,
+        expectedXmp: initial.value,
+        savedSidecar: saved,
+        semantic: results.map((result, index) => ({
+          entry: entries[index],
+          status: result.status,
+          ...(result.status === 'fulfilled'
+            ? { outputXmp: result.value }
+            : { error: String(result.reason), stack: result.reason?.stack }),
+        })),
+        ordinaryResults,
+      };
+      console.error('Actual mixed-writer failure:', JSON.stringify(diagnostics));
+    }
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     expect(ordinaryResults.every((result) => result.ok)).toBe(true);
     const saved = await fs.readFile(source.sidecar, 'utf8');
