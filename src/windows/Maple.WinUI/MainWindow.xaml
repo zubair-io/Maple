@@ -402,20 +402,20 @@
                             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition x:Name="BrowseSearchColumn" Width="Auto"/></Grid.ColumnDefinitions>
                             <Grid ColumnSpacing="12">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                 <mui:MuiButton IconName="sidebar" Label="Sources" Variant="Secondary" Click="OnToggleSidebar" AutomationProperties.Name="Toggle sources panel" />
                                 <mui:MuiButton x:Name="BrowseLocationButton" Grid.Column="1" Label="Library" Variant="Ghost" HorizontalAlignment="Left" Click="OnBrowseLocation" AutomationProperties.Name="Folder navigation" />
-                                <mui:MuiButton Grid.Column="2" x:Name="BrowseViewButton" Label="Grid view" Variant="Secondary" Click="OnToggleBrowseView" AutomationProperties.Name="Toggle grid and list detail" />
-                                <mui:MuiButton Grid.Column="3" x:Name="BrowseCollapseButton" Label="Collapse list ‹" Variant="Secondary" Click="OnCollapseBrowseList" />
                             </Grid>
                             <Grid x:Name="BrowseSearchControls" Grid.Column="1" ColumnSpacing="8">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                 <mui:MuiInput x:Name="SearchBox" Width="200" MinHeight="44" Variant="Search" Placeholder="Search photos" TextChanged="OnSearchChanged" AccessibleLabel="Search name, camera or lens" />
                                 <ComboBox x:Name="BrowseSortBox" Grid.Column="1" Width="168" VerticalAlignment="Center" SelectionChanged="OnBrowseSortChanged" AutomationProperties.Name="Sort photos" ToolTipService.ToolTip="Capture sort uses modified date when capture date is unavailable. Timeline keeps day groups.">
                                     <ComboBoxItem Content="Name A–Z"/><ComboBoxItem Content="Captured newest"/><ComboBoxItem Content="Captured oldest"/><ComboBoxItem Content="Highest rating"/>
                                 </ComboBox>
-                                <mui:MuiButton Grid.Column="2" Label="Options" Variant="Secondary" AutomationProperties.Name="Browse filters and thumbnail size">
-                                    <mui:MuiButton.Flyout><Flyout><ScrollViewer MaxHeight="520" VerticalScrollBarVisibility="Auto"><StackPanel Spacing="12" MinWidth="200">
+                                <mui:MuiButton Grid.Column="2" x:Name="BrowseCollapseButton" Label="Collapse list ‹" Variant="Secondary" Click="OnCollapseBrowseList" />
+                                <mui:MuiButton x:Name="BrowseOptionsButton" Grid.Column="3" Label="Options" Variant="Secondary" AutomationProperties.Name="Browse view, filters and thumbnail size">
+                                    <mui:MuiButton.Flyout><Flyout x:Name="BrowseOptionsFlyout" Closed="OnBrowseOptionsClosed"><ScrollViewer MaxHeight="520" VerticalScrollBarVisibility="Auto"><StackPanel Spacing="12" MinWidth="200">
+                                <mui:MuiButton x:Name="BrowseViewButton" Label="Grid view" Variant="Secondary" Click="OnToggleBrowseView" AutomationProperties.Name="Toggle grid and list detail" />
                                 <ComboBox x:Name="FormatFilterBox" SelectedIndex="0" Width="120" FontSize="12"
                                           SelectionChanged="OnFormatFilterChanged"
                                           AutomationProperties.Name="Format filter">
