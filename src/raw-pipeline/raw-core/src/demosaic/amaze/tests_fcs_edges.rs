@@ -250,3 +250,119 @@ fn fcs_keeps_value_mean_for_opposing_colour_sensor_evidence() {
         }
     }
 }
+
+#[test]
+fn fcs_preserves_value_recovery_on_non_affine_colour_edges() {
+    // Actual #4123 stage witnesses: a positive two-point fit on a bright
+    // green site, and four diagonals crossing a genuine colour boundary.
+    // Both were misclassified as luminance ramps by covariance alone.
+    let side = 24usize;
+    for pattern in [
+        CfaPattern::Rggb,
+        CfaPattern::Grbg,
+        CfaPattern::Gbrg,
+        CfaPattern::Bggr,
+    ] {
+        for channel in [0usize, 2] {
+            for cardinal in [true, false] {
+                for exposure in [0.001f32, 0.1, 1.0, 4.0] {
+                    let site = if cardinal { 1 } else { 2 - channel as u8 };
+                    let (x, y) = (6..side - 6)
+                        .flat_map(|y| (6..side - 6).map(move |x| (x, y)))
+                        .find(|&(x, y)| pattern.color_at(x as u32, y as u32) == site)
+                        .unwrap();
+                    let (center_green, hue, support) = if cardinal {
+                        (
+                            0.99127173,
+                            0.760975,
+                            [
+                                (0.5528338, 0.2563555),
+                                (0.17893353, 0.10296945),
+                                (0.09680639, 0.05298013),
+                                (0.33889943, 0.12881863),
+                            ],
+                        )
+                    } else {
+                        (
+                            0.06687022,
+                            0.13780922,
+                            [
+                                (0.05799952, 0.48200199),
+                                (0.7126284, 0.8119936),
+                                (0.30199847, 0.30200657),
+                                (0.19045417, 0.18100251),
+                            ],
+                        )
+                    };
+                    let mut offsets: Vec<(isize, isize)> = if cardinal {
+                        [(-1, 0), (1, 0), (0, -1), (0, 1)]
+                            .into_iter()
+                            .filter(|&(dx, dy)| {
+                                pattern.color_at((x as isize + dx) as u32, (y as isize + dy) as u32)
+                                    as usize
+                                    == channel
+                            })
+                            .collect()
+                    } else {
+                        vec![(-1, -1), (1, -1), (-1, 1), (1, 1)]
+                    };
+                    if cardinal {
+                        let farther: Vec<_> =
+                            offsets.iter().map(|&(dx, dy)| (3 * dx, 3 * dy)).collect();
+                        offsets.extend(farther);
+                    }
+                    let mut green =
+                        vec![(if cardinal { 0.1 } else { 0.8 }) * exposure; side * side];
+                    green[y * side + x] = center_green * exposure;
+                    for (&(dx, dy), &(g, _)) in offsets.iter().zip(&support) {
+                        green[(y as isize + dy) as usize * side + (x as isize + dx) as usize] =
+                            g * exposure;
+                    }
+                    let mut cfa: Vec<_> = (0..side * side)
+                        .map(|i| {
+                            if pattern.color_at((i % side) as u32, (i / side) as u32) == 1 {
+                                green[i]
+                            } else {
+                                0.1 * exposure
+                            }
+                        })
+                        .collect();
+                    for (&(dx, dy), &(_, c)) in offsets.iter().zip(&support) {
+                        cfa[(y as isize + dy) as usize * side + (x as isize + dx) as usize] =
+                            c * exposure;
+                    }
+                    let mut image =
+                        Image::new(side as u32, side as u32, ColorSpace::CameraNativeLinearRgb);
+                    for (i, p) in image.pixels.iter_mut().enumerate() {
+                        *p = [0.1 * exposure, green[i], 0.1 * exposure];
+                        p[pattern.color_at((i % side) as u32, (i / side) as u32) as usize] = cfa[i];
+                    }
+                    image.pixels[y * side + x][channel] = hue * exposure;
+                    let before = image.pixels.clone();
+                    fcs::suppress_false_colour(
+                        &mut image,
+                        &cfa,
+                        &green,
+                        side,
+                        side,
+                        pattern,
+                        fcs::FALSE_COLOUR_SUPPRESS_STRENGTH,
+                    );
+                    let count = if cardinal { 2 } else { 4 };
+                    let expected = support[..count]
+                        .iter()
+                        .map(|&(_, c)| c * exposure)
+                        .sum::<f32>()
+                        / count as f32;
+                    assert!((image.pixels[y*side+x][channel]-expected).abs()<=1e-6*exposure,"{pattern:?} channel={channel} cardinal={cardinal} exposure={exposure} actual={} expected={expected}",image.pixels[y*side+x][channel]);
+                    for (i, p) in image.pixels.iter().enumerate() {
+                        let sampled =
+                            pattern.color_at((i % side) as u32, (i / side) as u32) as usize;
+                        assert_eq!(p[sampled], before[i][sampled]);
+                        assert_eq!(p[1], before[i][1]);
+                    }
+                }
+            }
+        }
+    }
+}
