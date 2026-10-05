@@ -184,7 +184,8 @@ extension RenderActor {
             }
             guard let nonRawImage else { return nil }
             return (
-              nonRawImage, [Float]?.none, UInt32(0), WbSliderFrame?.none, Float(1.0), Float.nan, Float(1.0),
+              nonRawImage, [Float]?.none, UInt32(0), WbSliderFrame?.none, Float(1.0), Float.nan,
+              Float(1.0),
               false, true, true, nil
             )
           }
@@ -235,7 +236,8 @@ extension RenderActor {
             guard let sizedResult else { return nil }
             return (
               sizedResult.image, sizedResult.noiseProfile, sizedResult.iso,
-              sizedResult.wbFrame, sizedResult.aeGain, sizedResult.whitesAnchorEv, sizedResult.nrSamplingScale,
+              sizedResult.wbFrame, sizedResult.aeGain, sizedResult.whitesAnchorEv,
+              sizedResult.nrSamplingScale,
               sizedResult.hasLensCorrections,
               sizedResult.lensCorrectionCaInert, sizedResult.lensCorrectionDistortionInert,
               sizedResult.cameraSupport
@@ -257,7 +259,8 @@ extension RenderActor {
           guard let refineResult else { return nil }
           return (
             refineResult.image, refineResult.noiseProfile, refineResult.iso,
-            refineResult.wbFrame, refineResult.aeGain, refineResult.whitesAnchorEv, refineResult.nrSamplingScale,
+            refineResult.wbFrame, refineResult.aeGain, refineResult.whitesAnchorEv,
+            refineResult.nrSamplingScale,
             refineResult.hasLensCorrections,
             refineResult.lensCorrectionCaInert, refineResult.lensCorrectionDistortionInert,
             refineResult.cameraSupport
@@ -279,7 +282,8 @@ extension RenderActor {
 
     guard
       let (
-        decoded, decodeNoiseProfile, decodeISO, decodeWbFrame, decodeAeGain, decodeWhitesAnchorEv, decodeNrSamplingScale,
+        decoded, decodeNoiseProfile, decodeISO, decodeWbFrame, decodeAeGain, decodeWhitesAnchorEv,
+        decodeNrSamplingScale,
         decodeHasLensCorrections, decodeLensCorrectionCaInert, decodeLensCorrectionDistortionInert,
         decodeCameraSupport
       ) = decodeResult
@@ -498,12 +502,16 @@ extension RenderActor {
 
   // MARK: - Baked-model freshness key (#950)
 
-  /// Cache the model with live GPU stages stripped. Missing sidecars remain
-  /// nil so file appearance/disappearance is detectable even at defaults.
+  /// Cache the model with live GPU stages stripped. An absent sidecar uses
+  /// the same semantic defaults as decode, so its first GPU-only save keeps
+  /// the decoded buffer (#4266). Baked changes still invalidate by value.
   /// Profile and autoExposure are normalized out because their live overrides
   /// have dedicated cache keys; an autosave must not force a second decode.
-  nonisolated static func bakedModel(for asset: AssetRef) -> AdjustmentModel? {
-    guard EditSession.sidecarMtime(for: asset) != nil else { return nil }
+  private nonisolated static let defaultBakedModel =
+    RawCoreBridge.stripAppleGPUStages(AdjustmentModel.default)
+
+  nonisolated static func bakedModel(for asset: AssetRef) -> AdjustmentModel {
+    guard EditSession.sidecarMtime(for: asset) != nil else { return defaultBakedModel }
     var m = RawCoreBridge.stripAppleGPUStages(
       EditSession.parseSidecarModel(for: asset)
     )

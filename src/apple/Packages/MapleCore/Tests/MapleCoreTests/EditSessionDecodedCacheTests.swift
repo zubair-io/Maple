@@ -369,12 +369,9 @@ final class EditSessionDecodedCacheTests: XCTestCase {
     }
   }
 
-  /// Decoding with no sidecar (the FFI uses `AdjustmentModel::default()`,
-  /// baked model captured as `nil`), then a sidecar APPEARING, must stale
-  /// the cache — the decode call shape differs (null xmp_path vs a temp
-  /// XMP) and the new sidecar may carry baked stages. #950 preserves this
-  /// nil-vs-present edge by representing "no sidecar" as a `nil` baked
-  /// model rather than `stripAppleGPUStages(.default)`.
+  /// A first sidecar invalidates only when it changes a baked stage. An
+  /// empty/default XMP is semantically the absent-sidecar decode prefix;
+  /// use a real nondefault baked model and retain the stale assertion (#4266).
   func testCacheIsStaleWhenSidecarAppearsAfterDecode() async throws {
     let (asset, dir) = try makeAsset()
     defer { try? FileManager.default.removeItem(at: dir) }
@@ -383,7 +380,7 @@ final class EditSessionDecodedCacheTests: XCTestCase {
       return XCTFail("file-backed asset must have a sidecar URL")
     }
 
-    // Decode happened with no sidecar on disk → captured baked nil.
+    // Decode happened with no sidecar on disk → captured baked defaults.
     let session = EditSession(asset: asset)
     await session.renderActor._testSeedDecodedCache(
       asset: asset,
@@ -395,12 +392,14 @@ final class EditSessionDecodedCacheTests: XCTestCase {
       freshBefore,
       "precondition: cache is fresh before sidecar appears")
 
-    // Sidecar now appears (e.g. paste-adjustments wrote one).
-    _ = try writeSidecar(at: sidecarURL)
+    // A real CPU-baked edit appears (e.g. paste-adjustments wrote one).
+    var bakedEdit = AdjustmentModel()
+    bakedEdit.highlightRecovery = .luminance
+    _ = try writeSidecar(at: sidecarURL, model: bakedEdit)
     let freshAfter = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
     XCTAssertFalse(
       freshAfter,
-      "a sidecar appearing where the decode captured nil should stale the cache")
+      "a first nondefault baked sidecar must stale the decoded prefix")
   }
 
   /// Conversely, decoding with a sidecar present (baked model captured),
@@ -415,7 +414,7 @@ final class EditSessionDecodedCacheTests: XCTestCase {
       return XCTFail("file-backed asset must have a sidecar URL")
     }
     // Give the decode-time sidecar a non-default BAKED field so its
-    // captured baked model is distinct from the post-delete `nil`.
+    // captured baked model is distinct from the post-delete default model.
     try writeSidecar(
       at: sidecarURL,
       model: {
