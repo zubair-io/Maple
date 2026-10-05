@@ -118,7 +118,8 @@ extension EditSession {
       // wrong brightness — that gap is what this closes.)
       NativeDetailLOD.shouldRender(
         pixelScale: pixelScale,
-        visibleRect: viewportSourceRect
+        visibleRect: viewportSourceRect,
+        imageSize: nativeImageSize
       ),
       await refineNativeDetail(gen: gen)
     {
