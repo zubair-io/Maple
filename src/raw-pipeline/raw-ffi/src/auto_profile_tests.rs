@@ -105,3 +105,44 @@ fn cached_fit_bakes_without_file_read_and_respects_quality() {
          reaching the decode would produce rc 7 on the garbage file"
     );
 }
+
+#[test]
+fn absent_curve_preserves_white_while_present_curve_compresses() {
+    use raw_core::pipeline::RenderQuality;
+    use raw_core::test_support::synth_dng::SyntheticGreyDng;
+    use raw_core::view::auto_profile::cache as auto_cache;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("absent_curve_4216.dng");
+    SyntheticGreyDng::default().write_to(&path).unwrap();
+    let cpath = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+
+    let cached_residual = ColorLut::identity(5);
+    let key = auto_cache::CacheKey::from_path(&path, RenderQuality::Full)
+        .expect("temp file is stattable");
+    auto_cache::insert_lut(key.clone(), cached_residual);
+
+    // Absent curve + present residual (#4216): white must remain exactly 1.0.
+    let n = 5u32;
+    let mut out = vec![0f32; 5 * 5 * 5 * 3];
+    let rc = unsafe {
+        maple_compute_auto_profile_lut(cpath.as_ptr(), std::ptr::null(), 0, n, out.as_mut_ptr())
+    };
+    assert_eq!(rc, 0);
+    assert_eq!(&out[out.len() - 3..], &[1.0, 1.0, 1.0]);
+
+    // Present identity curve + residual: fitted curve is respected, compressing white.
+    auto_cache::insert(key, ProfileCurve::identity());
+    let mut out_with_curve = vec![0f32; 5 * 5 * 5 * 3];
+    let rc = unsafe {
+        maple_compute_auto_profile_lut(
+            cpath.as_ptr(),
+            std::ptr::null(),
+            0,
+            n,
+            out_with_curve.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 0);
+    assert!(out_with_curve[out_with_curve.len() - 1] < 0.98);
+}

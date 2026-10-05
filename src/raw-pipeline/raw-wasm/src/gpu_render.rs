@@ -349,9 +349,7 @@ fn fit_profile_artifacts(
         .unwrap_or((None, None)),
         _ => (None, None),
     };
-    let profile_curve_flat = curve
-        .map(|c| c.to_flat())
-        .unwrap_or_else(|| auto_profile::curve::ProfileCurve::identity().to_flat());
+    let profile_curve_flat = curve.map(|c| c.to_flat()).unwrap_or_default();
     let (residual_lut_size, residual_lut_data) = match lut {
         Some(l) => (l.size, l.data),
         None => {
