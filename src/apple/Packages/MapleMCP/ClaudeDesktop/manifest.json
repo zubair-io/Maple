@@ -1,0 +1,37 @@
+{
+  "manifest_version": "0.3",
+  "name": "maple",
+  "display_name": "Maple",
+  "version": "1.0.0",
+  "description": "Connect Claude Desktop to the photo editor running in Maple on this Mac.",
+  "author": { "name": "Just Maple" },
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {
+        "MAPLE_MCP_URL": "${user_config.url}",
+        "MAPLE_MCP_TOKEN": "${user_config.token}"
+      }
+    }
+  },
+  "compatibility": { "platforms": ["darwin"], "runtimes": { "node": ">=18" } },
+  "user_config": {
+    "url": {
+      "type": "string",
+      "title": "Server URL",
+      "description": "Copy the server URL from Maple Settings → General → AI Agents.",
+      "default": "http://127.0.0.1:49157/mcp",
+      "required": true
+    },
+    "token": {
+      "type": "string",
+      "title": "Access token",
+      "description": "Copy the access token from Maple Settings. Enable MCP and keep Maple open.",
+      "sensitive": true,
+      "required": true
+    }
+  }
+}

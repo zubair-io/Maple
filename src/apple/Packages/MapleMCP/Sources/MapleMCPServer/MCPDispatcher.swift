@@ -30,40 +30,83 @@ public final class MCPDispatcher {
 
   /// The response for `message`, or nil when it is a notification.
   public func handle(_ message: JSONValue) -> JSONValue? {
+    nextRequestID += 1
+    switch Self.route(message, requestID: nextRequestID) {
+    case .reply(let reply): return reply
+    case .tool(let id, let request):
+      do { return Self.toolReply(id: id, response: try forward(request)) } catch {
+        return Self.result(id: id, Self.toolError(Self.unreachableMessage(error)))
+      }
+    }
+  }
+
+  /// HTTP runs inside Maple and awaits the editor directly, while the stdio
+  /// executable keeps its synchronous socket forwarding. Both share routing
+  /// and result serialization, including image content and readable errors.
+  public static func handle(
+    _ message: JSONValue,
+    forwarding forward: @Sendable (AgentRequest) async throws -> AgentResponse
+  ) async -> JSONValue? {
+    switch route(message, requestID: 1) {
+    case .reply(let reply): return reply
+    case .tool(let id, let request):
+      do { return toolReply(id: id, response: try await forward(request)) } catch {
+        return result(id: id, toolError(unreachableMessage(error)))
+      }
+    }
+  }
+
+  private enum Route {
+    case reply(JSONValue?)
+    case tool(id: JSONValue, request: AgentRequest)
+  }
+
+  private static func route(_ message: JSONValue, requestID: Int) -> Route {
     guard case .object(let fields) = message, fields["jsonrpc"] == "2.0",
       let method = fields["method"]?.stringValue
     else {
-      return Self.error(id: message["id"] ?? .null, code: -32600, message: "Invalid Request")
+      return .reply(
+        Self.error(id: message["id"] ?? .null, code: -32600, message: "Invalid Request"))
     }
-    guard let id = fields["id"], id != .null else { return nil }
+    guard let id = fields["id"], id != .null else { return .reply(nil) }
     let params = fields["params"]?.objectValue ?? [:]
     if let requested = params["_meta"]?["io.modelcontextprotocol/protocolVersion"]?.stringValue,
       !Self.supportedVersions.contains(requested)
     {
-      return Self.error(
-        id: id, code: -32022, message: "Unsupported protocol version",
-        data: [
-          "supported": .array(Self.supportedVersions.map(JSONValue.string)),
-          "requested": .string(requested),
-        ])
+      return .reply(
+        Self.error(
+          id: id, code: -32022, message: "Unsupported protocol version",
+          data: [
+            "supported": .array(Self.supportedVersions.map(JSONValue.string)),
+            "requested": .string(requested),
+          ]))
     }
     switch method {
     case "initialize":
-      return Self.result(id: id, initialize(params))
+      return .reply(Self.result(id: id, initialize(params)))
     case "server/discover":
-      return Self.result(id: id, discover())
+      return .reply(Self.result(id: id, discover()))
     case "ping":
-      return Self.result(id: id, [:])
+      return .reply(Self.result(id: id, [:]))
     case "tools/list":
-      return Self.result(id: id, ["tools": .array(MCPToolCatalog.tools)])
+      return .reply(Self.result(id: id, ["tools": .array(MCPToolCatalog.tools)]))
     case "tools/call":
-      return callTool(id: id, params)
+      guard let name = params["name"]?.stringValue else {
+        return .reply(error(id: id, code: -32602, message: "tools/call requires `name`"))
+      }
+      guard MCPToolCatalog.toolNames.contains(name) else {
+        return .reply(error(id: id, code: -32602, message: "Unknown tool: \(name)"))
+      }
+      return .tool(
+        id: id,
+        request: AgentRequest(
+          id: requestID, tool: name, arguments: params["arguments"]?.objectValue ?? [:]))
     default:
-      return Self.error(id: id, code: -32601, message: "Method not found: \(method)")
+      return .reply(Self.error(id: id, code: -32601, message: "Method not found: \(method)"))
     }
   }
 
-  private func initialize(_ params: [String: JSONValue]) -> JSONValue {
+  private static func initialize(_ params: [String: JSONValue]) -> JSONValue {
     let requested = params["protocolVersion"]?.stringValue ?? ""
     let version =
       Self.legacyVersions.contains(requested) ? requested : Self.legacyVersions[0]
@@ -75,7 +118,7 @@ public final class MCPDispatcher {
     ]
   }
 
-  private func discover() -> JSONValue {
+  private static func discover() -> JSONValue {
     [
       "supportedVersions": .array(Self.supportedVersions.map(JSONValue.string)),
       "capabilities": ["tools": [:]],
@@ -84,26 +127,11 @@ public final class MCPDispatcher {
     ]
   }
 
-  private var serverInfo: JSONValue {
+  private static var serverInfo: JSONValue {
     ["name": .string(Self.serverName), "version": .string(Self.serverVersion)]
   }
 
-  private func callTool(id: JSONValue, _ params: [String: JSONValue]) -> JSONValue {
-    guard let name = params["name"]?.stringValue else {
-      return Self.error(id: id, code: -32602, message: "tools/call requires `name`")
-    }
-    guard MCPToolCatalog.toolNames.contains(name) else {
-      return Self.error(id: id, code: -32602, message: "Unknown tool: \(name)")
-    }
-    nextRequestID += 1
-    let request = AgentRequest(
-      id: nextRequestID, tool: name, arguments: params["arguments"]?.objectValue ?? [:])
-    let response: AgentResponse
-    do {
-      response = try forward(request)
-    } catch {
-      return Self.result(id: id, Self.toolError(Self.unreachableMessage(error)))
-    }
+  private static func toolReply(id: JSONValue, response: AgentResponse) -> JSONValue {
     switch response.outcome {
     case .success(let payload):
       var content: [JSONValue] = []

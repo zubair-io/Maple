@@ -150,7 +150,10 @@ jobs:
       - name: Execute MapleUI tests
         working-directory: src/apple/Packages/MapleUI
         run: swift test
-      # Also dependency-free: the agent wire protocol over real Unix sockets.
+      # Agent transport over real Unix sockets and loopback HTTP, plus the
+      # Claude Desktop adapter against the same server.
+      - name: Verify bundled Claude Desktop extension
+        run: python3 src/apple/Packages/MapleMCP/package-claude-extension.py --check
       - name: Execute MapleMCP tests
         working-directory: src/apple/Packages/MapleMCP
         run: swift test

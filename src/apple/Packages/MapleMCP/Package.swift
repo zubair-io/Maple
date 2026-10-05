@@ -5,7 +5,8 @@
 //                   container. MapleCore links it to serve the live editor.
 //   MapleMCPServer  MCP JSON-RPC dispatch and the tool catalog; forwards each
 //                   tool call to the app over MapleAgentWire.
-//   maple-mcp       stdio executable that MCP clients (Claude Desktop) launch.
+//   MapleMCPHTTP   app-owned loopback Streamable HTTP server (SwiftNIO).
+//   maple-mcp       developer/qualification stdio executable.
 //
 // No dependency on MapleCore or RawPipeline: the bridge builds and tests
 // without the native xcframework.
@@ -22,15 +23,29 @@ let package = Package(
   products: [
     .library(name: "MapleAgentWire", targets: ["MapleAgentWire"]),
     .library(name: "MapleMCPServer", targets: ["MapleMCPServer"]),
+    .library(name: "MapleMCPHTTP", targets: ["MapleMCPHTTP"]),
     .executable(name: "maple-mcp", targets: ["maple-mcp"]),
+  ],
+  dependencies: [
+    .package(url: "https://github.com/apple/swift-nio.git", from: "2.100.0")
   ],
   targets: [
     .target(name: "MapleAgentWire"),
     .target(name: "MapleMCPServer", dependencies: ["MapleAgentWire"]),
+    .target(
+      name: "MapleMCPHTTP",
+      dependencies: [
+        "MapleMCPServer", "MapleAgentWire",
+        .product(name: "NIOCore", package: "swift-nio"),
+        .product(name: "NIOPosix", package: "swift-nio"),
+        .product(name: "NIOHTTP1", package: "swift-nio"),
+      ],
+      resources: [.copy("Resources/Maple.mcpb")]
+    ),
     .executableTarget(name: "maple-mcp", dependencies: ["MapleMCPServer"]),
     .testTarget(
       name: "MapleMCPTests",
-      dependencies: ["MapleAgentWire", "MapleMCPServer"]
+      dependencies: ["MapleAgentWire", "MapleMCPServer", "MapleMCPHTTP"]
     ),
   ]
 )
