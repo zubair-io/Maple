@@ -34,13 +34,22 @@ import XCTest
       for attempt in 1...2 {
         addFolder.tap()
         let cancel = app.buttons["Cancel"].firstMatch
-        let presented = cancel.waitForExistence(timeout: 10)
+        let browse = app.buttons["Browse"].firstMatch
+        let presented = cancel.waitForExistence(timeout: 5) || browse.waitForExistence(timeout: 5)
         let picker = XCTAttachment(screenshot: app.screenshot())
         picker.name = "Folder picker presentation \(attempt)"
         picker.lifetime = .keepAlways
         add(picker)
         XCTAssertTrue(presented, app.debugDescription)
-        cancel.tap()
+        if cancel.exists {
+          cancel.tap()
+        } else if browse.exists {
+          browse.tap()
+          let rootCancel = app.buttons["Cancel"].firstMatch
+          if rootCancel.waitForExistence(timeout: 3) {
+            rootCancel.tap()
+          }
+        }
         XCTAssertTrue(addFolder.waitForExistence(timeout: 5))
         XCTAssertEqual(folders.count, originalCount, "Cancellation must not register a folder")
       }

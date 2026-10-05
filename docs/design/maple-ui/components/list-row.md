@@ -5,10 +5,9 @@
 ## Purpose
 
 The base horizontal row primitive underlying settings rows, notebook/folder tree rows, and
-filterable list items — the audit's Apple findings singled this out by name: `PhoneSettingsView`
-already has a private, file-scoped `SettingsMenuRow` (icon tile + label) reused six times within
-that one file, but not shared app-wide, so `AccountSettingsView`/`BackupSettingsView` each rebuild
-similar layouts from scratch. List Row promotes that pattern to a real, shared atom.
+filterable list items — used across the responsive `SettingsView` on both macOS and iOS,
+as well as tree navigation and filterable lists. List Row provides a shared atom with
+consistent active, hover, and disabled styling.
 
 ## Variants
 

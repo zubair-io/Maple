@@ -1,8 +1,8 @@
 // SelfHostedSettingsTab.swift — Maple Cloud server management.
 //
 // Extracted from MapleApp.swift (was a `private struct`) by responsive-
-// program S8 (#1903) so both the Mac/iPad `SettingsView` modal and the
-// iPhone `PhoneSettingsView` push list can instantiate it.
+// program S8 (#1903) and unified in #4253 so the shared responsive
+// `SettingsView` can instantiate it across all Apple platforms.
 
 import MapleCore
 import MapleUI
@@ -69,9 +69,9 @@ struct SelfHostedSettingsTab: View {
   #endif
 
   /// #1954: gates the header/empty-state card background below. This
-  /// view backs both the iPhone push list (`PhoneSettingsView`, reached
+  /// view backs both the iPhone push list (reached
   /// only when `MapleShellKind.current == .phoneTab` — see
-  /// `AppShell.body`) and the Mac/iPad `SettingsView` modal, and `#if
+  /// `AppShell.body`) and the wide `SettingsView` layout, and `#if
   /// os(iOS)` alone can't tell those apart: iPadOS compiles under
   /// `os(iOS)` too, so a compile-time check would leak the phone's
   /// list-row card styling into the iPad modal, which #1908 deliberately
