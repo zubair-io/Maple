@@ -24,6 +24,6 @@ describe('SupportComponent', () => {
     ).map((link) => link.getAttribute('routerlink'));
 
     expect(supportLink.textContent?.trim()).toBe('help@justmaple.app');
-    expect(routeLinks).toEqual(['/', '/privacy', '/terms']);
+    expect(routeLinks).toEqual(['/privacy', '/', '/privacy', '/terms']);
   });
 });

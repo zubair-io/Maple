@@ -13,5 +13,5 @@ import { LEGAL_PAGE_HOST_CLASS } from '../legal-page.styles';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TermsComponent {
-  readonly effectiveDate = 'September 18, 2026';
+  readonly effectiveDate = 'October 5, 2026';
 }

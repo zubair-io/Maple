@@ -31,6 +31,41 @@
     </section>
 
     <section>
+      <h2 class="mt-0 mb-3 text-[20px] font-semibold text-[#292524]">
+        Self Hosted Google Drive backup
+      </h2>
+      <p>
+        Set your browser-facing domain in Settings → Network, then add a Google Drive destination in
+        Settings → Backup for the library you want to protect. Leave Bring your own client ID
+        unchecked to use Maple's application, or check it to configure your own Google Web
+        application client ID and secret. Both options finish at the same server callback URL shown
+        in Backup. Direct callbacks register that URL with Google; relay callbacks use the Google
+        redirect URL displayed by setup.
+      </p>
+      <p>
+        Connect Drive, create or attach the Maple backup folder, enable the destination, and start
+        cloud backup in Settings → Workers. Review verified, pending, and blocked work. Photo
+        recovery covers indexed originals and sidecars; keep a separate server/database backup. Keep
+        the same Google account, application identity, and backup root ID for recovery. Stop the
+        original instance before attaching a replacement server to its backup root.
+      </p>
+      <p>
+        Maple Trash keeps backup bytes available for restore. Explicit purge or intentional Trash
+        retention expiry schedules remote deletion, which can remain pending while a destination is
+        offline. Disconnecting Drive does not delete its backup files. Your own Google project left
+        in Testing can require reconnecting after seven days; use suitable production consent
+        settings for unattended backups.
+      </p>
+      <p>
+        For a backup issue, include the application mode, callback routing, and a redacted status or
+        error message. Never send client secrets, access or refresh tokens, renewal grants, signed
+        connection links, or your server database. Follow the
+        <a class="text-[#993629] underline" routerLink="/privacy">Privacy Policy</a> for details of
+        connection-proxy processing.
+      </p>
+    </section>
+
+    <section>
       <h2 class="mt-0 mb-3 text-[20px] font-semibold text-[#292524]">Protecting your originals</h2>
       <p>
         Maple is non-destructive: edits are stored in XMP sidecars and original photos are never

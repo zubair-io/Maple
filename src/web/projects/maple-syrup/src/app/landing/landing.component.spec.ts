@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Router } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import {
   FolderAccessService,
   LibraryStateService,
@@ -26,9 +26,7 @@ describe('LandingComponent', () => {
     enterSingleFileWorkspace: vi.fn(),
     openFolder: vi.fn<() => Promise<void>>(),
   };
-  const router = {
-    navigate: vi.fn<() => Promise<boolean>>(),
-  };
+  let router: Router;
   const persistSingleFile = vi.fn<(id: string, file: File, xmp?: string) => Promise<void>>();
 
   beforeEach(async () => {
@@ -36,7 +34,6 @@ describe('LandingComponent', () => {
     folderAccess.openFolder.mockResolvedValue(null);
     folderAccess.openDroppedFolder.mockResolvedValue(null);
     libraryState.openFolder.mockResolvedValue();
-    router.navigate.mockResolvedValue(true);
     persistSingleFile.mockResolvedValue();
 
     await TestBed.configureTestingModule({
@@ -44,11 +41,13 @@ describe('LandingComponent', () => {
       providers: [
         { provide: FolderAccessService, useValue: folderAccess },
         { provide: LibraryStateService, useValue: libraryState },
-        { provide: Router, useValue: router },
+        provideRouter([]),
         { provide: SINGLE_FILE_PERSISTENCE, useValue: persistSingleFile },
       ],
     }).compileComponents();
 
+    router = TestBed.inject(Router);
+    vi.spyOn(router, 'navigate').mockResolvedValue(true);
     fixture = TestBed.createComponent(LandingComponent);
     component = fixture.componentInstance;
     fixture.detectChanges();
