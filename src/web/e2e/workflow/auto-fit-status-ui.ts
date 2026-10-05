@@ -20,7 +20,7 @@ import { GpuLiveRenderGate } from '../../projects/maple-common/src/lib/raw-pipel
   selector: 'auto-fit-qualification',
   imports: [ProfileSectionComponent, ImageCanvasComponent],
   template: `<main>
-    <editor-profile-section /><editor-image-canvas style="display:block;width:480px;height:320px" />
+    <editor-profile-section /><editor-image-canvas style="display:flex;width:480px;height:320px" />
   </main>`,
 })
 class AutoFitQualification {

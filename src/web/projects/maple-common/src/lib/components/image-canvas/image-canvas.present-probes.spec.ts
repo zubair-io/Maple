@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { probeWebGpuPresent } from './image-canvas.present-probes';
+import { probeWebGlPresent, probeWebGpuPresent } from './image-canvas.present-probes';
 
 function setupProbe(
   options: {
     black?: boolean;
+    opaqueBlack?: boolean;
     readbackError?: boolean;
     queueError?: boolean;
     missingContext?: boolean;
@@ -13,7 +14,12 @@ function setupProbe(
   const drawImage = vi.fn();
   const getImageData = vi.fn(() => {
     if (options.readbackError) throw new Error('readback rejected');
-    return { data: new Uint8ClampedArray(options.black ? [0, 0, 0, 0] : [128, 191, 255, 255]) };
+    const pixel = options.opaqueBlack
+      ? [0, 0, 0, 255]
+      : options.black
+        ? [0, 0, 0, 0]
+        : [128, 191, 255, 255];
+    return { data: new Uint8ClampedArray(pixel) };
   });
   const configure = vi.fn();
   const submit = vi.fn();
@@ -46,6 +52,8 @@ function setupProbe(
                 configure,
                 getCurrentTexture: () => ({ createView: () => ({}) }),
               };
+        if (kind === 'webgl2')
+          return { clearColor: vi.fn(), clear: vi.fn(), COLOR_BUFFER_BIT: 0x4000 };
         if (kind === '2d') return { drawImage, getImageData };
         return null;
       }
@@ -78,6 +86,14 @@ describe('actual WebGPU composition probe lifecycle', () => {
     expect(probe.destroy).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects an opaque-black readback and destroys its device', async () => {
+    const probe = setupProbe({ opaqueBlack: true });
+    expect(await probeWebGpuPresent()).toBe(false);
+    expect(probe.onSubmittedWorkDone).toHaveBeenCalledTimes(1);
+    expect(probe.getImageData).toHaveBeenCalledTimes(1);
+    expect(probe.destroy).toHaveBeenCalledTimes(1);
+  });
+
   it('destroys an acquired device when readback throws', async () => {
     const probe = setupProbe({ readbackError: true });
     expect(await probeWebGpuPresent()).toBe(false);
@@ -99,5 +115,18 @@ describe('actual WebGPU composition probe lifecycle', () => {
     expect(await probeWebGpuPresent()).toBe(false);
     expect(probe.submit).not.toHaveBeenCalled();
     expect(probe.destroy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('actual WebGL composition probe readback', () => {
+  it.each([
+    { name: 'transparent black', options: { black: true }, expected: false },
+    { name: 'opaque black', options: { opaqueBlack: true }, expected: false },
+    { name: 'non-black RGB', options: {}, expected: true },
+  ])('returns $expected for $name', ({ options, expected }) => {
+    const probe = setupProbe(options);
+    expect(probeWebGlPresent()).toBe(expected);
+    expect(probe.drawImage).toHaveBeenCalledTimes(1);
+    expect(probe.getImageData).toHaveBeenCalledTimes(1);
   });
 });

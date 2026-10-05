@@ -4,7 +4,7 @@ function hasPresentedPixel(canvas: OffscreenCanvas): boolean {
   if (!ctx) return false;
   ctx.drawImage(canvas, 0, 0);
   const pixel = ctx.getImageData(0, 0, 4, 4).data;
-  return pixel[0] !== 0 || pixel[1] !== 0 || pixel[2] !== 0 || pixel[3] !== 0;
+  return pixel[0] !== 0 || pixel[1] !== 0 || pixel[2] !== 0;
 }
 
 export function probeWebGlPresent(): boolean {
