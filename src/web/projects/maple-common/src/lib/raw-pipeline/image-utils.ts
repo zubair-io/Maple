@@ -161,6 +161,18 @@ function srgbToLinearLut(): Float64Array {
 // on every non-RAW pixel. #1944.
 const f32Buf = new Float32Array(1);
 const u32Buf = new Uint32Array(f32Buf.buffer);
+function encodeSubnormal(sign: number, mantBits: number, fp16Exp: number): number {
+  const shift = 14 - fp16Exp;
+  if (shift > 24) return sign;
+  const man = mantBits | 0x00800000;
+  let halfMan = man >>> shift;
+  const roundBit = 1 << (shift - 1);
+  if ((man & roundBit) !== 0 && (man & (3 * roundBit - 1)) !== 0) {
+    halfMan += 1;
+  }
+  return sign | halfMan;
+}
+
 export function f32ToF16(value: number): number {
   f32Buf[0] = value;
   const bits = u32Buf[0];
@@ -183,16 +195,7 @@ export function f32ToF16(value: number): number {
   }
 
   if (fp16Exp <= 0) {
-    // Subnormal / underflow.
-    if (14 - fp16Exp > 24) return sign;
-    const man = mantBits | 0x00800000;
-    const shift = 14 - fp16Exp;
-    let halfMan = man >>> shift;
-    const roundBit = 1 << (shift - 1);
-    if ((man & roundBit) !== 0 && (man & (3 * roundBit - 1)) !== 0) {
-      halfMan += 1;
-    }
-    return sign | halfMan;
+    return encodeSubnormal(sign, mantBits, fp16Exp);
   }
 
   // Normal range. Extract top 10 mantissa bits, rounding to nearest-even on
