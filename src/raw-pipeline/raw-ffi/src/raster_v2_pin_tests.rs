@@ -36,6 +36,11 @@
 //! placement — confirmed by an empty `raster_resize.rs` / `raster_geometry.rs`
 //! / `raster_composite.rs` diff across the fix. The encoded length held
 //! (7378 / 7392), only the hash moved.
+//!
+//! Re-pinned inside test 2026-10-05 after #4177 ported libvips `vips_reduce`
+//! integer downscale staging (int shrink box + 12-bit masks + 8-bit clamp)
+//! to match sharp/libvips. The 64x32 -> 16x8 lanczos3 downscale now routes
+//! through reduce staging; the encoded length held (7378), only the hash moved.
 
 use super::*;
 use std::ffi::CString;
@@ -106,7 +111,7 @@ fn tier_1_inside_thumbnail_bytes_are_pinned() {
     assert_eq!(len, 7378, "encoded length moved: {hash}");
     assert_eq!(
         hash,
-        "abaeb9428ba6ff830c1485ecd09ea32154535d67ee9302fdafc89d5e7cb0a38b"
+        "be25cdc9cb4e5697f9a091cf44f7df434d9ceb2d90f856583e8c5aa3c8de41d8"
     );
 }
 

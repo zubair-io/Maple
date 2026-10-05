@@ -12,9 +12,9 @@
 //! through `vips_affine` bicubic regardless of the requested kernel. Measured
 //! envelope on lanczos3:
 //!
-//! * integer downscale of smooth content: sharp-exact (nearest) or within
-//!   a few codes (lanczos3: max 8 on a 1600px photo, max 6 on a 4x4
-//!   gradient) — reduce-staging gap, tracked by #4177;
+//! * integer downscale of smooth content: byte-exact match to sharp/libvips
+//!   across both nearest and convolution kernels (lanczos3, bilinear, etc.)
+//!   via ported `vips_reduce` staging (#4177);
 //! * fractional downscale: within 1 code (8-wide ramp 8->6);
 //! * 2x upscale: up to 63 codes on photos — different algorithm
 //!   (affine bicubic), tracked by #4178;
@@ -39,6 +39,17 @@ fn smooth4() -> RasterImage {
         }
     }
     RasterImage::new_rgb(4, 4, data)
+}
+
+/// 16x16 RGB gradient: R steps across, G steps down, B flat 128.
+fn smooth16() -> RasterImage {
+    let mut data = Vec::with_capacity(16 * 16 * 3);
+    for y in 0..16u8 {
+        for x in 0..16u8 {
+            data.extend_from_slice(&[x * 17, y * 17, 128]);
+        }
+    }
+    RasterImage::new_rgb(16, 16, data)
 }
 
 fn max_diff(a: &[u8], b: &[u8]) -> u8 {
@@ -95,7 +106,7 @@ fn lanczos3_fractional_downscale_stays_within_one_code() {
 /// The reduce staging (#4177) reproduces libvips' `vips_reduce` integer
 /// shrink, truncated 12-bit masks and 8-bit intermediate clamping.
 #[test]
-fn lanczos3_integer_downscale_stays_within_known_envelope() {
+fn lanczos3_integer_downscale_matches_sharp_byte_for_byte() {
     let mut o = opts(2, 2, ResizeFit::Fill);
     o.filter = FilterAlg::Lanczos3;
     let out = resize_raster(&smooth4(), &o).unwrap();
@@ -103,6 +114,42 @@ fn lanczos3_integer_downscale_stays_within_known_envelope() {
     assert_eq!(
         out.data, sharp,
         "lanczos3 integer downscale matches sharp byte-for-byte"
+    );
+}
+
+/// `lanczos3` 16x16 -> 4x4 integer downscale: exercises `box_stage` (`int_shrink = 2`)
+/// followed by residual kernel reduction, matching sharp byte-for-byte.
+#[test]
+fn lanczos3_integer_box_stage_downscale_matches_sharp_byte_for_byte() {
+    let mut o = opts(4, 4, ResizeFit::Fill);
+    o.filter = FilterAlg::Lanczos3;
+    let out = resize_raster(&smooth16(), &o).unwrap();
+    let sharp = vec![
+        25, 25, 128, 94, 25, 128, 162, 25, 128, 231, 25, 128, 25, 94, 128, 94, 94, 128, 162, 94,
+        128, 231, 94, 128, 25, 162, 128, 94, 162, 128, 162, 162, 128, 231, 162, 128, 25, 231, 128,
+        94, 231, 128, 162, 231, 128, 231, 231, 128,
+    ];
+    assert_eq!(
+        out.data, sharp,
+        "lanczos3 box-stage downscale matches sharp byte-for-byte"
+    );
+}
+
+/// `bilinear` 16x16 -> 4x4 integer downscale: verifies non-lanczos3 kernels
+/// route through `vips_reduce` and match sharp byte-for-byte.
+#[test]
+fn bilinear_integer_downscale_matches_sharp_byte_for_byte() {
+    let mut o = opts(4, 4, ResizeFit::Fill);
+    o.filter = FilterAlg::Bilinear;
+    let out = resize_raster(&smooth16(), &o).unwrap();
+    let sharp = vec![
+        30, 30, 128, 94, 30, 128, 162, 30, 128, 226, 30, 128, 30, 94, 128, 94, 94, 128, 162, 94,
+        128, 226, 94, 128, 30, 162, 128, 94, 162, 128, 162, 162, 128, 226, 162, 128, 30, 226, 128,
+        94, 226, 128, 162, 226, 128, 226, 226, 128,
+    ];
+    assert_eq!(
+        out.data, sharp,
+        "bilinear integer downscale matches sharp byte-for-byte"
     );
 }
 
