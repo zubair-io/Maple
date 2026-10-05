@@ -86,11 +86,7 @@ struct FolderTreeRow: View {
 
   private var isSelected: Bool { selectedPath == url.path }
   private var isAncestorOfSelection: Bool {
-    guard let selectedPath, selectedPath != url.path else { return false }
-    let rootComponents = url.pathComponents
-    let selectedComponents = URL(fileURLWithPath: selectedPath).pathComponents
-    guard selectedComponents.count > rootComponents.count else { return false }
-    return Array(selectedComponents.prefix(rootComponents.count)) == rootComponents
+    SidebarReveal.isLocalAncestor(candidate: url, selectedPath: selectedPath)
   }
   private var newFolderDraftIsValid: Bool {
     FilenameValidation.isValidPathComponent(
@@ -132,12 +128,6 @@ struct FolderTreeRow: View {
         depth: depth,
         active: isSelected,
         pressed: {
-          if hasChildren && !expanded {
-            withAnimation(.easeInOut(duration: 0.12)) {
-              expanded = true
-              if !didEnumerate { enumerateChildren() }
-            }
-          }
           onPick(url)
         }
       )

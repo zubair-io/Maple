@@ -114,7 +114,7 @@ struct SMBFolderTreeRow: View {
   }
 
   private var rowId: String {
-    depth == 0 ? "smb:\(share.host)/\(share.share)" : path
+    SidebarReveal.smbRowId(host: share.host, share: share.share, path: path, depth: depth)
   }
 
   var body: some View {
@@ -139,11 +139,6 @@ struct SMBFolderTreeRow: View {
         loading: isLoading,
         active: isSelected,
         pressed: {
-          if hasChildren && !isExpanded {
-            withAnimation(.easeInOut(duration: 0.12)) {
-              setExpanded(true)
-            }
-          }
           onPick(share)
         }
       )
