@@ -52,6 +52,18 @@ fn smooth16() -> RasterImage {
     RasterImage::new_rgb(16, 16, data)
 }
 
+/// 16x16 RGBA gradient: R steps across, G steps down, B flat 128, A ramp.
+fn smooth16_rgba() -> RasterImage {
+    let mut data = Vec::with_capacity(16 * 16 * 4);
+    for y in 0..16u8 {
+        for x in 0..16u8 {
+            let a = ((x as u16 + y as u16) * 8 + 30).min(255) as u8;
+            data.extend_from_slice(&[x * 17, y * 17, 128, a]);
+        }
+    }
+    RasterImage::new_rgba(16, 16, data)
+}
+
 fn max_diff(a: &[u8], b: &[u8]) -> u8 {
     assert_eq!(
         a.len(),
@@ -226,4 +238,71 @@ fn nearest_heavy_downscale_pins_maple_bytes() {
     let src = RasterImage::new_rgb(13, 1, row);
     let out = resize_raster(&src, &opts(2, 1, ResizeFit::Fill)).unwrap();
     assert_eq!(out.data, vec![63, 63, 63, 189, 189, 189]);
+}
+
+/// `lanczos3` 16x16 RGBA -> 4x4 integer downscale: with flat alpha (255),
+/// premultiply and divide passes are exact identities, matching sharp's
+/// 4-channel downscale byte-for-byte.
+#[test]
+fn lanczos3_rgba_flat_alpha_matches_sharp_byte_for_byte() {
+    let mut data = Vec::with_capacity(16 * 16 * 4);
+    for y in 0..16u8 {
+        for x in 0..16u8 {
+            data.extend_from_slice(&[x * 17, y * 17, 128, 255]);
+        }
+    }
+    let src = RasterImage::new_rgba(16, 16, data);
+    let mut o = opts(4, 4, ResizeFit::Fill);
+    o.filter = FilterAlg::Lanczos3;
+    let out = resize_raster(&src, &o).unwrap();
+    let sharp = vec![
+        25, 25, 128, 255, 94, 25, 128, 255, 162, 25, 128, 255, 231, 25, 128, 255, 25, 94, 128, 255,
+        94, 94, 128, 255, 162, 94, 128, 255, 231, 94, 128, 255, 25, 162, 128, 255, 94, 162, 128,
+        255, 162, 162, 128, 255, 231, 162, 128, 255, 25, 231, 128, 255, 94, 231, 128, 255, 162,
+        231, 128, 255, 231, 231, 128, 255,
+    ];
+    assert_eq!(
+        out.data, sharp,
+        "lanczos3 flat-alpha RGBA downscale matches sharp byte-for-byte"
+    );
+}
+
+/// `lanczos3` 16x16 RGBA -> 4x4 integer downscale with varying alpha:
+/// pins Maple's integer `fast_image_resize` premultiply/divide passes and
+/// stays within 4 codes of sharp's float-based premultiply downscale.
+#[test]
+fn lanczos3_rgba_varying_alpha_pins_maple_bytes_and_bounds_sharp_diff() {
+    let mut o = opts(4, 4, ResizeFit::Fill);
+    o.filter = FilterAlg::Lanczos3;
+    let out = resize_raster(&smooth16_rgba(), &o).unwrap();
+    let sharp = vec![
+        28, 28, 127, 54, 91, 26, 127, 86, 159, 25, 127, 118, 231, 25, 127, 150, 26, 94, 127, 86,
+        92, 92, 127, 118, 161, 93, 127, 150, 231, 93, 127, 182, 25, 162, 127, 118, 93, 161, 127,
+        150, 161, 161, 127, 182, 231, 161, 126, 215, 25, 231, 127, 150, 93, 231, 127, 182, 162,
+        232, 127, 214, 231, 231, 128, 245,
+    ];
+    assert!(
+        max_diff(&out.data, &sharp) <= 4,
+        "premultiply rounding drifted past 4 codes vs sharp"
+    );
+    assert_eq!(
+        out.data,
+        vec![
+            28, 28, 128, 54, 95, 27, 127, 86, 162, 28, 127, 118, 231, 25, 127, 150, 27, 95, 127,
+            86, 93, 95, 127, 118, 161, 93, 127, 150, 233, 94, 128, 182, 26, 162, 127, 118, 93, 163,
+            127, 150, 161, 163, 128, 182, 232, 162, 127, 215, 25, 233, 127, 150, 94, 231, 128, 182,
+            162, 232, 127, 214, 231, 231, 128, 245,
+        ]
+    );
+}
+
+/// A short data buffer returns `Error::Decode` instead of panicking on index.
+#[test]
+fn malformed_buffer_length_returns_decode_error() {
+    let bad = RasterImage::new_rgb(16, 16, vec![0u8; 10]); // expected 16 * 16 * 3 = 768
+    let err = resize_raster(&bad, &opts(4, 4, ResizeFit::Fill)).unwrap_err();
+    assert!(
+        matches!(err, Error::Decode { .. }),
+        "expected Error::Decode, got {err:?}"
+    );
 }

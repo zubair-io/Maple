@@ -67,6 +67,21 @@ pub(crate) fn reduce(
     filter: FilterAlg,
     mul_div_alpha: bool,
 ) -> Result<RasterImage> {
+    let expected_len = (src.width as usize)
+        .checked_mul(src.height as usize)
+        .and_then(|px| px.checked_mul(src.channels as usize));
+    if expected_len != Some(src.data.len()) {
+        return Err(Error::Decode {
+            path: "<memory>".into(),
+            reason: format!(
+                "raster buffer length {} does not match dimensions {}x{}x{}",
+                src.data.len(),
+                src.width,
+                src.height,
+                src.channels,
+            ),
+        });
+    }
     let alpha = match src.channels {
         3 => false,
         4 => mul_div_alpha,
