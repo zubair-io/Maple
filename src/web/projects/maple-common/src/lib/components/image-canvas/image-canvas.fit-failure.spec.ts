@@ -131,7 +131,7 @@ for (const route of ['CPU', 'GPU', 'cold CPU'] as const) {
       });
     }
     if (route === 'cold CPU')
-      it('preserves actual decoded Auto fit when bitmap creation rejects', async () => {
+      it('does not publish an unpainted decoded Auto fit when bitmap creation rejects', async () => {
         const h = harness();
         vi.stubGlobal(
           'ImageData',
@@ -150,9 +150,9 @@ for (const route of ['CPU', 'GPU', 'cold CPU'] as const) {
         const pending = h.run();
         h.resolve({ width: 1, height: 1, rgb: new Uint8Array([40, 60, 80]), autoFit: true });
         await pending;
-        expect(h.host.markColdOpenDone).toHaveBeenCalledOnce();
+        expect(h.host.markColdOpenDone).not.toHaveBeenCalled();
         expect(globalThis.createImageBitmap).toHaveBeenCalledOnce();
-        expect(h.capabilities.for(ASSET).autoFit).toBe(true);
+        expect(h.capabilities.for(ASSET).autoFit).toBe(false);
         expect(h.host.imageBitmap()).toBeNull();
         expect(h.host.loading()).toBe(false);
       });
