@@ -82,6 +82,7 @@ extension EditSession {
     // get the same treatment: metadata-only, no pixels to develop, no
     // decode attempt of any kind.
     if self.asset.isVideo || self.asset.isStub || self.asset.isAudio {
+      settleAutoFitFailure(assetID: asset.id, profile: model.profile, revision: autoFitRevision)
       return
     }
     renderPhase = phase
