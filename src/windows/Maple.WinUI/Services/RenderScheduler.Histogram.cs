@@ -16,6 +16,8 @@ namespace Maple.WinUI.Services
                 {
                     pixels = _bgra != null && _bgra.Length == byteCount ? _bgra : new byte[byteCount];
                     scratch = _chainScratch;
+                    _bgra = null;
+                    _chainScratch = null;
                 }
                 // #4289: SetImage may clear caches during the native call.
                 RenderEngine.RenderTick(image, state, ref scratch, pixels, _activeFilm);
@@ -25,9 +27,9 @@ namespace Maple.WinUI.Services
                     if (!IsCurrentFrame(image)) return;
                     _bgra = pixels;
                     _chainScratch = scratch;
-                    HistogramReady?.Invoke(ComputeHistogram(pixels));
-                    EmitClipSource(image.Width, image.Height);
                 }
+                HistogramReady?.Invoke(ComputeHistogram(pixels));
+                EmitClipSource(pixels, image.Width, image.Height);
             }
             catch (Exception ex)
             {
@@ -37,13 +39,13 @@ namespace Maple.WinUI.Services
             }
         }
 
-        private void EmitClipSource(int width, int height)
+        private void EmitClipSource(byte[] pixels, int width, int height)
         {
-            if (!ClipOverlayEnabled || _bgra == null || ClipSourceReady == null)
+            if (!ClipOverlayEnabled || ClipSourceReady == null)
                 return;
-            var copy = new byte[_bgra.Length];
-            Buffer.BlockCopy(_bgra, 0, copy, 0, _bgra.Length);
-            ClipSourceReady.Invoke(copy, width, height);
+            var copy = new byte[pixels.Length];
+            Buffer.BlockCopy(pixels, 0, copy, 0, pixels.Length);
+            ClipSourceReady?.Invoke(copy, width, height);
         }
 
         private static uint[] ComputeHistogram(byte[] bgra)

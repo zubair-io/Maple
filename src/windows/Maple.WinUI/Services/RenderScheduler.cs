@@ -492,6 +492,8 @@ namespace Maple.WinUI.Services
                 {
                     pixels = _bgra != null && _bgra.Length == byteCount ? _bgra : new byte[byteCount];
                     scratch = _chainScratch;
+                    _bgra = null;
+                    _chainScratch = null;
                 }
 
                 var started = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -503,11 +505,12 @@ namespace Maple.WinUI.Services
                     if (!IsCurrentFrame(image)) return true;
                     _bgra = pixels;
                     _chainScratch = scratch;
-                    if (emitFrame)
-                        FrameReady?.Invoke(image, pixels, image.Width, image.Height,
-                            ComputeHistogram(pixels), elapsed);
-                    EmitClipSource(pixels, image.Width, image.Height);
                 }
+
+                if (emitFrame)
+                    FrameReady?.Invoke(image, pixels, image.Width, image.Height,
+                        ComputeHistogram(pixels), elapsed);
+                EmitClipSource(pixels, image.Width, image.Height);
                 if (sampleScopes) DumpFrameIfRequested(pixels, image.Width, image.Height);
                 if (sampleScopes) EmitCpuScope(image, state);
                 return true;
