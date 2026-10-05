@@ -98,6 +98,45 @@ fn four_four_four_is_larger_than_four_two_zero_at_the_same_quality() {
     );
 }
 
+/// #3584: 4:2:0 chroma is the 2x2 box AVERAGE libjpeg's `h2v2_downsample`
+/// takes, not `jpeg-encoder`'s default top-left point sample. Columns
+/// alternate pure red / pure blue, so every 2x2 block holds two of each.
+/// Averaged chroma is the red/blue midpoint, and with full-resolution luma
+/// the decode keeps R and B balanced (measured means 126 / 126). A point
+/// sample hands every pixel RED's chroma, so the blue columns decode with
+/// R ≈ 207 and B clamped to 0 (means ≈ 231 / ≈ 0). The exact libjpeg
+/// rounding is pinned against sharp in `src/maple/test/oracle.test.ts`.
+#[test]
+fn four_two_zero_chroma_is_box_averaged_not_point_sampled() {
+    let (w, h) = (32u32, 32u32);
+    let data = (0..w * h)
+        .flat_map(|i| if i % 2 == 0 { [255, 0, 0] } else { [0, 0, 255] })
+        .collect();
+    let bytes = encode_jpeg_opts(
+        &RasterImage::new_rgb(w, h, data),
+        &JpegOptions {
+            quality: 100,
+            ..opts()
+        },
+        &EmbeddedMetadata::default(),
+    )
+    .unwrap();
+    let decoded = crate::raster::decode_raster(&bytes, Some("jpeg")).unwrap();
+    let mean = |channel: usize| {
+        let sum: u64 = decoded
+            .data
+            .chunks_exact(3)
+            .map(|px| u64::from(px[channel]))
+            .sum();
+        sum as f64 / f64::from(w * h)
+    };
+    let (r, b) = (mean(0), mean(2));
+    assert!(
+        (r - b).abs() < 8.0 && (110.0..145.0).contains(&r),
+        "expected balanced box-averaged chroma, got mean R {r:.1} / B {b:.1}"
+    );
+}
+
 #[test]
 fn optimised_huffman_tables_shrink_the_file() {
     let src = noise(64, 64);
