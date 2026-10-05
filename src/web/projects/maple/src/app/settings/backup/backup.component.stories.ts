@@ -49,6 +49,7 @@ const folder: BackupDestination = {
   path: '/Volumes/Archive/Photos',
 };
 const config: GoogleBackupConfig = {
+  clientMode: 'own',
   clientId: 'owner.apps.googleusercontent.com',
   clientSecretSet: true,
   callbackMode: 'relay',
@@ -153,10 +154,52 @@ export const EdgeCases: Story = {
               of({
                 ...config,
                 connected: false,
+                clientMode: 'maple',
                 clientId: '',
                 clientSecretSet: false,
                 callbackUrl: null,
               }),
+          },
+        },
+      ],
+    }),
+  ],
+};
+
+export const MapleClient: Story = {
+  decorators: [
+    applicationConfig({
+      providers: [
+        {
+          provide: CloudBackupService,
+          useValue: {
+            ...api,
+            googleConfig: () =>
+              of({
+                ...config,
+                clientMode: 'maple',
+                clientId: 'maple.apps.googleusercontent.com',
+                clientSecretSet: false,
+                connected: false,
+                rootId: null,
+                mapleClientAvailable: true,
+              }),
+          },
+        },
+      ],
+    }),
+  ],
+};
+export const OwnClientDirectCallback: Story = {
+  decorators: [
+    applicationConfig({
+      providers: [
+        {
+          provide: CloudBackupService,
+          useValue: {
+            ...api,
+            googleConfig: () =>
+              of({ ...config, callbackMode: 'direct', googleRedirectUri: config.callbackUrl }),
           },
         },
       ],

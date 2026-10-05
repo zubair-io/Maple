@@ -2,7 +2,7 @@
 	"name": "maple-drive-connect",
 	"version": "0.0.0",
 	"private": true,
-	"description": "Callback-only Google OAuth relay (#4230)",
+	"description": "Google OAuth callback relay and stateless managed-client token broker (#4230)",
 	"scripts": {
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",

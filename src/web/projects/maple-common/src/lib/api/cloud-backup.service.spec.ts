@@ -23,6 +23,7 @@ describe('CloudBackupService', () => {
   it('sends a write-only secret only in the explicit Google config request', () => {
     api
       .saveGoogleConfig('id/encoded', {
+        clientMode: 'own',
         clientId: 'client',
         clientSecret: 'secret',
         callbackMode: 'relay',
@@ -31,6 +32,7 @@ describe('CloudBackupService', () => {
     const req = http.expectOne('/api/cloud-backup/google/id%2Fencoded/config');
     expect(req.request.method).toBe('PUT');
     expect(req.request.body).toEqual({
+      clientMode: 'own',
       clientId: 'client',
       clientSecret: 'secret',
       callbackMode: 'relay',
@@ -40,6 +42,16 @@ describe('CloudBackupService', () => {
     const start = http.expectOne('/api/cloud-backup/google/id%2Fencoded/start');
     expect(start.request.body).toEqual({});
     start.flush({ authorizationUrl: 'https://accounts.google.com/' });
+  });
+  it('sends managed mode without owner credentials and starts with an empty request', () => {
+    api.saveGoogleConfig('managed', { clientMode: 'maple', callbackMode: 'relay' }).subscribe();
+    const config = http.expectOne('/api/cloud-backup/google/managed/config');
+    expect(config.request.body).toEqual({ clientMode: 'maple', callbackMode: 'relay' });
+    config.flush({ clientMode: 'maple', clientSecretSet: false });
+    api.connectGoogle('managed').subscribe();
+    const start = http.expectOne('/api/cloud-backup/google/managed/start');
+    expect(start.request.body).toEqual({});
+    start.flush({ authorizationUrl: 'https://mapleeditor.com/connect/google-drive' });
   });
   it('preserves an explicitly selected generation and Trash policy through preview and recovery', () => {
     const request = {

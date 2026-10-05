@@ -41,23 +41,40 @@ export async function loadConnection(id: string): Promise<Connection> {
   return row
     ? {
         epoch: row.epoch,
-        config: await unseal<GoogleConfig>(row.credentials, id),
+        config: normalizeConfig(await unseal<GoogleConfig>(row.credentials, id)),
       }
     : { epoch: 0, config: { ...DEFAULT_GOOGLE_CONFIG } };
+}
+
+/** Credentials written before managed OAuth must keep their original application. */
+function normalizeConfig(config: GoogleConfig): GoogleConfig {
+  const clientMode = config.clientMode ?? (config.clientId ? 'own' : 'maple');
+  return {
+    ...DEFAULT_GOOGLE_CONFIG,
+    ...config,
+    clientMode,
+    clientSecret: clientMode === 'maple' ? '' : config.clientSecret,
+    callbackMode: clientMode === 'maple' ? 'relay' : config.callbackMode,
+    relayGrant: clientMode === 'maple' ? (config.relayGrant ?? null) : null,
+  };
 }
 
 export async function saveConfig(
   id: string,
   config: GoogleConfig,
   epoch: number,
+  expectedRootId?: string | null,
 ): Promise<boolean> {
   const encrypted = await seal(config, id);
   const result = await sqliteDb().write(
     `INSERT INTO backup_google_connections
-    (destination_id, epoch, credentials) VALUES (?, 1, ?)
+    (destination_id, epoch, credentials)
+    SELECT d.id,1,? FROM backup_destinations d LEFT JOIN backup_google_connections c ON c.destination_id=d.id
+    WHERE d.id=? AND d.kind='google-drive' AND COALESCE(c.epoch,0)=?
+      ${expectedRootId === undefined ? '' : 'AND d.root_id IS ?'}
     ON CONFLICT(destination_id) DO UPDATE SET epoch = epoch + 1, credentials = excluded.credentials,
     refresh_owner = NULL, refresh_until = 0 WHERE epoch = ?`,
-    [id, encrypted, epoch],
+    [encrypted, id, epoch, ...(expectedRootId === undefined ? [] : [expectedRootId]), epoch],
   );
   return result.changes === 1;
 }
@@ -75,7 +92,8 @@ export async function commitTokens(
     `UPDATE backup_google_connections SET credentials = ?, epoch = epoch + ?,
     refresh_owner = CASE WHEN ?=1 THEN NULL ELSE refresh_owner END,
     refresh_until = CASE WHEN ?=1 THEN 0 ELSE refresh_until END
-    WHERE destination_id = ? AND epoch = ?${lease ? ' AND refresh_owner = ? AND refresh_until > ?' : ''}`,
+    WHERE destination_id = ? AND epoch = ?${lease ? ' AND refresh_owner = ? AND refresh_until > ?' : ''}
+      AND EXISTS(SELECT 1 FROM backup_destinations d WHERE d.id=destination_id AND d.kind='google-drive')`,
     [
       await seal(config, id),
       advance,
@@ -91,13 +109,15 @@ export async function commitTokens(
   return epoch + advance;
 }
 export async function savePending(flow: PendingFlow): Promise<void> {
-  await sqliteDb().transaction([
+  const results = await sqliteDb().transaction([
     {
       sql: 'DELETE FROM backup_google_oauth WHERE expires_at < ?',
       params: [Date.now()],
     },
     {
-      sql: `INSERT INTO backup_google_oauth VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO backup_google_oauth SELECT ?, ?, ?, ?, ?, ?, ?, ?
+        FROM backup_destinations d JOIN backup_google_connections c ON c.destination_id=d.id
+        WHERE d.id=? AND d.kind='google-drive' AND c.epoch=?`,
       params: [
         flow.nonce,
         flow.destinationId,
@@ -107,9 +127,15 @@ export async function savePending(flow: PendingFlow): Promise<void> {
         flow.state,
         flow.cookieHash,
         await seal(flow, `flow:${flow.nonce}`),
+        flow.destinationId,
+        flow.epoch,
       ],
     },
   ]);
+  if (results[1]?.changes !== 1)
+    throw new GoogleConnectionError(
+      'Google destination or configuration changed; start Connect again.',
+    );
 }
 export async function consumePending(state: string, cookieHash: string): Promise<PendingFlow> {
   const [row] = await sqliteDb().read<{ nonce: string; payload: string }>(

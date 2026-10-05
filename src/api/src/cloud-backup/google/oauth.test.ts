@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { createLiveTestDatabase } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { ObjectId } from '../../db/object-id.ts';
+import { insertFolder } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { insertUser, updateUser } from '../../db/repos/auth.users.repo.ts';
 import { GOOGLE_BACKUP_DDL, loadConnection, saveConfig } from './repo.ts';
 import { startGoogleFlow, finishGoogleFlow, googleAccessToken, type GoogleFetch } from './oauth.ts';
@@ -18,10 +19,17 @@ async function setup(mode: 'direct' | 'relay' = 'direct', id = destination) {
     created_at: new Date().toISOString(),
     last_seen_at: null,
   });
+  db.db
+    .query(
+      `INSERT INTO backup_destinations(id,library_id,kind,name,created_at)
+    VALUES(?,?,'google-drive','Google OAuth test',?)`,
+    )
+    .run(id, insertFolder(db.db), new Date().toISOString());
   await saveConfig(
     id,
     {
       ...DEFAULT_GOOGLE_CONFIG,
+      clientMode: 'own',
       clientId,
       clientSecret: 'local-secret',
       callbackMode: mode,

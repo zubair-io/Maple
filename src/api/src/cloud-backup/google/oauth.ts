@@ -16,14 +16,18 @@ import {
   commitTokens,
   claimRefresh,
   releaseRefresh,
+  saveConfig,
+  type Connection,
   type PendingFlow,
 } from './repo.ts';
+import { managedClientId, managedTokens } from './managed.ts';
+import { tokenResponse, GoogleReconnectRequired } from './token-protocol.ts';
+import { relayTicket } from './oauth-routing.ts';
 
 export type GoogleFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
 const timeout = () => AbortSignal.timeout(30_000);
 const hashCookie = (cookie: string) => createHash('sha256').update(cookie).digest('hex');
 const cache = new Map<string, { epoch: number; token: string; expires: number }>();
-class GoogleReconnectRequired extends GoogleConnectionError {}
 
 async function ownerStillAuthorized(id: string) {
   const [owner] = await sqliteDb().read<{ role: string }>('SELECT role FROM users WHERE id = ?', [
@@ -42,36 +46,7 @@ async function tokenRequest(params: URLSearchParams, transport: GoogleFetch) {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: params,
   });
-  const body = (await response.json()) as Record<string, unknown>;
-  if (!response.ok) tokenFailure(body);
-  return parseTokens(body);
-}
-function tokenFailure(body: Record<string, unknown>): never {
-  if (body.error === 'invalid_grant')
-    throw new GoogleReconnectRequired('Authorization expired or revoked; reconnect Google Drive.');
-  if (body.error === 'invalid_client')
-    throw new GoogleConnectionError('Check the Web Application Client ID and Client Secret.');
-  throw new GoogleConnectionError(
-    'Google token request failed; check application permissions and retry Connect.',
-  );
-}
-function parseTokens(body: Record<string, unknown>) {
-  if (
-    typeof body.access_token !== 'string' ||
-    body.access_token.length > 8192 ||
-    typeof body.expires_in !== 'number' ||
-    body.expires_in <= 0 ||
-    body.token_type !== 'Bearer'
-  ) {
-    throw new GoogleConnectionError(
-      'Google returned an unusable access token; reconnect Google Drive.',
-    );
-  }
-  return {
-    accessToken: body.access_token,
-    expiresIn: body.expires_in,
-    refreshToken: typeof body.refresh_token === 'string' ? body.refresh_token : null,
-  };
+  return tokenResponse(response);
 }
 
 async function verifyScopes(
@@ -143,8 +118,11 @@ export async function startGoogleFlow(
   transport: GoogleFetch = fetch,
 ): Promise<{ authorizationUrl: string; cookie: string }> {
   await ownerStillAuthorized(ownerId);
-  const connection = await loadConnection(destinationId);
-  if (!connection.config.clientId || !connection.config.clientSecret) {
+  const connection = await startConnection(destinationId, ownerId, transport);
+  if (
+    !connection.config.clientId ||
+    (connection.config.clientMode === 'own' && !connection.config.clientSecret)
+  ) {
     throw new GoogleConnectionError(
       'Provide your Google Web Application Client ID and Client Secret.',
     );
@@ -157,39 +135,12 @@ export async function startGoogleFlow(
   const relay = connection.config.callbackMode === 'relay';
   if (!relay) validateDirectCallback(callback);
   const redirectUri = relay ? RELAY_CALLBACK : callback;
-  const ticketResponse = relay
-    ? await transport(`${RELAY_ORIGIN}/api/connect/google-drive/start`, {
-        method: 'POST',
-        redirect: 'error',
-        signal: timeout(),
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nonce,
-          clientId: connection.config.clientId,
-          challenge,
-          returnUrl: callback,
-        }),
-      })
+  const ticket = relay
+    ? await relayTicket(
+        { nonce, clientId: connection.config.clientId, challenge, returnUrl: callback },
+        transport,
+      )
     : null;
-  if (ticketResponse && !ticketResponse.ok)
-    throw new GoogleConnectionError('The Google callback relay is unavailable.');
-  const ticket = ticketResponse
-    ? ((await ticketResponse.json()) as {
-        ticket: string;
-        expiresAt: number;
-        redirectUri: string;
-      })
-    : null;
-  if (
-    ticket &&
-    (typeof ticket.ticket !== 'string' ||
-      ticket.ticket.length > 8192 ||
-      ticket.redirectUri !== redirectUri ||
-      !Number.isFinite(ticket.expiresAt) ||
-      ticket.expiresAt <= Date.now())
-  ) {
-    throw new GoogleConnectionError('The Google callback relay returned invalid routing state.');
-  }
   const state = ticket?.ticket ?? nonce;
   const flow: PendingFlow = {
     nonce,
@@ -224,6 +175,51 @@ export async function startGoogleFlow(
   return { authorizationUrl, cookie };
 }
 
+async function startConnection(
+  id: string,
+  ownerId: string,
+  transport: GoogleFetch,
+): Promise<Connection> {
+  const connection = await loadConnection(id);
+  if (connection.config.clientMode === 'own') return connection;
+  const clientId = await managedClientId(transport);
+  await ownerStillAuthorized(ownerId);
+  if (clientId !== connection.config.clientId) {
+    const [destination] = await sqliteDb().read<{ root_id: string | null }>(
+      'SELECT root_id FROM backup_destinations WHERE id=?',
+      [id],
+    );
+    if (destination?.root_id)
+      throw new GoogleConnectionError(
+        'The Maple Google application changed. Create another destination to migrate this backup folder.',
+      );
+    if (
+      !(await saveConfig(
+        id,
+        {
+          ...connection.config,
+          clientId,
+          clientSecret: '',
+          callbackMode: 'relay',
+          refreshToken: null,
+          relayGrant: null,
+        },
+        connection.epoch,
+        null,
+      ))
+    )
+      throw new GoogleConnectionError('Google configuration changed; start Connect again.');
+  }
+  const current = await loadConnection(id);
+  if (
+    current.config.clientMode !== 'maple' ||
+    current.config.clientId !== clientId ||
+    current.epoch !== connection.epoch + Number(clientId !== connection.config.clientId)
+  )
+    throw new GoogleConnectionError('Google configuration changed; start Connect again.');
+  return current;
+}
+
 export async function finishGoogleFlow(
   state: string,
   cookie: string,
@@ -249,17 +245,24 @@ export async function finishGoogleFlow(
   }
   if (denied || !code)
     throw new GoogleConnectionError('Google connection was declined; no credentials were saved.');
-  const tokens = await tokenRequest(
-    new URLSearchParams({
-      client_id: connection.config.clientId,
-      client_secret: connection.config.clientSecret,
-      code,
-      code_verifier: flow.verifier,
-      redirect_uri: flow.redirectUri,
-      grant_type: 'authorization_code',
-    }),
-    transport,
-  );
+  const tokens =
+    connection.config.clientMode === 'maple'
+      ? await managedTokens(
+          'exchange',
+          { ticket: flow.state, code, verifier: flow.verifier },
+          transport,
+        )
+      : await tokenRequest(
+          new URLSearchParams({
+            client_id: connection.config.clientId,
+            client_secret: connection.config.clientSecret,
+            code,
+            code_verifier: flow.verifier,
+            redirect_uri: flow.redirectUri,
+            grant_type: 'authorization_code',
+          }),
+          transport,
+        );
   if (!tokens.refreshToken)
     throw new GoogleConnectionError(
       'Google did not grant offline access; reconnect and approve consent.',
@@ -275,7 +278,12 @@ export async function finishGoogleFlow(
     throw new GoogleConnectionError('Domain changed; reconnect Google Drive.');
   const epoch = await commitTokens(
     flow.destinationId,
-    { ...connection.config, ...account, refreshToken: tokens.refreshToken },
+    {
+      ...connection.config,
+      ...account,
+      refreshToken: tokens.refreshToken,
+      relayGrant: connection.config.clientMode === 'maple' ? tokens.relayGrant : null,
+    },
     flow.epoch,
   );
   cache.set(flow.destinationId, {
@@ -286,7 +294,7 @@ export async function finishGoogleFlow(
   return flow.destinationId;
 }
 
-/** Internal machine-to-machine renewal. No public renewal endpoint exists. */
+/** Internal machine-to-machine renewal; Bun exposes no browser-accessible renewal route. */
 export async function googleAccessToken(
   id: string,
   transport: GoogleFetch = fetch,
@@ -301,15 +309,7 @@ export async function googleAccessToken(
   if (!(await claimRefresh(id, connection.epoch, lease)))
     throw new GoogleConnectionError('Google token renewal is already in progress; retry shortly.');
   try {
-    const tokens = await tokenRequest(
-      new URLSearchParams({
-        client_id: connection.config.clientId,
-        client_secret: connection.config.clientSecret,
-        refresh_token: connection.config.refreshToken,
-        grant_type: 'refresh_token',
-      }),
-      transport,
-    );
+    const tokens = await renewTokens(connection, transport);
     const account = await verifyToken(tokens.accessToken, connection.config.clientId, transport);
     if (account.accountId !== connection.config.accountId)
       throw new GoogleConnectionError('Google account changed; reconnect.');
@@ -318,6 +318,7 @@ export async function googleAccessToken(
       {
         ...connection.config,
         refreshToken: tokens.refreshToken ?? connection.config.refreshToken,
+        relayGrant: connection.config.clientMode === 'maple' ? tokens.relayGrant : null,
       },
       connection.epoch,
       lease,
@@ -330,11 +331,39 @@ export async function googleAccessToken(
     return tokens.accessToken;
   } catch (error) {
     if (error instanceof GoogleReconnectRequired) {
-      await commitTokens(id, { ...connection.config, refreshToken: null }, connection.epoch, lease);
+      await commitTokens(
+        id,
+        { ...connection.config, refreshToken: null, relayGrant: null },
+        connection.epoch,
+        lease,
+      );
       cache.delete(id);
     }
     throw error;
   } finally {
     await releaseRefresh(id, lease);
   }
+}
+
+function renewTokens(connection: Connection, transport: GoogleFetch) {
+  if (connection.config.clientMode === 'maple') {
+    if (!connection.config.relayGrant)
+      throw new GoogleReconnectRequired(
+        'Maple authorization is unavailable; reconnect Google Drive.',
+      );
+    return managedTokens(
+      'refresh',
+      { refreshToken: connection.config.refreshToken!, relayGrant: connection.config.relayGrant },
+      transport,
+    );
+  }
+  return tokenRequest(
+    new URLSearchParams({
+      client_id: connection.config.clientId,
+      client_secret: connection.config.clientSecret,
+      refresh_token: connection.config.refreshToken!,
+      grant_type: 'refresh_token',
+    }),
+    transport,
+  );
 }

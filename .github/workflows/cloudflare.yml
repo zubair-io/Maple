@@ -18,7 +18,7 @@
 #   cloudflare-ssr-test — the Hosted production SSR Worker
 #                         (src/cloudflare/ssr/, #2474) that fronts the Azure
 #                         Blob origin for mapleaperture.com.
-#   cloudflare-drive-connect-test — callback-only Google Drive relay
+#   cloudflare-drive-connect-test — Google Drive callback relay and managed OAuth proxy
 #                                   (src/cloudflare/drive-connect/, #4230).
 # All run typecheck + vitest on every push/PR that touches src/cloudflare/
 # or this workflow. The relay uses @cloudflare/vitest-plugin.

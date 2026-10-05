@@ -1,11 +1,12 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { CloudBackupService, type GoogleBackupConfig } from '@maple-common';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GoogleBackupComponent } from './google-backup.component';
 
 const saved: GoogleBackupConfig = {
+  clientMode: 'own',
   clientId: 'owner.apps.googleusercontent.com',
   clientSecretSet: true,
   callbackMode: 'relay',
@@ -43,6 +44,9 @@ describe('GoogleBackupComponent', () => {
   async function settle(): Promise<void> {
     fixture.detectChanges();
     await fixture.whenStable();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+    await fixture.whenStable();
     fixture.detectChanges();
   }
   const el = (): HTMLElement => fixture.nativeElement;
@@ -66,6 +70,7 @@ describe('GoogleBackupComponent', () => {
     button('Save client settings').click();
     await settle();
     expect(api.saveGoogleConfig).toHaveBeenCalledWith('destination', {
+      clientMode: 'own',
       clientId: saved.clientId,
       callbackMode: 'relay',
     });
@@ -83,24 +88,92 @@ describe('GoogleBackupComponent', () => {
     button('Save client settings').click();
     await settle();
     expect(api.saveGoogleConfig).toHaveBeenCalledWith('destination', {
+      clientMode: 'own',
       clientId: 'new.apps.googleusercontent.com',
       clientSecret: 'new-secret',
       callbackMode: 'relay',
     });
     expect(input('google-client-secret').value).toBe('');
   });
-  it('keeps Maple-provided connect unavailable when no owner client exists', async () => {
-    api.googleConfig.mockReturnValue(of({ ...saved, clientId: '', clientSecretSet: false }));
+  it('saves the managed client without credentials and allows an actionable start failure', async () => {
+    const managed = {
+      ...saved,
+      clientMode: 'maple' as const,
+      clientId: '',
+      clientSecretSet: false,
+    };
+    api.googleConfig.mockReturnValue(of(managed));
+    api.saveGoogleConfig.mockReturnValue(of(managed));
+    api.connectGoogle.mockReturnValue(
+      throwError(() => new Error('Maple Google client is not configured.')),
+    );
     await settle();
-    expect(el().textContent).toContain('Maple-provided client is unavailable');
     expect(el().querySelector('#google-client-id')).toBeNull();
-    expect(api.connectGoogle).not.toHaveBeenCalled();
+    expect(el().querySelector('#google-client-secret')).toBeNull();
+    expect(el().querySelector('mui-select')).toBeNull();
+    expect(input('google-maple-callback').value).toBe(saved.callbackUrl);
+    expect(button('Save client settings').disabled).toBe(false);
+    expect(button('Connect Google Drive').disabled).toBe(false);
+    button('Save client settings').click();
+    await settle();
+    expect(api.saveGoogleConfig).toHaveBeenCalledWith('destination', {
+      clientMode: 'maple',
+      callbackMode: 'relay',
+    });
+    button('Connect Google Drive').click();
+    await settle();
+    expect(api.connectGoogle).toHaveBeenCalledWith('destination');
+    expect(el().textContent).toContain('Maple Google client is not configured.');
+  });
+  it('clears typed secrets when switching modes and preserves the common callback URL', async () => {
+    await settle();
+    input('google-client-secret').value = 'never-send-to-managed';
+    input('google-client-secret').dispatchEvent(new Event('input'));
+    const checkbox = () => el().querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    checkbox().click();
+    await settle();
+    expect(el().querySelector('#google-client-secret')).toBeNull();
+    expect(input('google-maple-callback').value).toBe(saved.callbackUrl);
+    checkbox().click();
+    await settle();
+    expect(input('google-client-secret').value).toBe('');
+    expect(input('google-maple-callback').value).toBe(saved.callbackUrl);
+    expect(el().textContent).toContain('renews directly with Google');
+  });
+  it('keeps an explicitly selected empty own client after clearing credentials', async () => {
+    const empty = { ...saved, clientId: '', clientSecretSet: false };
+    api.googleConfig.mockReturnValueOnce(of(saved)).mockReturnValue(of(empty));
+    await settle();
+    button('Clear Google credentials').click();
+    await settle();
+    expect(input('google-client-id').value).toBe('');
+    expect(input('google-client-secret').value).toBe('');
+    expect(button('Connect Google Drive').disabled).toBe(true);
+  });
+  it('seeds legacy owner-client settings when clientMode is absent', async () => {
+    api.googleConfig.mockReturnValue(of({ ...saved, clientMode: undefined }));
+    await settle();
+    expect(input('google-client-id').value).toBe(saved.clientId);
   });
   it('does not allow starting OAuth until the central callback origin is configured', async () => {
     api.googleConfig.mockReturnValue(of({ ...saved, callbackUrl: null }));
     await settle();
     expect(button('Connect Google Drive').disabled).toBe(true);
     expect(el().textContent).toContain('Configure domain');
+  });
+  it('shows the same server callback with direct owner routing', async () => {
+    api.googleConfig.mockReturnValue(
+      of({ ...saved, callbackMode: 'direct', googleRedirectUri: saved.callbackUrl }),
+    );
+    await settle();
+    expect(input('google-maple-callback').value).toBe(saved.callbackUrl);
+    button('Save client settings').click();
+    await settle();
+    expect(api.saveGoogleConfig).toHaveBeenCalledWith('destination', {
+      clientMode: 'own',
+      clientId: saved.clientId,
+      callbackMode: 'direct',
+    });
   });
   it('creates backup root only on explicit action after connecting', async () => {
     api.googleConfig.mockReturnValue(of({ ...saved, connected: true }));
@@ -116,6 +189,7 @@ describe('GoogleBackupComponent', () => {
     await settle();
     expect(api.disconnectGoogle).toHaveBeenCalledWith('destination');
     expect(api.saveGoogleConfig).toHaveBeenCalledWith('destination', {
+      clientMode: 'own',
       clientId: '',
       clientSecret: null,
       callbackMode: 'relay',
@@ -129,12 +203,52 @@ describe('GoogleBackupComponent', () => {
     input('google-backup-root').value = 'existing-root';
     input('google-backup-root').dispatchEvent(new Event('input'));
     fixture.detectChanges();
+    fixture.detectChanges();
     button('Verify existing backup').click();
     await settle();
     expect(api.saveGoogleConfig).toHaveBeenCalledWith('destination', {
+      clientMode: 'own',
       clientId: saved.clientId,
       callbackMode: saved.callbackMode,
       rootId: 'existing-root',
+    });
+  });
+  it('attaches an existing root using the saved managed mode, ignoring an unsaved own selection', async () => {
+    api.googleConfig.mockReturnValue(
+      of({
+        ...saved,
+        clientMode: 'maple',
+        connected: true,
+        clientId: 'maple-client',
+        clientSecretSet: false,
+      }),
+    );
+    await settle();
+    el().querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
+    await settle();
+    input('google-client-id').value = 'unsaved-owner-client';
+    input('google-client-id').dispatchEvent(new Event('input'));
+    input('google-backup-root').value = 'existing-root';
+    input('google-backup-root').dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    button('Verify existing backup').click();
+    await settle();
+    expect(api.saveGoogleConfig).toHaveBeenCalledWith('destination', {
+      clientMode: 'maple',
+      callbackMode: 'relay',
+      rootId: 'existing-root',
+    });
+  });
+  it('preserves the client identity when clearing credentials of an attached backup', async () => {
+    api.googleConfig.mockReturnValue(of({ ...saved, rootId: 'existing-root' }));
+    await settle();
+    button('Clear Google credentials').click();
+    await settle();
+    expect(api.saveGoogleConfig).toHaveBeenCalledWith('destination', {
+      clientMode: 'own',
+      clientId: saved.clientId,
+      clientSecret: null,
+      callbackMode: 'relay',
     });
   });
 });

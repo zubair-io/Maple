@@ -23,6 +23,7 @@ async function connectedDestination() {
     created.id,
     {
       ...DEFAULT_GOOGLE_CONFIG,
+      clientMode: 'own',
       clientId,
       clientSecret: 'local-secret',
       refreshToken: 'local-refresh',
@@ -141,7 +142,9 @@ for (const change of ['pause', 'root', 'delete'] as const) {
     const server = googleServer(mutations[change]);
     using _fetch = installFetch(server.transport);
     await expect(providerForDestination(destination).probe()).rejects.toThrow(
-      'destination changed during token renewal',
+      change === 'delete'
+        ? 'Google connection changed'
+        : 'destination changed during token renewal',
     );
     expect(server.requests.some((request) => request.url.includes('/files/'))).toBe(false);
     expect(server.requests.filter((request) => request.url.endsWith('/token'))).toHaveLength(1);
