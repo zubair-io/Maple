@@ -15,13 +15,29 @@ public sealed class CloudSearchFacets
     [JsonPropertyName("people")] public CloudSearchBucket[]? People { get; set; }
     [JsonPropertyName("places")] public CloudSearchBucket[]? Places { get; set; }
     [JsonPropertyName("extensions")] public CloudSearchBucket[]? Extensions { get; set; }
+    [JsonPropertyName("owners")] public CloudSearchBucket[]? Owners { get; set; }
     [JsonPropertyName("supportedFilters")] public string[]? SupportedFilters { get; set; }
 }
 
-public sealed class CloudSearchBucket
+public class CloudSearchBucket
 {
-    [JsonPropertyName("value")] public string Value { get; set; } = "";
+    private string _value = "";
+    [JsonPropertyName("value")]
+    public string Value
+    {
+        get => string.IsNullOrEmpty(_value) ? (Id ?? "") : _value;
+        set => _value = value;
+    }
+
+    [JsonPropertyName("id")] public string? Id { get; set; }
+    [JsonPropertyName("email")] public string? Email { get; set; }
     [JsonPropertyName("count")] public long Count { get; set; }
+}
+
+/// <summary>Asset owner bucket (#3817). Email-free accounts are valid users,
+/// so <see cref="Email"/> may be null.</summary>
+public sealed class CloudOwnerFacet : CloudSearchBucket
+{
 }
 
 public sealed partial class CloudClient

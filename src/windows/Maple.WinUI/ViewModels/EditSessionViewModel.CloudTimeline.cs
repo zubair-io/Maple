@@ -122,6 +122,7 @@ namespace Maple.WinUI.ViewModels
             People = CloudPeopleFilter,
             Places = CloudPlaceFilter,
             Hidden = CloudHiddenFilter,
+            Owner = CloudOwnerFilter.Length > 0 ? CloudOwnerFilter : null,
             Extension = FormatFilter == "All" ? null : FormatFilter.ToLowerInvariant(),
             From = DateFilterStart is { } start ? new DateTimeOffset(DateTime.SpecifyKind(start, DateTimeKind.Utc)) : null,
             Through = DateFilterEndExclusive is { } end ? new DateTimeOffset(DateTime.SpecifyKind(end.AddMilliseconds(-1), DateTimeKind.Utc)) : null,
