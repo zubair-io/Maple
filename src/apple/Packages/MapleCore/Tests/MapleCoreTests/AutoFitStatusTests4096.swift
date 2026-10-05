@@ -5,6 +5,29 @@ import XCTest
 
 extension EditSessionFilmLutSyncTests {
   @MainActor
+  func testMetadataOnlyAssetsSettleAutoWithoutDecodingOrChangingOriginals() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    // Deliberately undecodable bytes: these metadata-only types must never reach a still decoder.
+    let original = Data("Metadata-only asset; no still-frame payload".utf8)
+    for ext in ["mov", "mp3", "afphoto"] {
+      let url = directory.appendingPathComponent("metadata.\(ext)")
+      try original.write(to: url)
+      let session = EditSession(asset: AssetRef(url: url))
+      XCTAssertTrue(session.asset.isVideo || session.asset.isAudio || session.asset.isStub)
+      XCTAssertEqual(session.autoFitStatus, .pending)
+      await session.renderFull()
+      XCTAssertEqual(session.autoFitStatus, .unavailable, "Metadata-only .\(ext) cannot fit Auto")
+      XCTAssertNil(session.renderError, "A metadata-only asset must not enter any decoder")
+      XCTAssertNil(session.renderedPreview)
+      XCTAssertFalse(session.isRendering)
+      XCTAssertEqual(try Data(contentsOf: url), original)
+      await session.releaseTransientMemory()
+    }
+  }
+
+  @MainActor
   func testAutoFitFailureRejectsStaleIdentityAndPreservesCompletedOutcomes() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
