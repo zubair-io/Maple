@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.4.2
       - name: Install API deps
         working-directory: src/api
         run: bun install --frozen-lockfile
@@ -31,6 +31,7 @@ jobs:
         run: bun run typecheck
 
   api-tests:
+    timeout-minutes: 35
     needs: changes
     if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-latest
@@ -45,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.4.2
       - name: Install API deps
         working-directory: src/api
         run: bun install --frozen-lockfile
@@ -62,11 +63,44 @@ jobs:
       # Build it before tests so a clean runner cannot pass by skipping FFI.
       - name: Build native RAW library for API integration tests
         run: bash src/api/scripts/build-raw-ffi.sh
-      - name: Run API tests
+      # Temporary, ticket-scoped diagnostic branch for the real Linux #4051 race.
+      # This workflow is not a production fix or a waived merge gate.
+      - name: Retain reproduction source and native identities
+        run: |
+          mkdir -p "$RUNNER_TEMP/workflow-race-4051"
+          git rev-parse HEAD > "$RUNNER_TEMP/workflow-race-4051/commit.txt"
+          bun --version > "$RUNNER_TEMP/workflow-race-4051/bun-version.txt"
+          uname -a > "$RUNNER_TEMP/workflow-race-4051/kernel.txt"
+          git ls-files -z src/raw-pipeline src/api src/maple | xargs -0 sha256sum > "$RUNNER_TEMP/workflow-race-4051/source-before.sha256"
+          find src/api/native -maxdepth 1 -type f -print0 | xargs -0 sha256sum > "$RUNNER_TEMP/workflow-race-4051/native-before.sha256"
+      - name: Reproduce actual Linux Istanbul API ordering, at most five attempts
         working-directory: src/api
         env:
           MAPLE_JWT_SECRET: ci-test-secret-not-for-production-only
-        run: bun test --timeout 30000
+        run: |
+          for attempt in 1 2 3 4 5; do
+            log="$RUNNER_TEMP/workflow-race-4051/coverage-$attempt.log"
+            if bun run test:coverage > "$log" 2>&1; then
+              tail -n 14 "$log"
+            else
+              tail -n 200 "$log"
+              exit 1
+            fi
+          done
+      - name: Verify reproduction inputs stayed unchanged
+        if: always()
+        run: |
+          sha256sum -c "$RUNNER_TEMP/workflow-race-4051/source-before.sha256" > "$RUNNER_TEMP/workflow-race-4051/source-after.log"
+          sha256sum -c "$RUNNER_TEMP/workflow-race-4051/native-before.sha256" > "$RUNNER_TEMP/workflow-race-4051/native-after.log"
+          git status --porcelain --untracked-files=no > "$RUNNER_TEMP/workflow-race-4051/tracked-status-after.txt"
+          test ! -s "$RUNNER_TEMP/workflow-race-4051/tracked-status-after.txt"
+      - name: Preserve actual reproduction receipts, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-race-4051-${{ github.run_id }}
+          path: ${{ runner.temp }}/workflow-race-4051
+          if-no-files-found: error
       - name: Verify real Meilisearch task and search compatibility
         working-directory: src/api
         env:
