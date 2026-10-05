@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers';
+import { env, exports } from 'cloudflare:workers';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import worker from '../src/index';
 import { REDIRECT_URI, SCOPE, signTicket, encode } from '../src/ticket';
@@ -40,7 +40,7 @@ function googleReply(body: unknown, status = 200, verify?: (parameters: URLSearc
 	fetchMock.mockImplementationOnce(async (url, init) => {
 		expect(String(url)).toBe('https://oauth2.googleapis.com/token');
 		expect(init?.method).toBe('POST');
-		expect(init?.redirect).toBe('error');
+		expect(init?.redirect).toBe('manual');
 		expect(new Headers(init?.headers).get('content-type')).toBe(
 			'application/x-www-form-urlencoded',
 		);
@@ -92,6 +92,19 @@ it('advertises only fixed managed client metadata and fails closed without eithe
 			available: false,
 		});
 	}
+});
+it('reaches Google through a runtime-dispatched incoming request with cancellation enabled', async () => {
+	googleReply({ error: 'invalid_grant', error_description: 'Do not expose provider details' }, 400);
+	const response = await exports.default.fetch(
+		'https://mapleeditor.com/api/connect/google-drive/exchange',
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(await exchangeInput()),
+		},
+	);
+	expect(response.status).toBe(400);
+	expect(await response.json()).toEqual({ error: 'invalid_grant' });
 });
 it('exchanges a bound PKCE code with Worker credentials and returns only required token fields', async () => {
 	googleReply(

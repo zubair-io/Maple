@@ -52,7 +52,7 @@ test('root creation allocates one visible My Drive folder using the current loca
   for (const request of server.requests) {
     expect(request.url.origin).toBe('https://www.googleapis.com');
     expect(new Headers(request.init.headers).get('authorization')).toBe('Bearer local-access');
-    expect(request.init.redirect).toBe('error');
+    expect(request.init.redirect).toBe('manual');
   }
 });
 
@@ -117,3 +117,116 @@ test('Drive endpoint and file ID validation prevents sending credentials to an a
   await client.request(`${DRIVE_API}/files/generateIds`);
   expect(server.requests).toHaveLength(1);
 });
+
+const uploadSession = 'https://www.googleapis.com/upload/drive/v3/files?upload_id=owned-session';
+const protocolCases = [
+  {
+    name: 'resumable PUT progress',
+    status: 308,
+    method: 'PUT',
+    url: uploadSession,
+    location: null,
+    accepted: true,
+  },
+  {
+    name: 'GET progress',
+    status: 308,
+    method: 'GET',
+    url: uploadSession,
+    location: null,
+    accepted: false,
+  },
+  {
+    name: 'session creation progress',
+    status: 308,
+    method: 'POST',
+    url: uploadSession,
+    location: null,
+    accepted: false,
+  },
+  {
+    name: 'non-session upload progress',
+    status: 308,
+    method: 'PUT',
+    url: 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
+    location: null,
+    accepted: false,
+  },
+  {
+    name: 'Drive metadata progress',
+    status: 308,
+    method: 'PUT',
+    url: `${DRIVE_API}/files/owned-id?upload_id=owned-session`,
+    location: null,
+    accepted: false,
+  },
+  {
+    name: 'Google Location on progress',
+    status: 308,
+    method: 'PUT',
+    url: uploadSession,
+    location: uploadSession,
+    accepted: false,
+  },
+  {
+    name: '302 redirect',
+    status: 302,
+    method: 'PUT',
+    url: uploadSession,
+    location: 'loopback',
+    accepted: false,
+  },
+  {
+    name: '307 redirect',
+    status: 307,
+    method: 'PUT',
+    url: uploadSession,
+    location: 'loopback',
+    accepted: false,
+  },
+] as const;
+for (const fixture of protocolCases) {
+  test(`native Bun transport ${fixture.accepted ? 'accepts' : 'rejects'} ${fixture.name} without following redirects`, async () => {
+    const requests: Array<{ path: string; authorization: string | null }> = [];
+    const server = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch(request) {
+        requests.push({
+          path: new URL(request.url).pathname,
+          authorization: request.headers.get('authorization'),
+        });
+        const location =
+          fixture.location === 'loopback'
+            ? new URL('/redirect-target', request.url).href
+            : fixture.location;
+        return new Response('native protocol response', {
+          status: fixture.status,
+          headers: { Range: 'bytes=0-8388607', ...(location ? { Location: location } : {}) },
+        });
+      },
+    });
+    const redirectModes: Array<RequestRedirect | undefined> = [];
+    const transport: GoogleFetch = async (_input, init) => {
+      redirectModes.push(init?.redirect);
+      return fetch(`http://127.0.0.1:${server.port}/session`, init);
+    };
+    try {
+      const client = new DriveClient(async () => 'disposable-fixture-token', transport);
+      const request = client.request(fixture.url, { method: fixture.method, redirect: 'follow' });
+      if (fixture.accepted) {
+        const response = await request;
+        expect(response.status).toBe(308);
+        expect(response.headers.get('range')).toBe('bytes=0-8388607');
+        expect(await response.text()).toBe('native protocol response');
+      } else
+        await expect(request).rejects.toThrow(`Google Drive request failed (${fixture.status})`);
+      expect(redirectModes).toEqual(['manual']);
+      expect(requests).toEqual([
+        { path: '/session', authorization: 'Bearer disposable-fixture-token' },
+      ]);
+    } finally {
+      await server.stop(true);
+    }
+  });
+}
