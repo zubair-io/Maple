@@ -91,23 +91,18 @@ fn lanczos3_fractional_downscale_stays_within_one_code() {
     );
 }
 
-/// `lanczos3` integer downscale 4x4 -> 2x2: within 8 codes of sharp's bytes.
-/// The gap is `vips_reduce`'s truncated-int masks and 8-bit intermediate
-/// clamp between the H and V passes (#4177) — Maple evaluates the kernel
-/// once in f32 at the final position instead. The bound is a ratchet: a
-/// reduce port should drive it toward 0, and anything past 8 is a
-/// regression.
+/// `lanczos3` integer downscale 4x4 -> 2x2: matches sharp byte-for-byte.
+/// The reduce staging (#4177) reproduces libvips' `vips_reduce` integer
+/// shrink, truncated 12-bit masks and 8-bit intermediate clamping.
 #[test]
 fn lanczos3_integer_downscale_stays_within_known_envelope() {
     let mut o = opts(2, 2, ResizeFit::Fill);
     o.filter = FilterAlg::Lanczos3;
     let out = resize_raster(&smooth4(), &o).unwrap();
     let sharp = vec![40, 40, 128, 215, 40, 128, 40, 215, 128, 215, 215, 128];
-    assert!(
-        max_diff(&out.data, &sharp) <= 8,
-        "drifted past the 8-code reduce envelope: {:?} vs sharp {:?}",
-        out.data,
-        sharp
+    assert_eq!(
+        out.data, sharp,
+        "lanczos3 integer downscale matches sharp byte-for-byte"
     );
 }
 

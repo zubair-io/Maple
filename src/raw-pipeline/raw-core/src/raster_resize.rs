@@ -4,6 +4,8 @@
 //! `raster` so no caller's import path changes. The measured sharp-parity
 //! envelope (exact where it matches, bounded where libvips routes around
 //! its own kernel) is pinned in `raster_resize_envelope_tests` (#3573).
+//! Convolution-kernel downscales take libvips' own reduce staging instead
+//! (`raster_resize_reduce`, #4177).
 
 use fast_image_resize as fr;
 
@@ -11,6 +13,9 @@ use crate::error::{Error, Result};
 use crate::raster::RasterImage;
 use crate::raster_composite::Gravity;
 use crate::raster_geometry::ExtendEdges;
+
+#[path = "raster_resize_reduce.rs"]
+mod reduce;
 
 /// Sizing and framing strategy, matching sharp's `fit`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -277,6 +282,14 @@ fn resize_with_alpha(
     let dst_h = scaled_dim(src.height, vshrink);
     let scaled = if (dst_w, dst_h) == (src.width, src.height) {
         src.clone()
+    } else if reduce::applies(options.filter, (hshrink, vshrink)) {
+        reduce::reduce(
+            src,
+            (hshrink, vshrink),
+            (dst_w, dst_h),
+            options.filter,
+            mul_div_alpha,
+        )?
     } else {
         resample(src, dst_w, dst_h, options.filter, mul_div_alpha)?
     };
