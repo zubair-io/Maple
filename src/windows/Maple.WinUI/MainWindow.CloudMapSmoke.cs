@@ -17,7 +17,7 @@ public sealed partial class MainWindow
         var styleName = "qualification-" + Guid.NewGuid().ToString("N") + ".json";
         var stylePath = Path.Combine(AppContext.BaseDirectory, "Assets", "Map", styleName);
         await File.WriteAllTextAsync(stylePath, """{"version":8,"sources":{},"layers":[{"id":"background","type":"background","paint":{"background-color":"#151311"}}]}""");
-        var handler = new MapSmokeHandler();
+        var handler = new MapSmokeHandler { TileUrl = "https://maple-map.invalid/" + styleName };
         using var client = new CloudClient("https://map-test.invalid", handler, Path.Combine(output, "map-cache"));
         using var map = new CloudMapView(client, new() { TileUrl = "https://maple-map.invalid/" + styleName }, new());
         map.QualificationDiagnostic += line => File.AppendAllText(Path.Combine(output, "map-publication.jsonl"), line + Environment.NewLine);
@@ -61,9 +61,27 @@ public sealed partial class MainWindow
             if (handler.RequestCount > failedRequests + 1 || !map.CanRetry)
                 throw new InvalidOperationException("Map server failure repeatedly resized and restarted requests");
             handler.Status = HttpStatusCode.OK;
-            await map.RetryAsync();
+            handler.HoldRecovery = true;
+            var recovery = map.RetryAsync();
+            await handler.RecoveryEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var recoveryGeneration = map.RequestGeneration;
+            for (var repeat = 0; repeat < 20; repeat++) await map.RetryAsync();
+            if (map.RetryEnabled || map.RequestGeneration != recoveryGeneration)
+                throw new InvalidOperationException("Repeated Retry cancelled an active Map recovery");
+            handler.RecoveryResponse.TrySetResult();
+            await recovery;
+            handler.HoldRecovery = false;
             await WaitAsync(() => map.AppliedCellCount == 1 && !map.CanRetry, "Map retry did not recover the same viewport");
             if (!handler.Query.Contains("rating=1")) throw new InvalidOperationException("Map retry lost query filters");
+
+            RecordSmokeStage(output, "map-tile-retry");
+            await map.RaiseTileErrorForQualificationAsync();
+            await WaitAsync(() => map.CanRetry && map.RetryEnabled, "Tile error did not expose retry");
+            var tileGeneration = map.RequestGeneration;
+            await map.RetryAsync();
+            await WaitAsync(() => map.RequestGeneration > tileGeneration && map.AppliedCellCount == 1
+                && !map.CanRetry && map.StatusText == "1 photo locations", "Tile retry did not reload the retained viewport");
+            if (handler.ConfigRequests != 1) throw new InvalidOperationException("Tile retry did not refresh Map configuration");
 
             RecordSmokeStage(output, "map-auth-failure");
             handler.Status = HttpStatusCode.Unauthorized;
@@ -159,12 +177,28 @@ public sealed partial class MainWindow
     {
         public string Query = "";
         public int RequestCount;
+        public int ConfigRequests;
+        public bool HoldRecovery;
+        public TaskCompletionSource RecoveryEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource RecoveryResponse = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public string TileUrl = "";
         public HttpStatusCode Status = HttpStatusCode.OK;
         public bool Empty;
         public TaskCompletionSource HeldEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource HeldResponse = new(TaskCreationOptions.RunContinuationsAsynchronously);
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (request.RequestUri!.AbsolutePath == "/api/map/config")
+            {
+                Interlocked.Increment(ref ConfigRequests);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                { Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(new { tile_url = TileUrl })) };
+            }
+            if (HoldRecovery)
+            {
+                RecoveryEntered.TrySetResult();
+                await RecoveryResponse.Task.WaitAsync(cancellationToken);
+            }
             Query = request.RequestUri!.Query;
             Interlocked.Increment(ref RequestCount);
             if (Query.Contains("rating=5"))

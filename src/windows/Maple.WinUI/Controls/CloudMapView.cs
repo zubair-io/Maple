@@ -33,11 +33,14 @@ public sealed class CloudMapView : Grid, IDisposable
     private bool _initializing;
     private bool _ready;
     private bool _tileError;
+    private bool _loading;
+    private bool _retrying;
     private long _navigationVersion;
 
     internal int AppliedCellCount => _cells.Length;
     internal bool HostReady => _ready;
     internal bool CanRetry => _retry.Visibility == Visibility.Visible;
+    internal bool RetryEnabled => _retry.IsEnabled;
     internal string StatusText => _status.Text;
     internal FrameworkElement BackControl => _back;
     internal double CanvasHeight => _browser.ActualHeight;
@@ -117,25 +120,35 @@ public sealed class CloudMapView : Grid, IDisposable
 
     internal async Task RetryAsync()
     {
-        if (_disposed || _initializing) return;
-        if (!_initialized) { await InitializeAsync(); return; }
-        if (!_ready) { NavigateHost(); return; }
-        if (!_tileError && _viewport is { } viewport) { await LoadViewportAsync(viewport); return; }
+        if (_disposed || _initializing || _loading || _retrying) return;
+        _retrying = true;
         _retry.IsEnabled = false;
         try
         {
+            if (!_initialized) { await InitializeAsync(); return; }
+            if (!_ready) { NavigateHost(); return; }
+            if (!_tileError && _viewport is { } viewport) { await LoadViewportAsync(viewport); return; }
             var config = await _client.GetMapConfigAsync(_lifetime.Token);
             if (_disposed) return;
             if (config == null) { Fail("This server no longer provides Map. Return to photos."); return; }
             _config = config;
             _tileError = false;
-            _retry.Visibility = Visibility.Collapsed;
             SetStatus("Loading map…");
             _browser.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "configure", tileUrl = _config.TileUrl }));
+            // style.load may report identical bounds, which ordinary viewport
+            // deduplication correctly suppresses. Explicit recovery must refresh.
+            if (_viewport is { } retainedViewport) await LoadViewportAsync(retainedViewport);
         }
         catch (Exception) { if (!_disposed) Fail("Map configuration could not load. Check your connection, then retry."); }
-        finally { if (!_disposed) _retry.IsEnabled = true; }
+        finally
+        {
+            _retrying = false;
+            if (!_disposed) _retry.IsEnabled = !_loading;
+        }
     }
+
+    internal async Task RaiseTileErrorForQualificationAsync() => await _browser.CoreWebView2.ExecuteScriptAsync(
+        "window.chrome.webview.postMessage({type:'tileError'})");
 
     private void NavigateHost()
     {
@@ -205,6 +218,8 @@ public sealed class CloudMapView : Grid, IDisposable
         _request?.Dispose();
         var owner = _request = new CancellationTokenSource();
         var generation = ++_generation;
+        _loading = true;
+        _retry.IsEnabled = false;
         RecordQualificationDiagnostic("request-started");
         _cells = Array.Empty<CloudMapCell>();
         _results.IsEnabled = false;
@@ -240,6 +255,14 @@ public sealed class CloudMapView : Grid, IDisposable
             if (_disposed || _request != owner) return;
             Fail(error is HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden }
                 ? "Sign in to Maple Cloud to load photo locations." : "Photo locations could not load. Check your connection, then retry.");
+        }
+        finally
+        {
+            if (!_disposed && _request == owner)
+            {
+                _loading = false;
+                _retry.IsEnabled = !_retrying;
+            }
         }
     }
 
