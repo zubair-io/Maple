@@ -8,9 +8,12 @@ extension SMBDisconnectDrainTests {
   func testRenameEncodingPreservesFailedFileIDAndConvertsOnlyFilenameSeparators() throws {
     // #4093: exact persistent/volatile IDs from the cycle-94 Samba trace.
     let failed = UUID(uuid: (47, 0, 70, 233, 0, 0, 0, 0, 116, 19, 245, 58, 0, 0, 0, 0))
+    // Refs #4251: exact cycle-62 CI tuple, whose volatile 0x002fd1a3 was corrupted.
+    let failedCI62 = UUID(
+      uuid: (0xf1, 0xa1, 0x27, 0xcd, 0, 0, 0, 0, 0xa3, 0xd1, 0x2f, 0, 0, 0, 0, 0))
     let ordinary = UUID(
       uuid: (96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111))
-    var ids = [ordinary, failed]
+    var ids = [ordinary, failed, failedCI62]
     for word in 0..<8 {
       var bytes = [UInt8](repeating: 0x61, count: 16)
       bytes[word * 2] = 0x2f
