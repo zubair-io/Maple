@@ -10,7 +10,7 @@ public enum AutoFitStatus: Sendable, Equatable {
     case .pending: return "Checking Auto matching for this image…"
     case .active: return "Color and contrast matched to this image’s embedded camera preview."
     case .unavailable:
-      return "Auto matching is unavailable for this image; using Neutral rendering."
+      return "Auto matching is unavailable for this image; camera-preview matching was not applied."
     }
   }
 }

@@ -50,7 +50,7 @@ for (const gpu of [false, true])
       files[1],
     );
     await expect(status).toHaveText(
-      'Auto matching is unavailable for this image; using Neutral rendering.',
+      'Auto matching is unavailable for this image; camera-preview matching was not applied.',
       {
         timeout: 120000,
       },
