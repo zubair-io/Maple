@@ -308,7 +308,7 @@ fn solve_gain_slope(n: usize, pairs: &PairMap, opts: &PhotometryOptions) -> (Vec
     let mut atb = vec![0.0_f64; m];
     let mut total_w = 0.0_f64;
 
-    let mut add_row =
+    let add_row =
         |coeffs: &[(usize, f64)], rhs: f64, w: f64, ata: &mut Vec<Vec<f64>>, atb: &mut Vec<f64>| {
             for &(p, cp) in coeffs {
                 for &(q, cq) in coeffs {

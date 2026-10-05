@@ -9,7 +9,9 @@
 //! Split into a sibling file under the 600-LOC file budget, same `#[path]`
 //! pattern as `auto_adjustments_tests.rs`.
 
+use super::histogram::MID_GRAY;
 use super::*;
+use crate::image::ColorSpace;
 
 // ---------------------------------------------------------------------------
 // Helpers

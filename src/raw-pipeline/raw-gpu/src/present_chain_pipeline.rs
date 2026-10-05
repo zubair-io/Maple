@@ -344,6 +344,10 @@ impl PresentDispatchCache {
 
     /// Reuse a dispatch keyed on resource identity and sampling geometry.
     /// Each buffer direction allocates once, then updates allocate nothing.
+    /// Test-only today: production calls `get_or_build_scaled` directly and
+    /// `tests.rs` is the sole caller of this wrapper (mirroring
+    /// `alloc_count`'s accounting-hook role).
+    #[allow(dead_code)]
     pub fn get_or_build(
         &self,
         ctx: &GpuContext,

@@ -350,7 +350,7 @@ fn develop_scene_linear_for_pano(
     // DCP colorimetry: camera RGB → scene-linear Rec.2020 D65. CM/FM + HSM
     // only (the Adobe aesthetic layers PTC/PLT don't run — #425).
     let profile = stage("pano_dcp::profile_for", || dcp::profile_for(raw))?;
-    let mut scene = stage("pano_dcp::apply", || {
+    let scene = stage("pano_dcp::apply", || {
         dcp::apply_colorimetry(&camera_rgb, &profile)
     })?;
     dump_after("pano_03_dcp_apply", &scene);
