@@ -90,16 +90,18 @@ pub(super) fn reject_untileable(
             "tile path is not supported when deep denoise != 0 (the BM3D reference-patch grid is frame-anchored; use the full-image render entry instead). See #1105.",
         );
     }
-    // DNG OpcodeList3 (#1932): the full and sized develop chains apply
-    // GainMap / WarpRectilinear on the demosaiced buffer in full-sensor
-    // ActiveArea coordinates; the tile chain never did, and the warp
-    // resample gathers from source positions displaced by the (unbounded)
-    // lens model. Refuse so opcode-carrying DNGs fall back to the render
-    // that applies them correctly (#1173 tracks a tile-local GainMap).
-    if raw.opcode_list3.is_some() {
-        return reject(
-            "tile path is not supported when the DNG carries OpcodeList3 (GainMap / WarpRectilinear gain/warp/CA correction; the warp resample gather exceeds the overlap pad and the tile chain does not apply opcodes — use the full-image render entry instead). See #1932.",
-        );
+    // DNG OpcodeList3 (#1932, #4288): tile develop supports bounded source
+    // gathering for a single radial WarpRectilinear opcode without lateral CA
+    // or GainMap (matching the mandatory Hasselblad L3D-100c opcode). Refuse
+    // other opcode forms (GainMap, FixVignetteRadial, multi-opcode, tangential
+    // distortion kt != [0, 0], differing per-plane lateral CA) so they fall back
+    // to the full-image render.
+    if let Some((list, _aa)) = raw.opcode_list3.as_ref() {
+        if !is_supported_tile_opcode_list(list) {
+            return reject(
+                "tile path is not supported when the DNG carries unsupported OpcodeList3 (only radial WarpRectilinear without lateral CA or GainMap is supported in tile path; use full-image render instead). See #1932, #4288.",
+            );
+        }
     }
     let TileRect {
         src_w,
@@ -127,4 +129,35 @@ pub(super) fn reject_untileable(
         ));
     }
     Ok(())
+}
+
+/// A DNG OpcodeList3 is supported in the tile path if and only if it consists
+/// solely of a single radial WarpRectilinear opcode with identical per-plane
+/// coefficients (no lateral CA difference and no GainMap).
+pub(super) fn is_supported_tile_opcode_list(
+    list: &crate::pipeline::pano::opcodes::OpcodeList3,
+) -> bool {
+    use crate::pipeline::pano::opcodes::PanoOpcode;
+    if list.skipped_unknown > 0 || list.opcodes.len() != 1 {
+        return false;
+    }
+    match &list.opcodes[0] {
+        PanoOpcode::WarpRectilinear(w) => {
+            if !w.center_x.is_finite() || !w.center_y.is_finite() || w.planes.is_empty() {
+                return false;
+            }
+            let first = &w.planes[0];
+            if first.kt != [0.0, 0.0] {
+                return false;
+            }
+            if w.planes.iter().any(|p| p != first) {
+                return false;
+            }
+            if first.kr.iter().any(|&k| !k.is_finite()) {
+                return false;
+            }
+            true
+        }
+        _ => false,
+    }
 }

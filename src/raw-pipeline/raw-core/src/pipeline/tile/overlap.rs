@@ -25,6 +25,7 @@
 //! `guards.rs`.
 
 use super::TILE_OVERLAP_PX;
+use crate::image::RawImage;
 use crate::pipeline::capture_sharpening_helper::capture_sharpening_params_from_model;
 use crate::stages::local_adjustments::spatial;
 use crate::stages::{
@@ -46,8 +47,37 @@ const PRE_SCENE_REACH_PX: usize = 2 + 2 + 4;
 /// (the S/H mask anchor, #2476) and `divisor` the demosaic divisor (2 for a
 /// half-res `Preview`, else 1): every reach below is measured in developed
 /// pixels and converted back to mosaic pixels through it.
-pub(super) fn tile_overlap_px(model: &AdjustmentModel, mask_long_edge: usize, divisor: u32) -> u32 {
+pub(super) fn tile_overlap_px(
+    raw: Option<&RawImage>,
+    model: &AdjustmentModel,
+    mask_long_edge: usize,
+    divisor: u32,
+) -> u32 {
+    let qd = divisor.max(1);
+    let warp_reach = raw
+        .and_then(|r| r.opcode_list3.as_ref())
+        .map(|(list, _aa)| {
+            if list.opcodes.len() == 1 {
+                if let crate::pipeline::pano::opcodes::PanoOpcode::WarpRectilinear(w) =
+                    &list.opcodes[0]
+                {
+                    let r = raw.unwrap();
+                    let full_dims = (r.width / qd, r.height / qd);
+                    let distortion =
+                        crate::pipeline::pano::opcode_apply::LensCorrectionScales::from_model(
+                            model,
+                        )
+                        .distortion;
+                    return crate::pipeline::pano::opcode_apply::warp_rectilinear_reach_px(
+                        w, full_dims, distortion,
+                    );
+                }
+            }
+            0
+        })
+        .unwrap_or(0);
     let sum: usize = PRE_SCENE_REACH_PX
+        + warp_reach
         + capture_sharpening_params_from_model(model)
             .map(|p| capture_sharpening::stencil_reach_px(&p))
             .unwrap_or(0)
@@ -104,7 +134,7 @@ mod tests {
     fn default_model_stays_on_the_fixed_pad() {
         // sharpen 40 @ σ 1 (reach 3 + 1) + nr_color 25 (5) + pre-scene 8 = 17 < 48.
         assert_eq!(
-            tile_overlap_px(&AdjustmentModel::default(), 6000, 1),
+            tile_overlap_px(None, &AdjustmentModel::default(), 6000, 1),
             TILE_OVERLAP_PX
         );
     }
@@ -130,7 +160,7 @@ mod tests {
             })],
             ..quiet.clone()
         };
-        assert_eq!(tile_overlap_px(&point_only, 6000, 1), TILE_OVERLAP_PX);
+        assert_eq!(tile_overlap_px(None, &point_only, 6000, 1), TILE_OVERLAP_PX);
 
         let spatial_layer = AdjustmentModel {
             local_adjustments: vec![layer(PartialAdjustments {
@@ -146,7 +176,7 @@ mod tests {
         // pre-scene 8 + clarity 40 + texture 4 + sharpen (⌈3·1⌉ + 1) + nr
         // luma 4 + defringe 1 = 61, past the 48-px floor.
         assert_eq!(
-            tile_overlap_px(&spatial_layer, 6000, 1),
+            tile_overlap_px(None, &spatial_layer, 6000, 1),
             8 + 40 + 4 + 4 + 4 + 1
         );
     }
@@ -158,7 +188,7 @@ mod tests {
             nr_color: 0.0,
             ..AdjustmentModel::default()
         };
-        assert_eq!(tile_overlap_px(&quiet, 6000, 1), TILE_OVERLAP_PX);
+        assert_eq!(tile_overlap_px(None, &quiet, 6000, 1), TILE_OVERLAP_PX);
 
         // Capture sharpening at the σ clamp: 2 iterations × 2 blurs × ⌈3σ⌉ = 96,
         // plus pre-scene 8 → 104 > 48.
@@ -167,15 +197,15 @@ mod tests {
             capture_sharpening_sigma: 8.0,
             ..quiet.clone()
         };
-        assert_eq!(tile_overlap_px(&capture, 6000, 1), 104);
+        assert_eq!(tile_overlap_px(None, &capture, 6000, 1), 104);
         for (purple, green) in [(20.0, 0.0), (0.0, 20.0), (20.0, 20.0)] {
             let defringed = AdjustmentModel {
                 defringe_purple_amount: purple,
                 defringe_green_amount: green,
                 ..capture.clone()
             };
-            assert_eq!(tile_overlap_px(&defringed, 6000, 1), 105);
-            assert_eq!(tile_overlap_px(&defringed, 3000, 2), 210);
+            assert_eq!(tile_overlap_px(None, &defringed, 6000, 1), 105);
+            assert_eq!(tile_overlap_px(None, &defringed, 3000, 2), 210);
         }
 
         // Every spatial slider engaged on a 6000-px frame at 100%: pre 8 +
@@ -193,13 +223,13 @@ mod tests {
             ..capture.clone()
         };
         assert_eq!(
-            tile_overlap_px(&everything, 6000, 1),
+            tile_overlap_px(None, &everything, 6000, 1),
             8 + 96 + 2 * 135 + 40 + 4 + 10 + 4 + 5
         );
         // A half-res develop measures the same reaches in developed pixels,
         // so the mosaic pad doubles.
         assert_eq!(
-            tile_overlap_px(&everything, 3000, 2),
+            tile_overlap_px(None, &everything, 3000, 2),
             2 * (8 + 96 + 2 * 68 + 40 + 4 + 10 + 4 + 5)
         );
     }

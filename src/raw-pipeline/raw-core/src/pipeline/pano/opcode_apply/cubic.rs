@@ -37,20 +37,20 @@ const fn phase_weights() -> [[f32; 4]; PHASE_COUNT] {
 // Called once per output pixel. Inlining exposes the broadcast channel
 // indices so the compiler removes channel bounds checks and stack arguments.
 #[inline(always)]
-#[allow(clippy::too_many_arguments)] // same active-area geometry as the existing bilinear sampler
-pub(super) fn sample<const N: usize>(
+#[allow(clippy::too_many_arguments)]
+pub(super) fn sample_bounded<const N: usize>(
     src: &[[f32; 3]],
-    width: usize,
-    top: usize,
-    left: usize,
-    w: usize,
-    h: usize,
+    stride: usize,
+    min_col: usize,
+    max_col: usize,
+    min_row: usize,
+    max_row: usize,
     x: f64,
     y: f64,
     channels: [usize; N],
 ) -> [f32; N] {
-    let x = x.clamp(0.0, (w - 1) as f64);
-    let y = y.clamp(0.0, (h - 1) as f64);
+    let x = x.clamp(min_col as f64, max_col as f64);
+    let y = y.clamp(min_row as f64, max_row as f64);
     let ix = x.floor() as i32;
     let iy = y.floor() as i32;
     // SDK ConvertDoubleToInt32 truncates the positive fractional phase.
@@ -58,11 +58,12 @@ pub(super) fn sample<const N: usize>(
     let py = ((y - iy as f64) * PHASE_COUNT as f64) as usize;
     let wx = PHASE_WEIGHTS[px.min(PHASE_COUNT - 1)];
     let wy = PHASE_WEIGHTS[py.min(PHASE_COUNT - 1)];
-    let xs: [usize; 4] =
-        std::array::from_fn(|dx| (ix + dx as i32 - 1).clamp(0, w as i32 - 1) as usize);
+    let xs: [usize; 4] = std::array::from_fn(|dx| {
+        (ix + dx as i32 - 1).clamp(min_col as i32, max_col as i32) as usize
+    });
     let rows: [[f32; N]; 4] = std::array::from_fn(|dy| {
-        let yy = (iy + dy as i32 - 1).clamp(0, h as i32 - 1) as usize;
-        let offset = (top + yy) * width + left;
+        let yy = (iy + dy as i32 - 1).clamp(min_row as i32, max_row as i32) as usize;
+        let offset = yy * stride;
         let p0 = src[offset + xs[0]];
         let p1 = src[offset + xs[1]];
         let p2 = src[offset + xs[2]];
@@ -85,6 +86,32 @@ pub(super) fn sample<const N: usize>(
             + (rows[2][c] - rows[1][c]) * wy[2]
             + (rows[3][c] - rows[1][c]) * wy[3]
     })
+}
+
+#[inline(always)]
+#[allow(dead_code, clippy::too_many_arguments)] // same active-area geometry as the existing bilinear sampler
+pub(super) fn sample<const N: usize>(
+    src: &[[f32; 3]],
+    width: usize,
+    top: usize,
+    left: usize,
+    w: usize,
+    h: usize,
+    x: f64,
+    y: f64,
+    channels: [usize; N],
+) -> [f32; N] {
+    sample_bounded(
+        src,
+        width,
+        left,
+        left + w - 1,
+        top,
+        top + h - 1,
+        left as f64 + x,
+        top as f64 + y,
+        channels,
+    )
 }
 
 #[cfg(test)]

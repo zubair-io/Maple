@@ -42,6 +42,8 @@ mod tests_live_parity_gaps;
 mod tests_render;
 #[cfg(test)]
 mod tests_render_anchors;
+#[cfg(test)]
+mod tests_warp;
 
 use crate::{error::Result, image::RawImage, linearize, xmp::AdjustmentModel};
 use rayon::prelude::*;
@@ -113,7 +115,12 @@ pub(crate) fn tile_working_pixels(
         rect.src_x, rect.src_y, rect.src_w, rect.src_h, raw.width, raw.height,
     );
     let divisor = crate::pipeline::develop::effective_quality_divisor(quality, raw.cfa);
-    let overlap = tile_overlap_px(model, full_frame_long_edge(raw, quality), divisor);
+    let overlap = tile_overlap_px(
+        Some(raw),
+        model,
+        full_frame_long_edge(raw, quality),
+        divisor,
+    );
     let ((_, _, pw, ph), _) = pad_and_clamp_mosaic_rect(x, y, w, h, overlap, raw.width, raw.height);
     Ok(u64::from(pw) * u64::from(ph))
 }
@@ -205,7 +212,12 @@ fn develop_tile_oriented_f32(
     // The pad is per render (#1157): the sum of the stencil reaches of every
     // spatial stage this model engages, on the fixed floor — see `overlap.rs`.
     let divisor = crate::pipeline::develop::effective_quality_divisor(quality, raw.cfa);
-    let overlap_px = tile_overlap_px(model, full_frame_long_edge(raw, quality), divisor);
+    let overlap_px = tile_overlap_px(
+        Some(raw),
+        model,
+        full_frame_long_edge(raw, quality),
+        divisor,
+    );
     let (rect, (left_pad, top_pad)) =
         pad_and_clamp_mosaic_rect(s_x, s_y, s_w, s_h, overlap_px, raw.width, raw.height);
     // Linearize ONLY the padded crop region — not the full sensor.
@@ -265,6 +277,7 @@ fn develop_tile_oriented_f32(
             window,
             inner,
             active_area,
+            tile_origin: (rx / divisor, ry / divisor),
         },
     )?;
 
