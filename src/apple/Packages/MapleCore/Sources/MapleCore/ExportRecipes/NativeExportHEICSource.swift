@@ -36,7 +36,9 @@ enum NativeExportHEICSource {
       let capture = try NativeExportArtifacts(workspace: workspace, id: UUID())
       artifacts = capture
       let job = capture.snapshot()
-      let sources = workspace.appendingPathComponent("Jobs/\(job.id.uuidString)/Sources")
+      let sources = workspace.appendingPathComponent("Jobs", isDirectory: true)
+        .appendingPathComponent(job.id.uuidString, isDirectory: true)
+        .appendingPathComponent("Sources", isDirectory: true)
       try FileManager.default.createDirectory(at: sources, withIntermediateDirectories: false)
       let input = sources.appendingPathComponent("primary.tif")
       try capture.write(encoded, to: input)
