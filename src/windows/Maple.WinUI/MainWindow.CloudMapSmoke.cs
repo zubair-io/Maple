@@ -69,10 +69,13 @@ public sealed partial class MainWindow
             handler.Status = HttpStatusCode.Unauthorized;
             map.SetQuery(new() { MinimumRating = 2 });
             await WaitAsync(() => map.StatusText.Contains("Sign in"), "Map authentication failure was not distinct");
-            var authRequests = handler.RequestCount;
+            // A 401 also invokes the client's auth refresh endpoint. Count
+            // viewport requests here, not that separate authentication request.
+            var authRequests = handler.ClusterRequestCount;
             await Task.Delay(1000);
-            if (handler.RequestCount > authRequests + 1 || !map.StatusText.Contains("Sign in") || !map.CanRetry)
-                throw new InvalidOperationException("Map sign-in failure repeatedly resized and restarted requests");
+            if (handler.ClusterRequestCount > authRequests + 1 || !map.StatusText.Contains("Sign in") || !map.CanRetry)
+                throw new InvalidOperationException($"Map sign-in failure did not settle: clusterRequests={handler.ClusterRequestCount}, "
+                    + $"initialClusterRequests={authRequests}, retry={map.CanRetry}, status={map.StatusText}");
             handler.Status = HttpStatusCode.OK;
             handler.Empty = true;
             map.SetQuery(new() { MinimumRating = 3 });
@@ -156,6 +159,7 @@ public sealed partial class MainWindow
     {
         public string Query = "";
         public int RequestCount;
+        public int ClusterRequestCount;
         public HttpStatusCode Status = HttpStatusCode.OK;
         public bool Empty;
         public TaskCompletionSource HeldEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -164,6 +168,8 @@ public sealed partial class MainWindow
         {
             Query = request.RequestUri!.Query;
             Interlocked.Increment(ref RequestCount);
+            if (request.RequestUri.AbsolutePath == "/api/map/clusters")
+                Interlocked.Increment(ref ClusterRequestCount);
             if (Query.Contains("rating=5"))
             {
                 HeldEntered.TrySetResult();
