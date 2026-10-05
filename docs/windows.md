@@ -185,6 +185,9 @@ Both media-cell modes also attach a cell with visible metadata controls. Input m
 then requires a third-star click, Right on the focused rating control, Enter and Space,
 and a filename edit committed as `After.dng`. `media-metadata-input.json` and
 `media-metadata.jsonl` verify two rating changes, one rename and zero thumbnail actions.
+The first filename tap must automatically focus the native TextBox; a second click
+cannot turn a failed focus assertion into a pass. Windows lifecycle CI runs the
+provider-only `media-cell` mode and validates both provider ledgers.
 The metadata stage has its own 240-second input deadline.
 For focused metadata diagnosis, `--lifecycle-smoke unused OUT media-metadata-input`
 runs that stage alone; it does not qualify the filmstrip sequence.

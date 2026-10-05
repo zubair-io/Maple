@@ -45,6 +45,20 @@ public sealed partial class MainWindow
             };
             var enter = false;
             var space = false;
+            var filenameTaps = 0;
+            var automaticFocus = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            rename.AddHandler(UIElement.TappedEvent, new TappedEventHandler((_, _) =>
+            {
+                if (++filenameTaps != 1) return;
+                // StartEditing queued layout/focus before this bubbled tap.
+                // Capture its result before a second click can repair focus.
+                rename.DispatcherQueue.TryEnqueue(() =>
+                {
+                    var editor = FindDescendant<TextBox>(rename);
+                    automaticFocus.TrySetResult(editor != null
+                        && ReferenceEquals(FocusManager.GetFocusedElement(host.XamlRoot), editor));
+                });
+            }), true);
             rating.RatingChanged += (_, _) => ratings++;
             host.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, e) =>
             {
@@ -57,9 +71,16 @@ public sealed partial class MainWindow
                 "Click third star; focus rating with Tab if needed; Right; Enter; Space; click filename; replace with After.dng; Enter.");
             deadline = Environment.TickCount64 + 240000;
             while ((ratings < 2 || !enter || !space || renames < 1) && Environment.TickCount64 < deadline)
+            {
+                if (automaticFocus.Task.IsCompletedSuccessfully && !automaticFocus.Task.Result) break;
                 await Task.Delay(100);
+            }
             await File.WriteAllTextAsync(Path.Combine(output, "media-metadata-input.json"),
-                JsonSerializer.Serialize(new { actions, ratings, renames, enter, space, cell.Rating, cell.Filename }));
+                JsonSerializer.Serialize(new { actions, ratings, renames, enter, space, filenameTaps,
+                    automaticFocus = automaticFocus.Task.IsCompletedSuccessfully && automaticFocus.Task.Result,
+                    cell.Rating, cell.Filename }));
+            Check("rename-first-tap-native-focus", filenameTaps == 1
+                && automaticFocus.Task.IsCompletedSuccessfully && automaticFocus.Task.Result);
             Check("metadata-native-isolation", actions == 0 && ratings == 2 && cell.Rating == 4
                 && enter && space && renames == 1 && cell.Filename == "After.dng");
         }
