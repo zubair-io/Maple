@@ -13,8 +13,7 @@ import {
   effect,
   inject,
   input,
-  output,
-  signal,
+  model,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
@@ -43,11 +42,10 @@ export class FilmstripComponent implements AfterViewInit, OnDestroy {
 
   private cleanupEffect?: () => void;
 
-  /** Collapse toggle — collapsed, the strip shrinks to a vertical FILM tab (#1542). */
-  readonly collapsed = signal(false);
-
-  /** Emits on every collapse/expand so the host rail can shrink to tab width. */
-  readonly collapsedChange = output<boolean>();
+  /** Two-way collapse state (#1542): hosts render this strip inside an `@if`,
+   * so a recreated strip re-seeds from the host value instead of resetting
+   * to expanded while the host rail stays at tab width. */
+  readonly collapsed = model(false);
 
   /** Which route family `select()` navigates into: the editor (`'edit'`,
    * default — unchanged behavior for the existing editor filmstrip) or the
@@ -81,9 +79,7 @@ export class FilmstripComponent implements AfterViewInit, OnDestroy {
   }
 
   toggleCollapsed(): void {
-    const next = !this.collapsed();
-    this.collapsed.set(next);
-    this.collapsedChange.emit(next);
+    this.collapsed.update((v) => !v);
   }
 
   select(asset: Asset): void {

@@ -283,7 +283,7 @@
         aria-label="Filmstrip"
         data-editor-region="filmstrip"
       >
-        <editor-filmstrip (collapsedChange)="filmstripCollapsed.set($event)" />
+        <editor-filmstrip [(collapsed)]="filmstripCollapsed" />
       </div>
     }
 

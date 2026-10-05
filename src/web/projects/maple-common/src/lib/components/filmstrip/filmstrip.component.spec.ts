@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { Component, ViewChild, signal } from '@angular/core';
 import { Router } from '@angular/router';
 
 import { FilmstripComponent } from './filmstrip.component';
@@ -24,7 +24,7 @@ const ASSET: Asset = {
   aspectRatio: 1.5,
 };
 
-function setup() {
+function mockLibrary() {
   const navigate = vi.fn();
   const selectAsset = vi.fn();
   const state = {
@@ -36,6 +36,11 @@ function setup() {
     subscribeThumbUrl: vi.fn(() => () => {}),
     isSelecting: () => false,
   };
+  return { state, navigate, selectAsset };
+}
+
+function setup() {
+  const { state, navigate, selectAsset } = mockLibrary();
 
   TestBed.configureTestingModule({
     imports: [FilmstripComponent],
@@ -48,6 +53,35 @@ function setup() {
   const fixture = TestBed.createComponent(FilmstripComponent);
   fixture.detectChanges();
   return { fixture, navigate, selectAsset };
+}
+
+// Mirrors the editor-shell rail: the strip lives inside an `@if` (viewport /
+// photo-count gates destroy it) and the host owns the collapse value.
+@Component({
+  standalone: true,
+  imports: [FilmstripComponent],
+  template: `@if (show()) {
+    <editor-filmstrip [(collapsed)]="shellCollapsed" />
+  }`,
+})
+class FilmstripRecreateHostComponent {
+  readonly show = signal(true);
+  readonly shellCollapsed = signal(false);
+  @ViewChild(FilmstripComponent) strip?: FilmstripComponent;
+}
+
+function setupHost() {
+  const { state, navigate } = mockLibrary();
+  TestBed.configureTestingModule({
+    imports: [FilmstripRecreateHostComponent],
+    providers: [
+      { provide: LibraryStateService, useValue: state },
+      { provide: Router, useValue: { navigate } },
+    ],
+  });
+  const fixture = TestBed.createComponent(FilmstripRecreateHostComponent);
+  fixture.detectChanges();
+  return { fixture, host: fixture.componentInstance };
 }
 
 describe('FilmstripComponent', () => {
@@ -112,15 +146,6 @@ describe('FilmstripComponent', () => {
     expect(tab.getAttribute('aria-label')).toBe('Show filmstrip');
   });
 
-  it('toggleCollapsed() emits collapsedChange so host rails can shrink', () => {
-    const { fixture } = setup();
-    const emitted: boolean[] = [];
-    fixture.componentInstance.collapsedChange.subscribe((v: boolean) => emitted.push(v));
-    fixture.componentInstance.toggleCollapsed();
-    fixture.componentInstance.toggleCollapsed();
-    expect(emitted).toEqual([true, false]);
-  });
-
   it('clicking the collapsed tab expands the strip', () => {
     const { fixture } = setup();
     fixture.componentInstance.toggleCollapsed();
@@ -130,5 +155,33 @@ describe('FilmstripComponent', () => {
     fixture.detectChanges();
     expect(fixture.componentInstance.collapsed()).toBe(false);
     expect(el.querySelector('.strip-scroll')).not.toBeNull();
+  });
+});
+
+describe('FilmstripComponent host binding', () => {
+  it('toggleCollapsed() writes back to the host so rails can shrink', () => {
+    const { host } = setupHost();
+    host.strip?.toggleCollapsed();
+    expect(host.shellCollapsed()).toBe(true);
+    host.strip?.toggleCollapsed();
+    expect(host.shellCollapsed()).toBe(false);
+  });
+
+  it('destroy/recreate keeps the host and the inner strip in sync', () => {
+    const { fixture, host } = setupHost();
+    host.strip?.toggleCollapsed();
+    fixture.detectChanges();
+    expect(host.shellCollapsed()).toBe(true);
+
+    host.show.set(false);
+    fixture.detectChanges();
+    host.show.set(true);
+    fixture.detectChanges();
+
+    expect(host.shellCollapsed()).toBe(true);
+    expect(host.strip?.collapsed()).toBe(true);
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="film-tab"]')).not.toBeNull();
+    expect(el.querySelector('.strip-scroll')).toBeNull();
   });
 });
