@@ -114,12 +114,10 @@ export interface MergeCarryOver {
  * Fold the condemned row into the survivor and claim `mapleId` for it, in one
  * transaction.
  *
- * `ordinalOffset` is read before the transaction rather than computed inside the
- * `UPDATE`, because a subquery over `MAX(ordinal)` would be re-evaluated per row
- * against a set the same statement is changing. One read, then a statement that
- * shifts every one of the condemned's ordinals by a constant — which keeps their
- * relative order and cannot collide with the survivor's, satisfying
- * `UNIQUE (asset_id, ordinal)`.
+ * A transaction-local mapping reserves ordinals above both the survivor's
+ * locations and retained backup histories. Both tables use the same mapping;
+ * another discover or merge cannot consume those ordinals between a preliminary
+ * read and the write, and MAX cannot change while individual rows are updated.
  *
  * Deleting the condemned row cascades its faces, detail payload, search row,
  * phasset links and stage bookkeeping. Its locations have already moved, so the
@@ -133,23 +131,54 @@ export async function mergeIntoSurvivor(args: {
   dbOverride?: SqliteDb;
 }): Promise<void> {
   const db = sqliteDb(args.dbOverride);
-  const offsets = await db.read<{ next_ordinal: number }>(
-    `SELECT COALESCE(MAX(ordinal), -1) + 1 AS next_ordinal
-       FROM asset_locations WHERE asset_id = ?`,
-    [args.survivorId],
-  );
-  const ordinalOffset = offsets[0]?.next_ordinal ?? 0;
-
   await db.transaction([
+    // A prepared filesystem move retains its original asset identity until its
+    // fenced commit. Folding either asset mid-move would split that ownership.
+    {
+      sql: `CREATE TEMP TABLE maple_merge_guard(ready INTEGER CONSTRAINT no_pending_asset_operation CHECK(ready=1))`,
+    },
+    {
+      sql: `INSERT INTO maple_merge_guard SELECT NOT EXISTS
+        (SELECT 1 FROM backup_lifecycle WHERE (kind='purge' OR phase='prepared' OR lease_until>unixepoch('subsec')*1000)
+          AND asset_id IN (?,?))`,
+      params: [args.survivorId, args.condemnedId],
+    },
+    {
+      sql: `CREATE TEMP TABLE maple_merge_ordinals(old_ordinal INTEGER PRIMARY KEY,new_ordinal INTEGER NOT NULL)`,
+    },
+    {
+      sql: `INSERT INTO maple_merge_ordinals SELECT ordinal,ordinal+(SELECT COALESCE(MAX(ordinal),-1)+1
+        FROM (SELECT ordinal FROM asset_locations WHERE asset_id=? UNION ALL
+          SELECT ordinal FROM backup_entries WHERE asset_id=?))
+        FROM (SELECT ordinal FROM asset_locations WHERE asset_id=? UNION
+          SELECT ordinal FROM backup_entries WHERE asset_id=?)`,
+      params: [args.survivorId, args.survivorId, args.condemnedId, args.condemnedId],
+    },
     ...carryOverStatements(args.survivorId, args.carryOver ?? {}),
     {
-      sql: `UPDATE asset_locations SET asset_id = ?, ordinal = ordinal + ? WHERE asset_id = ?`,
-      params: [args.survivorId, ordinalOffset, args.condemnedId],
+      sql: `UPDATE asset_locations SET asset_id=?,ordinal=(SELECT new_ordinal
+        FROM maple_merge_ordinals WHERE old_ordinal=asset_locations.ordinal) WHERE asset_id=?`,
+      params: [args.survivorId, args.condemnedId],
+    },
+    {
+      // Entry IDs identify remote history, objects and resumable checkpoints.
+      // Rebinding identity must fence workers captured against the condemned row.
+      sql: `UPDATE backup_entries SET asset_id=?,ordinal=(SELECT new_ordinal FROM maple_merge_ordinals
+        WHERE old_ordinal=backup_entries.ordinal),sequence=sequence+1,snapshot_hash=NULL,
+        retry_at=0,lease_owner=NULL,lease_until=0 WHERE asset_id=?`,
+      params: [args.survivorId, args.condemnedId],
+    },
+    {
+      sql: `INSERT INTO stage_state(asset_id,stage,version) SELECT id,'cloud-backup',0 FROM assets WHERE id=?
+        ON CONFLICT(asset_id,stage) DO UPDATE SET version=0,attempts=0,dead=0,next_attempt_at=NULL`,
+      params: [args.survivorId],
     },
     { sql: `DELETE FROM assets WHERE id = ?`, params: [args.condemnedId] },
     // Strictly after the delete, which is what frees the unique key — but inside
     // the same transaction, so no crash can leave the survivor on its fallback id.
     { sql: `UPDATE assets SET maple_id = ? WHERE id = ?`, params: [args.mapleId, args.survivorId] },
+    { sql: `DROP TABLE maple_merge_ordinals` },
+    { sql: `DROP TABLE maple_merge_guard` },
   ]);
 }
 

@@ -88,6 +88,8 @@ export interface RelocateRequest {
   callerTag?: string;
   /** Persist the resolved destination before publishing or deleting bytes. */
   onDestinationPrepared?: (destination: string) => Promise<void>;
+  /** Revalidate lifecycle ownership after copying, before removing sources. */
+  beforeSourceDelete?: () => Promise<void>;
   /** Absolute paths of extra non-sidecar companion files to carry alongside
    * the primary (#2667) — e.g. a PhotoKit backup's Apple-rendered JPEG
    * (`apple_rendered_path`). Same treatment as a `.xmp` sidecar: base-swap
@@ -367,7 +369,9 @@ async function deleteOriginals(
   sourceAbsPath: string,
   movedSidecarSources: string[],
   movedCompanionSources: string[],
+  beforeSourceDelete?: () => Promise<void>,
 ): Promise<void> {
+  await beforeSourceDelete?.();
   await fs.unlink(sourceAbsPath).catch((err) => {
     log.warn(
       { sourceAbsPath, err: err instanceof Error ? err.message : err },
@@ -375,7 +379,10 @@ async function deleteOriginals(
     );
   });
   for (const src of [...movedSidecarSources, ...movedCompanionSources]) {
-    await fs.unlink(src).catch((err) => {
+    await (async () => {
+      await beforeSourceDelete?.();
+      await fs.unlink(src);
+    })().catch((err) => {
       log.warn(
         { src, err: err instanceof Error ? err.message : err },
         'relocate: source sidecar/companion unlink failed after a verified copy',
@@ -431,6 +438,7 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
   await fs.mkdir(path.dirname(finalDest), { recursive: true });
 
   const createdPaths: string[] = [];
+  let repointed = false;
   try {
     await req.onDestinationPrepared?.(finalDest);
     // 2-4. Copy + verify the primary, then carry the sidecars + any extra
@@ -445,6 +453,7 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
       );
 
     // 5. Identity repoint, between verify and delete.
+    await req.beforeSourceDelete?.();
     const repointError = await runIdentityRepoint(
       req.onVerified,
       { newAbsPath: finalDest, sidecarPaths: copiedSidecars, companionPaths },
@@ -453,10 +462,16 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
     if (repointError) {
       return { kind: 'error', error: repointError };
     }
+    repointed = req.onVerified !== undefined;
 
     // 6. Delete the originals — move mode only.
     if (req.mode === 'move') {
-      await deleteOriginals(req.sourceAbsPath, movedSidecarSources, movedCompanionSources);
+      await deleteOriginals(
+        req.sourceAbsPath,
+        movedSidecarSources,
+        movedCompanionSources,
+        req.beforeSourceDelete,
+      );
     }
 
     return {
@@ -467,7 +482,7 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
       renamedOnCollision: finalDest !== req.destAbsPath,
     };
   } catch (err) {
-    await revertCreated(createdPaths);
+    if (!repointed) await revertCreated(createdPaths);
     return {
       kind: 'error',
       error: err instanceof Error ? err.message : String(err),

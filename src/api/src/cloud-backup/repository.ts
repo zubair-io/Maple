@@ -92,26 +92,48 @@ export class BackupRepository {
   ): Promise<BackupEntry> {
     await this.db.write(
       `INSERT INTO backup_entries(id,destination_id,asset_id,ordinal,source_path)
-      SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM assets WHERE id=?) AND NOT EXISTS
+      SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM backup_destinations WHERE id=?)
+      AND EXISTS (SELECT 1 FROM assets WHERE id=?) AND NOT EXISTS
       (SELECT 1 FROM backup_lifecycle WHERE asset_id=? AND kind='purge')
+      AND NOT EXISTS (SELECT 1 FROM backup_lifecycle l JOIN backup_destinations d
+        ON d.library_id=l.library_id WHERE d.id=? AND l.phase='prepared'
+        AND l.target_path=? AND l.asset_id!=?)
       ON CONFLICT(destination_id,asset_id,ordinal) DO NOTHING`,
-      [crypto.randomUUID(), destinationId, assetId, ordinal, sourcePath, assetId, assetId],
+      [
+        crypto.randomUUID(),
+        destinationId,
+        assetId,
+        ordinal,
+        sourcePath,
+        destinationId,
+        assetId,
+        assetId,
+        destinationId,
+        sourcePath,
+        assetId,
+      ],
     );
     const rows = await this.db.read<BackupEntry>(
       `SELECT * FROM backup_entries WHERE destination_id=? AND asset_id=? AND ordinal=?`,
       [destinationId, assetId, ordinal],
     );
-    if (!rows[0]) throw new Error('Asset has been permanently purged or no longer exists');
+    if (!rows[0])
+      throw new Error('Backup destination or asset no longer exists, or asset was purged');
     return rows[0];
   }
   async claim(entry: BackupEntry, owner: string): Promise<boolean> {
     const result = await this.db.write(
       `UPDATE backup_entries SET lease_owner=?,lease_until=?
       WHERE id=? AND sequence=? AND state!='purged' AND retry_at<=? AND lease_until<?
+      AND EXISTS (SELECT 1 FROM backup_destinations
+        WHERE id=backup_entries.destination_id AND enabled=1)
       AND NOT EXISTS (SELECT 1 FROM backup_lifecycle l JOIN backup_destinations d
         ON d.library_id=l.library_id WHERE d.id=backup_entries.destination_id
         AND l.asset_id=backup_entries.asset_id AND l.phase='prepared')
-      AND NOT EXISTS (SELECT 1 FROM backup_lifecycle WHERE asset_id=backup_entries.asset_id AND kind='purge')`,
+      AND NOT EXISTS (SELECT 1 FROM backup_lifecycle WHERE asset_id=backup_entries.asset_id AND kind='purge')
+      AND NOT EXISTS (SELECT 1 FROM backup_lifecycle l JOIN backup_destinations d
+        ON d.library_id=l.library_id WHERE d.id=backup_entries.destination_id AND l.phase='prepared'
+        AND l.target_path=backup_entries.source_path AND l.asset_id!=backup_entries.asset_id)`,
       [owner, Date.now() + 120_000, entry.id, entry.sequence, Date.now(), Date.now()],
     );
     return result.changes > 0;
@@ -133,7 +155,10 @@ export class BackupRepository {
       AND lease_owner=? AND lease_until>? AND state!='purged' AND EXISTS
       (SELECT 1 FROM backup_destinations WHERE id=? AND enabled=1 AND generation=?)
       AND NOT EXISTS (SELECT 1 FROM backup_lifecycle l WHERE l.asset_id=backup_entries.asset_id
-        AND ((l.phase='prepared' AND l.library_id=?) OR l.kind='purge'))`,
+        AND ((l.phase='prepared' AND l.library_id=?) OR l.kind='purge'))
+      AND NOT EXISTS (SELECT 1 FROM backup_lifecycle l JOIN backup_destinations d
+        ON d.library_id=l.library_id WHERE d.id=backup_entries.destination_id AND l.phase='prepared'
+        AND l.target_path=backup_entries.source_path AND l.asset_id!=backup_entries.asset_id)`,
       [
         Date.now() + 120_000,
         entry.id,
@@ -159,7 +184,10 @@ export class BackupRepository {
       WHERE id=? AND sequence=? AND lease_owner=? AND lease_until>? AND state!='purged'
       AND EXISTS (SELECT 1 FROM backup_destinations WHERE id=? AND enabled=1 AND generation=?)
       AND NOT EXISTS (SELECT 1 FROM backup_lifecycle WHERE asset_id=backup_entries.asset_id
-        AND ((library_id=? AND phase='prepared') OR kind='purge'))`,
+        AND ((library_id=? AND phase='prepared') OR kind='purge'))
+      AND NOT EXISTS (SELECT 1 FROM backup_lifecycle l JOIN backup_destinations d
+        ON d.library_id=l.library_id WHERE d.id=backup_entries.destination_id AND l.phase='prepared'
+        AND l.target_path=backup_entries.source_path AND l.asset_id!=backup_entries.asset_id)`,
       [
         JSON.stringify(manifest),
         entry.sequence,

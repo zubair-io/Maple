@@ -175,14 +175,19 @@ export const cloudBackupRoutes = new Elysia({ name: 'cloudBackup', prefix: '/api
         (SELECT 1 FROM backup_entries WHERE destination_id=? AND lease_until>?)`,
           params: [row.id, row.id, row.id, Date.now()],
         },
-        {
-          sql: `DELETE FROM backup_google_oauth WHERE destination_id=? AND NOT EXISTS (SELECT 1 FROM backup_destinations WHERE id=?)`,
+        // Only discard local destination state after its guarded removal. Global
+        // asset lifecycle records and remote backup files retain their own lifetime.
+        ...[
+          'backup_google_oauth',
+          'backup_google_connections',
+          'backup_objects',
+          'backup_entries',
+          'backup_purges',
+        ].map((table) => ({
+          sql: `DELETE FROM ${table} WHERE destination_id=? AND NOT EXISTS
+            (SELECT 1 FROM backup_destinations WHERE id=?)`,
           params: [row.id, row.id],
-        },
-        {
-          sql: `DELETE FROM backup_google_connections WHERE destination_id=? AND NOT EXISTS (SELECT 1 FROM backup_destinations WHERE id=?)`,
-          params: [row.id, row.id],
-        },
+        })),
       ]);
       if (!deleted?.changes)
         throw new BackupRequestError('Destination has pending cleanup or active transfers');

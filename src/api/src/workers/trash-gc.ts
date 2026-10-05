@@ -28,7 +28,8 @@
 import { unlink } from 'node:fs/promises';
 import { listTrashedBefore, type TrashedAsset } from '../db/repos/assets.sweeps.ts';
 import { deleteReapedWithoutActiveBackup, hardDelete } from '../db/repos/assets.trash.ts';
-import { preparePurge } from '../cloud-backup/lifecycle.ts';
+import { prepareTrashPurge } from '../cloud-backup/lifecycle.ts';
+import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
 import { listPairedSidecars } from '../fs/xmp-conflict.ts';
 import { assetAbsPath, assetLibraryPath } from '../indexer/images.repo.ts';
 import { resolvePurgeCompanion } from '../library/purge-rendered-companion.ts';
@@ -84,7 +85,7 @@ async function unlinkTolerantly(target: string, message: string): Promise<boolea
 
 /** Missing/reaped assets have no user Trash intent, even after the local GC clock expires. */
 async function purgeReapedRow(doc: TrashedAsset): Promise<PurgeOutcome> {
-  const result = await deleteReapedWithoutActiveBackup(doc._id);
+  const result = await deleteReapedWithoutActiveBackup(doc._id, undefined, capturedTrashPurge(doc));
   if (!result.deletedCount)
     log.info(
       { assetId: doc._id.toHexString(), reason: 'reaped-row-retained' },
@@ -115,7 +116,13 @@ async function purgeTrashedAsset(
     return { purged: false, errors: 1 };
   }
 
-  await preparePurge(doc._id.toHexString());
+  if (!(await prepareTrashPurge(doc._id.toHexString(), capturedTrashPurge(doc)))) {
+    log.info(
+      { assetId: doc._id.toHexString() },
+      'purge skip — Trash candidate changed or has an active move',
+    );
+    return { purged: false, errors: 0 };
+  }
   try {
     const companion = await resolvePurgeCompanion(
       assetLibraryPath(doc, libs)!,

@@ -15,6 +15,7 @@ import {
   runLifecycleMove,
   reconcileLifecycle,
   preparePurge,
+  finishLocalLifecycle,
 } from './lifecycle.ts';
 import { BackupEngine, entryPrefix, jsonSource } from './engine.ts';
 import { createTestProvider } from './test-provider.test-helpers.ts';
@@ -37,6 +38,8 @@ test('restart completes a recorded verified Trash move, while an unperformed mov
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.rename(original, target);
     });
+    // Simulate process interruption after moving bytes but before DB commit.
+    await finishLocalLifecycle(id, false, repo);
     await reconcileLifecycle(repo);
     const [location] = await repo.db.read<{ path: string; filename: string }>(
       'SELECT path,filename FROM asset_locations WHERE asset_id=?',
@@ -56,6 +59,7 @@ test('restart completes a recorded verified Trash move, while an unperformed mov
       repo,
     );
     await runLifecycleMove(retry, async () => {});
+    await finishLocalLifecycle(retry, false, repo);
     await reconcileLifecycle(repo);
     expect(
       (

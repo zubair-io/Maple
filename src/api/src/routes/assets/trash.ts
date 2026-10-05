@@ -34,7 +34,8 @@ import { unlink } from 'node:fs/promises';
 import { listPairedSidecars } from '../../fs/xmp-conflict.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { trashAssetById, restoreAssetById } from '../../library/asset-trash.ts';
-import { preparePurge } from '../../cloud-backup/lifecycle.ts';
+import { prepareTrashPurge } from '../../cloud-backup/lifecycle.ts';
+import { capturedTrashPurge } from '../../cloud-backup/trash-purge-admission.ts';
 import { assetLibraryPath } from '../../indexer/images.repo.ts';
 import { resolvePurgeCompanion } from '../../library/purge-rendered-companion.ts';
 import type { RestoreAssetOutcome } from '../../library/asset-trash.ts';
@@ -106,7 +107,8 @@ async function purgeTrashedAsset(
   // Explicit permanent delete authorizes backup erasure, but never unlink a
   // returned original at these stored local paths.
   if (info.deleted_reason === 'reaped') {
-    await preparePurge(id.toHexString());
+    if (!(await admitTrashPurge(id, info, set)))
+      return { error: 'Trash state changed — refresh before deleting' };
     await hardDelete(id);
     set.status = 204;
     await recordAndPublishAssetChange({
@@ -120,7 +122,8 @@ async function purgeTrashedAsset(
   const located = await resolveAssetAbsPathOrRespond(info, set);
   if ('error' in located) return located;
   const { absPath, libs } = located;
-  await preparePurge(id.toHexString());
+  if (!(await admitTrashPurge(id, info, set)))
+    return { error: 'Trash state changed — refresh before deleting' };
   try {
     const companion = await resolvePurgeCompanion(
       assetLibraryPath(info, libs)!,
@@ -168,6 +171,16 @@ async function purgeTrashedAsset(
     abs_path: absPath,
   }).catch(() => {});
   return;
+}
+
+async function admitTrashPurge(
+  id: ObjectId,
+  info: NonNullable<Awaited<ReturnType<typeof findCoreInfoById>>>,
+  set: { status?: number | string },
+): Promise<boolean> {
+  const admitted = await prepareTrashPurge(id.toHexString(), capturedTrashPurge(info));
+  if (!admitted) set.status = 409;
+  return admitted;
 }
 
 // Trash/restore move files on disk — file-access-gated (#2893).

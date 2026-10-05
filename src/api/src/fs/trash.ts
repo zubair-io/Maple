@@ -88,14 +88,17 @@ export function computeTrashPath(absPath: string, folderRoot: string): string {
  * `fs.rename` overwrite an existing restored file, causing data loss.
  *
  * Same extensionless guard as `pickFreePath` — see comment there. */
-export async function pickFreeRestoredPath(basePath: string): Promise<string> {
+export async function pickFreeRestoredPath(
+  basePath: string,
+  occupied = restoreDestinationOccupied,
+): Promise<string> {
   const ext = path.extname(basePath);
   const stem = ext ? basePath.slice(0, -ext.length) : basePath;
   const first = `${stem}.restored${ext}`;
-  if (!(await restoreDestinationOccupied(first))) return first;
+  if (!(await occupied(first))) return first;
   for (let n = 1; n <= 1000; n++) {
     const cand = `${stem}.restored.${n}${ext}`;
-    if (!(await restoreDestinationOccupied(cand))) return cand;
+    if (!(await occupied(cand))) return cand;
   }
   throw new Error(
     `pickFreeRestoredPath: restore collision — exceeded 1000 candidate paths for ${basePath}`,
@@ -141,6 +144,8 @@ export async function moveToTrash(
   absPath: string,
   folderRoot: string,
   onDestinationPrepared?: (destination: string) => Promise<void>,
+  beforeSourceDelete?: () => Promise<void>,
+  onVerified?: (destination: string) => Promise<void>,
 ): Promise<MoveResult> {
   const trashTarget = computeTrashPath(absPath, folderRoot);
   const outcome = await relocateFile({
@@ -150,6 +155,8 @@ export async function moveToTrash(
     collision: 'auto-suffix',
     callerTag: 'moveToTrash',
     onDestinationPrepared,
+    beforeSourceDelete,
+    onVerified: onVerified ? (info) => onVerified(info.newAbsPath) : undefined,
   });
   return toMoveResult(outcome);
 }
@@ -166,6 +173,9 @@ export async function moveOutOfTrash(
   trashAbsPath: string,
   targetAbsPath: string,
   onDestinationPrepared?: (destination: string) => Promise<void>,
+  beforeSourceDelete?: () => Promise<void>,
+  onVerified?: (destination: string) => Promise<void>,
+  additionalDestinationOccupied?: (destination: string) => Promise<boolean>,
 ): Promise<MoveResult> {
   try {
     if ((await classifySameFile(trashAbsPath, targetAbsPath)) !== 'different') {
@@ -174,11 +184,14 @@ export async function moveOutOfTrash(
     // One original name, one unsuffixed .restored, and 1000 numbered
     // candidates match pickFreeRestoredPath; publication races consume retries.
     for (let attempt = 0; attempt < 1002; attempt++) {
-      const freeTarget = (await restoreDestinationOccupied(targetAbsPath))
-        ? await pickFreeRestoredPath(targetAbsPath)
+      const occupied = async (candidate: string) =>
+        (await restoreDestinationOccupied(candidate)) ||
+        (await additionalDestinationOccupied?.(candidate)) === true;
+      const freeTarget = (await occupied(targetAbsPath))
+        ? await pickFreeRestoredPath(targetAbsPath, occupied)
         : targetAbsPath;
       await onDestinationPrepared?.(freeTarget);
-      if (await restoreFilePair(trashAbsPath, freeTarget)) {
+      if (await restoreFilePair(trashAbsPath, freeTarget, beforeSourceDelete, onVerified)) {
         return { kind: 'ok', newAbsPath: freeTarget };
       }
     }

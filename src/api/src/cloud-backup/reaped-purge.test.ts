@@ -18,6 +18,7 @@ import { drainPurges } from './purge.ts';
 import { runTrashGcOnce } from '../workers/trash-gc.ts';
 import { buildApp } from '../index.ts';
 import { signAccessToken } from '../auth/tokens.ts';
+import type { SqlValue } from '../db/sqlite/protocol.ts';
 
 async function reapedFixture() {
   const live = await createLiveTestDatabase();
@@ -70,7 +71,9 @@ test('reaped backup survives default retention while its volume is absent withou
   expect(await runTrashGcOnce({ retentionDays: 30 })).toEqual({ scanned: 1, purged: 0, errors: 0 });
   const issued = writes.mock.calls.find(([sql]) => sql.startsWith('DELETE FROM assets'))!;
   writes.mockRestore();
-  const plan = live.db.query('EXPLAIN QUERY PLAN ' + issued[0]).all(assetId) as Array<{
+  const plan = live.db
+    .query('EXPLAIN QUERY PLAN ' + issued[0])
+    .all(...(issued[1] as SqlValue[])) as Array<{
     detail: string;
   }>;
   expect(plan.map((row) => row.detail).join('\n')).toContain('backup_entries_asset');

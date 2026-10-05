@@ -33,8 +33,16 @@
  */
 
 import * as path from 'node:path';
-import { committedLifecycleStatements } from '../../cloud-backup/lifecycle-commit.ts';
+import {
+  committedLifecycleStatements,
+  lifecycleCommitGuard,
+  type LifecycleCommit,
+} from '../../cloud-backup/lifecycle-commit.ts';
 import type { ObjectId } from '../object-id.ts';
+import {
+  trashPurgeGuard,
+  type TrashPurgeCandidate,
+} from '../../cloud-backup/trash-purge-admission.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
 import { meiliRearmStatement, relocateCacheRearmStatements } from './assets.stage-rearm.ts';
 import {
@@ -196,12 +204,15 @@ export async function markSoftDeleted(args: {
   /** Identity of the entry that was moved to trash. Required for an asset with
    * several locations — without it the other entries would be replaced. */
   source?: LocationSource;
+  lifecycle?: LifecycleCommit;
   dbOverride?: SqliteDb;
 }): Promise<UpdateOutcome> {
   const db = sqliteDb(args.dbOverride);
   const destination = resolveDestination('markSoftDeleted', args);
   const hex = args.id.toHexString();
+  const guard = lifecycleCommitGuard(args.lifecycle);
   const results = await db.transaction([
+    ...guard,
     {
       sql: `UPDATE assets SET deleted_at = ?, original_path = ? WHERE id = ?`,
       params: [new Date().toISOString(), args.originalAbsPath, hex],
@@ -213,9 +224,10 @@ export async function markSoftDeleted(args: {
       path.relative(args.libraryRoot, args.originalAbsPath).split(path.sep).join('/'),
       path.posix.join(destination.path, destination.filename),
       'trash',
+      args.lifecycle,
     ),
   ]);
-  return updateOutcome(matchedOne(changesAt(results, 0)));
+  return updateOutcome(matchedOne(changesAt(results, guard.length)));
 }
 
 /**
@@ -243,13 +255,16 @@ export async function hardDelete(id: ObjectId, dbOverride?: SqliteDb): Promise<D
 export async function deleteReapedWithoutActiveBackup(
   id: ObjectId,
   dbOverride?: SqliteDb,
+  expected?: TrashPurgeCandidate,
 ): Promise<DeleteOutcome> {
   // Guard in the DELETE: a revive or new backup after candidate selection
   // must preserve the row. preparePurge marks entries purged atomically with intent.
+  const guard = expected ? trashPurgeGuard(expected) : { sql: '', params: [] };
   const result = await sqliteDb(dbOverride).write(
-    `DELETE FROM assets WHERE id=? AND deleted_reason='reaped' AND NOT EXISTS
-      (SELECT 1 FROM backup_entries WHERE asset_id=assets.id AND state!='purged')`,
-    [id.toHexString()],
+    `DELETE FROM assets AS a WHERE id=? AND deleted_reason='reaped' ${guard.sql} AND NOT EXISTS
+      (SELECT 1 FROM backup_entries WHERE asset_id=a.id AND state!='purged') AND NOT EXISTS
+      (SELECT 1 FROM backup_lifecycle WHERE asset_id=a.id AND (phase='prepared' OR lease_until>unixepoch('subsec')*1000))`,
+    [id.toHexString(), ...guard.params],
   );
   return deleteOutcome(matchedOne(result.changes));
 }
@@ -278,12 +293,23 @@ export async function restoreFromTrash(args: {
   /** Identity of the trashed entry being restored. Same semantics as
    * {@link markSoftDeleted}'s `source`. */
   source?: LocationSource;
+  lifecycle?: LifecycleCommit;
   dbOverride?: SqliteDb;
 }): Promise<UpdateOutcome> {
   const db = sqliteDb(args.dbOverride);
   const destination = resolveDestination('restoreFromTrash', args);
   const hex = args.id.toHexString();
+  const guard = lifecycleCommitGuard(args.lifecycle);
   const results = await db.transaction([
+    ...guard,
+    // A watcher duplicate with an unfinished backup cannot be discarded. Keep
+    // this guard inside the write transaction so late backup admission is seen,
+    // and reject before changing either asset, even if the source no longer matches.
+    {
+      sql: `CREATE TEMP TRIGGER maple_restore_backup_guard BEFORE DELETE ON main.assets
+        WHEN EXISTS (SELECT 1 FROM backup_entries WHERE asset_id=OLD.id AND state!='purged')
+        BEGIN SELECT RAISE(ABORT,'Watcher asset has unfinished backup obligations'); END`,
+    },
     {
       sql: `DELETE FROM assets
              WHERE id <> ?
@@ -304,7 +330,30 @@ export async function restoreFromTrash(args: {
       args.source ? path.posix.join(args.source.path, args.source.filename) : '',
       path.posix.join(destination.path, destination.filename),
       'active',
+      args.lifecycle,
     ),
+    { sql: `DROP TRIGGER maple_restore_backup_guard` },
   ]);
-  return updateOutcome(matchedOne(changesAt(results, 1)));
+  return updateOutcome(matchedOne(changesAt(results, guard.length + 2)));
+}
+
+/** DB-only watcher claims with backup history occupy a restore candidate too. */
+export async function restoreBackupDestinationOccupied(
+  id: ObjectId,
+  libraryId: ObjectId,
+  relativePath: string,
+  dbOverride?: SqliteDb,
+): Promise<boolean> {
+  const [row] = await sqliteDb(dbOverride).read<{ occupied: number }>(
+    `SELECT EXISTS(SELECT 1 FROM asset_locations l WHERE l.asset_id<>?
+      AND l.library_id=? AND l.path=? AND l.filename=? AND EXISTS
+      (SELECT 1 FROM backup_entries e WHERE e.asset_id=l.asset_id AND e.state!='purged')) AS occupied`,
+    [
+      id.toHexString(),
+      libraryId.toHexString(),
+      path.posix.dirname(relativePath) === '.' ? '' : path.posix.dirname(relativePath),
+      path.posix.basename(relativePath),
+    ],
+  );
+  return row?.occupied === 1;
 }

@@ -6,8 +6,18 @@ import { listPairedSidecarsStrict } from '../fs/xmp-conflict.ts';
 import { stat, realpath } from '../fs/mirrored.ts';
 import { ObjectId } from '../db/object-id.ts';
 import { relativeBackupPath } from './inventory.ts';
+import {
+  createLifecycleLease,
+  claimExpiredLifecycle,
+  assertLifecycleLease,
+  releaseLifecycleLease,
+  assertLifecycleClaim,
+  releaseLifecycleClaim,
+  type LifecycleLease,
+} from './lifecycle-lease.ts';
+import type { LifecycleCommit } from './lifecycle-commit.ts';
+import { trashPurgeGuard, type TrashPurgeCandidate } from './trash-purge-admission.ts';
 
-const activeIntents = new Set<string>();
 async function digest(file: string): Promise<string> {
   return fileHash(file);
 }
@@ -26,20 +36,7 @@ export async function prepareLifecycle(
   repo = new BackupRepository(),
 ): Promise<string> {
   const id = crypto.randomUUID();
-  await repo.db.transaction([
-    {
-      sql: `INSERT INTO backup_lifecycle(id,asset_id,library_id,source_path,kind,phase,created_at)
-      VALUES(?,?,?,?,?,'prepared',?)`,
-      params: [id, assetId, libraryId, sourcePath, kind, new Date().toISOString()],
-    },
-    {
-      sql: `UPDATE backup_entries SET sequence=sequence+1,snapshot_hash=NULL,lease_owner=NULL,lease_until=0
-      WHERE asset_id=? AND source_path=? AND destination_id IN
-      (SELECT id FROM backup_destinations WHERE library_id=?) AND state!='purged'`,
-      params: [assetId, sourcePath, libraryId],
-    },
-  ]);
-  activeIntents.add(id);
+  await createLifecycleLease(id, assetId, kind, libraryId, sourcePath, repo);
   return id;
 }
 export async function recordLifecycleTarget(
@@ -50,37 +47,53 @@ export async function recordLifecycleTarget(
   repo = new BackupRepository(),
 ): Promise<void> {
   const relative = relativeBackupPath(path.relative(root, target).split(path.sep).join('/'));
-  await repo.db.write(
-    `UPDATE backup_lifecycle SET target_path=?,source_sha256=? WHERE id=? AND phase='prepared'`,
-    [relative, await digest(source), id],
+  const sha256 = await digest(source);
+  const lease = await assertLifecycleLease(id);
+  const result = await repo.db.write(
+    `UPDATE backup_lifecycle SET target_path=?,source_sha256=? WHERE id=? AND phase='prepared'
+      AND lease_owner=? AND lease_until>unixepoch('subsec')*1000`,
+    [relative, sha256, id, lease.owner],
   );
+  if (!result.changes) throw new Error('Lifecycle preparation lease lost');
 }
 /** Source retained after an ordinary failure: permit a later explicit retry. */
 export async function finishLocalLifecycle(
   id: string,
   failed = false,
-  repo = new BackupRepository(),
+  _repo = new BackupRepository(),
 ): Promise<void> {
-  activeIntents.delete(id);
-  if (failed)
-    await repo.db.write(
-      `UPDATE backup_lifecycle SET phase='cancelled' WHERE id=? AND phase='prepared'`,
-      [id],
-    );
+  await releaseLifecycleLease(id, failed);
 }
 export async function runLifecycleMove<T>(id: string, move: () => Promise<T>): Promise<T> {
   try {
+    await assertLifecycleLease(id);
     return await move();
   } finally {
-    activeIntents.delete(id);
+    // Callers include the DB commit in this scope. A failure after publication
+    // leaves the preparation recoverable rather than cancelling its journal.
+    await releaseLifecycleLease(id);
   }
+}
+export async function lifecycleCommit(id: string): Promise<LifecycleCommit> {
+  const lease = await assertLifecycleLease(id);
+  return { id, owner: lease.owner };
+}
+export async function fenceLifecycleMove(id: string): Promise<void> {
+  await assertLifecycleLease(id);
 }
 /** Reconcile only recorded, verified destinations after a process interruption. */
 export async function reconcileLifecycle(repo = new BackupRepository()): Promise<void> {
   const rows = await repo.db.read<LifecycleMove>(`SELECT l.*,f.path AS root FROM backup_lifecycle l
-    JOIN folders f ON f.id=l.library_id WHERE l.phase='prepared' AND l.kind IN ('trash','restore')`);
+    JOIN folders f ON f.id=l.library_id WHERE l.phase='prepared' AND l.kind IN ('trash','restore')
+    AND l.lease_until<=unixepoch('subsec')*1000`);
   for (const row of rows) {
-    if (!activeIntents.has(row.id)) await reconcileMove(row, repo);
+    const lease = await claimExpiredLifecycle(row.id, repo);
+    if (!lease) continue;
+    try {
+      await reconcileMove(row, repo, lease);
+    } finally {
+      await releaseLifecycleClaim(lease);
+    }
   }
 }
 
@@ -94,15 +107,19 @@ interface LifecycleMove {
   kind: 'trash' | 'restore';
   root: string;
 }
-async function reconcileMove(row: LifecycleMove, repo: BackupRepository): Promise<void> {
-  if (!(await interruptedSourceAbsent(row, repo))) return;
+async function reconcileMove(
+  row: LifecycleMove,
+  repo: BackupRepository,
+  lease: LifecycleLease,
+): Promise<void> {
+  if (!(await interruptedSourceAbsent(row, lease))) return;
   if (!row.target_path || !row.source_sha256) return;
   const source = path.join(row.root, relativeBackupPath(row.source_path));
   const target = path.join(row.root, relativeBackupPath(row.target_path));
   try {
     if (!(await verifiedLifecycleTarget(row))) return;
-    await applyRecoveredMove(row, source, target, repo);
-    await finishLocalLifecycle(row.id, false, repo);
+    await assertLifecycleClaim(lease);
+    await applyRecoveredMove(row, source, target, repo, lease);
   } catch (error) {
     await repo.db.write(`UPDATE backup_lifecycle SET last_error=? WHERE id=?`, [
       error instanceof Error ? error.message.slice(0, 300) : 'Local relocation recovery failed',
@@ -112,12 +129,13 @@ async function reconcileMove(row: LifecycleMove, repo: BackupRepository): Promis
 }
 async function interruptedSourceAbsent(
   row: LifecycleMove,
-  repo: BackupRepository,
+  lease: LifecycleLease,
 ): Promise<boolean> {
   const source = path.join(row.root, relativeBackupPath(row.source_path));
   try {
     await stat(source);
-    await finishLocalLifecycle(row.id, true, repo);
+    await assertLifecycleClaim(lease);
+    await releaseLifecycleClaim(lease, true);
     return false;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === 'ENOENT';
@@ -137,6 +155,7 @@ async function applyRecoveredMove(
   source: string,
   target: string,
   repo: BackupRepository,
+  lease: LifecycleLease,
 ): Promise<void> {
   const { markSoftDeleted, restoreFromTrash } = await import('../db/repos/assets.trash.ts');
   const args = {
@@ -149,6 +168,7 @@ async function applyRecoveredMove(
       path: path.posix.dirname(row.source_path) === '.' ? '' : path.posix.dirname(row.source_path),
       filename: path.posix.basename(row.source_path),
     },
+    lifecycle: { id: row.id, owner: lease.owner },
     dbOverride: repo.db,
   };
   if (row.kind === 'trash') await markSoftDeleted({ ...args, originalAbsPath: source });
@@ -158,7 +178,7 @@ async function applyRecoveredMove(
   }
 }
 
-export async function preparePurge(assetId: string, repo = new BackupRepository()): Promise<void> {
+async function inventoryPurge(assetId: string, repo: BackupRepository): Promise<void> {
   const destinations = await repo.destinations();
   // Local mirror deletes need a durable exact-path obligation too. No cloud
   // upload is issued for folder targets; the existing mirror writer owns them.
@@ -211,22 +231,85 @@ export async function preparePurge(assetId: string, repo = new BackupRepository(
       ]);
     }
   }
+}
+
+interface ReplacementLocation {
+  libraryId: string;
+  path: string;
+  filename: string;
+}
+
+/** Normal permanent deletion intentionally includes all recorded locations. */
+export async function preparePurge(assetId: string, repo = new BackupRepository()): Promise<void> {
+  await inventoryPurge(assetId, repo);
+  if (!(await recordPurgeIntent(assetId, repo)))
+    throw new Error('Asset changed or has a pending backup lifecycle; retry permanent deletion.');
+}
+
+/** A stale Trash listing cannot authorize erasure after restore, reaping or relocation. */
+export async function prepareTrashPurge(
+  assetId: string,
+  expected: TrashPurgeCandidate,
+  repo = new BackupRepository(),
+): Promise<boolean> {
+  await inventoryPurge(assetId, repo);
+  return recordPurgeIntent(assetId, repo, { trash: expected });
+}
+
+/** An upload may discard a redundant RAW only while its sole Trash location
+ * is unchanged. Admission and backup fencing occur in one SQLite transaction. */
+export async function prepareIdenticalReplacementPurge(
+  assetId: string,
+  location: ReplacementLocation,
+  repo = new BackupRepository(),
+): Promise<boolean> {
+  await inventoryPurge(assetId, repo);
+  return recordPurgeIntent(assetId, repo, { replacement: location });
+}
+
+async function recordPurgeIntent(
+  assetId: string,
+  repo: BackupRepository,
+  candidate?: { replacement: ReplacementLocation } | { trash: TrashPurgeCandidate },
+): Promise<boolean> {
   const at = new Date().toISOString();
-  await repo.db.transaction([
+  const intentId = crypto.randomUUID();
+  const guard =
+    candidate && 'replacement' in candidate
+      ? {
+          sql: `AND (SELECT COUNT(*) FROM asset_locations WHERE asset_id=a.id)=1
+       AND a.apple_rendered_path IS NULL AND EXISTS
+       (SELECT 1 FROM asset_locations WHERE asset_id=a.id AND library_id=? AND path=? AND filename=?)`,
+          params: [
+            candidate.replacement.libraryId,
+            candidate.replacement.path,
+            candidate.replacement.filename,
+          ],
+        }
+      : candidate
+        ? trashPurgeGuard(candidate.trash)
+        : { sql: '', params: [] };
+  const result = await repo.db.transaction([
     {
-      sql: `INSERT INTO backup_lifecycle(id,asset_id,kind,phase,created_at) VALUES(?,?,'purge','applied',?)`,
-      params: [crypto.randomUUID(), assetId, at],
+      sql: `INSERT INTO backup_lifecycle(id,asset_id,kind,phase,created_at)
+        SELECT ?,a.id,'purge','applied',? FROM assets a WHERE a.id=? ${guard.sql}
+        AND NOT EXISTS(SELECT 1 FROM backup_lifecycle WHERE asset_id=a.id
+          AND (phase='prepared' OR lease_until>unixepoch('subsec')*1000))`,
+      params: [intentId, at, assetId, ...guard.params],
     },
     {
       sql: `INSERT INTO backup_purges(destination_id,entry_id,record)
       SELECT e.destination_id,e.id,json_object('version',1,'libraryId',d.library_id,'entryId',e.id,
         'sequence',e.sequence+1,'purgedAt',?) FROM backup_entries e JOIN backup_destinations d ON d.id=e.destination_id
-      WHERE e.asset_id=? ON CONFLICT(destination_id,entry_id) DO NOTHING`,
-      params: [at, assetId],
+      WHERE e.asset_id=? AND EXISTS (SELECT 1 FROM backup_lifecycle WHERE id=?)
+      ON CONFLICT(destination_id,entry_id) DO NOTHING`,
+      params: [at, assetId, intentId],
     },
     {
-      sql: `UPDATE backup_entries SET state='purged',sequence=sequence+1,snapshot_hash=NULL WHERE asset_id=? AND state!='purged'`,
-      params: [assetId],
+      sql: `UPDATE backup_entries SET state='purged',sequence=sequence+1,snapshot_hash=NULL
+        WHERE asset_id=? AND state!='purged' AND EXISTS (SELECT 1 FROM backup_lifecycle WHERE id=?)`,
+      params: [assetId, intentId],
     },
   ]);
+  return result[0].changes > 0;
 }
