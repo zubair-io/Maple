@@ -32,6 +32,7 @@ $failures = @()
 foreach ($mode in @('gpu', 'cpu', 'empty', 'media-cell')) {
     $output = Join-Path $root $mode
     New-Item -ItemType Directory -Force $output | Out-Null
+    Remove-Item (Join-Path $output '*') -Recurse -Force -ErrorAction SilentlyContinue
     $start = [Diagnostics.ProcessStartInfo]::new($app)
     $start.UseShellExecute = $false
     foreach ($argument in @('--lifecycle-smoke', $fixture, $output, $mode)) {
