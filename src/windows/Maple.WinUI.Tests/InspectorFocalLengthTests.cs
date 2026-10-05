@@ -59,6 +59,21 @@ public sealed class InspectorFocalLengthTests : IDisposable
         finally { CultureInfo.CurrentCulture = previous; }
     }
 
+    [Theory]
+    [InlineData("en-US", 0.0049, 0.0049)]
+    [InlineData("fr-FR", 0.0049, 0.0049)]
+    [InlineData("ar-SA", 0.0049, 0.0049)]
+    [InlineData("en-US", 0.005, 0.01)]
+    [InlineData("fr-FR", 0.005, 0.01)]
+    [InlineData("ar-SA", 0.005, 0.01)]
+    public void SmallPositiveFocalLengthDoesNotBecomeZeroAcrossLocales(string culture, double value, double expected)
+    {
+        CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+        var display = new PhotoItem { FocalLengthMm = value }.FocalLengthDisplay;
+        Assert.EndsWith(" mm", display);
+        Assert.Equal(expected, double.Parse(display[..^3], CultureInfo.CurrentCulture));
+    }
+
     [Fact]
     public void AsyncFocalHydrationNotifiesDisplayedValue()
     {
