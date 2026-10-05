@@ -156,6 +156,8 @@ Without fixtures (CI without `test-fixtures/raws/test_0017.dng`), the test calls
 
 **First-time-on-a-machine caveat (macOS):** the UI test runner asks for keychain / TouchID auth on its first launch. The `xcodebuild test` invocation will hang for several minutes and then fail with `LocalAuthentication ... System authentication is running. ... BiometryType=1`. The fix is to authorize once interactively — opening the project in Xcode and running the test through the IDE the first time produces an OS prompt the user can accept; subsequent CLI runs reuse the cached credential. There is no headless workaround on stock macOS.
 
+**#2525 — the automation-mode handshake failure is resolved by the toolchain upgrade.** The Sept 2026 "Timed out while enabling automation mode" on every class (macOS 26.6.2 + Xcode 26.4) does not reproduce on macOS 27.0 + Xcode 27.1: `LaunchScreenshotUITests` passes 3/3 and `PoisonedCacheUpgradeUITests` executes (its assertion failure there is #4255, a first-execution calibration issue, not the handshake). Note `automationmodetool` still reports "disabled, requires user authentication" on the working machine — that report does not gate execution, so don't chase it.
+
 The Swift CIEDE2000 port at `src/apple/MapleUITests/Helpers/CIEDE2000.swift` is cross-validated against `src/scripts/compare_images.py` by `CIEDE2000Tests`, against the calibration PNG pair at `src/apple/MapleUITests/Goldens/.calibration/`. Regenerate the expected JSON via:
 
 ```bash

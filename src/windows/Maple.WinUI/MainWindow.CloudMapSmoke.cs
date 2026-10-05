@@ -20,6 +20,7 @@ public sealed partial class MainWindow
         var handler = new MapSmokeHandler();
         using var client = new CloudClient("https://map-test.invalid", handler, Path.Combine(output, "map-cache"));
         using var map = new CloudMapView(client, new() { TileUrl = "https://maple-map.invalid/" + styleName }, new());
+        map.QualificationDiagnostic += line => File.AppendAllText(Path.Combine(output, "map-publication.jsonl"), line + Environment.NewLine);
         try
         {
             SetMode(ShellMode.Browse);
@@ -37,11 +38,28 @@ public sealed partial class MainWindow
             var settledRequests = handler.RequestCount;
             await Task.Delay(1000);
             if (handler.RequestCount > settledRequests + 1 || map.AppliedCellCount != 1)
-                throw new InvalidOperationException("Map result layout repeatedly restarted viewport requests");
+                throw new InvalidOperationException($"Map publication did not remain settled: requests={handler.RequestCount}, "
+                    + $"settledRequests={settledRequests}, appliedCells={map.AppliedCellCount}; inspect map-publication.jsonl");
+            RecordSmokeStage(output, "map-duplicate-viewport");
+            var publishedViewport = map.Viewport ?? throw new InvalidOperationException("Map viewport missing");
+            var publishedRequests = handler.RequestCount;
+            for (var duplicate = 0; duplicate < 50; duplicate++)
+            {
+                map.UpdateViewport(publishedViewport);
+                if (map.AppliedCellCount != 1)
+                    throw new InvalidOperationException("Duplicate viewport cleared published Map cells");
+            }
+            await Task.Delay(250);
+            if (handler.RequestCount != publishedRequests || map.AppliedCellCount != 1)
+                throw new InvalidOperationException("Duplicate viewport restarted the settled Map request");
             RecordSmokeStage(output, "map-server-failure");
             handler.Status = HttpStatusCode.ServiceUnavailable;
             map.SetQuery(new() { MinimumRating = 1 });
             await WaitAsync(() => map.CanRetry, "Map failure did not expose retry");
+            var failedRequests = handler.RequestCount;
+            await Task.Delay(1000);
+            if (handler.RequestCount > failedRequests + 1 || !map.CanRetry)
+                throw new InvalidOperationException("Map server failure repeatedly resized and restarted requests");
             handler.Status = HttpStatusCode.OK;
             await map.RetryAsync();
             await WaitAsync(() => map.AppliedCellCount == 1 && !map.CanRetry, "Map retry did not recover the same viewport");
@@ -51,6 +69,13 @@ public sealed partial class MainWindow
             handler.Status = HttpStatusCode.Unauthorized;
             map.SetQuery(new() { MinimumRating = 2 });
             await WaitAsync(() => map.StatusText.Contains("Sign in"), "Map authentication failure was not distinct");
+            // A 401 refreshes auth and retries the HTTP request once. Count
+            // viewport generations, independent of that transport recovery.
+            var authRequests = map.RequestGeneration;
+            await Task.Delay(1000);
+            if (map.RequestGeneration > authRequests + 1 || !map.StatusText.Contains("Sign in") || !map.CanRetry)
+                throw new InvalidOperationException($"Map sign-in failure did not settle: generation={map.RequestGeneration}, "
+                    + $"initialGeneration={authRequests}, retry={map.CanRetry}, status={map.StatusText}");
             handler.Status = HttpStatusCode.OK;
             handler.Empty = true;
             map.SetQuery(new() { MinimumRating = 3 });

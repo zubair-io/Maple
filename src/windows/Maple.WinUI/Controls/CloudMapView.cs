@@ -42,6 +42,8 @@ public sealed class CloudMapView : Grid, IDisposable
     internal FrameworkElement BackControl => _back;
     internal double CanvasHeight => _browser.ActualHeight;
     internal CloudMapViewport? Viewport => _viewport;
+    internal long RequestGeneration => _generation;
+    internal event Action<string>? QualificationDiagnostic;
 
     public void FocusNavigation() => _back.Focus(FocusState.Keyboard);
 
@@ -69,6 +71,7 @@ public sealed class CloudMapView : Grid, IDisposable
         _results.ItemClick += (_, e) => { if (e.ClickedItem is LocationResult result && _results.IsEnabled) CellSelected?.Invoke(result.Cell); };
         _retry.Click += async (_, _) => await RetryAsync();
         Loaded += async (_, _) => { if (!_initialized) await InitializeAsync(); };
+        _browser.SizeChanged += (_, _) => RecordQualificationDiagnostic("canvas-resized");
     }
 
     public void SetQuery(CloudSearchQuery query)
@@ -167,7 +170,8 @@ public sealed class CloudMapView : Grid, IDisposable
                     _browser.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "configure", tileUrl = _config.TileUrl }));
                     break;
                 case "viewport":
-                    _ = LoadViewportAsync(new(root.GetProperty("west").GetDouble(), root.GetProperty("south").GetDouble(),
+                    RecordQualificationDiagnostic("viewport-message");
+                    UpdateViewport(new(root.GetProperty("west").GetDouble(), root.GetProperty("south").GetDouble(),
                         root.GetProperty("east").GetDouble(), root.GetProperty("north").GetDouble(), root.GetProperty("zoom").GetInt32()));
                     break;
                 case "select":
@@ -185,6 +189,15 @@ public sealed class CloudMapView : Grid, IDisposable
         { Fail("Map returned an invalid response. Retry to try again."); }
     }
 
+    internal void UpdateViewport(CloudMapViewport viewport)
+    {
+        // MapLibre can emit both style.load and moveend for the same bounds.
+        // Preserve the pending request and published cells until bounds change.
+        // Query changes and explicit retry still refresh through LoadViewportAsync.
+        if (_disposed || _viewport == viewport) return;
+        _ = LoadViewportAsync(viewport);
+    }
+
     private async Task LoadViewportAsync(CloudMapViewport viewport)
     {
         _viewport = viewport;
@@ -192,12 +205,15 @@ public sealed class CloudMapView : Grid, IDisposable
         _request?.Dispose();
         var owner = _request = new CancellationTokenSource();
         var generation = ++_generation;
+        RecordQualificationDiagnostic("request-started");
         _cells = Array.Empty<CloudMapCell>();
         _results.IsEnabled = false;
-        if (!_tileError)
+        // Keep an existing error and Retry visible while recovering. Removing
+        // Retry here changes the canvas bounds and starts another viewport
+        // request; a failing server otherwise causes an endless resize loop.
+        if (!_tileError && !CanRetry)
         {
             SetStatus("Loading photo locations…");
-            _retry.Visibility = Visibility.Collapsed;
         }
         try
         {
@@ -211,9 +227,14 @@ public sealed class CloudMapView : Grid, IDisposable
                 _results.Items.Add(new LocationResult(cell));
             _results.IsEnabled = true;
             if (!_tileError)
+            {
+                _retry.Visibility = Visibility.Collapsed;
                 SetStatus(cells.Length == 0 ? "No photos with a location in this area match these filters." : $"{cells.Length} photo locations");
+            }
+            RecordQualificationDiagnostic("cells-published");
         }
-        catch (OperationCanceledException) when (owner.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (owner.IsCancellationRequested)
+        { RecordQualificationDiagnostic("request-cancelled"); }
         catch (Exception error)
         {
             if (_disposed || _request != owner) return;
@@ -233,6 +254,15 @@ public sealed class CloudMapView : Grid, IDisposable
         _status.Text = message;
         var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.FromElement(_status);
         peer?.RaiseAutomationEvent(Microsoft.UI.Xaml.Automation.Peers.AutomationEvents.LiveRegionChanged);
+    }
+
+    private void RecordQualificationDiagnostic(string phase)
+    {
+        if (QualificationDiagnostic is not { } diagnostic) return;
+        diagnostic(JsonSerializer.Serialize(new { phase, at = DateTimeOffset.UtcNow,
+            generation = _generation, viewport = _viewport, cells = _cells.Length,
+            resultRows = _results.Items.Count, canvasWidth = _browser.ActualWidth,
+            canvasHeight = _browser.ActualHeight, status = _status.Text }));
     }
 
     public void Dispose()
