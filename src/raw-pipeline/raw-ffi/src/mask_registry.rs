@@ -60,8 +60,9 @@ fn lookup_digest(digest: &str) -> Option<Arc<MaskRaster>> {
 /// `MapleFallbackIdHasher` use elsewhere in this crate.
 ///
 /// # Safety
-/// `digest_ptr` must be valid for 16 `u8` reads. `data_ptr` must be valid for
-/// `data_len` `u8` reads, or null when `data_len == 0`.
+/// `digest_ptr` may be null (yields -1); if non-null, it must be valid for
+/// 16 `u8` reads. `data_ptr` must be valid for `data_len` `u8` reads, or null
+/// when `data_len == 0`.
 ///
 /// Returns:
 ///    id  success (>= 1)
