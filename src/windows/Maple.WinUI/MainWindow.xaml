@@ -414,7 +414,7 @@
                                 </ComboBox>
                                 <mui:MuiButton Grid.Column="2" x:Name="BrowseCollapseButton" Label="Collapse list ‹" Variant="Secondary" Click="OnCollapseBrowseList" />
                                 <mui:MuiButton x:Name="BrowseOptionsButton" Grid.Column="3" Label="Options" Variant="Secondary" AutomationProperties.Name="Browse view, filters and thumbnail size">
-                                    <mui:MuiButton.Flyout><Flyout x:Name="BrowseOptionsFlyout" Closed="OnBrowseOptionsClosed"><ScrollViewer MaxHeight="520" VerticalScrollBarVisibility="Auto"><StackPanel Spacing="12" MinWidth="200">
+                                    <mui:MuiButton.Flyout><Flyout x:Name="BrowseOptionsFlyout" Opened="OnBrowseOptionsOpened" Closed="OnBrowseOptionsClosed"><ScrollViewer MaxHeight="520" VerticalScrollBarVisibility="Auto"><StackPanel Spacing="12" MinWidth="200">
                                 <mui:MuiButton x:Name="BrowseViewButton" Label="Grid view" Variant="Secondary" Click="OnToggleBrowseView" AutomationProperties.Name="Toggle grid and list detail" />
                                 <ComboBox x:Name="FormatFilterBox" SelectedIndex="0" Width="120" FontSize="12"
                                           SelectionChanged="OnFormatFilterChanged"
