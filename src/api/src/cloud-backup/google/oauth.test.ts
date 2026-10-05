@@ -8,7 +8,7 @@ import { callbackUrl, DEFAULT_GOOGLE_CONFIG, DRIVE_SCOPE, RELAY_CALLBACK } from 
 
 const clientId = '12345-example.apps.googleusercontent.com';
 const destination = '9051f218-c3cc-419b-ab02-356e14eebd86';
-async function setup(mode: 'direct' | 'relay' = 'direct') {
+async function setup(mode: 'direct' | 'relay' = 'direct', id = destination) {
   const db = await createLiveTestDatabase();
   if (!db.db.query("SELECT 1 FROM sqlite_master WHERE name='backup_google_connections'").get())
     db.db.exec(GOOGLE_BACKUP_DDL);
@@ -19,7 +19,7 @@ async function setup(mode: 'direct' | 'relay' = 'direct') {
     last_seen_at: null,
   });
   await saveConfig(
-    destination,
+    id,
     {
       ...DEFAULT_GOOGLE_CONFIG,
       clientId,
@@ -298,3 +298,78 @@ test('revoked offline grants become disconnected and require fresh consent', asy
   ).rejects.toThrow('reconnect');
   expect((await loadConnection(destination)).config.refreshToken).toBeNull();
 });
+
+for (const lateResult of ['rotated-token', 'invalid_grant'] as const) {
+  test(`fresh consent fences an already running renewal (${lateResult}) with unchanged application settings`, async () => {
+    const id = crypto.randomUUID();
+    const { db, owner } = await setup('direct', id);
+    using _handle = db;
+    const initial = await loadConnection(id);
+    await saveConfig(
+      id,
+      { ...initial.config, refreshToken: 'old-grant', accountId: 'account-1' },
+      initial.epoch,
+    );
+    const previous = await loadConnection(id);
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const mock = googleMock();
+    const renewal: GoogleFetch = async (url, init) => {
+      if (url.toString().endsWith('/token')) {
+        started.resolve();
+        await release.promise;
+        return lateResult === 'invalid_grant'
+          ? Response.json({ error: 'invalid_grant' }, { status: 400 })
+          : Response.json({
+              access_token: 'stale-access',
+              refresh_token: 'stale-rotation',
+              token_type: 'Bearer',
+              expires_in: 3600,
+            });
+      }
+      return mock.transport(url, init);
+    };
+    const pending = googleAccessToken(id, renewal).then(
+      (token) => ({ token, error: null }),
+      (error: Error) => ({ token: null, error }),
+    );
+    await started.promise;
+    const consent: GoogleFetch = async (url, init) =>
+      url.toString().endsWith('/token')
+        ? Response.json({
+            access_token: 'new-access',
+            refresh_token: 'new-consent',
+            token_type: 'Bearer',
+            expires_in: 3600,
+          })
+        : mock.transport(url, init);
+    const flow = await startGoogleFlow(id, owner, 'https://photos.example.com', consent);
+    await finishGoogleFlow(
+      new URL(flow.authorizationUrl).searchParams.get('state')!,
+      flow.cookie,
+      'new-code',
+      false,
+      'https://photos.example.com',
+      consent,
+    );
+    release.resolve();
+    const stale = await pending;
+    expect(stale.token).toBeNull();
+    expect(stale.error?.message).toContain('connection changed');
+    const current = await loadConnection(id);
+    expect(current.epoch).toBe(previous.epoch + 1);
+    expect(current.config.refreshToken).toBe('new-consent');
+    expect(
+      await googleAccessToken(id, async () => {
+        throw new Error('New consent should remain cached');
+      }),
+    ).toBe('new-access');
+    expect(
+      db.db
+        .query(
+          'SELECT refresh_owner,refresh_until FROM backup_google_connections WHERE destination_id=?',
+        )
+        .get(id),
+    ).toEqual({ refresh_owner: null, refresh_until: 0 });
+  });
+}

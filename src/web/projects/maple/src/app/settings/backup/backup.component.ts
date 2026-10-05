@@ -1,3 +1,4 @@
+import { SettingsAction } from '../settings-action';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -86,9 +87,10 @@ export class BackupComponent {
   protected readonly kind = signal<BackupDestination['kind']>('folder');
   protected readonly name = signal('');
   protected readonly path = signal('');
-  protected readonly busy = signal(false);
-  protected readonly error = signal('');
-  protected readonly message = signal('');
+  private readonly actions = new SettingsAction(() => this.refresh());
+  protected readonly busy = this.actions.busy;
+  protected readonly error = this.actions.error;
+  protected readonly message = this.actions.message;
   protected readonly expanded = signal<string | null>(
     this.route.snapshot.queryParamMap.get('connected'),
   );
@@ -133,7 +135,7 @@ export class BackupComponent {
   }
   protected async add(): Promise<void> {
     if (!this.canAdd()) return;
-    await this.perform(async () => {
+    await this.actions.run(async () => {
       const destination = await firstValueFrom(
         this.api.createDestination({
           libraryId: this.library(),
@@ -149,19 +151,19 @@ export class BackupComponent {
     });
   }
   protected async enabled(destination: BackupDestination, enabled: boolean): Promise<void> {
-    await this.perform(async () => {
+    await this.actions.run(async () => {
       await firstValueFrom(this.api.updateDestination(destination.id, { enabled }));
     });
   }
   protected async retry(destination: BackupDestination): Promise<void> {
-    await this.perform(async () => {
+    await this.actions.run(async () => {
       await firstValueFrom(this.api.retryDestination(destination.id));
       this.message.set('Pending work is eligible for retry.');
     });
   }
   protected async remove(destination: BackupDestination): Promise<void> {
     if (this.removing() !== destination.id) return;
-    await this.perform(async () => {
+    await this.actions.run(async () => {
       await firstValueFrom(this.api.removeDestination(destination.id));
       this.removing.set(null);
       this.message.set('Destination disconnected from this library. Remote files were retained.');
@@ -169,19 +171,5 @@ export class BackupComponent {
   }
   protected toggle(id: string): void {
     this.expanded.update((current) => (current === id ? null : id));
-  }
-  private async perform(action: () => Promise<void>): Promise<void> {
-    if (this.busy()) return;
-    this.busy.set(true);
-    this.error.set('');
-    this.message.set('');
-    try {
-      await action();
-      this.refresh();
-    } catch (error) {
-      this.error.set(errorMessage(error));
-    } finally {
-      this.busy.set(false);
-    }
   }
 }

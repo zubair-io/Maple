@@ -21,7 +21,7 @@ import {
 
 export type GoogleFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
 const timeout = () => AbortSignal.timeout(30_000);
-export const hashCookie = (cookie: string) => createHash('sha256').update(cookie).digest('hex');
+const hashCookie = (cookie: string) => createHash('sha256').update(cookie).digest('hex');
 const cache = new Map<string, { epoch: number; token: string; expires: number }>();
 class GoogleReconnectRequired extends GoogleConnectionError {}
 
@@ -43,16 +43,19 @@ async function tokenRequest(params: URLSearchParams, transport: GoogleFetch) {
     body: params,
   });
   const body = (await response.json()) as Record<string, unknown>;
-  if (!response.ok) {
-    const kind =
-      body.error === 'invalid_grant'
-        ? 'Authorization expired or revoked; reconnect Google Drive.'
-        : body.error === 'invalid_client'
-          ? 'Check the Web Application Client ID and Client Secret.'
-          : 'Google token request failed; check application permissions and retry Connect.';
-    if (body.error === 'invalid_grant') throw new GoogleReconnectRequired(kind);
-    throw new GoogleConnectionError(kind);
-  }
+  if (!response.ok) tokenFailure(body);
+  return parseTokens(body);
+}
+function tokenFailure(body: Record<string, unknown>): never {
+  if (body.error === 'invalid_grant')
+    throw new GoogleReconnectRequired('Authorization expired or revoked; reconnect Google Drive.');
+  if (body.error === 'invalid_client')
+    throw new GoogleConnectionError('Check the Web Application Client ID and Client Secret.');
+  throw new GoogleConnectionError(
+    'Google token request failed; check application permissions and retry Connect.',
+  );
+}
+function parseTokens(body: Record<string, unknown>) {
   if (
     typeof body.access_token !== 'string' ||
     body.access_token.length > 8192 ||
@@ -71,7 +74,11 @@ async function tokenRequest(params: URLSearchParams, transport: GoogleFetch) {
   };
 }
 
-async function verifyToken(accessToken: string, clientId: string, transport: GoogleFetch) {
+async function verifyScopes(
+  accessToken: string,
+  clientId: string,
+  transport: GoogleFetch,
+): Promise<void> {
   // Matches Google's official Node OAuth2Client.getTokenInfo: POST + Bearer,
   // so tokens never enter URLs. Always verify effective scopes, even if omitted
   // from the token exchange response.
@@ -100,6 +107,12 @@ async function verifyToken(accessToken: string, clientId: string, transport: Goo
       'Google must grant only drive.file to this exact OAuth client. Use a dedicated project.',
     );
   }
+}
+async function verifyToken(accessToken: string, clientId: string, transport: GoogleFetch) {
+  await verifyScopes(accessToken, clientId, transport);
+  return loadGoogleAccount(accessToken, transport);
+}
+async function loadGoogleAccount(accessToken: string, transport: GoogleFetch) {
   const account = await transport(
     'https://www.googleapis.com/drive/v3/about?fields=user(permissionId,emailAddress)',
     {
@@ -260,13 +273,13 @@ export async function finishGoogleFlow(
   await ownerStillAuthorized(flow.ownerId);
   if (flow.callback !== callbackUrl(await origin()))
     throw new GoogleConnectionError('Domain changed; reconnect Google Drive.');
-  await commitTokens(
+  const epoch = await commitTokens(
     flow.destinationId,
     { ...connection.config, ...account, refreshToken: tokens.refreshToken },
     flow.epoch,
   );
   cache.set(flow.destinationId, {
-    epoch: flow.epoch,
+    epoch,
     token: tokens.accessToken,
     expires: Date.now() + tokens.expiresIn * 1000 - 60_000,
   });

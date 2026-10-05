@@ -15,35 +15,55 @@ export interface ConnectionTicket {
 }
 const CALLBACK = 'https://mapleeditor.com/api/connect/google-drive/callback';
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
-export function validateConnectionTicket(value: unknown): ConnectionTicket {
-  if (!value || typeof value !== 'object') throw new Error('Invalid connection');
-  const ticket = value as Record<string, unknown>;
-  if (typeof ticket['returnUrl'] !== 'string' || ticket['returnUrl'].length > 2048)
-    throw new Error('Invalid connection');
-  const returnUrl = new URL(ticket['returnUrl']);
-  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(returnUrl.hostname);
+function matchesTicketField(value: unknown, pattern: RegExp): value is string {
+  return typeof value === 'string' && pattern.test(value);
+}
+function validTicketExpiry(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value > Date.now() &&
+    value <= Date.now() + 600000
+  );
+}
+function validateTicketBindings(ticket: Record<string, unknown>): void {
+  const randomField = /^[A-Za-z0-9_-]{43}$/;
   if (
     ticket['version'] !== 1 ||
     ticket['scope'] !== SCOPE ||
     ticket['redirectUri'] !== CALLBACK ||
-    typeof ticket['nonce'] !== 'string' ||
-    !/^[A-Za-z0-9_-]{43}$/.test(ticket['nonce']) ||
-    typeof ticket['challenge'] !== 'string' ||
-    !/^[A-Za-z0-9_-]{43}$/.test(ticket['challenge']) ||
-    typeof ticket['clientId'] !== 'string' ||
-    !/^[A-Za-z0-9_-]{8,200}\.apps\.googleusercontent\.com$/.test(ticket['clientId']) ||
-    typeof ticket['expiresAt'] !== 'number' ||
-    !Number.isSafeInteger(ticket['expiresAt']) ||
-    ticket['expiresAt'] <= Date.now() ||
-    ticket['expiresAt'] > Date.now() + 600000 ||
-    (returnUrl.protocol !== 'https:' && !(loopback && returnUrl.protocol === 'http:')) ||
-    returnUrl.username ||
-    returnUrl.password ||
-    returnUrl.search ||
-    returnUrl.hash ||
-    returnUrl.pathname !== '/api/cloud-backup/google/callback'
+    !matchesTicketField(ticket['nonce'], randomField) ||
+    !matchesTicketField(ticket['challenge'], randomField) ||
+    !matchesTicketField(
+      ticket['clientId'],
+      /^[A-Za-z0-9_-]{8,200}\.apps\.googleusercontent\.com$/,
+    ) ||
+    !validTicketExpiry(ticket['expiresAt'])
   )
     throw new Error('Invalid connection');
+}
+function validCallbackProtocol(url: URL): boolean {
+  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  return url.protocol === 'https:' || (loopback && url.protocol === 'http:');
+}
+function validateCallbackUrl(value: unknown): void {
+  if (typeof value !== 'string' || value.length > 2048) throw new Error('Invalid connection');
+  const url = new URL(value);
+  if (
+    !validCallbackProtocol(url) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.pathname !== '/api/cloud-backup/google/callback'
+  )
+    throw new Error('Invalid connection');
+}
+export function validateConnectionTicket(value: unknown): ConnectionTicket {
+  if (!value || typeof value !== 'object') throw new Error('Invalid connection');
+  const ticket = value as Record<string, unknown>;
+  validateCallbackUrl(ticket['returnUrl']);
+  validateTicketBindings(ticket);
   return value as ConnectionTicket;
 }
 export function validatedAuthorizationUrl(

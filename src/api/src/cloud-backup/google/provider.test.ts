@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { GoogleDriveProvider } from './provider.ts';
 import { logicalKeyHash } from './client.ts';
+import { googleStore } from './google-store.test-helpers.ts';
 import type { GoogleFetch } from './oauth.ts';
 import type { PublishSource, UploadCheckpoint } from '../provider.ts';
 
@@ -20,144 +21,6 @@ function source(bytes: Uint8Array): PublishSource {
       }),
   };
 }
-function googleStore() {
-  const files = new Map<
-    string,
-    {
-      id: string;
-      name: string;
-      parents: string[];
-      description: string;
-      properties?: Record<string, string>;
-      size: string;
-      sha256Checksum?: string;
-      mimeType: string;
-      bytes: Uint8Array;
-    }
-  >();
-  const requests: Array<{ method: string; path: string; query: string | null; headers: Headers }> =
-    [];
-  let reserve = 0;
-  let active: {
-    id: string;
-    name: string;
-    parents: string[];
-    description: string;
-    properties?: Record<string, string>;
-    mimeType: string;
-    size: number;
-    parts: Uint8Array[];
-  } | null = null;
-  let loseFinalResponse = false;
-  const metadata = (file: { bytes: Uint8Array }) => {
-    const { bytes: _bytes, ...safe } = file;
-    return safe;
-  };
-  const transport: GoogleFetch = async (raw, init) => {
-    const url = new URL(raw);
-    const method = init?.method ?? 'GET';
-    requests.push({
-      method,
-      path: url.pathname,
-      query: url.searchParams.get('q'),
-      headers: new Headers(init?.headers),
-    });
-    if (url.pathname.endsWith(`/files/${root}`))
-      return Response.json({
-        id: root,
-        name: 'Maple Photo Backup',
-        mimeType: 'application/vnd.google-apps.folder',
-        parents: ['my-drive'],
-        description: JSON.stringify({
-          mapleBackupRoot: 1,
-          identity: 'backup-uuid',
-        }),
-      });
-    if (url.pathname.endsWith('/generateIds')) return Response.json({ ids: [`file-${++reserve}`] });
-    if (url.pathname === '/drive/v3/files') {
-      const query = url.searchParams.get('q') ?? '';
-      const hash = /properties has \{ key='mapleKeyHash' and value='([a-f0-9]{64})' \}/.exec(
-        query,
-      )?.[1];
-      return Response.json({
-        files: [...files.values()]
-          .filter(
-            (file) =>
-              file.parents.includes(root) && (!hash || file.properties?.['mapleKeyHash'] === hash),
-          )
-          .map(metadata),
-      });
-    }
-    if (url.pathname.startsWith('/drive/v3/files/')) {
-      const id = url.pathname.split('/').at(-1)!;
-      const file = files.get(id);
-      if (!file) return new Response(null, { status: 404 });
-      if (method === 'DELETE') {
-        files.delete(id);
-        return new Response(null, { status: 204 });
-      }
-      if (url.searchParams.get('alt') === 'media') return new Response(new Uint8Array(file.bytes));
-      return Response.json(metadata(file));
-    }
-    if (url.pathname === '/upload/drive/v3/files' && method === 'POST') {
-      const uploadMetadata = JSON.parse(String(init!.body));
-      active = {
-        ...uploadMetadata,
-        size: Number(new Headers(init?.headers).get('x-upload-content-length')),
-        parts: [],
-      };
-      return new Response(null, {
-        status: 200,
-        headers: {
-          Location: 'https://www.googleapis.com/upload/drive/v3/files?upload_id=session-1',
-        },
-      });
-    }
-    if (url.pathname === '/upload/drive/v3/files' && method === 'PUT') {
-      if (!active) return new Response(null, { status: 404 });
-      const body = init?.body as Uint8Array | undefined;
-      if (body?.length) active.parts.push(body);
-      const size = active.parts.reduce((total, part) => total + part.length, 0);
-      if (size < active.size)
-        return new Response(null, {
-          status: 308,
-          headers: size ? { Range: `bytes=0-${size - 1}` } : {},
-        });
-      const bytes = new Uint8Array(size);
-      let offset = 0;
-      for (const part of active.parts) {
-        bytes.set(part, offset);
-        offset += part.length;
-      }
-      files.set(active.id, {
-        id: active.id,
-        name: active.name,
-        mimeType: active.mimeType,
-        parents: active.parents,
-        description: active.description,
-        properties: active.properties,
-        size: String(size),
-        sha256Checksum: sha(bytes),
-        bytes,
-      });
-      if (loseFinalResponse) {
-        loseFinalResponse = false;
-        throw new Error('Simulated lost final response');
-      }
-      return Response.json(metadata(files.get(active.id)!));
-    }
-    throw new Error(`Unexpected test request ${method} ${url.pathname}`);
-  };
-  return {
-    files,
-    requests,
-    transport,
-    loseFinal: () => {
-      loseFinalResponse = true;
-    },
-  };
-}
-
 test('immutable uploads reserve IDs durably, align chunks and resume after a lost final response without duplicates', async () => {
   const store = googleStore();
   const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
@@ -392,4 +255,73 @@ test('exact search rejects inconsistent public metadata and duplicates across re
   };
   const duplicateProvider = new GoogleDriveProvider(root, async () => 'token', paged);
   await expect(duplicateProvider.inspect(object.key)).rejects.toThrow('Conflicting immutable');
+});
+
+for (const ownership of [
+  { ownedByMe: false, driveId: undefined },
+  { ownedByMe: undefined, driveId: undefined },
+  { ownedByMe: true, driveId: 'shared-drive' },
+]) {
+  test(`object access and cleanup require affirmative My Drive ownership (${JSON.stringify(ownership)})`, async () => {
+    const store = googleStore();
+    const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+    const object = await provider.publish('blobs/owned', source(new Uint8Array([1, 2, 3])), {
+      saveCheckpoint: async () => {},
+    });
+    Object.assign(store.files.get(object.locator)!, ownership);
+    const before = store.requests.length;
+    await expect(provider.inspect(object.key)).rejects.toThrow('owned');
+    await expect(provider.inspect(object.key, undefined, object.locator)).rejects.toThrow('owned');
+    await expect(provider.download(object)).rejects.toThrow('owned');
+    await expect(provider.remove(object)).rejects.toThrow('owned');
+    await expect(
+      (async () => {
+        for await (const _object of provider.list('blobs/')) {
+        }
+      })(),
+    ).rejects.toThrow('owned');
+    expect(store.requests.slice(before).some((request) => request.method === 'DELETE')).toBe(false);
+  });
+  test(`root probes require affirmative My Drive ownership (${JSON.stringify(ownership)})`, async () => {
+    const store = googleStore();
+    const transport: GoogleFetch = async (url, init) => {
+      const response = await store.transport(url, init);
+      return new URL(url).pathname === `/drive/v3/files/${root}`
+        ? Response.json({ ...(await response.json()), ...ownership })
+        : response;
+    };
+    await expect(
+      new GoogleDriveProvider(root, async () => 'token', transport).probe(),
+    ).rejects.toThrow('owned');
+  });
+}
+
+test('an empty upload completes without a status-probe Content-Range and reconciles a lost final response', async () => {
+  const store = googleStore();
+  const transport: GoogleFetch = async (url, init) => {
+    if (init?.method === 'PUT') {
+      const headers = new Headers(init.headers);
+      expect(headers.get('content-length')).toBe('0');
+      expect(headers.has('content-range')).toBe(false);
+    }
+    return store.transport(url, init);
+  };
+  const provider = new GoogleDriveProvider(root, async () => 'token', transport);
+  const content = source(new Uint8Array());
+  let checkpoint: UploadCheckpoint | null = null;
+  store.loseFinal();
+  await expect(
+    provider.publish('blobs/empty', content, {
+      saveCheckpoint: async (value) => {
+        checkpoint = value;
+      },
+    }),
+  ).rejects.toThrow('request failed');
+  const object = await provider.publish('blobs/empty', content, {
+    checkpoint,
+    saveCheckpoint: async () => {},
+  });
+  expect(object.size).toBe(0);
+  expect(object.sha256).toBe(content.sha256);
+  expect(store.files.size).toBe(1);
 });

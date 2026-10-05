@@ -227,6 +227,59 @@ function isDatabaseUnavailable(error: unknown, message: string): boolean {
   return UNAVAILABLE_CODES.some((prefix) => code.startsWith(prefix));
 }
 
+/** Preserve middleware statuses before resolving Elysia's built-in errors. */
+function statusForError(preset: number, code: unknown): number {
+  if (preset >= 400 && preset < 600) return preset;
+  switch (code) {
+    case 'VALIDATION':
+      return 422;
+    case 'NOT_FOUND':
+      return 404;
+    case 'PARSE':
+      return 400;
+    default:
+      return 500;
+  }
+}
+
+function hasErrorEnvelope(body: unknown): boolean {
+  return (
+    isObject(body) &&
+    typeof body.code === 'string' &&
+    typeof body.error === 'string' &&
+    typeof body.requestId === 'string'
+  );
+}
+
+/** Raw responses have their own status and must retain streaming/HEAD semantics. */
+async function wrapErrorResponse(
+  response: Response,
+  set: { status?: number | string },
+  method?: string,
+): Promise<Response> {
+  const status = response.status;
+  if (status < 400 || status >= 600) return response;
+  // Already-JSON errors may be streamed; leave their body and headers intact.
+  const contentType = response.headers.get('content-type') ?? '';
+  if (contentType.toLowerCase().includes('json')) return response;
+
+  const headers = new Headers(response.headers);
+  if (method === 'HEAD') {
+    const requestId = getRequestId(set);
+    if (requestId && !headers.has('X-Request-Id')) headers.set('X-Request-Id', requestId);
+    return new Response(null, { status, headers });
+  }
+
+  const requestId = getRequestId(set) ?? ulid();
+  const envelope = buildEnvelope(await response.text(), status, requestId);
+  headers.set('Content-Type', 'application/json; charset=utf-8');
+  headers.set('X-Request-Id', requestId);
+  // The rewritten body no longer has the handler's original byte length.
+  headers.delete('Content-Length');
+  set.status = status;
+  return new Response(JSON.stringify(envelope), { status, headers });
+}
+
 /**
  * Elysia plugin. Mount once at the root of `buildApp`.
  *
@@ -295,19 +348,7 @@ export const requestContext = new Elysia({ name: 'requestContext' })
     // Map Elysia's built-in error codes (VALIDATION from TypeBox, NOT_FOUND
     // from unmatched routes, etc.) to HTTP statuses when set.status hasn't
     // already been pinned by an upstream `set.status = N`.
-    const preset = statusAsNumber(set.status);
-    let status: number;
-    if (preset >= 400 && preset < 600) {
-      status = preset;
-    } else if (code === 'VALIDATION') {
-      status = 422;
-    } else if (code === 'NOT_FOUND') {
-      status = 404;
-    } else if (code === 'PARSE') {
-      status = 400;
-    } else {
-      status = 500;
-    }
+    const status = statusForError(statusAsNumber(set.status), code);
     set.status = status;
 
     // The DB-unavailable carve-out: a 503 with a tip, rather than a bare 500,
@@ -369,47 +410,7 @@ export const requestContext = new Elysia({ name: 'requestContext' })
     // For raw Response objects the route may have set a non-2xx status on
     // the Response itself while leaving `set.status` at 200 (Bun's default).
     // Use the Response's own status for the wrap decision in that case.
-    if (response instanceof Response) {
-      const respStatus = response.status;
-      // 1xx/2xx/3xx (incl. redirects) pass through unchanged. Only wrap
-      // genuine error responses.
-      if (respStatus < 400 || respStatus >= 600) return response;
-
-      // If the raw Response is already JSON, assume the handler produced
-      // the body it wants and pass through (avoids double-wrapping streamed
-      // JSON error bodies). We treat absent content-type as "not JSON" —
-      // `new Response("Forbidden", { status: 403 })` falls into the wrap
-      // path, which is the desired behaviour.
-      const ct = response.headers.get('content-type') ?? '';
-      if (ct.toLowerCase().includes('json')) return response;
-
-      // HEAD requests must not have a body. Preserve the status but skip
-      // body rewriting.
-      if (ctx.request?.method === 'HEAD') {
-        // Surface the request id on the headers if not already present.
-        const headers = new Headers(response.headers);
-        const reqId = getRequestId(set);
-        if (reqId && !headers.has('X-Request-Id')) {
-          headers.set('X-Request-Id', reqId);
-        }
-        return new Response(null, { status: respStatus, headers });
-      }
-
-      const requestId = getRequestId(set) ?? ulid();
-      const text = await response.text();
-      const envelope = buildEnvelope(text, respStatus, requestId);
-      const headers = new Headers(response.headers);
-      headers.set('Content-Type', 'application/json; charset=utf-8');
-      headers.set('X-Request-Id', requestId);
-      // Drop content-length: the body changed shape.
-      headers.delete('Content-Length');
-      // Reflect the wrap on set.status so downstream sees the same number.
-      set.status = respStatus;
-      return new Response(JSON.stringify(envelope), {
-        status: respStatus,
-        headers,
-      });
-    }
+    if (response instanceof Response) return wrapErrorResponse(response, set, ctx.request?.method);
 
     // Non-Response responses: dispatch on set.status.
     // Success / redirect: pass through.
@@ -417,14 +418,7 @@ export const requestContext = new Elysia({ name: 'requestContext' })
 
     // Already-an-envelope short-circuit (built by our onError above, or
     // by the `errorEnvelope` helper).
-    if (
-      isObject(response) &&
-      typeof response.code === 'string' &&
-      typeof response.error === 'string' &&
-      typeof response.requestId === 'string'
-    ) {
-      return response;
-    }
+    if (hasErrorEnvelope(response)) return response;
 
     const requestId = getRequestId(set) ?? ulid();
     const envelope = buildEnvelope(response, setStatus, requestId);

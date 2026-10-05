@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { GoogleFetch } from './oauth.ts';
 
 export const DRIVE_API = 'https://www.googleapis.com/drive/v3';
-export const FILE_FIELDS =
+const FILE_FIELDS =
   'id,name,mimeType,parents,trashed,size,sha256Checksum,description,properties,ownedByMe,driveId';
 /** Public search index; full logical keys remain in portable description metadata. */
 export const logicalKeyHash = (key: string): string =>
@@ -20,7 +20,11 @@ export interface DriveFile {
   ownedByMe?: boolean;
   driveId?: string;
 }
-export class GoogleDriveError extends Error {
+/** Shared-drive ownership is collective; only an affirmative My Drive owner is allowed. */
+export function isOwnedMyDriveFile(file: DriveFile): boolean {
+  return file.ownedByMe === true && file.driveId === undefined;
+}
+class GoogleDriveError extends Error {
   constructor(
     public readonly status: number,
     public readonly retryAfterMs: number | null,
@@ -34,20 +38,34 @@ export class GoogleDriveError extends Error {
     );
   }
 }
+export function isDriveStatus(error: unknown, ...statuses: number[]): error is GoogleDriveError {
+  return error instanceof GoogleDriveError && statuses.includes(error.status);
+}
+function driveEndpoint(url: string): URL {
+  const parsed = new URL(url);
+  if (
+    parsed.origin !== 'https://www.googleapis.com' ||
+    (!parsed.pathname.startsWith('/drive/v3/') && !parsed.pathname.startsWith('/upload/drive/v3/'))
+  )
+    throw new Error('Invalid Google Drive endpoint.');
+  return parsed;
+}
+function retryAfter(response: Response): number | null {
+  const raw = response.headers.get('retry-after');
+  if (raw === null) return null;
+  const seconds = Number(raw);
+  const retry = Number.isFinite(seconds)
+    ? seconds * 1000
+    : Math.max(0, Date.parse(raw) - Date.now());
+  return Number.isFinite(retry) ? retry : null;
+}
 export class DriveClient {
   constructor(
     private token: () => Promise<string>,
     readonly transport: GoogleFetch = fetch,
   ) {}
   async request(url: string, init: RequestInit = {}, signal?: AbortSignal): Promise<Response> {
-    const parsed = new URL(url);
-    if (
-      parsed.origin !== 'https://www.googleapis.com' ||
-      (!parsed.pathname.startsWith('/drive/v3/') &&
-        !parsed.pathname.startsWith('/upload/drive/v3/'))
-    ) {
-      throw new Error('Invalid Google Drive endpoint.');
-    }
+    const parsed = driveEndpoint(url);
     const token = await this.token();
     const response = await this.transport(parsed, {
       ...init,
@@ -63,18 +81,7 @@ export class DriveClient {
       throw new GoogleDriveError(0, null);
     });
     if (!response.ok && response.status !== 308) {
-      const raw = response.headers.get('retry-after');
-      const seconds = raw === null ? NaN : Number(raw);
-      const retry =
-        raw === null
-          ? null
-          : Number.isFinite(seconds)
-            ? seconds * 1000
-            : Math.max(0, Date.parse(raw) - Date.now());
-      throw new GoogleDriveError(
-        response.status,
-        retry !== null && Number.isFinite(retry) ? retry : null,
-      );
+      throw new GoogleDriveError(response.status, retryAfter(response));
     }
     return response;
   }
@@ -174,8 +181,7 @@ export async function validateGoogleRoot(
   // Google returns an opaque My Drive parent ID, not the 'root' alias.
   if (
     root.trashed ||
-    root.ownedByMe === false ||
-    root.driveId ||
+    !isOwnedMyDriveFile(root) ||
     root.mimeType !== 'application/vnd.google-apps.folder' ||
     root.parents?.length !== 1 ||
     marker?.mapleBackupRoot !== 1 ||

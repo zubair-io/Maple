@@ -3,57 +3,15 @@ import {
   DriveClient,
   DRIVE_API,
   logicalKeyHash,
-  GoogleDriveError,
+  isDriveStatus,
   validateGoogleRoot,
-  type DriveFile,
 } from './client.ts';
 import { publishGoogleObject, parseCheckpoint } from './upload.ts';
 import type { GoogleFetch } from './oauth.ts';
 import { verifiedGoogleObject } from './integrity.ts';
 
-export interface ObjectMarker {
-  mapleBackupObject: 1;
-  rootId: string;
-  key: string;
-  sha256: string;
-}
-export function objectMarker(file: DriveFile): ObjectMarker | null {
-  try {
-    const marker = JSON.parse(file.description ?? '{}') as ObjectMarker;
-    return marker.mapleBackupObject === 1 &&
-      typeof marker.rootId === 'string' &&
-      typeof marker.key === 'string' &&
-      /^[a-f0-9]{64}$/.test(marker.sha256)
-      ? marker
-      : null;
-  } catch {
-    return null;
-  }
-}
-export function backupObject(file: DriveFile, rootId: string): BackupObject {
-  const marker = objectMarker(file);
-  if (
-    !marker ||
-    marker.rootId !== rootId ||
-    file.trashed ||
-    file.mimeType === 'application/vnd.google-apps.shortcut' ||
-    file.parents?.length !== 1 ||
-    file.parents[0] !== rootId ||
-    !Number.isSafeInteger(Number(file.size)) ||
-    Number(file.size) < 0 ||
-    (file.sha256Checksum && file.sha256Checksum !== marker.sha256)
-  ) {
-    throw new Error(
-      'Google object moved outside the owned backup folder or failed integrity validation.',
-    );
-  }
-  return {
-    key: marker.key,
-    locator: file.id,
-    size: Number(file.size),
-    sha256: marker.sha256,
-  };
-}
+import { objectMarker, backupObject, assertObjectIdentity } from './object.ts';
+
 function validKey(key: string) {
   if (
     !key ||
@@ -96,21 +54,32 @@ export class GoogleDriveProvider implements BackupProvider {
   ): Promise<BackupObject | null> {
     validKey(key);
     await this.probe(signal);
-    if (locator) {
-      try {
-        const object = backupObject(await this.client.metadata(locator, signal), this.rootId);
-        if (object.key !== key) throw new Error('Backup object identity changed.');
-        return verifiedGoogleObject(
-          this,
-          object,
-          signal,
-          heartbeat ? () => heartbeat(object) : undefined,
-        );
-      } catch (error) {
-        if (error instanceof GoogleDriveError && error.status === 404) return null;
-        throw error;
-      }
+    const match = locator
+      ? await this.inspectLocator(key, locator, signal)
+      : await this.inspectIndex(key, signal);
+    if (!match) return null;
+    return verifiedGoogleObject(
+      this,
+      match,
+      signal,
+      heartbeat ? () => heartbeat(match) : undefined,
+    );
+  }
+  private async inspectLocator(
+    key: string,
+    locator: string,
+    signal?: AbortSignal,
+  ): Promise<BackupObject | null> {
+    try {
+      const object = backupObject(await this.client.metadata(locator, signal), this.rootId);
+      if (object.key !== key) throw new Error('Backup object identity changed.');
+      return object;
+    } catch (error) {
+      if (isDriveStatus(error, 404)) return null;
+      throw error;
     }
+  }
+  private async inspectIndex(key: string, signal?: AbortSignal): Promise<BackupObject | null> {
     const hash = logicalKeyHash(key);
     const matches: BackupObject[] = [];
     // 76 UTF-8 bytes total, below Drive's 124-byte public-property limit.
@@ -124,10 +93,7 @@ export class GoogleDriveProvider implements BackupProvider {
       if (matches.length > 1)
         throw new Error('Conflicting immutable backup objects require operator review.');
     }
-    const match = matches[0];
-    return match
-      ? verifiedGoogleObject(this, match, signal, heartbeat ? () => heartbeat(match) : undefined)
-      : null;
+    return matches[0] ?? null;
   }
   async publish(
     key: string,
@@ -151,12 +117,7 @@ export class GoogleDriveProvider implements BackupProvider {
   async download(object: BackupObject, signal?: AbortSignal): Promise<ReadableStream<Uint8Array>> {
     await this.probe(signal);
     const current = backupObject(await this.client.metadata(object.locator, signal), this.rootId);
-    if (
-      current.key !== object.key ||
-      current.sha256 !== object.sha256 ||
-      current.size !== object.size
-    )
-      throw new Error('Backup object identity changed.');
+    assertObjectIdentity(current, object, 'Backup object identity changed.');
     const response = await this.client.request(
       `${DRIVE_API}/files/${object.locator}?alt=media`,
       {},
@@ -169,47 +130,54 @@ export class GoogleDriveProvider implements BackupProvider {
     await this.probe(signal);
     try {
       const current = backupObject(await this.client.metadata(object.locator, signal), this.rootId);
-      if (
-        current.key !== object.key ||
-        current.sha256 !== object.sha256 ||
-        current.size !== object.size
-      )
-        throw new Error('Refusing removal of changed backup object.');
+      assertObjectIdentity(current, object, 'Refusing removal of changed backup object.');
       await this.client.request(
         `${DRIVE_API}/files/${object.locator}`,
         { method: 'DELETE' },
         signal,
       );
     } catch (error) {
-      if (!(error instanceof GoogleDriveError && error.status === 404)) throw error;
+      if (!isDriveStatus(error, 404)) throw error;
     }
   }
   async abort(checkpoint: UploadCheckpoint, signal?: AbortSignal) {
     const state = parseCheckpoint(checkpoint, this.rootId);
     await this.probe(signal);
-    if (state.session) {
-      try {
-        await this.client.request(state.session, { method: 'DELETE' }, signal);
-      } catch (error) {
-        if (!(error instanceof GoogleDriveError && [404, 410].includes(error.status))) throw error;
-      }
-    }
+    await this.cancelSession(state.session, signal);
     // Cancellation precedes cleanup: a final chunk racing cancellation can
     // still have committed the reserved ID. Refuse any changed/moved object.
+    await this.removeReservation(
+      { key: state.key, locator: state.fileId, sha256: state.sha256, size: state.size },
+      signal,
+    );
+    await this.confirmMissing(state.fileId, signal);
+  }
+  private async cancelSession(session: string | null, signal?: AbortSignal): Promise<void> {
+    if (!session) return;
     try {
-      const file = await this.client.metadata(state.fileId, signal);
-      const object = backupObject(file, this.rootId);
-      if (object.key !== state.key || object.sha256 !== state.sha256 || object.size !== state.size)
-        throw new Error('Refusing cleanup of a changed upload reservation.');
+      await this.client.request(session, { method: 'DELETE' }, signal);
+    } catch (error) {
+      if (!isDriveStatus(error, 404, 410)) throw error;
+    }
+  }
+  private async removeReservation(expected: BackupObject, signal?: AbortSignal): Promise<void> {
+    try {
+      const object = backupObject(
+        await this.client.metadata(expected.locator, signal),
+        this.rootId,
+      );
+      assertObjectIdentity(object, expected, 'Refusing cleanup of a changed upload reservation.');
       await this.remove(object, signal);
     } catch (error) {
-      if (!(error instanceof GoogleDriveError && error.status === 404)) throw error;
+      if (!isDriveStatus(error, 404)) throw error;
     }
+  }
+  private async confirmMissing(fileId: string, signal?: AbortSignal): Promise<void> {
     try {
-      await this.client.metadata(state.fileId, signal);
+      await this.client.metadata(fileId, signal);
       throw new Error('Google upload cleanup has not completed; retry purge.');
     } catch (error) {
-      if (!(error instanceof GoogleDriveError && error.status === 404)) throw error;
+      if (!isDriveStatus(error, 404)) throw error;
     }
   }
 }

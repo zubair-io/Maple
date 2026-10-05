@@ -5,7 +5,7 @@ import { entryPrefix } from './engine.ts';
 
 const ID = /^[a-f0-9-]{24,36}$/;
 /** Catalog bytes are untrusted even inside an owned root. Verify before parsing. */
-export async function readObjectJson(
+async function readObjectJson(
   provider: BackupProvider,
   object: BackupObject,
   signal?: AbortSignal,
@@ -38,91 +38,115 @@ function record(value: unknown): Record<string, unknown> {
     throw new Error('Invalid backup catalog');
   return value as Record<string, unknown>;
 }
-export function parsePurge(value: unknown): PurgeRecord {
-  const row = record(value);
-  if (
-    row.version !== 1 ||
-    typeof row.libraryId !== 'string' ||
-    !ID.test(row.libraryId) ||
-    typeof row.entryId !== 'string' ||
-    !ID.test(row.entryId) ||
-    typeof row.sequence !== 'number' ||
-    !Number.isSafeInteger(row.sequence) ||
-    row.sequence < 1 ||
-    typeof row.purgedAt !== 'string' ||
-    !Number.isFinite(Date.parse(row.purgedAt))
-  )
-    throw new Error('Invalid backup purge record');
-  return row as unknown as PurgeRecord;
+function stringValue(value: unknown): string {
+  if (typeof value !== 'string' || !value) throw new Error('Invalid backup catalog string');
+  return value;
 }
-export function parseManifest(value: unknown): BackupManifest {
+function catalogId(value: unknown): string {
+  const id = stringValue(value);
+  if (!ID.test(id)) throw new Error('Invalid backup catalog identity');
+  return id;
+}
+function sequenceValue(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1)
+    throw new Error('Invalid backup catalog sequence');
+  return value;
+}
+function timestampValue(value: unknown): string {
+  const timestamp = stringValue(value);
+  if (!Number.isFinite(Date.parse(timestamp))) throw new Error('Invalid backup catalog timestamp');
+  return timestamp;
+}
+function identity(row: Record<string, unknown>) {
+  if (row.version !== 1) throw new Error('Invalid backup catalog version');
+  return {
+    libraryId: catalogId(row.libraryId),
+    entryId: catalogId(row.entryId),
+    sequence: sequenceValue(row.sequence),
+  };
+}
+function parsePurge(value: unknown): PurgeRecord {
   const row = record(value);
-  if (
-    row.version !== 1 ||
-    typeof row.libraryId !== 'string' ||
-    !ID.test(row.libraryId) ||
-    typeof row.entryId !== 'string' ||
-    !ID.test(row.entryId) ||
-    typeof row.assetId !== 'string' ||
-    !ID.test(row.assetId) ||
-    typeof row.sequence !== 'number' ||
-    !Number.isSafeInteger(row.sequence) ||
-    row.sequence < 1 ||
-    !['active', 'trash'].includes(String(row.state)) ||
-    typeof row.hidden !== 'boolean' ||
-    typeof row.originalPath !== 'string' ||
-    typeof row.currentPath !== 'string' ||
-    !Array.isArray(row.files) ||
-    !row.files.length ||
-    row.files.length > 512 ||
-    (row.deletedAt !== null &&
-      (typeof row.deletedAt !== 'string' || !Number.isFinite(Date.parse(row.deletedAt))))
-  ) {
-    throw new Error('Invalid backup manifest');
-  }
-  relativeBackupPath(row.originalPath);
-  relativeBackupPath(row.currentPath);
+  return { version: 1, ...identity(row), purgedAt: timestampValue(row.purgedAt) };
+}
+/** Per-entry recovery fences must not re-download the whole purge inventory. */
+export async function readEntryPurge(
+  provider: BackupProvider,
+  entry: Pick<BackupManifest, 'libraryId' | 'entryId'>,
+  signal?: AbortSignal,
+): Promise<PurgeRecord | null> {
+  const key = `purges/${entry.entryId}.json`;
+  const object = await provider.inspect(key, signal);
+  if (!object) return null;
+  if (object.key !== key) throw new Error('Backup purge key mismatch');
+  const purge = parsePurge(await readObjectJson(provider, object, signal));
+  if (purge.libraryId !== entry.libraryId || purge.entryId !== entry.entryId)
+    throw new Error('Backup purge record identity mismatch');
+  return purge;
+}
+function parseFile(value: unknown, prefix: string): BackupManifest['files'][number] {
+  const file = record(value),
+    object = record(file.object);
+  const role = stringValue(file.role);
+  if (!['original', 'sidecar', 'companion'].includes(role))
+    throw new Error('Invalid backup file role');
+  const sha256 = stringValue(object.sha256);
+  if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error('Invalid backup file checksum');
+  const key = stringValue(object.key);
+  if (key !== `${prefix}blobs/${sha256}`)
+    throw new Error('Backup blob key does not match its checksum');
+  if (typeof object.size !== 'number' || !Number.isSafeInteger(object.size) || object.size < 0)
+    throw new Error('Invalid backup file size');
+  return {
+    path: relativeBackupPath(stringValue(file.path)),
+    role: role as BackupManifest['files'][number]['role'],
+    object: { key, locator: stringValue(object.locator), sha256, size: object.size },
+  };
+}
+function manifestFiles(value: unknown, prefix: string): BackupManifest['files'] {
+  if (!Array.isArray(value) || !value.length || value.length > 512)
+    throw new Error('Invalid backup manifest files');
+  const files = value.map((file) => parseFile(file, prefix));
   const names = new Set<string>();
-  for (const file of row.files) {
-    const f = record(file),
-      object = record(f.object);
-    if (
-      typeof f.path !== 'string' ||
-      !['original', 'sidecar', 'companion'].includes(String(f.role)) ||
-      typeof object.key !== 'string' ||
-      !object.key.startsWith(entryPrefix(row.libraryId, row.entryId) + 'blobs/') ||
-      typeof object.locator !== 'string' ||
-      !object.locator ||
-      typeof object.size !== 'number' ||
-      !Number.isSafeInteger(object.size) ||
-      object.size < 0 ||
-      typeof object.sha256 !== 'string' ||
-      !/^[a-f0-9]{64}$/.test(object.sha256)
-    ) {
-      throw new Error('Invalid backup file');
-    }
-    if (object.key !== `${entryPrefix(row.libraryId, row.entryId)}blobs/${object.sha256}`)
-      throw new Error('Backup blob key does not match its checksum');
-    relativeBackupPath(f.path);
-    const normalized = f.path.normalize('NFC').toLocaleLowerCase('en-US');
+  for (const file of files) {
+    const normalized = file.path.normalize('NFC').toLocaleLowerCase('en-US');
     if (names.has(normalized)) throw new Error('Backup manifest contains colliding paths');
     names.add(normalized);
   }
-  if (row.files.filter((f) => record(f).role === 'original').length !== 1)
-    throw new Error('Backup manifest must have one original');
-  if (record(row.files.find((f) => record(f).role === 'original')).path !== row.currentPath)
+  return files;
+}
+function validateManifestLifecycle(manifest: BackupManifest): void {
+  const originals = manifest.files.filter((file) => file.role === 'original');
+  if (originals.length !== 1) throw new Error('Backup manifest must have one original');
+  if (originals[0]!.path !== manifest.currentPath)
     throw new Error('Backup original does not match its catalog path');
   if (
-    (row.state === 'active' && row.deletedAt !== null) ||
-    (row.state === 'trash' && !row.currentPath.startsWith('.maple/trash/'))
+    (manifest.state === 'active' && manifest.deletedAt !== null) ||
+    (manifest.state === 'trash' && !manifest.currentPath.startsWith('.maple/trash/'))
   )
     throw new Error('Backup lifecycle metadata is inconsistent');
-  return row as unknown as BackupManifest;
 }
-export async function readPurges(
-  provider: BackupProvider,
-  signal?: AbortSignal,
-): Promise<PurgeRecord[]> {
+export function parseManifest(value: unknown): BackupManifest {
+  const row = record(value),
+    ids = identity(row);
+  if (row.state !== 'active' && row.state !== 'trash')
+    throw new Error('Invalid backup manifest state');
+  if (typeof row.hidden !== 'boolean') throw new Error('Invalid backup manifest visibility');
+  const manifest: BackupManifest = {
+    version: 1,
+    ...ids,
+    assetId: catalogId(row.assetId),
+    state: row.state,
+    hidden: row.hidden,
+    originalPath: relativeBackupPath(stringValue(row.originalPath)),
+    currentPath: relativeBackupPath(stringValue(row.currentPath)),
+    deletedAt: row.deletedAt === null ? null : timestampValue(row.deletedAt),
+    files: manifestFiles(row.files, entryPrefix(ids.libraryId, ids.entryId)),
+  };
+  validateManifestLifecycle(manifest);
+  return manifest;
+}
+async function readPurges(provider: BackupProvider, signal?: AbortSignal): Promise<PurgeRecord[]> {
   const result: PurgeRecord[] = [];
   for await (const object of provider.list('purges/', signal)) {
     if (result.length >= 100_000)

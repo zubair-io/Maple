@@ -12,7 +12,7 @@ import {
 import { BackupRepository } from './repository.ts';
 import { BackupEngine, entryPrefix } from './engine.ts';
 import { assetInventory } from './inventory.ts';
-import { TestProvider } from './test-provider.test-helpers.ts';
+import { createTestProvider } from './test-provider.test-helpers.ts';
 import { readRemoteCatalog, latestManifests } from './catalog.ts';
 import { prepareLifecycle, finishLocalLifecycle, preparePurge } from './lifecycle.ts';
 import { drainPurges } from './purge.ts';
@@ -45,7 +45,7 @@ async function setup(live: Awaited<ReturnType<typeof createLiveTestDatabase>>) {
   });
   await repo.updateDestination(created.id, { enabled: true });
   const destination = (await repo.destination(created.id))!;
-  const provider = new TestProvider();
+  const provider = createTestProvider();
   const engine = new BackupEngine(async () => provider, repo);
   return { assetId, libraryId, destination, repo, provider, engine };
 }
@@ -84,7 +84,7 @@ test('a disconnected target retries independently while healthy targets publish'
     path: null,
   });
   await repo.updateDestination(second.id, { enabled: true });
-  const offline = new TestProvider();
+  const offline = createTestProvider();
   offline.offline = true;
   const engine = new BackupEngine(async (d) => (d.id === second.id ? offline : provider), repo);
   expect(await engine.backupAsset(assetId)).toBe(false);

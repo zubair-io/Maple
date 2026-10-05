@@ -291,6 +291,16 @@ Shared filenames include the pipeline version but omit an edit token. Clients va
 
 And one cache deliberately rejects the proxy: the session decoded-image slot on `RenderActor` keys on the stripped adjustment model instead, because most slider moves don't change the decode at all and treating a sidecar write as a decode invalidation cost a full re-decode on every drag pause. Sidecar mtime survives there only as a cheap gate that decides whether the XMP is worth re-parsing.
 
+## Backup transfer state
+
+The durable backup records are described in [Cloud backup](cloud-backup.md). They contain deletion obligations and recovery ownership as well as reusable transfer state, so they must travel with the server database backup rather than be cleared with derivative caches.
+
+| Record                                            | Key                                                                                     | Reuse and invalidation                                                                                                                                                                                                  |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backup_objects` locator and resumable checkpoint | `(destination_id, key)`; blob keys include SHA-256, catalog keys include entry sequence | Reuse requires provider identity, root ancestry, size and checksum checks; upload continuation is fenced by destination generation and renewable entry lease. Purge retains recorded IDs until remote cleanup succeeds. |
+| `backup_entries` verified manifest                | Destination, asset and location ordinal                                                 | Indexed original, XMP, companion, visibility and relocation changes increment the sequence and rearm its stage. Failed transfers retain a durable retry; maintenance does not rehash unchanged libraries.               |
+| `.maple-recovery-<jobId>.json` journal            | Recovery job, destination account/root, selection and target directory device/inode     | Resume requires the same binding and exact verified bytes. Each publication checks permanent-purge intent; loss of the journal prevents the job from claiming existing files.                                           |
+
 ## Comparison with the previous version of this document
 
 Five things the old document stated that the code does not support:

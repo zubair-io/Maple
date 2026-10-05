@@ -20,6 +20,10 @@ import {
   DriveClient,
   validateGoogleRoot,
 } from '../cloud-backup/google/client.ts';
+import {
+  configuredGoogleClient,
+  type GoogleConfigPatch,
+} from '../cloud-backup/google/configuration.ts';
 
 export interface GoogleRouteDependencies {
   origin: () => Promise<string>;
@@ -79,6 +83,29 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
       rootId: destination.rootId,
     };
   };
+  const configure = async (id: string, body: GoogleConfigPatch) => {
+    const destination = await requireDestination(id);
+    const current = await loadConnection(id);
+    const { changed, config } = configuredGoogleClient(body, current.config);
+    if (changed) {
+      // Fence before saving: an old-generation request cannot publish in an
+      // await gap between the credential change and destination invalidation.
+      await deps.connectionChanged(id);
+      if (!(await saveConfig(id, config, current.epoch)))
+        throw new GoogleConnectionError('Configuration changed; reload and retry.');
+    }
+    if (body.rootId && body.rootId !== destination.rootId) {
+      if (!config.refreshToken)
+        throw new GoogleConnectionError(
+          'Connect Google Drive before attaching an existing backup folder.',
+        );
+      await validateGoogleRoot(
+        new DriveClient(() => googleAccessToken(id, deps.transport), deps.transport),
+        body.rootId,
+      );
+      await deps.attachRoot(id, body.rootId, config.accountId!, destination.generation);
+    }
+  };
   const owner = new Elysia({
     name: 'googleBackupOwner',
     prefix: '/api/cloud-backup/google',
@@ -92,54 +119,7 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
       '/:destinationId/config',
       async ({ params, body, set }) => {
         try {
-          const destination = await requireDestination(params.destinationId);
-          const current = await loadConnection(params.destinationId);
-          const clientId = body.clientId.trim();
-          if (clientId && !/^[A-Za-z0-9._-]+\.apps\.googleusercontent\.com$/.test(clientId))
-            throw new GoogleConnectionError('Enter a Google Web Application OAuth Client ID.');
-          const clientSecret =
-            body.clientSecret === null
-              ? ''
-              : body.clientSecret?.trim() || current.config.clientSecret;
-          const changed =
-            clientId !== current.config.clientId ||
-            clientSecret !== current.config.clientSecret ||
-            body.callbackMode !== current.config.callbackMode;
-          if (clientId && clientId !== current.config.clientId && !body.clientSecret?.trim())
-            throw new GoogleConnectionError('A new Client ID requires its matching Client Secret.');
-          const config = {
-            ...current.config,
-            clientId,
-            clientSecret,
-            callbackMode: body.callbackMode,
-            ...(changed ? { refreshToken: null } : {}),
-          };
-          if (changed) {
-            // Fence the engine before credentials can change: no await gap may
-            // let a completed request publish under the old generation.
-            await deps.connectionChanged(params.destinationId);
-            if (!(await saveConfig(params.destinationId, config, current.epoch)))
-              throw new GoogleConnectionError('Configuration changed; reload and retry.');
-          }
-          if (body.rootId && body.rootId !== destination.rootId) {
-            if (!config.refreshToken)
-              throw new GoogleConnectionError(
-                'Connect Google Drive before attaching an existing backup folder.',
-              );
-            await validateGoogleRoot(
-              new DriveClient(
-                () => googleAccessToken(params.destinationId, deps.transport),
-                deps.transport,
-              ),
-              body.rootId,
-            );
-            await deps.attachRoot(
-              params.destinationId,
-              body.rootId,
-              config.accountId!,
-              destination.generation,
-            );
-          }
+          await configure(params.destinationId, body);
           return await projection(params.destinationId);
         } catch (error) {
           set.status = 400;

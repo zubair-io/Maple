@@ -7,7 +7,7 @@ import {
 } from '../run-stage.ts';
 import { backupEngine } from '../../cloud-backup/runtime.ts';
 
-export async function cloudBackupHandler(image: ImageDoc, ctx: StageContext): Promise<StageResult> {
+async function cloudBackupHandler(image: ImageDoc, ctx: StageContext): Promise<StageResult> {
   const success = await backupEngine.backupAsset(image._id.toHexString(), ctx.signal);
   return success
     ? { wrote: true }

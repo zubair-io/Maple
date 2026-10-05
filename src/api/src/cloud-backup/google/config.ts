@@ -1,6 +1,6 @@
-export class GoogleConnectionError extends Error {}
-
 import { isIP } from 'node:net';
+
+export class GoogleConnectionError extends Error {}
 
 export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 export const GOOGLE_CALLBACK_PATH = '/api/cloud-backup/google/callback';

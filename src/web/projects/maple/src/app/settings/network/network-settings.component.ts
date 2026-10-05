@@ -13,7 +13,7 @@
 // calls — GET/PUT /api/network/config — doesn't warrant a dedicated
 // service, unlike Observability's heavier IndexedDB-cached SDK wiring).
 
-import { ChangeDetectionStrategy, Component, OnInit, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import {
   type ApnsConfigResponse,
@@ -28,14 +28,9 @@ import {
 import { ManagedHttpsComponent } from './managed-https.component';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
+import { seedSettingsForm, SettingsSaveStatus } from '../settings-form';
 
 type LoadState = { kind: 'loading' } | { kind: 'loaded' } | { kind: 'error'; message: string };
-
-type SaveState =
-  | { kind: 'idle' }
-  | { kind: 'saving' }
-  | { kind: 'saved' }
-  | { kind: 'error'; message: string };
 
 @Component({
   selector: 'maple-network-settings',
@@ -57,39 +52,26 @@ export class NetworkSettingsComponent implements OnInit {
 
   protected readonly config = signal<NetworkConfigResponse | null>(null);
   protected readonly loadState = signal<LoadState>({ kind: 'loading' });
-  protected readonly saveState = signal<SaveState>({ kind: 'idle' });
+  private readonly networkSave = new SettingsSaveStatus();
+  protected readonly saveState = this.networkSave.state;
 
   // ── APNs push-to-signal (#1025) — separate load/save from the LAN
   // address form above: different API resource, different save action. ──
   protected readonly apnsConfig = signal<ApnsConfigResponse | null>(null);
   protected readonly apnsLoadState = signal<LoadState>({ kind: 'loading' });
-  protected readonly apnsSaveState = signal<SaveState>({ kind: 'idle' });
+  private readonly apnsSave = new SettingsSaveStatus();
+  protected readonly apnsSaveState = this.apnsSave.state;
   protected readonly fApnsEnabled = signal(false);
-  private apnsFormSeeded = false;
 
   // ── Editable form ────────────────────────────────────────────────────────
   protected readonly fEnabled = signal(true);
   protected readonly fIpOverride = signal('');
   protected readonly fPortOverride = signal('');
   protected readonly fPublicOrigin = signal('');
-  /** Seed the form from the server config exactly once (first load); a
-   * later refresh must not clobber an in-progress edit. */
-  private formSeeded = false;
-
-  constructor() {
-    effect(() => {
-      const cfg = this.config();
-      if (!cfg || this.formSeeded) return;
-      this.formSeeded = true;
-      this.seedForm(cfg);
-    });
-    effect(() => {
-      const cfg = this.apnsConfig();
-      if (!cfg || this.apnsFormSeeded) return;
-      this.apnsFormSeeded = true;
-      this.fApnsEnabled.set(cfg.enabled);
-    });
-  }
+  private readonly applyNetworkForm = seedSettingsForm(this.config, (cfg) => this.seedForm(cfg));
+  private readonly applyApnsForm = seedSettingsForm(this.apnsConfig, (cfg) =>
+    this.fApnsEnabled.set(cfg.enabled),
+  );
 
   ngOnInit(): void {
     void this.load();
@@ -127,10 +109,7 @@ export class NetworkSettingsComponent implements OnInit {
     } else {
       const parsed = Number(portRaw);
       if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
-        this.saveState.set({
-          kind: 'error',
-          message: 'Port must be an integer between 1 and 65535.',
-        });
+        this.networkSave.fail('Port must be an integer between 1 and 65535.');
         return;
       }
       portOverride = parsed;
@@ -143,19 +122,14 @@ export class NetworkSettingsComponent implements OnInit {
       local_port_override: portOverride,
     };
 
-    this.saveState.set({ kind: 'saving' });
+    this.networkSave.start();
     try {
       const fresh = await firstValueFrom(this.api.saveNetworkConfig(patch));
       this.config.set(fresh);
-      this.formSeeded = false;
-      this.seedForm(fresh);
-      this.formSeeded = true;
-      this.saveState.set({ kind: 'saved' });
-      setTimeout(() => {
-        this.saveState.update((s) => (s.kind === 'saved' ? { kind: 'idle' } : s));
-      }, 2000);
+      this.applyNetworkForm(fresh);
+      this.networkSave.succeed();
     } catch (err) {
-      this.saveState.set({ kind: 'error', message: errorMessage(err) });
+      this.networkSave.fail(errorMessage(err));
     }
   }
 
@@ -182,7 +156,7 @@ export class NetworkSettingsComponent implements OnInit {
   }
 
   protected async saveApns(revertTo?: boolean): Promise<void> {
-    this.apnsSaveState.set({ kind: 'saving' });
+    this.apnsSave.start();
     try {
       const fresh = await firstValueFrom(this.api.saveApnsConfig({ enabled: this.fApnsEnabled() }));
       this.apnsConfig.set(fresh);
@@ -191,14 +165,11 @@ export class NetworkSettingsComponent implements OnInit {
       // future server-side normalization/validation must not leave the
       // checkbox silently drifted from the real saved value until a
       // full reload.
-      this.fApnsEnabled.set(fresh.enabled);
-      this.apnsSaveState.set({ kind: 'saved' });
-      setTimeout(() => {
-        this.apnsSaveState.update((s) => (s.kind === 'saved' ? { kind: 'idle' } : s));
-      }, 2000);
+      this.applyApnsForm(fresh);
+      this.apnsSave.succeed();
     } catch (err) {
       if (revertTo !== undefined) this.fApnsEnabled.set(revertTo);
-      this.apnsSaveState.set({ kind: 'error', message: errorMessage(err) });
+      this.apnsSave.fail(errorMessage(err));
     }
   }
 

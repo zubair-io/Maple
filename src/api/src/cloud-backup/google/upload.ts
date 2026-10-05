@@ -1,5 +1,5 @@
 import type { BackupObject, PublishSource, UploadCheckpoint } from '../provider.ts';
-import { GoogleDriveError, logicalKeyHash } from './client.ts';
+import { isDriveStatus, logicalKeyHash } from './client.ts';
 import type { GoogleDriveProvider } from './provider.ts';
 import { verifiedGoogleObject } from './integrity.ts';
 
@@ -73,18 +73,31 @@ function confirmedOffset(response: Response, size: number): number {
     throw new Error('Invalid Google upload progress.');
   return next;
 }
-async function verify(
-  provider: GoogleDriveProvider,
-  state: GoogleCheckpoint,
-  signal?: AbortSignal,
-  heartbeat?: () => Promise<void>,
-): Promise<BackupObject> {
+interface UploadOptions {
+  signal?: AbortSignal;
+  checkpoint?: UploadCheckpoint | null;
+  saveCheckpoint: (checkpoint: UploadCheckpoint) => Promise<void>;
+}
+interface UploadContext {
+  provider: GoogleDriveProvider;
+  key: string;
+  source: PublishSource;
+  options: UploadOptions;
+}
+const save = (ctx: UploadContext, state: GoogleCheckpoint) =>
+  ctx.options.saveCheckpoint(envelope(state));
+async function verify(ctx: UploadContext, state: GoogleCheckpoint): Promise<BackupObject> {
   return verifiedGoogleObject(
-    provider,
+    ctx.provider,
     { key: state.key, locator: state.fileId, size: state.size, sha256: state.sha256 },
-    signal,
-    heartbeat,
+    ctx.options.signal,
+    () => save(ctx, state),
   );
+}
+function contentType(source: PublishSource): string {
+  const type = source.contentType ?? 'application/octet-stream';
+  if (!/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(type)) throw new Error('Invalid backup content type.');
+  return type;
 }
 function displayName(key: string, source: PublishSource): string {
   if (!source.name) return key.replace(/\//g, '__');
@@ -95,19 +108,143 @@ function displayName(key: string, source: PublishSource): string {
     : `${name}__${source.sha256.slice(0, 12)}`;
 }
 
+function savedCheckpoint(ctx: UploadContext): GoogleCheckpoint | null {
+  if (!ctx.options.checkpoint) return null;
+  const state = parseCheckpoint(ctx.options.checkpoint, ctx.provider.rootId);
+  if (state.key !== ctx.key || state.sha256 !== ctx.source.sha256 || state.size !== ctx.source.size)
+    throw new Error('Upload checkpoint content changed.');
+  return state;
+}
+async function startSession(
+  ctx: UploadContext,
+  state: GoogleCheckpoint,
+): Promise<GoogleCheckpoint> {
+  const type = contentType(ctx.source);
+  const response = await ctx.provider.client.request(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Upload-Content-Length': String(ctx.source.size),
+        'X-Upload-Content-Type': type,
+      },
+      body: JSON.stringify({
+        id: state.fileId,
+        name: displayName(ctx.key, ctx.source),
+        mimeType: type,
+        parents: [ctx.provider.rootId],
+        properties: { mapleKeyHash: logicalKeyHash(ctx.key) },
+        description: JSON.stringify({
+          mapleBackupObject: 1,
+          rootId: ctx.provider.rootId,
+          key: ctx.key,
+          sha256: ctx.source.sha256,
+        }),
+      }),
+    },
+    ctx.options.signal,
+  );
+  const session = response.headers.get('location');
+  if (!session) throw new Error('Google returned no resumable upload URL.');
+  const pending = { ...state, session };
+  parseCheckpoint(envelope(pending), ctx.provider.rootId);
+  await save(ctx, pending);
+  return pending;
+}
+interface Progress {
+  state: GoogleCheckpoint;
+  next: number;
+  completed: BackupObject | null;
+}
+async function reconcileExpired(ctx: UploadContext, state: GoogleCheckpoint): Promise<Progress> {
+  try {
+    return { state, next: 0, completed: await verify(ctx, state) };
+  } catch (error) {
+    if (!isDriveStatus(error, 404)) throw error;
+    return { state: { ...state, session: null }, next: 0, completed: null };
+  }
+}
+async function probeSession(ctx: UploadContext, state: GoogleCheckpoint): Promise<Progress> {
+  if (!state.session) return { state, next: 0, completed: null };
+  try {
+    const response = await ctx.provider.client.request(
+      state.session,
+      {
+        method: 'PUT',
+        headers: { 'Content-Length': '0', 'Content-Range': `bytes */${ctx.source.size}` },
+      },
+      ctx.options.signal,
+    );
+    if (response.status !== 308) return { state, next: 0, completed: await verify(ctx, state) };
+    return { state, next: confirmedOffset(response, ctx.source.size), completed: null };
+  } catch (error) {
+    if (!isDriveStatus(error, 404, 410)) throw error;
+    return reconcileExpired(ctx, state);
+  }
+}
+async function createSession(ctx: UploadContext, state: GoogleCheckpoint): Promise<Progress> {
+  try {
+    return { state: await startSession(ctx, state), next: 0, completed: null };
+  } catch (error) {
+    if (!isDriveStatus(error, 409)) throw error;
+    return { state, next: 0, completed: await verify(ctx, state) };
+  }
+}
+async function sendChunk(
+  ctx: UploadContext,
+  state: GoogleCheckpoint,
+  next: number,
+): Promise<Response> {
+  ctx.options.signal?.throwIfAborted();
+  await save(ctx, state);
+  // Each chunk probes containment; checkpoint writes fence the current lease.
+  await ctx.provider.probe(ctx.options.signal);
+  const length = Math.min(CHUNK, ctx.source.size - next);
+  const response = await ctx.provider.client.request(
+    state.session!,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': contentType(ctx.source),
+        'Content-Length': String(length),
+        // Empty files use the single-request PUT form. bytes */0 is reserved
+        // for a session-status probe, not a completed empty media upload.
+        // Google's official google-api-python-client omits this header too.
+        ...(length > 0
+          ? { 'Content-Range': `bytes ${next}-${next + length - 1}/${ctx.source.size}` }
+          : {}),
+      },
+      body: await chunk(ctx.source, next, length),
+    },
+    ctx.options.signal,
+  );
+  await save(ctx, state);
+  return response;
+}
+async function uploadChunks(
+  ctx: UploadContext,
+  state: GoogleCheckpoint,
+  offset: number,
+): Promise<BackupObject> {
+  let next = offset;
+  do {
+    const response = await sendChunk(ctx, state, next);
+    if (response.status !== 308) return verify(ctx, state);
+    const confirmed = confirmedOffset(response, ctx.source.size);
+    if (confirmed <= next) throw new Error('Google made no resumable upload progress; retry.');
+    next = confirmed;
+  } while (next < ctx.source.size);
+  return verify(ctx, state);
+}
 export async function publishGoogleObject(
   provider: GoogleDriveProvider,
   key: string,
   source: PublishSource,
-  options: {
-    signal?: AbortSignal;
-    checkpoint?: UploadCheckpoint | null;
-    saveCheckpoint: (checkpoint: UploadCheckpoint) => Promise<void>;
-  },
+  options: UploadOptions,
 ): Promise<BackupObject> {
-  const saved = options.checkpoint ? parseCheckpoint(options.checkpoint, provider.rootId) : null;
-  if (saved && (saved.key !== key || saved.sha256 !== source.sha256 || saved.size !== source.size))
-    throw new Error('Upload checkpoint content changed.');
+  const ctx = { provider, key, source, options };
+  const saved = savedCheckpoint(ctx);
   const existing = await provider.inspect(key, options.signal, saved?.fileId);
   if (existing) {
     if (existing.sha256 !== source.sha256 || existing.size !== source.size)
@@ -122,112 +259,11 @@ export async function publishGoogleObject(
     size: source.size,
     session: null,
   };
-  await options.saveCheckpoint(envelope(initial));
-  const contentType = source.contentType ?? 'application/octet-stream';
-  if (!/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(contentType))
-    throw new Error('Invalid backup content type.');
-  const startSession = async (): Promise<GoogleCheckpoint> => {
-    const response = await provider.client.request(
-      'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Upload-Content-Length': String(source.size),
-          'X-Upload-Content-Type': contentType,
-        },
-        body: JSON.stringify({
-          id: initial.fileId,
-          name: displayName(key, source),
-          mimeType: contentType,
-          parents: [provider.rootId],
-          properties: { mapleKeyHash: logicalKeyHash(key) },
-          description: JSON.stringify({
-            mapleBackupObject: 1,
-            rootId: provider.rootId,
-            key,
-            sha256: source.sha256,
-          }),
-        }),
-      },
-      options.signal,
-    );
-    const session = response.headers.get('location');
-    if (!session) throw new Error('Google returned no resumable upload URL.');
-    const state = { ...initial, session };
-    parseCheckpoint(envelope(state), provider.rootId);
-    await options.saveCheckpoint(envelope(state));
-    return state;
-  };
-  let state = initial;
-  let next = 0;
-  if (state.session) {
-    try {
-      const response = await provider.client.request(
-        state.session,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Length': '0',
-            'Content-Range': `bytes */${source.size}`,
-          },
-        },
-        options.signal,
-      );
-      if (response.status !== 308)
-        return verify(provider, state, options.signal, () =>
-          options.saveCheckpoint(envelope(state)),
-        );
-      next = confirmedOffset(response, source.size);
-    } catch (error) {
-      if (!(error instanceof GoogleDriveError && [404, 410].includes(error.status))) throw error;
-      try {
-        return await verify(provider, state, options.signal, () =>
-          options.saveCheckpoint(envelope(state)),
-        );
-      } catch (missing) {
-        if (!(missing instanceof GoogleDriveError && missing.status === 404)) throw missing;
-      }
-      state = { ...state, session: null };
-    }
-  }
-  if (!state.session) {
-    try {
-      state = await startSession();
-    } catch (error) {
-      if (error instanceof GoogleDriveError && error.status === 409)
-        return verify(provider, state, options.signal, () =>
-          options.saveCheckpoint(envelope(state)),
-        );
-      throw error;
-    }
-  }
-  do {
-    options.signal?.throwIfAborted();
-    await options.saveCheckpoint(envelope(state));
-    // Recheck containment on every chunk; moved roots stop ongoing work.
-    await provider.probe(options.signal);
-    const length = Math.min(CHUNK, source.size - next);
-    const response = await provider.client.request(
-      state.session!,
-      {
-        method: 'PUT',
-        headers: {
-          'Content-Type': contentType,
-          'Content-Length': String(length),
-          'Content-Range':
-            length === 0 ? 'bytes */0' : `bytes ${next}-${next + length - 1}/${source.size}`,
-        },
-        body: await chunk(source, next, length),
-      },
-      options.signal,
-    );
-    await options.saveCheckpoint(envelope(state));
-    if (response.status !== 308)
-      return verify(provider, state, options.signal, () => options.saveCheckpoint(envelope(state)));
-    const confirmed = confirmedOffset(response, source.size);
-    if (confirmed <= next) throw new Error('Google made no resumable upload progress; retry.');
-    next = confirmed;
-  } while (next < source.size);
-  return verify(provider, state, options.signal, () => options.saveCheckpoint(envelope(state)));
+  await save(ctx, initial);
+  contentType(source);
+  const probed = await probeSession(ctx, initial);
+  if (probed.completed) return probed.completed;
+  const ready = probed.state.session ? probed : await createSession(ctx, probed.state);
+  if (ready.completed) return ready.completed;
+  return uploadChunks(ctx, ready.state, ready.next);
 }

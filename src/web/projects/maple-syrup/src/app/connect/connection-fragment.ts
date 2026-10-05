@@ -7,6 +7,61 @@ export interface ConnectionFragment {
   error?: string;
 }
 let captured: ConnectionFragment | null = null;
+function decodeConnectionFragment(fragment: string): Record<string, unknown> | null {
+  if (!fragment || fragment.length > 16384 || !/^[A-Za-z0-9_-]+$/.test(fragment)) return null;
+  const bytes = Uint8Array.from(atob(fragment.replace(/-/g, '+').replace(/_/g, '/')), (c) =>
+    c.charCodeAt(0),
+  );
+  const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+function fragmentTicket(body: Record<string, unknown>): string | null {
+  const ticket = body['ticket'];
+  return typeof ticket === 'string' &&
+    ticket.length <= 4096 &&
+    /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(ticket)
+    ? ticket
+    : null;
+}
+function validReturnCode(code: unknown): code is string {
+  return typeof code === 'string' && code.length <= 4096 && !/[\x00-\x20\x7f]/.test(code);
+}
+function validReturnError(error: unknown): error is string {
+  return typeof error === 'string' && /^[a-z_]{1,64}$/.test(error);
+}
+function returnFragment(body: Record<string, unknown>, ticket: string): ConnectionFragment | null {
+  const code = body['code'];
+  const error = body['error'];
+  if (Boolean(code) === Boolean(error)) return null;
+  if (code && !validReturnCode(code)) return null;
+  if (error && !validReturnError(error)) return null;
+  return { ticket, ...(typeof code === 'string' ? { code } : { error: error as string }) };
+}
+function authorizationFragment(
+  body: Record<string, unknown>,
+  ticket: string,
+): ConnectionFragment | null {
+  const authorizationUrl = body['authorizationUrl'];
+  return typeof authorizationUrl === 'string' && authorizationUrl.length <= 8192
+    ? { ticket, authorizationUrl }
+    : null;
+}
+function parseConnectionFragment(fragment: string, pathname: string): ConnectionFragment | null {
+  try {
+    const body = decodeConnectionFragment(fragment);
+    if (!body) return null;
+    const ticket = fragmentTicket(body);
+    if (!ticket) return null;
+    return pathname.endsWith('/return')
+      ? returnFragment(body, ticket)
+      : authorizationFragment(body, ticket);
+  } catch {
+    // Invalid fragments are discarded, including their history entry.
+    return null;
+  }
+}
 export function captureConnectionFragment(
   location: Pick<Location, 'pathname' | 'hash' | 'search'>,
   history: Pick<History, 'replaceState'>,
@@ -16,43 +71,7 @@ export function captureConnectionFragment(
   const fragment = location.hash.slice(1);
   history.replaceState(null, '', `${location.pathname}?ngsw-bypass=true`);
   captured = null;
-  try {
-    if (!fragment || fragment.length > 16384 || !/^[A-Za-z0-9_-]+$/.test(fragment)) return;
-    const bytes = Uint8Array.from(atob(fragment.replace(/-/g, '+').replace(/_/g, '/')), (c) =>
-      c.charCodeAt(0),
-    );
-    const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return;
-    const body = value as Record<string, unknown>;
-    if (
-      typeof body['ticket'] !== 'string' ||
-      body['ticket'].length > 4096 ||
-      !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(body['ticket'])
-    )
-      return;
-    if (location.pathname.endsWith('/return')) {
-      const code = body['code'];
-      const error = body['error'];
-      if (
-        Boolean(code) === Boolean(error) ||
-        (code &&
-          (typeof code !== 'string' || code.length > 4096 || /[\x00-\x20\x7f]/.test(code))) ||
-        (error && (typeof error !== 'string' || !/^[a-z_]{1,64}$/.test(error)))
-      )
-        return;
-      captured = {
-        ticket: body['ticket'],
-        ...(typeof code === 'string' ? { code } : { error: error as string }),
-      };
-    } else if (
-      typeof body['authorizationUrl'] === 'string' &&
-      body['authorizationUrl'].length <= 8192
-    ) {
-      captured = { ticket: body['ticket'], authorizationUrl: body['authorizationUrl'] };
-    }
-  } catch {
-    /* Invalid fragments are discarded, including their history entry. */
-  }
+  captured = parseConnectionFragment(fragment, location.pathname);
 }
 export function takeConnectionFragment(): ConnectionFragment | null {
   const fragment = captured;

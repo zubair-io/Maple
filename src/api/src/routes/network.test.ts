@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { signAccessToken } from '../auth/tokens.ts';
 import { networkPublicRoutes, networkSettingsRoutes } from './network.ts';
-import { saveNetworkConfig } from '../network/network-config.repo.ts';
+import { loadNetworkConfig, saveNetworkConfig } from '../network/network-config.repo.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
@@ -32,7 +32,12 @@ describe('/api/network/*', () => {
     previousSecret = process.env.MAPLE_JWT_SECRET;
     process.env.MAPLE_JWT_SECRET = 'network-owner-tests-32-character-secret';
     token = await signAccessToken(
-      { sub: '111111111111111111111111', email: null, role: 'owner', file_access: true },
+      {
+        sub: '111111111111111111111111',
+        email: null,
+        role: 'owner',
+        file_access: true,
+      },
       process.env.MAPLE_JWT_SECRET,
     );
     live = await createLiveTestDatabase();
@@ -58,7 +63,10 @@ describe('/api/network/*', () => {
     return settingsApp().handle(
       new Request('http://localhost/api/network/config', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify(body),
       }),
     );
@@ -72,7 +80,10 @@ describe('/api/network/*', () => {
   });
 
   it('reflects a saved local_ip_override', async () => {
-    await saveNetworkConfig({ local_ip_override: '10.0.0.5', local_port_override: 4000 });
+    await saveNetworkConfig({
+      local_ip_override: '10.0.0.5',
+      local_port_override: 4000,
+    });
     const res = await getLocalAddress();
     const body = (await res.json()) as {
       available: boolean;
@@ -80,7 +91,12 @@ describe('/api/network/*', () => {
       port?: number;
       scheme?: string;
     };
-    expect(body).toEqual({ available: true, ip: '10.0.0.5', port: 4000, scheme: 'http' });
+    expect(body).toEqual({
+      available: true,
+      ip: '10.0.0.5',
+      port: 4000,
+      scheme: 'http',
+    });
   });
 
   it('reports available: false when disabled', async () => {
@@ -103,13 +119,47 @@ describe('/api/network/*', () => {
   it('PUT /api/network/config round-trips an override and null clears it', async () => {
     const set = await putConfig({ local_ip_override: '192.168.1.10' });
     expect(set.status).toBe(200);
-    const setBody = (await set.json()) as { local_ip: string; source: { local_ip: string } };
+    const setBody = (await set.json()) as {
+      local_ip: string;
+      source: { local_ip: string };
+    };
     expect(setBody.local_ip).toBe('192.168.1.10');
     expect(setBody.source.local_ip).toBe('db_override');
 
     const cleared = await putConfig({ local_ip_override: null });
     expect(cleared.status).toBe(200);
-    const clearedBody = (await cleared.json()) as { source: { local_ip: string } };
+    const clearedBody = (await cleared.json()) as {
+      source: { local_ip: string };
+    };
     expect(clearedBody.source.local_ip).not.toBe('db_override');
+  });
+
+  it('canonicalizes the public origin, preserves it in partial patches and clears empty input', async () => {
+    const set = await putConfig({
+      public_origin: ' https://photos.example.com:443/ ',
+    });
+    expect(set.status).toBe(200);
+    expect((await set.json()).public_origin).toBe('https://photos.example.com');
+    const partial = await putConfig({ local_port_override: 8080 });
+    expect((await partial.json()).public_origin).toBe('https://photos.example.com');
+    const clear = await putConfig({ public_origin: '' });
+    expect(clear.status).toBe(200);
+    expect((await clear.json()).public_origin).toBeNull();
+  });
+
+  it('rejects an invalid origin before persisting other supplied settings', async () => {
+    await saveNetworkConfig({
+      public_origin: 'https://photos.example.com',
+      enabled: true,
+    });
+    const rejected = await putConfig({
+      public_origin: 'http://photos.example.com',
+      enabled: false,
+    });
+    expect(rejected.status).toBe(400);
+    expect((await rejected.json()).error).toContain('Invalid public_origin');
+    const stored = await loadNetworkConfig();
+    expect(stored?.public_origin).toBe('https://photos.example.com');
+    expect(stored?.enabled).toBe(true);
   });
 });
