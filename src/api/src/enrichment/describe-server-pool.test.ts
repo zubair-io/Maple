@@ -212,7 +212,12 @@ describe('DescribeServerPool — circuit breaker', () => {
   });
 
   it('waits out the cool-down and probes when every server is tripped', async () => {
-    const pool = breakerPool([{ url: 'http://a:11434', concurrency: 2 }], 40);
+    let now = 0;
+    const pool = new DescribeServerPool(
+      [{ url: 'http://a:11434', concurrency: 2 }],
+      (url) => fakeProvider(url),
+      { failureThreshold: 2, openDurationMs: 40, now: () => now },
+    );
     const failing = () =>
       pool
         .run(async (_p, server) => {
@@ -225,14 +230,22 @@ describe('DescribeServerPool — circuit breaker', () => {
     // The only server is open. Rather than failing the call (and spending
     // the asset's attempt on a box that is reloading), the pool holds it
     // until the cool-down elapses and runs it as the probe.
-    const started = Date.now();
-    expect(await pool.run(async (_p, server) => server.url)).toBe('http://a:11434');
-    expect(Date.now() - started).toBeGreaterThanOrEqual(35);
+    let probes = 0;
+    const pending = pool.run(async (_p, server) => {
+      probes += 1;
+      return server.url;
+    });
+    // Give the real pool timer an opportunity to wake while the injected
+    // breaker clock remains one millisecond short of its actual deadline.
+    now = 39;
+    await Bun.sleep(45);
+    expect(probes).toBe(0);
+    now = 40;
+    expect(await pending).toBe('http://a:11434');
+    expect(probes).toBe(1);
 
-    // The successful probe closed the breaker: the next call is immediate.
-    const again = Date.now();
+    // Success closed the breaker: no further clock advancement is needed.
     expect(await pool.run(async (_p, server) => server.url)).toBe('http://a:11434');
-    expect(Date.now() - again).toBeLessThan(35);
   });
 
   it('admits a single probe while half-open, then reopens fully on success', async () => {
