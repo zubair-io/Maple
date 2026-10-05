@@ -677,3 +677,9 @@ The browser gate mounts the shipping Profile section and image canvas with real
 OPFS originals, sidecars, and WASM worker. It checks accessible status copy,
 selected Neutral, durable reopen, and image changes. It is separate from the
 fixture-independent workflow and GPU pixel corpus gates.
+
+The Apple completed-fit scalar-failure test skips when its default
+`test_0006.DNG` fixture is absent. As with the existing visual harness, an explicit
+`MAPLE_VISUAL_FIXTURE_ROOT` selects the fixture directory and fails if that RAW is
+missing. A declared fixture skip is not physical qualification; the provisioned
+run must execute the real decode, eviction, and missing-source failure checks.
