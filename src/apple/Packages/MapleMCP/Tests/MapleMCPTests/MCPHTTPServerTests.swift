@@ -7,6 +7,26 @@ import XCTest
 final class MCPHTTPServerTests: XCTestCase {
   private let token = "transport-test-token"
 
+  func testSetupPromptIncludesActualConnectionAndClientInstructions() throws {
+    let url = try XCTUnwrap(URL(string: "http://127.0.0.1:49158/mcp"))
+    let prompt = try MCPClientSetup.prompt(url: url, token: token)
+    XCTAssertTrue(prompt.contains("Server URL: \(url.absoluteString)"))
+    XCTAssertTrue(prompt.contains("Authorization header: Bearer \(token)"))
+    XCTAssertTrue(prompt.contains("[mcp_servers.maple]"))
+    XCTAssertTrue(prompt.contains("~/.codex/config.toml"))
+    XCTAssertTrue(prompt.contains("~/.cursor/mcp.json"))
+    let cursorSection = try XCTUnwrap(prompt.components(separatedBy: "~/.cursor/mcp.json:\n").last)
+      .components(separatedBy: "\n\nFor Claude Desktop")[0]
+    let cursor = try JSONValue.decode(Data(cursorSection.utf8))
+    XCTAssertEqual(cursor["mcpServers"]?["maple"]?["url"], .string(url.absoluteString))
+    XCTAssertEqual(
+      cursor["mcpServers"]?["maple"]?["headers"]?["Authorization"], .string("Bearer \(token)"))
+    XCTAssertTrue(prompt.contains(try XCTUnwrap(MCPClientSetup.claudeExtensionURL).path))
+    XCTAssertTrue(prompt.contains("cloud connectors cannot reach localhost"))
+    XCTAssertTrue(prompt.contains("Preserve other servers and settings"))
+    XCTAssertTrue(prompt.contains("list Maple's tools"))
+  }
+
   private func withServer(_ body: (MCPHTTPServer, URL) async throws -> Void) async throws {
     let server = MCPHTTPServer { request in
       AgentResponse(

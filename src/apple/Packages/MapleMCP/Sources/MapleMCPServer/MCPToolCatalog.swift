@@ -21,7 +21,7 @@ public enum MCPToolCatalog {
   ]
 
   public static var tools: [JSONValue] {
-    developTools + browseTools
+    developTools + browseTools + exportTools
   }
 
   public static let developTools: [JSONValue] = [

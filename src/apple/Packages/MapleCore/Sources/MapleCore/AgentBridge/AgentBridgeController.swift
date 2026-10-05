@@ -34,25 +34,9 @@ public final class AgentBridgeController {
       return (1024...65535).contains(value) ? value : Int(MCPHTTPServer.defaultPort)
     }
 
-    public static var claudeExtensionURL: URL? { MCPClientSetup.claudeExtensionURL }
-
-    public func codexConfiguration() -> String? {
+    public func setupPrompt() throws -> String? {
       guard let httpURL, let authorizationToken else { return nil }
-      return MCPClientSetup.codex(url: httpURL, token: authorizationToken)
-    }
-
-    public func cursorConfiguration() throws -> String? {
-      guard let httpURL, let authorizationToken else { return nil }
-      return try MCPClientSetup.cursor(url: httpURL, token: authorizationToken)
-    }
-
-    public func updateHTTPPort(_ port: Int) {
-      guard (1024...65535).contains(port), port != httpPort else { return }
-      UserDefaults.standard.set(port, forKey: Self.httpPortDefaultsKey)
-      if Self.isEnabled {
-        stop()
-        setEnabled(true)
-      }
+      return try MCPClientSetup.prompt(url: httpURL, token: authorizationToken)
     }
   #endif
 
@@ -162,7 +146,7 @@ public final class AgentBridgeController {
           httpServer = nil
           isHTTPStarting = false
           httpError =
-            "Could not start MCP on port \(port): \(error.localizedDescription). Check the port and try again."
+            "Could not start MCP on port \(port): \(error.localizedDescription). Close any other Maple MCP server and retry."
         }
       }
     }

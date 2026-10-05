@@ -45,7 +45,8 @@ final class MCPHTTPChannelHandler: ChannelInboundHandler {
       guard let head else { return respond(.badRequest, context: context) }
       responding = true
       deadline?.cancel()
-      deadline = context.eventLoop.scheduleTask(in: .seconds(65)) { context.close(promise: nil) }
+      // Full-resolution RAW export can take longer than an editor inspection.
+      deadline = context.eventLoop.scheduleTask(in: .seconds(300)) { context.close(promise: nil) }
       let body = body
       let forward = forward
       let eventLoop = context.eventLoop

@@ -64,7 +64,7 @@ final class MCPDispatcherTests: XCTestCase {
         "maple_create_mask", "maple_render_mask_overlay", "maple_get_vectorscope",
         "maple_undo", "maple_reset",
         "maple_list_photos", "maple_get_thumbnails", "maple_set_rating",
-        "maple_set_flag", "maple_open_photo",
+        "maple_set_flag", "maple_open_photo", "maple_export_photo",
       ])
     for tool in tools {
       XCTAssertEqual(tool["inputSchema"]?["type"], "object", "\(tool)")

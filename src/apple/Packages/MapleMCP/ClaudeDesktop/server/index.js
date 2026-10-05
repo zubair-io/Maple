@@ -55,7 +55,7 @@ async function forward(line) {
       headers,
       body: line,
       redirect: 'error',
-      signal: AbortSignal.timeout(65000),
+      signal: AbortSignal.timeout(300000),
     });
     if (response.status === 202) return;
     const text = await response.text();

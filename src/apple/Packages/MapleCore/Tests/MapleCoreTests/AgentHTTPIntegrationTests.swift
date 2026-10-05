@@ -19,7 +19,7 @@
       try FileManager.default.copyItem(at: fixture, to: raw)
       let original = try Data(contentsOf: raw)
       let session = EditSession(asset: AssetRef(url: raw), model: .default, culling: CullingState())
-      let service = AgentEditService()
+      let service = AgentEditService(exportDirectory: dir.appendingPathComponent("Exports"))
       service.activate(session)
       let server = MCPHTTPServer { request in await service.handle(request) }
       let url = try await server.start(port: 0, token: "sidecar-integration-token")
@@ -43,6 +43,14 @@
         await reopened.loadSidecar()
         XCTAssertEqual(reopened.model.exposure, 1.25)
         XCTAssertEqual(reopened.model.whites, -12)
+        let exported = try await call(
+          url, "maple_export_photo",
+          ["expected_revision": try XCTUnwrap(edited["structuredContent"]?["revision"])])
+        XCTAssertEqual(exported["isError"], false)
+        let exportPath = try XCTUnwrap(exported["structuredContent"]?["path"]?.stringValue)
+        XCTAssertGreaterThan(try Data(contentsOf: URL(fileURLWithPath: exportPath)).count, 0)
+        XCTAssertEqual(exported["structuredContent"]?["format"], "jpeg_srgb")
+        XCTAssertEqual(session.undoHistory.count, 1)
         let undone = try await call(
           url, "maple_undo",
           ["expected_revision": try XCTUnwrap(edited["structuredContent"]?["revision"])])
