@@ -158,39 +158,6 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         demosaic::demosaic(algo, mosaic, raw.cfa)
     });
 
-    // DNG OpcodeList3 (#376, #4288): vendor corrections applied in
-    // ActiveArea coordinates before DefaultCrop / baseline exposure.
-    if let Some((list, aa)) = raw.opcode_list3.as_ref() {
-        if list.opcodes.len() == 1 {
-            if let crate::pipeline::pano::opcodes::PanoOpcode::WarpRectilinear(w) = &list.opcodes[0]
-            {
-                stage("tile_opcode_list3", || {
-                    let qd = effective_quality_divisor(quality, raw.cfa);
-                    let full_w = raw.width / qd;
-                    let full_h = raw.height / qd;
-                    let scaled_aa = crate::pipeline::pano::opcode_apply::scale_active_area(
-                        *aa,
-                        1.0 / qd as f32,
-                        full_w,
-                        full_h,
-                    );
-                    let scales =
-                        crate::pipeline::pano::opcode_apply::LensCorrectionScales::from_model(
-                            model,
-                        );
-                    crate::pipeline::pano::opcode_apply::apply_warp_rectilinear_windowed(
-                        &mut camera_rgb,
-                        w,
-                        scaled_aa,
-                        scales.distortion,
-                        scales.ca,
-                        tile_origin,
-                    );
-                });
-            }
-        }
-    }
-
     if raw.baseline_exposure.abs() > 1e-4 {
         stage("tile_baseline_exposure", || {
             let be_gain = raw.baseline_exposure.exp2();
@@ -220,6 +187,40 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
             active_area,
         )
     });
+
+    // DNG OpcodeList3 (#376, #4288): vendor corrections applied in
+    // ActiveArea coordinates after highlight recovery and before DefaultCrop,
+    // exactly matching canonical develop/mod.rs.
+    if let Some((list, aa)) = raw.opcode_list3.as_ref() {
+        if super::guards::is_supported_tile_opcode_list(list) {
+            if let crate::pipeline::pano::opcodes::PanoOpcode::WarpRectilinear(w) = &list.opcodes[0]
+            {
+                stage("tile_opcode_list3", || {
+                    let qd = effective_quality_divisor(quality, raw.cfa);
+                    let full_w = raw.width / qd;
+                    let full_h = raw.height / qd;
+                    let scaled_aa = crate::pipeline::pano::opcode_apply::scale_active_area(
+                        *aa,
+                        1.0 / qd as f32,
+                        full_w,
+                        full_h,
+                    );
+                    let scales =
+                        crate::pipeline::pano::opcode_apply::LensCorrectionScales::from_model(
+                            model,
+                        );
+                    crate::pipeline::pano::opcode_apply::apply_warp_rectilinear_windowed(
+                        &mut camera_rgb,
+                        w,
+                        scaled_aa,
+                        scales.distortion,
+                        scales.ca,
+                        tile_origin,
+                    );
+                });
+            }
+        }
+    }
     let (profile, profile_source) =
         stage("tile_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
     // Camera-space user white balance (#1726) — mirrors the full-res

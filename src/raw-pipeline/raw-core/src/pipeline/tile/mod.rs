@@ -6,8 +6,9 @@
 //! histogram isn't representative of the whole scene — but the caller
 //! can thread in the gain a full-image develop already measured, see
 //! [`render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32`],
-//! #1167; dehaze, BM3D deep denoise and OpcodeList3 DNGs are rejected
-//! loudly at the entry — see `guards.rs`), then trims the overlap,
+//! #1167; dehaze, BM3D deep denoise and unsupported OpcodeList3 DNGs are rejected
+//! loudly at the entry — see `guards.rs`; supported radial WarpRectilinear opcodes
+//! (#4288) execute via bounded gather), then trims the overlap,
 //! downsamples to the requested output size, and packs the result as
 //! oriented fp16 RGBA.
 //! This makes a 23-tile view of a 100 MP RAW land in ~10 s rather than
@@ -142,11 +143,10 @@ pub(crate) fn tile_working_pixels(
 /// - `model.deep_denoise != 0` → returns `Err` ("deep denoise"); the
 ///   BM3D reference-patch grid is frame-anchored, so per-tile grids
 ///   would seam (#1105). Same fallback contract as dehaze.
-/// - a DNG carrying OpcodeList3 → returns `Err` ("OpcodeList3"); the
-///   WarpRectilinear resample gathers from displaced source positions that
-///   can exceed the overlap pad, and the tile chain does not apply opcodes,
-///   so tiled output would disagree with (and seam against) the full render
-///   (#1932). Same fallback contract as dehaze.
+/// - a DNG carrying unsupported OpcodeList3 forms (GainMap, FixVignetteRadial,
+///   multi-opcode lists, tangential kt != 0, lateral CA divergence) → returns
+///   Err ("OpcodeList3"); supported radial WarpRectilinear opcodes (#4288) succeed
+///   via bounded source gathering. Same fallback contract as dehaze.
 /// - `out_w > src_w || out_h > src_h` → returns `Err` ("upscale"); the
 ///   tile path caps at native resolution.
 /// - `(out_w, out_h)` aspect does not match `(src_w, src_h)` aspect →

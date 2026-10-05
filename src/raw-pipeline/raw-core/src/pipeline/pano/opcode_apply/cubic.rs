@@ -88,35 +88,34 @@ pub(super) fn sample_bounded<const N: usize>(
     })
 }
 
-#[inline(always)]
-#[allow(dead_code, clippy::too_many_arguments)] // same active-area geometry as the existing bilinear sampler
-pub(super) fn sample<const N: usize>(
-    src: &[[f32; 3]],
-    width: usize,
-    top: usize,
-    left: usize,
-    w: usize,
-    h: usize,
-    x: f64,
-    y: f64,
-    channels: [usize; N],
-) -> [f32; N] {
-    sample_bounded(
-        src,
-        width,
-        left,
-        left + w - 1,
-        top,
-        top + h - 1,
-        left as f64 + x,
-        top as f64 + y,
-        channels,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[allow(clippy::too_many_arguments)]
+    fn sample<const N: usize>(
+        src: &[[f32; 3]],
+        width: usize,
+        top: usize,
+        left: usize,
+        w: usize,
+        h: usize,
+        x: f64,
+        y: f64,
+        channels: [usize; N],
+    ) -> [f32; N] {
+        sample_bounded(
+            src,
+            width,
+            left,
+            left + w - 1,
+            top,
+            top + h - 1,
+            left as f64 + x,
+            top as f64 + y,
+            channels,
+        )
+    }
 
     #[test]
     fn fractional_phase_is_truncated_at_sdk_boundaries() {

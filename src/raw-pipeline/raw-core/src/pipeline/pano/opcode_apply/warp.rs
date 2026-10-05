@@ -182,8 +182,14 @@ pub fn apply_warp_rectilinear_windowed(
 }
 
 /// Compute the maximum radial displacement (in demosaiced pixels) of a
-/// `WarpRectilinearOpcode` across the image, at the given effective quality divisor.
+/// radial `WarpRectilinearOpcode` across the image for dimensions `full_demosaic_dims`
+/// (which should reflect the demosaiced buffer size after any quality divisor scaling).
 /// Includes the bicubic stencil radius (2 pixels).
+///
+/// Invariant: In the supported tile path, all planes have identical coefficients
+/// (`kt == [0, 0]` and equal `kr`), so chromatic aberration scaling does not
+/// diverge per-plane and `blend_warp_toward_identity` collapses to the single
+/// `distortion` scale.
 pub fn warp_rectilinear_reach_px(
     warp: &WarpRectilinearOpcode,
     full_demosaic_dims: (u32, u32),

@@ -333,6 +333,23 @@ fn hasselblad_radial_warp_parity_across_windows() {
         diff_off < 1e-4,
         "offcenter window warped tile diff too high: {diff_off}"
     );
+
+    // 4. Parity for corner window where sensor boundary clamping engages
+    let corner_rect = TileRect {
+        src_x: 0,
+        src_y: 0,
+        src_w: 128,
+        src_h: 128,
+        out_w: 128,
+        out_h: 128,
+    };
+    let (full_corner, tile_corner) =
+        extract_rect_lanes(&raw, &model, corner_rect, RenderQuality::Full);
+    let diff_corner = max_abs(&full_corner, &tile_corner);
+    assert!(
+        diff_corner < 1e-4,
+        "corner window warped tile diff too high: {diff_corner}"
+    );
 }
 
 #[test]
@@ -412,7 +429,33 @@ fn radial_warp_preview_quality_half_res() {
     .expect("preview tile render");
     assert_eq!((w, h), (64, 64));
     assert_eq!(rgba.len(), (w * h * 4) as usize);
-    for v in &rgba {
-        assert!(v.is_finite());
+
+    // Parity vs full develop at Preview quality
+    let full = develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Preview)
+        .expect("full preview develop");
+    let full_rgba: Vec<f32> = full
+        .pixels
+        .iter()
+        .flat_map(|p| [p[0], p[1], p[2], 1.0])
+        .collect();
+    let (fw, _fh, full_oriented) =
+        apply_orientation_f32_rgba(&full_rgba, full.width, full.height, raw.orientation);
+
+    let fw = fw as usize;
+    let mut full_lanes = Vec::with_capacity((64 * 64 * 3) as usize);
+    for y in 0..64 {
+        for x in 0..64 {
+            let idx = (((rect.src_y / 2) as usize + y) * fw + ((rect.src_x / 2) as usize + x)) * 4;
+            full_lanes.extend_from_slice(&full_oriented[idx..idx + 3]);
+        }
     }
+    let mut tile_lanes = Vec::with_capacity((64 * 64 * 3) as usize);
+    for chunk in rgba.chunks_exact(4) {
+        tile_lanes.extend_from_slice(&chunk[0..3]);
+    }
+    let diff = max_abs(&full_lanes, &tile_lanes);
+    assert!(
+        diff < 1e-4,
+        "preview tile vs full preview diff too high: {diff}"
+    );
 }

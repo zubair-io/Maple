@@ -21,8 +21,9 @@
 //! this table cannot drift from the kernel it describes. What is NOT here:
 //! dehaze (global statistics + a radius-60 guided filter — the proxy-plane
 //! half of § 5.3, tracked separately), BM3D deep denoise (frame-anchored
-//! patch grid, #1105), and OpcodeList3 (#1932); those stay rejected by
-//! `guards.rs`.
+//! patch grid, #1105), and unsupported OpcodeList3 forms (#1932); those
+//! stay rejected by `guards.rs`. Supported radial WarpRectilinear opcodes (#4288)
+//! have their bounded reach computed and included below.
 
 use super::TILE_OVERLAP_PX;
 use crate::image::RawImage;
@@ -55,25 +56,26 @@ pub(super) fn tile_overlap_px(
 ) -> u32 {
     let qd = divisor.max(1);
     let warp_reach = raw
-        .and_then(|r| r.opcode_list3.as_ref())
-        .map(|(list, _aa)| {
-            if list.opcodes.len() == 1 {
+        .and_then(|r| {
+            let (list, _aa) = r.opcode_list3.as_ref()?;
+            if super::guards::is_supported_tile_opcode_list(list) {
                 if let crate::pipeline::pano::opcodes::PanoOpcode::WarpRectilinear(w) =
                     &list.opcodes[0]
                 {
-                    let r = raw.unwrap();
                     let full_dims = (r.width / qd, r.height / qd);
                     let distortion =
                         crate::pipeline::pano::opcode_apply::LensCorrectionScales::from_model(
                             model,
                         )
                         .distortion;
-                    return crate::pipeline::pano::opcode_apply::warp_rectilinear_reach_px(
-                        w, full_dims, distortion,
+                    return Some(
+                        crate::pipeline::pano::opcode_apply::warp_rectilinear_reach_px(
+                            w, full_dims, distortion,
+                        ),
                     );
                 }
             }
-            0
+            None
         })
         .unwrap_or(0);
     let sum: usize = PRE_SCENE_REACH_PX
