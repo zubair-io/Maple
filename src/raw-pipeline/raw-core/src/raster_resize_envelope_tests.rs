@@ -18,11 +18,9 @@
 //! * fractional downscale: within 1 code (8-wide ramp 8->6);
 //! * 2x upscale: up to 63 codes on photos — different algorithm
 //!   (affine bicubic), tracked by #4178;
-//! * nearest: byte-exact on every downscale swept (2..16px, steps and
-//!   ramps included — the #4179 step-edge repro does not reproduce) and on
-//!   integer upscales; fractional upscales diverge by whole texels (affine
-//!   routing, #4178) and heavy downscales by the first texel (subsample
-//!   staging, #4213).
+//! * nearest: byte-exact on every downscale swept (including heavy downscales
+//!   staging through `vips_subsample`, #4213) and on integer upscales;
+//!   fractional upscales diverge by whole texels (affine routing, #4178).
 //!
 //! A nested module of `raster_resize_tests` so it reuses that module's
 //! `opts()` fixture while both files stay inside the repo's file-size
@@ -260,6 +258,14 @@ fn nearest_heavy_downscale_matches_sharp_byte_for_byte() {
     let src10 = RasterImage::new_rgb(10, 1, row10);
     let out10 = resize_raster(&src10, &opts(2, 1, ResizeFit::Fill)).unwrap();
     assert_eq!(out10.data, vec![42, 42, 42, 126, 126, 126]);
+
+    // 11 -> 2 stages through subsample factor 2, sampling texels {2, 6}.
+    let row11: Vec<u8> = (0..11u16)
+        .flat_map(|x| [(x * 21).min(255) as u8; 3])
+        .collect();
+    let src11 = RasterImage::new_rgb(11, 1, row11);
+    let out11 = resize_raster(&src11, &opts(2, 1, ResizeFit::Fill)).unwrap();
+    assert_eq!(out11.data, vec![42, 42, 42, 126, 126, 126]);
 }
 
 /// `lanczos3` 16x16 RGBA -> 4x4 integer downscale: with flat alpha (255),

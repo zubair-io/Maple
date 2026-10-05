@@ -349,6 +349,73 @@ fn resize_alg(filter: FilterAlg) -> fr::ResizeAlg {
     }
 }
 
+/// Coordinate mapping for Nearest-neighbor resampling, matching sharp / libvips
+/// `vips_resize` (#4213).
+///
+/// libvips stages downscales through `vips_subsample` whenever `int_shrink > 1`:
+/// `int_shrink = floor((sw / dw) / gap)`, where `gap = 2.0`.
+/// When `int_shrink <= 1` (ordinary downscales, upscales, or identical size),
+/// it evaluates single-step center mapping: `floor((x + 0.5) * (sw / dw))`.
+/// When `int_shrink > 1`, it subsamples by `int_shrink` first (taking texels at
+/// multiples of `int_shrink`), and then runs `vips_reduceh` on the residual shrink.
+fn nearest_sample_coord(x: u32, sw: u32, dw: u32) -> u32 {
+    let gap = 2.0;
+    let s = sw as f64 / dw as f64;
+    let int_shrink = (s / gap).floor() as u32;
+    if int_shrink <= 1 {
+        let ix = ((x as f64 + 0.5) * s).floor() as i64;
+        ix.clamp(0, (sw - 1) as i64) as u32
+    } else {
+        let sub_w = sw / int_shrink;
+        let residual_shrink = s / int_shrink as f64;
+        let extra_pixels = dw as f64 * residual_shrink - sub_w as f64;
+        let hoffset = (1.0 + extra_pixels) / 2.0 - 1.0;
+        let capital_x = (x as f64 + 0.5) * residual_shrink - 0.5 - hoffset;
+        let sub_ix = (capital_x.floor() as i64).clamp(0, (sub_w - 1) as i64) as u32;
+        let src_x = sub_ix * int_shrink;
+        src_x.min(sw - 1)
+    }
+}
+
+fn resample_nearest(src: &RasterImage, dst_w: u32, dst_h: u32) -> Result<RasterImage> {
+    if src.channels != 3 && src.channels != 4 {
+        return Err(Error::Decode {
+            path: "<memory>".into(),
+            reason: format!("unsupported channel count: {}", src.channels),
+        });
+    }
+
+    let channels = src.channels as usize;
+    let src_stride = src.width as usize * channels;
+    let dst_len = dst_w as usize * dst_h as usize * channels;
+    let mut out_data = Vec::with_capacity(dst_len);
+
+    let x_offsets: Vec<usize> = (0..dst_w)
+        .map(|x| nearest_sample_coord(x, src.width, dst_w) as usize * channels)
+        .collect();
+
+    for y in 0..dst_h {
+        let src_y = nearest_sample_coord(y, src.height, dst_h) as usize;
+        let src_row = &src.data[src_y * src_stride..(src_y + 1) * src_stride];
+        for &x_off in &x_offsets {
+            out_data.extend_from_slice(&src_row[x_off..x_off + channels]);
+        }
+    }
+
+    Ok(RasterImage {
+        width: dst_w,
+        height: dst_h,
+        channels: src.channels,
+        data: out_data,
+        orientation: src.orientation,
+    })
+}
+
+fn has_heavy_downscale(src_dim: u32, dst_dim: u32) -> bool {
+    let s = src_dim as f64 / dst_dim as f64;
+    (s / 2.0).floor() as u32 > 1
+}
+
 // Standalone resizing owns the alpha pair; a recipe run disables MulDiv
 // because its premultiplied pixels must stay that way through subsequent filters.
 fn resample(
@@ -358,6 +425,12 @@ fn resample(
     filter: FilterAlg,
     mul_div_alpha: bool,
 ) -> Result<RasterImage> {
+    if filter == FilterAlg::Nearest
+        && (has_heavy_downscale(src.width, dst_w) || has_heavy_downscale(src.height, dst_h))
+    {
+        return resample_nearest(src, dst_w, dst_h);
+    }
+
     let pixel_type = match src.channels {
         3 => fr::PixelType::U8x3,
         4 => fr::PixelType::U8x4,
