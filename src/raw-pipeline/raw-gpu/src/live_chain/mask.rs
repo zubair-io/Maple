@@ -34,7 +34,7 @@ const _: () = assert!(
 /// the corresponding `if` in `build_live_split` uses, so the mask can't
 /// disagree with which passes actually get pushed. Used by
 /// [`chain_signature`](super::chain_signature) to key the live pool's bind-group cache.
-pub(super) fn active_mask(inputs: &FullChainInputs) -> u32 {
+pub(crate) fn active_mask(inputs: &FullChainInputs) -> u32 {
     let mut m = 0u32;
     let is_raw_shape = inputs.input_shape == InputShape::PostDcpRec2020Fp16;
     // Encode input_shape in the top 2 bits of the mask so a shape change lands
