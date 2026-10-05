@@ -518,36 +518,5 @@ namespace Maple.WinUI.Services
                 return false;
             }
         }
-
-        private void EmitHistogram(DecodedImage image, AdjustmentState state)
-        {
-            try
-            {
-                var byteCount = image.Width * image.Height * 4;
-                byte[] pixels;
-                float[]? scratch;
-                lock (_gate)
-                {
-                    pixels = _bgra != null && _bgra.Length == byteCount ? _bgra : new byte[byteCount];
-                    scratch = _chainScratch;
-                }
-                // #4289: SetImage may clear caches during the native call.
-                RenderEngine.RenderTick(image, state, ref scratch, pixels, _activeFilm);
-                _beforeHistogramPublishForSmoke?.Invoke();
-                lock (_gate)
-                {
-                    if (!IsCurrentFrame(image)) return;
-                    _bgra = pixels;
-                    _chainScratch = scratch;
-                    HistogramReady?.Invoke(ComputeHistogram(pixels));
-                    EmitClipSource(image.Width, image.Height);
-                }
-            }
-            catch (Exception ex)
-            {
-                DiagLog.Write($"[histogram] {ex}");
-                if (IsCurrentFrame(image)) RenderFailed?.Invoke(ex.Message);
-            }
-        }
     }
 }
