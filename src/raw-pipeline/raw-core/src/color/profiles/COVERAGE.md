@@ -67,7 +67,6 @@ a clear unsupported-format error instead of a silent decode fail.
 - **Canon EOS Kiss M / EOS Kiss M**: Japanese domestic release of the `Canon EOS M50` (identical sensor, color patterns, and color matrices). Aliased to `Canon EOS M50`.
 - **Canon EOS Kiss M2 / EOS Kiss M2**: Japanese domestic release of the `Canon EOS M50 Mark II`. Aliased to `Canon EOS M50 Mark II`.
 
-
 ## Known coverage gaps
 
 These bodies exist in the fixture set or are likely to be encountered
