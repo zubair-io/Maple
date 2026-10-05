@@ -38,6 +38,22 @@ describe('AuthService.refresh', () => {
     expect(auth.bearer).toBeNull();
   });
 
+  it('stops background renewals after rejection until a new sign-in', async () => {
+    const hydration = auth.refresh();
+    ctrl.expectOne('/api/auth/refresh').flush({}, { status: 401, statusText: 'Unauthorized' });
+    expect(await hydration).toBe('rejected');
+    for (let i = 0; i < 12; i++) expect(await auth.refresh()).toBe('rejected');
+    ctrl.expectNone('/api/auth/refresh');
+
+    const login = auth.devSignIn();
+    ctrl.expectOne('/api/auth/dev-login').flush({ access_token: 'LOGIN', user: signedInUser });
+    await login;
+    const renewal = auth.refresh();
+    ctrl.expectOne('/api/auth/refresh').flush({ access_token: 'NEW' });
+    expect(await renewal).toBe('refreshed');
+    expect(auth.bearer).toBe('NEW');
+  });
+
   it('treats a 5xx as transient and PRESERVES the session', async () => {
     auth.user.set(signedInUser);
     const p = auth.refresh();

@@ -63,10 +63,8 @@ export interface CreatedServiceApiKey {
 export type RefreshOutcome = 'refreshed' | 'rejected' | 'transient';
 
 /**
- * How long a refresh token broadcast by a peer tab is considered usable
- * before we'd rather mint our own. Access tokens live for 30 days, so a
- * few-second window is plenty to dedupe a cold-load stampede without ever
- * adopting a stale credential.
+ * Reuse a peer tab's fresh access token briefly to coalesce cold-load renewals;
+ * after this window, request a new token.
  */
 const PEER_TOKEN_TTL_MS = 5_000;
 
@@ -75,6 +73,8 @@ export class AuthService {
   private http = inject(HttpClient);
   readonly user = signal<AuthUser | null>(null);
   private accessToken: string | null = null;
+  // Rejected renewals stay signed out until explicit or peer-tab sign-in.
+  private refreshRejected = false;
 
   /**
    * In-tab coalescing: a single refresh runs at a time within this tab and
@@ -107,12 +107,14 @@ export class AuthService {
       const msg = ev.data as { type?: string; access_token?: string } | null;
       if (!msg) return;
       if (msg.type === 'token' && typeof msg.access_token === 'string') {
+        this.refreshRejected = false;
         // A peer refreshed (or signed in). Adopt its token so our next
         // request authenticates without racing the rotating cookie.
         this.accessToken = msg.access_token;
         this.peerToken = msg.access_token;
         this.peerTokenAt = Date.now();
       } else if (msg.type === 'signout') {
+        this.refreshRejected = true;
         // A peer signed out (or its refresh was genuinely rejected). Drop our
         // session too so every tab reflects the same auth state.
         this.accessToken = null;
@@ -269,6 +271,7 @@ export class AuthService {
   }
 
   async refresh(): Promise<RefreshOutcome> {
+    if (this.refreshRejected) return 'rejected';
     // Coalesce concurrent callers within this tab onto one attempt.
     this.inflight ??= this.runRefresh().finally(() => {
       this.inflight = null;
@@ -298,6 +301,7 @@ export class AuthService {
   }
 
   private async refreshLocked(): Promise<RefreshOutcome> {
+    if (this.refreshRejected) return 'rejected';
     // A peer tab may have refreshed while we queued for the lock. Adopt its
     // token instead of rotating the cookie again.
     if (this.peerToken && Date.now() - this.peerTokenAt < PEER_TOKEN_TTL_MS) {
@@ -317,6 +321,7 @@ export class AuthService {
       // (offline = status 0, 5xx, 429 rate-limit, …) is transient: keep the
       // session so a blip doesn't bounce the user to the login screen.
       if (err instanceof HttpErrorResponse && err.status === 401) {
+        this.refreshRejected = true;
         this.user.set(null);
         this.accessToken = null;
         this.peerToken = null;
@@ -341,6 +346,7 @@ export class AuthService {
     } catch {
       /* ignore */
     }
+    this.refreshRejected = true;
     this.accessToken = null;
     this.peerToken = null;
     this.user.set(null);
@@ -461,6 +467,7 @@ export class AuthService {
   }
 
   private acceptTokens(r: any): void {
+    this.refreshRejected = false;
     this.accessToken = r.access_token;
     this.user.set(r.user);
     // Let peer tabs adopt the new session without their own ceremony.

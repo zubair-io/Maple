@@ -367,11 +367,6 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
   .post(
     '/refresh',
     async ({ body, cookie, set, request }) => {
-      const ip = clientIp(request);
-      if (!rateLimit(`auth:${ip}`, 10, 60_000)) {
-        set.status = 429;
-        return { error: 'rate limited' };
-      }
       const cookieRaw = cookie.maple_refresh?.value as string | undefined;
       // Body auth is the native (Apple) path: no cookie jar, tokens live in the
       // Keychain, so the rotated refresh token MUST come back in the body — the
@@ -385,6 +380,14 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       if (!raw) {
         set.status = 401;
         return { error: 'no refresh token' };
+      }
+      // Signed-out page hydration has no credential to verify and must not
+      // consume the passkey sign-in budget. All supplied credentials, including
+      // invalid ones, still share the existing authentication rate limit.
+      const ip = clientIp(request);
+      if (!rateLimit(`auth:${ip}`, 10, 60_000)) {
+        set.status = 429;
+        return { error: 'rate limited' };
       }
       let fresh;
       try {
