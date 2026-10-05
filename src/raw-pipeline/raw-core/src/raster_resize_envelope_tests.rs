@@ -225,19 +225,41 @@ fn nearest_fractional_upscale_pins_maple_bytes() {
     );
 }
 
-/// `nearest` 13 -> 2 on a grey index row pins Maple's own sampling bytes.
-/// Sharp answers {src 0, src 9} here against Maple's {src 3, src 9}: heavy
-/// downscales stage through `vips_subsample` plus a residual reduce, whose
-/// grid differs from single-step center mapping at the first texel
-/// (#4213). A staging port will intentionally move the first texel to 0.
+/// `nearest` 13 -> 2 on a grey index row matches sharp byte-for-byte.
+/// Heavy downscales stage through `vips_subsample` plus a residual reduce,
+/// sampling source texels {0, 9} (#4213).
 #[test]
-fn nearest_heavy_downscale_pins_maple_bytes() {
+fn nearest_heavy_downscale_matches_sharp_byte_for_byte() {
     let row: Vec<u8> = (0..13u16)
         .flat_map(|x| [(x * 21).min(255) as u8; 3])
         .collect();
     let src = RasterImage::new_rgb(13, 1, row);
     let out = resize_raster(&src, &opts(2, 1, ResizeFit::Fill)).unwrap();
-    assert_eq!(out.data, vec![63, 63, 63, 189, 189, 189]);
+    assert_eq!(out.data, vec![0, 0, 0, 189, 189, 189]);
+
+    // 9 -> 2 stages through subsample factor 2, sampling texels {0, 6}.
+    let row9: Vec<u8> = (0..9u16)
+        .flat_map(|x| [(x * 21).min(255) as u8; 3])
+        .collect();
+    let src9 = RasterImage::new_rgb(9, 1, row9);
+    let out9 = resize_raster(&src9, &opts(2, 1, ResizeFit::Fill)).unwrap();
+    assert_eq!(out9.data, vec![0, 0, 0, 126, 126, 126]);
+
+    // 14 -> 2 stages through subsample factor 3, sampling texels {0, 9}.
+    let row14: Vec<u8> = (0..14u16)
+        .flat_map(|x| [(x * 21).min(255) as u8; 3])
+        .collect();
+    let src14 = RasterImage::new_rgb(14, 1, row14);
+    let out14 = resize_raster(&src14, &opts(2, 1, ResizeFit::Fill)).unwrap();
+    assert_eq!(out14.data, vec![0, 0, 0, 189, 189, 189]);
+
+    // 10 -> 2 stages through subsample factor 2, sampling texels {2, 6}.
+    let row10: Vec<u8> = (0..10u16)
+        .flat_map(|x| [(x * 21).min(255) as u8; 3])
+        .collect();
+    let src10 = RasterImage::new_rgb(10, 1, row10);
+    let out10 = resize_raster(&src10, &opts(2, 1, ResizeFit::Fill)).unwrap();
+    assert_eq!(out10.data, vec![42, 42, 42, 126, 126, 126]);
 }
 
 /// `lanczos3` 16x16 RGBA -> 4x4 integer downscale: with flat alpha (255),
