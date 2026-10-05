@@ -9,20 +9,20 @@
 import { InjectionToken } from '@angular/core';
 
 /** Row-major `width * height` coverage bytes, `0` = weight 0, `255` = 1. */
-export interface DecodedMaskRaster {
+interface DecodedMaskRaster {
   width: number;
   height: number;
   data: Uint8Array;
 }
 
-export type PngR8Decoder = (png: ArrayBuffer) => Promise<DecodedMaskRaster>;
+type PngR8Decoder = (png: ArrayBuffer) => Promise<DecodedMaskRaster>;
 
 /**
  * Decode a grayscale (+alpha-ignored) PNG into R8 coverage. Draws
  * unscaled — the server sizes rasters (1024px long edge, Apple's
  * `MaskRasterStore` policy), the client never resamples.
  */
-export async function decodePngR8(png: ArrayBuffer): Promise<DecodedMaskRaster> {
+async function decodePngR8(png: ArrayBuffer): Promise<DecodedMaskRaster> {
   const bitmap = await createImageBitmap(new Blob([png], { type: 'image/png' }));
   try {
     const canvas = document.createElement('canvas');

@@ -390,7 +390,6 @@ export class RawPipelineService implements OnDestroy {
    *  mirror of raw-ffi's `maple_mask_raster_register`); resolves with the raster id.
    *  Contract in `raw-pipeline.mask-raster.types.ts`. No caller yet: the web has no
    *  segmentation source (#3300 slice 3), which is what will drive this half. */
-  // fallow-ignore-next-line unused-class-member
   registerMaskRaster(raster: MaskRasterUpload): Promise<number> {
     let worker: Worker;
     try {
@@ -403,7 +402,6 @@ export class RawPipelineService implements OnDestroy {
   }
 
   /** Forget a raster registered by `registerMaskRaster`. Fire-and-forget. */
-  // fallow-ignore-next-line unused-class-member
   releaseMaskRaster(rasterId: number): void {
     if (!this.worker) return;
     releaseMaskRasterRequest(this.worker, this.nextId++, rasterId);
