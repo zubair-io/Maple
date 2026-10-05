@@ -114,8 +114,19 @@ extension EditSessionFilmLutSyncTests {
 extension AutoProfileCanvasParityTests {
   @MainActor
   func testScalarRenderFailurePreservesCompletedAutoFit() async throws {
-    let source = Self.fixtureDir("test-fixtures/raws").appendingPathComponent("test_0006.DNG")
-    XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
+    let configured = ProcessInfo.processInfo.environment["MAPLE_VISUAL_FIXTURE_ROOT"]
+      .flatMap { $0.isEmpty ? nil : $0 }
+    let root =
+      configured.map { URL(fileURLWithPath: $0, isDirectory: true) }
+      ?? Self.fixtureDir("test-fixtures/raws")
+    let source = root.appendingPathComponent("test_0006.DNG")
+    guard FileManager.default.fileExists(atPath: source.path) else {
+      if configured != nil {
+        XCTFail("Explicit visual fixture root is missing test_0006.DNG: \(source.path)")
+        return
+      }
+      throw XCTSkip("Physical completed-fit coverage requires test_0006.DNG")
+    }
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
