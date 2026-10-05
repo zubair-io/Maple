@@ -550,3 +550,7 @@ pub(crate) mod oracle;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "full_chain/tests.rs"]
 mod tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "full_chain/tests_absent_curve.rs"]
+mod tests_absent_curve;
