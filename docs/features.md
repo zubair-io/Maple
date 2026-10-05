@@ -336,3 +336,7 @@ Apple additionally ships four extensions: a macOS **File Provider** that mounts 
 Per-platform detail lives in [apple.md](apple.md), [web.md](web.md), and [windows.md](windows.md).
 
 The matrix above says where a feature is _mounted_. Whether an editor capability is _qualified_ on a surface — `core`, `integrated`, or `released`, computed from harness evidence rather than declared — is the generated [capability-registry.md](capability-registry.md); the registry's surface declarations follow this matrix and are the machine-checked form of it for the develop capabilities.
+
+## Local AI agent access (macOS)
+
+With AI Agents enabled in General Settings, local desktop clients can use Maple's app-owned MCP URL to browse photos, inspect the open image, and make non-destructive edits through the live editor. Settings provides the URL, access token, Codex/Cursor configurations, and a Claude Desktop extension. Maple must stay open. Changes require the current revision, appear in the sliders, use the normal undo history, and persist to XMP sidecars. See [MCP client setup](../src/apple/Packages/MapleMCP/README.md).

@@ -31,6 +31,9 @@
 	</array>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- The opt-in MCP listener binds only to 127.0.0.1. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)app.justmaple.aperture.shared</string>
