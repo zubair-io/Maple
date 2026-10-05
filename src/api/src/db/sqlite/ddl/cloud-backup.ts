@@ -17,6 +17,7 @@ CREATE TABLE backup_entries (
   UNIQUE(destination_id, asset_id, ordinal)
 );
 CREATE INDEX backup_entries_pending ON backup_entries(destination_id,state,retry_at);
+CREATE INDEX backup_entries_asset ON backup_entries(asset_id);
 CREATE TABLE backup_objects (
   destination_id TEXT NOT NULL, key TEXT NOT NULL, object TEXT,
   checkpoint TEXT, entry_id TEXT NOT NULL,
@@ -61,6 +62,13 @@ WHEN OLD.path IS NOT NEW.path OR OLD.filename IS NOT NEW.filename
 BEGIN
   UPDATE backup_entries SET sequence=sequence+1,snapshot_hash=NULL,retry_at=0,
     lease_owner=NULL,lease_until=0 WHERE asset_id=NEW.asset_id AND ordinal=NEW.ordinal AND state!='purged';
+  UPDATE stage_state SET version=0,attempts=0,dead=0,next_attempt_at=NULL
+    WHERE asset_id=NEW.asset_id AND stage='cloud-backup';
+END;
+-- Discovery can deduplicate identical bytes into a new library location without
+-- changing asset stat fields. Its destination still needs a first backup entry.
+CREATE TRIGGER backup_location_inserted AFTER INSERT ON asset_locations
+BEGIN
   UPDATE stage_state SET version=0,attempts=0,dead=0,next_attempt_at=NULL
     WHERE asset_id=NEW.asset_id AND stage='cloud-backup';
 END;

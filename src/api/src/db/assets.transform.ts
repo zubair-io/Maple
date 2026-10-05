@@ -175,6 +175,8 @@ export interface AssetCoreInfo {
    * trashed file copy exists, so restore/purge must not touch disk. */
   deleted_reason: 'reaped' | null;
   original_path: string | null;
+  /** Relative Apple-rendered companion path, retained for permanent erasure. */
+  apple_rendered_path?: string;
   /** Carried for the trash route's Meilisearch re-index branch. */
   place: Place | null;
   description: string | null;

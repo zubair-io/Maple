@@ -239,6 +239,21 @@ export async function hardDelete(id: ObjectId, dbOverride?: SqliteDb): Promise<D
   return deleteOutcome(matchedOne(result.changes));
 }
 
+/** Retention may forget an unbacked reaped row, but cannot turn absence into backup erasure. */
+export async function deleteReapedWithoutActiveBackup(
+  id: ObjectId,
+  dbOverride?: SqliteDb,
+): Promise<DeleteOutcome> {
+  // Guard in the DELETE: a revive or new backup after candidate selection
+  // must preserve the row. preparePurge marks entries purged atomically with intent.
+  const result = await sqliteDb(dbOverride).write(
+    `DELETE FROM assets WHERE id=? AND deleted_reason='reaped' AND NOT EXISTS
+      (SELECT 1 FROM backup_entries WHERE asset_id=assets.id AND state!='purged')`,
+    [id.toHexString()],
+  );
+  return deleteOutcome(matchedOne(result.changes));
+}
+
 /**
  * Restore: drop a watcher-inserted transient row at the destination, then
  * repoint the canonical asset at its new location.

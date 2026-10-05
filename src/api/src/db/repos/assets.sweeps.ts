@@ -58,6 +58,7 @@ export interface TrashedAsset {
   _id: ObjectId;
   deleted_reason: string | null;
   fileinfo: FileInfo[];
+  apple_rendered_path?: string;
 }
 
 /** An asset holding at least one location tagged `missing_since`. */
@@ -156,8 +157,12 @@ export async function listTrashedBefore(
   dbOverride?: SqliteDb,
 ): Promise<TrashedAsset[]> {
   const db = sqliteDb(dbOverride);
-  const rows = await db.read<{ id: string; deleted_reason: string | null }>(
-    `SELECT id, deleted_reason FROM assets
+  const rows = await db.read<{
+    id: string;
+    deleted_reason: string | null;
+    apple_rendered_path: string | null;
+  }>(
+    `SELECT id, deleted_reason, apple_rendered_path FROM assets
       WHERE deleted_at IS NOT NULL AND deleted_at < ?
       ORDER BY deleted_at`,
     [cutoffIso],
@@ -165,6 +170,7 @@ export async function listTrashedBefore(
   return withFileinfo(db, rows, (row, fileinfo) => ({
     _id: toObjectId(row.id),
     deleted_reason: row.deleted_reason,
+    ...(row.apple_rendered_path ? { apple_rendered_path: row.apple_rendered_path } : {}),
     fileinfo,
   }));
 }

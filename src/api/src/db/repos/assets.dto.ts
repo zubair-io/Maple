@@ -249,6 +249,7 @@ export function toCoreInfo(
     deleted_at: row.deleted_at,
     deleted_reason: row.deleted_reason === 'reaped' ? 'reaped' : null,
     original_path: originalPath !== null && originalPath.length > 0 ? originalPath : null,
+    ...(row.apple_rendered_path ? { apple_rendered_path: row.apple_rendered_path } : {}),
     place: json<Place>(row.place),
     description: bundle.detail?.description ?? null,
     ocr_text: bundle.detail?.ocr_text ?? null,

@@ -35,6 +35,7 @@ import type { PersonFaceRow } from './people.rows.ts';
 
 /** The `assets` columns behind the detail and core-info DTOs. */
 export interface AssetCoreRow {
+  apple_rendered_path: string | null;
   id: string;
   size: number;
   mtime: number;

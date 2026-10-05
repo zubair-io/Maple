@@ -12,6 +12,12 @@ async function digest(file: string): Promise<string> {
   return fileHash(file);
 }
 
+function localPurgePaths(root: string, companion: string | null, files: string[]): string[] {
+  const companionPaths = companion ? [relativeBackupPath(companion)] : [];
+  const filePaths = files.map((file) => path.relative(root, file).split(path.sep).join('/'));
+  return [...new Set([...companionPaths, ...filePaths])];
+}
+
 export async function prepareLifecycle(
   assetId: string,
   kind: 'trash' | 'restore',
@@ -172,9 +178,10 @@ export async function preparePurge(assetId: string, repo = new BackupRepository(
           throw error;
         },
       );
-      const files = [original, ...sidecars].map((file) =>
-        path.relative(location.root, file).split(path.sep).join('/'),
-      );
+      const files = localPurgePaths(location.root, location.apple_rendered_path, [
+        original,
+        ...sidecars,
+      ]);
       const previous = entry.manifest
         ? (JSON.parse(entry.manifest) as {
             localFiles?: Array<{ path: string; sha256: string | null }>;
