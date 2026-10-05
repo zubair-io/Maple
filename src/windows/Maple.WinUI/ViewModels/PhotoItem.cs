@@ -87,8 +87,7 @@ namespace Maple.WinUI.ViewModels
             get
             {
                 if (FocalLengthMm is not { } mm || !double.IsFinite(mm) || mm <= 0) return "—";
-                var display = mm.ToString("0.##", CultureInfo.CurrentCulture);
-                if (display == "0") display = mm.ToString("G", CultureInfo.CurrentCulture);
+                var display = mm.ToString(mm < 0.005 ? "G" : "0.##", CultureInfo.CurrentCulture);
                 return display + " mm";
             }
         }
