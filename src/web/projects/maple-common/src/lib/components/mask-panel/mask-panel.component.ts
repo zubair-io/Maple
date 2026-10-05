@@ -18,6 +18,7 @@
 // ones (add / remove / invert / reset) commit their own.
 
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { LIBRARY_BACKEND } from '../../api/library-backend.token';
 import { MuiButtonComponent } from '../../ui/button/mui-button.component';
 import { MuiCheckboxComponent } from '../../ui/checkbox/mui-checkbox.component';
 import { MuiListRowComponent } from '../../ui/list-row/mui-list-row.component';
@@ -125,6 +126,9 @@ function maskLayerSubtitle(layer: LocalAdjustment): string | null {
 export class MaskPanelComponent {
   protected readonly session = inject(MaskSessionService);
   private readonly pick = inject(CanvasPickService);
+  /** Detect asks the Self-Hosted segmentation server — Hosted has nobody
+   *  to ask, so the button stays unmounted there (#3300). */
+  protected readonly detectAvailable = inject(LIBRARY_BACKEND) === 'self-hosted';
   protected readonly controls = MASK_CONTROLS;
   protected readonly rangeControls = RANGE_CONTROLS;
 

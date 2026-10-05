@@ -144,7 +144,7 @@ On a cold Files-backed RAW, Browse and Preview first display an embedded camera 
 
 Caches under `src/web/projects/maple-common/src/lib/` unless noted.
 
-Eleven IndexedDB databases go through one hand-rolled helper (`util/idb.ts`) that opens, transacts, and closes per operation — no long-lived connection. **None of the eleven has a byte cap, count cap, LRU, or TTL.** Several records carry a `storedAt` timestamp, but no read path ever compares it against a threshold; the only bounding force is the browser's own quota eviction, and where invalidation exists it is content-validity based.
+Twelve IndexedDB databases go through one hand-rolled helper (`util/idb.ts`) that opens, transacts, and closes per operation — no long-lived connection. **None of the twelve has a byte cap, count cap, LRU, or TTL.** Several records carry a `storedAt` timestamp, but no read path ever compares it against a threshold; the only bounding force is the browser's own quota eviction, and where invalidation exists it is content-validity based.
 
 | Database                                   | Store                 | Key                             | Value                    | Invalidated by                                                                |
 | ------------------------------------------ | --------------------- | ------------------------------- | ------------------------ | ----------------------------------------------------------------------------- |
@@ -157,6 +157,7 @@ Eleven IndexedDB databases go through one hand-rolled helper (`util/idb.ts`) tha
 | `maple-fallback-cache`                     | `blobs`               | `` `${folderLabel}/${path}` ``  | bytes                    | Nothing                                                                       |
 | `maple-observability` / `maple-presets`    | `config` / `presets`  | `'current'` / preset id         | config / preset          | Overwrite; user delete                                                        |
 | `maple-lens-profiles` (#3479)              | `profiles`            | BLAKE3 digest of the `.lcp`     | LCP XML text             | Nothing — content-addressed; the core re-verifies the digest on every restore |
+| `maple-subject-masks` (#3300)              | `rasters-by-digest`   | recipe digest (FNV-1a 64)       | subject-mask PNG bytes   | Nothing — content-addressed; a corrupt PNG falls through to the server fetch  |
 
 In memory (`state/library-cache.service.ts`, `state/lru-cache.ts`):
 

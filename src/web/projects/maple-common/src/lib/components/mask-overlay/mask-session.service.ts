@@ -22,6 +22,12 @@ import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
+import {
+  SubjectMaskError,
+  SubjectMaskService,
+  bitmapDigestsIn,
+} from '../../masks/subject-mask.service';
+import { subjectMaskDigest } from '../../masks/subject-mask-digest';
 import type {
   LocalAdjustment,
   LocalMask,
@@ -47,6 +53,7 @@ export class MaskSessionService {
   private readonly library = inject(LibraryStateService);
   private readonly pipeline = inject(RawPipelineService);
   private readonly serializer = inject(XmpSerializerService);
+  private readonly subjects = inject(SubjectMaskService);
 
   /** True while the Mask tool is armed — drives the overlay + panel. */
   readonly active = computed(() => this.editor.armedTool() === 'mask');
@@ -124,6 +131,7 @@ export class MaskSessionService {
     )
       return;
     const selected = this.componentIndex();
+    const removed = mask.components[index];
     this.updateSelected(true, (layer) =>
       layer.mask.kind === 'group' &&
       layer.mask.components.length > 1 &&
@@ -141,6 +149,13 @@ export class MaskSessionService {
     this.componentSelection.set(
       Math.min(index < selected ? selected - 1 : selected, this.componentIndex()),
     );
+    if (removed) {
+      const ghost: LocalAdjustment = {
+        mask: removed.mask,
+        adjustments: {},
+      };
+      this.subjects.releaseDigests(bitmapDigestsIn([ghost]), this.layers());
+    }
   }
 
   setComponentCombine(combine: MaskCombine): void {
@@ -206,6 +221,16 @@ export class MaskSessionService {
       }
       if (this.selected() === null && this.layers().length > 0) this.selectedIndex.set(0);
     });
+    // Re-register a loaded sidecar's bitmap rasters (Apple's
+    // `rehydratedMaskRasters`, #3300): the registry is per-process and
+    // `rasterId` never persists, so without this a saved person mask would
+    // reopen at weight 0. Memoized inside the service — a no-op once every
+    // digest is registered — and digest-keyed, so no asset guard is needed.
+    effect(() => {
+      const layers = this.layers();
+      if (layers.length === 0) return;
+      void this.subjects.ensureBitmapRasters(layers);
+    });
   }
 
   select(index: number | null): void {
@@ -216,12 +241,19 @@ export class MaskSessionService {
 
   /** Append a layer carrying `mask` and no adjustments, select it, return its index. */
   add(mask: LocalMask): number {
+    return this.addLayers([{ mask, adjustments: {} }]);
+  }
+
+  /** Append full layers (mask + range + adjustments) as ONE undo entry and
+   *  select the first of them — the detect path's commit. */
+  addLayers(layers: LocalAdjustment[]): number {
     this.endGesture();
     this.editor.commit();
-    const next = [...this.layers(), { mask, adjustments: {} }];
+    const next = [...this.layers(), ...layers];
     this.write(next);
-    this.selectedIndex.set(next.length - 1);
-    return next.length - 1;
+    const first = next.length - layers.length;
+    this.selectedIndex.set(first);
+    return first;
   }
 
   addLinear(): number {
@@ -235,17 +267,92 @@ export class MaskSessionService {
   }
 
   remove(index: number): void {
-    const removal = removeAt(this.layers(), index);
+    const layers = this.layers();
+    const removal = removeAt(layers, index);
     if (!removal) return;
     this.endGesture();
     this.editor.commit();
     this.write(removal.next);
     this.selectedIndex.set(removal.selected);
+    const removed = layers[index];
+    if (removed) this.subjects.releaseDigests(bitmapDigestsIn([removed]), removal.next);
   }
 
   removeSelected(): void {
     const index = this.selectedIndex();
     if (index !== null) this.remove(index);
+  }
+
+  // ── Subject masks (#3300) ──────────────────────────────────────────────────
+
+  /** True while a detect is in flight — the panel shows the button loading. */
+  readonly detectInFlight = signal(false);
+
+  /** Why the last detect produced no person layers; cleared by the next run. */
+  readonly detectMessage = signal<string | null>(null);
+
+  /**
+   * Detect the frame's people and add one skin layer per new person
+   * (bitmap + the skin-tone range, Apple's `createPersonSkinMask` shape),
+   * as ONE undo entry. Nobody detected → a whole-image skin range instead
+   * (Apple's `createWholeImageSkinMask`); a failed detect adds nothing.
+   */
+  async detectSubjects(): Promise<void> {
+    const asset = this.library.focusedAsset();
+    if (!asset || this.detectInFlight()) return;
+    this.detectInFlight.set(true);
+    this.detectMessage.set(null);
+    try {
+      const detection = await this.subjects.detect(asset.id);
+      if (detection.persons.length === 0) {
+        this.addLayers([
+          { mask: { kind: 'everywhere' }, range: defaultRangeRefinement(), adjustments: {} },
+        ]);
+        this.detectMessage.set('No people detected — added a whole-image skin range instead.');
+        return;
+      }
+      const known = new Set(bitmapDigestsIn(this.layers()));
+      const fresh = detection.persons.filter(
+        (candidate) =>
+          !known.has(subjectMaskDigest(asset.id, candidate.person, true, true, detection.model)),
+      );
+      if (fresh.length === 0) {
+        this.detectMessage.set('Every detected person already has a mask.');
+        return;
+      }
+      const layers: LocalAdjustment[] = [];
+      try {
+        for (const candidate of fresh) {
+          const recipe = {
+            person: candidate.person,
+            facialSkin: true,
+            bodySkin: true,
+            model: detection.model,
+            digest: subjectMaskDigest(asset.id, candidate.person, true, true, detection.model),
+          };
+          const rasterId = await this.subjects.ensureRaster(recipe);
+          layers.push({
+            mask: { kind: 'bitmap', recipe, rasterId },
+            range: defaultRangeRefinement(),
+            adjustments: {},
+          });
+        }
+      } catch (err) {
+        // All-or-nothing: rasters registered for layers that will never be
+        // added are released (unless a remaining layer names them).
+        this.subjects.releaseDigests(bitmapDigestsIn(layers), this.layers());
+        throw err;
+      }
+      this.addLayers(layers);
+    } catch (err) {
+      this.detectMessage.set(
+        err instanceof SubjectMaskError
+          ? err.message
+          : `Subject detection failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      this.detectInFlight.set(false);
+    }
   }
 
   /** Open a continuous gesture: commits ONE undo snapshot per gesture. */

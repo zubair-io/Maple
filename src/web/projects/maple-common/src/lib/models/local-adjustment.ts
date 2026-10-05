@@ -104,10 +104,14 @@ export interface BitmapMask {
   kind: 'bitmap';
   recipe: BitmapRecipe;
   /**
-   * The registry handle the render actually samples — an in-process id
-   * from `RawPipelineService.registerMaskRaster`, never persisted (the
-   * sidecar carries only the recipe). `0` means unresolved, which renders
-   * as weight 0 rather than silently falling back to `everywhere`.
+   * The registry handle for a raster registered this session — an
+   * in-process id from `RawPipelineService.registerMaskRaster`, never
+   * persisted (the sidecar carries only the recipe). The render tries
+   * this id first, then the recipe `digest` — `SubjectMaskService`
+   * re-registers a loaded sidecar's digests without rewriting the model,
+   * so a rehydrated layer keeps `0` here while rendering resolved. `0`
+   * renders as weight 0 only when the digest is unregistered too, never
+   * a silent fallback to `everywhere`.
    */
   rasterId: number;
 }

@@ -2,13 +2,15 @@
 // selection, add/remove, undo boundaries, the arm hook.
 
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { signal } from '@angular/core';
 
 import { MaskSessionService } from './mask-session.service';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
+import { SubjectMaskError, SubjectMaskService } from '../../masks/subject-mask.service';
+import { subjectMaskDigest } from '../../masks/subject-mask-digest';
 import { makeLibraryStub, type LibraryStub } from '../../editor/editor-state.test-helpers';
 import { TOOLS_IN_GROUP, isWired } from '../../editor/tool-model';
 
@@ -151,5 +153,132 @@ describe('MaskSessionService (#1541)', () => {
     editor.armTool('mask');
     TestBed.flushEffects();
     expect(session.selectedIndex()).toBe(0);
+  });
+});
+
+describe('MaskSessionService subject masks (#3300)', () => {
+  let lib: LibraryStub & { focusedAsset: ReturnType<typeof signal> };
+  let editor: EditorStateService;
+  let session: MaskSessionService;
+  let subjects: {
+    detect: ReturnType<typeof vi.fn>;
+    ensureRaster: ReturnType<typeof vi.fn>;
+    ensureBitmapRasters: ReturnType<typeof vi.fn>;
+    releaseDigests: ReturnType<typeof vi.fn>;
+  };
+
+  beforeEach(() => {
+    const stub = makeLibraryStub();
+    lib = Object.assign(stub, {
+      focusedAsset: signal({ id: 'asset-1', width: 6000, height: 4000 }),
+      focusedAssetId: signal('asset-1'),
+    }) as typeof lib;
+    subjects = {
+      detect: vi.fn().mockResolvedValue({ model: 'm/1', persons: [] }),
+      ensureRaster: vi.fn((recipe: { person: number }) => Promise.resolve(100 + recipe.person)),
+      ensureBitmapRasters: vi.fn().mockResolvedValue(undefined),
+      releaseDigests: vi.fn(),
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: LibraryStateService, useValue: lib },
+        { provide: RawPipelineService, useValue: {} },
+        { provide: SubjectMaskService, useValue: subjects },
+      ],
+    });
+    editor = TestBed.inject(EditorStateService);
+    editor.imageId.set('asset-1');
+    session = TestBed.inject(MaskSessionService);
+  });
+
+  const layers = () => lib.adjustmentFor('asset-1')().localAdjustments;
+  const person = (n: number) => ({
+    person: n,
+    bbox: { x: 0, y: 0, width: 1, height: 1 },
+  });
+
+  it('detect adds one bitmap + skin-range layer per person as one undo entry', async () => {
+    subjects.detect.mockResolvedValue({ model: 'm/1', persons: [person(0), person(1)] });
+    await session.detectSubjects();
+    expect(subjects.detect).toHaveBeenCalledWith('asset-1');
+    expect(layers()).toHaveLength(2);
+    expect(layers()[0]).toMatchObject({
+      mask: {
+        kind: 'bitmap',
+        recipe: {
+          person: 0,
+          facialSkin: true,
+          bodySkin: true,
+          model: 'm/1',
+          digest: subjectMaskDigest('asset-1', 0, true, true, 'm/1'),
+        },
+        rasterId: 100,
+      },
+      range: { kind: 'color', hueDeg: 55 },
+      adjustments: {},
+    });
+    expect(session.selectedIndex()).toBe(0);
+    expect(session.detectMessage()).toBeNull();
+    editor.undo();
+    expect(layers()).toHaveLength(0);
+  });
+
+  it('detect with nobody found adds a whole-image skin range instead', async () => {
+    await session.detectSubjects();
+    expect(layers()).toHaveLength(1);
+    expect(layers()[0]).toMatchObject({
+      mask: { kind: 'everywhere' },
+      range: { kind: 'color', hueDeg: 55 },
+      adjustments: {},
+    });
+    expect(session.detectMessage()).toMatch(/No people detected/);
+  });
+
+  it('detect skips people that already have a mask', async () => {
+    subjects.detect.mockResolvedValue({ model: 'm/1', persons: [person(0)] });
+    await session.detectSubjects();
+    expect(layers()).toHaveLength(1);
+    await session.detectSubjects();
+    expect(layers()).toHaveLength(1);
+    expect(session.detectMessage()).toMatch(/already has a mask/);
+  });
+
+  it('a failed detect adds nothing and reports the reason', async () => {
+    subjects.detect.mockRejectedValue(new SubjectMaskError('unavailable', 'No segmentation yet.'));
+    await session.detectSubjects();
+    expect(layers()).toHaveLength(0);
+    expect(session.detectMessage()).toBe('No segmentation yet.');
+    expect(session.detectInFlight()).toBe(false);
+  });
+
+  it('a mid-detect raster failure releases the built layers and adds nothing', async () => {
+    subjects.detect.mockResolvedValue({ model: 'm/1', persons: [person(0), person(1)] });
+    subjects.ensureRaster.mockImplementation((recipe: { person: number; digest: string }) =>
+      recipe.person === 0
+        ? Promise.resolve(100)
+        : Promise.reject(new SubjectMaskError('failed', 'fetch broke')),
+    );
+    await session.detectSubjects();
+    expect(layers()).toHaveLength(0);
+    expect(subjects.releaseDigests).toHaveBeenCalledWith(
+      [subjectMaskDigest('asset-1', 0, true, true, 'm/1')],
+      [],
+    );
+    expect(session.detectMessage()).toBe('fetch broke');
+  });
+
+  it('remove releases the removed layer bitmap digests', async () => {
+    subjects.detect.mockResolvedValue({ model: 'm/1', persons: [person(0), person(1)] });
+    await session.detectSubjects();
+    const digest0 = subjectMaskDigest('asset-1', 0, true, true, 'm/1');
+    session.remove(0);
+    expect(subjects.releaseDigests).toHaveBeenCalledWith([digest0], layers());
+    expect(layers()).toHaveLength(1);
+  });
+
+  it('rehydration ensures bitmap rasters when the layers change', () => {
+    session.addLinear();
+    TestBed.flushEffects();
+    expect(subjects.ensureBitmapRasters).toHaveBeenCalled();
   });
 });
