@@ -181,6 +181,12 @@ Run `Maple.exe --lifecycle-smoke RAW OUT settings-sidebar` with a fresh output d
 
 Filmstrip media cells expose Invoke when a host subscribes to their action, with caller-owned selection reported through UI Automation item status. Passive cells have no Invoke pattern or tab stop; metadata editors retain their own input. Run `Maple.exe --lifecycle-smoke unused OUT media-cell` with a fresh output directory for attached-window provider checks on a real 64-item filmstrip. The `media-cell-input` variant additionally requires this actual OS input sequence within 240 seconds: click the first photo, press Space, press Enter, click the second thumbnail, expand the list, and click the third photo's metadata area. It records each event in `media-cell-input-events.jsonl` and verifies six ordered events, five photo actions and the final selected photo. Missing or extra input fails qualification. These controls have no image sources; this checks native interaction and accessibility, not RAW rendering or Narrator speech. Retain screenshots and binary/source provenance separately.
 
+Both media-cell modes also attach a cell with visible metadata controls. Input mode
+then requires a third-star click, Right on the focused rating control, Enter and Space,
+and a filename edit committed as `After.dng`. `media-metadata-input.json` and
+`media-metadata.jsonl` verify two rating changes, one rename and zero thumbnail actions.
+The metadata stage has its own 240-second input deadline.
+
 `Services/FileTypeRegistrar.cs` registers the ProgId `Maple.Exposure.Image` under `HKCU\Software\Classes` for the extensions in `DropMountLogic.SupportedExtensions` — additive only (an `OpenWithProgids` entry, never the default handler), the counterpart of Apple's document-type claims. `ProtocolRegistrar.cs` does the same for `maple-app://`. Both self-register at launch so the exe path stays fresh across rebuilds.
 
 ## Panorama
