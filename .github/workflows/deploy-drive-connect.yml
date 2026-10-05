@@ -1,4 +1,4 @@
-name: Deploy Drive callback relay
+name: Deploy Drive connection pages and callback relay
 on:
   workflow_dispatch:
 permissions:
@@ -23,11 +23,21 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
+      - name: Install connection page Worker dependencies
+        working-directory: src/cloudflare/ssr
+        run: npm ci
       - name: Validate deployment credentials
         run: node -e 'if (!process.env.CLOUDFLARE_API_TOKEN || !process.env.CLOUDFLARE_ACCOUNT_ID) throw new Error("Cloudflare deployment credentials required")'
       - name: Ensure production signing key is already provisioned
         run: |
           npx wrangler secret list > "$RUNNER_TEMP/drive-relay-secrets.json"
           node -e 'const fs=require("node:fs");const keys=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/drive-relay-secrets.json","utf8"));if(!keys.some(k=>k.name==="RELAY_SIGNING_KEY")) throw new Error("Provision production RELAY_SIGNING_KEY before deployment")'
-      - run: npx wrangler deploy --dry-run
+      - name: Validate connection page Worker bundle
+        working-directory: src/cloudflare/ssr
+        run: npx wrangler deploy --config wrangler.drive-connect.jsonc --dry-run
+      - name: Validate callback relay bundle
+        run: npx wrangler deploy --dry-run
+      - name: Deploy connection pages before callbacks
+        working-directory: src/cloudflare/ssr
+        run: npx wrangler deploy --config wrangler.drive-connect.jsonc
       - run: npm run deploy
