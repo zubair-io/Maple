@@ -62,6 +62,12 @@ color-renderable miss — see "Known coverage gaps" below). test_0008
 demosaic). test_0016 (Foveon) is still unrenderable but now surfaces
 a clear unsupported-format error instead of a silent decode fail.
 
+### Regional market aliases (`ucm_mapping.rs`)
+
+- **Canon EOS Kiss M / EOS Kiss M**: Japanese domestic release of the `Canon EOS M50` (identical sensor, color patterns, and color matrices). Aliased to `Canon EOS M50`.
+- **Canon EOS Kiss M2 / EOS Kiss M2**: Japanese domestic release of the `Canon EOS M50 Mark II`. Aliased to `Canon EOS M50 Mark II`.
+
+
 ## Known coverage gaps
 
 These bodies exist in the fixture set or are likely to be encountered
