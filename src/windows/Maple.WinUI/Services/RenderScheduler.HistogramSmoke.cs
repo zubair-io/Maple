@@ -7,6 +7,7 @@ namespace Maple.WinUI.Services;
 public sealed partial class RenderScheduler
 {
     private Action? _beforeHistogramPublishForSmoke;
+    private Action<Exception>? _histogramFailureForSmoke;
 
     // Explicit native lifecycle qualification only. Force replacement after
     // the real CPU call, where SetImage previously invalidated shared buffers.
@@ -19,6 +20,13 @@ public sealed partial class RenderScheduler
         scheduler.HistogramReady += bins =>
         {
             if (bins.Length != 1024) throw new InvalidOperationException("Invalid histogram bins");
+            for (var channel = 0; channel < 4; channel++)
+            {
+                long total = 0;
+                for (var bin = 0; bin < 256; bin++) total += bins[channel * 256 + bin];
+                if (total != image.Width * image.Height)
+                    throw new InvalidOperationException("Histogram lost pixels");
+            }
             histograms++;
         };
         scheduler.ClipOverlayEnabled = true;
@@ -29,6 +37,8 @@ public sealed partial class RenderScheduler
             clips++;
         };
         scheduler.RenderFailed += message => failure = message;
+        // Observe exceptions even when stale-frame error publication is rejected.
+        scheduler._histogramFailureForSmoke = error => failure = error.ToString();
         try
         {
             scheduler.SetImage(image);

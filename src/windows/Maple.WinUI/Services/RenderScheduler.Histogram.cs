@@ -32,6 +32,7 @@ namespace Maple.WinUI.Services
             catch (Exception ex)
             {
                 DiagLog.Write($"[histogram] {ex}");
+                _histogramFailureForSmoke?.Invoke(ex);
                 if (IsCurrentFrame(image)) RenderFailed?.Invoke(ex.Message);
             }
         }
