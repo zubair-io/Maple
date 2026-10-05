@@ -15,7 +15,7 @@
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
 use crate::raster_encode::EmbeddedMetadata;
-use jpeg_encoder::{ColorType, Encoder, PixelDensity, SamplingFactor};
+use jpeg_encoder::{ChromaSubsamplingMethod, ColorType, Encoder, PixelDensity, SamplingFactor};
 
 /// sharp's `chromaSubsampling` for JPEG. Only the two values sharp documents
 /// for RGB input are offered; the CMYK spellings are out of scope.
@@ -109,6 +109,17 @@ pub fn encode_jpeg_opts(
     let mut out: Vec<u8> = Vec::new();
     let mut encoder = Encoder::new(&mut out, options.quality.clamp(1, 100));
     encoder.set_sampling_factor(options.chroma_subsampling.sampling_factor());
+    // `jpeg-encoder` defaults to `Nearest`, which takes the TOP-LEFT pixel of
+    // each 2x2 block as the chroma sample — a point sample, not a filter, so
+    // any per-pixel chroma detail aliases. `Average` is libjpeg(-turbo)'s
+    // `h2v2_downsample`: a 2x2 box average with the rounding bias alternating
+    // 1, 2, 1, 2 across output columns (`jcsample.c`). libjpeg's
+    // `smoothing_factor` is 0 by default and sharp never sets it, so there is
+    // no "fancy"/smoothed downsample to match on the ENCODE side ("fancy"
+    // is libjpeg's decoder-side upsampler). Measured against sharp at quality
+    // 100 4:2:0 the decoded pixels are byte-identical; see #3584 and
+    // `src/maple/test/oracle.test.ts`. A no-op at 4:4:4 (stride 1).
+    encoder.set_chroma_subsampling_method(ChromaSubsamplingMethod::Average);
     encoder.set_progressive(options.progressive);
     encoder.set_optimized_huffman_tables(options.optimise_coding);
     encoder.set_density(density_for(meta.density));

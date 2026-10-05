@@ -18,7 +18,13 @@ import { maple } from '../src/index.ts';
 import { loadSharpOracle } from './support/sharp-oracle.ts';
 
 type SharpInstance = {
-  metadata(): Promise<{ channels: number; hasAlpha: boolean; depth: string; format: string }>;
+  metadata(): Promise<{
+    channels: number;
+    hasAlpha: boolean;
+    depth: string;
+    format: string;
+    chromaSubsampling?: string;
+  }>;
   raw(): { toBuffer(): Promise<Buffer> };
   jpeg(options: Record<string, unknown>): { toBuffer(): Promise<Buffer> };
   avif(options: Record<string, unknown>): { toBuffer(): Promise<Buffer> };
@@ -56,9 +62,10 @@ function source(channels: 3 | 4): Uint8Array<ArrayBuffer> {
  * channel is `(x * y) % 251`, a wrap-around moiré), which is the right
  * stressor for a byte-exact lossless round-trip and the wrong one for a
  * perceptual budget: it punishes 4:2:0 chroma downsampling far harder than
- * any photograph does. Measured, Maple minus sharp at 4:2:0 is -0.09 dB on
- * this source and -1.18 dB on that one, while at 4:4:4 — no chroma
- * downsampling at all — both sources give 0.00 dB. See #3584.
+ * any photograph does. Before #3584 (top-left point-sampled chroma), Maple
+ * minus sharp at q50 4:2:0 was -0.09 dB on this source and -1.18 dB on that
+ * one; with libjpeg's box-average downsample it is 0.00 dB and -0.07 dB, the
+ * same order as the 4:4:4 residual (-0.01 dB on both at q80).
  */
 function photographic(): Uint8Array {
   const data = new Uint8Array(W * H * 3);
@@ -283,6 +290,51 @@ if (sharp === null) {
         const mineDb = psnr(minePixels.raw, photo);
         const theirDb = psnr(theirPixels.raw, photo);
         expect(mineDb).toBeGreaterThanOrEqual(theirDb - 0.5);
+      }
+    });
+
+    /**
+     * #3584: Maple's 4:2:0 chroma downsample IS libjpeg-turbo's
+     * `h2v2_downsample` — 2x2 box average, rounding bias alternating 1, 2
+     * across output columns — not merely close to it.
+     *
+     * Quality 100 makes every quantiser step 1, so any difference in the
+     * downsampled chroma planes survives quantisation and shows up in the
+     * decode. At that setting both decoders return the exact same bytes for
+     * Maple's file and sharp's, on the per-pixel chroma moiré that exposed the
+     * gap (`rgb`, where the old top-left point sample decoded up to 98 levels
+     * a channel away from sharp at this setting),
+     * on the photographic source, and on an odd-sized crop that exercises
+     * libjpeg's right/bottom edge replication. The pin is tight enough to see
+     * the bias dither: a box average with a uniform `+2` rounding instead of
+     * the alternating 1, 2 was measured up to 4 levels off on every case here.
+     * Lower qualities are not
+     * byte-exact on EITHER subsampling — a separate quantisation-rounding
+     * residual that shows up at 4:4:4 too, which is why the 0.5 dB test above
+     * stays a PSNR budget.
+     */
+    it('JPEG 4:2:0 chroma downsampling is byte-exact to libjpeg-turbo (#3584)', async () => {
+      const crop = (data: Uint8Array, w: number, h: number) => {
+        const out = new Uint8Array(w * h * 3);
+        for (let y = 0; y < h; y++) {
+          out.set(data.subarray(y * W * 3, (y * W + w) * 3), y * w * 3);
+        }
+        return out;
+      };
+      const cases: Array<[string, Uint8Array, number, number]> = [
+        ['chroma moiré', rgb, W, H],
+        ['photographic', photo, W, H],
+        ['odd-sized moiré crop', crop(rgb, 61, 59), 61, 59],
+      ];
+      for (const [label, data, width, height] of cases) {
+        const opts = { quality: 100, chromaSubsampling: '4:2:0' as const };
+        const mine = await maple({ data, width, height, channels: 3 }).jpeg(opts).toBuffer();
+        const theirs = await sharp(Buffer.from(data), { raw: { width, height, channels: 3 } })
+          .jpeg(opts)
+          .toBuffer();
+        const [minePixels, theirPixels] = await Promise.all([readSharp(mine), readSharp(theirs)]);
+        expect(minePixels.meta.chromaSubsampling, label).toBe('4:2:0');
+        expect(minePixels.raw, label).toEqual(theirPixels.raw);
       }
     });
 
