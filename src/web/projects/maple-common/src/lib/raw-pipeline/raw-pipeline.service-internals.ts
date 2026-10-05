@@ -48,6 +48,8 @@ export interface OpenedLiveSession {
   cameraSupport?: CameraSupport;
   /** See `DecodeSuccess.lensProfile` (#3479). */
   lensProfile?: LensProfileResolution;
+  /** Actual applied Auto artifacts; absent until evaluated or with Neutral. */
+  autoFit?: boolean;
   colorSpace: string;
   /**
    * Downsampled RGB readback of the first presented frame, for the scopes (#1045).
@@ -66,6 +68,8 @@ export interface RenderedLiveSession {
   colorSpace: string;
   /** See `RenderSessionSuccess.lensProfile` (#3479). */
   lensProfile?: LensProfileResolution;
+  /** Actual applied Auto artifacts; absent until evaluated or with Neutral. */
+  autoFit?: boolean;
   // No `scopePixels` (#3397): the sample is broadcast out-of-band as
   // `scope-sample` and lands on `RawPipelineService.scopeSample`.
 }

@@ -235,3 +235,7 @@ pub fn version() -> String {
 // same pattern as `gpu_render/tests.rs`).
 #[cfg(test)]
 mod tests;
+
+// Fit identity checks do not require a GPU adapter; physical input is opt-in.
+#[cfg(all(test, feature = "gpu", not(target_arch = "wasm32")))]
+mod auto_fit_status_tests;

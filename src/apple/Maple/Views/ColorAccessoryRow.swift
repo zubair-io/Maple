@@ -56,12 +56,11 @@ struct ColorAccessoryRow: View {
   }
 
   private var profilePicker: some View {
-    HStack(spacing: 6) {
+    HStack(alignment: .top, spacing: 6) {
       Text("Profile")
         .font(.caption)
         .foregroundStyle(MapleTokens.textMuted)
-      ProfilePicker(selection: profileBinding)
-        .frame(maxWidth: 160)
+      ProfilePicker(selection: profileBinding, autoFitStatus: state.session.autoFitStatus)
     }
   }
 

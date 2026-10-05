@@ -51,6 +51,8 @@ describe('ImageCanvasRawOpen', () => {
     const host = {
       state: {
         updateAssetDimensions: vi.fn(),
+        resetAutoFit: vi.fn(),
+        autoFitRevisionFor: () => 0,
         seedAsShotWhiteBalance: vi.fn(),
         seedLensCorrections: vi.fn(),
         seedLensProfile: vi.fn(),

@@ -142,6 +142,8 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
         return models.get(id)!;
       },
       bytesFor: () => new Uint8Array([0x44, 0x4e, 0x47]),
+      resetAutoFit: vi.fn(),
+      autoFitRevisionFor: () => 0,
       seedAsShotWhiteBalance: vi.fn(
         (id: AssetId, temperature: number, tint: number, calibrated: boolean) => {
           const model = models.get(id)!;

@@ -1,3 +1,4 @@
+import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
 // editor-shell-parity.spec.ts — canvas-first editor (A) parity with the S5
 // editor (B), epic #1807 slice 5.
 //
@@ -97,7 +98,10 @@ describe('EditorShellComponent — parity with the S5 editor (epic #1807 slice 5
       snapshot: { paramMap: convertToParamMap({}), url: [] },
     };
 
+    const capabilities = new LensCorrectionCapabilities();
     const stateStub = {
+      resetAutoFit: capabilities.resetAutoFit.bind(capabilities),
+      autoFitRevisionFor: capabilities.autoFitRevisionFor.bind(capabilities),
       backend: 'self-hosted',
       focusedAsset: focused,
       focusedAssetId: () => focused()?.id ?? null,

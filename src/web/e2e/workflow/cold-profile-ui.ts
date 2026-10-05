@@ -1,3 +1,4 @@
+import { disposeProfileFixture, stageProfileFixture } from './profile-physical-fixtures';
 import {
   Component,
   createComponent,
@@ -13,7 +14,6 @@ import { ProfileSectionComponent } from '../../projects/maple-common/src/lib/com
 import { ImageCanvasComponent } from '../../projects/maple-common/src/lib/components/image-canvas/image-canvas.component';
 import { LibraryStateService } from '../../projects/maple-common/src/lib/state/library-state.service';
 import { EditorStateService } from '../../projects/maple-common/src/lib/editor/editor-state.service';
-import { FolderAccessService } from '../../projects/maple-common/src/lib/folder-access/folder-access.service';
 import { XmpStoreService } from '../../projects/maple-common/src/lib/xmp/xmp-store.service';
 import { RawPipelineService } from '../../projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service';
 import { GpuLiveRenderGate } from '../../projects/maple-common/src/lib/raw-pipeline/gpu-live-render.gate';
@@ -40,11 +40,7 @@ let active: {
 } | null = null;
 async function dispose() {
   if (!active) return;
-  const library = active.app.injector.get(LibraryStateService);
-  const id = library.focusedAssetId();
-  if (id) await active.app.injector.get(XmpStoreService).settleAsset(id);
-  active.app.destroy();
-  active.host.remove();
+  await disposeProfileFixture(active);
   active = null;
 }
 Object.assign(window, {
@@ -100,17 +96,8 @@ Object.assign(window, {
           return result;
         };
       }
-      const root = await navigator.storage.getDirectory();
-      const folderName = name ?? 'maple-cold-profile-' + crypto.randomUUID();
-      const native = await root.getDirectoryHandle(folderName, { create: true });
-      const folder = { native, name: folderName, read: true, write: true };
-      const access = app.injector.get(FolderAccessService);
-      if (!name)
-        for (const filename of files) {
-          const response = await fetch('/physical-raw/' + filename);
-          if (!response.ok) throw Error('Missing physical fixture: ' + filename);
-          await access.writeFile(folder, filename, new Uint8Array(await response.arrayBuffer()));
-        }
+      const folder = await stageProfileFixture(app, files, 'maple-cold-profile-', name);
+      const folderName = folder.name;
       const library = app.injector.get(LibraryStateService);
       await library.openFolder(folder);
       const first = library.assets().find((a) => a.filename === files[0]);

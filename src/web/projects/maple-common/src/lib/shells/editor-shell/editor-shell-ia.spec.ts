@@ -1,3 +1,4 @@
+import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
 // editor-shell-ia.spec.ts — the responsive-shell information architecture
 // (#2449, milestone 18 design spec §3.2) through the REAL shell template:
 //
@@ -107,7 +108,10 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
 
     const route = { url: of([]), snapshot: { paramMap: convertToParamMap({}), url: [] } };
 
+    const capabilities = new LensCorrectionCapabilities();
     const stateStub = {
+      resetAutoFit: capabilities.resetAutoFit.bind(capabilities),
+      autoFitRevisionFor: capabilities.autoFitRevisionFor.bind(capabilities),
       backend: 'self-hosted',
       focusedAsset: focused,
       focusedAssetId: () => focused()?.id ?? null,

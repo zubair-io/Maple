@@ -1,3 +1,4 @@
+import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
 // editor-shell-presets.spec.ts — canvas-first editor (A) presets port (#1815).
 //
 // A had no way to open the presets panel: no dock entry, no panel-mount
@@ -90,7 +91,10 @@ describe('EditorShellComponent — presets port (#1815)', () => {
       snapshot: { paramMap: convertToParamMap({}), url: [] },
     };
 
+    const capabilities = new LensCorrectionCapabilities();
     const stateStub = {
+      resetAutoFit: capabilities.resetAutoFit.bind(capabilities),
+      autoFitRevisionFor: capabilities.autoFitRevisionFor.bind(capabilities),
       // Matches the LIBRARY_BACKEND token below ('hosted') — the two must
       // agree, since LibraryStateService.backend and the injectable token
       // both describe the same "which app is this" concept in real wiring

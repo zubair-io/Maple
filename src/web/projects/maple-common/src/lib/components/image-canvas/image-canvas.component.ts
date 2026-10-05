@@ -268,6 +268,7 @@ export class ImageCanvasComponent
         }
         if (a.id === this.currentAssetId) return; // same asset, skip
         this.currentAssetId = a.id;
+        this.state.resetAutoFit(a.id);
         this.adjustmentEffect.reset();
         // New asset → invalidate any in-flight adjustment re-render and drop
         // the retained bytes. `lastRenderedXmp` is reset so the first edit on

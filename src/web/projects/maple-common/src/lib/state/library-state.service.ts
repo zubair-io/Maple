@@ -253,20 +253,23 @@ export class LibraryStateService {
     return this.store.asShotWbFor(id);
   }
 
-  /** Record `id`'s decode-time lens-correction capability (#3182) — call
-   *  from the cold-open call sites right beside `seedAsShotWhiteBalance`.
-   *  Reached only through the `Render2dHost`/`GpuPresentHost` interface (see
-   *  `image-canvas.render2d.ts` / `image-canvas.gpu-present.ts`), which
-   *  static analysis can't trace back to this concrete method — same
-   *  false-positive class as `seedAsShotWhiteBalance` above and
-   *  `RawPipelineService.openLiveSession`. */
-  // fallow-ignore-next-line unused-class-member
+  /** Revision owned by real image opens and authored profile transitions. */
+  autoFitRevisionFor(id: AssetId): number {
+    return this.store.lensCorrections.autoFitRevisionFor(id);
+  }
+
+  resetAutoFit(id: AssetId): void {
+    this.store.lensCorrections.resetAutoFit(id);
+  }
+
   seedLensCorrections(
     id: AssetId,
     hasLensCorrections: boolean,
     lensCorrectionCaInert: boolean,
     cameraSupport?: CameraSupport | null,
     lensProfile?: LensProfileResolution | null,
+    autoFit?: boolean,
+    fitRevision?: number,
   ): void {
     this.store.lensCorrections.seed(
       id,
@@ -274,15 +277,19 @@ export class LibraryStateService {
       lensCorrectionCaInert,
       cameraSupport,
       lensProfile,
+      autoFit,
+      fitRevision,
     );
   }
 
-  /** Record the latest render's verdict on `id`'s imported lens profile
-   *  (#3479); `null` clears it. Same interface-only reachability as
-   *  `seedLensCorrections` above. */
-  // fallow-ignore-next-line unused-class-member
-  seedLensProfile(id: AssetId, lensProfile: LensProfileResolution | null): void {
-    this.store.lensCorrections.seedProfile(id, lensProfile);
+  /** Record the latest render's imported-profile and Auto verdicts. */
+  seedLensProfile(
+    id: AssetId,
+    lensProfile: LensProfileResolution | null,
+    autoFit?: boolean,
+    fitRevision?: number,
+  ): void {
+    this.store.lensCorrections.seedProfile(id, lensProfile, autoFit, fitRevision);
   }
 
   /** Per-asset lens-correction capability (#3182); the fail-closed default

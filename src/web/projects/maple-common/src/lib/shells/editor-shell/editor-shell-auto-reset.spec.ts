@@ -1,3 +1,4 @@
+import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
 // editor-shell-auto-reset.spec.ts — AUTO / RESET reachability (#2244).
 //
 // Epic #1370 shipped both controls, but their only host was
@@ -102,7 +103,10 @@ describe('EditorShellComponent — AUTO / RESET reachability (#2244)', () => {
 
     const route = { url: of([]), snapshot: { paramMap: convertToParamMap({}), url: [] } };
 
+    const capabilities = new LensCorrectionCapabilities();
     const stateStub = {
+      resetAutoFit: capabilities.resetAutoFit.bind(capabilities),
+      autoFitRevisionFor: capabilities.autoFitRevisionFor.bind(capabilities),
       backend: 'self-hosted',
       focusedAsset: focused,
       focusedAssetId: () => focused()?.id ?? null,

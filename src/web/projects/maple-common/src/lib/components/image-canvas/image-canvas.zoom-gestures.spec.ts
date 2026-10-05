@@ -27,6 +27,7 @@ import {
   type ZoomGestureHost,
 } from './image-canvas.zoom-gestures';
 import { LibraryStateService } from '../../state/library-state.service';
+import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
@@ -233,6 +234,7 @@ describe('ImageCanvasComponent zoom wiring (#1100)', () => {
       Promise.resolve({ close: vi.fn() } as unknown as ImageBitmap),
     );
 
+    const capabilities = new LensCorrectionCapabilities();
     const stateStub = {
       focusedAsset: focused,
       adjustmentFor: (id: AssetId) => {
@@ -241,6 +243,11 @@ describe('ImageCanvasComponent zoom wiring (#1100)', () => {
       },
       bytesFor: () => new Uint8Array([0x44, 0x4e, 0x47]),
       seedAsShotWhiteBalance: vi.fn(),
+      resetAutoFit: capabilities.resetAutoFit.bind(capabilities),
+      seedLensCorrections: capabilities.seed.bind(capabilities),
+      autoFitRevisionFor: capabilities.autoFitRevisionFor.bind(capabilities),
+      seedLensProfile: capabilities.seedProfile.bind(capabilities),
+      lensCorrectionsFor: (id: string) => capabilities.for(id),
       updateAssetDimensions: vi.fn(),
       openDownloadProgress: signal(null),
     } as unknown as Partial<LibraryStateService>;

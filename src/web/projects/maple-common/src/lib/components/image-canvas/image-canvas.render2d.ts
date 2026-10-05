@@ -1,3 +1,5 @@
+import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
+import { settleFailedAutoFit } from './image-canvas.fit-failure';
 import { coldOpenRenderedModel } from './image-canvas.cold-open-intent';
 import { hasCalibratedWhiteBalance } from '../../state/camera-support';
 // image-canvas.render2d.ts — the 2D-canvas decode/paint paths for
@@ -109,6 +111,8 @@ export async function coldOpen2d(
 ): Promise<void> {
   host.loading.set(true);
   const generation = host.renderGeneration;
+  const state: LibraryStateService = host.state;
+  const fitRevision = state.autoFitRevisionFor(assetId);
   const sizing = { maxLongEdge: host.fastTargetPx(), qualityPreview: true };
   // Bracket the whole click → pixels path. `maple:open` is the outer measure;
   // `maple:decode` (service) and `maple:wasm` (worker) are nested sub-intervals.
@@ -121,41 +125,7 @@ export async function coldOpen2d(
     const decoded = await host.pipeline.decode(bytes, ext, openXmp, sizing.maxLongEdge, true);
     if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
 
-    // Update dimensions on the asset — the NATIVE dims (the sized reply carries
-    // them), not the viewport-sized buffer's.
-    const nativeW = decoded.nativeWidth ?? decoded.width;
-    const nativeH = decoded.nativeHeight ?? decoded.height;
-    host.state.updateAssetDimensions(assetId, nativeW, nativeH);
-    if (assetId === host.currentAssetId) {
-      host.recordNativeDims(nativeW, nativeH);
-    }
-
-    // Seed WB sliders from the camera "As Shot" metadata (cosmetic sync with
-    // what Rust used; guarded on "still default" so it never clobbers edits).
-    host.state.seedAsShotWhiteBalance(
-      assetId,
-      decoded.asShotTemperature,
-      decoded.asShotTint,
-      hasCalibratedWhiteBalance(decoded.cameraSupport),
-    );
-    // #3182: record the decode-time lens-correction signal for the Lens
-    // Corrections panel. Absent (older stubs / non-updated fakes) reads as
-    // the fail-closed default (see `decodeSupportFrom` above).
-    const support = decodeSupportFrom(decoded);
-    host.state.seedLensCorrections(
-      assetId,
-      support.hasLensCorrections,
-      support.lensCorrectionCaInert,
-      support.cameraSupport,
-      support.lensProfile,
-    );
-
-    // Record the dispatched intent before releasing queued edits (#4101).
-    // As-Shot hydration describes this frame; a later live edit does not.
-    if (host.lastRenderedXmp === null) {
-      host.lastRenderedXmp = host.serializeForRender(coldOpenRenderedModel(openModel, decoded));
-    }
-    host.markColdOpenDone();
+    publishColdOpenMetadata(host, assetId, decoded, openModel, fitRevision);
 
     host.canvasSvc.currentPixels.set(decoded);
 
@@ -184,13 +154,71 @@ export async function coldOpen2d(
     }
   } catch (e) {
     console.error('Decode failed for', filename, e);
-    if (!host.hasProvisionalPreview(assetId)) {
-      host.imageBitmap()?.close();
-      host.imageBitmap.set(null);
-    }
+    if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
+    settleColdOpenFailure(host, assetId, generation, fitRevision);
   } finally {
     host.loading.set(false);
   }
+}
+
+function settleColdOpenFailure(
+  host: Render2dHost,
+  assetId: AssetId,
+  generation: number,
+  fitRevision: number,
+): void {
+  settleFailedAutoFit(host, assetId, generation, fitRevision);
+  if (!host.hasProvisionalPreview(assetId)) {
+    host.imageBitmap()?.close();
+    host.imageBitmap.set(null);
+  }
+}
+
+function publishColdOpenMetadata(
+  host: Render2dHost,
+  assetId: AssetId,
+  decoded: DecodedImage,
+  openModel: AdjustmentModel,
+  fitRevision: number,
+): void {
+  const state: LibraryStateService = host.state;
+  // Update dimensions on the asset — the NATIVE dims (the sized reply carries
+  // them), not the viewport-sized buffer's.
+  const nativeW = decoded.nativeWidth ?? decoded.width;
+  const nativeH = decoded.nativeHeight ?? decoded.height;
+  host.state.updateAssetDimensions(assetId, nativeW, nativeH);
+  if (assetId === host.currentAssetId) {
+    host.recordNativeDims(nativeW, nativeH);
+  }
+
+  // Seed WB sliders from the camera "As Shot" metadata (cosmetic sync with
+  // what Rust used; guarded on "still default" so it never clobbers edits).
+  host.state.seedAsShotWhiteBalance(
+    assetId,
+    decoded.asShotTemperature,
+    decoded.asShotTint,
+    hasCalibratedWhiteBalance(decoded.cameraSupport),
+  );
+  // #3182: record the decode-time lens-correction signal for the Lens
+  // Corrections panel. Absent (older stubs / non-updated fakes) reads as
+  // the fail-closed default (see `decodeSupportFrom` above).
+  const support = decodeSupportFrom(decoded);
+  state.seedLensCorrections(
+    assetId,
+    support.hasLensCorrections,
+    support.lensCorrectionCaInert,
+    support.cameraSupport,
+    support.lensProfile,
+    decoded.autoFit,
+    fitRevision,
+  );
+
+  // Record the dispatched intent before releasing queued edits (#4101).
+  // As-Shot hydration describes this frame; a later live edit does not.
+  if (host.lastRenderedXmp === null) {
+    host.lastRenderedXmp = host.serializeForRender(coldOpenRenderedModel(openModel, decoded));
+  }
+  host.markColdOpenDone();
 }
 
 /**
@@ -211,6 +239,9 @@ export async function runRender2d(
   bytes: Uint8Array,
   ext: string,
 ): Promise<void> {
+  const fitAsset = host.currentAssetId;
+  const state: LibraryStateService = host.state;
+  const fitRevision = fitAsset ? state.autoFitRevisionFor(fitAsset) : undefined;
   try {
     const filmLut = host.filmSync.cpuLutBytesForCurrent();
     const decoded = await host.pipeline.decode(
@@ -227,7 +258,12 @@ export async function runRender2d(
     // #3479: every render reply is authoritative about the imported profile
     // it consumed — the panel enables per calibrated family from this.
     if (host.currentAssetId)
-      host.state.seedLensProfile(host.currentAssetId, decoded.lensProfile ?? null);
+      state.seedLensProfile(
+        host.currentAssetId,
+        decoded.lensProfile ?? null,
+        decoded.autoFit,
+        fitRevision,
+      );
     host.canvasSvc.currentPixels.set(decoded);
     const bitmap = await imageDataToBitmap(decoded);
     if (generation !== host.renderGeneration) {
@@ -249,5 +285,6 @@ export async function runRender2d(
       });
   } catch (e) {
     console.error('[image-canvas] adjustment re-render failed:', e);
+    settleFailedAutoFit(host, fitAsset, generation, fitRevision);
   }
 }

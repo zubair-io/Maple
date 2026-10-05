@@ -173,7 +173,22 @@ fn render_display_from_raw(
     max_long_edge: Option<u32>,
     film_lut: Option<&film::FilmLut>,
 ) -> Result<(u32, u32, Vec<u8>)> {
-    let mut scene = render_display_scene(
+    render_from_raw_with_auto_fit(raw, model, quality, raw_source, max_long_edge, film_lut)
+        .map(|(w, h, bytes, _)| (w, h, bytes))
+}
+
+/// Display render with the actual Auto tail outcome (#4096). `None` means
+/// Auto was not selected; `Some(false)` means no usable fit was applied.
+/// Retains the existing render's result, without a second fit or source probe.
+pub fn render_from_raw_with_auto_fit(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    raw_source: Option<RawInput<'_>>,
+    max_long_edge: Option<u32>,
+    film_lut: Option<&film::FilmLut>,
+) -> Result<(u32, u32, Vec<u8>, Option<bool>)> {
+    let (mut scene, context) = render_display_scene_with_context(
         raw,
         model,
         quality,
@@ -186,14 +201,17 @@ fn render_display_from_raw(
     let bytes = stage("dither_and_quantize", || {
         encode::dither_and_quantize(&mut scene)
     });
-    Ok(finish::apply_geometry(
+    let auto_fit = (model.profile == Profile::Auto)
+        .then_some(context.profile_curve.is_some() || context.profile_lut.is_some());
+    let (w, h, bytes) = finish::apply_geometry(
         bytes,
         w,
         h,
         raw.orientation,
         &crate::stages::perspective::Perspective::from_model(model),
         &model.crop,
-    ))
+    );
+    Ok((w, h, bytes, auto_fit))
 }
 
 /// Shared body of every display-referred render: develop (full-res or
@@ -433,3 +451,6 @@ mod dither_terminal_tests;
 // per the same size-budget convention.
 #[cfg(test)]
 mod film_look_tests;
+
+#[cfg(test)]
+mod auto_fit_status_tests;

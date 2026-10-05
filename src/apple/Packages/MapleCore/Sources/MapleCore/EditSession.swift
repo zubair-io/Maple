@@ -22,7 +22,11 @@ import Foundation
 @MainActor
 @Observable
 public final class EditSession {
-  public internal(set) var asset: AssetRef
+  public internal(set) var asset: AssetRef {
+    didSet { if asset.id != oldValue.id { resetAutoFitStatus() } }
+  }
+  public internal(set) var autoFitStatus: AutoFitStatus = .pending
+  var autoFitRevision: UInt64 = 0
   public internal(set) var hasLoadedSidecar = false
 
   /// Byte-download progress for a remote (cloud) asset open (#822). Set by
@@ -42,6 +46,7 @@ public final class EditSession {
       if let selectedMaskId, !model.localAdjustments.contains(where: { $0.id == selectedMaskId }) {
         self.selectedMaskId = nil
       }
+      if model.profile != oldValue.profile { resetAutoFitStatus() }
       guard !isHydratingInitialState else { return }
       // Slider → render wire. If this log doesn't fire on a slider
       // drag, the @Bindable write never landed on `session.model` (the

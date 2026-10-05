@@ -45,7 +45,7 @@
 //!
 //! `render` rides the IDENTICAL develop + fit + chain as the one-shot
 //! `render_bytes_gpu` (shared [`crate::gpu_render::develop_prefix_rgba`] /
-//! [`crate::gpu_render::chain_inputs_for_model`]), then the same f32 chain
+//! [`crate::gpu_render::chain_inputs_with_status`]), then the same f32 chain
 //! ([`LiveSession::render_chain_to_f32_async`]) the headless C4 path runs; the
 //! surface present applies the same `dither_and_quantize` math `dither.wgsl` does
 //! (`present_chain.wgsl`, gated offscreen vs the CPU oracle in
@@ -55,7 +55,7 @@
 //! the #1029-W3 maintainer checkpoint.
 
 use crate::gpu_render::{
-    chain_inputs_for_model, develop_prefix_rgba, effective_target_long_edge, prefix_model_for,
+    chain_inputs_with_status, develop_prefix_rgba, effective_target_long_edge, prefix_model_for,
     resolve_target_color_space, GpuWhiteBalance,
 };
 use raw_core::stages::perspective;
@@ -123,6 +123,7 @@ pub struct WebLiveSession {
     /// Resolver facts for the imported LCP profile the model names (#3479),
     /// refreshed whenever a prefix re-develop consumes a new selection.
     lens_profile_json: Option<String>,
+    auto_fit: std::cell::Cell<Option<bool>>,
     /// The session-resident baked film-look grid (epic #2683, Task 9), decoded
     /// via [`raw_core::film::decode_mlut`] and folded into every tick's
     /// [`raw_gpu::FullChainInputs`] by [`WebLiveSession::present_for_model`].
@@ -264,6 +265,7 @@ impl WebLiveSession {
             as_shot_tint,
             camera_support_json: camera_support.map(|support| support.to_json()),
             lens_profile_json,
+            auto_fit: std::cell::Cell::new(None),
             // No look loaded on open — the editor uploads one on selection via
             // `set_film_lut` (Task 9). Matches the render entries' `film_lut:
             // None` no-op contract.
@@ -453,6 +455,11 @@ impl WebLiveSession {
     /// Resolver facts for the imported LCP profile this session's model names
     /// (#3479) — see [`crate::render::MapleRender::lens_profile_json`]. Read
     /// after `open` and after every `render` that re-developed the prefix.
+    #[wasm_bindgen(getter, js_name = autoFit)]
+    pub fn auto_fit(&self) -> Option<bool> {
+        self.auto_fit.get()
+    }
+
     #[wasm_bindgen(getter, js_name = lensProfileJson)]
     pub fn lens_profile_json(&self) -> Option<String> {
         self.lens_profile_json.clone()
@@ -506,7 +513,7 @@ impl WebLiveSession {
     }
 
     async fn present_for_model(&self, model: &AdjustmentModel) -> Result<String, String> {
-        let mut inputs = chain_inputs_for_model(
+        let (mut inputs, auto_fit) = chain_inputs_with_status(
             &self.raw_img,
             &self.raw,
             &self.ext,
@@ -520,7 +527,7 @@ impl WebLiveSession {
         // #1913 (generalised by #3191): the display-encode primaries MUST match
         // the canvas colour-space tag the present surface ACHIEVED — not the
         // `target_color_space` `open` was asked for, which the browser may not
-        // have granted. `chain_inputs_for_model` defaults to sRGB (correct for
+        // have granted. `chain_inputs_with_status` defaults to sRGB (correct for
         // the one-shot u8-readback path), so encode P3 only when the browser
         // actually configured a display-p3-tagged canvas, else the pixels are
         // reinterpreted in the wrong-width gamut (oversaturated if P3-encoded
@@ -542,6 +549,7 @@ impl WebLiveSession {
             final_idx,
             self.present_geometry(model),
         )?;
+        self.auto_fit.set(auto_fit);
         Ok(self.present.color_space().to_string())
     }
 }

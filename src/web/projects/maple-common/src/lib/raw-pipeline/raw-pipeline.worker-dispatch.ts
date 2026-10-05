@@ -63,6 +63,7 @@ const settleLegacy: Settler<'legacy'> = (msg, handler) => {
       lensCorrectionCaInert: msg.lensCorrectionCaInert,
       cameraSupport: msg.cameraSupport,
       lensProfile: msg.lensProfile,
+      autoFit: msg.autoFit,
     });
     return true;
   }
@@ -106,6 +107,7 @@ const settleOpenSession: Settler<'open-session'> = (msg, handler) => {
       lensCorrectionCaInert: msg.lensCorrectionCaInert,
       cameraSupport: msg.cameraSupport,
       lensProfile: msg.lensProfile,
+      autoFit: msg.autoFit,
       colorSpace: msg.colorSpace,
       scopePixels: scopeToDecoded(msg.scope),
     });
@@ -122,7 +124,11 @@ const settleRenderSession: Settler<'render-session'> = (msg, handler) => {
   if (msg.type === 'render-session-success') {
     // No scopePixels here (#3397): the sample arrives out-of-band as a
     // 'scope-sample' broadcast so this reply doesn't wait on a GPU sync.
-    handler.resolve({ colorSpace: msg.colorSpace, lensProfile: msg.lensProfile });
+    handler.resolve({
+      colorSpace: msg.colorSpace,
+      lensProfile: msg.lensProfile,
+      autoFit: msg.autoFit,
+    });
     return true;
   }
   if (msg.type === 'session-error') {

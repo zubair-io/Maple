@@ -1,3 +1,4 @@
+import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
 // editor-shell-hsl.spec.ts — canvas-first editor (A) HSL / color-mix port
 // (epic #1807 slice 4).
 //
@@ -104,7 +105,10 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
       snapshot: { paramMap: convertToParamMap({}), url: [] },
     };
 
+    const capabilities = new LensCorrectionCapabilities();
     const stateStub = {
+      resetAutoFit: capabilities.resetAutoFit.bind(capabilities),
+      autoFitRevisionFor: capabilities.autoFitRevisionFor.bind(capabilities),
       backend: 'self-hosted',
       focusedAsset: focused,
       focusedAssetId: () => focused()?.id ?? null,

@@ -72,7 +72,7 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
       ) => Promise<DecodedImage>
     >(async () => decoded);
     const host = {
-      state: { seedLensProfile: vi.fn() },
+      state: { autoFitRevisionFor: () => 0, seedLensProfile: vi.fn() },
       canvasSvc: { currentPixels: signal<DecodedImage | null>(null) },
       pipeline: { decode },
       filmSync: { cpuLutBytesForCurrent: () => cpuLutBytes },
@@ -146,6 +146,7 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
       capabilities.seed(ASSET_ID, true, false, ASSESSED_SUPPORT);
       const seedLensCorrections = vi.fn(capabilities.seed.bind(capabilities));
       (host as unknown as { state: unknown }).state = {
+        autoFitRevisionFor: () => 0,
         updateAssetDimensions: vi.fn(),
         seedAsShotWhiteBalance: vi.fn(),
         seedLensCorrections,
@@ -171,6 +172,8 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
         true,
         expected,
         null,
+        undefined,
+        0,
       );
       expect(capabilities.for(ASSET_ID).cameraSupport).toEqual(expected ?? undefined);
 
@@ -189,6 +192,19 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
     },
   );
 
+  it('publishes actual Auto outcomes and drops a stale render reply', async () => {
+    const { host, decode } = harness(undefined);
+    decode.mockResolvedValue({ ...decoded, autoFit: true });
+    await runRender2d(host, '<auto />', 1, SIZING, new Uint8Array([1]), 'dng');
+    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith(ASSET_ID, null, true, 0);
+    decode.mockResolvedValue({ ...decoded, autoFit: false });
+    await runRender2d(host, '<auto />', 1, SIZING, new Uint8Array([1]), 'dng');
+    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith(ASSET_ID, null, false, 0);
+    const calls = vi.mocked(host.state.seedLensProfile).mock.calls.length;
+    await runRender2d(host, '<stale />', 0, SIZING, new Uint8Array([1]), 'dng');
+    expect(vi.mocked(host.state.seedLensProfile).mock.calls).toHaveLength(calls);
+  });
+
   it('records the opened Neutral frame when Auto is selected during decode (#4101)', async () => {
     const { host, decode } = harness(undefined);
     const model = signal<ReturnType<typeof defaultAdjustmentModel>>({
@@ -198,6 +214,7 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
     const serializer = new XmpSerializerService();
     Object.assign(host.state, {
       adjustmentFor: () => model,
+      autoFitRevisionFor: () => 0,
       updateAssetDimensions: vi.fn(),
       seedAsShotWhiteBalance: vi.fn(),
       seedLensCorrections: vi.fn(),
@@ -227,6 +244,34 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
     expect(host.lastRenderedXmp).not.toBe(serializer.serialize(model()));
   });
 
+  it('marks a current Auto decode failure unavailable, while dropping a stale failure', async () => {
+    const { host, decode } = harness(undefined);
+    const capabilities = new LensCorrectionCapabilities();
+    const profile = signal(defaultAdjustmentModel());
+    const publish = vi.fn(capabilities.seedProfile.bind(capabilities));
+    Object.assign(host.state, {
+      autoFitRevisionFor: capabilities.autoFitRevisionFor.bind(capabilities),
+      adjustmentFor: () => profile,
+      lensCorrectionsFor: capabilities.for.bind(capabilities),
+      seedLensProfile: publish,
+    });
+    Object.assign(host, { fastTargetPx: () => 512, hasProvisionalPreview: () => false });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    decode.mockRejectedValue(new Error('decode failed'));
+    await coldOpen2d(host, ASSET_ID, 'broken.dng', 'dng', new Uint8Array([1]));
+    expect(capabilities.for(ASSET_ID).autoFit).toBe(false);
+    expect(publish).toHaveBeenCalledTimes(1);
+    profile.set({ ...defaultAdjustmentModel(), profile: 'Neutral' });
+    await coldOpen2d(host, ASSET_ID, 'broken.dng', 'dng', new Uint8Array([1]));
+    expect(publish).toHaveBeenCalledTimes(1);
+    decode.mockImplementation(async () => {
+      Object.assign(host, { renderGeneration: 2, currentAssetId: 'asset-2' });
+      throw Error('stale decode failed');
+    });
+    await coldOpen2d(host, ASSET_ID, 'broken.dng', 'dng', new Uint8Array([1]));
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
   it("seeds the render reply's imported-profile verdict on every re-render (#3479)", async () => {
     const reference = `lcp1:${'a'.repeat(64)}`;
     const verdict = {
@@ -239,11 +284,11 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
     const { host, decode } = harness(undefined);
     decode.mockResolvedValue({ ...decoded, lensProfile: verdict });
     await runRender2d(host, '<xmp />', 1, SIZING, new Uint8Array([1, 2, 3]), 'dng');
-    expect(host.state.seedLensProfile).toHaveBeenCalledWith(ASSET_ID, verdict);
+    expect(host.state.seedLensProfile).toHaveBeenCalledWith(ASSET_ID, verdict, undefined, 0);
 
     decode.mockResolvedValue(decoded);
     await runRender2d(host, '<xmp />', 1, SIZING, new Uint8Array([1, 2, 3]), 'dng');
-    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith(ASSET_ID, null);
+    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith(ASSET_ID, null, undefined, 0);
   });
 
   it('reopens the CPU preview with its persisted sidecar, imported profile included (#3479)', async () => {
@@ -261,6 +306,7 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
     const seedLensCorrections = vi.fn();
     Object.assign(host, {
       state: {
+        autoFitRevisionFor: () => 0,
         updateAssetDimensions: vi.fn(),
         seedAsShotWhiteBalance: vi.fn(),
         seedLensCorrections,
@@ -280,7 +326,15 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
 
     expect(decode.mock.calls[0]![2]).toContain(reference);
     expect(host.imageBitmap()).not.toBeNull();
-    expect(seedLensCorrections).toHaveBeenCalledWith(ASSET_ID, false, true, null, verdict);
+    expect(seedLensCorrections).toHaveBeenCalledWith(
+      ASSET_ID,
+      false,
+      true,
+      null,
+      verdict,
+      undefined,
+      0,
+    );
     expect(host.lastRenderedXmp).toContain(reference);
     expect(host.nativeDetail?.recordBase).toHaveBeenCalledWith({
       assetId: ASSET_ID,

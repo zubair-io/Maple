@@ -148,6 +148,7 @@ function postOpenSessionSuccess(req: OpenSessionRequest, session: WebLiveSession
     hasLensCorrections: session.hasLensCorrections,
     lensCorrectionCaInert: session.lensCorrectionCaInert,
     cameraSupport: cameraSupportFromJson(session.cameraSupportJson),
+    autoFit: session.autoFit,
     lensProfile: lensProfileFromJson(session.lensProfileJson), // #3479
     // The TRUTH the browser configured after the one-time display-p3 retag
     // `open` did (read back via `getConfiguration()`), never an assumption.
@@ -246,6 +247,7 @@ function postRenderSessionSuccess(
     colorSpace,
     // #3479: a scalar-params tick never re-develops, so only an XMP render
     // can have changed which imported profile the prefix consumed.
+    autoFit: req.params ? undefined : session.autoFit,
     lensProfile: req.params ? undefined : lensProfileFromJson(session.lensProfileJson),
   };
   (self as unknown as Worker).postMessage(response);

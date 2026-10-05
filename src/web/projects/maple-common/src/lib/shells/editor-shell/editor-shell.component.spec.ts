@@ -1,3 +1,4 @@
+import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
 // editor-shell.component.spec.ts — guards applyRouteAddress route resolution.
 //
 // These are the paths the click-to-open bug (#1367/#1368) lived in: the editor
@@ -266,7 +267,10 @@ function renderShell(opts: {
 
   const route = { url: of([]), snapshot: { paramMap: convertToParamMap({}), url: [] } };
 
+  const capabilities = new LensCorrectionCapabilities();
   const stateStub = {
+    resetAutoFit: capabilities.resetAutoFit.bind(capabilities),
+    autoFitRevisionFor: capabilities.autoFitRevisionFor.bind(capabilities),
     backend: 'self-hosted',
     focusedAsset: focused,
     focusedAssetId: () => focused()?.id ?? null,

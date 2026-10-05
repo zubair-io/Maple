@@ -29,6 +29,8 @@ export interface LensCorrectionCapability {
    *  consumed (#3479); absent when the sidecar named none or the worker
    *  held no copy of it. */
   lensProfile?: LensProfileResolution;
+  /** Actual Auto artifacts from the latest completed render (#4096). */
+  autoFit?: boolean;
 }
 
 /**
@@ -43,6 +45,7 @@ export const DEFAULT_LENS_CORRECTION_CAPABILITY: LensCorrectionCapability = {
 };
 
 export class LensCorrectionCapabilities {
+  private readonly fitRevisions = new Map<AssetId, number>();
   readonly byAsset: WritableSignal<Map<AssetId, LensCorrectionCapability>> = signal(new Map());
 
   /**
@@ -58,6 +61,8 @@ export class LensCorrectionCapabilities {
     lensCorrectionCaInert: boolean,
     cameraSupport?: CameraSupport | null,
     lensProfile?: LensProfileResolution | null,
+    autoFit?: boolean,
+    fitRevision?: number,
   ): void {
     this.byAsset.update((map) => {
       const next = new Map(map);
@@ -67,6 +72,9 @@ export class LensCorrectionCapabilities {
         lensCorrectionCaInert,
         ...(cameraSupport !== undefined ? { cameraSupport: cameraSupport ?? undefined } : {}),
         ...(lensProfile !== undefined ? { lensProfile: lensProfile ?? undefined } : {}),
+        ...(autoFit !== undefined && fitRevision === this.autoFitRevisionFor(id)
+          ? { autoFit }
+          : {}),
       });
       return next;
     });
@@ -78,11 +86,38 @@ export class LensCorrectionCapabilities {
    * verdict the sidecar no longer names. Leaves the decode-time opcode
    * facts alone; an asset with no decode yet keeps the fail-closed default.
    */
-  seedProfile(id: AssetId, lensProfile: LensProfileResolution | null): void {
+  seedProfile(
+    id: AssetId,
+    lensProfile: LensProfileResolution | null,
+    autoFit?: boolean,
+    fitRevision?: number,
+  ): void {
     this.byAsset.update((map) => {
       const current = map.get(id) ?? DEFAULT_LENS_CORRECTION_CAPABILITY;
       const next = new Map(map);
-      next.set(id, { ...current, lensProfile: lensProfile ?? undefined });
+      next.set(id, {
+        ...current,
+        lensProfile: lensProfile ?? undefined,
+        ...(autoFit !== undefined && fitRevision === this.autoFitRevisionFor(id)
+          ? { autoFit }
+          : {}),
+      });
+      return next;
+    });
+  }
+
+  /** A new open or profile choice has not yet reported its actual fit. */
+  autoFitRevisionFor(id: AssetId): number {
+    return this.fitRevisions.get(id) ?? 0;
+  }
+
+  resetAutoFit(id: AssetId): void {
+    this.fitRevisions.set(id, this.autoFitRevisionFor(id) + 1);
+    this.byAsset.update((map) => {
+      const current = map.get(id);
+      if (current?.autoFit === undefined) return map;
+      const next = new Map(map);
+      next.set(id, { ...current, autoFit: undefined });
       return next;
     });
   }

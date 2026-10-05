@@ -1,3 +1,4 @@
+import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
 // editor-shell-crop.spec.ts — canvas-first editor (A) crop port (#1813).
 //
 // A had no way to arm Crop: no dock entry, no toolbar, no overlay-mounting
@@ -90,7 +91,10 @@ describe('EditorShellComponent — crop tool port (#1813)', () => {
       snapshot: { paramMap: convertToParamMap({}), url: [] },
     };
 
+    const capabilities = new LensCorrectionCapabilities();
     const stateStub = {
+      resetAutoFit: capabilities.resetAutoFit.bind(capabilities),
+      autoFitRevisionFor: capabilities.autoFitRevisionFor.bind(capabilities),
       backend: 'self-hosted',
       focusedAsset: focused,
       focusedAssetId: () => focused()?.id ?? null,

@@ -276,6 +276,8 @@ export class LibraryStore {
     this.adjustmentModels.update((map) => {
       const next = new Map(map);
       const current = next.get(id) ?? defaultAdjustmentModel();
+      if (effective.profile !== undefined && effective.profile !== current.profile)
+        this.lensCorrections.resetAutoFit(id);
       next.set(id, { ...current, ...effective });
       return next;
     });
