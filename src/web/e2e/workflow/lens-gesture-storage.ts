@@ -29,7 +29,16 @@ export async function lensGestureStorage(deployment: CycleDeployment, xml: strin
   const folder = native ? { native, name, read: true, write: true } : null;
   const app = await cycleApplication(deployment);
   const access = app.injector.get(FolderAccessService);
-  const library = app.injector.get(LibraryStateService);
+  const library: LibraryStateService = app.injector.get(LibraryStateService);
+  async function dispose() {
+    try {
+      await library.flushPendingXmpWrites();
+      await library.flushPendingIndexWrites();
+    } finally {
+      app.destroy();
+    }
+    if (folder) await root.removeEntry(name, { recursive: true });
+  }
   try {
     if (folder) {
       for (const [index, letter] of ['a', 'b'].entries()) {
@@ -69,14 +78,14 @@ export async function lensGestureStorage(deployment: CycleDeployment, xml: strin
         };
       },
       initial,
-      async dispose() {
-        app.destroy();
-        if (folder) await root.removeEntry(name, { recursive: true });
-      },
+      dispose,
     };
   } catch (error) {
-    app.destroy();
-    if (folder) await root.removeEntry(name, { recursive: true });
+    try {
+      await dispose();
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Lens fixture setup and cleanup failed');
+    }
     throw error;
   }
 }

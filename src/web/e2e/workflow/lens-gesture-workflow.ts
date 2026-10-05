@@ -1,3 +1,4 @@
+import { coalesceGestureFocus, disposeGestureStorage } from './gesture-boundary';
 import { createComponent } from '@angular/core';
 import { cycleApplication, type CycleDeployment } from './cycle-workflow-environment';
 import { lensGestureStorage } from './lens-gesture-storage';
@@ -17,6 +18,7 @@ export async function lensGestureWorkflow(deployment: CycleDeployment) {
   });
   const panel = ref.instance;
   const evidence: string[] = [];
+  let workflowFailure: { error: unknown } | null = null;
   const assert = (ok: boolean, message: string) => {
     if (!ok) throw Error(`${deployment}: ${message}`);
   };
@@ -43,11 +45,7 @@ export async function lensGestureWorkflow(deployment: CycleDeployment) {
         const before = await Promise.all([active.read(0), active.read(1)]);
         panel[start]();
         panel[change](42);
-        // Direct focus updates intentionally coalesce before any render/read.
-        active.library.focusedAssetId.set(route === 'none' ? null : active.ids[1]);
-        if (route === 'roundtrip') active.library.focusedAssetId.set(active.ids[0]);
-        const focused = active.library.focusedAssetId();
-        if (focused) active.editor.bind(focused);
+        coalesceGestureFocus(active, route);
         panel[change](17);
         panel[end]();
         active.editor.endEdit();
@@ -92,9 +90,15 @@ export async function lensGestureWorkflow(deployment: CycleDeployment) {
       );
     }
     return { deployment, evidence, originalBytesPreserved: true };
+  } catch (error) {
+    workflowFailure = { error };
+    throw error;
   } finally {
     ref.destroy();
-    await active.dispose();
-    owner.destroy();
+    try {
+      await disposeGestureStorage(active, workflowFailure);
+    } finally {
+      owner.destroy();
+    }
   }
 }

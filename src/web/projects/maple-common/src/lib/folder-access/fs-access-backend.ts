@@ -352,11 +352,20 @@ export async function fsAccessWriteFile(
   if (!folder.write) throw new Error('fs-access: no write permission');
   const fileHandle = await resolveFileHandle(folder, path, true);
   const writable = await (fileHandle as FsFileHandleWithWritable).createWritable();
-  // Copy into a plain ArrayBuffer so the writable stream gets the correct type.
-  const ab = new ArrayBuffer(data.byteLength);
-  new Uint8Array(ab).set(data);
-  await writable.write(ab);
-  await writable.close();
+  try {
+    // Copy into a plain ArrayBuffer so the writable stream gets the correct type.
+    const ab = new ArrayBuffer(data.byteLength);
+    new Uint8Array(ab).set(data);
+    await writable.write(ab);
+    await writable.close();
+  } catch (error) {
+    try {
+      await writable.abort();
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'File write and stream cleanup failed');
+    }
+    throw error;
+  }
 }
 
 // ── Ensure subdirectory ───────────────────────────────────────────────────────
