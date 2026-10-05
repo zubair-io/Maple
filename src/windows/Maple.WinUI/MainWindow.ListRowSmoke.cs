@@ -85,6 +85,9 @@ public sealed partial class MainWindow
             Check("passive-row", passivePeer!.GetAutomationControlType() == AutomationControlType.Group
                 && passivePeer.GetPattern(PatternInterface.Invoke) == null && !passive.IsTabStop
                 && !passivePeer.IsKeyboardFocusable());
+            passive.Label = "Updated metadata";
+            Check("label-only-name-update", passivePeer.GetName() == "Updated metadata"
+                && passivePeer.GetItemStatus() == string.Empty && !passive.Active);
             row.Pressed -= rowAction;
             Check("trailing-only-focus", !row.IsTabStop && toggle.IsTabStop
                 && toggle.Focus(FocusState.Keyboard) && togglePeer.HasKeyboardFocus());

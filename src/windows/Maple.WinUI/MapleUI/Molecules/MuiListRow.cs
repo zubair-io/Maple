@@ -2,6 +2,7 @@ using System;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
+using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -54,15 +55,7 @@ namespace Maple.UI
 
         public static readonly DependencyProperty ActiveProperty =
             DependencyProperty.Register(nameof(Active), typeof(bool), typeof(MuiListRow),
-                new PropertyMetadata(false, (d, e) =>
-                {
-                    var row = (MuiListRow)d;
-                    row.Rebuild();
-                    // WinUI compares cached Name and ItemStatus and raises both
-                    // property-change events when the peer is invalidated.
-                    if (FrameworkElementAutomationPeer.FromElement(row) is MuiListRowAutomationPeer peer)
-                        peer.InvalidatePeer();
-                }));
+                new PropertyMetadata(false, (d, _) => ((MuiListRow)d).Rebuild()));
 
         public static readonly DependencyProperty WrapLabelProperty =
             DependencyProperty.Register(nameof(WrapLabel), typeof(bool), typeof(MuiListRow),
@@ -240,6 +233,9 @@ namespace Maple.UI
             var name = Active ? $"{baseName}, current" : baseName;
             AutomationProperties.SetName(this, name);
             _lastSetName = name;
+            // Invalidate after every rebuilt name, including label-only changes,
+            // so WinUI compares cached Name and ItemStatus for property events.
+            FrameworkElementAutomationPeer.FromElement(this)?.InvalidatePeer();
         }
 
         private string? _lastSetName;
