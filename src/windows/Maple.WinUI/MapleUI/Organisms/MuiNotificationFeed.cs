@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Media;
 using Maple.UI.Atoms;
 
 namespace Maple.UI
@@ -40,7 +42,27 @@ namespace Maple.UI
         }
 
         public event EventHandler<string>? CategorySelected;
-        public event EventHandler<string>? EntryActivated;
+        private EventHandler<string>? _entryActivated;
+        public event EventHandler<string>? EntryActivated
+        {
+            add { _entryActivated += value; UpdateActions(); }
+            remove { _entryActivated -= value; UpdateActions(); }
+        }
+
+        private void OnEntryPressed(object? sender, EventArgs e)
+        {
+            if (sender is MuiListRow { Tag: string id }) _entryActivated?.Invoke(this, id);
+        }
+
+        private void UpdateActions()
+        {
+            foreach (var child in _rows.Children)
+            {
+                if (child is not Border { Child: MuiListRow row }) continue;
+                row.Pressed -= OnEntryPressed;
+                if (_entryActivated != null) row.Pressed += OnEntryPressed;
+            }
+        }
 
         private readonly StackPanel _root = new() { Orientation = Orientation.Vertical, Spacing = 10 };
         private readonly MuiChipRow _categoryChips = new() { Mode = MuiChipRowMode.Select };
@@ -70,10 +92,15 @@ namespace Maple.UI
             foreach (var entry in entries)
             {
                 var trailing = new MuiTimestamp { Value = entry.At, Now = now, Format = MuiTimestampFormat.Relative };
-                var row = new MuiListRow { Label = entry.Message, IconName = entry.IconName, TrailingContent = trailing, Active = entry.Unread };
-                var id = entry.Id;
-                row.Pressed += (_, _) => EntryActivated?.Invoke(this, id);
-                _rows.Children.Add(row);
+                var row = new MuiListRow { Label = entry.Message, IconName = entry.IconName, TrailingContent = trailing, Tag = entry.Id };
+                AutomationProperties.SetName(row, entry.Unread ? $"{entry.Message}, unread" : entry.Message);
+                if (_entryActivated != null) row.Pressed += OnEntryPressed;
+                // Unread emphasis is not the current navigation selection.
+                _rows.Children.Add(new Border
+                {
+                    Background = entry.Unread ? (Brush)Application.Current.Resources["MapleSurfaceAlt"] : null,
+                    Child = row,
+                });
             }
         }
     }

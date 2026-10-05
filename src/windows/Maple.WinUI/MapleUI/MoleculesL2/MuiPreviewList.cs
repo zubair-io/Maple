@@ -29,7 +29,27 @@ namespace Maple.UI
             set => SetValue(ItemsProperty, value);
         }
 
-        public event EventHandler<string>? Pressed;
+        private EventHandler<string>? _pressed;
+        public event EventHandler<string>? Pressed
+        {
+            add { _pressed += value; UpdateActions(); }
+            remove { _pressed -= value; UpdateActions(); }
+        }
+
+        private void OnRowPressed(object? sender, EventArgs e)
+        {
+            if (sender is MuiListRow { Tag: string id }) _pressed?.Invoke(this, id);
+        }
+
+        private void UpdateActions()
+        {
+            foreach (var child in _root.Children)
+            {
+                if (child is not MuiListRow row) continue;
+                row.Pressed -= OnRowPressed;
+                if (_pressed != null) row.Pressed += OnRowPressed;
+            }
+        }
 
         private readonly StackPanel _root = new() { Orientation = Orientation.Vertical, Spacing = 0 };
 
@@ -48,10 +68,10 @@ namespace Maple.UI
                 var row = new MuiListRow
                 {
                     Label = item.Before,
+                    Tag = item.Id,
                     TrailingContent = new MuiText { Text = item.After, Variant = MuiTextVariant.ChipLabel, ColorRole = MuiTextColorRole.Muted, Truncate = true },
                 };
-                var id = item.Id;
-                row.Pressed += (_, _) => Pressed?.Invoke(this, id);
+                if (_pressed != null) row.Pressed += OnRowPressed;
                 _root.Children.Add(row);
             }
         }
