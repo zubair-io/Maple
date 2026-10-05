@@ -1,18 +1,20 @@
 # MapleMCP
 
-Maple on macOS serves MCP directly from the running app at **`http://127.0.0.1:49157/mcp`**. Enable **Settings → General → AI Agents** to start it. Settings shows the actual URL, access token copy action, client configurations, port control, and startup errors. Maple must stay open. No command-line build or separately installed server is needed.
+Maple on macOS serves MCP directly from the running app at **`http://127.0.0.1:49157/mcp`**. Enable **Settings → General → AI Agents**, choose **Copy setup prompt**, and paste it into your AI tool to configure the connection. Maple must stay open. No command-line build or separately installed server is needed.
 
-## Connect a desktop client
+The prompt includes the actual server URL, bearer credential, and concrete Codex and Cursor configurations that preserve other servers. For Claude Desktop it points to the bundled `Maple.mcpb` extension and explains how to install it; Claude supplies Node and the extension forwards stdio messages to the same app-owned URL. Claude's cloud-based custom connector cannot reach localhost.
 
-- **Codex:** choose **Copy Codex configuration** and add it to `~/.codex/config.toml`. It includes the URL and bearer header.
-- **Cursor:** choose **Copy Cursor configuration** and add its `maple` entry to `~/.cursor/mcp.json`, preserving other servers.
-- **Claude Desktop:** choose **Save Claude Desktop extension…**. In Claude Desktop, open Settings → Extensions → Advanced settings → Install Extension and select `Maple.mcpb`. Configure the URL from Maple Settings and the copied access token. Claude supplies Node; the extension forwards stdio messages to the same app-owned URL. Claude's cloud-based custom connector cannot reach this localhost server.
+The token is generated from secure random bytes and persists in the macOS Keychain. Treat the copied prompt as a credential. If another Maple server occupies the port, Settings reports the failure with a Retry action.
 
-Port 49157 is stable across launches. If another service occupies it, Settings reports the failure; select another port and update clients. The token is generated from secure random bytes and persists in the macOS Keychain. Treat copied configurations as credentials.
+## Default photo export
+
+`maple_export_photo` takes only `expected_revision` from the current photo state. It uses `MapleExporter` and `ExportOptions.defaults`: full-resolution JPEG sRGB at 92% quality, with the current edits and crop. Each call saves a uniquely named file in the app's Documents/Exports folder and returns its absolute path, filename, byte count, photo ID and exported revision. In sandboxed builds that folder is inside Maple's container. It needs no additional folder permissions or Save dialog. Existing files and originals are never replaced.
+
+A missing/stale revision, busy session, photo change during rendering, or cancelled request fails without publishing an export. Encoding and file I/O run off the UI actor. The same tool is available through HTTP and the developer stdio bridge.
 
 ## Transport and editing contract
 
-`MapleMCPHTTP` uses SwiftNIO for a stateless Streamable HTTP endpoint bound only to `127.0.0.1`. Every request requires a bearer token. Host and optional Origin must match the loopback endpoint, preventing browser-origin access and DNS rebinding. There is no CORS allowance, LAN listener, or remote relay. POST accepts JSON and advertises JSON plus SSE in Accept; replies use JSON, notifications receive 202, and GET receives 405 because this server has no server-initiated stream. It supports modern `2026-07-28` metadata headers and legacy `2025-11-25` / `2025-06-18` initialization. Requests are capped at 1 MiB, connections at 32, incomplete uploads at 10 seconds, and tool responses at 65 seconds.
+`MapleMCPHTTP` uses SwiftNIO for a stateless Streamable HTTP endpoint bound only to `127.0.0.1`. Every request requires a bearer token. Host and optional Origin must match the loopback endpoint, preventing browser-origin access and DNS rebinding. There is no CORS allowance, LAN listener, or remote relay. POST accepts JSON and advertises JSON plus SSE in Accept; replies use JSON, notifications receive 202, and GET receives 405 because this server has no server-initiated stream. It supports modern `2026-07-28` metadata headers and legacy `2025-11-25` / `2025-06-18` initialization. Requests are capped at 1 MiB, connections at 32, incomplete uploads at 10 seconds, and tool responses at 300 seconds to accommodate full-resolution RAW export.
 
 HTTP calls await MapleCore's existing `AgentEditService` in process. Its tool catalog, live editor state, expected revisions, undo transactions, render inspection, and real XMP writes are shared with the existing socket bridge. Disabling agent access invalidates queued calls and closes the HTTP listener and clients. The HTTP service works independently of the App Group socket's availability.
 

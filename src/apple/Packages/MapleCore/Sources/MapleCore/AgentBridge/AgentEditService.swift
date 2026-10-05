@@ -17,8 +17,11 @@ public final class AgentEditService {
 
   public weak var browseDelegate: (any AgentBrowseDelegate)?
   private weak var activeSession: EditSession?
+  private let exportDirectory: URL?
 
-  public init() {}
+  public init(exportDirectory: URL? = nil) {
+    self.exportDirectory = exportDirectory
+  }
 
   public func activate(_ session: EditSession) {
     activeSession = session
@@ -51,6 +54,22 @@ public final class AgentEditService {
       return AgentPayload(result: try setAdjustments(arguments))
     case "maple_render_and_inspect":
       return try await renderAndInspect(arguments)
+    case "maple_export_photo":
+      guard Set(arguments.keys) == ["expected_revision"] else {
+        throw AgentError(
+          code: "invalid_arguments", message: "Export accepts only `expected_revision`.")
+      }
+      let session = try editableSession(arguments)
+      let revision = Self.revision(of: session)
+      return try await AgentPhotoExporter.export(
+        session: session, revision: revision, directory: exportDirectory
+      ) {
+        guard self.activeSession === session, Self.revision(of: session) == revision else {
+          throw AgentError(
+            code: "stale_revision",
+            message: "The photo changed during export. No file was saved; re-read its state.")
+        }
+      }
     case "maple_create_mask":
       let session = try editableSession(arguments)
       return AgentPayload(
