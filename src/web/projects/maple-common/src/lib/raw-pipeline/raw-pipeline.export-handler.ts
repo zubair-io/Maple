@@ -67,7 +67,7 @@ export async function handleExport(req: ExportRequest): Promise<void> {
       const parts: BlobPart[] = [];
       for (let offset = 0; offset < total; offset += CHUNK_BYTES) {
         const chunk = handle.chunk(offset, CHUNK_BYTES);
-        parts.push(new Uint8Array(chunk.buffer as ArrayBuffer, chunk.byteOffset, chunk.byteLength));
+        parts.push(new Uint8Array(chunk));
       }
       const response: ExportSuccess = {
         id: req.id,
