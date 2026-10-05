@@ -182,6 +182,8 @@ namespace Maple.UI.Atoms
         /// <summary>Raised on Enter/blur — mirrors input.md's onCommit.</summary>
         public event EventHandler<string>? Committed;
 
+        internal bool FocusTextEditor() => _textBox.Focus(FocusState.Programmatic);
+
         private readonly StackPanel _root = new() { Orientation = Orientation.Vertical, Spacing = 4 };
         private readonly Border _fieldBorder = new();
         private readonly Grid _fieldRow = new() { ColumnSpacing = 6 };

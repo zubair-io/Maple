@@ -87,7 +87,7 @@ namespace Maple.UI
             _input.Text = Value;
             _editing = true;
             Rebuild();
-            DispatcherQueue.TryEnqueue(() => _ = FocusManager.TryFocusAsync(_input, FocusState.Programmatic));
+            DispatcherQueue.TryEnqueue(() => _input.FocusTextEditor());
         }
 
         private void OnInputKeyDown(object sender, KeyRoutedEventArgs e)

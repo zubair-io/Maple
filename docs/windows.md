@@ -186,6 +186,8 @@ then requires a third-star click, Right on the focused rating control, Enter and
 and a filename edit committed as `After.dng`. `media-metadata-input.json` and
 `media-metadata.jsonl` verify two rating changes, one rename and zero thumbnail actions.
 The metadata stage has its own 240-second input deadline.
+For focused metadata diagnosis, `--lifecycle-smoke unused OUT media-metadata-input`
+runs that stage alone; it does not qualify the filmstrip sequence.
 
 `Services/FileTypeRegistrar.cs` registers the ProgId `Maple.Exposure.Image` under `HKCU\Software\Classes` for the extensions in `DropMountLogic.SupportedExtensions` — additive only (an `OpenWithProgids` entry, never the default handler), the counterpart of Apple's document-type claims. `ProtocolRegistrar.cs` does the same for `maple-app://`. Both self-register at launch so the exe path stays fresh across rebuilds.
 
