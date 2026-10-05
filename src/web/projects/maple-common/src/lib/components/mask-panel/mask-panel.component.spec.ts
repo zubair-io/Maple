@@ -8,7 +8,7 @@
 // or everywhere mask, which has no parametric edge, hides it.
 
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { signal } from '@angular/core';
 
 import { MaskPanelComponent } from './mask-panel.component';
@@ -18,6 +18,10 @@ import { RANGE_CONTROLS } from '../mask-overlay/mask-range';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
+import { LIBRARY_BACKEND } from '../../api/library-backend.token';
+import { SubjectMaskService } from '../../masks/subject-mask.service';
+import { EditorWorkflowCommandsService } from '../../editor/editor-workflow-commands.service';
+import { SERVER_WORKSPACE_PERSISTENCE } from '../../workspace/workspace-persistence';
 import { makeLibraryStub, type LibraryStub } from '../../editor/editor-state.test-helpers';
 
 describe('MaskPanelComponent feather slider (#3300)', () => {
@@ -213,5 +217,59 @@ describe('MaskPanelComponent spatial controls (#3407)', () => {
     expect(adjustments.texture).toBe(20);
     expect('clarity' in adjustments).toBe(false);
     expect(adjustments.luminanceNoise).toBeUndefined();
+  });
+});
+
+describe('MaskPanelComponent detect (#3300)', () => {
+  const q = (host: HTMLElement, testId: string) =>
+    host.querySelector(`[data-testid="${testId}"]`) as HTMLElement | null;
+
+  function mount(backend: 'hosted' | 'self-hosted') {
+    const lib = Object.assign(makeLibraryStub(), {
+      focusedAsset: signal({ id: 'asset-1', width: 6000, height: 4000 }),
+      focusedAssetId: signal('asset-1'),
+    });
+    const subjects = {
+      detect: vi.fn().mockResolvedValue({ model: 'm/1', persons: [] }),
+      ensureRaster: vi.fn(),
+      ensureBitmapRasters: vi.fn().mockResolvedValue(undefined),
+      releaseDigests: vi.fn(),
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: LibraryStateService, useValue: lib },
+        { provide: RawPipelineService, useValue: {} },
+        { provide: LIBRARY_BACKEND, useValue: backend },
+        { provide: SubjectMaskService, useValue: subjects },
+        // The workflow history constructs the server sidecar store under a
+        // self-hosted backend; nothing in this spec writes through it. The
+        // commands service is only re-exposed by the editor, never called.
+        { provide: SERVER_WORKSPACE_PERSISTENCE, useValue: null },
+        { provide: EditorWorkflowCommandsService, useValue: {} },
+      ],
+    });
+    TestBed.inject(EditorStateService).imageId.set('asset-1');
+    const fixture = TestBed.createComponent(MaskPanelComponent);
+    fixture.detectChanges();
+    return { fixture, subjects };
+  }
+
+  it('mounts the Detect button on Self Hosted and runs a detect on press', async () => {
+    const { fixture, subjects } = mount('self-hosted');
+    const host = fixture.nativeElement as HTMLElement;
+    const button = q(host, 'mask-detect-people');
+    expect(button).not.toBeNull();
+    (button as HTMLElement).click();
+    await fixture.whenStable();
+    expect(subjects.detect).toHaveBeenCalledWith('asset-1');
+    fixture.detectChanges();
+    // Nobody detected → the whole-image fallback message.
+    expect(q(host, 'mask-detect-message')?.textContent).toMatch(/No people detected/);
+    expect(host.textContent).toContain('Everywhere 1');
+  });
+
+  it('stays unmounted on Hosted, where there is no server to ask', () => {
+    const { fixture } = mount('hosted');
+    expect(q(fixture.nativeElement as HTMLElement, 'mask-detect-people')).toBeNull();
   });
 });

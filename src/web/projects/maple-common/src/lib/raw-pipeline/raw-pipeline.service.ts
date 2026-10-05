@@ -89,6 +89,15 @@ export class RawPipelineService implements OnDestroy {
   private worker: Worker | null = null;
   private nextId = 1;
   private pending = new Map<number, PendingHandler>();
+  /** Bumped every time the worker is retired — the WASM registry (mask
+   *  rasters included) dies with it, so hosts memoizing registry ids
+   *  (`SubjectMaskService`) re-resolve when this moves. */
+  private workerEpoch = 0;
+
+  /** Current worker generation; see `workerEpoch`. */
+  currentWorkerEpoch(): number {
+    return this.workerEpoch;
+  }
 
   // T10: threaded-state, reported by the worker once WASM init completes.
   // `isThreaded$`/`threadCount$`, the observables that used to surface this
@@ -165,6 +174,7 @@ export class RawPipelineService implements OnDestroy {
   private retireWorker(worker: Worker, message: string): void {
     worker.terminate();
     if (this.worker !== worker) return;
+    this.workerEpoch += 1;
     this.deepDenoiseProgress.set(null);
     this.detailClient.workerFailed();
     this.pending.forEach(({ reject }) => reject(new Error(message)));

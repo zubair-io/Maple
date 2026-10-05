@@ -16,7 +16,24 @@
       (pressed)="session.addRadial()"
       >Radial</mui-button
     >
+    @if (detectAvailable) {
+      <mui-button
+        size="sm"
+        iconLeading="person-circle"
+        [loading]="session.detectInFlight()"
+        ariaLabel="Detect people"
+        testId="mask-detect-people"
+        (pressed)="session.detectSubjects()"
+        >Detect</mui-button
+      >
+    }
   </div>
+
+  @if (session.detectMessage(); as message) {
+    <mui-text variant="body" color="muted" data-testid="mask-detect-message">
+      {{ message }}
+    </mui-text>
+  }
 
   @if (rows().length === 0) {
     <mui-text variant="body" color="muted" data-testid="mask-empty">
