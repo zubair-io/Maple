@@ -77,8 +77,9 @@ final class EditSessionDecodedCacheTests: XCTestCase {
   // MARK: - Tests
 
   /// A freshly-seeded cache (no sidecar on disk) is fresh — the
-  /// freshness check sees `decodedBakedModel == nil` and the live baked
-  /// model is also `nil` (no sidecar on disk), so they match (#950).
+  /// freshness check sees `decodedBakedModel` equal to default baked
+  /// stages and the live baked model also evaluates to defaults
+  /// (no sidecar on disk), so they match (#950, #4266).
   func testFreshlySeededCacheIsFreshWhenNoSidecarPresent() async throws {
     let (asset, dir) = try makeAsset()
     defer { try? FileManager.default.removeItem(at: dir) }
