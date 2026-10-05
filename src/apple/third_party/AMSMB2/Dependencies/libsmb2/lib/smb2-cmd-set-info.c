@@ -142,14 +142,6 @@ smb2_encode_set_info_request(struct smb2_context *smb2,
                                 smb2_set_error(smb2, "Could not convert name into UTF-16");
                                 return -1;
                         }
-                        /* Convert '/' to '\' */
-                        for (i = 0; i < name->len; i++) {
-                                smb2_get_uint16(iov, i * 2, &ch);
-                                if (ch == 0x002f) {
-                                        smb2_set_uint16(iov, i * 2, 0x005c);
-                                }
-                        }
-
                         len = 28 + name->len * 2;
                         smb2_set_uint32(iov, 4, len); /* buffer length */
 
@@ -167,6 +159,14 @@ smb2_encode_set_info_request(struct smb2_context *smb2,
                         smb2_set_uint64(iov, 8, 0u);
                         smb2_set_uint32(iov, 16, name->len * 2);
                         memcpy(iov->buf + 20, name->val, name->len * 2);
+                        /* Maple #4093: convert filename separators in the body,
+                         * never in the preceding SETINFO header/FileID. */
+                        for (i = 0; i < name->len; i++) {
+                                smb2_get_uint16(iov, 20 + i * 2, &ch);
+                                if (ch == 0x002f) {
+                                        smb2_set_uint16(iov, 20 + i * 2, 0x005c);
+                                }
+                        }
                         free(name);
 
                         break;
