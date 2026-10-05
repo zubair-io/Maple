@@ -506,7 +506,7 @@ namespace Maple.WinUI.Services
                     if (emitFrame)
                         FrameReady?.Invoke(image, pixels, image.Width, image.Height,
                             ComputeHistogram(pixels), elapsed);
-                    EmitClipSource(image.Width, image.Height);
+                    EmitClipSource(pixels, image.Width, image.Height);
                 }
                 if (sampleScopes) DumpFrameIfRequested(pixels, image.Width, image.Height);
                 if (sampleScopes) EmitCpuScope(image, state);
@@ -524,45 +524,30 @@ namespace Maple.WinUI.Services
             try
             {
                 var byteCount = image.Width * image.Height * 4;
-                if (_bgra == null || _bgra.Length != byteCount)
-                    _bgra = new byte[byteCount];
-                RenderEngine.RenderTick(image, state, ref _chainScratch, _bgra, _activeFilm);
-                HistogramReady?.Invoke(ComputeHistogram(_bgra));
-                EmitClipSource(image.Width, image.Height);
+                byte[] pixels;
+                float[]? scratch;
+                lock (_gate)
+                {
+                    pixels = _bgra != null && _bgra.Length == byteCount ? _bgra : new byte[byteCount];
+                    scratch = _chainScratch;
+                }
+
+                RenderEngine.RenderTick(image, state, ref scratch, pixels, _activeFilm);
+
+                lock (_gate)
+                {
+                    if (!IsCurrentFrame(image)) return;
+                    _bgra = pixels;
+                    _chainScratch = scratch;
+                    HistogramReady?.Invoke(ComputeHistogram(pixels));
+                    EmitClipSource(pixels, image.Width, image.Height);
+                }
             }
             catch (Exception ex)
             {
-                RenderFailed?.Invoke(ex.Message);
+                DiagLog.Write($"[render] EmitHistogram failed: {ex}");
+                if (IsCurrentFrame(image)) RenderFailed?.Invoke(ex.Message);
             }
         }
-
-        private void EmitClipSource(int width, int height)
-        {
-            if (!ClipOverlayEnabled || _bgra == null || ClipSourceReady == null)
-                return;
-            var copy = new byte[_bgra.Length];
-            Buffer.BlockCopy(_bgra, 0, copy, 0, _bgra.Length);
-            ClipSourceReady.Invoke(copy, width, height);
-        }
-
-        private static uint[] ComputeHistogram(byte[] bgra)
-        {
-            // [0..767] R/G/B (HistogramView), [768..1023] Rec.709 luma — the
-            // tone-curve plot's backdrop (#2576), truncated-int per pixel like
-            // the web's computeRgbHistograms.
-            var bins = new uint[1024];
-            for (var i = 0; i < bgra.Length; i += 4)
-            {
-                var r = bgra[i + 2];
-                var g = bgra[i + 1];
-                var b = bgra[i];
-                bins[r]++;
-                bins[256 + g]++;
-                bins[512 + b]++;
-                bins[768 + (int)(0.2126 * r + 0.7152 * g + 0.0722 * b)]++;
-            }
-            return bins;
-        }
-
     }
 }
