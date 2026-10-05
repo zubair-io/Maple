@@ -104,7 +104,7 @@
       [class.w-[110px]]="!filmstripCollapsed()"
       [class.w-[30px]]="filmstripCollapsed()"
     >
-      <editor-filmstrip routeMode="view" (collapsedChange)="filmstripCollapsed.set($event)" />
+      <editor-filmstrip routeMode="view" [(collapsed)]="filmstripCollapsed" />
     </div>
 
     <div

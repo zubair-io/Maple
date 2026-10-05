@@ -3,7 +3,7 @@
     type="button"
     class="strip-toggle film-tab flex w-full cursor-pointer flex-col items-center gap-2 py-3 text-text-muted transition-colors duration-[120ms] ease-out hover:bg-white/8"
     (click)="toggleCollapsed()"
-    [attr.aria-expanded]="false"
+    aria-expanded="false"
     aria-label="Show filmstrip"
     title="Show filmstrip"
     data-testid="film-tab"
@@ -22,7 +22,7 @@
       type="button"
       class="strip-toggle -m-0.5 inline-flex cursor-pointer items-center justify-center rounded p-0.5 text-text-muted transition-colors duration-[120ms] ease-out hover:bg-white/8"
       (click)="toggleCollapsed()"
-      [attr.aria-expanded]="true"
+      aria-expanded="true"
       aria-label="Hide filmstrip"
       title="Hide filmstrip"
     >
