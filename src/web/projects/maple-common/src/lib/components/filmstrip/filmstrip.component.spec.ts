@@ -86,4 +86,49 @@ describe('FilmstripComponent', () => {
     expect(selectSpy).toHaveBeenCalledWith(ASSET);
     expect(navigate).toHaveBeenCalledWith(viewRouteCommands(ASSET.id));
   });
+
+  it('expanded: the header reads FILM with a Hide toggle', () => {
+    const { fixture } = setup();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.strip-title span')?.textContent).toBe('FILM');
+    const toggle = el.querySelector('.strip-title .strip-toggle') as HTMLButtonElement;
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.getAttribute('aria-label')).toBe('Hide filmstrip');
+    expect(el.querySelector('.strip-scroll')).not.toBeNull();
+    expect(el.querySelector('[data-testid="film-tab"]')).toBeNull();
+  });
+
+  it('collapsed: the strip shrinks to a vertical FILM tab with a Show toggle', () => {
+    const { fixture } = setup();
+    fixture.componentInstance.toggleCollapsed();
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.strip-scroll')).toBeNull();
+    expect(el.querySelector('.strip-title')).toBeNull();
+    const tab = el.querySelector('[data-testid="film-tab"]') as HTMLButtonElement;
+    expect(tab).not.toBeNull();
+    expect(tab.textContent).toContain('FILM');
+    expect(tab.getAttribute('aria-expanded')).toBe('false');
+    expect(tab.getAttribute('aria-label')).toBe('Show filmstrip');
+  });
+
+  it('toggleCollapsed() emits collapsedChange so host rails can shrink', () => {
+    const { fixture } = setup();
+    const emitted: boolean[] = [];
+    fixture.componentInstance.collapsedChange.subscribe((v: boolean) => emitted.push(v));
+    fixture.componentInstance.toggleCollapsed();
+    fixture.componentInstance.toggleCollapsed();
+    expect(emitted).toEqual([true, false]);
+  });
+
+  it('clicking the collapsed tab expands the strip', () => {
+    const { fixture } = setup();
+    fixture.componentInstance.toggleCollapsed();
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    (el.querySelector('[data-testid="film-tab"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.collapsed()).toBe(false);
+    expect(el.querySelector('.strip-scroll')).not.toBeNull();
+  });
 });

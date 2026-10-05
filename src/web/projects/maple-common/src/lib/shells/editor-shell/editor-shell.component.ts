@@ -260,6 +260,9 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   /** Export options dialog (#943) — modal, so it has no anchor to share. */
   readonly exportOpen = signal<boolean>(false);
 
+  /** True when the filmstrip is collapsed — the rail shrinks from 110px to the FILM tab (#1542). */
+  readonly filmstripCollapsed = signal<boolean>(false);
+
   // ── Command router (#2450) — editor-command-router.ts ─────────────────
   // Keys, the ⌘K command menu, the wheel and the before/after button all
   // resolve to intents executed there.

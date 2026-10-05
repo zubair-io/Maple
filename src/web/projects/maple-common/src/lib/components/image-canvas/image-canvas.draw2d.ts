@@ -310,6 +310,15 @@ function drawBitmap(
     );
 }
 
+/**
+ * Before-half treatment (#1542): the unedited baseline renders desaturated at
+ * reduced contrast so the split reads as before-vs-after at a glance. Applied
+ * at the single choke point below, so the 2D split and the GPU overlay
+ * (`overlayOnly`) share it. Contexts without `filter` support ignore the
+ * assignment and paint untreated pixels — correct, just unstyled.
+ */
+export const BEFORE_TREATMENT_FILTER = 'saturate(0.6) contrast(0.9)';
+
 /** An unavailable baseline must cover edited GPU pixels, never impersonate before. */
 function drawBefore(
   ctx: CanvasRenderingContext2D,
@@ -321,7 +330,11 @@ function drawBefore(
   drawClipped(ctx, [0, 0, Math.round(bw * split), bh], () => {
     ctx.fillStyle = '#181c22';
     ctx.fillRect(0, 0, bw, bh);
-    if (bitmap) ctx.drawImage(bitmap, dx, dy, dw, dh);
+    if (bitmap) {
+      ctx.filter = BEFORE_TREATMENT_FILTER;
+      ctx.drawImage(bitmap, dx, dy, dw, dh);
+      ctx.filter = 'none';
+    }
   });
 }
 
