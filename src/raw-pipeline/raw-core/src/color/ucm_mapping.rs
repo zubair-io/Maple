@@ -93,6 +93,18 @@ pub fn alias_for(source_key: &str) -> Option<&'static str> {
         // the `_raw` arg can be inspected and the variant picked
         // properly. Tracking issue: see COVERAGE.md.
         "Google Pixel 6 Pro" => Some("Google Pixel 6 Pro Rear Main Camera"),
+        // ── Canon EOS Kiss M / EOS M50 regional identities ─────────────
+        // The Canon EOS Kiss M is the Japanese domestic market release of
+        // the Canon EOS M50. Both share identical hardware, sensor, and
+        // colorimetry. Upstream profile authoring ships under the global
+        // identity "Canon EOS M50". Rawler reports "Canon EOS Kiss M",
+        // "EOS Kiss M", or uppercase variants based on maker notes.
+        "Canon EOS Kiss M" | "Canon EOS KISS M" | "EOS Kiss M" | "EOS KISS M" => {
+            Some("Canon EOS M50")
+        }
+        "Canon EOS Kiss M2" | "Canon EOS KISS M2" | "EOS Kiss M2" | "EOS KISS M2" => {
+            Some("Canon EOS M50 Mark II")
+        }
         _ => None,
     }
 }
@@ -161,6 +173,27 @@ mod tests {
     }
 
     #[test]
+    fn canon_eos_kiss_m_aliases_to_m50() {
+        let raw = make_raw("Canon EOS Kiss M");
+        assert_eq!(
+            map_to_bundle_ucm(&raw, "Canon EOS Kiss M"),
+            Some("Canon EOS M50")
+        );
+        assert_eq!(
+            map_to_bundle_ucm(&raw, "Canon EOS KISS M"),
+            Some("Canon EOS M50")
+        );
+        assert_eq!(map_to_bundle_ucm(&raw, "EOS Kiss M"), Some("Canon EOS M50"));
+        assert_eq!(map_to_bundle_ucm(&raw, "EOS KISS M"), Some("Canon EOS M50"));
+
+        let raw_m2 = make_raw("Canon EOS Kiss M2");
+        assert_eq!(
+            map_to_bundle_ucm(&raw_m2, "Canon EOS Kiss M2"),
+            Some("Canon EOS M50 Mark II")
+        );
+    }
+
+    #[test]
     fn unknown_key_returns_none() {
         let raw = make_raw("Made-Up Camera Model");
         assert_eq!(map_to_bundle_ucm(&raw, "Made-Up Camera Model"), None);
@@ -179,5 +212,46 @@ mod tests {
         assert_eq!(map_to_bundle_ucm(&raw, "Nikon D850"), None);
         let raw = make_raw("LEICA M10");
         assert_eq!(map_to_bundle_ucm(&raw, "LEICA M10"), None);
+        let raw = make_raw("Canon EOS M50");
+        assert_eq!(map_to_bundle_ucm(&raw, "Canon EOS M50"), None);
+    }
+
+    #[test]
+    fn canon_eos_kiss_m_profile_resolution() {
+        use crate::color::dcp::{profile_for_with_source, ProfileSource};
+        use crate::color::profile_loader::lookup_profile;
+
+        // 1. DNG UCM style (UniqueCameraModel = "Canon EOS Kiss M")
+        let raw_ucm = make_raw("Canon EOS Kiss M");
+        assert!(lookup_profile(&raw_ucm).is_some());
+        let (prof, src) = profile_for_with_source(&raw_ucm).expect("must resolve profile");
+        assert_eq!(src, ProfileSource::BundleConfident);
+        assert!(prof.cm_endpoints.is_some());
+
+        // 2. CR3 camera_make / camera_model style (no UCM, make="Canon", model="EOS Kiss M")
+        let mut raw_cr3 = make_raw("");
+        raw_cr3.unique_camera_model = None;
+        raw_cr3.camera_make = "Canon".into();
+        raw_cr3.camera_model = "EOS Kiss M".into();
+        assert!(lookup_profile(&raw_cr3).is_some());
+        let (prof, src) = profile_for_with_source(&raw_cr3).expect("must resolve profile");
+        assert_eq!(src, ProfileSource::BundleConfident);
+        assert!(prof.cm_endpoints.is_some());
+
+        // 3. Real file verification if available on dev machine
+        let real_path =
+            std::path::Path::new("/Users/riabuz/Desktop/test/Canon - EOS Kiss M - 3_2.CR3");
+        if real_path.exists() {
+            if let Ok(bytes) = std::fs::read(real_path) {
+                if let Ok(decoded) = crate::api::decode_raw(&bytes, "cr3") {
+                    assert_eq!(decoded.camera_make, "Canon");
+                    assert_eq!(decoded.camera_model, "EOS Kiss M");
+                    let (prof, src) = profile_for_with_source(&decoded)
+                        .expect("must resolve profile for real Kiss M");
+                    assert_eq!(src, ProfileSource::BundleConfident);
+                    assert!(prof.cm_endpoints.is_some());
+                }
+            }
+        }
     }
 }
