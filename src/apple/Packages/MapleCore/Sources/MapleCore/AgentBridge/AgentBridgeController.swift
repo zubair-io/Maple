@@ -15,6 +15,8 @@
     public static let shared = AgentBridgeController()
     public static let enabledDefaultsKey = "agentBridge.enabled"
 
+    /// UserDefaults key for the HTTP port. Configurable via standard defaults or via the
+    /// `-agentBridge.httpPort <port>` process launch argument.
     public static let httpPortDefaultsKey = "agentBridge.httpPort"
     public private(set) var httpURL: URL?
     public private(set) var httpError: String?

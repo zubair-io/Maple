@@ -14,7 +14,7 @@ def main():
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     files = {
-        str(path.relative_to(SOURCE)): path.read_bytes()
+        path.relative_to(SOURCE).as_posix(): path.read_bytes()
         for path in sorted(SOURCE.rglob("*"))
         if path.is_file()
     }

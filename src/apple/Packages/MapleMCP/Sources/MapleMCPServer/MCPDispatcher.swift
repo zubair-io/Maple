@@ -76,6 +76,8 @@ public enum MCPDispatcher {
       guard MCPToolCatalog.toolNames.contains(name) else {
         return .reply(error(id: id, code: -32602, message: "Unknown tool: \(name)"))
       }
+      // Each HTTP tool call runs in its own forwarder invocation; the internal request id
+      // is a placeholder while the client's JSON-RPC id is preserved in the route for the reply.
       return .tool(
         id: id,
         request: AgentRequest(
