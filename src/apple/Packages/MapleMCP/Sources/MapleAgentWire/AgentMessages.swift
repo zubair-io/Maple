@@ -1,6 +1,6 @@
 import Foundation
 
-/// One tool invocation sent from the MCP bridge to the running app.
+/// One typed tool invocation forwarded from HTTP to the live editor.
 public struct AgentRequest: Sendable, Equatable {
   public let id: Int
   public let tool: String
@@ -12,18 +12,6 @@ public struct AgentRequest: Sendable, Equatable {
     self.arguments = arguments
   }
 
-  public var json: JSONValue {
-    ["id": .int(id), "tool": .string(tool), "arguments": .object(arguments)]
-  }
-
-  public init?(json: JSONValue) {
-    guard let number = json["id"]?.numberValue, let id = Int(exactly: number),
-      let tool = json["tool"]?.stringValue
-    else {
-      return nil
-    }
-    self.init(id: id, tool: tool, arguments: json["arguments"]?.objectValue ?? [:])
-  }
 }
 
 /// A failure the agent can act on. `code` is a stable machine token
@@ -40,18 +28,6 @@ public struct AgentError: Error, Sendable, Equatable {
     self.details = details
   }
 
-  public var json: JSONValue {
-    var fields: [String: JSONValue] = ["code": .string(code), "message": .string(message)]
-    if let details { fields["details"] = details }
-    return .object(fields)
-  }
-
-  public init?(json: JSONValue) {
-    guard let code = json["code"]?.stringValue, let message = json["message"]?.stringValue else {
-      return nil
-    }
-    self.init(code: code, message: message, details: json["details"])
-  }
 }
 
 /// An encoded image returned alongside a tool result.
@@ -76,55 +52,6 @@ public struct AgentResponse: Sendable, Equatable {
     self.outcome = outcome
   }
 
-  public var json: JSONValue {
-    switch outcome {
-    case .success(let payload):
-      var fields: [String: JSONValue] = ["id": .int(id), "result": payload.result]
-      if let image = payload.image {
-        fields["image"] = [
-          "data": .string(image.data.base64EncodedString()), "mimeType": .string(image.mimeType),
-        ]
-      }
-      if !payload.images.isEmpty {
-        fields["images"] = .array(
-          payload.images.map { img in
-            [
-              "data": .string(img.data.base64EncodedString()),
-              "mimeType": .string(img.mimeType),
-            ]
-          })
-      }
-      return .object(fields)
-    case .failure(let error):
-      return ["id": .int(id), "error": error.json]
-    }
-  }
-
-  public init?(json: JSONValue) {
-    guard let number = json["id"]?.numberValue, let id = Int(exactly: number) else { return nil }
-    if let error = json["error"].flatMap(AgentError.init(json:)) {
-      self.init(id: id, outcome: .failure(error))
-      return
-    }
-    guard let result = json["result"] else { return nil }
-    var images: [AgentImage] = []
-    if let array = json["images"]?.arrayValue {
-      for item in array {
-        if let encoded = item["data"]?.stringValue,
-          let mimeType = item["mimeType"]?.stringValue,
-          let data = Data(base64Encoded: encoded)
-        {
-          images.append(AgentImage(data: data, mimeType: mimeType))
-        }
-      }
-    } else if let encoded = json["image"]?["data"]?.stringValue,
-      let mimeType = json["image"]?["mimeType"]?.stringValue,
-      let data = Data(base64Encoded: encoded)
-    {
-      images.append(AgentImage(data: data, mimeType: mimeType))
-    }
-    self.init(id: id, outcome: .success(AgentPayload(result: result, images: images)))
-  }
 }
 
 public struct AgentPayload: Sendable, Equatable {

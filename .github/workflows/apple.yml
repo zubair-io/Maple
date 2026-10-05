@@ -150,7 +150,7 @@ jobs:
       - name: Execute MapleUI tests
         working-directory: src/apple/Packages/MapleUI
         run: swift test
-      # Agent transport over real Unix sockets and loopback HTTP, plus the
+      # Agent transport over authenticated loopback HTTP, plus the
       # Claude Desktop adapter against the same server.
       - name: Verify bundled Claude Desktop extension
         run: python3 src/apple/Packages/MapleMCP/package-claude-extension.py --check
@@ -277,8 +277,6 @@ jobs:
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/Packages/MapleCore/.build
             ~/Library/Caches/org.swift.swiftpm
           key: apple-test-swift-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('src/apple/Packages/MapleCore/Package.resolved', 'src/apple/Packages/MapleBackup/Package.resolved', '.github/workflows/apple.yml') }}
-      - name: Build the real stdio bridge for Core regression tests
-        run: swift build --package-path "$MAPLE_SWIFT_TEST_ROOT/Packages/MapleMCP" --configuration release --product maple-mcp
       - name: Execute the regression allowlist (.github/swift-regressions/run.txt)
         run: |
           set -euo pipefail

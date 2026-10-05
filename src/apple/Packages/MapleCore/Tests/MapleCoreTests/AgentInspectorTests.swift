@@ -88,30 +88,29 @@ final class AgentInspectorTests: XCTestCase {
     }
   }
 
-  func testInvalidSizeOverRealWireLeavesTheAppServing() async throws {
-    let service = AgentEditService()
-    let socket = "/tmp/agent-size-\(UUID().uuidString.prefix(8)).sock"
-    let server = AgentSocketServer(path: socket) { await service.handle($0) }
-    try server.start()
-    defer { server.stop() }
-    let client = AgentSocketClient(path: socket, timeout: 5)
-    let responses = try await Task.detached {
-      try [1e100, -1e100, 256.5].enumerated().map { index, value in
-        try client.send(
-          AgentRequest(
-            id: index, tool: "maple_render_and_inspect",
-            arguments: ["max_edge": .number(value)]))
-      } + [client.send(AgentRequest(id: 9, tool: "maple_get_active_photo", arguments: [:]))]
-    }.value
-    for response in responses.prefix(3) {
-      guard case .failure(let error) = response.outcome else { return XCTFail("expected failure") }
-      XCTAssertEqual(error.code, "invalid_arguments")
+  #if os(macOS)
+    func testInvalidSizeOverHTTPLeavesTheAppServing() async throws {
+      let service = AgentEditService()
+      try await AgentHTTPTestClient.withService(service) { client in
+        for (index, value) in [1e100, -1e100, 256.5].enumerated() {
+          let response = try await client.send(
+            AgentRequest(
+              id: index, tool: "maple_render_and_inspect",
+              arguments: ["max_edge": .number(value)]))
+          guard case .failure(let error) = response.outcome else {
+            return XCTFail("expected failure")
+          }
+          XCTAssertEqual(error.code, "invalid_arguments")
+        }
+        let response = try await client.send(
+          AgentRequest(id: 9, tool: "maple_get_active_photo", arguments: [:]))
+        guard case .failure(let error) = response.outcome else {
+          return XCTFail("expected normal no-photo reply")
+        }
+        XCTAssertEqual(error.code, "no_active_photo")
+      }
     }
-    guard case .failure(let error) = responses.last?.outcome else {
-      return XCTFail("expected normal no-photo reply")
-    }
-    XCTAssertEqual(error.code, "no_active_photo")
-  }
+  #endif
 
   func testServiceInspectsTheCanvasAndTagsTheRevision() async throws {
     let fixture = try XCTUnwrap(

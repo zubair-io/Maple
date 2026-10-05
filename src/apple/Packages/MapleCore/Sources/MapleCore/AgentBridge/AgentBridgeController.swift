@@ -1,24 +1,20 @@
-import Foundation
-import MapleAgentWire
-import Observation
-
+// MCP is served by the macOS app through HTTP.
 #if os(macOS)
+  import Foundation
+  import MapleAgentWire
+  import Observation
+
   import MapleMCPHTTP
-#endif
 
-/// Owns the app's local agent transports. Off by default: the photographer
-/// opts in from Settings. Disabling access immediately invalidates queued
-/// HTTP calls and closes listeners and connections.
-@MainActor
-@Observable
-public final class AgentBridgeController {
-  public static let shared = AgentBridgeController()
-  public static let enabledDefaultsKey = "agentBridge.enabled"
+  /// Owns the app's local HTTP server. Off by default: the photographer
+  /// opts in from Settings. Disabling access immediately invalidates queued
+  /// HTTP calls and closes listeners and connections.
+  @MainActor
+  @Observable
+  public final class AgentBridgeController {
+    public static let shared = AgentBridgeController()
+    public static let enabledDefaultsKey = "agentBridge.enabled"
 
-  public private(set) var isListening = false
-  public private(set) var lastError: String?
-  public private(set) var socketPath: String?
-  #if os(macOS)
     public static let httpPortDefaultsKey = "agentBridge.httpPort"
     public private(set) var httpURL: URL?
     public private(set) var httpError: String?
@@ -38,56 +34,28 @@ public final class AgentBridgeController {
       guard let httpURL, let authorizationToken else { return nil }
       return try MCPClientSetup.prompt(url: httpURL, token: authorizationToken)
     }
-  #endif
 
-  @ObservationIgnored private var server: AgentSocketServer?
-  @ObservationIgnored private let service: AgentEditService
+    @ObservationIgnored private let service: AgentEditService
 
-  public init(service: AgentEditService = .shared) {
-    self.service = service
-  }
-
-  public static var isEnabled: Bool {
-    UserDefaults.standard.bool(forKey: enabledDefaultsKey)
-  }
-
-  /// Start or stop to match the stored preference.
-  public func syncWithPreference() {
-    setEnabled(Self.isEnabled)
-  }
-
-  public func setEnabled(_ enabled: Bool) {
-    UserDefaults.standard.set(enabled, forKey: Self.enabledDefaultsKey)
-    enabled ? start() : stop()
-    #if os(macOS)
-      if enabled { startHTTP() }
-    #endif
-  }
-
-  func start(path: String? = nil) {
-    guard server == nil else { return }
-    guard let path = path ?? Self.defaultSocketPath() else {
-      lastError = "The Maple app-group container is unavailable."
-      return
+    public init(service: AgentEditService = .shared) {
+      self.service = service
     }
-    let service = service
-    let server = AgentSocketServer(path: path) { request in
-      await service.handle(request)
-    }
-    do {
-      try server.start()
-      self.server = server
-      socketPath = path
-      isListening = true
-      lastError = nil
-    } catch {
-      lastError = String(describing: error)
-      isListening = false
-    }
-  }
 
-  func stop() {
-    #if os(macOS)
+    public static var isEnabled: Bool {
+      UserDefaults.standard.bool(forKey: enabledDefaultsKey)
+    }
+
+    /// Start or stop to match the stored preference.
+    public func syncWithPreference() {
+      setEnabled(Self.isEnabled)
+    }
+
+    public func setEnabled(_ enabled: Bool) {
+      UserDefaults.standard.set(enabled, forKey: Self.enabledDefaultsKey)
+      enabled ? startHTTP() : stop()
+    }
+
+    func stop() {
       httpGeneration &+= 1
       httpStartTask?.cancel()
       httpStartTask = nil
@@ -102,13 +70,8 @@ public final class AgentBridgeController {
       httpError = nil
       authorizationToken = nil
       isHTTPStarting = false
-    #endif
-    server?.stop()
-    server = nil
-    isListening = false
-  }
+    }
 
-  #if os(macOS)
     private func startHTTP() {
       guard httpServer == nil, !isHTTPStarting else { return }
       httpGeneration &+= 1
@@ -160,11 +123,6 @@ public final class AgentBridgeController {
       }
       return await service.handle(request)
     }
-  #endif
 
-  private static func defaultSocketPath() -> String? {
-    FileManager.default
-      .containerURL(forSecurityApplicationGroupIdentifier: AgentSocketLocation.appGroup)
-      .map(AgentSocketLocation.path(inGroupContainer:))
   }
-}
+#endif

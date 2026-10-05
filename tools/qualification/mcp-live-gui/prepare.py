@@ -80,6 +80,7 @@ def main():
         "com.apple.security.files.bookmarks.app-scope": True,
         "com.apple.security.files.user-selected.read-write": True,
         "com.apple.security.network.client": True,
+        "com.apple.security.network.server": True,
     }
     entitlement_path = args.output / "sandbox.entitlements"
     entitlement_path.write_bytes(plistlib.dumps(entitlements))
@@ -92,6 +93,20 @@ def main():
                 magic = stream.read(4)
             if magic == b"\xcf\xfa\xed\xfe":
                 compiled_images[str(image.relative_to(app))] = sections(image)
+    for framework in sorted(
+        app.rglob("*.framework"), key=lambda path: len(path.parts), reverse=True
+    ):
+        subprocess.run(
+            [
+                "codesign",
+                "--force",
+                "--sign",
+                args.identity,
+                "--timestamp=none",
+                str(framework),
+            ],
+            check=True,
+        )
     subprocess.run(
         [
             "codesign",
@@ -109,7 +124,6 @@ def main():
         "Signing must preserve every compiled section"
     )
     directory = Path.home() / "Library/Containers" / identifier / "Data/tmp/mcp-ui"
-    assert len(str(directory / "agent.sock").encode()) < 104
     directory.mkdir(parents=True, exist_ok=False)
     fixture = directory / args.fixture.name
     shutil.copy2(args.fixture, fixture)

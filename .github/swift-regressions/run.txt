@@ -343,7 +343,7 @@ SMBWhiteBalanceAcceptanceTests # #4085: all WB modes, actual SMB variants/reconn
 SMBWorkflowRecoveryTests # #4065: drop actual accepted SMB rename acknowledgement
 # Decode sampling density, render parameter forwarding and chain-cache identity.
 NoiseSamplingScaleHostTests
-AgentEditServiceTests # live AI agent bridge: revision, undo, reject-not-clamp, real socket + .xmp
+AgentEditServiceTests # live AI agent bridge: revision, undo, reject-not-clamp, real HTTP + .xmp
 AgentInspectorTests # render_and_inspect: JPEG + display metrics from the same pixels, ROI, revision tag
 AgentInspectionRevisionTests # real lazy-raster fences: discard replies after edits or photo switches
 
