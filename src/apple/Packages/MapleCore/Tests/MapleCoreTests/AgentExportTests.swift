@@ -114,6 +114,72 @@ final class AgentExportTests: XCTestCase {
     try await exportWhileChanging(cancel: true) { _, _ in }
   }
 
+  func testCancellationAfterStagingDoesNotPublishAndRemovesTemporaryFile() async throws {
+    try await exportAtPublicationBoundary(cancel: true)
+  }
+
+  func testRevisionChangeAfterStagingDoesNotPublishAndRemovesTemporaryFile() async throws {
+    try await exportAtPublicationBoundary(cancel: false)
+  }
+
+  private func exportAtPublicationBoundary(cancel: Bool) async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "agent-export-publication")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let original = root.appendingPathComponent("source.png")
+    let bytes = try sourceBytes()
+    try bytes.write(to: original)
+    let session = EditSession(asset: AssetRef(url: original), model: .default)
+    let revision = AgentEditService.revision(of: session)
+    let exports = root.appendingPathComponent("Exports")
+    try FileManager.default.createDirectory(at: exports, withIntermediateDirectories: true)
+    let existing = exports.appendingPathComponent("existing.jpg")
+    let marker = Data("previous export".utf8)
+    try marker.write(to: existing)
+
+    let pending = Task {
+      try await AgentPhotoExporter.export(
+        session: session, revision: revision, directory: exports
+      ) {
+        let files = try FileManager.default.contentsOfDirectory(
+          at: exports, includingPropertiesForKeys: nil)
+        if files.count == 1 {
+          XCTAssertEqual(files.first?.lastPathComponent, "existing.jpg")
+          return
+        }
+        let staged = try XCTUnwrap(files.first { $0.pathExtension == "tmp" })
+        XCTAssertEqual(files.count, 2, "The completed JPEG must still be unpublished")
+        let jpeg = try Data(contentsOf: staged)
+        let decoded = try XCTUnwrap(CGImageSourceCreateWithData(jpeg as CFData, nil))
+        XCTAssertEqual(CGImageSourceGetType(decoded) as String?, "public.jpeg")
+        if cancel {
+          withUnsafeCurrentTask { $0?.cancel() }
+        } else {
+          session.beginEdit(description: "Changed while staging")
+          session.model.exposure = 1
+          session.endEdit()
+          guard AgentEditService.revision(of: session) == revision else {
+            throw AgentError(code: "stale_revision", message: "The photo changed during export.")
+          }
+          XCTFail("The edit must invalidate the exported revision")
+        }
+      }
+    }
+    do {
+      _ = try await pending.value
+      XCTFail("A cancelled or superseded staged export must not publish")
+    } catch is CancellationError {
+      XCTAssertTrue(cancel)
+    } catch let error as AgentError {
+      XCTAssertFalse(cancel)
+      XCTAssertEqual(error.code, "stale_revision")
+    }
+    XCTAssertEqual(
+      try FileManager.default.contentsOfDirectory(atPath: exports.path), ["existing.jpg"])
+    XCTAssertEqual(try Data(contentsOf: existing), marker)
+    XCTAssertEqual(try Data(contentsOf: original), bytes)
+    await session.flushPendingSidecarWrite()
+  }
+
   func testUnwritableExportLocationReportsFailureWithoutReplacingTheFile() async throws {
     let root = try SidecarContractIO.makeTempDirectory(prefix: "agent-export-write-error")
     defer { try? FileManager.default.removeItem(at: root) }
