@@ -1270,62 +1270,62 @@
     "scope": "Maple app content and MapleUI chrome use the bundled Material library. Direct SF references below are explicit native-framework exceptions. The cloud/calendar custom paths remain coordinated cross-platform glyphs (#3024).",
     "nativeExceptions": [
       {
-        "file": "src/apple/Maple/MapleApp.swift",
-        "line": 381,
+        "file": "src/apple/Maple/Views/SettingsView.swift",
+        "line": 60,
         "source": ".tabItem { Label(\"General\", systemImage: \"gear\") }",
         "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
       },
       {
-        "file": "src/apple/Maple/MapleApp.swift",
-        "line": 385,
+        "file": "src/apple/Maple/Views/SettingsView.swift",
+        "line": 63,
         "source": ".tabItem { Label(\"Backup\", systemImage: \"icloud.and.arrow.up\") }",
         "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
       },
       {
-        "file": "src/apple/Maple/MapleApp.swift",
-        "line": 388,
+        "file": "src/apple/Maple/Views/SettingsView.swift",
+        "line": 66,
         "source": ".tabItem { Label(\"Cloud\", systemImage: \"cloud\") }",
         "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
       },
       {
-        "file": "src/apple/Maple/MapleApp.swift",
-        "line": 395,
+        "file": "src/apple/Maple/Views/SettingsView.swift",
+        "line": 72,
         "source": ".tabItem { Label(\"Sources\", systemImage: \"externaldrive\") }",
         "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
       },
       {
-        "file": "src/apple/Maple/MapleApp.swift",
-        "line": 400,
+        "file": "src/apple/Maple/Views/SettingsView.swift",
+        "line": 77,
         "source": ".tabItem { Label(\"Pano\", systemImage: \"photo.stack\") }",
         "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
       },
       {
-        "file": "src/apple/Maple/MapleApp.swift",
-        "line": 406,
+        "file": "src/apple/Maple/Views/SettingsView.swift",
+        "line": 82,
         "source": ".tabItem { Label(\"Observability\", systemImage: \"waveform.path.ecg\") }",
         "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
       },
       {
-        "file": "src/apple/Maple/MapleApp.swift",
-        "line": 412,
+        "file": "src/apple/Maple/Views/SettingsView.swift",
+        "line": 86,
         "source": ".tabItem { Label(\"Finder\", systemImage: \"folder\") }",
         "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
       },
       {
-        "file": "src/apple/Maple/MapleApp.swift",
-        "line": 416,
+        "file": "src/apple/Maple/Views/SettingsView.swift",
+        "line": 90,
         "source": ".tabItem { Label(\"Files\", systemImage: \"folder\") }",
         "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
       },
       {
-        "file": "src/apple/Maple/MapleApp.swift",
-        "line": 427,
+        "file": "src/apple/Maple/Views/SettingsView.swift",
+        "line": 100,
         "source": ".tabItem { Label(\"Maple UI\", systemImage: \"square.grid.2x2\") }",
         "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
       },
       {
-        "file": "src/apple/Maple/MapleApp.swift",
-        "line": 432,
+        "file": "src/apple/Maple/Views/SettingsView.swift",
+        "line": 105,
         "source": ".tabItem { Label(\"About\", systemImage: \"info.circle\") }",
         "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
       },
