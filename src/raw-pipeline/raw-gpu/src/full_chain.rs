@@ -536,14 +536,14 @@ pub fn build_split<'a>(
     suffix.push(Box::new(DisplayEncodePass {
         target_primaries: inputs.target_primaries,
     }));
-    // srgb_gamma_encode: the per-channel IEC OETF. MUST sit between display_encode
-    // and the Auto Profile curve — the curve + residual LUT were fit in gamma
-    // space (matches raw-core's render tail: rec2020_to_srgb → srgb_gamma_encode →
-    // apply_curve → ColorLut::apply).
+    // srgb_gamma_encode: per-channel IEC OETF before Auto Profile tail.
+    // AutoProfileCurvePass is omitted when absent (#4216).
     suffix.push(Box::new(SrgbGammaPass));
-    suffix.push(Box::new(AutoProfileCurvePass {
-        flat_curve: inputs.profile_curve_flat.as_ref().into(),
-    }));
+    if inputs.profile_curve_flat.len() == crate::PROFILE_CURVE_FLAT_LEN {
+        suffix.push(Box::new(AutoProfileCurvePass {
+            flat_curve: inputs.profile_curve_flat.as_ref().into(),
+        }));
+    }
     suffix.push(Box::new(ResidualLutPass {
         size: inputs.residual_lut_size,
         data: inputs.residual_lut_data.as_ref().into(),

@@ -292,3 +292,51 @@ fn spatial_controls_split_the_local_adjustments_stage_per_layer() {
         "a stack with a spatial layer must split to one pass per layer"
     );
 }
+
+#[test]
+fn absent_auto_curve_omits_curve_pass_and_active_mask_bit() {
+    let case = neutral_case();
+    let mut inputs_absent = case.gpu_inputs();
+    inputs_absent.profile_curve_flat = vec![].into();
+
+    let passes_absent = build_live_chain(&inputs_absent, AirlightSource::Cpu([0.0; 3]));
+    assert_eq!(
+        passes_absent.len(),
+        VIEW_TAIL_PASS_COUNT - 1,
+        "absent curve must omit AutoProfileCurvePass from live chain"
+    );
+
+    let mask_absent = active_mask(&inputs_absent);
+    assert_eq!(
+        mask_absent & (1 << 20),
+        0,
+        "bit 20 must be clear when Auto curve is absent"
+    );
+
+    let inputs_present = case.gpu_inputs();
+    assert_eq!(
+        inputs_present.profile_curve_flat.len(),
+        crate::PROFILE_CURVE_FLAT_LEN
+    );
+    let passes_present = build_live_chain(&inputs_present, AirlightSource::Cpu([0.0; 3]));
+    assert_eq!(
+        passes_present.len(),
+        VIEW_TAIL_PASS_COUNT,
+        "present curve must include AutoProfileCurvePass in live chain"
+    );
+
+    let mask_present = active_mask(&inputs_present);
+    assert_ne!(
+        mask_present & (1 << 20),
+        0,
+        "bit 20 must be set when Auto curve is present"
+    );
+
+    let passes_full_absent = crate::full_chain::build_full_chain_passes(&inputs_absent, [0.0; 3]);
+    let passes_full_present = crate::full_chain::build_full_chain_passes(&inputs_present, [0.0; 3]);
+    assert_eq!(
+        passes_full_absent.len() + 1,
+        passes_full_present.len(),
+        "full chain must omit AutoProfileCurvePass when curve is absent"
+    );
+}

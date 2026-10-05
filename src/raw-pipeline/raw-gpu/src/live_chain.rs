@@ -407,9 +407,11 @@ pub fn build_live_split<'a>(
     // encode is the whole tail; RAW keeps them (its fitted per-image tone curve).
     // #1516 (completes the #1513 non-RAW view-tail skip — AgX above + look here).
     if is_raw_shape {
-        suffix.push(Box::new(AutoProfileCurvePass {
-            flat_curve: inputs.profile_curve_flat.as_ref().into(),
-        }));
+        if inputs.profile_curve_flat.len() == crate::PROFILE_CURVE_FLAT_LEN {
+            suffix.push(Box::new(AutoProfileCurvePass {
+                flat_curve: inputs.profile_curve_flat.as_ref().into(),
+            }));
+        }
         suffix.push(Box::new(ResidualLutPass {
             size: inputs.residual_lut_size,
             data: inputs.residual_lut_data.as_ref().into(),
@@ -530,6 +532,11 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
     // needed below — only presence changes the dispatch/bind-group shape.
     if !display_tone_curve_is_identity(&inputs.display_tone_curves) {
         m |= 1 << 18;
+    }
+    // Bit 20: Auto Profile curve pass (#4216) — RAW-only, engaged when host supplies
+    // a curve of PROFILE_CURVE_FLAT_LEN.
+    if is_raw_shape && inputs.profile_curve_flat.len() == crate::PROFILE_CURVE_FLAT_LEN {
+        m |= 1 << 20;
     }
     m
 }

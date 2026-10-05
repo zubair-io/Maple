@@ -34,7 +34,8 @@ fn live_frames_borrow_large_host_artifacts_without_copying() {
 #[test]
 fn absent_or_malformed_artifacts_share_valid_identity_storage() {
     let mut params: MapleGpuLiveParams = unsafe { std::mem::zeroed() };
-    let first_curve = unsafe { curve_flat_or_identity(&params) }.as_ptr();
+    let empty_curve = unsafe { curve_flat_or_empty(&params) };
+    assert!(empty_curve.is_empty());
     let first_lut = unsafe { residual_or_identity(&params) }.1.as_ptr();
     // A partial/stale caller can supply an edge without its array. Size must
     // fall back alongside the array, rather than presenting a mismatched grid.
@@ -43,12 +44,12 @@ fn absent_or_malformed_artifacts_share_valid_identity_storage() {
     assert_eq!(size, 2);
     assert_eq!(second_lut.len(), 2 * 2 * 2 * 3);
     assert_eq!(first_lut, second_lut.as_ptr());
-    let second_curve = unsafe { curve_flat_or_identity(&params) };
-    assert_eq!(first_curve, second_curve.as_ptr());
-    assert!(matches!(second_curve, Cow::Borrowed(_)));
+    let malformed_curve = [0.5f32; 10];
+    params.profile_curve_ptr = malformed_curve.as_ptr();
+    params.profile_curve_len = malformed_curve.len();
+    assert!(unsafe { curve_flat_or_empty(&params) }.is_empty());
     assert!(matches!(second_lut, Cow::Borrowed(_)));
 
-    drop(second_curve);
     drop(second_lut);
     let truncated = [0.5f32; 3];
     params.residual_lut_ptr = truncated.as_ptr();
