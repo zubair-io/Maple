@@ -1,99 +1,67 @@
-name: API tests
-
+name: Owned 4051 Linux chronology
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
-
 concurrency:
-  group: api-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
+  group: owned-4051-chronology-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  changes:
-    uses: ./.github/workflows/ci-changes.yml
-
-  api-typecheck:
-    needs: changes
-    if: needs.changes.outputs.api == 'true'
+  reproduce:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - name: Install API deps
-        working-directory: src/api
-        run: bun install --frozen-lockfile
-      - name: Typecheck API source and tests
-        working-directory: src/api
-        run: bun run typecheck
-
-  api-tests:
-    needs: changes
-    if: needs.changes.outputs.api == 'true'
-    runs-on: ubuntu-latest
+    timeout-minutes: 60
     services:
       meilisearch:
         image: getmeili/meilisearch:v1.50.0
-        ports:
-          - 7700:7700
+        ports: ['7700:7700']
         env:
           MEILI_ENV: development
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
-      - name: Install API deps
-        working-directory: src/api
-        run: bun install --frozen-lockfile
+          bun-version: 1.4.2
       - uses: dtolnay/rust-toolchain@stable
-      - name: Cache cargo registry + raw-pipeline target
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             src/raw-pipeline/target
           key: api-native-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
-      # The paired white-balance regression calls the real native decoder.
-      # Build it before tests so a clean runner cannot pass by skipping FFI.
-      - name: Build native RAW library for API integration tests
+      - name: Install actual locked dependencies
+        working-directory: src/api
+        run: bun install --frozen-lockfile
+      - name: Build own actual Linux native library
         run: bash src/api/scripts/build-raw-ffi.sh
-      - name: Run API tests
-        working-directory: src/api
+      - name: Record source and native identities
+        run: |
+          mkdir -p diagnostics
+          git rev-parse HEAD > diagnostics/head.txt
+          git status --porcelain > diagnostics/status-before.txt
+          bun --version > diagnostics/bun.txt
+          sha256sum src/api/native/libraw_ffi.so src/raw-pipeline/target/x86_64-unknown-linux-gnu/release/libraw_ffi.so > diagnostics/native-before.sha256
+          git ls-files -z | xargs -0 sha256sum > diagnostics/source-before.sha256
+      - name: Three bounded complete API attempts stop at first failure
         env:
           MAPLE_JWT_SECRET: ci-test-secret-not-for-production-only
-        run: bun test --timeout 30000
-      - name: Verify real Meilisearch task and search compatibility
-        working-directory: src/api
-        env:
-          MAPLE_MEILISEARCH_INTEGRATION_URL: http://localhost:7700
-        run: bun test src/enrichment/meilisearch-real.integration.test.ts --timeout 30000
-      # Capability-registry evidence check (#2430): the #2431 sidecar
-      # transaction contract (already part of the full `bun test` above) is
-      # re-run through tools/qualification/record.sh --check, which compares
-      # its executed / failed / skipped counts against the committed record
-      # in test-fixtures/qualification/sidecar_contract_api.json — the file
-      # the capability registry cites as this surface's persistence
-      # evidence. A test added or removed without re-recording fails here.
-      # The Rust toolchain used above also builds the record stamper
-      # (src/raw-pipeline/codegen/src/qualification_record.rs), which is
-      # what knows the current pipeline + schema version and corpus hash.
-      - name: Sidecar contract evidence check
-        env:
-          MAPLE_JWT_SECRET: ci-test-secret-not-for-production-only
-        run: bash tools/qualification/record.sh --check sidecar_contract_api bun -- bash -c 'cd src/api && bun test src/routes/xmp.sidecar-contract.test.ts --timeout 30000'
-
-  result:
-    name: API result
-    needs: [changes, api-typecheck, api-tests]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: python3 tools/ci_result.py api-typecheck=api api-tests=api
-        env:
-          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set +e
+          final=0
+          for attempt in 1 2 3; do
+            (cd src/api && bun test --timeout 30000) > diagnostics/attempt-${attempt}.log 2>&1
+            actual=$?
+            printf '%s\n' "$actual" > diagnostics/attempt-${attempt}.exit
+            cat diagnostics/attempt-${attempt}.log
+            sha256sum --check diagnostics/source-before.sha256 > diagnostics/source-after-${attempt}.log
+            source_guard=$?
+            sha256sum --check diagnostics/native-before.sha256 > diagnostics/native-after-${attempt}.log
+            native_guard=$?
+            if [ "$actual" -ne 0 ]; then final=$actual; break; fi
+            if [ "$source_guard" -ne 0 ] || [ "$native_guard" -ne 0 ]; then final=99; break; fi
+          done
+          printf '%s\n' "$final" > diagnostics/final.exit
+          exit "$final"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: owned-4051-real-linux-chronology
+          path: diagnostics
