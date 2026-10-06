@@ -155,16 +155,20 @@ pub fn neutral_samples_from_pairs(pairs: &[DisplayPair]) -> Vec<NeutralSample> {
 /// luminance range the model is actually evaluated against rather than just
 /// the (potentially much narrower) range its near-neutral pixels occupy.
 fn all_pairs_scene_luminances(pairs: &[DisplayPair]) -> Vec<f32> {
+    use rayon::prelude::*;
     let m_srgb_to_rec2020 = M_REC2020_TO_SRGB
         .inverse()
         .expect("M_REC2020_TO_SRGB invertible");
-    pairs
-        .iter()
-        .map(|p| {
-            let (maple_rec2020, _jpeg_srgb) = decode_pair(p, &m_srgb_to_rec2020);
-            rec2020_luma(maple_rec2020)
-        })
-        .collect()
+    let sample = |p: &DisplayPair| {
+        let (maple_rec2020, _jpeg_srgb) = decode_pair(p, &m_srgb_to_rec2020);
+        rec2020_luma(maple_rec2020)
+    };
+    if pairs.len() <= 4096 || rayon::current_num_threads() <= 2 {
+        pairs.iter().map(sample).collect()
+    } else {
+        // #4381: indexed collection preserves every pair's original position.
+        pairs.par_iter().map(sample).collect()
+    }
 }
 
 /// Adapt EVERY display pair into a [`SweepSample`] (the field fit's own
@@ -172,19 +176,23 @@ fn all_pairs_scene_luminances(pairs: &[DisplayPair]) -> Vec<f32> {
 /// cells — no separate gating needed here, matching the chart solver's
 /// stage 2 which also hands `fit_field` its full unclipped sweep set).
 pub fn sweep_samples_from_pairs(pairs: &[DisplayPair]) -> Vec<SweepSample> {
+    use rayon::prelude::*;
     let m_srgb_to_rec2020 = M_REC2020_TO_SRGB
         .inverse()
         .expect("M_REC2020_TO_SRGB invertible");
-    pairs
-        .iter()
-        .map(|p| {
-            let (maple_rec2020, jpeg_srgb) = decode_pair(p, &m_srgb_to_rec2020);
-            SweepSample {
-                scene_rec2020: maple_rec2020,
-                display_srgb: jpeg_srgb,
-            }
-        })
-        .collect()
+    let sample = |p: &DisplayPair| {
+        let (maple_rec2020, jpeg_srgb) = decode_pair(p, &m_srgb_to_rec2020);
+        SweepSample {
+            scene_rec2020: maple_rec2020,
+            display_srgb: jpeg_srgb,
+        }
+    };
+    if pairs.len() <= 4096 || rayon::current_num_threads() <= 2 {
+        pairs.iter().map(sample).collect()
+    } else {
+        // #4381: allocate only the same ordered output as the serial conversion.
+        pairs.par_iter().map(sample).collect()
+    }
 }
 
 /// Fit a structured [`AcrModel`] (tonescale + hue/chroma field) directly from
@@ -395,3 +403,7 @@ mod rms_tests;
 #[cfg(test)]
 #[path = "from_pairs_neutral_tests.rs"]
 mod neutral_tests;
+
+#[cfg(test)]
+#[path = "from_pairs_conversion_tests.rs"]
+mod conversion_tests;
