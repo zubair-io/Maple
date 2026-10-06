@@ -289,7 +289,10 @@ export class LibraryFetch {
     this.store.adjustmentModels.update((map) => {
       const next = new Map(map);
       for (const id of previousAssetIds) next.delete(id);
-      for (const [id, adjustment] of newAdjustments) next.set(id, adjustment);
+      for (const [id, adjustment] of newAdjustments) {
+        this.store.lensCorrections.invalidateProfileReplacement(id, map.get(id), adjustment);
+        next.set(id, adjustment);
+      }
       return next;
     });
     this.xmpStore.replacePassthroughs(

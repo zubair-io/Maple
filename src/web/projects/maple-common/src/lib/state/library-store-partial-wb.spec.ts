@@ -103,6 +103,56 @@ describe('real editor and store partial WB authors (#3434)', () => {
     expect(save()).toContain('crs:Tint="0"');
   });
 
+  for (const route of ['restore', 'merge'] as const) {
+    it(`${route} invalidates fit provenance for real persisted profile transitions only`, () => {
+      const caps = store.lensCorrections;
+      const replace = (profile: 'Auto' | 'Neutral', exposure = 0) => {
+        writeFileSync(path, xml(`papp:Profile="${profile}" crs:Exposure2012="${exposure}"`));
+        const bytes = readFileSync(path);
+        const model = parser.parseAdjustmentModel(bytes.toString()).model;
+        if (route === 'restore') expect(store.restoreAdjustment(ID, model)).toBe(true);
+        else store.mergePersistedAdjustment(ID, model, {});
+        expect(readFileSync(path)).toEqual(bytes);
+        expect(store.adjustmentFor(ID)().profile).toBe(profile);
+      };
+      const oldRevision = caps.autoFitRevisionFor(ID);
+      caps.seedProfile(ID, null, true, oldRevision);
+      replace('Neutral');
+      expect(caps.autoFitRevisionFor(ID)).toBe(oldRevision + 1);
+      expect(caps.for(ID).autoFit).toBeUndefined();
+      caps.seedProfile(ID, null, true, oldRevision);
+      expect(caps.for(ID).autoFit).toBeUndefined();
+      const neutralRevision = caps.autoFitRevisionFor(ID);
+      caps.seedProfile(ID, null, false, neutralRevision);
+      replace('Auto');
+      expect(caps.autoFitRevisionFor(ID)).toBe(neutralRevision + 1);
+      expect(caps.for(ID).autoFit).toBeUndefined();
+      caps.seedProfile(ID, null, false, neutralRevision);
+      expect(caps.for(ID).autoFit).toBeUndefined();
+      const autoRevision = caps.autoFitRevisionFor(ID);
+      caps.seedProfile(ID, null, true, autoRevision);
+      replace('Auto', 1.25);
+      expect(caps.autoFitRevisionFor(ID)).toBe(autoRevision);
+      expect(caps.for(ID).autoFit).toBe(true);
+    });
+  }
+
+  it('does not invalidate a rejected restore or an authored profile retained over persisted fields', () => {
+    const caps = store.lensCorrections;
+    const authored = store.setAdjustment(ID, { profile: 'Neutral' });
+    const revision = caps.autoFitRevisionFor(ID);
+    caps.seedProfile(ID, null, false, revision);
+    writeFileSync(path, xml('papp:Profile="Auto"'));
+    const original = readFileSync(path);
+    const persisted = parser.parseAdjustmentModel(original.toString()).model;
+    expect(store.restoreAdjustment(ID, persisted)).toBe(false);
+    store.mergePersistedAdjustment(ID, persisted, authored);
+    expect(store.adjustmentFor(ID)().profile).toBe('Neutral');
+    expect(caps.autoFitRevisionFor(ID)).toBe(revision);
+    expect(caps.for(ID).autoFit).toBe(false);
+    expect(readFileSync(path)).toEqual(original);
+  });
+
   it('an unrelated edit merged over a late sidecar hydrates the missing camera axis', () => {
     store.seedAsShotWhiteBalance(ID, 5520.125, -43.79, true);
     const authored = store.setAdjustment(ID, { exposure: 1.25 });
