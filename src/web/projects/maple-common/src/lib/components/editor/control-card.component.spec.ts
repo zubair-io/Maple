@@ -218,6 +218,14 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
     expect(endGesture).toHaveBeenCalledTimes(1);
   });
 
+  it('does not open Noise on a click or reset without a value-change tick (#4352)', () => {
+    const { componentInstance, armTool } = render({ activeGroup: 'detail' });
+    componentInstance.onSliderDragStart('noise');
+    componentInstance.onSliderDragEnd();
+    componentInstance.onSliderReset('noise');
+    expect(armTool).not.toHaveBeenCalled();
+  });
+
   it('does not arm a deferred Noise panel on a different focused asset (#4352)', () => {
     const { componentInstance, armTool, focusedAssetId } = render({ activeGroup: 'detail' });
     componentInstance.onSliderDragStart('noise');
