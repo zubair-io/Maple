@@ -131,10 +131,11 @@ pub(super) fn suppress_false_colour(
                 // its measured guide range.
                 return Some(mean_colour);
             }
-            // Any two distinct guides fit a line. The selected diagonal is
-            // evidence only when independent same-colour sensor sites on
-            // that diagonal support it too. Witnesses never enter the value
-            // estimate or its measured bounds (#4123).
+            // A local pair cannot distinguish a luminance crossing from an
+            // isolated colour peak. Require independent same-colour sites on
+            // the same diagonal to bracket the centre with positive colour
+            // evidence too. The distant response can curve: witnesses never
+            // enter the nearest-value estimate or its measured bounds (#4123).
             let pair_slope = (b.1 - a.1) / (b.0 - a.0);
             if !pair_slope.is_finite() {
                 return Some(mean_colour);
@@ -144,20 +145,22 @@ pub(super) fn suppress_false_colour(
             } else {
                 [(3_isize, -3_isize), (-3, 3)]
             };
-            let mut independent_guide = false;
-            for (dx, dy) in witnesses {
+            let measured = witnesses.map(|(dx, dy)| {
                 let nx = (x as isize + dx) as usize;
                 let ny = (y as isize + dy) as usize;
-                let (g, c) = (green[ny * w + nx], cfa_flat[ny * w + nx]);
-                let predicted = a.1 + pair_slope * (g - a.0);
-                let scale = predicted.abs().max(c.abs()).max(a.1.abs());
-                if !g.is_finite()
-                    || !c.is_finite()
-                    || !predicted.is_finite()
-                    || (predicted - c).abs() > 32.0 * f32::EPSILON * scale.max(f32::MIN_POSITIVE)
-                {
-                    return Some(mean_colour);
-                }
+                (green[ny * w + nx], cfa_flat[ny * w + nx])
+            });
+            if measured
+                .iter()
+                .any(|&(g, c)| !g.is_finite() || !c.is_finite())
+                || center < measured[0].0.min(measured[1].0)
+                || center > measured[0].0.max(measured[1].0)
+                || (measured[1].0 - measured[0].0) * (measured[1].1 - measured[0].1) <= 0.0
+            {
+                return Some(mean_colour);
+            }
+            let mut independent_guide = false;
+            for (g, _) in measured {
                 independent_guide |= [a.0, b.0].iter().all(|&near| {
                     (g - near).abs()
                         > 32.0 * f32::EPSILON * g.abs().max(near.abs()).max(f32::MIN_POSITIVE)
