@@ -65,8 +65,11 @@ export class CloudBackupService {
     return this.http.put<GoogleBackupConfig>(`${this.googleUrl(id)}/config`, patch);
   }
 
-  connectGoogle(id: string) {
-    return this.http.post<{ authorizationUrl: string }>(`${this.googleUrl(id)}/start`, {});
+  connectGoogle(id: string, rootId?: string) {
+    return this.http.post<{ authorizationUrl: string }>(
+      `${this.googleUrl(id)}/start`,
+      rootId ? { rootId } : {},
+    );
   }
 
   disconnectGoogle(id: string) {

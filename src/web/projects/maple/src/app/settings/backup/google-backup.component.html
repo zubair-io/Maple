@@ -13,108 +13,110 @@
           · {{ vm.config.accountEmail }}
         }
       </p>
-      <mui-checkbox
-        label="Bring your own client ID"
-        [checked]="bringOwn()"
-        [disabled]="busy()"
-        (checkedChange)="setBringOwn($event)"
-      />
-      @if (!bringOwn()) {
-        <p role="status" class="set-fhint mt-2">
-          Connect with Maple’s Google application. The Maple proxy processes authorization and
-          renewal tokens without storing them. Your refresh token is saved on this server; backup
-          files upload directly to Google.
-        </p>
-      } @else {
-        <div class="grid gap-4 grid-cols-2 max-[767px]:grid-cols-1 mt-4">
-          <div>
-            <label class="set-flabel" for="google-client-id">Client ID</label
-            ><mui-input
-              inputId="google-client-id"
-              ariaLabel="Google OAuth Client ID"
-              [(value)]="clientId"
-              autocomplete="off"
-              [disabled]="busy()"
-            />
-          </div>
-          <div>
-            <label class="set-flabel" for="google-client-secret">Client Secret</label
-            ><mui-input
-              inputId="google-client-secret"
-              ariaLabel="Google OAuth Client Secret"
-              [(value)]="secret"
-              [masked]="true"
-              autocomplete="off"
-              [disabled]="busy()"
-              [placeholder]="vm.config.clientSecretSet ? 'Saved — leave blank to keep' : ''"
-            />
-            <p class="set-fhint">Write-only. Never returned by this server.</p>
-          </div>
-        </div>
-        <details class="mt-4">
-          <summary class="cursor-pointer text-[12px]">Callback routing</summary>
-          <mui-select
-            class="mt-2"
-            ariaLabel="Google callback routing"
-            [value]="callbackMode()"
-            [options]="modes"
-            (valueChange)="setMode($event)"
-            [disabled]="busy()"
-          />
-        </details>
-        @if (vm.config.clientMode !== 'maple' && vm.config.googleRedirectUri; as redirect) {
-          <p class="set-fhint mt-2">
-            Register this saved Google OAuth redirect URL on your Web Application client (save
-            routing changes first):
+      @if (!vm.config.connected) {
+        <mui-checkbox
+          label="Bring your own client ID"
+          [checked]="bringOwn()"
+          [disabled]="busy()"
+          (checkedChange)="setBringOwn($event)"
+        />
+        @if (!bringOwn()) {
+          <p role="status" class="set-fhint mt-2">
+            Connect with Maple’s Google application. The Maple proxy processes authorization and
+            renewal tokens without storing them. Your refresh token is saved on this server; backup
+            files upload directly to Google.
           </p>
-          <p class="font-mono text-[12px] break-all">{{ redirect }}</p>
-          <mui-button size="sm" (pressed)="copy(redirect)">Copy Google redirect URL</mui-button>
+        } @else {
+          <div class="grid gap-4 grid-cols-2 max-[767px]:grid-cols-1 mt-4">
+            <div>
+              <label class="set-flabel" for="google-client-id">Client ID</label
+              ><mui-input
+                inputId="google-client-id"
+                ariaLabel="Google OAuth Client ID"
+                [(value)]="clientId"
+                autocomplete="off"
+                [disabled]="busy()"
+              />
+            </div>
+            <div>
+              <label class="set-flabel" for="google-client-secret">Client Secret</label
+              ><mui-input
+                inputId="google-client-secret"
+                ariaLabel="Google OAuth Client Secret"
+                [(value)]="secret"
+                [masked]="true"
+                autocomplete="off"
+                [disabled]="busy()"
+                [placeholder]="vm.config.clientSecretSet ? 'Saved — leave blank to keep' : ''"
+              />
+              <p class="set-fhint">Write-only. Never returned by this server.</p>
+            </div>
+          </div>
+          <details class="mt-4">
+            <summary class="cursor-pointer text-[12px]">Callback routing</summary>
+            <mui-select
+              class="mt-2"
+              ariaLabel="Google callback routing"
+              [value]="callbackMode()"
+              [options]="modes"
+              (valueChange)="setMode($event)"
+              [disabled]="busy()"
+            />
+          </details>
+          @if (vm.config.clientMode !== 'maple' && vm.config.googleRedirectUri; as redirect) {
+            <p class="set-fhint mt-2">
+              Register this saved Google OAuth redirect URL on your Web Application client (save
+              routing changes first):
+            </p>
+            <p class="font-mono text-[12px] break-all">{{ redirect }}</p>
+            <mui-button size="sm" (pressed)="copy(redirect)">Copy Google redirect URL</mui-button>
+          }
+          <p class="set-fhint mt-4">
+            Enable the Drive API. Production or eligible internal consent is needed for unattended
+            backup; Google Testing refresh tokens expire after seven days. This server exchanges and
+            renews directly with Google.
+          </p>
         }
-        <p class="set-fhint mt-4">
-          Enable the Drive API. Production or eligible internal consent is needed for unattended
-          backup; Google Testing refresh tokens expire after seven days. This server exchanges and
-          renews directly with Google.
-        </p>
-      }
-      @if (vm.config.callbackUrl; as callback) {
-        <div class="mt-4">
-          <label class="set-flabel" for="google-maple-callback">Maple callback URL</label>
-          <div class="flex gap-2 items-center">
-            <mui-input
-              class="flex-1"
-              inputId="google-maple-callback"
-              ariaLabel="Maple callback URL"
-              [readOnly]="true"
-              [value]="callback"
-            /><mui-button ariaLabel="Copy Maple callback URL" (pressed)="copy(callback)"
-              >Copy</mui-button
-            >
+        @if (vm.config.callbackUrl; as callback) {
+          <div class="mt-4">
+            <label class="set-flabel" for="google-maple-callback">Maple callback URL</label>
+            <div class="flex gap-2 items-center">
+              <mui-input
+                class="flex-1"
+                inputId="google-maple-callback"
+                ariaLabel="Maple callback URL"
+                [readOnly]="true"
+                [value]="callback"
+              /><mui-button ariaLabel="Copy Maple callback URL" (pressed)="copy(callback)"
+                >Copy</mui-button
+              >
+            </div>
+            <p class="set-fhint">
+              @if (!bringOwn() || callbackMode() === 'relay') {
+                The callback is passed to the hosted proxy automatically.
+              } @else {
+                This is the browser-facing callback endpoint on this server.
+              }
+            </p>
           </div>
-          <p class="set-fhint">
-            @if (!bringOwn() || callbackMode() === 'relay') {
-              Paste this into the callback field on the hosted proxy page.
-            } @else {
-              This is the browser-facing callback endpoint on this server.
-            }
+        } @else {
+          <p class="set-fhint mt-4">
+            Configure the central public domain before connecting.
+            <a routerLink="/settings/network" class="text-primary">Configure domain</a>
           </p>
+        }
+        <div class="flex flex-wrap gap-2 mt-4">
+          <mui-button [disabled]="!canSave() || busy()" (pressed)="save()"
+            >Save client settings</mui-button
+          ><mui-button
+            variant="primary"
+            [disabled]="!canConnect()"
+            [loading]="busy()"
+            (pressed)="save(true)"
+            >Connect Google Drive</mui-button
+          >
         </div>
-      } @else {
-        <p class="set-fhint mt-4">
-          Configure the central public domain before connecting.
-          <a routerLink="/settings/network" class="text-primary">Configure domain</a>
-        </p>
       }
-      <div class="flex flex-wrap gap-2 mt-4">
-        <mui-button [disabled]="!canSave() || busy()" (pressed)="save()"
-          >Save client settings</mui-button
-        ><mui-button
-          variant="primary"
-          [disabled]="!canConnect()"
-          [loading]="busy()"
-          (pressed)="save(true)"
-          >Connect Google Drive</mui-button
-        >
-      </div>
       @if (vm.config.connected) {
         @if (!vm.config.rootId) {
           <p class="set-fhint mt-4">
@@ -126,36 +128,44 @@
             Backup folder ID: <span class="font-mono break-all">{{ vm.config.rootId }}</span>
           </p>
         }
+      }
+      @if (!vm.config.rootId) {
         <details class="mt-4">
           <summary class="cursor-pointer text-[12px]">
             Recover an existing backup after server data loss
           </summary>
           <p class="set-fhint mt-2">
             Use the same Google client and account. Enter the existing Maple Photo Backup folder ID;
-            Maple verifies its descriptor and contents before attaching it.
+            Maple verifies the folder before attaching it. Leave this blank to create a new backup
+            folder after connecting.
           </p>
           <label class="set-flabel" for="google-backup-root">Existing backup folder ID</label
           ><mui-input
             inputId="google-backup-root"
             ariaLabel="Existing Google backup folder ID"
             [(value)]="rootId"
-          /><mui-button
-            class="mt-2"
-            [disabled]="!rootId().trim() || busy()"
-            (pressed)="attachRoot()"
-            >Verify existing backup</mui-button
-          >
+          />
+          @if (vm.config.connected) {
+            <mui-button
+              class="mt-2"
+              [disabled]="!rootId().trim() || busy()"
+              (pressed)="attachRoot()"
+              >Verify existing backup</mui-button
+            >
+          }
         </details>
       }
       <div class="flex flex-wrap gap-2 mt-4">
-        <mui-button [disabled]="busy() || !vm.config.connected" (pressed)="disconnect()"
-          >Disconnect Google</mui-button
-        ><mui-button
-          variant="ghost"
-          [disabled]="busy() || !bringOwn() || !vm.config.clientSecretSet"
-          (pressed)="disconnect(true)"
-          >Clear Google credentials</mui-button
-        >
+        @if (vm.config.connected) {
+          <mui-button [disabled]="busy()" (pressed)="disconnect()">Disconnect Google</mui-button>
+        } @else {
+          <mui-button
+            variant="ghost"
+            [disabled]="busy() || !bringOwn() || !vm.config.clientSecretSet"
+            (pressed)="disconnect(true)"
+            >Clear Google credentials</mui-button
+          >
+        }
       </div>
     }
   }

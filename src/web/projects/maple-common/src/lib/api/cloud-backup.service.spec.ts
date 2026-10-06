@@ -43,6 +43,12 @@ describe('CloudBackupService', () => {
     expect(start.request.body).toEqual({});
     start.flush({ authorizationUrl: 'https://accounts.google.com/' });
   });
+  it('passes an existing backup root in the owner-authenticated consent start request', () => {
+    api.connectGoogle('recovery', 'existing-root').subscribe();
+    const start = http.expectOne('/api/cloud-backup/google/recovery/start');
+    expect(start.request.body).toEqual({ rootId: 'existing-root' });
+    start.flush({ authorizationUrl: 'https://mapleeditor.com/connect/google-drive' });
+  });
   it('sends managed mode without owner credentials and starts with an empty request', () => {
     api.saveGoogleConfig('managed', { clientMode: 'maple', callbackMode: 'relay' }).subscribe();
     const config = http.expectOne('/api/cloud-backup/google/managed/config');

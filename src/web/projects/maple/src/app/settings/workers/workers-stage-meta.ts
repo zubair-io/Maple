@@ -1,6 +1,6 @@
 import type { SettingsIconName } from '../settings-icon.component';
 
-export type StageGroup = 'Ingest' | 'Enrich' | 'Index';
+export type StageGroup = 'Ingest' | 'Enrich' | 'Index' | 'Maintenance';
 export type EnrichmentKind =
   | 'describe'
   | 'transcribe'
@@ -24,7 +24,7 @@ export interface StageMeta {
 export const STAGE_META: Record<string, StageMeta> = {
   'cloud-backup': {
     id: 'cloud-backup',
-    group: 'Index',
+    group: 'Maintenance',
     icon: 'copy',
     enrichment: null,
     description:

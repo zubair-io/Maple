@@ -16,14 +16,15 @@ import { ConnectionService, validatedAuthorizationUrl } from '../connection.serv
 export class GoogleDriveComponent {
   private readonly fragment = takeConnectionFragment();
   private readonly connection = inject(ConnectionService);
-  readonly callback = signal('');
+  readonly callback = signal(this.fragment?.callback ?? '');
   readonly vm$ = this.fragment
     ? this.connection.validate(this.fragment.ticket).pipe(
-        map((ticket) => ({
-          ticket,
-          authorizationUrl: validatedAuthorizationUrl(this.fragment!, ticket),
-          error: '',
-        })),
+        map((ticket) => {
+          const authorizationUrl = validatedAuthorizationUrl(this.fragment!, ticket);
+          if (this.fragment?.callback && this.matchesCallback(ticket.returnUrl))
+            this.continue(authorizationUrl);
+          return { ticket, authorizationUrl, error: '' };
+        }),
         catchError(() =>
           of({
             ticket: null,
