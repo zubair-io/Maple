@@ -17,20 +17,19 @@ pub(crate) fn fit_profile_artifacts_with_status(
     model: &AdjustmentModel,
 ) -> (Vec<f32>, usize, Vec<f32>, Option<bool>) {
     let (curve, lut) = match model.profile {
-        // Preserve the existing GPU fit quality; this change only reports its outcome.
+        // AMaZE develop/export quality (#4092): matches the quality used by
+        // browser CPU render/export and WebGPU live session prefix develop.
         Profile::Auto => fit_auto_profile_from_raw(
             raw_img,
             model,
-            RenderQuality::Full,
+            RenderQuality::Amaze,
             RawInput::Bytes { bytes: raw, ext },
         )
         .unwrap_or((None, None)),
         _ => (None, None),
     };
     let auto_fit = (model.profile == Profile::Auto).then_some(curve.is_some() || lut.is_some());
-    let profile_curve_flat = curve
-        .map(|c| c.to_flat())
-        .unwrap_or_default();
+    let profile_curve_flat = curve.map(|c| c.to_flat()).unwrap_or_default();
     let (residual_lut_size, residual_lut_data) = match lut {
         Some(l) => (l.size, l.data),
         None => {

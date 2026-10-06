@@ -118,10 +118,10 @@ fn auto_will_fit(model: &AdjustmentModel, bytes: &[u8], ext: &str) -> bool {
     if model.profile != Profile::Auto {
         return false;
     }
-    // `RenderQuality::Full` — the quality THIS path's fit runs at (see the
-    // `fit_auto_profile_from_raw` call below), which is what the #2035
-    // quality-keyed cache stores it under.
-    let key = auto_profile::cache::CacheKey::from_bytes(bytes, RenderQuality::Full);
+    // `RenderQuality::Amaze` — the quality THIS path's fit runs at (see the
+    // `fit_auto_profile_from_raw` call in `auto_fit_status.rs`), matching
+    // browser CPU render/export and WebGPU live session develop (#4092).
+    let key = auto_profile::cache::CacheKey::from_bytes(bytes, RenderQuality::Amaze);
     auto_profile::cache::get(&key).is_some()
         || auto_profile::cache::get_lut(&key).is_some()
         || auto_profile::preview::extract_preview_from_bytes(bytes, ext).is_some()

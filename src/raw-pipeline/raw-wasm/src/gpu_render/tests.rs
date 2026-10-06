@@ -400,13 +400,24 @@ fn auto_will_fit_matches_profile_and_cache() {
 
     // Auto profile + a cache HIT on these exact bytes → true (a prior CPU/GPU
     // render fit this RAW; the probe predicts the fit without re-extracting).
-    // `Full` = the quality this path's fit runs at, which is the key the
-    // probe checks (#2035 quality-keyed cache).
-    let key = auto_profile::cache::CacheKey::from_bytes(hit_bytes, RenderQuality::Full);
+    // `Amaze` = the quality this path's fit runs at, which is the key the
+    // probe checks (#2035 / #4092 quality-keyed cache).
+    let key = auto_profile::cache::CacheKey::from_bytes(hit_bytes, RenderQuality::Amaze);
     auto_profile::cache::insert(key, auto_profile::curve::ProfileCurve::identity());
     assert!(
         super::auto_will_fit(&auto, hit_bytes, ext),
         "Auto with a curve cached for these bytes must fit (AE → Off)"
+    );
+
+    // Discrimination test (#4092): an entry cached under a different quality
+    // (e.g. RenderQuality::Full) must NOT satisfy the AMaZE cache probe.
+    let diff_quality_bytes = b"p4b-web-auto-will-fit-other-quality-0004" as &[u8];
+    let key_full =
+        auto_profile::cache::CacheKey::from_bytes(diff_quality_bytes, RenderQuality::Full);
+    auto_profile::cache::insert(key_full, auto_profile::curve::ProfileCurve::identity());
+    assert!(
+        !super::auto_will_fit(&auto, diff_quality_bytes, ext),
+        "Auto with cache populated only for RenderQuality::Full must not hit the Amaze probe"
     );
 }
 
