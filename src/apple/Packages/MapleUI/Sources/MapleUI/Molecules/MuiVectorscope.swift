@@ -5,6 +5,7 @@
 // plot reads as a colour without counting spokes; spokes use the border
 // token, target dots their own hue, and plotted chroma the accent token.
 
+// Explicit Double trigonometry avoids Double/CGFloat overload ambiguity across Xcode versions.
 import Darwin
 import SwiftUI
 
@@ -66,7 +67,9 @@ public struct MuiVectorscope: View {
         let angle = (MuiVectorscopeMath.targetAngleDeg(target) + rotationDeg) * .pi / 180
         spokes.move(to: center)
         spokes.addLine(
-          to: CGPoint(x: center.x + cos(angle) * radius, y: center.y - sin(angle) * radius))
+          to: CGPoint(
+            x: center.x + CGFloat(Darwin.cos(angle)) * radius,
+            y: center.y - CGFloat(Darwin.sin(angle)) * radius))
       }
       context.stroke(
         spokes, with: .color(MuiTokens.border.opacity(0.55)),
@@ -77,7 +80,9 @@ public struct MuiVectorscope: View {
       // "this exact angle is the broadcast target for it".
       for target in VectorscopeTarget.allCases {
         let angle = (MuiVectorscopeMath.targetAngleDeg(target) + rotationDeg) * .pi / 180
-        let p = CGPoint(x: center.x + cos(angle) * radius, y: center.y - sin(angle) * radius)
+        let p = CGPoint(
+          x: center.x + CGFloat(Darwin.cos(angle)) * radius,
+          y: center.y - CGFloat(Darwin.sin(angle)) * radius)
         let rgb = MuiVectorscopeMath.targetRGB(target)
         context.fill(
           Path(ellipseIn: CGRect(x: p.x - 3.5, y: p.y - 3.5, width: 7, height: 7)),
