@@ -107,7 +107,7 @@ impl CpuPreview {
         self.working.nr_sampling_scale = self.prefix.nr_sampling_scale;
         super::super::sized_detail::apply(&mut self.working, raw, &model, cancel)?;
         let full = (self.working.width, self.working.height);
-        display_prefix::apply(
+        display_prefix::apply_retained(
             &mut self.working,
             &model,
             film,

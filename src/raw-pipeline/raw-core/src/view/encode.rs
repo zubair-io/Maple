@@ -11,6 +11,10 @@ use crate::{
 };
 use rayon::prelude::*;
 
+#[path = "encode_retained.rs"]
+mod encode_retained;
+pub(crate) use encode_retained::rec2020_to_display_encoded;
+
 /// Which display primaries the `display_encode` view-tail converts to.
 ///
 /// The OETF is identical for both variants (IEC 61966-2-1 / 2.4-gamma —
