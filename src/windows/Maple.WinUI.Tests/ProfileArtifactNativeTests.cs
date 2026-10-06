@@ -64,7 +64,7 @@ public unsafe class ProfileArtifactNativeTests
         try
         {
             File.Copy(source, raw);
-            var original = SHA256.HashData(File.ReadAllBytes(raw));
+            var original = HashFile(raw);
             var sidecar = Path.ChangeExtension(raw, ".xmp");
             File.WriteAllText(sidecar, "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
                 + "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
@@ -96,11 +96,17 @@ public unsafe class ProfileArtifactNativeTests
                 Assert.Same(retained, decoded.DisplayLut);
                 Assert.Equal(expected, decoded.DisplayLut);
                 Assert.Equal(originalSidecar, File.ReadAllBytes(sidecar));
-                Assert.Equal(original, SHA256.HashData(File.ReadAllBytes(raw)));
+                Assert.Equal(original, HashFile(raw));
             }
-            Assert.Equal(original, SHA256.HashData(File.ReadAllBytes(source)));
+            Assert.Equal(original, HashFile(source));
         }
         finally { Directory.Delete(root, recursive: true); }
+    }
+
+    private static byte[] HashFile(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return SHA256.HashData(stream);
     }
 
     private sealed class NativeComposeFactAttribute : FactAttribute
