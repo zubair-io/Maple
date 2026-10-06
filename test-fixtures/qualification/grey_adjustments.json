@@ -1,13 +1,13 @@
 {
   "backend": "cpu-reference",
-  "command": "bash src/scripts/test_grey_adjustments.sh",
+  "command": "cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --features test-support --test grey_adjustments --test grey_adjustments_display --test grey_adjustments_wb --test whites_anchor_develop",
   "corpus_hash": "blake3:586dda5d1f3fc7d144dcfe3194e46a6212faf4e1d697f16a89b3fcf139226c2d",
   "executed_cases": 41,
   "expected_cases": 41,
   "failed_cases": 0,
-  "git_sha": "6a43f6e804af0f1bd46f40368fe4fcd21733ad73",
-  "pipeline_version": 8,
-  "recorded_at": "2026-10-01T21:59:55Z",
+  "git_sha": "94ae72d7021d10b92c3a170bac8d281d6596ef18",
+  "pipeline_version": 9,
+  "recorded_at": "2026-10-06T02:46:43Z",
   "schema_version": 5,
   "skipped_cases": 0,
   "source": "grey_adjustments"
