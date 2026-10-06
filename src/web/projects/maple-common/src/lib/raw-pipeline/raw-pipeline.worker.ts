@@ -1,3 +1,4 @@
+import { renderRetainedCpu, releaseRetainedCpu } from './raw-pipeline.cpu-handler';
 import { cameraSupportFromJson } from '../state/camera-support';
 import { lensProfileFromJson } from '../lens/lens-profile.metadata';
 /// <reference lib="webworker" />
@@ -120,12 +121,14 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       await handleLegacyDecode(req);
       return;
     case 'develop-non-raw':
+      releaseRetainedCpu();
       await handleDevelopNonRaw(req);
       return;
     case 'decode-scene-linear':
       await handleSceneLinearDecode(req);
       return;
     case 'open-session':
+      releaseRetainedCpu();
       await handleOpenSession(req);
       return;
     case 'render-session':
@@ -399,12 +402,16 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
   try {
     await ensureReady();
     const bytes = new Uint8Array(req.bytes);
+    if (req.cpuSourceToken === undefined) releaseRetainedCpu();
     const plan = planLegacyDecode(req);
     // #1123: markStart/markEnd — a throw here must never fall through to the
     // outer `catch` and mislabel a successful decode as a `decode-error`.
     const wasmStartMark = `maple:wasm:${req.id}:start`;
     markStart(wasmStartMark);
-    const result = await decodeViaPlan(plan, bytes, req);
+    const result =
+      req.cpuSourceToken !== undefined
+        ? renderRetainedCpu(req, plan.filmLutBytes)
+        : await decodeViaPlan(plan, bytes, req);
     markEnd(wasmStartMark, `maple:wasm:${req.id}:end`, plan.markTag);
     postLegacyDecodeSuccess(req, result);
   } catch (e) {

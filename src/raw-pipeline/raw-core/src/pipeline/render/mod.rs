@@ -40,6 +40,8 @@ pub use sized::{
 };
 
 // The orientation + crop tail, shared by the display and export depths (#943).
+mod cpu_preview;
+pub use cpu_preview::CpuPreview;
 mod detail;
 mod display_prefix;
 mod finish;
@@ -269,7 +271,9 @@ fn render_display_scene_with_context(
         target,
         film_lut,
         crate::CancelToken::never(),
+        false,
     )
+    .map(|(scene, context, _)| (scene, context))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -282,7 +286,8 @@ fn render_display_scene_with_context_cancellable(
     target: encode::TargetPrimaries,
     film_lut: Option<&film::FilmLut>,
     cancel: crate::CancelToken<'_>,
-) -> Result<(Image, DetailContext)> {
+    capture_prefix: bool,
+) -> Result<(Image, DetailContext, Option<Image>)> {
     if cancel.is_cancelled() {
         return Err(crate::error::Error::Cancelled);
     }
@@ -369,22 +374,32 @@ fn render_display_scene_with_context_cancellable(
     } else {
         model
     };
-    let (mut scene, ae_gain) = match max_long_edge {
-        // Sized: early-downsample develop — post-demosaic stages run on the
-        // viewport-sized buffer. `None` keeps the unsized entry byte-for-byte.
-        Some(mle) => develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
-            raw,
-            active_model,
-            quality,
-            mle,
-            cancel,
-        )?,
-        None => develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
-            raw,
-            active_model,
-            quality,
-            cancel,
-        )?,
+    let (mut scene, ae_gain, prefix) = if capture_prefix {
+        let mle = max_long_edge.expect("resident CPU preview always has a viewport cap");
+        let (prefix, gain) =
+            super::develop_sized::develop_sized_prefix(raw, active_model, quality, mle, cancel)?;
+        let mut scene = prefix.clone();
+        super::sized_detail::apply(&mut scene, raw, active_model, cancel)?;
+        (scene, gain, Some(prefix))
+    } else {
+        let (scene, gain) = match max_long_edge {
+            // Sized: early-downsample develop — post-demosaic stages run on the
+            // viewport-sized buffer. `None` keeps the unsized entry byte-for-byte.
+            Some(mle) => develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
+                raw,
+                active_model,
+                quality,
+                mle,
+                cancel,
+            )?,
+            None => develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
+                raw,
+                active_model,
+                quality,
+                cancel,
+            )?,
+        };
+        (scene, gain, None)
     };
 
     if cancel.is_cancelled() {
@@ -459,6 +474,7 @@ fn render_display_scene_with_context_cancellable(
             profile_lut: artifacts.1,
             auto_guard: model.profile == Profile::Auto && raw_source.is_some(),
         },
+        prefix,
     ))
 }
 

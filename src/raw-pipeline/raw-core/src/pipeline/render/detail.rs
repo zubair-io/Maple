@@ -47,7 +47,7 @@ pub fn render_detail_base_cancellable(
     options: DetailRenderOptions<'_>,
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
-    let (mut scene, context) = render_display_scene_with_context_cancellable(
+    let (mut scene, context, _) = render_display_scene_with_context_cancellable(
         raw,
         model,
         options.quality,
@@ -56,6 +56,7 @@ pub fn render_detail_base_cancellable(
         encode::TargetPrimaries::Srgb,
         options.film_lut,
         cancel,
+        false,
     )?;
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);

@@ -31,6 +31,7 @@ mod orient;
 pub(crate) mod pano;
 mod render;
 mod scene_linear_chain;
+mod sized_detail;
 mod tile;
 
 pub use inpaint_store::{patch_from_bytes, patch_to_bytes, patches_from_blob, patches_to_blob};
@@ -74,8 +75,9 @@ pub use render::{
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_anchors,
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain,
     render_sized_from_raw_with_quality_and_source,
-    render_sized_from_raw_with_quality_source_and_film, validate_raster_adjustments, DetailContext,
-    DetailRenderOptions, ExportDepth, ExportPixels, FitCap, RasterDetailImage, RawInput,
+    render_sized_from_raw_with_quality_source_and_film, validate_raster_adjustments, CpuPreview,
+    DetailContext, DetailRenderOptions, ExportDepth, ExportPixels, FitCap, RasterDetailImage,
+    RawInput,
 };
 pub use scene_linear_chain::{
     apply_scene_linear_chain, apply_scene_linear_chain_f32, apply_scene_linear_chain_f32_scoped,

@@ -57,6 +57,8 @@ pub mod auto_tone;
 /// heap, plus the `DEFAULT_TARGET_LONG_EDGE` the GPU one-shot entry and its
 /// CPU fallback share.
 pub mod cpu_budget;
+mod cpu_live_session;
+pub use cpu_live_session::CpuLiveSession;
 /// Edited-image export — full-res render + in-wasm encode, drained in chunks
 /// so a 100 MP deliverable never lands on the JS heap in one piece (#943).
 pub mod export;
