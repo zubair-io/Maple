@@ -230,6 +230,8 @@ pub fn apply_color_sampled_cancellable(
     let l_plane: Vec<f32> = oklab.par_iter().map(|p| p[0]).collect();
     let a_plane: Vec<f32> = oklab.par_iter().map(|p| p[1]).collect();
     let b_plane: Vec<f32> = oklab.par_iter().map(|p| p[2]).collect();
+    // The immutable L/a/b planes now own every value needed by denoising.
+    drop(oklab);
 
     // Run both NLM passes in parallel — each is already internally
     // parallel via the row-update sweeps, but at viewport sizes the
@@ -266,11 +268,11 @@ pub fn apply_color_sampled_cancellable(
 
     img.pixels
         .par_iter_mut()
-        .zip(oklab.par_iter())
+        .zip(l_plane.par_iter())
         .zip(denoised_a.par_iter())
         .zip(denoised_b.par_iter())
-        .for_each(|(((dst, lab), &new_a), &new_b)| {
-            *dst = oklab_to_rec2020([lab[0], new_a, new_b]);
+        .for_each(|(((dst, &l), &new_a), &new_b)| {
+            *dst = oklab_to_rec2020([l, new_a, new_b]);
         });
 }
 
@@ -496,3 +498,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "noise_reduction_retention_tests.rs"]
+mod retention_tests;
