@@ -192,7 +192,9 @@ namespace Maple.WinUI.Tests
 
             var auto = new AdjustmentState();
             WhiteBalanceProvenance.MarkAuto(auto);
-            Assert.Equal("White balance: Auto · version 1", WhiteBalanceProvenance.ProvenanceText(auto));
+            Assert.Equal(FormattableString.Invariant(
+                $"White balance: Auto · version {WhiteBalancePresets.AutoWhiteBalanceAlgorithmVersion:0}"),
+                WhiteBalanceProvenance.ProvenanceText(auto));
             Assert.Equal("White balance: Auto",
                 WhiteBalanceProvenance.ProvenanceText(new AdjustmentState { WbSource = WbSource.Auto }));
 
