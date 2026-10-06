@@ -343,8 +343,9 @@ namespace Maple.WinUI.Services
             return flat;
         }
 
-        /// <summary>Fit the per-image Auto Profile tail (cached natively per
-        /// (path, mtime, quality)): the separate curve + residual artifacts for
+        /// <summary>Fit the per-image Auto Profile tail: successful artifacts
+        /// are qualified by canonical path, mtime and length, then revalidated
+        /// after decode before reuse. The separate curve + residual serve the
         /// the GPU live chain, and the composed display-domain LUT for the CPU
         /// fallback. rc 1 = no tail applies (plain AgX) — not an error.</summary>
         private static bool FitAutoProfile(DecodedImage decoded, string rawPath, string xmpPath)
