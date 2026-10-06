@@ -276,8 +276,6 @@ public actor SMBSource {
     let entries = try await client.contentsOfDirectory(atPath: path, recursive: true)
     return entries.compactMap { attrs -> SMBAsset? in
       guard let name = attrs[.nameKey] as? String else { return nil }
-      // Skip dotfiles (`.DS_Store`, `.maple/`, etc.).
-      if name.hasPrefix(".") { return nil }
       let isDir = attrs[.isDirectoryKey] as? Bool ?? false
       guard !isDir else { return nil }
       let ext = (name as NSString).pathExtension.lowercased()
@@ -288,6 +286,8 @@ public actor SMBSource {
       let fullPath =
         (attrs[.pathKey] as? String)
         ?? (path as NSString).appendingPathComponent(name)
+      // Exclude private staging dirs and dotfiles relative to root (#4309).
+      if SMBSource.hasHiddenPathComponent(in: fullPath, relativeTo: path) { return nil }
       // `.fileSizeKey` / `.contentModificationDateKey` are populated by
       // AMSMB2's `stat.populateResourceValue` on every directory-listing
       // entry (see `FileHandle.swift` in the vendored AMSMB2 checkout) —
