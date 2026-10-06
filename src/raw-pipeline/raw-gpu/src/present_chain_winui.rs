@@ -58,6 +58,10 @@ pub struct PersistentSwapChainPanelSurface {
 }
 
 impl PersistentSwapChainPanelSurface {
+    pub fn release_session_dispatches(&self) {
+        self.present_cache.invalidate();
+    }
+
     /// Create + configure a new surface from `panel` at `(width, height)` on
     /// `ctx`'s existing device/adapter/instance (never a sibling instance —
     /// adapters belong to the instance that produced them, #1240).

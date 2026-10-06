@@ -124,6 +124,13 @@ pub unsafe extern "C" fn maple_gpu_live_close(handle: *mut MapleGpuLiveSession) 
         // (after recording the message) beats aborting the app on teardown.
         (*handle).inner = std::ptr::null_mut();
         let _ = catch_panic_rc("gpu_live_close", || {
+            #[cfg(target_os = "windows")]
+            if let Some(surface) = lock_shared()
+                .as_ref()
+                .and_then(|shared| shared.present_surface_winui.as_ref())
+            {
+                surface.release_session_dispatches();
+            }
             drop(Box::from_raw(inner as *mut LiveHandleInner));
             0
         });
