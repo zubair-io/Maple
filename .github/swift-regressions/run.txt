@@ -1,5 +1,5 @@
 # Test classes `swift-regressions` (.github/workflows/apple.yml) executes,
-# one per line. Every class here must pass with no skips on macos-latest
+# one per line. Every class here must pass with no skips on macos-15
 # against the staged host archive and the committed synthetic DNG — no
 # gitignored RAW fixtures, no required Metal device, no keychain access
 # or registered FileProvider domain.
