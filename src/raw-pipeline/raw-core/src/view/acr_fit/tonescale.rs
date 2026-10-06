@@ -79,10 +79,13 @@ impl KnotRange {
         if lums.len() < 8 {
             return KnotRange::CHART_DEFAULT;
         }
-        lums.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let pct = |p: f32| -> f32 {
+        // #4366: exact order statistics; no sampling or percentile change.
+        let mut pct = |p: f32| -> f32 {
             let idx = ((lums.len() - 1) as f32 * p).round() as usize;
-            lums[idx.min(lums.len() - 1)]
+            let idx = idx.min(lums.len() - 1);
+            *lums
+                .select_nth_unstable_by(idx, |a, b| a.partial_cmp(b).unwrap())
+                .1
         };
         // 2nd/98th percentile. #1740 M1 calibration note: widening the
         // ceiling to the 99.9th percentile was tried as a posterized-
@@ -424,145 +427,5 @@ fn fill_nan_linear(vals: &mut [f32]) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn knot_positions_span_neutral_ramp() {
-        let kp = KnotRange::CHART_DEFAULT.knot_positions_log2();
-        assert!((kp[0] - 0.001f32.log2()).abs() < 1e-5, "first knot");
-        assert!(
-            (kp[TONESCALE_KNOTS - 1] - 4.0f32.log2()).abs() < 1e-5,
-            "last knot"
-        );
-        // Monotone increasing.
-        for i in 0..TONESCALE_KNOTS - 1 {
-            assert!(kp[i + 1] > kp[i], "not monotone at {i}");
-        }
-    }
-
-    #[test]
-    fn knot_range_from_scene_luminances_matches_percentile_bounds() {
-        // 100 luminances log-uniform in [0.01, 2.0]; the derived range should
-        // sit close to the 2nd/98th percentile of that span, not the raw
-        // min/max.
-        let lums: Vec<f32> = (0..100)
-            .map(|i| {
-                let t = i as f32 / 99.0;
-                let log2_l = 0.01f32.log2() + t * (2.0f32.log2() - 0.01f32.log2());
-                log2_l.exp2()
-            })
-            .collect();
-        let range = KnotRange::from_scene_luminances(&lums);
-        assert!(
-            range.lo > 0.01 * 0.5 && range.lo < 0.01 * 4.0,
-            "derived lo {} should be near the low percentile, not the chart default 0.001",
-            range.lo
-        );
-        assert!(
-            range.hi > 2.0 * 0.5 && range.hi < 2.0 * 2.0,
-            "derived hi {} should be near the high percentile, not the chart default 4.0",
-            range.hi
-        );
-    }
-
-    #[test]
-    fn knot_range_from_scene_luminances_falls_back_on_sparse_input() {
-        let lums = vec![0.5, 0.6];
-        assert_eq!(
-            KnotRange::from_scene_luminances(&lums),
-            KnotRange::CHART_DEFAULT,
-            "too few samples to derive a percentile — must fall back to the chart default"
-        );
-    }
-
-    #[test]
-    fn knot_range_from_scene_luminances_enforces_minimum_span() {
-        // All luminances identical -> a degenerate zero-width span must be
-        // widened to the minimum log2 span, not left collapsed.
-        let lums = vec![0.3f32; 20];
-        let range = KnotRange::from_scene_luminances(&lums);
-        assert!(
-            range.hi.log2() - range.lo.log2() >= 0.99,
-            "degenerate sample set must still yield a usable span, got lo={} hi={}",
-            range.lo,
-            range.hi
-        );
-    }
-
-    #[test]
-    fn fit_tonescale_identity_mapping() {
-        // Samples where display = scene (identity renderer).  Verifies that:
-        // (a) the fit does not fail, and
-        // (b) the fitted tonescale is monotone (it should be, by construction).
-        // We do NOT check absolute accuracy here — that belongs in the
-        // integration test (fit_acr_solver.rs) which uses a dense analytic
-        // renderer.  The nearest-bin aggregation in the solver introduces
-        // bin-mean drift that makes per-knot accuracy checks fragile with
-        // few samples.
-        let samples: Vec<NeutralSample> = (0..32)
-            .map(|i| {
-                let t = i as f32 / 31.0;
-                let log2_l = 0.001f32.log2() + t * (4.0f32.log2() - 0.001f32.log2());
-                let l = log2_l.exp2();
-                NeutralSample::new(l, l)
-            })
-            .collect();
-        let ts = fit_tonescale(&samples).expect("must fit");
-        // Monotone (guaranteed by clamp-up pass).
-        for i in 0..ts.values.len() - 1 {
-            assert!(
-                ts.values[i + 1] >= ts.values[i],
-                "not monotone at knot {i}: {} -> {}",
-                ts.values[i],
-                ts.values[i + 1]
-            );
-        }
-        // Positivity.
-        assert!(ts.values[0] > 0.0, "first knot value not positive");
-        // Upper bound: display values should be positive and not wildly large.
-        for (i, &v) in ts.values.iter().enumerate() {
-            assert!(v >= 0.0 && v <= 10.0, "knot {i} value {v:.4} out of [0,10]");
-        }
-    }
-
-    #[test]
-    fn fit_tonescale_is_monotone() {
-        // Noisy samples.
-        let samples: Vec<NeutralSample> = (0..64)
-            .map(|i| {
-                let t = i as f32 / 63.0;
-                let log2_l = 0.001f32.log2() + t * (4.0f32.log2() - 0.001f32.log2());
-                let l = log2_l.exp2();
-                // Display is a simple tone curve.
-                let display = if l < 1.0 { l.powf(0.5) * 0.8 } else { 0.8 };
-                NeutralSample::new(l, display)
-            })
-            .collect();
-        let ts = fit_tonescale(&samples).expect("must fit");
-        for i in 0..ts.values.len() - 1 {
-            assert!(
-                ts.values[i + 1] >= ts.values[i],
-                "not monotone at knot {i}: {} -> {}",
-                ts.values[i],
-                ts.values[i + 1]
-            );
-        }
-    }
-
-    #[test]
-    fn fill_nan_linear_fills_interior() {
-        let mut vals = [f32::NAN; 5];
-        vals[0] = 0.0;
-        vals[4] = 1.0;
-        fill_nan_linear(&mut vals);
-        for (i, &v) in vals.iter().enumerate() {
-            assert!(!v.is_nan(), "NaN at {i}");
-            let expected = i as f32 / 4.0;
-            assert!(
-                (v - expected).abs() < 0.01,
-                "val[{i}] = {v} expected {expected}"
-            );
-        }
-    }
-}
+#[path = "tonescale_tests.rs"]
+mod tests;
