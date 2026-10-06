@@ -68,63 +68,33 @@ pub fn fit_field(
     let mut patches_clipped = 0usize;
     let mut patches_used = 0usize;
 
-    for s in samples {
-        // Luminance-preserving tonescale prediction.
-        let l_scene =
-            0.2627 * s.scene_rec2020[0] + 0.6780 * s.scene_rec2020[1] + 0.0593 * s.scene_rec2020[2];
-        if l_scene <= 0.0 {
-            patches_clipped += 1;
-            continue;
-        }
-        let l_display_pred = super::model::tonescale_apply(ts, l_scene);
-        let scale = l_display_pred / l_scene;
-        let pred_rec2020 = [
-            s.scene_rec2020[0] * scale,
-            s.scene_rec2020[1] * scale,
-            s.scene_rec2020[2] * scale,
-        ];
-
-        // Convert prediction to Oklab LCh.
-        let lab_pred = rec2020_to_oklab(pred_rec2020);
-        let c_pred = (lab_pred[1] * lab_pred[1] + lab_pred[2] * lab_pred[2]).sqrt();
-        if c_pred < 1e-4 {
-            patches_clipped += 1;
-            continue; // neutral — no chroma signal
-        }
-        let h_pred = lab_pred[2].atan2(lab_pred[1]).to_degrees();
-
-        // Measured: display sRGB → Rec.2020 → Oklab.
-        let meas_rec2020 = m_srgb_to_rec2020.mul_vec(s.display_srgb);
-        let lab_meas = rec2020_to_oklab(meas_rec2020);
-        let c_meas = (lab_meas[1] * lab_meas[1] + lab_meas[2] * lab_meas[2]).sqrt();
-        let h_meas = if c_meas > 1e-6 {
-            lab_meas[2].atan2(lab_meas[1]).to_degrees()
+    use rayon::prelude::*;
+    let mut observations = vec![None; samples.len().min(OBSERVATION_CHUNK)];
+    for chunk in samples.chunks(OBSERVATION_CHUNK) {
+        let observations = &mut observations[..chunk.len()];
+        if chunk.len() >= 512 {
+            observations
+                .par_iter_mut()
+                .zip(chunk.par_iter())
+                .for_each(|(out, sample)| {
+                    *out = field_observation(sample, ts, &m_srgb_to_rec2020);
+                });
         } else {
-            h_pred
-        };
-
-        // Residuals. The per-sample ratio is bounded BEFORE averaging so a
-        // near-neutral prediction's degenerate ratio can't own a sparse cell.
-        let dh = angle_diff_deg(h_meas, h_pred);
-        let sat_scale = if c_pred > 1e-6 {
-            (c_meas / c_pred).clamp(SAT_RATIO_MIN, SAT_RATIO_MAX)
-        } else {
-            1.0
-        };
-
-        // Lattice coordinates (nearest-bin).
-        let hue_norm = h_pred.rem_euclid(360.0) / 360.0;
-        let hi = (hue_norm * HUE_BINS as f32).round() as usize % HUE_BINS;
-        let chroma_frac = (c_pred / 0.30).clamp(0.0, 1.0);
-        let ci = ((chroma_frac * (CHROMA_BINS - 1) as f32).round() as usize).min(CHROMA_BINS - 1);
-        let luma_frac = lab_pred[0].clamp(0.0, 1.0);
-        let li = ((luma_frac * (LUMA_BINS - 1) as f32).round() as usize).min(LUMA_BINS - 1);
-
-        let idx = li * CHROMA_BINS * HUE_BINS + ci * HUE_BINS + hi;
-        dh_sum[idx] += dh as f64;
-        ss_sum[idx] += sat_scale as f64;
-        counts[idx] += 1;
-        patches_used += 1;
+            for (out, sample) in observations.iter_mut().zip(chunk) {
+                *out = field_observation(sample, ts, &m_srgb_to_rec2020);
+            }
+        }
+        for observation in observations.iter() {
+            match *observation {
+                Some((idx, dh, sat_scale)) => {
+                    dh_sum[idx] += dh as f64;
+                    ss_sum[idx] += sat_scale as f64;
+                    counts[idx] += 1;
+                    patches_used += 1;
+                }
+                None => patches_clipped += 1,
+            }
+        }
     }
 
     // Convert sums to count-shrunk means (empty cells stay at the 0 / 1
@@ -156,6 +126,68 @@ pub fn fit_field(
         sat_scale: ss_field,
     };
     (field, patches_used, patches_clipped)
+}
+
+// #4379: bounded observation scratch; arithmetic within an observation and
+// the serial cell accumulation order remain identical to the original fit.
+const OBSERVATION_CHUNK: usize = 8192;
+
+fn field_observation(
+    s: &SweepSample,
+    ts: &Tonescale,
+    m_srgb_to_rec2020: &crate::math::Matrix3,
+) -> Option<(usize, f32, f32)> {
+    // Luminance-preserving tonescale prediction.
+    let l_scene =
+        0.2627 * s.scene_rec2020[0] + 0.6780 * s.scene_rec2020[1] + 0.0593 * s.scene_rec2020[2];
+    if l_scene <= 0.0 {
+        return None;
+    }
+    let l_display_pred = super::model::tonescale_apply(ts, l_scene);
+    let scale = l_display_pred / l_scene;
+    let pred_rec2020 = [
+        s.scene_rec2020[0] * scale,
+        s.scene_rec2020[1] * scale,
+        s.scene_rec2020[2] * scale,
+    ];
+
+    // Convert prediction to Oklab LCh.
+    let lab_pred = rec2020_to_oklab(pred_rec2020);
+    let c_pred = (lab_pred[1] * lab_pred[1] + lab_pred[2] * lab_pred[2]).sqrt();
+    if c_pred < 1e-4 {
+        return None; // neutral — no chroma signal
+    }
+    let h_pred = lab_pred[2].atan2(lab_pred[1]).to_degrees();
+
+    // Measured: display sRGB → Rec.2020 → Oklab.
+    let meas_rec2020 = m_srgb_to_rec2020.mul_vec(s.display_srgb);
+    let lab_meas = rec2020_to_oklab(meas_rec2020);
+    let c_meas = (lab_meas[1] * lab_meas[1] + lab_meas[2] * lab_meas[2]).sqrt();
+    let h_meas = if c_meas > 1e-6 {
+        lab_meas[2].atan2(lab_meas[1]).to_degrees()
+    } else {
+        h_pred
+    };
+
+    // Residuals. The per-sample ratio is bounded BEFORE averaging so a
+    // near-neutral prediction's degenerate ratio can't own a sparse cell.
+    let dh = angle_diff_deg(h_meas, h_pred);
+    let sat_scale = if c_pred > 1e-6 {
+        (c_meas / c_pred).clamp(SAT_RATIO_MIN, SAT_RATIO_MAX)
+    } else {
+        1.0
+    };
+
+    // Lattice coordinates (nearest-bin).
+    let hue_norm = h_pred.rem_euclid(360.0) / 360.0;
+    let hi = (hue_norm * HUE_BINS as f32).round() as usize % HUE_BINS;
+    let chroma_frac = (c_pred / 0.30).clamp(0.0, 1.0);
+    let ci = ((chroma_frac * (CHROMA_BINS - 1) as f32).round() as usize).min(CHROMA_BINS - 1);
+    let luma_frac = lab_pred[0].clamp(0.0, 1.0);
+    let li = ((luma_frac * (LUMA_BINS - 1) as f32).round() as usize).min(LUMA_BINS - 1);
+
+    let idx = li * CHROMA_BINS * HUE_BINS + ci * HUE_BINS + hi;
+    Some((idx, dh, sat_scale))
 }
 
 /// Angular difference h_meas − h_pred in degrees, wrapped to (−180, +180].
@@ -306,3 +338,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "field/order_tests.rs"]
+mod order_tests;
