@@ -178,16 +178,28 @@ pub(super) fn suppress_false_colour(
                     .clamp(a.1.min(b.1), a.1.max(b.1)),
             );
         }
-        if count == 2 {
-            // Two cardinal samples always fit a line. Validate it against the
-            // next same-colour sites on that axis; these are witnesses only,
-            // never averaged into the nearest-value estimate or its bounds.
-            let distinct_guide = |g: f32, other: f32| {
-                (g - other).abs()
-                    > 32.0 * f32::EPSILON * g.abs().max(other.abs()).max(f32::MIN_POSITIVE)
+        let distinct_guide = |g: f32, other: f32| {
+            (g - other).abs()
+                > 32.0 * f32::EPSILON * g.abs().max(other.abs()).max(f32::MIN_POSITIVE)
+        };
+        let first = samples[0].0;
+        let second = samples.iter().find(|&&(g, _)| distinct_guide(g, first));
+        let third_near_guide = second.is_some_and(|&(second, _)| {
+            samples
+                .iter()
+                .any(|&(g, _)| distinct_guide(g, first) && distinct_guide(g, second))
+        });
+        if count == 2 || !third_near_guide {
+            // Two distinct levels always fit a line, including four diagonal
+            // sites repeating the same two plateaus. Validate independent
+            // same-colour sites; never add them to the value estimate/bounds.
+            let witnesses = if count == 2 {
+                [(-3_isize, 0_isize), (3, 0), (0, -3), (0, 3)]
+            } else {
+                [(-3_isize, -3_isize), (3, -3), (-3, 3), (3, 3)]
             };
             let mut independent_guide = false;
-            for (dx, dy) in [(-3_isize, 0_isize), (3, 0), (0, -3), (0, 3)] {
+            for (dx, dy) in witnesses {
                 let (nx, ny) = ((x as isize + dx) as usize, (y as isize + dy) as usize);
                 if color_at(nx, ny) != t {
                     continue;
