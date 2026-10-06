@@ -127,32 +127,40 @@ cargo build --offline \
 
 ### Patched crates live in `third_party/`, not `vendor/`
 
-One crate is not vendored: **`rav1d`**. It carries a Maple patch (its nine
-`dav1d_*` C shims are declared `extern "C-unwind"` so a decoder panic on a
-corrupt AVIF unwinds into our `catch_unwind` instead of aborting the process —
-#3517), so the patched copy is committed by hand at
-`src/raw-pipeline/third_party/rav1d/` and the workspace pulls it in with
+Five patched crates are committed under `src/raw-pipeline/third_party/`:
+**`rav1d`**, **`zune-jpeg`**, **`avif-parse`**, **`ravif`** and
+**`avif-serialize`**. Each directory documents its changes in `MAPLE-PATCH.md`.
+
+The `rav1d` patch declares its nine `dav1d_*` C shims `extern "C-unwind"`
+so a decoder panic on a corrupt AVIF unwinds into our `catch_unwind` instead
+of aborting the process (#3517). The workspace selects all five patched copies with
 
 ```toml
 [patch.crates-io]
 rav1d = { path = "third_party/rav1d" }
+zune-jpeg = { path = "third_party/zune-jpeg" }
+avif-parse = { path = "third_party/avif-parse" }
+ravif = { path = "third_party/ravif" }
+avif-serialize = { path = "third_party/avif-serialize" }
 ```
 
 Two consequences worth knowing:
 
-- **`cargo vendor` no longer emits `rav1d`** — a patched path dependency is not
-  a registry source. `vendor/rav1d` reappearing means the `[patch]` entry was
-  lost. The Apple offline build still works, because a `[patch.crates-io]` path
+- **`cargo vendor` does not emit these patched crates** — patched path dependencies
+  are not registry sources. A patched crate reappearing under `vendor/` means
+  its `[patch]` entry was lost. The Apple offline build still works, because
+  a `[patch.crates-io]` path
   entry resolves from the filesystem and is unaffected by source replacement.
 - **Every build uses the patch**, not just the Apple one — Linux/API, Windows,
   WASM included. That is the point of using `[patch]` rather than only editing
   the vendor tree. `src/windows/` is its own cargo workspace, and a `[patch]`
-  reaches only the workspace that declares it, so it carries a second copy of
-  the entry pointing at the same directory. Keep the two in lockstep.
+  reaches only the workspace that declares it, so it carries a second copy
+  of all five entries pointing at the same directories. Keep both tables in
+  lockstep.
 
 `scripts/re-apply-patches.sh` covers `vendor/` patches only (today: `ort-sys`).
-The rav1d patch is re-applied by hand on an upgrade; the recipe is in
-`src/raw-pipeline/third_party/rav1d/MAPLE-PATCH.md`, and the patch itself is
+When upgrading a patched crate, follow its `third_party/<crate>/MAPLE-PATCH.md`
+to reapply and verify the changes. For `rav1d`, the patch itself is
 `src/raw-pipeline/patches/rav1d-1.1.0-c-unwind.patch`.
 
 ## Layout
