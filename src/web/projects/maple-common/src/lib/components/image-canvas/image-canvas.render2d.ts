@@ -165,14 +165,7 @@ export async function coldOpen2d(
     if (!ownsRequest()) return;
     if ((e as { name?: string } | null)?.name === 'AbortError') return;
     settleColdOpenFailure(host, assetId, generation, fitRevision, previousBitmap);
-    if (
-      fitRevision === host.state.autoFitRevisionFor(assetId) &&
-      (host.imageBitmap() === null ||
-        host.imageBitmap() === previousBitmap ||
-        host.hasProvisionalPreview(assetId))
-    )
-      return false;
-    return undefined;
+    return coldOpenFailureResult(host, assetId, fitRevision, previousBitmap);
   } finally {
     if (ownsRequest()) host.loading.set(false);
   }
@@ -306,4 +299,21 @@ export async function runRender2d(
     console.error('[image-canvas] adjustment re-render failed:', e);
     settleFailedAutoFit(host, fitAsset, generation, fitRevision);
   }
+}
+
+/** A retryable rejection belongs to this profile and its retained presentation. */
+function coldOpenFailureResult(
+  host: Render2dHost,
+  assetId: AssetId,
+  fitRevision: number,
+  previousBitmap: ImageBitmap | null,
+): false | undefined {
+  if (
+    fitRevision === host.state.autoFitRevisionFor(assetId) &&
+    (host.imageBitmap() === null ||
+      host.imageBitmap() === previousBitmap ||
+      host.hasProvisionalPreview(assetId))
+  )
+    return false;
+  return undefined;
 }
