@@ -17,6 +17,53 @@ use super::*;
 use crate::context::GpuContext;
 use std::sync::Arc;
 
+/// #4344: both ping-pong directions of fast and refined sessions stay warm.
+#[test]
+fn fast_refine_and_neutral_active_presents_allocate_only_once() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (_, bgl) = build_present_pipeline(&ctx, wgpu::TextureFormat::Rgba8Unorm);
+    let cache = PresentDispatchCache::new();
+    let buffers = [
+        make_chain_buf(&ctx, "fast-neutral"),
+        make_chain_buf(&ctx, "refine-neutral"),
+        make_chain_buf(&ctx, "fast-active"),
+        make_chain_buf(&ctx, "refine-active"),
+    ];
+    let sources = [(4, 4), (0, 0), (4, 4), (0, 0)];
+    let expected: Vec<_> = buffers
+        .iter()
+        .zip(sources)
+        .map(|(buffer, source)| {
+            cache
+                .get_or_build_scaled(
+                    &ctx,
+                    &bgl,
+                    buffer,
+                    (8, 8),
+                    source,
+                    PresentGeometry::IDENTITY,
+                )
+                .1
+        })
+        .collect();
+    let warmed = cache.alloc_count();
+    assert_eq!(warmed, 8);
+    for _ in 0..5 {
+        for ((buffer, source), original) in buffers.iter().zip(sources).zip(&expected) {
+            let (_, current) = cache.get_or_build_scaled(
+                &ctx,
+                &bgl,
+                buffer,
+                (8, 8),
+                source,
+                PresentGeometry::IDENTITY,
+            );
+            assert!(Arc::ptr_eq(original, &current));
+        }
+    }
+    assert_eq!(cache.alloc_count(), warmed);
+}
+
 /// A storage buffer standing in for one of `LiveSession`'s persistent ping-pong
 /// buffers (`chain_buf` in the real present path). Real usage flags aren't
 /// needed here — `PresentDispatchCache` only cares about the buffer's ADDRESS
@@ -100,10 +147,13 @@ fn alternating_ping_pong_buffers_reuse_distinct_dispatches_without_allocating() 
     }
     assert_eq!(cache.alloc_count(), pre);
 
-    // A replacement session cannot grow the fixed two-resource cache.
-    let buf_c = make_chain_buf(&ctx, "chain-c");
-    let _ = cache.get_or_build(&ctx, &bgl, &buf_c, (8, 8));
-    assert_eq!(cache.entries.borrow().iter().flatten().count(), 2);
+    // Replacement sessions cannot grow the four-resource cache. A fifth
+    // distinct buffer evicts A rather than retaining unbounded old sessions.
+    for label in ["chain-c", "chain-d", "chain-e"] {
+        let replacement = make_chain_buf(&ctx, label);
+        let _ = cache.get_or_build(&ctx, &bgl, &replacement, (8, 8));
+    }
+    assert_eq!(cache.entries.borrow().iter().flatten().count(), 4);
     let (_, bg_a3) = cache.get_or_build(&ctx, &bgl, &buf_a, (8, 8));
     assert!(!Arc::ptr_eq(&bg_a1, &bg_a3));
 }
