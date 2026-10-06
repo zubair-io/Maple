@@ -2,18 +2,21 @@
 import { solve_guided_geometry } from './pkg/raw_wasm';
 import type { GuidedGeometryRequest, GuidedGeometryResponse } from './raw-pipeline.guided-geometry';
 
+export type GuidedGeometrySolver = (
+  points: Float32Array,
+  family: GuidedGeometryRequest['family'],
+  aspect: number,
+  xmp: string,
+) => Float32Array;
+
 export async function handleGuidedGeometry(
   req: GuidedGeometryRequest,
   ensureReady: () => Promise<unknown>,
+  solveFn: GuidedGeometrySolver = solve_guided_geometry,
 ): Promise<void> {
   try {
     await ensureReady();
-    const values = solve_guided_geometry(
-      new Float32Array(req.points),
-      req.family,
-      req.aspect,
-      req.xmp,
-    );
+    const values = solveFn(new Float32Array(req.points), req.family, req.aspect, req.xmp);
     const response: GuidedGeometryResponse = {
       id: req.id,
       type: 'guided-geometry-success',

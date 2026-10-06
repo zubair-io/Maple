@@ -2,14 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GuidedGeometryRequest } from './raw-pipeline.guided-geometry';
 import { handleGuidedGeometry } from './raw-pipeline.guided-geometry-handler';
 import type { RawWasmInitResult } from './raw-wasm-init';
-import * as rawWasm from './pkg/raw_wasm';
-
-vi.mock('./pkg/raw_wasm', () => ({
-  solve_guided_geometry: vi.fn(),
-}));
 
 describe('handleGuidedGeometry initialization contract (#3974)', () => {
   const postMessage = vi.fn();
+  const mockSolve = vi.fn();
 
   beforeEach(() => {
     vi.stubGlobal('self', { postMessage });
@@ -30,20 +26,13 @@ describe('handleGuidedGeometry initialization contract (#3974)', () => {
   };
 
   it('accepts void-returning initializer and posts success', async () => {
-    vi.mocked(rawWasm.solve_guided_geometry).mockReturnValue(
-      new Float32Array([12.5, -4.0, 1.25, 0]),
-    );
+    mockSolve.mockReturnValue(new Float32Array([12.5, -4.0, 1.25, 0]));
     const ensureReadyVoid = vi.fn(async (): Promise<void> => {});
 
-    await handleGuidedGeometry(request, ensureReadyVoid);
+    await handleGuidedGeometry(request, ensureReadyVoid, mockSolve);
 
     expect(ensureReadyVoid).toHaveBeenCalledOnce();
-    expect(rawWasm.solve_guided_geometry).toHaveBeenCalledWith(
-      expect.any(Float32Array),
-      'vertical',
-      1.5,
-      '<xmp/>',
-    );
+    expect(mockSolve).toHaveBeenCalledWith(expect.any(Float32Array), 'vertical', 1.5, '<xmp/>');
     expect(postMessage).toHaveBeenCalledWith({
       id: 42,
       type: 'guided-geometry-success',
@@ -57,11 +46,11 @@ describe('handleGuidedGeometry initialization contract (#3974)', () => {
   });
 
   it('accepts value-returning initializer (e.g. RawWasmInitResult) without contract failure (#3974)', async () => {
-    vi.mocked(rawWasm.solve_guided_geometry).mockReturnValue(new Float32Array([5.0, 2.5, 0.0, 1]));
+    mockSolve.mockReturnValue(new Float32Array([5.0, 2.5, 0.0, 1]));
     const mockInitResult: RawWasmInitResult = { threaded: true, threads: 4 };
     const ensureReadyResult = vi.fn(async (): Promise<RawWasmInitResult> => mockInitResult);
 
-    await handleGuidedGeometry(request, ensureReadyResult);
+    await handleGuidedGeometry(request, ensureReadyResult, mockSolve);
 
     expect(ensureReadyResult).toHaveBeenCalledOnce();
     expect(postMessage).toHaveBeenCalledWith({
@@ -81,7 +70,7 @@ describe('handleGuidedGeometry initialization contract (#3974)', () => {
       throw new Error('WASM initialization failed');
     });
 
-    await handleGuidedGeometry(request, ensureReadyReject);
+    await handleGuidedGeometry(request, ensureReadyReject, mockSolve);
 
     expect(postMessage).toHaveBeenCalledWith({
       id: 42,
