@@ -16,22 +16,9 @@ import XCTest
 #if os(macOS)
 
   final class SkinToneDemoUITests: XCTestCase {
-    private static func rawsDir() -> URL {
-      if let env = ProcessInfo.processInfo.environment["MAPLE_UITEST_FIXTURE_ROOT"], !env.isEmpty {
-        return URL(fileURLWithPath: env)
-      }
-      return URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent().deletingLastPathComponent()
-        .deletingLastPathComponent().deletingLastPathComponent()
-        .appendingPathComponent("test-fixtures/raws")
-    }
-
     func testCreatingASkinMaskAndDraggingHueMovesTheCloudTowardTheSkinLine() throws {
-      let rawURL = Self.rawsDir().appendingPathComponent("test_0003.DNG")
-      guard FileManager.default.fileExists(atPath: rawURL.path) else {
-        throw XCTSkip("test_0003.DNG not found — populate test-fixtures/raws/")
-      }
-      let driver = try MapleAppDriver.launch(fixture: "test_0003.DNG")
+      let rawURL = try UITestFixtureRoot.locate("test_0003.DNG")
+      let driver = try MapleAppDriver.launch(fixtureURL: rawURL)
       defer { driver.cleanupStagedFixture() }
       defer { driver.app.terminate() }
       driver.waitForCanvasReady(timeout: 30)
