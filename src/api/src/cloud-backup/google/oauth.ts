@@ -116,6 +116,7 @@ export async function startGoogleFlow(
   ownerId: string,
   origin: string,
   transport: GoogleFetch = fetch,
+  rootId?: string,
 ): Promise<{ authorizationUrl: string; cookie: string }> {
   await ownerStillAuthorized(ownerId);
   const connection = await startConnection(destinationId, ownerId, transport);
@@ -137,7 +138,12 @@ export async function startGoogleFlow(
   const redirectUri = relay ? RELAY_CALLBACK : callback;
   const ticket = relay
     ? await relayTicket(
-        { nonce, clientId: connection.config.clientId, challenge, returnUrl: callback },
+        {
+          nonce,
+          clientId: connection.config.clientId,
+          challenge,
+          returnUrl: callback,
+        },
         transport,
       )
     : null;
@@ -153,6 +159,7 @@ export async function startGoogleFlow(
     verifier,
     redirectUri,
     callback,
+    ...(rootId ? { rootId } : {}),
   };
   await savePending(flow);
   const params = new URLSearchParams({
@@ -168,7 +175,7 @@ export async function startGoogleFlow(
   });
   const googleUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
   const authorizationUrl = relay
-    ? `${RELAY_ORIGIN}/connect/google-drive?ngsw-bypass=true#${Buffer.from(
+    ? `${RELAY_ORIGIN}/connect/google-drive?ngsw-bypass=true&callback=${encodeURIComponent(callback)}#${Buffer.from(
         JSON.stringify({ ticket: state, authorizationUrl: googleUrl }),
       ).toString('base64url')}`
     : googleUrl;
@@ -227,7 +234,7 @@ export async function finishGoogleFlow(
   denied: boolean,
   currentOrigin: string | (() => Promise<string>),
   transport: GoogleFetch = fetch,
-): Promise<string> {
+): Promise<{ destinationId: string; rootId: string | null }> {
   if (
     !state ||
     state.length > 8192 ||
@@ -291,7 +298,7 @@ export async function finishGoogleFlow(
     token: tokens.accessToken,
     expires: Date.now() + tokens.expiresIn * 1000 - 60_000,
   });
-  return flow.destinationId;
+  return { destinationId: flow.destinationId, rootId: flow.rootId ?? null };
 }
 
 /** Internal machine-to-machine renewal; Bun exposes no browser-accessible renewal route. */
@@ -353,7 +360,10 @@ function renewTokens(connection: Connection, transport: GoogleFetch) {
       );
     return managedTokens(
       'refresh',
-      { refreshToken: connection.config.refreshToken!, relayGrant: connection.config.relayGrant },
+      {
+        refreshToken: connection.config.refreshToken!,
+        relayGrant: connection.config.relayGrant,
+      },
       transport,
     );
   }

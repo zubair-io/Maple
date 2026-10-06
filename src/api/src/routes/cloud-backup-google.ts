@@ -27,9 +27,11 @@ import {
 
 export interface GoogleRouteDependencies {
   origin: () => Promise<string>;
-  destination: (
-    id: string,
-  ) => Promise<{ kind: string; rootId: string | null; generation: number } | null>;
+  destination: (id: string) => Promise<{
+    kind: string;
+    rootId: string | null;
+    generation: number;
+  } | null>;
   attachRoot: (id: string, rootId: string, accountId: string, generation: number) => Promise<void>;
   connectionChanged: (id: string) => Promise<void>;
   transport?: GoogleFetch;
@@ -115,6 +117,36 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
       await deps.attachRoot(id, body.rootId, config.accountId!, destination.generation);
     }
   };
+  const ensureRoot = async (id: string, existingRoot?: string | null) => {
+    const destination = await requireDestination(id);
+    if (destination.rootId) {
+      if (existingRoot && existingRoot !== destination.rootId)
+        throw new GoogleConnectionError('This destination already owns another backup root.');
+      return;
+    }
+    const connection = await loadConnection(id);
+    const token = () => googleAccessToken(id, deps.transport);
+    if (existingRoot) {
+      await validateGoogleRoot(new DriveClient(token, deps.transport), existingRoot);
+      if ((await loadConnection(id)).epoch !== connection.epoch)
+        throw new GoogleConnectionError(
+          'Connection changed; reconnect before attaching the backup.',
+        );
+      await deps.attachRoot(id, existingRoot, connection.config.accountId!, destination.generation);
+      return;
+    }
+    const reserved = await reserveRoot(
+      id,
+      connection.epoch,
+      await new DriveClient(token, deps.transport).reserveId(),
+    );
+    const rootId = await createGoogleRoot(token, deps.transport, reserved);
+    if ((await loadConnection(id)).epoch !== connection.epoch)
+      throw new GoogleConnectionError(
+        'Connection changed; attach the created Maple folder after reconnecting.',
+      );
+    await deps.attachRoot(id, rootId, connection.config.accountId!, destination.generation);
+  };
   const owner = new Elysia({
     name: 'googleBackupOwner',
     prefix: '/api/cloud-backup/google',
@@ -139,7 +171,7 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
     )
     .post(
       '/:destinationId/start',
-      async ({ params, auth, request, set }) => {
+      async ({ params, auth, request, body, set }) => {
         try {
           await requireDestination(params.destinationId);
           const origin = await deps.origin();
@@ -154,6 +186,7 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
             auth.user.sub,
             origin,
             deps.transport,
+            body?.rootId,
           );
           Object.assign(set.headers, safeHeaders, {
             'Set-Cookie': flowCookie(result.cookie, callback, FLOW_TTL / 1000),
@@ -164,7 +197,16 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
           return { error: errorMessage(error) };
         }
       },
-      { params: IdParams },
+      {
+        params: IdParams,
+        body: t.Optional(
+          t.Object({
+            rootId: t.Optional(
+              t.String({ minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9_-]+$' }),
+            ),
+          }),
+        ),
+      },
     )
     .post(
       '/:destinationId/disconnect',
@@ -191,24 +233,7 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
           const destination = await requireDestination(params.destinationId);
           if (destination.rootId)
             throw new GoogleConnectionError('This destination already has a backup root.');
-          const connection = await loadConnection(params.destinationId);
-          const token = () => googleAccessToken(params.destinationId, deps.transport);
-          const reserved = await reserveRoot(
-            params.destinationId,
-            connection.epoch,
-            await new DriveClient(token, deps.transport).reserveId(),
-          );
-          const rootId = await createGoogleRoot(token, deps.transport, reserved);
-          if ((await loadConnection(params.destinationId)).epoch !== connection.epoch)
-            throw new GoogleConnectionError(
-              'Connection changed; attach the created Maple folder after reconnecting.',
-            );
-          await deps.attachRoot(
-            params.destinationId,
-            rootId,
-            connection.config.accountId!,
-            destination.generation,
-          );
+          await ensureRoot(params.destinationId);
           return projection(params.destinationId);
         } catch (error) {
           set.status = 400;
@@ -227,7 +252,7 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
         // A TLS terminating reverse proxy may give Bun an internal HTTP URL.
         // Authority is the fixed route + host-only Secure cookie + exact bound
         // state and configured origin, never Host/Forwarded-derived routing.
-        const destinationId = await finishGoogleFlow(
+        const { destinationId, rootId } = await finishGoogleFlow(
           url.searchParams.get('state') ?? '',
           cookieValue(request),
           url.searchParams.get('code'),
@@ -237,6 +262,7 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
         );
         await requireDestination(destinationId);
         await deps.connectionChanged(destinationId);
+        await ensureRoot(destinationId, rootId);
         return new Response(null, {
           status: 303,
           headers: {
@@ -251,7 +277,10 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
           .then(callbackUrl)
           .catch(() => null);
         if (!expected)
-          return new Response(errorMessage(error), { status: 400, headers: safeHeaders });
+          return new Response(errorMessage(error), {
+            status: 400,
+            headers: safeHeaders,
+          });
         const destination = new URL('/settings/backup', new URL(expected).origin);
         destination.searchParams.set('googleError', errorMessage(error));
         return new Response(null, {

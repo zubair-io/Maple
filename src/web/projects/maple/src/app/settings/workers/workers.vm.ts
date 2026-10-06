@@ -187,8 +187,13 @@ export function runtimeFormToPatch(form: RuntimeForm): Partial<WorkerConfig> {
 export function groupStagesByPipeline(
   stages: readonly StageStatus[],
 ): readonly { group: StageGroup; rows: StageStatus[] }[] {
-  const order: StageGroup[] = ['Ingest', 'Enrich', 'Index'];
-  const groups: Record<StageGroup, StageStatus[]> = { Ingest: [], Enrich: [], Index: [] };
+  const order: StageGroup[] = ['Ingest', 'Enrich', 'Index', 'Maintenance'];
+  const groups: Record<StageGroup, StageStatus[]> = {
+    Ingest: [],
+    Enrich: [],
+    Index: [],
+    Maintenance: [],
+  };
   for (const s of stages) {
     const g = STAGE_META[s.name]?.group ?? 'Ingest';
     groups[g].push(s);

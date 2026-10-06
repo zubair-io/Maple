@@ -269,17 +269,19 @@ describe('meilisearchFormToPatch', () => {
 describe('groupStagesByPipeline', () => {
   it('buckets stages into Ingest / Enrich / Index in pipeline order', () => {
     const grouped = groupStagesByPipeline([
+      stage({ name: 'cloud-backup' }),
       stage({ name: 'meili' }),
       stage({ name: 'hash' }),
       stage({ name: 'face-detect' }),
       stage({ name: 'face-embed' }),
       stage({ name: 'exif' }),
     ]);
-    expect(grouped.map((g) => g.group)).toEqual(['Ingest', 'Enrich', 'Index']);
-    const [ingest, enrich, index] = grouped;
+    expect(grouped.map((g) => g.group)).toEqual(['Ingest', 'Enrich', 'Index', 'Maintenance']);
+    const [ingest, enrich, index, maintenance] = grouped;
     expect(ingest.rows.map((r) => r.name)).toEqual(['hash', 'exif']);
     expect(enrich.rows.map((r) => r.name)).toEqual(['face-detect', 'face-embed']);
     expect(index.rows.map((r) => r.name)).toEqual(['meili']);
+    expect(maintenance.rows.map((r) => r.name)).toEqual(['cloud-backup']);
   });
 
   it('routes unknown stages into Ingest', () => {

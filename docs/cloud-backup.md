@@ -15,7 +15,7 @@ Choose Maple's Google application by leaving **Bring your own client ID** unchec
 3. For owner mode, create a Google Cloud project, enable the Drive API, configure its consent screen and create a dedicated **Web application** OAuth client. A Desktop client with an arbitrary HTTPS relay redirect is not this flow. Request only `https://www.googleapis.com/auth/drive.file`; Maple rejects extra scopes or a different client identity.
 4. Check **Bring your own client ID** and enter the ID and secret. An empty secret field preserves the saved secret. Saved secrets are never returned to the browser. Choose direct callback or hosted relay and register the exact saved Google redirect URI shown below.
 5. Save and connect. Complete the flow in the same browser within ten minutes. The displayed **Maple callback URL** is the same server endpoint for both client modes; Maple mode always uses the hosted callback proxy.
-6. Explicitly create the backup folder, or attach an existing Maple backup root ID. Enable the destination. In Workers settings, resume the `cloud-backup` stage if it is paused; its first-boot default is paused.
+6. Maple creates its backup folder after successful connection, preserving any existing attached root. For recovery, expand **Recover an existing backup** and enter the existing Maple backup root ID before connecting. Maple verifies and attaches that folder instead of creating a new one. Enable the destination. In Workers settings, resume the `cloud-backup` stage if it is paused; its first-boot default is paused.
 
 Google's `drive.file` scope covers files created or explicitly opened with the application. It does not authorize browsing the user's entire Drive. This scope is a per-file grant, rather than a Google-enforced sandbox around one folder; Maple additionally validates its configured root and each object's current parent before access or removal. [Google's Drive scope documentation](https://developers.google.com/workspace/drive/api/guides/api-specific-auth).
 
@@ -32,7 +32,7 @@ All flows finish at the same Bun-served endpoint. Maple mode uses the canonical 
 
 Replace the example origin with the one configured in Network settings. Scheme, host, port and path must match; do not add a trailing slash. Google's Web application redirect validation requires HTTPS except for permitted localhost development redirects. [Google's Web OAuth documentation](https://developers.google.com/identity/protocols/oauth2/web-server#uri-validation).
 
-For the relay flow, copy the **Bun callback URL** displayed in Maple and paste it into the hosted connection page when prompted. Do not paste the relay callback into that field. The hosted page verifies the pasted address against the signed request and asks for confirmation before returning to your instance.
+For the relay flow, Maple passes the **Bun callback URL** as the `callback` query parameter. The hosted page validates it against the signed request and continues to Google automatically. If the parameter is absent or does not match, paste the displayed callback to continue manually. Do not paste the relay callback into that field. The hosted return page asks for confirmation before returning to your instance.
 
 The browser must resolve and reach the instance's configured origin. A private HTTPS hostname can therefore work with the relay; the Worker never fetches the NAS or local server. Plain HTTP LAN addresses are rejected. HTTP loopback is supported only for local development: `localhost` in the browser refers to the browser's machine. Direct mode also applies Google's public-host redirect restrictions. Use an HTTPS origin without a path prefix, query or fragment.
 
@@ -95,6 +95,8 @@ See `src/cloudflare/drive-connect/README.md` for deployment and smoke-check comm
 ## Backup behavior and coverage
 
 Google uploads run through the shared asset-stage scheduler. Each destination tracks its own success, retry state and current generation. A failed target does not prevent another target from completing. Credentials, root changes, Trash transitions and explicit purges fence stale work. Resumable uploads persist their reserved file IDs and checkpoints before use and after each chunk, so retries can reconcile lost responses without publishing duplicate versions.
+
+Folder destinations mirror the original directory structure. Google Drive uses a versioned backup layout, not a browseable replica of the source folders; restoring recreates the recorded relative paths. The library `descriptor.json` identifies the library and backup format.
 
 The cloud catalog uses ordinary downloadable JSON objects and SHA-256-addressed blobs under `libraries/<libraryId>/entries/<entryId>/`. Immutable manifests record the version sequence, current/original paths, hidden state, Trash timestamp and exact file identities. Original filenames and content types are display metadata; they do not change immutable logical keys. New XMP versions can reuse a verified original blob within the same entry. A version becomes verified only after its complete file set and manifest are checked. A filename or embedded marker alone is not proof of matching bytes.
 

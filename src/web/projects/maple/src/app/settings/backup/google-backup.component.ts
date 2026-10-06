@@ -134,7 +134,12 @@ export class GoogleBackupComponent {
         this.message.set('Google application settings saved.');
         return;
       }
-      const response = await firstValueFrom(this.api.connectGoogle(this.destinationId()));
+      const rootId = this.rootId().trim();
+      const response = await firstValueFrom(
+        rootId
+          ? this.api.connectGoogle(this.destinationId(), rootId)
+          : this.api.connectGoogle(this.destinationId()),
+      );
       const url = new URL(response.authorizationUrl);
       const allowed =
         url.protocol === 'https:' &&

@@ -3,6 +3,7 @@
 export interface ConnectionFragment {
   ticket: string;
   authorizationUrl?: string;
+  callback?: string;
   code?: string;
   error?: string;
 }
@@ -72,6 +73,10 @@ export function captureConnectionFragment(
   history.replaceState(null, '', `${location.pathname}?ngsw-bypass=true`);
   captured = null;
   captured = parseConnectionFragment(fragment, location.pathname);
+  if (captured?.authorizationUrl) {
+    const callbacks = new URLSearchParams(location.search).getAll('callback');
+    if (callbacks.length === 1 && callbacks[0]!.length <= 2048) captured.callback = callbacks[0];
+  }
 }
 export function takeConnectionFragment(): ConnectionFragment | null {
   const fragment = captured;

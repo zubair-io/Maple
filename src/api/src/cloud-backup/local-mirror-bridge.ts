@@ -8,8 +8,16 @@ import { removedDestinationStatements } from './destination-removal.ts';
 
 export async function migrateFolderDestinations(repo = new BackupRepository()): Promise<void> {
   const folders = await listFolders(repo.db);
+  const migrated = new Set(
+    (
+      await repo.db.read<{ id: string }>(
+        `SELECT id FROM app_settings WHERE id LIKE 'backup-migrated:%'`,
+      )
+    ).map((row) => row.id),
+  );
   for (const folder of folders) {
     const libraryId = folder._id.toHexString();
+    if (migrated.has(`backup-migrated:${libraryId}`)) continue;
     // Mark migration in the same transaction as inserts. An intentionally
     // removed destination must not reappear from an old compatibility projection.
     await repo.db.transaction([

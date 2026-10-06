@@ -1,7 +1,7 @@
 import { SettingsAction } from '../settings-action';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import {
   Subject,
   catchError,
@@ -10,6 +10,7 @@ import {
   map,
   merge,
   of,
+  shareReplay,
   switchMap,
   timer,
 } from 'rxjs';
@@ -60,12 +61,16 @@ export class BackupComponent {
   private readonly route = inject(ActivatedRoute);
   protected readonly owner = computed(() => this.auth.user()?.role === 'owner');
   protected readonly view = toSignal(
-    merge(of(0), timer(15_000, 15_000), this.reload).pipe(
-      switchMap(() =>
-        this.auth.user()?.role !== 'owner'
-          ? of<BackupView>({ kind: 'loading' })
-          : forkJoin({
-              folders: this.libraryApi.listFolders(),
+    toObservable(this.owner).pipe(
+      switchMap((owner) => {
+        if (!owner) return of<BackupView>({ kind: 'loading' });
+        const folders = this.libraryApi
+          .listFolders()
+          .pipe(shareReplay({ bufferSize: 1, refCount: true }));
+        return merge(of(0), timer(15_000, 15_000), this.reload).pipe(
+          switchMap(() =>
+            forkJoin({
+              folders,
               destinations: this.api.destinations(),
             }).pipe(
               map(
@@ -79,7 +84,9 @@ export class BackupComponent {
                 of<BackupView>({ kind: 'error', message: errorMessage(error) }),
               ),
             ),
-      ),
+          ),
+        );
+      }),
     ),
     { initialValue: { kind: 'loading' } as BackupView },
   );

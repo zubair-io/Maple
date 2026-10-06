@@ -33,30 +33,30 @@ describe('GoogleDriveComponent', () => {
   });
 });
 
+const ticket = {
+  version: 1 as const,
+  nonce: 'n'.repeat(43),
+  clientId: '12345678-test.apps.googleusercontent.com',
+  challenge: 'c'.repeat(43),
+  returnUrl: 'https://photos.lan:3443/api/cloud-backup/google/callback',
+  redirectUri: 'https://mapleeditor.com/api/connect/google-drive/callback',
+  expiresAt: Date.now() + 60000,
+  scope: 'https://www.googleapis.com/auth/drive.file',
+};
+const authorizationUrl =
+  'https://accounts.google.com/o/oauth2/v2/auth?' +
+  new URLSearchParams({
+    client_id: ticket.clientId,
+    redirect_uri: ticket.redirectUri,
+    response_type: 'code',
+    scope: ticket.scope,
+    code_challenge: ticket.challenge,
+    code_challenge_method: 'S256',
+    access_type: 'offline',
+    prompt: 'consent',
+    state: 'signed.ticket',
+  });
 it('enables a labeled Continue only after the pasted callback matches signed metadata', async () => {
-  const ticket = {
-    version: 1 as const,
-    nonce: 'n'.repeat(43),
-    clientId: '12345678-test.apps.googleusercontent.com',
-    challenge: 'c'.repeat(43),
-    returnUrl: 'https://photos.lan:3443/api/cloud-backup/google/callback',
-    redirectUri: 'https://mapleeditor.com/api/connect/google-drive/callback',
-    expiresAt: Date.now() + 60000,
-    scope: 'https://www.googleapis.com/auth/drive.file',
-  };
-  const authorizationUrl =
-    'https://accounts.google.com/o/oauth2/v2/auth?' +
-    new URLSearchParams({
-      client_id: ticket.clientId,
-      redirect_uri: ticket.redirectUri,
-      response_type: 'code',
-      scope: ticket.scope,
-      code_challenge: ticket.challenge,
-      code_challenge_method: 'S256',
-      access_type: 'offline',
-      prompt: 'consent',
-      state: 'signed.ticket',
-    });
   captureConnectionFragment(
     {
       pathname: '/connect/google-drive',
@@ -81,4 +81,36 @@ it('enables a labeled Continue only after the pasted callback matches signed met
   fixture.componentInstance.callback.set(ticket.returnUrl);
   fixture.detectChanges();
   expect(button.disabled).toBe(false);
+});
+
+it.each([
+  ['matching callback', 'https://photos.lan:3443/api/cloud-backup/google/callback', true],
+  ['different callback', 'https://wrong.lan/api/cloud-backup/google/callback', false],
+  ['missing callback', '', false],
+])('automatically continues only for a signed request with %s', async (_, callback, automatic) => {
+  const navigate = vi
+    .spyOn(GoogleDriveComponent.prototype, 'continue')
+    .mockImplementation(() => {});
+  try {
+    captureConnectionFragment(
+      {
+        pathname: '/connect/google-drive',
+        hash:
+          '#' +
+          btoa(JSON.stringify({ ticket: 'signed.ticket', authorizationUrl })).replace(/=/g, ''),
+        search: callback ? '?callback=' + encodeURIComponent(callback) : '',
+      },
+      { replaceState: vi.fn() },
+    );
+    await TestBed.configureTestingModule({
+      imports: [GoogleDriveComponent],
+      providers: [{ provide: ConnectionService, useValue: { validate: () => of(ticket) } }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(GoogleDriveComponent);
+    fixture.detectChanges();
+    expect(navigate).toHaveBeenCalledTimes(automatic ? 1 : 0);
+    if (automatic) expect(navigate).toHaveBeenCalledWith(authorizationUrl);
+  } finally {
+    navigate.mockRestore();
+  }
 });

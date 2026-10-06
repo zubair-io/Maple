@@ -125,6 +125,16 @@ describe('GoogleBackupComponent', () => {
     expect(api.connectGoogle).toHaveBeenCalledWith('destination');
     expect(el().textContent).toContain('Maple Google client is not configured.');
   });
+  it('passes the selected recovery root when starting Google consent', async () => {
+    api.connectGoogle.mockReturnValue(throwError(() => new Error('Consent start test')));
+    await settle();
+    input('google-backup-root').value = 'recover-this-root';
+    input('google-backup-root').dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    button('Connect Google Drive').click();
+    await settle();
+    expect(api.connectGoogle).toHaveBeenCalledWith('destination', 'recover-this-root');
+  });
   it('clears typed secrets when switching modes and preserves the common callback URL', async () => {
     await settle();
     input('google-client-secret').value = 'never-send-to-managed';
@@ -175,6 +185,18 @@ describe('GoogleBackupComponent', () => {
       callbackMode: 'direct',
     });
   });
+  it('shows only disconnect controls while connected, retaining recovery tools', async () => {
+    api.googleConfig.mockReturnValue(of({ ...saved, connected: true, rootId: 'root' }));
+    await settle();
+    expect(button('Disconnect Google').disabled).toBe(false);
+    expect(el().querySelector('#google-client-id')).toBeNull();
+    expect(el().querySelector('#google-maple-callback')).toBeNull();
+    expect(el().textContent).not.toContain('Connect Google Drive');
+    expect(el().textContent).not.toContain('Clear Google credentials');
+    button('Disconnect Google').click();
+    await settle();
+    expect(api.disconnectGoogle).toHaveBeenCalledWith('destination');
+  });
   it('creates backup root only on explicit action after connecting', async () => {
     api.googleConfig.mockReturnValue(of({ ...saved, connected: true }));
     await settle();
@@ -195,11 +217,9 @@ describe('GoogleBackupComponent', () => {
       callbackMode: 'relay',
     });
   });
-  it('attaches an existing root with saved credentials without applying unsaved form changes', async () => {
+  it('attaches an existing root with the saved client while connected', async () => {
     api.googleConfig.mockReturnValue(of({ ...saved, connected: true }));
     await settle();
-    input('google-client-id').value = 'unsaved.apps.googleusercontent.com';
-    input('google-client-id').dispatchEvent(new Event('input'));
     input('google-backup-root').value = 'existing-root';
     input('google-backup-root').dispatchEvent(new Event('input'));
     fixture.detectChanges();
@@ -213,7 +233,7 @@ describe('GoogleBackupComponent', () => {
       rootId: 'existing-root',
     });
   });
-  it('attaches an existing root using the saved managed mode, ignoring an unsaved own selection', async () => {
+  it('attaches an existing root using the saved managed mode', async () => {
     api.googleConfig.mockReturnValue(
       of({
         ...saved,
@@ -224,10 +244,6 @@ describe('GoogleBackupComponent', () => {
       }),
     );
     await settle();
-    el().querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
-    await settle();
-    input('google-client-id').value = 'unsaved-owner-client';
-    input('google-client-id').dispatchEvent(new Event('input'));
     input('google-backup-root').value = 'existing-root';
     input('google-backup-root').dispatchEvent(new Event('input'));
     fixture.detectChanges();

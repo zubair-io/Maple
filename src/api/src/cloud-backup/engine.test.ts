@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import * as fs from '../fs/mirrored.ts';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -171,6 +171,13 @@ test('legacy mirror IDs survive restart and destination deletion cannot abandon 
   );
   await migrateFolderDestinations(repo);
   const first = (await repo.destinations()).find((d) => d.kind === 'folder')!;
+  const transactions = spyOn(repo.db, 'transaction');
+  try {
+    await migrateFolderDestinations(repo);
+    expect(transactions).not.toHaveBeenCalled();
+  } finally {
+    transactions.mockRestore();
+  }
   await loadDestinationMirrors(new BackupRepository(live.handle));
   expect((await repo.destinations()).find((d) => d.kind === 'folder')!.id).toBe(first.id);
   expect(await engine.backupAsset(assetId)).toBe(true);

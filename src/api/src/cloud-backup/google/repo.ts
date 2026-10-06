@@ -32,6 +32,7 @@ export interface PendingFlow {
   verifier: string;
   redirectUri: string;
   callback: string;
+  rootId?: string;
 }
 export async function loadConnection(id: string): Promise<Connection> {
   const [row] = await sqliteDb().read<{ epoch: number; credentials: string }>(

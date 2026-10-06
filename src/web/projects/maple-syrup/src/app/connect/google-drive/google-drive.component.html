@@ -9,7 +9,10 @@
     @if (vm.error) {
       <p role="alert" class="text-error-text">{{ vm.error }}</p>
     } @else if (vm.ticket) {
-      <p>Paste the callback URL shown in Backup settings on your Maple server.</p>
+      <p>
+        The callback is filled automatically when you connect from Maple. Otherwise, paste the
+        callback URL shown in Backup settings.
+      </p>
       <mui-input
         inputId="maple-callback"
         ariaLabel="Maple callback URL"
@@ -32,8 +35,8 @@
     } @else {
       <p>
         Open Settings → Backup on your Maple server and select Maple’s Google application, or bring
-        your own client ID and secret. Choose Connect Google Drive, then paste the displayed
-        callback URL here.
+        your own client ID and secret. Choose Connect Google Drive, the callback will be supplied
+        automatically.
       </p>
       <p class="text-text-muted">
         With your own application and relay routing, register

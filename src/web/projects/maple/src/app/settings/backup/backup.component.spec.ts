@@ -43,6 +43,7 @@ const destination: BackupDestination = {
 describe('BackupComponent', () => {
   let fixture: ComponentFixture<BackupComponent>;
   const user = signal({ role: 'owner' });
+  const listFolders = vi.fn(() => of([library]));
   const api = {
     destinations: vi.fn(),
     createDestination: vi.fn(),
@@ -65,7 +66,7 @@ describe('BackupComponent', () => {
           useValue: { snapshot: { queryParamMap: convertToParamMap({}) } },
         },
         { provide: AuthService, useValue: { user } },
-        { provide: BunApiBackendService, useValue: { listFolders: () => of([library]) } },
+        { provide: BunApiBackendService, useValue: { listFolders } },
         { provide: CloudBackupService, useValue: api },
       ],
     }).compileComponents();
@@ -85,6 +86,25 @@ describe('BackupComponent', () => {
     if (!result) throw new Error(`missing button ${label}`);
     return result;
   }
+  it('loads destinations immediately when owner authentication arrives', async () => {
+    user.set({ role: 'pending' });
+    await settle();
+    expect(api.destinations).not.toHaveBeenCalled();
+    user.set({ role: 'owner' });
+    await settle();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+    expect(api.destinations).toHaveBeenCalledTimes(1);
+    expect(el().textContent).toContain('Archive');
+  });
+  it('refreshes destination status without loading the library list again', async () => {
+    await settle();
+    const component = fixture.componentInstance as unknown as { refresh(): void };
+    component.refresh();
+    await settle();
+    expect(api.destinations).toHaveBeenCalledTimes(2);
+    expect(listFolders).toHaveBeenCalledTimes(1);
+  });
   it('preserves folder mirror capabilities and real destination status', async () => {
     await settle();
     expect(el().textContent).toContain('Verified: 5');

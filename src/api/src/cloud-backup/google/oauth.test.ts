@@ -106,7 +106,10 @@ test('relay receives routing metadata only; Bun exchanges using captured relay U
   expect(JSON.stringify(relayRequest)).not.toContain('local-secret');
   expect(relayRequest.challenge).toHaveLength(43);
   expect(flow.authorizationUrl).toStartWith(
-    'https://mapleeditor.com/connect/google-drive?ngsw-bypass=true#',
+    'https://mapleeditor.com/connect/google-drive?ngsw-bypass=true&callback=',
+  );
+  expect(new URL(flow.authorizationUrl).searchParams.get('callback')).toBe(
+    'https://photos.example.com/api/cloud-backup/google/callback',
   );
   await finishGoogleFlow(
     'signed-ticket',
@@ -296,7 +299,11 @@ test('revoked offline grants become disconnected and require fresh consent', asy
   const connection = await loadConnection(destination);
   await saveConfig(
     destination,
-    { ...connection.config, refreshToken: 'revoked-refresh', accountId: 'account-1' },
+    {
+      ...connection.config,
+      refreshToken: 'revoked-refresh',
+      accountId: 'account-1',
+    },
     connection.epoch,
   );
   await expect(
