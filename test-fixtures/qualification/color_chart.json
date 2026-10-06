@@ -1,13 +1,13 @@
 {
   "backend": "cpu-reference",
-  "command": "bash src/scripts/test_synthetic_color_chart.sh",
+  "command": "cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --features test-support --test color_chart_invariants",
   "corpus_hash": "blake3:7f41cb1428044e2013c7d2f811e013734029b4a5fb9c7e9b9e4b83c9cb2fe244",
   "executed_cases": 7,
   "expected_cases": 7,
   "failed_cases": 0,
-  "git_sha": "6a43f6e804af0f1bd46f40368fe4fcd21733ad73",
-  "pipeline_version": 8,
-  "recorded_at": "2026-10-01T21:59:48Z",
+  "git_sha": "94ae72d7021d10b92c3a170bac8d281d6596ef18",
+  "pipeline_version": 9,
+  "recorded_at": "2026-10-06T02:46:43Z",
   "schema_version": 5,
   "skipped_cases": 0,
   "source": "color_chart"
