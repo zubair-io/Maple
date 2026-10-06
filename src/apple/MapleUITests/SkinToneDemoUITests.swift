@@ -5,8 +5,8 @@
 // publishes (#3279), matching CLAUDE.md's "no eyeballing" rule for anything
 // this repo can make objective.
 //
-// Skip-passes without test_0003 locally, same convention as
-// SliderMatrixUITests / test_color_pipeline.sh's "no fixtures, skipping."
+// A missing test_0003 skips at the repo default, but fails at an explicitly
+// configured fixture root (the shared UITestFixtureRoot policy, #4321).
 //
 // The shared adaptive inspector exposes Mask through the same dock action
 // at every editor width (#3252).
