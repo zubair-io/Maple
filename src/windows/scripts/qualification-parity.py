@@ -26,6 +26,14 @@ def qualify(work: Path, budget: float) -> int:
         (work / "cpu" / "export-result.json").read_text(encoding="utf-8")
     )
     exported = Path(export_result["output"])
+    gpu = work / "gpu-frame.png"
+    gpu_report = json.loads((work / "gpu-pixels" / "report.json").read_text(encoding="utf-8"))
+    if gpu_report["render_path"] != "gpu":
+        raise ValueError("GPU pixel capture fell back to CPU")
+    with Image.open(preview) as cpu_image, Image.open(gpu) as gpu_image:
+        viewport = cpu_image.size
+        if gpu_image.size != viewport:
+            raise ValueError("GPU and CPU develop-frame dimensions differ")
     with Image.open(exported) as export_image, Image.open(reference) as ref_image:
         if export_image.size != ref_image.size:
             raise ValueError(
@@ -33,14 +41,19 @@ def qualify(work: Path, budget: float) -> int:
                 f"from the full reference {ref_image.size}"
             )
     comparisons = (
-        ("preview", preview, reference),
-        ("export", exported, reference),
-        ("preview-export", preview, exported),
+        ("preview", preview, reference, None),
+        ("export", exported, reference, None),
+        ("preview-export", preview, exported, None),
+        ("gpu-reference-viewport", gpu, reference, viewport),
+        ("gpu-export-viewport", gpu, exported, viewport),
+        ("gpu-cpu-viewport", gpu, preview, viewport),
+        ("cpu-reference-viewport", preview, reference, viewport),
+        ("cpu-export-viewport", preview, exported, viewport),
     )
     verdict = {"mean_budget": budget}
     compare = comparator()
-    for name, candidate, baseline in comparisons:
-        result = compare.diff(str(candidate), str(baseline))
+    for name, candidate, baseline, size in comparisons:
+        result = compare.diff(str(candidate), str(baseline), reference_size=size)
         mean = result["mean_deltaE"]
         if not math.isfinite(mean) or mean < 0 or result["n_pixels"] <= 0:
             raise ValueError(f"Invalid perceptual metrics for {name}")

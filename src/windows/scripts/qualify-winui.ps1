@@ -1,9 +1,10 @@
 # WinUI 3 qualification harness (#2587): ΔE00 color parity vs the maple-cli
 # reference renderer, plus slider-tick timing through the real render loop.
 #
-# Two app runs in MAPLE_QUALIFY mode (see MainWindow.Qualify.cs):
+# Three app runs in MAPLE_QUALIFY mode (see MainWindow.Qualify.cs):
 #   1. GPU  — tick timing (the product path).
-#   2. CPU  — MAPLE_FORCE_CPU=1 + MAPLE_DUMP_FRAME for the pixel-exact frame,
+#   2. GPU  — separate full bounded develop-chain readback, not canvas framing.
+#   3. CPU  — MAPLE_FORCE_CPU=1 + MAPLE_DUMP_FRAME for the pixel-exact frame,
 #             plus a full-resolution production export; both compared
 #             against `maple-cli render` and directly against each other.
 #
@@ -58,7 +59,7 @@ $sidecar = [IO.Path]::ChangeExtension($Raw, ".xmp")
     physical_reference_qualified = $false
     reference_demosaic = 'AMaZE with sidecar override'
     production_export_demosaic = 'Auto policy with sidecar override'
-    qualification_limits = @('Physical reference hardware and 100MP source dimensions require separate verification.', 'GPU screenshot perceptual parity is not covered by these CPU-preview and production-export comparisons.')
+    qualification_limits = @('Physical reference hardware and 100MP source dimensions require separate verification.', 'GPU develop-chain readback does not qualify canvas crop/zoom or screenshot framing.')
 } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $work 'provenance.json')
 $sidecarArgs = if (Test-Path -LiteralPath $sidecar) { @("--params", $sidecar) } else { @() }
 
@@ -72,6 +73,7 @@ function Invoke-QualifyRun([hashtable]$extraEnv, [string]$outDir) {
     $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
     $psi.EnvironmentVariables["MAPLE_FORCE_CPU"] = ""
     $psi.EnvironmentVariables["MAPLE_DUMP_FRAME"] = ""
+    $psi.EnvironmentVariables["MAPLE_DUMP_GPU_FRAME"] = ""
     $psi.EnvironmentVariables["MAPLE_QUALIFY_RAW"] = $runRaw
     $psi.EnvironmentVariables["MAPLE_QUALIFY_OUT"] = $outDir
     foreach ($k in $extraEnv.Keys) { $psi.EnvironmentVariables[$k] = $extraEnv[$k] }
@@ -94,6 +96,19 @@ Write-Output ("path={0} decode={1}ms median tick={2}ms p95={3}ms max={4}ms (targ
     $gpu.render_path, $gpu.decode_ms, $timing.Median, $timing.P95, $timing.Maximum)
 $tickVerdict = $timing.Verdict
 Write-Output "tick verdict: $tickVerdict"
+
+Write-Output "== GPU develop-chain parity frame (separate from timing) =="
+$gpuFrame = Join-Path $work 'gpu-frame.png'
+$gpuPixels = Invoke-QualifyRun @{ MAPLE_DUMP_GPU_FRAME = $gpuFrame } (Join-Path $work 'gpu-pixels')
+if ($gpuPixels.render_path -ne 'gpu' -or -not (Test-Path -LiteralPath $gpuFrame)) {
+    throw 'GPU parity capture missing or fell back to CPU.'
+}
+@{
+    backend = $gpuPixels.render_path
+    scope = 'complete bounded GPU develop chain; canvas framing excluded'
+    frame_sha256 = (Get-FileHash -LiteralPath $gpuFrame -Algorithm SHA256).Hash
+    timing_samples_exclude_readback_run = $true
+} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $work 'gpu-pixels/capture.json')
 
 Write-Output "== CPU parity frame =="
 $appFrame = Join-Path $work "app-frame.png"
