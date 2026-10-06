@@ -55,23 +55,23 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "synthetic_grey",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "grey_dcp",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "color_chart",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "color_harness",
@@ -154,23 +154,23 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "synthetic_grey",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "grey_dcp",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "color_chart",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "color_harness",
@@ -280,23 +280,23 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "synthetic_grey",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "grey_dcp",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "color_chart",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "color_harness",
@@ -383,23 +383,23 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "synthetic_grey",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "grey_dcp",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "color_chart",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "color_harness",
@@ -465,8 +465,8 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v9, current is v10"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "gpu_chain_parity_metal",
@@ -739,19 +739,19 @@
         "src/raw-pipeline/raw-core/tests/whites_anchor_develop.rs"
       ],
       "corpus_hash": "blake3:586dda5d1f3fc7d144dcfe3194e46a6212faf4e1d697f16a89b3fcf139226c2d",
-      "status": "stale_pipeline",
+      "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 9,
+        "pipeline_version": 10,
         "schema_version": 5,
         "corpus_hash": "blake3:586dda5d1f3fc7d144dcfe3194e46a6212faf4e1d697f16a89b3fcf139226c2d",
         "expected_cases": 41,
         "executed_cases": 41,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "94ae72d7021d10b92c3a170bac8d281d6596ef18",
-        "recorded_at": "2026-10-06T02:46:43Z",
-        "command": "cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --features test-support --test grey_adjustments --test grey_adjustments_display --test grey_adjustments_wb --test whites_anchor_develop"
+        "git_sha": "6f6b78c5a1c641e1895436074880d1c2de8151cf",
+        "recorded_at": "2026-10-06T06:25:30Z",
+        "command": "bash src/scripts/test_grey_adjustments.sh"
       }
     },
     {
@@ -762,19 +762,19 @@
       "expected_cases": 6,
       "corpus": ["src/raw-pipeline/raw-core/tests/grey_invariants.rs"],
       "corpus_hash": "blake3:fcf261c40600660bbbc89f0ec6055348550ac5430d428adb0ba9eefff89006c7",
-      "status": "stale_pipeline",
+      "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 9,
+        "pipeline_version": 10,
         "schema_version": 5,
         "corpus_hash": "blake3:fcf261c40600660bbbc89f0ec6055348550ac5430d428adb0ba9eefff89006c7",
         "expected_cases": 6,
         "executed_cases": 6,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "94ae72d7021d10b92c3a170bac8d281d6596ef18",
-        "recorded_at": "2026-10-06T02:46:43Z",
-        "command": "cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --features test-support --test grey_invariants"
+        "git_sha": "6f6b78c5a1c641e1895436074880d1c2de8151cf",
+        "recorded_at": "2026-10-06T06:25:17Z",
+        "command": "bash src/scripts/test_synthetic_grey.sh"
       }
     },
     {
@@ -785,19 +785,19 @@
       "expected_cases": 5,
       "corpus": ["src/raw-pipeline/raw-core/tests/grey_dcp_phase1.rs"],
       "corpus_hash": "blake3:5cb9b885cf0a893b73e4710df4d066eb5e38ef4346956d169ecce416ee80ed2c",
-      "status": "stale_pipeline",
+      "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 9,
+        "pipeline_version": 10,
         "schema_version": 5,
         "corpus_hash": "blake3:5cb9b885cf0a893b73e4710df4d066eb5e38ef4346956d169ecce416ee80ed2c",
         "expected_cases": 5,
         "executed_cases": 5,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "94ae72d7021d10b92c3a170bac8d281d6596ef18",
-        "recorded_at": "2026-10-06T02:46:43Z",
-        "command": "cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --features test-support --test grey_dcp_phase1"
+        "git_sha": "6f6b78c5a1c641e1895436074880d1c2de8151cf",
+        "recorded_at": "2026-10-06T06:25:32Z",
+        "command": "bash src/scripts/test_grey_dcp.sh"
       }
     },
     {
@@ -808,19 +808,19 @@
       "expected_cases": 7,
       "corpus": ["src/raw-pipeline/raw-core/tests/color_chart_invariants.rs"],
       "corpus_hash": "blake3:7f41cb1428044e2013c7d2f811e013734029b4a5fb9c7e9b9e4b83c9cb2fe244",
-      "status": "stale_pipeline",
+      "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 9,
+        "pipeline_version": 10,
         "schema_version": 5,
         "corpus_hash": "blake3:7f41cb1428044e2013c7d2f811e013734029b4a5fb9c7e9b9e4b83c9cb2fe244",
         "expected_cases": 7,
         "executed_cases": 7,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "94ae72d7021d10b92c3a170bac8d281d6596ef18",
-        "recorded_at": "2026-10-06T02:46:43Z",
-        "command": "cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --features test-support --test color_chart_invariants"
+        "git_sha": "6f6b78c5a1c641e1895436074880d1c2de8151cf",
+        "recorded_at": "2026-10-06T06:25:19Z",
+        "command": "bash src/scripts/test_synthetic_color_chart.sh"
       }
     },
     {
