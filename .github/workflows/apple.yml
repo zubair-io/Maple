@@ -142,7 +142,7 @@ jobs:
 
   swift-ui:
     name: swift-ui (MapleUI tests)
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       # Dependency-free package: verify its real bundled resources and
@@ -170,7 +170,7 @@ jobs:
 
   swift-regressions:
     name: swift-regressions (MapleCore execution gate)
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 60
     env:
       MACOSX_DEPLOYMENT_TARGET: '14.0'
