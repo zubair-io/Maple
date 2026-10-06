@@ -18,6 +18,16 @@
 #ifndef PublishDir
   #define PublishDir "..\Maple.WinUI\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish"
 #endif
+#ifndef AppArch
+  #define AppArch "x64"
+#endif
+#if AppArch == "arm64"
+  #define AllowedArch "arm64"
+#elif AppArch == "x64"
+  #define AllowedArch "x64compatible"
+#else
+  #error Unsupported AppArch
+#endif
 #ifndef OutputDir
   #define OutputDir "Output"
 #endif
@@ -33,11 +43,11 @@ DefaultDirName={autopf}\Maple
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir={#OutputDir}
-OutputBaseFilename=MapleSetup-{#AppVersion}
+OutputBaseFilename=MapleSetup-{#AppArch}-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
-ArchitecturesAllowed=x64compatible
-ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed={#AllowedArch}
+ArchitecturesInstallIn64BitMode={#AllowedArch}
 ChangesEnvironment=yes
 UninstallDisplayIcon={app}\Maple.WinUI.exe
 WizardStyle=modern

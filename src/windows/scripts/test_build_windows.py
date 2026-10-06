@@ -144,6 +144,11 @@ exit 0""",
                     result.stdout,
                 )
 
+    def test_arm_host_defaults_to_native_target(self):
+        result, calls = self.run_wrapper(FAKE_HOST=ARM64)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("|-r|win-arm64|-p:Platform=ARM64|", calls[-1])
+
     def test_crlf_rust_host_is_accepted_without_relaxing_target_match(self):
         self.write_tool(
             "rustc",
@@ -153,7 +158,7 @@ exit 0""",
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"|--target|{X64}|", calls[1])
         (self.root / "calls.log").unlink()
-        result, calls = self.run_wrapper(FAKE_HOST=ARM64)
+        result, calls = self.run_wrapper(FAKE_HOST=ARM64, WINDOWS_TARGET=X64)
         self.assert_failed(result, "cross-compilation is not supported")
         self.assertEqual(calls, [])
 
@@ -170,7 +175,7 @@ exit 0""",
     def test_cross_host_fails_before_build(self):
         for host in ("aarch64-apple-darwin", "x86_64-unknown-linux-gnu", ARM64):
             with self.subTest(host=host):
-                result, calls = self.run_wrapper(FAKE_HOST=host)
+                result, calls = self.run_wrapper(FAKE_HOST=host, WINDOWS_TARGET=X64)
                 self.assert_failed(result, "cross-compilation is not supported")
                 self.assertEqual(calls, [])
 
@@ -227,9 +232,9 @@ class WindowsCodegenEncoding(unittest.TestCase):
             self.assertNotIn(b"\r\n", shader)
             self.assertEqual(
                 shader,
-                (
-                    repo / "src/raw-pipeline/raw-gpu/src/generated/agx_coeffs.wgsl"
-                ).read_text(encoding="utf-8").encode("utf-8"),
+                (repo / "src/raw-pipeline/raw-gpu/src/generated/agx_coeffs.wgsl")
+                .read_text(encoding="utf-8")
+                .encode("utf-8"),
             )
 
 

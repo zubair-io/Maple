@@ -34,8 +34,20 @@ jobs:
   windows-build-and-test:
     needs: changes
     if: needs.changes.outputs.windows == 'true'
-    name: windows-x64 (MSVC build + rust tests + color parity)
-    runs-on: windows-latest
+    name: Windows ${{ matrix.arch }} (MSVC build + tests + lifecycle)
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+          - arch: ARM64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    env:
+      WINDOWS_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,7 +56,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-pc-windows-msvc
+          targets: ${{ matrix.target }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -63,8 +75,15 @@ jobs:
         run: bash src/windows/scripts/build-windows.sh
 
       - name: Run raw-core Unit Tests on Windows
+        shell: pwsh
         run: |
           cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --lib
+
+      - name: Verify native application architecture
+        shell: pwsh
+        run: |
+          $app = 'src/windows/Maple.WinUI/bin/Release/${{ matrix.target }}'
+          ./src/windows/scripts/verify-native-architecture.ps1 -Architecture '${{ matrix.arch }}' -Paths "$app/Maple.WinUI.exe", "$app/raw_ffi.dll"
 
       - name: Run WinUI XMP Sidecar Tests + raw-ffi struct-layout gate
         # MAPLE_RAW_FFI_DLL arms RawFfiLayoutTests (#3221): every C# mirror
@@ -72,7 +91,7 @@ jobs:
         # the DLL built above. Unset, those tests skip-pass (local dev
         # without a Rust build); set and missing, they FAIL.
         env:
-          MAPLE_RAW_FFI_DLL: ${{ github.workspace }}\src\raw-pipeline\target\x86_64-pc-windows-msvc\release\raw_ffi.dll
+          MAPLE_RAW_FFI_DLL: ${{ github.workspace }}\src\raw-pipeline\target\${{ matrix.target }}\release\raw_ffi.dll
         run: |
           dotnet test src/windows/Maple.WinUI.Tests/Maple.WinUI.Tests.csproj -c Release
 
@@ -82,13 +101,13 @@ jobs:
 
       - name: Real WinUI open-render-close lifecycle smoke
         shell: pwsh
-        run: ./src/windows/scripts/test-window-lifecycle.ps1
+        run: ./src/windows/scripts/test-window-lifecycle.ps1 -AppPath "src/windows/Maple.WinUI/bin/Release/${{ matrix.target }}/Maple.WinUI.exe"
 
       - name: Upload WinUI lifecycle evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: winui-lifecycle
+          name: winui-lifecycle-${{ matrix.arch }}
           path: ${{ runner.temp }}/maple-window-lifecycle
           if-no-files-found: error
 
