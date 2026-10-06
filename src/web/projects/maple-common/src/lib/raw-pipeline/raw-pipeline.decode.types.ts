@@ -5,7 +5,8 @@
 export interface DecodeRequest {
   id: number; // round-trip correlation id
   type: 'decode';
-  bytes: ArrayBuffer; // transferable
+  bytes: ArrayBuffer; // transferable; empty only after a successful retained open
+  cpuSourceToken?: number; // worker/source generation for sized CPU renders
   ext: string;
   xmp?: string;
   /**
