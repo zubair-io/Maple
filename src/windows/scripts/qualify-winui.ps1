@@ -79,6 +79,22 @@ function Invoke-QualifyRun([hashtable]$extraEnv, [string]$outDir) {
     foreach ($k in $extraEnv.Keys) { $psi.EnvironmentVariables[$k] = $extraEnv[$k] }
     $proc = [System.Diagnostics.Process]::Start($psi)
     if (-not $proc.WaitForExit(300000)) { $proc.Kill(); throw "qualify run timed out" }
+    if ((Get-FileHash -LiteralPath $runRaw -Algorithm SHA256).Hash -ne $sourceHash) {
+        throw 'Qualification modified an owned RAW copy.'
+    }
+    if ((Get-FileHash -LiteralPath $sourceRaw -Algorithm SHA256).Hash -ne $sourceHash) {
+        throw 'Qualification source RAW changed.'
+    }
+    $currentSidecarHash = if (Test-Path -LiteralPath $sourceSidecar) {
+        (Get-FileHash -LiteralPath $sourceSidecar -Algorithm SHA256).Hash
+    } else { $null }
+    if ($currentSidecarHash -ne $sidecarHash) { throw 'Qualification source sidecar changed.' }
+    @{
+        raw_sha256 = $sourceHash
+        source_raw_unchanged = $true
+        owned_raw_unchanged = $true
+        source_sidecar_unchanged = $true
+    } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $outDir 'input-integrity.json')
     $report = Join-Path $outDir "report.json"
     if ($proc.ExitCode -ne 0) {
         $detail = if (Test-Path $report) { Get-Content $report -Raw } else { "(no report)" }
