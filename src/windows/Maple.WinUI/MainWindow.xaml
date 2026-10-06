@@ -857,7 +857,7 @@
                                 <StackPanel Spacing="8">
                                     <Grid>
                                         <TextBlock Text="Scopes" VerticalAlignment="Center" />
-                                        <mui:MuiButton x:Name="CloseScopesButton" IconName="x" Variant="Ghost" ButtonSize="Sm"
+                                        <mui:MuiButton x:Name="CloseScopesButton" IconName="x" Variant="Ghost" ButtonSize="Sm" Width="44" Height="44"
                                                        HorizontalAlignment="Right" Click="OnCloseScopes" AutomationProperties.Name="Close scopes" />
                                     </Grid>
                                     <TextBlock x:Name="ScopeStatus" Text="Updating scopes…" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
