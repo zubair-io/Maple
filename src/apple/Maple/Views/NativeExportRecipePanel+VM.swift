@@ -232,6 +232,8 @@
           } else {
             throw NativeExportError.message("Choose an export destination folder.")
           }
+          let accessing = destination.startAccessingSecurityScopedResource()
+          defer { if accessing { destination.stopAccessingSecurityScopedResource() } }
           var sessions: [EditSession] = []
           for asset in assets {
             try Task.checkCancellation()
