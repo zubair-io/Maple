@@ -322,11 +322,12 @@ struct CachedPresentEntry {
     bind_group: Arc<wgpu::BindGroup>,
 }
 
-/// Two cached dispatches cover both persistent ping-pong outputs. Crossing a
-/// slider's no-op threshold flips the final buffer without allocating again.
+/// Four cached dispatches cover both ping-pong outputs of fast/refined sessions.
+/// Crossing a slider's no-op threshold flips the buffer without allocating again.
 /// The fixed capacity bounds retained resources across image/session changes.
 pub(crate) struct PresentDispatchCache {
-    entries: RefCell<[Option<CachedPresentEntry>; 2]>,
+    // #4344: two ping-pong directions for each fast/refined session.
+    entries: RefCell<[Option<CachedPresentEntry>; 4]>,
     next_slot: Cell<usize>,
     /// Count of actual `create_buffer` + `create_bind_group` builds (misses) —
     /// the allocation-accounting hook, mirroring `FramePool::alloc_count`. Never
@@ -338,7 +339,7 @@ impl PresentDispatchCache {
     /// A fresh, empty cache (the first present is always a miss).
     pub fn new() -> Self {
         Self {
-            entries: RefCell::new([None, None]),
+            entries: RefCell::new([None, None, None, None]),
             next_slot: Cell::new(0),
             alloc_count: Cell::new(0),
         }
@@ -427,7 +428,7 @@ impl PresentDispatchCache {
         let uniform = Arc::new(dispatch.uniform);
         let bind_group = Arc::new(dispatch.bind_group);
         let slot = self.next_slot.get();
-        self.next_slot.set((slot + 1) % 2);
+        self.next_slot.set((slot + 1) % 4);
         self.entries.borrow_mut()[slot] = Some(CachedPresentEntry {
             identity,
             dims,
@@ -448,7 +449,7 @@ impl PresentDispatchCache {
     /// whole new surface), so this is legitimately unused on `wasm32`.
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub fn invalidate(&self) {
-        *self.entries.borrow_mut() = [None, None];
+        *self.entries.borrow_mut() = [None, None, None, None];
         self.next_slot.set(0);
     }
 }
