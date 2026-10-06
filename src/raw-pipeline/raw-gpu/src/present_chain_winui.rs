@@ -52,8 +52,8 @@ pub struct PersistentSwapChainPanelSurface {
     /// wgpu cannot see (composition-scale change). A mismatch forces a fresh
     /// surface + the settle double-present, exactly like a panel change.
     generation: u64,
-    /// Cached present-pass uniform + bind group keyed on the sampled
-    /// `chain_buf` identity (the ping-pong parity), invalidated on reconfigure.
+    /// Cached present-pass uniform + bind group keyed on monotonic live-session identity
+    /// and final ping-pong direction, invalidated on reconfigure.
     present_cache: PresentDispatchCache,
 }
 
