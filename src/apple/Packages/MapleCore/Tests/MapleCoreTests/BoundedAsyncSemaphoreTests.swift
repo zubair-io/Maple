@@ -17,6 +17,7 @@
 // window if the bug were still present.
 
 import XCTest
+
 @testable import MapleCloudKit
 
 final class BoundedAsyncSemaphoreTests: XCTestCase {
@@ -79,7 +80,7 @@ final class BoundedAsyncSemaphoreTests: XCTestCase {
   func test_valueOne_serializesAndAllTasksComplete() async {
     let semaphore = BoundedAsyncSemaphore(value: 1)
     let tracker = ConcurrencyTracker()
-    let completed = ConcurrencyTracker() // reused as a plain counter via enter()
+    let completed = ConcurrencyTracker()  // reused as a plain counter via enter()
 
     await withTaskGroup(of: Void.self) { group in
       for _ in 0..<50 {
@@ -235,6 +236,24 @@ final class BoundedAsyncSemaphoreTests: XCTestCase {
       let drainPeak = await counter.peak
       XCTAssertLessThanOrEqual(drainPeak, cap, "post-race drain exceeded cap — a permit leaked")
     }
+  }
+
+  func test_onWaiterEnqueued_firesWhenTaskSuspendsForPermit() async throws {
+    let semaphore = BoundedAsyncSemaphore(value: 1)
+    try await semaphore.acquire()
+    let enqueued = expectation(description: "Waiter enqueued")
+    await semaphore.setOnWaiterEnqueued {
+      enqueued.fulfill()
+    }
+    let task = Task {
+      try await semaphore.acquire()
+      await semaphore.release()
+    }
+    await fulfillment(of: [enqueued], timeout: 5)
+    let count = await semaphore.queuedCount
+    XCTAssertEqual(count, 1)
+    await semaphore.release()
+    _ = try await task.value
   }
 }
 

@@ -96,6 +96,11 @@ public actor BoundedAsyncSemaphore {
   private var waiters: [(id: UInt64, continuation: CheckedContinuation<Void, Error>)] = []
   private var waiterIDCounter: UInt64 = 0
   package var queuedCount: Int { waiters.count }
+  package var onWaiterEnqueued: (@Sendable () -> Void)?
+
+  package func setOnWaiterEnqueued(_ handler: (@Sendable () -> Void)?) {
+    self.onWaiterEnqueued = handler
+  }
 
   /// Clamps to ≥1 — a 0/negative cap would suspend `acquire()` forever
   /// since `current < value` would never be true.
@@ -125,6 +130,7 @@ public actor BoundedAsyncSemaphore {
         // allocating `id` from this registration, so `cancelWaiter`
         // (which must hop onto the actor) can never observe `id` first.
         waiters.append((id: id, continuation: cont))
+        onWaiterEnqueued?()
       }
     } onCancel: {
       Task { await self.cancelWaiter(id: id) }
