@@ -4,6 +4,7 @@ import type {
   WorkflowVariantSelection,
   WorkflowVariantSelectionService,
 } from '../../xmp/workflow-variant-selection.service';
+import type { AdjustmentModel } from '../../models/adjustment-model';
 import type { Asset } from '../../models/asset';
 import { settleFailedAutoFit } from './image-canvas.fit-failure';
 import { ImageCanvasVariantPreviews } from './image-canvas.variant-previews';
@@ -33,17 +34,12 @@ export class ImageCanvasAdjustmentEffect {
         const previous = this.selection;
         this.selection = selection;
         if (asset.id !== host.currentAssetId) return;
-        if (!host.currentBytes) {
-          this.settleUnavailableSource(asset);
-          return;
-        }
+        if (this.settleUnavailableSource(asset) || !host.currentBytes) return;
         if (!host.coldOpenDone) {
           this.restartColdOpen(changed, asset.id, asset.filename);
           return;
         }
-        host.filmSync.syncIfNeeded(asset.id, model.filmLook, host.gpuPresent.active());
-        if (!host.gpuPresent.active())
-          host.filmSync.ensureCpuLutResolving(asset.id, model.filmLook);
+        this.syncFilm(asset, model);
         if (xmp === host.lastRenderedXmp) return;
         if (changed && !host.gpuPresent.active())
           this.restorePreview(previous!, selection, asset.id, xmp);
@@ -61,17 +57,35 @@ export class ImageCanvasAdjustmentEffect {
     this.previews.clear();
   }
 
-  private settleUnavailableSource(asset: Asset): void {
+  private syncFilm(asset: Asset, model: AdjustmentModel): void {
+    const gpuActive = this.host.gpuPresent.active();
+    this.host.filmSync.syncIfNeeded(asset.id, model.filmLook, gpuActive);
+    if (!gpuActive) this.host.filmSync.ensureCpuLutResolving(asset.id, model.filmLook);
+  }
+
+  private settleUnavailableSource(asset: Asset): boolean {
     const host = this.host;
-    const failed = host.byteLoadError()?.id === asset.id;
-    const noSource = !asset.absPath && !asset.id.includes(':') && !host.state.bytesFor(asset.id);
-    if (failed || noSource)
-      settleFailedAutoFit(
-        host,
-        asset.id,
-        host.renderGeneration,
-        host.state.autoFitRevisionFor(asset.id),
-      );
+    const unavailable = host.currentBytes
+      ? this.failedColdPresentation(asset)
+      : host.byteLoadError()?.id === asset.id ||
+        (!asset.absPath && !asset.id.includes(':') && !host.state.bytesFor(asset.id));
+    if (!unavailable) return false;
+    settleFailedAutoFit(
+      host,
+      asset.id,
+      host.renderGeneration,
+      host.state.autoFitRevisionFor(asset.id),
+    );
+    return true;
+  }
+
+  private failedColdPresentation(asset: Asset): boolean {
+    const error = this.host.byteLoadError();
+    return (
+      error?.id === asset.id &&
+      error.renderGeneration === this.host.renderGeneration &&
+      !this.host.coldOpenDone
+    );
   }
 
   private restartColdOpen(changed: boolean, id: string, filename: string): void {

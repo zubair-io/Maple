@@ -21,6 +21,8 @@ export interface ByteLoadError {
   filename: string;
   /** Short human-readable cause for the overlay — "HTTP 503" / "Network error". */
   reason: string;
+  /** Owned failed CPU cold presentation, distinct from a failed byte fetch. */
+  renderGeneration?: number;
 }
 
 export interface ByteLoadHost {

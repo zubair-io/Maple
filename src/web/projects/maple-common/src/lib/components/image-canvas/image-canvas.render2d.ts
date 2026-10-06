@@ -108,9 +108,14 @@ export async function coldOpen2d(
   filename: string,
   ext: string,
   bytes: Uint8Array,
-): Promise<void> {
+  ownsLoad?: () => boolean,
+): Promise<boolean | undefined> {
   host.loading.set(true);
   const generation = host.renderGeneration;
+  const ownsRequest = () =>
+    assetId === host.currentAssetId &&
+    generation === host.renderGeneration &&
+    (ownsLoad?.() ?? true);
   const previousBitmap = host.imageBitmap();
   const state: LibraryStateService = host.state;
   const fitRevision = state.autoFitRevisionFor(assetId);
@@ -124,10 +129,10 @@ export async function coldOpen2d(
     const openModel = host.state.adjustmentFor(assetId)();
     const openXmp = isDefaultAdjustment(openModel) ? undefined : host.serializeForRender(openModel);
     const decoded = await host.pipeline.decode(bytes, ext, openXmp, sizing.maxLongEdge, true);
-    if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
+    if (!ownsRequest()) return;
 
     const bitmap = await imageDataToBitmap(decoded);
-    if (assetId !== host.currentAssetId || generation !== host.renderGeneration) {
+    if (!ownsRequest()) {
       bitmap.close();
       return;
     }
@@ -151,12 +156,22 @@ export async function coldOpen2d(
     if (assetId === host.currentAssetId && host.lastRenderedXmp !== null) {
       host.scheduleRefine(host.lastRenderedXmp, host.renderGeneration);
     }
+    return true;
   } catch (e) {
     console.error('Decode failed for', filename, e);
-    if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
+    if (!ownsRequest()) return;
+    if ((e as { name?: string } | null)?.name === 'AbortError') return;
     settleColdOpenFailure(host, assetId, generation, fitRevision, previousBitmap);
+    if (
+      fitRevision === host.state.autoFitRevisionFor(assetId) &&
+      (host.imageBitmap() === null ||
+        host.imageBitmap() === previousBitmap ||
+        host.hasProvisionalPreview(assetId))
+    )
+      return false;
+    return undefined;
   } finally {
-    host.loading.set(false);
+    if (ownsRequest()) host.loading.set(false);
   }
 }
 

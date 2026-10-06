@@ -215,6 +215,61 @@ describe('ImageCanvasComponent — recoverable byte-load error (#2407)', () => {
     expect(bytesForAssetSpy).toHaveBeenCalledOnce();
   });
 
+  for (const failure of ['decode', 'bitmap'])
+    it(`renders new Auto intent after an actual cold CPU ${failure} failure`, async () => {
+      bytesForAssetSpy.mockResolvedValue(new Uint8Array([4, 5, 6]));
+      if (failure === 'decode') decodeSpy.mockRejectedValueOnce(new Error('cold decode failed'));
+      else vi.mocked(createImageBitmap).mockRejectedValueOnce(new Error('cold bitmap failed'));
+      decodeSpy.mockImplementation(() => Promise.resolve({ ...decodedAt(512), autoFit: true }));
+      focused.set({ id: 'photos:cold-failed', filename: 'photo.dng' } as Asset);
+      await settle();
+      expect(capabilities.for('photos:cold-failed').autoFit).toBe(false);
+      expect(fixture.componentInstance.currentBytes).not.toBeNull();
+      expect(fixture.componentInstance.coldOpenDone).toBe(false);
+      await changeProfile('Neutral');
+      await changeProfile('Auto');
+      expect(capabilities.for('photos:cold-failed').autoFit).toBe(false);
+      expect(decodeSpy).toHaveBeenCalledOnce();
+      fixture.componentInstance.retryByteLoad();
+      await settle();
+      expect(capabilities.for('photos:cold-failed').autoFit).toBe(true);
+      expect(fixture.componentInstance.coldOpenDone).toBe(true);
+      expect(fixture.componentInstance.imageBitmap()).not.toBeNull();
+      expect(bytesForAssetSpy).toHaveBeenCalledTimes(2);
+    });
+
+  it('presents the current profile after successful held cold decode and queued profile changes', async () => {
+    let finish!: (reply: DecodedImage) => void;
+    const held = new Promise<DecodedImage>((done) => {
+      finish = done;
+    });
+    const source = new Uint8Array([4, 5, 6]);
+    bytesForAssetSpy.mockResolvedValue(source);
+    decodeSpy
+      .mockImplementationOnce(() => held)
+      .mockImplementation((_b, _e, xmp, max) =>
+        Promise.resolve({ ...decodedAt(max), autoFit: !xmp?.includes('Neutral') }),
+      );
+    vi.spyOn(fixture.componentInstance.state, 'updateAssetDimensions').mockImplementation(() =>
+      focused.update((asset) => (asset ? { ...asset } : null)),
+    );
+    focused.set({ id: 'photos:held', filename: 'photo.dng' } as Asset);
+    await settle();
+    expect(decodeSpy).toHaveBeenCalledOnce();
+    await changeProfile('Neutral');
+    finish({ ...decodedAt(512), autoFit: true });
+    await settle(REFINE_MS + 50);
+    expect(decodeSpy.mock.calls.some((call) => call[2]?.includes('Neutral'))).toBe(true);
+    expect(fixture.componentInstance.canvasSvc.currentPixels()?.autoFit).toBe(false);
+    expect(capabilities.for('photos:held').autoFit).toBe(false);
+    await changeProfile('Auto');
+    await settle(REFINE_MS + 50);
+    expect(fixture.componentInstance.canvasSvc.currentPixels()?.autoFit).toBe(true);
+    expect(capabilities.for('photos:held').autoFit).toBe(true);
+    expect(source).toEqual(new Uint8Array([4, 5, 6]));
+    expect(bytesForAssetSpy).toHaveBeenCalledOnce();
+  });
+
   it('renders a named, retryable error overlay when bytesForAsset rejects (no silent blank canvas)', async () => {
     bytesForAssetSpy.mockRejectedValueOnce({ status: 503, url: '/api/image/photos/trip/a.dng' });
     focused.set({ id: 'photos:2026/trip/a.dng', filename: 'a.dng' } as Asset);
