@@ -841,6 +841,25 @@ struct AppShell: View {
     #if os(macOS)
       .background(WindowRelayoutNudge())
     #endif
+    // #4326: Keyboard shortcuts for Open Folder (⌘O) and Settings (⌘,) on Mac
+    // and iPad. Kept off the toolbar to avoid reserving empty toolbar slots
+    // or glass capsules, and active across Browse, Preview, and Editor.
+    .background {
+      Group {
+        Button("Open Folder") {
+          showFilePicker = true
+        }
+        .keyboardShortcut("o", modifiers: .command)
+
+        #if os(iOS)
+          Button("Settings") {
+            showAppSettings()
+          }
+          .keyboardShortcut(",", modifiers: .command)
+        #endif
+      }
+      .hidden()
+    }
     // OS file/folder drop-to-mount (#2649), macOS + iPad only — iPhone
     // renders `phoneTabShell` instead of this view. Routing lives in
     // `AppShell+FolderDrop.swift`; this modifier is the only wiring.
@@ -1479,16 +1498,14 @@ struct AppShell: View {
     AppShellToolbar(
       // `.editing` and `.preview` both own their chrome (back chevron,
       // export/share, filename), so the window toolbar suppresses every
-      // browse control (fill/fit, select) for both — only
-      // Library/Search/Settings survive so the sidebar stays
-      // toggleable (#815; Fast Preview §1).
+      // browse control (fill/fit, select) and Settings — only search
+      // survives when available (#815, #4326; Fast Preview §1).
       isEditing: mode == .editing || mode == .preview,
       isCompact: isCompactShell,
       searchAvailable: searchAvailable,
       isSearchActive: isSearchActive,
       browseDisplayMode: $browseDisplayMode,
       onOpenSearch: { toggleSearch() },
-      onOpenFolder: { showFilePicker = true },
       onSettings: { showAppSettings() },
       // M1 multi-select (#1236): show the Select/Done toggle in browse mode only.
       isSelecting: browseVM.isSelecting,
