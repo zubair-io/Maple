@@ -27,10 +27,10 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — recorded on pipeline v9, current is v10
-  - `synthetic_grey` — recorded on pipeline v9, current is v10
-  - `grey_dcp` — recorded on pipeline v9, current is v10
-  - `color_chart` — recorded on pipeline v9, current is v10
+  - `grey_adjustments` — satisfied
+  - `synthetic_grey` — satisfied
+  - `grey_dcp` — satisfied
+  - `color_chart` — satisfied
   - `color_harness` — no record
   - `gpu_chain_parity_metal` — recorded on pipeline v8, current is v10
   - `apple_canvas_golden` — no record
@@ -50,10 +50,10 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — recorded on pipeline v9, current is v10
-  - `synthetic_grey` — recorded on pipeline v9, current is v10
-  - `grey_dcp` — recorded on pipeline v9, current is v10
-  - `color_chart` — recorded on pipeline v9, current is v10
+  - `grey_adjustments` — satisfied
+  - `synthetic_grey` — satisfied
+  - `grey_dcp` — satisfied
+  - `color_chart` — satisfied
   - `color_harness` — no record
   - `gpu_chain_parity_metal` — recorded on pipeline v8, current is v10
   - `apple_canvas_golden` — no record
@@ -73,10 +73,10 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — recorded on pipeline v9, current is v10
-  - `synthetic_grey` — recorded on pipeline v9, current is v10
-  - `grey_dcp` — recorded on pipeline v9, current is v10
-  - `color_chart` — recorded on pipeline v9, current is v10
+  - `grey_adjustments` — satisfied
+  - `synthetic_grey` — satisfied
+  - `grey_dcp` — satisfied
+  - `color_chart` — satisfied
   - `color_harness` — no record
   - `gpu_chain_parity_metal` — recorded on pipeline v8, current is v10
   - `apple_canvas_golden` — no record
@@ -96,10 +96,10 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — recorded on pipeline v9, current is v10
-  - `synthetic_grey` — recorded on pipeline v9, current is v10
-  - `grey_dcp` — recorded on pipeline v9, current is v10
-  - `color_chart` — recorded on pipeline v9, current is v10
+  - `grey_adjustments` — satisfied
+  - `synthetic_grey` — satisfied
+  - `grey_dcp` — satisfied
+  - `color_chart` — satisfied
   - `color_harness` — no record
   - `gpu_chain_parity_metal` — recorded on pipeline v8, current is v10
   - `apple_canvas_golden` — no record
@@ -119,7 +119,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — recorded on pipeline v9, current is v10
+  - `grey_adjustments` — satisfied
   - `gpu_chain_parity_metal` — recorded on pipeline v8, current is v10
   - `apple_canvas_golden` — no record
 
@@ -260,7 +260,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 41
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_adjustments.rs`, `src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs`, `src/raw-pipeline/raw-core/tests/grey_adjustments_wb.rs`, `src/raw-pipeline/raw-core/tests/whites_anchor_develop.rs`
-- Record: recorded on pipeline v9, current is v10 — 41 of 41 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v9, schema v5, commit `94ae72d7021d10b92c3a170bac8d281d6596ef18`, recorded 2026-10-06T02:46:43Z
+- Record: satisfied — 41 of 41 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v10, schema v5, commit `6f6b78c5a1c641e1895436074880d1c2de8151cf`, recorded 2026-10-06T06:25:30Z
 
 ### `synthetic_grey`
 
@@ -269,7 +269,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 6
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_invariants.rs`
-- Record: recorded on pipeline v9, current is v10 — 6 of 6 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v9, schema v5, commit `94ae72d7021d10b92c3a170bac8d281d6596ef18`, recorded 2026-10-06T02:46:43Z
+- Record: satisfied — 6 of 6 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v10, schema v5, commit `6f6b78c5a1c641e1895436074880d1c2de8151cf`, recorded 2026-10-06T06:25:17Z
 
 ### `grey_dcp`
 
@@ -278,7 +278,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 5
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_dcp_phase1.rs`
-- Record: recorded on pipeline v9, current is v10 — 5 of 5 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v9, schema v5, commit `94ae72d7021d10b92c3a170bac8d281d6596ef18`, recorded 2026-10-06T02:46:43Z
+- Record: satisfied — 5 of 5 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v10, schema v5, commit `6f6b78c5a1c641e1895436074880d1c2de8151cf`, recorded 2026-10-06T06:25:32Z
 
 ### `color_chart`
 
@@ -287,7 +287,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 7
 - Corpus: `src/raw-pipeline/raw-core/tests/color_chart_invariants.rs`
-- Record: recorded on pipeline v9, current is v10 — 7 of 7 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v9, schema v5, commit `94ae72d7021d10b92c3a170bac8d281d6596ef18`, recorded 2026-10-06T02:46:43Z
+- Record: satisfied — 7 of 7 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v10, schema v5, commit `6f6b78c5a1c641e1895436074880d1c2de8151cf`, recorded 2026-10-06T06:25:19Z
 
 ### `color_harness`
 

@@ -1,13 +1,13 @@
 {
   "backend": "cpu-reference",
-  "command": "cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --features test-support --test grey_invariants",
+  "command": "bash src/scripts/test_synthetic_grey.sh",
   "corpus_hash": "blake3:fcf261c40600660bbbc89f0ec6055348550ac5430d428adb0ba9eefff89006c7",
   "executed_cases": 6,
   "expected_cases": 6,
   "failed_cases": 0,
-  "git_sha": "94ae72d7021d10b92c3a170bac8d281d6596ef18",
-  "pipeline_version": 9,
-  "recorded_at": "2026-10-06T02:46:43Z",
+  "git_sha": "6f6b78c5a1c641e1895436074880d1c2de8151cf",
+  "pipeline_version": 10,
+  "recorded_at": "2026-10-06T06:25:17Z",
   "schema_version": 5,
   "skipped_cases": 0,
   "source": "synthetic_grey"
