@@ -58,6 +58,7 @@ function harness() {
     hasProvisionalPreview: () => false,
     clearProvisionalPreview: vi.fn(),
     serializeForRender: serializer.serialize.bind(serializer),
+    captureRenderSerializer: () => serializer.serialize.bind(serializer),
     markColdOpenDone: vi.fn(),
     scheduleRefine: vi.fn(),
   };

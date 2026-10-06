@@ -33,6 +33,7 @@ for (const route of ['CPU', 'GPU', 'cold CPU'] as const) {
         lastRenderedXmp: null,
         fastTargetPx: () => 512,
         serializeForRender: () => '<xmp/>',
+        captureRenderSerializer: () => () => '<xmp/>',
         hasProvisionalPreview: () => false,
         recordNativeDims: vi.fn(),
         markColdOpenDone: vi.fn(),
