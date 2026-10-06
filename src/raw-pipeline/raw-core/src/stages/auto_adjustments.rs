@@ -48,7 +48,7 @@ use crate::xmp::AdjustmentModel;
 /// Provenance for the clip-aware slider-frame AWB estimator (#2247).
 /// Bump when this derivation changes; persisted pairs are never re-estimated.
 /// Separate from the point sampler's version: `wb_source` identifies the algorithm.
-pub const AUTO_WB_ALGORITHM_VERSION: u32 = 1;
+pub const AUTO_WB_ALGORITHM_VERSION: u32 = 2;
 
 /// Rec.2020 luma weights — match the working color space of the post-WB
 /// scene-linear buffer. Identical to the same constant in `auto_tone`.
