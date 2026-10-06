@@ -5,11 +5,17 @@ import { XmpStoreService } from '../../projects/maple-common/src/lib/xmp/xmp-sto
 
 /** Settle authored XMP before destroying either real profile qualification app. */
 export async function disposeProfileFixture(active: { app: ApplicationRef; host: HTMLElement }) {
-  const library = active.app.injector.get(LibraryStateService);
-  const id = library.focusedAssetId();
-  if (id) await active.app.injector.get(XmpStoreService).settleAsset(id);
-  active.app.destroy();
-  active.host.remove();
+  try {
+    const library = active.app.injector.get(LibraryStateService);
+    const id = library.focusedAssetId();
+    if (id) await active.app.injector.get(XmpStoreService).settleAsset(id);
+  } finally {
+    try {
+      active.app.destroy();
+    } finally {
+      active.host.remove();
+    }
+  }
 }
 
 /** Reopening a named OPFS folder retains its authored sidecar and original bytes. */
