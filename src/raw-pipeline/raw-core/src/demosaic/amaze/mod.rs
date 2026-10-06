@@ -137,3 +137,6 @@ mod tests_saturation_support;
 
 #[cfg(test)]
 mod tests_fcs_junction;
+
+#[cfg(test)]
+mod tests_fcs_independent_support;

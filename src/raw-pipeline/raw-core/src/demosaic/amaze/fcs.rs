@@ -131,6 +131,45 @@ pub(super) fn suppress_false_colour(
                 // its measured guide range.
                 return Some(mean_colour);
             }
+            // Any two distinct guides fit a line. The selected diagonal is
+            // evidence only when independent same-colour sensor sites on
+            // that diagonal support it too. Witnesses never enter the value
+            // estimate or its measured bounds (#4123).
+            let pair_slope = (b.1 - a.1) / (b.0 - a.0);
+            if !pair_slope.is_finite() {
+                return Some(mean_colour);
+            }
+            let witnesses = if d0 < d1 {
+                [(-3_isize, -3_isize), (3, 3)]
+            } else {
+                [(3_isize, -3_isize), (-3, 3)]
+            };
+            let mut independent_guide = false;
+            for (dx, dy) in witnesses {
+                let nx = (x as isize + dx) as usize;
+                let ny = (y as isize + dy) as usize;
+                let (g, c) = (green[ny * w + nx], cfa_flat[ny * w + nx]);
+                let predicted = a.1 + pair_slope * (g - a.0);
+                let scale = predicted.abs().max(c.abs()).max(a.1.abs());
+                if !g.is_finite()
+                    || !c.is_finite()
+                    || !predicted.is_finite()
+                    || (predicted - c).abs() > 32.0 * f32::EPSILON * scale.max(f32::MIN_POSITIVE)
+                {
+                    return Some(mean_colour);
+                }
+                independent_guide |= [a.0, b.0].iter().all(|&near| {
+                    (g - near).abs()
+                        > 32.0 * f32::EPSILON * g.abs().max(near.abs()).max(f32::MIN_POSITIVE)
+                });
+            }
+            let pedestal = a.1 - pair_slope * a.0;
+            let scale = a.1.abs().max((pair_slope * a.0).abs());
+            if !independent_guide
+                && pedestal.abs() > 32.0 * f32::EPSILON * scale.max(f32::MIN_POSITIVE)
+            {
+                return Some(mean_colour);
+            }
             return Some(
                 (a.1 + (b.1 - a.1) * (center - a.0) / (b.0 - a.0))
                     .clamp(a.1.min(b.1), a.1.max(b.1)),
