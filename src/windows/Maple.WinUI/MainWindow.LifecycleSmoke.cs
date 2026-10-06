@@ -190,6 +190,14 @@ namespace Maple.WinUI
                     await VerifyBrowseScrollingAsync();
                     RecordSmokeStage(output, "browse-grouped-scrolling");
                     await VerifyBrowseScrollingAsync(grouped: true);
+                    RecordSmokeStage(output, "browse-restore-decode");
+                    ViewModel.EnsureDecoded();
+                    var browseDecodeDeadline = Environment.TickCount64 + 30000;
+                    while ((ViewModel.IsDecoding || renderer.DetailSource == null) &&
+                        !ViewModel.HasDecodeError && Environment.TickCount64 < browseDecodeDeadline)
+                        await Task.Delay(20);
+                    if (ViewModel.IsDecoding || ViewModel.HasDecodeError || renderer.DetailSource == null)
+                        throw new InvalidOperationException($"Browse did not restore its decoded photo: {ViewModel.DecodeStatus}");
                     RecordSmokeStage(output, "immediate-undo");
                     await VerifyImmediateUndoAsync();
                     RecordSmokeStage(output, "histogram-image-replacement");
