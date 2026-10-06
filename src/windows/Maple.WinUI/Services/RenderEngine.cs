@@ -153,7 +153,10 @@ namespace Maple.WinUI.Services
                             decoded.ProfileFit = fit;
                         }
                         if (!source.StillCurrent(rawPath))
+                        {
                             decoded.ProfileSource = null;
+                            decoded.ProfileFit = null;
+                        }
                     }
                     DiagLog.Write(
                         $"[decode] {System.IO.Path.GetFileName(rawPath)} quality={quality} ae_gain={decoded.AeGain:0.###} " +
@@ -355,7 +358,8 @@ namespace Maple.WinUI.Services
         /// render cap, then source-revalidated after decode before reuse.
         /// The separate curve + residual artifacts serve
         /// the GPU live chain, and the composed display-domain LUT for the CPU
-        /// fallback. rc 1 = no tail applies (plain AgX) — not an error.</summary>
+        /// fallback. rc 1 = no tail applies (plain AgX), but still qualifies
+        /// source and fit ownership for reuse.</summary>
         private static bool FitAutoProfile(DecodedImage decoded, string rawPath, string xmpPath, ProfileFitContext fit)
         {
             const int curveLen = 220;                 // MAPLE_PROFILE_CURVE_FLAT_LEN
