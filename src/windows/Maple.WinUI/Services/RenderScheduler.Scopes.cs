@@ -12,6 +12,7 @@ public sealed partial class RenderScheduler
     private readonly Task _scopeLoopTask;
     private ScopeReadback? _cpuScopeReadback, _gpuScopeReadback;
     private long _scopeFailedVersion = -1;
+    /// <summary>Each emitted snapshot owns its arrays; subscribers may retain it.</summary>
     public event Action<ScopePanelFrame>? ScopeReady;
     public event Action? ScopeInvalidated;
     public event Action<long, string>? ScopeFailed;
