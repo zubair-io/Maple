@@ -238,6 +238,44 @@ final class BoundedAsyncSemaphoreTests: XCTestCase {
     }
   }
 
+  func test_waitForQueue_cancelledObservationDoesNotReportEnqueue() async throws {
+    let semaphore = BoundedAsyncSemaphore(value: 1)
+    try await semaphore.acquire()
+    let entered = XCTestExpectation(description: "Queue observation task started")
+    let observation = Task {
+      entered.fulfill()
+      return await semaphore.waitForQueue(atLeast: 1, timeout: .seconds(5))
+    }
+    await fulfillment(of: [entered], timeout: 5)
+    try await Task.sleep(for: .milliseconds(50))
+    let before = await semaphore.queuedCount
+    XCTAssertEqual(before, 0, "No acquire task was created, so no enqueue can be observed")
+    observation.cancel()
+    let observed = await observation.value
+    XCTAssertFalse(observed, "Cancellation must not manufacture a positive registration")
+    let after = await semaphore.queuedCount
+    XCTAssertEqual(after, 0)
+    let timeout = await semaphore.waitForQueue(atLeast: 1, timeout: .milliseconds(50))
+    XCTAssertFalse(timeout, "Cancelled observer must leave subsequent observations usable")
+
+    let producer = Task { try await semaphore.acquire() }
+    let registration = await semaphore.waitForQueue(atLeast: 1, timeout: .seconds(5))
+    XCTAssertTrue(registration, "An uncancelled observer must still see the real producer")
+    let cancelled = Task {
+      withUnsafeCurrentTask { $0?.cancel() }
+      return await semaphore.waitForQueue(atLeast: 1, timeout: .seconds(5))
+    }
+    let cancelledResult = await cancelled.value
+    XCTAssertFalse(cancelledResult, "A pre-cancelled observer cannot report registration")
+    let retained = await semaphore.queuedCount
+    XCTAssertEqual(retained, 1, "Cancelling observation must not cancel the actual producer")
+    producer.cancel()
+    _ = try? await producer.value
+    let drained = await semaphore.queuedCount
+    XCTAssertEqual(drained, 0)
+    await semaphore.release()
+  }
+
   func test_waitForQueue_observesRegistrationAndTimeout() async throws {
     let semaphore = BoundedAsyncSemaphore(value: 1)
     try await semaphore.acquire()

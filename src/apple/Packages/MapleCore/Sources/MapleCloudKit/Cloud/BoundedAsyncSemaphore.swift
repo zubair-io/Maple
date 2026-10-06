@@ -98,7 +98,7 @@ public actor BoundedAsyncSemaphore {
   package var queuedCount: Int { waiters.count }
 
   private var queueObservers:
-    [(id: UInt64, target: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    [(id: UInt64, target: Int, continuation: CheckedContinuation<Bool, Never>)] = []
   private var queueObserverIDCounter: UInt64 = 0
 
   /// Clamps to ≥1 — a 0/negative cap would suspend `acquire()` forever
@@ -176,11 +176,11 @@ public actor BoundedAsyncSemaphore {
     atLeast minimum: Int = 1,
     timeout: Duration = .seconds(5)
   ) async -> Bool {
+    guard !Task.isCancelled else { return false }
     if waiters.count >= minimum { return true }
     return await withTaskGroup(of: Bool.self) { group in
       group.addTask { [self] in
         await self.observeQueueRegistration(atLeast: minimum)
-        return true
       }
       group.addTask {
         do {
@@ -192,15 +192,16 @@ public actor BoundedAsyncSemaphore {
       }
       let first = await group.next() ?? false
       group.cancelAll()
-      return first
+      return first && !Task.isCancelled
     }
   }
 
-  private func observeQueueRegistration(atLeast minimum: Int) async {
-    if waiters.count >= minimum { return }
+  private func observeQueueRegistration(atLeast minimum: Int) async -> Bool {
+    guard !Task.isCancelled else { return false }
+    if waiters.count >= minimum { return true }
     queueObserverIDCounter &+= 1
     let id = queueObserverIDCounter
-    await withTaskCancellationHandler {
+    return await withTaskCancellationHandler {
       await withCheckedContinuation { cont in
         queueObservers.append((id: id, target: minimum, continuation: cont))
       }
@@ -211,15 +212,15 @@ public actor BoundedAsyncSemaphore {
 
   private func cancelQueueObserver(id: UInt64) {
     guard let index = queueObservers.firstIndex(where: { $0.id == id }) else { return }
-    queueObservers.remove(at: index).continuation.resume()
+    queueObservers.remove(at: index).continuation.resume(returning: false)
   }
 
   private func notifyQueueObservers() {
     guard !queueObservers.isEmpty else { return }
-    var remaining: [(id: UInt64, target: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    var remaining: [(id: UInt64, target: Int, continuation: CheckedContinuation<Bool, Never>)] = []
     for observer in queueObservers {
       if waiters.count >= observer.target {
-        observer.continuation.resume()
+        observer.continuation.resume(returning: true)
       } else {
         remaining.append(observer)
       }
