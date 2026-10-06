@@ -16,6 +16,15 @@ internal readonly record struct ProfileSourceGeneration(string Path, long Modifi
     internal bool Matches(ProfileSourceGeneration other) =>
         string.Equals(Path, other.Path, StringComparison.OrdinalIgnoreCase)
         && Modified == other.Modified && Length == other.Length;
+
+    internal bool StillCurrent(string path)
+    {
+        // A successfully decoded image remains usable after a source disappears,
+        // but its fitted profile must not be donated to a later decode.
+        try { return Matches(Read(path)); }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+    }
 }
 
 public static unsafe partial class RenderEngine

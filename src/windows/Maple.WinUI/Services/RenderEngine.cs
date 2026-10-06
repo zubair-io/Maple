@@ -146,7 +146,7 @@ namespace Maple.WinUI.Services
                             ReuseAutoProfile(decoded, reuseAutoProfileFrom!);
                         else if (FitAutoProfile(decoded, rawPath, tempXmpPath))
                             decoded.ProfileSource = source;
-                        if (!source.Matches(ProfileSourceGeneration.Read(rawPath)))
+                        if (!source.StillCurrent(rawPath))
                             decoded.ProfileSource = null;
                     }
                     DiagLog.Write(
