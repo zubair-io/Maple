@@ -48,7 +48,8 @@ final class UITestFixtureRootTests: XCTestCase {
 
   func testAnotherRootIsExplicit() {
     let resolution = UITestFixtureRoot.resolve(
-      environment: ["MAPLE_UITEST_FIXTURE_ROOT": "/Volumes/Fixtures/raws"], repoDefault: repoDefault)
+      environment: ["MAPLE_UITEST_FIXTURE_ROOT": "/Volumes/Fixtures/raws"], repoDefault: repoDefault
+    )
     XCTAssertEqual(resolution, .init(path: "/Volumes/Fixtures/raws", isExplicit: true))
   }
 
@@ -68,5 +69,51 @@ final class UITestFixtureRootTests: XCTestCase {
     guard case .fail(let reason) = verdict else { return XCTFail("expected fail, got \(verdict)") }
     XCTAssertTrue(reason.contains("/Volumes/Fixtures/raws"))
     XCTAssertTrue(reason.contains("test_0017.dng"))
+  }
+
+  func testValidRootLookupReturnsFileURLUsingActualFilesystemControls() throws {
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let fixtureFile = tempDir.appendingPathComponent("test_0003.DNG")
+    FileManager.default.createFile(atPath: fixtureFile.path, contents: Data([0x42]))
+
+    let located = try UITestFixtureRoot.locate(
+      "test_0003.DNG",
+      resolution: .init(path: tempDir.path, isExplicit: true)
+    )
+    XCTAssertEqual(located.standardizedFileURL.path, fixtureFile.standardizedFileURL.path)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: located.path))
+  }
+
+  func testLocateThrowsSkipWhenMissingAtDefaultRoot() {
+    let emptyDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try? FileManager.default.createDirectory(at: emptyDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: emptyDir) }
+
+    XCTAssertThrowsError(
+      try UITestFixtureRoot.locate(
+        "test_0003.DNG",
+        resolution: .init(path: emptyDir.path, isExplicit: false)
+      )
+    ) { error in
+      XCTAssertTrue(String(describing: type(of: error)).contains("XCTSkip"))
+    }
+  }
+
+  func testLocateFailsAndThrowsWhenMissingAtExplicitRoot() {
+    XCTExpectFailure("Explicit missing fixture must record a failure")
+    XCTAssertThrowsError(
+      try UITestFixtureRoot.locate(
+        "test_0003.DNG",
+        resolution: .init(path: "/nonexistent/explicit/fixtures", isExplicit: true)
+      )
+    ) { error in
+      guard let missing = error as? UITestFixtureRoot.MissingFixture else {
+        return XCTFail("Expected MissingFixture, got \(error)")
+      }
+      XCTAssertEqual(missing.path, "/nonexistent/explicit/fixtures/test_0003.DNG")
+    }
   }
 }
