@@ -17,7 +17,7 @@ import XCTest
 
   final class SkinToneDemoUITests: XCTestCase {
     func testCreatingASkinMaskAndDraggingHueMovesTheCloudTowardTheSkinLine() throws {
-      let driver = try MapleAppDriver.launch(fixture: "test_0003.DNG")
+      let driver = try MapleAppDriver.launch(fixture: "test_0003.CR2")
       defer { driver.cleanupStagedFixture() }
       defer { driver.app.terminate() }
       driver.waitForCanvasReady(timeout: 30)
