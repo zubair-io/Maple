@@ -116,7 +116,8 @@ Write-Output "tick verdict: $tickVerdict"
 Write-Output "== GPU develop-chain parity frame (separate from timing) =="
 $gpuFrame = Join-Path $work 'gpu-frame.png'
 $gpuPixels = Invoke-QualifyRun @{ MAPLE_DUMP_GPU_FRAME = $gpuFrame } (Join-Path $work 'gpu-pixels')
-if ($gpuPixels.render_path -ne 'gpu' -or -not (Test-Path -LiteralPath $gpuFrame)) {
+if ($gpuPixels.render_path -ne 'gpu' -or -not (Test-Path -LiteralPath $gpuFrame)
+    -or -not (Test-Path -LiteralPath "$gpuFrame.json")) {
     throw 'GPU parity capture missing or fell back to CPU.'
 }
 @{
