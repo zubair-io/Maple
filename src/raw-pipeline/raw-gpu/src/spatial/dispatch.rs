@@ -53,12 +53,12 @@ pub(crate) fn prepare_simple_dispatch(
     label: &str,
 ) -> PooledDispatch {
     let params_len = params_bytes.len() as u64;
-    let layout = pipeline.get_bind_group_layout(0);
 
     // Get-or-create the pooled uniform + bind group. `make` runs ONLY on a cache
     // miss (so a hit allocates nothing); it builds the uniform + the bind group
     // referencing it + the passed storage buffers.
     pool_dispatch(ctx, pipeline, params_bytes, buffers, |device| {
+        let layout = pipeline.get_bind_group_layout(0);
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(label),
             size: params_len,
