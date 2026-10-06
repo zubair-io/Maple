@@ -4,6 +4,7 @@
 //! budget. Pure functions; no I/O.
 
 use super::curve::{self, ProfileCurve, IDENTITY_MATRIX};
+use rayon::prelude::*;
 
 /// Soft-knee compression: identity for `x ≤ KNEE`, smooth roll-off
 /// to asymptote 1.0 above. The knee at 0.95 keeps midtones bit-
@@ -63,7 +64,7 @@ pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
         || l_off.abs() > 1e-4
         || any_l_band
         || any_ab_band;
-    for chunk in rgb.chunks_exact_mut(3) {
+    rgb.par_chunks_exact_mut(3).for_each(|chunk| {
         let r0 = compress_input(chunk[0]);
         let g0 = compress_input(chunk[1]);
         let b0 = compress_input(chunk[2]);
@@ -122,5 +123,9 @@ pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
         chunk[0] = r2;
         chunk[1] = g2;
         chunk[2] = b2;
-    }
+    });
 }
+
+#[cfg(test)]
+#[path = "apply_parallel_tests.rs"]
+mod parallel_tests;
