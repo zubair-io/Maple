@@ -398,11 +398,11 @@ fn compute_fit_rms_de_from_pairs(
 mod tests;
 
 #[cfg(test)]
-#[path = "from_pairs_rms_tests.rs"]
-mod rms_tests;
-#[cfg(test)]
 #[path = "from_pairs_neutral_tests.rs"]
 mod neutral_tests;
+#[cfg(test)]
+#[path = "from_pairs_rms_tests.rs"]
+mod rms_tests;
 
 #[cfg(test)]
 #[path = "from_pairs_conversion_tests.rs"]
