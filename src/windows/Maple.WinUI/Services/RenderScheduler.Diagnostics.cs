@@ -13,6 +13,28 @@ public sealed partial class RenderScheduler
     {
         var path = Environment.GetEnvironmentVariable("MAPLE_DUMP_GPU_FRAME");
         if (string.IsNullOrEmpty(path) || File.Exists(path)) return;
+        try
+        {
+            CaptureGpuFrame(handle, parameters, image, state, generation, path);
+        }
+        catch (Exception error)
+        {
+            // A diagnostic failure must not fault the renderer or its shutdown.
+            DiagLog.Write($"[dump-gpu] failed: {error}");
+            try
+            {
+                File.WriteAllText(path + ".error.json", System.Text.Json.JsonSerializer.Serialize(
+                    new { backend = "gpu", error = error.Message }));
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    private static unsafe void CaptureGpuFrame(
+        Native.MapleGpuLiveSession* handle, Native.MapleGpuLiveParams* parameters,
+        DecodedImage image, Models.AdjustmentState state, ulong generation, string path)
+    {
         var rgb = new byte[checked(image.Width * image.Height * 3)];
         fixed (byte* output = rgb)
         {

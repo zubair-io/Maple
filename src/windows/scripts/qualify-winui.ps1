@@ -117,8 +117,12 @@ Write-Output "== GPU develop-chain parity frame (separate from timing) =="
 $gpuFrame = Join-Path $work 'gpu-frame.png'
 $gpuPixels = Invoke-QualifyRun @{ MAPLE_DUMP_GPU_FRAME = $gpuFrame } (Join-Path $work 'gpu-pixels')
 if ($gpuPixels.render_path -ne 'gpu' -or -not (Test-Path -LiteralPath $gpuFrame) -or
-    -not (Test-Path -LiteralPath "$gpuFrame.json")) {
+    -not (Test-Path -LiteralPath "$gpuFrame.json") -or (Test-Path -LiteralPath "$gpuFrame.error.json")) {
     throw 'GPU parity capture missing or fell back to CPU.'
+}
+$captureMetadata = Get-Content -LiteralPath "$gpuFrame.json" -Raw | ConvertFrom-Json
+if ($captureMetadata.backend -ne 'gpu' -or $captureMetadata.width -le 0 -or $captureMetadata.height -le 0) {
+    throw 'GPU capture metadata is invalid.'
 }
 @{
     backend = $gpuPixels.render_path
