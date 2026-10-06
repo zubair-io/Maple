@@ -34,6 +34,17 @@ fn fcs_does_not_import_bright_foreground_into_supported_luminance_junction() {
                         truth[j] = [0.65 * g * exposure, g * exposure, 0.4 * g * exposure];
                         truth[j][channel] = c * exposure;
                     }
+                    // Independent same-diagonal sensor witnesses make the
+                    // selected luminance relation supported, rather than an
+                    // unconstrained line through only two samples.
+                    for (mut dx, mut dy) in [(3isize, -3isize), (-3, 3)] {
+                        for _ in 0..rotation {
+                            (dx, dy) = (-dy, dx);
+                        }
+                        let j = (y as isize + dy) as usize * n + (x as isize + dx) as usize;
+                        truth[j][1] = 0.02 * exposure;
+                        truth[j][channel] = 0.008 * exposure;
+                    }
                     let sensor: Vec<_> = truth
                         .iter()
                         .enumerate()
