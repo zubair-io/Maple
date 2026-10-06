@@ -178,7 +178,7 @@ pub(crate) fn shadows_mult(y: f32, s_amount: f32) -> f32 {
 pub(crate) fn highlights_mult(y: f32, h_amount: f32) -> f32 {
     let recover = -h_amount;
     let w = smoothstep(H_W0, H_W1, y);
-    let g = (-H_GAIN_EV * recover * w).exp2();
+    let g = ((-H_GAIN_EV * recover * w) as f64).exp2() as f32;
     let shape = if y > 1.0 {
         let y_new = if recover >= 0.0 {
             1.0 + (y - 1.0) / (1.0 + 2.0 * recover)
