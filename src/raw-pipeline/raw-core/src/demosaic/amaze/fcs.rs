@@ -160,10 +160,12 @@ pub(super) fn suppress_false_colour(
                 return Some(mean_colour);
             }
             let mut independent_guide = false;
-            for (g, _) in measured {
-                independent_guide |= [a.0, b.0].iter().all(|&near| {
-                    (g - near).abs()
-                        > 32.0 * f32::EPSILON * g.abs().max(near.abs()).max(f32::MIN_POSITIVE)
+            for (g, c) in measured {
+                independent_guide |= [a, b].iter().all(|&(near_g, near_c)| {
+                    (g - near_g).abs()
+                        > 32.0 * f32::EPSILON * g.abs().max(near_g.abs()).max(f32::MIN_POSITIVE)
+                        && (c - near_c).abs()
+                            > 32.0 * f32::EPSILON * c.abs().max(near_c.abs()).max(f32::MIN_POSITIVE)
                 });
             }
             let pedestal = a.1 - pair_slope * a.0;
@@ -182,12 +184,19 @@ pub(super) fn suppress_false_colour(
             (g - other).abs()
                 > 32.0 * f32::EPSILON * g.abs().max(other.abs()).max(f32::MIN_POSITIVE)
         };
-        let first = samples[0].0;
-        let second = samples.iter().find(|&&(g, _)| distinct_guide(g, first));
-        let third_near_guide = second.is_some_and(|&(second, _)| {
-            samples
-                .iter()
-                .any(|&(g, _)| distinct_guide(g, first) && distinct_guide(g, second))
+        let first = samples[0];
+        // Reconstructed-guide variations on a measured colour plateau do
+        // not supply a third sensor level. Require both quantities (#4123).
+        let independent_sample = |(g, c): (f32, f32), (other_g, other_c): (f32, f32)| {
+            distinct_guide(g, other_g) && distinct_guide(c, other_c)
+        };
+        let second = samples
+            .iter()
+            .find(|&&sample| independent_sample(sample, first));
+        let third_near_guide = second.is_some_and(|&second| {
+            samples.iter().any(|&sample| {
+                independent_sample(sample, first) && independent_sample(sample, second)
+            })
         });
         if count == 2 || !third_near_guide {
             // Two distinct levels always fit a line, including four diagonal
@@ -208,11 +217,13 @@ pub(super) fn suppress_false_colour(
                 if !supports_affine(guide, cfa_flat[ny * w + nx]) {
                     return Some(mean_colour);
                 }
-                independent_guide |= samples.iter().all(|&(g, _)| distinct_guide(guide, g));
+                independent_guide |= samples
+                    .iter()
+                    .all(|&sample| independent_sample((guide, cfa_flat[ny * w + nx]), sample));
             }
             // Repeated two-level plateaus cannot distinguish an affine fit
-            // from a genuine colour step. A third guide level supplies that
-            // evidence. A zero pedestal is the independently constrained
+            // from a genuine colour step. A third measured colour/guide level
+            // supplies that evidence. A zero pedestal is the independently constrained
             // constant-chromaticity luminance edge and remains supported.
             let pedestal = mean_colour - slope * mean_green;
             let scale = mean_colour.abs().max((slope * mean_green).abs());

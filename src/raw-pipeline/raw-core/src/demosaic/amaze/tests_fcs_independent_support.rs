@@ -54,6 +54,22 @@ fn non_affine_pair_requires_independent_sensor_support() {
                                 (3, 3, 0.94900435, 0.94900435),
                             ],
                         ),
+                        // Actual residual at test_0018 (139,431): reconstructed
+                        // guide variations must not create a third measured
+                        // sensor level on the same two-colour plateaus.
+                        (
+                            0.087006956,
+                            [
+                                (-1, -1, 0.08700694, 0.04600595),
+                                (1, -1, 0.08700694, 0.04600595),
+                                (-1, 1, 0.94900435, 0.94900435),
+                                (1, 1, 0.94900244, 0.94900435),
+                                (3, -3, 0.08700559, 0.04600595),
+                                (-3, 3, 0.94900435, 0.94900435),
+                                (-3, -3, 0.08700694, 0.04600595),
+                                (3, 3, 0.94900435, 0.94900435),
+                            ],
+                        ),
                     ] {
                         let mut truth = vec![[0.007, 0.012, 0.009]; n * n];
                         let mean = samples[..4].iter().map(|s| s.3).sum::<f32>() / 4.0;
