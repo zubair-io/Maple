@@ -145,6 +145,11 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: |
+          XCODE_APP="$(python3 -c 'import glob, re; print(max(glob.glob("/Applications/Xcode_*.app"), key=lambda p: tuple(map(int, re.findall(r"\d+", p)))))')"
+          sudo xcode-select -s "$XCODE_APP"
+          swift --version
       # Dependency-free package: verify its real bundled resources and
       # SwiftUI rendering as well as its math/control regression suite.
       - name: Execute MapleUI tests
