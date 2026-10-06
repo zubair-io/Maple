@@ -1,0 +1,89 @@
+{
+  "repository": "JunhaoZhuang/PowerPaint-v2-1",
+  "revision": "5ae2be3ac38b162df209b7ad5de036d339081e33",
+  "files": [
+    {
+      "path": "realisticVisionV60B1_v51VAE/model_index.json",
+      "bytes": 629,
+      "sha256": "fad1e899c73b281617bbd71c5a2c4cd48ff0b4aecb87b9fcc505f3f0d01fb465",
+      "hubBlobId": "ea66866a6cdde6b933fc7238c54e300141ef2139"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/scheduler/scheduler_config.json",
+      "bytes": 379,
+      "sha256": "5b2ecb7c5ffe47b9f6c701c1e08355bbdc3e5a2554e3c021afebcbaeade106f6",
+      "hubBlobId": "3031caef0b2f1dff32883ca1dba8eca0f1261732"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/text_encoder/config.json",
+      "bytes": 560,
+      "sha256": "8d0235715cdd6e7d462d9af4ed17758f72929eed171a5119ab5d014965a10310",
+      "hubBlobId": "a60dbd23c7e0b2b56ef736342778efb490acb255"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/text_encoder/pytorch_model.bin",
+      "bytes": 492304313,
+      "sha256": "ccf6d26500a883b3e7227d2f10292bee7fe078f26cb1afef46eee26252805f0b",
+      "hubBlobId": "5a72bef8d9f1ba0e7800e39c77bbc2fccc364efa"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/tokenizer/merges.txt",
+      "bytes": 524619,
+      "sha256": "9fd691f7c8039210e0fced15865466c65820d09b63988b0174bfe25de299051a",
+      "hubBlobId": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/tokenizer/special_tokens_map.json",
+      "bytes": 588,
+      "sha256": "2cdb3b8331a60c92fc1e55a13e9fd61fd2293c5a51275fdcccd62b780052530e",
+      "hubBlobId": "cf0682d6de72c1547f41b4f6d7c59f62deffef94"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/tokenizer/tokenizer_config.json",
+      "bytes": 705,
+      "sha256": "6bdcee9ccce2a16ca2b4c0c5ed00b42c50ea225f4472a8c4c1e963a2902c2881",
+      "hubBlobId": "180a4e1be2a7d0b38a44108d6f24f585f35147b1"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/tokenizer/vocab.json",
+      "bytes": 1059962,
+      "sha256": "e089ad92ba36837a0d31433e555c8f45fe601ab5c221d4f607ded32d9f7a4349",
+      "hubBlobId": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/unet/config.json",
+      "bytes": 1784,
+      "sha256": "60095133023e7535eb92a334c86d5a1d17d11b0038df02cd81cde88f9ed58a0d",
+      "hubBlobId": "4ecf0daa6a492a6e46c9ec3707ecdc456e6fb740"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/unet/diffusion_pytorch_model.bin",
+      "bytes": 3438354725,
+      "sha256": "c8dac118ff5749ca65298f1546ec23d3fec876cded41f9559fcd863e30d969f4",
+      "hubBlobId": "99404c7446e8f777ed6a8456c31d011810b2aa29"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/vae/config.json",
+      "bytes": 606,
+      "sha256": "f4cbaf7e77439edf3860f15622d0c3db6e7c5ce3c716de8eca585d8a7d938425",
+      "hubBlobId": "a42b5d9bb56e57b7c6959d84140e3a7898f3d61c"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/vae/diffusion_pytorch_model.bin",
+      "bytes": 334707473,
+      "sha256": "9428a7d3cab924439bbba9f2c3e5128d466f9dffd9c12ed7098ae288a5bfe8bd",
+      "hubBlobId": "6fffa8e313a60ee7ecb035353638b9cb59041719"
+    }
+  ],
+  "component": "RealisticVision V6 B1 v5.1 VAE base, without PowerPaint BrushNet",
+  "torch": "2.14.1",
+  "steps": 40,
+  "strength": 0.25,
+  "guidance": 4.0,
+  "seed": 3941,
+  "tileSourcePixels": 512,
+  "minimumOverlapPixels": 128,
+  "algorithm": "Shared noisy latent canvas; weighted noise fusion at every step, then one DDIM update; known latents reanchored to encoded guide.",
+  "precision": "UNet/text fp16, VAE fp32; deterministic VAE mode",
+  "scope": "Experimental common detail refiner, not a third removal candidate or a shipping dependency"
+}

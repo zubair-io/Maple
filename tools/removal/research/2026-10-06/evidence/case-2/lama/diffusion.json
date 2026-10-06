@@ -1,0 +1,130 @@
+{
+  "seconds": 47.758093750017,
+  "steps": [
+    {
+      "case": 2,
+      "coarse": "lama",
+      "step": 1,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 11.44716370900278,
+      "mpsBytes": 9102786560
+    },
+    {
+      "case": 2,
+      "coarse": "lama",
+      "step": 2,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 14.583931959001347,
+      "mpsBytes": 9035677696
+    },
+    {
+      "case": 2,
+      "coarse": "lama",
+      "step": 3,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 17.972129041998414,
+      "mpsBytes": 9035677696
+    },
+    {
+      "case": 2,
+      "coarse": "lama",
+      "step": 4,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 21.398494374996517,
+      "mpsBytes": 9035677696
+    },
+    {
+      "case": 2,
+      "coarse": "lama",
+      "step": 5,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 24.917497749993345,
+      "mpsBytes": 9035677696
+    },
+    {
+      "case": 2,
+      "coarse": "lama",
+      "step": 6,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 28.46193016701727,
+      "mpsBytes": 9035677696
+    },
+    {
+      "case": 2,
+      "coarse": "lama",
+      "step": 7,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 31.767601166997338,
+      "mpsBytes": 9035677696
+    },
+    {
+      "case": 2,
+      "coarse": "lama",
+      "step": 8,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 35.411629375012126,
+      "mpsBytes": 9035677696
+    },
+    {
+      "case": 2,
+      "coarse": "lama",
+      "step": 9,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 39.14976575001492,
+      "mpsBytes": 9035677696
+    },
+    {
+      "case": 2,
+      "coarse": "lama",
+      "step": 10,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 42.316709917009575,
+      "mpsBytes": 9035677696
+    }
+  ],
+  "prompt": "Photograph of an empty polished stone floor and stone wall, continuous architectural lines, subtle fine stone texture, same lighting and perspective.",
+  "negativePrompt": "person, people, human, face, body, silhouette, object, text, drawing, painting, warped lines, oversharpened",
+  "strength": 0.25,
+  "seed": 3941,
+  "tileCoordinatesLatentYX": [
+    [0, 48],
+    [0, 96],
+    [0, 144],
+    [48, 48],
+    [48, 96],
+    [48, 144],
+    [96, 48],
+    [96, 96],
+    [96, 144],
+    [144, 48],
+    [144, 96],
+    [144, 144],
+    [192, 48],
+    [192, 96],
+    [192, 144]
+  ],
+  "knownLatentsAnchoredEveryStep": true,
+  "sharedNoiseCanvas": true,
+  "peakProcessRSSBytes": 5520998400,
+  "case": 2,
+  "coarseModel": "lama",
+  "method": "diffusion",
+  "nativeSide": 2048,
+  "outsideChanged": 0,
+  "protectedChanged": 0,
+  "sourceSha256": "276ebd226a82a9eabbf42d9371a2680aa231f22ba2126bd456f9d047e929af65",
+  "coverageSha256": "57195cb451aef763e1a523db6b4f26102cda2a53fb0c22cb59bc8c2aa2956dba",
+  "coarseSha256": "a2c74e0c5f673d705e0cf7c390b80a8b45d4c7245b16fe325a3e62701c53dce0",
+  "predictionSha256": "6a4ff5a6a609103193f0fcbbd56a18a3ea9f8ee183df26bddb9f669e96b6bc9a",
+  "releaseQualified": false
+}

@@ -1,0 +1,14 @@
+{
+  "description": "Frozen 512 prediction enlarged with bilinear interpolation; no native generated detail.",
+  "case": 2,
+  "coarseModel": "lama",
+  "method": "bilinear",
+  "nativeSide": 2048,
+  "outsideChanged": 0,
+  "protectedChanged": 0,
+  "sourceSha256": "276ebd226a82a9eabbf42d9371a2680aa231f22ba2126bd456f9d047e929af65",
+  "coverageSha256": "57195cb451aef763e1a523db6b4f26102cda2a53fb0c22cb59bc8c2aa2956dba",
+  "coarseSha256": "a2c74e0c5f673d705e0cf7c390b80a8b45d4c7245b16fe325a3e62701c53dce0",
+  "predictionSha256": "2a9ece8840f17fe3d1e6cbef8196d6649a5906b5aa7facab681994db47530168",
+  "releaseQualified": false
+}

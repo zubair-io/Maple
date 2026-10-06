@@ -1,0 +1,130 @@
+{
+  "seconds": 54.85074145899853,
+  "steps": [
+    {
+      "case": 2,
+      "coarse": "qwen-seed0",
+      "step": 1,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 12.022783208987676,
+      "mpsBytes": 9102786560
+    },
+    {
+      "case": 2,
+      "coarse": "qwen-seed0",
+      "step": 2,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 15.932862666988513,
+      "mpsBytes": 9035677696
+    },
+    {
+      "case": 2,
+      "coarse": "qwen-seed0",
+      "step": 3,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 21.926331791997654,
+      "mpsBytes": 9035677696
+    },
+    {
+      "case": 2,
+      "coarse": "qwen-seed0",
+      "step": 4,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 25.827797625010135,
+      "mpsBytes": 9035677696
+    },
+    {
+      "case": 2,
+      "coarse": "qwen-seed0",
+      "step": 5,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 29.25111545898835,
+      "mpsBytes": 9035677696
+    },
+    {
+      "case": 2,
+      "coarse": "qwen-seed0",
+      "step": 6,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 32.391452500014566,
+      "mpsBytes": 9035677696
+    },
+    {
+      "case": 2,
+      "coarse": "qwen-seed0",
+      "step": 7,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 36.62484149998636,
+      "mpsBytes": 9035677696
+    },
+    {
+      "case": 2,
+      "coarse": "qwen-seed0",
+      "step": 8,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 40.86795379201067,
+      "mpsBytes": 9035677696
+    },
+    {
+      "case": 2,
+      "coarse": "qwen-seed0",
+      "step": 9,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 45.439248292008415,
+      "mpsBytes": 9035677696
+    },
+    {
+      "case": 2,
+      "coarse": "qwen-seed0",
+      "step": 10,
+      "steps": 10,
+      "tiles": 15,
+      "seconds": 49.2139245000144,
+      "mpsBytes": 9035677696
+    }
+  ],
+  "prompt": "Photograph of an empty polished stone floor and stone wall, continuous architectural lines, subtle fine stone texture, same lighting and perspective.",
+  "negativePrompt": "person, people, human, face, body, silhouette, object, text, drawing, painting, warped lines, oversharpened",
+  "strength": 0.25,
+  "seed": 3941,
+  "tileCoordinatesLatentYX": [
+    [0, 48],
+    [0, 96],
+    [0, 144],
+    [48, 48],
+    [48, 96],
+    [48, 144],
+    [96, 48],
+    [96, 96],
+    [96, 144],
+    [144, 48],
+    [144, 96],
+    [144, 144],
+    [192, 48],
+    [192, 96],
+    [192, 144]
+  ],
+  "knownLatentsAnchoredEveryStep": true,
+  "sharedNoiseCanvas": true,
+  "peakProcessRSSBytes": 5520998400,
+  "case": 2,
+  "coarseModel": "qwen-seed0",
+  "method": "diffusion",
+  "nativeSide": 2048,
+  "outsideChanged": 0,
+  "protectedChanged": 0,
+  "sourceSha256": "276ebd226a82a9eabbf42d9371a2680aa231f22ba2126bd456f9d047e929af65",
+  "coverageSha256": "57195cb451aef763e1a523db6b4f26102cda2a53fb0c22cb59bc8c2aa2956dba",
+  "coarseSha256": "b548ed29df0437ae806115c7274f9c780a26d48ede544a0795c132314691a876",
+  "predictionSha256": "fb9f47ee76f9c546e6f6bb7dd1675c061344a0c9ad8ebae4f718a0e3aa7fee09",
+  "releaseQualified": false
+}

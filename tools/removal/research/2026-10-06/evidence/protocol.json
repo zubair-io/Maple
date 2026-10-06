@@ -1,0 +1,24 @@
+{
+  "issue": 3941,
+  "cases": [4, 2, 1],
+  "coarseModels": ["lama", "qwen-seed0"],
+  "methods": [
+    "bilinear",
+    "RGB-guided native-source PatchMatch",
+    "shared-latent tiled low-strength diffusion"
+  ],
+  "mainOutputs": 18,
+  "maskExpansion": 16,
+  "modelResolution": 512,
+  "newRemovalGeneration": false,
+  "rawMode": true,
+  "finalCoverage": "Identical frozen expanded native coverage across methods/models",
+  "qualityGate": "Review at fit and native resolution, then exposure/WB. Outside-pixel preservation is not fill acceptance.",
+  "limitations": [
+    "Three scenes only; assistant visual preflight, not blind ground truth",
+    "Floor coarse fill retains tonal seam: stress case",
+    "Single seed/settings; neither complete published guided PatchMatch nor exact MultiDiffusion reproduction",
+    "Common third-party refinement model isolates choice of coarse LaMa/Qwen fill",
+    "No performance optimization or production integration"
+  ]
+}

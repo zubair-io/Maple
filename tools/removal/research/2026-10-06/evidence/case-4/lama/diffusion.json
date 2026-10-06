@@ -1,0 +1,134 @@
+{
+  "seconds": 57.27208170801168,
+  "steps": [
+    {
+      "case": 4,
+      "coarse": "lama",
+      "step": 1,
+      "steps": 10,
+      "tiles": 19,
+      "seconds": 17.783497416996397,
+      "mpsBytes": 9027289088
+    },
+    {
+      "case": 4,
+      "coarse": "lama",
+      "step": 2,
+      "steps": 10,
+      "tiles": 19,
+      "seconds": 21.771703958016587,
+      "mpsBytes": 9027289088
+    },
+    {
+      "case": 4,
+      "coarse": "lama",
+      "step": 3,
+      "steps": 10,
+      "tiles": 19,
+      "seconds": 25.561941667023348,
+      "mpsBytes": 9027289088
+    },
+    {
+      "case": 4,
+      "coarse": "lama",
+      "step": 4,
+      "steps": 10,
+      "tiles": 19,
+      "seconds": 29.674504916998558,
+      "mpsBytes": 9027289088
+    },
+    {
+      "case": 4,
+      "coarse": "lama",
+      "step": 5,
+      "steps": 10,
+      "tiles": 19,
+      "seconds": 33.666409500001464,
+      "mpsBytes": 9027289088
+    },
+    {
+      "case": 4,
+      "coarse": "lama",
+      "step": 6,
+      "steps": 10,
+      "tiles": 19,
+      "seconds": 37.33671270799823,
+      "mpsBytes": 9027289088
+    },
+    {
+      "case": 4,
+      "coarse": "lama",
+      "step": 7,
+      "steps": 10,
+      "tiles": 19,
+      "seconds": 41.01524166701711,
+      "mpsBytes": 9027289088
+    },
+    {
+      "case": 4,
+      "coarse": "lama",
+      "step": 8,
+      "steps": 10,
+      "tiles": 19,
+      "seconds": 44.74955970799783,
+      "mpsBytes": 9027289088
+    },
+    {
+      "case": 4,
+      "coarse": "lama",
+      "step": 9,
+      "steps": 10,
+      "tiles": 19,
+      "seconds": 48.52804141701199,
+      "mpsBytes": 9027289088
+    },
+    {
+      "case": 4,
+      "coarse": "lama",
+      "step": 10,
+      "steps": 10,
+      "tiles": 19,
+      "seconds": 52.33685345802223,
+      "mpsBytes": 9027289088
+    }
+  ],
+  "prompt": "Photograph of a continuous wooden tabletop, fine natural wood grain, same lighting and perspective, realistic surface texture.",
+  "negativePrompt": "person, people, human, face, body, silhouette, object, text, drawing, painting, warped lines, oversharpened",
+  "strength": 0.25,
+  "seed": 3941,
+  "tileCoordinatesLatentYX": [
+    [0, 48],
+    [0, 96],
+    [48, 0],
+    [48, 48],
+    [48, 96],
+    [48, 144],
+    [96, 0],
+    [96, 48],
+    [96, 96],
+    [96, 144],
+    [96, 192],
+    [144, 0],
+    [144, 48],
+    [144, 96],
+    [144, 144],
+    [144, 192],
+    [192, 0],
+    [192, 48],
+    [192, 96]
+  ],
+  "knownLatentsAnchoredEveryStep": true,
+  "sharedNoiseCanvas": true,
+  "peakProcessRSSBytes": 5520998400,
+  "case": 4,
+  "coarseModel": "lama",
+  "method": "diffusion",
+  "nativeSide": 2048,
+  "outsideChanged": 0,
+  "protectedChanged": 0,
+  "sourceSha256": "258ff782c4ca5b9337d16022d5d1c9e497687c57fec2bc24ef1ac7ba7cd1b366",
+  "coverageSha256": "feb6491ab58b4041a6102b574b62a36b24d72ac5900b54d865d11591da250a81",
+  "coarseSha256": "b410d8da34ee2db2b11e35b0cec1f810e35e97d0a0e061567d739448e8182b06",
+  "predictionSha256": "def24214b9b40d686f1f42d0af768601166c177b1dd674d90e6789f11d2c7a97",
+  "releaseQualified": false
+}

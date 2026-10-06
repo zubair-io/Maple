@@ -1,0 +1,124 @@
+{
+  "seconds": 28.099122457992053,
+  "steps": [
+    {
+      "case": 1,
+      "coarse": "qwen-seed0",
+      "step": 1,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 5.347883042006288,
+      "mpsBytes": 9150464000
+    },
+    {
+      "case": 1,
+      "coarse": "qwen-seed0",
+      "step": 2,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 7.822904750006273,
+      "mpsBytes": 9068675072
+    },
+    {
+      "case": 1,
+      "coarse": "qwen-seed0",
+      "step": 3,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 9.999720249994425,
+      "mpsBytes": 9068675072
+    },
+    {
+      "case": 1,
+      "coarse": "qwen-seed0",
+      "step": 4,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 12.2980426249851,
+      "mpsBytes": 9068675072
+    },
+    {
+      "case": 1,
+      "coarse": "qwen-seed0",
+      "step": 5,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 14.382280416990397,
+      "mpsBytes": 9068675072
+    },
+    {
+      "case": 1,
+      "coarse": "qwen-seed0",
+      "step": 6,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 16.6137318330002,
+      "mpsBytes": 9068675072
+    },
+    {
+      "case": 1,
+      "coarse": "qwen-seed0",
+      "step": 7,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 19.00677408298361,
+      "mpsBytes": 9068675072
+    },
+    {
+      "case": 1,
+      "coarse": "qwen-seed0",
+      "step": 8,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 21.31790770799853,
+      "mpsBytes": 9068675072
+    },
+    {
+      "case": 1,
+      "coarse": "qwen-seed0",
+      "step": 9,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 23.850070916989353,
+      "mpsBytes": 9068675072
+    },
+    {
+      "case": 1,
+      "coarse": "qwen-seed0",
+      "step": 10,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 26.7320049169939,
+      "mpsBytes": 9068675072
+    }
+  ],
+  "prompt": "Photograph of metal railings and stone pavement, straight aligned railing bars, continuous architecture, same lighting and perspective.",
+  "negativePrompt": "person, people, human, face, body, silhouette, object, text, drawing, painting, warped lines, oversharpened",
+  "strength": 0.25,
+  "seed": 3941,
+  "tileCoordinatesLatentYX": [
+    [0, 0],
+    [0, 48],
+    [0, 64],
+    [48, 0],
+    [48, 48],
+    [48, 64],
+    [64, 0],
+    [64, 48],
+    [64, 64]
+  ],
+  "knownLatentsAnchoredEveryStep": true,
+  "sharedNoiseCanvas": true,
+  "peakProcessRSSBytes": 5520998400,
+  "case": 1,
+  "coarseModel": "qwen-seed0",
+  "method": "diffusion",
+  "nativeSide": 1024,
+  "outsideChanged": 0,
+  "protectedChanged": 0,
+  "sourceSha256": "d8bc49887572d2f427608905135a291409031a738c93548d9216158b9b47b26b",
+  "coverageSha256": "cd187cd57392010db2cc646fb5e46961a8cedeecbffbcf5ad44afac81d7b409d",
+  "coarseSha256": "c6033361dc94e89068e2e49a458528da7b15d3af93bb011ce6ce68e622e6dcab",
+  "predictionSha256": "69b266bbb2c09506cd9ea878d20431c20c34da012a4a2bcae6c8bedf86ad2e2c",
+  "releaseQualified": false
+}

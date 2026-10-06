@@ -1,0 +1,14 @@
+{
+  "description": "VAE encode/decode only, no diffusion. Separates codec change from denoising.",
+  "case": 2,
+  "coarseModel": "qwen-seed0",
+  "method": "vae-control",
+  "nativeSide": 2048,
+  "outsideChanged": 0,
+  "protectedChanged": 0,
+  "sourceSha256": "276ebd226a82a9eabbf42d9371a2680aa231f22ba2126bd456f9d047e929af65",
+  "coverageSha256": "57195cb451aef763e1a523db6b4f26102cda2a53fb0c22cb59bc8c2aa2956dba",
+  "coarseSha256": "b548ed29df0437ae806115c7274f9c780a26d48ede544a0795c132314691a876",
+  "predictionSha256": "365e217f019d8e100ef074244efa4afc39a2d4b350da83c055cbabd0c5d1b1d4",
+  "releaseQualified": false
+}

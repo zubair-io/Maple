@@ -1,0 +1,14 @@
+{
+  "description": "Frozen 512 prediction enlarged with bilinear interpolation; no native generated detail.",
+  "case": 2,
+  "coarseModel": "qwen-seed0",
+  "method": "bilinear",
+  "nativeSide": 2048,
+  "outsideChanged": 0,
+  "protectedChanged": 0,
+  "sourceSha256": "276ebd226a82a9eabbf42d9371a2680aa231f22ba2126bd456f9d047e929af65",
+  "coverageSha256": "57195cb451aef763e1a523db6b4f26102cda2a53fb0c22cb59bc8c2aa2956dba",
+  "coarseSha256": "b548ed29df0437ae806115c7274f9c780a26d48ede544a0795c132314691a876",
+  "predictionSha256": "715190b8e4620f87a6b69781d4cbf48c72279ae37c4c31db8fe7a3f8038b7041",
+  "releaseQualified": false
+}

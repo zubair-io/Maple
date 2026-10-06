@@ -1,0 +1,31 @@
+{
+  "mode": "raw",
+  "case": 1,
+  "expansionModelPixels": 16,
+  "expansionSourcePixels": 32.0,
+  "modelSide": 512,
+  "seed": 0,
+  "folder": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/raw/case-1/expand-16/512",
+  "baselineFolder": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/raw/case-1/512",
+  "baselineContext": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/raw/case-1/context",
+  "raw": "/Users/riabuz/Desktop/test/084A0062.CR2",
+  "nativeSide": 1024,
+  "inputSha256": "567f33c7154932ebdf82b5aee05320df041cf6f958ab7db63e34cd2f57cd32b6",
+  "baselineInputSha256": "567f33c7154932ebdf82b5aee05320df041cf6f958ab7db63e34cd2f57cd32b6",
+  "holeSha256": "c83edc401f51330f1863ab58cd7c6ba993cd212c628cbe46a4da96812c0d3eeb",
+  "protectedPixels": 0,
+  "newModelMaskPixels": 42363,
+  "baselineModelMaskPixels": 30355,
+  "replacementPixels": 160500,
+  "baselineReplacementPixels": 113076,
+  "coarseReview": "Target removed; indoor floor retains tonal/structural defects and is a stress case, not an accepted perfect fill.",
+  "frozenInputs": {
+    "lama-coarse-provenance.json": "10cbbbaa95cfdc50c2d3e8c5d79b414e3167c11b229d6d216d20474154b85ff1",
+    "lama-coarse.f32": "5119361324ff19cdc1cff389a26126ad09190854b1c1b9c5cd2ab90b3fc5dcaa",
+    "protected.png": "0f4b1668d119f77ceb6b86645573f088ab2341d7b284314d5df0be7226ea5d91",
+    "qwen-seed0-coarse.f32": "c6033361dc94e89068e2e49a458528da7b15d3af93bb011ce6ce68e622e6dcab",
+    "source.png": "d8bc49887572d2f427608905135a291409031a738c93548d9216158b9b47b26b",
+    "coverage.f32": "cd187cd57392010db2cc646fb5e46961a8cedeecbffbcf5ad44afac81d7b409d",
+    "qwen-seed0-coarse-provenance.json": "ea134c1d9e05763d45a5ff620e4577e2a941e1d66b0794bd727754a1f3ce991d"
+  }
+}

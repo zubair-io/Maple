@@ -27,6 +27,8 @@ and Apple EditSession lifecycle, shared state and existing test boundaries.
 
 [Stable releases](releases.md) covers tagging the current version, the next-version PR, TestFlight handoff, and recovery.
 
+The [October 6 native-detail comparison](../tools/removal/research/2026-10-06/README.md) records the completed enlargement, texture-transfer and tiled-refinement tests, their controls and limitations.
+
 ## Core and pipeline
 
 | Doc                                                | Covers                                                                                                                                                                                                 |

@@ -1,0 +1,124 @@
+{
+  "seconds": 27.958270708011696,
+  "steps": [
+    {
+      "case": 1,
+      "coarse": "lama",
+      "step": 1,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 5.215385249990504,
+      "mpsBytes": 9150464000
+    },
+    {
+      "case": 1,
+      "coarse": "lama",
+      "step": 2,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 7.3036203749943525,
+      "mpsBytes": 9135783936
+    },
+    {
+      "case": 1,
+      "coarse": "lama",
+      "step": 3,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 9.27926258300431,
+      "mpsBytes": 9068675072
+    },
+    {
+      "case": 1,
+      "coarse": "lama",
+      "step": 4,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 11.94029045800562,
+      "mpsBytes": 9068675072
+    },
+    {
+      "case": 1,
+      "coarse": "lama",
+      "step": 5,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 14.401292666996596,
+      "mpsBytes": 9068675072
+    },
+    {
+      "case": 1,
+      "coarse": "lama",
+      "step": 6,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 16.798821333009982,
+      "mpsBytes": 9068675072
+    },
+    {
+      "case": 1,
+      "coarse": "lama",
+      "step": 7,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 19.486171958007617,
+      "mpsBytes": 9068675072
+    },
+    {
+      "case": 1,
+      "coarse": "lama",
+      "step": 8,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 22.251605875004316,
+      "mpsBytes": 9068675072
+    },
+    {
+      "case": 1,
+      "coarse": "lama",
+      "step": 9,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 24.390379416989163,
+      "mpsBytes": 9068675072
+    },
+    {
+      "case": 1,
+      "coarse": "lama",
+      "step": 10,
+      "steps": 10,
+      "tiles": 9,
+      "seconds": 26.555462332995376,
+      "mpsBytes": 9068675072
+    }
+  ],
+  "prompt": "Photograph of metal railings and stone pavement, straight aligned railing bars, continuous architecture, same lighting and perspective.",
+  "negativePrompt": "person, people, human, face, body, silhouette, object, text, drawing, painting, warped lines, oversharpened",
+  "strength": 0.25,
+  "seed": 3941,
+  "tileCoordinatesLatentYX": [
+    [0, 0],
+    [0, 48],
+    [0, 64],
+    [48, 0],
+    [48, 48],
+    [48, 64],
+    [64, 0],
+    [64, 48],
+    [64, 64]
+  ],
+  "knownLatentsAnchoredEveryStep": true,
+  "sharedNoiseCanvas": true,
+  "peakProcessRSSBytes": 5520998400,
+  "case": 1,
+  "coarseModel": "lama",
+  "method": "diffusion",
+  "nativeSide": 1024,
+  "outsideChanged": 0,
+  "protectedChanged": 0,
+  "sourceSha256": "d8bc49887572d2f427608905135a291409031a738c93548d9216158b9b47b26b",
+  "coverageSha256": "cd187cd57392010db2cc646fb5e46961a8cedeecbffbcf5ad44afac81d7b409d",
+  "coarseSha256": "5119361324ff19cdc1cff389a26126ad09190854b1c1b9c5cd2ab90b3fc5dcaa",
+  "predictionSha256": "a1305ed1357df738725e812b807601fc1a94b95a0dcad4bad78758961ff13401",
+  "releaseQualified": false
+}

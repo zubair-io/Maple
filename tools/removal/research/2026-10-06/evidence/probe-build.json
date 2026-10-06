@@ -1,0 +1,5 @@
+{
+  "binarySha256": "9ddcca9841b4eda7b48dd62a404230545295aef4b54a877f8363f8119205dd46",
+  "sourceCommit": "9d3c6cb816c5d30e6c0a678cd7e45903e0e072da",
+  "note": "Rebuilt from isolated checkpoint: shared cache binary differed from previous experiment; no camera mapping edits included."
+}

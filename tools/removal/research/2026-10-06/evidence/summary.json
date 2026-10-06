@@ -1,0 +1,296 @@
+{
+  "mainOutputs": 18,
+  "vaeControls": 6,
+  "rawGradeChecks": 432,
+  "frozenInputsUnchanged": true,
+  "baselinePlateAndAllRawGradesPixelIdentical": true,
+  "originalsUnchanged": [
+    {
+      "path": "/Users/riabuz/Desktop/test/084A0062.CR2",
+      "sha256": "5d75e1d319291f68d6055cdbb9abcd29dbb8730a5d4e19d1734e891bc6bc03df"
+    },
+    {
+      "path": "/Users/riabuz/Desktop/test/084A0070.CR2",
+      "sha256": "2b040b4712ec213561f5e1c0a8a0391b6579226b73c464e51b4666039206b95c"
+    },
+    {
+      "path": "/Users/riabuz/Desktop/test/084A0073.CR2",
+      "sha256": "47cfb87631e3647c2ca0cc5f3e88958d18eb76aa68b97929f9a9e07814ffb165"
+    },
+    {
+      "path": "/Users/riabuz/Desktop/test/Canon - EOS 5DS R - RAW (3_2).CR2",
+      "sha256": "01b94b0586419d64894ccdf2e7b9f1defeedc7b51dfcd306c622fe784181a9b8"
+    },
+    {
+      "path": "/Users/riabuz/Desktop/test/Canon - EOS Kiss M - 3_2.CR3",
+      "sha256": "49a4bcd16e0236451b73ae052af8a4d0c9872063f79fc62fdf982d462792741c"
+    }
+  ],
+  "results": [
+    {
+      "case": 4,
+      "coarseModel": "lama",
+      "method": "bilinear",
+      "nativeSide": 2048,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": null,
+      "resultSha256": "f23c725ab21ce717cc1ac5164518340fc397735548945072aa9d2523d6d1282a"
+    },
+    {
+      "case": 4,
+      "coarseModel": "lama",
+      "method": "patchmatch",
+      "nativeSide": 2048,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": 0.9749269580061082,
+      "resultSha256": "e9d589d27c01e8ed3da24f238345864eed6baddf20a351107a6f4c4a68fbf647"
+    },
+    {
+      "case": 4,
+      "coarseModel": "lama",
+      "method": "diffusion",
+      "nativeSide": 2048,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": 57.27208170801168,
+      "resultSha256": "17735cbe4aeef5f9f40f57be60e8f752d425ca50f6605534002763aff7405f7b"
+    },
+    {
+      "case": 4,
+      "coarseModel": "lama",
+      "method": "vae-control",
+      "nativeSide": 2048,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": null,
+      "resultSha256": "638927fd5f0fa80bac290523a2f857fcf38a079f0cbc4ac8cc0184118e327909"
+    },
+    {
+      "case": 4,
+      "coarseModel": "qwen-seed0",
+      "method": "bilinear",
+      "nativeSide": 2048,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": null,
+      "resultSha256": "17f2a7f98fec50015d9b09a12723ba90bb5f5b6c1b0d45530a6d9d3b82fbd93d"
+    },
+    {
+      "case": 4,
+      "coarseModel": "qwen-seed0",
+      "method": "patchmatch",
+      "nativeSide": 2048,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": 0.912266291998094,
+      "resultSha256": "80dd13982e80e2f5d328a94e82cb97027f04abce42cabfc4b0dda24cf28761e9"
+    },
+    {
+      "case": 4,
+      "coarseModel": "qwen-seed0",
+      "method": "diffusion",
+      "nativeSide": 2048,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": 51.92713670799276,
+      "resultSha256": "c88918b061fce63a77e5aac89a8e8af00748b038b808d8be6a0653f8eb2cb61b"
+    },
+    {
+      "case": 4,
+      "coarseModel": "qwen-seed0",
+      "method": "vae-control",
+      "nativeSide": 2048,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": null,
+      "resultSha256": "d5ce165f049f0b708fe2972b983ea237c57b4d7616d9d128045c5d180bc82e65"
+    },
+    {
+      "case": 2,
+      "coarseModel": "lama",
+      "method": "bilinear",
+      "nativeSide": 2048,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": null,
+      "resultSha256": "9fa5c078572318261f6c24a7d064182cf5e4932fdf761a06ee3500282fb4913e"
+    },
+    {
+      "case": 2,
+      "coarseModel": "lama",
+      "method": "patchmatch",
+      "nativeSide": 2048,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": 1.4555431670160033,
+      "resultSha256": "40cad68b5cf1a7664bafaa3a60b5a4973aa5e4ec00e7522ef53c0809b2a66224"
+    },
+    {
+      "case": 2,
+      "coarseModel": "lama",
+      "method": "diffusion",
+      "nativeSide": 2048,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": 47.758093750017,
+      "resultSha256": "76081e114579daf1b4893e897508dd4ce55023df49b7d5ca5607a59a3a7f48e3"
+    },
+    {
+      "case": 2,
+      "coarseModel": "lama",
+      "method": "vae-control",
+      "nativeSide": 2048,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": null,
+      "resultSha256": "31bee3fe4e5ea27246b5f8bc39da4bd0a8ae8d434e0341e89978ac081f8d92c6"
+    },
+    {
+      "case": 2,
+      "coarseModel": "qwen-seed0",
+      "method": "bilinear",
+      "nativeSide": 2048,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": null,
+      "resultSha256": "5bd2e583fd0b20fb9856243b7ffa64727a1a266a068e37e443dcea8da18c6290"
+    },
+    {
+      "case": 2,
+      "coarseModel": "qwen-seed0",
+      "method": "patchmatch",
+      "nativeSide": 2048,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": 0.8596066659956705,
+      "resultSha256": "ce8a3d60c9dcfdc3e487c937e08381a85bd3a4b6840161449cd0dc54968f85d2"
+    },
+    {
+      "case": 2,
+      "coarseModel": "qwen-seed0",
+      "method": "diffusion",
+      "nativeSide": 2048,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": 54.85074145899853,
+      "resultSha256": "73a3caf3c64f078af1be657a3e5c1cd0a5d511b9f6b4f562e33ed06a05450e25"
+    },
+    {
+      "case": 2,
+      "coarseModel": "qwen-seed0",
+      "method": "vae-control",
+      "nativeSide": 2048,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": null,
+      "resultSha256": "9eb28289f20943c1f8fa6331cd628ec7198cd8fbc53d5fcb4b9e5e2bf7371a26"
+    },
+    {
+      "case": 1,
+      "coarseModel": "lama",
+      "method": "bilinear",
+      "nativeSide": 1024,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": null,
+      "resultSha256": "0be1d35d2ba295cd85d6af7ebf7fd7b8a19618af9401aaed312c8f4977cce9a2"
+    },
+    {
+      "case": 1,
+      "coarseModel": "lama",
+      "method": "patchmatch",
+      "nativeSide": 1024,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": 0.13562212497345172,
+      "resultSha256": "20742b4a7c882982f7f5ad9f022f9862ec7d999d8d461814b38d6f8d64205348"
+    },
+    {
+      "case": 1,
+      "coarseModel": "lama",
+      "method": "diffusion",
+      "nativeSide": 1024,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": 27.958270708011696,
+      "resultSha256": "46ea41fe134db719fc8d0864510ff3a3dd6cac0f6123e4eff8b908df46748bff"
+    },
+    {
+      "case": 1,
+      "coarseModel": "lama",
+      "method": "vae-control",
+      "nativeSide": 1024,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": null,
+      "resultSha256": "754182992fae1b60dc1d7f9c98156dc767afc11961bb11f93fa0234f1c70fd56"
+    },
+    {
+      "case": 1,
+      "coarseModel": "qwen-seed0",
+      "method": "bilinear",
+      "nativeSide": 1024,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": null,
+      "resultSha256": "8b5e7b8f9eab3d0555845fb70b672c3be3f228436c6ec8b545cb3b3fdb273ea2"
+    },
+    {
+      "case": 1,
+      "coarseModel": "qwen-seed0",
+      "method": "patchmatch",
+      "nativeSide": 1024,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": 0.1595378750062082,
+      "resultSha256": "e710997e2bfcbe66ab7a8ef979e27896d57efdbfae4a65575acc6a8c261e7a96"
+    },
+    {
+      "case": 1,
+      "coarseModel": "qwen-seed0",
+      "method": "diffusion",
+      "nativeSide": 1024,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": 28.099122457992053,
+      "resultSha256": "37f853f098cd014ceb672705073a1e322fc3e0d34d10553d58708803dc45d1a0"
+    },
+    {
+      "case": 1,
+      "coarseModel": "qwen-seed0",
+      "method": "vae-control",
+      "nativeSide": 1024,
+      "outsideChanged": 0,
+      "protectedChanged": 0,
+      "gradeChecks": 18,
+      "seconds": null,
+      "resultSha256": "46143b598f9c3a5cbca74d0e065827b6e93b4a6eadb561ad9c7e69ae885da64b"
+    }
+  ],
+  "releaseQualified": false
+}

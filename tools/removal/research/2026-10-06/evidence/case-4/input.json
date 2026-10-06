@@ -1,0 +1,31 @@
+{
+  "mode": "raw",
+  "case": 4,
+  "expansionModelPixels": 16,
+  "expansionSourcePixels": 64.0,
+  "modelSide": 512,
+  "seed": 0,
+  "folder": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/raw/case-4/expand-16/512",
+  "baselineFolder": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/raw/case-4/512",
+  "baselineContext": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/raw/case-4/context",
+  "raw": "/Users/riabuz/Desktop/test/Canon - EOS 5DS R - RAW (3_2).CR2",
+  "nativeSide": 2048,
+  "inputSha256": "6b89ba059116d9d18cc55710b92aff48b848ee451a53b66ea00b93a97f401b8a",
+  "baselineInputSha256": "6b89ba059116d9d18cc55710b92aff48b848ee451a53b66ea00b93a97f401b8a",
+  "holeSha256": "1fc1f67de26aa8bc493f79d95716b6d72685403ada572da2855dd5e87ca051c7",
+  "protectedPixels": 0,
+  "newModelMaskPixels": 68883,
+  "baselineModelMaskPixels": 54394,
+  "replacementPixels": 1044913,
+  "baselineReplacementPixels": 813672,
+  "coarseReview": "Target removed; indoor floor retains tonal/structural defects and is a stress case, not an accepted perfect fill.",
+  "frozenInputs": {
+    "lama-coarse-provenance.json": "e8e5eeebdf43e17dbcb552a6f6e9b76d8d3def583a4c8e35bafc44c5aa0e2f23",
+    "lama-coarse.f32": "b410d8da34ee2db2b11e35b0cec1f810e35e97d0a0e061567d739448e8182b06",
+    "protected.png": "47409785b30cc38f1ec62f219ce1c46f885427442416c0768dc470497ef784cb",
+    "qwen-seed0-coarse.f32": "75a18e0af242d0df4e05e551dcc141ace6abc82d8715eb4e49c1ba4a61e41713",
+    "source.png": "258ff782c4ca5b9337d16022d5d1c9e497687c57fec2bc24ef1ac7ba7cd1b366",
+    "coverage.f32": "feb6491ab58b4041a6102b574b62a36b24d72ac5900b54d865d11591da250a81",
+    "qwen-seed0-coarse-provenance.json": "2fdb323fac6413523d619880d5065af4430d37c4a85fdaaa7888a63bf1f99338"
+  }
+}

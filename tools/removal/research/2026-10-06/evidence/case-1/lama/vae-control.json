@@ -1,0 +1,14 @@
+{
+  "description": "VAE encode/decode only, no diffusion. Separates codec change from denoising.",
+  "case": 1,
+  "coarseModel": "lama",
+  "method": "vae-control",
+  "nativeSide": 1024,
+  "outsideChanged": 0,
+  "protectedChanged": 0,
+  "sourceSha256": "d8bc49887572d2f427608905135a291409031a738c93548d9216158b9b47b26b",
+  "coverageSha256": "cd187cd57392010db2cc646fb5e46961a8cedeecbffbcf5ad44afac81d7b409d",
+  "coarseSha256": "5119361324ff19cdc1cff389a26126ad09190854b1c1b9c5cd2ab90b3fc5dcaa",
+  "predictionSha256": "524fe0970d5f42badbfbf5ba0a4a0add916bbda8831a6a5b2cad2fd264508dc9",
+  "releaseQualified": false
+}

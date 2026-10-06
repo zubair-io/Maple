@@ -1,0 +1,46 @@
+{
+  "sourceBase": "9d3c6cb816c5d30e6c0a678cd7e45903e0e072da",
+  "files": [
+    {
+      "file": "bake.py",
+      "checkpointSha256": "9cf05e7ade360b882e2a07cee10bd0c182ace7dd52c76802ee4d32acc0d7639c",
+      "executedSha256": "519f5f405a40557dc80febfb08bbf614c58e4cb4d436b5b4d9cff6706cabeb1b"
+    },
+    {
+      "file": "run_diffusion.py",
+      "checkpointSha256": "07a3008e03793cc4ef1914123f35cd788eaf47371d31a68e23916e3e2ddd5c8a",
+      "executedSha256": "e93152b4ba330ba5295bcaa03d8a73351e587a18299c66041d4ac0a46517491f"
+    },
+    {
+      "file": "run_patchmatch.py",
+      "checkpointSha256": "46b37171508043a6293e050d68ff84ec633545e60aac892ec8052201d6d1c86e",
+      "executedSha256": "5f5f4169306af476136fb25a2dbaf5afb44adb04e0b6db054dab9619128aed47"
+    },
+    {
+      "file": "summarize.py",
+      "checkpointSha256": "ad34112e9c6521330f22c19b9aef9660d0012d96a896db688e83c1b0e0d58b60",
+      "executedSha256": "5a281bb29b14ee17be029228434298221d565b4f091f6e77982dafb178fa4c32"
+    },
+    {
+      "file": "common.py",
+      "checkpointSha256": "00a929032ea1d7bfed15c5392125c3396111e16ba11f641f54b4931e38a46ea4",
+      "executedSha256": "0a1da2348bd3d1d237fae236a2a88f6380ee77c52e6958933802b49745fcb367"
+    },
+    {
+      "file": "gallery.py",
+      "checkpointSha256": "460d4a577fb38a38ca65359e802426eed36473dea14cd32eecc48a848cc4b736",
+      "executedSha256": "6e5ea6657b325d49b77f5c794495520e37a7107cf90cec2cc00ea57da1bb7c29"
+    },
+    {
+      "file": "report.py",
+      "checkpointSha256": "36b2b83f11bb46e2a186f4299417489b04237987f00cbf0527a4a8b225af3957",
+      "executedSha256": "28667e31dafbf80465b4520ff5b2f15f224e078f8e17f0f80477426de200adb1"
+    },
+    {
+      "file": "prepare.py",
+      "checkpointSha256": "bad07fca9ae04edcf995c87007ff919c9b9c9559b8c2442c05db9a84a0e8170e",
+      "executedSha256": "ce04b2c68446396e214586654d1d9137fff4878bcd35c4c4d0af30573f52dd1d"
+    }
+  ],
+  "note": "Executed runner bytes preserved in local backup; repository versions apply formatting, unused-import and unused-binding cleanup only."
+}
