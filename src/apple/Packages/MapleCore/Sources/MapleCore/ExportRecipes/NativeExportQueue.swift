@@ -257,17 +257,15 @@ public actor NativeExportQueue {
 
   public func run() async throws {
     guard !running else { return }
-    let lock = try NativeExportRunLock(directory: directory)
-    guard let loaded = try await loadRecord() else { return }
-    try loaded.validate()
     running = true
     cancellation = NativeExportCancellation()
-    record!.cancelRequested = false
+    defer { running = false }
+    let lock = try NativeExportRunLock(directory: directory)
+    defer { withExtendedLifetime(lock) {} }
+    guard let loaded = try await loadRecord() else { return }
+    try loaded.validate()
+    record!.cancelRequested = cancellation.isCancelled
     record!.phase = "running"
-    defer {
-      running = false
-      withExtendedLifetime(lock) {}
-    }
     try persist()
     await didPersist()
     let access: NativeExportAccess
@@ -394,6 +392,11 @@ final class NativeExportCancellation: @unchecked Sendable {
     lock.lock()
     cancelled = true
     lock.unlock()
+  }
+  var isCancelled: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return cancelled
   }
   func publish<T>(_ work: () throws -> T) throws -> T {
     lock.lock()
