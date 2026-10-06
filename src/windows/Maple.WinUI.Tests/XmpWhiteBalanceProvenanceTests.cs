@@ -183,7 +183,8 @@ namespace Maple.WinUI.Tests
 
             Assert.Contains("crs:WhiteBalance=\"Auto\"", xml);
             Assert.Contains("papp:WbSource=\"Auto\"", xml);
-            Assert.Contains("papp:WbAlgorithmVersion=\"1\"", xml);
+            Assert.Equal(WhiteBalancePresets.AutoWhiteBalanceAlgorithmVersion,
+                ParseOrFail(xml).Adjustments.WbAlgorithmVersion);
             Assert.DoesNotContain("papp:WbSampleX", xml);
             Assert.DoesNotContain("papp:WbSampleY", xml);
             Assert.DoesNotContain("Sampled", xml);
