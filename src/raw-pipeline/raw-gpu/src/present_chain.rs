@@ -99,8 +99,8 @@ pub struct PersistentPresentSurface {
     /// the configured extent. A generation mismatch forces a fresh surface +
     /// the settle double-present, exactly like a layer-pointer change.
     generation: u64,
-    /// Cached present-pass uniform + bind group (#1930), keyed on the sampled
-    /// `chain_buf`'s identity — see [`PresentDispatchCache`] for why identity
+    /// Cached present-pass uniform + bind group (#1930), keyed on monotonic live-session identity
+    /// and final ping-pong direction — see [`PresentDispatchCache`] for why identity
     /// (not "build once forever") is the right cache shape here: `chain_buf`
     /// alternates between the session's two persistent ping-pong buffers
     /// depending on the chain's pass-count parity. Invalidated on every
@@ -220,8 +220,9 @@ impl PersistentPresentSurface {
         geometry: PresentGeometry,
         frame: wgpu::SurfaceTexture,
     ) {
-        // A closed session's resource wrapper may eventually reuse an address.
-        // Monotonic session identity invalidates both retained directions first.
+        // Preserve Apple's existing policy of releasing the previous session's
+        // dispatch bindings on a switch. The stable key protects all targets
+        // without changing this surface's session-lifetime policy.
         if self.last_session.replace(session.identity()) != session.identity() {
             self.present_cache.invalidate();
         }

@@ -93,8 +93,8 @@ pub struct WebPresentSurface {
     /// the caller's requested `target_color_space`
     /// (`"display-p3"` / `"srgb"` / `"unknown"`) — surfaced for self-reporting.
     color_space: String,
-    /// Cached present-pass uniform + bind group (#1930), keyed on the sampled
-    /// `chain_buf`'s identity — see [`PresentDispatchCache`] for why identity
+    /// Cached present-pass uniform + bind group (#1930), keyed on monotonic live-session identity
+    /// and final ping-pong direction — see [`PresentDispatchCache`] for why identity
     /// (not "build once forever") is the right cache shape: `chain_buf`
     /// alternates between the session's two persistent ping-pong buffers
     /// depending on the chain's pass-count parity. This surface has no
