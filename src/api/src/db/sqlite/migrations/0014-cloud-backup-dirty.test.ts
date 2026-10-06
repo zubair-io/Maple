@@ -89,9 +89,14 @@ test('0014 upgrades an existing SQLite database with guarded backup triggers and
   expect(
     handle.db.query("SELECT name FROM sqlite_master WHERE name LIKE 'backup_%dirty'").all(),
   ).toEqual([]);
-  expect((await runMigrations(handle.migrationDb, ALL_MIGRATIONS)).applied).toEqual([
-    '0014-cloud-backup',
-  ]);
+  expect(
+    (
+      await runMigrations(
+        handle.migrationDb,
+        ALL_MIGRATIONS.filter((m) => m.id <= '0014-cloud-backup'),
+      )
+    ).applied,
+  ).toEqual(['0014-cloud-backup']);
   seedVerified(handle, assetId, libraryId);
   const before = state(handle, assetId);
   run(
@@ -107,7 +112,14 @@ test('0014 upgrades an existing SQLite database with guarded backup triggers and
     assetId,
   );
   expect(state(handle, assetId)).toEqual(before);
-  expect((await runMigrations(handle.migrationDb, ALL_MIGRATIONS)).applied).toEqual([]);
+  expect(
+    (
+      await runMigrations(
+        handle.migrationDb,
+        ALL_MIGRATIONS.filter((m) => m.id <= '0014-cloud-backup'),
+      )
+    ).applied,
+  ).toEqual([]);
   run(handle.db, 'UPDATE assets SET size=size+1 WHERE id=?', assetId);
   expectDirty(handle, assetId);
   expect(handle.db.query('PRAGMA foreign_key_check').all()).toEqual([]);

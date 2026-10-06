@@ -108,6 +108,14 @@ export const STAGE_META: Record<string, StageMeta> = {
     description:
       'Produces a 512-D identity embedding per detected face with the ArcFace R100 ONNX recognizer, feeding the people-clustering pass.',
   },
+  'person-segmentation': {
+    id: 'person-segmentation',
+    group: 'Enrich',
+    icon: 'people',
+    enrichment: null,
+    description:
+      'Segments people and skin in preview images to produce subject and skin masks for the web editor. Starts paused — resume to enable.',
+  },
   meili: {
     id: 'meili',
     group: 'Index',

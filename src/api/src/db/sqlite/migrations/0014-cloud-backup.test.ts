@@ -34,9 +34,14 @@ test('existing active and Trash photos receive backup stage rows without resetti
   expect(
     handle.db.query(`SELECT COUNT(*) AS n FROM stage_state WHERE stage='cloud-backup'`).get(),
   ).toEqual({ n: 0 });
-  expect((await runMigrations(handle.migrationDb, ALL_MIGRATIONS)).applied).toEqual([
-    '0014-cloud-backup',
-  ]);
+  expect(
+    (
+      await runMigrations(
+        handle.migrationDb,
+        ALL_MIGRATIONS.filter((m) => m.id <= '0014-cloud-backup'),
+      )
+    ).applied,
+  ).toEqual(['0014-cloud-backup']);
   const rows = handle.db
     .query(
       `SELECT asset_id,version,attempts,dead FROM stage_state WHERE stage='cloud-backup' ORDER BY asset_id`,
@@ -51,7 +56,14 @@ test('existing active and Trash photos receive backup stage rows without resetti
       .get(active),
   ).toEqual({ version: 3, attempts: 2 });
   expect(handle.db.query('SELECT * FROM assets ORDER BY id').all()).toEqual(before);
-  expect((await runMigrations(handle.migrationDb, ALL_MIGRATIONS)).applied).toEqual([]);
+  expect(
+    (
+      await runMigrations(
+        handle.migrationDb,
+        ALL_MIGRATIONS.filter((m) => m.id <= '0014-cloud-backup'),
+      )
+    ).applied,
+  ).toEqual([]);
   expect(
     handle.db.query(`SELECT COUNT(*) AS n FROM stage_state WHERE stage='cloud-backup'`).get(),
   ).toEqual({ n: 2 });

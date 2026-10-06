@@ -282,6 +282,13 @@
         "src/db/sqlite/test-sqlite.test-helpers.ts",
         "src/db/sqlite/test-sqlite.test-helpers.test.ts",
 
+        // #4284: Person segmentation stage, model loading, and content-addressed mask raster cache.
+        "src/enrichment/subject-masks/person-segmenter.ts",
+        "src/enrichment/subject-masks/subject-mask-cache.ts",
+        "src/routes/subject-masks.test.ts",
+        "src/workers/stages/person-segmentation.ts",
+        "src/workers/stages/person-segmentation.test.ts",
+
         // Batch scope validation uses realpath for a read-only symlink check;
         // it never performs a durable filesystem write.
         "src/job-runner/batch-scope.ts",
