@@ -97,6 +97,10 @@ public actor BoundedAsyncSemaphore {
   private var waiterIDCounter: UInt64 = 0
   package var queuedCount: Int { waiters.count }
 
+  private var queueObservers:
+    [(id: UInt64, target: Int, continuation: CheckedContinuation<Void, Never>)] = []
+  private var queueObserverIDCounter: UInt64 = 0
+
   /// Clamps to ≥1 — a 0/negative cap would suspend `acquire()` forever
   /// since `current < value` would never be true.
   public init(value: Int) {
@@ -125,6 +129,7 @@ public actor BoundedAsyncSemaphore {
         // allocating `id` from this registration, so `cancelWaiter`
         // (which must hop onto the actor) can never observe `id` first.
         waiters.append((id: id, continuation: cont))
+        notifyQueueObservers()
       }
     } onCancel: {
       Task { await self.cancelWaiter(id: id) }
@@ -161,5 +166,64 @@ public actor BoundedAsyncSemaphore {
   private func cancelWaiter(id: UInt64) {
     guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
     waiters.remove(at: index).continuation.resume(throwing: CancellationError())
+  }
+
+  /// Positive observation of actual queue registration with a bounded
+  /// safety deadline. Awaits until at least `minimum` waiters are enqueued,
+  /// or returns `false` if `timeout` elapses.
+  @discardableResult
+  package func waitForQueue(
+    atLeast minimum: Int = 1,
+    timeout: Duration = .seconds(5)
+  ) async -> Bool {
+    if waiters.count >= minimum { return true }
+    return await withTaskGroup(of: Bool.self) { group in
+      group.addTask { [self] in
+        await self.observeQueueRegistration(atLeast: minimum)
+        return true
+      }
+      group.addTask {
+        do {
+          try await Task.sleep(for: timeout)
+          return false
+        } catch {
+          return false
+        }
+      }
+      let first = await group.next() ?? false
+      group.cancelAll()
+      return first
+    }
+  }
+
+  private func observeQueueRegistration(atLeast minimum: Int) async {
+    if waiters.count >= minimum { return }
+    queueObserverIDCounter &+= 1
+    let id = queueObserverIDCounter
+    await withTaskCancellationHandler {
+      await withCheckedContinuation { cont in
+        queueObservers.append((id: id, target: minimum, continuation: cont))
+      }
+    } onCancel: {
+      Task { await self.cancelQueueObserver(id: id) }
+    }
+  }
+
+  private func cancelQueueObserver(id: UInt64) {
+    guard let index = queueObservers.firstIndex(where: { $0.id == id }) else { return }
+    queueObservers.remove(at: index).continuation.resume()
+  }
+
+  private func notifyQueueObservers() {
+    guard !queueObservers.isEmpty else { return }
+    var remaining: [(id: UInt64, target: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    for observer in queueObservers {
+      if waiters.count >= observer.target {
+        observer.continuation.resume()
+      } else {
+        remaining.append(observer)
+      }
+    }
+    queueObservers = remaining
   }
 }
