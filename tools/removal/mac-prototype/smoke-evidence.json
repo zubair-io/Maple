@@ -1,0 +1,112 @@
+{
+  "issue": 4323,
+  "date": "2026-10-06",
+  "scope": "Native research UI with one manually painted RAW selection and a protected neighboring object; no photographic-quality qualification.",
+  "nativeContext": {
+    "x": 5274,
+    "y": 858,
+    "width": 2048,
+    "height": 2048
+  },
+  "coarseModelSide": 512,
+  "models": {
+    "lama": {
+      "model": {
+        "checkpoint": "fccb7adffd53ec0974ee5503c3731c2c2f1e7e07856fd9228cdcc0b46fd5d423",
+        "steps": 1,
+        "device": "CPU",
+        "precision": "float32",
+        "seconds": 7.337176375003764,
+        "modelSide": 512
+      },
+      "texture": {
+        "grid_stride_source_pixels": 4,
+        "donor_support_source_pixels": 12,
+        "iterations": 5,
+        "seed": 3941,
+        "selected_source_pixels": 864770,
+        "selected_blocks": 54540,
+        "valid_donor_blocks": 204470,
+        "invalid_donors": 0,
+        "initial_guide_mse": 0.011144671589136124,
+        "final_guide_mse": 0.000317148573230952,
+        "outside_changed_samples": 0,
+        "final_pixels": "Weighted native source copies; coarse guide contributes no RGB pixels",
+        "release_qualified": false,
+        "seconds": 1.5785094170132652,
+        "outsideChanged": 0,
+        "protectedChanged": 0,
+        "coarseSha256": "e4f6913be0360117d4dea838c734e3dea6af056a615bb3236fe51abc20d04a5b",
+        "nativeSide": 2048,
+        "releaseQualified": false
+      },
+      "preservation": {
+        "gradesChecked": 18,
+        "outsideChanged": 0,
+        "protectedChanged": 0
+      }
+    },
+    "qwen": {
+      "model": {
+        "model": "AbstractFramework/qwen-image-edit-2511-8bit",
+        "revision": "5f35885dfe4061e57c87df2c03123e5e8124edfa",
+        "seed": 0,
+        "steps": 40,
+        "guidance": 4.0,
+        "prompt": "Remove the selected small pink tetrahedral die and its cast shadow. Fill its former area with continuous warm wooden tabletop, matching the surrounding wood grain, color, lighting and perspective. Preserve the other dice.",
+        "quantization": 8,
+        "seconds": 207.40937524999026,
+        "modelSide": 512
+      },
+      "texture": {
+        "grid_stride_source_pixels": 4,
+        "donor_support_source_pixels": 12,
+        "iterations": 5,
+        "seed": 3941,
+        "selected_source_pixels": 864770,
+        "selected_blocks": 54540,
+        "valid_donor_blocks": 204470,
+        "invalid_donors": 0,
+        "initial_guide_mse": 0.010913646779954433,
+        "final_guide_mse": 0.0003029645304195583,
+        "outside_changed_samples": 0,
+        "final_pixels": "Weighted native source copies; coarse guide contributes no RGB pixels",
+        "release_qualified": false,
+        "seconds": 1.4829989160061814,
+        "outsideChanged": 0,
+        "protectedChanged": 0,
+        "coarseSha256": "ae9a963ef9c1c70f0ed51fdd37f78011bf11c9d2bca4d0d1833267d949d318e8",
+        "nativeSide": 2048,
+        "releaseQualified": false
+      },
+      "preservation": {
+        "gradesChecked": 18,
+        "outsideChanged": 0,
+        "protectedChanged": 0
+      }
+    }
+  },
+  "endToEndSecondsObserved": 300.15,
+  "completedCandidates": 2,
+  "errors": [],
+  "rawIdentity": "blake3:aa8e8c26bf1119fb71c6c17f7319b39597a0d7eb86c6cc338acf05444845ed39",
+  "rawHashCheckedBeforeAndAfter": true,
+  "pythonGeometryTests": 6,
+  "rustResearchHarnessTests": 14,
+  "nativeUIChecks": [
+    "RAW opened through native file picker",
+    "Painted removal and protection using accessible keyboard controls",
+    "Generated both pinned models with native texture transfer",
+    "LaMa review available while Qwen still ran",
+    "Switched models, original comparison and native-pixel view",
+    "Changed exposure to +3 EV and WB to +1000 K",
+    "Saved preference then reopened the completed session after app rebuild",
+    "Cancelled a second model run; no owned worker or model child remained"
+  ],
+  "limitations": [
+    "Manual mask left a small target edge; this run tests workflow and preservation, not a visual pass.",
+    "No automatic people selection, XMP publication, full-image corrected export, or production integration.",
+    "Timings are observational on this machine, not controlled performance benchmarks."
+  ],
+  "releaseQualified": false
+}

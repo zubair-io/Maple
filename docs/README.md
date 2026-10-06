@@ -29,6 +29,8 @@ and Apple EditSession lifecycle, shared state and existing test boundaries.
 
 The [October 6 native-detail comparison](../tools/removal/research/2026-10-06/README.md) records the completed enlargement, texture-transfer and tiled-refinement tests, their controls and limitations.
 
+The [Mac removal research app](../tools/removal/mac-prototype/README.md) opens local RAWs for manual selection and comparison of LaMa/Qwen with guided native texture transfer. It preserves research sessions separately from production edits.
+
 ## Core and pipeline
 
 | Doc                                                | Covers                                                                                                                                                                                                 |

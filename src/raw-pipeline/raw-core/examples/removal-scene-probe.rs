@@ -23,6 +23,8 @@ mod editor_patch;
 mod encoding;
 #[path = "removal_scene/large.rs"]
 mod large;
+#[path = "removal_scene/mac_preview.rs"]
+mod mac_preview;
 #[path = "removal_scene/masks.rs"]
 mod masks;
 
@@ -36,6 +38,8 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Command {
+    /// #4323: oriented RAW selection preview for the native research app.
+    Preview { raw: PathBuf, output: PathBuf },
     /// #3941 research only: assemble one native 2048 context from exact tiles.
     LargeEncode {
         raw: PathBuf,
@@ -466,6 +470,7 @@ fn bake(path: &Path, directory: &Path, model_result: &Path, output: &Path) -> Pr
 
 fn main() -> ProbeResult<()> {
     match Args::parse().command {
+        Command::Preview { raw, output } => mac_preview::render(&raw, &output),
         Command::LargeEncode {
             raw,
             inputs,
