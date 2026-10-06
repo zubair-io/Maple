@@ -110,7 +110,8 @@
 /// - 8 — downscale via integer vips_reduce box staging with 64-phase Lanczos3 kernel matching sharp/libvips (#4177).
 /// - 9 — tiled NLM, fixed general-kernel reseed boundaries and canonical
 ///   exponential lookup bits remove target/pool-dependent rounding (#4273).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 9;
+/// - 10 — evaluate highlights gain in f64 for native/WASM rounding parity (#4306, #4325).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 10;
 
 #[cfg(test)]
 mod tests {
