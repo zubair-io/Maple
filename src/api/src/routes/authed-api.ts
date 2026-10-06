@@ -60,6 +60,7 @@ import { workerRoutes } from '../workers/routes.ts';
 import { generatedSearchConfigRoutes } from '../workers/generated-search/routes.ts';
 import { libraryRoutes } from './library/index.ts';
 import { aiRoutes } from './ai.ts';
+import { subjectMasksRoutes } from './subject-masks.ts';
 
 export const authedApi = new Elysia({ name: 'authedApi' })
   .use(requireAuth)
@@ -126,4 +127,5 @@ export const authedApi = new Elysia({ name: 'authedApi' })
   .use(changeLogGcRoutes)
   .use(workerRoutes())
   .use(generatedSearchConfigRoutes)
-  .use(aiRoutes);
+  .use(aiRoutes)
+  .use(subjectMasksRoutes);
