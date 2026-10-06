@@ -21,6 +21,7 @@ pub struct CpuPreview {
     cap: u32,
     film: Option<FilmLut>,
     source: SourceIdentity,
+    uncurved_details: Option<(f32, f32, f32)>,
 }
 impl CpuPreview {
     pub fn open(
@@ -42,6 +43,14 @@ impl CpuPreview {
             CancelToken::never(),
             true,
         )?;
+        // Auto2's canonical pinned-default route applies only its baked LUT;
+        // edited models replay the returned curve, including identity rounding.
+        // Derive this route once, without constructing default models per tick.
+        let pinned = super::auto_fit::fit_develop_model(&model);
+        let pinned_amounts = (pinned.sharpen_amount, pinned.nr_luminance, pinned.nr_color);
+        let uncurved_details = (!auto_profile::apply_pipeline::auto1_enabled_by_env()
+            && upstream_key(context.active_model.clone()) == upstream_key(pinned))
+        .then_some(pinned_amounts);
         let mut session = Self {
             prefix: prefix.expect("capture requested"),
             working,
@@ -51,6 +60,7 @@ impl CpuPreview {
             cap,
             film: film.cloned(),
             source: SourceIdentity::new(raw, source),
+            uncurved_details,
         };
         let (w, h, pixels, fit) = session.pack(raw);
         Ok((session, w, h, pixels, fit))
@@ -105,8 +115,10 @@ impl CpuPreview {
             ((0, 0), full),
         );
         let pixels = bytemuck::cast_slice_mut(&mut self.working.pixels);
-        if let Some(curve) = &self.context.profile_curve {
-            auto_profile::apply_curve(pixels, curve);
+        if self.uncurved_details != Some(amounts) {
+            if let Some(curve) = &self.context.profile_curve {
+                auto_profile::apply_curve(pixels, curve);
+            }
         }
         if let Some(lut) = &self.context.profile_lut {
             lut.apply_with_strength(pixels, auto_profile::lut::lut_strength_from_env());

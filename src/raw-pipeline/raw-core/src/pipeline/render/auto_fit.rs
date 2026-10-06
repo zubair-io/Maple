@@ -57,7 +57,7 @@ use super::RawInput;
 ///   GPU hosts' cold fit develop pays the default NR/sharpen again
 ///   (~9 s on the 100 MP reference frame — the #972 saving), traded for one
 ///   unified, deterministic fit definition across every path.
-fn fit_develop_model(model: &AdjustmentModel) -> AdjustmentModel {
+pub(super) fn fit_develop_model(model: &AdjustmentModel) -> AdjustmentModel {
     AdjustmentModel {
         auto_exposure: AutoExposureMode::Off,
         profile: model.profile,
