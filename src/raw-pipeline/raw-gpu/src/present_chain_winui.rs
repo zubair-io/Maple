@@ -174,6 +174,7 @@ impl PersistentSwapChainPanelSurface {
             ctx,
             &self.bind_group_layout,
             chain_buf,
+            (session.identity(), final_idx),
             (self.width, self.height),
             src_dims,
             geometry,

@@ -211,7 +211,6 @@ impl LiveSession {
     }
 
     /// A monotonic identity that cannot alias a retired upload's buffers.
-    #[cfg(target_vendor = "apple")]
     pub(crate) fn identity(&self) -> u64 {
         self.session_id
     }

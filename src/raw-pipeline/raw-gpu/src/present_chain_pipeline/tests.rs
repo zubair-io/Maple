@@ -23,9 +23,10 @@ fn invalidation_releases_all_retired_session_bindings() {
     let (_, bgl) = build_present_pipeline(&ctx, wgpu::TextureFormat::Rgba8Unorm);
     let cache = PresentDispatchCache::new();
     let retained: Vec<_> = (0..4)
-        .map(|_| {
+        .map(|index| {
             let buffer = make_chain_buf(&ctx, "retired-session");
-            let (uniform, bindings) = cache.get_or_build(&ctx, &bgl, &buffer, (8, 8));
+            let (uniform, bindings) =
+                cache.get_or_build(&ctx, &bgl, &buffer, (index + 1, 0), (8, 8));
             (Arc::downgrade(&uniform), Arc::downgrade(&bindings))
         })
         .collect();
@@ -55,12 +56,14 @@ fn fast_refine_and_neutral_active_presents_allocate_only_once() {
     let expected: Vec<_> = buffers
         .iter()
         .zip(sources)
-        .map(|(buffer, source)| {
+        .enumerate()
+        .map(|(index, (buffer, source))| {
             cache
                 .get_or_build_scaled(
                     &ctx,
                     &bgl,
                     buffer,
+                    ((index % 2) as u64 + 1, index / 2),
                     (8, 8),
                     source,
                     PresentGeometry::IDENTITY,
@@ -71,11 +74,14 @@ fn fast_refine_and_neutral_active_presents_allocate_only_once() {
     let warmed = cache.alloc_count();
     assert_eq!(warmed, 8);
     for _ in 0..5 {
-        for ((buffer, source), original) in buffers.iter().zip(sources).zip(&expected) {
+        for (index, ((buffer, source), original)) in
+            buffers.iter().zip(sources).zip(&expected).enumerate()
+        {
             let (_, current) = cache.get_or_build_scaled(
                 &ctx,
                 &bgl,
                 buffer,
+                ((index % 2) as u64 + 1, index / 2),
                 (8, 8),
                 source,
                 PresentGeometry::IDENTITY,
@@ -88,8 +94,8 @@ fn fast_refine_and_neutral_active_presents_allocate_only_once() {
 
 /// A storage buffer standing in for one of `LiveSession`'s persistent ping-pong
 /// buffers (`chain_buf` in the real present path). Real usage flags aren't
-/// needed here — `PresentDispatchCache` only cares about the buffer's ADDRESS
-/// identity and binds it as a read-only storage resource.
+/// needed here — tests supply the immutable owning session/direction identity
+/// and bind the buffer as a read-only storage resource.
 fn make_chain_buf(ctx: &GpuContext, label: &str) -> wgpu::Buffer {
     ctx.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some(label),
@@ -112,7 +118,7 @@ fn second_present_same_buffer_identity_allocates_nothing() {
     let chain_buf = make_chain_buf(&ctx, "chain-a");
 
     let base = cache.alloc_count();
-    let _ = cache.get_or_build(&ctx, &bgl, &chain_buf, (8, 8));
+    let _ = cache.get_or_build(&ctx, &bgl, &chain_buf, (1, 0), (8, 8));
     let first = cache.alloc_count() - base;
     assert!(
         first > 0,
@@ -123,7 +129,7 @@ fn second_present_same_buffer_identity_allocates_nothing() {
         "first build must allocate exactly the uniform buffer + the bind group"
     );
 
-    let _ = cache.get_or_build(&ctx, &bgl, &chain_buf, (8, 8));
+    let _ = cache.get_or_build(&ctx, &bgl, &chain_buf, (1, 0), (8, 8));
     let second = cache.alloc_count() - base - first;
     assert_eq!(
         second, 0,
@@ -142,13 +148,13 @@ fn alternating_ping_pong_buffers_reuse_distinct_dispatches_without_allocating() 
     let buf_b = make_chain_buf(&ctx, "chain-b");
 
     let base = cache.alloc_count();
-    let (_, bg_a1) = cache.get_or_build(&ctx, &bgl, &buf_a, (8, 8));
+    let (_, bg_a1) = cache.get_or_build(&ctx, &bgl, &buf_a, (1, 0), (8, 8));
     let a1 = cache.alloc_count() - base;
     assert_eq!(a1, 2, "first build (buffer A) must allocate");
 
     // Switch to buffer B: the cache holds A's entry, so this MUST rebuild.
     let pre_b = cache.alloc_count();
-    let (_, bg_b1) = cache.get_or_build(&ctx, &bgl, &buf_b, (8, 8));
+    let (_, bg_b1) = cache.get_or_build(&ctx, &bgl, &buf_b, (1, 1), (8, 8));
     let b1 = cache.alloc_count() - pre_b;
     assert_eq!(
         b1, 2,
@@ -162,8 +168,8 @@ fn alternating_ping_pong_buffers_reuse_distinct_dispatches_without_allocating() 
 
     let pre = cache.alloc_count();
     for _ in 0..40 {
-        let (_, bg_a2) = cache.get_or_build(&ctx, &bgl, &buf_a, (8, 8));
-        let (_, bg_b2) = cache.get_or_build(&ctx, &bgl, &buf_b, (8, 8));
+        let (_, bg_a2) = cache.get_or_build(&ctx, &bgl, &buf_a, (1, 0), (8, 8));
+        let (_, bg_b2) = cache.get_or_build(&ctx, &bgl, &buf_b, (1, 1), (8, 8));
         assert!(Arc::ptr_eq(&bg_a1, &bg_a2));
         assert!(Arc::ptr_eq(&bg_b1, &bg_b2));
     }
@@ -171,12 +177,12 @@ fn alternating_ping_pong_buffers_reuse_distinct_dispatches_without_allocating() 
 
     // Replacement sessions cannot grow the four-resource cache. A fifth
     // distinct buffer evicts A rather than retaining unbounded old sessions.
-    for label in ["chain-c", "chain-d", "chain-e"] {
+    for (index, label) in ["chain-c", "chain-d", "chain-e"].into_iter().enumerate() {
         let replacement = make_chain_buf(&ctx, label);
-        let _ = cache.get_or_build(&ctx, &bgl, &replacement, (8, 8));
+        let _ = cache.get_or_build(&ctx, &bgl, &replacement, (index as u64 + 2, 0), (8, 8));
     }
     assert_eq!(cache.entries.borrow().iter().flatten().count(), 4);
-    let (_, bg_a3) = cache.get_or_build(&ctx, &bgl, &buf_a, (8, 8));
+    let (_, bg_a3) = cache.get_or_build(&ctx, &bgl, &buf_a, (1, 0), (8, 8));
     assert!(!Arc::ptr_eq(&bg_a1, &bg_a3));
 }
 
@@ -192,14 +198,14 @@ fn invalidate_forces_a_rebuild_on_the_same_identity() {
     let chain_buf = make_chain_buf(&ctx, "chain-a");
 
     let base = cache.alloc_count();
-    let _ = cache.get_or_build(&ctx, &bgl, &chain_buf, (8, 8));
+    let _ = cache.get_or_build(&ctx, &bgl, &chain_buf, (1, 0), (8, 8));
     let first = cache.alloc_count() - base;
     assert_eq!(first, 2);
 
     cache.invalidate();
 
     let pre = cache.alloc_count();
-    let _ = cache.get_or_build(&ctx, &bgl, &chain_buf, (8, 8));
+    let _ = cache.get_or_build(&ctx, &bgl, &chain_buf, (1, 0), (8, 8));
     let after_invalidate = cache.alloc_count() - pre;
     assert_eq!(
         after_invalidate, 2,
@@ -214,18 +220,22 @@ fn source_geometry_and_layout_changes_never_reuse_stale_dispatches() {
     let (_, other_bgl) = build_present_pipeline(&ctx, wgpu::TextureFormat::Rgba8Unorm);
     let cache = PresentDispatchCache::new();
     let chain_buf = make_chain_buf(&ctx, "chain");
-    let (_, original) = cache.get_or_build(&ctx, &bgl, &chain_buf, (8, 8));
+    let (_, original) = cache.get_or_build(&ctx, &bgl, &chain_buf, (1, 0), (8, 8));
     let (_, scaled) = cache.get_or_build_scaled(
         &ctx,
         &bgl,
         &chain_buf,
+        (1, 0),
         (8, 8),
         (4, 4),
         crate::PresentGeometry::IDENTITY,
     );
     assert!(!Arc::ptr_eq(&original, &scaled));
-    let (_, resized) = cache.get_or_build(&ctx, &bgl, &chain_buf, (4, 4));
+    let (_, resized) = cache.get_or_build(&ctx, &bgl, &chain_buf, (1, 0), (4, 4));
     assert!(!Arc::ptr_eq(&original, &resized));
-    let (_, different_layout) = cache.get_or_build(&ctx, &other_bgl, &chain_buf, (4, 4));
+    let (_, different_layout) = cache.get_or_build(&ctx, &other_bgl, &chain_buf, (1, 0), (4, 4));
     assert!(!Arc::ptr_eq(&resized, &different_layout));
 }
+
+#[path = "tests/retirement.rs"]
+mod retirement;
