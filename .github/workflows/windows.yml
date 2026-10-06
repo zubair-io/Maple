@@ -53,6 +53,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate qualification script syntax and input isolation
+        shell: pwsh
+        run: |
+          ./src/windows/scripts/test-qualification-fixture.ps1
+          ./src/windows/scripts/test-qualification-timing.ps1
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
