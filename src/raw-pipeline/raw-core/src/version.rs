@@ -108,7 +108,9 @@
 /// - 7 — render ordered mask-group components instead of only their first
 ///   recognised shape; modern radial Version 2 geometry is interpreted (#3408).
 /// - 8 — downscale via integer vips_reduce box staging with 64-phase Lanczos3 kernel matching sharp/libvips (#4177).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 8;
+/// - 9 — tiled NLM, fixed general-kernel reseed boundaries and canonical
+///   exponential lookup bits remove target/pool-dependent rounding (#4273).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 9;
 
 #[cfg(test)]
 mod tests {

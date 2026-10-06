@@ -39,7 +39,7 @@ namespace Maple.WinUI.Services.Pano
                 "33fffedd24f39f25b139fb66f9090481d276799cef7b0ea56eb6bc0986987c38"),
         };
 
-        private static readonly PanoRuntimePin Ort = PanoRuntimePin.ForArchitecture(RuntimeInformation.ProcessArchitecture);
+        private static PanoRuntimePin Ort => PanoRuntimePin.ForArchitecture(RuntimeInformation.ProcessArchitecture);
         private static string OrtZipUrl => Ort.Url;
         private static string OrtZipDllEntry => Ort.DllEntry;
         /// <summary>SHA-256 of the extracted 1.23.2 architecture-specific onnxruntime.dll —

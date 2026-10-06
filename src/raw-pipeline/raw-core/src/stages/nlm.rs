@@ -123,17 +123,10 @@ fn fast_neg_exp(x: f32) -> f32 {
     a + (b - a) * frac
 }
 
+#[path = "nlm_exp_table.rs"]
+mod exp_table;
 fn fast_exp_table() -> &'static [f32; FAST_EXP_TABLE_SIZE + 1] {
-    use std::sync::OnceLock;
-    static TABLE: OnceLock<[f32; FAST_EXP_TABLE_SIZE + 1]> = OnceLock::new();
-    TABLE.get_or_init(|| {
-        let mut t = [0.0f32; FAST_EXP_TABLE_SIZE + 1];
-        for (i, v) in t.iter_mut().enumerate() {
-            let x = i as f32 * FAST_EXP_RANGE / FAST_EXP_TABLE_SIZE as f32;
-            *v = (-x).exp();
-        }
-        t
-    })
+    &exp_table::VALUES
 }
 
 /// Filter parameters for a single NLM pass on one channel plane.
@@ -443,17 +436,8 @@ fn process_shift(
     // (one alloc per worker, not per strip), so the render loop adds no
     // per-pixel/per-tick allocation.
     //
-    // Strip height trades parallelism against per-strip seed/locality overhead:
-    // target ~`threads` strips so every core gets work without over-fragmenting
-    // (over-fine strips regress the cache-resident 2MP tick), a MIN to amortise
-    // the seed, and a MAX of VSTRIP_ROWS to bound vertical drift (≤ RESEED_STRIDE)
-    // and keep the strip scratch small on the 100MP refine.
-    let band_rows = y_hi - y_lo + 1;
-    let threads = rayon::current_num_threads().max(1);
-    const MIN_STRIP_ROWS: usize = 32;
-    let vstrip = (band_rows / threads)
-        .clamp(MIN_STRIP_ROWS, VSTRIP_ROWS)
-        .max(1);
+    // Fixed reseed boundaries make output independent of the Rayon pool size.
+    let vstrip = VSTRIP_ROWS;
     let strip_len = vstrip * w;
     // Thread-local horizontal-sum scratch: at most (VSTRIP_ROWS + 2p) rows ×
     // w cols. Sized for the cap so it is allocated once per worker and reused.
@@ -581,3 +565,7 @@ mod tests;
 #[cfg(test)]
 #[path = "nlm_tests_box.rs"]
 mod tests_box;
+
+#[cfg(test)]
+#[path = "nlm_tests_determinism.rs"]
+mod tests_determinism;

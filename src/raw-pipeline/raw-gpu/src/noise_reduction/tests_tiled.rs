@@ -13,6 +13,7 @@ fn tiled_parity(profile: Option<&[f32]>) {
         (31, 23),
         (257, 17),
         (257, 65),
+        (513, 67),
     ] {
         let plane: Vec<f32> = (0..width * height)
             .map(|i| {
@@ -72,6 +73,7 @@ fn tiled_parity(profile: Option<&[f32]>) {
 
 #[test]
 fn tiled_partial_workgroups_and_halos_match_cpu() {
+    // None + P=2 + >=16384 pixels explicitly exercises the CPU tiled dispatch.
     tiled_parity(None);
 }
 

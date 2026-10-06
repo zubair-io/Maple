@@ -68,3 +68,29 @@ pub(super) fn accumulate(
         maxima[i] = maxima[i].max(weight);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vector_accumulation_is_bit_identical_to_scalar_including_tail() {
+        // All LUT segments, interpolation fractions, cutoff and SIMD tail.
+        let sums: Vec<f32> = (0..4103).map(|i| i as f32 / 512.0).collect();
+        let shifted: Vec<f32> = (0..sums.len()).map(|i| (i % 31) as f32 / 32.0).collect();
+        let mut acc = vec![0.125; sums.len()];
+        let mut weights = vec![0.25; sums.len()];
+        let mut maxima = vec![0.375; sums.len()];
+        accumulate(&sums, &shifted, &mut acc, &mut weights, &mut maxima, 1.0);
+        for i in 0..sums.len() {
+            let weight = fast_neg_exp(sums[i]);
+            assert_eq!(
+                acc[i].to_bits(),
+                (0.125 + weight * shifted[i]).to_bits(),
+                "{i}"
+            );
+            assert_eq!(weights[i].to_bits(), (0.25 + weight).to_bits(), "{i}");
+            assert_eq!(maxima[i].to_bits(), 0.375f32.max(weight).to_bits(), "{i}");
+        }
+    }
+}
