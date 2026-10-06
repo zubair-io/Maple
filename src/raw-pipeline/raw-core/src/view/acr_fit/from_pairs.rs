@@ -98,39 +98,43 @@ fn decode_pair(
 ///
 /// With fewer than two usable observations the tonescale fit fails explicitly.
 pub fn neutral_samples_from_pairs(pairs: &[DisplayPair]) -> Vec<NeutralSample> {
+    use rayon::prelude::*;
     let m_srgb_to_rec2020 = M_REC2020_TO_SRGB
         .inverse()
         .expect("M_REC2020_TO_SRGB invertible");
     let chroma_max = NEUTRAL_CHROMA_FRAC * 0.30;
 
-    pairs
-        .iter()
-        .filter_map(|p| {
-            let (maple_rec2020, jpeg_srgb) = decode_pair(p, &m_srgb_to_rec2020);
-            let lab = rec2020_to_oklab(maple_rec2020);
-            let chroma = (lab[1] * lab[1] + lab[2] * lab[2]).sqrt();
-            let neutral_weight = (-(chroma / chroma_max).powi(2)).exp();
-            if !neutral_weight.is_finite() || neutral_weight <= 0.0 {
-                return None;
-            }
-            let scene_lum = rec2020_luma(maple_rec2020);
-            if scene_lum <= 0.0 {
-                return None;
-            }
-            // sRGB and Rec.2020 luma coefficients differ, but for a
-            // near-neutral triplet (R ~= G ~= B) the two luma definitions
-            // agree to within float noise, so BT.709 luma on the JPEG side
-            // (matching `field.rs`'s measured-luma convention) is consistent
-            // with the BT.2020 luma used for the Maple side.
-            let display_lum = 0.2126 * jpeg_srgb[0] + 0.7152 * jpeg_srgb[1] + 0.0722 * jpeg_srgb[2];
-            Some(NeutralSample {
-                scene_lum,
-                display_lum,
-                neutral_weight,
-                is_neutral: chroma <= chroma_max,
-            })
+    let sample = |p: &DisplayPair| {
+        let (maple_rec2020, jpeg_srgb) = decode_pair(p, &m_srgb_to_rec2020);
+        let lab = rec2020_to_oklab(maple_rec2020);
+        let chroma = (lab[1] * lab[1] + lab[2] * lab[2]).sqrt();
+        let neutral_weight = (-(chroma / chroma_max).powi(2)).exp();
+        if !neutral_weight.is_finite() || neutral_weight <= 0.0 {
+            return None;
+        }
+        let scene_lum = rec2020_luma(maple_rec2020);
+        if scene_lum <= 0.0 {
+            return None;
+        }
+        // sRGB and Rec.2020 luma coefficients differ, but for a
+        // near-neutral triplet (R ~= G ~= B) the two luma definitions
+        // agree to within float noise, so BT.709 luma on the JPEG side
+        // (matching `field.rs`'s measured-luma convention) is consistent
+        // with the BT.2020 luma used for the Maple side.
+        let display_lum = 0.2126 * jpeg_srgb[0] + 0.7152 * jpeg_srgb[1] + 0.0722 * jpeg_srgb[2];
+        Some(NeutralSample {
+            scene_lum,
+            display_lum,
+            neutral_weight,
+            is_neutral: chroma <= chroma_max,
         })
-        .collect()
+    };
+    if pairs.len() <= 4096 || rayon::current_num_threads() == 1 {
+        pairs.iter().filter_map(sample).collect()
+    } else {
+        // #4362: Rayon preserves pair order; the downstream fitter stays serial.
+        pairs.par_iter().filter_map(sample).collect()
+    }
 }
 
 /// Rec.2020 scene luminance of every pair's Maple side (not just the
@@ -374,5 +378,10 @@ fn compute_fit_rms_de_from_pairs(
 mod tests;
 
 #[cfg(test)]
+<<<<<<< HEAD
 #[path = "from_pairs_rms_tests.rs"]
 mod rms_tests;
+=======
+#[path = "from_pairs_neutral_tests.rs"]
+mod neutral_tests;
+>>>>>>> 6158e4cbc (perf(core): preserve order in parallel Auto tone samples)
