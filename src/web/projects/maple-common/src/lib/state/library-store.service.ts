@@ -276,8 +276,7 @@ export class LibraryStore {
     this.adjustmentModels.update((map) => {
       const next = new Map(map);
       const current = next.get(id) ?? defaultAdjustmentModel();
-      if (effective.profile !== undefined && effective.profile !== current.profile)
-        this.lensCorrections.resetAutoFit(id);
+      this.lensCorrections.invalidateProfileReplacement(id, current, effective);
       next.set(id, { ...current, ...effective });
       return next;
     });
@@ -344,6 +343,7 @@ export class LibraryStore {
       const next = new Map(map);
       const restored = { ...defaultAdjustmentModel(), ...wbSeed, ...parsed };
       const frame = this.asShotWb.get(id)?.frame;
+      this.lensCorrections.invalidateProfileReplacement(id, current, restored);
       next.set(
         id,
         hydratePartialWhiteBalance(restored, frame?.temperature ?? 6500, frame?.tint ?? 0, !!frame),
@@ -367,6 +367,7 @@ export class LibraryStore {
   ): AdjustmentModel {
     const current = this.adjustmentModels().get(id) ?? defaultAdjustmentModel();
     const merged = this.hydrateAdjustment(id, { ...current, ...persisted, ...authored });
+    this.lensCorrections.invalidateProfileReplacement(id, current, merged);
     this.adjustmentModels.update((models) => new Map(models).set(id, merged));
     return merged;
   }

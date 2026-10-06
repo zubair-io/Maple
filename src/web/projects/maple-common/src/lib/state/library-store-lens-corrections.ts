@@ -18,6 +18,9 @@
 
 import { signal, WritableSignal } from '@angular/core';
 import { AssetId } from '../models/asset';
+import { defaultAdjustmentModel, type AdjustmentModel } from '../models/adjustment-model';
+
+const DEFAULT_PROFILE = defaultAdjustmentModel().profile;
 import type { CameraSupport } from './camera-support';
 import type { LensProfileResolution } from '../lens/lens-profile.types';
 
@@ -111,6 +114,19 @@ export class LensCorrectionCapabilities {
   /** A new open or profile choice has not yet reported its actual fit. */
   autoFitRevisionFor(id: AssetId): number {
     return this.fitRevisions.get(id) ?? 0;
+  }
+
+  /** Persisted restores and user edits invalidate the same profile provenance. */
+  invalidateProfileReplacement(
+    id: AssetId,
+    previous: Pick<AdjustmentModel, 'profile'> | undefined,
+    replacement: Partial<Pick<AdjustmentModel, 'profile'>>,
+  ): void {
+    if (
+      replacement.profile !== undefined &&
+      replacement.profile !== (previous?.profile ?? DEFAULT_PROFILE)
+    )
+      this.resetAutoFit(id);
   }
 
   resetAutoFit(id: AssetId): void {

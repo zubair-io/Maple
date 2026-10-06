@@ -14,6 +14,10 @@
 // loop tight.
 
 import { TestBed } from '@angular/core/testing';
+import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { LibraryStore } from './library-store.service';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -231,6 +235,58 @@ describe('LibraryStateService.addImportedAsset', () => {
         assets: [expect.objectContaining({ filename: 'IMG_0001.DNG' })],
       }),
     );
+  });
+
+  it('invalidates the prior fit when a reopened folder loads a different real XMP profile', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'maple-profile-reopen-'));
+    const path = join(directory, 'A.xmp');
+    const folderAccess = TestBed.inject(FolderAccessService);
+    const caps = TestBed.inject(LibraryStore).lensCorrections;
+    const sidecar = (profile: string) =>
+      `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:Profile="${profile}" /></rdf:RDF></x:xmpmeta>`;
+    vi.spyOn(folderAccess, 'listEntries').mockResolvedValue([
+      {
+        name: 'A.DNG',
+        kind: 'file',
+        getFile: async () => new File([new Uint8Array([1])], 'A.DNG'),
+        getSubFolder: async () => {
+          throw new Error('not a folder');
+        },
+      },
+    ]);
+    vi.spyOn(folderAccess, 'readFile').mockImplementation(
+      async (_folder, name) => new Uint8Array(readFileSync(join(directory, name))),
+    );
+    try {
+      const folder = { name: 'Raws', read: true, write: true };
+      writeFileSync(path, sidecar('Auto'));
+      await svc.openFolder(folder);
+      const id = 'raws:A.DNG';
+      const revision = caps.autoFitRevisionFor(id);
+      caps.seedProfile(id, null, true, revision);
+      writeFileSync(path, sidecar('Neutral'));
+      const original = readFileSync(path);
+      await svc.openFolder(folder);
+      expect(svc.adjustmentModels().get(id)?.profile).toBe('Neutral');
+      expect(caps.autoFitRevisionFor(id)).toBe(revision + 1);
+      expect(caps.for(id).autoFit).toBeUndefined();
+      caps.seedProfile(id, null, true, revision);
+      expect(caps.for(id).autoFit).toBeUndefined();
+      expect(readFileSync(path)).toEqual(original);
+      const neutralRevision = caps.autoFitRevisionFor(id);
+      caps.seedProfile(id, null, false, neutralRevision);
+      await svc.openFolder(folder);
+      expect(caps.autoFitRevisionFor(id)).toBe(neutralRevision);
+      expect(caps.for(id).autoFit).toBe(false);
+      unlinkSync(path);
+      await svc.openFolder(folder);
+      expect(svc.adjustmentModels().get(id)?.profile).toBe('Auto');
+      expect(caps.autoFitRevisionFor(id)).toBe(neutralRevision + 1);
+      expect(caps.for(id).autoFit).toBeUndefined();
+      expect(svc.assets().some((asset) => asset.id === id)).toBe(true);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('replaces stale adjustments and passthroughs when a folder is reopened', async () => {
