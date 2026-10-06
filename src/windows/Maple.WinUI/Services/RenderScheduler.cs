@@ -469,7 +469,7 @@ namespace Maple.WinUI.Services
                     _lastFfiMillis = System.Diagnostics.Stopwatch.GetElapsedTime(ffiStarted).TotalMilliseconds;
                     if (rc == 0 && sampleScopes && !useHalf && _pending == null
                         && generation == _surfaceGeneration && ReferenceEquals(state, _lastRendered))
-                        DumpGpuFrameIfRequested(handle, &p, image);
+                        DumpGpuFrameIfRequested(handle, &p, image, state, generation);
                 }
                 _lastGpuError = rc == 0 ? null : RawFfi.LastError();
                 if (rc == 0 && p.scope_enabled != 0) _scopes.Submitted();

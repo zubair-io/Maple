@@ -9,7 +9,7 @@ public sealed partial class RenderScheduler
     // the production session and all parameter arrays still pinned under _gate.
     private static unsafe void DumpGpuFrameIfRequested(
         Native.MapleGpuLiveSession* handle, Native.MapleGpuLiveParams* parameters,
-        DecodedImage image)
+        DecodedImage image, Models.AdjustmentState state, ulong generation)
     {
         var path = Environment.GetEnvironmentVariable("MAPLE_DUMP_GPU_FRAME");
         if (string.IsNullOrEmpty(path) || File.Exists(path)) return;
@@ -29,6 +29,15 @@ public sealed partial class RenderScheduler
             bgra[destination + 3] = 255;
         }
         SaveFrame(bgra, image.Width, image.Height, path);
+        File.WriteAllText(path + ".json", System.Text.Json.JsonSerializer.Serialize(new
+        {
+            backend = "gpu", scope = "bounded develop chain; canvas framing excluded",
+            width = image.Width, height = image.Height, generation,
+            exposure = state.Exposure, profile = state.Profile.ToString(),
+            film = state.FilmLook, film_strength = state.FilmStrength,
+            profile_curve_length = image.ProfileCurve?.Length ?? 0,
+            residual_lut_size = image.ResidualLutSize,
+        }));
         DiagLog.Write($"[dump-gpu] develop-chain {image.Width}x{image.Height} -> {path}");
     }
 
