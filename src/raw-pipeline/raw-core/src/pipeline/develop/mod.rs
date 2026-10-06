@@ -330,6 +330,8 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     let mut scene = stage("dcp::apply", || {
         dcp::apply_colorimetry(&camera_rgb, &dcp_profile)
     })?;
+    // DCP owns the scene buffer; release the now-unused camera pixels.
+    drop(camera_rgb);
     dump_after("03_dcp_apply", &scene);
     // Ticket #471: opt-in `OklabChromaReduction` highlight recovery runs in
     // scene-linear Rec.2020 D65 where Oklab is well-defined. No-op for the
