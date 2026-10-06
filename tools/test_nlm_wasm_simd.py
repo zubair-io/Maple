@@ -30,6 +30,19 @@ def run():
     wrapper += f'#[path={json.dumps(str(STAGES / "nlm_exp_table.rs"))}] mod table;\n'
     wrapper += "fn fast_exp_table() -> &'static [f32; 513] { &table::VALUES }\n"
     wrapper += f'#[path={json.dumps(str(STAGES / "nlm_accumulate.rs"))}] mod actual;\n'
+    dynamic_source = (STAGES / "nlm_shift.rs").read_text()
+    dynamic_start = dynamic_source.index("// Dynamic variance-scaled NLM")
+    dynamic_end = dynamic_source.index("\n                        }", dynamic_start)
+    dynamic_body = dynamic_source[dynamic_start:dynamic_end]
+    assert hashlib.sha256(dynamic_body.encode()).hexdigest() == "f807b83160a2014b12494513173dbd3840b1f0e785b0087987cf0e737df987b6"
+    wrapper += """
+#[inline(never)]
+fn scalar_dynamic(sums:&[f32], shifted:&[f32], acc:&mut[f32], weights:&mut[f32], maxima:&mut[f32], dynamic:(&[f32], &[isize], isize)) {
+ let (local_inv_norm_plane,local_s_plane,dy)=dynamic;
+ let dx=0isize; let y=0usize; let w=sums.len();
+ let colsum=sums; let shift_row=shifted; let acc_row=acc; let wsum_row=weights; let max_w_row=maxima;
+ for x in 0..w {
+""" + dynamic_body + "\n }\n}\n"
     wrapper += (ROOT / "tools/fixtures/nlm_simd_witness.rs").read_text()
     with tempfile.TemporaryDirectory(prefix="maple-nlm-simd-") as directory:
         path = Path(directory)
@@ -52,9 +65,9 @@ const fs = require('node:fs');
   if (!WebAssembly.validate(bytes)) throw new Error('Invalid WASM artifact');
   const {instance} = await WebAssembly.instantiate(bytes, {});
   const e = instance.exports;
-  const rc = e.run();
+  const rc = e.run() || e.run_dynamic();
   const result = {rc, checks:e.checks(), failure:Array.from({length:5},(_,i)=>e.failure(i))};
-  if (rc !== 0 || result.checks !== 630042) throw new Error(JSON.stringify(result));
+  if (rc !== 0 || result.checks !== 990066) throw new Error(JSON.stringify(result));
   for (let field=0; field<4; field++) {
     const fresh = await WebAssembly.instantiate(bytes, {});
     let trapped = false;
@@ -62,7 +75,14 @@ const fs = require('node:fs');
     catch (error) { if (!(error instanceof WebAssembly.RuntimeError)) throw error; trapped = true; }
     if (!trapped) throw new Error('Missing length assertion '+field);
   }
-  console.log(JSON.stringify({...result, lengthAssertions:4}));
+  for (let field=0; field<6; field++) {
+    const fresh = await WebAssembly.instantiate(bytes, {});
+    let trapped = false;
+    try { fresh.instance.exports.mismatched_dynamic_length(field); }
+    catch (error) { if (!(error instanceof WebAssembly.RuntimeError)) throw error; trapped = true; }
+    if (!trapped) throw new Error('Missing dynamic length assertion '+field);
+  }
+  console.log(JSON.stringify({...result, lengthAssertions:10}));
 })().catch(error => { console.error(error); process.exitCode=1; });
 """
         subprocess.run(["node", "-e", javascript, str(wasm)], check=True)
