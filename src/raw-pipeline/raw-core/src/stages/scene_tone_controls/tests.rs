@@ -371,3 +371,29 @@ fn blacks_positive_transfer_is_monotone_across_range() {
         }
     }
 }
+
+#[test]
+fn highlights_mult_evaluates_in_f64_for_native_wasm_rounding_parity() {
+    // Issue #4306: witness bits 3145262086 (-0.003797770943492651) produced 1065309110
+    // on native f32::exp2 but 1065309109 on WASM and high-precision Decimal.
+    let witness_arg = f32::from_bits(3145262086);
+    assert_eq!(((witness_arg as f64).exp2() as f32).to_bits(), 1065309109);
+    // At y = 1.0 (w = 1.0, shape = 1.0), exponent is H_GAIN_EV * h_amount.
+    let h_amount = witness_arg / H_GAIN_EV;
+    assert_eq!(highlights_mult(1.0, h_amount).to_bits(), 1065309109);
+}
+
+#[test]
+fn highlights_mult_finite_gain_domain_and_slider_cases() {
+    let sliders = [-1.0, -0.5, 0.0, 0.5, 1.0];
+    let lumas = [0.0, 0.1, H_W0, 0.5, H_W1, 2.0, 10.0];
+    for &h in &sliders {
+        for &y in &lumas {
+            let m = highlights_mult(y, h);
+            assert!(m.is_finite() && m > 0.0, "finite positive for y={y}, h={h}");
+            if h == 0.0 || y <= H_W0 {
+                assert_eq!(m, 1.0, "identity for y={y}, h={h}");
+            }
+        }
+    }
+}

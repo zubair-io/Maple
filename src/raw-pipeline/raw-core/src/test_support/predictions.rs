@@ -56,7 +56,7 @@ pub fn predict_highlights(scene: f32, h_slider: f32) -> f32 {
     }
     let recover = -h_slider / 100.0;
     let w = smoothstep(0.25, 1.0, scene);
-    let g = (-0.7 * recover * w).exp2();
+    let g = ((-0.7 * recover * w) as f64).exp2() as f32;
     let shape = if scene > 1.0 {
         let y_new = if recover >= 0.0 {
             1.0 + (scene - 1.0) / (1.0 + 2.0 * recover)
