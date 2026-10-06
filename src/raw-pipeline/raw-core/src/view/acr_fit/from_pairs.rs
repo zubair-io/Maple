@@ -129,11 +129,23 @@ pub fn neutral_samples_from_pairs(pairs: &[DisplayPair]) -> Vec<NeutralSample> {
             is_neutral: chroma <= chroma_max,
         })
     };
-    if pairs.len() <= 4096 || rayon::current_num_threads() == 1 {
+    if pairs.len() <= 4096 || rayon::current_num_threads() <= 2 {
         pairs.iter().filter_map(sample).collect()
     } else {
-        // #4362: Rayon preserves pair order; the downstream fitter stays serial.
-        pairs.par_iter().filter_map(sample).collect()
+        // Indexed collection allocates once; retain compacts rejected observations in place.
+        let mut samples: Vec<NeutralSample> = pairs
+            .par_iter()
+            .map(|pair| {
+                sample(pair).unwrap_or(NeutralSample {
+                    scene_lum: 0.0,
+                    display_lum: 0.0,
+                    neutral_weight: 0.0,
+                    is_neutral: false,
+                })
+            })
+            .collect();
+        samples.retain(|sample| sample.neutral_weight > 0.0);
+        samples
     }
 }
 
