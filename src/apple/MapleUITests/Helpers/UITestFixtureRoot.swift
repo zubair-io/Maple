@@ -69,7 +69,8 @@ enum UITestFixtureRoot {
   static func verdict(missing fixturePath: String, resolution: Resolution) -> MissingVerdict {
     resolution.isExplicit
       ? .fail(
-        "UITest fixture missing at the EXPLICIT \(environmentKey)=\(resolution.path): \(fixturePath)")
+        "UITest fixture missing at the EXPLICIT \(environmentKey)=\(resolution.path): \(fixturePath)"
+      )
       : .skip(
         "UITest fixture missing: \(fixturePath) — no \(environmentKey) named a root, "
           + "so this is the repo default; provision test-fixtures/raws/ or set "
@@ -85,11 +86,14 @@ enum UITestFixtureRoot {
   /// when it is absent at the repo default; records a failure and throws
   /// when it is absent at an explicitly named root.
   static func locate(
-    _ fixture: String, file: StaticString = #filePath, line: UInt = #line
+    _ fixture: String,
+    resolution: Resolution = current(),
+    fileManager: FileManager = .default,
+    file: StaticString = #filePath,
+    line: UInt = #line
   ) throws -> URL {
-    let resolution = current()
     let url = URL(fileURLWithPath: resolution.path).appendingPathComponent(fixture)
-    guard !FileManager.default.fileExists(atPath: url.path) else { return url }
+    guard !fileManager.fileExists(atPath: url.path) else { return url }
     switch verdict(missing: url.path, resolution: resolution) {
     case .skip(let reason):
       throw XCTSkip(reason, file: file, line: line)
