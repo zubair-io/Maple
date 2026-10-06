@@ -1,0 +1,17 @@
+{
+  "date": "2026-10-06",
+  "reviewer": "User",
+  "scope": "Qualitative review of the native-detail gallery; includes the correction after viewing the outdoor railing.",
+  "preferredMethod": "2 · Guided texture transfer",
+  "coarseModelWinner": null,
+  "coarseModelDecision": "Retain both LaMa and Qwen. The preferred coarse model depends on the scene.",
+  "observations": [
+    "Guided texture transfer looks good with both coarse models.",
+    "Initial review preferred LaMa with guided texture transfer, without specifying individual scenes.",
+    "Subsequent outdoor-railing review preferred Qwen with guided texture transfer, correcting the initial overall LaMa preference.",
+    "The tested shared-latent diffusion configuration was judged bad across the reviewed outputs."
+  ],
+  "nextDirection": "Carry both coarse models forward with guided texture transfer as the preferred refinement method. Do not carry this diffusion configuration forward as a candidate.",
+  "limitations": "This is a preference for this experiment, not production qualification or rejection of every diffusion refinement approach. Original technical findings and frozen benchmark artifacts remain unchanged.",
+  "releaseQualified": false
+}

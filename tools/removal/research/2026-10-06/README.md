@@ -14,6 +14,8 @@ Reference mechanisms: [Guided PatchMatch](https://arxiv.org/abs/2208.03552) and 
 
 ## Findings
 
+User review (October 6, including the outdoor-railing correction): **method 2, guided texture transfer, wins this round with both LaMa and Qwen. There is no overall coarse-model winner.** The initial preference was LaMa; after reviewing the outdoor railing, the user preferred Qwen with the same transfer method for that scene. Retain both candidates for scene-dependent selection. The tested method 3, shared-latent diffusion, was rejected across the reviewed outputs. See `evidence/user-review.json` for the attributed decision; the original technical observations below and frozen run evidence are preserved.
+
 Texture transfer is the more promising of these two tested refiners, but neither qualifies native removal. It adds local texture on wood and stone while leaving softness, tonal remnants and changed/repeated architecture. The tested diffusion setup creates conspicuous smooth, mask-shaped regions and damages railing structure with both starting models. Its failure does not rule out a dedicated refinement/super-resolution model or other settings.
 
 All **432 RAW outside-coverage/protection checks passed** across 24 outputs/controls × 18 Auto/Neutral, exposure and WB grades. Frozen inputs and all five original RAW hashes are unchanged. All six bilinear plate outputs and their 108 RAW grade renders match the previous baseline pixel-for-pixel. These preservation checks do not establish quality inside the fill. No hidden-background ground truth exists.
