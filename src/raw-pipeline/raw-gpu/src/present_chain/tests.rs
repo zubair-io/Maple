@@ -272,6 +272,21 @@ fn offscreen_present_matches_cpu_render_within_1_lsb() {
 /// back ~127/127/127. An aggressive case produces a wide spread of values, so the
 /// presented surface must NOT be a flat grey field — its byte range must be wide.
 #[test]
+fn desktop_sized_present_preserves_dither_parity() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (1280, 720);
+    let input = scene_linear_rgba(w as usize, h as usize);
+    let case = neutral_case();
+    let want = cpu_reference_u8(&input, w, h, &case);
+    for _ in 0..3 {
+        let got = gpu_present_u8(&ctx, &input, w, h, &case);
+        let (max_delta, fraction) = byte_diff(&got, &want);
+        assert!(max_delta <= MAX_BYTE_DELTA);
+        assert!(fraction < MAX_MISMATCH_FRACTION);
+    }
+}
+
+#[test]
 fn present_paints_the_image_not_the_clear_color() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (64u32, 64u32);

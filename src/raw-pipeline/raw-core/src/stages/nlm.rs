@@ -50,16 +50,18 @@
 //!
 //! # Parallelism
 //!
-//! Shifts run sequentially in the outer loop. Within a shift, the sqdiff fill
-//! parallelises across rows; the box-sum + accumulate parallelises across
-//! horizontal STRIPS of output rows — each strip computes its own halo'd
-//! horizontal sums into a thread-local buffer (recycled across strips, so no
-//! full-frame box-sum plane round-trips through DRAM) and slides the vertical
-//! window down out of it. The persistent sqdiff/acc/wsum/max_w buffers are
-//! allocated once per `denoise_plane` call and reused across all shifts.
+//! Constant-h five-tap patches on larger planes run in cache-local tiles;
+//! shifts keep the reference addition order and ARM64 vectorizes accumulation.
+//! Other parameters retain the full-plane squared differences and parallel
+//! horizontal strips with periodically re-seeded running sums.
 
 use crate::cancel::CancelToken;
 use rayon::prelude::*;
+
+#[path = "nlm_accumulate.rs"]
+mod accumulate;
+#[path = "nlm_tiled.rs"]
+mod tiled;
 
 /// Fast exp(-x) lookup. The NLM weight is `exp(-d²/(h²·area))` where the
 /// argument is always ≥ 0. For x ≥ `FAST_EXP_RANGE` the weight is ≤ ~3.4e-4
@@ -86,17 +88,8 @@ const FAST_EXP_TABLE_SIZE: usize = 512;
 /// (≈ (2p+1)/256 extra adds/pixel) and the drift comfortably bounded.
 const RESEED_STRIDE: usize = 256;
 
-/// MAXIMUM output-row strip height for the parallel vertical box-sum (#1195).
-/// The vertical running window is sequential down a column, so the accumulate
-/// pass parallelises over STRIPS of consecutive output rows; each strip seeds
-/// its own column-window directly at its first row, which re-anchors vertical
-/// drift at every strip boundary. The actual strip height is chosen adaptively
-/// (~1 strip per worker, i.e. `band_rows / threads`, clamped to
-/// `[MIN_STRIP_ROWS, VSTRIP_ROWS]`) so that every core gets roughly one strip
-/// without over-fragmenting the cache-resident 2MP tick. This value caps strip
-/// height so that (a) vertical drift inside a strip stays ≤ RESEED_STRIDE
-/// steps and (b) locality stays high on the 100MP refine. 256 keeps an 8700-row
-/// refine at ~34 strips while bounding drift to ~256·eps·|colsum| ≈ 4e-6.
+/// Bound vertical running-sum drift and scratch size in the general kernel.
+/// Five-tap constant-h patches use cache-local tiles instead.
 const VSTRIP_ROWS: usize = 256;
 
 #[inline(always)]
@@ -218,6 +211,9 @@ pub fn denoise_plane_cancellable(
     }
     let p = params.patch_radius;
     let s = params.search_radius as isize;
+    if p == 2 && noise_profile.is_none() && n >= 16384 {
+        return tiled::denoise(plane, w, h, params, cancel);
+    }
 
     let use_dynamic = noise_profile.is_some();
     let (s_coeff, o_coeff) = if use_dynamic {

@@ -26,7 +26,7 @@ class WorkflowTests(unittest.TestCase):
         }
         for name, job_id in (
             ("windows", "windows-build-and-test"),
-            ("release", "windows-app"),
+            ("release", "windows-build"),
         ):
             job = workflow(name)["jobs"][job_id]
             self.assertEqual(job["runs-on"], "${{ matrix.runner }}")
@@ -49,6 +49,27 @@ class WorkflowTests(unittest.TestCase):
                 if "verify-native-architecture.ps1" in step.get("run", "")
             )
             self.assertIn("${{ matrix.arch }}", verifier["run"])
+
+    def test_windows_release_signs_both_native_payloads_on_x64(self):
+        jobs = workflow("release")["jobs"]
+        build = jobs["windows-build"]
+        sign = jobs["windows-app"]
+        self.assertEqual(sign["runs-on"], "windows-latest")
+        self.assertEqual(sign["needs"], ["windows-build"])
+        self.assertEqual(set(sign["strategy"]["matrix"]["arch"]), {"x64", "arm64"})
+        uploads = [
+            s for s in build["steps"] if s.get("uses") == "actions/upload-artifact@v4"
+        ]
+        downloads = [
+            s for s in sign["steps"] if s.get("uses") == "actions/download-artifact@v4"
+        ]
+        self.assertEqual(uploads[0]["with"]["name"], downloads[0]["with"]["name"])
+        self.assertEqual(downloads[0]["with"]["path"], "publish")
+        for job_id, job in jobs.items():
+            for step in job["steps"]:
+                if step.get("uses", "").startswith("azure/trusted-signing-action@"):
+                    self.assertEqual(job_id, "windows-app")
+        self.assertEqual(jobs["publish-release"]["needs"], ["windows-app"])
 
     def test_selection_outputs_reach_callers(self):
         config = workflow("ci-changes")

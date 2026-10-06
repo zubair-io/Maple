@@ -24,8 +24,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  windows-app:
-    name: Windows ${{ matrix.arch }} (build, sign)
+  windows-build:
+    name: Windows ${{ matrix.arch }} (native build)
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -81,6 +81,45 @@ jobs:
             -o publish
 
       - name: Verify native payload architecture
+        shell: pwsh
+        run: ./src/windows/scripts/verify-native-architecture.ps1 -Architecture '${{ matrix.arch }}' -Paths 'publish/Maple.WinUI.exe', 'publish/raw_ffi.dll', 'publish/maple-cli.exe'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-unsigned-${{ matrix.arch }}
+          path: publish/
+          if-no-files-found: error
+
+  windows-app:
+    name: Windows ${{ matrix.arch }} (sign, package)
+    needs: [windows-build]
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-unsigned-${{ matrix.arch }}
+          path: publish
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0' }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Verify downloaded payload architecture
         shell: pwsh
         run: ./src/windows/scripts/verify-native-architecture.ps1 -Architecture '${{ matrix.arch }}' -Paths 'publish/Maple.WinUI.exe', 'publish/raw_ffi.dll', 'publish/maple-cli.exe'
 

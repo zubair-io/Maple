@@ -12,6 +12,7 @@ fn tiled_parity(profile: Option<&[f32]>) {
         (17, 9),
         (31, 23),
         (257, 17),
+        (257, 65),
     ] {
         let plane: Vec<f32> = (0..width * height)
             .map(|i| {

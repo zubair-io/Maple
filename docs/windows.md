@@ -281,7 +281,7 @@ pwsh src/windows/scripts/qualify-winui.ps1 -Raw C:\path\to\photo.dng
 
 `.github/workflows/windows.yml` builds and tests x64 on `windows-latest` and ARM64 on `windows-11-arm`. Each architecture runs the native wrapper, Rust unit tests, C# tests with its own DLL for the FFI layout gate, and the real WinUI lifecycle harness. CI check names and retained lifecycle artifacts identify the architecture. The stable `Windows result` check requires both matrix legs and the wrapper contracts to succeed when Windows changes are detected.
 
-`.github/workflows/release.yml` builds and signs both architectures, including the panorama CLI, and produces `MapleSetup-<arch>-<version>.exe` and `Maple-Windows-<arch>-<version>.zip`. The architecture is `x64` or `arm64`. Both builds must complete before release publication. ARM64 installers only accept ARM64 Windows; x64 installers retain their existing x64-compatible policy.
+`.github/workflows/release.yml` builds both architectures natively, including the panorama CLI, then transfers each payload to an x64 runner for signing and packaging (Azure Trusted Signing does not support ARM64 runners). It produces `MapleSetup-<arch>-<version>.exe` and `Maple-Windows-<arch>-<version>.zip`. The architecture is `x64` or `arm64`. Both builds must complete before release publication. ARM64 installers only accept ARM64 Windows; x64 installers retain their existing x64-compatible policy.
 
 These are separate native builds. Windows can distribute multiple architectures in one MSIX bundle, but Maple currently ships unpackaged WinUI through Inno Setup, not MSIX. CI lifecycle checks do not establish physical-device GPU performance or full photographic parity; `qualify-winui.ps1` remains a separate qualification step.
 
