@@ -844,6 +844,8 @@ struct AppShell: View {
     // #4326: Keyboard shortcuts for Open Folder (⌘O) and Settings (⌘,) on Mac
     // and iPad. Kept off the toolbar to avoid reserving empty toolbar slots
     // or glass capsules, and active across Browse, Preview, and Editor.
+    // Uses opacity(0) and zero frame rather than .hidden() so keyboard shortcuts
+    // remain interactive in SwiftUI on macOS and iPadOS.
     .background {
       Group {
         Button("Open Folder") {
@@ -858,7 +860,9 @@ struct AppShell: View {
           .keyboardShortcut(",", modifiers: .command)
         #endif
       }
-      .hidden()
+      .frame(width: 0, height: 0)
+      .opacity(0)
+      .accessibilityHidden(true)
     }
     // OS file/folder drop-to-mount (#2649), macOS + iPad only — iPhone
     // renders `phoneTabShell` instead of this view. Routing lives in
