@@ -25,11 +25,16 @@ namespace Maple.WinUI.Services
                 lock (_gate)
                 {
                     if (!IsCurrentFrame(image)) return;
-                    _bgra = pixels;
-                    _chainScratch = scratch;
                 }
                 HistogramReady?.Invoke(ComputeHistogram(pixels));
                 EmitClipSource(pixels, image.Width, image.Height);
+                // Readers finish before the next tick can borrow these buffers.
+                lock (_gate)
+                {
+                    if (!IsCurrentFrame(image)) return;
+                    _bgra = pixels;
+                    _chainScratch = scratch;
+                }
             }
             catch (Exception ex)
             {
