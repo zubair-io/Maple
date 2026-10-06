@@ -80,6 +80,9 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
+# Canonical NLM endpoints are shared by native/WASM CPU and GPU hosts.
+python3 tools/generate_nlm_exp_table.py
+
 cargo build --release \
 	--manifest-path src/raw-pipeline/Cargo.toml \
 	-p codegen

@@ -61,6 +61,7 @@ jobs:
           python-version: '3.12'
       - run: python3 -m pip install PyYAML==6.0.2
       - run: python3 -m unittest discover -s tools -p 'test_ci_*.py'
+      - run: python3 -m unittest discover -s tools -p 'test_nlm_exp_table.py'
 
   release-handoff-tests:
     name: Release handoff regression tests

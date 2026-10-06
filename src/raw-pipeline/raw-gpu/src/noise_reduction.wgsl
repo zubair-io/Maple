@@ -11,7 +11,7 @@
 //
 // FAST_EXP_RANGE = 8.0, FAST_EXP_TABLE_SIZE = 512. The table index is
 // `t = x · (TABLE_SIZE / RANGE) = x · 64`, `i = floor(t)`, `frac = t - i`. The
-// table stores exp(-(i / 64)), computed once on the host and retained on GPU.
+// table stores exp(-(i / 64)), rounded once into canonical f32 bits shared by all hosts and the GPU.
 // This preserves the CPU lookup while removing two exponentials per shift/pixel.
 const FAST_EXP_RANGE: f32 = 8.0;
 const FAST_EXP_INV_STEP: f32 = 512.0 / 8.0; // TABLE_SIZE / RANGE

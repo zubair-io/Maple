@@ -297,7 +297,7 @@ The headless reference renderer. Subcommands (`maple-cli/src/commands/`):
 
 ## Pipeline output version
 
-`raw-core/src/version.rs` holds `PIPELINE_OUTPUT_VERSION: u32` — currently **6**. It is a monotonic counter that answers "when the meaning of a stored sidecar changes, how does every derived artifact know it is stale?" Bump it by one, in the same commit, whenever a change alters the develop pipeline's pixel output for any input, or silently reinterprets an already-stored `AdjustmentModel` value with no load-time converter. Adding a slider at an identity default, fixing a non-output-visible bug, or changing an estimator that only runs when no value is authored do not bump it. The current lineage: 1 = the initial epoch, 2 = `FixVignetteRadial` opcodes started being parsed and applied, 3 = highlight-recovery sensor ceilings include `BaselineExposure` (#3267), 4 = the Highlights slider runs in Adobe's direction, positive brightens (#3592), 5 = the whites slider moved to the AgX view transform (#3601), 6 = sensor-relative bounded highlight reconstruction before lens resampling, with DNG 32-phase cubic warp sampling (#3680).
+`raw-core/src/version.rs` holds `PIPELINE_OUTPUT_VERSION: u32` — currently **9**. It is a monotonic counter that answers "when the meaning of a stored sidecar changes, how does every derived artifact know it is stale?" Bump it by one, in the same commit, whenever a change alters the develop pipeline's pixel output for any input, or silently reinterprets an already-stored `AdjustmentModel` value with no load-time converter. Adding a slider at an identity default, fixing a non-output-visible bug, or changing an estimator that only runs when no value is authored do not bump it. The current lineage: 1 = the initial epoch, 2 = `FixVignetteRadial` opcodes started being parsed and applied, 3 = highlight-recovery sensor ceilings include `BaselineExposure` (#3267), 4 = the Highlights slider runs in Adobe's direction, positive brightens (#3592), 5 = the whites slider moved to the AgX view transform (#3601), 6 = sensor-relative bounded highlight reconstruction before lens resampling, with DNG 32-phase cubic warp sampling (#3680).
 
 It reaches the platforms through codegen (`AdjustmentModel.pipelineOutputVersion` in Swift, `PIPELINE_OUTPUT_VERSION` in TypeScript), and rendered-output caches fold it into their keys so one bump invalidates stale entries everywhere at once. It is the cheap default; `WbScaleVersion` is the richer per-field alternative used where preserving the authored look justifies writing a converter. See [caching](caching.md) and [xmp-canonical-format](xmp-canonical-format.md).
 
@@ -335,3 +335,27 @@ bash src/scripts/test_banding.sh
 ```
 
 `.github/workflows/raw-pipeline.yml` runs all of the above; the GPU job installs Mesa lavapipe as a software Vulkan adapter and fails closed if no adapter is reported. RAW fixtures are gitignored, so the fixture-dependent gates skip-pass on stock runners. The full gate inventory, budget files and the ratchet rule are in [testing](testing.md).
+
+### Windows ARM64 NLM qualification (#4273)
+
+Pipeline epoch 9 includes the five-tap constant-strength tiled CPU NLM path,
+fixed 256-row reseed boundaries in the general path, and a canonical binary32
+exponential table. The table is generated with 80-digit decimal precision by
+`tools/generate_nlm_exp_table.py` and included by both CPU and GPU hosts. This
+removes platform `expf` variation; fixed boundaries remove thread-pool-dependent
+rounding. The tiled path preserves shift order but changes patch reduction
+rounding, so epoch 8 previews must be invalidated rather than claiming bit identity.
+
+The WGSL kernel already uses local separable patch sums and receives the same
+canonical table. Its arithmetic contract remains the existing maximum absolute
+error below 1e-4, not CPU/GPU bit identity. The profile-free parity test includes
+257×65 and 513×67 planes to enter the CPU tiled dispatch; a separate profiled test
+covers the general path. CPU tests additionally require bit-identical outputs
+across 1, 2, 4 and 7 threads and compare ARM64 vector accumulation exactly with
+the scalar operations. Scratch allocation is bounded to six buffers per worker
+per call, reused across all that worker's tiles; no per-tile allocations remain.
+
+The presentation blue-noise storage change preserves the original 4096 values;
+it changes the Adreno shader resource representation, not the dither sequence.
+The repeated-frame test checks initial upload and subsequent buffer reuse, and
+requires every frame to pass.

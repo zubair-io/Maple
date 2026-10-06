@@ -291,3 +291,9 @@ These are separate native builds. Windows can distribute multiple architectures 
 
 `.xaml` is still outside both scripts' extension list — a XAML-only change is not measured, allowlisted, or blocked. Likewise, `lefthook.yml`'s Prettier hook globs `ts,tsx,js,jsx,html,scss,css,json,yaml,yml,md,graphql`, so there is still no formatting gate on C# or XAML.
 Info visual checkpoints wait up to ten seconds for the selected photo metadata loading row to disappear before publishing readiness. A changed selection/mode, timeout, or metadata retry state fails the checkpoint instead of recording a populated-inspector pass.
+
+The old `%LOCALAPPDATA%\Maple\ort\onnxruntime.dll` cache is no longer read.
+After upgrading, it is safe to delete that legacy file; the architecture-specific
+subdirectories contain the current runtimes. Both Windows installers share the
+same application identity and install directory, so installing ARM64 over an x64
+installation upgrades the existing app in place.

@@ -50,12 +50,11 @@ fn luma_params(amount: f32) -> NlmParams {
     }
 }
 
-/// Same 513 grid endpoints as raw-core's `fast_exp_table`. The immutable 2KB
-/// table is generated once per process, then retained by the GPU content cache;
-/// each weight needs two lookup reads instead of two GPU exponentials.
+// Share the canonical bits without introducing a raw-core -> raw-gpu cycle.
+#[path = "../../raw-core/src/stages/nlm_exp_table.rs"]
+mod exp_table;
 fn fast_exp_table() -> &'static [f32; 513] {
-    static TABLE: std::sync::OnceLock<[f32; 513]> = std::sync::OnceLock::new();
-    TABLE.get_or_init(|| std::array::from_fn(|i| (-(i as f32 * 8.0 / 512.0)).exp()))
+    &exp_table::VALUES
 }
 
 /// Chroma NLM params for a slider `amount` — line-faithful to

@@ -278,6 +278,7 @@ fn desktop_sized_present_preserves_dither_parity() {
     let input = scene_linear_rgba(w as usize, h as usize);
     let case = neutral_case();
     let want = cpu_reference_u8(&input, w, h, &case);
+    // Every frame must pass: exercise first upload and subsequent buffer reuse.
     for _ in 0..3 {
         let got = gpu_present_u8(&ctx, &input, w, h, &case);
         let (max_delta, fraction) = byte_diff(&got, &want);
