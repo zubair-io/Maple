@@ -1,5 +1,6 @@
 import { signal } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
 import { defaultAdjustmentModel } from '../../models/adjustment-model';
 import type { AssetId } from '../../models/asset';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
@@ -78,8 +79,9 @@ describe('ImageCanvasRawOpen', () => {
       recordPaintedDims: vi.fn(),
       scheduleRefine: vi.fn(),
     } as unknown as Render2dHost;
+    const byteLoadError = signal<import('./image-canvas.byteload').ByteLoadError | null>(null);
     rawOpen = new ImageCanvasRawOpen(host, {
-      byteLoadError: signal(null),
+      byteLoadError,
       embeddedPreview: {
         extractEmbeddedPreview: vi.fn(
           options.extractPreview ??
@@ -92,7 +94,7 @@ describe('ImageCanvasRawOpen', () => {
         ),
       },
       imageBitmap,
-      currentAssetId: () => 'a',
+      currentAssetId: () => host.currentAssetId,
       coldOpenDone: () => coldOpenDone,
       gpuEnabled: () => options.gpuOpen === true,
       openGpu: vi.fn(async () => {
@@ -102,8 +104,88 @@ describe('ImageCanvasRawOpen', () => {
       setCurrentInput: vi.fn(),
       recordPaintedDims: vi.fn(),
     });
-    return { rawOpen, imageBitmap, loading, pixels };
+    return { rawOpen, imageBitmap, loading, pixels, host, byteLoadError };
   }
+
+  function supersedeColdLoad(h: ReturnType<typeof harness>, outcome: string): ImageBitmap {
+    if (outcome === 'reset') h.rawOpen.reset();
+    if (outcome === 'asset') Object.assign(h.host, { currentAssetId: 'b' });
+    if (outcome === 'generation') Object.assign(h.host, { renderGeneration: 2 });
+    if (outcome === 'profile revision') h.host.state.autoFitRevisionFor = () => 1;
+    const replacement = { close: vi.fn() } as unknown as ImageBitmap;
+    if (outcome === 'replacement frame') h.imageBitmap.set(replacement);
+    return replacement;
+  }
+
+  for (const outcome of [
+    'failure',
+    'AbortError',
+    'reset',
+    'asset',
+    'generation',
+    'profile revision',
+    'replacement frame',
+    'provisional',
+  ])
+    it(`records only an owned terminal CPU rejection: ${outcome}`, async () => {
+      let reject!: (error: Error) => void;
+      const failed = new Promise<DecodedImage>((_done, fail) => {
+        reject = fail;
+      });
+      const h = harness(() => failed, {
+        extractPreview:
+          outcome === 'provisional' ? undefined : () => Promise.reject(new Error('no preview')),
+      });
+      const opening = h.rawOpen.load('a', 'a.dng', new Uint8Array([1, 2, 3]));
+      await Promise.resolve();
+      await Promise.resolve();
+      const replacement = supersedeColdLoad(h, outcome);
+      const error = new Error('rejected CPU decode');
+      if (outcome === 'AbortError') error.name = 'AbortError';
+      reject(error);
+      await opening;
+      expect(h.byteLoadError() !== null).toBe(outcome === 'failure' || outcome === 'provisional');
+      if (outcome === 'replacement frame') {
+        expect(h.imageBitmap()).toBe(replacement);
+        expect(replacement.close).not.toHaveBeenCalled();
+      }
+      if (outcome === 'provisional') expect(h.imageBitmap()).not.toBeNull();
+    });
+
+  it('preserves the pending newer load when the previous same-asset decode rejects', async () => {
+    let rejectFirst!: (error: Error) => void;
+    let finishSecond!: (value: DecodedImage) => void;
+    const first = new Promise<DecodedImage>((_done, fail) => {
+      rejectFirst = fail;
+    });
+    const second = new Promise<DecodedImage>((done) => {
+      finishSecond = done;
+    });
+    const h = harness(vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second), {
+      extractPreview: () => Promise.reject(new Error('no preview')),
+    });
+    const capabilities = new LensCorrectionCapabilities();
+    capabilities.resetAutoFit('a');
+    Object.assign(h.host.state, {
+      autoFitRevisionFor: capabilities.autoFitRevisionFor.bind(capabilities),
+      lensCorrectionsFor: capabilities.for.bind(capabilities),
+      seedLensProfile: capabilities.seedProfile.bind(capabilities),
+      seedLensCorrections: capabilities.seed.bind(capabilities),
+    });
+    const old = h.rawOpen.load('a', 'a.dng', new Uint8Array([1]));
+    await vi.waitFor(() => expect(h.host.pipeline.decode).toHaveBeenCalledTimes(1));
+    const current = h.rawOpen.load('a', 'a.dng', new Uint8Array([2]));
+    await vi.waitFor(() => expect(h.host.pipeline.decode).toHaveBeenCalledTimes(2));
+    rejectFirst(new Error('previous load failed'));
+    await old;
+    expect(capabilities.for('a').autoFit).toBeUndefined();
+    expect(h.loading()).toBe(true);
+    expect(h.byteLoadError()).toBeNull();
+    finishSecond({ ...decoded, autoFit: true });
+    await current;
+    expect(capabilities.for('a').autoFit).toBe(true);
+    expect(h.pixels()?.autoFit).toBe(true);
+  });
 
   it('shows the embedded JPEG while the full RAW decode is pending', async () => {
     let finishDecode!: (value: DecodedImage) => void;

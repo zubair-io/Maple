@@ -59,7 +59,31 @@ export class ImageCanvasRawOpen {
         return;
       }
     }
-    await coldOpen2d(this.host, assetId, filename, input.ext, input.bytes);
+    await this.openCpuInput(assetId, filename, input, request);
+  }
+
+  private async openCpuInput(
+    assetId: AssetId,
+    filename: string,
+    input: EditorInput,
+    request: number,
+  ): Promise<void> {
+    const generation = this.host.renderGeneration;
+    const presented = await coldOpen2d(this.host, assetId, filename, input.ext, input.bytes, () =>
+      this.ownsLoad(assetId, request),
+    );
+    if (
+      presented === false &&
+      this.ownsLoad(assetId, request) &&
+      generation === this.host.renderGeneration
+    ) {
+      this.deps.byteLoadError.set({
+        id: assetId,
+        filename,
+        reason: 'Image could not be rendered; retry or choose another image',
+        renderGeneration: generation,
+      });
+    }
   }
 
   private ownsLoad(assetId: AssetId, request: number): boolean {
