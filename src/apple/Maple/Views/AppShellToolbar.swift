@@ -26,9 +26,8 @@ struct AppShellToolbar: ToolbarContent {
   /// `.editing` editor OR the Fast-Preview `.preview` surface, Mac/iPad
   /// pane shell). Those views render their own header (back + filename),
   /// so the window toolbar suppresses every browse-specific control (grid
-  /// fill/fit, select) — only the persistent Library/Search/Settings group
-  /// survives, so the sidebar can still be toggled. Always false on
-  /// iPhone (it never enters these pane-shell modes).
+  /// fill/fit, select) and Settings — only search survives (when available).
+  /// Always false on iPhone (it never enters these pane-shell modes).
   var isEditing: Bool = false
   /// True on the compact (iPhone) shell, where Library / Search / Settings
   /// live in the bottom tab bar. Desktop (Mac / iPad) renders them as a
@@ -43,8 +42,6 @@ struct AppShellToolbar: ToolbarContent {
   @Binding var browseDisplayMode: GridDisplayMode
   /// Desktop only — opens the cloud search view (the "Search" button).
   let onOpenSearch: () -> Void
-  /// Triggered by the hidden ⌘O keyboard shortcut.
-  let onOpenFolder: () -> Void
   /// Tapped when the user hits the Settings gear (also ⌘, on macOS).
   let onSettings: () -> Void
   /// True when BrowseViewModel is in multi-select mode (M1, #1236).
@@ -53,6 +50,24 @@ struct AppShellToolbar: ToolbarContent {
   /// Tapped when the user hits the "Select" / "Done" multi-select toggle.
   /// nil hides the button (edit mode).
   var onToggleSelect: (() -> Void)? = nil
+
+  /// Whether the Settings control appears in the window toolbar. Visible in
+  /// Browse mode on desktop (Mac / iPad), but hidden on Preview and Editor pages
+  /// (#4326). iPhone renders Settings in the bottom tab bar.
+  var showsSettingsInToolbar: Bool {
+    !isCompact && !isEditing
+  }
+
+  /// Whether the Search control appears in the window toolbar. Visible on
+  /// desktop (Mac / iPad) when cloud search is available.
+  var showsSearchInToolbar: Bool {
+    !isCompact && searchAvailable
+  }
+
+  /// Whether the grid fill/fit display mode control appears in the toolbar.
+  var showsGridDisplayMode: Bool {
+    !isEditing
+  }
 
   var body: some ToolbarContent {
     // `.primaryAction` lands on the TRAILING edge of the title bar per
@@ -64,7 +79,7 @@ struct AppShellToolbar: ToolbarContent {
     // Grid fill/fit toggle — only relevant in browse mode. Persists for
     // the session via @State on AppShell. The button shows the OPPOSITE
     // icon as the action target (see `GridDisplayMode.toggleIconName`).
-    if !isEditing {
+    if showsGridDisplayMode {
       ToolbarItem(placement: .primaryAction) {
         Button {
           browseDisplayMode = browseDisplayMode.toggled
@@ -104,32 +119,24 @@ struct AppShellToolbar: ToolbarContent {
         .accessibilityIdentifier("multi-select-toggle")
       }
     }
-    // ⌘O keyboard shortcut — desktop only. Omitted on the compact (iPhone)
-    // shell: there's no hardware ⌘O there, and a hidden trailing item would
-    // otherwise render as an empty glass capsule (iOS 26 groups toolbar
-    // items into capsules) now that the Settings gear has moved out. #692.
-    if !isCompact {
-      ToolbarItem(placement: .automatic) {
-        Button("Open Folder", systemImage: "folder.badge.plus") {
-          onOpenFolder()
-        }
-        .keyboardShortcut("o", modifiers: .command)
-        // Hide from the visible toolbar — keyboard shortcut only.
-        .hidden()
-        .accessibilityHidden(true)
-      }
-    }
     // Trailing primary nav — desktop (Mac / iPad) only. iPhone gets these
     // three as the bottom tab bar (Library / Search / Settings), so the
     // compact shell renders nothing here. Mirrors the iOS footer. #692.
     // Note: the sidebar-toggle button (sidebar.left / "Library") has been
     // removed from this group — sidebar visibility is controlled via the
     // NavigationSplitView's built-in toggle and the ⌘\ shortcut.
-    if !isCompact {
+    //
+    // In #4326:
+    // - The hidden ⌘O ToolbarItem was removed to eliminate reserved empty
+    //   toolbar space to the left of Settings on Mac and iPad. Keyboard
+    //   shortcuts are hosted at the pane shell level.
+    // - Settings button is visible in Browse (!isEditing), but hidden on
+    //   Preview and Editor pages.
+    if showsSearchInToolbar || showsSettingsInToolbar {
       ToolbarItemGroup(placement: .primaryAction) {
         // Omit the search button entirely off-cloud — disabled is
         // confusing on a source that has no /api/search endpoint.
-        if searchAvailable {
+        if showsSearchInToolbar {
           Button {
             onOpenSearch()
           } label: {
@@ -142,11 +149,13 @@ struct AppShellToolbar: ToolbarContent {
           .accessibilityIdentifier("search-toggle")
         }
 
-        Button("Settings", systemImage: "gear") {
-          onSettings()
+        if showsSettingsInToolbar {
+          Button("Settings", systemImage: "gear") {
+            onSettings()
+          }
+          .accessibilityLabel("Settings")
+          .accessibilityIdentifier("settings-button")
         }
-        .accessibilityLabel("Settings")
-        .accessibilityIdentifier("settings-button")
       }
     }
   }
