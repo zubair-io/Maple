@@ -14,7 +14,7 @@ public class ProfileArtifactNativeTests
     {
         RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
         var source = Environment.GetEnvironmentVariable("MAPLE_PROFILE_TEST_RAW")!;
-        var original = SHA256.HashData(File.ReadAllBytes(source));
+        var original = HashFile(source);
         var model = new AdjustmentState();
         var decoded = RenderEngine.Decode(source, model, 1600, RefineDecodeQuality.Preview, IntPtr.Zero);
         Assert.Equal(new ProfileFitContext(1600, RefineDecodeQuality.Preview), decoded.ProfileFit);
@@ -42,7 +42,7 @@ public class ProfileArtifactNativeTests
         Assert.NotSame(retained, RenderEngine.Decode(source, model, 1600, RefineDecodeQuality.Preview, IntPtr.Zero, decoded).DisplayLut);
         decoded.ProfileFit = null;
         Assert.NotSame(retained, RenderEngine.Decode(source, model, 1600, RefineDecodeQuality.Preview, IntPtr.Zero, decoded).DisplayLut);
-        Assert.Equal(original, SHA256.HashData(File.ReadAllBytes(source)));
+        Assert.Equal(original, HashFile(source));
     }
 
     [NativeComposeFact]
