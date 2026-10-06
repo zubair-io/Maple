@@ -1,0 +1,13 @@
+<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Temperature="5200"><crs:MaskGroup><rdf:Seq><rdf:li>foreign mask &amp; history</rdf:li></rdf:Seq></crs:MaskGroup><papp:Workflow xmlns:papp="http://ns.justmaple.app/photo/1.0/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" rdf:parseType="Resource">
+        <papp:SchemaVersion>1</papp:SchemaVersion>
+        <papp:VariantId>primary</papp:VariantId>
+        <papp:VariantName>Primary</papp:VariantName>
+        <papp:Snapshots>
+          <rdf:Seq>
+          </rdf:Seq>
+        </papp:Snapshots>
+        <papp:History>
+          <rdf:Seq>
+          </rdf:Seq>
+        </papp:History>
+      </papp:Workflow></rdf:Description></rdf:RDF></x:xmpmeta>
