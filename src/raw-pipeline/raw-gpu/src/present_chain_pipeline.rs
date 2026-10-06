@@ -313,9 +313,10 @@ pub(crate) fn encode_present_pass(
 /// One cached present dispatch, tagged with the buffer identity it was built
 /// against (see [`PresentDispatchCache`]).
 struct CachedPresentEntry {
-    // Hash wgpu's resource identities, not the address of the Rust wrapper:
-    // a newly opened session can reuse the old wrapper's allocation address.
-    identity: u64,
+    // #4355: wgpu hashes a recyclable Box address. The session owns both
+    // ping-pong buffers for its immutable lifetime; direction names one.
+    identity: (u64, usize),
+    layout_identity: u64,
     dims: (u32, u32),
     src_dims: (u32, u32),
     uniform: Arc<wgpu::Buffer>,
@@ -355,7 +356,7 @@ impl PresentDispatchCache {
         self.alloc_count.get()
     }
 
-    /// Reuse a dispatch keyed on resource identity and sampling geometry.
+    /// Reuse a dispatch keyed on immutable session identity, direction and dimensions.
     /// Each buffer direction allocates once, then updates allocate nothing.
     /// Test-only today: production calls `get_or_build_scaled` directly and
     /// `tests.rs` is the sole caller of this wrapper (mirroring
@@ -366,35 +367,39 @@ impl PresentDispatchCache {
         ctx: &GpuContext,
         bind_group_layout: &wgpu::BindGroupLayout,
         chain_buf: &wgpu::Buffer,
+        identity: (u64, usize),
         dims: (u32, u32),
     ) -> (Arc<wgpu::Buffer>, Arc<wgpu::BindGroup>) {
         self.get_or_build_scaled(
             ctx,
             bind_group_layout,
             chain_buf,
+            identity,
             dims,
             (0, 0),
             PresentGeometry::IDENTITY,
         )
     }
 
-    /// Scaled sibling for a chain buffer smaller than the surface. Geometry
-    /// participates in the key even when the source buffer stays the same.
+    /// Scaled sibling for a chain buffer smaller than the surface. Identity
+    /// must be the owning LiveSession ID and the selected ping-pong direction.
     pub fn get_or_build_scaled(
         &self,
         ctx: &GpuContext,
         bind_group_layout: &wgpu::BindGroupLayout,
         chain_buf: &wgpu::Buffer,
+        identity: (u64, usize),
         dims: (u32, u32),
         src_dims: (u32, u32),
         geometry: PresentGeometry,
     ) -> (Arc<wgpu::Buffer>, Arc<wgpu::BindGroup>) {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        chain_buf.hash(&mut hasher);
+        // The surface retains its layout and invalidates before replacing it.
         bind_group_layout.hash(&mut hasher);
-        let identity = hasher.finish();
+        let layout_identity = hasher.finish();
         for existing in self.entries.borrow().iter().flatten() {
             if existing.identity == identity
+                && existing.layout_identity == layout_identity
                 && existing.dims == dims
                 && existing.src_dims == src_dims
             {
@@ -431,6 +436,7 @@ impl PresentDispatchCache {
         self.next_slot.set((slot + 1) % 4);
         self.entries.borrow_mut()[slot] = Some(CachedPresentEntry {
             identity,
+            layout_identity,
             dims,
             src_dims,
             uniform: Arc::clone(&uniform),
