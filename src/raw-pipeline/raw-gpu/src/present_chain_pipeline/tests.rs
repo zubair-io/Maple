@@ -64,8 +64,7 @@ fn fast_refine_and_neutral_active_presents_allocate_only_once() {
                     &bgl,
                     buffer,
                     ((index % 2) as u64 + 1, index / 2),
-                    (8, 8),
-                    source,
+                    ((8, 8), source),
                     PresentGeometry::IDENTITY,
                 )
                 .1
@@ -82,8 +81,7 @@ fn fast_refine_and_neutral_active_presents_allocate_only_once() {
                 &bgl,
                 buffer,
                 ((index % 2) as u64 + 1, index / 2),
-                (8, 8),
-                source,
+                ((8, 8), source),
                 PresentGeometry::IDENTITY,
             );
             assert!(Arc::ptr_eq(original, &current));
@@ -226,8 +224,7 @@ fn source_geometry_and_layout_changes_never_reuse_stale_dispatches() {
         &bgl,
         &chain_buf,
         (1, 0),
-        (8, 8),
-        (4, 4),
+        ((8, 8), (4, 4)),
         crate::PresentGeometry::IDENTITY,
     );
     assert!(!Arc::ptr_eq(&original, &scaled));
