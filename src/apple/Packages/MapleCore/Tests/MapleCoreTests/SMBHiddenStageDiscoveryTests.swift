@@ -59,7 +59,9 @@ final class SMBHiddenStageDiscoveryTests: XCTestCase {
 
   private func stageCopies(in fixture: OwnedSMBWorkflowFixture, paths: [String]) throws -> [URL] {
     try paths.map { path in
-      let destination = fixture.share.appendingPathComponent(path)
+      let destination = path.split(separator: "/").reduce(fixture.share) {
+        $0.appendingPathComponent(String($1))
+      }
       try FileManager.default.createDirectory(
         at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
       try FileManager.default.copyItem(at: fixture.raw, to: destination)
