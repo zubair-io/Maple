@@ -19,6 +19,8 @@ public sealed partial class RenderScheduler
         string? failure = null;
         scheduler.HistogramReady += bins =>
         {
+            if (scheduler._bgra != null || scheduler._chainScratch != null)
+                throw new InvalidOperationException("Histogram buffers returned before its readers finished");
             if (bins.Length != 1024) throw new InvalidOperationException("Invalid histogram bins");
             for (var channel = 0; channel < 4; channel++)
             {
@@ -32,6 +34,8 @@ public sealed partial class RenderScheduler
         scheduler.ClipOverlayEnabled = true;
         scheduler.ClipSourceReady += (pixels, width, height) =>
         {
+            if (scheduler._bgra != null || scheduler._chainScratch != null)
+                throw new InvalidOperationException("Histogram buffers returned before clipping finished");
             if (width != image.Width || height != image.Height || pixels.Length != width * height * 4)
                 throw new InvalidOperationException("Invalid histogram clipping frame");
             clips++;

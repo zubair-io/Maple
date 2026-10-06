@@ -506,8 +506,6 @@ namespace Maple.WinUI.Services
                 lock (_gate)
                 {
                     if (!IsCurrentFrame(image)) return true;
-                    _bgra = pixels;
-                    _chainScratch = scratch;
                 }
 
                 if (emitFrame)
@@ -516,6 +514,12 @@ namespace Maple.WinUI.Services
                 EmitClipSource(pixels, image.Width, image.Height);
                 if (sampleScopes) DumpFrameIfRequested(pixels, image.Width, image.Height);
                 if (sampleScopes) EmitCpuScope(image, state);
+                lock (_gate)
+                {
+                    if (!IsCurrentFrame(image)) return true;
+                    _bgra = pixels;
+                    _chainScratch = scratch;
+                }
                 return true;
             }
             catch (Exception ex)
