@@ -8,7 +8,7 @@ use super::{
     RADIAL_CONTAINER,
 };
 use crate::types::local_adjustment::flat::MASK_GROUP_VERSION;
-use crate::types::MaskCombine;
+use crate::types::{MaskCombine, MaskSource};
 
 /// Round to the canonical 2-decimal wire precision
 /// (`docs/xmp-canonical-format.md` § "Number formatting"). Values here are
@@ -195,23 +195,40 @@ fn serialize_range(range: Option<RangeRefinement>, indent: &str) -> String {
 
 fn serialize_mask(mask: &Mask, indent: &str) -> String {
     match mask {
-        Mask::Bitmap { recipe, .. } => format!(
-            "{indent}<rdf:li\n\
-             {indent}  crs:What=\"{MASK_WHAT_IMAGE}\"\n\
-             {indent}  crs:MaskSubType=\"1\"\n\
-             {indent}  crs:MaskValue=\"1\"\n\
-             {indent}  papp:MaskSource=\"PersonSkin\"\n\
-             {indent}  papp:MaskPerson=\"{}\"\n\
-             {indent}  papp:MaskFacialSkin=\"{}\"\n\
-             {indent}  papp:MaskBodySkin=\"{}\"\n\
-             {indent}  papp:MaskModel=\"{}\"\n\
-             {indent}  papp:MaskDigest=\"{}\"/>\n",
-            recipe.person,
-            if recipe.facial_skin { "True" } else { "False" },
-            if recipe.body_skin { "True" } else { "False" },
-            escape_attr(&recipe.model),
-            escape_attr(&recipe.digest),
-        ),
+        Mask::Bitmap { recipe, .. } => match recipe.source {
+            MaskSource::PersonSkin => format!(
+                "{indent}<rdf:li\n\
+                 {indent}  crs:What=\"{MASK_WHAT_IMAGE}\"\n\
+                 {indent}  crs:MaskSubType=\"1\"\n\
+                 {indent}  crs:MaskValue=\"1\"\n\
+                 {indent}  papp:MaskSource=\"{}\"\n\
+                 {indent}  papp:MaskPerson=\"{}\"\n\
+                 {indent}  papp:MaskFacialSkin=\"{}\"\n\
+                 {indent}  papp:MaskBodySkin=\"{}\"\n\
+                 {indent}  papp:MaskModel=\"{}\"\n\
+                 {indent}  papp:MaskDigest=\"{}\"/>\n",
+                recipe.source.xmp_name(),
+                recipe.person,
+                if recipe.facial_skin { "True" } else { "False" },
+                if recipe.body_skin { "True" } else { "False" },
+                escape_attr(&recipe.model),
+                escape_attr(&recipe.digest),
+            ),
+            // A sky selection (#361) carries no person/skin attributes —
+            // model + digest regenerate the raster on any host.
+            MaskSource::Sky => format!(
+                "{indent}<rdf:li\n\
+                 {indent}  crs:What=\"{MASK_WHAT_IMAGE}\"\n\
+                 {indent}  crs:MaskSubType=\"1\"\n\
+                 {indent}  crs:MaskValue=\"1\"\n\
+                 {indent}  papp:MaskSource=\"{}\"\n\
+                 {indent}  papp:MaskModel=\"{}\"\n\
+                 {indent}  papp:MaskDigest=\"{}\"/>\n",
+                recipe.source.xmp_name(),
+                escape_attr(&recipe.model),
+                escape_attr(&recipe.digest),
+            ),
+        },
         Mask::Everywhere => format!(
             "{indent}<rdf:li\n\
              {indent}  crs:What=\"{MASK_WHAT_IMAGE}\"\n\

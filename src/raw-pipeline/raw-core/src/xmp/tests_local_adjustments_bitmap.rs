@@ -6,7 +6,7 @@
 
 use super::*;
 use crate::types::local_adjustment::{
-    BitmapRecipe, LocalAdjustment, Mask, PartialAdjustments, Point2, SKIN_TONE_RANGE,
+    BitmapRecipe, LocalAdjustment, Mask, MaskSource, PartialAdjustments, Point2, SKIN_TONE_RANGE,
 };
 
 const INDENT: &str = "      ";
@@ -36,6 +36,7 @@ fn bitmap_layer() -> LocalAdjustment {
     LocalAdjustment {
         mask: Mask::Bitmap {
             recipe: BitmapRecipe {
+                source: MaskSource::PersonSkin,
                 person: 0,
                 facial_skin: true,
                 body_skin: true,
@@ -99,8 +100,14 @@ fn bitmap_and_everywhere_share_the_mask_group_based_corrections_container() {
     model.local_adjustments = vec![bitmap_layer(), everywhere_layer()];
     let children = serialize_local_adjustments(&model, INDENT);
 
-    assert!(children.contains("<crs:MaskGroupBasedCorrections>"), "{children}");
-    assert!(!children.contains("<crs:GradientBasedCorrections>"), "{children}");
+    assert!(
+        children.contains("<crs:MaskGroupBasedCorrections>"),
+        "{children}"
+    );
+    assert!(
+        !children.contains("<crs:GradientBasedCorrections>"),
+        "{children}"
+    );
     assert!(
         !children.contains("<crs:CircularGradientBasedCorrections>"),
         "{children}"
@@ -124,8 +131,14 @@ fn mixed_container_types_all_emit_and_round_trip_together() {
     model.local_adjustments = vec![linear.clone(), bitmap_layer()];
 
     let children = serialize_local_adjustments(&model, INDENT);
-    assert!(children.contains("<crs:GradientBasedCorrections>"), "{children}");
-    assert!(children.contains("<crs:MaskGroupBasedCorrections>"), "{children}");
+    assert!(
+        children.contains("<crs:GradientBasedCorrections>"),
+        "{children}"
+    );
+    assert!(
+        children.contains("<crs:MaskGroupBasedCorrections>"),
+        "{children}"
+    );
 
     let parsed = parse(&sidecar(&children)).expect("parse");
     assert_eq!(parsed.local_adjustments.len(), 2, "doc:\n{children}");
@@ -262,7 +275,10 @@ fn everywhere_mask_combines_with_a_range_refinement() {
 
     let children = serialize_local_adjustments(&model, INDENT);
     assert!(children.contains("papp:RangeKind=\"Color\""), "{children}");
-    assert!(children.contains("papp:MaskSource=\"Everywhere\""), "{children}");
+    assert!(
+        children.contains("papp:MaskSource=\"Everywhere\""),
+        "{children}"
+    );
 
     let parsed = parse(&sidecar(&children)).expect("parse");
     assert_eq!(parsed.local_adjustments, vec![layer]);
@@ -346,4 +362,82 @@ fn parses_the_cross_language_canonical_group_block() {
         parsed.local_adjustments,
         vec![bitmap_layer(), everywhere_layer()]
     );
+}
+
+/// A sky selection (#361): identified by model + digest alone, with no
+/// person/skin attributes on the wire.
+fn sky_layer() -> LocalAdjustment {
+    LocalAdjustment {
+        mask: Mask::Bitmap {
+            recipe: BitmapRecipe {
+                source: MaskSource::Sky,
+                model: "maple-server-sky/1".to_string(),
+                digest: "0011223344556677".to_string(),
+                ..Default::default()
+            },
+            raster_id: 0,
+        },
+        range: None,
+        adjustments: PartialAdjustments {
+            exposure: Some(-0.5),
+            ..Default::default()
+        },
+    }
+}
+
+#[test]
+fn sky_mask_serializes_without_person_skin_attributes_and_round_trips() {
+    let mut model = AdjustmentModel::default();
+    model.local_adjustments = vec![sky_layer()];
+
+    let children = serialize_local_adjustments(&model, INDENT);
+    assert!(children.contains("papp:MaskSource=\"Sky\""), "{children}");
+    assert!(!children.contains("papp:MaskPerson"), "{children}");
+    assert!(!children.contains("papp:MaskFacialSkin"), "{children}");
+    assert!(!children.contains("papp:MaskBodySkin"), "{children}");
+
+    let parsed = parse(&sidecar(&children)).expect("parse");
+    assert_eq!(parsed.local_adjustments, vec![sky_layer()]);
+}
+
+/// `papp:MaskSource="Sky"` without `papp:MaskDigest` is the same hard parse
+/// error as PersonSkin without one — an unregistered digest renders as
+/// nothing forever, so a missing one must fail loudly.
+#[test]
+fn sky_mask_missing_digest_is_a_hard_error() {
+    let children = r#"      <crs:MaskGroupBasedCorrections>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="True" crs:LocalExposure2012="1">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li crs:What="Mask/Image" crs:MaskValue="1" papp:MaskSource="Sky" papp:MaskModel="maple-server-sky/1"/>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </crs:MaskGroupBasedCorrections>"#;
+    assert!(parse(&sidecar(children)).is_err());
+}
+
+/// Person/skin attributes on a Sky leaf are meaningless and ignored — a
+/// hand-edited sidecar can't smuggle a person selection into a sky recipe.
+#[test]
+fn sky_parse_ignores_person_skin_attributes() {
+    let children = r#"      <crs:MaskGroupBasedCorrections>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="True" crs:LocalExposure2012="-0.5">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li crs:What="Mask/Image" crs:MaskValue="1" papp:MaskSource="Sky" papp:MaskPerson="3" papp:MaskFacialSkin="False" papp:MaskModel="maple-server-sky/1" papp:MaskDigest="0011223344556677"/>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </crs:MaskGroupBasedCorrections>"#;
+    let parsed = parse(&sidecar(children)).expect("parse");
+    assert_eq!(parsed.local_adjustments, vec![sky_layer()]);
 }

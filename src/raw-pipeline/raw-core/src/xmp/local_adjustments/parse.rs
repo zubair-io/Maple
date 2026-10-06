@@ -7,7 +7,8 @@ use super::{Kind, MASK_WHAT_IMAGE, MASK_WHAT_LINEAR, MASK_WHAT_RADIAL};
 use crate::error::{Error, Result};
 use crate::types::local_adjustment::flat::MASK_GROUP_VERSION;
 use crate::types::local_adjustment::{
-    BitmapRecipe, Mask, MaskCombine, MaskComponent, PartialAdjustments, Point2, RangeRefinement,
+    BitmapRecipe, Mask, MaskCombine, MaskComponent, MaskSource, PartialAdjustments, Point2,
+    RangeRefinement,
 };
 use crate::types::SKIN_TONE_RANGE;
 use crate::xmp::parse_xmp_bool;
@@ -256,6 +257,7 @@ pub(super) fn parse_mask_attrs(kind: Kind, e: &BytesStart<'_>) -> Result<Option<
             Some("Everywhere") => Ok(Some(Mask::Everywhere)),
             Some("PersonSkin") => Ok(Some(Mask::Bitmap {
                 recipe: BitmapRecipe {
+                    source: MaskSource::PersonSkin,
                     person: attr_f32(e, "papp:MaskPerson")?.unwrap_or(0.0) as u32,
                     facial_skin: attr_str(e, "papp:MaskFacialSkin")?
                         .and_then(|v| parse_xmp_bool(&v))
@@ -272,6 +274,20 @@ pub(super) fn parse_mask_attrs(kind: Kind, e: &BytesStart<'_>) -> Result<Option<
                 // ticket) stamps a real id onto the parsed model — resolving
                 // by digest is what makes that work without this parser
                 // needing to know about the registry at all.
+                raster_id: 0,
+            })),
+            // A sky selection (#361) is identified by model + digest alone —
+            // person/skin attributes are meaningless for it and ignored when
+            // present, so a hand-edited sidecar can't smuggle them in.
+            Some("Sky") => Ok(Some(Mask::Bitmap {
+                recipe: BitmapRecipe {
+                    source: MaskSource::Sky,
+                    model: attr_str(e, "papp:MaskModel")?.unwrap_or_default(),
+                    digest: attr_str(e, "papp:MaskDigest")?.ok_or_else(|| {
+                        Error::Xmp("Mask/Image Sky is missing papp:MaskDigest".into())
+                    })?,
+                    ..Default::default()
+                },
                 raster_id: 0,
             })),
             // Lightroom's own AI masks (Select Subject, Select Sky, …) carry
