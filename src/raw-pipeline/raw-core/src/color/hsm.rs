@@ -219,6 +219,49 @@ pub fn apply_with_space(img: &mut Image, table: &HsmTable, expected: ColorSpace)
     apply(img, table);
 }
 
+/// Invert HSM on a single ProPhoto D50 RGB pixel.
+/// Finds `orig` such that applying `table` to `orig` yields `rgb`.
+pub fn invert_one(rgb: [f32; 3], table: &HsmTable) -> [f32; 3] {
+    let mut p = rgb;
+    if matches!(table.encoding, HsmEncoding::Srgb) {
+        p[0] = linear_to_srgb_one(p[0]);
+        p[1] = linear_to_srgb_one(p[1]);
+        p[2] = linear_to_srgb_one(p[2]);
+    }
+    let (h_out, s_out, v_out) = rgb_to_hsv(p);
+    if s_out <= 1e-6 || v_out <= 1e-6 {
+        return rgb;
+    }
+    let mut h = h_out;
+    let mut s = s_out;
+    let mut v = v_out;
+    for _ in 0..4 {
+        let (hd, ss, vs) = lookup(table, h, s, v);
+        let w_chroma = (s / 0.01).clamp(0.0, 1.0);
+        let hd = hd * w_chroma;
+        let ss = 1.0 + (ss - 1.0) * w_chroma;
+        let vs = 1.0 + (vs - 1.0) * w_chroma;
+        h = (h_out - hd).rem_euclid(360.0);
+        s = if ss.abs() > 1e-4 {
+            (s_out / ss).clamp(0.0, 1.0)
+        } else {
+            s_out
+        };
+        v = if vs.abs() > 1e-4 {
+            (v_out / vs).max(0.0)
+        } else {
+            v_out
+        };
+    }
+    let mut out = hsv_to_rgb(h, s, v);
+    if matches!(table.encoding, HsmEncoding::Srgb) {
+        out[0] = srgb_to_linear_one(out[0]);
+        out[1] = srgb_to_linear_one(out[1]);
+        out[2] = srgb_to_linear_one(out[2]);
+    }
+    out
+}
+
 // ── HSV ↔ RGB ────────────────────────────────────────────────────────────────
 
 /// Convert an [r, g, b] triple to (hue°, sat, val). Standard cylindrical
@@ -765,13 +808,37 @@ mod tests {
             lookup(&table, 30.0, 0.5, 0.5).0
         };
         // Boundary cases: exact ±180 must keep their sign (not fold to +180).
-        assert!(approx(uniform(-180.0), -180.0, 1e-3), "-180 → {}", uniform(-180.0));
-        assert!(approx(uniform(180.0), 180.0, 1e-3), "+180 → {}", uniform(180.0));
+        assert!(
+            approx(uniform(-180.0), -180.0, 1e-3),
+            "-180 → {}",
+            uniform(-180.0)
+        );
+        assert!(
+            approx(uniform(180.0), 180.0, 1e-3),
+            "+180 → {}",
+            uniform(180.0)
+        );
         // Wrap cases still fold into [-180, 180] with the correct sign.
-        assert!(approx(uniform(350.0), -10.0, 1e-3), "350 → {}", uniform(350.0));
-        assert!(approx(uniform(-350.0), 10.0, 1e-3), "-350 → {}", uniform(-350.0));
-        assert!(approx(uniform(270.0), -90.0, 1e-3), "270 → {}", uniform(270.0));
-        assert!(approx(uniform(-270.0), 90.0, 1e-3), "-270 → {}", uniform(-270.0));
+        assert!(
+            approx(uniform(350.0), -10.0, 1e-3),
+            "350 → {}",
+            uniform(350.0)
+        );
+        assert!(
+            approx(uniform(-350.0), 10.0, 1e-3),
+            "-350 → {}",
+            uniform(-350.0)
+        );
+        assert!(
+            approx(uniform(270.0), -90.0, 1e-3),
+            "270 → {}",
+            uniform(270.0)
+        );
+        assert!(
+            approx(uniform(-270.0), 90.0, 1e-3),
+            "-270 → {}",
+            uniform(-270.0)
+        );
         // In-range values pass through unchanged.
         assert!(approx(uniform(0.0), 0.0, 1e-3));
         assert!(approx(uniform(90.0), 90.0, 1e-3));
@@ -912,5 +979,31 @@ mod tests {
         assert_eq!(HsmEncoding::from_u32(0), HsmEncoding::Linear);
         assert_eq!(HsmEncoding::from_u32(1), HsmEncoding::Srgb);
         assert_eq!(HsmEncoding::from_u32(99), HsmEncoding::Linear);
+    }
+
+    #[test]
+    fn invert_one_roundtrips_applied_pixel() {
+        // Table with slight hue and sat shift
+        let mut table = identity_table([4, 2, 2], HsmEncoding::Linear);
+        for i in (0..table.data.len()).step_by(3) {
+            table.data[i] = 5.0; // +5 deg hue shift
+            table.data[i + 1] = 0.95; // 0.95 sat scale
+            table.data[i + 2] = 1.02; // 1.02 val scale
+        }
+        let original = [0.8, 0.75, 0.7];
+        let mut img = Image::new(1, 1, ColorSpace::CameraNativeLinearRgb);
+        img.pixels[0] = original;
+        apply(&mut img, &table);
+        let applied = img.pixels[0];
+
+        let inverted = invert_one(applied, &table);
+        for k in 0..3 {
+            assert!(
+                (inverted[k] - original[k]).abs() < 1e-3,
+                "channel {k}: inverted {} vs original {}",
+                inverted[k],
+                original[k]
+            );
+        }
     }
 }
