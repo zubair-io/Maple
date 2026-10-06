@@ -54,7 +54,7 @@ export const subjectMasksRoutes = new Elysia({ prefix: '/api/subject-masks' })
       return { error: 'Unknown mask digest' };
     }
 
-    return new Response(pngBytes, {
+    return new Response(new Uint8Array(pngBytes).buffer, {
       headers: {
         'Content-Type': 'image/png',
         'Cache-Control': 'public, max-age=31536000, immutable',

@@ -78,7 +78,7 @@ export async function personSegmentationHandler(
   if (primary) {
     try {
       const idToSlug = await loadLibraryIdToSlug();
-      const slug = idToSlug.get(primary.library_id);
+      const slug = idToSlug.get(primary.library_id.toHexString());
       if (slug) {
         const rel = primary.path ? `${primary.path}/${primary.filename}` : primary.filename;
         address = `${slug}:${rel}`;

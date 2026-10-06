@@ -17,7 +17,7 @@ import {
   setSubjectMaskCacheDirForTests,
 } from '../../enrichment/subject-masks/subject-mask-cache.ts';
 import { subjectMaskDigest } from '../../enrichment/subject-masks/subject-mask-digest.ts';
-import { ObjectId, newObjectIdHex } from '../../db/object-id.ts';
+import { ObjectId } from '../../db/object-id.ts';
 import type { ImageDoc, StageContext } from '../run-stage.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
@@ -72,7 +72,10 @@ describe('person-segmentation stage', () => {
   it('skips undecodable stub files', async () => {
     const doc: ImageDoc = {
       _id: new ObjectId(),
-      fileinfo: [{ path: '', filename: 'test.afphoto', library_id: newObjectIdHex() }],
+      fileinfo: [{ path: '', filename: 'test.afphoto', library_id: new ObjectId() }],
+      rating: 0,
+      flag: 0,
+      color_label: '',
       size: 100,
       mtime: 100,
       indexed_at: '2026-01-01',
@@ -84,7 +87,10 @@ describe('person-segmentation stage', () => {
   it('skips video files', async () => {
     const doc: ImageDoc = {
       _id: new ObjectId(),
-      fileinfo: [{ path: '', filename: 'clip.mp4', library_id: newObjectIdHex() }],
+      fileinfo: [{ path: '', filename: 'clip.mp4', library_id: new ObjectId() }],
+      rating: 0,
+      flag: 0,
+      color_label: '',
       size: 100,
       mtime: 100,
       indexed_at: '2026-01-01',
@@ -109,6 +115,9 @@ describe('person-segmentation stage', () => {
     const doc: ImageDoc = {
       _id: assetId,
       fileinfo: [{ path: '', filename: 'landscape.jpg', library_id: libId }],
+      rating: 0,
+      flag: 0,
+      color_label: '',
       size: 100,
       mtime: 100,
       indexed_at: '2026-01-01',
@@ -119,10 +128,11 @@ describe('person-segmentation stage', () => {
     expect('patch' in res).toBe(true);
     if ('patch' in res) {
       expect(res.patch).toHaveLength(1);
-      const stmt = res.patch[0];
-      expect(stmt.params[0]).toBe(assetId.toHexString());
-      expect(stmt.params[1]).toBe(PERSON_SEGMENTATION_MODEL_ID);
-      expect(JSON.parse(stmt.params[2] as string)).toEqual([]);
+      const params = res.patch[0].params;
+      if (!Array.isArray(params)) throw new Error('Expected positional segmentation parameters');
+      expect(params[0]).toBe(assetId.toHexString());
+      expect(params[1]).toBe(PERSON_SEGMENTATION_MODEL_ID);
+      expect(JSON.parse(params[2] as string)).toEqual([]);
     }
   });
 
@@ -157,6 +167,9 @@ describe('person-segmentation stage', () => {
     const doc: ImageDoc = {
       _id: assetId,
       fileinfo: [{ path: '', filename: 'portrait.jpg', library_id: libId }],
+      rating: 0,
+      flag: 0,
+      color_label: '',
       size: 100,
       mtime: 100,
       indexed_at: '2026-01-01',
@@ -167,10 +180,11 @@ describe('person-segmentation stage', () => {
     expect('patch' in res).toBe(true);
     if ('patch' in res) {
       expect(res.patch).toHaveLength(1);
-      const stmt = res.patch[0];
-      expect(stmt.params[0]).toBe(assetId.toHexString());
-      expect(stmt.params[1]).toBe(PERSON_SEGMENTATION_MODEL_ID);
-      const parsedPersons = JSON.parse(stmt.params[2] as string);
+      const params = res.patch[0].params;
+      if (!Array.isArray(params)) throw new Error('Expected positional segmentation parameters');
+      expect(params[0]).toBe(assetId.toHexString());
+      expect(params[1]).toBe(PERSON_SEGMENTATION_MODEL_ID);
+      const parsedPersons = JSON.parse(params[2] as string);
       expect(parsedPersons).toEqual([
         {
           person: 0,
