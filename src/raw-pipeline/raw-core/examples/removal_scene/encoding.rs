@@ -26,6 +26,8 @@ pub enum ProbeEncoding {
 pub struct FixedSdr {
     method: String,
     agx_version: u32,
+    #[serde(default)]
+    exposure_ev: f32,
 }
 
 impl ProbeEncoding {
@@ -45,10 +47,24 @@ impl ProbeEncoding {
             Ok(Self::FixedSdr(FixedSdr {
                 method: "fixed-agx-srgb".into(),
                 agx_version: agx::AGX_VERSION,
+                exposure_ev: 0.0,
             }))
         } else {
             Ok(Self::SignedLog(RemovalModelEncoding::fit(scene)?))
         }
+    }
+
+    /// #3941 controlled photographic input exposure, undone on reconstruction.
+    pub fn with_exposure(mut self, ev: f32) -> ProbeResult<Self> {
+        if !ev.is_finite() || !(-4.0..=4.0).contains(&ev) {
+            return Err("research exposure outside finite +/-4 EV".into());
+        }
+        match &mut self {
+            Self::FixedSdr(recipe) => recipe.exposure_ev = ev,
+            _ if ev != 0.0 => return Err("input exposure requires fixed SDR".into()),
+            _ => {}
+        }
+        Ok(self)
     }
 
     fn validate(&self) -> ProbeResult<()> {
@@ -56,7 +72,11 @@ impl ProbeEncoding {
             recipe.validate()?;
         }
         if let Self::FixedSdr(recipe) = self {
-            if recipe.method != "fixed-agx-srgb" || recipe.agx_version != agx::AGX_VERSION {
+            if recipe.method != "fixed-agx-srgb"
+                || recipe.agx_version != agx::AGX_VERSION
+                || !recipe.exposure_ev.is_finite()
+                || !(-4.0..=4.0).contains(&recipe.exposure_ev)
+            {
                 return Err("unsupported fixed photographic SDR recipe".into());
             }
         }
@@ -71,11 +91,14 @@ impl ProbeEncoding {
         match self {
             Self::SignedLog(recipe) => Ok(recipe.encode(scene)?),
             Self::PhotographicContrast(recipe) => recipe.encode(scene),
-            Self::FixedSdr(_) => {
+            Self::FixedSdr(recipe) => {
                 let mut image = Image {
                     width: scene.len().try_into()?,
                     height: 1,
-                    pixels: scene.to_vec(),
+                    pixels: scene
+                        .iter()
+                        .map(|p| p.map(|v| v * recipe.exposure_ev.exp2()))
+                        .collect(),
                     space: ColorSpace::SceneLinearRec2020,
                     whites_anchor_ev: None,
                     nr_sampling_scale: 1.0,
@@ -103,11 +126,12 @@ impl ProbeEncoding {
         match self {
             Self::SignedLog(recipe) => Ok(recipe.decode(model)?),
             Self::PhotographicContrast(recipe) => recipe.decode(model),
-            Self::FixedSdr(_) => Ok(model
+            Self::FixedSdr(recipe) => Ok(model
                 .iter()
                 .map(|p| {
                     let display = M_SRGB_TO_REC2020.mul_vec(p.map(agx_inverse::srgb_gamma_inv));
                     agx_inverse::inverse_agx_pixel(display, 1.0, 0.0)
+                        .map(|v| v / recipe.exposure_ev.exp2())
                 })
                 .collect()),
         }

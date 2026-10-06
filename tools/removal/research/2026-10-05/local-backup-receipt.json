@@ -1,0 +1,11 @@
+{
+  "backupRoot": "/Users/riabuz/Documents/Maple Research/removal-checkpoint-2026-10-05",
+  "manifest": "/Users/riabuz/Documents/Maple Research/removal-checkpoint-2026-10-05/artifact-manifest.json",
+  "manifestSha256": "81f6b8c4e9c6111babae1a49d04a0da162a445b53ebadece5ade2a356304f396",
+  "filesVerified": 7605,
+  "bytesVerified": 38503643587,
+  "copyVerified": true,
+  "offDeviceBackup": false,
+  "modelWeightsIncluded": false,
+  "originalRawsIncluded": false
+}

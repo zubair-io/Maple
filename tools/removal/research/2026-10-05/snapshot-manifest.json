@@ -1,0 +1,528 @@
+{
+  "captured": "2026-10-05",
+  "files": [
+    {
+      "path": "desktop-quality-9ikrgf16/source-integrity.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/source-integrity.json",
+      "originalSha256": "68b25b7d9bd06f0d5a4583c6a4a39da3d3dfd46d128d683fb0effdafec96f323",
+      "checkpointSha256": "68b25b7d9bd06f0d5a4583c6a4a39da3d3dfd46d128d683fb0effdafec96f323"
+    },
+    {
+      "path": "desktop-quality-9ikrgf16/run_lama.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/run_lama.py",
+      "originalSha256": "37866485514edcb15ce41ceb8dd0ed820a76b11f2742796cd897ca70b72e6be9",
+      "checkpointSha256": "d156074ecebe0ca850264f5da517ab16ab7c0ca4c35d77d8ea9a42aa522764a0"
+    },
+    {
+      "path": "desktop-quality-9ikrgf16/make_gallery.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/make_gallery.py",
+      "originalSha256": "4181651bca4ab0b6fdf75500f9f1b52f370b576f258b3dec49e8aa31feb9cfce",
+      "checkpointSha256": "4c3c2b849405c04a48bbd109f4fac8d8c41608d3cee3c522321112affe15cc30"
+    },
+    {
+      "path": "desktop-quality-9ikrgf16/verify_identity.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/verify_identity.py",
+      "originalSha256": "b082f339e949b38c2f155a68f3abb8248059443f95c4d4ab5b8849528a096f30",
+      "checkpointSha256": "15522b8661f7c9b8d8e4ff685558ce472c9ca50e927bdec22b8bb1482c5ad733"
+    },
+    {
+      "path": "desktop-quality-9ikrgf16/prepare_crops.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/prepare_crops.py",
+      "originalSha256": "006da84381857564ab3ef9f19e7191cdee3c7c839d4ade5a6fd109192b96ee4b",
+      "checkpointSha256": "cd09f8b2aafdb9e990e6d3f255f760545e17b459b354187b10131101e7b21671"
+    },
+    {
+      "path": "desktop-quality-9ikrgf16/results.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/results.json",
+      "originalSha256": "d0f1438e7b07fa521a0056a0a07136d9422f4e1d0b49d8d7d5bc353ad697fa15",
+      "checkpointSha256": "4d5d0d2a7a289ea3b04f0cf2ffc3469ccd67badb35113aab4a1111edd3de2ca5"
+    },
+    {
+      "path": "desktop-quality-9ikrgf16/mask-annotations.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/mask-annotations.json",
+      "originalSha256": "e70d46d85e2e893df2287da324749f2d8b97ae9f6fa400e39024274536e4a29f",
+      "checkpointSha256": "89c7543d24db7971523b27e275005c0d9194654d63c1a9e8770b7da658c325c2"
+    },
+    {
+      "path": "desktop-quality-9ikrgf16/run_lama_raw.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/run_lama_raw.py",
+      "originalSha256": "9f23c79ae5ecd48c76977625a7c9419ffa125bfb5d1692f4dfc320072510d2a0",
+      "checkpointSha256": "38523bf36084ed2c33bf4576e491cef19eb9a1462490beac46488c5fc210c515"
+    },
+    {
+      "path": "desktop-quality-9ikrgf16/cases.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/cases.json",
+      "originalSha256": "7a58a3476c95205b1219361e53cbb8d4e358678e532aed63d4b8f6e2ebd3fe55",
+      "checkpointSha256": "84c9de531921b63f94d87e50cdc6e9090a9cde70dd22ea43d640751a359c8964"
+    },
+    {
+      "path": "desktop-quality-9ikrgf16/identity-metrics.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/identity-metrics.json",
+      "originalSha256": "37b2eeec4995c9f304d1479f779039eb78945bcbd7b9f5f1196c287d56772643",
+      "checkpointSha256": "d1909fce5cfcba18a356a4fe76136c9727c35d4f82af23be0fa4ca12e7448750"
+    },
+    {
+      "path": "desktop-quality-9ikrgf16/inventory.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/inventory.json",
+      "originalSha256": "6eb891defe49639ac834610db8a7e4a937ed08607fa28a3be25fa7be9e9ff8af",
+      "checkpointSha256": "6eb891defe49639ac834610db8a7e4a937ed08607fa28a3be25fa7be9e9ff8af"
+    },
+    {
+      "path": "desktop-quality-9ikrgf16/artifact-digests.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/artifact-digests.json",
+      "originalSha256": "3dd66a2577ec558b3c03c644159271df54002f9143ccf26ad8aa6dec9e87a4d2",
+      "checkpointSha256": "3dd66a2577ec558b3c03c644159271df54002f9143ccf26ad8aa6dec9e87a4d2"
+    },
+    {
+      "path": "desktop-quality-9ikrgf16/prepare_masks.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/prepare_masks.py",
+      "originalSha256": "03066dac554af05f662cc07e51f33d54f197789b4a25918e9f112d2a42c4a133",
+      "checkpointSha256": "aee4415c5b29b4fd841a5a90052e9ee197b6465b6e7076a7aab5af20d02d4ae1"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/summary.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/summary.json",
+      "originalSha256": "4e31717d069c76371f89d686b930a21edecc046c1ea98b1748e7e1ceae2bbd73",
+      "checkpointSha256": "4a3988b2b914cf48e8a2a7238c3ced02fe5784321f656a11450af6712255158b"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/source-integrity.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/source-integrity.json",
+      "originalSha256": "68b25b7d9bd06f0d5a4583c6a4a39da3d3dfd46d128d683fb0effdafec96f323",
+      "checkpointSha256": "68b25b7d9bd06f0d5a4583c6a4a39da3d3dfd46d128d683fb0effdafec96f323"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/verify_results.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/verify_results.py",
+      "originalSha256": "18038849be1a8d5d5b3fb58fad75ac643aa828ba045bbda5bf450724f761cbb7",
+      "checkpointSha256": "cd1180582a161135254d342c6132dba0974654a0887e1810f35b1ecf1c1056b6"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/run_lama_raw512.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/run_lama_raw512.py",
+      "originalSha256": "ff01d9e0f7a303f476678b8e55e1c309503d032afed77bb8b5efa0319f0aea04",
+      "checkpointSha256": "b97014a63e31a524c0bbb5f811af394ce04f37ecc22925f020c23f7411b70ba1"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/run_moebius.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/run_moebius.py",
+      "originalSha256": "342b2818c2f447e46180f026a1a585503463eac534ae12186cc7364734db702f",
+      "checkpointSha256": "d348496fb442493a116f1d6dd03d047b335ace6fec4dd3e56a750e888531c174"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/make_review.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/make_review.py",
+      "originalSha256": "1f83e617cec71203ccab68888076323e9fcb4f16d3eeed1c0f7c1ab2100f95a4",
+      "checkpointSha256": "35752ca366ee1e09419b4b52ced52e823f0c8a0c6b3964a5b562b64a1148460a"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/runtime-provenance.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/runtime-provenance.json",
+      "originalSha256": "6e793f2c6a72a9d35d17d26e16f219c3a3a6d499f8be3c40e1dea174b067f06a",
+      "checkpointSha256": "6e793f2c6a72a9d35d17d26e16f219c3a3a6d499f8be3c40e1dea174b067f06a"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/python-environment.txt",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/python-environment.txt",
+      "originalSha256": "34c13ac11a190c8f8568ff6aadbec765dab90c7daac03b4c4e72292023e3ff44",
+      "checkpointSha256": "34c13ac11a190c8f8568ff6aadbec765dab90c7daac03b4c4e72292023e3ff44"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/run_moebius_fullnoise.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/run_moebius_fullnoise.py",
+      "originalSha256": "5b15bbce988481d1d51d5488838aad074abe1645bb9c48cafcab4332ba134357",
+      "checkpointSha256": "1ae3b462d77a49481b4720df4039e449219c21172454797cca8855e9540ce6d0"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/bake_raw.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/bake_raw.py",
+      "originalSha256": "fd9fa6df8084499ff1f6d5ee84509bd6c8a072534abecda83e2816e8efa40b97",
+      "checkpointSha256": "c8913f88a56677fca8c13fbb2cdd7ba83331f6ab736b7cedd08ed894a1fcb20a"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/prepare_raw512_mask_control.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/prepare_raw512_mask_control.py",
+      "originalSha256": "c66988293bd641dae29aef8e74ad18bb834da535cf6e33a07f55ff03f825d729",
+      "checkpointSha256": "76429f2e5650a3ecdee888276b897c641c63dedbcf241419d1053a5409795e6d"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/prepare_case5.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/prepare_case5.py",
+      "originalSha256": "1b1802d481c983b3a0ebd86505662c9132af23232ee6a7545b208e3664914e61",
+      "checkpointSha256": "7c30622984ad76616f2eab1ada471eac16cf67ae9cb4b295fb410eef19525068"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/run_lama512.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/run_lama512.py",
+      "originalSha256": "b53b40312e6ab1269a8834594078ada0bb9dd7973575c9311a65441fd6f8af59",
+      "checkpointSha256": "54889514f3257222bd05662107460605142b038e75fb3e09856e4de81761826f"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/bake_raw_mask_control.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/bake_raw_mask_control.py",
+      "originalSha256": "425eb5ff285a39749b4947540aa3024097e2ccddec627ae2ac644cb716db0bd6",
+      "checkpointSha256": "bf332adb1bd42436e752848da4b0fdcaa384a5b25e948ff5a247564dfc067f1e"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/prepare_mask_controls.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/prepare_mask_controls.py",
+      "originalSha256": "ee7705820998e98d8e1f429f0587e4f0ef4d8977c15dd766dc1ed934e2fd2670",
+      "checkpointSha256": "fef927d2e60b87fabd74b1992697c1cc39d10680a1a5274056ed2ed99dc6b438"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/raw-verification.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/raw-verification.json",
+      "originalSha256": "bb73096dca692a669e6df17b3b6a2234a482c55605d67b92eb10d96d887312c9",
+      "checkpointSha256": "0bdfe0be7396663352ead2a43519317e8e8f5a88642faffdccba111f9609dac1"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/protocol.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/protocol.json",
+      "originalSha256": "c39a3b977455522400e72cabe165c828505ebf530b2c38b8138ebbf3cd6ea584",
+      "checkpointSha256": "86e1d3b956d54d065a4cfcfebfa312cec7173074172b9093dc7976e9f0f1c8cb"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/mask-controls.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/mask-controls.json",
+      "originalSha256": "45731528e580c731dd70812a147e890e82c1ba8fa26cfe6c00759e3286a56e14",
+      "checkpointSha256": "4d470bd687030b73e309bae472068d85b66e63719b16aaa2826bb7e6b23ff074"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/prepare_raw512.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/prepare_raw512.py",
+      "originalSha256": "13f2526ba33d7f61d44ffae4a91d4597557b98044faf4fde31f5b050fcce2111",
+      "checkpointSha256": "9ba72d1b44e3186c213919de5b9098b101f547e535a3c9bc38e70db2ae8dc4d9"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/artifact-digests.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/artifact-digests.json",
+      "originalSha256": "e8dd84f699df25a27dfa509dbe533a68ea92006954448d0ba8e2e1779e1eb568",
+      "checkpointSha256": "e8dd84f699df25a27dfa509dbe533a68ea92006954448d0ba8e2e1779e1eb568"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/prepare.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/prepare.py",
+      "originalSha256": "651edf19e8ade44058cea2b3e23b1ded5025d9fe41561d5e609e79edfd220d9c",
+      "checkpointSha256": "31820acaa5b6def9f15fb524d1766c316a6c4d5fb342d13ef2bb0f4a1eb43e08"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/verify_mask_controls.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/verify_mask_controls.py",
+      "originalSha256": "82815adfa6679dd3ecc7936662de827eaf3a5912bf3772fce89f714de8847091",
+      "checkpointSha256": "d8acb16609704a74b0beafb6844b4eb8db3b66a9f36bafa7cf8233a070d7ebb0"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/prepare_raw_mask_control.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/prepare_raw_mask_control.py",
+      "originalSha256": "2f429228f85abee688bbcf6786d0f8558ffc3314fc0c7ca27a4efc4b12b343c6",
+      "checkpointSha256": "7c626546ac8318f30369aee976d836b0fcab77c38788385f149a6a6f340dad4a"
+    },
+    {
+      "path": "moebius-quality-yzitv43p/raw-mask-control-verification.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/moebius-quality-yzitv43p/raw-mask-control-verification.json",
+      "originalSha256": "e3a07ee39b0589b2af52e74e84ab2de1f74c794103b8ad3d75af5fcf2a3fcafe",
+      "checkpointSha256": "1c635e068b8c369f8412d51b0cf6910ccb07fc01b21ae327b79599570c1a6642"
+    },
+    {
+      "path": "three-model-quality-20261005/summary.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/summary.json",
+      "originalSha256": "6926847a87c9049cf6bec1142931eebfd89b75aa7a72e5624d8e787c0364ecf4",
+      "checkpointSha256": "d08aa054068eb22af03293569e86c7a423de3f66c380a147b5a574a809638a1a"
+    },
+    {
+      "path": "three-model-quality-20261005/source-integrity.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/source-integrity.json",
+      "originalSha256": "566ac758750a53f32fc3dc878139fcbf30f5bfc01da4203601f7a445b202c4cc",
+      "checkpointSha256": "33441855bd76fa247164ffa2d544003caf383477da89e6e55c4e501d1ef10079"
+    },
+    {
+      "path": "three-model-quality-20261005/prepare_raw.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/prepare_raw.py",
+      "originalSha256": "d1da4c12e74da2a81cd92200836b1d6808e6bb66af58c732565cd7f7bb352b82",
+      "checkpointSha256": "3ffa5c0dbe42ddb19d5d5cd26cdf42fc6d5d055245d8069eafb3826912949857"
+    },
+    {
+      "path": "three-model-quality-20261005/qwen-manifest.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/qwen-manifest.json",
+      "originalSha256": "42cd792616d427eac16616eb556111afff271358568fa3cb3675449398d11067",
+      "checkpointSha256": "8783f0037d50fa15ec0f8c1b0a999e116a09271fe8241a4270ad75b5baab8445"
+    },
+    {
+      "path": "three-model-quality-20261005/raw_review_sheet.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/raw_review_sheet.py",
+      "originalSha256": "60fae13c63d76cbff7e84af2120bf80206ef7b721382f8e33d8044f50d5ce124",
+      "checkpointSha256": "cfab85aafc8f9ff1cf8800e572e2ce3118ebae5a8863896a4003c8f6e2b22918"
+    },
+    {
+      "path": "three-model-quality-20261005/compare_sheet.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/compare_sheet.py",
+      "originalSha256": "7d2c8a5c91a0cd50224e6767ee717c72af1094c5848e568ab609078e8e329337",
+      "checkpointSha256": "9f1c9e894fa8df88c5e7533571b8ab12ffa6eabcc35b00f353c3fb1c5b80113f"
+    },
+    {
+      "path": "three-model-quality-20261005/run_lama.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/run_lama.py",
+      "originalSha256": "17261b1235f97e819b59d92afef9e9aea85a9b86082a97413b2a48045377584c",
+      "checkpointSha256": "ee2c73286c07af2fd2d3de2b6ad920f7bc5ea8aacd7db74e6779b48e544aef14"
+    },
+    {
+      "path": "three-model-quality-20261005/mlx-environment.txt",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mlx-environment.txt",
+      "originalSha256": "712803537acb669078a41d1d0ec00da001b2466fed8339f4194e3844cff2098b",
+      "checkpointSha256": "712803537acb669078a41d1d0ec00da001b2466fed8339f4194e3844cff2098b"
+    },
+    {
+      "path": "three-model-quality-20261005/run_remaining.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/run_remaining.py",
+      "originalSha256": "1247ad2068c19042c43f8c897d1b54a888dc4a64feebab57ce4b43eadc3db730",
+      "checkpointSha256": "d896d411f46d0c17fb02424b2d58712f3335de5fd175cb568db3d0d482b4c372"
+    },
+    {
+      "path": "three-model-quality-20261005/download_models.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/download_models.py",
+      "originalSha256": "ad0c39d7d9537d6daef9e3261b302ee00c95483d31b004453f6fddae8c4aecf9",
+      "checkpointSha256": "888a9d48f889aa64e03a61a7f1da35c7405cb235792b37869cfe149549884fba"
+    },
+    {
+      "path": "three-model-quality-20261005/raw-case5-limitation.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/raw-case5-limitation.json",
+      "originalSha256": "b65e3d93fd3ab27fb59d3c7dfe4414040718aa308ce955c9ed071906615c92c8",
+      "checkpointSha256": "cf94c4d5ec023310808902ffdb76a595df67d6c378b465a97485bc86782be813"
+    },
+    {
+      "path": "three-model-quality-20261005/bake_raw.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/bake_raw.py",
+      "originalSha256": "4e3d241c500fd688e334a2d853562be520bbf77092997ce93d34690b95e6a32d",
+      "checkpointSha256": "8cbddd3655586918318d1ff54d3e1ba0f0aa4d36f8c5fb5e784b822659cdddbc"
+    },
+    {
+      "path": "three-model-quality-20261005/run_mlx.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/run_mlx.py",
+      "originalSha256": "be60b9e253aae693bb4b8b9f2bc54bf727643204b8f76f9e3da972df53cf7edb",
+      "checkpointSha256": "fabb6d4a82ad633ee80eb32ec9a691a7322d22bcfd3a407a76e3ac9e8a211a21"
+    },
+    {
+      "path": "three-model-quality-20261005/roi_metrics.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/roi_metrics.py",
+      "originalSha256": "8c068d3360311cd81a72984e8c5f23a543ad8a1e202c27585537900fe10ea880",
+      "checkpointSha256": "27a66ac9cf78b148b5ee63f546d5bd7f1c33c9fdd9ba1c117c34ab15bfa274ce"
+    },
+    {
+      "path": "three-model-quality-20261005/run_512.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/run_512.py",
+      "originalSha256": "d0ddc6dbd401d8f4ccabc3fbb9a565163c40725af7b7e7eb2d51546a37c2cd9c",
+      "checkpointSha256": "de2eccf6a9e66cc580ff2be1bf61c84de637632adfe18f23610bd37b50b1dba1"
+    },
+    {
+      "path": "three-model-quality-20261005/summarize.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/summarize.py",
+      "originalSha256": "cc8d347b17b9890bf8c63b1cbd02c77ef21cb19eb479fe0edc68e2ad48fd26a0",
+      "checkpointSha256": "0a4b7b67505597d9a2858f70e2ebbdae195732d3947c2ab5225a1cd0153d2d2b"
+    },
+    {
+      "path": "three-model-quality-20261005/qwen-hub.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/qwen-hub.json",
+      "originalSha256": "dcb89f1cabc3b694eb5b12c4d6d6f6ee5762137b02a5a595a3fa7c9a2b62c2cd",
+      "checkpointSha256": "d4a855d5bb95e06d7ddcbe63a6eff3a692173cc796a2dd092e685655e9e7eec6"
+    },
+    {
+      "path": "three-model-quality-20261005/klein-manifest.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/klein-manifest.json",
+      "originalSha256": "61a2ad2e81d3087b717408911d77daeb9f33fabd02e179481f5f7f33420ce99b",
+      "checkpointSha256": "d79d95754b0c6be4121859c30d0fd5bf74c93a5bdad80643ffd3cb2e12f382d7"
+    },
+    {
+      "path": "three-model-quality-20261005/overview.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/overview.py",
+      "originalSha256": "9fd41923e130e9109ec235ecfc98eacd0ba2f23eb9810b2a28a5ba5fe558e92f",
+      "checkpointSha256": "0b7a06f93adf8b5fe888b2e769339513e79ae4412b034a7a6671f910c7ae1141"
+    },
+    {
+      "path": "three-model-quality-20261005/common.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/common.py",
+      "originalSha256": "398cc67dfdfa7aa78455951e9e9ce3c4a0e4aea0aa78541518b08c63d3bc76d6",
+      "checkpointSha256": "33d91256589184ea9148f57658d80747167cdd2204272ceb86b836fc0f8cf995"
+    },
+    {
+      "path": "three-model-quality-20261005/bake_raw512.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/bake_raw512.py",
+      "originalSha256": "172a03c26eb668ca0a704d89456bcef765f5a7726e2fda538d20f8e89965d446",
+      "checkpointSha256": "e317c4c647c18f4b1270827d0520a0ae89e3ff74e0a960a6e6d14b7db9ef4232"
+    },
+    {
+      "path": "three-model-quality-20261005/cases.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/cases.json",
+      "originalSha256": "c65bae67ceb3d97e57c5700ed1c42589de72fedd0d0d401fcb3a03609d385664",
+      "checkpointSha256": "22592e847ddc85cc38ff77f47ef1db8e24efe360155e6a2cfa2c8f63676b00c4"
+    },
+    {
+      "path": "three-model-quality-20261005/protocol.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/protocol.json",
+      "originalSha256": "50c886714bc37c321374a0000f2663bbcb5dd05c3afc088ad454d75864939f07",
+      "checkpointSha256": "c4d56477f8981e410cdfdb20c6342af3d43d5cacc02882d3b2f028be752581ee"
+    },
+    {
+      "path": "three-model-quality-20261005/roi-metric-parity.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/roi-metric-parity.json",
+      "originalSha256": "a061578da2af858554d395425c7e0d633f374ebb137259ef4fc1118d81f0fef5",
+      "checkpointSha256": "7fd2e9d2c25c774e00cfd26d875384bf4a40c6429e019d6496bcb4906b58f674"
+    },
+    {
+      "path": "three-model-quality-20261005/model-verification.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/model-verification.json",
+      "originalSha256": "f76569d0e59299215cb9da52ab802d7a5460737f6d9039b8b0651c14d1e66cd9",
+      "checkpointSha256": "c41d6436ef9514cc05cff837b25656328d652200fb7f094c4346af2a4a9e043c"
+    },
+    {
+      "path": "three-model-quality-20261005/verify.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/verify.py",
+      "originalSha256": "d2b14785a27a90c6f421e07ba8e8c26dc56c9273168de40361b57b6fba4a6fe7",
+      "checkpointSha256": "6d90e806ddafc016ff9f80cfb3d49812a5fd73027673a58d9eb59809ca7f280c"
+    },
+    {
+      "path": "three-model-quality-20261005/artifact-digests.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/artifact-digests.json",
+      "originalSha256": "ea5859540e38878471cb2353af98573f8e5b72a3fe2e526ab58455382cba4d21",
+      "checkpointSha256": "ea5859540e38878471cb2353af98573f8e5b72a3fe2e526ab58455382cba4d21"
+    },
+    {
+      "path": "three-model-quality-20261005/harness-provenance.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/harness-provenance.json",
+      "originalSha256": "7471f571489bb9bf4675cb688dad50b4e97fefca29965eff045824d37569dd89",
+      "checkpointSha256": "76026783fa78c61ea0d61557e41ac3c1a062ec1545b87be1533a005a4d2361ba"
+    },
+    {
+      "path": "three-model-quality-20261005/verify_models.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/verify_models.py",
+      "originalSha256": "39cd4711197a91d8a3e65a736d184d2bf7202bd845fd4f2275b883f3d0a87699",
+      "checkpointSha256": "01ca4d92f13043f1c7fc4fcb181692faeb2a01246f6041c37028598ba5db5209"
+    },
+    {
+      "path": "three-model-quality-20261005/visual-notes.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/visual-notes.json",
+      "originalSha256": "9ad6ebcc17ca7b6b23074f1494a3d736b5cb33005fc8ab5df551424e9f1bb5d2",
+      "checkpointSha256": "e86dd0ea6f831b0413b3617759be329ef28ea23a89c7b6aa6c75d595c911df89"
+    },
+    {
+      "path": "three-model-quality-20261005/prepare.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/prepare.py",
+      "originalSha256": "0e55250088eebc738d3393c7b7ce47de97c1619502ddd5de99d9f0d68436c2ac",
+      "checkpointSha256": "a7e6c565c0bc6f0637fb4a70247d6edea6cd801f1824759506014af5dd90bab6"
+    },
+    {
+      "path": "three-model-quality-20261005/control-summary.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/control-summary.json",
+      "originalSha256": "c8020931b4eeeab6d2ce0c14589ed033a6353596943c30dcab37e6baa4fcc927",
+      "checkpointSha256": "ebe24998fd94e2a1168edf741c6f8147a9f3ddb04befbeea11cd3ed4b8400fe8"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/make_contact.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/make_contact.py",
+      "originalSha256": "37aa01813a3567c5538b23c72885ba7bff0fa59d9601fbc629c8ec25cc26787d",
+      "checkpointSha256": "b9390dbfd6a1b07fecb4bbf92c53902a33e31523d0c8f71d11e116bc313d6b6d"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/summary.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/summary.json",
+      "originalSha256": "1143814c4043889b200312a8c7ed7005f3e3c35718a039774554f0ceaaad8807",
+      "checkpointSha256": "32774f2ffbab6a4e714293bafa930adbec2271861f3b01563d3d2f7340076e37"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/source-integrity.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/source-integrity.json",
+      "originalSha256": "566ac758750a53f32fc3dc878139fcbf30f5bfc01da4203601f7a445b202c4cc",
+      "checkpointSha256": "33441855bd76fa247164ffa2d544003caf383477da89e6e55c4e501d1ef10079"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/qwen-manifest.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/qwen-manifest.json",
+      "originalSha256": "42cd792616d427eac16616eb556111afff271358568fa3cb3675449398d11067",
+      "checkpointSha256": "8783f0037d50fa15ec0f8c1b0a999e116a09271fe8241a4270ad75b5baab8445"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/run_lama.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/run_lama.py",
+      "originalSha256": "7707512ba4cf2811c84a862c55543102ab314eaf4a317b200ffec2c51702d4f9",
+      "checkpointSha256": "20fe869d93846e32bd48a0985416af991d50f5cea9150cf2ba0a27fe3cbf2e9c"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/run_qwen.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/run_qwen.py",
+      "originalSha256": "3d2400a3962a10ebc4c5072c8b589f774a5848c7373570a3e2b6d00fc4a97881",
+      "checkpointSha256": "5a7ef79b8e0e8417cde3fbb855b525e7a302436281d4a3afd0e57ececd8104f9"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/summarize.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/summarize.py",
+      "originalSha256": "3d37492add2b7bab7ca90819c0575ff12b223aae5d8f3aa2e2f039f54e4068e3",
+      "checkpointSha256": "5e9df30f624bbf733bffe5137ff4012c5b8b60c00230bc4490aff68279b7da3a"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/findings.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/findings.json",
+      "originalSha256": "6925d6af3a8462620dbc995dcc78597cc8cb9dbd20783062571921fc87ba1961",
+      "checkpointSha256": "f5f361ee34676dc8c39df72b6765f1a4840c7ca32e4b7fe635ac63c26d8b5c26"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/common.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/common.py",
+      "originalSha256": "398cc67dfdfa7aa78455951e9e9ce3c4a0e4aea0aa78541518b08c63d3bc76d6",
+      "checkpointSha256": "33d91256589184ea9148f57658d80747167cdd2204272ceb86b836fc0f8cf995"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/review-notes.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/review-notes.json",
+      "originalSha256": "22faaccb46d4f1f0702af25f6a881b0ccfe2cad9c67b2556c11fd13eb811859b",
+      "checkpointSha256": "9471b853a22403a88cb6f8fec0605ad69a5ced30b1d3398c9da5f7ac467ce8c6"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/protocol.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/protocol.json",
+      "originalSha256": "e24e7654b8c3612aecb5b01dc058f639388e8c203a761b5f63abe3c91341a514",
+      "checkpointSha256": "1a88eef113e85aee78548c432101fb41df8fab11da8770c5f073b27d97d2f3ce"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/composite-verification.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/composite-verification.json",
+      "originalSha256": "914e9416c795a408671fea7334ed7d5e90d881c3eeb52c07610e05d1bfe9a1c4",
+      "checkpointSha256": "ec19caa7dac9f02080c048704669a64db82fbc62b3ec2a6465c7446f380bf227"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/finalize_composites.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/finalize_composites.py",
+      "originalSha256": "dacbf66080e3b662723b9fec63902abbefd0fd51c94db4ea11117c8fd9fcb4f4",
+      "checkpointSha256": "5143415628c8bfd1bd908b6d428eb67a9fc32c5f3a59ef0a56a28823d97dd3ac"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/finish_results.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/finish_results.py",
+      "originalSha256": "d22881af450ebd488c48aa2afdaf05e87ab1804844bef472736953fbbbb566db",
+      "checkpointSha256": "461e72c2d34d76ad0ad74c1d679d6893cf90110a924ab7bd358e4282231b7b98"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/prepare.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/prepare.py",
+      "originalSha256": "ac6ddeac9672ac3860e75abc88d2c95927f6387d12bb6aa628760ae4d9c50c0e",
+      "checkpointSha256": "7c1c381f505723516980042a43d8dd773cfc0644b8ef6545114dcc51d2fb0081"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/jobs.json",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/jobs.json",
+      "originalSha256": "6114c8ff982fade5efa1f05320bb257384725e8e364b9215becc638c4f5358ea",
+      "checkpointSha256": "48200e74cddebd9f348eda8a06d7939ba6dcbf8c98992bb12881c90cae49e34d"
+    },
+    {
+      "path": "three-model-quality-20261005/progress.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/progress.py",
+      "originalSha256": "0806075c67c199576f0c04745ce24c5533a2392df2c914759d1004a6be4cd202",
+      "checkpointSha256": "87cff3709b4f36b823c49691f27120fe49df89f855a989962a1db25276135bbd"
+    },
+    {
+      "path": "three-model-quality-20261005/mask-expansion/live_progress.py",
+      "source": "/Users/riabuz/.cache/maple-removal-research/three-model-quality-20261005/mask-expansion/live_progress.py",
+      "originalSha256": "20d431e8806527c78eafdcd316f3525b88b1fdc629f0102f2568f932649afbe2",
+      "checkpointSha256": "f4ed0d0c43a3cc8150a3b89575ca183f343f970daef867f0f039759e1013a43d"
+    }
+  ],
+  "note": "Original hashes identify archived cache bytes; checkpoint hashes identify formatted/lint-cleaned repository copies. Raw diff snapshots remain in the verified local backup; applied Rust source is committed directly."
+}

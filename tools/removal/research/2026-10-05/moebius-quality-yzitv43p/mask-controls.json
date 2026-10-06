@@ -1,0 +1,90 @@
+[
+  {
+    "case": 21,
+    "sourceCase": 1,
+    "hull": [
+      [310, 250],
+      [281, 368],
+      [217, 371],
+      [191, 259],
+      [196, 204],
+      [205, 166],
+      [237, 109],
+      [275, 110],
+      [301, 180]
+    ],
+    "selectionExpansionPixelsAt512": 4,
+    "additionalHoleExpansionPixelsAt512": 4,
+    "reviewer": "assistant",
+    "reason": "Eliminate missed fabric in concave silhouette and protect test from source-edge contamination",
+    "sameInputsForBothModels": true
+  },
+  {
+    "case": 22,
+    "sourceCase": 2,
+    "hull": [
+      [226, 422],
+      [187, 302],
+      [188, 278],
+      [200, 228],
+      [214, 188],
+      [234, 140],
+      [245, 116],
+      [285, 118],
+      [296, 147],
+      [310, 188],
+      [326, 254],
+      [327, 421],
+      [280, 423]
+    ],
+    "selectionExpansionPixelsAt512": 4,
+    "additionalHoleExpansionPixelsAt512": 4,
+    "reviewer": "assistant",
+    "reason": "Eliminate missed fabric in concave silhouette and protect test from source-edge contamination",
+    "sameInputsForBothModels": true
+  },
+  {
+    "case": 23,
+    "sourceCase": 3,
+    "hull": [
+      [240, 64],
+      [274, 65],
+      [308, 126],
+      [318, 157],
+      [315, 330],
+      [273, 421],
+      [235, 425],
+      [213, 407],
+      [180, 336],
+      [181, 303],
+      [191, 175],
+      [194, 151],
+      [204, 125]
+    ],
+    "selectionExpansionPixelsAt512": 4,
+    "additionalHoleExpansionPixelsAt512": 4,
+    "reviewer": "assistant",
+    "reason": "Eliminate missed fabric in concave silhouette and protect test from source-edge contamination",
+    "sameInputsForBothModels": true
+  },
+  {
+    "case": 24,
+    "sourceCase": 4,
+    "hull": [
+      [108, 280],
+      [119, 191],
+      [222, 145],
+      [274, 169],
+      [368, 266],
+      [370, 305],
+      [209, 397],
+      [151, 397],
+      [125, 354]
+    ],
+    "selectionExpansionPixelsAt512": 4,
+    "additionalHoleExpansionPixelsAt512": 4,
+    "reviewer": "assistant",
+    "reason": "Eliminate missed fabric in concave silhouette and protect test from source-edge contamination",
+    "sameInputsForBothModels": true
+  }
+]

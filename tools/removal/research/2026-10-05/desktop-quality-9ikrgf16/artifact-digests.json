@@ -1,0 +1,13 @@
+{
+  "prepare_crops.py": "006da84381857564ab3ef9f19e7191cdee3c7c839d4ade5a6fd109192b96ee4b",
+  "prepare_masks.py": "03066dac554af05f662cc07e51f33d54f197789b4a25918e9f112d2a42c4a133",
+  "run_lama.py": "37866485514edcb15ce41ceb8dd0ed820a76b11f2742796cd897ca70b72e6be9",
+  "run_lama_raw.py": "9f23c79ae5ecd48c76977625a7c9419ffa125bfb5d1692f4dfc320072510d2a0",
+  "verify_identity.py": "b082f339e949b38c2f155a68f3abb8248059443f95c4d4ab5b8849528a096f30",
+  "make_gallery.py": "4181651bca4ab0b6fdf75500f9f1b52f370b576f258b3dec49e8aa31feb9cfce",
+  "cases.json": "7a58a3476c95205b1219361e53cbb8d4e358678e532aed63d4b8f6e2ebd3fe55",
+  "mask-annotations.json": "e70d46d85e2e893df2287da324749f2d8b97ae9f6fa400e39024274536e4a29f",
+  "inventory.json": "6eb891defe49639ac834610db8a7e4a937ed08607fa28a3be25fa7be9e9ff8af",
+  "results.json": "d0f1438e7b07fa521a0056a0a07136d9422f4e1d0b49d8d7d5bc353ad697fa15",
+  "identity-metrics.json": "37b2eeec4995c9f304d1479f779039eb78945bcbd7b9f5f1196c287d56772643"
+}

@@ -1,0 +1,34 @@
+{
+  "identityROI": {
+    "checks": 72,
+    "worstMean": {
+      "kind": "identityROI",
+      "case": "case-1",
+      "side": 512,
+      "grade": "auto_ev+3_wb+1000",
+      "mean_deltaE": 0.04006414918215592,
+      "p95_deltaE": 0.4475110663450846,
+      "max_deltaE": 1.644360447226878,
+      "bias_r": 2.5316999199276324e-6,
+      "bias_g": -1.4912759525032016e-6,
+      "bias_b": -3.6761664432560792e-6,
+      "n_pixels": 113076
+    }
+  },
+  "resizeOnlyROI": {
+    "checks": 216,
+    "worstMean": {
+      "kind": "resizeOnlyROI",
+      "case": "case-1",
+      "side": 512,
+      "grade": "auto_ev+3_wb+1000",
+      "mean_deltaE": 4.774886672696899,
+      "p95_deltaE": 14.791613711278783,
+      "max_deltaE": 40.959763999931546,
+      "bias_r": 0.0023305658251047134,
+      "bias_g": -0.0002954461087938398,
+      "bias_b": 0.0008419063524343073,
+      "n_pixels": 113076
+    }
+  }
+}

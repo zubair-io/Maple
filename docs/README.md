@@ -4,6 +4,8 @@ Every document in this directory describes the code as it is in the tree today. 
 
 ## Start here
 
+The [AI removal research handoff](../tools/removal/research/2026-10-05/README.md) indexes the preserved standalone experiments, evidence, pinned dependencies and local result recovery instructions. It distinguishes research from the experimental application surface and links the canonical PRD/RFC and tracking issue.
+
 The [engineering map](engineering-map.md) and [engineering quality assessment](engineering-quality.md)
 record the 2026-09-15 KTLO audit at an explicit source revision, with reproducible
 file/module inventories, verified findings, scan candidates, and coverage limits.

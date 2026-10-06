@@ -1,0 +1,44 @@
+{
+  "summary": "Wider masks help some fills, but are not a general fix. Qwen +16 is promising on wood; indoor tonal seams persist, and both expansions repeat the outdoor seed-1 person-regeneration failure. Keep LaMa and Qwen as research candidates.",
+  "reviewType": "Qualitative, unblinded comparison on five supplied cases; one matched Qwen seed per input. No ground-truth hidden background or production acceptance.",
+  "cases": [
+    {
+      "case": 1,
+      "scene": "Outdoor bystander / railing",
+      "finding": "RAW seed0: both models remove the target at both expansions, with changed railing/posts and residual transitions; no clear universal benefit from +16. Camera-photo seed1: Qwen regenerates a dark-clothed person with the baseline, +8 and +16 masks. LaMa removes the target but softens the railing.",
+      "evidence": "review/camera-1-expanded-auto_ev+0_wb+0.jpg"
+    },
+    {
+      "case": 2,
+      "scene": "Child / indoor floor",
+      "finding": "LaMa fills remain soft. Qwen retains a pale silhouette-shaped tonal mismatch with both expansions, including when compositing into the original area. A wider hole does not resolve this seam.",
+      "evidence": "review/raw-2-expanded-auto_ev+0_wb+0.jpg"
+    },
+    {
+      "case": 3,
+      "scene": "Rear person / protected foreground child",
+      "finding": "Both models remove the rear person. LaMa leaves soft floor/shadow texture; Qwen leaves a pale foot-area patch and tonal boundary. Original-area compositing preserves a conspicuous boundary too. These issues also remain visible in the inspected Neutral +3 EV / +1000 K grade. Added conservative foreground protection is disjoint from the baseline replacement.",
+      "evidence": "review/raw-3-expanded-neutral_ev+3_wb+1000.jpg"
+    },
+    {
+      "case": 4,
+      "scene": "Die / wood",
+      "finding": "Qwen +16 with expanded replacement is a promising visual improvement over the baseline boundary at overview size. Native crops still show soft reconstructed grain. Keeping the original replacement area retains an obvious boundary; not all benefit can be attributed solely to the wider inference hole. LaMa remains smoother than surrounding wood.",
+      "evidence": "review/raw-4-expanded-auto_ev+0_wb+0.jpg"
+    },
+    {
+      "case": 5,
+      "scene": "Pedestrian / protected ribbon",
+      "finding": "Qwen produces more structured background than LaMa; wider masks yield plausible alternatives but seams/fragments near the protected ribbon remain. LaMa leaves a dark remnant near that protection boundary. This is model-input plate review only: calibrated Kiss M RAW development is still blocked by #4283.",
+      "evidence": "review/plate-5-expanded-auto_ev+0_wb+0.jpg"
+    }
+  ],
+  "verification": {
+    "generations": 24,
+    "composites": 48,
+    "rawPreservationChecks": 576,
+    "originalsUnchanged": 5,
+    "meaning": "All finite predictions; exact baseline input hashes; zero changes outside coverage and inside protection. These checks do not establish seamless fills, color accuracy within fills, or native-resolution detail."
+  },
+  "recommendation": "Retain both candidates. Next isolate seam/color matching and shadow coverage using existing predictions; do not increase mask size indiscriminately. Treat Qwen person-regeneration as a separate edit-following failure requiring a controlled conditioning/prompt test. No production integration or new test is performed by this recommendation."
+}

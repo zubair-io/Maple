@@ -1,0 +1,338 @@
+{
+  "complete": true,
+  "experiment": "Three-model object removal quality comparison",
+  "issue": 3941,
+  "generations": 90,
+  "photographicGenerations": 45,
+  "rawPlateGenerations": 45,
+  "rawGradeSets": 48,
+  "rawRenderPreservationChecks": 864,
+  "generatedPatchRenderChecks": 648,
+  "resizeControlRenderChecks": 216,
+  "identityPerceptualChecks": 72,
+  "unmodifiedSourceIntegrity": [
+    {
+      "file": "084A0062.CR2",
+      "sha256": "5d75e1d319291f68d6055cdbb9abcd29dbb8730a5d4e19d1734e891bc6bc03df",
+      "unchanged": true
+    },
+    {
+      "file": "084A0070.CR2",
+      "sha256": "2b040b4712ec213561f5e1c0a8a0391b6579226b73c464e51b4666039206b95c",
+      "unchanged": true
+    },
+    {
+      "file": "084A0073.CR2",
+      "sha256": "47cfb87631e3647c2ca0cc5f3e88958d18eb76aa68b97929f9a9e07814ffb165",
+      "unchanged": true
+    },
+    {
+      "file": "Canon - EOS 5DS R - RAW (3_2).CR2",
+      "sha256": "01b94b0586419d64894ccdf2e7b9f1defeedc7b51dfcd306c622fe784181a9b8",
+      "unchanged": true
+    },
+    {
+      "file": "Canon - EOS Kiss M - 3_2.CR3",
+      "sha256": "49a4bcd16e0236451b73ae052af8a4d0c9872063f79fc62fdf982d462792741c",
+      "unchanged": true
+    }
+  ],
+  "modelVerificationPass": true,
+  "nativeOutsideCoverageChanges": 0,
+  "nativeProtectedChanges": 0,
+  "timing": [
+    {
+      "mode": "photo",
+      "model": "klein",
+      "side": 512,
+      "n": 10,
+      "minSeconds": 3.0336001249961555,
+      "medianSeconds": 3.2865494584912085,
+      "maxSeconds": 3.6006647089961916,
+      "processHighWaterRSSGiB": 9.12030029296875
+    },
+    {
+      "mode": "photo",
+      "model": "klein",
+      "side": 1024,
+      "n": 10,
+      "minSeconds": 14.639853582993965,
+      "medianSeconds": 17.38651706249948,
+      "maxSeconds": 20.592389375000494,
+      "processHighWaterRSSGiB": 9.120758056640625
+    },
+    {
+      "mode": "photo",
+      "model": "lama",
+      "side": 512,
+      "n": 5,
+      "minSeconds": 0.8796247919963207,
+      "medianSeconds": 1.304358624998713,
+      "maxSeconds": 2.2029675410012715,
+      "processHighWaterRSSGiB": 19.899658203125
+    },
+    {
+      "mode": "photo",
+      "model": "lama",
+      "side": 768,
+      "n": 5,
+      "minSeconds": 2.175672041994403,
+      "medianSeconds": 2.3623700000025565,
+      "maxSeconds": 3.9044250000006286,
+      "processHighWaterRSSGiB": 19.899658203125
+    },
+    {
+      "mode": "photo",
+      "model": "lama",
+      "side": 1024,
+      "n": 5,
+      "minSeconds": 4.231687416991917,
+      "medianSeconds": 4.426628584013088,
+      "maxSeconds": 6.858721791999415,
+      "processHighWaterRSSGiB": 19.930160522460938
+    },
+    {
+      "mode": "photo",
+      "model": "qwen",
+      "side": 512,
+      "n": 10,
+      "minSeconds": 161.4561211669934,
+      "medianSeconds": 175.24966150000546,
+      "maxSeconds": 215.3671045420051,
+      "processHighWaterRSSGiB": 28.663894653320312
+    },
+    {
+      "mode": "raw",
+      "model": "klein",
+      "side": 512,
+      "n": 10,
+      "minSeconds": 2.9045559170044726,
+      "medianSeconds": 3.111297208502947,
+      "maxSeconds": 3.3911847079871222,
+      "processHighWaterRSSGiB": 9.117080688476562
+    },
+    {
+      "mode": "raw",
+      "model": "klein",
+      "side": 1024,
+      "n": 10,
+      "minSeconds": 14.414592582994374,
+      "medianSeconds": 16.64898914549849,
+      "maxSeconds": 20.917783124998095,
+      "processHighWaterRSSGiB": 8.342117309570312
+    },
+    {
+      "mode": "raw",
+      "model": "lama",
+      "side": 512,
+      "n": 5,
+      "minSeconds": 0.9651902089972282,
+      "medianSeconds": 2.904541166004492,
+      "maxSeconds": 5.545722916998784,
+      "processHighWaterRSSGiB": 19.037322998046875
+    },
+    {
+      "mode": "raw",
+      "model": "lama",
+      "side": 768,
+      "n": 5,
+      "minSeconds": 2.8665379590092925,
+      "medianSeconds": 7.690862332994584,
+      "maxSeconds": 8.072324083987041,
+      "processHighWaterRSSGiB": 19.037322998046875
+    },
+    {
+      "mode": "raw",
+      "model": "lama",
+      "side": 1024,
+      "n": 5,
+      "minSeconds": 7.442125125002349,
+      "medianSeconds": 17.83811704198888,
+      "maxSeconds": 26.054593167005805,
+      "processHighWaterRSSGiB": 19.037322998046875
+    },
+    {
+      "mode": "raw",
+      "model": "qwen",
+      "side": 512,
+      "n": 10,
+      "minSeconds": 164.59396679099882,
+      "medianSeconds": 171.47483993700007,
+      "maxSeconds": 190.0995037919929,
+      "processHighWaterRSSGiB": 29.424362182617188
+    }
+  ],
+  "timingCaveat": "Concurrent CPU grading; separate CPU LaMa and MLX GPU runtimes. Observational durations, not a controlled benchmark. RSS is lifetime process high-water mark, not isolated per-generation memory.",
+  "controls": {
+    "identityROI": {
+      "checks": 72,
+      "worstMean": {
+        "kind": "identityROI",
+        "case": "case-1",
+        "side": 512,
+        "grade": "auto_ev+3_wb+1000",
+        "mean_deltaE": 0.04006414918215592,
+        "p95_deltaE": 0.4475110663450846,
+        "max_deltaE": 1.644360447226878,
+        "bias_r": 2.5316999199276324e-6,
+        "bias_g": -1.4912759525032016e-6,
+        "bias_b": -3.6761664432560792e-6,
+        "n_pixels": 113076
+      }
+    },
+    "resizeOnlyROI": {
+      "checks": 216,
+      "worstMean": {
+        "kind": "resizeOnlyROI",
+        "case": "case-1",
+        "side": 512,
+        "grade": "auto_ev+3_wb+1000",
+        "mean_deltaE": 4.774886672696899,
+        "p95_deltaE": 14.791613711278783,
+        "max_deltaE": 40.959763999931546,
+        "bias_r": 0.0023305658251047134,
+        "bias_g": -0.0002954461087938398,
+        "bias_b": 0.0008419063524343073,
+        "n_pixels": 113076
+      }
+    }
+  },
+  "visualNotes": {
+    "reviewer": "assistant; all photographic outputs reviewed, RAW develop baseline/stress samples reviewed on calibrated cases 1\u20134",
+    "cases": {
+      "1": {
+        "lama": "Person removed at all three tested scales; railing continuation remains imperfect.",
+        "klein": "All four camera trials regenerate or retain a person with altered clothing; removal instruction fails.",
+        "qwen": "Seed0 removes person but distorts railing / leaves boundary. Seed1 regenerates a person with altered clothing. Seed-dependent semantic failure."
+      },
+      "2": {
+        "lama": "All three remove child; 512/768 avoid much of the old native2048 gray silhouette. 1024 retains more tonal residue.",
+        "klein": "Child removed; 512 shows strong body-shaped tone boundary; 1024 blends better but still visible.",
+        "qwen": "Both seeds remove child. Seed0 has bright fill outline and floor tone mismatch; seed1 blends better, with some residual boundary/texture change."
+      },
+      "3": {
+        "lama": "All three remove rear person; reconstruction still softer than native source.",
+        "klein": "Person removed but pronounced bright silhouette / foot-shadow-shaped patch remains at both scales/seeds.",
+        "qwen": "Both seeds remove rear person but retain pale silhouette and foot/shadow-shaped patch. Similar boundary issue to Klein."
+      },
+      "4": {
+        "lama": "Continuous wood at all scales; 768/1024 can retain more apparent grain than512.",
+        "klein": "Plausible wood grain; still detectable patch or texture-direction change.",
+        "qwen": "Both seeds remove die with plausible wood texture at fit size. Native view shows smooth/reconstructed grain; no decisive improvement over LaMa."
+      },
+      "5": {
+        "lama": "Background pedestrian removed; foreground ribbon/gown preserved; inspect residual near ribbon.",
+        "klein": "Background pedestrian removed; scene continuation plausible, some texture/color mismatch.",
+        "qwen": "Both seeds remove pedestrian and reconstruct background structures/grass. Foreground ribbon/gown preserved by compositor. Inspect protection fringe and changed background structure."
+      }
+    },
+    "notGroundTruthScore": true,
+    "rawCases": {
+      "1": {
+        "lama": "Removes target at tested scales; narrow mask-boundary / railing discontinuity remains, visible in native review.",
+        "klein": "Both 512 and 1024 seeds regenerate a person; semantic removal failure persists on RAW input.",
+        "qwen": "Both RAW seeds remove the bystander (unlike photographic seed1). Visible border/railing distortion remains.",
+        "gradesReviewed": ["auto_ev+0_wb+0", "auto_ev+3_wb+1000", "neutral_ev-3_wb-1000"],
+        "gradeLimit": "Extreme negative grade too dark for a useful visual texture judgment. Automated preservation checks still apply."
+      },
+      "2": {
+        "lama": "Child removed; 768 has the least conspicuous broad floor-tone patch in the reviewed comparison, with remaining softness.",
+        "klein": "Child removed but body-shaped floor tone/boundary remains at 512 and 1024 in both seeds.",
+        "qwen": "Both seeds remove child but native views expose a broad pale floor patch and angular boundary; +3 EV changes visibility rather than fixing the discontinuity.",
+        "gradesReviewed": ["auto_ev+0_wb+0", "auto_ev+3_wb+1000", "neutral_ev-3_wb-1000"],
+        "nativeViews": ["qwen seed0 baseline", "qwen seed1 baseline", "LaMa768 baseline"]
+      },
+      "3": {
+        "lama": "Rear woman removed, floor continuation is much less conspicuous than both tested diffusion recipes. Native fill remains smoother than surrounding sensor texture.",
+        "klein": "Both seeds retain a pronounced pale silhouette and foot-shaped oval; visible native step boundary persists at 512 and 1024.",
+        "qwen": "Both seeds remove person but leave a pale oval and tonal boundary at the floor. Cooler WB does not repair it; native seed0 inspection confirms a patch boundary.",
+        "gradesReviewed": [
+          "auto_ev+0_wb+0",
+          "auto_ev+3_wb+1000",
+          "neutral_ev-3_wb-1000",
+          "auto_ev+0_wb-1000"
+        ],
+        "nativeViews": ["seed0 all models lower fill boundary"]
+      },
+      "4": {
+        "lama": "Die removed; native 768/1024 RAW develop views show soft grain, color residue and a patch boundary. Photographic results are more convincing than these RAW reconstructions.",
+        "klein": "Die removed. 512 has plausible but distorted grain; 1024 can show conspicuous tone mismatch at the selection boundary, especially seed1.",
+        "qwen": "Both seeds produce plausible wood; seed0 native review is more convincing than LaMa768/1024 RAW wood fills, but a visible boundary remains. Useful case-specific advantage, not a general win.",
+        "gradesReviewed": ["auto_ev+0_wb+0", "auto_ev+3_wb+1000", "neutral_ev-3_wb-1000"],
+        "nativeViews": ["LaMa768 baseline", "LaMa1024 baseline", "Qwen seed0 baseline"]
+      },
+      "5": {
+        "scope": "Model-input plate only; calibrated RAW develop unavailable.",
+        "lama": "Pedestrian removed; background structure smeared at 768.",
+        "qwen": "Both seeds remove pedestrian and produce plausible building/tree continuation. Protected ribbon/gown remain unchanged; a visible fringe/selection trace remains.",
+        "limitation": "No hidden-background ground truth and no calibrated RAW/WB qualification; do not rank RAW color for this case."
+      }
+    },
+    "rawReviewComplete": true
+  },
+  "protocol": {
+    "purpose": "Quality comparison authorized by user; performance recorded, not a rejection gate",
+    "issue": 3941,
+    "photos": 5,
+    "maskSource": "Frozen reviewed 512 masks from moebius-quality-yzitv43p; fixed native coverage; identical model hole per matching input resolution",
+    "maskReviewer": "assistant, not human ground truth",
+    "photographicInput": "Original full-resolution embedded camera JPEG, fixed native crop FOV, Lanczos resampling",
+    "rawInput": "Separate model generation from fixed AgX/sRGB Rust research plate, u8 quantization equal for every model, +2 EV model exposure on indoor cases reversed at decode",
+    "models": {
+      "lama": {
+        "resolutions": [512, 768, 1024],
+        "seeds": "deterministic",
+        "device": "CPU float32"
+      },
+      "klein": {
+        "resolutions": [512, 1024],
+        "seeds": [0, 1],
+        "steps": 4,
+        "guidance": 1,
+        "quantization": 8,
+        "device": "MLX GPU"
+      },
+      "qwen": {
+        "resolutions": [512],
+        "seeds": [0, 1],
+        "steps": 40,
+        "guidance": 4,
+        "quantization": 8,
+        "device": "MLX GPU",
+        "adapter": "none; regular base checkpoint; not Lightning"
+      }
+    },
+    "qwen1024": "Interrupted at early denoising after approximately 23sec/step; no completed output; not counted as quality failure",
+    "rawDevelopCases": [1, 2, 3, 4],
+    "rawDevelopBlockedCase": 5,
+    "rawDevelopBlockReason": "No real EOS Kiss M camera calibration profile available to white-balance qualification harness",
+    "rawGrades": {
+      "profiles": ["Auto", "Neutral"],
+      "exposureEV": [-3, 0, 3],
+      "wbShiftKelvin": [-1000, 0, 1000]
+    },
+    "controls": "Identity encode/decode+fp16 and resize-only on all RAW grades; immutable-original SHA256; outside-coverage assertions",
+    "releaseQualified": false,
+    "runtimeSource": "https://github.com/lpalbou/mlx-gen",
+    "runtimeRevision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+    "limitations": [
+      "Small five-image test set",
+      "8-bit converted Klein/Qwen checkpoints, not full precision qualification",
+      "Generated details upsampled using bilinear only",
+      "No hidden-background ground truth",
+      "Research inverse of SDR encoding is not a shipping RAW reconstruction guarantee",
+      "Concurrent CPU grading and model tests: timing is observational, not controlled benchmark"
+    ],
+    "coverageDetails": {
+      "photographic": "Frozen 512 mask with 2px linear outer feather lifted bilinear to native; protected pixels zeroed",
+      "raw": "Exact shared production mask preparation with 8 source pixel hole, 4 source pixel smoothstep coverage; all models use identical native coverage",
+      "comparisonScope": "Models and resolutions are matched within each mode. Photographic-vs-RAW differences also include the coverage recipe; do not attribute every difference to color encoding."
+    },
+    "hardware": {
+      "chip": "Apple M5 Max",
+      "unifiedMemoryBytes": 137438953472,
+      "os": "macOS 27.0 26A428"
+    }
+  },
+  "productionQualified": false
+}

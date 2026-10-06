@@ -4,6 +4,31 @@ use raw_core::types::accepted_removal::{ContentDigest, NativeWindow};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+#[path = "large_masks.rs"]
+mod large_masks;
+
+// #3941: reuse exact shared geometry on private 1536/2048/3072 research plates.
+// Product preparation keeps its unchanged 1024 limit.
+fn prepare_research(
+    request: &GenerationMaskRequest,
+    intent: &[u8],
+    protection: &[u8],
+) -> ProbeResult<Vec<f32>> {
+    if request.window.width <= 1024 {
+        return Ok(prepare_json(
+            &serde_json::to_string(request)?,
+            intent,
+            protection,
+        )?);
+    }
+    if request.hole_radius != 8 || request.fringe_radius != 4.0 {
+        return Err("large research requires the existing 8px hole / 4px fringe recipe".into());
+    }
+    let intent = raw_core::pipeline::removal_mask_from_bytes(intent)?;
+    let protection = raw_core::pipeline::removal_mask_from_bytes(protection)?;
+    Ok(large_masks::planes(&intent, &protection, request.window)?)
+}
+
 type ProbeResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 #[derive(Serialize, Deserialize)]
@@ -32,7 +57,7 @@ pub fn write(
     if [geometry.source_width, geometry.source_height] != source {
         return Err("generation intent differs from the RAW context source".into());
     }
-    let values = prepare_json(&serde_json::to_string(&request)?, &intent, &protected)?;
+    let values = prepare_research(&request, &intent, &protected)?;
     let planes: Vec<u8> = values.into_iter().flat_map(f32::to_le_bytes).collect();
     let recipe = Recipe {
         request,
@@ -62,6 +87,9 @@ pub fn coverage(
     source: [u32; 2],
 ) -> ProbeResult<(Vec<f32>, Option<ContentDigest>)> {
     if !directory.join("masks.json").exists() && !directory.join("masks.f32").exists() {
+        if window.width != 1024 || window.height != 1024 {
+            return Err("large research requires explicit masks".into());
+        }
         return Ok((
             (0..1024 * 1024)
                 .map(|i| {
@@ -93,11 +121,7 @@ pub fn coverage(
         }
         None => Vec::new(),
     };
-    let expected = prepare_json(
-        &serde_json::to_string(&recipe.request)?,
-        &intent,
-        &protected,
-    )?;
+    let expected = prepare_research(&recipe.request, &intent, &protected)?;
     let planes = std::fs::read(directory.join("masks.f32"))?;
     recipe.planes.verify(&planes)?;
     let actual: Vec<_> = planes

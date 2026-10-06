@@ -1,0 +1,30 @@
+{
+  "status": "partial visual review, not final",
+  "observations": [
+    {
+      "case": 1,
+      "view": "RAW Auto 0EV WB0, 512 review",
+      "note": "All remove target. Wider masks change railing/posts and preserve a visible tonal/structural transition; no obvious universal +16 improvement. Original image is already defocused."
+    },
+    {
+      "case": 2,
+      "view": "model-input plate and LaMa RAW Auto 0EV WB0",
+      "note": "LaMa fills remain smoother than surrounding floor. Qwen expanded replacement still has pale silhouette-like tonal boundaries at both +8 and +16; needs original-area and RAW bake comparison."
+    },
+    {
+      "case": 3,
+      "view": "LaMa RAW Auto 0EV WB0",
+      "note": "Both wider masks remove rear person; floor shadow remains soft/dark. +16 changes shadow/texture but is not clearly an unqualified improvement. Qwen pending review."
+    },
+    {
+      "case": 4,
+      "view": "LaMa RAW Auto 0EV WB0",
+      "note": "+8 and +16 alter wood-grain fill, but softness remains. Qwen pending."
+    },
+    {
+      "case": 5,
+      "view": "LaMa model-input plate",
+      "note": "Wider removal does not eliminate dark remnant next to protected ribbon; background texture softer. Protection intentionally limits expansion. Qwen pending."
+    }
+  ]
+}

@@ -1,0 +1,329 @@
+{
+  "experiment": "LaMa + Qwen mask expansion",
+  "complete": true,
+  "newGenerations": 24,
+  "displayComposites": 48,
+  "rawGradePreservationChecks": 576,
+  "allFinite": true,
+  "unchangedOriginals": [
+    {
+      "file": "084A0062.CR2",
+      "sha256": "5d75e1d319291f68d6055cdbb9abcd29dbb8730a5d4e19d1734e891bc6bc03df",
+      "unchanged": true
+    },
+    {
+      "file": "084A0070.CR2",
+      "sha256": "2b040b4712ec213561f5e1c0a8a0391b6579226b73c464e51b4666039206b95c",
+      "unchanged": true
+    },
+    {
+      "file": "084A0073.CR2",
+      "sha256": "47cfb87631e3647c2ca0cc5f3e88958d18eb76aa68b97929f9a9e07814ffb165",
+      "unchanged": true
+    },
+    {
+      "file": "Canon - EOS 5DS R - RAW (3_2).CR2",
+      "sha256": "01b94b0586419d64894ccdf2e7b9f1defeedc7b51dfcd306c622fe784181a9b8",
+      "unchanged": true
+    },
+    {
+      "file": "Canon - EOS Kiss M - 3_2.CR3",
+      "sha256": "49a4bcd16e0236451b73ae052af8a4d0c9872063f79fc62fdf982d462792741c",
+      "unchanged": true
+    }
+  ],
+  "outsideAndProtectedChanges": 0,
+  "protocol": {
+    "issue": 3941,
+    "models": ["Big-LaMa CPU float32", "Qwen Image Edit 2511 q8 MLX GPU"],
+    "scope": "5 RAW model-input cases, seed0; photographic case1 seed1 retained as the known person-regeneration failure control",
+    "resolution": 512,
+    "maskExpansionsModelPixels": [8, 16],
+    "constant": "Exact same source PNG bytes, crop, checkpoint, prompt, steps, guidance, and matched seed as previous baseline",
+    "composites": ["expanded replacement area", "original replacement area"],
+    "protection": "Original protection plus a conservative foreground keep-region on case3, disjoint from baseline replacement coverage. Protection removed from expanded inference hole and both compositor coverages.",
+    "nativeFeather": "RAW shared 4 source-pixel smoothstep unchanged; camera original 2 model-pixel linear feather unchanged",
+    "notTested": "No new model-resolution comparison, prompt tuning, context expansion, or performance optimization",
+    "qualification": "Local experiment only; case5 calibrated RAW/WB qualification still unavailable under #4283",
+    "plannedNewGenerations": 24,
+    "baseline": "../protocol.json"
+  },
+  "runs": [
+    {
+      "mode": "raw",
+      "case": 1,
+      "expansionModelPixels": 8,
+      "expansionSourcePixels": 16.0,
+      "model": "lama",
+      "report": "raw/case-1/expand-8/512/lama.json",
+      "reportSha256": "fab827f4c516fa0615e0ffd38a8269c1504ce331b43ec1f34539615344790ff3",
+      "predictionSha256": "8cac9b319a211d16775fb424213a741b1df0c814f695b965d07272a35cc84bb7",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 1,
+      "expansionModelPixels": 8,
+      "expansionSourcePixels": 16.0,
+      "model": "qwen-seed0",
+      "report": "raw/case-1/expand-8/512/qwen-seed0.json",
+      "reportSha256": "ea91e1bac90eb8c754bc5a561b316fd9c9667b765a6608508e7f6fcee069ffd3",
+      "predictionSha256": "daa9d85769b874633812857424cc0071ac669133465f36f4360ed95ef5542d66",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 1,
+      "expansionModelPixels": 16,
+      "expansionSourcePixels": 32.0,
+      "model": "lama",
+      "report": "raw/case-1/expand-16/512/lama.json",
+      "reportSha256": "10cbbbaa95cfdc50c2d3e8c5d79b414e3167c11b229d6d216d20474154b85ff1",
+      "predictionSha256": "5119361324ff19cdc1cff389a26126ad09190854b1c1b9c5cd2ab90b3fc5dcaa",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 1,
+      "expansionModelPixels": 16,
+      "expansionSourcePixels": 32.0,
+      "model": "qwen-seed0",
+      "report": "raw/case-1/expand-16/512/qwen-seed0.json",
+      "reportSha256": "ea134c1d9e05763d45a5ff620e4577e2a941e1d66b0794bd727754a1f3ce991d",
+      "predictionSha256": "c6033361dc94e89068e2e49a458528da7b15d3af93bb011ce6ce68e622e6dcab",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 2,
+      "expansionModelPixels": 8,
+      "expansionSourcePixels": 32.0,
+      "model": "lama",
+      "report": "raw/case-2/expand-8/512/lama.json",
+      "reportSha256": "68220c896062834dd1c4250b9f8c1ba6314c3b98f26769246da3087034f154d3",
+      "predictionSha256": "d6dfaac894be95d678a6c9f975a1bc43d0a7e60722a7c87d3361f6127c0a88b4",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 2,
+      "expansionModelPixels": 8,
+      "expansionSourcePixels": 32.0,
+      "model": "qwen-seed0",
+      "report": "raw/case-2/expand-8/512/qwen-seed0.json",
+      "reportSha256": "551de07a4ed4bf88d1850063fd462f88a40420cf1a4f34cb418f8f5c1230550a",
+      "predictionSha256": "25805e348dd346edcd313d2be855f8d964e391eb3f7f6e7e9286039f83332d35",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 2,
+      "expansionModelPixels": 16,
+      "expansionSourcePixels": 64.0,
+      "model": "lama",
+      "report": "raw/case-2/expand-16/512/lama.json",
+      "reportSha256": "ec6f6c11fc5ab9ea0084fe6fccfa96cb557cc69cb257337619a2b13cf75c89e3",
+      "predictionSha256": "a2c74e0c5f673d705e0cf7c390b80a8b45d4c7245b16fe325a3e62701c53dce0",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 2,
+      "expansionModelPixels": 16,
+      "expansionSourcePixels": 64.0,
+      "model": "qwen-seed0",
+      "report": "raw/case-2/expand-16/512/qwen-seed0.json",
+      "reportSha256": "2dd16de170f1d5d236145cbe1003dd043615df780e61d6623673152a9214a749",
+      "predictionSha256": "b548ed29df0437ae806115c7274f9c780a26d48ede544a0795c132314691a876",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 3,
+      "expansionModelPixels": 8,
+      "expansionSourcePixels": 48.0,
+      "model": "lama",
+      "report": "raw/case-3/expand-8/512/lama.json",
+      "reportSha256": "9d73a4225caf2a7ac12de14b437206c1161d6f01fe7c116c7952196c8c25eb43",
+      "predictionSha256": "5d1c0beded4b861fe32604fc1f84ddd236459b570d908de378916c3861f235ad",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 3,
+      "expansionModelPixels": 8,
+      "expansionSourcePixels": 48.0,
+      "model": "qwen-seed0",
+      "report": "raw/case-3/expand-8/512/qwen-seed0.json",
+      "reportSha256": "8a12270ea90ca15d3e5ad67d18458d601a60c9b08477a42e7b8ab466aa7bf872",
+      "predictionSha256": "bd795787af7635b502994c6187035e5dd65e1a3b1702f17ee027b508c7e5778c",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 3,
+      "expansionModelPixels": 16,
+      "expansionSourcePixels": 96.0,
+      "model": "lama",
+      "report": "raw/case-3/expand-16/512/lama.json",
+      "reportSha256": "0f91549a3b5a157623d6e25d412fc1e12244c70cba0fa7d8c685d0dca89e26f7",
+      "predictionSha256": "0a2d2b39a76c2fd3e8bbf1468190bce284d40b4beedaf4545aaec45dc88575e2",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 3,
+      "expansionModelPixels": 16,
+      "expansionSourcePixels": 96.0,
+      "model": "qwen-seed0",
+      "report": "raw/case-3/expand-16/512/qwen-seed0.json",
+      "reportSha256": "a3db9770cdc50dff4bdc0ed13ae75687ddcf97e886bf0f44dbd356e9d27f320b",
+      "predictionSha256": "c04449167b2c0076a7f2787840cf72d899380f8fa5cde3756eba0894f0d1cc84",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 4,
+      "expansionModelPixels": 8,
+      "expansionSourcePixels": 32.0,
+      "model": "lama",
+      "report": "raw/case-4/expand-8/512/lama.json",
+      "reportSha256": "f9a59df72dddc7e5ae5e66b2427da4a7d2bd1849bb6889ed3d9d1403be756dcc",
+      "predictionSha256": "5d8b0946c7fb155a37624b11a2ea29e6ee99cf096c6a12d5227048a003f04e99",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 4,
+      "expansionModelPixels": 8,
+      "expansionSourcePixels": 32.0,
+      "model": "qwen-seed0",
+      "report": "raw/case-4/expand-8/512/qwen-seed0.json",
+      "reportSha256": "f801708aa974a5aedc97b3429ace3224a170f44ce46794b24bd483ea6b590255",
+      "predictionSha256": "471e7ea14b29cb7e80d51a26330fd9a2087e97e1228c661a1ec0f2da59818fd5",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 4,
+      "expansionModelPixels": 16,
+      "expansionSourcePixels": 64.0,
+      "model": "lama",
+      "report": "raw/case-4/expand-16/512/lama.json",
+      "reportSha256": "e8e5eeebdf43e17dbcb552a6f6e9b76d8d3def583a4c8e35bafc44c5aa0e2f23",
+      "predictionSha256": "b410d8da34ee2db2b11e35b0cec1f810e35e97d0a0e061567d739448e8182b06",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 4,
+      "expansionModelPixels": 16,
+      "expansionSourcePixels": 64.0,
+      "model": "qwen-seed0",
+      "report": "raw/case-4/expand-16/512/qwen-seed0.json",
+      "reportSha256": "2fdb323fac6413523d619880d5065af4430d37c4a85fdaaa7888a63bf1f99338",
+      "predictionSha256": "75a18e0af242d0df4e05e551dcc141ace6abc82d8715eb4e49c1ba4a61e41713",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 5,
+      "expansionModelPixels": 8,
+      "expansionSourcePixels": 24.0,
+      "model": "lama",
+      "report": "raw/case-5/expand-8/512/lama.json",
+      "reportSha256": "c966ad15f83793f0ac4de41704ffef5d4aa6fb499de876c30a87fa1c3b625454",
+      "predictionSha256": "bd5c6bc03ec9ebedf650b2970c96d075873c692c1f372a719128a37a115fddc3",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 5,
+      "expansionModelPixels": 8,
+      "expansionSourcePixels": 24.0,
+      "model": "qwen-seed0",
+      "report": "raw/case-5/expand-8/512/qwen-seed0.json",
+      "reportSha256": "236dc31dc57f3bbcd6f6a960c5bcd94833a12ad514ed7ede68e315836ddbaf8f",
+      "predictionSha256": "99b32af15ca47b9eda5d53cdb9a414735d86287b74c98931185fe75f519baf1b",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 5,
+      "expansionModelPixels": 16,
+      "expansionSourcePixels": 48.0,
+      "model": "lama",
+      "report": "raw/case-5/expand-16/512/lama.json",
+      "reportSha256": "eaf9b5f28ebe1eda34193c2bfbab0c9e2ac0212a148bd98e96a87f5455ed176a",
+      "predictionSha256": "ef205e8736a95e987e96c7460eb40fc1e772ace0188260e868eb711e85660b60",
+      "finite": true
+    },
+    {
+      "mode": "raw",
+      "case": 5,
+      "expansionModelPixels": 16,
+      "expansionSourcePixels": 48.0,
+      "model": "qwen-seed0",
+      "report": "raw/case-5/expand-16/512/qwen-seed0.json",
+      "reportSha256": "f891c87e50b53e0b08284152ed3af1d12552106761bc2b3df5d97966934ea9a3",
+      "predictionSha256": "17530b0fdf26e509ba63150074942f2a7d8d50a0b64f1ba2568bc1f1391b1978",
+      "finite": true
+    },
+    {
+      "mode": "camera",
+      "case": 1,
+      "expansionModelPixels": 8,
+      "expansionSourcePixels": 16.0,
+      "model": "lama",
+      "report": "camera/case-1/expand-8/512/lama.json",
+      "reportSha256": "a8f4a7a0e02bc0eb5c85a3b5b523f073f2255439d52e2eedf58e18aaff19b97d",
+      "predictionSha256": "75d03f4d2b5ee67bc3264dac4c5ea7c03857b908c30fee8d0a8e17aa327c6dcc",
+      "finite": true
+    },
+    {
+      "mode": "camera",
+      "case": 1,
+      "expansionModelPixels": 8,
+      "expansionSourcePixels": 16.0,
+      "model": "qwen-seed1",
+      "report": "camera/case-1/expand-8/512/qwen-seed1.json",
+      "reportSha256": "2de9eaabb411306897f3a75c40ac29255a9403f5e8d97406def9fe88bc281ad9",
+      "predictionSha256": "f7943aabfcac18a2b7e8153f07f19355e7d749ba0f07985970dc88ea7e6edc28",
+      "finite": true
+    },
+    {
+      "mode": "camera",
+      "case": 1,
+      "expansionModelPixels": 16,
+      "expansionSourcePixels": 32.0,
+      "model": "lama",
+      "report": "camera/case-1/expand-16/512/lama.json",
+      "reportSha256": "e623d3c983589134094565df2c39488d6b5200e9629773a2aaf867e974757495",
+      "predictionSha256": "d55b03751c7e4561057541228abd68c5d7a33b2e2e91ca8c86e1a52f9473a04f",
+      "finite": true
+    },
+    {
+      "mode": "camera",
+      "case": 1,
+      "expansionModelPixels": 16,
+      "expansionSourcePixels": 32.0,
+      "model": "qwen-seed1",
+      "report": "camera/case-1/expand-16/512/qwen-seed1.json",
+      "reportSha256": "ea70a0b2c112e41c0d2da567f4d6b796aa096f4af88c77cc588d770a3016a051",
+      "predictionSha256": "ead4bec575e33b5b5d3ab723ee83ceb6faa13cdd86a766937a5628a45c06cb36",
+      "finite": true
+    }
+  ],
+  "harnessHashes": {
+    "prepare.py": "ac6ddeac9672ac3860e75abc88d2c95927f6387d12bb6aa628760ae4d9c50c0e",
+    "run_lama.py": "7707512ba4cf2811c84a862c55543102ab314eaf4a317b200ffec2c51702d4f9",
+    "run_qwen.py": "3d2400a3962a10ebc4c5072c8b589f774a5848c7373570a3e2b6d00fc4a97881",
+    "finish_results.py": "d22881af450ebd488c48aa2afdaf05e87ab1804844bef472736953fbbbb566db",
+    "common.py": "398cc67dfdfa7aa78455951e9e9ce3c4a0e4aea0aa78541518b08c63d3bc76d6",
+    "finalize_composites.py": "dacbf66080e3b662723b9fec63902abbefd0fd51c94db4ea11117c8fd9fcb4f4",
+    "jobs.json": "6114c8ff982fade5efa1f05320bb257384725e8e364b9215becc638c4f5358ea",
+    "protocol.json": "e24e7654b8c3612aecb5b01dc058f639388e8c203a761b5f63abe3c91341a514"
+  },
+  "rawProbeSha256": "49839aa44a67dd9190a7e6ad5a1a57074783c3c0c5d0a933b0e17b288cbbb0b7",
+  "qualification": "Preservation checks are not image-quality acceptance. Case5 lacks calibrated RAW development under #4283. These are 512 model predictions upsampled to source size, not native-resolution detail reconstruction."
+}

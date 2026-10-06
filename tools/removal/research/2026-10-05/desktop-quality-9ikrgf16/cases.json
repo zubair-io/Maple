@@ -1,0 +1,92 @@
+[
+  {
+    "id": 1,
+    "raw": "/Users/riabuz/Desktop/test/084A0062.CR2",
+    "sha256": "5d75e1d319291f68d6055cdbb9abcd29dbb8730a5d4e19d1734e891bc6bc03df",
+    "preview": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/1-preview.jpg",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/Desktop/test/084A0062.CR2",
+      "ImageWidth": 8688,
+      "ImageHeight": 5792,
+      "ExifImageWidth": 8688,
+      "ExifImageHeight": 5792,
+      "Orientation": "Horizontal (normal)",
+      "Model": "Canon EOS 5DS R"
+    },
+    "window": [1408, 4096, 1024, 1024],
+    "target": "Outdoor: isolated blue-vest bystander",
+    "source": "Full-resolution embedded camera JPEG; quality isolation only, not Maple RAW develop"
+  },
+  {
+    "id": 2,
+    "raw": "/Users/riabuz/Desktop/test/084A0070.CR2",
+    "sha256": "2b040b4712ec213561f5e1c0a8a0391b6579226b73c464e51b4666039206b95c",
+    "preview": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/2-preview.jpg",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/Desktop/test/084A0070.CR2",
+      "ImageWidth": 8688,
+      "ImageHeight": 5792,
+      "ExifImageWidth": 8688,
+      "ExifImageHeight": 5792,
+      "Orientation": "Horizontal (normal)",
+      "Model": "Canon EOS 5DS R"
+    },
+    "window": [6272, 3072, 2048, 2048],
+    "target": "Indoor: child on right (target pending review)",
+    "source": "Full-resolution embedded camera JPEG; quality isolation only, not Maple RAW develop"
+  },
+  {
+    "id": 3,
+    "raw": "/Users/riabuz/Desktop/test/084A0073.CR2",
+    "sha256": "47cfb87631e3647c2ca0cc5f3e88958d18eb76aa68b97929f9a9e07814ffb165",
+    "preview": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/3-preview.jpg",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/Desktop/test/084A0073.CR2",
+      "ImageWidth": 8688,
+      "ImageHeight": 5792,
+      "ExifImageWidth": 8688,
+      "ExifImageHeight": 5792,
+      "Orientation": "Horizontal (normal)",
+      "Model": "Canon EOS 5DS R"
+    },
+    "window": [5248, 2048, 3072, 3072],
+    "target": "Indoor: rear person, keep foreground pair",
+    "source": "Full-resolution embedded camera JPEG; quality isolation only, not Maple RAW develop"
+  },
+  {
+    "id": 4,
+    "raw": "/Users/riabuz/Desktop/test/Canon - EOS 5DS R - RAW (3_2).CR2",
+    "sha256": "01b94b0586419d64894ccdf2e7b9f1defeedc7b51dfcd306c622fe784181a9b8",
+    "preview": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/4-preview.jpg",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/Desktop/test/Canon - EOS 5DS R - RAW (3_2).CR2",
+      "ImageWidth": 8688,
+      "ImageHeight": 5792,
+      "ExifImageWidth": 8688,
+      "ExifImageHeight": 5792,
+      "Orientation": "Horizontal (normal)",
+      "Model": "Canon EOS 5DS R"
+    },
+    "window": [5376, 896, 2048, 2048],
+    "target": "Object: pink die and its shadow",
+    "source": "Full-resolution embedded camera JPEG; quality isolation only, not Maple RAW develop"
+  },
+  {
+    "id": 5,
+    "raw": "/Users/riabuz/Desktop/test/Canon - EOS Kiss M - 3_2.CR3",
+    "sha256": "49a4bcd16e0236451b73ae052af8a4d0c9872063f79fc62fdf982d462792741c",
+    "preview": "/Users/riabuz/.cache/maple-removal-research/desktop-quality-9ikrgf16/5-preview.jpg",
+    "metadata": {
+      "SourceFile": "/Users/riabuz/Desktop/test/Canon - EOS Kiss M - 3_2.CR3",
+      "ImageWidth": 6000,
+      "ImageHeight": 4000,
+      "ExifImageWidth": 6000,
+      "ExifImageHeight": 4000,
+      "Orientation": "Horizontal (normal)",
+      "Model": "Canon EOS KISS M"
+    },
+    "window": [256, 1664, 1536, 1536],
+    "target": "Portrait: green-clothed background pedestrian",
+    "source": "Full-resolution embedded camera JPEG; quality isolation only, not Maple RAW develop"
+  }
+]

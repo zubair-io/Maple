@@ -1,0 +1,16 @@
+{
+  "date": "2026-10-05",
+  "base": "edbf50086e1eccebc7bb6ed1e012d9eadf82b27e",
+  "rustExampleTests": {
+    "passed": 14,
+    "failed": 0,
+    "log": "checkpoint-rust-tests.log"
+  },
+  "pythonSyntaxFiles": 48,
+  "ruff": "passed",
+  "inferenceRerun": false,
+  "productionAppBuild": false,
+  "releaseQualified": false,
+  "localBackupReceipt": "local-backup-receipt.json",
+  "sourceScope": "Four research example files; unrelated camera mapping change excluded."
+}

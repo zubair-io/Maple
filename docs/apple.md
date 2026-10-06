@@ -224,6 +224,8 @@ Serialization lives in the `XMPSerialization+*.swift` family, with `XMPPassthrou
 
 ## Experimental Remove model bundle
 
+The [October 5 research checkpoint](../tools/removal/research/2026-10-05/README.md) preserves newer standalone LaMa/Qwen comparisons. Those runners are not integrated into this app bundle, and their enlarged 512 outputs do not qualify native reconstruction.
+
 The Mac Remove tool imports all four generated experimental ONNX pins and the current architecture's pinned runtime into versioned Application Support. It verifies the complete set on import and restoration; the original import folder can then be removed. Paint, Smart paint and Background people remain experimental: successful installation does not qualify model quality or device performance.
 
 Background people starts detection automatically when opened, after model import, and after reopening the active photo. A scrollable multiselect list preselects shared Rust background suggestions and leaves subjects and uncertain detections kept. Checkbox changes are temporary; **Remove** applies the current choices before reconstruction, with no separate detection or Apply action. **Refine** also prepares pending choices before painting. Kept-person masks and manually protected areas are subtracted from removal intent. **Keep** remains the only durable acceptance action. The current experimental reconstruction still requires each selected object plus edge expansion to fit its 1024 × 1024 source-pixel context (#3984 / #3941).

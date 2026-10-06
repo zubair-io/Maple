@@ -1,0 +1,73 @@
+{
+  "reviewer": "assistant; all photographic outputs reviewed, RAW develop baseline/stress samples reviewed on calibrated cases 1\u20134",
+  "cases": {
+    "1": {
+      "lama": "Person removed at all three tested scales; railing continuation remains imperfect.",
+      "klein": "All four camera trials regenerate or retain a person with altered clothing; removal instruction fails.",
+      "qwen": "Seed0 removes person but distorts railing / leaves boundary. Seed1 regenerates a person with altered clothing. Seed-dependent semantic failure."
+    },
+    "2": {
+      "lama": "All three remove child; 512/768 avoid much of the old native2048 gray silhouette. 1024 retains more tonal residue.",
+      "klein": "Child removed; 512 shows strong body-shaped tone boundary; 1024 blends better but still visible.",
+      "qwen": "Both seeds remove child. Seed0 has bright fill outline and floor tone mismatch; seed1 blends better, with some residual boundary/texture change."
+    },
+    "3": {
+      "lama": "All three remove rear person; reconstruction still softer than native source.",
+      "klein": "Person removed but pronounced bright silhouette / foot-shadow-shaped patch remains at both scales/seeds.",
+      "qwen": "Both seeds remove rear person but retain pale silhouette and foot/shadow-shaped patch. Similar boundary issue to Klein."
+    },
+    "4": {
+      "lama": "Continuous wood at all scales; 768/1024 can retain more apparent grain than512.",
+      "klein": "Plausible wood grain; still detectable patch or texture-direction change.",
+      "qwen": "Both seeds remove die with plausible wood texture at fit size. Native view shows smooth/reconstructed grain; no decisive improvement over LaMa."
+    },
+    "5": {
+      "lama": "Background pedestrian removed; foreground ribbon/gown preserved; inspect residual near ribbon.",
+      "klein": "Background pedestrian removed; scene continuation plausible, some texture/color mismatch.",
+      "qwen": "Both seeds remove pedestrian and reconstruct background structures/grass. Foreground ribbon/gown preserved by compositor. Inspect protection fringe and changed background structure."
+    }
+  },
+  "notGroundTruthScore": true,
+  "rawCases": {
+    "1": {
+      "lama": "Removes target at tested scales; narrow mask-boundary / railing discontinuity remains, visible in native review.",
+      "klein": "Both 512 and 1024 seeds regenerate a person; semantic removal failure persists on RAW input.",
+      "qwen": "Both RAW seeds remove the bystander (unlike photographic seed1). Visible border/railing distortion remains.",
+      "gradesReviewed": ["auto_ev+0_wb+0", "auto_ev+3_wb+1000", "neutral_ev-3_wb-1000"],
+      "gradeLimit": "Extreme negative grade too dark for a useful visual texture judgment. Automated preservation checks still apply."
+    },
+    "2": {
+      "lama": "Child removed; 768 has the least conspicuous broad floor-tone patch in the reviewed comparison, with remaining softness.",
+      "klein": "Child removed but body-shaped floor tone/boundary remains at 512 and 1024 in both seeds.",
+      "qwen": "Both seeds remove child but native views expose a broad pale floor patch and angular boundary; +3 EV changes visibility rather than fixing the discontinuity.",
+      "gradesReviewed": ["auto_ev+0_wb+0", "auto_ev+3_wb+1000", "neutral_ev-3_wb-1000"],
+      "nativeViews": ["qwen seed0 baseline", "qwen seed1 baseline", "LaMa768 baseline"]
+    },
+    "3": {
+      "lama": "Rear woman removed, floor continuation is much less conspicuous than both tested diffusion recipes. Native fill remains smoother than surrounding sensor texture.",
+      "klein": "Both seeds retain a pronounced pale silhouette and foot-shaped oval; visible native step boundary persists at 512 and 1024.",
+      "qwen": "Both seeds remove person but leave a pale oval and tonal boundary at the floor. Cooler WB does not repair it; native seed0 inspection confirms a patch boundary.",
+      "gradesReviewed": [
+        "auto_ev+0_wb+0",
+        "auto_ev+3_wb+1000",
+        "neutral_ev-3_wb-1000",
+        "auto_ev+0_wb-1000"
+      ],
+      "nativeViews": ["seed0 all models lower fill boundary"]
+    },
+    "4": {
+      "lama": "Die removed; native 768/1024 RAW develop views show soft grain, color residue and a patch boundary. Photographic results are more convincing than these RAW reconstructions.",
+      "klein": "Die removed. 512 has plausible but distorted grain; 1024 can show conspicuous tone mismatch at the selection boundary, especially seed1.",
+      "qwen": "Both seeds produce plausible wood; seed0 native review is more convincing than LaMa768/1024 RAW wood fills, but a visible boundary remains. Useful case-specific advantage, not a general win.",
+      "gradesReviewed": ["auto_ev+0_wb+0", "auto_ev+3_wb+1000", "neutral_ev-3_wb-1000"],
+      "nativeViews": ["LaMa768 baseline", "LaMa1024 baseline", "Qwen seed0 baseline"]
+    },
+    "5": {
+      "scope": "Model-input plate only; calibrated RAW develop unavailable.",
+      "lama": "Pedestrian removed; background structure smeared at 768.",
+      "qwen": "Both seeds remove pedestrian and produce plausible building/tree continuation. Protected ribbon/gown remain unchanged; a visible fringe/selection trace remains.",
+      "limitation": "No hidden-background ground truth and no calibrated RAW/WB qualification; do not rank RAW color for this case."
+    }
+  },
+  "rawReviewComplete": true
+}

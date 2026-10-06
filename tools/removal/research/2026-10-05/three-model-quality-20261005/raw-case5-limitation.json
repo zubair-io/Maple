@@ -1,0 +1,6 @@
+{
+  "case": 5,
+  "camera": "Canon EOS Kiss M",
+  "rawDevelopQualification": "unavailable",
+  "reason": "WB qualification requires actual camera calibration; Maple has only generic RawlerFallback for this camera. Photographic model trials and RAW-input model generation still completed; no invented calibration or silent pass."
+}

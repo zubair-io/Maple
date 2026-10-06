@@ -1,0 +1,482 @@
+[
+  {
+    "mode": "raw",
+    "case": 1,
+    "expansionModelPixels": 8,
+    "model": "lama",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 1,
+    "expansionModelPixels": 8,
+    "model": "lama",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 1,
+    "expansionModelPixels": 8,
+    "model": "qwen-seed0",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 1,
+    "expansionModelPixels": 8,
+    "model": "qwen-seed0",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 1,
+    "expansionModelPixels": 16,
+    "model": "lama",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 1,
+    "expansionModelPixels": 16,
+    "model": "lama",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 1,
+    "expansionModelPixels": 16,
+    "model": "qwen-seed0",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 1,
+    "expansionModelPixels": 16,
+    "model": "qwen-seed0",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 2,
+    "expansionModelPixels": 8,
+    "model": "lama",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 2,
+    "expansionModelPixels": 8,
+    "model": "lama",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 2,
+    "expansionModelPixels": 8,
+    "model": "qwen-seed0",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 2,
+    "expansionModelPixels": 8,
+    "model": "qwen-seed0",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 2,
+    "expansionModelPixels": 16,
+    "model": "lama",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 2,
+    "expansionModelPixels": 16,
+    "model": "lama",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 2,
+    "expansionModelPixels": 16,
+    "model": "qwen-seed0",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 2,
+    "expansionModelPixels": 16,
+    "model": "qwen-seed0",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 3,
+    "expansionModelPixels": 8,
+    "model": "lama",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 3,
+    "expansionModelPixels": 8,
+    "model": "lama",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 3,
+    "expansionModelPixels": 8,
+    "model": "qwen-seed0",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 3,
+    "expansionModelPixels": 8,
+    "model": "qwen-seed0",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 3,
+    "expansionModelPixels": 16,
+    "model": "lama",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 3,
+    "expansionModelPixels": 16,
+    "model": "lama",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 3,
+    "expansionModelPixels": 16,
+    "model": "qwen-seed0",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 3,
+    "expansionModelPixels": 16,
+    "model": "qwen-seed0",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 4,
+    "expansionModelPixels": 8,
+    "model": "lama",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 4,
+    "expansionModelPixels": 8,
+    "model": "lama",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 4,
+    "expansionModelPixels": 8,
+    "model": "qwen-seed0",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 4,
+    "expansionModelPixels": 8,
+    "model": "qwen-seed0",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 4,
+    "expansionModelPixels": 16,
+    "model": "lama",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 4,
+    "expansionModelPixels": 16,
+    "model": "lama",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 4,
+    "expansionModelPixels": 16,
+    "model": "qwen-seed0",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 4,
+    "expansionModelPixels": 16,
+    "model": "qwen-seed0",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 5,
+    "expansionModelPixels": 8,
+    "model": "lama",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 5,
+    "expansionModelPixels": 8,
+    "model": "lama",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 5,
+    "expansionModelPixels": 8,
+    "model": "qwen-seed0",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 5,
+    "expansionModelPixels": 8,
+    "model": "qwen-seed0",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 5,
+    "expansionModelPixels": 16,
+    "model": "lama",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 5,
+    "expansionModelPixels": 16,
+    "model": "lama",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 5,
+    "expansionModelPixels": 16,
+    "model": "qwen-seed0",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "raw",
+    "case": 5,
+    "expansionModelPixels": 16,
+    "model": "qwen-seed0",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "camera",
+    "case": 1,
+    "expansionModelPixels": 8,
+    "model": "lama",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "camera",
+    "case": 1,
+    "expansionModelPixels": 8,
+    "model": "lama",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "camera",
+    "case": 1,
+    "expansionModelPixels": 8,
+    "model": "qwen-seed1",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "camera",
+    "case": 1,
+    "expansionModelPixels": 8,
+    "model": "qwen-seed1",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "camera",
+    "case": 1,
+    "expansionModelPixels": 16,
+    "model": "lama",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "camera",
+    "case": 1,
+    "expansionModelPixels": 16,
+    "model": "lama",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "camera",
+    "case": 1,
+    "expansionModelPixels": 16,
+    "model": "qwen-seed1",
+    "coverage": "expanded",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  },
+  {
+    "mode": "camera",
+    "case": 1,
+    "expansionModelPixels": 16,
+    "model": "qwen-seed1",
+    "coverage": "original",
+    "outsideChangedPixels": 0,
+    "protectedChangedPixels": 0,
+    "rounding": "floor(float32 composite * 255 + 0.5), same as baseline"
+  }
+]

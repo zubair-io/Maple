@@ -1,0 +1,44 @@
+{
+  "rustFiles": [
+    {
+      "path": "/Users/riabuz/.codex/worktrees/removal-quality-spike/_Maple/src/raw-pipeline/raw-core/examples/removal-scene-probe.rs",
+      "sha256": "306840272f010c6f49d054fb76b9e33beb34fa53e55e229092ba85a773a986ac"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/removal-quality-spike/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/photographic_encoding.rs",
+      "sha256": "627cd84368f99e8202cb1d0a378a7248883da3fe525c298e4caba8dc2b3c6f36"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/removal-quality-spike/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/encoding.rs",
+      "sha256": "e3c9e3334ecf856757bf8cba828d7630e1e21a6c73005fa794befc53484c7110"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/removal-quality-spike/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/large_masks.rs",
+      "sha256": "b1b26d5a7434424aa531623907c37d5a1caceb6361cba2ed3286a808ade6a971"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/removal-quality-spike/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/calibration.rs",
+      "sha256": "8b304f2854ef4841b356b2eef04e7c57cdd22f16c421322e3e21c296118581a3"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/removal-quality-spike/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/photographic_encoding_tests.rs",
+      "sha256": "0f5c2f35ba8c4b6df38de25c8c873f2c276ba10b60c52bf6a63da10d8b4864ef"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/removal-quality-spike/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/editor_patch.rs",
+      "sha256": "1e55fbd205030302ef53c88af4c25208a2b43a6f06c54ca3cda9e120c85c6e7c"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/removal-quality-spike/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/large.rs",
+      "sha256": "3510655087ed2f3e9333ac6f9a803c8d1381c00cf447e42ffb9d494ad8e2d510"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/removal-quality-spike/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/masks.rs",
+      "sha256": "c95e3204f37191ed88a60951606615d50f53fb7e04fa2d31564131c9e1b95b0d"
+    }
+  ],
+  "mlxSourceTreeSha256": "a976f1281842e8fc4e4427b1808c849874c8f33447734cd173347f66701d5a15",
+  "mlxSourceRevision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+  "binarySha256": "9ddcca9841b4eda7b48dd62a404230545295aef4b54a877f8363f8119205dd46",
+  "productionPipelineChanged": false
+}

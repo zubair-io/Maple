@@ -1,0 +1,504 @@
+{
+  "scope": "Local quality-first experiment; performance recorded, not a rejection gate",
+  "model": "Pinned frozen Big-LaMa, float32 CPU, single forward pass, no optimizer",
+  "nativeResolution": true,
+  "originalsModified": false,
+  "cameraJpegTrials": [
+    {
+      "assessment": "Person removed, but the barrier lines break and bend. Quality rejected.",
+      "case": 1,
+      "model": "pinned Big-LaMa, float32 CPU single forward pass",
+      "gradientEnabled": false,
+      "input": "embedded full-resolution camera JPEG RGB /255, native crop without resizing",
+      "dimensions": [1024, 1024],
+      "modelLoadSeconds": 0.6991676250036107,
+      "inferenceSeconds": 4.879411500005517,
+      "processPeakRSSBytes": 16638509056,
+      "selectedPixels": 88577,
+      "holePixels": 107489,
+      "outsideCoverageChangedPixels": 0,
+      "protectedChangedPixels": 0,
+      "releaseQualified": false,
+      "rawDevelopQualified": false
+    },
+    {
+      "assessment": "Most promising at a glance. At native scale, wall/floor texture blurs into a vertical patch and the boundary line weakens. Not accepted.",
+      "case": 2,
+      "model": "pinned Big-LaMa, float32 CPU single forward pass",
+      "gradientEnabled": false,
+      "input": "embedded full-resolution camera JPEG RGB /255, native crop without resizing",
+      "dimensions": [2048, 2048],
+      "modelLoadSeconds": 0.5591775000066264,
+      "inferenceSeconds": 30.575584082995192,
+      "processPeakRSSBytes": 57565708288,
+      "selectedPixels": 512992,
+      "holePixels": 562440,
+      "outsideCoverageChangedPixels": 0,
+      "protectedChangedPixels": 0,
+      "releaseQualified": false,
+      "rawDevelopQualified": false
+    },
+    {
+      "assessment": "Large person-shaped blur and missing architectural detail. Quality rejected.",
+      "case": 3,
+      "model": "pinned Big-LaMa, float32 CPU single forward pass",
+      "gradientEnabled": false,
+      "input": "embedded full-resolution camera JPEG RGB /255, native crop without resizing",
+      "dimensions": [3072, 3072],
+      "modelLoadSeconds": 0.5743179169949144,
+      "inferenceSeconds": 81.73205849999795,
+      "processPeakRSSBytes": 71318339584,
+      "selectedPixels": 1326305,
+      "holePixels": 1406884,
+      "outsideCoverageChangedPixels": 0,
+      "protectedChangedPixels": 0,
+      "releaseQualified": false,
+      "rawDevelopQualified": false
+    },
+    {
+      "assessment": "Die removed, but a conspicuous gray patch replaces the wood grain. Quality rejected.",
+      "case": 4,
+      "model": "pinned Big-LaMa, float32 CPU single forward pass",
+      "gradientEnabled": false,
+      "input": "embedded full-resolution camera JPEG RGB /255, native crop without resizing",
+      "dimensions": [2048, 2048],
+      "modelLoadSeconds": 0.9102634579903679,
+      "inferenceSeconds": 24.995397666993085,
+      "processPeakRSSBytes": 64248414208,
+      "selectedPixels": 730899,
+      "holePixels": 780867,
+      "outsideCoverageChangedPixels": 0,
+      "protectedChangedPixels": 0,
+      "releaseQualified": false,
+      "rawDevelopQualified": false
+    },
+    {
+      "assessment": "Smeared background. A protection polygon also covers part of the unwanted person near the sash, leaving a fragment. Mask-confounded; not a clean model-only verdict.",
+      "case": 5,
+      "model": "pinned Big-LaMa, float32 CPU single forward pass",
+      "gradientEnabled": false,
+      "input": "embedded full-resolution camera JPEG RGB /255, native crop without resizing",
+      "dimensions": [1536, 1536],
+      "modelLoadSeconds": 0.5018077909917338,
+      "inferenceSeconds": 8.579256750002969,
+      "processPeakRSSBytes": 36626038784,
+      "selectedPixels": 300057,
+      "holePixels": 350540,
+      "outsideCoverageChangedPixels": 0,
+      "protectedChangedPixels": 0,
+      "releaseQualified": false,
+      "rawDevelopQualified": false
+    }
+  ],
+  "rawTrials": [
+    {
+      "configuration": "case-1/grades",
+      "report": {
+        "as_shot_temperature": 6418.22998046875,
+        "as_shot_tint": -1.3968876600265503,
+        "auto_profile_engaged": true,
+        "encoding": {
+          "agx_version": 8,
+          "exposure_ev": 0.0,
+          "method": "fixed-agx-srgb"
+        },
+        "generation_masks": "blake3:b90ca3036ee1332e9ba0bc9e9e4a573c0099694bb87173774daab57fd9b79a5f",
+        "grades": [
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 5.252129631116986e-5,
+            "profile": "neutral",
+            "temperature": 5418.22998046875
+          },
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 4.995983908884227e-5,
+            "profile": "neutral",
+            "temperature": 6418.22998046875
+          },
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 4.761660238727927e-5,
+            "profile": "neutral",
+            "temperature": 7418.22998046875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.0001865786616690457,
+            "profile": "neutral",
+            "temperature": 5418.22998046875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.00018141174223273993,
+            "profile": "neutral",
+            "temperature": 6418.22998046875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.00017928874876815826,
+            "profile": "neutral",
+            "temperature": 7418.22998046875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.0016793906688690186,
+            "profile": "neutral",
+            "temperature": 5418.22998046875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.0013736113905906677,
+            "profile": "neutral",
+            "temperature": 6418.22998046875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.0013306105975061655,
+            "profile": "neutral",
+            "temperature": 7418.22998046875
+          },
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 0.00021038996055722237,
+            "profile": "auto",
+            "temperature": 5418.22998046875
+          },
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 0.00021234212908893824,
+            "profile": "auto",
+            "temperature": 6418.22998046875
+          },
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 0.00019989348948001862,
+            "profile": "auto",
+            "temperature": 7418.22998046875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.0008246096549555659,
+            "profile": "auto",
+            "temperature": 5418.22998046875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.0008017736836336553,
+            "profile": "auto",
+            "temperature": 6418.22998046875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.0007923908997327089,
+            "profile": "auto",
+            "temperature": 7418.22998046875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.008121021091938019,
+            "profile": "auto",
+            "temperature": 5418.22998046875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.005457442253828049,
+            "profile": "auto",
+            "temperature": 6418.22998046875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.004929852206259966,
+            "profile": "auto",
+            "temperature": 7418.22998046875
+          }
+        ],
+        "max_scene_float_error_identity": 0.00020448723807930946,
+        "model_result": "blake3:81b56835417d01ff208b9d670c8ff6c330cdf621cb93d27faa6a9cbaacfdb16c",
+        "native_context": {
+          "height": 1024,
+          "width": 1024,
+          "x": 1408,
+          "y": 4096
+        },
+        "original": "blake3:9d079b4b46236bddf607331b22e2b0dc940f7b0006e62862005b452e4cab663e",
+        "outside_mask_max_error": 0,
+        "qualification": "Native spatial and colour probe; photographic removal quality, seam refinement and supported-device gates remain",
+        "release_qualified": false
+      }
+    },
+    {
+      "configuration": "case-2/grades",
+      "report": {
+        "as_shot_temperature": 5440.57763671875,
+        "as_shot_tint": -0.5907086730003357,
+        "auto_profile_engaged": true,
+        "encoding": {
+          "agx_version": 8,
+          "exposure_ev": 0.0,
+          "method": "fixed-agx-srgb"
+        },
+        "generation_masks": "blake3:feb85c6ba64b59301e40dd63d0ac09f7e4c2c3d6ae4c217d0d56360ae0dd326f",
+        "grades": [
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 2.7611851692199707e-5,
+            "profile": "neutral",
+            "temperature": 4440.57763671875
+          },
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 3.3251941204071045e-5,
+            "profile": "neutral",
+            "temperature": 5440.57763671875
+          },
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 3.7319958209991455e-5,
+            "profile": "neutral",
+            "temperature": 6440.57763671875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.0001824796199798584,
+            "profile": "neutral",
+            "temperature": 4440.57763671875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.00021505355834960938,
+            "profile": "neutral",
+            "temperature": 5440.57763671875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.00022417306900024414,
+            "profile": "neutral",
+            "temperature": 6440.57763671875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.00033664703369140625,
+            "profile": "neutral",
+            "temperature": 4440.57763671875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.0003647804260253906,
+            "profile": "neutral",
+            "temperature": 5440.57763671875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.00038361549377441406,
+            "profile": "neutral",
+            "temperature": 6440.57763671875
+          },
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 0.00011215358972549438,
+            "profile": "auto",
+            "temperature": 4440.57763671875
+          },
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 0.00011960417032241821,
+            "profile": "auto",
+            "temperature": 5440.57763671875
+          },
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 0.00013318657875061035,
+            "profile": "auto",
+            "temperature": 6440.57763671875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.0005409121513366699,
+            "profile": "auto",
+            "temperature": 4440.57763671875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.0005891323089599609,
+            "profile": "auto",
+            "temperature": 5440.57763671875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.0006368160247802734,
+            "profile": "auto",
+            "temperature": 6440.57763671875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.0007312297821044922,
+            "profile": "auto",
+            "temperature": 4440.57763671875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.000803828239440918,
+            "profile": "auto",
+            "temperature": 5440.57763671875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.0007947683334350586,
+            "profile": "auto",
+            "temperature": 6440.57763671875
+          }
+        ],
+        "max_scene_float_error_identity": 2.086162567138672e-7,
+        "model_result": "blake3:5b3b831ecd73f8a9414efbc58cdd7b02c86cc5292792d714d4505f26abc7b7e0",
+        "native_context": {
+          "height": 2048,
+          "width": 2048,
+          "x": 6272,
+          "y": 3072
+        },
+        "original": "blake3:2c79a879930419c445bbb4f1a1e523bd696013e9aca246000ece25cc2fef107a",
+        "outside_mask_max_error": 0,
+        "qualification": "Native spatial and colour probe; photographic removal quality, seam refinement and supported-device gates remain",
+        "release_qualified": false
+      }
+    },
+    {
+      "configuration": "case-2/grades-plus2",
+      "report": {
+        "as_shot_temperature": 5440.57763671875,
+        "as_shot_tint": -0.5907086730003357,
+        "auto_profile_engaged": true,
+        "encoding": {
+          "agx_version": 8,
+          "exposure_ev": 2.0,
+          "method": "fixed-agx-srgb"
+        },
+        "generation_masks": "blake3:feb85c6ba64b59301e40dd63d0ac09f7e4c2c3d6ae4c217d0d56360ae0dd326f",
+        "grades": [
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 2.7611851692199707e-5,
+            "profile": "neutral",
+            "temperature": 4440.57763671875
+          },
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 3.3251941204071045e-5,
+            "profile": "neutral",
+            "temperature": 5440.57763671875
+          },
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 3.7319958209991455e-5,
+            "profile": "neutral",
+            "temperature": 6440.57763671875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.0001824796199798584,
+            "profile": "neutral",
+            "temperature": 4440.57763671875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.00021505355834960938,
+            "profile": "neutral",
+            "temperature": 5440.57763671875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.00022417306900024414,
+            "profile": "neutral",
+            "temperature": 6440.57763671875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.00033664703369140625,
+            "profile": "neutral",
+            "temperature": 4440.57763671875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.0003647804260253906,
+            "profile": "neutral",
+            "temperature": 5440.57763671875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.00038361549377441406,
+            "profile": "neutral",
+            "temperature": 6440.57763671875
+          },
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 0.00011215358972549438,
+            "profile": "auto",
+            "temperature": 4440.57763671875
+          },
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 0.00011960417032241821,
+            "profile": "auto",
+            "temperature": 5440.57763671875
+          },
+          {
+            "ev": -3.0,
+            "max_display_float_error_identity": 0.00013318657875061035,
+            "profile": "auto",
+            "temperature": 6440.57763671875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.0005409121513366699,
+            "profile": "auto",
+            "temperature": 4440.57763671875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.0005891323089599609,
+            "profile": "auto",
+            "temperature": 5440.57763671875
+          },
+          {
+            "ev": 0.0,
+            "max_display_float_error_identity": 0.0006368160247802734,
+            "profile": "auto",
+            "temperature": 6440.57763671875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.0007312297821044922,
+            "profile": "auto",
+            "temperature": 4440.57763671875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.000803828239440918,
+            "profile": "auto",
+            "temperature": 5440.57763671875
+          },
+          {
+            "ev": 3.0,
+            "max_display_float_error_identity": 0.0007947683334350586,
+            "profile": "auto",
+            "temperature": 6440.57763671875
+          }
+        ],
+        "max_scene_float_error_identity": 2.980232238769531e-7,
+        "model_result": "blake3:2483d00070c4726414eb9511c4c68a83e086848034fc872effae1a9a17ba9f4d",
+        "native_context": {
+          "height": 2048,
+          "width": 2048,
+          "x": 6272,
+          "y": 3072
+        },
+        "original": "blake3:2c79a879930419c445bbb4f1a1e523bd696013e9aca246000ece25cc2fef107a",
+        "outside_mask_max_error": 0,
+        "qualification": "Native spatial and colour probe; photographic removal quality, seam refinement and supported-device gates remain",
+        "release_qualified": false
+      }
+    }
+  ],
+  "qualification": "No photographic pass. This does not prove all models or smaller distractions infeasible. Graduation case has a known manual-mask confound. No ACR, GPU/Web parity or Mac UI qualification claimed."
+}

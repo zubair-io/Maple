@@ -1,0 +1,22 @@
+{
+  "actual": {
+    "mean_deltaE": 0.025401104728738803,
+    "p95_deltaE": 0.2557924828984571,
+    "max_deltaE": 1.2137708159887688,
+    "bias_r": -1.210244818139472e-6,
+    "bias_g": 4.0693817027204204e-7,
+    "bias_b": 3.2766476465440064e-7,
+    "n_pixels": 742031
+  },
+  "canonicalPreviouslyMeasured": {
+    "mean_deltaE": 0.025401104728738803,
+    "p95_deltaE": 0.2557924828984571,
+    "max_deltaE": 1.2137708159887688,
+    "bias_r": -1.210244818139472e-6,
+    "bias_g": 4.0693817027204204e-7,
+    "bias_b": 3.2766476465440064e-7,
+    "n_pixels": 742031
+  },
+  "absoluteTolerance": 1e-6,
+  "passed": true
+}

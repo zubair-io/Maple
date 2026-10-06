@@ -1,0 +1,17 @@
+{
+  "cases": [4, 1, 2, 3],
+  "input": "Full-resolution embedded camera JPEG, same frozen crop resized once to512 using Lanczos",
+  "mask": "Frozen prior hole resized nearest to512, same for both models",
+  "coverage": "Prior intent resized nearest,2px linear external feather clipped to hole",
+  "rawQualification": false,
+  "case5": "Deferred until overlap mask independently reviewed",
+  "model": "Official Moebius ft_places2",
+  "steps": 20,
+  "strength": 0.99,
+  "guidance": 2.5,
+  "noiseOffset": 0.0357,
+  "paste": false,
+  "seeds": [0, 1],
+  "precision": "float32",
+  "resolution": 512
+}

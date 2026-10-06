@@ -1,0 +1,78 @@
+{
+  "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+  "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+  "path": "/Users/riabuz/.cache/maple-removal-research/comparison-klein-weights",
+  "files": [
+    {
+      "path": ".gitattributes",
+      "bytes": 1580,
+      "sha256": "caf3ca02d5e883f643e939cbed54f94237f94c171797f0dfea5e25c7e33315b3"
+    },
+    {
+      "path": "LICENSE.md",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "README.md",
+      "bytes": 1719,
+      "sha256": "bb6f2a20bfbe84308a27e2d295c98b699d3aafb7085e16d0b229f14b38127e65"
+    },
+    {
+      "path": "text_encoder/0.safetensors",
+      "bytes": 2145931311,
+      "sha256": "f6809bd90892b0a2857847f789d294a76f4494a76e65ddbd224da69e70018edc"
+    },
+    {
+      "path": "text_encoder/1.safetensors",
+      "bytes": 2128222146,
+      "sha256": "54ec81423abf46be7400817e05113024070197bc4e3f9c56e438ed6b5e3b3705"
+    },
+    {
+      "path": "text_encoder/model.safetensors.index.json",
+      "bytes": 51332,
+      "sha256": "76bbca3cb3fed818cd052e1c30e32524b65fa982680b5f32fbbdae709930a058"
+    },
+    {
+      "path": "tokenizer/chat_template.jinja",
+      "bytes": 4168,
+      "sha256": "a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8"
+    },
+    {
+      "path": "tokenizer/tokenizer.json",
+      "bytes": 11422650,
+      "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"
+    },
+    {
+      "path": "tokenizer/tokenizer_config.json",
+      "bytes": 703,
+      "sha256": "12d954e6dd43cefa344345292406442871ea7f3237065d2f068f6a0402f92bf6"
+    },
+    {
+      "path": "transformer/0.safetensors",
+      "bytes": 2142058104,
+      "sha256": "4e892cbe30fa619a146485403c2ba7bec660d50d5123699f790e20800e4015f2"
+    },
+    {
+      "path": "transformer/1.safetensors",
+      "bytes": 1975761704,
+      "sha256": "9c43f5b84ac65180c0e996397ccd47b8291e9fd8c1649e7b6661dc48c19accf2"
+    },
+    {
+      "path": "transformer/model.safetensors.index.json",
+      "bytes": 26908,
+      "sha256": "eb8263215b0870003797683b85e758f8562e0db0c2578d516d0a462e9e0dafc3"
+    },
+    {
+      "path": "vae/0.safetensors",
+      "bytes": 166156496,
+      "sha256": "01723641b0fe437a08b2b9a1980149ea5d962d904db3cc6cec70508074387278"
+    },
+    {
+      "path": "vae/model.safetensors.index.json",
+      "bytes": 17547,
+      "sha256": "5d6f9a7e3740906edb82a517a27f7d8046757ec3ac1acd704cb514325643266e"
+    }
+  ],
+  "releaseQualified": false
+}

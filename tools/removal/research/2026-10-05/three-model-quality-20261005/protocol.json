@@ -1,0 +1,64 @@
+{
+  "purpose": "Quality comparison authorized by user; performance recorded, not a rejection gate",
+  "issue": 3941,
+  "photos": 5,
+  "maskSource": "Frozen reviewed 512 masks from moebius-quality-yzitv43p; fixed native coverage; identical model hole per matching input resolution",
+  "maskReviewer": "assistant, not human ground truth",
+  "photographicInput": "Original full-resolution embedded camera JPEG, fixed native crop FOV, Lanczos resampling",
+  "rawInput": "Separate model generation from fixed AgX/sRGB Rust research plate, u8 quantization equal for every model, +2 EV model exposure on indoor cases reversed at decode",
+  "models": {
+    "lama": {
+      "resolutions": [512, 768, 1024],
+      "seeds": "deterministic",
+      "device": "CPU float32"
+    },
+    "klein": {
+      "resolutions": [512, 1024],
+      "seeds": [0, 1],
+      "steps": 4,
+      "guidance": 1,
+      "quantization": 8,
+      "device": "MLX GPU"
+    },
+    "qwen": {
+      "resolutions": [512],
+      "seeds": [0, 1],
+      "steps": 40,
+      "guidance": 4,
+      "quantization": 8,
+      "device": "MLX GPU",
+      "adapter": "none; regular base checkpoint; not Lightning"
+    }
+  },
+  "qwen1024": "Interrupted at early denoising after approximately 23sec/step; no completed output; not counted as quality failure",
+  "rawDevelopCases": [1, 2, 3, 4],
+  "rawDevelopBlockedCase": 5,
+  "rawDevelopBlockReason": "No real EOS Kiss M camera calibration profile available to white-balance qualification harness",
+  "rawGrades": {
+    "profiles": ["Auto", "Neutral"],
+    "exposureEV": [-3, 0, 3],
+    "wbShiftKelvin": [-1000, 0, 1000]
+  },
+  "controls": "Identity encode/decode+fp16 and resize-only on all RAW grades; immutable-original SHA256; outside-coverage assertions",
+  "releaseQualified": false,
+  "runtimeSource": "https://github.com/lpalbou/mlx-gen",
+  "runtimeRevision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+  "limitations": [
+    "Small five-image test set",
+    "8-bit converted Klein/Qwen checkpoints, not full precision qualification",
+    "Generated details upsampled using bilinear only",
+    "No hidden-background ground truth",
+    "Research inverse of SDR encoding is not a shipping RAW reconstruction guarantee",
+    "Concurrent CPU grading and model tests: timing is observational, not controlled benchmark"
+  ],
+  "coverageDetails": {
+    "photographic": "Frozen 512 mask with 2px linear outer feather lifted bilinear to native; protected pixels zeroed",
+    "raw": "Exact shared production mask preparation with 8 source pixel hole, 4 source pixel smoothstep coverage; all models use identical native coverage",
+    "comparisonScope": "Models and resolutions are matched within each mode. Photographic-vs-RAW differences also include the coverage recipe; do not attribute every difference to color encoding."
+  },
+  "hardware": {
+    "chip": "Apple M5 Max",
+    "unifiedMemoryBytes": 137438953472,
+    "os": "macOS 27.0 26A428"
+  }
+}

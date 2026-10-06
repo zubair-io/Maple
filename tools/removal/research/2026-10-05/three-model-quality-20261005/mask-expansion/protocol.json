@@ -1,0 +1,15 @@
+{
+  "issue": 3941,
+  "models": ["Big-LaMa CPU float32", "Qwen Image Edit 2511 q8 MLX GPU"],
+  "scope": "5 RAW model-input cases, seed0; photographic case1 seed1 retained as the known person-regeneration failure control",
+  "resolution": 512,
+  "maskExpansionsModelPixels": [8, 16],
+  "constant": "Exact same source PNG bytes, crop, checkpoint, prompt, steps, guidance, and matched seed as previous baseline",
+  "composites": ["expanded replacement area", "original replacement area"],
+  "protection": "Original protection plus a conservative foreground keep-region on case3, disjoint from baseline replacement coverage. Protection removed from expanded inference hole and both compositor coverages.",
+  "nativeFeather": "RAW shared 4 source-pixel smoothstep unchanged; camera original 2 model-pixel linear feather unchanged",
+  "notTested": "No new model-resolution comparison, prompt tuning, context expansion, or performance optimization",
+  "qualification": "Local experiment only; case5 calibrated RAW/WB qualification still unavailable under #4283",
+  "plannedNewGenerations": 24,
+  "baseline": "../protocol.json"
+}

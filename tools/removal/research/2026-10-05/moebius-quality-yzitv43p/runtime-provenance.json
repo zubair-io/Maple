@@ -1,0 +1,36 @@
+{
+  "sourceRevision": "b88d462bacb9af6e7128a3b4cc4a07418bedfd61",
+  "runtimeChanges": [
+    "Omit unused CUDA teacher import from model_lib/__init__.py",
+    "Omit training dataset import from removal/v1_2/__init__.py"
+  ],
+  "intent": "Inference only. No architecture or learned weight changes. MPS float32; published 512 configuration.",
+  "runtimePythonHashes": {
+    "model_lib/__init__.py": "95dc2708e9511d2a5d83a2b9a78490ed00c58697ca3419b18770c62704afcadc",
+    "model_lib/nets/layers/_efficientnet_blocks.py": "0f41de6587f1fe8df50990867b996c6bb5153b0a3b87426b1b147d5cee4343fb",
+    "model_lib/nets/layers/ema.py": "d324ab2d815141be0dbbefe0f51e3e076de4d45c081387069c5fd555add14447",
+    "model_lib/nets/layers/gla/gla.py": "7d73b41a3b292b1896ca33df71b9389ded6f1c6ca497f90c68cf9aef9f2c1656",
+    "model_lib/nets/layers/sana/act.py": "a1a2886efe37536157e269b508f5f7fbc823112cd570923c096fe7bf9d77b3dd",
+    "model_lib/nets/layers/sana/basic_modules.py": "2880fe29e59e9d31c01a31e66205a94a21003075e11eca3af9f6488fe3ca3eb0",
+    "model_lib/nets/layers/sana/norms.py": "e4718a64a0d6c246dc60f89e7280b81c56f160d7d776e392bab4965811da94a3",
+    "model_lib/nets/layers/sana/utils.py": "e0690e814a044ba0cb7b3e855612cade62f528a871bd8c13fee258b78a726da1",
+    "model_lib/nets/layers/unet_blocks/custom_down_blocks.py": "eb435c39c3189a857a3f6babdf07a0406a6b240cde29faf18fb9ba96750d4d40",
+    "model_lib/nets/layers/unet_blocks/custom_mid_blocks.py": "688e70c3f0d30f700d71c3284d1e049adea80418e62093f718e42034f6534020",
+    "model_lib/nets/layers/unet_blocks/custom_up_blocks.py": "583d26d9036c4bfd6f4ae358a8b25c38201656854281ed09219724e78b7a2513",
+    "model_lib/nets/layers/unet_blocks/dw_resnet.py": "cb32cfa89a22e7a02af150a22672cdbc851a4b3d249b6ea93b08391d1f4dee6f",
+    "model_lib/nets/layers/unet_blocks/mix_transformer.py": "366df29b7197e0b041581ab25dfe07840702b5ec09035dbcc09e4b16627b523a",
+    "model_lib/nets/layers/utils.py": "6c723c10ad715cb2a7cae2d9cb7af6fe2b5e7a0eb268487db31f6a43f7932ee0",
+    "model_lib/nets/layers/\u03bb/__init__.py": "67339c12e8729463ec5273288ba7f220a71f5214c9bde8c906c6fa2d6ccd7758",
+    "model_lib/nets/layers/\u03bb/vanilla\u03bb.py": "ecb49e65ce81951c866b636c3c319f8be5b2b18161e2f48521a7fa003078d428",
+    "model_lib/nets/unet_gla.py": "8a4f2b267cc62a8aee9d5b4033ab2e0c624d4328ac90776aa3b1d253b2e924a0",
+    "model_lib/nets/unet_lambda_dwconv_blocks.py": "9d9ed6f879d088488498bdf1ce354eabfb5a8d8c430f949ce44c2449fe4d675b",
+    "model_lib/nets/unet_lambda_prune_lite.py": "8becd74ff2868539329283dffeb19c9722528fdd6784454deb5bcdf707f6f10e",
+    "model_lib/nets/utils.py": "5527973a2beb08d55fc07d96755c75af5581eda5ad5ac278fee7237e2118562c",
+    "removal/v1_2/__init__.py": "6279d586bd05f69a91102519d69b6046ef5041e08e7789492e7339c8ea2ab405",
+    "removal/v1_2/compensation_utils.py": "4abdce9ee50ad82db3df7ef324e27a4020fbc0e0e54b27319099692431d28eeb",
+    "removal/v1_2/dataset.py": "fa3967fa27204b0f813898fd69e04a1f8a62cb7e0f09a3095afbce8a2d96bcbf",
+    "removal/v1_2/pipeline.py": "aded44242f3c1f09ee6b4976f7eaf12ec0981f19b04641fa217c1f4278173f66",
+    "removal/v1_2/removal_model.py": "aae217c1426db75728f845d7c0cb3df7e90609f820dc86770e2c714ab5b81f4b",
+    "utils_infer.py": "f1d9d6a7347bb130bde34e03324ff1df0ca12dc5316c450309edd20e5ee1cc23"
+  }
+}

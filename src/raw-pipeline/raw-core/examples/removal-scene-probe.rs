@@ -69,6 +69,11 @@ enum Command {
         /// #3941: reversible black-anchored contrast research, not admission.
         #[arg(long, conflicts_with = "fixed_sdr")]
         photographic_contrast: bool,
+        /// #3941 private Desktop quality probe; no product admission changes.
+        #[arg(long, default_value_t = 1024)]
+        research_side: u32,
+        #[arg(long, default_value_t = 0.0)]
+        model_exposure_ev: f32,
         /// Qualify the bounded pre-WB linear calibration context (#3955).
         #[arg(long)]
         linear_calibration: bool,
@@ -175,13 +180,20 @@ fn encode(
     fixed_sdr: bool,
     photographic_contrast: bool,
     linear_calibration: bool,
+    side: u32,
+    model_exposure_ev: f32,
 ) -> ProbeResult<()> {
+    if ![1024, 1536, 2048, 3072].contains(&side) || (linear_calibration && side != 1024) {
+        return Err(
+            "research side must be 1024, 1536, 2048 or 3072 (post-DCP only above 1024)".into(),
+        );
+    }
     let (bytes, raw) = decode_raw(path)?;
     let window = NativeWindow {
         x,
         y,
-        width: 1024,
-        height: 1024,
+        width: side,
+        height: side,
     };
     let scene = if linear_calibration {
         raw_core::pipeline::render_removal_calibration_context(
@@ -192,7 +204,8 @@ fn encode(
     } else {
         render_removal_context(&raw, window)?
     };
-    let encoding = encoding::ProbeEncoding::fit(&scene.pixels, fixed_sdr, photographic_contrast)?;
+    let encoding = encoding::ProbeEncoding::fit(&scene.pixels, fixed_sdr, photographic_contrast)?
+        .with_exposure(model_exposure_ev)?;
     let model = encoding.encode(&scene.pixels)?;
     let scene_bytes = pack(scene.pixels.iter().flatten().copied());
     let model_bytes = pack((0..3).flat_map(|c| model.iter().map(move |p| p[c])));
@@ -228,7 +241,7 @@ fn encode(
     std::fs::create_dir_all(output)?;
     std::fs::write(output.join("scene.f32"), &scene_bytes)?;
     std::fs::write(output.join("input.f32"), &model_bytes)?;
-    save_png(output.join("input.png"), &model, 1024)?;
+    save_png(output.join("input.png"), &model, side)?;
     std::fs::write(
         output.join("context.json"),
         serde_json::to_vec_pretty(&context)?,
@@ -259,21 +272,26 @@ fn bake(path: &Path, directory: &Path, model_result: &Path, output: &Path) -> Pr
     let (bytes, raw) = decode_raw(path)?;
     let context: Context = serde_json::from_slice(&std::fs::read(directory.join("context.json"))?)?;
     context.original.verify(&bytes)?;
-    if context.window.width != 1024 || context.window.height != 1024 || context.release_qualified {
+    let side = context.window.width;
+    if ![1024, 1536, 2048, 3072].contains(&side)
+        || context.window.height != side
+        || context.release_qualified
+        || (context.plate == ProbePlate::LinearCalibrationV1 && side != 1024)
+    {
         return Err("unexpected experimental context geometry or qualification".into());
     }
     let scene_bytes = std::fs::read(directory.join("scene.f32"))?;
     context.scene.verify(&scene_bytes)?;
     let input_bytes = std::fs::read(directory.join("input.f32"))?;
     context.model_input.verify(&input_bytes)?;
-    let scene = read_rgb(&scene_bytes, 1024, false)?;
+    let scene = read_rgb(&scene_bytes, side, false)?;
     let identity = context
         .encoding
-        .decode(&read_rgb(&input_bytes, 1024, true)?)?;
+        .decode(&read_rgb(&input_bytes, side, true)?)?;
     let result_bytes = std::fs::read(model_result)?;
     let replacement = context
         .encoding
-        .decode(&read_rgb(&result_bytes, 1024, true)?)?;
+        .decode(&read_rgb(&result_bytes, side, true)?)?;
     let region = context
         .window
         .region(context.source_width, context.source_height);
@@ -283,8 +301,8 @@ fn bake(path: &Path, directory: &Path, model_result: &Path, output: &Path) -> Pr
         [context.source_width, context.source_height],
     )?;
     let patch_for = |pixels| InpaintPatch {
-        width: 1024,
-        height: 1024,
+        width: side,
+        height: side,
         origin: [region[0], region[1]],
         extent: [region[2], region[3]],
         pixels,
@@ -309,15 +327,15 @@ fn bake(path: &Path, directory: &Path, model_result: &Path, output: &Path) -> Pr
     let base = rgba(&scene);
     let identity_plate = composite_window_into_f32(
         &base,
-        1024,
-        1024,
+        side,
+        side,
         &[patch_from_bytes(&identity_bytes)?],
         region,
     )?;
     let replacement_plate = composite_window_into_f32(
         &base,
-        1024,
-        1024,
+        side,
+        side,
         &[patch_from_bytes(&replacement_bytes)?],
         region,
     )?;
@@ -348,7 +366,7 @@ fn bake(path: &Path, directory: &Path, model_result: &Path, output: &Path) -> Pr
         .iter()
         .map(|v| if *v > 0.0 { 255 } else { 0 })
         .collect();
-    image::GrayImage::from_raw(1024, 1024, roi)
+    image::GrayImage::from_raw(side, side, roi)
         .ok_or("coverage geometry mismatch")?
         .save(output.join("coverage.png"))?;
     std::fs::write(output.join("replacement.f16"), replacement_bytes)?;
@@ -378,8 +396,8 @@ fn bake(path: &Path, directory: &Path, model_result: &Path, output: &Path) -> Pr
                 };
                 let render = |plate: &[f32]| -> ProbeResult<Vec<[f32; 3]>> {
                     let display =
-                        apply_scene_linear_chain_f32(plate, 1024, 1024, &model, &options)?;
-                    let encoded = encode_display_srgb_f32(&display, 1024, 1024)?;
+                        apply_scene_linear_chain_f32(plate, side, side, &model, &options)?;
+                    let encoded = encode_display_srgb_f32(&display, side, side)?;
                     let mut rgb: Vec<f32> = encoded
                         .chunks_exact(4)
                         .flat_map(|p| [p[0], p[1], p[2]])
@@ -408,13 +426,13 @@ fn bake(path: &Path, directory: &Path, model_result: &Path, output: &Path) -> Pr
                     "neutral"
                 };
                 let prefix = format!("{profile_name}_ev{ev:+}_wb{shift:+}");
-                save_png(output.join(format!("{prefix}-truth.png")), &truth, 1024)?;
+                save_png(output.join(format!("{prefix}-truth.png")), &truth, side)?;
                 save_png(
                     output.join(format!("{prefix}-identity.png")),
                     &restored,
-                    1024,
+                    side,
                 )?;
-                save_png(output.join(format!("{prefix}-removal.png")), &removed, 1024)?;
+                save_png(output.join(format!("{prefix}-removal.png")), &removed, side)?;
                 let max_error = truth
                     .iter()
                     .flatten()
@@ -479,6 +497,8 @@ fn main() -> ProbeResult<()> {
             fixed_sdr,
             photographic_contrast,
             linear_calibration,
+            research_side,
+            model_exposure_ev,
         } => encode(
             &raw,
             x,
@@ -487,6 +507,8 @@ fn main() -> ProbeResult<()> {
             fixed_sdr,
             photographic_contrast,
             linear_calibration,
+            research_side,
+            model_exposure_ev,
         ),
         Command::CalibrationParity { raw, x, y, output } => {
             calibration::compare(&raw, x, y, &output)

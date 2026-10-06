@@ -10,7 +10,7 @@ const HOLE_RADIUS: u32 = 8;
 const FRINGE_RADIUS: f32 = 4.0;
 
 pub(super) fn window(mask: &RemovalMask) -> Result<NativeWindow, String> {
-    let bounds = expanded(mask)?;
+    let bounds = expanded(mask, SIDE)?;
     let centered = |start: u32, extent: u32| {
         ((u64::from(start) * 2 + u64::from(extent)).saturating_sub(u64::from(SIDE)) / 2) as u32
     };
@@ -24,10 +24,10 @@ pub(super) fn window(mask: &RemovalMask) -> Result<NativeWindow, String> {
     })
 }
 
-fn expanded(mask: &RemovalMask) -> Result<NativeWindow, String> {
+fn expanded(mask: &RemovalMask, side: u32) -> Result<NativeWindow, String> {
     mask.validate()?;
-    if mask.source_width < SIDE || mask.source_height < SIDE || !mask.pixels.contains(&255) {
-        return Err("large research requires a nonempty native 2048 source context".into());
+    if mask.source_width < side || mask.source_height < side || !mask.pixels.contains(&255) {
+        return Err("large research requires a nonempty native research source context".into());
     }
     let left = mask.x.saturating_sub(HOLE_RADIUS);
     let top = mask.y.saturating_sub(HOLE_RADIUS);
@@ -37,8 +37,10 @@ fn expanded(mask: &RemovalMask) -> Result<NativeWindow, String> {
     let bottom = (mask.y + mask.height)
         .saturating_add(HOLE_RADIUS)
         .min(mask.source_height);
-    if right - left > SIDE || bottom - top > SIDE {
-        return Err("complete selection and expansion exceed native 2048 research context".into());
+    if right - left > side || bottom - top > side {
+        return Err(
+            "complete selection and expansion exceed native research research context".into(),
+        );
     }
     Ok(NativeWindow {
         x: left,
@@ -56,15 +58,16 @@ pub(super) fn planes(
     mask.validate()?;
     protection.validate()?;
     window.validate(mask.source_width, mask.source_height)?;
-    if window.width != SIDE
-        || window.height != SIDE
-        || !window.contains(&expanded(mask)?)
+    let side = window.width;
+    if ![1536, 2048, 3072].contains(&side)
+        || window.height != side
+        || !window.contains(&expanded(mask, side)?)
         || (mask.source_width, mask.source_height)
             != (protection.source_width, protection.source_height)
     {
         return Err("large research window or protection source differs".into());
     }
-    let count = (SIDE * SIDE) as usize;
+    let count = (side * side) as usize;
     let mut values = vec![0.0_f32; count * 2];
     // Distance to a union is the minimum distance to its pieces. Binary holes
     // combine by OR and monotonic smoothstep coverage by maximum. Every piece
@@ -122,13 +125,13 @@ pub(super) fn planes(
                     let sy = tile.y + ty;
                     if sx < window.x
                         || sy < window.y
-                        || sx >= window.x + SIDE
-                        || sy >= window.y + SIDE
+                        || sx >= window.x + side
+                        || sy >= window.y + side
                     {
                         continue;
                     }
                     let from = (ty * tile.width + tx) as usize;
-                    let to = ((sy - window.y) * SIDE + sx - window.x) as usize;
+                    let to = ((sy - window.y) * side + sx - window.x) as usize;
                     values[to] = values[to].max(f32::from(prepared.hole[from]) / 255.0);
                     values[count + to] = values[count + to].max(prepared.coverage[from]);
                 }
@@ -189,6 +192,41 @@ mod tests {
             }
         }
     }
+    // #3941: the private resolution sweep keeps the original source window.
+    #[test]
+    fn research_extents_preserve_shared_mask_geometry() {
+        for side in [1536, 3072] {
+            let mask = RemovalMask {
+                source_width: 4000,
+                source_height: 4000,
+                x: 100,
+                y: 100,
+                width: 1,
+                height: 1,
+                pixels: vec![255],
+            };
+            let protection = RemovalMask {
+                pixels: vec![0],
+                ..mask.clone()
+            };
+            let window = NativeWindow {
+                x: 0,
+                y: 0,
+                width: side,
+                height: side,
+            };
+            let values = planes(&mask, &protection, window).unwrap();
+            let count = (side * side) as usize;
+            assert_eq!(values.len(), count * 2);
+            let at = (100 * side + 100) as usize;
+            assert_eq!(values[at], 1.0);
+            assert_eq!(values[count + at], 1.0);
+            assert_eq!(values[at + 8], 1.0);
+            assert_eq!(values[at + 9], 0.0);
+            assert_eq!(values[count + at + 4], 0.0);
+        }
+    }
+
     #[test]
     fn complete_oversize_protection_overlap_and_wrong_sources_refuse() {
         let mut intent = line();
