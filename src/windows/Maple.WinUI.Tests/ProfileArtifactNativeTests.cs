@@ -171,6 +171,26 @@ public class ProfileArtifactNativeTests
         finally { File.Delete(path); }
     }
 
+    [Fact]
+    public void PostDecodeSourceValidationRejectsRenamedOrDeletedFilesWithoutThrowing()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "maple-profile-disappeared-" + Guid.NewGuid().ToString("N"));
+        var renamed = path + ".renamed";
+        try
+        {
+            File.WriteAllText(path, "source");
+            var source = ProfileSourceGeneration.Read(path);
+            Assert.True(source.StillCurrent(path));
+            File.Move(path, renamed);
+            Assert.False(source.StillCurrent(path));
+            File.Move(renamed, path);
+            Assert.True(source.StillCurrent(path));
+            File.Delete(path);
+            Assert.False(source.StillCurrent(path));
+        }
+        finally { File.Delete(path); File.Delete(renamed); }
+    }
+
     [DemosaicNativeFact]
     public async Task NoEmbeddedPreviewRetainsValidNoTailOwnershipInNativeDetail()
     {
