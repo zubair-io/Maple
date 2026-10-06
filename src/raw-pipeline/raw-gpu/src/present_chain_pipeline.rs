@@ -375,8 +375,7 @@ impl PresentDispatchCache {
             bind_group_layout,
             chain_buf,
             identity,
-            dims,
-            (0, 0),
+            (dims, (0, 0)),
             PresentGeometry::IDENTITY,
         )
     }
@@ -389,10 +388,10 @@ impl PresentDispatchCache {
         bind_group_layout: &wgpu::BindGroupLayout,
         chain_buf: &wgpu::Buffer,
         identity: (u64, usize),
-        dims: (u32, u32),
-        src_dims: (u32, u32),
+        dimensions: ((u32, u32), (u32, u32)),
         geometry: PresentGeometry,
     ) -> (Arc<wgpu::Buffer>, Arc<wgpu::BindGroup>) {
+        let (dims, src_dims) = dimensions;
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         // The surface retains its layout and invalidates before replacing it.
         bind_group_layout.hash(&mut hasher);

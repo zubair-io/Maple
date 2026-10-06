@@ -235,8 +235,7 @@ impl WebPresentSurface {
             &self.bind_group_layout,
             chain_buf,
             (session.identity(), final_idx),
-            (self.width, self.height),
-            (0, 0),
+            ((self.width, self.height), (0, 0)),
             geometry,
         );
         let frame = self
