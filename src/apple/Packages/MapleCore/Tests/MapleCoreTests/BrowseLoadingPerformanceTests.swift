@@ -174,11 +174,8 @@ final class BrowseLoadingPerformanceTests: XCTestCase {
   }
 
   private func waitForQueue(_ loader: ThumbnailLoader) async {
-    for _ in 0..<10_000 {
-      if await loader.decodeSlots.queuedCount > 0 { return }
-      await Task.yield()
-    }
-    XCTFail("Producer never reached the thumbnail queue")
+    let queued = await loader.decodeSlots.waitForQueue(atLeast: 1, timeout: .seconds(5))
+    XCTAssertTrue(queued, "Producer never reached the thumbnail queue")
   }
 }
 

@@ -17,6 +17,7 @@
 // window if the bug were still present.
 
 import XCTest
+
 @testable import MapleCloudKit
 
 final class BoundedAsyncSemaphoreTests: XCTestCase {
@@ -79,7 +80,7 @@ final class BoundedAsyncSemaphoreTests: XCTestCase {
   func test_valueOne_serializesAndAllTasksComplete() async {
     let semaphore = BoundedAsyncSemaphore(value: 1)
     let tracker = ConcurrencyTracker()
-    let completed = ConcurrencyTracker() // reused as a plain counter via enter()
+    let completed = ConcurrencyTracker()  // reused as a plain counter via enter()
 
     await withTaskGroup(of: Void.self) { group in
       for _ in 0..<50 {
@@ -235,6 +236,35 @@ final class BoundedAsyncSemaphoreTests: XCTestCase {
       let drainPeak = await counter.peak
       XCTAssertLessThanOrEqual(drainPeak, cap, "post-race drain exceeded cap — a permit leaked")
     }
+  }
+
+  func test_waitForQueue_observesRegistrationAndTimeout() async throws {
+    let semaphore = BoundedAsyncSemaphore(value: 1)
+    try await semaphore.acquire()
+
+    // 1. Timeout when nobody queues.
+    let timedOut = await semaphore.waitForQueue(atLeast: 1, timeout: .milliseconds(50))
+    XCTAssertFalse(timedOut, "waitForQueue must return false when no waiter arrives")
+
+    // 2. Positive observation when a waiter arrives.
+    let queuedTask = Task {
+      try await semaphore.acquire()
+    }
+    let observed = await semaphore.waitForQueue(atLeast: 1, timeout: .seconds(2))
+    XCTAssertTrue(observed, "waitForQueue must observe queued waiter")
+    let count = await semaphore.queuedCount
+    XCTAssertEqual(count, 1)
+
+    // 3. Immediate return when already queued.
+    let immediate = await semaphore.waitForQueue(atLeast: 1, timeout: .milliseconds(50))
+    XCTAssertTrue(immediate, "waitForQueue must return true immediately when already queued")
+
+    // Clean up.
+    queuedTask.cancel()
+    _ = try? await queuedTask.value
+    let finalCount = await semaphore.queuedCount
+    XCTAssertEqual(finalCount, 0)
+    await semaphore.release()
   }
 }
 
