@@ -305,6 +305,7 @@ fn compute_fit_rms_de_from_pairs(
     field: &super::model::HueChromaField,
 ) -> f32 {
     use super::model::{apply_model, ciede2000, srgb_linear_to_lab};
+    use rayon::prelude::*;
     let m_srgb_to_rec2020 = M_REC2020_TO_SRGB
         .inverse()
         .expect("M_REC2020_TO_SRGB invertible");
@@ -319,9 +320,7 @@ fn compute_fit_rms_de_from_pairs(
         },
     };
 
-    let mut total_de = 0.0f64;
-    let mut n = 0usize;
-    for p in pairs {
+    let squared_error = |p: &DisplayPair| {
         let (maple_rec2020, jpeg_srgb) = decode_pair(p, &m_srgb_to_rec2020);
         let lab_meas = srgb_linear_to_lab(jpeg_srgb);
 
@@ -335,9 +334,31 @@ fn compute_fit_rms_de_from_pairs(
         let lab_pred = srgb_linear_to_lab(pred_srgb_clamped);
 
         let de = ciede2000(lab_meas, lab_pred);
-        total_de += (de as f64) * (de as f64);
-        n += 1;
+        (de as f64) * (de as f64)
+    };
+    let mut total_de = 0.0f64;
+    if pairs.len() <= 4096 || rayon::current_num_threads() == 1 {
+        for p in pairs {
+            total_de += squared_error(p);
+        }
+    } else {
+        // #4360: parallelize independent evaluations, never their reduction.
+        // At most 512 KiB scratch; retain the original pair/addition order.
+        let mut errors = vec![0.0f64; pairs.len().min(65_536)];
+        for chunk in pairs.chunks(errors.len()) {
+            let output = &mut errors[..chunk.len()];
+            output
+                .par_iter_mut()
+                .zip(chunk.par_iter())
+                .for_each(|(out, pair)| {
+                    *out = squared_error(pair);
+                });
+            for &error in output.iter() {
+                total_de += error;
+            }
+        }
     }
+    let n = pairs.len();
     if n == 0 {
         0.0
     } else {
@@ -351,3 +372,7 @@ fn compute_fit_rms_de_from_pairs(
 #[cfg(test)]
 #[path = "from_pairs_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "from_pairs_rms_tests.rs"]
+mod rms_tests;
