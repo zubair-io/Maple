@@ -68,3 +68,7 @@ fn large_preview_has_bounded_sample_count_and_fast_readback() {
         assert_eq!(&bins[..256], &bins[512..]);
     }
 }
+
+#[cfg(target_vendor = "apple")]
+#[path = "display_histogram_phase_tests.rs"]
+mod phase;

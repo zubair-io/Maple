@@ -480,7 +480,7 @@ jobs:
       # thresholds remain enabled; this is not a retry of a failed sample.
       - name: cargo test -p raw-gpu (raw-core↔WGSL parity, Metal)
         working-directory: src/raw-pipeline
-        run: cargo test -p raw-gpu -- --test-threads=1
+        run: cargo test -p raw-gpu -- --test-threads=1 --show-output
 
   # Fixture-free Rust test gate (#1082). Before this job, NO CI executed
   # `cargo test` anywhere — the ~750 raw-core lib tests ran only on laptops.
