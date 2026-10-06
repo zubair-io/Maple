@@ -80,16 +80,14 @@ public sealed partial class RenderScheduler
         catch (Exception error) { ScopeFailed?.Invoke(version, error.Message); }
     }
 
-    private void EmitCpuScope(DecodedImage image, AdjustmentState state)
+    private void EmitCpuScope(DecodedImage image, AdjustmentState state, float[]? encoded)
     {
         long version;
-        float[] encoded;
         lock (_gate)
         {
             if (_stopping || !_scopes.Enabled || !ReferenceEquals(image, _image)
-                || !ReferenceEquals(state, _lastRendered) || _pending != null || _chainScratch == null) return;
+                || !ReferenceEquals(state, _lastRendered) || _pending != null || encoded == null) return;
             version = _scopes.Version;
-            encoded = _chainScratch;
         }
         try
         {

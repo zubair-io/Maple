@@ -44,8 +44,9 @@ namespace Maple.WinUI.Services
         private DecodedImage? _gpuHalfImage;
 
         /// <summary>CPU-path frame: (source, bgra, width, height, histogram bins,
-        /// renderMillis). Raised on the render thread. UI consumers must check
-        /// IsCurrentFrame after dispatching.</summary>
+        /// renderMillis). Raised on the render thread. BGRA is borrowed only
+        /// during the callback; copy it before dispatching or retaining it.
+        /// UI consumers must check IsCurrentFrame after dispatching.</summary>
         public event Action<DecodedImage, byte[], int, int, uint[], double>? FrameReady;
         /// <summary>GPU-path present completed: (source, width, height, presentMillis,
         /// fullRes). width/height are the SURFACE (full-image) dims for both
@@ -513,7 +514,7 @@ namespace Maple.WinUI.Services
                         ComputeHistogram(pixels), elapsed);
                 EmitClipSource(pixels, image.Width, image.Height);
                 if (sampleScopes) DumpFrameIfRequested(pixels, image.Width, image.Height);
-                if (sampleScopes) EmitCpuScope(image, state);
+                if (sampleScopes) EmitCpuScope(image, state, scratch);
                 lock (_gate)
                 {
                     if (!IsCurrentFrame(image)) return true;
