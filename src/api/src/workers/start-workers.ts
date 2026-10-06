@@ -61,15 +61,21 @@ let _countsRefresher: RefresherHandle | null = null;
 // startWorkers
 // ---------------------------------------------------------------------------
 
-export async function startWorkers(): Promise<void> {
+async function startSubsystem(start: () => unknown, failureMessage: string): Promise<void> {
   try {
+    await start();
+  } catch (err) {
+    log.warn({ err }, failureMessage);
+  }
+}
+
+export async function startWorkers(): Promise<void> {
+  await startSubsystem(async () => {
     await startAllStages();
     log.info(stageRegistry.statuses(), 'Worker stages running');
-  } catch (err) {
-    log.warn({ err }, 'Worker stages failed to start');
-  }
+  }, 'Worker stages failed to start');
 
-  try {
+  await startSubsystem(async () => {
     const discoverRoots = (await listLibraryRoots()).map((root) => root.path).filter(Boolean);
     if (discoverRoots.length > 0) {
       registerDiscoverWorker();
@@ -94,9 +100,7 @@ export async function startWorkers(): Promise<void> {
         }
       })(root);
     }
-  } catch (err) {
-    log.warn({ err }, 'Discover failed to start');
-  }
+  }, 'Discover failed to start');
 
   await bootstrapFfiPool(); // size the FFI decode pool (DB > env > default 1)
 
@@ -136,30 +140,18 @@ export async function startWorkers(): Promise<void> {
     startWorkerEnrichmentConfigRefresh();
   }
 
-  try {
-    // JobRunner — sibling subsystem to the indexer pipeline for
-    // user-triggered long-running work (export, batch reprocess).
-    startJobRunner();
-  } catch (err) {
-    log.warn({ err }, 'JobRunner failed to start');
-  }
+  // JobRunner — sibling subsystem to the indexer pipeline for
+  // user-triggered long-running work (export, batch reprocess).
+  await startSubsystem(startJobRunner, 'JobRunner failed to start');
 
-  try {
-    // ImportRunner — claims pending `imports` and copies server-local
-    // folders into a library (ticket #742).
-    startImportRunner();
-  } catch (err) {
-    log.warn({ err }, 'ImportRunner failed to start');
-  }
+  // ImportRunner — claims pending `imports` and copies server-local
+  // folders into a library (ticket #742).
+  await startSubsystem(startImportRunner, 'ImportRunner failed to start');
 
   // Library-wide maintenance jobs (trash-gc + missing-reaper + migration).
   // Moved here from index.ts so maintenance load is off the API event loop and
   // these workers are gated by MAPLE_INDEXER_AUTOSTART like everything else.
-  try {
-    startMaintenanceJobs();
-  } catch (err) {
-    log.warn({ err }, 'Maintenance jobs failed to start');
-  }
+  await startSubsystem(startMaintenanceJobs, 'Maintenance jobs failed to start');
 
   // Publish stageRegistry.statuses() to the `worker_status` row every 2 s
   // so the API process (which has an empty in-process registry) can serve
