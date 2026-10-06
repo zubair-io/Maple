@@ -50,7 +50,11 @@ class QualificationParityTests(unittest.TestCase):
             (self.work / "parity-verdict.json").read_text(encoding="utf-8")
         )
         self.assertEqual(verdict["mean_budget"], 2.0)
-        for name in ("preview", "export", "preview-export"):
+        for name in (
+            "preview", "export", "preview-export", "gpu-reference-viewport",
+            "gpu-export-viewport", "gpu-cpu-viewport", "cpu-reference-viewport",
+            "cpu-export-viewport",
+        ):
             metric = json.loads(
                 (self.work / f"{name}-diff.json").read_text(encoding="utf-8")
             )
@@ -87,6 +91,13 @@ class QualificationParityTests(unittest.TestCase):
     def test_missing_gpu_pixels_fail_qualification(self):
         (self.work / "gpu-frame.png").unlink()
         self.assertEqual(self.run_driver().returncode, 2)
+        self.assertFalse((self.work / "parity-verdict.json").exists())
+
+    def test_gpu_dimensions_cannot_be_resized_into_a_pass(self):
+        Image.new("RGB", (8, 6), (100, 120, 140)).save(self.work / "gpu-frame.png")
+        result = self.run_driver()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("dimensions", result.stderr)
         self.assertFalse((self.work / "parity-verdict.json").exists())
 
     def test_export_dimensions_cannot_be_resized_into_a_pass(self):
