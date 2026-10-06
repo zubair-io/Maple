@@ -52,6 +52,7 @@ namespace Maple.WinUI.Services.Pano
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Maple");
 
         public string ModelsDir { get; }
+        internal static string DefaultOrtDylibPath => Path.Combine(MapleAppData, "ort", Ort.Arch, "onnxruntime.dll");
         public string OrtDylibPath { get; }
         public string? CliPath { get; }
 
@@ -60,7 +61,7 @@ namespace Maple.WinUI.Services.Pano
             ModelsDir = settings.PanoModelsDir
                 ?? Path.Combine(MapleAppData, "pano-models");
             OrtDylibPath = settings.PanoOrtDylibPath
-                ?? Path.Combine(MapleAppData, "ort", Ort.Arch, "onnxruntime.dll");
+                ?? DefaultOrtDylibPath;
             CliPath = ResolveCliPath(settings.PanoCliPath);
         }
 
