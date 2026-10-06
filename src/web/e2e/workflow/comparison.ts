@@ -40,6 +40,47 @@ function pixel(source: CanvasImageSource, width: number, height: number) {
   context.drawImage(source, Math.floor(width / 2), Math.floor(height / 2), 1, 1, 0, 0, 1, 1);
   return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3);
 }
+
+// Compare the same image grid, not a GPU image pixel against a resampled viewport pixel.
+function imageGrid(
+  source: HTMLCanvasElement | ImageBitmap,
+  width = source.width,
+  height = source.height,
+) {
+  const grid = new OffscreenCanvas(width, height);
+  const context = grid.getContext('2d', { colorSpace: 'display-p3' })!;
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(source, 0, 0, width, height);
+  return grid;
+}
+
+// Independent check of the documented #1542 presentation, separate from baseline pixels.
+function treatedBeforePixel(
+  bitmap: ImageBitmap,
+  canvas: HTMLCanvasElement,
+  layout: { canvasW: number; canvasH: number; pan: { x: number; y: number } },
+) {
+  const grid = new OffscreenCanvas(canvas.width, canvas.height);
+  const context = grid.getContext('2d', { colorSpace: 'display-p3' })!;
+  const dpr = devicePixelRatio || 1;
+  const width = layout.canvasW * dpr,
+    height = layout.canvasH * dpr;
+  context.fillStyle = '#181c22';
+  context.fillRect(0, 0, grid.width, grid.height);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+  context.filter = 'saturate(0.6) contrast(0.9)';
+  context.drawImage(
+    bitmap,
+    (grid.width - width) / 2 + layout.pan.x * dpr,
+    (grid.height - height) / 2 + layout.pan.y * dpr,
+    width,
+    height,
+  );
+  return pixel(grid, grid.width, grid.height);
+}
+
 const delta = (a: number[], b: number[]) =>
   Math.max(...a.map((value, i) => Math.abs(value - b[i])));
 
@@ -109,10 +150,16 @@ export async function comparisonWorkflow(
     ...defaultAdjustmentModel(),
     exposure: 0.25,
   });
-  const fixture = await control<{ key: string; path: string; library: ApiFolder }>(
-    '/workflow-fixture',
-    { xml: initial, synthetic: true, camera, camera100mp },
-  );
+  const fixture = await control<{
+    key: string;
+    path: string;
+    library: ApiFolder;
+  }>('/workflow-fixture', {
+    xml: initial,
+    synthetic: true,
+    camera,
+    camera100mp,
+  });
   const readOriginal = async () => {
     const response = await fetch('/workflow-fixture/' + fixture.key + '/raw');
     if (!response.ok) throw Error('Original read failed');
@@ -189,6 +236,10 @@ export async function comparisonWorkflow(
     const liveCanvas = () =>
       (gpu ? host.querySelector('canvas[data-gpu-live]') : drawCanvas) as HTMLCanvasElement;
     const initialPixel = pixel(liveCanvas(), liveCanvas().width, liveCanvas().height);
+    const openingSource = gpu ? liveCanvas() : canvas.imageBitmap();
+    if (!openingSource) throw Error('Actual opening image unavailable');
+    const openingGrid = imageGrid(openingSource);
+    const openingRawPixel = pixel(openingGrid, openingGrid.width, openingGrid.height);
     const flush = () => library.flushPendingXmpWrites();
     const readXML = async () =>
       backend === 'hosted'
@@ -208,6 +259,9 @@ export async function comparisonWorkflow(
     if (!preparation) service.beforeAfterSplitX.set(1);
     const owned = await comparisonBitmap(canvas);
     const beforePixel = pixel(drawCanvas, drawCanvas.width, drawCanvas.height);
+    const baselineGrid = imageGrid(owned, openingGrid.width, openingGrid.height);
+    const baselineRawPixel = pixel(baselineGrid, baselineGrid.width, baselineGrid.height);
+    const treatedBaselinePixel = treatedBeforePixel(owned, drawCanvas, canvas.currentLayout());
     const comparisonDoesNotWriteXMP = (preparation ? preparation.xml : await readXML()) === saved;
     for (const exposure of [1.5, 1.75, 2]) {
       library.updateAdjustment(id, { exposure });
@@ -225,6 +279,14 @@ export async function comparisonWorkflow(
     service.beforeAfterSplitX.set(null);
     await until(() => drawCanvas.getContext('2d') !== null, 'leaving before');
     const afterExit = pixel(liveCanvas(), liveCanvas().width, liveCanvas().height);
+    const variantOpeningSource = gpu ? liveCanvas() : canvas.imageBitmap();
+    if (!variantOpeningSource) throw Error('Actual variant opening image unavailable');
+    const variantOpeningGrid = imageGrid(variantOpeningSource);
+    const variantOpeningRawPixel = pixel(
+      variantOpeningGrid,
+      variantOpeningGrid.width,
+      variantOpeningGrid.height,
+    );
     const exitDoesNotWriteXMP = (await readXML()) === lastSaved;
     const currentBeforeVariant = structuredClone(library.adjustmentFor(id)());
     const history = app.injector.get(EditorWorkflowHistoryService);
@@ -244,8 +306,19 @@ export async function comparisonWorkflow(
       'variant edit',
     );
     service.beforeAfterSplitX.set(1);
-    await comparisonBitmap(canvas);
+    const variantOwned = await comparisonBitmap(canvas);
     const variantBefore = pixel(drawCanvas, drawCanvas.width, drawCanvas.height);
+    const variantGrid = imageGrid(
+      variantOwned,
+      variantOpeningGrid.width,
+      variantOpeningGrid.height,
+    );
+    const variantRawPixel = pixel(variantGrid, variantGrid.width, variantGrid.height);
+    const treatedVariantPixel = treatedBeforePixel(
+      variantOwned,
+      drawCanvas,
+      canvas.currentLayout(),
+    );
     const selectedModel = structuredClone(library.adjustmentFor(id)());
     await flush();
     const variantSource = history.capture(id, selectedModel)!;
@@ -257,14 +330,20 @@ export async function comparisonWorkflow(
       colorSpace: canvas.gpuPresent.colorSpace(),
       ...preparationMetrics(preparation),
       sourceHash,
+      openingRawPixel,
+      baselineRawPixel,
+      variantOpeningRawPixel,
+      variantRawPixel,
       initialPixel,
       editedPixel,
       beforePixel,
       afterExit,
       variantBefore,
       actualDifferentPixels: delta(initialPixel, editedPixel) > 5,
-      baselineMatchesOpening: delta(initialPixel, beforePixel) <= 3,
-      variantMatchesOwnOpening: delta(afterExit, variantBefore) <= 3,
+      baselineMatchesOpening: delta(openingRawPixel, baselineRawPixel) <= 3,
+      beforeHasDocumentedTreatment: delta(beforePixel, treatedBaselinePixel) <= 3,
+      variantMatchesOwnOpening: delta(variantOpeningRawPixel, variantRawPixel) <= 3,
+      variantHasDocumentedTreatment: delta(variantBefore, treatedVariantPixel) <= 3,
       currentModelUnchangedByCompare: selectedModel.exposure === 0.5,
       primaryUnchangedByVariant: (await readXML()) === primaryBeforeVariant,
       comparisonDoesNotWriteXMP,

@@ -24,7 +24,9 @@ for (const backend of ['hosted', 'self-hosted'] as const) {
       for (const key of [
         'actualDifferentPixels',
         'baselineMatchesOpening',
+        'beforeHasDocumentedTreatment',
         'variantMatchesOwnOpening',
+        'variantHasDocumentedTreatment',
         'currentModelUnchangedByCompare',
         'primaryUnchangedByVariant',
         'unchangedDuringComparison',
@@ -54,7 +56,9 @@ for (const gpu of [false, true]) {
     for (const key of [
       'actualDifferentPixels',
       'baselineMatchesOpening',
+      'beforeHasDocumentedTreatment',
       'variantMatchesOwnOpening',
+      'variantHasDocumentedTreatment',
       'currentModelUnchangedByCompare',
       'primaryUnchangedByVariant',
       'comparisonDoesNotWriteXMP',
@@ -97,6 +101,9 @@ for (const colorSpace of ['srgb', 'display-p3'] as const) {
     expect(result.preparingTickMs, JSON.stringify(result)).toBeLessThanOrEqual(50);
     expect(result.actualDifferentPixels).toBe(true);
     expect(result.baselineMatchesOpening).toBe(true);
+    expect(result.beforeHasDocumentedTreatment).toBe(true);
+    expect(result.variantMatchesOwnOpening).toBe(true);
+    expect(result.variantHasDocumentedTreatment).toBe(true);
     expect(result.originalUnchanged).toBe(true);
   });
 }
