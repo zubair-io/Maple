@@ -7,7 +7,12 @@ import { MeilisearchSearchError } from './meilisearch-search-error.ts';
 import type { MeilisearchTransportConfig } from './meilisearch-transport.ts';
 
 type Hit = MeiliSearchResponse['hits'][number];
-const request = Object.freeze({ q: 'Rose', offset: 0, limit: 100, filter: 'hidden = false' });
+const request = Object.freeze({
+  q: 'Rose',
+  offset: 0,
+  limit: 100,
+  filter: 'hidden = false',
+});
 const hit = (id: string, fields: string[] = [], score = 0.75): Hit => ({
   id,
   _rankingScore: score,
@@ -61,7 +66,12 @@ describe('search reading diversity without external services (#2386)', () => {
     expect(actual).toEqual({ hits: expected, estimatedTotalHits: 413 });
     expect(new Set(actual.hits.map((h) => h.id))).toEqual(new Set(hits.map((h) => h.id)));
     expect(hits).toEqual(snapshot);
-    expect(request).toEqual({ q: 'Rose', offset: 0, limit: 100, filter: 'hidden = false' });
+    expect(request).toEqual({
+      q: 'Rose',
+      offset: 0,
+      limit: 100,
+      filter: 'hidden = false',
+    });
     expect(calls).toEqual([{ ...request, showMatchesPosition: true }]);
   });
 
@@ -119,22 +129,54 @@ describe('search reading diversity without external services (#2386)', () => {
     expect(calls).toEqual([
       { ...request, showMatchesPosition: true },
       { ...request, showMatchesPosition: true },
-      { ...request, showMatchesPosition: true },
-      { ...request, offset: 100, limit: 5 },
+      { ...request, limit: 105, showMatchesPosition: true },
       { ...request, offset: 105, limit: 45 },
     ]);
+  });
+
+  it('uses one ranked response when enrichment changes order across a boundary-spanning window', async () => {
+    const hits = Array.from({ length: 150 }, (_, i) =>
+      hit(String(i), i < 2 ? ['people'] : i === 25 || i === 50 ? ['description'] : [], i / 200),
+    );
+    const original = structuredClone(hits);
+    const { config, calls } = transport((body) => {
+      const ranking = calls.length === 1 ? hits : [hit('new-enrichment-result'), ...hits];
+      return Response.json({
+        hits: ranking.slice(
+          body.offset as number,
+          (body.offset as number) + (body.limit as number),
+        ),
+        estimatedTotalHits: ranking.length,
+      });
+    });
+    const result = await searchWithReadingDiversity(config, 'owned', {
+      ...request,
+      offset: 97,
+      limit: 8,
+    });
+    expect(result).toEqual({
+      hits: hits.slice(97, 105),
+      estimatedTotalHits: 150,
+    });
+    expect(new Set(result.hits.map((h) => h.id)).size).toBe(8);
+    expect(calls).toEqual([{ ...request, limit: 105, showMatchesPosition: true }]);
+    expect(hits).toEqual(original);
   });
 
   it('uses one fetch for an exhausted short head even when the requested window crosses 100', async () => {
     const hits = [hit('P1', ['people']), hit('P2', ['people']), hit('C1', ['description'])];
     const { config, calls } = native(hits);
     expect(
-      await searchWithReadingDiversity(config, 'owned', { ...request, offset: 1, limit: 150 }),
+      await searchWithReadingDiversity(config, 'owned', {
+        ...request,
+        offset: 1,
+        limit: 150,
+      }),
     ).toEqual({
       hits: [hits[2]!, hits[1]!],
       estimatedTotalHits: 3,
     });
-    expect(calls).toEqual([{ ...request, showMatchesPosition: true }]);
+    expect(calls).toEqual([{ ...request, limit: 151, showMatchesPosition: true }]);
   });
 
   for (const body of [
@@ -158,11 +200,51 @@ describe('search reading diversity without external services (#2386)', () => {
     });
   }
 
+  for (const pagination of [
+    { offset: -1, limit: 8 },
+    { offset: 0.5, limit: 8 },
+    { offset: Number.MAX_SAFE_INTEGER + 1, limit: 8 },
+    { offset: 0, limit: -1 },
+    { offset: 0, limit: Number.NaN },
+    { offset: 0, limit: Number.POSITIVE_INFINITY },
+  ]) {
+    it(`rejects invalid pagination without a transport request: ${JSON.stringify(pagination)}`, async () => {
+      const { config, calls } = native([]);
+      await expect(
+        searchWithReadingDiversity(config, 'owned', {
+          ...request,
+          ...pagination,
+        }),
+      ).rejects.toMatchObject({
+        details: { status: 400, message: 'Invalid search pagination' },
+      });
+      expect(calls).toEqual([]);
+    });
+  }
+
+  it('does not promote content outside the first 100 when fetching a coherent tail', async () => {
+    const hits = Array.from({ length: 105 }, (_, i) =>
+      hit(String(i), i < 2 ? ['people'] : i === 100 ? ['description'] : []),
+    );
+    const { config, calls } = native(hits);
+    expect(
+      await searchWithReadingDiversity(config, 'owned', {
+        ...request,
+        limit: 105,
+      }),
+    ).toEqual({ hits, estimatedTotalHits: 105 });
+    expect(calls).toEqual([{ ...request, limit: 105, showMatchesPosition: true }]);
+  });
+
   it('throws a recoverable structured error and allows a subsequent healthy request', async () => {
     const { config, calls } = transport(() =>
       calls.length === 1
         ? Response.json(
-            { code: 'index_not_found', type: 'invalid_request', message: 'Index absent' },
+            {
+              code: 'index_not_found',
+              type: 'invalid_request',
+              message: 'Index absent',
+            },
             { status: 404 },
           )
         : Response.json({ hits: [hit('healthy')], estimatedTotalHits: 1 }),
@@ -184,16 +266,19 @@ describe('search reading diversity without external services (#2386)', () => {
     expect(calls).toHaveLength(2);
   });
 
-  it('propagates a failed native tail instead of returning a misleading partial page', async () => {
-    const hits = Array.from({ length: 100 }, (_, i) => hit(String(i)));
-    const { config, calls } = transport((body) =>
-      body.offset === 0
-        ? Response.json({ hits, estimatedTotalHits: 150 })
-        : new Response('upstream unavailable', { status: 503 }),
+  it('propagates a failed boundary-spanning response rather than returning a partial page', async () => {
+    const { config, calls } = transport(
+      () => new Response('upstream unavailable', { status: 503 }),
     );
     await expect(
-      searchWithReadingDiversity(config, 'owned', { ...request, offset: 97, limit: 8 }),
-    ).rejects.toMatchObject({ details: { status: 503, message: 'upstream unavailable' } });
-    expect(calls).toHaveLength(2);
+      searchWithReadingDiversity(config, 'owned', {
+        ...request,
+        offset: 97,
+        limit: 8,
+      }),
+    ).rejects.toMatchObject({
+      details: { status: 503, message: 'upstream unavailable' },
+    });
+    expect(calls).toEqual([{ ...request, limit: 105, showMatchesPosition: true }]);
   });
 });

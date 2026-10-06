@@ -86,17 +86,16 @@ export async function searchWithReadingDiversity(
   }
   // The same permutation is recomputed for every page. Never insert a new ID
   // on page one and leave its old occurrence behind on subsequent pages.
-  const head = await search(0, HEAD_SIZE, true);
-  const reordered = diversify(head.hits);
-  const prefix = reordered.slice(offset, Math.min(offset + limit, HEAD_SIZE));
-  const tailStart = Math.max(offset, HEAD_SIZE);
-  const tailSize = Math.max(0, offset + limit - tailStart);
-  const tail =
-    tailSize > 0 && head.hits.length === HEAD_SIZE
-      ? await search(tailStart, tailSize, false)
-      : null;
+  // A boundary-spanning page must come from one ranked response: enrichment
+  // may change order between independent head and tail queries.
+  const end = offset + limit;
+  const response = await search(0, Math.max(HEAD_SIZE, end), true);
+  const reordered = [
+    ...diversify(response.hits.slice(0, HEAD_SIZE)),
+    ...response.hits.slice(HEAD_SIZE),
+  ];
   return {
-    hits: [...prefix, ...(tail?.hits ?? [])],
-    estimatedTotalHits: head.estimatedTotalHits,
+    hits: reordered.slice(offset, end),
+    estimatedTotalHits: response.estimatedTotalHits,
   };
 }
