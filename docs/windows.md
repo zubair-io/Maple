@@ -196,7 +196,7 @@ runs that stage alone; it does not qualify the filmstrip sequence.
 
 ## Panorama
 
-`Services/Pano/PanoService.cs` shells out to `maple-cli pano stitch` rather than calling through FFI, so a multi-minute, multi-gigabyte stitch runs in its own process — the same route the Self Hosted API's `pano_stitch` job takes. It streams the CLI's `pano:`-prefixed stderr as status and keeps the tail for error reporting. `PanoProvisioner.cs` downloads two pinned artifact sets into `%LOCALAPPDATA%\Maple`: the ALIKED + LightGlue ONNX models (URLs and SHA-256 mirrored from `src/raw-pipeline/maple-pano/models.toml`, re-verified by `maple-cli` before every stitch) and the ONNX Runtime 1.23.2 win-x64 runtime, guarded by `maple-cli`'s preflight rejection of anything below ORT API 1.22. Output is a scene-linear 16-bit master PNG beside the frames plus a display JPEG the library watcher picks up live. See [pano](pano.md).
+`Services/Pano/PanoService.cs` shells out to `maple-cli pano stitch` rather than calling through FFI, so a multi-minute, multi-gigabyte stitch runs in its own process — the same route the Self Hosted API's `pano_stitch` job takes. It streams the CLI's `pano:`-prefixed stderr as status and keeps the tail for error reporting. `PanoProvisioner.cs` downloads two pinned artifact sets into `%LOCALAPPDATA%\Maple`: the ALIKED + LightGlue ONNX models (URLs and SHA-256 mirrored from `src/raw-pipeline/maple-pano/models.toml`, re-verified by `maple-cli` before every stitch) and the ONNX Runtime 1.23.2 runtime matching the app process (x64 or ARM64), with separate architecture caches and pinned DLL hashes, guarded by `maple-cli`'s preflight rejection of anything below ORT API 1.22. Output is a scene-linear 16-bit master PNG beside the frames plus a display JPEG the library watcher picks up live. See [pano](pano.md).
 
 ## Maple.UI
 
@@ -260,13 +260,13 @@ dotnet build src/windows/Maple.WinUI/Maple.WinUI.csproj -c Release -r win-x64
 dotnet test src/windows/Maple.WinUI.Tests/Maple.WinUI.Tests.csproj -c Release
 ```
 
-`build-windows.sh` supports **native Windows/MSVC builds only**. `WINDOWS_TARGET` defaults to `x86_64-pc-windows-msvc`; ARM64 hosts can select `aarch64-pc-windows-msvc`. The selected target must match `rustc -vV`'s host. Cross-compilation from macOS/Linux or between architectures is rejected before building. Install Cargo/Rust, the MSVC build tools and Windows SDK, .NET 8 SDK, Git Bash, and Python 3. Missing tools or outputs fail the build.
+`build-windows.sh` supports **native Windows/MSVC builds only**. `WINDOWS_TARGET` defaults to the native Rust host: `x86_64-pc-windows-msvc` or `aarch64-pc-windows-msvc`. The selected target must match `rustc -vV`'s host. Cross-compilation from macOS/Linux or between architectures is rejected before building. Install Cargo/Rust, the MSVC build tools and Windows SDK, .NET 8 SDK, Git Bash, and Python 3. Missing tools or outputs fail the build.
 
 The wrapper regenerates declarations, explicitly targets both Rust builds, and selects the matching WinUI platform and runtime. Native artifacts live under `target/<triple>/release/` in their respective Rust workspaces. The application and its required `raw_ffi.dll` are verified under `src/windows/Maple.WinUI/bin/Release/<triple>/`. `CARGO_TARGET_DIR` cannot redirect those outputs.
 
 Direct builds shown above retain the csproj's legacy `src/raw-pipeline/target/release/` lookup. With `-p:MapleRustTarget=<triple>`, the csproj reads only that target's release directory and fails if the core DLL is absent. The optional panorama CLI is copied from the same directory when present; the wrapper does not build it. Build `maple-cli` separately with `--features pano --target <triple>` before invoking the wrapper when packaging panorama support.
 
-Wrapper contract tests run without native tools: `python3 src/windows/scripts/test_build_windows.py`. Windows CI also runs the actual x64 wrapper; those compilation checks do not qualify interactive GPU or color performance.
+Wrapper contract tests run without native tools: `python3 src/windows/scripts/test_build_windows.py`. Windows CI also runs the actual x64 and ARM64 wrappers; those compilation checks do not qualify interactive GPU or color performance.
 
 For Info focus qualification (#4190), run the built executable with `--lifecycle-smoke <owned-RAW-copy> <fresh-output-directory> gpu --inspector-focus-checkpoints`. Each `inspector-focus-*.ready` file requests one real keyboard or pointer input; capture the native window and accessibility state after that input, then write its `.continue` acknowledgment. A caption-click checkpoint establishes foreground activation before the harness assigns initial keyboard focus. The harness then checks actual native focus, Preview/Info state, document identity, undo depth and RAW hash across fifteen transitions, including Enter/Space activation after pointer transitions and the Browse Info / Rating entry point. `inspector-focus-result.json` covers these transitions; inspect terminal `lifecycle.json` separately for the full lifecycle result. This does not establish Narrator speech, cloud enrichment or other DPI qualification.
 
@@ -279,21 +279,11 @@ pwsh src/windows/scripts/qualify-winui.ps1 -Raw C:\path\to\photo.dng
 
 ## CI
 
-`.github/workflows/windows.yml` runs one job, `windows-build-and-test`, on `windows-latest` for every push to `main` and every pull request:
+`.github/workflows/windows.yml` builds and tests x64 on `windows-latest` and ARM64 on `windows-11-arm`. Each architecture runs the native wrapper, Rust unit tests, C# tests with its own DLL for the FFI layout gate, and the real WinUI lifecycle harness. CI check names and retained lifecycle artifacts identify the architecture. The stable `Windows result` check requires both matrix legs and the wrapper contracts to succeed when Windows changes are detected.
 
-```bash
-cargo check --manifest-path src/raw-pipeline/Cargo.toml --target x86_64-pc-windows-msvc -p raw-core
-cargo check --manifest-path src/raw-pipeline/Cargo.toml --target x86_64-pc-windows-msvc -p raw-ffi --features gpu
-cargo test  --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --lib
-cargo build --manifest-path src/windows/Cargo.toml --release
-dotnet build src/windows/Maple.WinUI/Maple.WinUI.csproj -c Release -r win-x64
-dotnet test  src/windows/Maple.WinUI.Tests/Maple.WinUI.Tests.csproj -c Release
-./tools/codegen.sh
-```
+`.github/workflows/release.yml` builds and signs both architectures, including the panorama CLI, and produces `MapleSetup-<arch>-<version>.exe` and `Maple-Windows-<arch>-<version>.zip`. The architecture is `x64` or `arm64`. Both builds must complete before release publication. ARM64 installers only accept ARM64 Windows; x64 installers retain their existing x64-compatible policy.
 
-Rust toolchain via `dtolnay/rust-toolchain@stable` with the MSVC target, .NET via `actions/setup-dotnet@v4` pinned to `8.0.x`, and `Swatinem/rust-cache@v2` caching both the `src/raw-pipeline` and `src/windows` target directories. The last step only proves `codegen.sh` runs on Windows; the drift comparison itself is the `codegen-drift` job in `cross.yml`.
-
-Note what CI does **not** do: `cargo test` for `maple-windows` itself (only `cargo build`), and the `qualify-winui.ps1` harness is not wired into any workflow.
+These are separate native builds. Windows can distribute multiple architectures in one MSIX bundle, but Maple currently ships unpackaged WinUI through Inno Setup, not MSIX. CI lifecycle checks do not establish physical-device GPU performance or full photographic parity; `qualify-winui.ps1` remains a separate qualification step.
 
 ## File-budget gates cover C#; formatting gates still don't
 

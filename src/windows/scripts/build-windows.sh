@@ -12,13 +12,6 @@ fail() {
   exit 1
 }
 
-TARGET="${WINDOWS_TARGET:-x86_64-pc-windows-msvc}"
-case "$TARGET" in
-  x86_64-pc-windows-msvc) PLATFORM=x64; RID=win-x64 ;;
-  aarch64-pc-windows-msvc) PLATFORM=ARM64; RID=win-arm64 ;;
-  *) fail "unsupported WINDOWS_TARGET '$TARGET'; use x86_64-pc-windows-msvc or aarch64-pc-windows-msvc" ;;
-esac
-
 # Preflight before codegen or any expensive compilation. A partial Rust build
 # must never be reported as a successfully built Windows application.
 for tool in cargo rustc dotnet git python3; do
@@ -29,6 +22,12 @@ RUST_HOST=""
 while read -r key value; do
   if [[ "$key" == host: ]]; then RUST_HOST="${value%$'\r'}"; fi
 done <<< "$RUST_VERSION"
+TARGET="${WINDOWS_TARGET:-$RUST_HOST}"
+case "$TARGET" in
+  x86_64-pc-windows-msvc) PLATFORM=x64; RID=win-x64 ;;
+  aarch64-pc-windows-msvc) PLATFORM=ARM64; RID=win-arm64 ;;
+  *) fail "unsupported WINDOWS_TARGET '$TARGET'; use x86_64-pc-windows-msvc or aarch64-pc-windows-msvc" ;;
+esac
 [[ "$RUST_HOST" == "$TARGET" ]] || fail "native Windows builds only: Rust host '$RUST_HOST' does not match '$TARGET'; cross-compilation is not supported"
 
 # Keep Cargo output independent of a caller's CARGO_TARGET_DIR. The codegen

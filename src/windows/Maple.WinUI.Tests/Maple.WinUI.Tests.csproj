@@ -25,6 +25,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\Maple.WinUI\Services\Pano\PanoRuntimePin.cs" Link="Services\PanoRuntimePin.cs" />
     <Content Include="Fixtures\defringe.dng" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\test-fixtures\batch-transfer\source.dng" Link="Fixtures\source.dng" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />

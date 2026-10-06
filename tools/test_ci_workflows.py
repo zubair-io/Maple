@@ -17,6 +17,39 @@ def workflow(name):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_windows_architectures_are_native_and_release_artifacts_do_not_collide(
+        self,
+    ):
+        expected = {
+            "x64": ("windows-latest", "x86_64-pc-windows-msvc"),
+            "arm64": ("windows-11-arm", "aarch64-pc-windows-msvc"),
+        }
+        for name, job_id in (
+            ("windows", "windows-build-and-test"),
+            ("release", "windows-app"),
+        ):
+            job = workflow(name)["jobs"][job_id]
+            self.assertEqual(job["runs-on"], "${{ matrix.runner }}")
+            self.assertFalse(job["strategy"]["fail-fast"])
+            rows = job["strategy"]["matrix"]["include"]
+            self.assertEqual(
+                {row["arch"].lower(): (row["runner"], row["target"]) for row in rows},
+                expected,
+            )
+            uploads = [
+                step
+                for step in job["steps"]
+                if step.get("uses", "").startswith("actions/upload-artifact@")
+            ]
+            for step in uploads:
+                self.assertIn("${{ matrix.arch }}", step["with"]["name"])
+            verifier = next(
+                step
+                for step in job["steps"]
+                if "verify-native-architecture.ps1" in step.get("run", "")
+            )
+            self.assertIn("${{ matrix.arch }}", verifier["run"])
+
     def test_selection_outputs_reach_callers(self):
         config = workflow("ci-changes")
         # PyYAML's YAML 1.1 loader interprets the unquoted Actions 'on' as True.

@@ -25,8 +25,20 @@ concurrency:
 
 jobs:
   windows-app:
-    name: Windows x64 (build, sign)
-    runs-on: windows-latest
+    name: Windows ${{ matrix.arch }} (build, sign)
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            platform: x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+          - arch: arm64
+            platform: ARM64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -34,19 +46,18 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-pc-windows-msvc
+          targets: ${{ matrix.target }}
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/raw-pipeline -> target
 
-      # No --target flag: the csproj bundles raw_ffi.dll + maple-cli.exe
-      # from target/release/ (not the triple-suffixed dir).
       - name: Build native core (raw_ffi.dll + maple-cli.exe)
         run: |
-          cargo build --release --manifest-path src/raw-pipeline/Cargo.toml -p raw-ffi --features gpu
-          cargo build --release --manifest-path src/raw-pipeline/Cargo.toml -p maple-cli --features pano
+          cargo build --release --target ${{ matrix.target }} --manifest-path src/raw-pipeline/Cargo.toml -p raw-ffi --features gpu
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build --release --target ${{ matrix.target }} --manifest-path src/raw-pipeline/Cargo.toml -p maple-cli --features pano
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -64,9 +75,14 @@ jobs:
         shell: pwsh
         run: |
           dotnet publish src/windows/Maple.WinUI/Maple.WinUI.csproj `
-            -c Release -r win-x64 --self-contained `
+            -c Release -r win-${{ matrix.arch }} --self-contained `
+            -p:Platform=${{ matrix.platform }} -p:MapleRustTarget=${{ matrix.target }} `
             -p:Version=${{ steps.version.outputs.version }} `
             -o publish
+
+      - name: Verify native payload architecture
+        shell: pwsh
+        run: ./src/windows/scripts/verify-native-architecture.ps1 -Architecture '${{ matrix.arch }}' -Paths 'publish/Maple.WinUI.exe', 'publish/raw_ffi.dll', 'publish/maple-cli.exe'
 
       # Stage only OUR binaries for signing — the runtime/framework DLLs in
       # the publish folder are already Microsoft-signed, and Trusted Signing
@@ -108,6 +124,7 @@ jobs:
           choco install innosetup -y --no-progress
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
             /DAppVersion=${{ steps.version.outputs.version }} `
+            /DAppArch=${{ matrix.arch }} `
             /DPublishDir="$env:GITHUB_WORKSPACE\publish" `
             /DOutputDir="$env:GITHUB_WORKSPACE\installer-out" `
             src\windows\installer\maple.iss
@@ -137,11 +154,11 @@ jobs:
           Copy-Item installer-out\*.exe out\
           New-Item -ItemType Directory publish\bin -Force | Out-Null
           Copy-Item src\windows\installer\maple.cmd publish\bin\maple.cmd
-          Compress-Archive -Path publish\* -DestinationPath "out\Maple-Windows-x64-${{ steps.version.outputs.version }}.zip"
+          Compress-Archive -Path publish\* -DestinationPath "out\Maple-Windows-${{ matrix.arch }}-${{ steps.version.outputs.version }}.zip"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-app
+          name: windows-app-${{ matrix.arch }}
           path: out/*
           if-no-files-found: error
 
@@ -160,7 +177,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: windows-app
+          pattern: windows-app-*
           merge-multiple: true
 
       - name: Create or reuse draft release

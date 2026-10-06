@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Threading;
@@ -16,7 +17,7 @@ namespace Maple.WinUI.Services.Pano
     ///  - the ALIKED + LightGlue ONNX models (URLs + SHA-256 from
     ///    src/raw-pipeline/maple-pano/models.toml — maple-cli re-verifies the
     ///    same hashes before every stitch), and
-    ///  - the ONNX Runtime 1.23.2 win-x64 dylib from the official Microsoft
+    ///  - the ONNX Runtime 1.23.2 architecture-specific dylib from the official Microsoft
     ///    release (the repo pins no Windows zip hash; maple-cli's libloading
     ///    preflight rejects any dll below ORT API 1.22, which is the guard).
     /// Defaults live under %LOCALAPPDATA%\Maple, overridable via AppSettings.
@@ -38,15 +39,14 @@ namespace Maple.WinUI.Services.Pano
                 "33fffedd24f39f25b139fb66f9090481d276799cef7b0ea56eb6bc0986987c38"),
         };
 
-        private const string OrtZipUrl =
-            "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-1.23.2.zip";
-        private const string OrtZipDllEntry = "onnxruntime-win-x64-1.23.2/lib/onnxruntime.dll";
-        /// <summary>SHA-256 of the extracted 1.23.2 win-x64 onnxruntime.dll —
+        private static readonly PanoRuntimePin Ort = PanoRuntimePin.ForArchitecture(RuntimeInformation.ProcessArchitecture);
+        private static string OrtZipUrl => Ort.Url;
+        private static string OrtZipDllEntry => Ort.DllEntry;
+        /// <summary>SHA-256 of the extracted 1.23.2 architecture-specific onnxruntime.dll —
         /// the installed-artifact pin, mirroring Apple's installedSha256.
         /// Supply-chain guard for the user-writable install location; the CLI
         /// preflight additionally enforces the ORT API version at load.</summary>
-        private const string OrtDllSha256 =
-            "dec964ab1ee36cc9b0ae247d13b376627992fc57dec0454354017ab8fd84f1ea";
+        private static string OrtDllSha256 => Ort.Sha256;
 
         private static string MapleAppData => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Maple");
@@ -60,7 +60,7 @@ namespace Maple.WinUI.Services.Pano
             ModelsDir = settings.PanoModelsDir
                 ?? Path.Combine(MapleAppData, "pano-models");
             OrtDylibPath = settings.PanoOrtDylibPath
-                ?? Path.Combine(MapleAppData, "ort", "onnxruntime.dll");
+                ?? Path.Combine(MapleAppData, "ort", Ort.Arch, "onnxruntime.dll");
             CliPath = ResolveCliPath(settings.PanoCliPath);
         }
 
@@ -143,7 +143,7 @@ namespace Maple.WinUI.Services.Pano
 
             if (!OrtVerified())
             {
-                progress("Downloading ONNX Runtime 1.23.2 (win-x64)…");
+                progress($"Downloading ONNX Runtime 1.23.2 (win-{Ort.Arch})…");
                 Directory.CreateDirectory(Path.GetDirectoryName(OrtDylibPath)!);
                 var zipPath = OrtDylibPath + ".zip.tmp";
                 try
