@@ -24,4 +24,4 @@ public enum WhiteBalancePreset: String, CaseIterable, Codable, Sendable {
   }
 }
 
-public let autoWhiteBalanceAlgorithmVersion: Double = 1.0
+public let autoWhiteBalanceAlgorithmVersion: Double = 2.0
