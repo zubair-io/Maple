@@ -2,6 +2,9 @@ using System;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Input;
+using Microsoft.UI.Xaml.Media;
+using Windows.System;
 using Maple.WinUI.Services;
 using Maple.WinUI.ViewModels;
 
@@ -49,20 +52,38 @@ namespace Maple.WinUI
         // filmstrip rail (single-select, one photo at a time while paging
         // Preview/Edit) is OnFilmstripActivated in MainWindow.Filmstrip.cs.
 
-        private void OnGridDoubleTapped(object sender, DoubleTappedRoutedEventArgs e) => EnterPreview();
+        private void OnGridTapped(object sender, TappedRoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement { DataContext: PhotoItem photo }) return;
+            for (var source = e.OriginalSource as DependencyObject; source != null && !ReferenceEquals(source, sender);
+                 source = VisualTreeHelper.GetParent(source))
+            {
+                if (source is TextBox || source is FrameworkElement { Name: "GridPhotoFileName" }) return;
+            }
+            var ctrl = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+            var shift = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+            ActivateBrowsePhoto(photo, ctrl, shift);
+        }
+
+        private void ActivateBrowsePhoto(PhotoItem photo, bool ctrl, bool shift)
+        {
+            if (_mode != ShellMode.Browse || ctrl || shift || photo.IsRenaming) return;
+            RestoreBrowseSelection(new[] { photo }, photo);
+            EnterPreview();
+        }
 
         private PhotoItem? _previewSubscribed;
 
         private void OnSelectedPhotoChanged()
         {
-            RefreshSaveTime();
             _lastAppliedPreset = null;
             _resetPreset.IsEnabled = false;
             ResetComparison();
             ClearNativeDetailSource();
             var photo = ViewModel.SelectedPhoto;
             RefreshPhotoInfo();
-            UpdateBrowseDetailImage();
             if (_previewSubscribed != null)
                 _previewSubscribed.PropertyChanged -= OnCurrentPhotoPropertyChanged;
             _previewSubscribed = null;
@@ -70,8 +91,6 @@ namespace Maple.WinUI
                 return;
             if (!_syncingBrowseSelection && PhotoGrid.SelectedItem != photo)
                 PhotoGrid.SelectedItem = photo;
-            if (!_syncingBrowseSelection && BrowsePhotoList.SelectedItem != photo)
-                BrowsePhotoList.SelectedItem = photo;
             SyncFilmstripRailActive();
             UpdateStarRow();
 
@@ -99,7 +118,6 @@ namespace Maple.WinUI
             if (ReferenceEquals(sender, ViewModel.SelectedPhoto)) RefreshPhotoInfo();
             if (e.PropertyName is not (nameof(PhotoItem.PreviewPath) or nameof(PhotoItem.ThumbnailPath)))
                 return;
-            UpdateBrowseDetailImage();
             var photo = ViewModel.SelectedPhoto;
             // Only refresh while the embedded preview is still what's on screen.
             if (photo != null && ReferenceEquals(sender, photo) && _viewportBitmap == null && _gpuFrameDims == null)

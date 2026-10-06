@@ -44,7 +44,6 @@ public sealed partial class MainWindow
         if (!before.SequenceEqual(SHA256.HashData(await File.ReadAllBytesAsync(fixture)))
             || File.Exists(Services.Xmp.SidecarStore.SidecarPathFor(fixture)))
             throw new InvalidOperationException("Thumbnail generation changed the original or created a sidecar");
-        VerifyBrowseDetailImageReuse(display, output);
         await VerifyAdjustedBrowsePreviewAsync(fixture, thumbnails);
         await ViewModels.EditSessionViewModel.VerifyLocalPreviewAsync(fixture);
         await ViewModels.EditSessionViewModel.VerifySavedCloudPreviewAsync(fixture, output);
@@ -118,39 +117,4 @@ public sealed partial class MainWindow
         return (await decoder.GetPixelDataAsync()).DetachPixelData();
     }
 
-    private void VerifyBrowseDetailImageReuse(string thumbnail, string output)
-    {
-        var photo = ViewModel.SelectedPhoto ?? throw new InvalidOperationException("Missing browse photo");
-        var oldThumbnail = photo.ThumbnailPath;
-        var oldPreview = photo.PreviewPath;
-        var preview = Path.Combine(output, "browse-detail-preview.jpg");
-        File.Copy(thumbnail, preview);
-        try
-        {
-            photo.PreviewPath = null;
-            photo.ThumbnailPath = thumbnail;
-            UpdateBrowseDetailImage();
-            var source = BrowseDetailImage.Source;
-            if (source == null) throw new InvalidOperationException("Browse thumbnail was not displayed");
-            UpdateBrowsePresentation();
-            if (!ReferenceEquals(source, BrowseDetailImage.Source))
-                throw new InvalidOperationException("Browse presentation recreated the unchanged image source");
-            photo.PreviewPath = preview;
-            var upgraded = BrowseDetailImage.Source;
-            if (upgraded is not Microsoft.UI.Xaml.Media.Imaging.BitmapImage bitmap ||
-                bitmap.UriSource != new Uri(preview) || ReferenceEquals(source, upgraded))
-                throw new InvalidOperationException("Browse did not upgrade its thumbnail to the preview");
-            photo.ThumbnailPath = null;
-            if (!ReferenceEquals(upgraded, BrowseDetailImage.Source))
-                throw new InvalidOperationException("Thumbnail update replaced the higher-quality preview");
-            photo.PreviewPath = null;
-            if (BrowseDetailImage.Source != null)
-                throw new InvalidOperationException("Browse retained a stale image after both sources cleared");
-        }
-        finally
-        {
-            photo.ThumbnailPath = oldThumbnail;
-            photo.PreviewPath = oldPreview;
-        }
-    }
 }

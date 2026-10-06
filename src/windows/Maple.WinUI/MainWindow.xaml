@@ -407,15 +407,13 @@
                                 <mui:MuiButton x:Name="BrowseLocationButton" Grid.Column="1" Label="Library" Variant="Ghost" HorizontalAlignment="Left" Click="OnBrowseLocation" AutomationProperties.Name="Folder navigation" />
                             </Grid>
                             <Grid x:Name="BrowseSearchControls" Grid.Column="1" ColumnSpacing="8">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                 <mui:MuiInput x:Name="SearchBox" Width="200" MinHeight="44" Variant="Search" Placeholder="Search photos" TextChanged="OnSearchChanged" AccessibleLabel="Search name, camera or lens" />
                                 <ComboBox x:Name="BrowseSortBox" Grid.Column="1" Width="168" VerticalAlignment="Center" SelectionChanged="OnBrowseSortChanged" AutomationProperties.Name="Sort photos" ToolTipService.ToolTip="Capture sort uses modified date when capture date is unavailable. Timeline keeps day groups.">
                                     <ComboBoxItem Content="Name A–Z"/><ComboBoxItem Content="Captured newest"/><ComboBoxItem Content="Captured oldest"/><ComboBoxItem Content="Highest rating"/>
                                 </ComboBox>
-                                <mui:MuiButton Grid.Column="2" x:Name="BrowseCollapseButton" Label="Collapse list ‹" Variant="Secondary" Click="OnCollapseBrowseList" />
-                                <mui:MuiButton x:Name="BrowseOptionsButton" Grid.Column="3" Label="Options" Variant="Secondary" AutomationProperties.Name="Browse view, filters and thumbnail size">
-                                    <mui:MuiButton.Flyout><Flyout x:Name="BrowseOptionsFlyout" Opened="OnBrowseOptionsOpened" Closed="OnBrowseOptionsClosed"><ScrollViewer MaxHeight="520" VerticalScrollBarVisibility="Auto"><StackPanel Spacing="12" MinWidth="200">
-                                <mui:MuiButton x:Name="BrowseViewButton" Label="Grid view" Variant="Secondary" Click="OnToggleBrowseView" AutomationProperties.Name="Toggle grid and list detail" />
+                                <mui:MuiButton x:Name="BrowseOptionsButton" Grid.Column="2" Label="Options" Variant="Secondary" AutomationProperties.Name="Browse filters and thumbnail size">
+                                    <mui:MuiButton.Flyout><Flyout x:Name="BrowseOptionsFlyout"><ScrollViewer MaxHeight="520" VerticalScrollBarVisibility="Auto"><StackPanel Spacing="12" MinWidth="200">
                                 <ComboBox x:Name="FormatFilterBox" SelectedIndex="0" Width="120" FontSize="12"
                                           SelectionChanged="OnFormatFilterChanged"
                                           AutomationProperties.Name="Format filter">
@@ -520,7 +518,6 @@
                               ItemsSource="{Binding Source={StaticResource GroupedPhotosSource}}"
                               SelectionMode="Extended" Padding="12"
                               SelectionChanged="OnPhotoGridSelectionChanged"
-                              DoubleTapped="OnGridDoubleTapped"
                               CanDragItems="True"
                               DragItemsStarting="OnPhotoGridDragItemsStarting"
                               DragItemsCompleted="OnPhotoGridDragItemsCompleted"
@@ -571,7 +568,7 @@
                         </GridView.GroupStyle>
                         <GridView.ItemTemplate>
                             <DataTemplate>
-                                <Grid Margin="2" CornerRadius="4"
+                                <Grid Margin="2" CornerRadius="4" Tapped="OnGridTapped"
                                       AutomationProperties.Name="{Binding FileName}"
                                       Background="{StaticResource MapleSurface}">
                                     <controls:MapleIconControl IconName="photos" Size="36"
@@ -591,7 +588,7 @@
                                             <!-- Inline rename (#2639): F2 or double-click swaps this
                                                  TextBlock for the TextBox below. Same PhotoItem, so both
                                                  surfaces stay in sync via IsRenaming/RenameText. -->
-                                            <TextBlock Text="{Binding FileName}" FontSize="10"
+                                            <TextBlock x:Name="GridPhotoFileName" Text="{Binding FileName}" FontSize="10"
                                                        Foreground="{StaticResource MapleTextMain}"
                                                        TextTrimming="CharacterEllipsis" Margin="0,0,48,0"
                                                        Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolVisible}}"
@@ -615,71 +612,6 @@
                             </DataTemplate>
                         </GridView.ItemTemplate>
                         </GridView>
-                        <Grid x:Name="BrowseListDetail" Grid.Row="1" SizeChanged="OnBrowseDetailSizeChanged">
-                            <Grid.Resources>
-                                <DataTemplate x:Key="CompactBrowsePhotoTemplate">
-                                    <Image Source="{Binding ThumbnailPath}" Width="66" Height="44" Margin="0,8" Stretch="Uniform" AutomationProperties.Name="{Binding FileName}" />
-                                </DataTemplate>
-                            </Grid.Resources>
-                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                            <Grid.ColumnDefinitions><ColumnDefinition x:Name="BrowseListColumn" Width="320"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <Grid Padding="16,8" ColumnSpacing="8">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                <TextBlock Text="{Binding Text, ElementName=LibraryCountText}" FontSize="12" VerticalAlignment="Center" Foreground="{StaticResource MapleTextMuted}" />
-                                <mui:MuiButton x:Name="BrowseSelectButton" Grid.Column="1" Label="Select" Variant="Secondary" Click="OnBrowseSelectMode" />
-                            </Grid>
-                            <ListView x:Name="BrowsePhotoList" Grid.Row="1" ItemsSource="{Binding Photos}" SelectionMode="Extended" SelectionChanged="OnBrowseListSelectionChanged" DoubleTapped="OnGridDoubleTapped" AutomationProperties.Name="Photo list">
-                                <ListView.ItemContainerStyle><Style TargetType="ListViewItem">
-                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                    <Setter Property="Margin" Value="8,0" />
-                                    <Setter Property="Padding" Value="8,0" />
-                                </Style></ListView.ItemContainerStyle>
-                                <ListView.ItemTemplate><DataTemplate>
-                                    <Grid Padding="0,14" ColumnSpacing="14" BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,0,0,1">
-                                        <Grid.ColumnDefinitions><ColumnDefinition Width="66"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                        <Grid Height="44">
-                                            <Image Source="{Binding ThumbnailPath}" Stretch="Uniform" />
-                                            <Border x:Name="BrowseSelectionOutline" BorderBrush="{StaticResource MaplePrimary}" BorderThickness="2" CornerRadius="3" Visibility="Collapsed" />
-                                        </Grid>
-                                        <StackPanel Grid.Column="1" Spacing="6" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding FileName}" FontSize="12" TextTrimming="CharacterEllipsis"
-                                                       Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolVisible}}" DoubleTapped="OnFileNameDoubleTapped" />
-                                            <TextBox Text="{Binding RenameText, Mode=TwoWay}" FontSize="12" Padding="2,0"
-                                                     Visibility="{Binding IsRenaming, Converter={StaticResource BoolVisible}}"
-                                                     AutomationProperties.Name="Rename file" KeyDown="OnRenameTextBoxKeyDown"
-                                                     LostFocus="OnRenameTextBoxLostFocus" DoubleTapped="OnRenameTextBoxDoubleTapped" />
-                                            <TextBlock Text="{Binding BrowseSummary}" FontSize="10" Foreground="{StaticResource MapleTextMuted}" TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
-                                    </Grid>
-                                </DataTemplate></ListView.ItemTemplate>
-                            </ListView>
-                            <TextBlock x:Name="BrowseDetailEmpty" Grid.Column="1" Grid.RowSpan="2" Text="Select a photo to preview it."
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap"
-                                       Foreground="{StaticResource MapleTextMuted}" Margin="24" />
-                            <Grid x:Name="BrowseDetailPane" Grid.Column="1" Grid.RowSpan="2" Padding="24" Background="{StaticResource MapleImageCanvas}">
-                                <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                                <Image x:Name="BrowseDetailImage" Stretch="Uniform" AutomationProperties.Name="Selected photo preview" />
-                                <StackPanel Grid.Row="1" Spacing="12" Margin="0,16,0,0">
-                                    <TextBlock Text="{Binding SelectedPhoto.FileName}" FontSize="16" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock FontSize="12" Foreground="{StaticResource MapleTextMuted}" TextWrapping="Wrap">
-                                        <Run Text="{Binding SelectedPhoto.DetailSummary}" /><Run x:Name="BrowseEditedStatus" /><Run x:Name="BrowseSavedStatus" />
-                                    </TextBlock>
-                                    <ScrollViewer HorizontalScrollBarVisibility="Auto" HorizontalScrollMode="Enabled" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
-                                        <StackPanel Orientation="Horizontal" Spacing="12">
-                                            <mui:MuiButton Label="Open in editor" Variant="Primary" Click="OnBrowseOpenEditor" />
-                                            <mui:MuiButton Label="Preview" Variant="Secondary" Click="OnBrowseOpenPreview" />
-                                            <mui:MuiButton x:Name="BrowseInfoButton" Label="Info / Rating" Variant="Secondary" Click="OnBrowseOpenInfo" />
-                                            <mui:MuiButton Label="Share" Variant="Secondary" ToolTipService.ToolTip="Share with another application">
-                                                <mui:MuiButton.Flyout><MenuFlyout>
-                                                    <MenuFlyoutItem Text="Share original files" Click="OnShareOriginals" />
-                                                    <MenuFlyoutItem Text="Share edited JPEGs" Click="OnSharePhotos" />
-                                                </MenuFlyout></mui:MuiButton.Flyout>
-                                            </mui:MuiButton>
-                                        </StackPanel>
-                                    </ScrollViewer>
-                                </StackPanel>
-                            </Grid>
-                        </Grid>
                     </Grid>
                     <TextBlock x:Name="EmptyStateText" Grid.Row="1" Visibility="Collapsed"
                                HorizontalAlignment="Center" VerticalAlignment="Center"

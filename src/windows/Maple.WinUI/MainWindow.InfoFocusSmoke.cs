@@ -21,7 +21,6 @@ public sealed partial class MainWindow
         if (originalMode != ShellMode.Edit)
             throw new InvalidOperationException("Info focus qualification must start in Edit mode.");
         var originalInfo = _infoPaneOpen;
-        var originalBrowse = _browseListDetail;
         var original = Snapshot();
         var undo = ViewModel.UndoCount;
         var hash = await HashRawAsync();
@@ -47,17 +46,9 @@ public sealed partial class MainWindow
         await Checkpoint("pointer-reopen", "pointer:Photo info", () => IsOpen() && Focused(InfoCloseButton));
         await Checkpoint("space-after-pointer-open", "space", () => IsClosed() && KeyboardFocused(PreviewInfoButton));
         await Checkpoint("escape-outside", "Escape", () => _mode == ShellMode.Browse && !_infoPaneOpen);
-        _browseListDetail = true;
-        UpdateBrowsePresentation();
-        ((FrameworkElement)Content).UpdateLayout();
-        if (!BrowseInfoButton.Focus(FocusState.Keyboard))
-            throw new InvalidOperationException("Browse Info / Rating cannot receive keyboard focus.");
-        await Checkpoint("browse-open", "Return", () => IsOpen() && KeyboardFocused(InfoCloseButton));
-        await Checkpoint("browse-open-escape", "Escape", () => IsClosed() && KeyboardFocused(PreviewInfoButton));
         var finalHash = await HashRawAsync();
         if (!hash.AsSpan().SequenceEqual(finalHash)) throw new InvalidOperationException("Info focus changed the RAW.");
         _infoPaneOpen = originalInfo;
-        _browseListDetail = originalBrowse;
         SetMode(originalMode);
         UpdateInfoPane();
         ((FrameworkElement)Content).UpdateLayout();
@@ -65,8 +56,8 @@ public sealed partial class MainWindow
             throw new InvalidOperationException("Restored Edit mode has no visible Compare focus.");
         await File.WriteAllTextAsync(Path.Combine(output, "inspector-focus-result.json"), JsonSerializer.Serialize(new
         {
-            // Caption activation is setup; the remaining checkpoints exercise 15 focus transitions.
-            passed = true, casesExecuted = 15, casesSkipped = 0, originalRawSha256 = Convert.ToHexString(hash),
+            // Caption activation is setup; the remaining checkpoints exercise 13 focus transitions.
+            passed = true, casesExecuted = 13, casesSkipped = 0, originalRawSha256 = Convert.ToHexString(hash),
             documentPreserved = Snapshot() == original, undoDepth = undo, scale = Content.XamlRoot.RasterizationScale,
             restoredFocus = AutomationProperties.GetName(CompareButton)
         }));

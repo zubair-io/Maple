@@ -36,9 +36,6 @@ namespace Maple.WinUI
         {
             if (sender is not FrameworkElement { DataContext: PhotoItem photo })
                 return;
-            // Stop this from bubbling to the GridView's own DoubleTapped
-            // (OnGridDoubleTapped), which would otherwise open the photo in
-            // Preview instead of starting the rename.
             e.Handled = true;
             StartRename(photo);
         }
@@ -52,7 +49,7 @@ namespace Maple.WinUI
         private void StartRename(PhotoItem photo)
         {
             ViewModel.BeginRename(photo);
-            (_browseListDetail ? (ListViewBase)BrowsePhotoList : PhotoGrid).ScrollIntoView(photo);
+            PhotoGrid.ScrollIntoView(photo);
             App.MainDispatcherQueue?.TryEnqueue(() => FocusRenameField(photo));
         }
 
@@ -65,7 +62,7 @@ namespace Maple.WinUI
         /// the field still shows correctly once it does become visible.</summary>
         private void FocusRenameField(PhotoItem photo)
         {
-            var list = _browseListDetail ? (ListViewBase)BrowsePhotoList : PhotoGrid;
+            var list = PhotoGrid;
             if (list.ContainerFromItem(photo) is not FrameworkElement container)
                 return;
             if (FindDescendant<TextBox>(container) is not { } box)

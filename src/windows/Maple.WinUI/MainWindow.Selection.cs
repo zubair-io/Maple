@@ -16,7 +16,7 @@ namespace Maple.WinUI
     {
         private void OnPhotoGridSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_syncingBrowseSelection || _browseListDetail) return;
+            if (_syncingBrowseSelection) return;
             // OfType, not Cast: SelectedItems is grid-wide, and a stray
             // non-PhotoItem entry (a group header, a virtualization
             // placeholder mid-interaction) should be dropped, not crash the

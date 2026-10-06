@@ -79,7 +79,6 @@ public sealed partial class MainWindow
     {
         var status = ViewModel.AdjustmentsReady && ViewModel.HasNonDefaultEdits() ? " · Edited" : string.Empty;
         EditStatusText.Text = $"{ViewModel.SelectedPhoto?.Format}" + status;
-        BrowseEditedStatus.Text = status;
     }
     private void OnCompareClick(object sender, RoutedEventArgs e)
     {
