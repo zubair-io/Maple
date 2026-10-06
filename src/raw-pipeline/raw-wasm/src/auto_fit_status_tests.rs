@@ -44,7 +44,10 @@ fn actual_gpu_fit_status_physical_4096() {
         );
 
         if !expected {
-            assert!(curve_flat.is_empty(), "unavailable Auto must not invent a curve");
+            assert!(
+                curve_flat.is_empty(),
+                "unavailable Auto must not invent a curve"
+            );
         }
         let neutral = AdjustmentModel {
             profile: Profile::Neutral,
