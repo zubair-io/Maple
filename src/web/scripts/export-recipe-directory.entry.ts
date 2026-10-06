@@ -31,6 +31,7 @@ async function record(): Promise<RecipeQueueRecord> {
     serverJobId: null,
     cancelled: false,
     directoryHandle: directory,
+    protectedOriginals: [source],
     recipe: {
       ...DEFAULT_EXPORT_RECIPE,
       destination: 'directory',
