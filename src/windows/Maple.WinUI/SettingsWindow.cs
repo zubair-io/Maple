@@ -300,7 +300,7 @@ namespace Maple.WinUI
                         $@"Where the pinned ALIKED/LightGlue models are provisioned. Empty uses {Path.Combine(MapleAppData, "pano-models")}.",
                         settings.PanoModelsDir, (s, value) => s.PanoModelsDir = value),
                     PanoPathRow("pano-ort", "ONNX Runtime DLL path",
-                        $@"Overrides the onnxruntime.dll the stitcher loads. Empty uses {Path.Combine(MapleAppData, "ort", "onnxruntime.dll")}.",
+                        $@"Overrides the onnxruntime.dll the stitcher loads. Empty uses {Services.Pano.PanoProvisioner.DefaultOrtDylibPath}.",
                         settings.PanoOrtDylibPath, (s, value) => s.PanoOrtDylibPath = value),
                 },
             });
