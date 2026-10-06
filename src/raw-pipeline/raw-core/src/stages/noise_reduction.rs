@@ -57,7 +57,7 @@ use crate::{
     cancel::CancelToken,
     color::oklab::{oklab_to_rec2020, rec2020_to_oklab},
     image::{ColorSpace, Image},
-    stages::nlm::{denoise_plane_cancellable, NlmParams},
+    stages::nlm::{denoise_chroma_pair_cancellable, denoise_plane_cancellable, NlmParams},
 };
 use rayon::prelude::*;
 
@@ -235,35 +235,19 @@ pub fn apply_color_sampled_cancellable(
 
     // Run both NLM passes in parallel — each is already internally
     // parallel via the row-update sweeps, but at viewport sizes the
-    // outer split still helps on 8+-core machines. Both share the same
+    // outer split still helps on 8+-core machines. Dynamic normalization is
+    // prepared once from their shared L input (#4352). Both share the same
     // cancel token (a `Copy` borrow), so a host cancel unwinds both.
-    let (denoised_a, denoised_b) = rayon::join(
-        || {
-            denoise_plane_cancellable(
-                &a_plane,
-                w,
-                h,
-                params,
-                cancel,
-                &l_plane,
-                noise_profile,
-                iso,
-                true,
-            )
-        },
-        || {
-            denoise_plane_cancellable(
-                &b_plane,
-                w,
-                h,
-                params,
-                cancel,
-                &l_plane,
-                noise_profile,
-                iso,
-                true,
-            )
-        },
+    let (denoised_a, denoised_b) = denoise_chroma_pair_cancellable(
+        &a_plane,
+        &b_plane,
+        w,
+        h,
+        params,
+        cancel,
+        &l_plane,
+        noise_profile,
+        iso,
     );
 
     img.pixels

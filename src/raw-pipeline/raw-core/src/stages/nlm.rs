@@ -60,8 +60,11 @@ use rayon::prelude::*;
 
 #[path = "nlm_accumulate.rs"]
 mod accumulate;
+#[path = "nlm_chroma.rs"]
+mod chroma;
 #[path = "nlm_tiled.rs"]
 mod tiled;
+pub(crate) use chroma::denoise_chroma_pair_cancellable;
 
 /// Fast exp(-x) lookup. The NLM weight is `exp(-d²/(h²·area))` where the
 /// argument is always ≥ 0. For x ≥ `FAST_EXP_RANGE` the weight is ≤ ~3.4e-4
@@ -203,43 +206,37 @@ pub fn denoise_plane_cancellable(
         return plane.to_vec();
     }
     let p = params.patch_radius;
-    let s = params.search_radius as isize;
     if p == 2 && noise_profile.is_none() && n >= 16384 {
         return tiled::denoise(plane, w, h, params, cancel);
     }
 
-    let use_dynamic = noise_profile.is_some();
-    let (s_coeff, o_coeff) = if use_dynamic {
-        get_noise_params(noise_profile, iso, is_chroma)
-    } else {
-        (0.0, 0.0)
-    };
+    let (local_s_plane, local_inv_norm_plane) =
+        chroma::prepare_scaling(n, params, l_plane, noise_profile, iso, is_chroma);
+    denoise_prepared(
+        plane,
+        w,
+        h,
+        params,
+        cancel,
+        &local_s_plane,
+        &local_inv_norm_plane,
+        noise_profile.is_some(),
+    )
+}
 
-    let mut local_s_plane = Vec::new();
-    let mut local_inv_norm_plane = Vec::new();
-    if use_dynamic {
-        let patch_area = ((2 * p + 1) * (2 * p + 1)) as f32;
-        local_s_plane = vec![0isize; n];
-        local_inv_norm_plane = vec![0.0f32; n];
-        local_s_plane
-            .par_iter_mut()
-            .zip(local_inv_norm_plane.par_iter_mut())
-            .zip(l_plane.par_iter())
-            .for_each(|((s_out, inv_norm_out), &l_val)| {
-                let local_l = l_val.clamp(0.0, 10.0);
-                let var = s_coeff * local_l + o_coeff;
-                let sigma = var.max(0.0).sqrt();
-                let scale = (sigma / 0.002366).clamp(0.1, 10.0);
-
-                let local_h = params.h * scale;
-                let local_h_sq = local_h * local_h;
-                *inv_norm_out = 1.0 / (local_h_sq * patch_area);
-
-                let local_s = (params.search_radius as f32 * scale).round() as isize;
-                *s_out = local_s.clamp(1, params.search_radius as isize);
-            });
-    }
-
+fn denoise_prepared(
+    plane: &[f32],
+    w: usize,
+    h: usize,
+    params: NlmParams,
+    cancel: CancelToken<'_>,
+    local_s_plane: &[isize],
+    local_inv_norm_plane: &[f32],
+    use_dynamic: bool,
+) -> Vec<f32> {
+    let n = w * h;
+    let p = params.patch_radius;
+    let s = params.search_radius as isize;
     // Persistent scratch — allocated once, reused across all shifts. (#1195
     // replaced the per-shift (w+1)×(h+1) f32 integral image with a FUSED
     // separable sliding box-sum: the horizontal sums are computed per strip into
@@ -274,8 +271,8 @@ pub fn denoise_plane_cancellable(
                 dx,
                 dy,
                 params,
-                &local_s_plane,
-                &local_inv_norm_plane,
+                local_s_plane,
+                local_inv_norm_plane,
                 use_dynamic,
                 &mut sqdiff,
                 &mut acc,
