@@ -138,6 +138,17 @@ async function comparisonBitmap(canvas: ImageCanvasComponent): Promise<ImageBitm
   return canvas.comparison.bitmap()!;
 }
 
+function openingImageGrid(
+  canvas: ImageCanvasComponent,
+  gpu: boolean,
+  liveCanvas: () => HTMLCanvasElement,
+  label: string,
+) {
+  const source = gpu ? liveCanvas() : canvas.imageBitmap();
+  if (!source) throw Error('Actual ' + label + ' image unavailable');
+  return imageGrid(source);
+}
+
 /** Shipping canvas, RAW worker and real OPFS/HTTP XMP. No renderer or storage substitutes. */
 export async function comparisonWorkflow(
   backend: 'hosted' | 'self-hosted',
@@ -236,9 +247,7 @@ export async function comparisonWorkflow(
     const liveCanvas = () =>
       (gpu ? host.querySelector('canvas[data-gpu-live]') : drawCanvas) as HTMLCanvasElement;
     const initialPixel = pixel(liveCanvas(), liveCanvas().width, liveCanvas().height);
-    const openingSource = gpu ? liveCanvas() : canvas.imageBitmap();
-    if (!openingSource) throw Error('Actual opening image unavailable');
-    const openingGrid = imageGrid(openingSource);
+    const openingGrid = openingImageGrid(canvas, gpu, liveCanvas, 'opening');
     const openingRawPixel = pixel(openingGrid, openingGrid.width, openingGrid.height);
     const flush = () => library.flushPendingXmpWrites();
     const readXML = async () =>
@@ -279,9 +288,7 @@ export async function comparisonWorkflow(
     service.beforeAfterSplitX.set(null);
     await until(() => drawCanvas.getContext('2d') !== null, 'leaving before');
     const afterExit = pixel(liveCanvas(), liveCanvas().width, liveCanvas().height);
-    const variantOpeningSource = gpu ? liveCanvas() : canvas.imageBitmap();
-    if (!variantOpeningSource) throw Error('Actual variant opening image unavailable');
-    const variantOpeningGrid = imageGrid(variantOpeningSource);
+    const variantOpeningGrid = openingImageGrid(canvas, gpu, liveCanvas, 'variant opening');
     const variantOpeningRawPixel = pixel(
       variantOpeningGrid,
       variantOpeningGrid.width,
