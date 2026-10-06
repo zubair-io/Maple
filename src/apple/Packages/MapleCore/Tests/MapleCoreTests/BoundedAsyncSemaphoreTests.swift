@@ -289,6 +289,31 @@ final class BoundedAsyncSemaphoreTests: XCTestCase {
 
     await semaphore.release()
   }
+
+  func test_waitForQueue_returnsFalseWhenCancelledConcurrentlyWithProducerEnqueue() async throws {
+    let semaphore = BoundedAsyncSemaphore(value: 1)
+    try await semaphore.acquire()
+
+    // Test cancellation racing with an incoming producer registration
+    for _ in 0..<50 {
+      let observerTask = Task {
+        await semaphore.waitForQueue(atLeast: 1, timeout: .seconds(2))
+      }
+      let producerTask = Task {
+        try? await semaphore.acquire()
+      }
+      observerTask.cancel()
+      let observed = await observerTask.value
+      XCTAssertFalse(
+        observed,
+        "waitForQueue must return false when observer task is cancelled"
+      )
+      producerTask.cancel()
+      _ = await producerTask.result
+    }
+
+    await semaphore.release()
+  }
 }
 
 /// Deterministic single-shot signal, so cancellation tests don't rely on

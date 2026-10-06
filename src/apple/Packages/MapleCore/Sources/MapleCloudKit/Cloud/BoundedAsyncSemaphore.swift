@@ -192,6 +192,7 @@ public actor BoundedAsyncSemaphore {
       }
       let first = await group.next() ?? false
       group.cancelAll()
+      if Task.isCancelled { return false }
       return first
     }
   }
@@ -201,13 +202,15 @@ public actor BoundedAsyncSemaphore {
     if waiters.count >= minimum { return true }
     queueObserverIDCounter &+= 1
     let id = queueObserverIDCounter
-    return await withTaskCancellationHandler {
+    let registered = await withTaskCancellationHandler {
       await withCheckedContinuation { cont in
         queueObservers.append((id: id, target: minimum, continuation: cont))
       }
     } onCancel: {
       Task { await self.cancelQueueObserver(id: id) }
     }
+    if Task.isCancelled { return false }
+    return registered
   }
 
   private func cancelQueueObserver(id: UInt64) {
