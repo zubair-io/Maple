@@ -137,26 +137,53 @@ impl DisplayHistogram {
         if !self.ready.get() {
             return Ok(None);
         }
+        #[cfg(test)]
+        let trace_start = std::time::Instant::now();
         let mut encoder = ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("display-histogram-readback"),
             });
         encoder.copy_buffer_to_buffer(&self.bins, 0, &self.readback, 0, BYTE_LEN);
+        #[cfg(test)]
+        let copy_encoded = trace_start.elapsed();
         ctx.queue.submit(Some(encoder.finish()));
+        #[cfg(test)]
+        let copy_submitted = trace_start.elapsed();
         let slice = self.readback.slice(..);
         let (tx, rx) = futures_channel::oneshot::channel();
         slice.map_async(wgpu::MapMode::Read, move |result| {
+            #[cfg(test)]
+            let _ = tx.send((result, trace_start.elapsed()));
+            #[cfg(not(test))]
             let _ = tx.send(result);
         });
+        #[cfg(test)]
+        let map_requested = trace_start.elapsed();
         ctx.device.poll(wgpu::Maintain::Wait);
+        #[cfg(test)]
+        let poll_returned = trace_start.elapsed();
+        #[cfg(not(test))]
         pollster::block_on(rx)
             .map_err(|_| "histogram map channel dropped".to_string())?
             .map_err(|e| format!("histogram readback failed: {e}"))?;
+        #[cfg(test)]
+        let callback_at = {
+            let (result, completed) =
+                pollster::block_on(rx).map_err(|_| "histogram map channel dropped".to_string())?;
+            result.map_err(|e| format!("histogram readback failed: {e}"))?;
+            completed
+        };
         let view = slice.get_mapped_range();
         let result = bytemuck::cast_slice(&view).to_vec();
         drop(view);
         self.readback.unmap();
+        #[cfg(test)]
+        eprintln!(
+            "H4359 original_read copy_encode_us={} copy_submit_us={} map_request_us={} callback_us={} poll_return_us={} read_total_us={}",
+            copy_encoded.as_micros(), copy_submitted.as_micros(), map_requested.as_micros(),
+            callback_at.as_micros(), poll_returned.as_micros(), trace_start.elapsed().as_micros()
+        );
         Ok(Some(result))
     }
 }
