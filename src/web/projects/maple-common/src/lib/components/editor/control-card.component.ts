@@ -292,7 +292,7 @@ export class ControlCardComponent {
     const id = this.libraryState.focusedAssetId();
     if (!id || !isWired(tool)) return;
     this.dragAssetId = id;
-    this.dragTool = tool;
+    this.pendingNoisePanel = false;
     this.editorState.commit();
     // Marks the gesture for the command router (#2450): navigation is
     // refused while a drag is in flight, so the ticks below can never be
@@ -306,18 +306,18 @@ export class ControlCardComponent {
    *  navigation mid-drag; this covers a filmstrip tap from a second
    *  pointer). */
   private dragAssetId: string | null = null;
-  private dragTool: ToolId | null = null;
+  private pendingNoisePanel = false;
 
   onSliderDragEnd(): void {
     const assetId = this.dragAssetId;
-    const tool = this.dragTool;
+    const pendingNoisePanel = this.pendingNoisePanel;
     this.dragAssetId = null;
-    this.dragTool = null;
+    this.pendingNoisePanel = false;
     this.editorState.endGesture();
     // #4352: arming Noise removes this card. Keep its captured slider alive
     // until release/cancel, then expose the existing sub-parameter panel.
-    if (tool === 'noise' && assetId === this.libraryState.focusedAssetId())
-      this.editorState.armTool(tool);
+    if (pendingNoisePanel && assetId === this.libraryState.focusedAssetId())
+      this.editorState.armTool('noise');
   }
 
   onSliderChange(tool: ToolId, value: number): void {
@@ -332,8 +332,8 @@ export class ControlCardComponent {
     // so the value chip and the sub-param panel follow the active slider.
     // On web this is also what makes a multi-param tool's extra tiers
     // reachable — the Noise pill's Deep / Prefilter (#1153).
-    if (this.editorState.armedTool() !== tool && !(tool === 'noise' && this.dragTool === tool))
-      this.editorState.armTool(tool);
+    if (tool === 'noise' && this.dragAssetId !== null) this.pendingNoisePanel = true;
+    else if (this.editorState.armedTool() !== tool) this.editorState.armTool(tool);
     this.libraryState.updateAdjustment(id, manualAdjustmentPatch({ [field]: value }, current));
   }
 
