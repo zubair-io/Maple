@@ -33,9 +33,13 @@ let active: {
   name: string;
 } | null = null;
 async function dispose() {
-  if (!active) return;
-  await disposeProfileFixture(active);
-  active = null;
+  const disposing = active;
+  if (!disposing) return;
+  try {
+    await disposeProfileFixture(disposing);
+  } finally {
+    if (active === disposing) active = null;
+  }
 }
 Object.assign(window, {
   autoFitStatusUI: {
