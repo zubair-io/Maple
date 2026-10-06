@@ -1,4 +1,9 @@
 $ErrorActionPreference = 'Stop'
+$parseTokens = $null
+$parseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $PSScriptRoot 'qualify-winui.ps1'), [ref]$parseTokens, [ref]$parseErrors) | Out-Null
+if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
 . "$PSScriptRoot/qualification-fixture.ps1"
 $testRoot = Join-Path $env:TEMP ('maple-qualification-copy-test-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $testRoot | Out-Null
