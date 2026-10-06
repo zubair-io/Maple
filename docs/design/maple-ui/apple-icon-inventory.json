@@ -86,11 +86,6 @@
     },
     {
       "file": "src/apple/Maple/Views/AppShellToolbar.swift",
-      "line": 112,
-      "use": "Button(\"Open Folder\", systemImage: \"folder.badge.plus\") {"
-    },
-    {
-      "file": "src/apple/Maple/Views/AppShellToolbar.swift",
       "line": 135,
       "use": "Image(systemName: \"magnifyingglass\")"
     },
@@ -1269,12 +1264,6 @@
     "issue": 3899,
     "scope": "Maple app content and MapleUI chrome use the bundled Material library. Direct SF references below are explicit native-framework exceptions. The cloud/calendar custom paths remain coordinated cross-platform glyphs (#3024).",
     "nativeExceptions": [
-      {
-        "file": "src/apple/Maple/Views/AppShellToolbar.swift",
-        "line": 113,
-        "source": "Button(\"Open Folder\", systemImage: \"folder.badge.plus\") {",
-        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
-      },
       {
         "file": "src/apple/Maple/Views/AppShellToolbar.swift",
         "line": 145,
