@@ -65,9 +65,13 @@ public sealed partial class MainWindow
                 var bounds = CloseScopesButton.TransformToVisual(root).TransformBounds(
                     new Windows.Foundation.Rect(0, 0, CloseScopesButton.ActualWidth, CloseScopesButton.ActualHeight));
                 if (bounds.Left < 0 || bounds.Top < 0 || bounds.Right > size.Item1 || bounds.Bottom > size.Item2
-                    || bounds.Width < 24 || bounds.Height < 24 || ScopesPanelHost.ActualWidth <= 0
+                    || bounds.Width < 44 || bounds.Height < 44 || ScopesPanelHost.ActualWidth <= 0
                     || ScopesPanelHost.ActualHeight > ViewerContainer.ActualHeight)
                     throw new InvalidOperationException($"Scopes or its close control overflow at {size}");
+                var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(CloseScopesButton);
+                if (!CloseScopesButton.IsTabStop || !CloseScopesButton.Focus(FocusState.Keyboard)
+                    || peer?.IsKeyboardFocusable() != true || !peer.HasKeyboardFocus() || peer.GetName() != "Close scopes")
+                    throw new InvalidOperationException($"Scopes close control lost keyboard access or its name at {size}");
             }
         }
         finally
