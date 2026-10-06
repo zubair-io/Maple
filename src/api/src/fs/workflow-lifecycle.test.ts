@@ -1,3 +1,4 @@
+import { startSidecarChronology, finishSidecarChronology } from './sidecar-write-chronology';
 /** Real portable variant files follow Self Hosted originals (#4044 / #2437). */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as fs from './mirrored';
@@ -85,6 +86,7 @@ describe('portable variant asset lifecycle', () => {
       label: `Preset ${index + 1}`,
       adjustmentXmp: checkpoint.value,
     }));
+    startSidecarChronology(source.sidecar);
     const semantic = entries.map((entry) =>
       commitWorkflowVariant(source.primary, 'primary', initial.value, initial.value, entry),
     );
@@ -93,6 +95,7 @@ describe('portable variant asset lifecycle', () => {
       Promise.allSettled(semantic),
       Promise.all(ordinary),
     ]);
+    const chronology = finishSidecarChronology();
     if (
       results.filter((result) => result.status === 'fulfilled').length !== 1 ||
       ordinaryResults.some((result) => !result.ok)
@@ -115,6 +118,7 @@ describe('portable variant asset lifecycle', () => {
             : { error: String(result.reason), stack: result.reason?.stack }),
         })),
         ordinaryResults,
+        chronology,
       };
       console.error('Actual mixed-writer failure:', JSON.stringify(diagnostics));
     }

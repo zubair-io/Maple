@@ -1,3 +1,4 @@
+import { traceSidecarBytes, traceSidecar } from './sidecar-write-chronology';
 /**
  * XMP sidecar read/write and .maple/ thumbnail cache management.
  *
@@ -87,9 +88,15 @@ async function preparePrimarySidecarWrite(
       if (isMissingSidecar(error)) return null;
       throw error;
     });
-    return { ok: true, data: await prepareWorkflowWrite(existing, xmlContent) };
+    traceSidecarBytes('ordinary-read', existing, { sidecar });
+    const output = await prepareWorkflowWrite(existing, xmlContent);
+    traceSidecarBytes('ordinary-converted', output, { sidecar });
+    return { ok: true, data: output };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -111,6 +118,7 @@ export async function writeXmpAtomic(
   const allowed = await primarySidecarDestination(rawAbsPath);
   if (!allowed.ok) return allowed;
   const destination = allowed.data;
+  traceSidecar('ordinary-key', { rawAbsPath, destination });
   return serializeSidecarWrite(destination, async () => {
     const prepared = await preparePrimarySidecarWrite(destination, xmlContent);
     if (!prepared.ok) return prepared;
@@ -344,7 +352,10 @@ export async function writeXmpWithPrecondition(
 
     const prepared = await preparePrimarySidecarWrite(sidecar, xmlContent);
     if (!prepared.ok)
-      return { kind: 'error', error: prepared.error ?? 'Workflow validation failed' };
+      return {
+        kind: 'error',
+        error: prepared.error ?? 'Workflow validation failed',
+      };
     const result = await writeSidecarAtomic(sidecar, prepared.data, 'XMP write failed');
     return result.ok ? { kind: 'ok', mtime: result.mtime } : { kind: 'error', error: result.error };
   });

@@ -1,3 +1,4 @@
+import { traceSidecarBytes, traceSidecar } from './sidecar-write-chronology';
 /**
  * The filesystem primitives every XMP sidecar write goes through.
  *
@@ -67,7 +68,9 @@ export async function writeSidecarAtomic(
     } finally {
       await fh.close();
     }
+    traceSidecarBytes('before-rename', content, { destPath, tmp });
     await fs.rename(tmp, destPath);
+    traceSidecar('after-rename', { destPath, tmp });
     const st = await fs.stat(destPath);
     return { ok: true, mtime: st.mtime };
   } catch (err) {

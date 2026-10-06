@@ -1,3 +1,4 @@
+import { traceSidecarBytes, traceSidecar } from './sidecar-write-chronology';
 /** Portable sibling storage; originals are never opened for writing (#4040). */
 import * as path from 'node:path';
 import { callNative } from 'maple';
@@ -42,6 +43,10 @@ async function nativeValue(
 ): Promise<string> {
   const result = await callNative(method, args);
   if (!result.ok) throw new WorkflowVariantError(422, result.error);
+  traceSidecarBytes('semantic-native-response', result.value, {
+    method,
+    inputs: args,
+  });
   return result.value;
 }
 async function variantPath(rawPath: string, id: string): Promise<string> {
@@ -50,6 +55,11 @@ async function variantPath(rawPath: string, id: string): Promise<string> {
   const destination = path.join(path.dirname(primary), filename);
   const allowed = await safeWriteAllowed(destination);
   if (!allowed.ok) throw new WorkflowVariantError(403, allowed.error ?? 'Sidecar path not allowed');
+  traceSidecar('semantic-key', {
+    rawPath,
+    id,
+    destination: allowed.data ?? destination,
+  });
   return allowed.data ?? destination;
 }
 async function record(xml: string): Promise<SidecarWorkflow | null> {
@@ -204,6 +214,10 @@ async function mutateVariant(
   const destination = await variantPath(rawPath, id);
   return serializeSidecarWrite(destination, async () => {
     const current = await readWorkflowVariant(rawPath, id);
+    traceSidecarBytes('semantic-read', current, {
+      destination,
+      expectedMatches: current === expectedXmp,
+    });
     if (current !== expectedXmp)
       throw new WorkflowVariantError(409, 'Variant changed. Reopen it before saving this action.');
     const output = await convert(current);
