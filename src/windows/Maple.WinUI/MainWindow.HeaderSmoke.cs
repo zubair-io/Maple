@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Maple.UI.Atoms;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
@@ -48,7 +47,7 @@ public sealed partial class MainWindow
         var names = buttons.Select(AutomationProperties.GetName).ToArray();
         var comparisonName = _compare.ShowingBefore ? "Showing before; show edited photo" : "Compare before and after";
         foreach (var name in new[] { "Back to preview", "Undo adjustment", comparisonName,
-            "More editing actions", "Export photo" })
+            "More editing actions", "Export photo", "Shadow clipping indicator", "Highlight clipping indicator" })
             if (names.Count(candidate => candidate == name) != 1)
                 throw new InvalidOperationException($"Missing or duplicated editor header action: {name}");
         foreach (var button in buttons)
@@ -62,12 +61,12 @@ public sealed partial class MainWindow
         }
     }
 
-    private static IEnumerable<MuiButton> HeaderActionButtons(DependencyObject parent)
+    private static IEnumerable<Button> HeaderActionButtons(DependencyObject parent)
     {
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
         {
             var child = VisualTreeHelper.GetChild(parent, i);
-            if (child is MuiButton button) yield return button;
+            if (child is Button button) yield return button;
             else foreach (var nested in HeaderActionButtons(child)) yield return nested;
         }
     }
