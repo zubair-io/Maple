@@ -214,6 +214,7 @@ fn auto_wb_is_a_fixed_point_of_its_own_recommendation() {
         let first = compute_auto_adjustments(&raw, &AdjustmentModel::default()).unwrap();
         let balanced = AdjustmentModel {
             auto_exposure: AutoExposureMode::Off,
+            highlight_recovery: crate::xmp::HighlightRecoveryMode::Off,
             temperature: first.temperature,
             tint: first.tint,
             temperature_seen: true,

@@ -301,7 +301,7 @@ fn soft_floor(p: [f32; 3]) -> [f32; 3] {
 /// migration's probe of the develop chain's linear rendering transform)
 /// shares the exact dispatch `apply_with_post_pro` renders with — a second
 /// hand-rolled copy of this match would drift.
-fn camera_to_prophoto_matrix(profile: &DcpProfile) -> crate::Result<Matrix3> {
+pub(crate) fn camera_to_prophoto_matrix(profile: &DcpProfile) -> crate::Result<Matrix3> {
     let inv_pro = M_PRO_TO_XYZ_D50
         .inverse()
         .expect("ProPhoto matrix is invertible");
