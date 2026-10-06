@@ -274,20 +274,22 @@ public actor SMBSource {
   /// which is the common NAS layout (`/Photos/`, `/Backups/`, etc.).
   private func listRAWFiles(at path: String, client: SMB2Manager) async throws -> [SMBAsset] {
     let entries = try await client.contentsOfDirectory(atPath: path, recursive: true)
+    let rootComponents = path.split(separator: "/").filter { $0 != "." }
     return entries.compactMap { attrs -> SMBAsset? in
       guard let name = attrs[.nameKey] as? String else { return nil }
-      // Skip dotfiles (`.DS_Store`, `.maple/`, etc.).
-      if name.hasPrefix(".") { return nil }
       let isDir = attrs[.isDirectoryKey] as? Bool ?? false
       guard !isDir else { return nil }
       let ext = (name as NSString).pathExtension.lowercased()
       guard SupportedImageExtensions.all.contains(ext) else { return nil }
-      // `.pathKey` is the full share-relative path stamped by AMSMB2's
-      // recursive walk; fall back to joining `path + name` when the
-      // server didn't populate it (non-recursive root scan).
+      // Use the full recursive path, falling back to the selected root + name.
       let fullPath =
         (attrs[.pathKey] as? String)
         ?? (path as NSString).appendingPathComponent(name)
+      // #4309: exclude hidden descendants, not a deliberately selected dot-named root.
+      let components = fullPath.split(separator: "/").filter { $0 != "." }
+      guard components.starts(with: rootComponents),
+        !components.dropFirst(rootComponents.count).contains(where: { $0.hasPrefix(".") })
+      else { return nil }
       // `.fileSizeKey` / `.contentModificationDateKey` are populated by
       // AMSMB2's `stat.populateResourceValue` on every directory-listing
       // entry (see `FileHandle.swift` in the vendored AMSMB2 checkout) —
