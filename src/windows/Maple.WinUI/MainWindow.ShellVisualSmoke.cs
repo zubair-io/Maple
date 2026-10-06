@@ -120,6 +120,8 @@ public sealed partial class MainWindow
                         .Where(control => control.Visibility == Visibility.Visible)
                         .Select(control =>
                         {
+                            if (control != SearchBox && Math.Abs(control.ActualHeight - 44) > 0.5)
+                                throw new InvalidOperationException($"Browse action must measure 44 DIPs: {control.Name} measured {control.ActualHeight}");
                             var point = control.TransformToVisual(root).TransformPoint(default);
                             return new
                             {
