@@ -131,7 +131,7 @@ public class ProfileArtifactNativeTests
         {
             File.Copy(source, raw);
             File.Copy(source, other);
-            var original = SHA256.HashData(File.ReadAllBytes(source));
+            var original = HashFile(source);
             var model = new AdjustmentState();
             DecodedImage Decode(string path, DecodedImage? donor = null) =>
                 RenderEngine.Decode(path, model, 1600, RefineDecodeQuality.Preview, IntPtr.Zero, donor);
@@ -149,9 +149,9 @@ public class ProfileArtifactNativeTests
             Assert.NotSame(fitted.DisplayLut, changed.DisplayLut);
             changed.ProfileSource = null; // An unqualified/failed fit cannot donate even if arrays exist.
             Assert.NotSame(changed.DisplayLut, Decode(raw, changed).DisplayLut);
-            Assert.Equal(original, SHA256.HashData(File.ReadAllBytes(raw)));
-            Assert.Equal(original, SHA256.HashData(File.ReadAllBytes(other)));
-            Assert.Equal(original, SHA256.HashData(File.ReadAllBytes(source)));
+            Assert.Equal(original, HashFile(raw));
+            Assert.Equal(original, HashFile(other));
+            Assert.Equal(original, HashFile(source));
         }
         finally { Directory.Delete(root, recursive: true); }
     }
