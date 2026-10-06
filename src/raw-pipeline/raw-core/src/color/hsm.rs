@@ -219,6 +219,50 @@ pub fn apply_with_space(img: &mut Image, table: &HsmTable, expected: ColorSpace)
     apply(img, table);
 }
 
+/// Invert HSM on a single ProPhoto RGB pixel.
+///
+/// Because HSM is smooth and near-identity near neutral, 3 fixed-point
+/// iterations invert the forward transform to float precision.
+pub fn invert_pixel(p_out: [f32; 3], table: &HsmTable) -> [f32; 3] {
+    let min_original = p_out[0].min(p_out[1]).min(p_out[2]);
+    let lift = if min_original < 0.0 {
+        -min_original
+    } else {
+        0.0
+    };
+    let mut rgb = [p_out[0] + lift, p_out[1] + lift, p_out[2] + lift];
+    if matches!(table.encoding, HsmEncoding::Srgb) {
+        rgb[0] = linear_to_srgb_one(rgb[0]);
+        rgb[1] = linear_to_srgb_one(rgb[1]);
+        rgb[2] = linear_to_srgb_one(rgb[2]);
+    }
+    let (h_target, s_target, v_target) = rgb_to_hsv(rgb);
+    let mut h = h_target;
+    let mut s = s_target;
+    let mut v = v_target;
+    for _ in 0..3 {
+        let (hd, ss, vs) = lookup(table, h, s, v);
+        let w_chroma = (s / 0.01).clamp(0.0, 1.0);
+        let hd = hd * w_chroma;
+        let ss = 1.0 + (ss - 1.0) * w_chroma;
+        let vs = 1.0 + (vs - 1.0) * w_chroma;
+        h = (h_target - hd).rem_euclid(360.0);
+        s = (s_target / ss.max(1e-6)).clamp(0.0, 1.0);
+        v = (v_target / vs.max(1e-6)).max(0.0);
+    }
+    let mut out = hsv_to_rgb(h, s, v);
+    if matches!(table.encoding, HsmEncoding::Srgb) {
+        out[0] = srgb_to_linear_one(out[0]);
+        out[1] = srgb_to_linear_one(out[1]);
+        out[2] = srgb_to_linear_one(out[2]);
+    }
+    if lift > 0.0 {
+        [out[0] - lift, out[1] - lift, out[2] - lift]
+    } else {
+        out
+    }
+}
+
 // ── HSV ↔ RGB ────────────────────────────────────────────────────────────────
 
 /// Convert an [r, g, b] triple to (hue°, sat, val). Standard cylindrical
@@ -765,13 +809,37 @@ mod tests {
             lookup(&table, 30.0, 0.5, 0.5).0
         };
         // Boundary cases: exact ±180 must keep their sign (not fold to +180).
-        assert!(approx(uniform(-180.0), -180.0, 1e-3), "-180 → {}", uniform(-180.0));
-        assert!(approx(uniform(180.0), 180.0, 1e-3), "+180 → {}", uniform(180.0));
+        assert!(
+            approx(uniform(-180.0), -180.0, 1e-3),
+            "-180 → {}",
+            uniform(-180.0)
+        );
+        assert!(
+            approx(uniform(180.0), 180.0, 1e-3),
+            "+180 → {}",
+            uniform(180.0)
+        );
         // Wrap cases still fold into [-180, 180] with the correct sign.
-        assert!(approx(uniform(350.0), -10.0, 1e-3), "350 → {}", uniform(350.0));
-        assert!(approx(uniform(-350.0), 10.0, 1e-3), "-350 → {}", uniform(-350.0));
-        assert!(approx(uniform(270.0), -90.0, 1e-3), "270 → {}", uniform(270.0));
-        assert!(approx(uniform(-270.0), 90.0, 1e-3), "-270 → {}", uniform(-270.0));
+        assert!(
+            approx(uniform(350.0), -10.0, 1e-3),
+            "350 → {}",
+            uniform(350.0)
+        );
+        assert!(
+            approx(uniform(-350.0), 10.0, 1e-3),
+            "-350 → {}",
+            uniform(-350.0)
+        );
+        assert!(
+            approx(uniform(270.0), -90.0, 1e-3),
+            "270 → {}",
+            uniform(270.0)
+        );
+        assert!(
+            approx(uniform(-270.0), 90.0, 1e-3),
+            "-270 → {}",
+            uniform(-270.0)
+        );
         // In-range values pass through unchanged.
         assert!(approx(uniform(0.0), 0.0, 1e-3));
         assert!(approx(uniform(90.0), 90.0, 1e-3));

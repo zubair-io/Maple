@@ -158,6 +158,8 @@ enum Tier {
         frame: SliderFrame,
         gain: [f32; 3],
         pre_gain: [f32; 3],
+        cam_to_pro: Matrix3,
+        hsm: Option<crate::color::hsm::HsmTable>,
     },
     /// Post-DCP white balance: the recommendation is solved as a Rec.2020
     /// gain, matching the render chain for this source.
@@ -202,8 +204,11 @@ impl ProbeSpace {
         } else {
             wb_camera::camera_wb_gain(&frame, raw.as_shot_neutral, temperature, tint)
         };
-        let render = wb_camera::retargeted_render_profile(&frame, profile, temperature, tint);
+        let render =
+            wb_camera::retargeted_render_profile(&frame, profile.clone(), temperature, tint);
         let to_space = dcp::camera_to_rec2020_matrix(&render).ok()?.inverse()?;
+        let cam_to_pro = dcp::camera_to_prophoto_matrix(&render).ok()?;
+        let hsm = render.hsm.clone();
         let pre_gain = pre_gain_of(raw.as_shot_neutral);
         let ceilings = [0, 1, 2].map(|c| neutral_clip * pre_gain[c] * gain[c]);
         Some(Self {
@@ -215,6 +220,8 @@ impl ProbeSpace {
                 frame,
                 gain,
                 pre_gain,
+                cam_to_pro,
+                hsm,
             },
         })
     }
@@ -255,10 +262,23 @@ impl ProbeSpace {
                 frame,
                 gain,
                 pre_gain,
+                cam_to_pro,
+                hsm,
             } => {
+                let judged_cam = if let Some(table) = hsm {
+                    let pro = cam_to_pro.mul_vec(neutral);
+                    let pro_inv = crate::color::hsm::invert_pixel(pro, table);
+                    cam_to_pro
+                        .inverse()
+                        .map(|inv| inv.mul_vec(pro_inv))
+                        .unwrap_or(neutral)
+                } else {
+                    neutral
+                };
                 // Undo the probe's WB gain and the AsShotNeutral pre-gain:
                 // what the sensor itself read for this neutral.
-                let raw_neutral = [0, 1, 2].map(|c| neutral[c] / (gain[c] * pre_gain[c]).max(1e-6));
+                let raw_neutral =
+                    [0, 1, 2].map(|c| judged_cam[c] / (gain[c] * pre_gain[c]).max(1e-6));
                 frame.illuminant_temp_tint(raw_neutral)
             }
             Tier::Generic => neutral_to_temp_tint(neutral),
