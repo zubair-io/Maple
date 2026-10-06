@@ -15,6 +15,27 @@ pub(super) fn apply(
     target: encode::TargetPrimaries,
     window: ((u32, u32), (u32, u32)),
 ) {
+    apply_inner(scene, model, film_lut, target, window, false);
+}
+
+pub(super) fn apply_retained(
+    scene: &mut Image,
+    model: &AdjustmentModel,
+    film_lut: Option<&film::FilmLut>,
+    target: encode::TargetPrimaries,
+    window: ((u32, u32), (u32, u32)),
+) {
+    apply_inner(scene, model, film_lut, target, window, true);
+}
+
+fn apply_inner(
+    scene: &mut Image,
+    model: &AdjustmentModel,
+    film_lut: Option<&film::FilmLut>,
+    target: encode::TargetPrimaries,
+    window: ((u32, u32), (u32, u32)),
+    retained: bool,
+) {
     // View transform (#550 post-fix): AgX + gamut compress + sRGB gamma
     // encode run UNCONDITIONALLY for both Auto and Neutral. Pre-#550 the
     // Auto branch REPLACED AgX with the scene-linear curve fit, throwing
@@ -78,6 +99,13 @@ pub(super) fn apply(
         )
     });
     dump_after("16b_grain", scene);
+    // #4352: the WASM retained viewport joins adjacent point operations in
+    // one traversal. Native timing and stage-dump intermediate images retain
+    // the original two-stage path, including 17_srgb_linear.
+    if retained && cfg!(target_arch = "wasm32") && !cfg!(feature = "stage-dump") {
+        encode::rec2020_to_display_encoded(scene, target);
+        return;
+    }
     stage("rec2020_to_srgb", || {
         encode::rec2020_to_display(scene, target)
     });
