@@ -110,6 +110,10 @@ namespace Maple.WinUI.Native
             IntPtr panelNative, IntPtr cancel, ulong surfaceGeneration,
             uint targetW, uint targetH);
 
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_gpu_live_render(
+            MapleGpuLiveSession* handle, MapleGpuLiveParams* p, byte* outputRgb);
+
         // Multi-format developed export (#2584): raw_core::export behind the
         // C ABI. format = "jpeg"|"tiff"|"png"; colorSpace = "srgb"|"display-p3";
         // maxLongEdge 0 = native resolution; quality 0 = default 92 (JPEG only).

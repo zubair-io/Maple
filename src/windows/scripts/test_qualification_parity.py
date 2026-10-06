@@ -1,4 +1,6 @@
 import json
+import os
+import site
 import subprocess
 import sys
 import tempfile
@@ -15,9 +17,14 @@ class QualificationParityTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.work = Path(self.temp.name)
         (self.work / "cpu").mkdir()
+        (self.work / "gpu-pixels").mkdir()
+        (self.work / "gpu-pixels" / "report.json").write_text(
+            json.dumps({"render_path": "gpu"}), encoding="utf-8"
+        )
         self.exported = self.work / "production export [one] Å_日本.tiff"
         for path in (
             self.work / "app-frame.png",
+            self.work / "gpu-frame.png",
             self.work / "ref-frame.png",
             self.exported,
         ):
@@ -62,6 +69,26 @@ class QualificationParityTests(unittest.TestCase):
         self.assertTrue(verdict["preview_export_parity_failed"])
         self.assertFalse(verdict["export_parity_failed"])
 
+    def test_gpu_difference_cannot_hide_behind_passing_cpu(self):
+        Image.new("RGB", (16, 12), "red").save(self.work / "gpu-frame.png")
+        self.assertEqual(self.run_driver().returncode, 1)
+        verdict = json.loads((self.work / "parity-verdict.json").read_text())
+        self.assertTrue(verdict["gpu_cpu_viewport_parity_failed"])
+        self.assertFalse(verdict["preview_parity_failed"])
+
+    def test_gpu_fallback_removes_stale_passing_verdict(self):
+        self.assertEqual(self.run_driver().returncode, 0)
+        (self.work / "gpu-pixels" / "report.json").write_text(
+            json.dumps({"render_path": "cpu"}), encoding="utf-8"
+        )
+        self.assertEqual(self.run_driver().returncode, 2)
+        self.assertFalse((self.work / "parity-verdict.json").exists())
+
+    def test_missing_gpu_pixels_fail_qualification(self):
+        (self.work / "gpu-frame.png").unlink()
+        self.assertEqual(self.run_driver().returncode, 2)
+        self.assertFalse((self.work / "parity-verdict.json").exists())
+
     def test_export_dimensions_cannot_be_resized_into_a_pass(self):
         Image.new("RGB", (8, 6), (100, 120, 140)).save(self.exported)
         result = self.run_driver()
@@ -99,6 +126,7 @@ class QualificationParityTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=False,
+            env={**os.environ, "PYTHONPATH": os.pathsep.join(site.getsitepackages())},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
