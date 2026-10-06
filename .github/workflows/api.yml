@@ -1,4 +1,4 @@
-name: Owned 4051 deterministic discriminator
+name: Owned 4051 mixed-method correlation
 on:
   workflow_dispatch:
 concurrency:
@@ -40,26 +40,23 @@ jobs:
           bun --version > diagnostics/bun.txt
           sha256sum src/api/native/libraw_ffi.so src/raw-pipeline/target/x86_64-unknown-linux-gnu/release/libraw_ffi.so > diagnostics/native-before.sha256
           git ls-files -z | xargs -0 sha256sum > diagnostics/source-before.sha256
-      - name: One fresh-process and one real full-suite-context discriminator
+      - name: One bounded sixteen-call mixed-method correlation control
         env:
           MAPLE_JWT_SECRET: ci-test-secret-not-for-production-only
+          MAPLE_NAPI: '0'
         run: |
           set +e
-          final=0
-          for context in fresh context; do
-            (cd src/api && bun test tests/4051-discriminator/${context}.test.ts --timeout 30000) > diagnostics/${context}.log 2>&1
-            actual=$?
-            printf '%s\n' "$actual" > diagnostics/${context}.exit
-            cat diagnostics/${context}.log
-            sha256sum --check diagnostics/source-before.sha256 > diagnostics/source-after-${context}.log
-            source_guard=$?
-            sha256sum --check diagnostics/native-before.sha256 > diagnostics/native-after-${context}.log
-            native_guard=$?
-            if [ "$actual" -ne 0 ]; then final=$actual; fi
-            if [ "$source_guard" -ne 0 ] || [ "$native_guard" -ne 0 ]; then final=99; break; fi
-          done
-          printf '%s\n' "$final" > diagnostics/final.exit
-          exit "$final"
+          (cd src/api && bun test tests/4051-discriminator/mixed-method.test.ts --timeout 30000) > diagnostics/mixed-method.log 2>&1
+          actual=$?
+          printf '%s\n' "$actual" > diagnostics/mixed-method.exit
+          cat diagnostics/mixed-method.log
+          sha256sum --check diagnostics/source-before.sha256 > diagnostics/source-after-mixed-method.log
+          source_guard=$?
+          sha256sum --check diagnostics/native-before.sha256 > diagnostics/native-after-mixed-method.log
+          native_guard=$?
+          if [ "$source_guard" -ne 0 ] || [ "$native_guard" -ne 0 ]; then actual=99; fi
+          printf '%s\n' "$actual" > diagnostics/final.exit
+          exit "$actual"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
