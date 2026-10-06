@@ -10,7 +10,7 @@ public sealed partial class MainWindow
         ViewModel.ResetToDefaults();
         var original = slider.Value;
         var originalStatus = EditStatusText.Text;
-        if (originalStatus.Contains("Edited") || BrowseEditedStatus.Text.Length != 0)
+        if (originalStatus.Contains("Edited"))
             throw new InvalidOperationException("Reset left the editor marked as edited.");
         var depth = ViewModel.UndoCount;
         OnSliderGestureStarted(slider, EventArgs.Empty);
@@ -21,8 +21,8 @@ public sealed partial class MainWindow
         if (ViewModel.UndoCount != depth || ViewModel.Adjustments.Exposure != original + .25)
             throw new InvalidOperationException("Bound Exposure slider split a paused edit or failed to update the model.");
         OnSliderGestureCompleted(slider, EventArgs.Empty);
-        if (BrowseEditedStatus.Text != " · Edited")
-            throw new InvalidOperationException("Browse detail did not reflect the completed adjustment.");
+        if (!EditStatusText.Text.EndsWith(" · Edited", StringComparison.Ordinal))
+            throw new InvalidOperationException("Editor did not reflect the completed adjustment.");
         if (ViewModel.UndoCount != depth + 1)
             throw new InvalidOperationException("Bound slider release did not commit one edit.");
         ViewModel.Undo();
@@ -30,7 +30,7 @@ public sealed partial class MainWindow
         slider.Value = original + .05;
         slider.Value = original;
         OnSliderGestureCompleted(slider, EventArgs.Empty);
-        if (EditStatusText.Text != originalStatus || BrowseEditedStatus.Text.Length != 0 || ViewModel.UndoCount != depth)
+        if (EditStatusText.Text != originalStatus || ViewModel.UndoCount != depth)
             throw new InvalidOperationException("Returning a slider to its original value left stale edit status or history.");
         Content.UpdateLayout();
         if (ViewModel.Adjustments.Exposure != original || slider.Value != original)
@@ -81,10 +81,5 @@ public sealed partial class MainWindow
         if (ViewModel.Adjustments.Exposure != original || ViewModel.UndoCount != depth)
             throw new InvalidOperationException("A stale gesture timer modified restored history.");
         await ViewModel.RetryLocalSaveAsync();
-        RefreshSaveTime();
-        for (var attempt = 0; attempt < 100 && _saveTimeRequest != null; attempt++)
-            await Task.Delay(20);
-        if (!BrowseSavedStatus.Text.StartsWith(" · Saved", StringComparison.Ordinal))
-            throw new InvalidOperationException("Browse did not show the acknowledged sidecar save time.");
     }
 }

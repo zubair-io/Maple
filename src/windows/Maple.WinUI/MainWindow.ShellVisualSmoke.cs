@@ -24,7 +24,6 @@ public sealed partial class MainWindow
         var originalMode = _mode;
         var originalInfo = _infoPaneOpen;
         var originalCollapsed = FilmstripRail.IsCollapsed;
-        var originalBrowse = _browseListDetail;
         var originalGroup = _activeGroup;
         var photo = ViewModel.SelectedPhoto;
         var originalSelection = ViewModel.SelectedPhotos.ToArray();
@@ -89,14 +88,12 @@ public sealed partial class MainWindow
             _infoPaneOpen = false;
             if (photo != null) RestoreBrowseSelection(new[] { photo }, photo);
             await VerifyPreviewToggleScrollAsync(output);
-            foreach (var name in new[] { "browse-grid", "browse-list", "preview-rail", "preview-list", "preview-info", "preview-list-info",
+            foreach (var name in new[] { "browse-grid", "preview-rail", "preview-list", "preview-info", "preview-list-info",
                 "editor-light", "editor-color", "editor-crop", "editor-comparison" })
             {
                 if (name.StartsWith("browse", StringComparison.Ordinal))
                 {
-                    _browseListDetail = name == "browse-list";
                     SetMode(ShellMode.Browse);
-                    UpdateBrowsePresentation();
                 }
                 else if (name.StartsWith("editor", StringComparison.Ordinal))
                 {
@@ -143,7 +140,6 @@ public sealed partial class MainWindow
         finally
         {
             ResetComparison();
-            _browseListDetail = originalBrowse;
             _infoPaneOpen = originalInfo;
             FilmstripRail.IsCollapsed = originalCollapsed;
             SetMode(originalMode);
@@ -152,7 +148,6 @@ public sealed partial class MainWindow
                 CloseGroupPanel();
                 if (originalGroup != null) ToggleGroupPanel(originalGroup);
             }
-            UpdateBrowsePresentation();
             UpdateInfoPane();
             RestoreBrowseSelection(originalSelection, photo);
             AppWindow.Resize(originalSize);

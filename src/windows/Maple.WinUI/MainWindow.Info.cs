@@ -61,7 +61,7 @@ namespace Maple.WinUI
 
         private void InitializeInspectorFocus()
         {
-            foreach (var button in new[] { PreviewInfoButton, InfoCloseButton, BrowseInfoButton })
+            foreach (var button in new[] { PreviewInfoButton, InfoCloseButton })
             {
                 button.PreviewKeyDown += (_, e) =>
                 {

@@ -89,7 +89,7 @@ namespace Maple.WinUI
                 // ListViewBase.SelectAll — valid because PhotoGrid is
                 // SelectionMode="Extended" (it throws only in Single/None).
                 case VirtualKey.A when ctrl && _mode == ShellMode.Browse:
-                    if (_browseListDetail) BrowsePhotoList.SelectAll(); else PhotoGrid.SelectAll();
+                    PhotoGrid.SelectAll();
                     break;
                 // Inline rename (#2639): same "sole selection, else resolved
                 // primary target" rule Enter uses to open a photo — see

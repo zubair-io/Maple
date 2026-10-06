@@ -172,7 +172,6 @@ namespace Maple.WinUI
             HookNativeDetail();
             HookFilmstripRail();   // #3402 — MainWindow.Filmstrip.cs
             InitializeBrowseDesign();
-            InitializeSaveTime();
             InitializeCloudMap();
             InitializeComparison();
             ViewModel.ModelSynced += OnEditorModelSynced;

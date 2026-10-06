@@ -440,7 +440,6 @@ namespace Maple.WinUI
             var photo = ViewModel.SelectedPhoto!;
             var originalPhotos = ViewModel.AllPhotos.ToArray();
             var originalSort = ViewModel.PhotoSort;
-            var originalView = _browseListDetail;
             var second = new PhotoItem { FilePath = photo.FilePath + ".second", FileName = "Second.dng", Rating = 5 };
             SetMode(ShellMode.Browse);
             ViewModel.AllPhotos.Clear();
@@ -454,14 +453,20 @@ namespace Maple.WinUI
                     try { ViewModel.PhotoSort = sort; ViewModel.ApplyFilters(); }
                     finally { _syncingBrowseSelection = false; }
                     RestoreBrowseSelection(new[] { photo, second }, photo);
-                    _browseListDetail = !_browseListDetail;
-                    UpdateBrowsePresentation();
                     Content.UpdateLayout();
-                    if (ViewModel.SelectedPhotos.Count != 2 || BrowsePhotoList.SelectedItems.Count != 2 ||
+                    if (ViewModel.SelectedPhotos.Count != 2 ||
                         PhotoGrid.SelectedItems.Count != 2 || !ReferenceEquals(ViewModel.SelectedPhoto, photo) ||
                         !ViewModel.Photos.SequenceEqual(BrowseSortLogic.Order(new[] { photo, second }, sort)))
                         throw new InvalidOperationException($"Browse selection/order changed for {sort}");
                 }
+                ActivateBrowsePhoto(second, ctrl: true, shift: false);
+                ActivateBrowsePhoto(second, ctrl: false, shift: true);
+                if (_mode != ShellMode.Browse || ViewModel.SelectedPhotos.Count != 2)
+                    throw new InvalidOperationException("Modified browse clicks changed mode or selection");
+                ActivateBrowsePhoto(second, ctrl: false, shift: false);
+                if (_mode != ShellMode.Preview || !ReferenceEquals(ViewModel.SelectedPhoto, second) ||
+                    ViewModel.SelectedPhotos.Count != 1)
+                    throw new InvalidOperationException("Plain browse click did not open the clicked photo in Preview");
             }
             finally
             {
@@ -471,8 +476,6 @@ namespace Maple.WinUI
                 _syncingBrowseSelection = true;
                 try { ViewModel.PhotoSort = originalSort; ViewModel.ApplyFilters(); }
                 finally { _syncingBrowseSelection = false; }
-                _browseListDetail = originalView;
-                UpdateBrowsePresentation();
                 RestoreBrowseSelection(new[] { photo }, photo);
                 SetMode(ShellMode.Edit);
             }

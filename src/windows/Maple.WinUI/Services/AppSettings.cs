@@ -76,7 +76,6 @@ namespace Maple.WinUI.Services
         public double LeftPanelWidth { get; set; } = 260;
         public double DetailPanelWidth { get; set; } = 320;
         public string BrowseSort { get; set; } = "Name";
-        public bool BrowseListDetail { get; set; } = true;
         public int ThumbnailSize { get; set; } = 180;
 
         private static string SettingsPath => Path.Combine(
