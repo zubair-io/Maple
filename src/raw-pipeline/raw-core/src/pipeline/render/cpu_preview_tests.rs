@@ -361,3 +361,59 @@ fn replacement_source_rebuilds_before_detail_reuse() {
     assert!(resident.source.matches(&second, second_source));
     assert!(!resident.source.matches(&first, first_source));
 }
+
+#[test]
+#[cfg(feature = "fixtures")]
+fn real_default_auto_hot_repeat_and_edited_replay_match_legacy() {
+    let path = crate::test_support::fixtures::require_raw("test_0017.dng");
+    let bytes = std::fs::read(path).unwrap();
+    let raw = crate::decode::decode_bytes(&bytes, "dng").unwrap();
+    let source = RawInput::Bytes {
+        bytes: &bytes,
+        ext: "dng",
+    };
+    let model = AdjustmentModel::default();
+    let (mut resident, w, h, pixels, fit) = CpuPreview::open(
+        &raw,
+        source,
+        model.clone(),
+        RenderQuality::Preview,
+        128,
+        None,
+    )
+    .unwrap();
+    assert_eq!(fit, Some(true));
+    assert!(resident.context.profile_curve.is_some());
+    assert!(resident.context.profile_lut.is_some());
+    let initial = (w, h, pixels, fit);
+    for amount in [40., 0., 150., 40.] {
+        let edited = AdjustmentModel {
+            sharpen_amount: amount,
+            ..model.clone()
+        };
+        let actual = resident
+            .render(
+                &raw,
+                source,
+                edited.clone(),
+                RenderQuality::Preview,
+                128,
+                None,
+                CancelToken::never(),
+            )
+            .unwrap();
+        let expected = super::super::render_from_raw_with_auto_fit(
+            &raw,
+            &edited,
+            RenderQuality::Preview,
+            Some(source),
+            Some(128),
+            None,
+        )
+        .unwrap();
+        assert_eq!(actual, expected, "amount {amount}");
+        if amount == model.sharpen_amount {
+            assert_eq!(actual, initial);
+        }
+    }
+}
