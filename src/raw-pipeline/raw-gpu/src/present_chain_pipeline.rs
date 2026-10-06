@@ -98,11 +98,9 @@ pub(crate) fn pick_surface_format(caps: &wgpu::SurfaceCapabilities) -> wgpu::Tex
 }
 
 /// Build the chain-present render pipeline on `ctx.device` for `format`. Lays out
-/// a 2-binding group (params uniform @0, f32 chain buffer @1) and a fullscreen
-/// vertex+fragment from `present_chain.wgsl`. Not cached on [`GpuContext`] — the
-/// present runs once per frame and the surface FORMAT can differ from the cached
-/// compute pipelines' (it's render, not compute); a per-present compile of one
-/// tiny shader is negligible against the chain it follows.
+/// a 3-binding group (params @0, f32 chain @1, blue-noise ranks @3) and a fullscreen
+/// vertex+fragment from `present_chain.wgsl`. Each persistent surface retains
+/// this pipeline for its format; the noise buffer is shared across surfaces.
 pub(crate) fn build_present_pipeline(
     ctx: &GpuContext,
     format: wgpu::TextureFormat,
@@ -130,6 +128,16 @@ pub(crate) fn build_present_pipeline(
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
@@ -235,6 +243,10 @@ pub(crate) fn build_present_dispatch_scaled(
             wgpu::BindGroupEntry {
                 binding: 1,
                 resource: chain_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: crate::dither::blue_noise_buffer(ctx).as_entire_binding(),
             },
         ],
     });

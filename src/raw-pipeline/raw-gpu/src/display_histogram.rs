@@ -95,6 +95,10 @@ impl DisplayHistogram {
                         binding: 2,
                         resource: bins.as_entire_binding(),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: crate::dither::blue_noise_buffer(ctx).as_entire_binding(),
+                    },
                 ],
             })
         });
