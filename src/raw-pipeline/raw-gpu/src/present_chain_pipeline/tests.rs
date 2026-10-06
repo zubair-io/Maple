@@ -17,6 +17,28 @@ use super::*;
 use crate::context::GpuContext;
 use std::sync::Arc;
 
+#[test]
+fn invalidation_releases_all_retired_session_bindings() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (_, bgl) = build_present_pipeline(&ctx, wgpu::TextureFormat::Rgba8Unorm);
+    let cache = PresentDispatchCache::new();
+    let retained: Vec<_> = (0..4)
+        .map(|_| {
+            let buffer = make_chain_buf(&ctx, "retired-session");
+            let (uniform, bindings) = cache.get_or_build(&ctx, &bgl, &buffer, (8, 8));
+            (Arc::downgrade(&uniform), Arc::downgrade(&bindings))
+        })
+        .collect();
+    assert!(retained
+        .iter()
+        .all(|(u, b)| u.upgrade().is_some() && b.upgrade().is_some()));
+    cache.invalidate();
+    assert!(retained
+        .iter()
+        .all(|(u, b)| u.upgrade().is_none() && b.upgrade().is_none()));
+    assert_eq!(cache.alloc_count(), 8);
+}
+
 /// #4344: both ping-pong directions of fast and refined sessions stay warm.
 #[test]
 fn fast_refine_and_neutral_active_presents_allocate_only_once() {
