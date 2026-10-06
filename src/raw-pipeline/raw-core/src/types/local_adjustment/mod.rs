@@ -201,6 +201,28 @@ pub enum Mask {
     Group(MaskGroup),
 }
 
+/// Which AI selection a [`BitmapRecipe`] regenerates (#361). Person/skin
+/// selections predate this enum, so `PersonSkin` is the default and the
+/// `papp:MaskPerson`/`papp:MaskFacialSkin`/`papp:MaskBodySkin` attributes
+/// only mean anything for it — a `Sky` recipe is identified by `model` +
+/// `digest` alone.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MaskSource {
+    #[default]
+    PersonSkin,
+    Sky,
+}
+
+impl MaskSource {
+    /// The `papp:MaskSource` attribute value in `crs:MaskGroupBasedCorrections`.
+    pub fn xmp_name(self) -> &'static str {
+        match self {
+            MaskSource::PersonSkin => "PersonSkin",
+            MaskSource::Sky => "Sky",
+        }
+    }
+}
+
 /// The recipe that regenerates a bitmap mask's raster (#3271, spec §5.3).
 /// Every field is opaque identity data to Rust — the host (Apple Vision
 /// today) turns it into a raster and registers it; the sidecar stores the
@@ -208,6 +230,7 @@ pub enum Mask {
 /// it from these fields.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BitmapRecipe {
+    pub source: MaskSource,
     pub person: u32,
     pub facial_skin: bool,
     pub body_skin: bool,
