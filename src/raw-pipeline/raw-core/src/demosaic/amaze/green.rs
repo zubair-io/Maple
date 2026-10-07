@@ -1,8 +1,9 @@
 //! AMaZE stages 0.5–4: directional weights, Hamilton-Adams/adaptive-ratio
 //! green interpolation with colour differences, variance-based selection,
-//! median bounding, and the adaptive H/V direction weight. 1:1 port of the
+//! median bounding, and the adaptive H/V direction weight. Port of the
 //! scalar branch of `amaze_demosaic_RT.cc` (engine lines 368–784), operating
-//! on one tile.
+//! on one tile. Stage 3 departs from upstream where all four immediate Greens
+//! are clipped: `supported_green_transport` replaces the median (#4123).
 
 use super::scratch::{Scratch, Tile, TS};
 use crate::image::CfaPattern;
@@ -46,9 +47,10 @@ fn supported_green_transport(cfa: &[f32], i: usize, stride: usize) -> Option<f32
     if !means.iter().all(|v| v.is_finite() && *v > 0.0) {
         return None;
     }
-    let value =
-        (0.5 * near) * (center / means[0]).min(2.0) + (0.5 * far) * (center / means[1]).min(2.0);
-    value.is_finite().then_some(value)
+    let value = (0.5 * near) * (center / means[0]) + (0.5 * far) * (center / means[1]);
+    // Every immediate Green is clipped, so transport may raise the estimate
+    // but never place it below the measured saturated pair.
+    value.is_finite().then_some(value.max(near.min(far)))
 }
 
 /// Stage 0.5: `dirwts0` (vertical roughness), `dirwts1` (horizontal), and

@@ -182,3 +182,50 @@ fn underflowed_sensor_support_keeps_existing_median() {
     assert_eq!(s.hcd[i] + s.cfa[i], 1.0);
     assert_eq!(s.vcd[i] + s.cfa[i], 1.0);
 }
+
+#[test]
+fn saturated_transport_never_drops_below_clipped_green_pair() {
+    for pattern in [
+        CfaPattern::Rggb,
+        CfaPattern::Grbg,
+        CfaPattern::Gbrg,
+        CfaPattern::Bggr,
+    ] {
+        for channel in [0u8, 2] {
+            let (x, y) = (16..20)
+                .flat_map(|y| (16..20).map(move |x| (x, y)))
+                .find(|&(x, y)| pattern.color_at(x as u32, y as u32) == channel)
+                .unwrap();
+            let mut s = Scratch::new();
+            for yy in 0..TS {
+                for xx in 0..TS {
+                    s.cfa[yy * TS + xx] = if pattern.color_at(xx as u32, yy as u32) == 1 {
+                        1.0
+                    } else {
+                        0.9
+                    };
+                }
+            }
+            let i = y * TS + x;
+            s.cfa[i] = 0.05;
+            s.hcd[i] = 1.2 - s.cfa[i];
+            s.vcd[i] = 1.2 - s.cfa[i];
+            green::median_bound(
+                &mut s,
+                &Tile {
+                    top: 0,
+                    left: 0,
+                    rr1: TS,
+                    cc1: TS,
+                },
+                pattern,
+            );
+            for actual in [s.hcd[i] + s.cfa[i], s.vcd[i] + s.cfa[i]] {
+                assert!(
+                    actual >= 1.0 - 2e-6,
+                    "{pattern:?} channel={channel} actual={actual}"
+                );
+            }
+        }
+    }
+}

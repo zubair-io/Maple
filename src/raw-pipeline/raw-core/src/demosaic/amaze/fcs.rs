@@ -159,15 +159,14 @@ pub(super) fn suppress_false_colour(
             {
                 return Some(mean_colour);
             }
-            let mut independent_guide = false;
-            for (g, c) in measured {
-                independent_guide |= [a, b].iter().all(|&(near_g, near_c)| {
+            let independent_guide = measured.iter().any(|&(g, c)| {
+                [a, b].iter().all(|&(near_g, near_c)| {
                     (g - near_g).abs()
                         > 32.0 * f32::EPSILON * g.abs().max(near_g.abs()).max(f32::MIN_POSITIVE)
                         && (c - near_c).abs()
                             > 32.0 * f32::EPSILON * c.abs().max(near_c.abs()).max(f32::MIN_POSITIVE)
-                });
-            }
+                })
+            });
             let pedestal = a.1 - pair_slope * a.0;
             let scale = a.1.abs().max((pair_slope * a.0).abs());
             if !independent_guide
@@ -207,20 +206,22 @@ pub(super) fn suppress_false_colour(
             } else {
                 [(-3_isize, -3_isize), (3, -3), (-3, 3), (3, 3)]
             };
-            let mut independent_guide = false;
-            for (dx, dy) in witnesses {
+            let measured = witnesses.map(|(dx, dy)| {
                 let (nx, ny) = ((x as isize + dx) as usize, (y as isize + dy) as usize);
-                if color_at(nx, ny) != t {
-                    continue;
-                }
-                let guide = green[ny * w + nx];
-                if !supports_affine(guide, cfa_flat[ny * w + nx]) {
-                    return Some(mean_colour);
-                }
-                independent_guide |= samples
-                    .iter()
-                    .all(|&sample| independent_sample((guide, cfa_flat[ny * w + nx]), sample));
+                (color_at(nx, ny) == t).then(|| (green[ny * w + nx], cfa_flat[ny * w + nx]))
+            });
+            if measured
+                .iter()
+                .flatten()
+                .any(|&(guide, colour)| !supports_affine(guide, colour))
+            {
+                return Some(mean_colour);
             }
+            let independent_guide = measured.iter().flatten().any(|&witness| {
+                samples
+                    .iter()
+                    .all(|&sample| independent_sample(witness, sample))
+            });
             // Repeated two-level plateaus cannot distinguish an affine fit
             // from a genuine colour step. A third measured colour/guide level
             // supplies that evidence. A zero pedestal is the independently constrained
