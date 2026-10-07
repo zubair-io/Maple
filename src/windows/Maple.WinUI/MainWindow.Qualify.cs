@@ -40,6 +40,7 @@ namespace Maple.WinUI
             var exitCode = 0;
             var ticks = new List<double>();
             var renderTicks = new List<double>();
+            var hostPhases = new List<object>();
             var refines = new List<double>();
             var path = "gpu";
             long decodeStarted = 0;
@@ -57,20 +58,22 @@ namespace Maple.WinUI
                 // to be slow; reported, not gated). Awaiting the refine before
                 // the next wiggle also keeps its GPU work from overlapping the
                 // next measured tick.
-                var frameTimes = new System.Collections.Concurrent.ConcurrentQueue<(double RenderMs, long Completed)>();
+                var frameTimes = new System.Collections.Concurrent.ConcurrentQueue<(double RenderMs, long Completed, double RequestMs, double PreparationMs)>();
                 var frameSignal = new SemaphoreSlim(0);
                 ViewModel.Renderer.GpuFrameReady += (_, _, _, ms, _) =>
                 {
-                    frameTimes.Enqueue((ms, System.Diagnostics.Stopwatch.GetTimestamp()));
+                    frameTimes.Enqueue((ms, System.Diagnostics.Stopwatch.GetTimestamp(),
+                        ViewModel.Renderer.LastRequestToRenderMillis, ViewModel.Renderer.LastRenderPreparationMillis));
                     frameSignal.Release();
                 };
                 ViewModel.Renderer.FrameReady += (_, _, _, _, _, ms) =>
                 {
                     path = "cpu";
-                    frameTimes.Enqueue((ms, System.Diagnostics.Stopwatch.GetTimestamp()));
+                    frameTimes.Enqueue((ms, System.Diagnostics.Stopwatch.GetTimestamp(),
+                        ViewModel.Renderer.LastRequestToRenderMillis, 0));
                     frameSignal.Release();
                 };
-                async Task<(double RenderMs, long Completed)> NextFrameAsync()
+                async Task<(double RenderMs, long Completed, double RequestMs, double PreparationMs)> NextFrameAsync()
                 {
                     // A missing frame means the two-frames-per-edit contract
                     // broke — fail the run loudly instead of hanging forever.
@@ -113,9 +116,13 @@ namespace Maple.WinUI
                     var editStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                     pendingEditStarted = editStarted;
                     exposure.Value += i % 2 == 0 ? 0.01 : -0.01;
+                    var setterMs = System.Diagnostics.Stopwatch.GetElapsedTime(editStarted).TotalMilliseconds;
                     var frame = await NextFrameAsync();
                     ticks.Add(System.Diagnostics.Stopwatch.GetElapsedTime(editStarted, frame.Completed).TotalMilliseconds);
                     renderTicks.Add(frame.RenderMs);
+                    hostPhases.Add(new { setter_ms = setterMs, request_to_render_ms = frame.RequestMs,
+                        render_preparation_ms = frame.PreparationMs,
+                        unassigned_ms = ticks[^1] - frame.RequestMs - frame.PreparationMs - frame.RenderMs });
                     pendingEditStarted = 0;
                     refines.Add((await NextFrameAsync()).RenderMs);
                 }
@@ -134,6 +141,7 @@ namespace Maple.WinUI
                     timing_scope = path == "gpu" ? "exposure-edit-to-present-return" : "exposure-edit-to-cpu-render-ready",
                     tick_ms = ticks,
                     render_tick_ms = renderTicks,
+                    host_phases = hostPhases,
                     median_ms = (sorted[(sorted.Count - 1) / 2] + sorted[sorted.Count / 2]) / 2,
                     p95_ms = sorted[(int)Math.Min(sorted.Count - 1, Math.Ceiling(sorted.Count * 0.95) - 1)],
                     target_ms = 16.0,
@@ -173,6 +181,7 @@ namespace Maple.WinUI
                             incomplete_fast_tick_ms = pendingEditStarted == 0 ? (double?)null : System.Diagnostics.Stopwatch.GetElapsedTime(pendingEditStarted).TotalMilliseconds,
                             tick_ms = ticks,
                             render_tick_ms = renderTicks,
+                            host_phases = hostPhases,
                             refine_ms = refines,
                         }, new JsonSerializerOptions { WriteIndented = true }));
                 }

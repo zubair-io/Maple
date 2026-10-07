@@ -30,6 +30,10 @@ namespace Maple.WinUI.Services
         private DecodedImage? _halfImage;
         private AdjustmentState? _pending;
         private AdjustmentState? _lastRendered;
+        private long _requestStarted;
+        private long _renderStarted;
+        internal double LastRequestToRenderMillis { get; private set; }
+        internal double LastRenderPreparationMillis { get; private set; }
         private float[]? _chainScratch;
         private byte[]? _bgra;
 
@@ -146,10 +150,12 @@ namespace Maple.WinUI.Services
 
         public void RequestRender(AdjustmentState snapshot)
         {
+            var requestedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             lock (_gate)
             {
                 if (_stopping) return;
                 _pending = snapshot;
+                _requestStarted = requestedAt;
                 _pendingHistogram = null;
                 _scopes.Invalidate();
             }
@@ -274,6 +280,7 @@ namespace Maple.WinUI.Services
 
         private bool RenderOnce(bool fastPass)
         {
+            _renderStarted = System.Diagnostics.Stopwatch.GetTimestamp();
             DecodedImage? image;
             DecodedImage? halfImage;
             AdjustmentState? state;
@@ -286,6 +293,8 @@ namespace Maple.WinUI.Services
                 image = _image;
                 halfImage = _halfImage;
                 state = _pending ?? (fastPass ? null : _lastRendered);
+                LastRequestToRenderMillis = fastPass && _requestStarted != 0
+                    ? System.Diagnostics.Stopwatch.GetElapsedTime(_requestStarted, _renderStarted).TotalMilliseconds : 0;
                 _pending = null;
                 if (state != null)
                     _lastRendered = state;
@@ -355,6 +364,7 @@ namespace Maple.WinUI.Services
             }
 
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            LastRenderPreparationMillis = System.Diagnostics.Stopwatch.GetElapsedTime(_renderStarted, started).TotalMilliseconds;
             var rc = DispatchPresent(queue,
                 image, state, panel, generation, useHalf, targetWidth, targetHeight, sampleScopes);
             if (rc == int.MinValue)
