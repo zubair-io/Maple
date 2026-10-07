@@ -80,7 +80,11 @@ namespace Maple.WinUI.Services
 
         public RenderScheduler()
         {
-            _loopTask = Task.Run(LoopAsync);
+            // #4383: native presentation blocks until the UI callback returns.
+            // Keep its serial worker off the shared pool so background decode,
+            // sidecar and histogram continuations cannot delay the next edit.
+            _loopTask = Task.Factory.StartNew(Loop, CancellationToken.None,
+                TaskCreationOptions.LongRunning, TaskScheduler.Default);
             _scopeLoopTask = Task.Run(ScopeLoopAsync);
         }
 
@@ -236,13 +240,13 @@ namespace Maple.WinUI.Services
             GpuUnavailable?.Invoke(reason);
         }
 
-        private async Task LoopAsync()
+        private void Loop()
         {
             while (!_cts.IsCancellationRequested)
             {
                 try
                 {
-                    await _signal.WaitAsync(_cts.Token);
+                    _signal.Wait(_cts.Token);
                 }
                 catch (OperationCanceledException)
                 {
@@ -261,7 +265,7 @@ namespace Maple.WinUI.Services
                     bool newRequest;
                     try
                     {
-                        newRequest = await _signal.WaitAsync(RefineDebounceMs, _cts.Token);
+                        newRequest = _signal.Wait(RefineDebounceMs, _cts.Token);
                     }
                     catch (OperationCanceledException)
                     {
