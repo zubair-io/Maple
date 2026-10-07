@@ -7,7 +7,7 @@ fn executed_preparation_restores_active_and_neutral_pixels_and_input_bits() {
     let oracle = GpuContext::new_blocking().expect("independent oracle");
     let pixels = crate::full_chain::oracle::scene_linear_rgba(8, 8);
     let cancel = CancelToken::new();
-    for exposure in [-0.0, -0.01] {
+    for exposure in [-0.0, 1e-7, -0.01] {
         let session = LiveSession::new(&ctx, &pixels, 8, 8).unwrap();
         let mut inputs = super::tests::neutral_case().gpu_inputs();
         inputs.tone[0] = exposure;
@@ -75,6 +75,13 @@ fn preparation_preserves_cancelled_inputs_and_skips_scope_capture() {
         .prepare_exposure_activation(&ctx, &mut inputs, &cancel)
         .unwrap());
     assert_eq!(inputs.tone.map(f32::to_bits), original_bits);
+    inputs.tone[0] = 1e-7;
+    inputs.tone[1] = 5e-4;
+    let sub_threshold_bits = inputs.tone.map(f32::to_bits);
+    assert!(session
+        .prepare_exposure_activation(&ctx, &mut inputs, &cancel)
+        .unwrap());
+    assert_eq!(inputs.tone.map(f32::to_bits), sub_threshold_bits);
 }
 
 #[test]

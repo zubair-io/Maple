@@ -1,4 +1,5 @@
 use super::*;
+use crate::live_chain::scene_tone_is_noop;
 
 impl LiveSession {
     /// Execute both scene-tone paths after composition initialization (#4340).
@@ -17,7 +18,7 @@ impl LiveSession {
             return Err("Scene-tone preparation cancelled".into());
         }
         let original = inputs.tone;
-        if [0, 1, 2, 3, 5].iter().any(|&i| original[i] != 0.0) {
+        if !scene_tone_is_noop(&original) {
             for i in [0, 1, 2, 3, 5] {
                 inputs.tone[i] = 0.0;
             }
@@ -49,7 +50,7 @@ impl LiveSession {
         inputs: &mut FullChainInputs<'_>,
         cancel: &CancelToken,
     ) -> Result<bool, String> {
-        if inputs.scope.enabled || [0, 1, 2, 3, 5].iter().any(|&i| inputs.tone[i] != 0.0) {
+        if inputs.scope.enabled || !scene_tone_is_noop(&inputs.tone) {
             return Ok(false);
         }
         if cancel.is_cancelled() {

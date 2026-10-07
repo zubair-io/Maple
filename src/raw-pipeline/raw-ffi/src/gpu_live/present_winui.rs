@@ -11,7 +11,7 @@
 
 use super::{lock_shared, params, LiveHandleInner, MapleGpuLiveParams, MapleGpuLiveSession};
 use crate::error::{catch_panic_rc, set_last_error};
-use raw_gpu::CancelToken;
+use raw_gpu::{scene_tone_is_noop, CancelToken};
 use std::os::raw::c_void;
 
 /// Return code for a present the host cancelled before rendering — identical to
@@ -138,7 +138,7 @@ pub unsafe extern "C" fn maple_gpu_present_chain_winui_scaled(
         // initial neutral frame. Preparation restores the requested parameters
         // and submits no commands; the real frame executes normally below.
         let first_preparation = !inner.exposure_prepared;
-        let active_scene_tone = [0, 1, 2, 3, 5].iter().any(|&i| inputs.tone[i] != 0.0);
+        let active_scene_tone = !scene_tone_is_noop(&inputs.tone);
         if first_preparation {
             inner.exposure_prepared =
                 match inner
@@ -199,7 +199,6 @@ pub unsafe extern "C" fn maple_gpu_present_chain_winui_scaled(
                         Err(error) => {
                             inner.exposure_prepared = false;
                             set_last_error(format!("gpu_present_chain_winui preparation: {error}"));
-                            return -3;
                         }
                     }
                 }
