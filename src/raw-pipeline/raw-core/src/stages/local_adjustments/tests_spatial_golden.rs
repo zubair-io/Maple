@@ -23,6 +23,11 @@
 //! lands its ACR reference, this case belongs in
 //! `test-fixtures/references/manifest.json` alongside it.
 //!
+//! #4112 updates only this synthetic golden for the fixture's local
+//! sharpness 55: positive darkening continues past the unchanged amount-40
+//! gain. The old golden was reproduced exactly before the independently
+//! derived update; the tolerance and all ACR references stay unchanged.
+//!
 //! # Tolerance
 //!
 //! Per channel, 128 counts of 65535 (~2e-3). Tight enough that any real

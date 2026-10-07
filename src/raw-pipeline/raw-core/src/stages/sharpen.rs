@@ -1,6 +1,6 @@
 //! Luminance-only unsharp-mask sharpening on scene-linear Rec.2020.
 //!
-//! Mirrors the Metal stitchable kernel `SharpenLumaUSM.metal` byte-for-byte
+//! Mirrors the shared GPU `sharpen_usm.wgsl` and `sharpen_mix.wgsl` kernels
 //! (BT.2020 luma weights, smoothstep shadow guard, scale clamp). Produces
 //! a "full-strength sharpened" (amount=100, masking=0) buffer that the
 //! edge-mix step at the bottom of this stage scales with the amount /
@@ -16,8 +16,7 @@
 //! the same approach capture sharpening adopted in #452 for the same bug.
 //! Platform copies that must stay in lockstep: raw-gpu's `SharpenPass`
 //! (gaussian sub-passes over the shared `gaussian_blur` WGSL kernel) and the
-//! Apple Metal fallback (`MetalKernels.applySceneSharpen` →
-//! `applySeparableTrueGaussianBlur`).
+//! shared WGSL mix kernel; Apple and Web run this same GPU chain.
 //!
 //! Replaces the per-channel Richardson-Lucy iteration + overdrive that
 //! lived in this file previously. The 3-iteration RL implementation
@@ -28,7 +27,7 @@
 //! test_0002 etc. Luma-only USM scales every RGB channel at a pixel by
 //! the SAME factor, so chroma ratios are preserved by construction.
 //!
-//! Constants must stay in lockstep with `SharpenLumaUSM.metal`:
+//! Constants must stay in lockstep with `sharpen_usm.wgsl`:
 //!   * `LUMA_R/G/B`     — BT.2020 luma weights.
 //!   * `SHADOW_EPSILON` — 1e-4 (~13 EV below mid-gray; below this the
 //!                       scale is held at 1.0 so shadow noise can't
@@ -36,11 +35,12 @@
 //!   * `SHADOW_BAND`    — 4.0 (smoothstep transition width above the
 //!                       epsilon).
 //!   * `MAX_SCALE`      — 4.0 (per-pixel amplification cap).
-//!   * `MIN_SCALE`      — 0.0 (floor; prevents channel inversion at
-//!                       extreme edges into deep shadow).
+//!   * `MIN_SCALE`      — 0.0 (floor of the full-strength USM buffer).
 //!
-//! The amount/detail/masking sliders run on top exactly as the Metal
-//! `sharpenEdgeMix` kernel does (mix = amount * edge_factor).
+//! Darkening keeps the original blend up to the import-default attenuation and
+//! continues its tangent as a positive inverse gain above it, so high amounts
+//! can no longer drive positive light to zero or below (#4112). Brightening
+//! keeps the original USM blend. Both preserve RGB ratios and HDR range.
 
 use crate::{
     cancel::CancelToken,
@@ -57,6 +57,11 @@ const SHADOW_BAND: f32 = 4.0;
 const MAX_SCALE: f32 = 4.0;
 const MIN_SCALE: f32 = 0.0;
 
+/// Preserve the whole attenuation range reachable at the existing import default.
+/// Emitted unchanged into the existing generated WGSL coefficient header.
+pub const PRESERVED_DARKENING: f32 =
+    crate::types::adjustment::defaults::DEFAULT_SHARPEN_AMOUNT / 100.0;
+
 /// Apply luminance-only USM sharpening on a scene-linear Rec.2020 image.
 ///
 /// * `amount`  — 0..150 slider (>100 boosts the mix beyond unity).
@@ -72,7 +77,7 @@ const MIN_SCALE: f32 = 0.0;
 /// `amount == 0` short-circuits the entire stage.
 ///
 /// Non-cancellable wrapper — forwards to [`apply_cancellable`] with a
-/// never-cancel token, so its output is bit-identical to the pre-#951 stage.
+/// never-cancel token, so its output is bit-identical to the cancellable stage.
 /// Spatial reach of the stage, in pixels per side, for the tile path's
 /// overlap calculator (#1157): the unsharp blur is a Gaussian at the clamped
 /// sigma (`±⌈3σ⌉` taps) and the edge mask reads one neighbour for its
@@ -205,7 +210,7 @@ pub fn apply_cancellable(
             for (x, px) in row.iter_mut().enumerate() {
                 let i = row_base + x;
 
-                // USM scale with shadow guard (mirrors the Metal kernel). `o`
+                // USM scale with shadow guard (mirrors the shared WGSL kernel). `o`
                 // is the original pixel — read before we overwrite `*px`.
                 let o = *px;
                 let li = luma[i];
@@ -234,16 +239,25 @@ pub fn apply_cancellable(
                     1.0 // masking=0 → mix everywhere equally
                 };
                 let mix = overall_mix * edge;
-                *px = [
-                    o[0] + (s[0] - o[0]) * mix,
-                    o[1] + (s[1] - o[1]) * mix,
-                    o[2] + (s[2] - o[2]) * mix,
-                ];
+                let attenuation = mix * (1.0 - scale);
+                *px = if lb > li && weight > 0.0 && attenuation > PRESERVED_DARKENING {
+                    // C1 join with the legacy 1-u gain; stays positive past u=1 (#4112).
+                    let gain_at_join = 1.0 - PRESERVED_DARKENING;
+                    let gain = gain_at_join * gain_at_join
+                        / (gain_at_join + (attenuation - PRESERVED_DARKENING));
+                    [o[0] * gain, o[1] * gain, o[2] * gain]
+                } else {
+                    [
+                        o[0] + (s[0] - o[0]) * mix,
+                        o[1] + (s[1] - o[1]) * mix,
+                        o[2] + (s[2] - o[2]) * mix,
+                    ]
+                };
             }
         });
 }
 
-/// GLSL-style smoothstep (matches Metal's built-in).
+/// GLSL-style smoothstep (matches WGSL's built-in).
 #[inline]
 fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
     let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
@@ -263,3 +277,7 @@ mod tests_fringing;
 #[cfg(test)]
 #[path = "sharpen/tests_sampling.rs"]
 mod tests_sampling;
+
+#[cfg(test)]
+#[path = "sharpen/tests_undershoot.rs"]
+mod tests_undershoot;

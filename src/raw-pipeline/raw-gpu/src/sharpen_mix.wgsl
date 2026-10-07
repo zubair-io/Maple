@@ -13,7 +13,11 @@
 //   else:
 //       edge   = 1.0
 //   mix = overall_mix * edge
-//   out = observed + (sharpened - observed) * mix
+//   darkening = sharpened.a (full-strength attenuation, #4112)
+//   u = mix * darkening; a = canonical default maximum attenuation
+//   gain = (1-a)^2 / ((1-a)+(u-a)) when u > a; preserve legacy otherwise
+//   otherwise out.rgb = observed.rgb + (sharpened.rgb - observed.rgb) * mix
+//   out.a = observed.a
 //
 // The gradient reads the ORIGINAL luma plane (not the blurred one) with the same
 // `xi.clamp(0, w-1)` / `yi.clamp(0, h-1)` border policy raw-core's `idx` closure
@@ -76,5 +80,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let mix = params.overall_mix * edge;
     let o = observed_buf[idx];
     let s = sharpened_buf[idx];
-    output_buf[idx] = vec4<f32>(o.rgb + (s.rgb - o.rgb) * mix, o.a);
+    let attenuation = mix * s.a;
+    if (attenuation > SHARPEN_PRESERVED_DARKENING) {
+        let join = 1.0 - SHARPEN_PRESERVED_DARKENING;
+        let gain = join * join / (join + (attenuation - SHARPEN_PRESERVED_DARKENING));
+        output_buf[idx] = vec4<f32>(o.rgb * gain, o.a);
+    } else {
+        output_buf[idx] = vec4<f32>(o.rgb + (s.rgb - o.rgb) * mix, o.a);
+    }
 }

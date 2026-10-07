@@ -12,6 +12,9 @@
 
 use super::*;
 
+/// Reference-renderer fresh-import sharpening amount, shared by CPU/GPU.
+pub(crate) const DEFAULT_SHARPEN_AMOUNT: f32 = 40.0;
+
 impl Default for AdjustmentModel {
     fn default() -> Self {
         Self {
@@ -48,7 +51,7 @@ impl Default for AdjustmentModel {
             // Prior identity defaults (amount=0, radius=0.5) shipped soft
             // first-open output and conflated calibration drift with a
             // defaults mismatch in the perceptual harness.
-            sharpen_amount: 40.0,
+            sharpen_amount: DEFAULT_SHARPEN_AMOUNT,
             sharpen_radius: 1.0,
             sharpen_detail: 25.0,
             sharpen_masking: 0.0,
