@@ -334,11 +334,11 @@ function fillTint(image: ImageData, mask: LocalMask, map: MaskCanvasMap): void {
 /** Tint a brush layer: map the dab series into crop space and stamp it at
  *  tint resolution. The radius is a fraction of the FULL-frame width while
  *  the grid spans the crop, so radii scale by the full/crop width ratio —
- *  the x-axis length of the crop→full map (exact for axis-aligned crops and
- *  straighten rotations, which preserve axis length). */
+ *  the crop's x-axis length measured in full-frame pixels, since a straighten
+ *  rotation mixes the non-isotropic normalized axes. */
 function fillBrushTint(image: ImageData, dabs: readonly BrushDab[], map: MaskCanvasMap): void {
   const { data } = image;
-  const cropWidth = Math.hypot(map.cropToFull.a, map.cropToFull.b);
+  const cropWidth = Math.hypot(map.cropToFull.a, map.cropToFull.b / map.imageAspect);
   const grid = rasterizeBrushDabs(
     mapDabsToCrop(dabs, map.fullToCrop, cropWidth > 1e-9 ? 1 / cropWidth : 1),
     image.width,

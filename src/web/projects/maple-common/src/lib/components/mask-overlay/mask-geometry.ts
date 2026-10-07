@@ -184,6 +184,8 @@ export interface MaskCanvasMap {
   footprint: Footprint;
   cropToFull: MaskAffine;
   fullToCrop: MaskAffine;
+  /** Full-frame width / height in pixels — normalized units are not isotropic. */
+  imageAspect: number;
 }
 
 export function makeMaskCanvasMap(
@@ -193,7 +195,13 @@ export function makeMaskCanvasMap(
   imgH: number,
 ): MaskCanvasMap {
   const cropToFull = cropToFullFrameAffine(crop, imgW, imgH);
-  return { footprint, cropToFull, fullToCrop: invertAffine(cropToFull) ?? IDENTITY_AFFINE };
+  const imageAspect = imgW > 0 && imgH > 0 ? imgW / imgH : 1;
+  return {
+    footprint,
+    cropToFull,
+    fullToCrop: invertAffine(cropToFull) ?? IDENTITY_AFFINE,
+    imageAspect,
+  };
 }
 
 export function maskToScreen(map: MaskCanvasMap, p: MaskPoint): { x: number; y: number } {

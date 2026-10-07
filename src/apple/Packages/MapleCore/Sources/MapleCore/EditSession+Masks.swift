@@ -235,8 +235,7 @@ extension EditSession {
 
   public func deleteMask(id: UUID) {
     guard let layer = model.localAdjustments.first(where: { $0.id == id }) else { return }
-    Set(layer.mask.bitmapMasks.map(\.rasterId)).forEach(MaskRasterRegistry.release)
-    Set(layer.mask.brushMasks.map(\.rasterId)).forEach(MaskRasterRegistry.release)
+    Set(layer.mask.registeredRasterIds).forEach(MaskRasterRegistry.release)
     model.localAdjustments.removeAll { $0.id == id }
     disabledMaskIds.remove(id)
     if selectedMaskId == id { selectedMaskId = nil }
