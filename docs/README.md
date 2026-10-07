@@ -27,6 +27,9 @@ and Apple EditSession lifecycle, shared state and existing test boundaries.
 
 ## Core and pipeline
 
+The [native Linux shell](../src/linux/README.md) documents its Rust UI, local and
+cloud editor, build/package commands and current qualification limits.
+
 | Doc                                                | Covers                                                                                                                                                                                                 |
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [pipeline.md](pipeline.md)                         | The Rust workspace: decode, the develop chain stage by stage, colour management, the view transform, the wgpu/WGSL GPU path, FFI and WASM surfaces, `maple-cli`, codegen, the pipeline output version. |

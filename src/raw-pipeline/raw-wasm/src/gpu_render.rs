@@ -46,19 +46,16 @@
 // they compile for `wasm32` OR `test`. The `#[wasm_bindgen] async` entry
 // (`render_bytes_gpu`) is wasm-only — its macro expansion references
 // `wasm_bindgen_futures`, a wasm-only dep.
+#[cfg(test)]
+use raw_core::gpu_host::prepare::auto_will_fit;
+#[cfg(target_arch = "wasm32")]
+pub(crate) use raw_core::gpu_host::prepare::prefix_model_for;
 #[cfg(any(target_arch = "wasm32", test))]
-use raw_core::pipeline::{
-    develop_scene_linear_sized_from_raw_with_quality, fit_auto_profile_from_raw, RawInput,
-    RenderQuality,
-};
-#[cfg(any(target_arch = "wasm32", test))]
-use raw_core::types::adjustment::{AutoExposureMode, Profile};
-#[cfg(any(target_arch = "wasm32", test))]
-use raw_core::view::auto_profile;
+pub(crate) use raw_core::gpu_host::prepare::{chain_inputs_for_model, develop_prefix_rgba};
 #[cfg(any(target_arch = "wasm32", test))]
 use raw_core::xmp::AdjustmentModel;
 #[cfg(any(target_arch = "wasm32", test))]
-use raw_gpu::{FullChainInputs, GpuContext, LiveSession};
+use raw_gpu::{GpuContext, LiveSession};
 
 #[cfg(target_arch = "wasm32")]
 use crate::MapleRender;
@@ -107,49 +104,12 @@ pub(crate) fn effective_target_long_edge(requested: Option<u32>, ctx: &GpuContex
     normalize_target_long_edge(requested).min(ctx.device.limits().max_texture_dimension_2d.max(1))
 }
 
-/// Mirror [`crate::render_bytes`]'s `auto_will_fit` probe: Auto Profile will fit
-/// for this RAW iff `Profile::Auto` AND (the shared `auto_profile::cache` already
-/// holds a curve/LUT for these bytes OR an embedded preview is extractable). The
-/// probe drives the develop's effective `auto_exposure` mode, so it MUST match
-/// the CPU render's gate byte-for-byte — see the module docs on why the fit
-/// RESULT is not a sound substitute.
+#[cfg(test)]
+use raw_core::gpu_host::model::stripped_prefix_model;
 #[cfg(any(target_arch = "wasm32", test))]
-fn auto_will_fit(model: &AdjustmentModel, bytes: &[u8], ext: &str) -> bool {
-    if model.profile != Profile::Auto {
-        return false;
-    }
-    // `RenderQuality::Amaze` — the quality THIS path's fit runs at (see the
-    // `fit_auto_profile_from_raw` call in `auto_fit_status.rs`), matching
-    // browser CPU render/export and WebGPU live session develop (#4092).
-    let key = auto_profile::cache::CacheKey::from_bytes(bytes, RenderQuality::Amaze);
-    auto_profile::cache::get(&key).is_some()
-        || auto_profile::cache::get_lut(&key).is_some()
-        || auto_profile::preview::extract_preview_from_bytes(bytes, ext).is_some()
-}
-
-#[cfg(any(target_arch = "wasm32", test))]
-#[path = "gpu_render/model.rs"]
-mod model;
-#[cfg(any(target_arch = "wasm32", test))]
-use model::{build_full_chain_inputs, stripped_prefix_model, NoiseProfileInputs};
-#[cfg(any(target_arch = "wasm32", test))]
-#[path = "gpu_render/white_balance.rs"]
-mod white_balance;
+use raw_core::gpu_host::white_balance;
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) use white_balance::GpuWhiteBalance;
-
-/// The effective auto-exposure mode the stripped-prefix develop must use — the
-/// SAME one the CPU render uses (`auto_will_fit` → Off when Auto Profile fits,
-/// else the model's mode). Pulled out so [`render_gpu_core`] and the persistent
-/// [`crate::web_live_session::WebLiveSession`] derive the prefix model identically.
-#[cfg(any(target_arch = "wasm32", test))]
-fn effective_ae_mode(model: &AdjustmentModel, raw: &[u8], ext: &str) -> AutoExposureMode {
-    if auto_will_fit(model, raw, ext) {
-        AutoExposureMode::Off
-    } else {
-        model.auto_exposure
-    }
-}
 
 /// Select the display-encode `target_primaries` (`display_encode.wgsl`: 0 = sRGB,
 /// 1 = Display P3) that MATCHES the canvas colour-space tag the present surface
@@ -236,99 +196,6 @@ mod primaries_tests {
     }
 }
 
-/// Derive the stripped-prefix model for `model` WITHOUT developing — the cheap
-/// change-detector the persistent [`crate::web_live_session::WebLiveSession`] uses
-/// to decide whether a render must re-develop + re-upload. Equal to the
-/// `prefix_model` [`develop_prefix_rgba`] returns (BOTH call `effective_ae_mode` +
-/// `stripped_prefix_model`, so the equivalence is by construction), making a
-/// compare against the cached prefix model the sound re-upload boundary. Pure model
-/// arithmetic + the `auto_will_fit` probe (a cache / embedded-JPEG check); no
-/// develop, no upload.
-///
-/// wasm-only: the persistent session (its only caller) is wasm-only. The host
-/// parity/boundary tests exercise its components (`effective_ae_mode` +
-/// `stripped_prefix_model`) directly.
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn prefix_model_for(
-    raw_img: &raw_core::image::RawImage,
-    raw: &[u8],
-    ext: &str,
-    model: &AdjustmentModel,
-) -> AdjustmentModel {
-    let _ = raw_img; // symmetry with develop_prefix_rgba; the probe reads bytes, not the image
-    let ae_mode = effective_ae_mode(model, raw, ext);
-    stripped_prefix_model(model, ae_mode)
-}
-
-/// Develop the STRIPPED PREFIX to the post-`auto_exposure` scene-linear Rec.2020
-/// buffer the GPU chain consumes, packed to interleaved RGBA f32 (alpha 1.0) — the
-/// upload shape [`LiveSession::new`] expects, with model, white anchor and sampling scale.
-/// the returned `prefix_model` is the EXACT model this buffer was developed from
-/// (equal to [`prefix_model_for`]), so a caller can cache it and re-develop ONLY
-/// when it changes (the persistent session's zero-re-upload boundary — an identical
-/// prefix model + an identical `max_long_edge` ⇒ an identical buffer, by
-/// construction). The hot-path GPU-rerun sliders are zeroed in the prefix, so they
-/// never change it.
-///
-/// `max_long_edge` (#1080): the develop runs raw-core's SIZED chain — the buffer is
-/// fit to the target long edge (aspect preserved, never upscaled) right after
-/// demosaic+crop, so every later stage runs on the viewport-sized buffer and the
-/// returned `(w, h)` are the SIZED dims the GPU session + canvas adopt. A cap at
-/// or above the source long edge is bit-identical to the old full-res develop
-/// (raw-core's `downsample_image_area` early-returns), pinned by the
-/// `develop_prefix_rgba_uncapped_matches_unsized_develop` test.
-#[cfg(any(target_arch = "wasm32", test))]
-pub(crate) fn develop_prefix_rgba(
-    raw_img: &raw_core::image::RawImage,
-    raw: &[u8],
-    ext: &str,
-    model: &AdjustmentModel,
-    max_long_edge: u32,
-) -> Result<(Vec<f32>, u32, u32, AdjustmentModel, f32, f32), String> {
-    let ae_mode = effective_ae_mode(model, raw, ext);
-    let prefix_model = stripped_prefix_model(model, ae_mode);
-    // AMaZE by default (#940): this develop runs at live-session open and
-    // again only when a prefix-affecting field changes (highlight recovery,
-    // pins, decode-upstream settings — see `WebLiveSession`'s prefix-model
-    // cache); the hot-path sliders re-run GPU stages only and never reach
-    // it. With the `parallel` wasm feature + crossOriginIsolated the tiled
-    // kernel (#1887) costs the same as bilinear; single-threaded fallbacks
-    // pay the serial kernel at the same (open / prefix-change) cadence.
-    let scene = develop_scene_linear_sized_from_raw_with_quality(
-        raw_img,
-        &prefix_model,
-        RenderQuality::Amaze,
-        max_long_edge,
-    )
-    .map_err(|e| e.to_string())?;
-    let whites_anchor_ev = scene
-        .whites_anchor_ev
-        .ok_or("RAW prefix develop did not produce a Whites anchor")?;
-    let (w, h) = (scene.width, scene.height);
-    let nr_sampling_scale = scene.nr_sampling_scale;
-    // Pack RGB → RGBA; sized develop bounds both resident buffers (#1080).
-    let mut rgba: Vec<f32> = Vec::with_capacity(scene.pixels.len() * 4);
-    for p in &scene.pixels {
-        rgba.extend_from_slice(&[p[0], p[1], p[2], 1.0]);
-    }
-    Ok((
-        rgba,
-        w,
-        h,
-        prefix_model,
-        whites_anchor_ev,
-        nr_sampling_scale,
-    ))
-}
-
-#[cfg(any(target_arch = "wasm32", test))]
-#[path = "gpu_render/auto_fit_status.rs"]
-mod auto_fit_status;
-#[cfg(any(target_arch = "wasm32", test))]
-pub(crate) use auto_fit_status::chain_inputs_with_status;
-#[cfg(test)]
-pub(crate) use auto_fit_status::fit_profile_artifacts_with_status;
-
 /// The decode-boundary + GPU-chain CORE, factored out of [`render_bytes_gpu`] so
 /// a NATIVE (Metal) host test can drive the exact same plumbing the wasm entry
 /// runs — `render_bytes_gpu` is `#[wasm_bindgen]` (wasm-only), but everything
@@ -344,7 +211,7 @@ pub(crate) use auto_fit_status::fit_profile_artifacts_with_status;
 /// This is the ONE-SHOT u8-readback path (the W1 parity gate + the gpu-off-bundle
 /// fallback). The persistent zero-readback path
 /// ([`crate::web_live_session::WebLiveSession`]) reuses the SAME
-/// [`develop_prefix_rgba`] / [`chain_inputs_with_status`] helpers but uploads once
+/// [`develop_prefix_rgba`] / [`chain_inputs_for_model`] helpers but uploads once
 /// and presents to a surface instead of reading back.
 ///
 /// `max_long_edge` (#1080): optional viewport target from the JS caller, in real
@@ -352,7 +219,7 @@ pub(crate) use auto_fit_status::fit_profile_artifacts_with_status;
 /// upscaled), so the returned surface is viewport-sized, not full sensor res.
 /// `None`/`0` → [`DEFAULT_TARGET_LONG_EDGE`]; either way the target is clamped to
 /// the device's texture cap via [`effective_target_long_edge`].
-#[cfg(test)]
+#[cfg(any(target_arch = "wasm32", test))]
 async fn render_gpu_core(
     raw_img: &raw_core::image::RawImage,
     raw: &[u8],
@@ -360,19 +227,6 @@ async fn render_gpu_core(
     model: &AdjustmentModel,
     max_long_edge: Option<u32>,
 ) -> Result<(u32, u32, Vec<u8>), String> {
-    render_gpu_core_with_status(raw_img, raw, ext, model, max_long_edge)
-        .await
-        .map(|(w, h, bytes, _)| (w, h, bytes))
-}
-
-#[cfg(any(target_arch = "wasm32", test))]
-async fn render_gpu_core_with_status(
-    raw_img: &raw_core::image::RawImage,
-    raw: &[u8],
-    ext: &str,
-    model: &AdjustmentModel,
-    max_long_edge: Option<u32>,
-) -> Result<(u32, u32, Vec<u8>, Option<bool>), String> {
     // Context FIRST: the effective develop target clamps to this device's
     // texture cap, so the device must exist before the sized develop runs.
     // Fallible (#1079): no adapter / device surfaces as an Err so the worker
@@ -385,8 +239,7 @@ async fn render_gpu_core_with_status(
     let (rgba, w, h, _prefix_model, whites_anchor_ev, nr_sampling_scale) =
         develop_prefix_rgba(raw_img, raw, ext, model, target)?;
     // Film looks are session-resident; one-shot renders have no uploaded LUT.
-    let (mut inputs, auto_fit) =
-        chain_inputs_with_status(raw_img, raw, ext, model, None, 0, whites_anchor_ev);
+    let mut inputs = chain_inputs_for_model(raw_img, raw, ext, model, None, 0, whites_anchor_ev);
     GpuWhiteBalance::resolve(raw_img)?.apply(model, &mut inputs);
     inputs.nr_sampling_scale = nr_sampling_scale;
 
@@ -404,8 +257,12 @@ async fn render_gpu_core_with_status(
 
     // EXIF-orient the u8 surface last, exactly as `render_bytes` does (the GPU
     // chain is orientation-agnostic; the develop buffer is in sensor framing).
-    let (w, h, rgb) = raw_core::image::apply_orientation(&rgb, w, h, raw_img.orientation);
-    Ok((w, h, rgb, auto_fit))
+    Ok(raw_core::image::apply_orientation(
+        &rgb,
+        w,
+        h,
+        raw_img.orientation,
+    ))
 }
 
 /// Render a RAW from bytes to a u8 RGB display surface via the GPU live chain
@@ -458,10 +315,9 @@ pub async fn render_bytes_gpu(
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
 
-    let (ow, oh, oriented, auto_fit) =
-        render_gpu_core_with_status(&raw_img, &raw, &ext, &model, max_long_edge)
-            .await
-            .map_err(|e| JsError::new(&e))?;
+    let (ow, oh, oriented) = render_gpu_core(&raw_img, &raw, &ext, &model, max_long_edge)
+        .await
+        .map_err(|e| JsError::new(&e))?;
 
     // Preserve native oriented dims for fit/100% zoom on viewport-sized output.
     let (full_w, full_h) = raw_core::pipeline::native_render_dims(&raw_img);
@@ -478,7 +334,6 @@ pub async fn render_bytes_gpu(
         raw_img.lens_correction_ca_inert(),
         camera_support,
         crate::lens_profile::metadata(&raw_img, &model),
-        auto_fit,
     ))
 }
 

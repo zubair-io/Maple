@@ -1,6 +1,6 @@
 //! Film-aware f32 live chain for Windows (#3877). The caller owns/caches
 //! the lattice; the chain borrows it without decoding or copying LUT data.
-use super::{apply_scene_linear_chain_f32_inner, ChainOptions};
+use super::{f32_chain::apply_scene_linear_chain_f32_inner_cancellable, ChainOptions};
 use crate::{error::Result, film::FilmLut, xmp::AdjustmentModel};
 
 pub fn apply_scene_linear_chain_f32_with_film(
@@ -11,8 +11,30 @@ pub fn apply_scene_linear_chain_f32_with_film(
     options: &ChainOptions<'_>,
     film: Option<&FilmLut>,
 ) -> Result<Vec<f32>> {
-    apply_scene_linear_chain_f32_inner(input, width, height, model, options, None, film, None)
-        .map(|(output, _)| output)
+    apply_scene_linear_chain_f32_with_film_cancellable(
+        input,
+        width,
+        height,
+        model,
+        options,
+        film,
+        crate::CancelToken::never(),
+    )
+}
+
+pub fn apply_scene_linear_chain_f32_with_film_cancellable(
+    input: &[f32],
+    width: u32,
+    height: u32,
+    model: &AdjustmentModel,
+    options: &ChainOptions<'_>,
+    film: Option<&FilmLut>,
+    cancel: crate::CancelToken<'_>,
+) -> Result<Vec<f32>> {
+    apply_scene_linear_chain_f32_inner_cancellable(
+        input, width, height, model, options, None, film, None, cancel,
+    )
+    .map(|(output, _)| output)
 }
 
 #[cfg(test)]

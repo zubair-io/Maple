@@ -1,4 +1,4 @@
-use super::{apply_scene_linear_chain_f32_inner, ChainOptions};
+use super::{f32_chain::apply_scene_linear_chain_f32_inner_cancellable, ChainOptions};
 use crate::{
     error::{Error, Result},
     film::FilmLut,
@@ -24,6 +24,31 @@ pub fn apply_scene_linear_chain_f32_windowed(
     film: Option<&FilmLut>,
     window: ChainWindow,
 ) -> Result<Vec<f32>> {
+    apply_scene_linear_chain_f32_windowed_cancellable(
+        input,
+        width,
+        height,
+        model,
+        options,
+        film,
+        window,
+        crate::CancelToken::never(),
+    )
+}
+
+pub fn apply_scene_linear_chain_f32_windowed_cancellable(
+    input: &[f32],
+    width: u32,
+    height: u32,
+    model: &AdjustmentModel,
+    options: &ChainOptions<'_>,
+    film: Option<&FilmLut>,
+    window: ChainWindow,
+    cancel: crate::CancelToken<'_>,
+) -> Result<Vec<f32>> {
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
     if width == 0
         || height == 0
         || window.x >= window.full_width
@@ -49,7 +74,7 @@ pub fn apply_scene_linear_chain_f32_windowed(
     // are native-resolution and must not inherit the fit-preview NR scale.
     options.nr_sampling_scale = 1.0;
     options.mask_long_edge = Some(window.full_width.max(window.full_height));
-    apply_scene_linear_chain_f32_inner(
+    apply_scene_linear_chain_f32_inner_cancellable(
         input,
         width,
         height,
@@ -58,6 +83,7 @@ pub fn apply_scene_linear_chain_f32_windowed(
         None,
         film,
         Some(window),
+        cancel,
     )
     .map(|(output, _)| output)
 }
@@ -239,3 +265,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "raster_window_tests.rs"]
+mod raster_tests;

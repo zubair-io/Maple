@@ -1,0 +1,86 @@
+name: linux
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/linux/**'
+      - 'tools/qualification/linux-native/**'
+      - 'src/raw-pipeline/**'
+      - 'resources/film-luts/**'
+      - 'test-fixtures/batch-transfer/**'
+      - 'test-fixtures/jpeg-tiff/**'
+      - 'src/apple/MapleUITests/Fixtures/synthetic/**'
+      - 'src/apple/Maple/Assets.xcassets/AppIcon.appiconset/maple512.png'
+      - '.github/workflows/linux.yml'
+  pull_request:
+    paths:
+      - 'src/linux/**'
+      - 'tools/qualification/linux-native/**'
+      - 'src/raw-pipeline/**'
+      - 'resources/film-luts/**'
+      - 'test-fixtures/batch-transfer/**'
+      - 'test-fixtures/jpeg-tiff/**'
+      - 'src/apple/MapleUITests/Fixtures/synthetic/**'
+      - 'src/apple/Maple/Assets.xcassets/AppIcon.appiconset/maple512.png'
+      - '.github/workflows/linux.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: linux-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  native-build-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      XDG_RUNTIME_DIR: /tmp/maple-linux-runtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/linux -> target
+      - name: Install native and software Vulkan dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libvulkan1 mesa-vulkan-drivers vulkan-tools \
+            libxkbcommon-dev libxkbcommon-x11-0 libxcb-xkb1 \
+            libxcursor1 libxi6 libxrandr2 xvfb xauth x11-utils weston \
+            python3-dbus dbus-daemon
+          install -d -m 700 "$XDG_RUNTIME_DIR"
+      - name: Require and report a Vulkan adapter
+        run: |
+          vulkaninfo --summary | tee "$RUNNER_TEMP/maple-vulkan.txt"
+          grep -q deviceName "$RUNNER_TEMP/maple-vulkan.txt"
+      - name: Check all native targets
+        run: cargo clippy --locked --manifest-path src/linux/Cargo.toml --all-targets --no-deps -- -D warnings
+      - name: Run native library and integration tests
+        # Mesa concurrency restriction #2336 also applies to native GPU tests.
+        # These use committed small fixtures, not the absent 100MP/ACR corpus.
+        run: cargo test --locked --manifest-path src/linux/Cargo.toml --all-targets -- --test-threads=1
+      - name: Build release application
+        run: cargo build --locked --release --manifest-path src/linux/Cargo.toml --bin maple-linux
+      - name: Assemble native archive
+        run: python3 src/linux/packaging/package.py --output "$RUNNER_TEMP/maple-linux.tar.gz"
+      - name: Launch unpacked release outside checkout
+        run: |
+          mkdir "$RUNNER_TEMP/maple-unpacked"
+          tar -xzf "$RUNNER_TEMP/maple-linux.tar.gz" -C "$RUNNER_TEMP/maple-unpacked"
+          xvfb-run -a -s '-screen 0 1280x800x24' python3 src/linux/packaging/smoke.py \
+            "$RUNNER_TEMP/maple-unpacked/bin/maple-linux"
+      - name: Launch unpacked release on Wayland
+        run: dbus-run-session -- python3 src/linux/packaging/weston_smoke.py --accessibility "$RUNNER_TEMP/maple-unpacked/bin/maple-linux"
+      - name: Upload native archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: maple-linux-x86_64
+          path: ${{ runner.temp }}/maple-linux.tar.gz
+          if-no-files-found: error

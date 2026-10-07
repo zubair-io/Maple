@@ -240,7 +240,7 @@ impl LocalSpatialPass {
             // `apply_luminance(_, v, None, 0)`.
             passes.push(Box::new(NlmLumaPass {
                 nr_luminance: v,
-                noise_profile: Vec::new(),
+                noise_profile: Default::default(),
                 iso: 0,
             }));
         }

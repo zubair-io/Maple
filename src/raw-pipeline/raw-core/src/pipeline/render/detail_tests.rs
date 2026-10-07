@@ -132,7 +132,7 @@ fn retained_base_preserves_existing_render_bytes() {
 }
 
 #[test]
-fn detail_rejects_crop_unsupported_stage_and_padded_allocation() {
+fn detail_rejects_perspective_unsupported_stage_and_padded_allocation() {
     let (raw, bytes) = chart();
     let model = AdjustmentModel {
         profile: Profile::Neutral,
@@ -151,12 +151,12 @@ fn detail_rejects_crop_unsupported_stage_and_padded_allocation() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("memory budget"), "{error}");
-    context.model.crop.left = 0.1;
+    context.model.perspective_vertical = 10.0;
     assert!(render_detail_tile(&raw, &context, rect, None, u64::MAX)
         .unwrap_err()
         .to_string()
-        .contains("uncropped"));
-    context.model.crop.left = 0.0;
+        .contains("perspective"));
+    context.model.perspective_vertical = 0.0;
     context.active_model.dehaze = 30.0;
     assert!(render_detail_tile(&raw, &context, rect, None, u64::MAX)
         .unwrap_err()
@@ -253,3 +253,6 @@ fn detail_keeps_the_exact_auto_pair_and_film_of_the_base() {
         .2;
     assert_ne!(patch, without_film, "film test must exercise a real look");
 }
+
+#[path = "detail_crop_tests.rs"]
+mod crop_tests;

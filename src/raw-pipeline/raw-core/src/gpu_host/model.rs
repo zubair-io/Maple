@@ -1,174 +1,48 @@
-//! Prefix-model + chain-inputs assembly for the GPU live path — pure model
-//! arithmetic, no GPU calls. Split out of `gpu_render.rs` to keep it under
-//! the 600-LOC file budget (#1170); behavior unchanged (pure code move).
-//! See the module docs there for the decode-boundary contract these two
-//! helpers implement.
+//! Shared GPU prefix-model and chain-input assembly for native and browser hosts.
+//! Moved from raw-wasm for #4317 without changing the adjustment mapping.
+//! The stripped prefix retains upstream stages; raw-gpu owns the remaining chain.
 
-use raw_core::types::adjustment::AutoExposureMode;
-use raw_core::xmp::AdjustmentModel;
+use crate::xmp::AdjustmentModel;
 use raw_gpu::{CurveMode, FullChainInputs, ToneCurveInputs};
 
 /// Map a resolved raster list into raw-gpu's own carrier shape (#3271) —
-/// `raw_gpu::GpuMaskRaster` can't be `raw_core::types::MaskRaster` directly;
+/// `raw_gpu::GpuMaskRaster` can't be `crate::types::MaskRaster` directly;
 /// see that type's doc for why (raw-gpu takes raw-core only as a
 /// dev-dependency, so its real API can't name raw-core's type).
 fn to_gpu_rasters(
-    rasters: &[std::sync::Arc<raw_core::types::MaskRaster>],
+    rasters: &[std::sync::Arc<crate::types::MaskRaster>],
+    mut storage: Vec<raw_gpu::GpuMaskRaster>,
 ) -> Vec<raw_gpu::GpuMaskRaster> {
-    rasters
-        .iter()
-        .map(|r| raw_gpu::GpuMaskRaster {
-            id: r.id,
-            width: r.width,
-            height: r.height,
-            data: r.data.clone(),
-        })
-        .collect()
+    storage.resize_with(rasters.len(), || raw_gpu::GpuMaskRaster {
+        id: 0,
+        width: 0,
+        height: 0,
+        data: Vec::new(),
+    });
+    for (target, source) in storage.iter_mut().zip(rasters) {
+        target.id = source.id;
+        target.width = source.width;
+        target.height = source.height;
+        target.data.clone_from(&source.data);
+    }
+    storage
 }
 
-/// Build the STRIPPED prefix model (see the `gpu_render` module docs): the
-/// GPU-chain-re-run stages are zeroed to their no-op defaults so develop
-/// short-circuits them BIT-EXACTLY, leaving only the upstream stages the GPU
-/// chain does NOT do (`highlight_recovery`, `capture_sharpening`, `profile`,
-/// and — via `ae_mode` — the `auto_exposure` mode the `auto_will_fit` probe
-/// pins).
-///
-/// WB is pinned to the unauthored 6500K/0 sentinel, so the core develops at
-/// this camera's actual As-Shot point. The live binding applies a camera-frame
-/// delta using the same resolver as full develop.
-///
-/// ## Why the GPU-only SUB-params are also neutralized (#1038)
-///
-/// `build_full_chain_inputs` feeds the live chain `sharpen_radius/detail/masking`,
-/// `tone_curve_mode`, and `wb_method` — but those ride stages that are ZEROED /
-/// PINNED in this prefix (`sharpen_amount = 0` short-circuits the sharpen stage at
-/// `amount.abs() < 1e-3`; the tone-curve point sets are emptied; WB is pinned
-/// neutral so its method is inert), so they have NO effect on the developed buffer
-/// here. We pin them to their defaults anyway so the prefix model is a function of
-/// ONLY the fields that genuinely shape the buffer. Without this, dragging e.g. the
-/// sharpen-radius slider (with the default `sharpen_amount = 40` active on the GPU)
-/// would change the prefix model and trigger a SPURIOUS re-develop + re-upload
-/// every tick in the persistent session — correctness held, but the persistence
-/// win was lost. The `prefix_model_for`-equality boundary test pins this invariant.
-#[cfg(any(target_arch = "wasm32", test))]
-pub(super) fn stripped_prefix_model(
-    full: &AdjustmentModel,
-    ae_mode: AutoExposureMode,
-) -> AdjustmentModel {
-    use raw_core::types::{ToneCurveMode, WbMethod};
-    AdjustmentModel {
-        // Unauthored defaults → the camera As-Shot prefix; live WB is a frame delta.
-        temperature: 6500.0,
-        tint: 0.0,
-        // The prefix is the camera As-Shot develop, independent of imported
-        // axes and scale. The live binding resolves those against its cached frame.
-        temperature_seen: false,
-        tint_seen: false,
-        wb_scale_version: raw_core::types::WbScaleVersion::V5,
-        // WB method is inert at the neutral short-circuit; pin it so toggling the
-        // method doesn't spuriously change the prefix (the GPU chain owns WB).
-        wb_method: WbMethod::Cat16,
-        // WB provenance is sidecar metadata; choosing a mode must not
-        // invalidate the developed buffer behind the live GPU controls.
-        wb_source: raw_core::types::adjustment::WbSource::AsShot,
-        wb_sample_x: 0.0,
-        wb_sample_y: 0.0,
-        wb_algorithm_version: 0.0,
-        // Effective AE mode from the probe (Off when Auto Profile will fit).
-        auto_exposure: ae_mode,
-        // Every stage the GPU chain re-runs → no-op default so develop skips it.
-        exposure: 0.0,
-        brightness: 0.0,
-        contrast: 0.0,
-        highlights: 0.0,
-        shadows: 0.0,
-        whites: 0.0,
-        blacks: 0.0,
-        parametric_highlights: 0.0,
-        parametric_lights: 0.0,
-        parametric_darks: 0.0,
-        parametric_shadows: 0.0,
-        tone_curve_luma: Default::default(),
-        tone_curve_red: Default::default(),
-        tone_curve_green: Default::default(),
-        tone_curve_blue: Default::default(),
-        // Inert with the point curves emptied; pinned so the curve MODE toggle
-        // doesn't spuriously re-develop (the GPU chain applies the curves).
-        tone_curve_mode: ToneCurveMode::PerChannel,
-        vibrance: 0.0,
-        saturation: 0.0,
-        clarity: 0.0,
-        texture: 0.0,
-        dehaze: 0.0,
-        // Local adjustments (#1698) are re-run by the GPU chain — clear the
-        // stack so the develop prefix short-circuits the stage. A non-empty
-        // value here would DOUBLE-APPLY: once in the prefix, once on the GPU.
-        local_adjustments: Vec::new(),
-        // Cleared alongside `local_adjustments` (#3271) — an empty layer
-        // stack never resolves a raster, so an unused `Arc` clone here would
-        // be pure overhead in the stripped copy.
-        mask_rasters: Vec::new(),
-        // Vignette (#1109) is re-run by the GPU chain — zero the amount so the
-        // develop prefix short-circuits the stage (a non-zero value here would
-        // DOUBLE-APPLY: once in the prefix, once on the GPU). Feather is inert
-        // at amount 0; pin it to its default so dragging the feather sub-param
-        // doesn't spuriously re-develop.
-        vignette_amount: 0.0,
-        vignette_feather: 50.0,
-        // Grain (#1110) lives in the GPU chain's display tail and never
-        // runs in develop at all — pin its fields so dragging them can't
-        // spuriously re-develop the prefix.
-        grain_amount: 0.0,
-        grain_size: 25.0,
-        grain_roughness: 50.0,
-        // Split toning (#1111) — display-tail like grain; pin so sub-param
-        // drags can't spuriously re-develop the prefix.
-        split_tone_shadow_hue: 0.0,
-        split_tone_shadow_saturation: 0.0,
-        split_tone_highlight_hue: 0.0,
-        split_tone_highlight_saturation: 0.0,
-        split_tone_balance: 0.0,
-        color_grade_shadow_luminance: 0.0,
-        color_grade_midtone_hue: 0.0,
-        color_grade_midtone_saturation: 0.0,
-        color_grade_midtone_luminance: 0.0,
-        color_grade_highlight_luminance: 0.0,
-        color_grade_global_hue: 0.0,
-        color_grade_global_saturation: 0.0,
-        color_grade_global_luminance: 0.0,
-        // Display-referred point curves (#2232) — display-tail like grain /
-        // color_grade, entirely inside the GPU chain (post-AgX); pin so
-        // dragging a display-curve control can't spuriously re-develop.
-        display_tone_curve_luma: Default::default(),
-        display_tone_curve_red: Default::default(),
-        display_tone_curve_green: Default::default(),
-        display_tone_curve_blue: Default::default(),
-        // Sharpen is short-circuited (`amount = 0`), so its sub-params are inert;
-        // pin them to defaults so dragging radius/detail/masking (with the GPU's
-        // real `sharpen_amount` active) doesn't spuriously re-develop.
-        sharpen_amount: 0.0,
-        sharpen_radius: 1.0,
-        sharpen_detail: 25.0,
-        sharpen_masking: 0.0,
-        nr_luminance: 0.0,
-        nr_color: 0.0,
-        // KEEP: highlight_recovery, capture_sharpening_*, profile,
-        // `retouch_spots` (#3409 — a decode-product edit with no GPU pass of
-        // its own, so it must stay in the prefix; placing a spot correctly
-        // re-develops and re-uploads the base), and every other
-        // decode-upstream field — they shape the post-AE buffer the GPU chain
-        // consumes (so a change to any of them legitimately re-develops).
-        ..full.clone()
-    }
+#[derive(Default)]
+struct InputStorage {
+    curves: [Vec<(f32, f32)>; 8],
+    layers: Vec<f32>,
+    rasters: Vec<raw_gpu::GpuMaskRaster>,
 }
+
+pub use super::prefix::{prefix_matches, stripped_prefix_model};
 
 /// The decoded frame's noise characterisation, carried from `RawImage` into the
 /// GPU chain (#1714). The NR stages' per-pixel modulation is a function of these
 /// two plus the pixel's own luminance, so the GPU chain has to see exactly what
 /// `develop` hands `noise_reduction::apply_luminance` — otherwise the live
 /// preview and the developed/exported frame denoise differently.
-#[cfg(any(target_arch = "wasm32", test))]
-pub(super) struct NoiseProfileInputs {
+pub struct NoiseProfileInputs {
     /// `RawImage::noise_profile`, empty when the file carries none.
     pub profile: Vec<f32>,
     /// `RawImage::iso`.
@@ -189,25 +63,64 @@ pub(super) struct NoiseProfileInputs {
 /// `film_strength` DOES ride the model (`AdjustmentModel::film_strength`,
 /// XMP `papp:FilmStrength`) since it round-trips through the sidecar like
 /// every other slider.
-#[cfg(any(target_arch = "wasm32", test))]
-pub(super) fn build_full_chain_inputs(
+pub fn build_full_chain_inputs(
     model: &AdjustmentModel,
     profile_curve_flat: Vec<f32>,
     residual_lut_size: usize,
     residual_lut_data: Vec<f32>,
     noise: NoiseProfileInputs,
-    film_lut: Option<&raw_core::film::FilmLut>,
+    film_lut: Option<&crate::film::FilmLut>,
     film_lut_key: u32,
     whites_anchor_ev: f32,
 ) -> FullChainInputs<'static> {
-    use raw_core::types::WbMethod;
+    build_with_storage(
+        model,
+        profile_curve_flat,
+        residual_lut_size,
+        residual_lut_data,
+        noise,
+        film_lut,
+        film_lut_key,
+        whites_anchor_ev,
+        Default::default(),
+    )
+}
+
+fn reuse_points(mut storage: Vec<(f32, f32)>, points: &[(f32, f32)]) -> Vec<(f32, f32)> {
+    storage.clear();
+    storage.extend_from_slice(points);
+    storage
+}
+
+fn build_with_storage(
+    model: &AdjustmentModel,
+    profile_curve_flat: Vec<f32>,
+    residual_lut_size: usize,
+    residual_lut_data: Vec<f32>,
+    noise: NoiseProfileInputs,
+    film_lut: Option<&crate::film::FilmLut>,
+    film_lut_key: u32,
+    whites_anchor_ev: f32,
+    storage: InputStorage,
+) -> FullChainInputs<'static> {
+    let InputStorage {
+        curves,
+        mut layers,
+        rasters,
+    } = storage;
+    let [luma, red, green, blue, display_luma, display_red, display_green, display_blue] = curves;
+    crate::types::local_adjustment::flat::layers_to_flat_into(
+        &model.local_adjustments,
+        &mut layers,
+    );
+    use crate::types::WbMethod;
 
     let wb_matrix = match model.wb_method {
         WbMethod::Cat16 => {
-            raw_core::stages::white_balance::wb_cat16_matrix(model.temperature, model.tint).0
+            crate::stages::white_balance::wb_cat16_matrix(model.temperature, model.tint).0
         }
         WbMethod::DiagonalRec2020 => {
-            let g = raw_core::stages::white_balance::wb_gains(model.temperature, model.tint);
+            let g = crate::stages::white_balance::wb_gains(model.temperature, model.tint);
             [[g[0], 0.0, 0.0], [0.0, g[1], 0.0], [0.0, 0.0, g[2]]]
         }
     };
@@ -238,13 +151,13 @@ pub(super) fn build_full_chain_inputs(
                 model.parametric_midtone_split,
                 model.parametric_highlight_split,
             ],
-            luma: model.tone_curve_luma.points.clone(),
-            red: model.tone_curve_red.points.clone(),
-            green: model.tone_curve_green.points.clone(),
-            blue: model.tone_curve_blue.points.clone(),
+            luma: reuse_points(luma, &model.tone_curve_luma.points),
+            red: reuse_points(red, &model.tone_curve_red.points),
+            green: reuse_points(green, &model.tone_curve_green.points),
+            blue: reuse_points(blue, &model.tone_curve_blue.points),
             mode: match model.tone_curve_mode {
-                raw_core::types::ToneCurveMode::RatioPreserving => CurveMode::RatioPreserving,
-                raw_core::types::ToneCurveMode::PerChannel => CurveMode::PerChannel,
+                crate::types::ToneCurveMode::RatioPreserving => CurveMode::RatioPreserving,
+                crate::types::ToneCurveMode::PerChannel => CurveMode::PerChannel,
             },
         },
         vibrance: model.vibrance,
@@ -254,7 +167,7 @@ pub(super) fn build_full_chain_inputs(
         dehaze: model.dehaze,
         // Local adjustments (#1698) — serialized to the flat wire the GPU
         // storage buffer binds directly.
-        local_adjustments: raw_core::types::layers_to_flat(&model.local_adjustments),
+        local_adjustments: layers,
         // Every registered raster a `Mask::Bitmap` layer above may reference
         // (#3271), carried straight through from `model.mask_rasters` in
         // raw-gpu's own shape; see `to_gpu_rasters`. Always empty today — no
@@ -262,11 +175,11 @@ pub(super) fn build_full_chain_inputs(
         // model only via a sidecar written by another platform) — but the
         // plumbing is not Apple-specific, so a future Web raster source
         // needs no change here.
-        mask_rasters: to_gpu_rasters(&model.mask_rasters),
+        mask_rasters: to_gpu_rasters(&model.mask_rasters, rasters),
         // No Web entry point drives the vectorscope scope pass yet (#3272 is
         // Apple-first) — always disabled here.
         scope: raw_gpu::ScopeRequest::default(),
-        defringe: raw_core::stages::defringe::params_from_model(model)
+        defringe: crate::stages::defringe::params_from_model(model)
             .map(|p| raw_gpu::DefringeInputs {
                 // The GLOBAL controls claim no hue-agnostic strength — that
                 // slot belongs to the per-mask control (#3407), which reaches
@@ -341,7 +254,7 @@ pub(super) fn build_full_chain_inputs(
             model.gray_mixer_purple,
             model.gray_mixer_magenta,
         ],
-        bw_active: model.black_white == raw_core::types::BlackWhiteMode::On,
+        bw_active: model.black_white == crate::types::BlackWhiteMode::On,
         sharpen_amount: model.sharpen_amount,
         sharpen_radius: model.sharpen_radius,
         sharpen_detail: model.sharpen_detail,
@@ -378,10 +291,54 @@ pub(super) fn build_full_chain_inputs(
         // Display-referred point curves (#2232, `crs:ToneCurvePV2012*`) —
         // same flat-point shape as `tone_curves` above.
         display_tone_curves: raw_gpu::DisplayToneCurveInputs {
-            master: model.display_tone_curve_luma.points.clone(),
-            red: model.display_tone_curve_red.points.clone(),
-            green: model.display_tone_curve_green.points.clone(),
-            blue: model.display_tone_curve_blue.points.clone(),
+            master: reuse_points(display_luma, &model.display_tone_curve_luma.points),
+            red: reuse_points(display_red, &model.display_tone_curve_red.points),
+            green: reuse_points(display_green, &model.display_tone_curve_green.points),
+            blue: reuse_points(display_blue, &model.display_tone_curve_blue.points),
         },
     }
+}
+
+/// Refresh adjustment mapping while retaining image-owned Auto fit/noise buffers.
+/// Profile changes require a fresh `chain_inputs_for_model` at session preparation.
+/// Curve, layer and raster storage is reused while capacity permits (#4317).
+pub fn update_chain_inputs(model: &AdjustmentModel, inputs: &mut FullChainInputs<'static>) {
+    let curve = std::mem::take(&mut inputs.profile_curve_flat).into_owned();
+    let lut = std::mem::take(&mut inputs.residual_lut_data).into_owned();
+    let noise = std::mem::take(&mut inputs.noise_profile);
+    let mut replacement = build_with_storage(
+        model,
+        curve,
+        inputs.residual_lut_size,
+        lut,
+        NoiseProfileInputs {
+            profile: noise,
+            iso: inputs.iso,
+        },
+        None,
+        0,
+        inputs.whites_anchor_ev,
+        InputStorage {
+            curves: [
+                std::mem::take(&mut inputs.tone_curves.luma),
+                std::mem::take(&mut inputs.tone_curves.red),
+                std::mem::take(&mut inputs.tone_curves.green),
+                std::mem::take(&mut inputs.tone_curves.blue),
+                std::mem::take(&mut inputs.display_tone_curves.master),
+                std::mem::take(&mut inputs.display_tone_curves.red),
+                std::mem::take(&mut inputs.display_tone_curves.green),
+                std::mem::take(&mut inputs.display_tone_curves.blue),
+            ],
+            layers: std::mem::take(&mut inputs.local_adjustments),
+            rasters: std::mem::take(&mut inputs.mask_rasters),
+        },
+    );
+    replacement.film_lut_size = inputs.film_lut_size;
+    replacement.film_lut_key = inputs.film_lut_key;
+    replacement.film_lut_data = std::mem::take(&mut inputs.film_lut_data);
+    replacement.target_primaries = inputs.target_primaries;
+    replacement.input_shape = inputs.input_shape;
+    replacement.nr_sampling_scale = inputs.nr_sampling_scale;
+    replacement.scope = inputs.scope;
+    *inputs = replacement;
 }

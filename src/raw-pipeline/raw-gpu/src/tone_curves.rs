@@ -51,6 +51,29 @@ const SLOT_STRIDE: usize = 1 + CURVE_CAP * 3;
 /// Five slots: parametric, luma, r, g, b.
 const NUM_SLOTS: usize = 5;
 
+/// Validate the shader's knot capacity using the same clamp/sort/dedup as encoding.
+/// The normal bounded input takes an allocation-free fast path. Larger imported
+/// inputs may still fit after normalization; never silently truncate them.
+pub fn point_curve_fits_gpu(points: &[(f32, f32)]) -> bool {
+    if points.len() <= CURVE_CAP {
+        return true;
+    }
+    let mut previous = None;
+    let mut knots = 0;
+    for &(raw_x, _) in points {
+        let x = raw_x.clamp(0.0, 1.0);
+        if !x.is_finite() || previous.is_some_and(|last| x < last) {
+            // Unsorted/non-finite imported data uses the exact existing normalizer.
+            return prepare_curve(points).len() <= CURVE_CAP;
+        }
+        if previous.is_none_or(|last| (x - last).abs() >= f32::EPSILON) {
+            knots += 1;
+        }
+        previous = Some(x);
+    }
+    knots <= CURVE_CAP
+}
+
 /// Per-channel application mode. Mirrors `raw_core::ToneCurveMode`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CurveMode {
@@ -151,13 +174,12 @@ impl ToneCurveInputs {
 
     /// Flatten the five prepared slots into the storage-buffer layout the kernel
     /// reads (`NUM_SLOTS * SLOT_STRIDE` floats).
-    fn to_flat(&self) -> Vec<f32> {
+    fn to_flat(&self) -> [f32; NUM_SLOTS * SLOT_STRIDE] {
         let slots = self.prepared_slots();
-        let mut flat = Vec::with_capacity(NUM_SLOTS * SLOT_STRIDE);
-        for slot in &slots {
-            flat.extend_from_slice(&slot.to_slot());
+        let mut flat = [0.0; NUM_SLOTS * SLOT_STRIDE];
+        for (output, slot) in flat.chunks_exact_mut(SLOT_STRIDE).zip(&slots) {
+            output.copy_from_slice(&slot.to_slot());
         }
-        debug_assert_eq!(flat.len(), NUM_SLOTS * SLOT_STRIDE);
         flat
     }
 }
@@ -245,12 +267,12 @@ fn luma_coupled(p: &mut [f32; 3], curve: &PreparedCurve) {
 /// the production Pass gates itself without a raw-core dependency. Uploads the
 /// prepared slots to storage binding 3 and the flags/count to uniform binding 0
 /// inside `encode`.
-pub struct ToneCurvesPass {
-    /// The model-equivalent stage inputs.
-    pub inputs: ToneCurveInputs,
+pub struct ToneCurvesPass<'a> {
+    /// Borrow the retained stage inputs; construction does not clone point curves.
+    pub inputs: &'a ToneCurveInputs,
 }
 
-impl Pass for ToneCurvesPass {
+impl Pass for ToneCurvesPass<'_> {
     fn encode(
         &self,
         ctx: &GpuContext,

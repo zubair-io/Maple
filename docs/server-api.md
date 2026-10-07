@@ -170,12 +170,23 @@ Asset detail, batch metadata, working-set, folder asset/Trash, and Search respon
 
 | Method | Path                      | Auth   | Purpose                                                                                                                                                                                                   |
 | ------ | ------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/xmp`                | bearer | Read the sidecar for `?path=`. Path-keyed, not id-keyed, so two paths sharing a `maple_id` keep two distinct sidecars                                                                                     |
-| POST   | `/api/xmp`                | bearer | Write it. Body is the full XMP document                                                                                                                                                                   |
+| GET    | `/api/xmp`                | bearer | Read the sidecar with a content ETag for `?path=`. Path-keyed, not id-keyed, so two paths sharing a `maple_id` keep two distinct sidecars                                                                 |
+| POST   | `/api/xmp`                | bearer | Write it. Body is the full XMP document; optional strong `If-Match` or create-only `If-None-Match: *` rejects stale writes with 412                                                                       |
 | DELETE | `/api/xmp`                | bearer | Delete it                                                                                                                                                                                                 |
 | POST   | `/api/xmp/batch`          | bearer | Merge metadata fields into N sidecars addressed by `slug:relPath`, then mark each asset's `sidecar-metadata-index` stage dirty. Per-entry failure reporting; successes are not rolled back                |
 | POST   | `/api/metadata/snapshots` | bearer | Effective metadata for a batch of paths, merging `metadata_override` over `exif`. Only non-null fields appear, so the Batch Metadata panel can detect mixed state                                         |
 | PUT    | `/api/preview`            | bearer | Publish an already-rendered preview for `?path=` into `.maple/previews/`. Accepts AVIF or JPEG (sniffed by Content-Type then magic bytes) and transcodes JPEG to AVIF; the write is temp-file-then-rename |
+
+Path-keyed XMP reads (including absent-sidecar 404s) advertise
+`X-Maple-Xmp-Preconditions: content-etag-v1`. Successful reads and conditional
+saves return the exact published body's strong `ETag`. Conditional checks share
+the server's sidecar write barrier; concurrent clients with one baseline cannot
+both replace it. Create-only publication also uses an atomic filesystem link.
+Malformed, weak or combined precondition headers return 400. A 412 leaves the
+canonical sidecar unchanged; the client retains its pending edits and offers
+reload/conflict handling. Older callers without preconditions retain their
+existing unconditional write behaviour. These checks coordinate server writers;
+uncooperative external filesystem writers do not participate in the barrier.
 
 ## Search
 

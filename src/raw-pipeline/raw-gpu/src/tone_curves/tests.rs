@@ -326,7 +326,7 @@ fn wgsl_tone_curves_matches_raw_core_stage_within_1e_4() {
         let img = GpuImage::upload(&ctx, &input, count, 1);
         let runner = ChainRunner::new(&ctx, &img);
         let gpu = runner.run_blocking(&[&ToneCurvesPass {
-            inputs: case.inputs(),
+            inputs: &case.inputs(),
         }]);
 
         let max_diff = max_abs_diff(&reference, &gpu);
@@ -373,7 +373,7 @@ fn wgsl_tone_curves_matches_cpu_oracle_within_1e_4() {
 
         let img = GpuImage::upload(&ctx, &input, count, 1);
         let runner = ChainRunner::new(&ctx, &img);
-        let gpu = runner.run_blocking(&[&ToneCurvesPass { inputs }]);
+        let gpu = runner.run_blocking(&[&ToneCurvesPass { inputs: &inputs }]);
 
         let max_diff = max_abs_diff(&cpu, &gpu);
         eprintln!("PARITY [{label}]: GPU vs CPU oracle max abs diff = {max_diff:e}");
@@ -404,7 +404,7 @@ fn all_default_is_exact_passthrough_on_gpu() {
     };
     let img = GpuImage::upload(&ctx, &input, count, 1);
     let runner = ChainRunner::new(&ctx, &img);
-    let gpu = runner.run_blocking(&[&ToneCurvesPass { inputs }]);
+    let gpu = runner.run_blocking(&[&ToneCurvesPass { inputs: &inputs }]);
     let max_diff = max_abs_diff(&input, &gpu);
     assert!(
         max_diff < 1e-6,
@@ -431,7 +431,7 @@ fn gpu_alpha_passthrough() {
     .inputs();
     let img = GpuImage::upload(&ctx, &input, count, 1);
     let runner = ChainRunner::new(&ctx, &img);
-    let gpu = runner.run_blocking(&[&ToneCurvesPass { inputs }]);
+    let gpu = runner.run_blocking(&[&ToneCurvesPass { inputs: &inputs }]);
     for (i, chunk) in input.chunks_exact(4).enumerate() {
         assert_eq!(
             gpu[i * 4 + 3],
@@ -474,8 +474,8 @@ fn per_channel_and_ratio_preserving_differ() {
 
     let img = GpuImage::upload(&ctx, &input, count, 1);
     let runner = ChainRunner::new(&ctx, &img);
-    let a = runner.run_blocking(&[&ToneCurvesPass { inputs: per }]);
-    let b = runner.run_blocking(&[&ToneCurvesPass { inputs: ratio }]);
+    let a = runner.run_blocking(&[&ToneCurvesPass { inputs: &per }]);
+    let b = runner.run_blocking(&[&ToneCurvesPass { inputs: &ratio }]);
     let diff = max_abs_diff(&a, &b);
     assert!(
         diff > 1e-2,

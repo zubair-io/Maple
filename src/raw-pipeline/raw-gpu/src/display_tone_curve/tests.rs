@@ -100,7 +100,13 @@ fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
 
 /// A smooth non-identity S-ish contrast curve.
 fn s_curve() -> Vec<(f32, f32)> {
-    vec![(0.0, 0.0), (0.25, 0.18), (0.5, 0.5), (0.75, 0.82), (1.0, 1.0)]
+    vec![
+        (0.0, 0.0),
+        (0.25, 0.18),
+        (0.5, 0.5),
+        (0.75, 0.82),
+        (1.0, 1.0),
+    ]
 }
 /// A brightening lift curve (distinct from `s_curve` so per-channel curves
 /// differ across lanes).
@@ -188,7 +194,7 @@ fn wgsl_display_tone_curve_matches_raw_core_stage_within_1e_4() {
         let img = GpuImage::upload(&ctx, &input, count, 1);
         let runner = ChainRunner::new(&ctx, &img);
         let gpu = runner.run_blocking(&[&DisplayToneCurvePass {
-            inputs: case.inputs(),
+            inputs: &case.inputs(),
         }]);
 
         let max_diff = max_abs_diff(&reference, &gpu);
@@ -235,7 +241,7 @@ fn wgsl_display_tone_curve_matches_cpu_oracle_within_1e_4() {
 
         let img = GpuImage::upload(&ctx, &input, count, 1);
         let runner = ChainRunner::new(&ctx, &img);
-        let gpu = runner.run_blocking(&[&DisplayToneCurvePass { inputs }]);
+        let gpu = runner.run_blocking(&[&DisplayToneCurvePass { inputs: &inputs }]);
 
         let max_diff = max_abs_diff(&cpu, &gpu);
         eprintln!("PARITY [{label}]: GPU vs CPU oracle max abs diff = {max_diff:e}");
@@ -257,7 +263,7 @@ fn all_default_is_exact_passthrough_on_gpu() {
     let inputs = DisplayToneCurveInputs::default();
     let img = GpuImage::upload(&ctx, &input, count, 1);
     let runner = ChainRunner::new(&ctx, &img);
-    let gpu = runner.run_blocking(&[&DisplayToneCurvePass { inputs }]);
+    let gpu = runner.run_blocking(&[&DisplayToneCurvePass { inputs: &inputs }]);
     let max_diff = max_abs_diff(&input, &gpu);
     assert!(
         max_diff < 1e-6,
@@ -281,7 +287,7 @@ fn gpu_alpha_passthrough() {
     .inputs();
     let img = GpuImage::upload(&ctx, &input, count, 1);
     let runner = ChainRunner::new(&ctx, &img);
-    let gpu = runner.run_blocking(&[&DisplayToneCurvePass { inputs }]);
+    let gpu = runner.run_blocking(&[&DisplayToneCurvePass { inputs: &inputs }]);
     for (i, chunk) in input.chunks_exact(4).enumerate() {
         assert_eq!(
             gpu[i * 4 + 3],
@@ -311,7 +317,7 @@ fn master_curve_is_not_luma_coupled_on_gpu() {
     .inputs();
     let img = GpuImage::upload(&ctx, &input, 1, 1);
     let runner = ChainRunner::new(&ctx, &img);
-    let gpu = runner.run_blocking(&[&DisplayToneCurvePass { inputs }]);
+    let gpu = runner.run_blocking(&[&DisplayToneCurvePass { inputs: &inputs }]);
     let (r, g) = (gpu[0], gpu[1]);
     assert!(
         (r / g - input[0] / input[1]).abs() > 1e-3,

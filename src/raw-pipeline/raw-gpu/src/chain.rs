@@ -60,6 +60,11 @@ impl CancelToken {
         Self { flag }
     }
 
+    /// Borrow the same host signal for CPU preparation before GPU dispatch.
+    pub fn flag(&self) -> &AtomicBool {
+        &self.flag
+    }
+
     /// Request cancellation. Idempotent.
     pub fn cancel(&self) {
         self.flag.store(true, Ordering::SeqCst);

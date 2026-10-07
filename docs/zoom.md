@@ -246,3 +246,56 @@ The parity sweep (`pipeline/tile/tests_live_parity.rs`, plus `tests_live_parity_
 Apple-side coverage is in `src/apple/Packages/MapleCore/Tests/MapleCoreTests/`: `NativeDetailLODTests` (the three-rect geometry), `NativeDetailAEGainTests` (that `aeGain: 1.0` through the new FFI binding is bit-identical to the old entry, and that a raised gain actually brightens), `NativeDetailExitForcesFreshRenderTests`, and `DeepZoomTileRenderingTests` (tile FFI, `RawImageCache`, visible-region math and wiring).
 
 See [pipeline](pipeline.md) for the develop chain the tile path is a subset of, [caching](caching.md) for the rest of the cache hierarchy, and [testing](testing.md) for the full gate list.
+
+## Linux native canvas (#4317)
+
+The Rust shell resolves Fit from native DefaultCrop/EXIF-oriented dimensions
+and uses physical pixel scale for 100%, anchored pinch/ctrl-wheel zoom and
+clamped pan. F/Z and the Fit/100% controls select the corresponding views;
+focused text fields retain their keyboard input. At 100% and above a 150ms
+idle interval requests one source-coordinate native patch through the shared
+`render_detail_base` / `render_detail_tile` API. The matching bounded CPU base
+stays beneath that patch, sharing its exposure and Auto-profile anchors and film
+resource. A 25% total pan margin (512 source-pixel total cap) avoids repeated
+work while the view stays inside the existing patch.
+
+The preview/I/O worker and an independent CPU detail worker share one immutable
+decoded RAW/source snapshot. The detail worker retains one anchor reference and
+one latest pending request; GPU previews and XMP saves do not wait behind a
+patch. Source identity, rather than only a numeric session ID, invalidates its
+anchors on reopen. Canvas image/edit and detail-request
+generations guard publication; Fit invalidates old results. Core filter overlap
+counts toward the 8,388,608 working-pixel cap. Crops and rotations use the core's window mapping for native RAW/raster patches.
+Orthogonal rotations map integer source pixels; off-axis straighten uses the
+canonical bilinear sampler with full-image coordinates and bounded source windows.
+Filters, masks, grain and dither remain anchored to the full image; geometry
+runs after the normal display tail. RAW tiles retain sensor witnesses through
+demosaic and highlight recovery, then clip to DefaultCrop before spatial color
+filters. Perspective and dehaze request bounded whole-image refinement through
+the existing renderer. Other native tile rejections attempt a bounded whole-image fallback,
+releasing patch-only anchors/source buffers first. The result preserves the
+originating viewport request identity but paints the full cropped canvas.
+Source/session/request guards remain in force. Pans reuse a successful fallback;
+edits, Fit and source changes reset that decision. Failure of both paths retains
+the base and an explicit error.
+Raster patches retain one oriented, colour-managed linear Rec.2020 source and
+use the shared non-RAW window chain without AgX. Their source decode limits are
+separate from the patch cap; the source is replaced on reopen.
+
+Below 100%, an explicit zoom instead requests a debounced whole-image CPU render
+at the physical display resolution. Crop-relative scale determines its pre-crop
+develop size, bounded to 8,388,608 pixels. The same whole-frame path handles
+perspective and global/local dehaze at native zoom; large sources receive a
+scaled refinement at the cap, including pixels hidden by a crop. RAW refinement
+uses export-quality demosaicing to avoid enlarging a half-resolution preview.
+At native zoom, the canvas labels a capped refinement with its actual source
+resolution percentage. The existing renderer applies crop and
+perspective; a scaled whole-image result cannot satisfy a later native patch
+request. Fit releases the refinement textures and cancels outstanding requests.
+Request cancellation reaches supported RAW develop kernels; raster renders
+check between f32 stages and within supported sharpening and luminance/chroma
+NR kernels. Container decode and remaining display/geometry kernels still check
+at boundaries. Remaining kernel cancellation/latency, full memory and
+CPU contention qualification, full-resolution corrected windows,
+and physical-GPU/reference-corpus acceptance remain part of #4317. This does
+not establish the 16ms slider target.

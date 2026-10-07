@@ -1,7 +1,7 @@
 //! Resolve imported axis intent in the live binding through existing core math (#3434).
 //! The camera calibration is owned once per persistent session; a slider tick
 //! neither decodes metadata again nor adds another WASM round-trip.
-use raw_core::{
+use crate::{
     color::dcp::{self, DcpProfile, ProfileSource},
     image::{CfaPattern, RawImage},
     stages::{wb_camera, white_balance},
@@ -9,7 +9,7 @@ use raw_core::{
     xmp::AdjustmentModel,
 };
 
-pub(crate) struct GpuWhiteBalance {
+pub struct GpuWhiteBalance {
     calibration: Option<(
         DcpProfile,
         wb_camera::SliderFrame,
@@ -19,7 +19,7 @@ pub(crate) struct GpuWhiteBalance {
 }
 
 impl GpuWhiteBalance {
-    pub(crate) fn resolve(raw: &RawImage) -> Result<Self, String> {
+    pub fn resolve(raw: &RawImage) -> Result<Self, String> {
         let (profile, source) = dcp::profile_for_with_source(raw).map_err(|e| e.to_string())?;
         let fallback = matches!(source, ProfileSource::RawlerFallback)
             || (matches!(raw.cfa, CfaPattern::LinearRgb) && raw.white_level <= 255);
@@ -36,7 +36,7 @@ impl GpuWhiteBalance {
         })
     }
 
-    pub(crate) fn apply(&self, model: &AdjustmentModel, inputs: &mut raw_gpu::FullChainInputs<'_>) {
+    pub fn apply(&self, model: &AdjustmentModel, inputs: &mut raw_gpu::FullChainInputs<'_>) {
         if let Some((profile, frame, export)) = &self.calibration {
             let target =
                 wb_camera::resolve_target_versioned(model, frame, profile, self.as_shot_neutral);
@@ -72,7 +72,7 @@ mod tests {
             let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../../test-fixtures/batch-transfer")
                 .join(name);
-            let raw = raw_core::decode::decode(&path).unwrap();
+            let raw = crate::decode::decode(&path).unwrap();
             let cached = GpuWhiteBalance::resolve(&raw).unwrap();
             let profile = dcp::profile_for(&raw).unwrap();
             let frame = wb_camera::SliderFrame::resolve(&raw, &profile);
@@ -86,7 +86,7 @@ mod tests {
                     "crs:Tint=\"0\"",
                 ] {
                     let xml = format!("<rdf:Description xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\" xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" crs:WhiteBalance=\"Custom\" {axis} papp:WbScaleVersion=\"{version}\"/>");
-                    let model = raw_core::xmp::parse(&xml).unwrap();
+                    let model = crate::xmp::parse(&xml).unwrap();
                     let mut inputs = build_full_chain_inputs(
                         &model,
                         Vec::new(),
@@ -118,7 +118,7 @@ mod tests {
                     let prefix =
                         super::super::model::stripped_prefix_model(&model, model.auto_exposure);
                     assert!(!prefix.temperature_seen && !prefix.tint_seen);
-                    assert_eq!(prefix.wb_scale_version, raw_core::types::WbScaleVersion::V5);
+                    assert_eq!(prefix.wb_scale_version, crate::types::WbScaleVersion::V5);
                     assert_eq!(wb_camera::resolve_target(&prefix, &frame), anchor);
                 }
             }

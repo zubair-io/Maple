@@ -45,8 +45,14 @@ mod axis_aligned;
 // inverse-warps through the same one, so the two geometry stages cannot drift
 // on out-of-bounds fill or on the narrowing round.
 pub(crate) mod bilinear;
+mod detail_window;
+mod native_window;
+pub use detail_window::CropDetailWindow;
+mod presentation;
+pub use native_window::NativeCropWindow;
 mod rotate;
 mod sample;
+pub use presentation::CropPresentation;
 
 #[cfg(test)]
 mod tests;

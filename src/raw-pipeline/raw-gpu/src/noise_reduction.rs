@@ -281,19 +281,19 @@ pub(crate) fn encode_nlm_on_plane(
 /// scratch planes come from the [`GpuContext`] / spatial substrate at encode
 /// time. NLM-denoises the Oklab L channel, leaves a/b untouched. Mirrors
 /// `raw_core::stages::noise_reduction::apply_luminance`.
-pub struct NlmLumaPass {
+pub struct NlmLumaPass<'a> {
     pub nr_luminance: f32,
     /// The DNG NoiseProfile row(s) from `RawImage::noise_profile`, empty when the
     /// file carries none. Drives the per-pixel modulation (#1714); empty means
     /// the classic constant-`h` filter, matching raw-core at `noise_profile:
     /// None`.
-    pub noise_profile: Vec<f32>,
+    pub noise_profile: std::borrow::Cow<'a, [f32]>,
     /// `RawImage::iso`. Zero is raw-core's "unknown ISO" sentinel and zeroes both
     /// profile coefficients.
     pub iso: u32,
 }
 
-impl Pass for NlmLumaPass {
+impl Pass for NlmLumaPass<'_> {
     fn encode(
         &self,
         ctx: &GpuContext,
@@ -346,18 +346,18 @@ impl Pass for NlmLumaPass {
 /// plus the frame's DNG NoiseProfile + ISO. NLM-denoises the Oklab a and b
 /// channels with a wider search window than luma, leaves L untouched. Mirrors
 /// `raw_core::stages::noise_reduction::apply_color`.
-pub struct NlmColorPass {
+pub struct NlmColorPass<'a> {
     pub nr_color: f32,
     /// #3875 output pixels per full-frame developed pixel; native crops use
     /// one. Binding metadata integration is tracked by that issue.
     pub sampling_scale: f32,
     /// See [`NlmLumaPass::noise_profile`]. The chroma planes take the a/b
     /// coefficient combination (`is_chroma`), not the luma one.
-    pub noise_profile: Vec<f32>,
+    pub noise_profile: std::borrow::Cow<'a, [f32]>,
     pub iso: u32,
 }
 
-impl Pass for NlmColorPass {
+impl Pass for NlmColorPass<'_> {
     fn encode(
         &self,
         ctx: &GpuContext,

@@ -33,7 +33,9 @@ mod endcaps;
 mod options;
 pub use options::ChainOptions;
 mod film;
-pub use film::apply_scene_linear_chain_f32_with_film;
+pub use film::{
+    apply_scene_linear_chain_f32_with_film, apply_scene_linear_chain_f32_with_film_cancellable,
+};
 
 use super::stage;
 use crate::{
@@ -390,7 +392,10 @@ pub fn apply_scene_linear_chain_f32_scoped(
 mod f32_chain;
 use f32_chain::apply_scene_linear_chain_f32_inner;
 mod window;
-pub use window::{apply_scene_linear_chain_f32_windowed, ChainWindow};
+pub use window::{
+    apply_scene_linear_chain_f32_windowed, apply_scene_linear_chain_f32_windowed_cancellable,
+    ChainWindow,
+};
 
 /// Patch-compositing wrappers ([`apply_scene_linear_chain_with_patches`],
 /// [`apply_scene_linear_chain_f32_with_patches`]) live in a sibling

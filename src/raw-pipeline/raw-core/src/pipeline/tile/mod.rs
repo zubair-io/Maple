@@ -49,13 +49,18 @@ use crate::{error::Result, image::RawImage, linearize, xmp::AdjustmentModel};
 use rayon::prelude::*;
 
 use super::{
-    downsample::downsample_image_area, finite_or_zero, fp16::f32_to_f16_bits,
-    orient::apply_orientation_f32_rgba, stage, RenderQuality,
+    RenderQuality, downsample::downsample_image_area, finite_or_zero, fp16::f32_to_f16_bits,
+    orient::apply_orientation_f32_rgba, stage,
 };
 
 use develop::{develop_scene_linear_from_padded_mosaic, full_frame_long_edge};
+
+/// Conservative native-pixel overlap for the shared raster window chain.
+pub(crate) fn raster_window_overlap(model: &AdjustmentModel, long_edge: u32) -> u32 {
+    tile_overlap_px(None, model, long_edge as usize, 1)
+}
 use overlap::tile_overlap_px;
-use region::{pad_and_clamp_mosaic_rect, trim_image_to_inner, TileWindow};
+use region::{TileWindow, pad_and_clamp_mosaic_rect, trim_image_to_inner};
 
 /// Tile-overlap pad in source pixels per edge. Picked to satisfy
 /// clarity's stencil reach (40 px per side: a guided filter at
@@ -187,7 +192,11 @@ fn develop_tile_oriented_f32(
     quality: RenderQuality,
     decoded_wb_anchor: Option<(f32, f32)>,
     ae_gain: f32,
+    cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>)> {
+    if cancel.is_cancelled() {
+        return Err(crate::error::Error::Cancelled);
+    }
     let TileRect {
         src_x,
         src_y,
@@ -279,6 +288,7 @@ fn develop_tile_oriented_f32(
             active_area,
             tile_origin: (rx / divisor, ry / divisor),
         },
+        cancel,
     )?;
 
     // Trim the overlap, leaving the inner s_w × s_h block in SENSOR coords
@@ -350,8 +360,15 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
     quality: RenderQuality,
     decoded_wb_anchor: Option<(f32, f32)>,
 ) -> Result<(u32, u32, Vec<u16>)> {
-    let (w, h, oriented_f32) =
-        develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor, 1.0)?;
+    let (w, h, oriented_f32) = develop_tile_oriented_f32(
+        raw,
+        model,
+        rect,
+        quality,
+        decoded_wb_anchor,
+        1.0,
+        crate::CancelToken::never(),
+    )?;
     // Parallel (#1089 item 8), same rationale as the full-frame packs in
     // `render::scene_linear`: scalar software convert, order-preserving
     // indexed collect, bit-identical output.
@@ -377,7 +394,15 @@ pub fn render_scene_linear_tile_from_raw_with_quality_f32(
     rect: TileRect,
     quality: RenderQuality,
 ) -> Result<(u32, u32, Vec<f32>)> {
-    develop_tile_oriented_f32(raw, model, rect, quality, None, 1.0)
+    develop_tile_oriented_f32(
+        raw,
+        model,
+        rect,
+        quality,
+        None,
+        1.0,
+        crate::CancelToken::never(),
+    )
 }
 
 /// f32 (16 B/px) counterpart to
@@ -392,7 +417,15 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32(
     quality: RenderQuality,
     decoded_wb_anchor: Option<(f32, f32)>,
 ) -> Result<(u32, u32, Vec<f32>)> {
-    develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor, 1.0)
+    develop_tile_oriented_f32(
+        raw,
+        model,
+        rect,
+        quality,
+        decoded_wb_anchor,
+        1.0,
+        crate::CancelToken::never(),
+    )
 }
 
 /// f32 (16 B/px) counterpart to
@@ -414,5 +447,35 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_
     decoded_wb_anchor: Option<(f32, f32)>,
     ae_gain: f32,
 ) -> Result<(u32, u32, Vec<f32>)> {
-    develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor, ae_gain)
+    develop_tile_oriented_f32(
+        raw,
+        model,
+        rect,
+        quality,
+        decoded_wb_anchor,
+        ae_gain,
+        crate::CancelToken::never(),
+    )
+}
+
+/// Cooperative cancellation through tile demosaic, repair, sharpening and NR.
+/// Existing entries use a never-cancel token and retain identical pixel math.
+pub fn render_scene_linear_tile_cancellable_f32(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: TileRect,
+    quality: RenderQuality,
+    decoded_wb_anchor: Option<(f32, f32)>,
+    ae_gain: f32,
+    cancel: crate::CancelToken<'_>,
+) -> Result<(u32, u32, Vec<f32>)> {
+    develop_tile_oriented_f32(
+        raw,
+        model,
+        rect,
+        quality,
+        decoded_wb_anchor,
+        ae_gain,
+        cancel,
+    )
 }

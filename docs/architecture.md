@@ -24,6 +24,15 @@ The two web apps are one codebase. Every component, shell, service, and the whol
 
 `src/windows/` also contains `maple-windows`, a small Rust host crate (`src/windows/src/`) providing sidecar I/O and a folder watcher over `raw-core`, plus a `tauri.conf.json`. The shipping Windows UI is the WinUI 3 C# app, which P/Invokes `raw_ffi.dll` directly (`src/windows/Maple.WinUI/Native/RawFfi.cs`).
 
+The native Linux development shell lives in `src/linux/`: Rust with eframe/egui
+on Wayland or X11. It links `raw-core` and `raw-gpu` directly, sharing its wgpu
+device and queue with the UI compositor. This adds no foreign-language binding.
+Local files and a Maple server feed the same editor; cloud writes use conditional
+XMP requests and a durable recovery journal. Its implementation, build commands,
+packaging and outstanding qualification limits are documented in the
+[Linux README](../src/linux/README.md). Linux is still under development and is
+not yet a qualified release surface.
+
 See [features](features.md) for what each surface actually does, and [apple](apple.md), [web](web.md), [api](api.md), [windows](windows.md) for the per-unit detail.
 
 ## One Rust core, four bindings

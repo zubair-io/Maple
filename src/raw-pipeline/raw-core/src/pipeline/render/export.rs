@@ -22,7 +22,10 @@ use crate::{
 };
 
 mod raster;
-pub use raster::{decode_raster_base, render_export_raster, validate_raster_adjustments};
+pub use raster::{
+    decode_raster_base, render_export_raster, render_export_raster_cancellable,
+    validate_raster_adjustments, RasterDetailImage,
+};
 
 /// Bits per channel in the exported file.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

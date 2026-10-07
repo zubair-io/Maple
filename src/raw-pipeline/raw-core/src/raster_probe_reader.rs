@@ -24,6 +24,42 @@ pub fn probe_raster_metadata_reader<R: BufRead + Seek>(reader: &mut R) -> Result
         .read_to_end(&mut header)
         .map_err(io_error)?;
     reader.seek(SeekFrom::Start(0)).map_err(io_error)?;
+    if header.starts_with(b"II\x2b\0") || header.starts_with(b"MM\0\x2b") {
+        // image's format guesser and the Classic-TIFF fallback do not read
+        // BigTIFF. Use the already bounded TIFF parser without decoding pixels.
+        let mut decoder =
+            tiff::decoder::Decoder::new(&mut *reader).map_err(|error| Error::Decode {
+                path: "<metadata>".into(),
+                reason: error.to_string(),
+            })?;
+        let (width, height) = decoder.dimensions().map_err(|error| Error::Decode {
+            path: "<metadata>".into(),
+            reason: error.to_string(),
+        })?;
+        let channels = decoder
+            .get_tag_u16_vec(tiff::tags::Tag::SamplesPerPixel)
+            .ok()
+            .and_then(|values| values.first().copied())
+            .unwrap_or(1);
+        let channels = u8::try_from(channels)
+            .map_err(|_| Error::UnsupportedFormat("too many TIFF channels".into()))?;
+        let orientation = decoder
+            .get_tag_u16_vec(tiff::tags::Tag::Orientation)
+            .ok()
+            .and_then(|values| values.first().copied())
+            .unwrap_or(1);
+        let has_alpha = decoder
+            .get_tag_u16_vec(tiff::tags::Tag::ExtraSamples)
+            .is_ok_and(|samples| samples.iter().any(|sample| matches!(sample, 1 | 2)));
+        return Ok(RasterMetadata {
+            width,
+            height,
+            format: "tiff".into(),
+            channels,
+            orientation: Some(orientation),
+            has_alpha,
+        });
+    }
     if header.starts_with(b"GIF87a") || header.starts_with(b"GIF89a") {
         let source = SeekableSource::new(reader).map_err(io_error)?;
         let gif = crate::raster_metadata_gif::read(&source);

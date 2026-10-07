@@ -15,7 +15,7 @@
 //! access.
 
 use super::LiveSession;
-use crate::chain::{CancelToken, Pass};
+use crate::chain::CancelToken;
 use crate::context::GpuContext;
 use crate::dehaze::{compute_airlight, AirlightSource};
 use crate::dither::encode_dither;
@@ -45,7 +45,6 @@ impl LiveSession {
         let sig = crate::live_chain::chain_signature(inputs, self.image.dims(), self.session_id);
         ctx.frame_pool.borrow_mut().begin_frame(sig);
         let passes = crate::live_chain::build_live_chain(inputs, AirlightSource::Cpu(airlight));
-        let pass_refs: Vec<&dyn Pass> = passes.iter().map(|p| p.as_ref()).collect();
         let mut encoder = ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -58,7 +57,13 @@ impl LiveSession {
             0,
             self.image.byte_len(),
         );
-        let final_idx = self.encode_chain(ctx, &mut encoder, &pass_refs, 0, None);
+        let final_idx = self.encode_chain(
+            ctx,
+            &mut encoder,
+            passes.iter().map(|p| p.as_ref()),
+            0,
+            None,
+        );
         ctx.queue.submit(Some(encoder.finish()));
         ctx.frame_pool.borrow_mut().end_frame();
         final_idx
@@ -83,7 +88,6 @@ impl LiveSession {
         // prefix runs here). Encode prefix from ping-pong A, then copy the
         // post-prefix result to the airlight staging buffer.
         let (prefix, _) = build_live_split(inputs, AirlightSource::Cpu([0.0; 3]));
-        let prefix_refs: Vec<&dyn Pass> = prefix.iter().map(|p| p.as_ref()).collect();
 
         let mut enc1 = ctx
             .device
@@ -91,10 +95,11 @@ impl LiveSession {
                 label: Some("live-prefix-encoder"),
             });
         enc1.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
-        let prefix_final = match self.encode_chain(ctx, &mut enc1, &prefix_refs, 0, cancel) {
-            Some(idx) => idx,
-            None => return Ok(None),
-        };
+        let prefix_final =
+            match self.encode_chain(ctx, &mut enc1, prefix.iter().map(|p| p.as_ref()), 0, cancel) {
+                Some(idx) => idx,
+                None => return Ok(None),
+            };
         enc1.copy_buffer_to_buffer(
             &self.ping_pong[prefix_final],
             0,
@@ -113,18 +118,22 @@ impl LiveSession {
         // didn't touch it after the staging copy), so the suffix runs from THAT
         // index directly — no re-seed copy, no parity-index bookkeeping.
         let (_, suffix) = build_live_split(inputs, AirlightSource::Cpu(airlight));
-        let suffix_refs: Vec<&dyn Pass> = suffix.iter().map(|p| p.as_ref()).collect();
 
         let mut enc2 = ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("live-suffix-encoder"),
             });
-        let suffix_final =
-            match self.encode_chain(ctx, &mut enc2, &suffix_refs, prefix_final, cancel) {
-                Some(idx) => idx,
-                None => return Ok(None),
-            };
+        let suffix_final = match self.encode_chain(
+            ctx,
+            &mut enc2,
+            suffix.iter().map(|p| p.as_ref()),
+            prefix_final,
+            cancel,
+        ) {
+            Some(idx) => idx,
+            None => return Ok(None),
+        };
         if inputs.scope.enabled {
             self.encode_scope(
                 ctx,
@@ -168,7 +177,6 @@ impl LiveSession {
         let f32_byte_len = self.image.byte_len();
 
         let (prefix, _) = build_live_split(inputs, AirlightSource::Cpu([0.0; 3]));
-        let prefix_refs: Vec<&dyn Pass> = prefix.iter().map(|p| p.as_ref()).collect();
 
         let mut enc1 = ctx
             .device
@@ -176,10 +184,11 @@ impl LiveSession {
                 label: Some("live-present-prefix-encoder"),
             });
         enc1.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
-        let prefix_final = match self.encode_chain(ctx, &mut enc1, &prefix_refs, 0, cancel) {
-            Some(idx) => idx,
-            None => return Ok(None),
-        };
+        let prefix_final =
+            match self.encode_chain(ctx, &mut enc1, prefix.iter().map(|p| p.as_ref()), 0, cancel) {
+                Some(idx) => idx,
+                None => return Ok(None),
+            };
         enc1.copy_buffer_to_buffer(
             &self.ping_pong[prefix_final],
             0,
@@ -193,18 +202,22 @@ impl LiveSession {
         let airlight = compute_airlight(&pre_dehaze, dims.0 as usize, dims.1 as usize);
 
         let (_, suffix) = build_live_split(inputs, AirlightSource::Cpu(airlight));
-        let suffix_refs: Vec<&dyn Pass> = suffix.iter().map(|p| p.as_ref()).collect();
 
         let mut enc2 = ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("live-present-suffix-encoder"),
             });
-        let suffix_final =
-            match self.encode_chain(ctx, &mut enc2, &suffix_refs, prefix_final, cancel) {
-                Some(idx) => idx,
-                None => return Ok(None),
-            };
+        let suffix_final = match self.encode_chain(
+            ctx,
+            &mut enc2,
+            suffix.iter().map(|p| p.as_ref()),
+            prefix_final,
+            cancel,
+        ) {
+            Some(idx) => idx,
+            None => return Ok(None),
+        };
         if inputs.scope.enabled {
             self.encode_scope(
                 ctx,
