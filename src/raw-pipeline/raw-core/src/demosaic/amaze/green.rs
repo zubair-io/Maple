@@ -1,9 +1,8 @@
 //! AMaZE stages 0.5–4: directional weights, Hamilton-Adams/adaptive-ratio
 //! green interpolation with colour differences, variance-based selection,
-//! median bounding, and the adaptive H/V direction weight. Port of the
+//! median bounding, and the adaptive H/V direction weight. 1:1 port of the
 //! scalar branch of `amaze_demosaic_RT.cc` (engine lines 368–784), operating
-//! on one tile. Stage 3 departs from upstream where all four immediate Greens
-//! are clipped: `supported_green_transport` replaces the median (#4123).
+//! on one tile.
 
 use super::scratch::{Scratch, Tile, TS};
 use crate::image::CfaPattern;
@@ -15,43 +14,6 @@ const ARTHRESH: f32 = 0.75;
 // produced by `sensor_linearize`.
 const CLIP_PT8: f32 = 0.8;
 const CLIP_PT: f32 = 1.0;
-
-// Positive same-colour sensor transport has an analytical ratio bound of two.
-// Negative/nonfinite or absent centre evidence supplies no bound and retains
-// the existing saturation median (#4123).
-fn supported_green_transport(cfa: &[f32], i: usize, stride: usize) -> Option<f32> {
-    // A clipped one-dimensional pair cannot establish a saturated field
-    // across an orthogonal colour edge. Retain the old median unless all
-    // four immediate, actually measured Green sites support saturation.
-    if ![i - 1, i + 1, i - TS, i + TS]
-        .iter()
-        .all(|&j| cfa[j].is_finite() && cfa[j] >= CLIP_PT)
-    {
-        return None;
-    }
-    let center = cfa[i];
-    let [near, far, a, b] = [
-        cfa[i - stride],
-        cfa[i + stride],
-        cfa[i - 2 * stride],
-        cfa[i + 2 * stride],
-    ];
-    if ![center, near, far, a, b]
-        .iter()
-        .all(|v| v.is_finite() && *v >= 0.0)
-        || center == 0.0
-    {
-        return None;
-    }
-    let means = [0.5 * center + 0.5 * a, 0.5 * center + 0.5 * b];
-    if !means.iter().all(|v| v.is_finite() && *v > 0.0) {
-        return None;
-    }
-    let value = (0.5 * near) * (center / means[0]) + (0.5 * far) * (center / means[1]);
-    // Every immediate Green is clipped, so transport may raise the estimate
-    // but never place it below the measured saturated pair.
-    value.is_finite().then_some(value.max(near.min(far)))
-}
 
 /// Stage 0.5: `dirwts0` (vertical roughness), `dirwts1` (horizontal), and
 /// `delhvsqsum` (sum of squared H/V first differences — the Nyquist test's
@@ -224,14 +186,10 @@ pub(super) fn median_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
                     }
                 }
                 if g_int_h > CLIP_PT {
-                    s.hcd[i] = supported_green_transport(&s.cfa, i, 1)
-                        .unwrap_or_else(|| median3(g_int_h, s.cfa[i - 1], s.cfa[i + 1]))
-                        - v;
+                    s.hcd[i] = median3(g_int_h, s.cfa[i - 1], s.cfa[i + 1]) - v;
                 }
                 if g_int_v > CLIP_PT {
-                    s.vcd[i] = supported_green_transport(&s.cfa, i, TS)
-                        .unwrap_or_else(|| median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]))
-                        - v;
+                    s.vcd[i] = median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) - v;
                 }
                 s.cddiffsq[i] = (s.vcd[i] - s.hcd[i]).powi(2);
             } else {

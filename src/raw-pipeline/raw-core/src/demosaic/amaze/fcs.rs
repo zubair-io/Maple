@@ -50,6 +50,11 @@ pub(super) fn suppress_false_colour(
     // must interpolate colour at the centre, rather than favour the nearer
     // guide value and distort an affine colour ramp (#4123). The fixed
     // four-site scratch is local: no image allocation or distant sample.
+    let same_colour_site = |x: usize, y: usize, dx: isize, dy: isize, t: usize| {
+        let (nx, ny) = (x.checked_add_signed(dx)?, y.checked_add_signed(dy)?);
+        (nx < w && ny < h && color_at(nx, ny) == t)
+            .then(|| (green[ny * w + nx], cfa_flat[ny * w + nx]))
+    };
     let value_estimate = |x: usize, y: usize, t: usize| -> Option<f32> {
         let mut samples = [(0.0_f32, 0.0_f32); 4];
         let mut count = 0;
@@ -145,11 +150,12 @@ pub(super) fn suppress_false_colour(
             } else {
                 [(3_isize, -3_isize), (-3, 3)]
             };
-            let measured = witnesses.map(|(dx, dy)| {
-                let nx = (x as isize + dx) as usize;
-                let ny = (y as isize + dy) as usize;
-                (green[ny * w + nx], cfa_flat[ny * w + nx])
-            });
+            let [Some(first_witness), Some(second_witness)] =
+                witnesses.map(|(dx, dy)| same_colour_site(x, y, dx, dy, t))
+            else {
+                return Some(mean_colour);
+            };
+            let measured = [first_witness, second_witness];
             if measured
                 .iter()
                 .any(|&(g, c)| !g.is_finite() || !c.is_finite())
@@ -206,10 +212,7 @@ pub(super) fn suppress_false_colour(
             } else {
                 [(-3_isize, -3_isize), (3, -3), (-3, 3), (3, 3)]
             };
-            let measured = witnesses.map(|(dx, dy)| {
-                let (nx, ny) = ((x as isize + dx) as usize, (y as isize + dy) as usize);
-                (color_at(nx, ny) == t).then(|| (green[ny * w + nx], cfa_flat[ny * w + nx]))
-            });
+            let measured = witnesses.map(|(dx, dy)| same_colour_site(x, y, dx, dy, t));
             if measured
                 .iter()
                 .flatten()

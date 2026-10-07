@@ -133,9 +133,6 @@ pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
 }
 
 #[cfg(test)]
-mod tests_saturation_support;
-
-#[cfg(test)]
 mod tests_fcs_junction;
 
 #[cfg(test)]
