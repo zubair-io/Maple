@@ -10,17 +10,17 @@ export class CpuSourceTransfer {
   epoch = 0;
 
   prepare(bytes: Uint8Array, ext: string, worker: Worker, id: number, sized: boolean): void {
-    const reused =
-      sized &&
-      this.source?.bytes === bytes &&
-      this.source.ext === ext &&
-      this.source.worker === worker;
+    const reused = sized && this.holds(bytes, ext, worker);
     this.token = sized ? (reused ? this.source!.token : id) : undefined;
     this.buffer = reused
       ? this.empty
       : (bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
     this.transferred = reused ? this.noTransfer : [this.buffer];
     if (!reused) this.source = sized ? { bytes, ext, worker, token: id } : undefined;
+  }
+  private holds(bytes: Uint8Array, ext: string, worker: Worker): boolean {
+    const source = this.source;
+    return source?.bytes === bytes && source.ext === ext && source.worker === worker;
   }
   clear(): void {
     this.source = undefined;
