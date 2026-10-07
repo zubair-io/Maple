@@ -1,5 +1,4 @@
 use super::tests::neutral_case;
-use super::*;
 use crate::{CancelToken, GpuContext, LiveSession};
 
 #[test]

@@ -48,10 +48,12 @@
 // `wasm_bindgen_futures`, a wasm-only dep.
 #[cfg(test)]
 use raw_core::gpu_host::prepare::auto_will_fit;
+#[cfg(test)]
+pub(crate) use raw_core::gpu_host::prepare::fit_profile_artifacts_with_status;
 #[cfg(target_arch = "wasm32")]
 pub(crate) use raw_core::gpu_host::prepare::prefix_model_for;
 #[cfg(any(target_arch = "wasm32", test))]
-pub(crate) use raw_core::gpu_host::prepare::{chain_inputs_for_model, develop_prefix_rgba};
+pub(crate) use raw_core::gpu_host::prepare::{chain_inputs_with_status, develop_prefix_rgba};
 #[cfg(any(target_arch = "wasm32", test))]
 use raw_core::xmp::AdjustmentModel;
 #[cfg(any(target_arch = "wasm32", test))]
@@ -211,7 +213,7 @@ mod primaries_tests {
 /// This is the ONE-SHOT u8-readback path (the W1 parity gate + the gpu-off-bundle
 /// fallback). The persistent zero-readback path
 /// ([`crate::web_live_session::WebLiveSession`]) reuses the SAME
-/// [`develop_prefix_rgba`] / [`chain_inputs_for_model`] helpers but uploads once
+/// [`develop_prefix_rgba`] / [`chain_inputs_with_status`] helpers but uploads once
 /// and presents to a surface instead of reading back.
 ///
 /// `max_long_edge` (#1080): optional viewport target from the JS caller, in real
@@ -219,7 +221,7 @@ mod primaries_tests {
 /// upscaled), so the returned surface is viewport-sized, not full sensor res.
 /// `None`/`0` → [`DEFAULT_TARGET_LONG_EDGE`]; either way the target is clamped to
 /// the device's texture cap via [`effective_target_long_edge`].
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(test)]
 async fn render_gpu_core(
     raw_img: &raw_core::image::RawImage,
     raw: &[u8],
@@ -227,6 +229,19 @@ async fn render_gpu_core(
     model: &AdjustmentModel,
     max_long_edge: Option<u32>,
 ) -> Result<(u32, u32, Vec<u8>), String> {
+    render_gpu_core_with_status(raw_img, raw, ext, model, max_long_edge)
+        .await
+        .map(|(w, h, bytes, _)| (w, h, bytes))
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+async fn render_gpu_core_with_status(
+    raw_img: &raw_core::image::RawImage,
+    raw: &[u8],
+    ext: &str,
+    model: &AdjustmentModel,
+    max_long_edge: Option<u32>,
+) -> Result<(u32, u32, Vec<u8>, Option<bool>), String> {
     // Context FIRST: the effective develop target clamps to this device's
     // texture cap, so the device must exist before the sized develop runs.
     // Fallible (#1079): no adapter / device surfaces as an Err so the worker
@@ -239,7 +254,8 @@ async fn render_gpu_core(
     let (rgba, w, h, _prefix_model, whites_anchor_ev, nr_sampling_scale) =
         develop_prefix_rgba(raw_img, raw, ext, model, target)?;
     // Film looks are session-resident; one-shot renders have no uploaded LUT.
-    let mut inputs = chain_inputs_for_model(raw_img, raw, ext, model, None, 0, whites_anchor_ev);
+    let (mut inputs, auto_fit) =
+        chain_inputs_with_status(raw_img, raw, ext, model, None, 0, whites_anchor_ev);
     GpuWhiteBalance::resolve(raw_img)?.apply(model, &mut inputs);
     inputs.nr_sampling_scale = nr_sampling_scale;
 
@@ -257,12 +273,8 @@ async fn render_gpu_core(
 
     // EXIF-orient the u8 surface last, exactly as `render_bytes` does (the GPU
     // chain is orientation-agnostic; the develop buffer is in sensor framing).
-    Ok(raw_core::image::apply_orientation(
-        &rgb,
-        w,
-        h,
-        raw_img.orientation,
-    ))
+    let (w, h, rgb) = raw_core::image::apply_orientation(&rgb, w, h, raw_img.orientation);
+    Ok((w, h, rgb, auto_fit))
 }
 
 /// Render a RAW from bytes to a u8 RGB display surface via the GPU live chain
@@ -315,9 +327,10 @@ pub async fn render_bytes_gpu(
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
 
-    let (ow, oh, oriented) = render_gpu_core(&raw_img, &raw, &ext, &model, max_long_edge)
-        .await
-        .map_err(|e| JsError::new(&e))?;
+    let (ow, oh, oriented, auto_fit) =
+        render_gpu_core_with_status(&raw_img, &raw, &ext, &model, max_long_edge)
+            .await
+            .map_err(|e| JsError::new(&e))?;
 
     // Preserve native oriented dims for fit/100% zoom on viewport-sized output.
     let (full_w, full_h) = raw_core::pipeline::native_render_dims(&raw_img);
@@ -334,6 +347,7 @@ pub async fn render_bytes_gpu(
         raw_img.lens_correction_ca_inert(),
         camera_support,
         crate::lens_profile::metadata(&raw_img, &model),
+        auto_fit,
     ))
 }
 
