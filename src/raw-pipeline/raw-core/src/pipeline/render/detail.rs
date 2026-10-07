@@ -75,7 +75,8 @@ pub fn render_detail_base_cancellable(
     Ok((w, h, rgb, context))
 }
 
-/// Display-oriented, DefaultCrop-relative source rect. Native pixels only.
+/// `rect` is in the user-cropped (and straightened) output frame at native
+/// resolution; an identity crop makes it the display-oriented DefaultCrop frame.
 /// `max_working_pixels` includes the core's exact spatial overlap, so a
 /// large filter halo cannot bypass the host's memory cap.
 pub fn render_detail_tile(

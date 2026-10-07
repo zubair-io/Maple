@@ -302,6 +302,8 @@ fn build_with_storage(
 /// Refresh adjustment mapping while retaining image-owned Auto fit/noise buffers.
 /// Profile changes require a fresh `chain_inputs_with_status` at session preparation.
 /// Curve, layer and raster storage is reused while capacity permits (#4317).
+/// The rebuilt WB matrix is the unanchored one: callers re-apply
+/// `GpuWhiteBalance::apply` afterwards for the camera-frame delta.
 pub fn update_chain_inputs(model: &AdjustmentModel, inputs: &mut FullChainInputs<'static>) {
     let curve = std::mem::take(&mut inputs.profile_curve_flat).into_owned();
     let lut = std::mem::take(&mut inputs.residual_lut_data).into_owned();
