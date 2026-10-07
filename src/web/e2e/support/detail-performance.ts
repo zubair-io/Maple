@@ -30,6 +30,56 @@ export async function installDetailPerformanceObserver(page: Page, canonicalByte
       height: number;
       rgb: Uint8Array;
     } | null = null;
+    // Production resolve/await/imageDataToBitmap occurs in this message
+    // turn's microtasks. Do not carry a stale decode into a later task.
+    const captureDecode = (key: string, request: any, data: any) => {
+      if (
+        request.type !== 'decode' ||
+        pendingDecode ||
+        !(data.rgb instanceof ArrayBuffer) ||
+        data.rgb.byteLength !== data.width * data.height * 3
+      ) {
+        state.ambiguous++;
+        return;
+      }
+      const decoded = {
+        key,
+        width: data.width,
+        height: data.height,
+        rgb: new Uint8Array(data.rgb),
+      };
+      pendingDecode = decoded;
+      setTimeout(() => {
+        if (pendingDecode === decoded) {
+          state.unconsumed.push(key);
+          pendingDecode = null;
+        }
+      }, 0);
+    };
+    const claimsCanonicalSource = (data: any) =>
+      ['decode', 'open-session'].includes(data.type) &&
+      data.ext?.toLowerCase() === 'dng' &&
+      data.bytes?.byteLength === expectedBytes;
+    const recordRequest = (token: string, data: any) => {
+      if (claimsCanonicalSource(data)) {
+        if (state.worker && state.worker !== token) state.ambiguous++;
+        else state.worker = token;
+      }
+      if (token !== state.worker) return;
+      state.requests.push({
+        key: `${token}:${data.id}`,
+        worker: token,
+        id: data.id,
+        type: data.type,
+        at: performance.now(),
+        phase: state.phase,
+        input: state.phase === 'sweep' ? state.inputs.length - 1 : -1,
+        xmp: data.xmp ?? '',
+        params: data.params ? Array.from(data.params) : null,
+        maxLongEdge: data.maxLongEdge,
+        qualityPreview: data.qualityPreview,
+      });
+    };
     const NativeWorker = window.Worker;
     window.Worker = new Proxy(NativeWorker, {
       construct(target, args) {
@@ -53,59 +103,12 @@ export async function installDetailPerformanceObserver(page: Page, canonicalByte
             colorSpace: data.colorSpace,
             message: data.message,
           });
-          if (data.type === 'decode-success') {
-            if (
-              request.type !== 'decode' ||
-              pendingDecode ||
-              !(data.rgb instanceof ArrayBuffer) ||
-              data.rgb.byteLength !== data.width * data.height * 3
-            ) {
-              state.ambiguous++;
-              return;
-            }
-            const decoded = {
-              key,
-              width: data.width,
-              height: data.height,
-              rgb: new Uint8Array(data.rgb),
-            };
-            pendingDecode = decoded;
-            // Production resolve/await/imageDataToBitmap occurs in this message
-            // turn's microtasks. Do not carry a stale decode into a later task.
-            setTimeout(() => {
-              if (pendingDecode === decoded) {
-                state.unconsumed.push(key);
-                pendingDecode = null;
-              }
-            }, 0);
-          }
+          if (data.type === 'decode-success') captureDecode(key, request, data);
         });
         const post = worker.postMessage.bind(worker);
         worker.postMessage = ((data: any, ...rest: any[]) => {
-          if (['render-session', 'decode', 'open-session'].includes(data?.type)) {
-            if (
-              ['decode', 'open-session'].includes(data.type) &&
-              data.ext?.toLowerCase() === 'dng' &&
-              data.bytes?.byteLength === expectedBytes
-            ) {
-              if (state.worker && state.worker !== token) state.ambiguous++;
-              else state.worker = token;
-            }
-            if (token === state.worker)
-              state.requests.push({
-                key: `${token}:${data.id}`,
-                worker: token,
-                id: data.id,
-                type: data.type,
-                at: performance.now(),
-                phase: state.phase,
-                input: state.phase === 'sweep' ? state.inputs.length - 1 : -1,
-                xmp: data.xmp ?? '',
-                params: data.params ? Array.from(data.params) : null,
-                maxLongEdge: data.maxLongEdge,
-                qualityPreview: data.qualityPreview,
-              });
-          }
+          if (['render-session', 'decode', 'open-session'].includes(data?.type))
+            recordRequest(token, data);
           return (post as any)(data, ...rest);
         }) as typeof worker.postMessage;
         return worker;

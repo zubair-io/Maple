@@ -26,7 +26,7 @@ export function renderRetainedCpu(
     film ?? emptyFilm,
   );
 }
-export function releaseRetainedCpu(): void {
+function releaseRetainedCpu(): void {
   retained?.session.free();
   retained = undefined;
 }
