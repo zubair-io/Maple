@@ -28,7 +28,12 @@ impl LiveSession {
         inputs.tone = original;
         let restored = self.render_chain_to_f32(ctx, inputs, cancel);
         match (opposite, restored) {
-            (Ok(Some(_)), Ok(Some(_))) => Ok(true),
+            (Ok(Some(_)), Ok(Some(_))) => {
+                // Initialization only: finish driver work before the first edit
+                // can reuse these uniforms/bindings. Never wait per slider tick.
+                let _ = ctx.device.poll(wgpu::Maintain::Wait);
+                Ok(true)
+            }
             (Err(error), _) | (_, Err(error)) => Err(error),
             _ => Err("Scene-tone preparation cancelled".into()),
         }
