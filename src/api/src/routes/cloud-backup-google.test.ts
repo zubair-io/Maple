@@ -87,6 +87,37 @@ test('owner gate stays isolated from cookie/state guarded callback; member canno
   }
 });
 
+test('config rejects malformed Google Drive root IDs before calling Drive', async () => {
+  using db = await createLiveTestDatabase();
+  insertDestination(db.db);
+  const previous = process.env.MAPLE_JWT_SECRET;
+  process.env.MAPLE_JWT_SECRET = secret;
+  try {
+    const owner = await signAccessToken(
+      {
+        sub: '111111111111111111111111',
+        email: null,
+        role: 'owner',
+        file_access: true,
+      },
+      secret,
+    );
+    const response = await routes().handle(
+      new Request(`${origin}/api/cloud-backup/google/${destinationId}/config`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${owner}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ callbackMode: 'relay', rootId: 'invalid/root-id' }),
+      }),
+    );
+    expect(response.status).toBe(422);
+  } finally {
+    process.env.MAPLE_JWT_SECRET = previous;
+  }
+});
+
 for (const existingRoot of [undefined, 'existing-backup-root']) {
   test(`bound callback ${existingRoot ? 'attaches the existing root' : 'creates the backup root'} and preserves it on reconnect`, async () => {
     using db = await createLiveTestDatabase();
