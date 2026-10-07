@@ -223,12 +223,12 @@ Zoom on Apple is a native-detail patch path (`MapleCore/NativeDetailRenderer.swi
 
 ## 4. Export
 
-`src/raw-pipeline/raw-core/src/export.rs` is the shared export path: it renders through the same colour chain as the on-screen canvas, always with the highest-quality demosaic, and tags every file with an ICC profile describing the primaries it actually carries.
+`src/raw-pipeline/raw-core/src/export.rs` is the shared export path: it renders through the same colour chain as the on-screen canvas, always with the highest-quality demosaic, and tags every Display P3 file, and every sRGB JPEG/TIFF/PNG, with an ICC profile describing the primaries it actually carries. sRGB AVIF carries an ICC profile only when metadata is kept; Display P3 AVIF always carries an ICC profile and a matching nclx `colr` box.
 
-- **Formats**: JPEG (8-bit, quality-controlled), TIFF (16-bit lossless), PNG (8-bit lossless).
+- **Formats**: JPEG (8-bit, quality-controlled), TIFF (16-bit lossless), PNG (8-bit lossless), AVIF (8-bit, quality-controlled) and WebP (8-bit lossless) through saved recipes.
 - **Colour spaces**: sRGB or Display P3.
 - **Size**: full resolution, or a long-edge cap of 4096 / 2560 / 2048 / 1024. Export never upscales.
-- **Quality**: JPEG only, default 92.
+- **Quality**: JPEG and AVIF, default 92. TIFF, PNG and WebP are lossless and take no quality value.
 
 Web presents these options in `lib/export/export-dialog.component.ts`. Windows uses the saved recipe editor in `MainWindow.ExportRecipes.cs` and `Views/ExportRecipeEditor.cs`. Apple's single-photo panel (`MapleCore/MapleExporter.swift`) offers JPEG sRGB, JPEG P3, **HEIC P3**, TIFF 16-bit and PNG, with quality and size controls. macOS also exposes the shared saved recipe editor and durable queue, including generated encoder capabilities, destination bookmarks and per-photo recovery. Shared HEIC recipes remain unsupported.
 

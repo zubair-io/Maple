@@ -120,7 +120,7 @@ impl ExportRecipe {
             .find(|(format, _, _)| *format == self.format)
             .ok_or_else(|| {
                 format!(
-                    "unsupported format: {} (choose jpeg, tiff or png)",
+                    "unsupported format: {} (choose jpeg, tiff, png, avif or webp)",
                     self.format
                 )
             })?;
