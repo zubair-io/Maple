@@ -160,6 +160,15 @@ class CoherentGhostMetricTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "outside"):
                 measure(candidate, manifest)
 
+            roi["rect"] = [0, 0, 64, 48]
+            for malformed in ({"name": "early"}, "early.png"):
+                roi["sources"] = [malformed, {"name": "late", "path": "late.png"}]
+                manifest.write_text(
+                    json.dumps({"version": 1, "canvas_size": [64, 48], "rois": [roi]})
+                )
+                with self.assertRaisesRegex(ValueError, "string paths"):
+                    measure(candidate, manifest)
+
 
 if __name__ == "__main__":
     unittest.main()
