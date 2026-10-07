@@ -67,7 +67,8 @@ pub(crate) fn render(
     {
         return Err("Whole-image refinement exceeds its resolution budget".into());
     }
-    let film = crate::film::resolve(&model.film_look)?;
+    let (model, film) = crate::film::renderable(model)?;
+    let model = model.as_ref();
     let Dimensions { native, displayed } = dimensions(source, model)?;
     if displayed != (rect.src_w, rect.src_h) {
         return Err("Whole-image refinement does not match the opened image".into());

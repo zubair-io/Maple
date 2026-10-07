@@ -38,8 +38,9 @@ impl RasterDetailRenderer {
         cancel: CancelToken<'_>,
     ) -> raw_core::error::Result<DetailFrame> {
         pipeline::validate_raster_adjustments(model)?;
-        let film =
-            crate::film::resolve(&model.film_look).map_err(raw_core::error::Error::Pipeline)?;
+        let (model, film) =
+            crate::film::renderable(model).map_err(raw_core::error::Error::Pipeline)?;
+        let model = model.as_ref();
         if self.image.is_none() {
             self.image = Some(pipeline::RasterDetailImage::open(bytes, cancel)?);
         }

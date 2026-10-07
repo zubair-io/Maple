@@ -54,6 +54,11 @@ fn oversized_imported_curves_fall_back_save_exact_points_and_keep_worker_live() 
             Event::Rendered(1, 1, Ok(frame)) => assert_eq!(frame.pixels, expected.pixels),
             _ => panic!("CPU fallback must publish a real preview"),
         }
+        worker.send(Command::Render(1, 2, AdjustmentModel::default()));
+        assert!(
+            matches!(receive(&worker), Event::GpuRendered(1, 2, _)),
+            "an unsupported edit must not disable the GPU for the session"
+        );
         worker.send(Command::Save(1, document));
         assert!(matches!(receive(&worker), Event::Saved(1, Ok(()))));
         let (_, saved) = SidecarStore::open(&path).unwrap();

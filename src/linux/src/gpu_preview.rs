@@ -115,7 +115,8 @@ impl GpuPreview {
         })
     }
 
-    fn validate(model: &AdjustmentModel) -> Result<(), String> {
+    /// Edits the GPU preview cannot draw yet; they fall back per frame, not per session.
+    pub fn validate(model: &AdjustmentModel) -> Result<(), String> {
         let curves = [
             &model.tone_curve_luma,
             &model.tone_curve_red,

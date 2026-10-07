@@ -393,3 +393,25 @@ fn film_selection_strength_and_none_round_trip_with_foreign_xml_preserved() {
     assert!(xml.contains("foreign:Keep=\"yes\""));
     assert_eq!(fs::read(original).unwrap(), b"immutable original");
 }
+
+#[test]
+fn unchanged_foreign_ratings_survive_unrelated_edits() {
+    for authored in ["-1", "3.0"] {
+        let mut document =
+            SidecarDocument::parse(&imported(&format!("xmp:Rating=\"{authored}\""), "")).unwrap();
+        Control::Exposure.set(&mut document.model, 0.5).unwrap();
+        let saved = document.serialize().unwrap();
+        assert!(
+            saved.contains(&format!("xmp:Rating=\"{authored}\"")),
+            "{authored} was rewritten: {saved}"
+        );
+        assert_eq!(saved.matches("xmp:Rating").count(), 1);
+    }
+    let mut document = SidecarDocument::parse(&imported("xmp:Rating=\"3.0\"", "")).unwrap();
+    assert_eq!(document.culling.rating, 3);
+    document.culling.rating = 5;
+    let rated = document.serialize().unwrap();
+    assert!(rated.contains("xmp:Rating=\"5\"") && !rated.contains("xmp:Rating=\"3.0\""));
+    document.culling.rating = 0;
+    assert!(!document.serialize().unwrap().contains("xmp:Rating"));
+}

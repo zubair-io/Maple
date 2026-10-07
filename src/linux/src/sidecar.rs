@@ -100,7 +100,7 @@ impl SidecarStore {
             .path
             .parent()
             .ok_or_else(|| SidecarError::Invalid("Sidecar has no parent".into()))?;
-        let mut temporary = NamedTempFile::new_in(parent)?;
+        let mut temporary = shared_temp_file(parent)?;
         if let Ok(metadata) = fs::metadata(&self.path) {
             temporary
                 .as_file()
@@ -178,4 +178,14 @@ fn reject_symlink(path: &Path) -> Result<(), SidecarError> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
     }
+}
+
+/// Sidecars and exports are read by other processes (the Self Hosted API,
+/// network shares), so a new file gets the umask default rather than the
+/// owner-only mode temp files are created with.
+pub(crate) fn shared_temp_file(parent: &Path) -> std::io::Result<NamedTempFile> {
+    use std::os::unix::fs::PermissionsExt;
+    tempfile::Builder::new()
+        .permissions(fs::Permissions::from_mode(0o666))
+        .tempfile_in(parent)
 }
