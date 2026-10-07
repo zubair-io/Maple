@@ -230,3 +230,62 @@ fn empty_physical_region_preserves_clipped_pixels() {
     );
     assert_eq!(image.pixels, original);
 }
+
+#[test]
+fn guided_tiers_follow_the_inside_region_surround_only() {
+    // 161x161 frame; the active area is the central 131x131. Inside: a warm
+    // ring plus a 101x101 clipped block at the same relative geometry as
+    // the tier-3 unit test; outside: a cool field. The deferred center must
+    // recover the warm-blended 1.6 — cool leaking into `build_means` or
+    // `scene_median` would drag it elsewhere — and outside-region pixels
+    // stay byte-identical.
+    let (w, h) = (161usize, 161usize);
+    let mut image = crate::Image::new(
+        w as u32,
+        h as u32,
+        crate::image::ColorSpace::CameraNativeLinearRgb,
+    );
+    image.pixels.fill([0.3, 0.9, 0.9]);
+    for y in 15..146 {
+        for x in 15..146 {
+            image.pixels[y * w + x] = [0.9, 0.7, 0.3];
+        }
+    }
+    for y in 30..131 {
+        for x in 30..131 {
+            image.pixels[y * w + x] = [1.8, 1.0, 0.6];
+        }
+    }
+    let original = image.clone();
+    highlight_recovery::apply_in_region(
+        &mut image,
+        HighlightRecoveryMode::ChromaticAdaptation,
+        [0.5, 1.0, 0.7],
+        0.0,
+        Some(CropRect {
+            x: 15,
+            y: 15,
+            w: 131,
+            h: 131,
+        }),
+    );
+    let p = image.pixels[80 * w + 80];
+    assert_eq!(p[0], 1.8);
+    assert_eq!(p[2], 0.6);
+    assert!(
+        (p[1] - 1.6).abs() < 1e-4,
+        "deferred center must follow the warm inside surround (≈ 1.6), got {}",
+        p[1]
+    );
+    for y in 0..h {
+        for x in 0..w {
+            if x < 15 || x >= 146 || y < 15 || y >= 146 {
+                assert_eq!(
+                    image.pixels[y * w + x],
+                    original.pixels[y * w + x],
+                    "outside-region pixel ({x}, {y}) changed"
+                );
+            }
+        }
+    }
+}

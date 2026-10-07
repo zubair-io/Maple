@@ -49,8 +49,11 @@ const CELL_WSUM_FULL: f32 = 4.0;
 /// this same fallback, so the tier-2/tier-3 boundary is continuous.
 const SCENE_BLEND: f32 = 0.5;
 
-/// Tier-3 scene sampling grid stride (px) and sample cap. The strided pass
-/// visits ~1/64th of the region; the cap bounds the median selection.
+/// Tier-3 scene sampling base grid stride (px) and sample cap.
+/// `scene_median` grows the stride from the region area so the grid visits at
+/// most `SCENE_SAMPLE_CAP` candidates spread over the whole region; small
+/// regions keep this stride exactly. The cap backstop bounds the work and the
+/// median selection.
 const SCENE_SAMPLE_STRIDE: i32 = 8;
 const SCENE_SAMPLE_CAP: usize = 4096;
 
@@ -123,16 +126,22 @@ pub(super) struct CellField {
     gw: usize,
     /// Per cell `[n, Σr, Σg, Σb]` over strided unclipped samples.
     means: Vec<[f32; 4]>,
-    /// Per cell, per partial mask `[cnt, Σr, Σg, Σb]` over deferred pixels.
-    /// Only known channels are ever read; the clipped lanes hold saturated
-    /// values and are ignored.
+    /// Per clipped cell, per partial mask `[cnt, Σr, Σg, Σb]` over deferred
+    /// pixels, indexed by the cell's slot in `clipped_cells`. Only known
+    /// channels are ever read; the clipped lanes hold saturated values and
+    /// are ignored.
     target: Vec<[[f32; 4]; PARTIAL_MASKS]>,
-    /// Per cell, per partial mask `[ratio_r, ratio_g, ratio_b, wsum]`.
+    /// Per clipped cell, per partial mask `[ratio_r, ratio_g, ratio_b, wsum]`.
     /// `wsum == 0` marks "no gather support" (tier 3 decides).
     ratio: Vec<[[f32; 4]; PARTIAL_MASKS]>,
     /// Deduped indices of cells holding deferred pixels.
     clipped_cells: Vec<u32>,
-    marked: Vec<u8>,
+    /// Cell index to its slot in `clipped_cells`/`target`/`ratio`;
+    /// `u32::MAX` marks cells holding no deferred pixel. The per-mask arrays
+    /// grow with the clipped area only, so a sparse render pays the dense
+    /// means (16 B/cell) plus this map (4 B/cell) instead of ~200 B/cell —
+    /// a 100 MP frame with one blown cell rents ~8 MB, not ~80 MB.
+    slot: Vec<u32>,
 }
 
 impl CellField {
@@ -143,10 +152,10 @@ impl CellField {
         Self {
             gw,
             means: vec![[0.0; 4]; n],
-            target: vec![[[0.0; 4]; PARTIAL_MASKS]; n],
-            ratio: vec![[[0.0; 4]; PARTIAL_MASKS]; n],
+            target: Vec::new(),
+            ratio: Vec::new(),
             clipped_cells: Vec::new(),
-            marked: vec![0; n],
+            slot: vec![u32::MAX; n],
         }
     }
 
@@ -158,11 +167,18 @@ impl CellField {
     /// RGB into the cell's per-mask target slot.
     pub(super) fn mark_and_accum(&mut self, x: i32, y: i32, mask: u8, pixel: [f32; 3]) {
         let cell = self.cell_index(x, y);
-        if self.marked[cell] == 0 {
-            self.marked[cell] = 1;
+        let s = self.slot[cell];
+        let slot_idx = if s == u32::MAX {
+            let s = self.clipped_cells.len() as u32;
+            self.slot[cell] = s;
             self.clipped_cells.push(cell as u32);
-        }
-        let slot = &mut self.target[cell][(mask - 1) as usize];
+            self.target.push([[0.0; 4]; PARTIAL_MASKS]);
+            self.ratio.push([[0.0; 4]; PARTIAL_MASKS]);
+            s
+        } else {
+            s
+        };
+        let slot = &mut self.target[slot_idx as usize][(mask - 1) as usize];
         slot[0] += 1.0;
         slot[1] += pixel[0];
         slot[2] += pixel[1];
@@ -208,12 +224,12 @@ impl CellField {
     /// means with bilateral weights into a missing-channel ratio estimate.
     fn resolve_cells(&mut self, floor: f32) {
         let gh = self.means.len() / self.gw;
-        for ci in 0..self.clipped_cells.len() {
-            let cell = self.clipped_cells[ci] as usize;
+        for si in 0..self.clipped_cells.len() {
+            let cell = self.clipped_cells[si] as usize;
             let cx = (cell % self.gw) as i32;
             let cy = (cell / self.gw) as i32;
             for mi in 0..PARTIAL_MASKS {
-                let t = self.target[cell][mi];
+                let t = self.target[si][mi];
                 if t[0] <= 0.0 {
                     continue;
                 }
@@ -252,7 +268,7 @@ impl CellField {
                     }
                 }
                 if wsum > 0.0 {
-                    self.ratio[cell][mi] = [acc[0] / wsum, acc[1] / wsum, acc[2] / wsum, wsum];
+                    self.ratio[si][mi] = [acc[0] / wsum, acc[1] / wsum, acc[2] / wsum, wsum];
                 }
             }
         }
@@ -261,7 +277,9 @@ impl CellField {
     /// The resolved estimate for one deferred pixel: shared cell ratio and
     /// confidence, or `None` when the gather found no support (tier 3).
     fn cell_estimate(&self, x: i32, y: i32, mask: u8) -> (Option<[f32; 3]>, f32) {
-        let r = self.ratio[self.cell_index(x, y)][(mask - 1) as usize];
+        // Every deferred pixel passed through `mark_and_accum`, so its cell
+        // always holds a slot; an unmarked cell here is a caller bug.
+        let r = self.ratio[self.slot[self.cell_index(x, y)] as usize][(mask - 1) as usize];
         if r[3] > 0.0 {
             (Some([r[0], r[1], r[2]]), (r[3] / CELL_WSUM_FULL).min(1.0))
         } else {
@@ -277,7 +295,7 @@ fn known_mean_of(p: [f32; 3], mask: u8, known_n: u32) -> f32 {
         .filter(|c| (mask >> c) & 1 == 0)
         .map(|c| p[c])
         .sum::<f32>()
-        / f32::from(known_n as u8)
+        / (known_n as f32)
 }
 
 /// Resolve every pixel tier 1 deferred: build the regional field once,
@@ -373,6 +391,16 @@ pub(super) fn scene_median(
     bottom: i32,
 ) -> Option<[f32; 3]> {
     let w = img.width as i32;
+    // Size the grid to the cap so the median represents the whole region:
+    // stride s visits ~area/s^2 candidates, so s = ceil(sqrt(area/cap))
+    // holds the visit count at the cap while spreading samples over both
+    // dimensions. Capping a fixed stride-8 grid in raster order instead
+    // would stop after the top ~13% of a 2 MP frame and read sky as scene.
+    // Regions under 512x512 px of area keep the base stride (identical sampling).
+    let rw = (right - left).max(0) as f64;
+    let rh = (bottom - top).max(0) as f64;
+    let fit = (rw * rh / SCENE_SAMPLE_CAP as f64).sqrt().ceil();
+    let stride = (SCENE_SAMPLE_STRIDE as f64).max(fit) as i32;
     let mut samples: Vec<[f32; 3]> = Vec::new();
     let mut y = top;
     while y < bottom && samples.len() < SCENE_SAMPLE_CAP {
@@ -385,15 +413,18 @@ pub(super) fn scene_median(
                     samples.push(p);
                 }
             }
-            x += SCENE_SAMPLE_STRIDE;
+            x += stride;
         }
-        y += SCENE_SAMPLE_STRIDE;
+        y += stride;
     }
     if samples.is_empty() {
         return None;
     }
     let mid = samples.len() / 2;
     Some(std::array::from_fn(|c| {
+        // Each call re-partitions the same buffer for its own channel: the
+        // three medians are independent per-channel selections, not one
+        // joint median pixel, so reusing the allocation is correct.
         samples
             .select_nth_unstable_by(mid, |a, b| a[c].total_cmp(&b[c]))
             .1[c]

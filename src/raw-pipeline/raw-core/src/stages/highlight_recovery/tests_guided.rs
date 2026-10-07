@@ -2,6 +2,7 @@ use super::*;
 
 const NEUTRAL_DAYLIGHT: [f32; 3] = [0.5, 1.0, 0.7];
 const WARM: [f32; 3] = [0.9, 0.7, 0.3];
+const COOL: [f32; 3] = [0.3, 0.9, 0.9];
 const WARM_CLIPPED: [f32; 3] = [1.8, 1.0, 0.6];
 
 fn recover(img: &mut Image) {
@@ -120,6 +121,29 @@ fn warm_scene_fallback_preserves_cast_without_local_support() {
     assert!(
         out_rg > 1.0 && out_rg < 1.286,
         "warmth partially preserved, got R/G = {out_rg}"
+    );
+}
+
+#[test]
+fn scene_median_samples_the_whole_region_not_the_top() {
+    // 640x640 at stride 8 holds 6400 grid candidates: a raster-ordered cap
+    // stops after the top ~51 sampled rows, so a warm top third reads as
+    // the whole scene. The area-derived stride spreads the 4096 budget over
+    // both dimensions instead, and with warm on top and cool below the
+    // median must follow the cool majority on every channel.
+    let (w, h) = (640usize, 640usize);
+    let mut img = Image::new(w as u32, h as u32, ColorSpace::CameraNativeLinearRgb);
+    for y in 0..h {
+        for x in 0..w {
+            img.pixels[y * w + x] = if y < h / 3 { WARM } else { COOL };
+        }
+    }
+    let mask = vec![0u8; w * h];
+    let median =
+        scene_median(&img, &mask, 0, 0, w as i32, h as i32).expect("unclipped samples exist");
+    assert_eq!(
+        median, COOL,
+        "top-biased scene prior: median {median:?} follows the warm top third"
     );
 }
 
