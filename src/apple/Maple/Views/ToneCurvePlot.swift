@@ -30,7 +30,10 @@ import SwiftUI
 
 struct ToneCurvePlot: View {
   /// The committed point list for the active channel (empty = identity).
-  let points: [ToneCurvePoint]
+  let readPoints: () -> [ToneCurvePoint]
+
+  // Focused keyboard handlers can outlive a body update; read the current authored curve.
+  private var points: [ToneCurvePoint] { readPoints() }
   /// Stroke colour for this channel's curve.
   let stroke: Color
   /// Human name of the active channel, used in accessibility labels.
@@ -41,12 +44,19 @@ struct ToneCurvePlot: View {
   let onChange: ([ToneCurvePoint]) -> Void
   /// Opens history before the first write and closes it at release.
   let onEditingChanged: (Bool) -> Void
+  let keyboardBridge: ToneCurveKeyboardBridge?
+  let onKeyHandlerChanged: (((KeyPress) -> KeyPress.Result)?) -> Void
 
   /// Knot hit radius, in authoring-domain units (≈ 8pt on a 220pt plot).
   private static let hitRadius = 0.05
   /// Vertical nudge per arrow-key press, in authoring-domain units.
   private static let keyStep = 1.0 / 64.0
 
+  @FocusState private var focusedKnot: Int?
+  #if os(iOS)
+    @State private var knotResponders = ToneCurveKnotResponders()
+  #endif
+  @State private var insertedKnotFocus: Int?
   @State private var dragIndex: Int?
   @State private var dragPoints: [ToneCurvePoint]?
   @GestureState private var dragGestureActive = false
@@ -61,23 +71,31 @@ struct ToneCurvePlot: View {
 
   var body: some View {
     GeometryReader { geo in
-      let size = min(geo.size.width, geo.size.height)
+      // Keep the endpoint glyph and its focus ring inside the inspector's clip.
+      // Canvas drawing and pointer conversion share the same inner square.
+      let ringMargin: CGFloat = 10
+      let size = max(0, min(geo.size.width, geo.size.height) - ringMargin * 2)
       ZStack {
-        histogramBackdrop
-        Canvas { context, canvasSize in
-          draw(context: context, size: canvasSize)
+        ZStack {
+          histogramBackdrop
+          Canvas { context, canvasSize in
+            draw(context: context, size: canvasSize)
+          }
         }
+        .frame(width: size, height: size)
+        .background(ProTokens.canvasAlt)
+        .clipShape(RoundedRectangle(cornerRadius: MapleTokens.Radius.sm, style: .continuous))
         knotOverlay(size: size)
       }
       .frame(width: size, height: size)
-      .background(ProTokens.canvasAlt)
-      .clipShape(RoundedRectangle(cornerRadius: MapleTokens.Radius.sm, style: .continuous))
       .overlay(
         RoundedRectangle(cornerRadius: MapleTokens.Radius.sm, style: .continuous)
           .stroke(ProTokens.border, lineWidth: 0.5)
+          .allowsHitTesting(false)
       )
       .contentShape(Rectangle())
       .gesture(dragGesture(size: size))
+      .padding(ringMargin)
       .frame(maxWidth: .infinity, alignment: .center)
     }
     .aspectRatio(1, contentMode: .fit)
@@ -86,7 +104,42 @@ struct ToneCurvePlot: View {
     .onChange(of: dragGestureActive) { old, new in
       if old && !new { endDrag() }
     }
-    .onDisappear { endDrag() }
+    .onChange(of: knots.count) { _, _ in
+      if let index = insertedKnotFocus {
+        insertedKnotFocus = nil
+        if knots.indices.contains(index) { focusKnot(index) }
+      } else if let index = focusedKnot, !knots.indices.contains(index) {
+        focusedKnot = nil
+      }
+    }
+    .onChange(of: channelName) { _, _ in
+      insertedKnotFocus = nil
+      focusedKnot = nil
+      #if os(iOS)
+        knotResponders.resign()
+      #endif
+    }
+    .onDisappear {
+
+      insertedKnotFocus = nil
+      focusedKnot = nil
+      #if os(iOS)
+        knotResponders.resign()
+      #endif
+      endDrag()
+      #if os(iOS)
+        keyboardBridge?.handle = nil
+        keyboardBridge?.resign = nil
+        onKeyHandlerChanged(nil)
+      #endif
+    }
+    #if os(iOS)
+      .onAppear {
+        keyboardBridge?.handle = { press in knotResponders.handle(press) }
+        keyboardBridge?.resign = { knotResponders.resign() }
+        onKeyHandlerChanged { press in knotResponders.handle(press) }
+      }
+    #endif
   }
 
   // MARK: - Backdrop
@@ -155,19 +208,54 @@ struct ToneCurvePlot: View {
     let count = list.count
     return ZStack(alignment: .topLeading) {
       ForEach(Array(list.enumerated()), id: \.offset) { index, knot in
-        ToneCurveKnotMarker(
-          center: point(knot, in: CGSize(width: size, height: size)),
-          isPinned: index == 0 || index == count - 1,
-          tint: stroke,
-          label: knotLabel(index: index, count: count, isPinned: index == 0 || index == count - 1),
-          value: "\(Int((knot.y * 100).rounded()))",
-          identifier: "editor-tone-curve-knot-\(index)",
-          onAdjust: { direction in adjust(index: index, direction: direction) }
-        )
+        Group {
+          #if os(iOS)
+            ToneCurveNativeKnot(
+              index: index, responders: knotResponders, fill: ProTokens.text,
+              stroke: index == 0 || index == count - 1 ? Color.white.opacity(0.30) : stroke,
+              strokeWidth: index == 0 || index == count - 1 ? 1 : 1.5,
+              ring: ProTokens.accent,
+              label: knotLabel(
+                index: index, count: count, isPinned: index == 0 || index == count - 1),
+              value: "\(Int((knot.y * 100).rounded()))",
+              identifier: "editor-tone-curve-knot-\(index)",
+              onArrow: { key in
+
+                let list = ToneCurveEditing.materialize(shownPoints)
+                guard list.indices.contains(index) else { return }
+                let dx = key == .leftArrow ? -Self.keyStep : key == .rightArrow ? Self.keyStep : 0
+                let dy = key == .downArrow ? -Self.keyStep : key == .upArrow ? Self.keyStep : 0
+                move(index: index, x: list[index].x + dx, y: list[index].y + dy)
+              },
+              onAdjust: { direction in adjust(index: index, direction: direction) }
+            ).frame(width: 9, height: 9)
+          #else
+            ToneCurveKnotMarker(
+              isPinned: index == 0 || index == count - 1,
+              tint: stroke,
+              index: index,
+              focus: $focusedKnot,
+              onKey: { press in handleKey(press, index: index) },
+              label: knotLabel(
+                index: index, count: count, isPinned: index == 0 || index == count - 1),
+              value: "\(Int((knot.y * 100).rounded()))",
+              identifier: "editor-tone-curve-knot-\(index)",
+              onAdjust: { direction in adjust(index: index, direction: direction) }
+            )
+          #endif
+        }
+        .position(point(knot, in: CGSize(width: size, height: size)))
       }
     }
     .frame(width: size, height: size, alignment: .topLeading)
-    .allowsHitTesting(false)
+  }
+
+  private func focusKnot(_ index: Int) {
+    #if os(iOS)
+      knotResponders.focus(index)
+    #else
+      focusedKnot = index
+    #endif
   }
 
   private func knotLabel(index: Int, count: Int, isPinned: Bool) -> String {
@@ -181,9 +269,31 @@ struct ToneCurvePlot: View {
     let list = ToneCurveEditing.materialize(shownPoints)
     guard index >= 0, index < list.count else { return }
     let delta = direction == .increment ? Self.keyStep : -Self.keyStep
-    let moved = ToneCurveEditing.move(
-      shownPoints, index: index, x: list[index].x, y: list[index].y + delta
-    )
+    move(index: index, x: list[index].x, y: list[index].y + delta)
+  }
+
+  // A focused knot owns arrows before the editor group/filmstrip route (#4384).
+  private func handleKey(
+    _ press: KeyPress, index: Int
+  ) -> KeyPress.Result {
+
+    guard press.modifiers.intersection([.command, .control, .option, .shift]).isEmpty else {
+      return .ignored
+    }
+    guard press.phase != .up else { return .handled }
+    let list = ToneCurveEditing.materialize(shownPoints)
+    guard list.indices.contains(index) else { return .handled }
+    let knot = list[index]
+    let dx = press.key == .leftArrow ? -Self.keyStep : press.key == .rightArrow ? Self.keyStep : 0
+    let dy = press.key == .downArrow ? -Self.keyStep : press.key == .upArrow ? Self.keyStep : 0
+    move(index: index, x: knot.x + dx, y: knot.y + dy)
+    return .handled
+  }
+
+  private func move(index: Int, x: Double, y: Double) {
+
+    let moved = ToneCurveEditing.move(shownPoints, index: index, x: x, y: y)
+    guard ToneCurve(points: moved) != ToneCurve(points: shownPoints) else { return }
     onEditingChanged(true)
     onChange(moved)
     onEditingChanged(false)
@@ -210,6 +320,7 @@ struct ToneCurvePlot: View {
 
   /// Grab the knot under the finger, or insert one there and grab that.
   private func beginDrag(at pos: (x: Double, y: Double)) {
+
     let existing = ToneCurveEditing.hitTest(
       points, x: pos.x, y: pos.y, radius: Self.hitRadius
     )
@@ -225,12 +336,22 @@ struct ToneCurvePlot: View {
     // Snapshot for undo at the START of the gesture, so one drag is one
     // undo entry no matter how many writes it forwards.
     onEditingChanged(true)
+    // A new point cannot take focus until its materialized overlay is published.
+    // Existing points retain the ordinary pointer/Tab focus route.
+    if existing == nil {
+      insertedKnotFocus = index
+    } else {
+      insertedKnotFocus = nil
+      focusKnot(index)
+    }
+
     dragIndex = index
     dragPoints = next
     if ToneCurve(points: next) != ToneCurve(points: points) { onChange(next) }
   }
 
   private func continueDrag(to pos: (x: Double, y: Double)) {
+
     guard let index = dragIndex else { return }
     let next = ToneCurveEditing.move(shownPoints, index: index, x: pos.x, y: pos.y)
     // Paint immediately; the render scheduler coalesces superseded work.
@@ -239,6 +360,7 @@ struct ToneCurvePlot: View {
   }
 
   private func endDrag() {
+
     guard dragIndex != nil else { return }
     // Keep the final control point even if SwiftUI coalesced the last
     // gesture event with the release/cancellation update.
@@ -255,6 +377,7 @@ struct ToneCurvePlot: View {
     guard size > 0 else { return (0, 0) }
     return (x: location.x / size, y: 1 - location.y / size)
   }
+
 }
 
 // MARK: - ToneCurveKnotMarker
@@ -265,13 +388,19 @@ struct ToneCurvePlot: View {
 /// modifiers) exceeds the Swift expression type-checker's budget when it is
 /// inlined into a `ForEach` body.
 private struct ToneCurveKnotMarker: View {
-  let center: CGPoint
   let isPinned: Bool
   let tint: Color
+  let index: Int
+  let focus: FocusState<Int?>.Binding
+  let onKey: (KeyPress) -> KeyPress.Result
   let label: String
   let value: String
   let identifier: String
   let onAdjust: (AccessibilityAdjustmentDirection) -> Void
+
+  private var inputKeys: Set<KeyEquivalent> {
+    [.leftArrow, .rightArrow, .upArrow, .downArrow]
+  }
 
   private var strokeColor: Color { isPinned ? Color.white.opacity(0.30) : tint }
   private var strokeWidth: CGFloat { isPinned ? 1 : 1.5 }
@@ -281,11 +410,21 @@ private struct ToneCurveKnotMarker: View {
       .fill(ProTokens.text)
       .overlay(Circle().stroke(strokeColor, lineWidth: strokeWidth))
       .frame(width: 9, height: 9)
-      .position(center)
+      .overlay {
+        if focus.wrappedValue == index {
+          Circle().stroke(ProTokens.accent, lineWidth: 2).frame(width: 17, height: 17)
+        }
+      }
+      .focusable().focused(focus, equals: index).focusEffectDisabled()
       .accessibilityElement()
       .accessibilityLabel(label)
       .accessibilityValue(value)
+      .accessibilityHint("Arrow keys move the curve point. Tab moves to the next control.")
       .accessibilityIdentifier(identifier)
       .accessibilityAdjustableAction(onAdjust)
+      .focusedValue(\.toneCurveKeyPress, { press in onKey(press) })
+      .onKeyPress(
+        keys: inputKeys,
+        phases: [.down, .repeat, .up], action: { press in onKey(press) })
   }
 }

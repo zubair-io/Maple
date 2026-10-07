@@ -89,6 +89,8 @@ struct ToneCurveSection: View {
   /// model, not a value stored in it, so it deliberately does NOT persist to
   /// the sidecar.
   @State private var selectedChannelID = "luma"
+  @Environment(\.toneCurveKeyboardBridge) private var keyboardBridge
+  @State private var curveKeyHandler: ((KeyPress) -> KeyPress.Result)?
 
   private var channels: [Channel] {
     selectedFamily == .display ? Self.displayChannels : Self.sceneLinearChannels
@@ -114,18 +116,23 @@ struct ToneCurveSection: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-tone-curve-section")
+    #if os(iOS)
+      .focusedSceneValue(\.toneCurveKeyPress, curveKeyHandler)
+    #endif
   }
 
   var curvePlot: ToneCurvePlot {
     ToneCurvePlot(
-      points: points,
+      readPoints: { points },
       stroke: channel.stroke,
       channelName: channel.label,
       session: state.session,
       onChange: writeCurve,
       onEditingChanged: { editing in
         if editing { state.commit() } else { state.endGesture() }
-      }
+      },
+      keyboardBridge: keyboardBridge,
+      onKeyHandlerChanged: { handler in curveKeyHandler = handler }
     )
   }
 
@@ -144,6 +151,7 @@ struct ToneCurveSection: View {
           isModified: false,
           tint: ProTokens.accent,
           action: {
+            keyboardBridge?.resign?()
             selectedFamily = fam
             selectedChannelID = "luma"
           }
@@ -163,7 +171,10 @@ struct ToneCurveSection: View {
           isSelected: ch.id == selectedChannelID,
           isModified: !state.session.model[keyPath: ch.keyPath].isIdentity,
           tint: ch.stroke,
-          action: { selectedChannelID = ch.id }
+          action: {
+            keyboardBridge?.resign?()
+            selectedChannelID = ch.id
+          }
         )
       }
       Spacer(minLength: 6)
@@ -213,12 +224,16 @@ struct ToneCurveSection: View {
       defaultValue: sub.defaultDisplayValue,
       onEditingChanged: { editing in
         if editing {
+          keyboardBridge?.resign?()
           state.beginSliderInteraction(tool: .toneCurve, subParamID: sub.id)
         } else {
           state.endGesture()
         }
       }
     )
+    #if os(iOS)
+      .focusedValue(\.toneCurveKeyPress, curveKeyHandler)
+    #endif
     .accessibilityIdentifier("editor-tone-curve-\(sub.id)")
   }
 
@@ -234,6 +249,7 @@ struct ToneCurveSection: View {
   /// Back to the identity — the EMPTY list, not the corner anchors, so an
   /// undone edit leaves the sidecar as clean as it found it (#365).
   private func resetChannel() {
+    keyboardBridge?.resign?()
     state.commit()
     writeCurve([])
   }
