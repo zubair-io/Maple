@@ -376,3 +376,7 @@ mod tests_film;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "gpu_render/tests_mask_raster.rs"]
 mod tests_mask_raster;
+
+#[cfg(test)]
+#[path = "gpu_render/tests_sharpen.rs"]
+mod tests_sharpen;

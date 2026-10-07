@@ -210,7 +210,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         name: "sharpen_amount",
         kind: FieldKind::F32,
         range: (0.0, 150.0),
-        default_f32: 40.0,
+        default_f32: super::defaults::DEFAULT_SHARPEN_AMOUNT,
         enum_name: "",
         doc: "Sharpening amount per spec § 3.10 (0 = stage skipped, 100 = full RL). Default = reference-renderer import (40).",
     },

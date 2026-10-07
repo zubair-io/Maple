@@ -9,7 +9,7 @@
 //   lo     = li + (li - lb)                     (li = luma, lb = blur(luma))
 //   weight = smoothstep(EPS, BAND*EPS, li)      (shadow guard)
 //   scale  = 1 + weight * (clamp(lo / max(li, EPS), MIN, MAX) - 1)
-//   out    = observed.rgb * scale               (alpha carried through)
+//   out    = observed.rgb * scale               (private alpha carries darkening contrast)
 // Luma-only: every RGB channel scales by the SAME scalar, so chroma ratios are
 // preserved by construction (the #439 no-fringing contract). Operation order kept
 // verbatim so the result bit-matches raw-core (only float order differs, ~1e-6).
@@ -57,5 +57,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let bounded = clamp(raw_scale, MIN_SCALE, MAX_SCALE);
     let scale = 1.0 + weight * (bounded - 1.0);
 
-    sharpened_buf[i] = vec4<f32>(o.rgb * scale, o.a);
+    // Scratch alpha carries darkening to the mix pass (#4112); the mix restores source alpha.
+    let darkening = select(0.0, 1.0 - scale, lb > li && weight > 0.0);
+    sharpened_buf[i] = vec4<f32>(o.rgb * scale, darkening);
 }
