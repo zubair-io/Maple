@@ -169,6 +169,35 @@ final class NativeExportQueueTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: fixture.raw), fixture.original)
   }
 
+  func testSiblingOutputNameCollisionFailsInsteadOfReplacingAndLeavesNoStaging() async throws {
+    let fixture = try NativeWorkflowControlFixture.files()
+    defer { try? FileManager.default.removeItem(at: fixture.directory) }
+    let copy = fixture.directory.appendingPathComponent("copy.dng")
+    try fixture.original.write(to: copy)
+    let first = try NativeExportQueueFixture.record(
+      fixture.raw, root: fixture.directory, stem: "dup", index: 1)
+    let second = try NativeExportQueueFixture.record(
+      copy, root: fixture.directory, stem: "dup", index: 2)
+    var recipe = first.recipe
+    recipe.overwritePolicy = "replace"
+    var record = NativeExportQueueFixture.replacingRecipe(first, recipe)
+    record.originals += second.originals
+    record.items += second.items
+    let queue = NativeExportQueue(directory: fixture.directory.appendingPathComponent("ledger"))
+    try await queue.enqueue(record)
+    try await queue.run()
+    let finished = try await queue.load()
+    XCTAssertEqual(finished?.items.map(\.status), ["applied", "failed"])
+    XCTAssertTrue(finished?.items.last?.reason?.contains("already uses dup.png") == true)
+    let outputs = fixture.directory.appendingPathComponent("outputs")
+    let names = try FileManager.default.contentsOfDirectory(atPath: outputs.path)
+    XCTAssertEqual(names, ["dup.png"])
+    XCTAssertEqual(
+      try NativeExportStorage.hash(outputs.appendingPathComponent("dup.png")),
+      finished?.items.first?.afterHash)
+    XCTAssertEqual(try Data(contentsOf: fixture.raw), fixture.original)
+  }
+
   func testSavedDeviceAndInodeProtectRenamedOriginalHardLinkAfterReload() async throws {
     let fixture = try NativeWorkflowControlFixture.files()
     defer { try? FileManager.default.removeItem(at: fixture.directory) }

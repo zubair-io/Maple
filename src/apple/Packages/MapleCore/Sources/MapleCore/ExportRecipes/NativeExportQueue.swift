@@ -60,6 +60,12 @@ public actor NativeExportQueue {
     for observer in observers.values { observer.yield(record) }
   }
 
+  private func persistItemProgress() throws {
+    do { try persist() } catch {
+      throw NativeExportPublicationDurabilityError(detail: error.localizedDescription)
+    }
+  }
+
   public func enqueue(_ value: NativeExportRecord) async throws {
     do { try await enqueueCaptured(value) } catch {
       let failure = error
@@ -99,7 +105,8 @@ public actor NativeExportQueue {
     defer { withExtendedLifetime(lock) {} }
     let previous = try await loadRecord()
     guard previous?.remaining ?? 0 == 0 else {
-      throw NativeExportError.message("Resume or cancel the saved export before starting another.")
+      throw NativeExportError.message(
+        "Resume the saved export, or discard its remaining photos, before starting another.")
     }
     try value.validate()
     var replacement = value
@@ -135,7 +142,7 @@ public actor NativeExportQueue {
     let lock = running ? nil : try NativeExportRunLock(directory: directory)
     defer { withExtendedLifetime(lock) {} }
     if !running { _ = try await loadRecord() }
-    guard record != nil else { return }
+    guard let current = record, running || current.remaining > 0 else { return }
     cancellation.cancel()
     record!.cancelRequested = true
     if !running { record!.phase = "cancelled" }
@@ -193,8 +200,19 @@ public actor NativeExportQueue {
     let lock = try NativeExportRunLock(directory: directory)
     defer { withExtendedLifetime(lock) {} }
     guard var value = try await loadRecord() else { return }
+    let snapshot = value
+    let access = try? await BlockingWork.run {
+      try NativeExportAccess(record: snapshot, workspace: self.directory)
+    }
     for index in value.items.indices
     where !["applied", "failed", "skipped"].contains(value.items[index].status) {
+      if let access {
+        let item = value.items[index]
+        try? await BlockingWork.run {
+          try NativeExportPublication.discardStaging(
+            item, record: snapshot, access: access, createdThisRun: false)
+        }
+      }
       value.items[index].status = "skipped"
       value.items[index].reason = "Discarded by user; no output was published."
     }
@@ -287,6 +305,7 @@ public actor NativeExportQueue {
         return
       }
       if ["applied", "failed", "skipped"].contains(record!.items[index].status) { continue }
+      let resumed = ["rendering", "prepared"].contains(record!.items[index].status)
       do {
         let current = record!
         let entry = current.items[index]
@@ -294,14 +313,14 @@ public actor NativeExportQueue {
           try NativeExportPublication.prepare(entry, record: current, access: access)
         }
         record!.items[index] = prepared
-        try persist()
+        try persistItemProgress()
         await didPersist()  // Durable rendering identity precedes the native create_new write.
         if prepared.status == "rendering" {
           let snapshot = record!
           record!.items[index] = try await BlockingWork.run {
             try NativeExportPublication.render(prepared, record: snapshot, access: access)
           }
-          try persist()
+          try persistItemProgress()
           await didPersist()  // Prepared bytes/hash are durable before any publication.
         }
         if record!.cancelRequested {
@@ -320,7 +339,7 @@ public actor NativeExportQueue {
           }
           record!.items[index] = NativeExportItem(target: pending.target)
           record!.phase = "cancelled"
-          try persist()
+          try persistItemProgress()
           await didPersist()
           return
         }
@@ -340,7 +359,7 @@ public actor NativeExportQueue {
             await checkpoint(notice)
           }
           record!.items[index] = published
-          try persist()
+          try persistItemProgress()
           await didPersist()
         }
       } catch let error as NativeExportPublicationDurabilityError {
@@ -354,6 +373,12 @@ public actor NativeExportQueue {
         await didPersist()
         return
       } catch {
+        let failed = record!.items[index]
+        let snapshot = record!
+        try? await BlockingWork.run {
+          try NativeExportPublication.discardStaging(
+            failed, record: snapshot, access: access, createdThisRun: !resumed)
+        }
         record!.items[index].status = "failed"
         record!.items[index].reason = NativeExportStorage.failure(error)
         try persist()

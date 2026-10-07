@@ -191,6 +191,9 @@
             Button("Cancel export", action: vm.cancel)
               .disabled(!vm.running && !vm.preparing && record.remaining == 0)
               .accessibilityIdentifier("native-export-cancel")
+            Button("Discard remaining", action: vm.discardRemaining)
+              .disabled(vm.running || vm.preparing || record.remaining == 0)
+              .accessibilityIdentifier("native-export-discard")
           }
           Button("Grant destination access again…", action: vm.grantDestination).disabled(
             vm.running)

@@ -9,13 +9,24 @@ public actor NativeExportRecipeStore {
       directory ?? NativeExportStorage.root().appendingPathComponent("Recipes", isDirectory: true)
   }
   public func list() throws -> [SavedNativeExportRecipe] {
+    try files().compactMap(Self.decode)
+      .sorted {
+        $0.recipe.name.localizedCaseInsensitiveCompare($1.recipe.name) == .orderedAscending
+      }
+  }
+  /// Files that could not be decoded stay on disk untouched and are reported, not hidden.
+  public func unreadable() throws -> [String] {
+    try files().filter { Self.decode($0) == nil }.map(\.lastPathComponent).sorted()
+  }
+  private func files() throws -> [URL] {
     guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
     return try FileManager.default.contentsOfDirectory(
       at: directory, includingPropertiesForKeys: nil
     )
     .filter { $0.pathExtension == "json" }
-    .map { try JSONDecoder().decode(SavedNativeExportRecipe.self, from: Data(contentsOf: $0)) }
-    .sorted { $0.recipe.name.localizedCaseInsensitiveCompare($1.recipe.name) == .orderedAscending }
+  }
+  private static func decode(_ url: URL) -> SavedNativeExportRecipe? {
+    try? JSONDecoder().decode(SavedNativeExportRecipe.self, from: Data(contentsOf: url))
   }
   public func save(_ value: SavedNativeExportRecipe) throws {
     let name = value.recipe.name.trimmingCharacters(in: .whitespacesAndNewlines)

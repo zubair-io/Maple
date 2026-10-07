@@ -73,7 +73,7 @@ final class NativeExportAccess: @unchecked Sendable {
     #endif
   }
   private static func resolve(_ data: Data) throws -> URL {
-    var stale = false
+    var stale = false  // A stale bookmark still resolves; identity and byte checks guard its use.
     #if os(macOS)
       let url = try URL(
         resolvingBookmarkData: data, options: [.withSecurityScope, .withoutUI], relativeTo: nil,
@@ -83,9 +83,9 @@ final class NativeExportAccess: @unchecked Sendable {
         resolvingBookmarkData: data, options: .withoutUI, relativeTo: nil,
         bookmarkDataIsStale: &stale)
     #endif
-    guard url.isFileURL, !stale else {
+    guard url.isFileURL else {
       throw NativeExportError.message(
-        "Saved folder access is stale. Choose the original and destination folders again.")
+        "Saved folder access is invalid. Choose the original and destination folders again.")
     }
     return url
   }
