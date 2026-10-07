@@ -206,6 +206,56 @@ test('Google Drive destination coverage preserves pending and missing counts', a
       pending: 2,
       missing: 2,
     });
+
+    run(
+      live.db,
+      `UPDATE backup_coverage_counts SET live_locations=0 WHERE library_id=?`,
+      libraryId,
+    );
+    const driftResponse = await app.handle(
+      new Request('http://localhost/api/cloud-backup/destinations', {
+        headers: { Authorization: `Bearer ${owner}` },
+      }),
+    );
+    const driftBody = (await driftResponse.json()) as {
+      destinations: Array<{ id: string; status: { pending: number } }>;
+    };
+    expect(driftBody.destinations.find((item) => item.id === destination.id)?.status.pending).toBe(
+      0,
+    );
+
+    const emptyLibraryId = insertFolder(live.db);
+    const emptyDestination = await repo.createDestination({
+      libraryId: emptyLibraryId,
+      kind: 'google-drive',
+      name: 'Empty Drive',
+      path: null,
+    });
+    const rediscoveredAsset = insertAsset(live.db);
+    run(live.db, `UPDATE assets SET deleted_reason='reaped' WHERE id=?`, rediscoveredAsset);
+    insertLocation(live.db, {
+      assetId: rediscoveredAsset,
+      libraryId: emptyLibraryId,
+      filename: 'rediscovered.dng',
+      missingSince: '2026-10-03T00:00:00Z',
+    });
+    run(
+      live.db,
+      `UPDATE asset_locations SET missing_since=NULL WHERE asset_id=?`,
+      rediscoveredAsset,
+    );
+    run(live.db, `UPDATE assets SET deleted_reason=NULL WHERE id=?`, rediscoveredAsset);
+    const rediscoveredResponse = await app.handle(
+      new Request('http://localhost/api/cloud-backup/destinations', {
+        headers: { Authorization: `Bearer ${owner}` },
+      }),
+    );
+    const rediscoveredBody = (await rediscoveredResponse.json()) as {
+      destinations: Array<{ id: string; status: { pending: number } }>;
+    };
+    expect(
+      rediscoveredBody.destinations.find((item) => item.id === emptyDestination.id)?.status.pending,
+    ).toBe(1);
   } finally {
     process.env.MAPLE_JWT_SECRET = previous;
   }

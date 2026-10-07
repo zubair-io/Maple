@@ -16,6 +16,7 @@ test('destination coverage counts backfill correctly and track location and Tras
     ALL_MIGRATIONS.filter((migration) => migration.id <= '0015-person-segmentations'),
   );
   const libraryId = insertFolder(handle.db);
+  const zeroLibraryId = insertFolder(handle.db);
   const liveAsset = insertAsset(handle.db);
   const missingAsset = insertAsset(handle.db);
   const reapedAsset = insertAsset(handle.db);
@@ -44,6 +45,11 @@ test('destination coverage counts backfill correctly and track location and Tras
       .query(`SELECT live_locations FROM backup_coverage_counts WHERE library_id=?`)
       .get(libraryId),
   ).toEqual({ live_locations: 1 });
+  expect(
+    handle.db
+      .query(`SELECT live_locations FROM backup_coverage_counts WHERE library_id=?`)
+      .get(zeroLibraryId),
+  ).toEqual({ live_locations: 0 });
   expect(
     handle.db
       .query(
@@ -84,4 +90,26 @@ test('destination coverage counts backfill correctly and track location and Tras
       .get(libraryId),
   ).toEqual({ live_locations: 0 });
   expect(handle.db.query('PRAGMA foreign_key_check').all()).toEqual([]);
+
+  const emptyLibraryId = insertFolder(handle.db);
+  const initiallyReaped = insertAsset(handle.db);
+  run(handle.db, `UPDATE assets SET deleted_reason='reaped' WHERE id=?`, initiallyReaped);
+  insertLocation(handle.db, {
+    assetId: initiallyReaped,
+    libraryId: emptyLibraryId,
+    filename: 'rediscovered.dng',
+    missingSince: '2026-10-03T00:00:00Z',
+  });
+  run(handle.db, `UPDATE asset_locations SET missing_since=NULL WHERE asset_id=?`, initiallyReaped);
+  expect(
+    handle.db
+      .query(`SELECT live_locations FROM backup_coverage_counts WHERE library_id=?`)
+      .get(emptyLibraryId),
+  ).toBeNull();
+  run(handle.db, `UPDATE assets SET deleted_reason=NULL WHERE id=?`, initiallyReaped);
+  expect(
+    handle.db
+      .query(`SELECT live_locations FROM backup_coverage_counts WHERE library_id=?`)
+      .get(emptyLibraryId),
+  ).toEqual({ live_locations: 1 });
 });

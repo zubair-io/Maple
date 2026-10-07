@@ -82,13 +82,13 @@ async function projection(row: BackupDestination) {
     prepared: number;
   }>(
     `SELECT
-    COALESCE((SELECT live_locations FROM backup_coverage_counts WHERE library_id=?),0)
+    MAX(0,COALESCE((SELECT live_locations FROM backup_coverage_counts WHERE library_id=?),0)
       - (SELECT COUNT(*) FROM backup_entries e
         JOIN asset_locations l ON l.asset_id=e.asset_id AND l.ordinal=e.ordinal
         JOIN assets a ON a.id=e.asset_id
         WHERE e.destination_id=? AND l.library_id=? AND l.deleted_at IS NULL
           AND l.missing_since IS NULL AND a.deleted_reason IS NULL
-          AND (e.state='purged' OR e.verified_sequence>=e.sequence)) AS pending,
+          AND (e.state='purged' OR e.verified_sequence>=e.sequence))) AS pending,
     (SELECT COUNT(*) FROM asset_locations
       WHERE library_id=? AND missing_since IS NOT NULL)
       + (SELECT COUNT(*) FROM assets AS a INDEXED BY assets_reaped
