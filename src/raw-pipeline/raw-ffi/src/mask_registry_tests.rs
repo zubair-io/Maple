@@ -189,7 +189,8 @@ fn brush_layer_resolves_by_digest_and_stamps_the_id() {
     use raw_core::types::BrushDab;
     use raw_core::types::Point2;
     let digest = b"b00580000000360a";
-    let id = maple_mask_raster_register(digest.as_ptr(), 2, 2, DATA.as_ptr(), DATA.len());
+    let id =
+        unsafe { maple_mask_raster_register(digest.as_ptr(), 2, 2, DATA.as_ptr(), DATA.len()) };
     assert!(id >= 1, "expected a positive id, got {id}");
 
     let mut model = AdjustmentModel::default();

@@ -78,7 +78,7 @@ export function parseBrushLeaf(leaf: Element): LeafMask | undefined {
  * rasterizer quantizes to R8), erase as `0`/`1`. Dabs with a non-finite
  * field are dropped, mirroring raw-core's writer.
  */
-export function dabSeries(dabs: readonly BrushDab[]): string {
+function dabSeries(dabs: readonly BrushDab[]): string {
   return dabs
     .filter((d) =>
       [d.center.x, d.center.y, d.radius, d.feather, d.weight].every((v) => Number.isFinite(v)),

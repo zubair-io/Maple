@@ -249,7 +249,7 @@ export class MaskSessionService {
         this.library.updateAdjustment(assetId, { localAdjustments: layers }),
       registerRaster: (upload) => this.pipeline.registerBrushRaster(upload),
       releaseRaster: (rasterId) => this.pipeline.releaseMaskRaster(rasterId),
-      workerGeneration: () => this.pipeline.workerGeneration(),
+      workerGeneration: () => this.pipeline.currentWorkerEpoch(),
     });
   }
 

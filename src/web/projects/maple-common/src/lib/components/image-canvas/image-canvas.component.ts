@@ -48,7 +48,6 @@ import { CropOverlayComponent } from '../crop-overlay/crop-overlay.component';
 import { MaskOverlayComponent } from '../mask-overlay/mask-overlay.component';
 import { RetouchOverlayComponent } from '../retouch-overlay/retouch-overlay.component';
 import { CropSessionService } from '../crop-overlay/crop-session.service';
-import { MaskSessionService } from '../mask-overlay/mask-session.service';
 import { GuidedGeometryOverlayComponent } from '../guided-geometry/guided-geometry-overlay.component';
 import { GuidedGeometrySessionService } from '../guided-geometry/guided-geometry-session.service';
 import { type AdjustmentModel } from '../../models/adjustment-model';
@@ -107,10 +106,6 @@ export class ImageCanvasComponent
   private readonly embeddedPreview = inject(EmbeddedPreviewService);
   private readonly injector = inject(Injector);
   protected readonly cropSession = inject(CropSessionService);
-  // Kept alive (never read here): its brush-raster sync effect must run for
-  // every render, including ones the mask tool never armed (#360).
-  // fallow-ignore-next-line unused-class-member
-  private readonly maskSession = inject(MaskSessionService);
   protected readonly guidedGeometry = inject(GuidedGeometrySessionService);
   readonly filmLut = inject(FilmLutService); // #2683, read by ImageCanvasFilmSync
 

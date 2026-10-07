@@ -30,6 +30,7 @@ import type {
   LocalAdjustment,
   LocalMask,
   LeafMask,
+  LinearMask,
   MaskComponent,
   MaskPoint,
   PartialAdjustments,
@@ -431,30 +432,45 @@ function bitmapLines(mask: BitmapMask, indent: string): string[] {
 }
 
 function maskLines(mask: LocalMask, indent: string, modern = false): string[] {
-  if (mask.kind === 'group')
-    return mask.components.flatMap((component) => componentLines(component, indent));
-  const n = modern ? (value: number) => String(value) : numericSerializer;
-  const coord = modern ? (value: number) => String(value) : maskCoord;
-  if (mask.kind === 'linear') {
-    return [
-      `${indent}<rdf:li`,
-      `${indent}  crs:What="${MASK_WHAT.linear}"`,
-      `${indent}  crs:MaskValue="1"`,
-      `${indent}  crs:ZeroX="${coord(mask.start.x)}" crs:ZeroY="${coord(mask.start.y)}"`,
-      `${indent}  crs:FullX="${coord(mask.end.x)}" crs:FullY="${coord(mask.end.y)}"`,
-      `${indent}  papp:LocalFeather="${n(mask.feather)}"/>`,
-    ];
+  switch (mask.kind) {
+    case 'group':
+      return mask.components.flatMap((component) => componentLines(component, indent));
+    case 'linear':
+      return linearLines(mask, indent, modern);
+    case 'radial':
+      return radialLines(mask, indent, modern);
+    case 'bitmap':
+      return bitmapLines(mask, indent);
+    case 'brush':
+      return brushLines(mask, indent);
+    case 'everywhere':
+      return [
+        `${indent}<rdf:li`,
+        `${indent}  crs:What="${MASK_WHAT.group}"`,
+        `${indent}  crs:MaskValue="1"`,
+        `${indent}  papp:MaskSource="Everywhere"/>`,
+      ];
   }
-  if (mask.kind === 'bitmap') return bitmapLines(mask, indent);
-  if (mask.kind === 'brush') return brushLines(mask, indent);
-  if (mask.kind === 'everywhere') {
-    return [
-      `${indent}<rdf:li`,
-      `${indent}  crs:What="${MASK_WHAT.group}"`,
-      `${indent}  crs:MaskValue="1"`,
-      `${indent}  papp:MaskSource="Everywhere"/>`,
-    ];
-  }
+}
+
+const modernNumber = (value: number): string => String(value);
+
+function linearLines(mask: LinearMask, indent: string, modern: boolean): string[] {
+  const n = modern ? modernNumber : numericSerializer;
+  const coord = modern ? modernNumber : maskCoord;
+  return [
+    `${indent}<rdf:li`,
+    `${indent}  crs:What="${MASK_WHAT.linear}"`,
+    `${indent}  crs:MaskValue="1"`,
+    `${indent}  crs:ZeroX="${coord(mask.start.x)}" crs:ZeroY="${coord(mask.start.y)}"`,
+    `${indent}  crs:FullX="${coord(mask.end.x)}" crs:FullY="${coord(mask.end.y)}"`,
+    `${indent}  papp:LocalFeather="${n(mask.feather)}"/>`,
+  ];
+}
+
+function radialLines(mask: RadialMask, indent: string, modern: boolean): string[] {
+  const n = modern ? modernNumber : numericSerializer;
+  const coord = modern ? modernNumber : maskCoord;
   const top = coord(mask.center.y - mask.radii.y);
   const left = coord(mask.center.x - mask.radii.x);
   const bottom = coord(mask.center.y + mask.radii.y);
