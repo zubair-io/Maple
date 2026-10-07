@@ -19,18 +19,31 @@ test('mounted owner backup routes retain folder scope and protect recovery detai
   try {
     const app = buildApp({ stageNames: [] });
     const owner = await signAccessToken(
-      { sub: '111111111111111111111111', email: null, role: 'owner', file_access: true },
+      {
+        sub: '111111111111111111111111',
+        email: null,
+        role: 'owner',
+        file_access: true,
+      },
       secret,
     );
     const member = await signAccessToken(
-      { sub: '222222222222222222222222', email: null, role: 'member', file_access: true },
+      {
+        sub: '222222222222222222222222',
+        email: null,
+        role: 'member',
+        file_access: true,
+      },
       secret,
     );
     const request = (url: string, method = 'GET', body?: unknown, token = owner) =>
       app.handle(
         new Request('http://localhost' + url, {
           method,
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         }),
       );
@@ -43,7 +56,12 @@ test('mounted owner backup routes retain folder scope and protect recovery detai
     const libraryId = insertFolder(live.db);
     const otherLibrary = insertFolder(live.db);
     const assetId = insertAsset(live.db);
-    insertLocation(live.db, { assetId, libraryId, path: '', filename: 'photo.dng' });
+    insertLocation(live.db, {
+      assetId,
+      libraryId,
+      path: '',
+      filename: 'photo.dng',
+    });
     insertLocation(live.db, {
       assetId,
       ordinal: 1,
@@ -58,7 +76,11 @@ test('mounted owner backup routes retain folder scope and protect recovery detai
     });
     expect(response.status).toBe(200);
     const { destination } = (await response.json()) as {
-      destination: { id: string; enabled: boolean; status: { pending: number } };
+      destination: {
+        id: string;
+        enabled: boolean;
+        status: { pending: number };
+      };
     };
     expect(destination.enabled).toBe(false);
     expect(destination.status.pending).toBe(1);
@@ -98,7 +120,9 @@ test('mounted owner backup routes retain folder scope and protect recovery detai
       ).status,
     ).toBe(409);
     expect((await request(endpoint, 'POST', {})).status).toBe(200);
-    expect((await getJob(job._id))!.checkpoint).toEqual({ owned: ['photo.dng'] });
+    expect((await getJob(job._id))!.checkpoint).toEqual({
+      owned: ['photo.dng'],
+    });
     expect(
       (
         await request('/api/jobs', 'POST', {
@@ -120,7 +144,12 @@ test('Google Drive destination coverage preserves pending and missing counts', a
   try {
     const app = buildApp({ stageNames: [] });
     const owner = await signAccessToken(
-      { sub: '111111111111111111111111', email: null, role: 'owner', file_access: true },
+      {
+        sub: '111111111111111111111111',
+        email: null,
+        role: 'owner',
+        file_access: true,
+      },
       secret,
     );
     const libraryId = insertFolder(live.db);
@@ -168,7 +197,10 @@ test('Google Drive destination coverage preserves pending and missing counts', a
     );
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
-      destinations: Array<{ id: string; status: { pending: number; missing: number } }>;
+      destinations: Array<{
+        id: string;
+        status: { pending: number; missing: number };
+      }>;
     };
     expect(body.destinations.find((item) => item.id === destination.id)?.status).toMatchObject({
       pending: 2,
