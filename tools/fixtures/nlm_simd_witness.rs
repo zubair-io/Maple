@@ -9,6 +9,11 @@ pub extern "C" fn checks() -> u32 {
 pub extern "C" fn failure(i: u32) -> u32 {
     unsafe { FAILURE[i.min(4) as usize] }
 }
+// Wasm leaves the sign and payload of an arithmetic NaN result to the engine
+// (x64 V8 yields 0xffc00000, arm64 0x7fc00000), so NaN matches any NaN.
+fn same_bits(got: f32, expected: f32) -> bool {
+    got.to_bits() == expected.to_bits() || (got.is_nan() && expected.is_nan())
+}
 #[no_mangle]
 pub extern "C" fn run() -> u32 {
     let edges = [
@@ -66,7 +71,7 @@ pub extern "C" fn run() -> u32 {
                         unsafe {
                             CHECKS += 1;
                         }
-                        if got[field].to_bits() != expected[field].to_bits() {
+                        if !same_bits(got[field], expected[field]) {
                             unsafe {
                                 FAILURE = [
                                     count as u32,
@@ -192,7 +197,7 @@ pub extern "C" fn run_dynamic() -> u32 {
                         unsafe {
                             CHECKS += 1;
                         }
-                        if got[field].to_bits() != expected[field].to_bits() {
+                        if !same_bits(got[field], expected[field]) {
                             unsafe {
                                 FAILURE = [
                                     count as u32,

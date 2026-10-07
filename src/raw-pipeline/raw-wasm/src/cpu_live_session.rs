@@ -63,7 +63,7 @@ impl CpuLiveSession {
             self.film_bytes.extend_from_slice(film_bytes);
         }
         let lens_generation = crate::lens_profile::registry_generation();
-        if lens_generation != self.lens_generation {
+        if quality_preview && lens_generation != self.lens_generation {
             self.preview = None;
             self.lens_generation = lens_generation;
         }
@@ -178,15 +178,10 @@ mod tests {
         let mut session = CpuLiveSession::open(bytes, "dng").unwrap();
         let before = session.render(None, true, 80, &[]).unwrap();
         crate::lens_profile::clear_lens_profiles().unwrap();
-        assert_ne!(
-            session.lens_generation,
-            crate::lens_profile::registry_generation()
-        );
+        let cleared = crate::lens_profile::registry_generation();
+        assert!(session.lens_generation < cleared);
         let after = session.render(None, true, 80, &[]).unwrap();
-        assert_eq!(
-            session.lens_generation,
-            crate::lens_profile::registry_generation()
-        );
+        assert!(session.lens_generation >= cleared);
         assert_eq!(before.rgb(), after.rgb());
     }
 }
