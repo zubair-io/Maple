@@ -20,7 +20,7 @@ use super::*;
 use crate::image::Image;
 use crate::pipeline::develop_scene_linear_from_raw_with_quality;
 use crate::types::{LocalAdjustment, Mask, PartialAdjustments, Point2};
-use crate::xmp::AutoExposureMode;
+use crate::xmp::{AutoExposureMode, HighlightRecoveryMode};
 
 /// Every case must move the developed buffer by at least this much, so a
 /// near-no-op model cannot pass the ceilings for the wrong reason.
@@ -215,6 +215,83 @@ fn tile_matches_full_develop_for_windowed_and_computed_overlap_stages() {
             case.max_abs
         );
     }
+}
+
+/// Accepted tile-vs-full divergence for large clipped interiors (#1690;
+/// permanent fix tracked in #4388). ~2x the measured 3.02e-2 max-abs lane
+/// diff, so the seam can only shrink; ratchet down when #4388 lands.
+const LARGE_BLOWN_TILE_MAX_ABS: f32 = 6.0e-2;
+
+/// [`camera_chart_raw`] with a clipped block blown in mosaic space: R sensels
+/// at white, G/B at 40% of range, so the demosaiced interior carries mask
+/// `0b001` and tier 1 defers it. The block (x 32..384, y 32..344) covers
+/// [`RECT`]'s padded tile (x 48..368, y 48..336) with margin, while the frame
+/// keeps unclipped strips the full render — but no tile — can see.
+fn blown_chart_raw() -> crate::image::RawImage {
+    let mut raw = camera_chart_raw();
+    assert_eq!((raw.width, raw.height), (520, 344));
+    let w = raw.width as usize;
+    let white = raw.white_level;
+    let floor = raw.black_level.iter().copied().max().unwrap_or(0);
+    let mid = floor + (white - floor) * 2 / 5;
+    for y in 32..344usize {
+        for x in 32..384usize {
+            let v = if raw.cfa.color_at(x as u32, y as u32) == 0 {
+                white
+            } else {
+                mid
+            };
+            raw.raw_data[y * w + x] = v.min(u16::MAX as u32) as u16;
+        }
+    }
+    raw
+}
+
+#[test]
+fn tile_vs_full_large_blown_region_stays_within_accepted_bound() {
+    // A clipped block covering the padded tile leaves the tile with no
+    // scene evidence — tier-3 `None` collapses to neutral — while the
+    // full-frame render sees the warm surround and reconstructs a chromatic
+    // prior (#4388). Until the tile path takes a frame-level prior, this
+    // pins the accepted divergence so it can only shrink.
+    let raw = blown_chart_raw();
+    let model = AdjustmentModel {
+        sharpen_amount: 0.0,
+        nr_color: 0.0,
+        nr_luminance: 0.0,
+        auto_exposure: AutoExposureMode::Off,
+        ..AdjustmentModel::default()
+    };
+    let full = full_rect_lanes(
+        &develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full)
+            .expect("full develop"),
+    );
+    let tile = tile_lanes(&raw, &model);
+    let diff = max_abs(&full, &tile);
+    let off_model = AdjustmentModel {
+        highlight_recovery: HighlightRecoveryMode::Off,
+        ..model.clone()
+    };
+    let off = full_rect_lanes(
+        &develop_scene_linear_from_raw_with_quality(&raw, &off_model, RenderQuality::Full)
+            .expect("recovery-off develop"),
+    );
+    let moved = max_abs(&full, &off);
+    eprintln!(
+        "[large-blown tile-vs-full] max_abs {diff:.4e} (recovery moved the image by {moved:.3e})"
+    );
+    assert!(
+        moved > MIN_CASE_EFFECT,
+        "recovery moved the image by only {moved:.3e} — too close to a no-op for the ceiling to mean anything"
+    );
+    assert!(
+        diff > 1e-3,
+        "test must actually exercise the seam, got {diff:.3e}"
+    );
+    assert!(
+        diff <= LARGE_BLOWN_TILE_MAX_ABS,
+        "tile diverges from the full develop on large blown interiors: max abs diff {diff:.4e} > {LARGE_BLOWN_TILE_MAX_ABS:.4e}"
+    );
 }
 
 /// `AdjustmentModel` with every stage this file exercises turned off — the

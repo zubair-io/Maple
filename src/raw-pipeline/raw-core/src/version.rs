@@ -114,7 +114,10 @@
 /// - 11 — guided highlight reconstruction: clipped regions wider than 7 px
 ///   draw chromaticity from a per-cell bilateral-weighted gather and a
 ///   scene-median fallback instead of collapsing to neutral (#1690).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 11;
+/// - 12 — the tier-3 scene-median prior samples the whole region (stride
+///   derived from the region area) instead of the raster-capped top strip,
+///   so large frames recover the scene chromaticity, not the sky (#1690).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 12;
 
 #[cfg(test)]
 mod tests {
