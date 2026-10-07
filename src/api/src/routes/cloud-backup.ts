@@ -76,7 +76,11 @@ async function projection(row: BackupDestination) {
   );
   if (!status) throw new Error('Backup status query failed');
   const purges = await repo.purges(row.id);
-  const [coverage] = await repo.db.read<{ pending: number; missing: number; prepared: number }>(
+  const [coverage] = await repo.db.read<{
+    pending: number;
+    missing: number;
+    prepared: number;
+  }>(
     `SELECT
     COALESCE((SELECT live_locations FROM backup_coverage_counts WHERE library_id=?),0)
       - (SELECT COUNT(*) FROM backup_entries e
@@ -111,16 +115,23 @@ async function projection(row: BackupDestination) {
     },
   };
 }
-export const cloudBackupRoutes = new Elysia({ name: 'cloudBackup', prefix: '/api/cloud-backup' })
+export const cloudBackupRoutes = new Elysia({
+  name: 'cloudBackup',
+  prefix: '/api/cloud-backup',
+})
   .use(requireAuth)
   .use(requireOwner)
   .onError(({ error, set }) => {
     if (error instanceof BackupRequestError) set.status = 400;
-    return { error: error instanceof Error ? error.message : 'Backup request failed' };
+    return {
+      error: error instanceof Error ? error.message : 'Backup request failed',
+    };
   })
   .get('/destinations', async () => {
     await migrateFolderDestinations(repo);
-    return { destinations: await Promise.all((await repo.destinations()).map(projection)) };
+    return {
+      destinations: await Promise.all((await repo.destinations()).map(projection)),
+    };
   })
   .post(
     '/destinations',
@@ -152,7 +163,10 @@ export const cloudBackupRoutes = new Elysia({ name: 'cloudBackup', prefix: '/api
     async ({ params, body }) => {
       const row = await destination(params.id);
       await validateDestinationUpdate(row, body);
-      await repo.updateDestination(row.id, { name: body.name, enabled: body.enabled });
+      await repo.updateDestination(row.id, {
+        name: body.name,
+        enabled: body.enabled,
+      });
       if (row.kind === 'folder') await projectFolderDestination(row.libraryId, repo);
       return { destination: await projection(await destination(row.id)) };
     },
@@ -268,7 +282,9 @@ export const cloudBackupRoutes = new Elysia({ name: 'cloudBackup', prefix: '/api
       await destination(params.id);
       if (!(await resumeRecoveryJob(params.id, params.jobId))) {
         set.status = 409;
-        return { error: 'Only failed or cancelled recovery jobs for this destination can resume' };
+        return {
+          error: 'Only failed or cancelled recovery jobs for this destination can resume',
+        };
       }
       return { ok: true };
     },
