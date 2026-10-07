@@ -78,14 +78,20 @@ async function projection(row: BackupDestination) {
   const purges = await repo.purges(row.id);
   const [coverage] = await repo.db.read<{ pending: number; missing: number; prepared: number }>(
     `SELECT
-    (SELECT COUNT(*) FROM asset_locations l JOIN assets a ON a.id=l.asset_id LEFT JOIN backup_entries e
-      ON e.asset_id=l.asset_id AND e.ordinal=l.ordinal AND e.destination_id=? WHERE l.library_id=?
-      AND l.deleted_at IS NULL AND l.missing_since IS NULL AND a.deleted_reason IS NULL
-      AND (e.id IS NULL OR (e.state!='purged' AND e.verified_sequence<e.sequence))) AS pending,
-    (SELECT COUNT(*) FROM asset_locations l JOIN assets a ON a.id=l.asset_id WHERE l.library_id=?
-      AND (l.missing_since IS NOT NULL OR a.deleted_reason IS NOT NULL)) AS missing,
+    COALESCE((SELECT live_locations FROM backup_coverage_counts WHERE library_id=?),0)
+      - (SELECT COUNT(*) FROM backup_entries e
+        JOIN asset_locations l ON l.asset_id=e.asset_id AND l.ordinal=e.ordinal
+        JOIN assets a ON a.id=e.asset_id
+        WHERE e.destination_id=? AND l.library_id=? AND l.deleted_at IS NULL
+          AND l.missing_since IS NULL AND a.deleted_reason IS NULL
+          AND (e.state='purged' OR e.verified_sequence>=e.sequence)) AS pending,
+    (SELECT COUNT(*) FROM asset_locations
+      WHERE library_id=? AND missing_since IS NOT NULL)
+      + (SELECT COUNT(*) FROM assets AS a INDEXED BY assets_reaped
+        JOIN asset_locations l ON l.asset_id=a.id
+        WHERE a.deleted_reason='reaped' AND l.library_id=? AND l.missing_since IS NULL) AS missing,
     (SELECT COUNT(*) FROM backup_lifecycle WHERE library_id=? AND phase='prepared') AS prepared`,
-    [row.id, row.libraryId, row.libraryId, row.libraryId],
+    [row.libraryId, row.id, row.libraryId, row.libraryId, row.libraryId, row.libraryId],
   );
   if (!coverage) throw new Error('Backup coverage query failed');
   return {
