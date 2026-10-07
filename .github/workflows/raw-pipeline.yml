@@ -552,6 +552,11 @@ jobs:
       - name: 'cargo test -p raw-core --features avif (AVIF panic barrier, #3517)'
         working-directory: src/raw-pipeline
         run: cargo test -p raw-core --features avif --test avif_corruption
+      # The shared native/browser GPU host binding (#4317) compiles only with
+      # `--features gpu`, which no step above enables.
+      - name: 'cargo test -p raw-core --features gpu gpu_host (#4317)'
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-core --features gpu --lib gpu_host
       # Each synthetic gate runs through tools/qualification/record.sh --check
       # (#2430): the gate itself is unchanged, and afterwards its executed /
       # failed / skipped counts are compared against the committed evidence
