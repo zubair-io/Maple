@@ -59,8 +59,13 @@
       let current = generation
       do {
         let values = try await store.list()
+        let unreadable = try await store.unreadable()
         guard current == generation else { return }
         saved = values
+        if !unreadable.isEmpty {
+          self.error =
+            "Saved recipe files that this version of Maple cannot read were left untouched: \(unreadable.joined(separator: ", "))"
+        }
       } catch {
         guard current == generation else { return }
         self.error = error.localizedDescription
@@ -226,9 +231,6 @@
             destination = try URL(
               resolvingBookmarkData: grant, options: [.withSecurityScope, .withoutUI],
               bookmarkDataIsStale: &stale)
-            guard !stale else {
-              throw NativeExportError.message("Choose the destination folder again.")
-            }
           } else {
             throw NativeExportError.message("Choose an export destination folder.")
           }
@@ -280,6 +282,7 @@
         preparation?.cancel()
         captureGeneration &+= 1
         preparing = false
+        return
       }
       Task { do { try await queue.cancel() } catch { self.error = error.localizedDescription } }
     }

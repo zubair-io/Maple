@@ -29,6 +29,9 @@ enum NativeExportPublication {
       }
       if published {
         var applied = item
+        if FileManager.default.fileExists(atPath: item.staging!.path) {
+          try FileManager.default.removeItem(at: item.staging!)
+        }
         try NativeExportStorage.syncDirectory(access.destination)
         applied.status = "applied"
         return applied
@@ -51,6 +54,15 @@ enum NativeExportPublication {
           "Interrupted staging has no completed byte proof. Its bytes were preserved; retry this photo with a new staging file."
         )
       }
+    }
+    let claimedBySibling = record.items.contains {
+      $0.target.index != item.target.index && $0.output == output
+        && ["rendering", "prepared", "applied"].contains($0.status)
+    }
+    guard !claimedBySibling else {
+      throw NativeExportError.message(
+        "Another photo in this export already uses \(filename). Add {n} to the naming template, then retry."
+      )
     }
     if before != nil {
       if record.recipe.overwritePolicy == "skip" {
@@ -152,6 +164,20 @@ enum NativeExportPublication {
       throw NativeExportPublicationDurabilityError(detail: error.localizedDescription)
     }
     return result
+  }
+
+  static func discardStaging(
+    _ item: NativeExportItem, record: NativeExportRecord, access: NativeExportAccess,
+    createdThisRun: Bool
+  ) throws {
+    guard let temp = item.staging, FileManager.default.fileExists(atPath: temp.path) else { return }
+    try staging(item, record: record, access: access)
+    let proven =
+      item.stagingIdentity != nil && item.afterHash != nil
+      && (try NativeExportStorage.identity(temp)) == item.stagingIdentity
+      && (try NativeExportStorage.hash(temp)) == item.afterHash
+    guard proven || createdThisRun else { return }
+    try FileManager.default.removeItem(at: temp)
   }
 
   private static func sourceMatches(_ item: NativeExportItem, access: NativeExportAccess) throws
