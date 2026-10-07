@@ -45,6 +45,7 @@ namespace Maple.WinUI
             long decodeStarted = 0;
             long pendingEditStarted = 0;
             double? decodeMs = null;
+            double? initialExposure = null;
             try
             {
                 Directory.CreateDirectory(outDir);
@@ -105,6 +106,7 @@ namespace Maple.WinUI
                 var exportInputs = await ViewModel.CaptureExportInputsAsync();
                 var exposure = ViewModel.Sections.SelectMany(section => section.Sliders)
                     .Single(slider => slider.Label == "Exposure");
+                initialExposure = exposure.Value;
 
                 for (var i = 0; i < QualifyTicks; i++)
                 {
@@ -128,6 +130,7 @@ namespace Maple.WinUI
                     timing_frequency_hz = System.Diagnostics.Stopwatch.Frequency,
                     timing_high_resolution = System.Diagnostics.Stopwatch.IsHighResolution,
                     decode_ms = decodeMs,
+                    initial_exposure = initialExposure,
                     timing_scope = path == "gpu" ? "exposure-edit-to-present-return" : "exposure-edit-to-cpu-render-ready",
                     tick_ms = ticks,
                     render_tick_ms = renderTicks,
@@ -165,6 +168,7 @@ namespace Maple.WinUI
                             timing_high_resolution = System.Diagnostics.Stopwatch.IsHighResolution,
                             timing_scope = path == "gpu" ? "exposure-edit-to-present-return" : "exposure-edit-to-cpu-render-ready",
                             decode_ms = decodeMs,
+                            initial_exposure = initialExposure,
                             elapsed_open_ms = decodeStarted == 0 ? (double?)null : System.Diagnostics.Stopwatch.GetElapsedTime(decodeStarted).TotalMilliseconds,
                             incomplete_fast_tick_ms = pendingEditStarted == 0 ? (double?)null : System.Diagnostics.Stopwatch.GetElapsedTime(pendingEditStarted).TotalMilliseconds,
                             tick_ms = ticks,
