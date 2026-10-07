@@ -47,7 +47,11 @@
 //! Tiers 2–3 are computed per render, so tile renders may differ slightly
 //! from full-frame renders inside clipped regions wider than 7 px (cell phase
 //! and scene sampling vary); tier 1 — the overwhelmingly common case — reads
-//! within 3 px and stays exactly tile-stable.
+//! within 3 px and stays exactly tile-stable. The large-interior seam is
+//! pinned at 6.0e-2 max-abs by
+//! `pipeline::tile::tests_full_parity::tile_vs_full_large_blown_region_stays_within_accepted_bound`
+//! (measured 3.02e-2); threading a frame-level prior into the tile path to
+//! close it is tracked in #4388.
 
 use crate::{
     image::{ColorSpace, CropRect, Image},
@@ -205,10 +209,6 @@ fn apply_chromatic_adaptation(
     // Keep this mask frozen: even a reconstructed value below threshold must
     // remain excluded. Every accepted witness is therefore still original.
 
-    // Tier-3 prior (#1690): scene-median chromaticity over the region,
-    // sampled once. `None` when nothing unclipped exists to sample.
-    let scene_chroma = scene_median(img, &clip_mask, left, top, right, bottom);
-
     // Pixels tier 1 cannot support, resolved together after the loop. Stays
     // empty (and the field unbuilt) for scenes without large clipped
     // regions — the common case costs one branch per clipped pixel.
@@ -322,6 +322,14 @@ fn apply_chromatic_adaptation(
         }
     }
     if let Some(field) = field.as_mut() {
+        // Tier-3 prior (#1690): scene-median chromaticity over the region,
+        // sampled once, and only when something actually deferred — tier-1-
+        // only scenes skip the region sampling pass entirely. Sampling after the
+        // loop is exact: the pass reads only frozen-mask unclipped pixels,
+        // which no tier-1 write touches (writes land on clipped targets
+        // only), so this equals an eager pre-loop sample. `None` when
+        // nothing unclipped exists to sample.
+        let scene_chroma = scene_median(img, &clip_mask, left, top, right, bottom);
         resolve_deferred(
             field,
             img,
