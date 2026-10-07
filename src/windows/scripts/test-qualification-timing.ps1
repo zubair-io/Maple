@@ -4,7 +4,7 @@ function Report($Samples) {
     return [pscustomobject]@{
         timing_clock = 'Stopwatch'; timing_high_resolution = $true
         timing_frequency_hz = 10000000; tick_ms = $Samples
-        render_path = 'gpu'; timing_scope = 'exposure-edit-to-present-return'
+        render_path = 'gpu'; timing_scope = 'exposure-edit-to-present-return'; initial_exposure = 0.0
     }
 }
 function Reject($Candidate) {
@@ -19,6 +19,18 @@ $target = Get-QualificationTiming (Report (@(10) * 20))
 if ($target.Verdict -ne 'PASS (target)') { throw 'Within-target samples failed.' }
 $cold = Get-QualificationTiming (Report (@(17) + @(10) * 19))
 if (!$cold.Verdict.StartsWith('WITHIN HARD LIMIT')) { throw 'Cold target miss was discarded.' }
+$edited = Report (@(10) * 20)
+$edited.initial_exposure = -0.01
+if (!(Get-QualificationTiming $edited).Verdict.StartsWith('INCOMPLETE')) { throw 'Edited start passed cold activation.' }
+$subThreshold = Report (@(10) * 20)
+$subThreshold.initial_exposure = 1e-7
+if ((Get-QualificationTiming $subThreshold).Verdict -ne 'PASS (target)') { throw 'No-op initial Exposure was rejected.' }
+$editedOutlier = Report (@(10) * 19 + @(51))
+$editedOutlier.initial_exposure = -0.01
+if (!(Get-QualificationTiming $editedOutlier).Verdict.StartsWith('FAIL')) { throw 'Edited-start hard-limit miss escaped.' }
+$missingInitial = Report (@(10) * 20)
+$missingInitial.initial_exposure = $null
+Reject $missingInitial
 $legacy = Report (1..20)
 $legacy.timing_scope = 'render-loop-only'
 Reject $legacy
@@ -36,4 +48,4 @@ foreach ($invalid in @($null, '10', $true, -1, [double]::NaN, [double]::Positive
 $coarse = Report (1..20)
 $coarse.timing_high_resolution = $false
 Reject $coarse
-Write-Output 'PASS: complete interval, failed reports, cold target misses, full sample count, median/p95, maximum hard limit, invalid durations and coarse clock'
+Write-Output 'PASS: complete interval, neutral start, failed reports, cold target misses, full sample count, median/p95, maximum hard limit, invalid durations and coarse clock'

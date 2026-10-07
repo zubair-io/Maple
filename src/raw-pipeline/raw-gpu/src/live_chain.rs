@@ -129,6 +129,7 @@ fn push_local_adjustments(suffix: &mut BoxedPasses, inputs: &FullChainInputs<'_>
 }
 
 mod noop;
+pub use noop::scene_tone_is_noop;
 use noop::*;
 
 // `chain_signature` lives in a sibling file to keep this module inside the

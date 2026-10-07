@@ -30,7 +30,7 @@ pub(super) const WB_SKIP_BAND: f32 = 0.5;
 /// #2441 moved that slider to the AgX view transform, so this stage is
 /// unconditionally indifferent to it.
 /// `tone = [exposure, brightness, highlights, shadows, whites, blacks]`.
-pub(super) fn scene_tone_is_noop(tone: &[f32; 6]) -> bool {
+pub fn scene_tone_is_noop(tone: &[f32; 6]) -> bool {
     tone[0].abs() < EXPOSURE_EPS
         && tone[1].abs() < SLIDER_EPS
         && tone[2].abs() < SLIDER_EPS
