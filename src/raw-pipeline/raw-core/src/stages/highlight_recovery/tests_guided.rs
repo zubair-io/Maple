@@ -128,9 +128,9 @@ fn warm_scene_fallback_preserves_cast_without_local_support() {
 fn scene_median_samples_the_whole_region_not_the_top() {
     // 640x640 at stride 8 holds 6400 grid candidates: a raster-ordered cap
     // stops after the top ~51 sampled rows, so a warm top third reads as
-    // the whole scene. The area-derived stride spreads the 4096 budget over
-    // both dimensions instead, and with warm on top and cool below the
-    // median must follow the cool majority on every channel.
+    // the whole scene. Even decimation keeps samples from every row, and
+    // with warm on top and cool below the median must follow the cool
+    // majority on every channel.
     let (w, h) = (640usize, 640usize);
     let mut img = Image::new(w as u32, h as u32, ColorSpace::CameraNativeLinearRgb);
     for y in 0..h {
@@ -144,6 +144,25 @@ fn scene_median_samples_the_whole_region_not_the_top() {
     assert_eq!(
         median, COOL,
         "top-biased scene prior: median {median:?} follows the warm top third"
+    );
+}
+
+#[test]
+fn scene_median_keeps_sparse_evidence_in_a_large_clipped_region() {
+    // A 640x640 region clipped everywhere except one row at y = 8: the
+    // stride-8 grid sees that row, so the prior must come from it rather
+    // than collapse to `None` (neutral).
+    let (w, h) = (640usize, 640usize);
+    let mut img = Image::new(w as u32, h as u32, ColorSpace::CameraNativeLinearRgb);
+    img.pixels.fill(WARM_CLIPPED);
+    let mut mask = vec![1u8; w * h];
+    for x in 0..w {
+        img.pixels[8 * w + x] = COOL;
+        mask[8 * w + x] = 0;
+    }
+    assert_eq!(
+        scene_median(&img, &mask, 0, 0, w as i32, h as i32),
+        Some(COOL)
     );
 }
 
