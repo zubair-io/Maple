@@ -19,20 +19,20 @@ export const BRUSH_DEFAULT_FLOW = 0.5;
 
 /** Dab spacing as a fraction of the radius — stamps overlap 4×, so even a
  *  fast drag lays an unbroken stroke. */
-export const DAB_SPACING = 0.25;
+const DAB_SPACING = 0.25;
 /** Stroke stabilizer: exponential-moving-average alpha toward the raw
  *  pointer point. `1` would disable smoothing entirely. */
-export const STROKE_SMOOTHING_ALPHA = 0.4;
+const STROKE_SMOOTHING_ALPHA = 0.4;
 /** Pressure response: `radius × (0.5 + 0.5p)`, `weight × (0.25 + 0.75p)` —
  *  a light touch paints small and faint, never invisible. A pressure of `0`
  *  (a device that cannot report any) reads as full pressure, not as none. */
-export const PRESSURE_RADIUS_FLOOR = 0.5;
-export const PRESSURE_WEIGHT_FLOOR = 0.25;
+const PRESSURE_RADIUS_FLOOR = 0.5;
+const PRESSURE_WEIGHT_FLOOR = 0.25;
 
 /** Long edge of a brush raster in texels — mirrors raw-core's
  *  `BRUSH_RASTER_LONG_EDGE`, the same 1024 the Vision person/skin path
  *  registers at. */
-export const BRUSH_RASTER_LONG_EDGE = 1024;
+const BRUSH_RASTER_LONG_EDGE = 1024;
 
 /** Aspect-preserving raster dims for an image — mirrors raw-core's
  *  `brush_raster_dims` exactly, so every platform rasterizes the same dab
@@ -82,42 +82,36 @@ export function rasterizeBrushDabs(
 ): Uint8ClampedArray {
   const w = Math.max(0, Math.trunc(width));
   const h = Math.max(0, Math.trunc(height));
-  const acc = new Float32Array(w * h);
   if (w === 0 || h === 0) return new Uint8ClampedArray(0);
-  for (const dab of dabs) {
-    const rPx = dab.radius * w;
-    if (!isFiniteDab(dab) || rPx <= 0 || dab.weight <= 0) continue;
-    const cx = dab.center.x * Math.max(0, w - 1);
-    const cy = dab.center.y * Math.max(0, h - 1);
-    const feather = Math.min(1, Math.max(0, dab.feather));
-    const weight = Math.min(1, Math.max(0, dab.weight));
-    const clampX = (v: number): number => Math.min(w - 1, Math.max(0, v));
-    const clampY = (v: number): number => Math.min(h - 1, Math.max(0, v));
-    const x0 = Math.floor(clampX(cx - rPx));
-    const x1 = Math.ceil(clampX(cx + rPx));
-    const y0 = Math.floor(clampY(cy - rPx));
-    const y1 = Math.ceil(clampY(cy + rPx));
-    for (let y = y0; y <= y1; y++) {
-      for (let x = x0; x <= x1; x++) {
-        const d = Math.hypot(x - cx, y - cy) / rPx;
-        // Same profile as the radial evaluator: smoothstep from the inner
-        // radius to the edge, hard step when the feather is ~0.
-        const profile =
-          feather <= 1.1920929e-7
-            ? d <= 1
-              ? 1
-              : 0
-            : 1 - smoothstep((d - (1 - feather)) / feather);
-        const v = profile * weight;
-        if (v <= 0) continue;
-        const i = y * w + x;
-        acc[i] = dab.erase ? acc[i] * (1 - v) : acc[i] + (1 - acc[i]) * v;
-      }
+  const acc = new Float32Array(w * h);
+  for (const dab of dabs) stampDab(acc, dab, w, h);
+  return Uint8ClampedArray.from(acc, (v) => Math.round(Math.min(1, Math.max(0, v)) * 255));
+}
+
+const dabProfile = (d: number, feather: number): number => {
+  if (feather > 1.1920929e-7) return 1 - smoothstep((d - (1 - feather)) / feather);
+  return d <= 1 ? 1 : 0;
+};
+
+const clamp = (v: number, hi: number): number => Math.min(hi, Math.max(0, v));
+
+function stampDab(acc: Float32Array, dab: BrushDab, w: number, h: number): void {
+  const rPx = dab.radius * w;
+  if (!isFiniteDab(dab) || rPx <= 0 || dab.weight <= 0) return;
+  const cx = dab.center.x * Math.max(0, w - 1);
+  const cy = dab.center.y * Math.max(0, h - 1);
+  const feather = clamp(dab.feather, 1);
+  const weight = clamp(dab.weight, 1);
+  const [x0, x1] = [Math.floor(clamp(cx - rPx, w - 1)), Math.ceil(clamp(cx + rPx, w - 1))];
+  const [y0, y1] = [Math.floor(clamp(cy - rPx, h - 1)), Math.ceil(clamp(cy + rPx, h - 1))];
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const v = dabProfile(Math.hypot(x - cx, y - cy) / rPx, feather) * weight;
+      if (v <= 0) continue;
+      const i = y * w + x;
+      acc[i] = dab.erase ? acc[i] * (1 - v) : acc[i] + (1 - acc[i]) * v;
     }
   }
-  const out = new Uint8ClampedArray(w * h);
-  for (let i = 0; i < acc.length; i++) out[i] = Math.round(Math.min(1, Math.max(0, acc[i])) * 255);
-  return out;
 }
 
 // ── Stroke capture ──────────────────────────────────────────────────────────
@@ -216,7 +210,7 @@ export function mapDabsToCrop(
 /** `f32`s per dab on the `register-brush-raster` wire — `x, y, radius,
  *  feather, weight, erase`, the same field order as the `crs:Dabs` XMP series
  *  and the C ABI. */
-export const BRUSH_DAB_STRIDE = 6;
+const BRUSH_DAB_STRIDE = 6;
 
 /**
  * Flatten a dab series onto the `register-brush-raster` wire. A non-finite

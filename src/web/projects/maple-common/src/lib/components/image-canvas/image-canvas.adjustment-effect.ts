@@ -8,6 +8,7 @@ import type { AdjustmentModel } from '../../models/adjustment-model';
 import type { Asset } from '../../models/asset';
 import { settleFailedAutoFit } from './image-canvas.fit-failure';
 import { ImageCanvasVariantPreviews } from './image-canvas.variant-previews';
+import { MaskSessionService } from '../mask-overlay/mask-session.service';
 
 /** Branch selection shares the existing RAW/live session and invalidates late render publications. */
 export class ImageCanvasAdjustmentEffect {
@@ -19,6 +20,9 @@ export class ImageCanvasAdjustmentEffect {
   ) {}
 
   wire(injector: Injector): () => void {
+    // The root mask session owns the effect that re-registers a loaded sidecar's brush
+    // rasters (#360); it must exist for every render, not only once the mask tool is armed.
+    injector.get(MaskSessionService);
     const reactive = effect(
       () => {
         const host = this.host;

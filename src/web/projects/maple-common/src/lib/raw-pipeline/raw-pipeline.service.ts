@@ -91,14 +91,14 @@ export class RawPipelineService implements OnDestroy {
   private worker: Worker | null = null;
   private nextId = 1;
   private pending = new Map<number, PendingHandler>();
-  /** Bumped every time the worker is retired — the WASM registry (mask
-   *  rasters included) dies with it, so hosts memoizing registry ids
-   *  (`SubjectMaskService`) re-resolve when this moves. */
-  private workerEpoch = 0;
+  /** Bumped every time the worker is retired — the WASM registry (mask and brush
+   *  rasters included) dies with it, so hosts memoizing registry ids re-resolve when
+   *  this moves; a signal, so an effect reading it re-registers after a restart. */
+  private readonly workerEpoch = signal(0);
 
   /** Current worker generation; see `workerEpoch`. */
   currentWorkerEpoch(): number {
-    return this.workerEpoch;
+    return this.workerEpoch();
   }
 
   // T10: threaded-state, reported by the worker once WASM init completes.
@@ -130,11 +130,6 @@ export class RawPipelineService implements OnDestroy {
    * render itself when the profile was required.
    */
   readonly lensProfileStatus = signal<LensProfileStatus | null>(null);
-
-  /** Increments every time the worker is retired: registries (mask rasters,
-   *  brush rasters, lens profiles) live in the worker, so hosts holding
-   *  registration handles re-sync when this changes (#360). */
-  readonly workerGeneration = signal(0);
 
   private ensureWorker(): Worker {
     if (this.worker) return this.worker;
@@ -181,13 +176,12 @@ export class RawPipelineService implements OnDestroy {
   private retireWorker(worker: Worker, message: string): void {
     worker.terminate();
     if (this.worker !== worker) return;
-    this.workerEpoch += 1;
+    this.workerEpoch.update((epoch) => epoch + 1);
     this.deepDenoiseProgress.set(null);
     this.detailClient.workerFailed();
     this.pending.forEach(({ reject }) => reject(new Error(message)));
     this.pending.clear();
     this.worker = null;
-    this.workerGeneration.update((g) => g + 1);
   }
 
   // Serialization gate: the worker's `message` handler is async, so multiple
@@ -394,35 +388,19 @@ export class RawPipelineService implements OnDestroy {
     });
   }
 
-  /** Register a `bitmap` mask's R8 raster under its recipe digest (#3300 — the web
-   *  mirror of raw-ffi's `maple_mask_raster_register`); resolves with the raster id.
-   *  Contract in `raw-pipeline.mask-raster.types.ts`. No caller yet: the web has no
-   *  segmentation source (#3300 slice 3), which is what will drive this half. */
+  /** Register a `bitmap` mask's R8 raster under its recipe digest (#3300, the web mirror
+   *  of raw-ffi's `maple_mask_raster_register`); resolves with the raster id. */
   registerMaskRaster(raster: MaskRasterUpload): Promise<number> {
-    let worker: Worker;
-    try {
-      worker = this.ensureWorker();
-    } catch {
-      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
-    }
-    const register = this.pending.set.bind(this.pending);
-    return dispatchRegisterMaskRaster(worker, this.nextId++, register, raster);
+    return this.dispatchNow((worker, id, register) =>
+      dispatchRegisterMaskRaster(worker, id, register, raster),
+    );
   }
 
-  /** Register one brush stroke's dab series: the worker rasterizes it onto
-   *  an R8 plane and registers the plane under `digest` (#360); resolves with
-   *  the raster id a `brush` mask's `rasterId` names. Contract in
-   *  `raw-pipeline.brush-raster.types.ts`. */
-  // fallow-ignore-next-line unused-class-member
+  /** Rasterize one brush dab series in the worker and register it under its digest (#360). */
   registerBrushRaster(upload: BrushRasterUpload): Promise<number> {
-    let worker: Worker;
-    try {
-      worker = this.ensureWorker();
-    } catch {
-      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
-    }
-    const register = this.pending.set.bind(this.pending);
-    return dispatchRegisterBrushRaster(worker, this.nextId++, register, upload);
+    return this.dispatchNow((worker, id, register) =>
+      dispatchRegisterBrushRaster(worker, id, register, upload),
+    );
   }
 
   /** Forget a raster registered by `registerMaskRaster`. Fire-and-forget. */
@@ -521,16 +499,18 @@ export class RawPipelineService implements OnDestroy {
    *  AUTO probe and a lens-profile import develop their own decode, so two
    *  must never sit in the WASM heap at once. */
   private readonly sampleQueue: SampleQueue = (run) => {
-    const once = () => {
-      try {
-        return run(this.ensureWorker(), this.nextId++, this.pending.set.bind(this.pending));
-      } catch {
-        return Promise.reject(new Error('RawPipelineService: worker unavailable'));
-      }
-    };
+    const once = () => this.dispatchNow(run);
     const next = this.decodeChain.then(once, once);
     this.decodeChain = next.catch(() => undefined);
     return next;
+  };
+
+  private readonly dispatchNow: SampleQueue = (run) => {
+    try {
+      return run(this.ensureWorker(), this.nextId++, this.pending.set.bind(this.pending));
+    } catch {
+      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
+    }
   };
 
   /**
