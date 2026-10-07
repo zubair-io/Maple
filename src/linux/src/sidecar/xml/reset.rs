@@ -10,7 +10,7 @@ pub(crate) fn reset(source: &str) -> Result<String, SidecarError> {
         .iter()
         .filter(|(field, _)| !matches!(*field, "crop" | "perspective_rotate"))
         .flat_map(|(_, keys)| keys.iter().copied())
-        .chain(["crs:WhiteBalance", "papp:WhiteBalancePreset"])
+        .chain(["crs:WhiteBalance"])
         .collect();
     let mut changes = Vec::new();
     for description in descriptions(&document) {
