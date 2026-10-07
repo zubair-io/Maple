@@ -1,17 +1,8 @@
-import * as wasm from './pkg/raw_wasm';
+import { CpuLiveSession } from './pkg/raw_wasm';
 import type { render_bytes } from './pkg/raw_wasm';
 import type { DecodeRequest } from './raw-pipeline.decode.types';
 
-type CpuSession = {
-  render(
-    xmp: string | null,
-    preview: boolean,
-    cap: number,
-    film: Uint8Array,
-  ): ReturnType<typeof render_bytes>;
-  free(): void;
-};
-let retained: { token: number; ext: string; session: CpuSession } | undefined;
+let retained: { token: number; ext: string; session: CpuLiveSession } | undefined;
 const emptyFilm = new Uint8Array(0);
 
 /** Same decode-success shape and request generation; only source custody changes. */
@@ -25,13 +16,7 @@ export function renderRetainedCpu(
   if (retained?.token !== req.cpuSourceToken || retained.ext !== req.ext) {
     if (!req.bytes.byteLength) throw new Error('CPU source generation has not been opened');
     releaseRetainedCpu();
-    const constructor = Reflect.get(wasm, 'CpuLiveSession') as
-      | {
-          open(bytes: Uint8Array, ext: string): CpuSession;
-        }
-      | undefined;
-    if (!constructor) throw new Error('Shipping WASM lacks CpuLiveSession');
-    const session = constructor.open(new Uint8Array(req.bytes), req.ext);
+    const session = CpuLiveSession.open(new Uint8Array(req.bytes), req.ext);
     retained = { token: req.cpuSourceToken, ext: req.ext, session };
   }
   return retained.session.render(
@@ -44,4 +29,22 @@ export function renderRetainedCpu(
 export function releaseRetainedCpu(): void {
   retained?.session.free();
   retained = undefined;
+}
+
+// Requests that decode their own copy of a RAW must not share the WASM heap
+// with a retained editor source; the service clears its custody in step.
+const DECODING_REQUESTS = new Set([
+  'develop-non-raw',
+  'open-session',
+  'native-detail',
+  'export',
+  'auto-adjust',
+  'sample-wb',
+  'sample-range',
+  'import-lens-profile',
+  'lens-profile-compatible',
+  'lens-profile-evidence',
+]);
+export function releaseRetainedCpuBefore(type: string): void {
+  if (DECODING_REQUESTS.has(type)) releaseRetainedCpu();
 }

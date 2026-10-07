@@ -10,7 +10,16 @@
 
 use raw_core::image::RawImage;
 use raw_core::AdjustmentModel;
+use std::sync::atomic::{AtomicU64, Ordering};
 use wasm_bindgen::prelude::*;
+
+static REGISTRY_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Bumped whenever the process cache gains or loses a profile, so retained
+/// renders built against the previous cache contents can tell they are stale.
+pub(crate) fn registry_generation() -> u64 {
+    REGISTRY_GENERATION.load(Ordering::Relaxed)
+}
 
 /// Resolver facts for the decoded image and the profile its model names —
 /// the same pair the render just consumed, so the panel describes exactly
@@ -68,9 +77,11 @@ fn fallback_metadata(raw: &raw_core::RawImage) -> serde_json::Value {
 /// `sampleCount`) the import panel shows.
 #[wasm_bindgen(js_name = registerLensProfile)]
 pub fn register_lens_profile(xml: &str) -> Result<String, JsError> {
-    raw_core::lens_profile::register(xml)
+    let registered = raw_core::lens_profile::register(xml)
         .map(|value| value.to_string())
-        .map_err(|e| JsError::new(&e))
+        .map_err(|e| JsError::new(&e));
+    REGISTRY_GENERATION.fetch_add(1, Ordering::Relaxed);
+    registered
 }
 
 /// Whether `xml` would fit the process cache. The worker clears the cache
@@ -86,7 +97,9 @@ pub fn lens_profile_cache_has_room(xml: &str) -> Result<bool, JsError> {
 /// render needs; its own restore memo is reset alongside.
 #[wasm_bindgen(js_name = clearLensProfiles)]
 pub fn clear_lens_profiles() -> Result<(), JsError> {
-    raw_core::lens_profile::clear_cache().map_err(|e| JsError::new(&e))
+    let cleared = raw_core::lens_profile::clear_cache().map_err(|e| JsError::new(&e));
+    REGISTRY_GENERATION.fetch_add(1, Ordering::Relaxed);
+    cleared
 }
 
 /// The profile reference a sidecar selects, through the canonical parser,

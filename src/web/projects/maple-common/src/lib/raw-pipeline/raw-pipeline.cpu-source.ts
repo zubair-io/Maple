@@ -7,6 +7,7 @@ export class CpuSourceTransfer {
   buffer: ArrayBuffer = this.empty;
   transferred: Transferable[] = this.noTransfer;
   token?: number;
+  epoch = 0;
 
   prepare(bytes: Uint8Array, ext: string, worker: Worker, id: number, sized: boolean): void {
     const reused =
@@ -23,5 +24,11 @@ export class CpuSourceTransfer {
   }
   clear(): void {
     this.source = undefined;
+  }
+  /** A GPU open overtakes the decode queue: decodes queued before it must not
+   * re-establish a retained source the GPU session would then sit beside. */
+  retire(): void {
+    this.source = undefined;
+    this.epoch += 1;
   }
 }

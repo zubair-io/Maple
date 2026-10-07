@@ -197,7 +197,10 @@ export class RawPipelineService implements OnDestroy {
   // fallow-ignore-next-line unused-class-member
   renderNativeDetail(args: NativeDetailArgs): Promise<NativeDetailPixels> {
     const revision = this.detailClient.revision();
-    const run = () => this.detailClient.render(args, revision);
+    const run = () => {
+      this.cpuSource.clear();
+      return this.detailClient.render(args, revision);
+    };
     const next = this.decodeChain.then(run, run);
     this.decodeChain = next.catch(() => {
       this.cpuSource.clear();
@@ -234,6 +237,7 @@ export class RawPipelineService implements OnDestroy {
     // RAW and browser-decoded raster develops share the worker serialization gate.
     this.closeNativeDetail();
     const nonRaw = isNonRawExtension(ext);
+    const epoch = this.cpuSource.epoch;
     const run = nonRaw
       ? () => {
           this.cpuSource.clear();
@@ -245,7 +249,7 @@ export class RawPipelineService implements OnDestroy {
             this.pending.set.bind(this.pending),
           );
         }
-      : () => this.decodeOnce(bytes, ext, xmp, maxLongEdge, qualityPreview, filmLut);
+      : () => this.decodeOnce(bytes, ext, epoch, xmp, maxLongEdge, qualityPreview, filmLut);
     const next = this.decodeChain.then(run, run);
     this.decodeChain = next.catch(() => {
       this.cpuSource.clear();
@@ -257,6 +261,7 @@ export class RawPipelineService implements OnDestroy {
   private decodeOnce(
     bytes: Uint8Array,
     ext: string,
+    epoch: number,
     xmp?: string,
     maxLongEdge?: number,
     qualityPreview?: boolean,
@@ -270,7 +275,8 @@ export class RawPipelineService implements OnDestroy {
     }
     const id = this.nextId++;
     const source = this.cpuSource;
-    source.prepare(bytes, ext, worker, id, maxLongEdge !== undefined && maxLongEdge > 0);
+    const retain = maxLongEdge !== undefined && maxLongEdge > 0 && epoch === source.epoch;
+    source.prepare(bytes, ext, worker, id, retain);
     const request: DecodeRequest = {
       id,
       type: 'decode',
@@ -297,8 +303,8 @@ export class RawPipelineService implements OnDestroy {
 
   // ── Persistent GPU live session (epic #925, P4b-web / #1038) ───────────────
   // A worker-resident `WebLiveSession` presents straight to a transferred
-  // `OffscreenCanvas` (no readback). Opening joins the decode gate; live ticks
-  // keep the worker's session queue. Bodies: `raw-pipeline.gpu-live-session.ts`.
+  // `OffscreenCanvas` (no readback). Outside the decode gate: opening retires
+  // CPU source custody synchronously, ahead of any later queued decode. Bodies: `raw-pipeline.gpu-live-session.ts`.
 
   /** Build capability and runtime setting, evaluated at each image open. */
   get gpuLiveRenderEnabled(): boolean {
@@ -313,31 +319,24 @@ export class RawPipelineService implements OnDestroy {
     xmp?: string,
     maxLongEdge?: number,
   ): Promise<OpenedLiveSession> {
-    const run = () => {
-      let worker: Worker;
-      try {
-        worker = this.ensureWorker();
-      } catch {
-        return Promise.reject(new Error('RawPipelineService: worker unavailable'));
-      }
-      this.cpuSource.clear();
-      return openLiveSessionRequest(
-        worker,
-        this.nextId++,
-        this.pending.set.bind(this.pending),
-        canvas,
-        bytes,
-        ext,
-        xmp,
-        maxLongEdge,
-        this.colorSpacePref.current(),
-      );
-    };
-    const next = this.decodeChain.then(run, run);
-    this.decodeChain = next.catch(() => {
-      this.cpuSource.clear();
-    });
-    return next;
+    let worker: Worker;
+    try {
+      worker = this.ensureWorker();
+    } catch {
+      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
+    }
+    this.cpuSource.retire();
+    return openLiveSessionRequest(
+      worker,
+      this.nextId++,
+      this.pending.set.bind(this.pending),
+      canvas,
+      bytes,
+      ext,
+      xmp,
+      maxLongEdge,
+      this.colorSpacePref.current(),
+    );
   }
 
   // fallow-ignore-next-line unused-class-member
@@ -498,6 +497,7 @@ export class RawPipelineService implements OnDestroy {
    *  must never sit in the WASM heap at once. */
   private readonly sampleQueue: SampleQueue = (run) => {
     const once = () => {
+      this.cpuSource.clear();
       try {
         return run(this.ensureWorker(), this.nextId++, this.pending.set.bind(this.pending));
       } catch {
@@ -533,6 +533,7 @@ export class RawPipelineService implements OnDestroy {
       // Export decodes its own sensor data. Release the detail viewer's cached
       // mosaic first so a large export does not retain two full RAW decodes.
       this.closeNativeDetail();
+      this.cpuSource.clear();
       return this.exportOnce(bytes, ext, options, xmp, filmLut);
     };
     const next = this.decodeChain.then(run, run);

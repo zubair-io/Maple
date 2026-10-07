@@ -1,4 +1,8 @@
-import { renderRetainedCpu, releaseRetainedCpu } from './raw-pipeline.cpu-handler';
+import {
+  renderRetainedCpu,
+  releaseRetainedCpu,
+  releaseRetainedCpuBefore,
+} from './raw-pipeline.cpu-handler';
 import { cameraSupportFromJson } from '../state/camera-support';
 import { lensProfileFromJson } from '../lens/lens-profile.metadata';
 /// <reference lib="webworker" />
@@ -96,6 +100,7 @@ void ensureReady();
 // fallow-ignore-next-line complexity
 addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
+  releaseRetainedCpuBefore(req.type);
   // Imported lens profiles (#3479): the import handshake, the main thread's
   // fetch acknowledgement, and — for every request that carries a sidecar —
   // registering the profile it names BEFORE the render that needs it.
@@ -121,14 +126,12 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       await handleLegacyDecode(req);
       return;
     case 'develop-non-raw':
-      releaseRetainedCpu();
       await handleDevelopNonRaw(req);
       return;
     case 'decode-scene-linear':
       await handleSceneLinearDecode(req);
       return;
     case 'open-session':
-      releaseRetainedCpu();
       await handleOpenSession(req);
       return;
     case 'render-session':
