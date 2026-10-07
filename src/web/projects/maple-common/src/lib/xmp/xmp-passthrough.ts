@@ -204,9 +204,9 @@ export function collectXmpPassthrough(
       model[curveKey] = parseToneCurveElement(child);
       continue;
     }
-    // Local adjustments (#358): both containers are modeled, so they hydrate
-    // the model — in document order, linear and radial alike — and never
-    // reach the passthrough bucket, or the writer would emit them twice.
+    // Local adjustments (#358, #360): all four containers are modeled, so
+    // they hydrate the model — in document order — and never reach the
+    // passthrough bucket, or the writer would emit them twice.
     const containerKind = localAdjustmentContainerKind(child);
     if (containerKind === 'group') continue;
     if (containerKind) {

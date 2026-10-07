@@ -179,3 +179,39 @@ fn layers_and_rasters_from_flat_leaves_an_unregistered_id_unresolved() {
         other => panic!("expected Bitmap, got {other:?}"),
     }
 }
+
+/// A brush layer resolves against the same registry by its `papp:BrushDigest`
+/// (#360): the host rasterized the dab series (`maple_brush_rasterize`) and
+/// registered the bytes under the digest at edit time; a fresh XMP parse
+/// re-attaches them here. Own digest, per the file header's rule.
+#[test]
+fn brush_layer_resolves_by_digest_and_stamps_the_id() {
+    use raw_core::types::BrushDab;
+    use raw_core::types::Point2;
+    let digest = b"b00580000000360a";
+    let id = maple_mask_raster_register(digest.as_ptr(), 2, 2, DATA.as_ptr(), DATA.len());
+    assert!(id >= 1, "expected a positive id, got {id}");
+
+    let mut model = AdjustmentModel::default();
+    model.local_adjustments = vec![LocalAdjustment {
+        mask: Mask::Brush {
+            dabs: vec![BrushDab::new(Point2::new(0.5, 0.5), 0.05, 0.5, 1.0, false)],
+            digest: "b00580000000360a".into(),
+            raster_id: 0,
+        },
+        range: None,
+        adjustments: PartialAdjustments {
+            exposure: Some(1.0),
+            ..Default::default()
+        },
+    }];
+    resolve_into(&mut model);
+
+    assert_eq!(model.mask_rasters.len(), 1);
+    assert_eq!(model.mask_rasters[0].id, id as u32);
+    match &model.local_adjustments[0].mask {
+        Mask::Brush { raster_id, .. } => assert_eq!(*raster_id, id as u32),
+        other => panic!("expected Brush, got {other:?}"),
+    }
+    maple_mask_raster_release(id as u32);
+}

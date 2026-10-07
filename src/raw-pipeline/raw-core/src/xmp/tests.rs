@@ -122,8 +122,14 @@ fn temperature_seen_set_when_explicit() {
     let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
         crs:WhiteBalance="Custom" crs:Temperature="5500" crs:Tint="20"/></x>"#;
     let m = parse(xml).unwrap();
-    assert!(m.temperature_seen, "temperature_seen must be true when crs:Temperature is present");
-    assert!(m.tint_seen, "tint_seen must be true when crs:Tint is present");
+    assert!(
+        m.temperature_seen,
+        "temperature_seen must be true when crs:Temperature is present"
+    );
+    assert!(
+        m.tint_seen,
+        "tint_seen must be true when crs:Tint is present"
+    );
 }
 
 /// (#1729) — tint-only Custom XMP: temperature_seen=false, tint_seen=true.
@@ -132,8 +138,14 @@ fn tint_only_custom_wb_temperature_seen_false() {
     let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
         crs:WhiteBalance="Custom" crs:Tint="150"/></x>"#;
     let m = parse(xml).unwrap();
-    assert!(!m.temperature_seen, "temperature_seen must be false when crs:Temperature is absent");
-    assert!(m.tint_seen, "tint_seen must be true when crs:Tint is present");
+    assert!(
+        !m.temperature_seen,
+        "temperature_seen must be false when crs:Temperature is absent"
+    );
+    assert!(
+        m.tint_seen,
+        "tint_seen must be true when crs:Tint is present"
+    );
     // The model's temperature field still holds the default (6500); the
     // develop pipeline resolves it to as-shot at render time.
     assert_eq!(m.temperature, 6500.0);
@@ -146,8 +158,14 @@ fn temperature_only_custom_wb_tint_seen_false() {
     let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
         crs:WhiteBalance="Custom" crs:Temperature="4500"/></x>"#;
     let m = parse(xml).unwrap();
-    assert!(m.temperature_seen, "temperature_seen must be true when crs:Temperature is present");
-    assert!(!m.tint_seen, "tint_seen must be false when crs:Tint is absent");
+    assert!(
+        m.temperature_seen,
+        "temperature_seen must be true when crs:Temperature is present"
+    );
+    assert!(
+        !m.tint_seen,
+        "tint_seen must be false when crs:Tint is absent"
+    );
     assert_eq!(m.temperature, 4500.0);
     assert_eq!(m.tint, 0.0);
 }
@@ -159,7 +177,10 @@ fn as_shot_wb_both_seen_flags_false() {
     let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
         crs:WhiteBalance="As Shot"/></x>"#;
     let m = parse(xml).unwrap();
-    assert!(!m.temperature_seen, "temperature_seen must be false for As Shot");
+    assert!(
+        !m.temperature_seen,
+        "temperature_seen must be false for As Shot"
+    );
     assert!(!m.tint_seen, "tint_seen must be false for As Shot");
 }
 
@@ -440,8 +461,16 @@ fn wrap_papp(frag: &str) -> String {
 #[test]
 fn wb_provenance_omitted_at_default_and_round_trips_a_sampled_pair() {
     let frag = serialize(&AdjustmentModel::default());
-    for key in ["papp:WbSource", "papp:WbSampleX", "papp:WbSampleY", "papp:WbAlgorithmVersion"] {
-        assert!(!frag.contains(key), "{key} must not be serialized at the default: {frag}");
+    for key in [
+        "papp:WbSource",
+        "papp:WbSampleX",
+        "papp:WbSampleY",
+        "papp:WbAlgorithmVersion",
+    ] {
+        assert!(
+            !frag.contains(key),
+            "{key} must not be serialized at the default: {frag}"
+        );
     }
 
     let sampled = AdjustmentModel {
@@ -478,14 +507,20 @@ fn wb_provenance_sample_point_travels_only_with_a_sampled_source() {
     };
     let frag = serialize(&preset);
     assert!(frag.contains(r#"papp:WbSource="Preset""#), "{frag}");
-    assert!(!frag.contains("papp:WbSampleX") && !frag.contains("papp:WbSampleY"), "{frag}");
+    assert!(
+        !frag.contains("papp:WbSampleX") && !frag.contains("papp:WbSampleY"),
+        "{frag}"
+    );
     let auto = AdjustmentModel {
         wb_source: WbSource::Auto,
         wb_algorithm_version: 1.0,
         ..AdjustmentModel::default()
     };
     let frag = serialize(&auto);
-    assert!(frag.contains(r#"papp:WbSource="Auto" papp:WbAlgorithmVersion="1""#), "{frag}");
+    assert!(
+        frag.contains(r#"papp:WbSource="Auto" papp:WbAlgorithmVersion="1""#),
+        "{frag}"
+    );
 
     // A `Sampled` source with no version is a label a paste carried, not
     // provenance — `wb_source` is copyable, the point and the version are

@@ -375,6 +375,7 @@ extension LocalAdjustment {
     case .bitmap(let recipe, _):
       if recipe.model.contains("person") { return "person_skin" }
       return "bitmap"
+    case .brush: return "brush"
     case .everywhere:
       if range == .skinTone { return "whole_image_skin" }
       return "everywhere"

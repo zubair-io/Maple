@@ -406,3 +406,17 @@ fn explicit_single_component_group_retains_opacity_and_inversion() {
     let parsed = crate::xmp::parse(&document(&model)).unwrap();
     assert_eq!(parsed.local_adjustments, model.local_adjustments);
 }
+
+/// Brush is a top-level-only mask in this slice (#360): a group component
+/// cannot hold one, so a foreign group with a paint leaf imports as
+/// unsupported (dropped, never widened) rather than half-modelled.
+#[test]
+fn mask_component_rejects_brush() {
+    use crate::types::BrushDab;
+    let brush = Mask::Brush {
+        dabs: vec![BrushDab::new(Point2::new(0.5, 0.5), 0.05, 0.5, 1.0, false)],
+        digest: String::new(),
+        raster_id: 0,
+    };
+    assert!(MaskComponent::new(brush, MaskCombine::Add, false).is_none());
+}

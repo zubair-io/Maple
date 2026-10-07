@@ -119,13 +119,15 @@ pub extern "C" fn maple_mask_raster_release(id: u32) {
     });
 }
 
-/// Resolve every `Mask::Bitmap` layer in `model.local_adjustments` against
-/// this registry, in place, and populate `model.mask_rasters` with the
-/// distinct rasters found.
+/// Resolve every `Mask::Bitmap` / `Mask::Brush` layer in
+/// `model.local_adjustments` against this registry, in place, and populate
+/// `model.mask_rasters` with the distinct rasters found.
 ///
-/// Two ways a Bitmap mask reaches here with an UNRESOLVED raster:
+/// Two ways a bitmap/brush mask reaches here with an UNRESOLVED raster:
 /// * `raster_id == 0` — freshly parsed from a sidecar, which never carries
-///   pixels, only the recipe (spec §5.3). Resolved by `recipe.digest`.
+///   pixels, only the recipe (spec §5.3) or the dab series (#360). Resolved
+///   by digest (`recipe.digest` for a bitmap, `papp:BrushDigest` for a
+///   brush — the host rasterized + registered under it at edit time).
 /// * `raster_id != 0` but stale — a value serialized in-process earlier this
 ///   session whose raster has since been released. Resolved by id first,
 ///   falling back to digest (matches `stages::local_adjustments::mask::resolve`'s
@@ -149,15 +151,19 @@ pub(crate) fn resolve_into(model: &mut AdjustmentModel) {
             }
             continue;
         }
-        let Mask::Bitmap { recipe, raster_id } = &mut layer.mask else {
-            continue;
+        let (raster_id, digest): (&mut u32, &str) = match &mut layer.mask {
+            Mask::Bitmap { recipe, raster_id } => (raster_id, recipe.digest.as_str()),
+            Mask::Brush {
+                digest, raster_id, ..
+            } => (raster_id, digest.as_str()),
+            _ => continue,
         };
         let found = if *raster_id != 0 {
             lookup(*raster_id)
         } else {
             None
         }
-        .or_else(|| lookup_digest(&recipe.digest));
+        .or_else(|| lookup_digest(digest));
         if let Some(raster) = found {
             *raster_id = raster.id;
             if !rasters.iter().any(|r| r.id == raster.id) {
