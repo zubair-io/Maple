@@ -49,8 +49,8 @@ use crate::{error::Result, image::RawImage, linearize, xmp::AdjustmentModel};
 use rayon::prelude::*;
 
 use super::{
-    RenderQuality, downsample::downsample_image_area, finite_or_zero, fp16::f32_to_f16_bits,
-    orient::apply_orientation_f32_rgba, stage,
+    downsample::downsample_image_area, finite_or_zero, fp16::f32_to_f16_bits,
+    orient::apply_orientation_f32_rgba, stage, RenderQuality,
 };
 
 use develop::{develop_scene_linear_from_padded_mosaic, full_frame_long_edge};
@@ -60,7 +60,7 @@ pub(crate) fn raster_window_overlap(model: &AdjustmentModel, long_edge: u32) -> 
     tile_overlap_px(None, model, long_edge as usize, 1)
 }
 use overlap::tile_overlap_px;
-use region::{TileWindow, pad_and_clamp_mosaic_rect, trim_image_to_inner};
+use region::{pad_and_clamp_mosaic_rect, trim_image_to_inner, TileWindow};
 
 /// Tile-overlap pad in source pixels per edge. Picked to satisfy
 /// clarity's stencil reach (40 px per side: a guided filter at

@@ -54,10 +54,9 @@ pub use develop_sized::{
     develop_scene_linear_sized_from_raw_with_quality_with_gain,
 };
 pub use downsample::downsample_image_area;
-pub use pano::{PanoIngest, PanoSourceMetadata, decode_for_pano, read_pano_metadata};
+pub use pano::{decode_for_pano, read_pano_metadata, PanoIngest, PanoSourceMetadata};
 pub use render::{
-    DetailContext, DetailRenderOptions, ExportDepth, ExportPixels, FitCap, RasterDetailImage,
-    RawInput, cached_auto_profile_fit, decode_raster_base, fit_auto_profile_from_raw,
+    cached_auto_profile_fit, decode_raster_base, fit_auto_profile_from_raw,
     fit_auto_profile_from_raw_at_cap, fit_profile_curve_from_raw, native_render_dims,
     render_detail_base, render_detail_base_cancellable, render_detail_tile,
     render_detail_tile_cancellable, render_export_from_raw, render_export_from_raw_with_film,
@@ -75,23 +74,22 @@ pub use render::{
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_anchors,
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain,
     render_sized_from_raw_with_quality_and_source,
-    render_sized_from_raw_with_quality_source_and_film, validate_raster_adjustments,
+    render_sized_from_raw_with_quality_source_and_film, validate_raster_adjustments, DetailContext,
+    DetailRenderOptions, ExportDepth, ExportPixels, FitCap, RasterDetailImage, RawInput,
 };
 pub use scene_linear_chain::{
-    ChainOptions, ChainWindow, apply_scene_linear_chain, apply_scene_linear_chain_f32,
-    apply_scene_linear_chain_f32_scoped, apply_scene_linear_chain_f32_windowed,
-    apply_scene_linear_chain_f32_windowed_cancellable, apply_scene_linear_chain_f32_with_film,
-    apply_scene_linear_chain_f32_with_film_cancellable, apply_scene_linear_chain_f32_with_patches,
-    apply_scene_linear_chain_with_patches, encode_display_f32, encode_display_srgb_f32,
-    encode_display_u10_f32,
+    apply_scene_linear_chain, apply_scene_linear_chain_f32, apply_scene_linear_chain_f32_scoped,
+    apply_scene_linear_chain_f32_windowed, apply_scene_linear_chain_f32_windowed_cancellable,
+    apply_scene_linear_chain_f32_with_film, apply_scene_linear_chain_f32_with_film_cancellable,
+    apply_scene_linear_chain_f32_with_patches, apply_scene_linear_chain_with_patches,
+    encode_display_f32, encode_display_srgb_f32, encode_display_u10_f32, ChainOptions, ChainWindow,
 };
 pub use tile::{
-    TILE_OVERLAP_PX, TileRect, render_scene_linear_tile_cancellable_f32,
-    render_scene_linear_tile_from_raw_with_quality,
+    render_scene_linear_tile_cancellable_f32, render_scene_linear_tile_from_raw_with_quality,
     render_scene_linear_tile_from_raw_with_quality_and_wb_anchor,
     render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32,
     render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32,
-    render_scene_linear_tile_from_raw_with_quality_f32,
+    render_scene_linear_tile_from_raw_with_quality_f32, TileRect, TILE_OVERLAP_PX,
 };
 
 /// Wraps a pipeline stage with `Instant::now()` timing, emitting one line
@@ -144,7 +142,11 @@ pub fn stage<T>(_name: &'static str, f: impl FnOnce() -> T) -> T {
 /// common case, so the branch predicts perfectly).
 #[inline(always)]
 pub(crate) fn finite_or_zero(v: f32) -> f32 {
-    if v.is_finite() { v } else { 0.0 }
+    if v.is_finite() {
+        v
+    } else {
+        0.0
+    }
 }
 
 /// Per-stage diagnostic dump. No-op when the `stage-dump` feature is
@@ -249,7 +251,7 @@ pub fn fixed_quality_kernel(quality: RenderQuality) -> Option<crate::demosaic::D
 #[cfg(test)]
 mod bayer_kernel_tests {
     use super::*;
-    use crate::demosaic::{DemosaicAlgorithm, resolve_algorithm};
+    use crate::demosaic::{resolve_algorithm, DemosaicAlgorithm};
     use crate::types::DemosaicChoice;
 
     /// #3413 changed which kernel `Auto` picks; it must not have changed

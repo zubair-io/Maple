@@ -64,20 +64,20 @@ use crate::agx::AgxPass;
 use crate::auto_profile_curve::{profile_curve_is_active, AutoProfileCurvePass};
 use crate::capture_sharpening::CaptureSharpeningPass;
 use crate::clarity::ClarityPass;
-use crate::color_grade::{ColorGradePass, color_grade_is_identity};
+use crate::color_grade::{color_grade_is_identity, ColorGradePass};
 use crate::defringe::DefringePass;
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
-use crate::display_tone_curve::{DisplayToneCurvePass, display_tone_curve_is_identity};
+use crate::display_tone_curve::{display_tone_curve_is_identity, DisplayToneCurvePass};
 use crate::film_lut::FilmLutPass;
 use crate::full_chain::hsl_pass_for;
 use crate::full_chain::{BoxedPasses, FullChainInputs, InputShape};
 use crate::grain::GrainPass;
 use crate::local_adjustments::{
-    LocalAdjustmentsPass, local_adjustments_are_active, local_adjustments_need_spatial,
-    logical_layers,
+    local_adjustments_are_active, local_adjustments_need_spatial, logical_layers,
+    LocalAdjustmentsPass,
 };
-use crate::local_spatial::{LocalSpatialPass, layer_needs_spatial};
+use crate::local_spatial::{layer_needs_spatial, LocalSpatialPass};
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
 use crate::residual_lut::{residual_lut_is_active, ResidualLutPass};
 use crate::saturation::SaturationPass;
@@ -91,8 +91,8 @@ use crate::vignette::VignettePass;
 use crate::white_balance::WhiteBalancePass;
 
 mod builder;
-pub(crate) use builder::{LivePassSink, visit_live_chain};
 pub use builder::{build_live_chain, build_live_split};
+pub(crate) use builder::{visit_live_chain, LivePassSink};
 
 pub(crate) fn validate_curve_capacity(inputs: &FullChainInputs<'_>) -> Result<(), String> {
     let curves = [
