@@ -6,9 +6,10 @@
 // counter, the pending-handler registry), not methods on the class itself.
 //
 // `RawPipelineService.openLiveSession`/`renderLiveSession`/`closeLiveSession`
-// keep ownership of `ensureWorker()`'s try/catch. Opening joins decodeChain
-// to retire CPU source custody in order; live ticks keep the worker's own
-// render queue. These helpers only dispatch requests.
+// keep ownership of `ensureWorker()`'s try/catch (these requests are NOT
+// behind the `decodeChain` serialization gate — the session lives entirely
+// in the worker and owns its own render queue) and just delegate the
+// request body here.
 
 import type {
   CloseSessionRequest,
