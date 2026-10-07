@@ -13,6 +13,7 @@ pub struct CpuLiveSession {
     ext: String,
     raw: RawImage,
     preview: Option<CpuPreview>,
+    lens_generation: u64,
     film_bytes: Vec<u8>,
     film: Option<raw_core::film::FilmLut>,
     as_shot: (f32, f32),
@@ -20,15 +21,16 @@ pub struct CpuLiveSession {
 }
 #[wasm_bindgen]
 impl CpuLiveSession {
-    pub fn open(bytes: &[u8], ext: &str) -> Result<Self, JsError> {
-        let raw =
-            raw_core::decode::decode_bytes(bytes, ext).map_err(|e| JsError::new(&e.to_string()))?;
+    pub fn open(bytes: Vec<u8>, ext: &str) -> Result<Self, JsError> {
+        let raw = raw_core::decode::decode_bytes(&bytes, ext)
+            .map_err(|e| JsError::new(&e.to_string()))?;
         let (as_shot, support) = crate::open_metadata::assess(&raw);
         Ok(Self {
-            bytes: bytes.to_vec(),
+            bytes,
             ext: ext.to_owned(),
             raw,
             preview: None,
+            lens_generation: crate::lens_profile::registry_generation(),
             film_bytes: Vec::new(),
             film: None,
             as_shot,
@@ -59,6 +61,11 @@ impl CpuLiveSession {
             self.film = decoded;
             self.film_bytes.clear();
             self.film_bytes.extend_from_slice(film_bytes);
+        }
+        let lens_generation = crate::lens_profile::registry_generation();
+        if lens_generation != self.lens_generation {
+            self.preview = None;
+            self.lens_generation = lens_generation;
         }
         let quality = if quality_preview {
             RenderQuality::Preview
@@ -136,7 +143,7 @@ mod tests {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng");
         let bytes = std::fs::read(path).expect("committed DNG");
-        let mut session = CpuLiveSession::open(&bytes, "dng").unwrap();
+        let mut session = CpuLiveSession::open(bytes.clone(), "dng").unwrap();
         let raw_pointer = session.raw.raw_data.as_ptr();
         let source_pointer = session.bytes.as_ptr();
         let fast = session.render(None, true, 80, &[]).unwrap();
@@ -161,5 +168,25 @@ mod tests {
             assert_eq!(actual.as_shot_temperature(), expected.as_shot_temperature());
             assert_eq!(actual.as_shot_tint(), expected.as_shot_tint());
         }
+    }
+
+    #[test]
+    fn lens_registry_change_rebuilds_retained_prefix() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng");
+        let bytes = std::fs::read(path).expect("committed DNG");
+        let mut session = CpuLiveSession::open(bytes, "dng").unwrap();
+        let before = session.render(None, true, 80, &[]).unwrap();
+        crate::lens_profile::clear_lens_profiles().unwrap();
+        assert_ne!(
+            session.lens_generation,
+            crate::lens_profile::registry_generation()
+        );
+        let after = session.render(None, true, 80, &[]).unwrap();
+        assert_eq!(
+            session.lens_generation,
+            crate::lens_profile::registry_generation()
+        );
+        assert_eq!(before.rgb(), after.rgb());
     }
 }
