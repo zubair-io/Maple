@@ -33,10 +33,10 @@ use crate::{
     xmp::AdjustmentModel,
 };
 
-use super::region::{TileWindow, trim_image_to_inner};
+use super::region::{trim_image_to_inner, TileWindow};
 use crate::pipeline::{
-    RenderQuality, capture_sharpening_helper::capture_sharpening_params_from_model,
-    develop::effective_quality_divisor, native_render_dims, stage,
+    capture_sharpening_helper::capture_sharpening_params_from_model,
+    develop::effective_quality_divisor, native_render_dims, stage, RenderQuality,
 };
 use crate::stages::{capture_sharpening, local_adjustments, retouch, vignette};
 
@@ -124,7 +124,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         decoded_wb_anchor,
         ae_gain,
         window,
-        mut inner,
+        inner,
         active_area,
         tile_origin,
     } = anchors;
@@ -223,6 +223,9 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
             raw.baseline_exposure,
             active_area,
         )
+    });
+    let (mut camera_rgb, window, mut inner) = stage("tile_crop_to_default", || {
+        clip_to_default_crop(camera_rgb, window, inner)
     });
     let (profile, profile_source) =
         stage("tile_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
@@ -535,4 +538,37 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         image: scene,
         inner,
     })
+}
+
+/// The whole-image develop drops everything outside DefaultCrop right after
+/// highlight recovery, so its spatial colour stages see the crop edge. A tile
+/// whose padding reaches past that edge clips it the same way; otherwise
+/// pixels near the edge are filtered with neighbours the full render never had.
+fn clip_to_default_crop(
+    image: crate::image::Image,
+    window: TileWindow,
+    inner: (u32, u32, u32, u32),
+) -> (crate::image::Image, TileWindow, (u32, u32, u32, u32)) {
+    let edge = |origin: i32, full: u32, size: u32| {
+        let start = origin.min(0).unsigned_abs().min(size);
+        let end = (i64::from(full) - i64::from(origin)).clamp(i64::from(start), i64::from(size));
+        (start, end as u32)
+    };
+    let (left, right) = edge(window.origin.0, window.full.0, image.width);
+    let (top, bottom) = edge(window.origin.1, window.full.1, image.height);
+    if left == 0 && top == 0 && right == image.width && bottom == image.height {
+        return (image, window, inner);
+    }
+    let clipped = trim_image_to_inner(&image, left, top, right - left, bottom - top);
+    let window = TileWindow {
+        origin: (window.origin.0 + left as i32, window.origin.1 + top as i32),
+        full: window.full,
+    };
+    let inner = (
+        inner.0.saturating_sub(left),
+        inner.1.saturating_sub(top),
+        inner.2,
+        inner.3,
+    );
+    (clipped, window, inner)
 }

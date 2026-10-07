@@ -73,3 +73,57 @@ fn crop_detail_matches_full_auto_render_with_exif_and_sensor_crop() {
         }
     }
 }
+
+#[test]
+fn edge_tiles_match_full_render_inside_sensor_default_crop() {
+    let (mut raw, bytes) = chart();
+    raw.crop_rect = Some(crate::image::CropRect {
+        x: 12,
+        y: 16,
+        w: raw.width - 32,
+        h: raw.height - 40,
+    });
+    let model = AdjustmentModel {
+        profile: Profile::Neutral,
+        nr_luminance: 15.0,
+        ..Default::default()
+    };
+    let (w, h, expected, context) = render_detail_base(
+        &raw,
+        &model,
+        RawInput::Bytes {
+            bytes: &bytes,
+            ext: "dng",
+        },
+        DetailRenderOptions {
+            quality: RenderQuality::Auto,
+            max_long_edge: 1024,
+            film_lut: None,
+        },
+    )
+    .unwrap();
+    for (x, y, tw, th) in [(0, 0, w / 3, h / 3), (w - w / 3, h - h / 3, w / 3, h / 3)] {
+        let rect = TileRect {
+            src_x: x,
+            src_y: y,
+            src_w: tw,
+            src_h: th,
+            out_w: tw,
+            out_h: th,
+        };
+        let (pw, ph, actual) = render_detail_tile(&raw, &context, rect, None, 8_388_608).unwrap();
+        let wanted: Vec<u8> = (y..y + ph)
+            .flat_map(|row| {
+                let start = (row * w + x) as usize * 3;
+                expected[start..start + pw as usize * 3].iter().copied()
+            })
+            .collect();
+        let error = actual
+            .iter()
+            .zip(&wanted)
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap();
+        assert!(error <= 1, "tile at {x},{y} differs by {error}");
+    }
+}
