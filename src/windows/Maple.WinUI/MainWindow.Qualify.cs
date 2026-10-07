@@ -47,6 +47,7 @@ namespace Maple.WinUI
             long pendingEditStarted = 0;
             double? decodeMs = null;
             double? initialExposure = null;
+            double[]? initialSceneTone = null;
             try
             {
                 Directory.CreateDirectory(outDir);
@@ -110,6 +111,8 @@ namespace Maple.WinUI
                 var exposure = ViewModel.Sections.SelectMany(section => section.Sliders)
                     .Single(slider => slider.Label == "Exposure");
                 initialExposure = exposure.Value;
+                var start = ViewModel.Adjustments;
+                initialSceneTone = new[] { start.Exposure, start.Brightness, start.Highlights, start.Shadows, start.Blacks };
 
                 for (var i = 0; i < QualifyTicks; i++)
                 {
@@ -138,6 +141,7 @@ namespace Maple.WinUI
                     timing_high_resolution = System.Diagnostics.Stopwatch.IsHighResolution,
                     decode_ms = decodeMs,
                     initial_exposure = initialExposure,
+                    initial_scene_tone = initialSceneTone,
                     timing_scope = path == "gpu" ? "exposure-edit-to-present-return" : "exposure-edit-to-cpu-render-ready",
                     tick_ms = ticks,
                     render_tick_ms = renderTicks,
@@ -177,6 +181,7 @@ namespace Maple.WinUI
                             timing_scope = path == "gpu" ? "exposure-edit-to-present-return" : "exposure-edit-to-cpu-render-ready",
                             decode_ms = decodeMs,
                             initial_exposure = initialExposure,
+                            initial_scene_tone = initialSceneTone,
                             elapsed_open_ms = decodeStarted == 0 ? (double?)null : System.Diagnostics.Stopwatch.GetElapsedTime(decodeStarted).TotalMilliseconds,
                             incomplete_fast_tick_ms = pendingEditStarted == 0 ? (double?)null : System.Diagnostics.Stopwatch.GetElapsedTime(pendingEditStarted).TotalMilliseconds,
                             tick_ms = ticks,
