@@ -4,7 +4,7 @@ mod write;
 pub(super) use parse::parse;
 pub(super) use write::serialize;
 
-use super::{Flag, SidecarError};
+use super::SidecarError;
 use roxmltree::{Document, Node};
 use std::ops::Range;
 
@@ -73,14 +73,6 @@ fn rating_value(value: &str) -> u8 {
         .ok()
         .filter(|rating| rating.is_finite())
         .map_or(0, |rating| rating.round().clamp(0.0, 5.0) as u8)
-}
-
-fn legacy_flag(value: &str) -> Option<Flag> {
-    match value.to_ascii_lowercase().as_str() {
-        "red" | "pick" => Some(Flag::Pick),
-        "reject" | "rejected" => Some(Flag::Reject),
-        _ => None,
-    }
 }
 
 mod reset;

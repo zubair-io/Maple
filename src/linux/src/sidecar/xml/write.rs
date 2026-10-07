@@ -1,6 +1,5 @@
 use super::{
-    descriptions, key, legacy_flag, prefix, rating_value, replace, start_tag_end, CRS, EMPTY, PAPP,
-    XMP,
+    descriptions, key, prefix, rating_value, replace, start_tag_end, CRS, EMPTY, PAPP, XMP,
 };
 use crate::controls::Control;
 use crate::sidecar::{Culling, Flag, SidecarError};
@@ -61,7 +60,6 @@ pub(crate) fn serialize(
                         matches!(model.wb_source, WbSource::Manual | WbSource::Auto),
                     ) && !(keep_rating && name == "xmp:Rating"))
                         || (name == "papp:Look" && attr.value() == "Neutral")
-                        || (name == "xmp:Label" && legacy_flag(attr.value()).is_some())
                 })
             {
                 let range = attr.range();

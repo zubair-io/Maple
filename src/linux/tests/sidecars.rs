@@ -283,21 +283,26 @@ fn repeated_autosaves_keep_the_current_baseline() {
 }
 
 #[test]
-fn legacy_culling_migrates_without_reviving_a_cleared_flag() {
-    let mut document = SidecarDocument::parse(&imported("xmp:Label=\"Rejected\"", "")).unwrap();
-    assert_eq!(document.culling.flag, Flag::Reject);
-    let migrated = document.serialize().unwrap();
-    assert!(migrated.contains("papp:Flag=\"reject\""));
-    assert!(!migrated.contains("xmp:Label"));
+fn xmp_label_is_a_colour_label_kept_verbatim_and_never_a_flag() {
+    for label in ["Red", "pick", "Rejected", "Purple"] {
+        let mut document =
+            SidecarDocument::parse(&imported(&format!("xmp:Label=\"{label}\""), "")).unwrap();
+        assert_eq!(document.culling.flag, Flag::Unflagged, "{label}");
+        Control::Exposure.set(&mut document.model, 0.5).unwrap();
+        let saved = document.serialize().unwrap();
+        assert!(saved.contains(&format!("xmp:Label=\"{label}\"")), "{saved}");
+        assert!(!saved.contains("papp:Flag"), "{saved}");
+    }
+    let mut document =
+        SidecarDocument::parse(&imported("papp:Flag=\"pick\" xmp:Label=\"Red\"", "")).unwrap();
+    assert_eq!(document.culling.flag, Flag::Pick);
     document.culling.flag = Flag::Unflagged;
     let cleared = document.serialize().unwrap();
+    assert!(cleared.contains("xmp:Label=\"Red\"") && !cleared.contains("papp:Flag"));
     assert_eq!(
         SidecarDocument::parse(&cleared).unwrap().culling.flag,
         Flag::Unflagged
     );
-    let document =
-        SidecarDocument::parse(&imported("papp:Flag=\"pick\" xmp:Label=\"Rejected\"", "")).unwrap();
-    assert_eq!(document.culling.flag, Flag::Pick);
 }
 
 #[test]
