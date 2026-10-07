@@ -52,6 +52,10 @@ use wasm_bindgen::prelude::*;
 
 pub mod auto_adjustments;
 pub mod auto_tone;
+/// Brush dab-series rasterize + register (#360) — `brush_raster_register`
+/// stamps a dab series and registers the bytes in one call, so stroke bytes
+/// never cross the JS↔wasm boundary.
+pub mod brush;
 /// wasm32 CPU develop memory budget (#2661) — the clamp every CPU render
 /// entry applies so a large-sensor develop cannot exhaust the 4 GiB wasm32
 /// heap, plus the `DEFAULT_TARGET_LONG_EDGE` the GPU one-shot entry and its

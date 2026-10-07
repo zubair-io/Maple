@@ -41,9 +41,12 @@ pub struct MaskComponent {
 
 impl MaskComponent {
     /// Reject nested groups: the current contract is an ordered list of
-    /// component shapes, not a recursive expression tree.
+    /// component shapes, not a recursive expression tree. Brush (#360) is
+    /// also rejected for now — a brush is a top-level-only mask in this
+    /// slice, so a foreign group with a paint leaf imports as unsupported
+    /// (dropped, never widened) rather than half-modelled.
     pub fn new(mask: Mask, combine: MaskCombine, invert: bool) -> Option<Self> {
-        (!matches!(mask, Mask::Group(_))).then_some(Self {
+        (!matches!(mask, Mask::Group(_) | Mask::Brush { .. })).then_some(Self {
             mask,
             combine,
             invert,

@@ -44,10 +44,12 @@ import {
 import { dispatchWithMark } from './raw-pipeline.dispatch-with-mark';
 import { developNonRaw } from './raw-pipeline.non-raw-develop';
 import {
+  dispatchRegisterBrushRaster,
   dispatchRegisterMaskRaster,
   releaseMaskRasterRequest,
 } from './raw-pipeline.mask-raster-request';
 import type { MaskRasterUpload } from './raw-pipeline.mask-raster.types';
+import type { BrushRasterUpload } from './raw-pipeline.brush-raster.types';
 import {
   openLiveSessionRequest,
   renderLiveSessionRequest,
@@ -129,6 +131,11 @@ export class RawPipelineService implements OnDestroy {
    */
   readonly lensProfileStatus = signal<LensProfileStatus | null>(null);
 
+  /** Increments every time the worker is retired: registries (mask rasters,
+   *  brush rasters, lens profiles) live in the worker, so hosts holding
+   *  registration handles re-sync when this changes (#360). */
+  readonly workerGeneration = signal(0);
+
   private ensureWorker(): Worker {
     if (this.worker) return this.worker;
     try {
@@ -180,6 +187,7 @@ export class RawPipelineService implements OnDestroy {
     this.pending.forEach(({ reject }) => reject(new Error(message)));
     this.pending.clear();
     this.worker = null;
+    this.workerGeneration.update((g) => g + 1);
   }
 
   // Serialization gate: the worker's `message` handler is async, so multiple
@@ -399,6 +407,22 @@ export class RawPipelineService implements OnDestroy {
     }
     const register = this.pending.set.bind(this.pending);
     return dispatchRegisterMaskRaster(worker, this.nextId++, register, raster);
+  }
+
+  /** Register one brush stroke's dab series: the worker rasterizes it onto
+   *  an R8 plane and registers the plane under `digest` (#360); resolves with
+   *  the raster id a `brush` mask's `rasterId` names. Contract in
+   *  `raw-pipeline.brush-raster.types.ts`. */
+  // fallow-ignore-next-line unused-class-member
+  registerBrushRaster(upload: BrushRasterUpload): Promise<number> {
+    let worker: Worker;
+    try {
+      worker = this.ensureWorker();
+    } catch {
+      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
+    }
+    const register = this.pending.set.bind(this.pending);
+    return dispatchRegisterBrushRaster(worker, this.nextId++, register, upload);
   }
 
   /** Forget a raster registered by `registerMaskRaster`. Fire-and-forget. */

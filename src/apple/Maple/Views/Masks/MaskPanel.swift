@@ -56,6 +56,8 @@ struct MaskPanel: View {
           .accessibilityLabel("Add linear mask")
         Button("Radial") { state.session.createGeometricMask(.radial) }
           .accessibilityLabel("Add radial mask")
+        Button("Brush") { state.session.createBrushMask() }
+          .accessibilityLabel("Add brush mask")
       } label: {
         HStack(spacing: 4) {
           MuiIcon(name: "add_circle", size: .sm)

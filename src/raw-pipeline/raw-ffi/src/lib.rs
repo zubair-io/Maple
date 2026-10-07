@@ -93,6 +93,11 @@ mod gpu_live;
 mod gpu_auto_profile;
 mod handle;
 mod id;
+// Brush dab-series rasterization (#360): `maple_brush_rasterize` stamps a
+// dab series into the caller's R8 buffer — the bytes the host then registers
+// via `maple_mask_raster_register`. No `gpu` gate: rasterization runs once
+// per stroke commit on the CPU on every path.
+mod brush;
 // Process-wide bitmap-mask raster registry (#3271): `maple_mask_raster_register`
 // / `_release`, plus the internal `resolve_into` / `layers_and_rasters_from_flat`
 // helpers `model` and the chain-params readers use to attach a `Mask::Bitmap`
@@ -192,6 +197,7 @@ pub use workflow::{
 // #3271: cbindgen needs no extra visibility here (both entries are plain
 // scalar-argument externs), but `pub use` keeps them reachable from Rust
 // integration tests the same way `maple_last_error` is below.
+pub use brush::maple_brush_rasterize;
 pub use mask_registry::{maple_mask_raster_register, maple_mask_raster_release};
 pub use scene_linear_chain::MapleAdjustmentParams;
 // #3272: cbindgen needs visibility on the struct; ungated (the CPU fused

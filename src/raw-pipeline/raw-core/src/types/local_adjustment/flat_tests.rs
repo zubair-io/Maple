@@ -331,3 +331,34 @@ fn retained_flat_storage_clears_absent_controls_and_padding() {
     assert!(out.is_empty());
     assert_eq!(out.as_ptr(), identity);
 }
+
+/// A brush layer IS a bitmap record on the render wire (#360): the GPU plane,
+/// the registries, and every `is_bitmap_record` consumer treat it exactly
+/// like a `Bitmap` — and `layers_from_flat` decodes it back as one, never as
+/// a `Brush`, since the dabs never ride this wire. Render-equivalent: same
+/// id, same raster.
+#[test]
+fn brush_encodes_as_a_bitmap_record_and_decodes_back_as_bitmap() {
+    use crate::types::local_adjustment::BrushDab;
+    let layer = LocalAdjustment {
+        mask: Mask::Brush {
+            dabs: vec![BrushDab::new(Point2::new(0.5, 0.5), 0.05, 0.5, 1.0, false)],
+            digest: "0123456789abcdef".to_string(),
+            raster_id: 9,
+        },
+        range: None,
+        adjustments: PartialAdjustments {
+            exposure: Some(0.5),
+            ..Default::default()
+        },
+    };
+    let flat = layers_to_flat(&[layer]);
+    assert_eq!(flat.len(), LAYER_FLAT_LEN);
+    assert_eq!(flat[6], KIND_BITMAP);
+    assert_eq!(flat[2], 9.0);
+    assert!(is_bitmap_record(flat[6]));
+    let back = layers_from_flat(&flat, &[]);
+    assert_eq!(back.len(), 1);
+    assert!(matches!(&back[0].mask, Mask::Bitmap { raster_id: 9, .. }));
+    assert_eq!(back[0].adjustments.exposure, Some(0.5));
+}

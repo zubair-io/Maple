@@ -246,6 +246,17 @@ fn write_mask(mask: &Mask, slot: &mut [f32]) {
             slot[2] = raster_id as f32;
             slot[6] = KIND_BITMAP;
         }
+        Mask::Brush { raster_id, .. } => {
+            // A brush IS a bitmap record on the render wire: evaluation reads
+            // the registered raster, never the dabs, so the GPU plane, the
+            // FFI/wasm registries, and every `is_bitmap_record` consumer treat
+            // it exactly like a `Bitmap` with zero code changes. The dabs
+            // live in the model and the sidecar only — which is why
+            // `layers_from_flat` decodes this record back as a `Bitmap`
+            // (render-equivalent: same id, same raster), never as a `Brush`.
+            slot[2] = raster_id as f32;
+            slot[6] = KIND_BITMAP;
+        }
         Mask::Everywhere => {
             slot[6] = KIND_EVERYWHERE;
         }
@@ -324,6 +335,12 @@ fn write_adjustments(a: &PartialAdjustments, slot: &mut [f32]) {
 /// `raster_id`, so later `stages::local_adjustments::mask::resolve` calls
 /// against the SAME (or a fuller) `rasters` slice still work even if this
 /// pass didn't have the raster available.
+///
+/// A `Mask::Brush` layer encodes as a bitmap record (§ `write_mask`) and so
+/// decodes back as a `Mask::Bitmap`, not a `Mask::Brush` — the dabs never
+/// ride this wire. That is render-equivalent (same id, same raster): this is
+/// the RENDER wire, and nothing persists a flat-decoded model back to a
+/// sidecar (the hosts' own models are the XMP source of truth).
 pub fn layers_from_flat(flat: &[f32], rasters: &[Arc<MaskRaster>]) -> Vec<LocalAdjustment> {
     let mut slots = flat.chunks_exact(LAYER_FLAT_LEN);
     let mut layers = Vec::new();

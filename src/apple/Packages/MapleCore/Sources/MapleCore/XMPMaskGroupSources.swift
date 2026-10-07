@@ -27,7 +27,7 @@ enum XMPMaskGroupSources {
   static func isGroup(_ mask: LocalMask) -> Bool {
     switch mask {
     case .group, .bitmap, .everywhere: return true
-    case .linear, .radial: return false
+    case .linear, .radial, .brush: return false
     }
   }
 

@@ -74,28 +74,28 @@
 //! in a third-party renderer", not exact re-derivation of Maple's UI state
 //! from arbitrary foreign masks.
 //!
-//! **Cross-type order.** Adobe's schema keeps linear, radial and (#3271)
-//! bitmap/everywhere corrections in three separate top-level arrays, so a
-//! document with layers interleaved in the model (linear, radial, linear,
-//! …) round-trips through the wire form as contiguous per-type runs (all
-//! linear, then all radial, then all group) rather than preserving
-//! cross-type interleaving. No UI writes this format yet, so nothing
-//! observes that reordering today; it is called out here so it isn't
-//! rediscovered as a bug later.
+//! **Cross-type order.** Adobe's schema keeps linear, radial, (#360) brush
+//! and (#3271) bitmap/everywhere corrections in four separate top-level
+//! arrays, so a document with layers interleaved in the model (linear,
+//! radial, linear, …) round-trips through the wire form as contiguous
+//! per-type runs (all linear, then all radial, then all paint, then all
+//! group) rather than preserving cross-type interleaving. It is called out
+//! here so it isn't rediscovered as a bug later.
 //!
 //! **Tolerant reader**, matching [`crate::types::local_adjustment::wire`]'s
 //! stated contract for this feature: a `crs:CorrectionMasks` entry whose
-//! `crs:What` is not `Mask/Gradient` or `Mask/CircularGradient` (a brush,
-//! range, or AI mask — none of which Maple models) is skipped, which drops
-//! that one correction (no mask ⇒ nothing to render) without failing the
-//! whole subtree or the parse. A *recognized* mask's core geometry
-//! (`ZeroX/ZeroY/FullX/FullY` for a gradient; `Top/Left/Bottom/Right` for a
-//! circular gradient) is **required** — missing or non-numeric is a hard
-//! parse error rather than a silently invented `0`/`1` default, matching
-//! every other known key in the schema (`docs/xmp-canonical-format.md` §
-//! "Enum fields and parse strictness"). Everything else on a recognized
-//! mask or correction (feather, angle, flip, the bookkeeping attributes) is
-//! optional with Adobe's own default.
+//! `crs:What` is not one this module models (a range or AI mask — neither
+//! of which Maple models — or a paint leaf in any container but the paint
+//! one) is skipped, which drops that one correction (no mask ⇒ nothing to
+//! render) without failing the whole subtree or the parse. A *recognized*
+//! mask's core geometry (`ZeroX/ZeroY/FullX/FullY` for a gradient;
+//! `Top/Left/Bottom/Right` for a circular gradient; a well-formed
+//! `crs:Dabs` series — when present — for a paint mask) is **required** —
+//! missing or non-numeric is a hard parse error rather than a silently
+//! invented `0`/`1` default, matching every other known key in the schema
+//! (`docs/xmp-canonical-format.md` § "Enum fields and parse strictness").
+//! Everything else on a recognized mask or correction (feather, angle, flip,
+//! the bookkeeping attributes) is optional with Adobe's own default.
 //!
 //! **`CorrectionActive` / `CorrectionAmount`.** Both are honoured on read,
 //! not just written unconditionally: `crs:CorrectionActive="False"` drops
@@ -136,10 +136,14 @@ const RADIAL_CONTAINER: &str = "crs:CircularGradientBasedCorrections";
 /// its AI masks, so a reader that doesn't understand `papp:MaskSource`
 /// still sees a structurally valid correction.
 const GROUP_CONTAINER: &str = "crs:MaskGroupBasedCorrections";
+/// Brush masks (#360) — Adobe's own paint container. The mask leaf is
+/// `crs:What="Mask/Paint"` with the dab series in `crs:Dabs` (§ `parse.rs`).
+const PAINT_CONTAINER: &str = "crs:PaintBasedCorrections";
 const MASKS: &str = "crs:CorrectionMasks";
 const MASK_WHAT_LINEAR: &str = "Mask/Gradient";
 const MASK_WHAT_RADIAL: &str = "Mask/CircularGradient";
 const MASK_WHAT_IMAGE: &str = "Mask/Image";
+const MASK_WHAT_PAINT: &str = "Mask/Paint";
 
 /// Mask-container flavor. Private to this module tree; `parse` and
 /// `serialize` reach it via `super::Kind`, since a private item is visible
@@ -151,6 +155,8 @@ enum Kind {
     /// `crs:MaskGroupBasedCorrections` (#3271) — `Mask::Bitmap` /
     /// `Mask::Everywhere` layers.
     Group,
+    /// `crs:PaintBasedCorrections` (#360) — `Mask::Brush` layers.
+    Brush,
 }
 
 fn is_seq(name: &str) -> bool {
@@ -211,6 +217,7 @@ impl LocalAdjustmentsWalker {
                 LINEAR_CONTAINER => Some(Kind::Linear),
                 RADIAL_CONTAINER => Some(Kind::Radial),
                 GROUP_CONTAINER => Some(Kind::Group),
+                PAINT_CONTAINER => Some(Kind::Brush),
                 _ => None,
             };
             return Ok(self.container.is_some());
@@ -393,17 +400,22 @@ impl LocalAdjustmentsWalker {
             }
             return;
         }
-        if name == LINEAR_CONTAINER || name == RADIAL_CONTAINER || name == GROUP_CONTAINER {
+        if name == LINEAR_CONTAINER
+            || name == RADIAL_CONTAINER
+            || name == GROUP_CONTAINER
+            || name == PAINT_CONTAINER
+        {
             self.container = None;
         }
     }
 
-    /// Consume the walker, returning every layer collected across all three
+    /// Consume the walker, returning every layer collected across all four
     /// containers in document order (all `GradientBasedCorrections` layers,
     /// then all `CircularGradientBasedCorrections` layers, then all
-    /// `MaskGroupBasedCorrections` layers, matching whichever containers the
-    /// document listed and in what order — Maple's own writer always emits
-    /// linear, then radial, then group, see [`serialize_local_adjustments`]).
+    /// `PaintBasedCorrections` layers, then all `MaskGroupBasedCorrections`
+    /// layers, matching whichever containers the document listed and in what
+    /// order — Maple's own writer always emits linear, then radial, then
+    /// paint, then group, see [`serialize_local_adjustments`]).
     pub(super) fn finish(self) -> Vec<LocalAdjustment> {
         self.finished
     }

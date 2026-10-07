@@ -41,6 +41,11 @@ public enum MaskWeight {
     case .bitmap(_, let id):
       guard id != 0, let raster = rasters[id] else { return 0 }
       return sample(width: raster.width, height: raster.height, bytes: raster.bytes, x: x, y: y)
+    case .brush(_, _, let id):
+      // The render samples the registered raster, never the dabs — an
+      // unresolved brush reads 0 exactly like an unresolved bitmap.
+      guard id != 0, let raster = rasters[id] else { return 0 }
+      return sample(width: raster.width, height: raster.height, bytes: raster.bytes, x: x, y: y)
     case .everywhere:
       return 1
     case .group(let group):
@@ -51,6 +56,10 @@ public enum MaskWeight {
             return raster.width <= 0 || raster.height <= 0
               || raster.bytes.count != raster.width * raster.height
           }
+          // Brush components are unconstructible (`MaskComponent` rejects
+          // them), but a group that somehow holds one stays inert rather
+          // than widening to an unmasked correction.
+          if case .brush = $0.mask { return true }
           return false
         })
       else { return 0 }

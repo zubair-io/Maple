@@ -118,15 +118,16 @@ pub fn mask_raster_release(id: u32) {
     release(id);
 }
 
-/// Resolve every `Mask::Bitmap` layer in `model.local_adjustments` against
-/// this registry, in place, and populate `model.mask_rasters` with the
-/// distinct rasters found — the same two-step lookup as raw-ffi's
-/// `resolve_into`: a carried `raster_id` first (an in-session serialization
-/// that still resolves), then the recipe `digest` (a fresh sidecar parse,
-/// where the id is always `0`; or a stale id whose digest was re-registered
-/// under a new one). A layer that resolves neither way is left exactly as
-/// parsed — `raster_id` unchanged, never defaulted — so it renders as
-/// weight 0.
+/// Resolve every `Mask::Bitmap` / `Mask::Brush` layer in
+/// `model.local_adjustments` against this registry, in place, and populate
+/// `model.mask_rasters` with the distinct rasters found — the same two-step
+/// lookup as raw-ffi's `resolve_into`: a carried `raster_id` first (an
+/// in-session serialization that still resolves), then the digest (the recipe
+/// digest for a bitmap, `papp:BrushDigest` for a brush — a fresh sidecar
+/// parse, where the id is always `0`; or a stale id whose digest was
+/// re-registered under a new one). A layer that resolves neither way is left
+/// exactly as parsed — `raster_id` unchanged, never defaulted — so it
+/// renders as weight 0.
 pub(crate) fn resolve_into(model: &mut AdjustmentModel) {
     let mut rasters: Vec<Arc<MaskRaster>> = Vec::new();
     for layer in &mut model.local_adjustments {
@@ -141,10 +142,14 @@ pub(crate) fn resolve_into(model: &mut AdjustmentModel) {
             }
             continue;
         }
-        let Mask::Bitmap { recipe, raster_id } = &mut layer.mask else {
-            continue;
+        let (raster_id, digest): (&mut u32, &str) = match &mut layer.mask {
+            Mask::Bitmap { recipe, raster_id } => (raster_id, recipe.digest.as_str()),
+            Mask::Brush {
+                digest, raster_id, ..
+            } => (raster_id, digest.as_str()),
+            _ => continue,
         };
-        let found = lookup(*raster_id).or_else(|| lookup_digest(&recipe.digest));
+        let found = lookup(*raster_id).or_else(|| lookup_digest(digest));
         if let Some(raster) = found {
             *raster_id = raster.id;
             if !rasters.iter().any(|r| r.id == raster.id) {

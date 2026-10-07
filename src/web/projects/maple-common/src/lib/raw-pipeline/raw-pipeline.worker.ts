@@ -41,6 +41,7 @@ import { handleSampleWb } from './raw-pipeline.sample-wb-handler';
 import { handleSampleRange } from './raw-pipeline.sample-range-handler';
 import { handleGuidedGeometry } from './raw-pipeline.guided-geometry-handler';
 import {
+  handleRegisterBrushRaster,
   handleRegisterMaskRaster,
   handleReleaseMaskRaster,
 } from './raw-pipeline.mask-raster-handler';
@@ -165,6 +166,11 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       return;
     case 'release-mask-raster':
       await handleReleaseMaskRaster(req);
+      return;
+    // Brush-raster registration (#360): same synchronous, registry-only
+    // shape as the mask-raster pair above.
+    case 'register-brush-raster':
+      await handleRegisterBrushRaster(req);
       return;
     case 'export':
       await handleExport(req);

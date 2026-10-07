@@ -7,13 +7,15 @@
 //!
 //! Current scope:
 //!
-//! * Four mask shapes — `Linear` (gradient line), `Radial` (ellipse),
+//! * Five mask shapes — `Linear` (gradient line), `Radial` (ellipse),
 //!   `Bitmap` (a host-supplied raster, #3271 — a Vision person/skin
-//!   selection today), and `Everywhere` (weight 1, the no-person-detected
-//!   fallback). Brush masks defer to a follow-up ticket. A `Bitmap`'s
+//!   selection today), `Brush` (a painted dab series, #360), and
+//!   `Everywhere` (weight 1, the no-person-detected fallback). A `Bitmap`'s
 //!   pixels never round-trip through the sidecar — `LocalAdjustment.range`
 //!   and the recipe attributes do; the raster is derived data, regenerated
-//!   from the recipe or read from a device-local cache.
+//!   from the recipe or read from a device-local cache. A `Brush`'s pixels
+//!   neither — the sidecar carries the dab series (`brush.rs`), and the host
+//!   rasterizes it once per edit into the same registry `Bitmap` uses.
 //! * An optional [`RangeRefinement`] (#3270) narrows any mask further,
 //!   evaluated on the pixel entering the stage rather than the layer's own
 //!   output.
@@ -32,11 +34,13 @@
 //! the same XMP renders identically against full-res and downsampled
 //! buffers.
 
+pub mod brush;
 pub mod flat;
 mod group;
 mod raster;
 mod wire;
 
+pub use brush::{brush_raster_dims, rasterize_brush, BrushDab, BRUSH_RASTER_LONG_EDGE};
 pub use flat::{layers_from_flat, layers_to_flat, LAYER_FLAT_LEN};
 pub use group::{MaskCombine, MaskComponent, MaskGroup};
 pub use raster::MaskRaster;
@@ -193,6 +197,25 @@ pub enum Mask {
         recipe: BitmapRecipe,
         raster_id: u32,
     },
+    /// A painted stroke series (#360, [`brush`](self::brush)): `dabs` is the
+    /// authored content — ordered paint/erase stamps, the lossless form that
+    /// round-trips through `crs:PaintBasedCorrections` — and `raster_id`
+    /// resolves the DERIVED bitmap the host rasterized from them (once per
+    /// edit, via [`rasterize_brush`](self::brush::rasterize_brush)) in the
+    /// same registry `Bitmap` uses. `0` means unresolved: nothing registered
+    /// yet, evaluates to weight 0, never a global correction.
+    ///
+    /// `digest` names the registered raster — the opaque label the
+    /// registering host minted (a content hash of the dab series in
+    /// practice), carried as `papp:BrushDigest` so a re-parse finds the
+    /// already-registered raster the way `BitmapRecipe::digest` does. Empty
+    /// on a foreign (reference-authored) paint mask, which has dabs but no
+    /// Maple digest; the host mints one when it first rasterizes.
+    Brush {
+        dabs: Vec<BrushDab>,
+        digest: String,
+        raster_id: u32,
+    },
     /// Weight 1 everywhere — the "skin range only (whole image)" fallback
     /// when no person is detected (spec §3.2).
     Everywhere,
@@ -331,6 +354,22 @@ impl LocalAdjustment {
                 angle: 0.0,
                 feather: 0.5,
                 invert: false,
+            },
+            range: None,
+            adjustments,
+        }
+    }
+
+    /// Construct a brush-mask layer (#360) over an empty dab series. The
+    /// host appends dabs as the stroke lands, then rasterizes + registers and
+    /// stamps the returned id — until then the layer is unresolved (weight
+    /// 0), the same contract `Mask::Bitmap` documents.
+    pub fn brush(adjustments: PartialAdjustments) -> Self {
+        Self {
+            mask: Mask::Brush {
+                dabs: Vec::new(),
+                digest: String::new(),
+                raster_id: 0,
             },
             range: None,
             adjustments,

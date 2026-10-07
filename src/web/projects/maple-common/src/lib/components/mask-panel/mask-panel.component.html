@@ -16,6 +16,14 @@
       (pressed)="session.addRadial()"
       >Radial</mui-button
     >
+    <mui-button
+      size="sm"
+      iconLeading="plus"
+      ariaLabel="Add brush mask"
+      testId="mask-add-brush"
+      (pressed)="session.brush.add()"
+      >Brush</mui-button
+    >
     @if (detectAvailable) {
       <mui-button
         size="sm"
@@ -37,7 +45,7 @@
 
   @if (rows().length === 0) {
     <mui-text variant="body" color="muted" data-testid="mask-empty">
-      No masks yet — add a linear or radial mask to edit part of the image.
+      No masks yet — add a linear, radial, or brush mask to edit part of the image.
     </mui-text>
   } @else {
     <div class="mask-list flex flex-col" role="list" data-testid="mask-list">
@@ -164,6 +172,38 @@
           [checked]="inverted()"
           inputId="mask-invert"
           (checkedChange)="onInvertChange($event)"
+        />
+      }
+      @if (isBrush()) {
+        <mui-living-slider
+          label="Size"
+          [value]="session.brush.size()"
+          [min]="0.002"
+          [max]="0.5"
+          [step]="0.001"
+          (valueChange)="onBrushSizeChange($event)"
+        />
+        <mui-living-slider
+          label="Feather"
+          [value]="session.brush.feather()"
+          [min]="0"
+          [max]="1"
+          [step]="0.01"
+          (valueChange)="onBrushFeatherChange($event)"
+        />
+        <mui-living-slider
+          label="Flow"
+          [value]="session.brush.flow()"
+          [min]="0.01"
+          [max]="1"
+          [step]="0.01"
+          (valueChange)="onBrushFlowChange($event)"
+        />
+        <mui-checkbox
+          label="Erase"
+          [checked]="session.brush.erase()"
+          inputId="mask-brush-erase"
+          (checkedChange)="onBrushEraseChange($event)"
         />
       }
       @for (control of controls; track control.id) {

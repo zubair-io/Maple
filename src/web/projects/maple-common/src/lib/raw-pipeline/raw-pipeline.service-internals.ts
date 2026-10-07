@@ -152,6 +152,12 @@ export type PendingHandler =
       reject: (err: Error) => void;
     }
   | {
+      kind: 'register-brush-raster';
+      /** Resolves with the raster id (>= 1) a `brush` mask's `rasterId` names (#360). */
+      resolve: (rasterId: number) => void;
+      reject: (err: Error) => void;
+    }
+  | {
       kind: 'export';
       resolve: (file: ExportedFile) => void;
       reject: (err: Error) => void;
