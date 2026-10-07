@@ -149,8 +149,14 @@ def _measure_candidate(candidate, evidence, directory):
         x, y, w, h = rect
         if x < 0 or y < 0 or w < 2 or h < 2 or x + w > width or y + h > height:
             raise ValueError(f"ROI {name} is outside the candidate or too small")
+        source_entries = roi.get("sources")
+        if not isinstance(source_entries, list) or not all(
+            isinstance(source, dict) and isinstance(source.get("path"), str)
+            for source in source_entries
+        ):
+            raise ValueError(f"ROI {name} needs a list of sources with string paths")
         sources = {}
-        for source in roi.get("sources", []):
+        for source in source_entries:
             source_name = source.get("name")
             if (
                 not isinstance(source_name, str)

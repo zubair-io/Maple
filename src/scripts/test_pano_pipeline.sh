@@ -129,10 +129,6 @@ require_cmd() {
 
 require_cmd python3
 
-# Coherent-source ghosting controls always execute, including on CI without
-# private RAW fixtures. A static, blurred, or doubled subject must not look clean.
-python3 -m unittest discover -s "$SCRIPT_DIR" -p test_pano_ghost_metrics.py
-
 if [[ ! -f "$METRICS_PY" ]]; then
   err "pano_metrics.py not found at $METRICS_PY"
   exit 2
@@ -279,6 +275,9 @@ if ! python3 -c "import numpy, PIL" >/dev/null 2>&1; then
   echo "test_pano_pipeline: (fixture-less environment; CI without fixtures is a soft pass)"
   exit 0
 fi
+
+echo "test_pano_pipeline: running coherent-source ghosting controls ..."
+python3 -m unittest discover -s "$SCRIPT_DIR" -p test_pano_ghost_metrics.py
 
 echo "test_pano_pipeline: running metrics self-test (pano_metrics.py --self-test) ..."
 if ! python3 "$METRICS_PY" --self-test --fixture-root "$REPO_ROOT/test-fixtures"; then
