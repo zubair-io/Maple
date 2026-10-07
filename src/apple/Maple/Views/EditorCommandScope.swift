@@ -16,25 +16,53 @@ private struct EditorRouterFocusKey: FocusedValueKey {
   typealias Value = EditorCommandRouter
 }
 
+private struct ToneCurveKeyPressFocusKey: FocusedValueKey {
+  typealias Value = (KeyPress) -> KeyPress.Result
+}
+
+@MainActor final class ToneCurveKeyboardBridge {
+  var handle: ((KeyPress) -> KeyPress.Result)?
+  var resign: (() -> Void)?
+}
+
+private struct ToneCurveKeyboardBridgeKey: EnvironmentKey {
+  static let defaultValue: ToneCurveKeyboardBridge? = nil
+}
+
+extension EnvironmentValues {
+  var toneCurveKeyboardBridge: ToneCurveKeyboardBridge? {
+    get { self[ToneCurveKeyboardBridgeKey.self] }
+    set { self[ToneCurveKeyboardBridgeKey.self] = newValue }
+  }
+}
+
 extension FocusedValues {
+  var toneCurveKeyPress: ((KeyPress) -> KeyPress.Result)? {
+    get { self[ToneCurveKeyPressFocusKey.self] }
+    set { self[ToneCurveKeyPressFocusKey.self] = newValue }
+  }
+
   var editorCommandRouter: EditorCommandRouter? {
     get { self[EditorRouterFocusKey.self] }
     set { self[EditorRouterFocusKey.self] = newValue }
   }
 }
 
-/// SwiftUI delivers value keys to the focused child first. The shell only
-/// handles keys a slider/text field did not claim, on Mac and iPad alike.
+/// Routes focused knot input before shell navigation. Ordinary slider and
+/// text-field input retains its existing native focus route.
 struct EditorCommandScope: ViewModifier {
   @State private var router: EditorCommandRouter?
+  @State private var toneCurveKeyboardBridge = ToneCurveKeyboardBridge()
   @Environment(\.scenePhase) private var scenePhase
   @FocusState private var canvasFocused: Bool
+  @FocusedValue(\.toneCurveKeyPress) private var toneCurveKeyPress
   let state: EditorState
   let navigate: (Int) -> Void
 
   func body(content: Content) -> some View {
     content
       .environment(\.editorCommandRouter, router)
+      .environment(\.toneCurveKeyboardBridge, toneCurveKeyboardBridge)
       .focusedSceneValue(\.editorCommandRouter, router?.isActive == true ? router : nil)
       .focusable().focused($canvasFocused).focusEffectDisabled()
       .onAppear {
@@ -68,6 +96,26 @@ struct EditorCommandScope: ViewModifier {
       router?.cancelCompare()
       router?.finishNudge()
       return .ignored
+    }
+    // A focused knot owns its arrow event before the ancestor scope (#4384).
+    // Modifier-based pan and commands still fall through to the normal routes.
+    let knotKey = [.leftArrow, .rightArrow, .upArrow, .downArrow].contains(press.key)
+    #if os(iOS)
+      let knotInput = knotKey || press.key == .tab || press.key == KeyEquivalent("\u{19}")
+    #else
+      let knotInput = knotKey
+    #endif
+    if knotInput {
+      #if os(iOS)
+        if let toneCurveKeyPress, case .handled = toneCurveKeyPress(press) {
+          return .handled
+        }
+        if let handler = toneCurveKeyboardBridge.handle, case .handled = handler(press) {
+          return .handled
+        }
+      #else
+        if let toneCurveKeyPress, case .handled = toneCurveKeyPress(press) { return .handled }
+      #endif
     }
     let key = press.characters.lowercased()
     let compare = key == "b" || key == "\\"
