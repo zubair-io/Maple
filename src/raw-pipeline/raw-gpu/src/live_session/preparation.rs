@@ -1,6 +1,39 @@
 use super::*;
 
 impl LiveSession {
+    /// Execute both scene-tone paths after composition initialization (#4340).
+    /// Restore the exact requested tone and output; neither preparation frame
+    /// is presented. Scope capture must not observe temporary parameters.
+    pub fn prepare_scene_tone_execution(
+        &self,
+        ctx: &GpuContext,
+        inputs: &mut FullChainInputs<'_>,
+        cancel: &CancelToken,
+    ) -> Result<bool, String> {
+        if inputs.scope.enabled {
+            return Ok(false);
+        }
+        if cancel.is_cancelled() {
+            return Err("Scene-tone preparation cancelled".into());
+        }
+        let original = inputs.tone;
+        if [0, 1, 2, 3, 5].iter().any(|&i| original[i] != 0.0) {
+            for i in [0, 1, 2, 3, 5] {
+                inputs.tone[i] = 0.0;
+            }
+        } else {
+            inputs.tone[0] = 0.01;
+        }
+        let opposite = self.render_chain_to_f32(ctx, inputs, cancel);
+        inputs.tone = original;
+        let restored = self.render_chain_to_f32(ctx, inputs, cancel);
+        match (opposite, restored) {
+            (Ok(Some(_)), Ok(Some(_))) => Ok(true),
+            (Err(error), _) | (_, Err(error)) => Err(error),
+            _ => Err("Scene-tone preparation cancelled".into()),
+        }
+    }
+
     /// #4340: create the first Exposure bucket's resources before presentation.
     /// Encodes its actual pass sequence but discards the unsubmitted commands:
     /// no preparation pixels execute, and no full-chain GPU completion wait is

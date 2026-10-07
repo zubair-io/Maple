@@ -2,6 +2,44 @@
 use super::*;
 
 #[test]
+fn executed_preparation_restores_active_and_neutral_pixels_and_input_bits() {
+    let ctx = GpuContext::new_blocking().expect("GPU context");
+    let oracle = GpuContext::new_blocking().expect("independent oracle");
+    let pixels = crate::full_chain::oracle::scene_linear_rgba(8, 8);
+    let cancel = CancelToken::new();
+    for exposure in [-0.0, -0.01] {
+        let session = LiveSession::new(&ctx, &pixels, 8, 8).unwrap();
+        let mut inputs = super::tests::neutral_case().gpu_inputs();
+        inputs.tone[0] = exposure;
+        let bits = inputs.tone.map(f32::to_bits);
+        let expected = super::tests::reference_u8(&oracle, &pixels, 8, 8, &inputs);
+        assert!(session
+            .prepare_scene_tone_execution(&ctx, &mut inputs, &cancel)
+            .unwrap());
+        assert_eq!(inputs.tone.map(f32::to_bits), bits);
+        assert_eq!(
+            session
+                .render_to_buffer(&ctx, &inputs, &cancel)
+                .unwrap()
+                .unwrap(),
+            expected
+        );
+        inputs.scope.enabled = true;
+        assert!(!session
+            .prepare_scene_tone_execution(&ctx, &mut inputs, &cancel)
+            .unwrap());
+        assert_eq!(inputs.tone.map(f32::to_bits), bits);
+        inputs.scope.enabled = false;
+        let cancelled = CancelToken::new();
+        cancelled.cancel();
+        assert!(session
+            .prepare_scene_tone_execution(&ctx, &mut inputs, &cancelled)
+            .is_err());
+        assert_eq!(inputs.tone.map(f32::to_bits), bits);
+    }
+}
+
+#[test]
 fn preparation_preserves_cancelled_inputs_and_skips_scope_capture() {
     let ctx = GpuContext::new_blocking().expect("GPU context");
     let pixels = crate::full_chain::oracle::scene_linear_rgba(8, 8);

@@ -186,29 +186,21 @@ pub unsafe extern "C" fn maple_gpu_present_chain_winui_scaled(
             geometry,
         ) {
             Ok(()) => {
-                if active_scene_tone {
-                    // The requested frame already executed and presented the
-                    // tone pass. A later reset must not prepare it again.
-                    inner.exposure_prepared = true;
-                } else if first_preparation && inner.exposure_prepared {
+                if first_preparation && (inner.exposure_prepared || active_scene_tone) {
                     // #4340: driver execution after the composition surface's
                     // first presentation. These offscreen commands are never
                     // presented; restore the requested neutral chain afterward.
-                    let neutral_tone = inputs.tone;
-                    inputs.tone[0] = 0.01;
-                    let active = inner
-                        .session
-                        .render_chain_to_f32(&state.ctx, &inputs, &token);
-                    inputs.tone = neutral_tone;
-                    let neutral = inner
-                        .session
-                        .render_chain_to_f32(&state.ctx, &inputs, &token);
-                    if !matches!(active, Ok(Some(_))) || !matches!(neutral, Ok(Some(_))) {
-                        inner.exposure_prepared = false;
-                        set_last_error(
-                            "gpu_present_chain_winui: offscreen Exposure preparation failed".into(),
-                        );
-                        return -3;
+                    match inner.session.prepare_scene_tone_execution(
+                        &state.ctx,
+                        &mut inputs,
+                        &token,
+                    ) {
+                        Ok(prepared) => inner.exposure_prepared = prepared || active_scene_tone,
+                        Err(error) => {
+                            inner.exposure_prepared = false;
+                            set_last_error(format!("gpu_present_chain_winui preparation: {error}"));
+                            return -3;
+                        }
                     }
                 }
                 0
