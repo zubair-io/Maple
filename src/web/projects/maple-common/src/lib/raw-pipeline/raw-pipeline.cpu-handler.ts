@@ -45,6 +45,7 @@ const DECODING_REQUESTS = new Set([
   'lens-profile-compatible',
   'lens-profile-evidence',
 ]);
-export function releaseRetainedCpuBefore(type: string): void {
-  if (DECODING_REQUESTS.has(type)) releaseRetainedCpu();
+export function releaseRetainedCpuBefore(req: { type: string; cpuSourceToken?: number }): void {
+  const unretainedDecode = req.type === 'decode' && req.cpuSourceToken === undefined;
+  if (unretainedDecode || DECODING_REQUESTS.has(req.type)) releaseRetainedCpu();
 }

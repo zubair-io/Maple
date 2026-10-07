@@ -187,6 +187,11 @@ export class RawPipelineService implements OnDestroy {
 
   // Serialize CPU work: concurrent sensor develops can exceed wasm32 memory.
   private decodeChain: Promise<unknown> = Promise.resolve();
+  private enqueue<T>(run: () => Promise<T>): Promise<T> {
+    const next = this.decodeChain.then(run, run);
+    this.decodeChain = next.catch(() => this.cpuSource.clear());
+    return next;
+  }
   private readonly detailClient = new NativeDetailClient(
     () => this.ensureWorker(),
     () => this.nextId++,
@@ -201,12 +206,7 @@ export class RawPipelineService implements OnDestroy {
       this.cpuSource.clear();
       return this.detailClient.render(args, revision);
     };
-    const next = this.decodeChain.then(run, run);
-    this.decodeChain = next.catch(() => {
-      this.cpuSource.clear();
-      return undefined;
-    });
-    return next;
+    return this.enqueue(run);
   }
 
   closeNativeDetail(): void {
@@ -250,12 +250,7 @@ export class RawPipelineService implements OnDestroy {
           );
         }
       : () => this.decodeOnce(bytes, ext, epoch, xmp, maxLongEdge, qualityPreview, filmLut);
-    const next = this.decodeChain.then(run, run);
-    this.decodeChain = next.catch(() => {
-      this.cpuSource.clear();
-      return undefined;
-    });
-    return next;
+    return this.enqueue(run);
   }
 
   private decodeOnce(
@@ -504,12 +499,7 @@ export class RawPipelineService implements OnDestroy {
         return Promise.reject(new Error('RawPipelineService: worker unavailable'));
       }
     };
-    const next = this.decodeChain.then(once, once);
-    this.decodeChain = next.catch(() => {
-      this.cpuSource.clear();
-      return undefined;
-    });
-    return next;
+    return this.enqueue(once);
   };
 
   /**
@@ -536,12 +526,7 @@ export class RawPipelineService implements OnDestroy {
       this.cpuSource.clear();
       return this.exportOnce(bytes, ext, options, xmp, filmLut);
     };
-    const next = this.decodeChain.then(run, run);
-    this.decodeChain = next.catch(() => {
-      this.cpuSource.clear();
-      return undefined;
-    });
-    return next;
+    return this.enqueue(run);
   }
 
   private exportOnce(
