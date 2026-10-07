@@ -49,11 +49,9 @@ const CELL_WSUM_FULL: f32 = 4.0;
 /// this same fallback, so the tier-2/tier-3 boundary is continuous.
 const SCENE_BLEND: f32 = 0.5;
 
-/// Tier-3 scene sampling base grid stride (px) and sample cap.
-/// `scene_median` grows the stride from the region area so the grid visits at
-/// most `SCENE_SAMPLE_CAP` candidates spread over the whole region; small
-/// regions keep this stride exactly. The cap backstop bounds the work and the
-/// median selection.
+/// Tier-3 scene sampling grid stride (px) and sample cap. `scene_median`
+/// keeps every eligible stride-8 sample when they fit the cap and otherwise
+/// decimates them evenly, so the kept set always spans the whole region.
 const SCENE_SAMPLE_STRIDE: i32 = 8;
 const SCENE_SAMPLE_CAP: usize = 4096;
 
@@ -391,35 +389,27 @@ pub(super) fn scene_median(
     bottom: i32,
 ) -> Option<[f32; 3]> {
     let w = img.width as i32;
-    // Size the grid to the cap so the median represents the whole region:
-    // stride s visits ~area/s^2 candidates, so s = ceil(sqrt(area/cap))
-    // holds the visit count at the cap while spreading samples over both
-    // dimensions. Capping a fixed stride-8 grid in raster order instead
-    // would stop after the top ~13% of a 2 MP frame and read sky as scene.
-    // Regions under 512x512 px of area keep the base stride (identical sampling).
-    let rw = (right - left).max(0) as f64;
-    let rh = (bottom - top).max(0) as f64;
-    let fit = (rw * rh / SCENE_SAMPLE_CAP as f64).sqrt().ceil();
-    let stride = (SCENE_SAMPLE_STRIDE as f64).max(fit) as i32;
-    let mut samples: Vec<[f32; 3]> = Vec::new();
-    let mut y = top;
-    while y < bottom && samples.len() < SCENE_SAMPLE_CAP {
-        let mut x = left;
-        while x < right && samples.len() < SCENE_SAMPLE_CAP {
-            let idx = (y * w + x) as usize;
-            if clip_mask[idx] == 0 {
+    let step = SCENE_SAMPLE_STRIDE as usize;
+    // Two passes over the same stride-8 grid: count the eligible samples,
+    // then keep every k-th. A raster-ordered cap would stop after the top
+    // strip of a large frame and read sky as scene; a coarser lattice would
+    // skip sparse unclipped evidence the stride-8 grid sees.
+    let eligible = || {
+        (top..bottom).step_by(step).flat_map(move |y| {
+            (left..right).step_by(step).filter_map(move |x| {
+                let idx = (y * w + x) as usize;
                 let p = img.pixels[idx];
-                if p.iter().all(|v| v.is_finite() && *v >= 0.0) {
-                    samples.push(p);
-                }
-            }
-            x += stride;
-        }
-        y += stride;
-    }
-    if samples.is_empty() {
+                (clip_mask[idx] == 0 && p.iter().all(|v| v.is_finite() && *v >= 0.0)).then_some(p)
+            })
+        })
+    };
+    let count = eligible().count();
+    if count == 0 {
         return None;
     }
+    let mut samples: Vec<[f32; 3]> = eligible()
+        .step_by(count.div_ceil(SCENE_SAMPLE_CAP))
+        .collect();
     let mid = samples.len() / 2;
     Some(std::array::from_fn(|c| {
         // Each call re-partitions the same buffer for its own channel: the
