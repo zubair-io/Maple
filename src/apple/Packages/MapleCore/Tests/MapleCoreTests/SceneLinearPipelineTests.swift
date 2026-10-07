@@ -1045,8 +1045,9 @@ final class SceneLinearPipelineTests: XCTestCase {
     ///      (clamp(luma_out / safe_luma, 0, 4) - 1), applied to ALL three
     ///      channels (chroma ratios preserved by construction)
     ///   5. edge-aware final mix (amount/detail/masking; central-difference
-    ///      gradient on the ORIGINAL luma plane)
-    /// Constants stay in lockstep with sharpen.rs / SharpenLumaUSM.metal.
+    ///      gradient on the ORIGINAL luma plane); darkening beyond the
+    ///      amount-40 attenuation continues as a positive inverse gain (#4112)
+    /// Constants stay in lockstep with sharpen.rs / sharpen_usm.wgsl / sharpen_mix.wgsl.
     static func swiftApplySharpen(
         _ rgbBuf: [[Float]],
         w: Int, h: Int,
@@ -1068,11 +1069,13 @@ final class SceneLinearPipelineTests: XCTestCase {
         let SHADOW_BAND: Float = 4.0
         let MAX_SCALE: Float = 4.0
         let MIN_SCALE: Float = 0.0
+        let PRESERVED_DARKENING: Float = 0.4
         func smoothstep(_ e0: Float, _ e1: Float, _ x: Float) -> Float {
             let t = max(Float(0.0), min(Float(1.0), (x - e0) / (e1 - e0)))
             return t * t * (3.0 - 2.0 * t)
         }
         var sharpened = [[Float]](repeating: [0, 0, 0], count: w * h)
+        var scales = [Float](repeating: 1, count: w * h)
         for i in 0..<(w * h) {
             let li = luma[i]
             let lb = lumaBlur[i]
@@ -1083,6 +1086,7 @@ final class SceneLinearPipelineTests: XCTestCase {
             let scale = 1.0 + weight * (bounded - 1.0)
             let o = observed[i]
             sharpened[i] = [o[0] * scale, o[1] * scale, o[2] * scale]
+            scales[i] = scale
         }
 
         // Edge-aware final mix.
@@ -1114,11 +1118,15 @@ final class SceneLinearPipelineTests: XCTestCase {
                 let mix = overallMix * edge
                 let o = observed[i]
                 let s = sharpened[i]
-                out[i] = [
-                    o[0] + (s[0] - o[0]) * mix,
-                    o[1] + (s[1] - o[1]) * mix,
-                    o[2] + (s[2] - o[2]) * mix,
-                ]
+                let attenuation = mix * (1.0 - scales[i])
+                let join = 1.0 - PRESERVED_DARKENING
+                out[i] = attenuation > PRESERVED_DARKENING
+                    ? o.map { $0 * join * join / (join + (attenuation - PRESERVED_DARKENING)) }
+                    : [
+                        o[0] + (s[0] - o[0]) * mix,
+                        o[1] + (s[1] - o[1]) * mix,
+                        o[2] + (s[2] - o[2]) * mix,
+                    ]
             }
         }
         return out

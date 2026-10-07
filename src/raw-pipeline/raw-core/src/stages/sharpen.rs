@@ -78,6 +78,11 @@ pub const PRESERVED_DARKENING: f32 =
 ///
 /// Non-cancellable wrapper — forwards to [`apply_cancellable`] with a
 /// never-cancel token, so its output is bit-identical to the cancellable stage.
+#[inline]
+pub fn apply(img: &mut Image, amount: f32, radius: f32, detail: f32, masking: f32) {
+    apply_cancellable(img, amount, radius, detail, masking, CancelToken::never());
+}
+
 /// Spatial reach of the stage, in pixels per side, for the tile path's
 /// overlap calculator (#1157): the unsharp blur is a Gaussian at the clamped
 /// sigma (`±⌈3σ⌉` taps) and the edge mask reads one neighbour for its
@@ -95,11 +100,6 @@ pub fn radius_at_scale(radius: f32, sampling_scale: f32) -> f32 {
         1.0
     };
     (radius.clamp(0.5, 3.0) * scale).clamp(0.5, 3.0)
-}
-
-#[inline]
-pub fn apply(img: &mut Image, amount: f32, radius: f32, detail: f32, masking: f32) {
-    apply_cancellable(img, amount, radius, detail, masking, CancelToken::never());
 }
 
 /// Cancellable variant of [`apply`]. Identical math; additionally observes
@@ -240,7 +240,7 @@ pub fn apply_cancellable(
                 };
                 let mix = overall_mix * edge;
                 let attenuation = mix * (1.0 - scale);
-                *px = if lb > li && weight > 0.0 && attenuation > PRESERVED_DARKENING {
+                *px = if attenuation > PRESERVED_DARKENING {
                     // C1 join with the legacy 1-u gain; stays positive past u=1 (#4112).
                     let gain_at_join = 1.0 - PRESERVED_DARKENING;
                     let gain = gain_at_join * gain_at_join

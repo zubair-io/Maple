@@ -64,12 +64,7 @@ fn apply_two_sweep_reference(img: &mut Image, amount: f32, radius: f32, detail: 
             };
             let mix = overall_mix * edge;
             let (o, s) = (observed[i], sharpened[i]);
-            let li = luma[i];
-            let weight = smoothstep(SHADOW_EPSILON, SHADOW_BAND * SHADOW_EPSILON, li);
-            img.pixels[i] = if luma_blur[i] > li
-                && weight > 0.0
-                && mix * (1.0 - full_strength_scales[i]) > PRESERVED_DARKENING
-            {
+            img.pixels[i] = if mix * (1.0 - full_strength_scales[i]) > PRESERVED_DARKENING {
                 let darkening = 1.0 - full_strength_scales[i];
                 let join = 1.0 - PRESERVED_DARKENING;
                 let gain = join * join / (join + (mix * darkening - PRESERVED_DARKENING));
