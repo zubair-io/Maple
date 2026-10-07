@@ -43,6 +43,7 @@ public sealed partial class RenderScheduler
             {
                 await Task.Delay(40, _cts.Token);
                 PollScope();
+                PollHistogram();
             }
         }
         catch (OperationCanceledException) when (_cts.IsCancellationRequested) { }

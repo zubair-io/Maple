@@ -209,6 +209,8 @@ mod context;
 mod context_pipelines;
 mod context_pipelines_helpers;
 mod context_pipelines_spatial;
+#[cfg(any(target_os = "windows", all(test, not(target_arch = "wasm32"))))]
+mod context_prepare_tone;
 mod defringe;
 mod dehaze;
 mod display_encode;

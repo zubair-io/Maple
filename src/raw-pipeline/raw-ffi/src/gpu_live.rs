@@ -99,6 +99,8 @@ struct LiveHandleInner {
     session: LiveSession,
     width: u32,
     height: u32,
+    #[cfg(target_os = "windows")]
+    exposure_prepared: bool,
 }
 
 /// Opaque handle to a GPU-resident live-render session. Allocate via
@@ -177,6 +179,10 @@ pub unsafe extern "C" fn maple_gpu_live_open(
         if shared.is_none() {
             match GpuContext::new_blocking() {
                 Ok(ctx) => {
+                    // #4340: neutral frames omit this pass; finish driver compilation
+                    // during initialization, before the first Exposure gesture.
+                    #[cfg(target_os = "windows")]
+                    ctx.prepare_scene_tone_controls();
                     *shared = Some(GpuShared {
                         ctx,
                         #[cfg(target_vendor = "apple")]
@@ -204,6 +210,8 @@ pub unsafe extern "C" fn maple_gpu_live_open(
             session,
             width,
             height,
+            #[cfg(target_os = "windows")]
+            exposure_prepared: false,
         });
         (*handle_out).inner = Box::into_raw(boxed) as *mut c_void;
         0

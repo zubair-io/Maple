@@ -124,7 +124,7 @@ pub unsafe extern "C" fn maple_gpu_present_chain_winui_scaled(
     // Panic barrier (#1079): wgpu validation panics must not unwind through this
     // extern "C" frame.
     catch_panic_rc("gpu_present_chain_winui", || {
-        let inputs = params::inputs_from_params(p);
+        let mut inputs = params::inputs_from_params(p);
         let token = CancelToken::new();
         let mut shared = lock_shared();
         let state = match shared.as_mut() {
@@ -134,6 +134,23 @@ pub unsafe extern "C" fn maple_gpu_present_chain_winui_scaled(
                 return -3;
             }
         };
+        // #4340: create this session's first Exposure resources before its
+        // initial neutral frame. Preparation restores the requested parameters
+        // and submits no commands; the real frame executes normally below.
+        let first_preparation = !inner.exposure_prepared;
+        if first_preparation {
+            inner.exposure_prepared =
+                match inner
+                    .session
+                    .prepare_exposure_activation(&state.ctx, &mut inputs, &token)
+                {
+                    Ok(prepared) => prepared,
+                    Err(error) => {
+                        set_last_error(format!("gpu_present_chain_winui prepare: {error}"));
+                        return -3;
+                    }
+                };
+        }
         let final_idx = match inner
             .session
             .render_chain_to_f32(&state.ctx, &inputs, &token)
@@ -148,7 +165,6 @@ pub unsafe extern "C" fn maple_gpu_present_chain_winui_scaled(
                 return -3;
             }
         };
-
         let (session_w, session_h) = inner.session.dims();
         let geometry = params::present_geometry_from_params(p, session_w, session_h);
 
@@ -168,7 +184,30 @@ pub unsafe extern "C" fn maple_gpu_present_chain_winui_scaled(
             target_h,
             geometry,
         ) {
-            Ok(()) => 0,
+            Ok(()) => {
+                if first_preparation && inner.exposure_prepared {
+                    // #4340: driver execution after the composition surface's
+                    // first presentation. These offscreen commands are never
+                    // presented; restore the requested neutral chain afterward.
+                    let neutral_tone = inputs.tone;
+                    inputs.tone[0] = 0.01;
+                    let active = inner
+                        .session
+                        .render_chain_to_f32(&state.ctx, &inputs, &token);
+                    inputs.tone = neutral_tone;
+                    let neutral = inner
+                        .session
+                        .render_chain_to_f32(&state.ctx, &inputs, &token);
+                    if !matches!(active, Ok(Some(_))) || !matches!(neutral, Ok(Some(_))) {
+                        inner.exposure_prepared = false;
+                        set_last_error(
+                            "gpu_present_chain_winui: offscreen Exposure preparation failed".into(),
+                        );
+                        return -3;
+                    }
+                }
+                0
+            }
             Err(msg) => {
                 set_last_error(format!("gpu_present_chain_winui present: {msg}"));
                 -4

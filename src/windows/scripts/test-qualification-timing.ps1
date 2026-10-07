@@ -4,6 +4,7 @@ function Report($Samples) {
     return [pscustomobject]@{
         timing_clock = 'Stopwatch'; timing_high_resolution = $true
         timing_frequency_hz = 10000000; tick_ms = $Samples
+        render_path = 'gpu'; timing_scope = 'exposure-edit-to-present-return'
     }
 }
 function Reject($Candidate) {
@@ -13,7 +14,17 @@ function Reject($Candidate) {
 }
 $normal = Get-QualificationTiming (Report (1..20))
 if ($normal.Median -ne 10.5 -or $normal.P95 -ne 19 -or $normal.Maximum -ne 20 -or
-    $normal.Verdict -ne 'PASS (target)') { throw 'Incorrect normal timing verdict.' }
+    !$normal.Verdict.StartsWith('WITHIN HARD LIMIT')) { throw 'Incorrect normal timing verdict.' }
+$target = Get-QualificationTiming (Report (@(10) * 20))
+if ($target.Verdict -ne 'PASS (target)') { throw 'Within-target samples failed.' }
+$cold = Get-QualificationTiming (Report (@(17) + @(10) * 19))
+if (!$cold.Verdict.StartsWith('WITHIN HARD LIMIT')) { throw 'Cold target miss was discarded.' }
+$legacy = Report (1..20)
+$legacy.timing_scope = 'render-loop-only'
+Reject $legacy
+$failed = Report (@(10) * 20)
+$failed | Add-Member -NotePropertyName error -NotePropertyValue 'refine timeout'
+Reject $failed
 $outlier = Get-QualificationTiming (Report (@(10) * 19 + @(51)))
 if ($outlier.P95 -ne 10 -or !$outlier.Verdict.StartsWith('FAIL')) { throw 'Hard-limit outlier escaped p95.' }
 $slow = Get-QualificationTiming (Report (@(30) * 20))
@@ -25,4 +36,4 @@ foreach ($invalid in @($null, '10', $true, -1, [double]::NaN, [double]::Positive
 $coarse = Report (1..20)
 $coarse.timing_high_resolution = $false
 Reject $coarse
-Write-Output 'PASS: full sample count, median/p95, maximum hard limit, target miss, invalid durations and coarse clock'
+Write-Output 'PASS: complete interval, failed reports, cold target misses, full sample count, median/p95, maximum hard limit, invalid durations and coarse clock'

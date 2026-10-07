@@ -1,5 +1,9 @@
 # Reject incomplete/coarse evidence and apply the hard limit to every fast tick.
 function Get-QualificationTiming($Report) {
+    if ($Report.error) { throw 'Qualification run failed; retained samples are diagnostic evidence only.' }
+    if ($Report.render_path -eq 'gpu' -and $Report.timing_scope -ne 'exposure-edit-to-present-return') {
+        throw 'GPU qualification requires the complete Exposure edit-to-present interval.'
+    }
     if ($Report.timing_clock -ne 'Stopwatch' -or $Report.timing_high_resolution -ne $true -or
         $Report.timing_frequency_hz -lt 1000000) {
         throw 'Qualification requires a high-resolution Stopwatch timing report.'
@@ -17,7 +21,7 @@ function Get-QualificationTiming($Report) {
     $p95 = $sorted[18]
     $maximum = $sorted[19]
     $verdict = if ($maximum -gt 50) { 'FAIL (fast tick exceeds 50ms hard limit)' }
-        elseif ($median -le 16) { 'PASS (target)' }
+        elseif ($maximum -le 16) { 'PASS (target)' }
         else { 'WITHIN HARD LIMIT (misses 16ms target)' }
     return [pscustomobject]@{ Median = $median; P95 = $p95; Maximum = $maximum; Verdict = $verdict }
 }
