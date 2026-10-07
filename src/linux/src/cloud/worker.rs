@@ -30,6 +30,7 @@ pub enum Event {
     EditReady(u64, crate::library::Photo, CloudEntry),
     Reloaded(u64, crate::library::Photo),
     Synced(u64, Result<(), String>),
+    Resumed(Vec<String>, Vec<String>),
     Waiting,
     Disconnected,
     Error(String),
@@ -52,6 +53,7 @@ impl Worker {
             let mut client: Option<CloudClient> = None;
             let mut journal: Option<super::EditJournal> = None;
             let mut pending: Option<PendingSignIn> = None;
+            let mut resume_due = false;
             while !stopped.load(Ordering::Acquire) {
                 let command = match commands.recv_timeout(std::time::Duration::from_millis(30)) {
                     Ok(command) => Some(command),
@@ -65,9 +67,7 @@ impl Worker {
                                 let connection =
                                     client.as_mut().ok_or("Connect to a Maple server first")?;
                                 let server = connection.server_url().to_owned();
-                                let base = dirs::data_local_dir()
-                                    .ok_or("No local data directory is available")?
-                                    .join("maple/cloud-edits");
+                                let base = edits_directory()?;
                                 let same = journal
                                     .as_ref()
                                     .is_some_and(|edit| edit.matches(&server, &entry));
@@ -145,6 +145,7 @@ impl Worker {
                                     Err(super::CloudError::Http(400 | 401)) => false,
                                     Err(error) => return Err(error.to_string()),
                                 };
+                                resume_due = restored;
                                 let event = if restored {
                                     Event::Connected(
                                         connection.libraries().map_err(|e| e.to_string())?,
@@ -166,6 +167,7 @@ impl Worker {
                                 match connection.claim(ceremony) {
                                     Ok(true) => {
                                         pending = None;
+                                        resume_due = true;
                                         return Ok(Some(Event::Connected(
                                             connection.libraries().map_err(|e| e.to_string())?,
                                         )));
@@ -194,6 +196,18 @@ impl Worker {
                                 return Ok(Some(Event::Disconnected));
                             }
                         }
+                    }
+                    if let Some(connection) = client.as_mut().filter(|_| resume_due) {
+                        resume_due = false;
+                        let resumed = super::resume_pending(&edits_directory()?, connection)
+                            .map_err(|error| error.to_string())?;
+                        if journal.is_none() {
+                            journal = resumed.held;
+                        }
+                        return Ok(Some(Event::Resumed(
+                            resumed.synchronized,
+                            resumed.unsynchronized,
+                        )));
                     }
                     if let Ok((epoch, entry, preview)) = images.try_recv() {
                         let image = client
@@ -255,6 +269,12 @@ impl Drop for Worker {
             let _ = thread.join();
         }
     }
+}
+
+fn edits_directory() -> Result<std::path::PathBuf, String> {
+    Ok(dirs::data_local_dir()
+        .ok_or("No local data directory is available")?
+        .join("maple/cloud-edits"))
 }
 
 fn photo_at(path: std::path::PathBuf) -> Result<crate::library::Photo, String> {

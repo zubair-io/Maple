@@ -120,6 +120,20 @@ impl CloudState {
                 Event::Synced(id, result) => {
                     self.synchronized.push_back((id, result));
                 }
+                Event::Resumed(synchronized, unsynchronized) => {
+                    if !synchronized.is_empty() {
+                        self.message = format!(
+                            "Synchronized edits left from the last session: {}",
+                            synchronized.join(", ")
+                        );
+                    }
+                    if !unsynchronized.is_empty() {
+                        self.error = Some(format!(
+                            "Unsynchronized cloud edits from the last session: {}. Open the photograph to synchronize or reload it.",
+                            unsynchronized.join("; ")
+                        ));
+                    }
+                }
 
                 Event::SignIn(url) => {
                     self.sign_in = Some(url.clone());
