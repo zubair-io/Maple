@@ -37,12 +37,17 @@ export interface GoogleRouteDependencies {
   transport?: GoogleFetch;
 }
 const IdParams = t.Object({ destinationId: t.String({ format: 'uuid' }) });
+const GoogleRootIdOptions = {
+  minLength: 1,
+  maxLength: 200,
+  pattern: '^[A-Za-z0-9_-]+$',
+};
 const ConfigBody = t.Object({
   clientMode: t.Optional(t.Union([t.Literal('maple'), t.Literal('own')])),
   clientId: t.Optional(t.String({ maxLength: 256 })),
   clientSecret: t.Optional(t.Union([t.String({ maxLength: 4096 }), t.Null()])),
   callbackMode: t.Union([t.Literal('direct'), t.Literal('relay')]),
-  rootId: t.Optional(t.String({ maxLength: 200 })),
+  rootId: t.Optional(t.String(GoogleRootIdOptions)),
 });
 const safeHeaders = {
   'Cache-Control': 'no-store',
@@ -201,9 +206,7 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
         params: IdParams,
         body: t.Optional(
           t.Object({
-            rootId: t.Optional(
-              t.String({ minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9_-]+$' }),
-            ),
+            rootId: t.Optional(t.String(GoogleRootIdOptions)),
           }),
         ),
       },
