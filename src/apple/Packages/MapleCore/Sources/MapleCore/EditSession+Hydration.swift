@@ -135,9 +135,9 @@ extension EditSession {
     }
     let base = await rehydratedMaskRasters(in: wbResolved)
     let seededRasterIds = Set(
-      seeded.localAdjustments.flatMap { $0.mask.bitmapMasks.map(\.rasterId) }.filter { $0 != 0 })
+      seeded.localAdjustments.flatMap(\.mask.registeredRasterIds))
     let registeredRasterIds = Set(
-      base.localAdjustments.flatMap { $0.mask.bitmapMasks.map(\.rasterId) }.filter { $0 != 0 }
+      base.localAdjustments.flatMap(\.mask.registeredRasterIds)
     ).subtracting(seededRasterIds)
     guard !Task.isCancelled, !hasLoadedSidecar else {
       registeredRasterIds.forEach(MaskRasterRegistry.release)

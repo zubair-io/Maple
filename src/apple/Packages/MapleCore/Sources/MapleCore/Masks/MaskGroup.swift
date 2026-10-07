@@ -124,6 +124,12 @@ extension LocalMask {
     }
   }
 
+  /// Every registry id this mask holds (bitmap and brush leaves alike), unresolved `0`s
+  /// dropped — what a release or a superseded rehydration must hand back.
+  public var registeredRasterIds: [UInt32] {
+    (bitmapMasks.map(\.rasterId) + brushMasks.map(\.rasterId)).filter { $0 != 0 }
+  }
+
   public func mappingLeavesAsync(_ transform: (LocalMask) async -> LocalMask) async -> LocalMask {
     guard case .group(var group) = self else { return await transform(self) }
     var components = group.components
