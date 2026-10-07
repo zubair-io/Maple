@@ -19,16 +19,7 @@ pub(super) fn rotate_and_slice_f32_rgba(
     crop: &Crop,
 ) -> (u32, u32, Vec<f32>) {
     let (rect_x, rect_y, rect_w, rect_h) = rect_in_pixels(crop, w, h);
-    let sw = w as f32;
-    let sh = h as f32;
-    // Inverse rotation: source = R(-θ) · (dest - centre) + centre.
-    let theta = crop.angle.to_radians();
-    let params = RotationParams {
-        cx: sw / 2.0,
-        cy: sh / 2.0,
-        cos_t: (-theta).cos(),
-        sin_t: (-theta).sin(),
-    };
+    let params = RotationParams::new(w, h, crop.angle);
     let dw = rect_w as usize;
     let dh = rect_h as usize;
     let mut out = vec![0.0f32; dw * dh * 4];
@@ -36,12 +27,9 @@ pub(super) fn rotate_and_slice_f32_rgba(
         for xp in 0..dw {
             // Position in display coords of this destination pixel: rect
             // origin + offset, sample at pixel centre (`+ 0.5`).
-            let dx = (rect_x as f32) + (xp as f32) + 0.5;
-            let dy = (rect_y as f32) + (yp as f32) + 0.5;
-            let (sx, sy) = inverse_rotate(dx, dy, &params);
-            // Subtract the half-pixel offset before sampling — the bilinear
-            // sampler indexes into the centre of pixels.
-            let sample = sample_rgba(rgba, w, h, sx - 0.5, sy - 0.5);
+            let (sx, sy) = params.source_pixel(rect_x, rect_y, xp as u32, yp as u32);
+            // source_pixel already returns coordinates indexed at pixel centres.
+            let sample = sample_rgba(rgba, w, h, sx, sy);
             let di = (yp * dw + xp) * 4;
             out[di] = sample[0];
             out[di + 1] = sample[1];
@@ -62,24 +50,14 @@ pub(super) fn rotate_and_slice_rgb<T: Sample>(
     crop: &Crop,
 ) -> (u32, u32, Vec<T>) {
     let (rect_x, rect_y, rect_w, rect_h) = rect_in_pixels(crop, w, h);
-    let sw = w as f32;
-    let sh = h as f32;
-    let theta = crop.angle.to_radians();
-    let params = RotationParams {
-        cx: sw / 2.0,
-        cy: sh / 2.0,
-        cos_t: (-theta).cos(),
-        sin_t: (-theta).sin(),
-    };
+    let params = RotationParams::new(w, h, crop.angle);
     let dw = rect_w as usize;
     let dh = rect_h as usize;
     let mut out = vec![T::default(); dw * dh * 3];
     for yp in 0..dh {
         for xp in 0..dw {
-            let dx = (rect_x as f32) + (xp as f32) + 0.5;
-            let dy = (rect_y as f32) + (yp as f32) + 0.5;
-            let (sx, sy) = inverse_rotate(dx, dy, &params);
-            let sample = sample_rgb(rgb, w, h, sx - 0.5, sy - 0.5);
+            let (sx, sy) = params.source_pixel(rect_x, rect_y, xp as u32, yp as u32);
+            let sample = sample_rgb(rgb, w, h, sx, sy);
             let di = (yp * dw + xp) * 3;
             out[di] = sample[0];
             out[di + 1] = sample[1];
@@ -89,11 +67,29 @@ pub(super) fn rotate_and_slice_rgb<T: Sample>(
     (rect_w, rect_h, out)
 }
 
-struct RotationParams {
+pub(super) struct RotationParams {
     cx: f32,
     cy: f32,
     cos_t: f32,
     sin_t: f32,
+}
+
+impl RotationParams {
+    pub(super) fn new(w: u32, h: u32, angle: f32) -> Self {
+        let theta = angle.to_radians();
+        Self {
+            cx: w as f32 / 2.0,
+            cy: h as f32 / 2.0,
+            cos_t: (-theta).cos(),
+            sin_t: (-theta).sin(),
+        }
+    }
+    pub(super) fn source_pixel(&self, rect_x: u32, rect_y: u32, x: u32, y: u32) -> (f32, f32) {
+        let dx = rect_x as f32 + x as f32 + 0.5;
+        let dy = rect_y as f32 + y as f32 + 0.5;
+        let (sx, sy) = inverse_rotate(dx, dy, self);
+        (sx - 0.5, sy - 0.5)
+    }
 }
 
 #[inline]
@@ -150,8 +146,21 @@ pub(crate) fn sample_rgba(rgba: &[f32], w: u32, h: u32, sx: f32, sy: f32) -> [f3
 /// this is shared rather than reimplemented there.
 #[inline]
 pub(crate) fn sample_rgb<T: Sample>(rgb: &[T], w: u32, h: u32, sx: f32, sy: f32) -> [T; 3] {
-    let wi = w as i32;
-    let hi = h as i32;
+    sample_rgb_windowed(rgb, w, h, (0, 0), (w, h), sx, sy)
+}
+
+/// Canonical global-coordinate weights and clamps with a retained source window.
+pub(super) fn sample_rgb_windowed<T: Sample>(
+    rgb: &[T],
+    w: u32,
+    h: u32,
+    origin: (u32, u32),
+    full: (u32, u32),
+    sx: f32,
+    sy: f32,
+) -> [T; 3] {
+    let wi = full.0 as i32;
+    let hi = full.1 as i32;
     let x0 = sx.floor() as i32;
     let y0 = sy.floor() as i32;
     let x1 = x0 + 1;
@@ -164,7 +173,10 @@ pub(crate) fn sample_rgb<T: Sample>(rgb: &[T], w: u32, h: u32, sx: f32, sy: f32)
     let sample = |xi: i32, yi: i32| -> [f32; 3] {
         let xi = xi.clamp(0, wi - 1) as usize;
         let yi = yi.clamp(0, hi - 1) as usize;
-        let idx = (yi * (w as usize) + xi) * 3;
+        debug_assert!(xi >= origin.0 as usize && yi >= origin.1 as usize);
+        let (xi, yi) = (xi - origin.0 as usize, yi - origin.1 as usize);
+        debug_assert!(xi < w as usize && yi < h as usize);
+        let idx = (yi * w as usize + xi) * 3;
         [
             rgb[idx].to_f32(),
             rgb[idx + 1].to_f32(),

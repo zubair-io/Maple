@@ -76,7 +76,7 @@ export async function readXmp(rawAbsPath: string): Promise<OpResult<string>> {
 }
 
 /** Validate existing authoring records before an edit can replace the sidecar. */
-async function preparePrimarySidecarWrite(
+export async function preparePrimarySidecarWrite(
   sidecar: string,
   xmlContent: string,
 ): Promise<{ ok: true; data: string } | { ok: false; error: string }> {
@@ -93,7 +93,7 @@ async function preparePrimarySidecarWrite(
   }
 }
 
-async function primarySidecarDestination(
+export async function primarySidecarDestination(
   rawAbsPath: string,
 ): Promise<{ ok: true; data: string } | { ok: false; error: string }> {
   const sidecar = xmpSidecarPath(rawAbsPath);

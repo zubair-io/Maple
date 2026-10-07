@@ -129,6 +129,14 @@ const SPATIAL_BASE: usize = 32;
 /// Serialize a layer stack to the flat wire. The result length is always
 /// a multiple of `LAYER_FLAT_LEN`; a group adds one record per component.
 pub fn layers_to_flat(layers: &[LocalAdjustment]) -> Vec<f32> {
+    let mut out = Vec::new();
+    layers_to_flat_into(layers, &mut out);
+    out
+}
+
+/// Write canonical records into retained storage (#4317). Padding and absent
+/// controls are reset so records never inherit values from an earlier frame.
+pub fn layers_to_flat_into(layers: &[LocalAdjustment], out: &mut Vec<f32>) {
     let records: usize = layers
         .iter()
         .map(|layer| match &layer.mask {
@@ -136,7 +144,8 @@ pub fn layers_to_flat(layers: &[LocalAdjustment]) -> Vec<f32> {
             _ => 1,
         })
         .sum();
-    let mut out = vec![0.0f32; records * LAYER_FLAT_LEN];
+    out.resize(records * LAYER_FLAT_LEN, 0.0);
+    out.fill(0.0);
     let mut offset = 0;
     for layer in layers {
         let slot = &mut out[offset..offset + LAYER_FLAT_LEN];
@@ -160,7 +169,6 @@ pub fn layers_to_flat(layers: &[LocalAdjustment]) -> Vec<f32> {
             }
         }
     }
-    out
 }
 
 fn write_range(range: Option<RangeRefinement>, slot: &mut [f32]) {

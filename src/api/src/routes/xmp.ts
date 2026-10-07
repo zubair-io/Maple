@@ -45,6 +45,8 @@ import { safeWriteAllowed } from '../fs/root';
 import { writeSidecarAtomic } from '../fs/sidecar-io';
 import { xmpVariantRoutes } from './xmp-variants';
 import { isMissingSidecar } from '../fs/sidecar-io';
+import { writeXmpIfUnchanged } from '../fs/xmp-conditional';
+import { computeBodyETag } from '../runtime/http-etag';
 
 // Note: we deliberately bypass `readXmp` from `../fs/xmp.ts` and call
 // `fs.readFile` directly so we can distinguish "no sidecar" (404) from
@@ -115,9 +117,11 @@ export const xmpPathRoutes = new Elysia()
   .get(
     '/api/xmp',
     async ({ sidecar, set }) => {
+      set.headers['X-Maple-Xmp-Preconditions'] = 'content-etag-v1';
       try {
         const body = await fs.readFile(sidecar, 'utf-8');
         set.headers['Content-Type'] = 'application/xml';
+        set.headers['ETag'] = computeBodyETag(body);
         return body;
       } catch (err: unknown) {
         if (isMissingSidecar(err)) {
@@ -148,13 +152,33 @@ export const xmpPathRoutes = new Elysia()
   // -- Write -------------------------------------------------------------
   .post(
     '/api/xmp',
-    async ({ rawPath, body, set }) => {
+    async ({ rawPath, body, set, request }) => {
       const xmlContent =
         typeof body === 'string'
           ? body
           : (body as unknown) instanceof Uint8Array
             ? new TextDecoder().decode(body as unknown as Uint8Array)
             : String(body);
+      const match = request.headers.get('If-Match');
+      const absent = request.headers.get('If-None-Match');
+      if (
+        (match !== null && absent !== null) ||
+        (match !== null && !/^"[0-9a-f]{40}"$/.test(match)) ||
+        (absent !== null && absent !== '*')
+      ) {
+        return status(400, { error: 'Use one strong If-Match ETag or If-None-Match: *.' });
+      }
+      if (match !== null || absent !== null) {
+        const conditional = await writeXmpIfUnchanged(rawPath, xmlContent, match);
+        if (conditional.kind === 'conflict')
+          return status(412, { error: 'XMP changed; reload before saving.' });
+        if (conditional.kind === 'error') return status(500, { error: conditional.error });
+        await publishSidecarChange(rawPath, true);
+        set.headers['Content-Type'] = 'application/xml';
+        set.headers['ETag'] = computeBodyETag(conditional.data);
+        set.headers['X-Maple-Xmp-Preconditions'] = 'content-etag-v1';
+        return conditional.data;
+      }
       const outcome = await writeXmpAtomic(rawPath, xmlContent);
       if (!outcome.ok) {
         // Includes failed durable writes and unsupported workflow metadata;

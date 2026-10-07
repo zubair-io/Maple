@@ -210,6 +210,10 @@
         "src/routes/preview.ts",
         "src/routes/preview.test.ts",
         "src/routes/xmp.ts",
+        // #4317: primary-only baseline reads; publications use mirrored sidecar primitives.
+        "src/fs/xmp-conditional.ts",
+        // #4317: real-file conditional transaction tests own only disposable temp fixtures.
+        "src/routes/xmp.conditional.test.ts",
         "src/routes/xmp-batch.ts",
         "src/routes/xmp-batch.test.ts",
         "src/routes/xmp.get.test.ts",

@@ -22,7 +22,7 @@ fn bad(reason: impl std::fmt::Display) -> Error {
 }
 
 /// Return None for TIFFs handled by the existing image decoder.
-pub(super) fn decode_jpeg_tiff(bytes: &[u8]) -> Result<Option<RasterImage>> {
+pub(crate) fn decode_jpeg_tiff(bytes: &[u8]) -> Result<Option<RasterImage>> {
     // TIFF's default limits also bound IFD arrays and JPEGTables while parsing.
     let mut decoder = Decoder::new(Cursor::new(bytes)).map_err(bad)?;
     if decoder

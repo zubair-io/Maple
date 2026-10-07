@@ -1,0 +1,22 @@
+[package]
+name = "maple-linux-toolkit-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Standalone qualification workspace for #4317.
+[workspace]
+
+[dependencies]
+egui-wgpu = "=0.30.0"
+wgpu = "23"
+raw-gpu = { path = "../../../src/raw-pipeline/raw-gpu" }
+
+eframe = { version = "=0.30.0", default-features = false, features = ["wgpu", "wayland", "x11", "accesskit", "default_fonts"] }
+maple-linux = { path = "../../../src/linux" }
+
+# Root manifests must carry the shared native decoder fixes themselves.
+[patch.crates-io]
+rav1d = { path = "../../../src/raw-pipeline/third_party/rav1d" }
+zune-jpeg = { path = "../../../src/raw-pipeline/third_party/zune-jpeg" }
+avif-parse = { path = "../../../src/raw-pipeline/third_party/avif-parse" }

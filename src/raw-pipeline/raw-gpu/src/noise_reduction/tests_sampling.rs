@@ -44,7 +44,7 @@ fn sampled_chroma_matches_cpu_and_keeps_native_behavior() {
             let gpu = runner.run_blocking(&[&NlmColorPass {
                 nr_color: 75.0,
                 sampling_scale: scale,
-                noise_profile: profile.clone(),
+                noise_profile: profile.as_slice().into(),
                 iso: 200,
             }]);
             let max_error = cpu

@@ -179,20 +179,20 @@ fn raw_core_nr_color_modulated(buf: &[f32], w: u32, h: u32, amount: f32) -> Vec<
 }
 
 /// A luma pass carrying the test profile.
-fn luma_pass_profiled(amount: f32) -> NlmLumaPass {
+fn luma_pass_profiled(amount: f32) -> NlmLumaPass<'static> {
     NlmLumaPass {
         nr_luminance: amount,
-        noise_profile: TEST_NOISE_PROFILE.to_vec(),
+        noise_profile: TEST_NOISE_PROFILE.as_slice().into(),
         iso: TEST_ISO,
     }
 }
 
 /// A color pass carrying the test profile.
-fn color_pass_profiled(amount: f32) -> NlmColorPass {
+fn color_pass_profiled(amount: f32) -> NlmColorPass<'static> {
     NlmColorPass {
         sampling_scale: 1.0,
         nr_color: amount,
-        noise_profile: TEST_NOISE_PROFILE.to_vec(),
+        noise_profile: TEST_NOISE_PROFILE.as_slice().into(),
         iso: TEST_ISO,
     }
 }
@@ -438,7 +438,7 @@ fn empty_profile_matches_the_flat_filter() {
     let flat = runner.run_blocking(&[&luma_pass(80.0)]);
     let empty_profiled = runner.run_blocking(&[&NlmLumaPass {
         nr_luminance: 80.0,
-        noise_profile: Vec::new(),
+        noise_profile: Default::default(),
         iso: TEST_ISO,
     }]);
     assert_eq!(

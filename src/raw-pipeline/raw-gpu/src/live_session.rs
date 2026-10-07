@@ -42,7 +42,7 @@ use crate::dehaze::AirlightSource;
 use crate::dither::{alloc_packed_rgb, encode_dither, unpack_rgb_u8};
 use crate::full_chain::FullChainInputs;
 use crate::image::GpuImage;
-use crate::live_chain::{build_live_chain, chain_signature, dehaze_is_active};
+use crate::live_chain::{chain_signature, dehaze_is_active};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Process-wide monotonic counter handing out a unique [`LiveSession::session_id`]
@@ -282,6 +282,7 @@ impl LiveSession {
         // Open the pooled render window for THIS chain shape — it SPANS both the
         // prefix and suffix encoders (the cursor runs prefix→suffix continuously),
         // so a same-signature re-render allocates ZERO new GPU resources.
+        crate::live_chain::validate_curve_capacity(inputs)?;
         let sig = chain_signature(inputs, dims, self.session_id);
         ctx.frame_pool.borrow_mut().begin_frame(sig);
 
@@ -308,8 +309,6 @@ impl LiveSession {
     ) -> Result<Option<Vec<u8>>, String> {
         let dims = self.image.dims();
         let f32_byte_len = self.image.byte_len();
-        let passes = build_live_chain(inputs, AirlightSource::OnGpu);
-        let pass_refs: Vec<&dyn Pass> = passes.iter().map(|p| p.as_ref()).collect();
 
         let mut encoder = ctx
             .device
@@ -318,7 +317,7 @@ impl LiveSession {
             });
         // Seed ping-pong A from the immutable image, run the chain, dither.
         encoder.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
-        let final_idx = match self.encode_chain(ctx, &mut encoder, &pass_refs, 0, cancel) {
+        let final_idx = match self.encode_live_chain(ctx, &mut encoder, inputs, cancel) {
             Some(idx) => idx,
             None => return Ok(None), // cancelled mid-encode
         };
@@ -387,6 +386,7 @@ impl LiveSession {
         inputs: &FullChainInputs<'_>,
         cancel: Option<&CancelToken>,
     ) -> Result<Option<usize>, String> {
+        crate::live_chain::validate_curve_capacity(inputs)?;
         let dims = self.image.dims();
         let sig = chain_signature(inputs, dims, self.session_id);
         ctx.frame_pool.borrow_mut().begin_frame(sig);
@@ -415,8 +415,6 @@ impl LiveSession {
         cancel: Option<&CancelToken>,
     ) -> Option<usize> {
         let f32_byte_len = self.image.byte_len();
-        let passes = build_live_chain(inputs, AirlightSource::OnGpu);
-        let pass_refs: Vec<&dyn Pass> = passes.iter().map(|p| p.as_ref()).collect();
 
         let mut encoder = ctx
             .device
@@ -424,7 +422,7 @@ impl LiveSession {
                 label: Some("live-present-chain-encoder"),
             });
         encoder.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
-        let final_idx = self.encode_chain(ctx, &mut encoder, &pass_refs, 0, cancel)?;
+        let final_idx = self.encode_live_chain(ctx, &mut encoder, inputs, cancel)?;
         // Scope pass (#3272): encoded into this SAME submit, reading the
         // chain's final buffer — no extra submit, no stall.
         if inputs.scope.enabled {

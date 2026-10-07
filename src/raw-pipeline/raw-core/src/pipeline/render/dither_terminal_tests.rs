@@ -87,7 +87,9 @@ fn slice_fn<'a>(src: &'a str, name: &str) -> &'a str {
 fn colour_chain() -> Vec<&'static str> {
     let render = include_str!("mod.rs");
     assert!(slice_fn(render, "render_display_scene").contains("render_display_scene_with_context("));
-    let body = slice_fn(render, "render_display_scene_with_context");
+    let wrapper = slice_fn(render, "render_display_scene_with_context");
+    assert!(wrapper.contains("render_display_scene_with_context_cancellable("));
+    let body = slice_fn(render, "render_display_scene_with_context_cancellable");
     assert!(body.contains("display_prefix::apply("));
     let mut stages = stage_call_order(include_str!("display_prefix.rs"));
     stages.extend(stage_call_order(body));

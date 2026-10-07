@@ -33,10 +33,10 @@ use crate::{
     xmp::AdjustmentModel,
 };
 
-use super::region::{trim_image_to_inner, TileWindow};
+use super::region::{TileWindow, trim_image_to_inner};
 use crate::pipeline::{
-    capture_sharpening_helper::capture_sharpening_params_from_model,
-    develop::effective_quality_divisor, native_render_dims, stage, RenderQuality,
+    RenderQuality, capture_sharpening_helper::capture_sharpening_params_from_model,
+    develop::effective_quality_divisor, native_render_dims, stage,
 };
 use crate::stages::{capture_sharpening, local_adjustments, retouch, vignette};
 
@@ -118,6 +118,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     model: &AdjustmentModel,
     quality: RenderQuality,
     anchors: TileAnchors,
+    cancel: crate::CancelToken<'_>,
 ) -> Result<DevelopedTile> {
     let TileAnchors {
         decoded_wb_anchor,
@@ -155,7 +156,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // full-image render.
     let mut camera_rgb = stage("tile_demosaic", || {
         let algo = crate::pipeline::bayer_kernel(quality, model, raw);
-        demosaic::demosaic(algo, mosaic, raw.cfa)
+        demosaic::demosaic_cancellable(algo, mosaic, raw.cfa, cancel)
     });
 
     // DNG OpcodeList3 (#376, #4288): vendor corrections applied in
@@ -191,6 +192,9 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         }
     }
 
+    if cancel.is_cancelled() {
+        return Err(crate::error::Error::Cancelled);
+    }
     if raw.baseline_exposure.abs() > 1e-4 {
         stage("tile_baseline_exposure", || {
             let be_gain = raw.baseline_exposure.exp2();

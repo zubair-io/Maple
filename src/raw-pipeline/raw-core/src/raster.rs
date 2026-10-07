@@ -19,6 +19,7 @@ mod raster_jpeg;
 
 #[path = "raster_tiff.rs"]
 mod raster_tiff;
+pub(crate) use raster_tiff::decode_jpeg_tiff;
 
 #[path = "raster_ops.rs"]
 mod raster_ops;

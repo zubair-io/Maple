@@ -9,8 +9,11 @@
 
 use crate::frame_pool::FramePool;
 use std::cell::{OnceCell, RefCell};
+use std::sync::Arc;
 
-/// Device/queue handle plus lazily-compiled, cached compute pipelines.
+/// Shared device/queue handles plus lazily-compiled, cached compute pipelines.
+/// Hosts may give clones of the handles to their UI renderer while retaining
+/// this single-threaded compute owner (#4317); no device or image is duplicated.
 ///
 /// Construct once (`new_blocking` on native, `new_async` anywhere) and share by
 /// reference. `Send` but not `Sync` — the cached-pipeline `OnceCell` and the
@@ -22,22 +25,22 @@ use std::cell::{OnceCell, RefCell};
 /// pool's refcounted handles are `Arc`, not `Rc`, precisely so no
 /// `unsafe impl Send` is needed there.)
 pub struct GpuContext {
-    pub device: wgpu::Device,
-    pub queue: wgpu::Queue,
+    pub device: Arc<wgpu::Device>,
+    pub queue: Arc<wgpu::Queue>,
     /// The wgpu instance the adapter was requested from. Held so the present
     /// paths (`CAMetalLayer` #1028 / web canvas #1029) can create their surface
     /// from THIS SAME instance — otherwise `surface.get_capabilities(&adapter)`
     /// panics with `Adapter[Id(…)] does not exist` (#1240). Adapters belong to
     /// the instance that produced them; mixing a surface from a fresh instance
     /// with this instance's adapter trips wgpu's per-instance hub registry.
-    pub instance: wgpu::Instance,
+    pub instance: Arc<wgpu::Instance>,
     /// The adapter the device was created from. Held so a display surface (the
     /// P4b present paths — Apple `CAMetalLayer` #1028, web canvas #1029) can query
     /// `Surface::get_capabilities(&adapter)` and configure itself on THIS device
     /// (the live chain's f32 buffer lives here, so the present pass that samples
     /// it must run on the same device). The headless paths never touch it; it is
     /// `Send`/`Sync`, so holding it does not change the context's threading model.
-    pub adapter: wgpu::Adapter,
+    pub adapter: Arc<wgpu::Adapter>,
     /// Lazily-compiled exposure compute pipeline (`exposure.wgsl`). Built on
     /// first use via [`GpuContext::exposure_pipeline`] and reused thereafter.
     #[cfg(any(target_vendor = "apple", test))]
@@ -390,10 +393,10 @@ impl GpuContext {
             .await
             .map_err(|e| format!("device request failed: {e}"))?;
         Ok(Self {
-            device,
-            queue,
-            instance,
-            adapter,
+            device: Arc::new(device),
+            queue: Arc::new(queue),
+            instance: Arc::new(instance),
+            adapter: Arc::new(adapter),
             #[cfg(any(target_vendor = "apple", test))]
             histogram_pipeline: OnceCell::new(),
             exposure_pipeline: OnceCell::new(),

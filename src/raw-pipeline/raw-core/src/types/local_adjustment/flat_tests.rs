@@ -306,3 +306,28 @@ fn the_shared_swift_fixture_serializes_to_the_documented_slots() {
     assert_eq!(flat[12], 0.5); // exposure
     assert_eq!(flat[15], -20.0); // shadows
 }
+
+#[test]
+fn retained_flat_storage_clears_absent_controls_and_padding() {
+    let mut out = vec![f32::NAN; 3 * LAYER_FLAT_LEN];
+    let identity = out.as_ptr();
+    let first =
+        LocalAdjustment::linear(Point2::new(0.0, 0.0), Point2::new(1.0, 0.0), all_controls());
+    super::layers_to_flat_into(&[first], &mut out);
+    assert_eq!(out.as_ptr(), identity);
+    assert_eq!(out.len(), LAYER_FLAT_LEN);
+    assert!(out.iter().all(|value| value.is_finite()));
+    let empty = LocalAdjustment::linear(
+        Point2::new(0.0, 0.0),
+        Point2::new(1.0, 0.0),
+        Default::default(),
+    );
+    super::layers_to_flat_into(&[empty.clone(), empty.clone()], &mut out);
+    assert_eq!(out.as_ptr(), identity);
+    assert_eq!(out, layers_to_flat(&[empty.clone(), empty]));
+    assert_eq!(out[8], 0.0);
+    assert_eq!(out[22], 0.0);
+    super::layers_to_flat_into(&[], &mut out);
+    assert!(out.is_empty());
+    assert_eq!(out.as_ptr(), identity);
+}

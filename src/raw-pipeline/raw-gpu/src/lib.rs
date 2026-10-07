@@ -336,7 +336,9 @@ pub use spatial::{
 };
 pub use srgb_gamma::{apply_srgb_gamma, SrgbGammaPass};
 pub use texture::{apply_texture, TexturePass, TEXTURE_GUIDED_RADIUS};
-pub use tone_curves::{apply_tone_curves, CurveMode, ToneCurveInputs, ToneCurvesPass};
+pub use tone_curves::{
+    apply_tone_curves, point_curve_fits_gpu, CurveMode, ToneCurveInputs, ToneCurvesPass,
+};
 pub use vibrance::{apply_vibrance, VibrancePass};
 pub use vignette::{apply_vignette, VignetteOptions, VignettePass};
 pub use white_balance::{apply_white_balance, WhiteBalancePass};
@@ -387,3 +389,11 @@ pub(crate) fn test_buffer(n: usize) -> Vec<f32> {
 
 #[path = "../../raw-core/src/view/whites_anchor.rs"]
 pub mod whites_anchor;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod present_texture;
+#[cfg(not(target_arch = "wasm32"))]
+pub use present_texture::PresentTexture;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod present_texture_tests;

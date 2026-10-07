@@ -324,3 +324,38 @@ fresh for six hours. Refresh publishes only covers downloaded successfully and
 removes images no longer referenced. The extension requires a paired server with
 Keychain credentials before reading a cache, so unpairing hides the shelf.
 Selecting another server or library uses a separate cache directory.
+
+## Linux native-detail session (#4317)
+
+The native Linux worker reads one immutable source-byte snapshot at image open
+and decodes its RAW mosaic from those same bytes. CPU previews, GPU preparation
+and native detail share that snapshot; later file changes cannot pair an old
+mosaic with new embedded-preview bytes. Opening another image (including a
+reload) reads a fresh snapshot. Preview/I/O and the independent CPU detail
+worker share the existing mosaic and byte allocations via immutable Arc
+ownership. The preview worker releases its old source before decode; an
+already-running detail operation may retain that old snapshot until it finishes.
+No disk derivative is written by this path.
+
+| Entry                                                 | Key                                                                          | Lifetime and invalidation                                                                                                                                |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Decoded RAW and source bytes                          | Active source snapshot identity                                              | Preview ownership replaced before image decode; in-flight detail ownership released on completion; all ownership released on joined shutdown             |
+| Native raster linear Rec.2020 RGBA                    | Active source snapshot identity                                              | One buffer, decoded lazily on the independent detail worker under shared raster decode limits; replaced on source change and released on joined shutdown |
+| Native-detail full-frame anchors and bounded CPU base | Source identity plus full adjustment model                                   | One reference on the detail worker; replaced on source/model change, cleared after patch rejection/closed source, released on joined shutdown            |
+| Canvas base texture and native patch texture          | Image session, detail request generation, source rectangle and current edits | One base and one patch; edits, Fit or image change clear the UI entry; obsolete results cannot publish                                                   |
+
+Every successful patch carries shared ownership of its bounded base pixels.
+Raster patches use the same window chain as the full-frame non-RAW renderer,
+including source coordinates and a conservative pad from the shared spatial
+overlap calculation. Their 8,388,608 working-pixel limit bounds the patch and
+its halo, separately from the retained native source buffer. Raster base pixels
+are keyed by the full model; source pixels are reused across edits and pans.
+Subsequent pans reuse the same base allocation and full-frame AE/Auto artifacts;
+dropping the first superseded result cannot leave its successor without a base.
+The published source rectangle includes a pan margin; pans contained in it need
+no new develop. The core includes its exact filter overlap in the 8,388,608
+working-pixel limit. A single latest pending snapshot bounds pan requests;
+in-flight CPU detail completes through the existing core API, and stale results
+are discarded. GPU previews and XMP saves run independently of this CPU detail
+queue. Shutdown joins both workers; old in-flight source memory and shared CPU
+contention still require hardware qualification. This is not a latency guarantee.

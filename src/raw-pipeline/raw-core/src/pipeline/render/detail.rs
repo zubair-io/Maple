@@ -2,7 +2,7 @@
 //! The patch consumes the base render's AE and Auto artifacts, never fits
 //! a tone curve or measures exposure from a viewport's histogram.
 
-use super::{display_prefix, finish, render_display_scene_with_context, RawInput};
+use super::{display_prefix, finish, render_display_scene_with_context_cancellable, RawInput};
 use crate::{
     error::{Error, Result},
     film::FilmLut,
@@ -35,7 +35,19 @@ pub fn render_detail_base(
     source: RawInput<'_>,
     options: DetailRenderOptions<'_>,
 ) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
-    let (mut scene, context) = render_display_scene_with_context(
+    render_detail_base_cancellable(raw, model, source, options, crate::CancelToken::never())
+}
+
+/// Retain base anchors while passing host cancellation through sized develop.
+/// Auto fitting and display/geometry kernels still stop at boundaries (#4317).
+pub fn render_detail_base_cancellable(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    source: RawInput<'_>,
+    options: DetailRenderOptions<'_>,
+    cancel: crate::CancelToken<'_>,
+) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
+    let (mut scene, context) = render_display_scene_with_context_cancellable(
         raw,
         model,
         options.quality,
@@ -43,7 +55,11 @@ pub fn render_detail_base(
         Some(options.max_long_edge),
         encode::TargetPrimaries::Srgb,
         options.film_lut,
+        cancel,
     )?;
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
     let rgb = encode::dither_and_quantize(&mut scene);
     let (w, h, rgb) = finish::apply_geometry(
         rgb,
@@ -53,6 +69,9 @@ pub fn render_detail_base(
         &crate::stages::perspective::Perspective::from_model(model),
         &model.crop,
     );
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
     Ok((w, h, rgb, context))
 }
 
@@ -66,29 +85,61 @@ pub fn render_detail_tile(
     film_lut: Option<&FilmLut>,
     max_working_pixels: u64,
 ) -> Result<(u32, u32, Vec<u8>)> {
+    render_detail_tile_cancellable(
+        raw,
+        context,
+        rect,
+        film_lut,
+        max_working_pixels,
+        crate::CancelToken::never(),
+    )
+}
+
+/// Native detail with cooperative cancellation in supported tile kernels.
+/// Auto fitting and remaining display kernels are still separate work (#4317).
+pub fn render_detail_tile_cancellable(
+    raw: &RawImage,
+    context: &DetailContext,
+    rect: TileRect,
+    film_lut: Option<&FilmLut>,
+    max_working_pixels: u64,
+    cancel: crate::CancelToken<'_>,
+) -> Result<(u32, u32, Vec<u8>)> {
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    if !crate::stages::perspective::Perspective::from_model(&context.model).is_identity() {
+        return Err(Error::Pipeline(
+            "native detail requires no perspective corrections".into(),
+        ));
+    }
     let (native_w, native_h) = super::native_render_dims(raw);
-    if !context.model.crop.is_identity() {
+    if u64::from(rect.src_w) * u64::from(rect.src_h) > max_working_pixels {
         return Err(Error::Pipeline(
-            "native detail requires an uncropped canvas".into(),
+            "native-detail output exceeds the memory budget".into(),
         ));
     }
-    if rect.src_w == 0
-        || rect.src_h == 0
-        || rect.src_w != rect.out_w
-        || rect.src_h != rect.out_h
-        || rect
-            .src_x
-            .checked_add(rect.src_w)
-            .is_none_or(|x| x > native_w)
-        || rect
-            .src_y
-            .checked_add(rect.src_h)
-            .is_none_or(|y| y > native_h)
-    {
+    if rect.src_w != rect.out_w || rect.src_h != rect.out_h {
         return Err(Error::Pipeline(
-            "invalid native-detail source rectangle".into(),
+            "native detail requires native output dimensions".into(),
         ));
     }
+    let mapped = crate::stages::crop::CropDetailWindow::new(
+        &context.model.crop,
+        native_w,
+        native_h,
+        (rect.src_x, rect.src_y, rect.src_w, rect.src_h),
+    )
+    .ok_or_else(|| Error::Pipeline("invalid or resampled native-detail crop rectangle".into()))?;
+    let (x, y, w, h) = mapped.source();
+    let rect = TileRect {
+        src_x: x,
+        src_y: y,
+        src_w: w,
+        src_h: h,
+        out_w: w,
+        out_h: h,
+    };
     let crop = sensor_crop(raw);
     let inverse = inverse_orientation(raw.orientation);
     let sensor_display = if raw.orientation.swaps_wh() {
@@ -123,8 +174,14 @@ pub fn render_detail_tile(
             "native-detail patch exceeds the memory budget".into(),
         ));
     }
-    let (w, h, rgba) = super::super::tile::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32(
-        raw, &context.active_model, absolute, quality, None, context.ae_gain,
+    let (w, h, rgba) = super::super::tile::render_scene_linear_tile_cancellable_f32(
+        raw,
+        &context.active_model,
+        absolute,
+        quality,
+        None,
+        context.ae_gain,
+        cancel,
     )?;
     let rgb: Vec<f32> = rgba
         .chunks_exact(4)
@@ -167,8 +224,13 @@ pub fn render_detail_tile(
     if context.auto_guard {
         encode::gamut_guard_display_encoded_srgb(&mut scene);
     }
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
     let rgb = encode::dither_and_quantize_windowed(&mut scene, origin);
-    Ok(apply_orientation(&rgb, sw, sh, raw.orientation))
+    let (w, h, rgb) = apply_orientation(&rgb, sw, sh, raw.orientation);
+    debug_assert_eq!((w, h), (rect.src_w, rect.src_h));
+    mapped.apply_rgb(rgb, cancel)
 }
 
 fn inverse_orientation(orientation: ExifOrientation) -> ExifOrientation {

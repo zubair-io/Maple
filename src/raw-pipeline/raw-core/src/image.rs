@@ -538,3 +538,6 @@ pub fn apply_orientation<T: Copy + Default + Send + Sync>(
 #[cfg(test)]
 #[path = "image_tests.rs"]
 mod tests;
+
+#[path = "image_orientation.rs"]
+mod orientation;

@@ -45,14 +45,14 @@ impl PreparedCurve {
     /// # Panics
     /// Panics if `knots.len() > CURVE_CAP` (the slot can't hold it; truncating
     /// would silently diverge from the CPU evaluator).
-    pub(super) fn to_slot(&self) -> Vec<f32> {
+    pub(super) fn to_slot(&self) -> [f32; 1 + CURVE_CAP * 3] {
         assert!(
             self.knots.len() <= CURVE_CAP,
             "prepared tone curve has {} knots, exceeds CURVE_CAP {}",
             self.knots.len(),
             CURVE_CAP
         );
-        let mut slot = vec![0.0f32; 1 + CURVE_CAP * 3];
+        let mut slot = [0.0f32; 1 + CURVE_CAP * 3];
         slot[0] = self.knots.len() as f32;
         for (i, &(x, y)) in self.knots.iter().enumerate() {
             slot[1 + i * 3] = x;

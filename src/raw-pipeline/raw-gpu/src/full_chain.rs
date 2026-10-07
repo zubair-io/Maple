@@ -398,7 +398,7 @@ pub fn build_split<'a>(
         blacks: inputs.tone[5],
     }));
     prefix.push(Box::new(ToneCurvesPass {
-        inputs: inputs.tone_curves.clone(),
+        inputs: &inputs.tone_curves,
     }));
     prefix.push(Box::new(VibrancePass {
         vibrance: inputs.vibrance,
@@ -462,13 +462,13 @@ pub fn build_split<'a>(
     }));
     suffix.push(Box::new(NlmLumaPass {
         nr_luminance: inputs.nr_luminance,
-        noise_profile: inputs.noise_profile.clone(),
+        noise_profile: inputs.noise_profile.as_slice().into(),
         iso: inputs.iso,
     }));
     suffix.push(Box::new(NlmColorPass {
         sampling_scale: inputs.nr_sampling_scale,
         nr_color: inputs.nr_color,
-        noise_profile: inputs.noise_profile.clone(),
+        noise_profile: inputs.noise_profile.as_slice().into(),
         iso: inputs.iso,
     }));
     // View tail: AgX for every profile. Auto and Neutral differ only in the
@@ -483,7 +483,7 @@ pub fn build_split<'a>(
     // position). A DIFFERENT quantity from `tone_curves` in the prefix
     // above (pre-AgX, scene-linear).
     suffix.push(Box::new(DisplayToneCurvePass {
-        inputs: inputs.display_tone_curves.clone(),
+        inputs: &inputs.display_tone_curves,
     }));
     // Colour grading (#275) — display-linear Oklab three-zone tint,
     // post-AgX, before grain (the render tail's 16a position).

@@ -91,13 +91,12 @@ impl DisplayToneCurveInputs {
 
     /// Flatten the four prepared slots into the storage-buffer layout the
     /// kernel reads (`NUM_SLOTS * SLOT_STRIDE` floats).
-    fn to_flat(&self) -> Vec<f32> {
+    fn to_flat(&self) -> [f32; NUM_SLOTS * SLOT_STRIDE] {
         let slots = self.prepared_slots();
-        let mut flat = Vec::with_capacity(NUM_SLOTS * SLOT_STRIDE);
-        for slot in &slots {
-            flat.extend_from_slice(&slot.to_slot());
+        let mut flat = [0.0; NUM_SLOTS * SLOT_STRIDE];
+        for (output, slot) in flat.chunks_exact_mut(SLOT_STRIDE).zip(&slots) {
+            output.copy_from_slice(&slot.to_slot());
         }
-        debug_assert_eq!(flat.len(), NUM_SLOTS * SLOT_STRIDE);
         flat
     }
 }
@@ -123,11 +122,12 @@ pub fn apply_display_tone_curve(buf: &mut [f32], inputs: &DisplayToneCurveInputs
 /// model-equivalent [`DisplayToneCurveInputs`]; prepares all four slots
 /// itself. Uploads them to storage binding 3 and the pixel count to uniform
 /// binding 0 inside `encode`.
-pub struct DisplayToneCurvePass {
-    pub inputs: DisplayToneCurveInputs,
+pub struct DisplayToneCurvePass<'a> {
+    /// Borrow the retained stage inputs rather than cloning four point vectors.
+    pub inputs: &'a DisplayToneCurveInputs,
 }
 
-impl Pass for DisplayToneCurvePass {
+impl Pass for DisplayToneCurvePass<'_> {
     fn encode(
         &self,
         ctx: &GpuContext,
@@ -146,11 +146,8 @@ impl Pass for DisplayToneCurvePass {
             _pad2: 0,
         };
         let flat = self.inputs.to_flat();
-        let curves_buf = pool_data_storage(
-            ctx,
-            bytemuck::cast_slice(&flat),
-            "display-tone-curve-slots",
-        );
+        let curves_buf =
+            pool_data_storage(ctx, bytemuck::cast_slice(&flat), "display-tone-curve-slots");
 
         encode_simple(
             ctx,

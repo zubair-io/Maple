@@ -5,17 +5,17 @@ impl LiveSession {
     /// (pass i reads `ping_pong[(start_idx + i) % 2]`, writes the other). Returns
     /// the final buffer index, or `None` if `cancel` fired before a pass. Shared
     /// by the single / prefix / suffix encode loops.
-    pub(super) fn encode_chain(
+    pub(super) fn encode_chain<'a>(
         &self,
         ctx: &GpuContext,
         encoder: &mut wgpu::CommandEncoder,
-        passes: &[&dyn Pass],
+        passes: impl IntoIterator<Item = &'a dyn Pass>,
         start_idx: usize,
         cancel: Option<&CancelToken>,
     ) -> Option<usize> {
         let dims = self.image.dims();
         let mut final_idx = start_idx;
-        for (i, pass) in passes.iter().enumerate() {
+        for (i, pass) in passes.into_iter().enumerate() {
             if let Some(t) = cancel {
                 if t.is_cancelled() {
                     return None;
@@ -50,5 +50,46 @@ impl LiveSession {
         let submission = ctx.queue.submit(Some(encoder.finish()));
         let packed = limits::map_packed_readback(ctx, &self.readback).await?;
         Ok((unpack_rgb_u8(&packed), submission))
+    }
+}
+
+/// Consumes each typed pass immediately; no boxed pass/list allocation.
+struct EncoderSink<'a> {
+    session: &'a LiveSession,
+    ctx: &'a GpuContext,
+    encoder: &'a mut wgpu::CommandEncoder,
+    cancel: Option<&'a CancelToken>,
+    index: Option<usize>,
+}
+impl<'a, 'inputs> crate::live_chain::LivePassSink<'inputs> for EncoderSink<'a> {
+    fn push<T: Pass + 'inputs>(&mut self, pass: T) {
+        if let Some(index) = self.index {
+            self.index = self.session.encode_chain(
+                self.ctx,
+                self.encoder,
+                std::iter::once(&pass as &dyn Pass),
+                index,
+                self.cancel,
+            );
+        }
+    }
+}
+impl LiveSession {
+    pub(super) fn encode_live_chain(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        inputs: &FullChainInputs<'_>,
+        cancel: Option<&CancelToken>,
+    ) -> Option<usize> {
+        let mut sink = EncoderSink {
+            session: self,
+            ctx,
+            encoder,
+            cancel,
+            index: Some(0),
+        };
+        crate::live_chain::visit_live_chain(inputs, AirlightSource::OnGpu, &mut sink);
+        sink.index
     }
 }

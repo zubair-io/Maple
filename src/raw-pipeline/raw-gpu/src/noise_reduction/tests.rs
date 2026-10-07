@@ -95,20 +95,20 @@ pub(super) fn modest_image(w: usize, h: usize) -> Vec<f32> {
 /// A luma-NR pass with NO DNG NoiseProfile — the flat, un-modulated filter these
 /// gates cover, matching the `None` the raw-core references are called with. The
 /// per-pixel-modulated case is gated in the sibling `tests_profile.rs` (#1714).
-pub(super) fn luma_pass(amount: f32) -> NlmLumaPass {
+pub(super) fn luma_pass(amount: f32) -> NlmLumaPass<'static> {
     NlmLumaPass {
         nr_luminance: amount,
-        noise_profile: Vec::new(),
+        noise_profile: Default::default(),
         iso: 100,
     }
 }
 
 /// The color-NR sibling of [`luma_pass`].
-pub(super) fn color_pass(amount: f32) -> NlmColorPass {
+pub(super) fn color_pass(amount: f32) -> NlmColorPass<'static> {
     NlmColorPass {
         sampling_scale: 1.0,
         nr_color: amount,
-        noise_profile: Vec::new(),
+        noise_profile: Default::default(),
         iso: 100,
     }
 }

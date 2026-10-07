@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Maple
+Comment=Non-destructive RAW photo editor
+Exec=maple-linux
+Icon=app.justmaple.aperture
+Terminal=false
+Categories=Graphics;Photography;
+StartupNotify=true
+StartupWMClass=app.justmaple.aperture

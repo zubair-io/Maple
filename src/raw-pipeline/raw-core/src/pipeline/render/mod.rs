@@ -10,9 +10,9 @@
 use std::path::Path;
 
 use super::{
-    develop::develop_scene_linear_from_raw_with_quality_with_gain,
-    develop_sized::develop_scene_linear_sized_from_raw_with_quality_with_gain, dump_after, stage,
-    RenderQuality,
+    develop::develop_scene_linear_from_raw_with_quality_cancellable_with_gain,
+    develop_sized::develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain,
+    dump_after, stage, RenderQuality,
 };
 use crate::{
     error::Result,
@@ -43,13 +43,17 @@ pub use sized::{
 mod detail;
 mod display_prefix;
 mod finish;
-pub use detail::{render_detail_base, render_detail_tile, DetailContext, DetailRenderOptions};
+pub use detail::{
+    render_detail_base, render_detail_base_cancellable, render_detail_tile,
+    render_detail_tile_cancellable, DetailContext, DetailRenderOptions,
+};
 
 // Export render — the display chain at a caller-chosen depth / primaries (#943).
 mod export;
 pub use export::{
     decode_raster_base, render_export_from_raw, render_export_from_raw_with_film,
-    render_export_raster, validate_raster_adjustments, ExportDepth, ExportPixels,
+    render_export_raster, render_export_raster_cancellable, validate_raster_adjustments,
+    ExportDepth, ExportPixels, RasterDetailImage,
 };
 
 // Synthetic-input render entries — the view transform applied to an already
@@ -256,6 +260,32 @@ fn render_display_scene_with_context(
     target: encode::TargetPrimaries,
     film_lut: Option<&film::FilmLut>,
 ) -> Result<(Image, DetailContext)> {
+    render_display_scene_with_context_cancellable(
+        raw,
+        model,
+        quality,
+        raw_source,
+        max_long_edge,
+        target,
+        film_lut,
+        crate::CancelToken::never(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_display_scene_with_context_cancellable(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    raw_source: Option<RawInput<'_>>,
+    max_long_edge: Option<u32>,
+    target: encode::TargetPrimaries,
+    film_lut: Option<&film::FilmLut>,
+    cancel: crate::CancelToken<'_>,
+) -> Result<(Image, DetailContext)> {
+    if cancel.is_cancelled() {
+        return Err(crate::error::Error::Cancelled);
+    }
     // Section 0 (Auto Profile root-cause fix): when Profile=Auto and we
     // will actually fit a curve, force AutoExposureMode::Off so the fitted
     // curve owns the entire scene→JPEG brightness relationship. Otherwise
@@ -342,15 +372,24 @@ fn render_display_scene_with_context(
     let (mut scene, ae_gain) = match max_long_edge {
         // Sized: early-downsample develop — post-demosaic stages run on the
         // viewport-sized buffer. `None` keeps the unsized entry byte-for-byte.
-        Some(mle) => develop_scene_linear_sized_from_raw_with_quality_with_gain(
+        Some(mle) => develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
             raw,
             active_model,
             quality,
             mle,
+            cancel,
         )?,
-        None => develop_scene_linear_from_raw_with_quality_with_gain(raw, active_model, quality)?,
+        None => develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
+            raw,
+            active_model,
+            quality,
+            cancel,
+        )?,
     };
 
+    if cancel.is_cancelled() {
+        return Err(crate::error::Error::Cancelled);
+    }
     let whites_anchor_ev = scene.whites_anchor_ev;
     let full = (scene.width, scene.height);
     display_prefix::apply(&mut scene, model, film_lut, target, ((0, 0), full));
@@ -363,6 +402,9 @@ fn render_display_scene_with_context(
     // `apply_pipeline::fit_auto_profile_artifacts` for the ordering/cache
     // contract. No-op for Neutral, no RAW source (legacy `maple_render_bytes`
     // FFI), or a failed fit.
+    if cancel.is_cancelled() {
+        return Err(crate::error::Error::Cancelled);
+    }
     let mut artifacts = (None, None);
     if model.profile == Profile::Auto && raw_source.is_some() {
         artifacts = stage("auto_profile", || {
@@ -379,6 +421,9 @@ fn render_display_scene_with_context(
                 cached_lut,
             )
         });
+        if cancel.is_cancelled() {
+            return Err(crate::error::Error::Cancelled);
+        }
         // Hue-preserving gamut guard AFTER the Auto Profile curve+LUT (#1942):
         // that stack runs in display-encoded space and can push a channel back
         // out of [0, 1] or rotate a saturated color out of gamut, which the

@@ -185,3 +185,6 @@ mod raster_metadata_reader_tests;
 
 #[cfg(test)]
 mod raster_metadata_fields_tests;
+
+#[cfg(feature = "gpu")]
+pub mod gpu_host;

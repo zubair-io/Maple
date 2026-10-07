@@ -1,4 +1,4 @@
-//! Edited JPEG/PNG/TIFF export (#3891), using the existing non-RAW live chain.
+//! Edited JPEG/TIFF/PNG/WebP export (#3891), using the existing non-RAW live chain.
 //! No AgX or camera Auto Profile is applied to already tone-mapped pixels.
 use super::{finish_eight, finish_sixteen, ExportDepth, ExportPixels};
 use crate::{
@@ -6,7 +6,9 @@ use crate::{
     error::{Error, Result},
     film::FilmLut,
     image::{ColorSpace, ExifOrientation, Image},
-    pipeline::{apply_scene_linear_chain_f32_with_film, downsample_image_area, ChainOptions},
+    pipeline::{
+        apply_scene_linear_chain_f32_with_film_cancellable, downsample_image_area, ChainOptions,
+    },
     view::encode::{self, TargetPrimaries},
     AdjustmentModel,
 };
@@ -62,11 +64,35 @@ fn decode(bytes: &[u8]) -> Result<(Image, ExifOrientation)> {
     let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .map_err(|e| unsupported(&e.to_string()))?;
+    // image identifies Classic TIFF only; the shared TIFF decoder also reads BigTIFF.
+    if reader.format().is_none()
+        && (bytes.starts_with(b"II\x2b\0") || bytes.starts_with(b"MM\0\x2b"))
+    {
+        reader.set_format(image::ImageFormat::Tiff);
+    }
     if !matches!(
         reader.format(),
-        Some(image::ImageFormat::Jpeg | image::ImageFormat::Png | image::ImageFormat::Tiff)
+        Some(
+            image::ImageFormat::Jpeg
+                | image::ImageFormat::Tiff
+                | image::ImageFormat::Png
+                | image::ImageFormat::WebP
+        )
     ) {
-        return Err(unsupported("only JPEG, PNG and TIFF inputs are supported"));
+        return Err(unsupported(
+            "only JPEG, TIFF, PNG and WebP inputs are supported",
+        ));
+    }
+    if reader.format() == Some(image::ImageFormat::Tiff) {
+        if let Some(decoded) = crate::raster::decode_jpeg_tiff(bytes)? {
+            let rgb = image::RgbImage::from_raw(decoded.width, decoded.height, decoded.data)
+                .ok_or_else(|| unsupported("invalid JPEG-compressed TIFF pixel buffer"))?;
+            return to_scene(
+                DynamicImage::ImageRgb8(rgb).to_rgba32f(),
+                crate::raster_meta::read_sidecars(bytes).icc,
+                decoded.orientation,
+            );
+        }
     }
     let mut limits = image::Limits::default();
     limits.max_alloc = Some(crate::raster::MAX_BITMAP_DECODE_BYTES);
@@ -99,6 +125,16 @@ fn decode(bytes: &[u8]) -> Result<(Image, ExifOrientation)> {
     let raster = DynamicImage::from_decoder(decoder)
         .map_err(|e| unsupported(&e.to_string()))?
         .to_rgba32f();
+    let orientation =
+        ExifOrientation::from_u16(crate::raster::container_orientation(bytes).unwrap_or(1));
+    to_scene(raster, profile, orientation)
+}
+
+fn to_scene(
+    raster: image::Rgba32FImage,
+    profile: Option<Vec<u8>>,
+    orientation: ExifOrientation,
+) -> Result<(Image, ExifOrientation)> {
     let mut scene = Image::new(
         raster.width(),
         raster.height(),
@@ -141,8 +177,6 @@ fn decode(bytes: &[u8]) -> Result<(Image, ExifOrientation)> {
             ]);
         }
     }
-    let orientation =
-        ExifOrientation::from_u16(crate::raster::container_orientation(bytes).unwrap_or(1));
     Ok((scene, orientation))
 }
 
@@ -185,19 +219,41 @@ pub fn render_export_raster(
     depth: ExportDepth,
     film: Option<&FilmLut>,
 ) -> Result<(u32, u32, ExportPixels)> {
+    render_export_raster_cancellable(
+        bytes,
+        model,
+        max_long_edge,
+        target,
+        depth,
+        film,
+        crate::CancelToken::never(),
+    )
+}
+
+/// Cancel between stages and within supported sharpening/noise-reduction kernels.
+/// Container decode and remaining display/geometry kernels stop at boundaries.
+pub fn render_export_raster_cancellable(
+    bytes: &[u8],
+    model: &AdjustmentModel,
+    max_long_edge: Option<u32>,
+    target: TargetPrimaries,
+    depth: ExportDepth,
+    film: Option<&FilmLut>,
+    cancel: crate::CancelToken<'_>,
+) -> Result<(u32, u32, ExportPixels)> {
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
     validate_raster_adjustments(model)?;
     if !model.film_look.is_empty() && film.is_none() {
         return Err(unsupported("selected film LUT is unavailable"));
     }
     // Masks, grain and geometry are authored against the oriented canvas.
     // Share the editor base so asymmetric edits cannot rotate relative to it.
-    let (width, height, rgba) = decode_raster_base(
-        bytes,
-        max_long_edge.unwrap_or(u32::MAX),
-        crate::CancelToken::never(),
-    )?;
+    let (width, height, rgba) =
+        decode_raster_base(bytes, max_long_edge.unwrap_or(u32::MAX), cancel)?;
     let mut scene = Image::new(width, height, ColorSpace::SceneLinearRec2020);
-    let chained = apply_scene_linear_chain_f32_with_film(
+    let chained = apply_scene_linear_chain_f32_with_film_cancellable(
         &rgba,
         scene.width,
         scene.height,
@@ -207,6 +263,7 @@ pub fn render_export_raster(
             ..Default::default()
         },
         film,
+        cancel,
     )?;
     for (pixel, rgba) in scene.pixels.iter_mut().zip(chained.chunks_exact(4)) {
         *pixel = [rgba[0], rgba[1], rgba[2]];
@@ -214,10 +271,17 @@ pub fn render_export_raster(
     scene.space = ColorSpace::DisplayLinearRec2020;
     encode::rec2020_to_display(&mut scene, target);
     encode::srgb_gamma_encode(&mut scene);
-    Ok(match depth {
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    let output = match depth {
         ExportDepth::Eight => finish_eight(&mut scene, ExifOrientation::Normal, model),
         ExportDepth::Sixteen => finish_sixteen(&mut scene, ExifOrientation::Normal, model),
-    })
+    };
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    Ok(output)
 }
 
 /// Color-managed editor base, with EXIF orientation applied once and no user
@@ -254,3 +318,10 @@ pub fn decode_raster_base(
     }
     Ok(result)
 }
+
+#[cfg(test)]
+#[path = "raster/formats_tests.rs"]
+mod formats_tests;
+
+mod detail;
+pub use detail::RasterDetailImage;
