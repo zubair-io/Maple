@@ -55,15 +55,17 @@ namespace Maple.WinUI.Services
         private void EmitHistogram(DecodedImage image, AdjustmentState state, FilmLut? film = null)
         {
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            byte[]? borrowedPixels = null;
+            float[]? scratch = null;
             try
             {
                 var byteCount = image.Width * image.Height * 4;
                 byte[] pixels;
-                float[]? scratch;
                 lock (_gate)
                 {
                     pixels = _histogramPixels != null && _histogramPixels.Length == byteCount ? _histogramPixels : new byte[byteCount];
                     scratch = _histogramScratch;
+                    borrowedPixels = pixels;
                     _histogramPixels = null;
                     _histogramScratch = null;
                 }
@@ -77,13 +79,6 @@ namespace Maple.WinUI.Services
                 }
                 HistogramReady?.Invoke(image, state, bins);
                 EmitClipSource(image, state, pixels, image.Width, image.Height);
-                // Readers finish before the next tick can borrow these buffers.
-                lock (_gate)
-                {
-                    if (!IsCurrentRender(image, state)) return;
-                    _histogramPixels = pixels;
-                    _histogramScratch = scratch;
-                }
             }
             catch (Exception ex)
             {
@@ -93,6 +88,16 @@ namespace Maple.WinUI.Services
             }
             finally
             {
+                // Readers have finished. An edit can invalidate publication
+                // while the same source still owns these reusable buffers.
+                lock (_gate)
+                {
+                    if (!_stopping && IsCurrentFrame(image))
+                    {
+                        _histogramPixels ??= borrowedPixels;
+                        _histogramScratch ??= scratch;
+                    }
+                }
                 DiagLog.Write($"[histogram] complete_ms={System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds}");
             }
         }

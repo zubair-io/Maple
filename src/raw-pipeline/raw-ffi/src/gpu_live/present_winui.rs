@@ -138,6 +138,7 @@ pub unsafe extern "C" fn maple_gpu_present_chain_winui_scaled(
         // initial neutral frame. Preparation restores the requested parameters
         // and submits no commands; the real frame executes normally below.
         let first_preparation = !inner.exposure_prepared;
+        let active_scene_tone = [0, 1, 2, 3, 5].iter().any(|&i| inputs.tone[i] != 0.0);
         if first_preparation {
             inner.exposure_prepared =
                 match inner
@@ -185,7 +186,11 @@ pub unsafe extern "C" fn maple_gpu_present_chain_winui_scaled(
             geometry,
         ) {
             Ok(()) => {
-                if first_preparation && inner.exposure_prepared {
+                if active_scene_tone {
+                    // The requested frame already executed and presented the
+                    // tone pass. A later reset must not prepare it again.
+                    inner.exposure_prepared = true;
+                } else if first_preparation && inner.exposure_prepared {
                     // #4340: driver execution after the composition surface's
                     // first presentation. These offscreen commands are never
                     // presented; restore the requested neutral chain afterward.
