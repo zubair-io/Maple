@@ -19,12 +19,18 @@ export function renderRetainedCpu(
     const session = CpuLiveSession.open(new Uint8Array(req.bytes), req.ext);
     retained = { token: req.cpuSourceToken, ext: req.ext, session };
   }
-  return retained.session.render(
-    req.xmp ?? null,
-    req.qualityPreview ?? false,
-    req.maxLongEdge,
-    film ?? emptyFilm,
-  );
+  try {
+    return retained.session.render(
+      req.xmp ?? null,
+      req.qualityPreview ?? false,
+      req.maxLongEdge,
+      film ?? emptyFilm,
+    );
+  } catch (error) {
+    // The service drops its custody on any rejection; free the source in step.
+    releaseRetainedCpu();
+    throw error;
+  }
 }
 function releaseRetainedCpu(): void {
   retained?.session.free();
