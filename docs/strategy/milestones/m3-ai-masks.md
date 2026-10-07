@@ -8,10 +8,10 @@ A photographer taps "Select Subject" or "Select Sky" on a mask layer and gets a 
 
 When #361 was filed, none of that infrastructure existed. Today the subject half is fully shipped and only sky is open:
 
-| Selection | Apple | Web | Shared core |
-| --------- | ----- | --- | ----------- |
+| Selection             | Apple                                                                                                 | Web                                                                                                                                        | Shared core                                                                                                        |
+| --------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
 | Subject (person/skin) | Vision person-instance + face rectangles, `PersonSkinMaskService` + `MaskRasterStore` (#3284, merged) | Server-side decision (#3300); client + IndexedDB cache (#4285, merged); person-segmentation stage + raster endpoints (#4284/#4343, merged) | `Mask::Bitmap` + raster registry + `crs:MaskGroupBasedCorrections` (#3282, merged); TS/WASM mirror (#3430, merged) |
-| Sky | Nothing | Nothing | Nothing — this doc specs it; the XMP shape ships in this doc's PR |
+| Sky                   | Nothing                                                                                               | Nothing                                                                                                                                    | Nothing — this doc specs it; the XMP shape ships in this doc's PR                                                  |
 
 This document therefore does two things: it records the subject decisions by reference (they are settled and must not be re-litigated or duplicated here), and it makes the sky decisions concretely.
 
