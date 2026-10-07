@@ -22,8 +22,8 @@ fn histogram_4359_host_and_gpu_phase_probe() {
         None,
     ))
     .unwrap();
-    ctx.device = device;
-    ctx.queue = queue;
+    ctx.device = device.into();
+    ctx.queue = queue.into();
     eprintln!(
         "H4359 adapter={:?} timestamp_period_ns={}",
         ctx.adapter.get_info(),

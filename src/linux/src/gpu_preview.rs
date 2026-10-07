@@ -3,7 +3,7 @@
 use raw_core::{
     gpu_host::{
         model::{prefix_matches, update_chain_inputs},
-        prepare::{auto_will_fit, chain_inputs_for_model, develop_prefix_rgba_cancellable},
+        prepare::{auto_will_fit, chain_inputs_with_status, develop_prefix_rgba_cancellable},
         GpuWhiteBalance,
     },
     types::adjustment::{AdjustmentModel, AutoExposureMode, Profile},
@@ -93,20 +93,21 @@ impl GpuPreview {
             display_dims.1,
         );
         let target = PresentTexture::new(ctx, crop.dims)?;
+        let (inputs, _) = chain_inputs_with_status(
+            raw,
+            bytes,
+            ext,
+            model,
+            film.as_ref().map(|film| film.lut),
+            film.as_ref().map_or(0, |film| film.key),
+            whites_anchor,
+        );
         Ok(Self {
             session,
             target,
             prefix,
             white_balance: GpuWhiteBalance::resolve(raw)?,
-            inputs: chain_inputs_for_model(
-                raw,
-                bytes,
-                ext,
-                model,
-                film.as_ref().map(|film| film.lut),
-                film.as_ref().map_or(0, |film| film.key),
-                whites_anchor,
-            ),
+            inputs,
             auto_fit: auto_will_fit(model, bytes, ext),
             sampling_scale,
             long_edge,
