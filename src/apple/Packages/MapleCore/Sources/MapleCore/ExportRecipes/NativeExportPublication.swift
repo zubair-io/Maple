@@ -172,10 +172,10 @@ enum NativeExportPublication {
   ) throws {
     guard let temp = item.staging, FileManager.default.fileExists(atPath: temp.path) else { return }
     try staging(item, record: record, access: access)
+    let identity = try NativeExportStorage.identity(temp)
+    let hash = try NativeExportStorage.hash(temp)
     let proven =
-      item.stagingIdentity != nil && item.afterHash != nil
-      && (try NativeExportStorage.identity(temp)) == item.stagingIdentity
-      && (try NativeExportStorage.hash(temp)) == item.afterHash
+      item.stagingIdentity != nil && identity == item.stagingIdentity && hash == item.afterHash
     guard proven || createdThisRun else { return }
     try FileManager.default.removeItem(at: temp)
   }
