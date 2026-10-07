@@ -6,6 +6,7 @@ import {
   insertAsset,
   insertFolder,
   insertLocation,
+  run,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { createJob, failJob, getJob } from '../db/repos/jobs.repo.ts';
 import { BackupRepository } from '../cloud-backup/repository.ts';
@@ -106,6 +107,73 @@ test('mounted owner backup routes retain folder scope and protect recovery detai
         })
       ).status,
     ).toBe(400);
+  } finally {
+    process.env.MAPLE_JWT_SECRET = previous;
+  }
+});
+
+test('Google Drive destination coverage preserves pending and missing counts', async () => {
+  using live = await createLiveTestDatabase();
+  const previous = process.env.MAPLE_JWT_SECRET;
+  const secret = 'backup-destination-coverage-test-secret';
+  process.env.MAPLE_JWT_SECRET = secret;
+  try {
+    const app = buildApp({ stageNames: [] });
+    const owner = await signAccessToken(
+      { sub: '111111111111111111111111', email: null, role: 'owner', file_access: true },
+      secret,
+    );
+    const libraryId = insertFolder(live.db);
+    const destination = await new BackupRepository(live.handle).createDestination({
+      libraryId,
+      kind: 'google-drive',
+      name: 'Drive',
+      path: null,
+    });
+    const repo = new BackupRepository(live.handle);
+    const location = (filename: string, options: { missingSince?: string } = {}) => {
+      const assetId = insertAsset(live.db);
+      insertLocation(live.db, {
+        assetId,
+        libraryId,
+        filename,
+        missingSince: options.missingSince,
+      });
+      return assetId;
+    };
+
+    location('without-entry.dng');
+    const verifiedAsset = location('verified.dng');
+    const staleAsset = location('stale.dng');
+    const purgedAsset = location('purged.dng');
+    const reapedAsset = location('reaped.dng');
+    location('missing.dng', { missingSince: '2026-10-01T00:00:00Z' });
+    run(live.db, `UPDATE assets SET deleted_reason='reaped' WHERE id=?`, reapedAsset);
+
+    const verified = await repo.ensureEntry(destination.id, verifiedAsset, 0, 'verified.dng');
+    run(
+      live.db,
+      `UPDATE backup_entries SET sequence=1,verified_sequence=1 WHERE id=?`,
+      verified.id,
+    );
+    const stale = await repo.ensureEntry(destination.id, staleAsset, 0, 'stale.dng');
+    run(live.db, `UPDATE backup_entries SET sequence=2,verified_sequence=1 WHERE id=?`, stale.id);
+    const purged = await repo.ensureEntry(destination.id, purgedAsset, 0, 'purged.dng');
+    run(live.db, `UPDATE backup_entries SET state='purged',sequence=2 WHERE id=?`, purged.id);
+
+    const response = await app.handle(
+      new Request('http://localhost/api/cloud-backup/destinations', {
+        headers: { Authorization: `Bearer ${owner}` },
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      destinations: Array<{ id: string; status: { pending: number; missing: number } }>;
+    };
+    expect(body.destinations.find((item) => item.id === destination.id)?.status).toMatchObject({
+      pending: 2,
+      missing: 2,
+    });
   } finally {
     process.env.MAPLE_JWT_SECRET = previous;
   }

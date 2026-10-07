@@ -37,6 +37,7 @@ import { greekSigmaIdentityKeysMigration } from './0012-greek-sigma-identity-key
 import { ownerCapturePaginationMigration } from './0013-owner-capture-pagination.ts';
 import { cloudBackupMigration } from './0014-cloud-backup.ts';
 import { personSegmentationsMigration } from './0015-person-segmentations.ts';
+import { cloudBackupDestinationStatusMigration } from './0016-cloud-backup-destination-status.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -54,4 +55,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   ownerCapturePaginationMigration,
   cloudBackupMigration,
   personSegmentationsMigration,
+  cloudBackupDestinationStatusMigration,
 ];
