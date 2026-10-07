@@ -1,7 +1,7 @@
 //! Persistent chain output for native UI texture registration (#4317).
 //! Reuses the shared dither/present shader; no CPU readback in the render path.
 use crate::present_chain_pipeline::{
-    PresentDispatchCache, PresentGeometry, build_present_pipeline, encode_present_pass,
+    build_present_pipeline, encode_present_pass, PresentDispatchCache, PresentGeometry,
 };
 use crate::{GpuContext, LiveSession};
 use std::sync::Arc;
