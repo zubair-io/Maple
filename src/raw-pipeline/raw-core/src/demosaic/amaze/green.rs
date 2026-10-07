@@ -15,12 +15,9 @@ const ARTHRESH: f32 = 0.75;
 const CLIP_PT8: f32 = 0.8;
 const CLIP_PT: f32 = 1.0;
 
-/// Stage 0.5: `dirwts0` (vertical roughness), `dirwts1` (horizontal), and
-/// `delhvsqsum` (sum of squared H/V first differences — the Nyquist test's
-/// gradient term). Engine 368–377.
-// ARCHIVE-ONLY diagnostic: positive same-colour sensor transport has an
-// analytical ratio bound of two. Negative/nonfinite or absent centre evidence
-// supplies no bound and retains the existing saturation median.
+// Positive same-colour sensor transport has an analytical ratio bound of two.
+// Negative/nonfinite or absent centre evidence supplies no bound and retains
+// the existing saturation median (#4123).
 fn supported_green_transport(cfa: &[f32], i: usize, stride: usize) -> Option<f32> {
     // A clipped one-dimensional pair cannot establish a saturated field
     // across an orthogonal colour edge. Retain the old median unless all
@@ -54,6 +51,9 @@ fn supported_green_transport(cfa: &[f32], i: usize, stride: usize) -> Option<f32
     value.is_finite().then_some(value)
 }
 
+/// Stage 0.5: `dirwts0` (vertical roughness), `dirwts1` (horizontal), and
+/// `delhvsqsum` (sum of squared H/V first differences — the Nyquist test's
+/// gradient term). Engine 368–377.
 pub(super) fn compute_dirwts_delhv(s: &mut Scratch, t: &Tile) {
     for rr in 2..t.rr1 - 2 {
         for cc in 2..t.cc1 - 2 {
