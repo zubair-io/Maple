@@ -1,4 +1,4 @@
-use super::{descriptions, key, legacy_flag, prefix, replace, start_tag_end, XMP};
+use super::{descriptions, key, prefix, replace, start_tag_end};
 use crate::sidecar::{Culling, Flag, SidecarError};
 use raw_core::types::adjustment::{AdjustmentModel, WbScaleVersion, TRANSFER_XMP_ELEMENTS};
 use roxmltree::Document;
@@ -95,15 +95,6 @@ pub(crate) fn parse(source: &str) -> Result<(AdjustmentModel, Culling), SidecarE
     }
     let mut culling = Culling::default();
     for node in descriptions {
-        let canonical_flag = node
-            .attributes()
-            .find(|attr| key(attr.namespace(), attr.name()).as_deref() == Some("papp:Flag"));
-        let legacy = node.attribute((XMP, "Label")).and_then(legacy_flag);
-        if canonical_flag.is_none() {
-            if let Some(flag) = legacy {
-                culling.flag = flag;
-            }
-        }
         for attr in node.attributes() {
             match key(attr.namespace(), attr.name()).as_deref() {
                 Some("xmp:Rating") => culling.rating = super::rating_value(attr.value()),
