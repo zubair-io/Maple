@@ -83,7 +83,7 @@ fn raster_export_applies_adjustments_and_preserves_source_pixels() {
 }
 
 #[test]
-fn raster_film_export_matches_loaded_core_and_unknown_look_creates_no_output() {
+fn raster_film_export_matches_loaded_core_and_unknown_look_renders_without_film() {
     let directory = tempfile::tempdir().unwrap();
     let original = directory.path().join("source.png");
     let source = raw_core::png::encode(8, 6, &[96; 8 * 6 * 3]).unwrap();
@@ -119,14 +119,21 @@ fn raster_film_export_matches_loaded_core_and_unknown_look_creates_no_output() {
     )
     .unwrap();
     assert_eq!(std::fs::read(output).unwrap(), expected);
-    let missing = directory.path().join("missing.png");
-    let invalid = AdjustmentModel {
+    let unknown = directory.path().join("unknown.png");
+    let plain = directory.path().join("plain.png");
+    let newer_catalog = AdjustmentModel {
         film_look: "../../missing".into(),
+        ..model.clone()
+    };
+    export(&original, MediaKind::Raster, &newer_catalog, &unknown).unwrap();
+    let without_film = AdjustmentModel {
+        film_look: String::new(),
         ..model
     };
-    assert!(export(&original, MediaKind::Raster, &invalid, &missing)
-        .unwrap_err()
-        .contains("catalog"));
-    assert!(!missing.exists());
+    export(&original, MediaKind::Raster, &without_film, &plain).unwrap();
+    assert_eq!(
+        std::fs::read(unknown).unwrap(),
+        std::fs::read(plain).unwrap()
+    );
     assert_eq!(std::fs::read(original).unwrap(), source);
 }

@@ -107,9 +107,11 @@ impl CloudState {
     pub fn poll(&mut self, context: &egui::Context) {
         while let Ok(event) = self.worker.events.try_recv() {
             match event {
-                Event::EditReady(epoch, photo, entry) if epoch == self.epoch => {
+                Event::EditReady(epoch, photo, entry) => {
                     self.downloading = false;
-                    self.ready = Some((photo, entry));
+                    if epoch == self.epoch {
+                        self.ready = Some((photo, entry));
+                    }
                 }
                 Event::Reloaded(id, photo) => {
                     self.downloading = false;

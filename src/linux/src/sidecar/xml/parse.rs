@@ -106,9 +106,7 @@ pub(crate) fn parse(source: &str) -> Result<(AdjustmentModel, Culling), SidecarE
         }
         for attr in node.attributes() {
             match key(attr.namespace(), attr.name()).as_deref() {
-                Some("xmp:Rating") => {
-                    culling.rating = attr.value().parse::<i32>().unwrap_or(0).clamp(0, 5) as u8
-                }
+                Some("xmp:Rating") => culling.rating = super::rating_value(attr.value()),
                 Some("papp:Flag") => {
                     culling.flag = match attr.value() {
                         "pick" => Flag::Pick,

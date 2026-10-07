@@ -79,17 +79,24 @@ fn real_film_changes_gpu_pixels_hot_exposure_reuses_resources_and_off_restores_b
         .render(&gpu, &raw, &bytes, "dng", &baseline, &CancelToken::new())
         .unwrap());
     assert_eq!(pixels(&gpu, &preview), before);
-    let invalid = AdjustmentModel {
+    let newer_catalog = AdjustmentModel {
         film_look: "../../unavailable".into(),
         ..baseline
     };
     assert!(preview
-        .render(&gpu, &raw, &bytes, "dng", &invalid, &CancelToken::new())
-        .is_err());
+        .render(
+            &gpu,
+            &raw,
+            &bytes,
+            "dng",
+            &newer_catalog,
+            &CancelToken::new()
+        )
+        .unwrap());
     assert_eq!(
         pixels(&gpu, &preview),
         before,
-        "bad film must retain the last valid frame"
+        "an unknown look renders as identity"
     );
     assert_eq!(std::fs::read(path).unwrap(), bytes);
 }

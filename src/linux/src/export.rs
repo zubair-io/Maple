@@ -14,7 +14,8 @@ pub fn export(
     model: &AdjustmentModel,
     destination: &Path,
 ) -> Result<(), String> {
-    let film = crate::film::resolve(&model.film_look)?;
+    let (model, film) = crate::film::renderable(model)?;
+    let model = model.as_ref();
     let extension = destination
         .extension()
         .and_then(|s| s.to_str())
@@ -69,7 +70,7 @@ pub fn export(
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    let mut file = crate::sidecar::shared_temp_file(parent).map_err(|e| e.to_string())?;
     file.write_all(&bytes).map_err(|e| e.to_string())?;
     file.as_file().sync_all().map_err(|e| e.to_string())?;
     file.persist_noclobber(destination)

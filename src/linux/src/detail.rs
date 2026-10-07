@@ -88,7 +88,8 @@ impl DetailRenderer {
         if !raw_core::stages::perspective::Perspective::from_model(model).is_identity() {
             return Err("Native detail requires no perspective corrections".into());
         }
-        let film = crate::film::resolve(&model.film_look)?;
+        let (model, film) = crate::film::renderable(model)?;
+        let model = model.as_ref();
         if self
             .reference
             .as_ref()

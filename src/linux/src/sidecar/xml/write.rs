@@ -1,5 +1,6 @@
 use super::{
-    descriptions, key, legacy_flag, prefix, replace, start_tag_end, CRS, EMPTY, PAPP, XMP,
+    descriptions, key, legacy_flag, prefix, rating_value, replace, start_tag_end, CRS, EMPTY, PAPP,
+    XMP,
 };
 use crate::controls::Control;
 use crate::sidecar::{Culling, Flag, SidecarError};
@@ -25,6 +26,16 @@ pub(crate) fn serialize(
         return Err(SidecarError::Invalid("XMP has no RDF description".into()));
     }
     let mut attributes = attributes(model, culling)?;
+    // An unchanged rating keeps its authored bytes, so a Lightroom `-1` reject or
+    // `3.0` is not rewritten (or deleted) by an unrelated edit.
+    let keep_rating = descriptions
+        .iter()
+        .rev()
+        .find_map(|node| node.attribute((XMP, "Rating")))
+        .is_some_and(|value| rating_value(value) == culling.rating);
+    if keep_rating {
+        attributes.remove("xmp:Rating");
+    }
     for name in ["Version", "ProcessVersion"] {
         let value = descriptions
             .iter()
@@ -45,10 +56,11 @@ pub(crate) fn serialize(
             if key(attr.namespace(), attr.name())
                 .as_deref()
                 .is_some_and(|name| {
-                    owned(
+                    (owned(
                         name,
                         matches!(model.wb_source, WbSource::Manual | WbSource::Auto),
-                    ) || (name == "papp:Look" && attr.value() == "Neutral")
+                    ) && !(keep_rating && name == "xmp:Rating"))
+                        || (name == "papp:Look" && attr.value() == "Neutral")
                         || (name == "xmp:Label" && legacy_flag(attr.value()).is_some())
                 })
             {

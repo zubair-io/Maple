@@ -142,7 +142,8 @@ impl Session {
     }
 
     fn render(&self, model: &AdjustmentModel, long_edge: u32) -> Result<egui::ColorImage, String> {
-        let film = crate::film::resolve(&model.film_look)?;
+        let (model, film) = crate::film::renderable(model)?;
+        let model = model.as_ref();
         let result = if let Some(raw) = &self.raw {
             pipeline::render_sized_from_raw_with_quality_source_and_film(
                 raw,
@@ -315,7 +316,15 @@ impl Worker {
                         if let (Some(ctx), Some(opened)) =
                             (gpu.as_mut(), session.as_mut().filter(|s| s.id == id))
                         {
-                            if opened.raw.is_some() && !opened.gpu_failed {
+                            let supported = crate::gpu_preview::GpuPreview::validate(&model);
+                            if let Err(reason) = &supported {
+                                let _ = results.send(Event::GpuFallback(
+                                    id,
+                                    generation,
+                                    reason.clone(),
+                                ));
+                            }
+                            if opened.raw.is_some() && !opened.gpu_failed && supported.is_ok() {
                                 match opened.render_gpu(ctx, &model, &cancel) {
                                     Ok(Some(frame)) => {
                                         if ticket == current_render.load(Ordering::Acquire) {

@@ -65,6 +65,16 @@ fn start_tag_end(source: &str) -> Result<usize, SidecarError> {
     Err(SidecarError::Invalid("Unterminated XML start tag".into()))
 }
 
+/// Out-of-range ratings (Lightroom's `-1` reject) read as unrated; `3.0` reads as 3.
+fn rating_value(value: &str) -> u8 {
+    value
+        .trim()
+        .parse::<f32>()
+        .ok()
+        .filter(|rating| rating.is_finite())
+        .map_or(0, |rating| rating.round().clamp(0.0, 5.0) as u8)
+}
+
 fn legacy_flag(value: &str) -> Option<Flag> {
     match value.to_ascii_lowercase().as_str() {
         "red" | "pick" => Some(Flag::Pick),
