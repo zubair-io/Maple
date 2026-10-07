@@ -424,7 +424,13 @@ impl LiveSession {
                 label: Some("live-present-chain-encoder"),
             });
         encoder.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
+        #[cfg(target_os = "windows")]
+        let encode_start = std::time::Instant::now();
         let final_idx = self.encode_chain(ctx, &mut encoder, &pass_refs, 0, cancel)?;
+        #[cfg(target_os = "windows")]
+        if std::env::var_os("MAPLE_PROFILE").is_some() {
+            eprintln!("[live-chain] encode={:?}", encode_start.elapsed());
+        }
         // Scope pass (#3272): encoded into this SAME submit, reading the
         // chain's final buffer — no extra submit, no stall.
         if inputs.scope.enabled {
@@ -435,7 +441,13 @@ impl LiveSession {
                 inputs.scope.layer >= 0,
             );
         }
+        #[cfg(target_os = "windows")]
+        let submit_start = std::time::Instant::now();
         let submission = ctx.queue.submit(Some(encoder.finish()));
+        #[cfg(target_os = "windows")]
+        if std::env::var_os("MAPLE_PROFILE").is_some() {
+            eprintln!("[live-chain] finish_submit={:?}", submit_start.elapsed());
+        }
         if inputs.scope.enabled {
             self.scope_after_submit(submission);
         }
@@ -459,6 +471,8 @@ impl LiveSession {
 #[path = "live_session/airlight_tests.rs"]
 mod airlight_tests;
 mod encode;
+#[cfg(any(target_os = "windows", all(test, not(target_arch = "wasm32"))))]
+mod preparation;
 // The C5a CPU-readback airlight fallback (`render_dehaze_split` /
 // `encode_chain_f32_dehaze_split`) — split out purely for the file-size
 // budget; see that file's own header.
@@ -476,6 +490,9 @@ mod tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests_pool.rs"]
 mod tests_pool;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_session/tests_preparation.rs"]
+mod tests_preparation;
 // The double-buffered scope readback gate (#3272) — own file (600-LOC
 // budget), reuses `limits` (`pub(super)` there).
 #[cfg(all(test, not(target_arch = "wasm32")))]

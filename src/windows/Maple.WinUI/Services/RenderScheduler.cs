@@ -58,14 +58,14 @@ namespace Maple.WinUI.Services
         public event Action<DecodedImage, int, int, double, bool>? GpuFrameReady;
         /// <summary>Histogram bins for the newest state (GPU path only — the
         /// CPU path carries bins on FrameReady).</summary>
-        public event Action<uint[]>? HistogramReady;
+        public event Action<DecodedImage, AdjustmentState, uint[]>? HistogramReady;
         /// <summary>Display-encoded frame for the clipping overlay (#2574),
         /// raised while ClipOverlayEnabled: per tick on the CPU path, and on
         /// the debounced histogram quiet-tick on the GPU path (whose presented
         /// pixels never leave the swapchain — a per-present CPU re-render of
         /// the full frame would blow the tick budget, so the overlay refreshes
         /// at the same cadence as the histogram there).</summary>
-        public event Action<byte[], int, int>? ClipSourceReady;
+        public event Action<DecodedImage, AdjustmentState, byte[], int, int>? ClipSourceReady;
         /// <summary>Set while a clipping overlay toggle is on; gates the extra
         /// frame copy off the hot path when the feature is idle.</summary>
         public volatile bool ClipOverlayEnabled;
@@ -122,6 +122,9 @@ namespace Maple.WinUI.Services
                 _lastRendered = null;
                 _chainScratch = null;
                 _bgra = null;
+                _pendingHistogram = null;
+                _histogramScratch = null;
+                _histogramPixels = null;
                 CloseGpuSessionLocked();
                 if (image != null)
                     DiagLog.Write($"[gpu] SetImage: panel={_panelNative != IntPtr.Zero} disabled={_gpuDisabled}");
@@ -134,6 +137,7 @@ namespace Maple.WinUI.Services
                     // contract, previously CPU-path-only.
                     if (half != null)
                         OpenGpuHalfSessionLocked(half);
+                    PrepareHistogramBuffersLocked();
                 }
             }
             InvalidateDetail();
@@ -146,6 +150,7 @@ namespace Maple.WinUI.Services
             {
                 if (_stopping) return;
                 _pending = snapshot;
+                _pendingHistogram = null;
                 _scopes.Invalidate();
             }
             InvalidateDetail();
@@ -322,7 +327,7 @@ namespace Maple.WinUI.Services
                 // Quiet refine: full-res present, then the histogram tick.
                 GpuPresent(image, state, panel, generation, useHalf: false,
                     image.Width, image.Height, sampleScopes: true);
-                EmitHistogram(halfImage ?? image, state);
+                QueueHistogram(halfImage ?? image, state);
                 return true;
             }
 
@@ -357,7 +362,7 @@ namespace Maple.WinUI.Services
             if (rc == 0)
             {
                 var total = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-                DiagLog.Write($"[tick] {(useHalf ? "half" : "full")} total={total}ms ffi={_lastFfiMillis}ms");
+                DiagLog.Write(PresentTiming(useHalf, total));
                 // The presented surface is ALWAYS the target (full) size — the
                 // half session was upscaled in the present shader — so the panel
                 // never needs resizing between phases.
@@ -512,7 +517,7 @@ namespace Maple.WinUI.Services
                 if (emitFrame)
                     FrameReady?.Invoke(image, pixels, image.Width, image.Height,
                         ComputeHistogram(pixels), elapsed);
-                EmitClipSource(pixels, image.Width, image.Height);
+                EmitClipSource(image, state, pixels, image.Width, image.Height);
                 if (sampleScopes) DumpFrameIfRequested(pixels, image.Width, image.Height);
                 if (sampleScopes) EmitCpuScope(image, state, scratch);
                 lock (_gate)

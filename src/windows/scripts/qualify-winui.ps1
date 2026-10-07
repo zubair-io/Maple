@@ -157,4 +157,4 @@ $verdict | Add-Member -NotePropertyName tick_verdict -NotePropertyValue $tickVer
 $verdict | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $work 'verdict.json')
 if ($parityExit -ne 0) { throw "Parity FAIL. Evidence: $work" }
 Write-Output "report dir: $work"
-if ($tickVerdict.StartsWith("FAIL")) { exit 1 }
+if ($tickVerdict -ne 'PASS (target)') { exit 1 }

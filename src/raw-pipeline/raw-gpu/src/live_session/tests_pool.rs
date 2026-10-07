@@ -21,6 +21,42 @@ use raw_core::types::WbMethod;
 use raw_core::xmp::AdjustmentModel;
 
 #[test]
+fn preparing_tone_preserves_neutral_and_exposure_pixels() {
+    let baseline = GpuContext::new_blocking().expect("baseline context");
+    let prepared = GpuContext::new_blocking().expect("prepared context");
+    let pixels = scene_linear_rgba(8, 8);
+    let original = LiveSession::new(&baseline, &pixels, 8, 8).unwrap();
+    let candidate = LiveSession::new(&prepared, &pixels, 8, 8).unwrap();
+    let cancel = CancelToken::new();
+    let neutral = neutral_case().gpu_inputs();
+    let mut active = neutral_case().gpu_inputs();
+    active.tone[0] = 0.25;
+    prepared.prepare_scene_tone_controls();
+    for inputs in [&neutral, &active, &neutral] {
+        let expected = original
+            .render_to_buffer(&baseline, inputs, &cancel)
+            .unwrap()
+            .unwrap();
+        let actual = candidate
+            .render_to_buffer(&prepared, inputs, &cancel)
+            .unwrap()
+            .unwrap();
+        assert_eq!(actual, expected);
+    }
+    prepared.prepare_scene_tone_controls();
+    assert_eq!(
+        candidate
+            .render_to_buffer(&prepared, &neutral, &cancel)
+            .unwrap()
+            .unwrap(),
+        original
+            .render_to_buffer(&baseline, &neutral, &cancel)
+            .unwrap()
+            .unwrap()
+    );
+}
+
+#[test]
 fn fast_and_refine_sessions_crossing_zero_stay_warm() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let cancel = CancelToken::new();

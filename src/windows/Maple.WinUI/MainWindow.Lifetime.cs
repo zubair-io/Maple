@@ -143,9 +143,9 @@ namespace Maple.WinUI
             }
         }
 
-        private void OnHistogramReady(uint[] bins) => App.MainDispatcherQueue?.TryEnqueue(() =>
+        private void OnHistogramReady(DecodedImage source, Models.AdjustmentState state, uint[] bins) => App.MainDispatcherQueue?.TryEnqueue(() =>
         {
-            if (_closing) return;
+            if (_closing || !ViewModel.Renderer.IsCurrentRender(source, state)) return;
             _lastHistogramBins = bins;
             HistogramView.Draw(HistogramCanvas, bins);
             UpdateCurveHistogram();

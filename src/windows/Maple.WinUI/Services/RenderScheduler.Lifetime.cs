@@ -11,6 +11,7 @@ namespace Maple.WinUI.Services
         private bool _stopping;
         private Task? _stopTask;
         private int _presentPending;
+        private double _lastPresentQueueMillis, _lastUiPresentMillis;
         internal bool HasPendingPresent => Volatile.Read(ref _presentPending) != 0;
         internal event Action? PresentQueued;
         internal int DroppedClosingPresents { get; private set; }
@@ -19,9 +20,12 @@ namespace Maple.WinUI.Services
             AdjustmentState state, IntPtr panel, ulong generation, bool useHalf, int width, int height, bool sampleScopes)
         {
             var completion = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var queuedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             Volatile.Write(ref _presentPending, 1);
             if (!queue.TryEnqueue(() =>
             {
+                var enteredAt = System.Diagnostics.Stopwatch.GetTimestamp();
+                _lastPresentQueueMillis = System.Diagnostics.Stopwatch.GetElapsedTime(queuedAt, enteredAt).TotalMilliseconds;
                 Volatile.Write(ref _presentPending, 0);
                 try
                 {
@@ -34,7 +38,9 @@ namespace Maple.WinUI.Services
                             return;
                         }
                     }
-                    completion.TrySetResult(GpuPresentOnUiThread(image, state, panel, generation, useHalf, width, height, sampleScopes));
+                    var rc = GpuPresentOnUiThread(image, state, panel, generation, useHalf, width, height, sampleScopes);
+                    _lastUiPresentMillis = System.Diagnostics.Stopwatch.GetElapsedTime(enteredAt).TotalMilliseconds;
+                    completion.TrySetResult(rc);
                 }
                 catch (Exception error) { completion.TrySetException(error); }
             }))
@@ -46,6 +52,13 @@ namespace Maple.WinUI.Services
             try { return completion.Task.GetAwaiter().GetResult(); }
             finally { Volatile.Write(ref _presentPending, 0); }
         }
+
+        // #4383: distinguish dispatcher starvation from UI preparation/native
+        // work and render-thread wakeup; retain the original total tick metric.
+        private string PresentTiming(bool useHalf, double total) =>
+            $"[tick] {(useHalf ? "half" : "full")} total={total}ms ffi={_lastFfiMillis}ms " +
+            $"queue_ms={_lastPresentQueueMillis} ui_ms={_lastUiPresentMillis} " +
+            $"completion_ms={total - _lastPresentQueueMillis - _lastUiPresentMillis}";
 
 
         // Called on the owning UI context. Never synchronously join here:
@@ -72,6 +85,9 @@ namespace Maple.WinUI.Services
                     _panelNative = IntPtr.Zero;
                     _image = _halfImage = null;
                     _pending = _lastRendered = null;
+                    _pendingHistogram = null;
+                    _histogramPixels = null;
+                    _histogramScratch = null;
                 }
                 DiagLog.Write("[lifetime] render loop joined; native sessions closed");
             }

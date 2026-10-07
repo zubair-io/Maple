@@ -89,11 +89,11 @@ namespace Maple.WinUI
         /// <summary>Paint the overlay: opaque red where any channel is blown
         /// (255), opaque blue where all three are crushed (0), transparent
         /// elsewhere — the Lightroom-style J-overlay semantics.</summary>
-        private void OnClipSourceReady(byte[] bgra, int width, int height)
+        private void OnClipSourceReady(Services.DecodedImage source, Models.AdjustmentState state, byte[] bgra, int width, int height)
         {
             App.MainDispatcherQueue?.TryEnqueue(() =>
             {
-                if (_closing) return;
+                if (_closing || !ViewModel.Renderer.IsCurrentRender(source, state)) return;
                 if (!ViewModel.Renderer.ClipOverlayEnabled)
                     return;
                 if (_clipOverlayBitmap == null || _clipOverlayBitmap.PixelWidth != width
