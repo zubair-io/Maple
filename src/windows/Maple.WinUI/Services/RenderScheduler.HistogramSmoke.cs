@@ -77,6 +77,10 @@ public sealed partial class RenderScheduler
 
             scheduler._beforeHistogramPublishForSmoke = null;
             scheduler.SetImage(image);
+            var histogramPixels = new byte[checked(image.Width * image.Height * 4)];
+            var histogramScratch = new float[image.Pixels.Length];
+            scheduler._histogramPixels = histogramPixels;
+            scheduler._histogramScratch = histogramScratch;
             lock (scheduler._gate) scheduler._lastRendered = state;
             scheduler._beforeHistogramPublishForSmoke = () =>
             {
@@ -85,11 +89,17 @@ public sealed partial class RenderScheduler
             await Task.Run(() => scheduler.EmitHistogram(image, state));
             if (failure != null || histograms != 0 || clips != 0)
                 throw new InvalidOperationException("Superseded edit histogram published");
+            if (!ReferenceEquals(scheduler._histogramPixels, histogramPixels)
+                || !ReferenceEquals(scheduler._histogramScratch, histogramScratch))
+                throw new InvalidOperationException("Superseded edit discarded reusable histogram buffers");
             scheduler._beforeHistogramPublishForSmoke = null;
             lock (scheduler._gate) scheduler._lastRendered = state;
             await Task.Run(() => scheduler.EmitHistogram(image, state));
             if (failure != null || histograms != 1 || clips != 1)
                 throw new InvalidOperationException($"Current histogram failed: {failure}, histograms={histograms}, clips={clips}");
+            if (!ReferenceEquals(scheduler._histogramPixels, histogramPixels)
+                || !ReferenceEquals(scheduler._histogramScratch, histogramScratch))
+                throw new InvalidOperationException("Latest histogram reallocated reusable buffers");
             lock (scheduler._gate)
             {
                 scheduler._lastRendered = state;
