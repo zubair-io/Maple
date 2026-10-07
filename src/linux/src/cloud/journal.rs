@@ -51,23 +51,7 @@ impl EditJournal {
                 "This photograph's pending edits are open in another Maple process".into(),
             )
         })?;
-        let record_path = directory.join("remote.json");
-        reject_symlink(&record_path)?;
-        let record: Option<Record> =
-            match fs::File::open(record_path) {
-                Ok(file) => {
-                    let mut bytes = Vec::new();
-                    file.take(16 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
-                    if bytes.len() > 16 * 1024 * 1024 {
-                        return Err(CloudError::Protocol("Cloud journal is too large".into()));
-                    }
-                    Some(serde_json::from_slice(&bytes).map_err(|e| {
-                        CloudError::Protocol(format!("Cloud journal is invalid: {e}"))
-                    })?)
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-                Err(error) => return Err(error.into()),
-            };
+        let record = read_record(&directory)?;
         let journal = Self {
             directory,
             lock,
@@ -89,6 +73,28 @@ impl EditJournal {
             }
         }
         Ok(journal)
+    }
+    /// Photographs this server has journals for, including edits left
+    /// unsynchronized by a quit or crash.
+    pub fn recorded_entries(base: &Path, server: &str) -> Result<Vec<CloudEntry>, CloudError> {
+        let directories = match fs::read_dir(base) {
+            Ok(directories) => directories,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
+        };
+        let mut entries = Vec::new();
+        for directory in directories {
+            let directory = directory?;
+            if !directory.file_type()?.is_dir() {
+                continue;
+            }
+            if let Some(record) = read_record(&directory.path())? {
+                if record.server == server {
+                    entries.push(record.entry);
+                }
+            }
+        }
+        Ok(entries)
     }
     pub fn path(&self) -> Result<PathBuf, CloudError> {
         let record = self
@@ -180,7 +186,7 @@ impl EditJournal {
             // Reconcile a response lost after the server committed the last attempt.
             if let Some(attempt) = &record.attempt {
                 let remote = client.read_versioned_xmp(&record.entry.path)?;
-                if remote.xml.as_deref() == Some(attempt) {
+                if landed(&remote, attempt, &record.baseline) {
                     record.baseline = remote;
                 }
             }
@@ -258,6 +264,38 @@ impl EditJournal {
 impl Drop for EditJournal {
     fn drop(&mut self) {
         let _ = self.lock.unlock();
+    }
+}
+/// The server retains its workflow records when it stores an attempt, so a
+/// committed attempt is recognised by the Maple edits it carries.
+fn landed(remote: &RemoteXmp, attempt: &str, baseline: &RemoteXmp) -> bool {
+    let carries_attempt = || {
+        let parse = |xml: &str| SidecarDocument::parse(xml).ok();
+        match (remote.xml.as_deref().and_then(parse), parse(attempt)) {
+            (Some(stored), Some(sent)) => {
+                stored.model == sent.model && stored.culling == sent.culling
+            }
+            _ => false,
+        }
+    };
+    remote.xml.as_deref() == Some(attempt) || (remote.etag != baseline.etag && carries_attempt())
+}
+fn read_record(directory: &Path) -> Result<Option<Record>, CloudError> {
+    let record_path = directory.join("remote.json");
+    reject_symlink(&record_path)?;
+    match fs::File::open(record_path) {
+        Ok(file) => {
+            let mut bytes = Vec::new();
+            file.take(16 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
+            if bytes.len() > 16 * 1024 * 1024 {
+                return Err(CloudError::Protocol("Cloud journal is too large".into()));
+            }
+            serde_json::from_slice(&bytes)
+                .map(Some)
+                .map_err(|e| CloudError::Protocol(format!("Cloud journal is invalid: {e}")))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
     }
 }
 fn original_path(directory: &Path, entry: &CloudEntry) -> Result<PathBuf, CloudError> {

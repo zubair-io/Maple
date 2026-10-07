@@ -4,6 +4,8 @@ mod journal;
 mod library;
 mod transfer;
 pub use journal::EditJournal;
+mod resume;
+pub use resume::{resume_pending, Resumed};
 mod url;
 pub use auth::PendingSignIn;
 pub use library::{CloudEntry, CloudFolder, CloudLibrary, CloudSidecar};

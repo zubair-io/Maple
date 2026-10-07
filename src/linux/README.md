@@ -282,7 +282,9 @@ validates its size, parses the versioned remote XMP and saves through exact-cont
 HTTP preconditions. It refuses servers lacking the precondition capability and
 retains local document state when the server rejects a stale version. Pending edits and their remote content baseline persist in a private journal
 under the desktop data directory (`maple/cloud-edits`). Journals exclude concurrent
-editors and resume unsynced edits after restart. Credentials stay in Secret Service.
+editors and resume unsynced edits after restart: on the next connection every pending
+journal for that server is synchronized, and one that cannot be is reported and held
+open until it is synchronized or reloaded. Credentials stay in Secret Service.
 
 For cross-process qualification against the actual Maple API XMP routes:
 
