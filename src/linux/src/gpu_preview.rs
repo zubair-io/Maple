@@ -7,7 +7,7 @@ use raw_core::{
         GpuWhiteBalance,
     },
     types::adjustment::{AdjustmentModel, AutoExposureMode, Profile},
-    RawImage,
+    ExifOrientation, RawImage,
 };
 use raw_gpu::{CancelToken, GpuContext, LiveSession, PresentGeometry, PresentTexture};
 
@@ -212,24 +212,57 @@ impl GpuPreview {
         else {
             return Ok(false);
         };
-        let geometry = raw_core::stages::perspective::Perspective::from_model(model);
-        let (sw, sh) = self.session.dims();
-        let (width, height) = if raw.orientation.swaps_wh() {
-            (sh, sw)
-        } else {
-            (sw, sh)
-        };
-        let crop = raw_core::stages::crop::CropPresentation::new(&model.crop, width, height);
-        let inverse =
-            geometry.inverse_matrix(raw_core::stages::perspective::aspect_ratio(width, height));
-        let orientation =
-            raw_core::stages::perspective::Homography(raw.orientation.display_to_sensor_matrix());
-        let transform =
-            PresentGeometry::from_inverse(orientation.mul(&inverse).mul(&crop.inverse).0);
+        let transform = present_geometry(raw.orientation, self.session.dims(), model);
         if cancel.is_cancelled() {
             return Ok(false);
         }
         self.target.present(ctx, &self.session, index, transform)?;
         Ok(true)
+    }
+}
+
+/// The display → sensor transform for the present pass. An identity
+/// composition must take the shader's direct-load path: the resample arm
+/// would bilinearly blend neighbours and drift from the CPU reference.
+fn present_geometry(
+    orientation: ExifOrientation,
+    (sensor_width, sensor_height): (u32, u32),
+    model: &AdjustmentModel,
+) -> PresentGeometry {
+    use raw_core::stages::perspective::{aspect_ratio, Homography, Perspective};
+    let (width, height) = if orientation.swaps_wh() {
+        (sensor_height, sensor_width)
+    } else {
+        (sensor_width, sensor_height)
+    };
+    let crop = raw_core::stages::crop::CropPresentation::new(&model.crop, width, height);
+    let inverse = Perspective::from_model(model).inverse_matrix(aspect_ratio(width, height));
+    let composed = Homography(orientation.display_to_sensor_matrix())
+        .mul(&inverse)
+        .mul(&crop.inverse);
+    if composed == Homography::IDENTITY {
+        PresentGeometry::IDENTITY
+    } else {
+        PresentGeometry::from_inverse(composed.0)
+    }
+}
+
+#[cfg(test)]
+mod present_geometry_tests {
+    use super::*;
+
+    #[test]
+    fn an_unedited_upright_image_loads_directly_and_any_geometry_resamples() {
+        let plain = AdjustmentModel::default();
+        assert!(!present_geometry(ExifOrientation::Normal, (1600, 1067), &plain).is_active());
+        assert!(present_geometry(ExifOrientation::Rotate180, (1600, 1067), &plain).is_active());
+        let straightened = AdjustmentModel {
+            crop: raw_core::types::Crop {
+                angle: 3.5,
+                ..raw_core::types::Crop::IDENTITY
+            },
+            ..AdjustmentModel::default()
+        };
+        assert!(present_geometry(ExifOrientation::Normal, (1600, 1067), &straightened).is_active());
     }
 }
