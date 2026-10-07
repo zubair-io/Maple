@@ -113,6 +113,7 @@ public sealed partial class RenderScheduler
         finally { await scheduler.StopAsync(); }
         await VerifyHistogramSchedulingAsync(image, state);
         await VerifyQuietHistogramSupersessionAsync(image, state);
+        await VerifyWorkerAdmissionAsync(image, state);
     }
 
     private static async Task VerifyQuietHistogramSupersessionAsync(DecodedImage image, AdjustmentState state)
