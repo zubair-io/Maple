@@ -117,7 +117,9 @@
 /// - 12 — the tier-3 scene-median prior evenly decimates the whole region's
 ///   stride-8 samples instead of the raster-capped top strip, so large
 ///   frames recover the scene chromaticity, not the sky (#1690).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 12;
+/// - 13 — AMaZE false-colour suppression interpolates reconstructed chroma only
+///   from supported nearest sensor evidence (#4123).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 13;
 
 #[cfg(test)]
 mod tests {
