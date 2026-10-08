@@ -43,6 +43,9 @@ function stub(meili: ReturnType<typeof fakeMeilisearchIndex>): string[][] {
     spyOn(coverage, 'advanceKnownVectorCoverage').mockImplementation(async (fingerprint) => {
       advanced.push([String(fingerprint)]);
     }),
+    spyOn(coverage, 'advancePendingVectorCoverage').mockImplementation(async (fingerprint) => {
+      advanced.push(['pending', String(fingerprint)]);
+    }),
   );
   return advanced;
 }
@@ -65,8 +68,11 @@ describe('worker readiness with a drifted embedder (#4432)', () => {
     await refreshWorkerEnrichmentConfig(true);
 
     expect(meili.patches).toHaveLength(0);
-    expect(advanced).toHaveLength(1);
+    // Same-shape markers carry forward, and rows written as pending while the
+    // client was unconfirmed are promoted.
+    expect(advanced).toHaveLength(2);
     expect(advanced[0]![0]).toStartWith('v');
+    expect(advanced[1]).toEqual(['pending', advanced[0]![0]!]);
   });
 
   it('keeps going when Meilisearch is unreachable', async () => {

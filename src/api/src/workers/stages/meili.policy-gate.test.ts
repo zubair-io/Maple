@@ -163,21 +163,23 @@ describe('meiliHandler — embedder policy gate (#3315)', () => {
     expect(pauses).toHaveLength(0);
   });
 
-  it('does not stamp the vector fingerprint while the index embedder drifts from Settings (#4432)', async () => {
+  it('stamps a pending marker unless the index embedder is confirmed in sync (#4432)', async () => {
     recordPauses();
-    const fingerprintWrites = (embedderInSync: boolean | null) => async () => {
+    const markerWritten = async (embedderInSync: boolean | null) => {
       const { client } = semanticClient(semanticStatus({}));
+      client.semanticFingerprint = () => 'v8:settings';
       client.embedderInSync = () => embedderInSync;
       setMeiliStageClientForTests(client);
       const result = (await meiliHandler(fakeDoc(), fakeCtx)) as {
         patch: Array<{ sql: string; params: unknown[] }>;
       };
-      return result.patch.filter((s) => s.sql.includes('semantic_vector_fingerprint'));
+      return result.patch.find((s) => s.sql.includes('semantic_vector_fingerprint'))?.params[0];
     };
 
-    expect(await fingerprintWrites(false)()).toEqual([]);
-    expect((await fingerprintWrites(true)())[0]?.params[0]).toBe('fp-policy-test');
-    expect((await fingerprintWrites(null)())[0]?.params[0]).toBe('fp-policy-test');
+    expect(await markerWritten(true)).toBe('v8:settings');
+    // Drifted, or a freshly reconfigured client not yet checked by ensureIndex.
+    expect(await markerWritten(false)).toBe('v8:pending');
+    expect(await markerWritten(null)).toBe('v8:pending');
   });
 
   it('through the runner: the asset keeps a retryable attempt and is never stamped done', async () => {
