@@ -29,7 +29,11 @@ mod context;
 mod develop;
 mod guards;
 mod highlight_frame;
-pub use context::HighlightFrameContext;
+pub(crate) use context::render_scene_linear_tile_from_frame_context_cancellable_f32;
+pub use context::{
+    render_scene_linear_tile_from_frame_context, render_scene_linear_tile_from_frame_context_f32,
+    HighlightFrameContext,
+};
 mod overlap;
 mod prefix;
 mod region;
@@ -520,60 +524,6 @@ pub fn render_scene_linear_tile_cancellable_f32(
     )
 }
 
-/// Render from immutable captured native-density evidence, with unchanged WB/AE anchors.
-pub fn render_scene_linear_tile_from_frame_context_f32(
-    context: &HighlightFrameContext,
-    model: &AdjustmentModel,
-    rect: TileRect,
-    decoded_wb_anchor: Option<(f32, f32)>,
-    ae_gain: f32,
-) -> Result<(u32, u32, Vec<f32>)> {
-    render_scene_linear_tile_from_frame_context_cancellable_f32(
-        context,
-        model,
-        rect,
-        decoded_wb_anchor,
-        ae_gain,
-        crate::CancelToken::never(),
-    )
-}
-
-pub(crate) fn render_scene_linear_tile_from_frame_context_cancellable_f32(
-    context: &HighlightFrameContext,
-    model: &AdjustmentModel,
-    rect: TileRect,
-    decoded_wb_anchor: Option<(f32, f32)>,
-    ae_gain: f32,
-    cancel: crate::CancelToken<'_>,
-) -> Result<(u32, u32, Vec<f32>)> {
-    develop_tile_with_frame(
-        context.raw(),
-        model,
-        rect,
-        context.quality(),
-        decoded_wb_anchor,
-        ae_gain,
-        Some(context),
-        cancel,
-    )
-}
-/// fp16 counterpart; conversion is the same shared scalar pack as legacy tiles.
-pub fn render_scene_linear_tile_from_frame_context(
-    context: &HighlightFrameContext,
-    model: &AdjustmentModel,
-    rect: TileRect,
-    decoded_wb_anchor: Option<(f32, f32)>,
-    ae_gain: f32,
-) -> Result<(u32, u32, Vec<u16>)> {
-    let (w, h, pixels) = render_scene_linear_tile_from_frame_context_f32(
-        context,
-        model,
-        rect,
-        decoded_wb_anchor,
-        ae_gain,
-    )?;
-    Ok((w, h, pack_fp16(&pixels)))
-}
 fn pack_fp16(pixels: &[f32]) -> Vec<u16> {
     stage("tile_pack_fp16", || {
         pixels.par_iter().map(|&v| f32_to_f16_bits(v)).collect()
