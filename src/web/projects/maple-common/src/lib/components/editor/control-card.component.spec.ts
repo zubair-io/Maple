@@ -228,20 +228,17 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
     expect(armTool).not.toHaveBeenCalled();
   });
 
-  it('does not arm a deferred Noise panel after another tool was chosen mid-gesture (#4414)', () => {
-    const { componentInstance, armTool, armedTool } = render({ activeGroup: 'detail' });
+  it.each([
+    ['another tool was chosen mid-gesture (#4414)', 'tool'],
+    ['the focused asset changed (#4352)', 'asset'],
+  ])('does not arm a deferred Noise panel when %s', (_, change) => {
+    const { componentInstance, armTool, armedTool, focusedAssetId } = render({
+      activeGroup: 'detail',
+    });
     componentInstance.onSliderDragStart('noise');
     componentInstance.onSliderChange('noise', 2);
-    armedTool.mockReturnValue('exposure');
-    componentInstance.onSliderDragEnd();
-    expect(armTool).not.toHaveBeenCalled();
-  });
-
-  it('does not arm a deferred Noise panel on a different focused asset (#4352)', () => {
-    const { componentInstance, armTool, focusedAssetId } = render({ activeGroup: 'detail' });
-    componentInstance.onSliderDragStart('noise');
-    componentInstance.onSliderChange('noise', 2);
-    focusedAssetId.set('asset-2');
+    if (change === 'tool') armedTool.mockReturnValue('exposure');
+    else focusedAssetId.set('asset-2');
     componentInstance.onSliderDragEnd();
     expect(armTool).not.toHaveBeenCalled();
   });
