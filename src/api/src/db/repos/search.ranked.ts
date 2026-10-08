@@ -228,3 +228,19 @@ export async function firstRanked(
 export function someMatchesSql(where: SearchWhere, limit: number): BoundStatement {
   return statement('assets.rowid AS r, assets.id AS id', where, 'LIMIT ?', undefined, [limit]);
 }
+
+/**
+ * The rows behind a set of `maple_id`s that pass every filter of `where` but
+ * its text — how another engine's ranked hits become the assets a facet counts.
+ */
+export function mapleIdRowsSql(where: SearchWhere, mapleIds: readonly string[]): BoundStatement {
+  return statement(
+    'assets.rowid AS r, assets.id AS id',
+    { ...where, match: { kind: 'none' } },
+    '',
+    {
+      sql: 'assets.maple_id IN (SELECT value FROM json_each(?))',
+      params: [JSON.stringify(mapleIds)],
+    },
+  );
+}

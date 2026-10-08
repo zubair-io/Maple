@@ -174,7 +174,7 @@ describe('facets of a broad text search', () => {
         const count = countSql(where);
         const total = (db.query(count.sql).get(...(count.params as never[])) as { n: number }).n;
         for (const k of [3, 10]) {
-          const facets = await searchFacets(where, testSqliteDb(db), k);
+          const facets = await searchFacets(where, testSqliteDb(db), { topMatches: k });
           const head = listHead(db, where, k);
           const expected = facetStatements(onlyRows(where, head));
           const covered = Math.min(k, total);
@@ -203,7 +203,7 @@ describe('facets of a broad text search', () => {
     await withLibrary(async (db) => {
       const where = translate({ placeQuery: 'group of people' });
       const direct = facetStatements(where);
-      const facets = await searchFacets(where, testSqliteDb(db), 1_000);
+      const facets = await searchFacets(where, testSqliteDb(db), { topMatches: 1_000 });
       expect(facets.scope).toEqual({ kind: 'all' });
       expect(
         facets.cameras
@@ -221,7 +221,9 @@ describe('facets of a broad text search', () => {
 
   test('a search without text is never cut', async () => {
     await withLibrary(async (db) => {
-      const facets = await searchFacets(translate({ rating: '2' }), testSqliteDb(db), 1);
+      const facets = await searchFacets(translate({ rating: '2' }), testSqliteDb(db), {
+        topMatches: 1,
+      });
       expect(facets.scope).toEqual({ kind: 'all' });
       expect(facets.total).toBeGreaterThan(1);
     });

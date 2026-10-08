@@ -16,6 +16,8 @@
 import { Elysia } from 'elysia';
 import { ObjectId } from '../../db/object-id.ts';
 import { searchFacets } from '../../db/repos/search.repo.ts';
+import { FACET_TOP_MATCHES } from '../../db/repos/search.facets.ts';
+import { meiliFacetRanking } from './facets-meili.ts';
 import { emailsForUserIds } from '../../db/repos/auth.users.repo.ts';
 import { namesForPersonIds } from '../../people/people-search-filter.repo.ts';
 import { SearchQueryT, type SearchQuery } from './query.ts';
@@ -34,7 +36,11 @@ export const facetsRoute = new Elysia().get(
     const where = await resolveSearchScope(query as SearchQuery);
     if (where instanceof Response) return where;
 
-    const facets = await searchFacets(where);
+    // A text search's most relevant matches are whichever engine ranks its
+    // list: Meilisearch when it serves this query, the database otherwise.
+    const facets = await searchFacets(where, undefined, {
+      ranking: () => meiliFacetRanking(query as SearchQuery, FACET_TOP_MATCHES),
+    });
 
     // Join the person-id buckets to display names; ids whose person is
     // hidden, merged away, or gone drop out (count order is preserved).

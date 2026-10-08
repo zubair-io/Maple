@@ -25,7 +25,10 @@
  */
 
 import { searchByMapleIds, type SearchWhere } from '../../db/repos/search.repo.ts';
-import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
+import {
+  meilisearchClient,
+  type MeilisearchSearchOptions,
+} from '../../enrichment/meilisearch-client.ts';
 import { child as childLogger } from '../../log.ts';
 import { projectAssets, type SearchResult } from './project.ts';
 import { libraryMaps } from './libraries.ts';
@@ -215,6 +218,28 @@ function visionFilters(resolved: SearchQuery): {
 }
 
 /**
+ * Everything a Meilisearch search for `resolved` carries besides its paging:
+ * the library, people, capture window, vision filters and visibility. Shared
+ * with the facets route, whose most-relevant scope has to come from the same
+ * ranking the list does (#4431).
+ */
+export function meiliSearchOptions(
+  resolved: SearchQuery,
+  libraryId: string | undefined,
+  semantic: boolean,
+): MeilisearchSearchOptions {
+  return {
+    folderId: libraryId,
+    people: meiliPeople(resolved),
+    ...capturedWindow(resolved),
+    ...visionFilters(resolved),
+    semantic,
+    includeHidden: resolved.hidden === 'all',
+    onlyHidden: resolved.hidden === 'only',
+  };
+}
+
+/**
  * One page of Meilisearch-ranked results, or `null` when the sidecar isn't
  * configured, this isn't a text query, or the query failed (logged; the
  * caller falls through to the database full-text path).
@@ -242,13 +267,7 @@ export async function meiliPage(input: MeiliPageInput): Promise<MeiliPage | null
     // pushed all the way into the Meili filter (`hidden = true`) so each
     // candidate page stays dense with rows the re-fetch will keep.
     const hit = await meili.search(resolved.placeQuery!.trim(), {
-      folderId: libraryId,
-      people: meiliPeople(resolved),
-      ...capturedWindow(resolved),
-      ...visionFilters(resolved),
-      semantic: meili.semanticConfigured(),
-      includeHidden: resolved.hidden === 'all',
-      onlyHidden: resolved.hidden === 'only',
+      ...meiliSearchOptions(resolved, libraryId, meili.semanticConfigured()),
       offset: skip,
       limit,
     });
