@@ -215,6 +215,9 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
     if (!mask) return;
     const { px, py } = this.localPoint(ev);
     if (mask.kind === 'brush') {
+      const fp = this.map().footprint;
+      // A press on letterbox padding is not on the photo: paint nothing.
+      if (px < fp.left || py < fp.top || px > fp.left + fp.width || py > fp.top + fp.height) return;
       // One undo entry per stroke — opened before the first dab lands.
       this.session.beginGesture();
       const smoother = new StrokeSmoother();
