@@ -39,7 +39,10 @@ test('destination coverage counts backfill correctly and track location and Tras
   run(handle.db, `UPDATE assets SET deleted_reason='reaped' WHERE id=?`, reapedAsset);
 
   const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
-  expect(result.applied).toEqual(['0016-cloud-backup-destination-status']);
+  expect(result.applied).toEqual([
+    '0016-cloud-backup-destination-status',
+    '0017-cloud-backup-object-entry-index',
+  ]);
   expect(
     handle.db
       .query(`SELECT live_locations FROM backup_coverage_counts WHERE library_id=?`)
@@ -54,10 +57,14 @@ test('destination coverage counts backfill correctly and track location and Tras
     handle.db
       .query(
         `SELECT name FROM sqlite_master WHERE type='index' AND name IN
-        ('asset_locations_library_missing','assets_reaped') ORDER BY name`,
+        ('asset_locations_library_missing','assets_reaped','backup_objects_entry') ORDER BY name`,
       )
       .all(),
-  ).toEqual([{ name: 'asset_locations_library_missing' }, { name: 'assets_reaped' }]);
+  ).toEqual([
+    { name: 'asset_locations_library_missing' },
+    { name: 'assets_reaped' },
+    { name: 'backup_objects_entry' },
+  ]);
 
   run(handle.db, `UPDATE asset_locations SET missing_since=NULL WHERE asset_id=?`, missingAsset);
   run(handle.db, `UPDATE assets SET deleted_reason=NULL WHERE id=?`, reapedAsset);

@@ -8,6 +8,10 @@ interface GoogleCheckpoint {
   rootId: string;
   key: string;
   fileId: string;
+  parentId: string;
+  name: string;
+  replace: boolean;
+  exactName: boolean;
   sha256: string;
   size: number;
   session: string | null;
@@ -19,6 +23,10 @@ export function parseCheckpoint(checkpoint: UploadCheckpoint, rootId: string): G
     checkpoint.version !== 1 ||
     state.rootId !== rootId ||
     !/^[A-Za-z0-9_-]{1,200}$/.test(state.fileId) ||
+    !/^[A-Za-z0-9_-]{1,200}$/.test(state.parentId) ||
+    !state.name ||
+    typeof state.replace !== 'boolean' ||
+    typeof state.exactName !== 'boolean' ||
     !state.key ||
     !/^[a-f0-9]{64}$/.test(state.sha256) ||
     !Number.isSafeInteger(state.size) ||
@@ -29,7 +37,9 @@ export function parseCheckpoint(checkpoint: UploadCheckpoint, rootId: string): G
     const session = new URL(state.session);
     if (
       session.origin !== 'https://www.googleapis.com' ||
-      session.pathname !== '/upload/drive/v3/files' ||
+      !/^\/upload\/drive\/v3\/files(?:\/[A-Za-z0-9_-]{1,200})?$/.test(session.pathname) ||
+      (state.replace && session.pathname !== `/upload/drive/v3/files/${state.fileId}`) ||
+      (!state.replace && session.pathname !== '/upload/drive/v3/files') ||
       !session.searchParams.has('upload_id')
     )
       throw new Error('Invalid Google resumable session.');
@@ -83,6 +93,7 @@ interface UploadContext {
   key: string;
   source: PublishSource;
   options: UploadOptions;
+  replace: boolean;
 }
 const save = (ctx: UploadContext, state: GoogleCheckpoint) =>
   ctx.options.saveCheckpoint(envelope(state));
@@ -120,20 +131,22 @@ async function startSession(
   state: GoogleCheckpoint,
 ): Promise<GoogleCheckpoint> {
   const type = contentType(ctx.source);
+  const target = await ctx.provider.objectTarget(ctx.key, ctx.options.signal);
+  if (target.parentId !== state.parentId || target.name !== state.name)
+    throw new Error('Google upload checkpoint destination changed.');
   const response = await ctx.provider.client.request(
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
+    `https://www.googleapis.com/upload/drive/v3/files${state.replace ? `/${state.fileId}` : ''}?uploadType=resumable`,
     {
-      method: 'POST',
+      method: state.replace ? 'PATCH' : 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Upload-Content-Length': String(ctx.source.size),
         'X-Upload-Content-Type': type,
       },
       body: JSON.stringify({
-        id: state.fileId,
-        name: displayName(ctx.key, ctx.source),
+        ...(!state.replace ? { id: state.fileId, parents: [state.parentId] } : {}),
+        name: state.exactName ? state.name : displayName(ctx.key, ctx.source),
         mimeType: type,
-        parents: [ctx.provider.rootId],
         properties: { mapleKeyHash: logicalKeyHash(ctx.key) },
         description: JSON.stringify({
           mapleBackupObject: 1,
@@ -161,6 +174,23 @@ async function reconcileExpired(ctx: UploadContext, state: GoogleCheckpoint): Pr
   try {
     return { state, next: 0, completed: await verify(ctx, state) };
   } catch (error) {
+    if (state.replace) {
+      const current = await ctx.provider.inspect(state.key, ctx.options.signal, state.fileId);
+      if (current && current.sha256 === state.sha256 && current.size === state.size)
+        return { state, next: 0, completed: current };
+      if (current) return { state: { ...state, session: null }, next: 0, completed: null };
+      if (!isDriveStatus(error, 404)) throw error;
+      return {
+        state: {
+          ...state,
+          fileId: await ctx.provider.client.reserveId(ctx.options.signal),
+          replace: false,
+          session: null,
+        },
+        next: 0,
+        completed: null,
+      };
+    }
     if (!isDriveStatus(error, 404)) throw error;
     return { state: { ...state, session: null }, next: 0, completed: null };
   }
@@ -243,7 +273,8 @@ export async function publishGoogleObject(
   source: PublishSource,
   options: UploadOptions,
 ): Promise<BackupObject> {
-  const ctx = { provider, key, source, options };
+  const target = await provider.objectTarget(key, options.signal);
+  const ctx = { provider, key, source, options, replace: false };
   const saved = savedCheckpoint(ctx);
   const existing = await provider.inspect(key, options.signal, saved?.fileId);
   if (existing) {
@@ -255,6 +286,10 @@ export async function publishGoogleObject(
     rootId: provider.rootId,
     key,
     fileId: await provider.client.reserveId(options.signal),
+    parentId: target.parentId,
+    name: target.name,
+    replace: false,
+    exactName: !source.name,
     sha256: source.sha256,
     size: source.size,
     session: null,
@@ -265,5 +300,54 @@ export async function publishGoogleObject(
   if (probed.completed) return probed.completed;
   const ready = probed.state.session ? probed : await createSession(ctx, probed.state);
   if (ready.completed) return ready.completed;
+  return uploadChunks(ctx, ready.state, ready.next);
+}
+
+export async function publishGoogleMirrorFile(
+  provider: GoogleDriveProvider,
+  key: string,
+  relativePath: string,
+  source: PublishSource,
+  options: UploadOptions,
+): Promise<BackupObject> {
+  const target = await provider.objectTarget(key, options.signal);
+  if (target.name !== relativePath.split('/').at(-1))
+    throw new Error('Google mirror path does not match its logical key.');
+  const ctx = { provider, key, source, options, replace: true };
+  let saved: GoogleCheckpoint | null = null;
+  if (options.checkpoint) {
+    saved = parseCheckpoint(options.checkpoint, provider.rootId);
+    if (saved.key !== key || saved.parentId !== target.parentId || saved.name !== target.name)
+      throw new Error('Google mirror checkpoint destination changed.');
+  }
+  const existing = await provider.inspect(key, options.signal, saved?.fileId);
+  if (existing && existing.sha256 === source.sha256 && existing.size === source.size)
+    return existing;
+  if (saved && (saved.sha256 !== source.sha256 || saved.size !== source.size)) {
+    await provider.abort(envelope(saved), options.signal);
+    saved = null;
+  }
+  const initial = saved ?? {
+    rootId: provider.rootId,
+    key,
+    fileId: existing?.locator ?? (await provider.client.reserveId(options.signal)),
+    parentId: target.parentId,
+    name: target.name,
+    replace: Boolean(existing),
+    exactName: true,
+    sha256: source.sha256,
+    size: source.size,
+    session: null,
+  };
+  if (initial.parentId !== target.parentId || initial.name !== target.name)
+    throw new Error('Google mirror destination changed during upload.');
+  await save(ctx, initial);
+  contentType(source);
+  const probed = await probeSession(ctx, initial);
+  if (probed.completed?.sha256 === source.sha256 && probed.completed.size === source.size)
+    return probed.completed;
+  const ready = probed.state.session ? probed : await createSession(ctx, probed.state);
+  if (ready.completed?.sha256 === source.sha256 && ready.completed.size === source.size)
+    return ready.completed;
   return uploadChunks(ctx, ready.state, ready.next);
 }

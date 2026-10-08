@@ -50,7 +50,7 @@ async function setup(live: Awaited<ReturnType<typeof createLiveTestDatabase>>) {
   return { assetId, libraryId, destination, repo, provider, engine };
 }
 
-test('original and exact XMP bytes publish durable versions recoverable without the local catalog', async () => {
+test('original and exact XMP bytes mirror to one current remote path without the local catalog', async () => {
   using live = await createLiveTestDatabase();
   const { assetId, destination, repo, provider, engine } = await setup(live);
   expect(await engine.backupAsset(assetId)).toBe(true);
@@ -64,13 +64,13 @@ test('original and exact XMP bytes publish durable versions recoverable without 
   run(live.db, 'UPDATE assets SET sidecar_ver=sidecar_ver+1 WHERE id=?', assetId);
   expect(await engine.backupAsset(assetId)).toBe(true);
   const remote = await readRemoteCatalog(provider);
-  expect(remote.entries).toHaveLength(2);
+  expect(remote.entries).toHaveLength(1);
   const latest = latestManifests(remote.entries)[0]!;
   expect(latest.sequence).toBeGreaterThan(first.sequence);
   expect(latest.files[0]!.object.locator).toBe(first.files[0]!.object.locator);
   expect((await repo.entries(destination.id))[0]!.verified_sequence).toBe(latest.sequence);
   run(live.db, 'DELETE FROM backup_entries');
-  expect((await readRemoteCatalog(provider)).entries).toHaveLength(2);
+  expect((await readRemoteCatalog(provider)).entries).toHaveLength(1);
   expect(await fs.readFile(path.join(root, 'photo.dng'), 'utf8')).toBe('immutable original');
 });
 test('a disconnected target retries independently while healthy targets publish', async () => {
@@ -98,7 +98,7 @@ test('a known object moved outside the backup root blocks reuse and retains its 
   using live = await createLiveTestDatabase();
   const { assetId, destination, repo, provider, engine } = await setup(live);
   expect(await engine.backupAsset(assetId)).toBe(true);
-  const blob = [...provider.objects.values()].find((row) => row.object.key.includes('/blobs/'))!;
+  const blob = [...provider.objects.values()].find((row) => row.object.key.startsWith('mirror/'))!;
   const locator = blob.object.locator;
   const count = provider.objects.size;
   blob.moved = true;
@@ -127,7 +127,8 @@ test('Trash and restore advance the remote state without rewriting original byte
   const { assetId, engine, provider } = await setup(live);
   expect(await engine.backupAsset(assetId)).toBe(true);
   expect((await trashAssetById(new ObjectId(assetId))).kind).toBe('ok');
-  expect(await engine.backupAsset(assetId)).toBe(true);
+  const trashBackupResult = await engine.backupAsset(assetId);
+  expect(trashBackupResult).toBe(true);
   expect(latestManifests((await readRemoteCatalog(provider)).entries)[0]!.state).toBe('trash');
   expect((await restoreAssetById(new ObjectId(assetId))).kind).toBe('ok');
   expect(await engine.backupAsset(assetId)).toBe(true);
@@ -145,7 +146,7 @@ test('permanent purge remains durable offline, suppresses old catalogs, and bloc
   await drainPurges(engine, destination);
   expect((await repo.purges(destination.id))[0]!.completed).toBe(0);
   provider.offline = false;
-  const blob = [...provider.objects.values()].find((row) => row.object.key.includes('/blobs/'))!;
+  const blob = [...provider.objects.values()].find((row) => row.object.key.startsWith('mirror/'))!;
   blob.moved = true;
   await drainPurges(engine, destination);
   expect((await repo.purges(destination.id))[0]!.completed).toBe(0);

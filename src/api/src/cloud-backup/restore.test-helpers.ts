@@ -38,9 +38,8 @@ class MemoryProvider implements BackupProvider {
     return object;
   }
   manifest(sequence = 1, state: 'active' | 'trash' = 'active', id = entryId): BackupManifest {
-    const prefix = `libraries/${libraryId}/entries/${id}/`;
     const name = state === 'trash' ? '.maple/trash/photo.jpg' : 'photo.jpg';
-    const object = this.put(`${prefix}blobs/${sequence}-original`, `${id}-version-${sequence}`);
+    const object = this.put(`mirror/${libraryId}/${name}`, `${id}-version-${sequence}`);
     const manifest: BackupManifest = {
       version: 1,
       libraryId,
@@ -58,10 +57,9 @@ class MemoryProvider implements BackupProvider {
     return manifest;
   }
   saveManifest(manifest: BackupManifest) {
-    this.put(
-      `libraries/${manifest.libraryId}/entries/${manifest.entryId}/manifests/${manifest.sequence}.json`,
-      JSON.stringify(manifest),
-    );
+    const prefix = `libraries/${manifest.libraryId}/entries/${manifest.entryId}/manifests/`;
+    for (const key of this.objects.keys()) if (key.startsWith(prefix)) this.objects.delete(key);
+    this.put(`${prefix}${manifest.sequence}.json`, JSON.stringify(manifest));
   }
   async probe() {}
   async *list(prefix: string) {
@@ -90,6 +88,9 @@ class MemoryProvider implements BackupProvider {
     });
   }
   async publish(): Promise<BackupObject> {
+    throw new Error('Read-only recovery test provider');
+  }
+  async mirrorFile(): Promise<BackupObject> {
     throw new Error('Read-only recovery test provider');
   }
   async remove(object: BackupObject) {

@@ -11,6 +11,7 @@ export async function verifiedGoogleObject(
 ): Promise<BackupObject> {
   await heartbeat?.();
   const file = await provider.client.metadata(expected.locator, signal);
+  await provider.assertWithinRoot(file, signal);
   const object = backupObject(file, provider.rootId);
   assertObjectIdentity(object, expected, 'Google immutable upload conflicted.');
   await heartbeat?.();

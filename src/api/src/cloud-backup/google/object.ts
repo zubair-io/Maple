@@ -30,14 +30,11 @@ export function backupObject(file: DriveFile, rootId: string): BackupObject {
     file.trashed ||
     file.mimeType === 'application/vnd.google-apps.shortcut' ||
     file.parents?.length !== 1 ||
-    file.parents[0] !== rootId ||
     !Number.isSafeInteger(Number(file.size)) ||
     Number(file.size) < 0 ||
     (file.sha256Checksum && file.sha256Checksum !== marker.sha256)
   ) {
-    throw new Error(
-      'Google object moved outside the owned backup folder or failed integrity validation.',
-    );
+    throw new Error('Google object failed identity or integrity validation.');
   }
   return { key: marker.key, locator: file.id, size: Number(file.size), sha256: marker.sha256 };
 }

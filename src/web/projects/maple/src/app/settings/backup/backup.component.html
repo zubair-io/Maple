@@ -146,6 +146,12 @@
                     Faithful files, physical Trash and read failover. Folder mirrors do not retain
                     prior edit generations.
                   </p>
+                } @else {
+                  <p class="set-fhint">
+                    Mirrors library folders and filenames. Updated files replace their current Drive
+                    copy; previous edits are not retained. Maple Trash stays under
+                    <span class="font-mono">.maple/trash/</span>.
+                  </p>
                 }
                 <div class="flex flex-wrap gap-2 mt-4">
                   <mui-button

@@ -65,7 +65,7 @@ function resumableProgress(url: URL, init: RequestInit, response: Response): boo
   return (
     response.status === 308 &&
     init.method === 'PUT' &&
-    url.pathname === '/upload/drive/v3/files' &&
+    /^\/upload\/drive\/v3\/files(?:\/[A-Za-z0-9_-]{1,200})?$/.test(url.pathname) &&
     !!url.searchParams.get('upload_id') &&
     !response.headers.has('location')
   );

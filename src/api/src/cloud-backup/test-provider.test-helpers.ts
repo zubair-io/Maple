@@ -59,6 +59,34 @@ export function createTestProvider(): ProviderFixture {
       objects.set(key, { object, bytes, moved: false });
       return object;
     },
+    async mirrorFile(
+      key: string,
+      _relativePath: string,
+      source: PublishSource,
+      options: {
+        signal?: AbortSignal;
+        checkpoint?: UploadCheckpoint | null;
+        saveCheckpoint: (checkpoint: UploadCheckpoint) => Promise<void>;
+      },
+    ) {
+      check(options.signal);
+      await provider.beforePublish?.(key);
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of source.open(0)) chunks.push(chunk);
+      const bytes = new Uint8Array(Buffer.concat(chunks));
+      const hash = createHash('sha256').update(bytes).digest('hex');
+      if (bytes.length !== source.size || hash !== source.sha256) throw new Error('Source changed');
+      const existing = objects.get(key);
+      if (existing?.moved) throw new Error('Object outside root');
+      const object = {
+        key,
+        locator: existing?.object.locator ?? crypto.randomUUID(),
+        size: bytes.length,
+        sha256: hash,
+      };
+      objects.set(key, { object, bytes, moved: false });
+      return object;
+    },
     async download(object: BackupObject, signal?: AbortSignal) {
       check(signal);
       const row = objects.get(object.key);
