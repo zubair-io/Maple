@@ -214,6 +214,8 @@ describe('brush registration helpers', () => {
     const wire = flattenBrushDabs([
       dab(Number.NaN, 0.5, 0.05, 0.5, 1, false),
       dab(0.5, 0.5, 0, 0.5, 1, false),
+      dab(0.5, 0.5, 0.05, Number.NaN, 0.8, false),
+      dab(0.5, 0.5, 0.05, 0.5, Number.POSITIVE_INFINITY, false),
       dab(0.5, 0.5, 0.05, 0.5, 1, false),
     ]);
     expect(wire).toHaveLength(6);
