@@ -155,6 +155,41 @@ test('permanent deletion removes a mirrored Trash path left by an interrupted ca
   }
 });
 
+test('permanent deletion reconciles a completed mirror replacement before removing it', async () => {
+  const f = await batchFixture();
+  try {
+    const store = googleStore();
+    const provider = new GoogleDriveProvider('maple-root', async () => 'token', store.transport);
+    const entry = f.entries[0]!;
+    const key = `mirror/${f.libraryId}/photo-0.dng`;
+    const oldSource = jsonSource('old bytes');
+    const oldObject = await provider.mirrorFile(key, 'photo-0.dng', oldSource, {
+      saveCheckpoint: async () => {},
+    });
+    await f.repo.saveObject(f.destination.id, entry.id, key, oldObject, null);
+
+    store.loseFinal();
+    await expect(
+      provider.mirrorFile(key, 'photo-0.dng', jsonSource('replacement bytes'), {
+        saveCheckpoint: async (checkpoint) =>
+          f.repo.saveObject(f.destination.id, entry.id, key, null, checkpoint),
+      }),
+    ).rejects.toThrow('request failed');
+    expect(store.files.get(oldObject.locator)!.bytes).not.toEqual(
+      new TextEncoder().encode('old bytes'),
+    );
+
+    await drainPurges(new BackupEngine(async () => provider, f.repo), f.destination);
+
+    expect(store.files.has(oldObject.locator)).toBe(false);
+    expect(
+      (await f.repo.purges(f.destination.id)).find((row) => row.entry_id === entry.id)?.completed,
+    ).toBe(1);
+  } finally {
+    f.live.close();
+  }
+});
+
 test('an incomplete shared absence scan leaves all unfinished purge obligations pending', async () => {
   const f = await batchFixture();
   try {
@@ -182,7 +217,9 @@ test('saved entry cleanup uses exact key-prefix and entry indexes', async () => 
         `EXPLAIN QUERY PLAN SELECT key,object,checkpoint FROM backup_objects
       WHERE destination_id=? AND key>=? AND key<?`,
       )
-      .all(f.destination.id, prefix, prefix.slice(0, -1) + '0') as Array<{ detail: string }>;
+      .all(f.destination.id, prefix, prefix.slice(0, -1) + '0') as Array<{
+      detail: string;
+    }>;
     expect(plan.map((row) => row.detail).join(' ')).toMatch(
       /SEARCH backup_objects USING PRIMARY KEY/,
     );

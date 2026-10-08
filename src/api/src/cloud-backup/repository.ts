@@ -71,6 +71,24 @@ export class BackupRepository {
     const dest = await this.destination(id);
     if (dest) await this.rearmLibrary(dest.libraryId);
   }
+  // fallow-ignore-next-line unused-class-member
+  async attachGoogleRoot(
+    id: string,
+    rootId: string,
+    accountId: string,
+    generation: number,
+  ): Promise<boolean> {
+    const result = await this.db.write(
+      `UPDATE backup_destinations SET root_id=?,account_id=?,generation=generation+1
+      WHERE id=? AND kind='google-drive' AND generation=? AND (root_id IS NULL OR root_id=?)
+      AND (account_id IS NULL OR account_id=?)
+      AND NOT EXISTS (SELECT 1 FROM backup_destinations other
+        WHERE other.kind='google-drive' AND other.root_id=? AND other.id<>?
+        AND other.library_id<>backup_destinations.library_id)`,
+      [rootId, accountId, id, generation, rootId, accountId, rootId, id],
+    );
+    return result.changes === 1;
+  }
   async rearmLibrary(libraryId: string): Promise<void> {
     await this.db.write(
       `UPDATE stage_state SET version=0,attempts=0,dead=0,next_attempt_at=NULL
@@ -219,11 +237,17 @@ export class BackupRepository {
   async object(
     destinationId: string,
     key: string,
-  ): Promise<{ object: BackupObject | null; checkpoint: UploadCheckpoint | null }> {
-    const rows = await this.db.read<{ object: string | null; checkpoint: string | null }>(
-      `SELECT object,checkpoint FROM backup_objects WHERE destination_id=? AND key=?`,
-      [destinationId, key],
-    );
+  ): Promise<{
+    object: BackupObject | null;
+    checkpoint: UploadCheckpoint | null;
+  }> {
+    const rows = await this.db.read<{
+      object: string | null;
+      checkpoint: string | null;
+    }>(`SELECT object,checkpoint FROM backup_objects WHERE destination_id=? AND key=?`, [
+      destinationId,
+      key,
+    ]);
     return {
       object: rows[0]?.object ? JSON.parse(rows[0].object) : null,
       checkpoint: rows[0]?.checkpoint ? JSON.parse(rows[0].checkpoint) : null,
@@ -233,13 +257,19 @@ export class BackupRepository {
     destinationId: string,
     key: string,
   ): Promise<{ entryId: string; object: BackupObject | null } | null> {
-    const rows = await this.db.read<{ entry_id: string; object: string | null }>(
-      `SELECT entry_id,object FROM backup_objects WHERE destination_id=? AND key=?`,
-      [destinationId, key],
-    );
+    const rows = await this.db.read<{
+      entry_id: string;
+      object: string | null;
+    }>(`SELECT entry_id,object FROM backup_objects WHERE destination_id=? AND key=?`, [
+      destinationId,
+      key,
+    ]);
     const row = rows[0];
     return row
-      ? { entryId: row.entry_id, object: row.object ? JSON.parse(row.object) : null }
+      ? {
+          entryId: row.entry_id,
+          object: row.object ? JSON.parse(row.object) : null,
+        }
       : null;
   }
   async saveObject(
@@ -267,6 +297,19 @@ export class BackupRepository {
         params: [destinationId, entryId],
       },
     ]);
+  }
+  // fallow-ignore-next-line unused-class-member
+  async reconcileObject(
+    destinationId: string,
+    entryId: string,
+    key: string,
+    object: BackupObject,
+  ): Promise<void> {
+    await this.db.write(
+      `UPDATE backup_objects SET object=?,checkpoint=NULL
+      WHERE destination_id=? AND entry_id=? AND key=?`,
+      [JSON.stringify(object), destinationId, entryId, key],
+    );
   }
   async forgetObject(destinationId: string, key: string, locator: string): Promise<void> {
     await this.db.write(

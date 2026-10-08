@@ -103,7 +103,11 @@ export class GoogleDriveProvider implements BackupProvider {
     create: boolean,
     signal?: AbortSignal,
   ): Promise<string | null> {
-    const marker = JSON.stringify({ mapleBackupFolder: 1, rootId: this.rootId, path });
+    const marker = JSON.stringify({
+      mapleBackupFolder: 1,
+      rootId: this.rootId,
+      path,
+    });
     const matches = await this.matchingFolders(parentId, name, signal);
     if (matches.length > 1)
       throw new Error(`Multiple folders named ${name} exist in the Maple backup path.`);
@@ -345,11 +349,20 @@ export class GoogleDriveProvider implements BackupProvider {
     await this.probe(options.signal);
     return publishGoogleMirrorFile(this, key, relativePath, source, options);
   }
+  private async currentObject(
+    object: BackupObject,
+    errorMessage: string,
+    signal?: AbortSignal,
+  ): Promise<BackupObject> {
+    const file = await this.client.metadata(object.locator, signal);
+    await this.assertWithinRoot(file, signal);
+    const current = backupObject(file, this.rootId);
+    assertObjectIdentity(current, object, errorMessage);
+    return current;
+  }
   async download(object: BackupObject, signal?: AbortSignal): Promise<ReadableStream<Uint8Array>> {
     await this.probe(signal);
-    const current = backupObject(await this.client.metadata(object.locator, signal), this.rootId);
-    await this.assertWithinRoot(await this.client.metadata(object.locator, signal), signal);
-    assertObjectIdentity(current, object, 'Backup object identity changed.');
+    await this.currentObject(object, 'Backup object identity changed.', signal);
     const response = await this.client.request(
       `${DRIVE_API}/files/${object.locator}?alt=media`,
       {},
@@ -361,9 +374,7 @@ export class GoogleDriveProvider implements BackupProvider {
   async remove(object: BackupObject, signal?: AbortSignal) {
     await this.probe(signal);
     try {
-      const current = backupObject(await this.client.metadata(object.locator, signal), this.rootId);
-      await this.assertWithinRoot(await this.client.metadata(object.locator, signal), signal);
-      assertObjectIdentity(current, object, 'Refusing removal of changed backup object.');
+      await this.currentObject(object, 'Refusing removal of changed backup object.', signal);
       await this.client.request(
         `${DRIVE_API}/files/${object.locator}`,
         { method: 'DELETE' },
@@ -373,18 +384,27 @@ export class GoogleDriveProvider implements BackupProvider {
       if (!isDriveStatus(error, 404)) throw error;
     }
   }
-  async abort(checkpoint: UploadCheckpoint, signal?: AbortSignal) {
+  async abort(checkpoint: UploadCheckpoint, signal?: AbortSignal): Promise<BackupObject | null> {
     const state = parseCheckpoint(checkpoint, this.rootId);
     await this.probe(signal);
     await this.cancelSession(state.session, signal);
-    if (state.replace) return;
+    if (state.replace) {
+      const current = await this.inspect(state.key, signal, state.fileId);
+      return current?.sha256 === state.sha256 && current.size === state.size ? current : null;
+    }
     // Cancellation precedes cleanup: a final chunk racing cancellation can
     // still have committed the reserved ID. Refuse any changed/moved object.
     await this.removeReservation(
-      { key: state.key, locator: state.fileId, sha256: state.sha256, size: state.size },
+      {
+        key: state.key,
+        locator: state.fileId,
+        sha256: state.sha256,
+        size: state.size,
+      },
       signal,
     );
     await this.confirmMissing(state.fileId, signal);
+    return null;
   }
   private async cancelSession(session: string | null, signal?: AbortSignal): Promise<void> {
     if (!session) return;

@@ -265,12 +265,20 @@ async function removeSavedRemoteObjects(
   ];
   for (const saved of pending) {
     signal?.throwIfAborted();
+    let object = saved.object ? (JSON.parse(saved.object) as BackupObject) : null;
     if (saved.checkpoint) {
-      await provider.abort(JSON.parse(saved.checkpoint) as UploadCheckpoint, signal);
+      const completed = await provider.abort(
+        JSON.parse(saved.checkpoint) as UploadCheckpoint,
+        signal,
+      );
+      if (completed) {
+        object = completed;
+        await engine.repo.reconcileObject(destinationId, entryId, saved.key, completed);
+      }
     }
     signal?.throwIfAborted();
     // Persisted IDs remain erasure obligations even if a user moved the
     // object out of the root. The adapter then reports blocked ancestry.
-    if (saved.object) await provider.remove(JSON.parse(saved.object) as BackupObject, signal);
+    if (object) await provider.remove(object, signal);
   }
 }
