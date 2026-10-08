@@ -100,7 +100,7 @@ describe('ControlCardComponent — deferred Noise panel arming (#4352, #4414)', 
     expect(editorState.armTool).toHaveBeenCalledExactlyOnceWith('noise');
   });
 
-  it('does not unmount a slider still being dragged when Noise is released first', async () => {
+  it('keeps the gesture guard and card until the last of two overlapping sliders ends', async () => {
     const { card, editorState } = render();
     card.onSliderDragStart('noise');
     card.onSliderDragStart('sharpen');
@@ -108,6 +108,9 @@ describe('ControlCardComponent — deferred Noise panel arming (#4352, #4414)', 
     card.onSliderDragEnd('noise');
     await Promise.resolve();
     expect(editorState.armTool).not.toHaveBeenCalled();
+    expect(editorState.endGesture).not.toHaveBeenCalled();
+    card.onSliderDragEnd('sharpen');
+    expect(editorState.endGesture).toHaveBeenCalledTimes(1);
   });
 
   it.each([
