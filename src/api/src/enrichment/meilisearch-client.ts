@@ -83,8 +83,9 @@ const REQUIRED_SETTINGS_VERSION = 4;
 
 /** Bulk document uploads run only in the background stage and backfill, never
  * on a user request, and a large batch to a busy sidecar can legitimately take
- * longer than the per-request ceiling; their task wait is bounded separately. */
-const UNBOUNDED_BULK_UPLOAD = null;
+ * longer than the per-request ceiling — but a hung sidecar must still release
+ * the stage's concurrency slot, so they get a long bound rather than none. */
+const BULK_UPLOAD_TIMEOUT_MS = 120_000;
 
 /** The Meili embedder name we register + reference in hybrid queries. */
 export const EMBEDDER_NAME = 'caption';
@@ -378,7 +379,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
         'POST',
         `/indexes/${cfg.indexName}/documents`,
         docs.map(withTemplateFields),
-        UNBOUNDED_BULK_UPLOAD,
+        BULK_UPLOAD_TIMEOUT_MS,
       );
       await waitForMeilisearchTask(cfg, accepted, 'batch upsert');
     },
@@ -392,7 +393,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
         'POST',
         `/indexes/${cfg.indexName}/documents`,
         ids.map((id) => withTemplateFields({ id, deletedAt })),
-        UNBOUNDED_BULK_UPLOAD,
+        BULK_UPLOAD_TIMEOUT_MS,
       );
       // Per-call override (#2359): a short-timeout copy of `cfg` is used
       // only for the wait below, so the shared config's own
