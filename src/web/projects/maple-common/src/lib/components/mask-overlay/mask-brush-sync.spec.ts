@@ -25,6 +25,7 @@ interface FakeIo extends BrushSyncIo {
   uploads: BrushRasterUpload[];
   released: number[];
   stamps: Array<[number, string]>;
+  adoptions: number;
   /** Resolve the oldest outstanding upload with `rasterId`. */
   resolveOldest: (rasterId: number) => void;
   /** Reject every outstanding upload. */
@@ -41,6 +42,7 @@ function makeIo(layers: LocalAdjustment[]): FakeIo {
     uploads: [] as BrushRasterUpload[],
     released: [] as number[],
     stamps: [] as Array<[number, string]>,
+    adoptions: 0,
     dims: (): { width: number; height: number } | null => ({ width: 3000, height: 2000 }),
     register: (upload: BrushRasterUpload) => {
       io.uploads.push(upload);
@@ -53,6 +55,9 @@ function makeIo(layers: LocalAdjustment[]): FakeIo {
       io.stamps.push([index, digest]);
       const mask = io.layers[index]?.mask;
       if (mask?.kind === 'brush') mask.digest = digest;
+    },
+    adopted: () => {
+      io.adoptions++;
     },
     resolveOldest: (rasterId: number) => {
       outstanding.shift()?.resolve(rasterId);
@@ -78,6 +83,7 @@ describe('BrushRasterSync', () => {
     io.resolveOldest(7);
     await flush();
     expect(io.stamps).toEqual([]);
+    expect(io.adoptions).toBe(1);
     expect(io.layers[0].mask).toMatchObject({ digest: 'abcdef0123456789', rasterId: 0 });
     expect(io.released).toEqual([]);
   });

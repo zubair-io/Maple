@@ -31,6 +31,8 @@ export interface BrushSyncIo {
   release: (rasterId: number) => void;
   /** Name the brush leaf at `index`, which carries no usable digest. */
   stampDigest: (index: number, digest: string) => void;
+  /** A raster landed: the sidecar did not change, so the canvas must be told. */
+  adopted: () => void;
 }
 
 export class BrushRasterSync {
@@ -102,6 +104,7 @@ export class BrushRasterSync {
           const prev = this.registered.get(key);
           this.registered.set(key, rasterId);
           if (prev !== undefined && prev !== rasterId) this.io.release(prev);
+          this.io.adopted();
         },
         () => {
           if (epoch === this.epoch) this.pending.delete(key);

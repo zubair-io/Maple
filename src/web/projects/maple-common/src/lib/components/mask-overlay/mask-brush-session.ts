@@ -62,6 +62,9 @@ export class MaskBrushSession {
   readonly feather = signal(BRUSH_DEFAULT_FEATHER);
   readonly flow = signal(BRUSH_DEFAULT_FLOW);
   readonly erase = signal(false);
+  /** Bumps whenever a brush raster lands in the worker; the canvas reads it
+   *  to re-render, since adopting a raster leaves the sidecar unchanged. */
+  readonly rasterRevision = signal(0);
 
   private readonly sync: BrushRasterSync;
   /** Last worker generation the sync ran against — a retire wipes the
@@ -77,6 +80,7 @@ export class MaskBrushSession {
       register: (upload) => deps.registerRaster(upload),
       release: (rasterId) => deps.releaseRaster(rasterId),
       stampDigest: (index, digest) => this.stampDigest(index, digest),
+      adopted: () => this.rasterRevision.update((n) => n + 1),
     });
     // Brush-raster sync: every layer-stack change re-attaches dab series to
     // worker rasters. A digest stamp converges (it reads back valid), so the
