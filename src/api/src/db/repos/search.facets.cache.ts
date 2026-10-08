@@ -85,6 +85,9 @@ export function cachedFacets<T>(
   const forget = () => {
     if (entries.get(key) === entry) entries.delete(key);
   };
-  value.then((answer) => (keep(answer) ? undefined : forget())).catch(forget);
+  // A failure is forgotten on the same turn it settles, before any caller
+  // awaiting it can ask again; the second chain only judges a success.
+  value.catch(forget);
+  value.then((answer) => (keep(answer) ? undefined : forget())).catch(() => undefined);
   return value;
 }
