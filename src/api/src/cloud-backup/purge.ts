@@ -241,9 +241,10 @@ async function removeSavedRemoteObjects(
   signal?: AbortSignal,
 ): Promise<void> {
   const entryId = prefix.split('/')[3];
-  const objectColumns = `key,object,checkpoint`;
+  const objectColumns = `key,entry_id,object,checkpoint`;
   const catalogObjects = await engine.repo.db.read<{
     key: string;
+    entry_id: string;
     object: string | null;
     checkpoint: string | null;
   }>(
@@ -253,6 +254,7 @@ async function removeSavedRemoteObjects(
   );
   const entryObjects = await engine.repo.db.read<{
     key: string;
+    entry_id: string;
     object: string | null;
     checkpoint: string | null;
   }>(
@@ -279,6 +281,16 @@ async function removeSavedRemoteObjects(
     signal?.throwIfAborted();
     // Persisted IDs remain erasure obligations even if a user moved the
     // object out of the root. The adapter then reports blocked ancestry.
-    if (object) await provider.remove(object, signal);
+    if (object) {
+      const current = await engine.repo.objectOwner(destinationId, saved.key);
+      if (
+        current?.entryId === saved.entry_id &&
+        current.object?.key === object.key &&
+        current.object.locator === object.locator &&
+        current.object.size === object.size &&
+        current.object.sha256 === object.sha256
+      )
+        await provider.remove(object, signal);
+    }
   }
 }

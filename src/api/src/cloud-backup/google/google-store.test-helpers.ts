@@ -48,10 +48,11 @@ class GoogleStore {
     headers: Headers;
   }> = [];
   private reserve = 0;
-  private active: Upload | null = null;
+  private readonly active = new Map<string, Upload>();
   private loseFinalResponse = false;
   private failNextChunk = false;
   private expireNextSessionProbe = false;
+  private sessionSequence = 0;
   loseFinal() {
     this.loseFinalResponse = true;
   }
@@ -141,11 +142,12 @@ class GoogleStore {
   }
   private uploadRequest(url: URL, method: string, init?: RequestInit) {
     if (method === 'DELETE') {
-      this.active = null;
+      const sessionId = url.searchParams.get('upload_id');
+      if (sessionId) this.active.delete(sessionId);
       return new Response(null, { status: 204 });
     }
     if (method === 'POST' || method === 'PATCH') return this.startUpload(url, method, init);
-    if (method === 'PUT') return this.uploadChunk(init);
+    if (method === 'PUT') return this.uploadChunk(url, init);
     throw new Error(`Unexpected upload method ${method}`);
   }
   private startUpload(url: URL, method: string, init?: RequestInit) {
@@ -153,33 +155,35 @@ class GoogleStore {
     const previous = existingId ? this.files.get(existingId) : null;
     if (existingId && !previous) return new Response(null, { status: 404 });
     const body = JSON.parse(String(init!.body));
-    this.active = {
+    const sessionId = `session-${++this.sessionSequence}`;
+    this.active.set(sessionId, {
       ...body,
       id: existingId ?? body.id,
       parents: body.parents ?? previous!.parents,
       size: Number(new Headers(init?.headers).get('x-upload-content-length')),
       parts: [],
       existingId,
-    };
+    });
     return new Response(null, {
       status: 200,
       headers: {
-        Location: `https://www.googleapis.com/upload/drive/v3/files${existingId ? `/${existingId}` : ''}?upload_id=session-1`,
+        Location: `https://www.googleapis.com/upload/drive/v3/files${existingId ? `/${existingId}` : ''}?upload_id=${sessionId}`,
       },
     });
   }
-  private uploadChunk(init?: RequestInit) {
+  private uploadChunk(url: URL, init?: RequestInit) {
+    const sessionId = url.searchParams.get('upload_id');
     const headers = new Headers(init?.headers);
     if (this.expireNextSessionProbe && headers.get('content-range')?.startsWith('bytes */')) {
       this.expireNextSessionProbe = false;
-      this.active = null;
+      if (sessionId) this.active.delete(sessionId);
       return new Response(null, { status: 404 });
     }
     if (this.failNextChunk && headers.has('content-range')) {
       this.failNextChunk = false;
       throw new Error('Simulated interrupted upload');
     }
-    const active = this.active;
+    const active = sessionId ? this.active.get(sessionId) : null;
     if (!active) return new Response(null, { status: 404 });
     const body = init?.body as Uint8Array | undefined;
     if (body?.length) active.parts.push(body);
@@ -202,6 +206,7 @@ class GoogleStore {
       sha256Checksum: createHash('sha256').update(bytes).digest('hex'),
       bytes,
     });
+    if (sessionId) this.active.delete(sessionId);
     if (this.loseFinalResponse) {
       this.loseFinalResponse = false;
       throw new Error('Simulated lost final response');

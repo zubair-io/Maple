@@ -83,8 +83,7 @@ export class BackupRepository {
       WHERE id=? AND kind='google-drive' AND generation=? AND (root_id IS NULL OR root_id=?)
       AND (account_id IS NULL OR account_id=?)
       AND NOT EXISTS (SELECT 1 FROM backup_destinations other
-        WHERE other.kind='google-drive' AND other.root_id=? AND other.id<>?
-        AND other.library_id<>backup_destinations.library_id)`,
+        WHERE other.kind='google-drive' AND other.root_id=? AND other.id<>?)`,
       [rootId, accountId, id, generation, rootId, accountId, rootId, id],
     );
     return result.changes === 1;

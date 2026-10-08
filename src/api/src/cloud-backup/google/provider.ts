@@ -14,6 +14,24 @@ import { verifiedGoogleObject } from './integrity.ts';
 
 import { objectMarker, backupObject, assertObjectIdentity } from './object.ts';
 
+const folderCreationQueues = new Map<string, Promise<void>>();
+
+async function serializeFolderCreation<T>(key: string, create: () => Promise<T>): Promise<T> {
+  const previous = folderCreationQueues.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  folderCreationQueues.set(key, current);
+  await previous;
+  try {
+    return await create();
+  } finally {
+    release();
+    if (folderCreationQueues.get(key) === current) folderCreationQueues.delete(key);
+  }
+}
+
 function managedFolder(file: DriveFile, rootId: string): boolean {
   try {
     const marker = JSON.parse(file.description ?? '') as Record<string, unknown>;
@@ -108,31 +126,37 @@ export class GoogleDriveProvider implements BackupProvider {
       rootId: this.rootId,
       path,
     });
-    const matches = await this.matchingFolders(parentId, name, signal);
-    if (matches.length > 1)
-      throw new Error(`Multiple folders named ${name} exist in the Maple backup path.`);
-    const existing = matches[0];
-    if (existing) {
+    const resolveExisting = async (): Promise<string | null> => {
+      const matches = await this.matchingFolders(parentId, name, signal);
+      if (matches.length > 1)
+        throw new Error(`Multiple folders named ${name} exist in the Maple backup path.`);
+      const existing = matches[0];
+      if (!existing) return null;
       if (!this.matchesManagedFolder(existing, parentId, marker))
         throw new Error(`The folder ${name} in the Maple backup path is not Maple-managed.`);
       return existing.id;
-    }
-    if (!create) return null;
-    const created = await this.client.json<{ id: string }>(
-      `${DRIVE_API}/files?fields=id`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          mimeType: 'application/vnd.google-apps.folder',
-          parents: [parentId],
-          description: marker,
-        }),
-      },
-      signal,
-    );
-    return created.id;
+    };
+    const existing = await resolveExisting();
+    if (existing || !create) return existing;
+    return serializeFolderCreation(`${this.rootId}\0${parentId}\0${name}`, async () => {
+      const afterWaiting = await resolveExisting();
+      if (afterWaiting) return afterWaiting;
+      const created = await this.client.json<{ id: string }>(
+        `${DRIVE_API}/files?fields=id`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            mimeType: 'application/vnd.google-apps.folder',
+            parents: [parentId],
+            description: marker,
+          }),
+        },
+        signal,
+      );
+      return created.id;
+    });
   }
   private async matchingFolders(
     parentId: string,

@@ -190,6 +190,37 @@ test('permanent deletion reconciles a completed mirror replacement before removi
   }
 });
 
+test('permanent deletion rechecks mirror ownership after its purge snapshot', async () => {
+  const f = await batchFixture();
+  try {
+    const provider = createTestProvider();
+    const purged = f.entries[0]!;
+    const replacement = f.entries[2]!;
+    const key = `mirror/${f.libraryId}/photo-0.dng`;
+    const object = await provider.mirrorFile(key, 'photo-0.dng', jsonSource('same bytes'), {
+      saveCheckpoint: async () => {},
+    });
+    await f.repo.saveObject(f.destination.id, purged.id, key, object, {
+      provider: 'test',
+      version: 1,
+      state: {},
+    });
+    provider.abort = async () => {
+      // A replacement entry adopts the same bytes and locator after purge
+      // selected the old row but before it can remove the remote object.
+      await f.repo.saveObject(f.destination.id, replacement.id, key, object, null);
+      return null;
+    };
+
+    await drainPurges(new BackupEngine(async () => provider, f.repo), f.destination);
+
+    expect(provider.objects.has(key)).toBe(true);
+    expect((await f.repo.objectOwner(f.destination.id, key))?.entryId).toBe(replacement.id);
+  } finally {
+    f.live.close();
+  }
+});
+
 test('an incomplete shared absence scan leaves all unfinished purge obligations pending', async () => {
   const f = await batchFixture();
   try {
