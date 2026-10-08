@@ -107,7 +107,21 @@ export async function meilisearchHttp<T>(
     };
   }
 
-  const text = await response.text().catch(() => '');
+  // A body that stalls after the headers is aborted by the same signal; that
+  // read failing is a failed request, not an empty success.
+  const bodyRead = await response.text().then(
+    (text) => ({ text }),
+    (error: unknown) => ({ error }),
+  );
+  if ('error' in bodyRead) {
+    return {
+      ok: false,
+      status: response.status,
+      body: null,
+      errorText: bodyRead.error instanceof Error ? bodyRead.error.message : String(bodyRead.error),
+    };
+  }
+  const { text } = bodyRead;
   let parsed: unknown = null;
   if (text.length > 0) {
     try {

@@ -36,6 +36,20 @@ function hangingFetch(): { fetchImpl: typeof fetch; requests: RecordedRequest[] 
   return { fetchImpl, requests };
 }
 
+/** A fetch that answers 200 and then never finishes the body — a sidecar
+ * that stalls mid-response. The body errors when the signal aborts. */
+function stalledBodyFetch(): typeof fetch {
+  return ((_input: RequestInfo | URL, init?: RequestInit) => {
+    const signal = init?.signal;
+    const body = new ReadableStream({
+      start(controller) {
+        signal?.addEventListener('abort', () => controller.error(signal.reason));
+      },
+    });
+    return Promise.resolve(new Response(body, { status: 200 }));
+  }) as typeof fetch;
+}
+
 function hungClient(fetchImpl: typeof fetch) {
   return createMeilisearchClient({
     url: 'http://meili.local:7700',
@@ -59,6 +73,14 @@ describe('Meilisearch request timeout', () => {
   it('search() rejects so the route can fall back', async () => {
     const { fetchImpl } = hangingFetch();
     await expect(hungClient(fetchImpl).search('museum')).rejects.toThrow();
+  });
+
+  it('health() reports unreachable when the body stalls after the headers', async () => {
+    expect(await hungClient(stalledBodyFetch()).health()).toBe(false);
+  });
+
+  it('search() rejects when the body stalls after the headers', async () => {
+    await expect(hungClient(stalledBodyFetch()).search('museum')).rejects.toThrow();
   });
 
   it('leaves background bulk uploads unbounded', async () => {
