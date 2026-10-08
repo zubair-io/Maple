@@ -98,9 +98,9 @@ describe('facets over a candidate set', () => {
     };
     const result = await searchFacets(where({ placeQuery: 'new york' }), recording);
     expect(result.total).toBe(3);
-    // The exact total and the score-only ranking read the inverted index
-    // (#4431); the join of the best matches and the twelve groupings do not.
+    // The exact total and the ranking of the first results read the inverted
+    // index (#4431); the twelve groupings do not.
     expect(issued.filter((sql) => sql.includes('MATCH')).length).toBe(2);
-    expect(issued.length).toBe(15);
+    expect(issued.length).toBe(14);
   });
 });

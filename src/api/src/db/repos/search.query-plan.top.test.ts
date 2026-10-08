@@ -5,10 +5,9 @@
  * plan that quietly reintroduces it still returns the right rows — only slower,
  * by the second on production. So the shape is pinned here:
  *
- *  - the score-only ranking reads the inverted index and nothing else (the
- *    month narrowing aside, which is a list built once);
- *  - the join of the best matches is led by those matches, probing
- *    `asset_search` and `assets` by key;
+ *  - the first results are ranked on the inverted index alone (the month
+ *    narrowing aside, which is a list built once), and only those are joined,
+ *    probing `asset_search` and `assets` by key;
  *  - the exact total reads the inverted index and the `assets_unlisted` index,
  *    never an asset per match.
  *
@@ -19,7 +18,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { createTestDatabase } from '../sqlite/test-sqlite.test-helpers.ts';
-import { bestHitsSql, hitRowsSql } from './search.ranked.ts';
+import { firstRankedSql } from './search.ranked.ts';
 import type { BoundStatement } from './search.sql.ts';
 import { textOnlyCountSql } from './search.text-count.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
@@ -52,36 +51,33 @@ const QUERIES: SearchQuery[] = [
   { placeQuery: 'harbour', rating: '3', camera: 'apple' },
 ];
 
-describe('the score-only ranking reads the inverted index alone', () => {
+describe('the first results are ranked on the inverted index, then probed by key', () => {
   for (const q of QUERIES) {
     test(JSON.stringify(q), async () => {
       await withDb((db) => {
-        const plan = planOf(db, bestHitsSql(translate(q), 4_000));
-        expect(plan[0]).toBe('SCAN assets_fts VIRTUAL TABLE INDEX 0:M1');
+        const plan = planOf(db, firstRankedSql(translate(q), 4_000, 2_000));
+        const reads = plan.filter(
+          (line) => /^(SCAN|SEARCH) /.test(line) && line !== 'SCAN CONSTANT ROW',
+        );
+        // The ranking is the first table read, and the only full-text one.
+        expect(reads[0]).toBe('SCAN assets_fts VIRTUAL TABLE INDEX 0:M1');
+        expect(plan.filter((line) => line.includes('assets_fts'))).toEqual([
+          'SCAN assets_fts VIRTUAL TABLE INDEX 0:M1',
+        ]);
         expect(plan.filter((line) => line.includes('0:='))).toEqual([]);
-        const outside = plan.filter(
-          (line) => !line.includes('assets_fts') && !line.includes('TEMP B-TREE FOR ORDER BY'),
+        // Every asset is reached by key from a hit, never by walking the table
+        // or one of its indexes.
+        expect(reads.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
+        expect(plan).toContain('SEARCH asset_search USING INTEGER PRIMARY KEY (rowid=?)');
+        expect(
+          reads.filter(
+            (line) => line.startsWith('SEARCH assets ') && !/(id=\?|rowid=\?)/.test(line),
+          ),
+        ).toEqual(
+          q.month === undefined
+            ? []
+            : ['SEARCH assets USING INDEX assets_live_month (captured_month=? AND hidden=?)'],
         );
-        expect(outside.length === 0 || plan.includes('LIST SUBQUERY 1')).toBe(true);
-        expect(plan.some((line) => line.includes('assets_live_id'))).toBe(false);
-      });
-    });
-  }
-});
-
-describe('the best matches lead their own join', () => {
-  for (const q of QUERIES) {
-    test(JSON.stringify(q), async () => {
-      await withDb((db) => {
-        const plan = planOf(
-          db,
-          hitRowsSql(translate(q), [{ sr: 1, rank: -1 }], 'assets.rowid AS r', 10),
-        );
-        expect(plan[0]).toBe('SCAN json_each VIRTUAL TABLE INDEX 1:');
-        expect(plan[1]).toBe('SEARCH asset_search USING INTEGER PRIMARY KEY (rowid=?)');
-        expect(plan[2]).toMatch(/^SEARCH assets USING (COVERING )?INDEX \S+ \(.*id=\?.*\)$/);
-        expect(plan.some((line) => line.includes('assets_fts'))).toBe(false);
-        expect(plan.some((line) => line.startsWith('SCAN assets'))).toBe(false);
       });
     });
   }

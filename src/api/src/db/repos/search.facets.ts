@@ -31,7 +31,7 @@ import {
   type FacetName,
 } from './search.facets.sql.ts';
 import type { SearchWhere } from './search.where.ts';
-import { firstRankedRowids } from './search.ranked.ts';
+import { firstRanked } from './search.ranked.ts';
 import { textCount } from './search.text-count.ts';
 import { cachedFacets } from './search.facets.cache.ts';
 import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
@@ -205,10 +205,11 @@ async function facetRows(
   }
   // Both at once: the first rows of the list are every match when there are
   // no more than `topMatches` of them, so the count only decides the label.
-  const [total, rowids] = await Promise.all([
+  const [total, ranked] = await Promise.all([
     textCount(db, where),
-    firstRankedRowids(db, where, topMatches),
+    firstRanked(db, where, topMatches),
   ]);
+  const rowids = ranked.map((row) => row.r);
   const { total: _total, ...groupings } = facetStatements(scopedToCandidates(where, rowids));
   const rows = await runFacets(db, groupings);
   return {
