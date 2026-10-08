@@ -212,6 +212,8 @@
           onSelectCollection: { card in
             guard let collections = session.collections else { return }
             var seed = SearchParams.fromDeepLinkQuery(card.query)
+            // A card's query is per library; scoping the seed to it keeps an
+            // edited query on that library — the widget link does the same.
             seed.libraryID = collections.libraryID
             // The cover fetch already ran the collection's query; show that
             // page rather than running the (slow) search again.
@@ -219,11 +221,13 @@
               run(seed, in: session)
               return
             }
-            query = seed.placeQuery
             path = []
+            // Params first: the `query` change below then matches them, so
+            // SearchView's debounce has nothing to submit.
             session.vm.showCollection(params: seed, firstPage: firstPage) { offset, limit in
               try await collections.page(of: card.id, offset: offset, limit: limit)
             }
+            query = seed.placeQuery
           },
           onSelectAsset: { asset in
             let resolved = resolveAsset(asset, session.server)

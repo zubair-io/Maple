@@ -265,6 +265,9 @@ public final class SearchViewModel {
     isLoading = false
     isLoadingMore = false
     loadError = nil
+    // The panel's People / Places rows belong to the previous query;
+    // `loadFacetsIfNeeded()` refetches them for the card's when it opens.
+    facets = nil
   }
 
   /// Populate the filter panel's option lists WITHOUT running a result

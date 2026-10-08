@@ -227,6 +227,7 @@ SearchCursorPaginationTests
 SearchParamsTests
 SearchViewModelTests
 SearchViewModelCollectionTests
+GeneratedSearchCollectionsViewModelTests
 SessionPruningTests
 SidecarModifyIdempotencyTests
 SidecarPathTests
