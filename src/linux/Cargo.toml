@@ -32,3 +32,5 @@ dirs = "6"
 rav1d = { path = "../raw-pipeline/third_party/rav1d" }
 zune-jpeg = { path = "../raw-pipeline/third_party/zune-jpeg" }
 avif-parse = { path = "../raw-pipeline/third_party/avif-parse" }
+ravif = { path = "../raw-pipeline/third_party/ravif" }
+avif-serialize = { path = "../raw-pipeline/third_party/avif-serialize" }
