@@ -21,7 +21,7 @@ export const DEFAULT_MEILISEARCH_TASK_TIMEOUT_MS = 10 * 60 * 1000;
  * a warm hybrid search (one Ollama query embedding) in a few hundred, so 5 s
  * only trips a hung or wedged sidecar — and leaves the search route time to
  * fall back to SQLite well inside the pool's 30 s backstop. */
-export const MEILISEARCH_REQUEST_TIMEOUT_MS = 5_000;
+const MEILISEARCH_REQUEST_TIMEOUT_MS = 5_000;
 
 export interface MeilisearchHttpResult<T> {
   ok: boolean;
@@ -99,37 +99,38 @@ export async function meilisearchHttp<T>(
       signal: timeoutMs === null ? undefined : AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
-    return {
-      ok: false,
-      status: 0,
-      body: null,
-      errorText: error instanceof Error ? error.message : String(error),
-    };
+    return transportFailure(0, error);
   }
+  return readResponse<T>(response);
+}
 
-  // A body that stalls after the headers is aborted by the same signal; that
-  // read failing is a failed request, not an empty success.
+function transportFailure<T>(status: number, error: unknown): MeilisearchHttpResult<T> {
+  return {
+    ok: false,
+    status,
+    body: null,
+    errorText: error instanceof Error ? error.message : String(error),
+  };
+}
+
+function parseBody(text: string): unknown {
+  if (text.length === 0) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+async function readResponse<T>(response: Response): Promise<MeilisearchHttpResult<T>> {
+  // A body that stalls after the headers is aborted by the request's signal;
+  // that read failing is a failed request, not an empty success.
   const bodyRead = await response.text().then(
     (text) => ({ text }),
     (error: unknown) => ({ error }),
   );
-  if ('error' in bodyRead) {
-    return {
-      ok: false,
-      status: response.status,
-      body: null,
-      errorText: bodyRead.error instanceof Error ? bodyRead.error.message : String(bodyRead.error),
-    };
-  }
-  const { text } = bodyRead;
-  let parsed: unknown = null;
-  if (text.length > 0) {
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = text;
-    }
-  }
+  if ('error' in bodyRead) return transportFailure(response.status, bodyRead.error);
+  const parsed = parseBody(bodyRead.text);
   if (!response.ok) {
     return {
       ok: false,
