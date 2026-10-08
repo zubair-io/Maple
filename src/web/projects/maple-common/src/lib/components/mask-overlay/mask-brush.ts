@@ -223,9 +223,7 @@ export function flattenBrushDabs(dabs: readonly BrushDab[]): Float32Array {
   let n = 0;
   for (const d of dabs) {
     if (
-      !Number.isFinite(d.center.x) ||
-      !Number.isFinite(d.center.y) ||
-      !Number.isFinite(d.radius) ||
+      ![d.center.x, d.center.y, d.radius, d.feather, d.weight].every(Number.isFinite) ||
       d.radius <= 0
     )
       continue;
@@ -233,8 +231,8 @@ export function flattenBrushDabs(dabs: readonly BrushDab[]): Float32Array {
     out[base] = d.center.x;
     out[base + 1] = d.center.y;
     out[base + 2] = d.radius;
-    out[base + 3] = Number.isFinite(d.feather) ? Math.min(1, Math.max(0, d.feather)) : 0;
-    out[base + 4] = Number.isFinite(d.weight) ? Math.min(1, Math.max(0, d.weight)) : 0;
+    out[base + 3] = Math.min(1, Math.max(0, d.feather));
+    out[base + 4] = Math.min(1, Math.max(0, d.weight));
     out[base + 5] = d.erase ? 1 : 0;
     n++;
   }
