@@ -32,7 +32,9 @@
     @Binding var query: String
     /// The library's generated searches, shown as cards on the idle page.
     var collections: GeneratedSearchCollectionsViewModel? = nil
-    /// Card tap — the host runs the collection's stored search.
+    /// The card whose results are still being fetched, shown as busy.
+    var openingCollectionID: String? = nil
+    /// Card tap — the host opens the collection's results.
     var onSelectCollection: (GeneratedSearchCard) -> Void = { _ in }
     /// Result tap — the host opens the asset (Preview first, per Fast
     /// Preview §1).
@@ -85,6 +87,7 @@
                 model: collections,
                 provider: thumbProvider,
                 host: host,
+                openingID: openingCollectionID,
                 onTap: onSelectCollection)
             }
             SearchRecentQueries(recent: recent, onTap: tapRecent)

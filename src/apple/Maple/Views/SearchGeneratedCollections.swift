@@ -5,8 +5,8 @@
 // cover is the collection's first photo from
 // `GeneratedSearchCollectionsViewModel.covers`, which comes from the server's
 // collection-assets endpoint so the hidden-people and screenshot exclusions
-// hold. Tapping a card hands the host the card; the host runs its stored
-// search, the same path the Generated Search widget's tap takes.
+// hold. Tapping a card hands the host the card; the host opens the
+// collection's own results (`SearchViewModel.showCollection`).
 
 #if os(iOS)
 
@@ -17,6 +17,8 @@
     let model: GeneratedSearchCollectionsViewModel
     let provider: ThumbnailProvider?
     let host: String
+    /// The card whose results are being fetched; it shows a spinner.
+    var openingID: String? = nil
     let onTap: (GeneratedSearchCard) -> Void
 
     private static let cardSide: CGFloat = 132
@@ -56,6 +58,13 @@
           .lineLimit(2)
           .padding(10)
           .allowsHitTesting(false)
+        if card.id == openingID {
+          ProgressView()
+            .tint(.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.black.opacity(0.35))
+            .allowsHitTesting(false)
+        }
       }
       .frame(width: Self.cardSide, height: Self.cardSide)
       .clipShape(RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous))
