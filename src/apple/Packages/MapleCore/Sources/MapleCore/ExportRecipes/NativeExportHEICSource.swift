@@ -17,7 +17,6 @@ enum NativeExportHEICSource {
       try render(original)
       return
     }
-    let encoded = try tiff(source)
     var template = Array(
       FileManager.default.temporaryDirectory
         .appendingPathComponent("maple-heic-recipe-XXXXXX").path.utf8CString)
@@ -41,7 +40,9 @@ enum NativeExportHEICSource {
         .appendingPathComponent("Sources", isDirectory: true)
       try FileManager.default.createDirectory(at: sources, withIntermediateDirectories: false)
       let input = sources.appendingPathComponent("primary.tif")
-      try capture.write(encoded, to: input)
+      let decoded = try decode(source)
+      try capture.write(to: input) { try tiff(decoded, to: $0) }
+      try verify(input, preserves: decoded.image)
       try render(input)
     } catch {
       let failure = error
@@ -72,7 +73,12 @@ enum NativeExportHEICSource {
     }
   }
 
-  static func tiff(_ source: CGImageSource) throws -> Data {
+  private struct Decoded {
+    let image: CGImage
+    let orientation: NSNumber
+  }
+
+  private static func decode(_ source: CGImageSource) throws -> Decoded {
     guard
       let image = CGImageSourceCreateImageAtIndex(
         source, 0,
@@ -82,21 +88,42 @@ enum NativeExportHEICSource {
       throw NativeExportError.message(
         "This HEIC/HEIF original could not be decoded. The original was preserved.")
     }
-    let encoded = NSMutableData()
+    return Decoded(
+      image: image, orientation: properties[kCGImagePropertyOrientation] as? NSNumber ?? 1)
+  }
+
+  /// Streams the lossless transport through the owned exclusive descriptor instead of
+  /// buffering a whole 16-bit TIFF in memory (about 600 MB at 100 MP).
+  private static func tiff(_ decoded: Decoded, to handle: FileHandle) throws {
+    let sink = TIFFSink(handle: handle)
+    var callbacks = CGDataConsumerCallbacks(
+      putBytes: { info, bytes, count in
+        Unmanaged<TIFFSink>.fromOpaque(info!).takeUnretainedValue().put(bytes, count)
+      },
+      releaseConsumer: nil)
     guard
-      let destination = CGImageDestinationCreateWithData(
-        encoded,
-        UTType.tiff.identifier as CFString, 1, nil)
+      let consumer = CGDataConsumer(
+        info: Unmanaged.passUnretained(sink).toOpaque(), cbks: &callbacks),
+      let destination = CGImageDestinationCreateWithDataConsumer(
+        consumer, UTType.tiff.identifier as CFString, 1, nil)
     else { throw NativeExportError.message("Native lossless HEIC transport is unavailable.") }
-    let orientation = properties[kCGImagePropertyOrientation] as? NSNumber ?? 1
     CGImageDestinationAddImage(
-      destination, image,
+      destination, decoded.image,
       [
-        kCGImagePropertyOrientation: orientation,
+        kCGImagePropertyOrientation: decoded.orientation,
         kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFCompression: 1],
       ] as CFDictionary)
-    guard CGImageDestinationFinalize(destination),
-      let transported = CGImageSourceCreateWithData(encoded, nil),
+    let finalized = withExtendedLifetime(sink) { CGImageDestinationFinalize(destination) }
+    if let failure = sink.failure { throw failure }
+    guard finalized else {
+      throw NativeExportError.message("Native lossless HEIC transport could not be written.")
+    }
+  }
+
+  private static func verify(_ url: URL, preserves image: CGImage) throws {
+    guard
+      let transported = CGImageSourceCreateWithURL(
+        url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
       let decoded = CGImageSourceCreateImageAtIndex(
         transported, 0,
         [kCGImageSourceShouldAllowFloat: true] as CFDictionary),
@@ -109,6 +136,23 @@ enum NativeExportHEICSource {
         "The HEIC/HEIF original's native color profile or bit depth could not be preserved. Choose another source; the original was left intact."
       )
     }
-    return encoded as Data
+  }
+}
+
+private final class TIFFSink {
+  let handle: FileHandle
+  private(set) var failure: Error?
+  init(handle: FileHandle) { self.handle = handle }
+  func put(_ bytes: UnsafeRawPointer, _ count: Int) -> Int {
+    guard failure == nil else { return 0 }
+    do {
+      let chunk = Data(
+        bytesNoCopy: UnsafeMutableRawPointer(mutating: bytes), count: count, deallocator: .none)
+      try handle.write(contentsOf: chunk)
+      return count
+    } catch {
+      failure = error
+      return 0
+    }
   }
 }
