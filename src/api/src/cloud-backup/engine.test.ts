@@ -89,6 +89,47 @@ test('outgoing entry cleanup preserves a mirror path that another entry has clai
   expect(provider.objects.has(firstObject.key)).toBe(true);
   expect((await repo.objectOwner(destination.id, firstObject.key))?.entryId).toBe(otherEntryId);
 });
+test('mirror migration removes an unreferenced legacy blob after publishing its replacement', async () => {
+  using live = await createLiveTestDatabase();
+  const { assetId, libraryId, destination, repo, provider, engine } = await setup(live);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  const prior = latestManifests((await readRemoteCatalog(provider)).entries)[0]!;
+  const entry = (await repo.entries(destination.id))[0]!;
+  const original = prior.files.find((file) => file.role === 'original')!;
+  const bytes = provider.objects.get(original.object.key)!.bytes;
+  const legacyKey = `libraries/${libraryId}/entries/${entry.id}/blobs/${original.object.sha256}`;
+  const legacyObject = await provider.publish(
+    legacyKey,
+    {
+      size: bytes.length,
+      sha256: original.object.sha256,
+      open: (offset) =>
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(bytes.subarray(offset));
+            controller.close();
+          },
+        }),
+    },
+    { saveCheckpoint: async () => {} },
+  );
+  await repo.saveObject(destination.id, entry.id, legacyKey, legacyObject, null);
+  const legacyManifest = {
+    ...prior,
+    files: prior.files.map((file) =>
+      file.path === original.path ? { ...file, object: legacyObject } : file,
+    ),
+  };
+  await repo.db.write('UPDATE backup_entries SET manifest=? WHERE id=?', [
+    JSON.stringify(legacyManifest),
+    entry.id,
+  ]);
+
+  run(live.db, 'UPDATE assets SET sidecar_ver=sidecar_ver+1 WHERE id=?', assetId);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  expect(provider.objects.has(legacyKey)).toBe(false);
+  expect(await repo.objectOwner(destination.id, legacyKey)).toBeNull();
+});
 test('a disconnected target retries independently while healthy targets publish', async () => {
   using live = await createLiveTestDatabase();
   const setupResult = await setup(live);

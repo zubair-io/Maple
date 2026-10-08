@@ -88,7 +88,7 @@ function sameObjectIdentity(
     object.size === expected.size,
   );
 }
-async function removeStaleMirrorFile(
+async function removeStaleEntryObject(
   provider: BackupProvider,
   repo: BackupRepository,
   destination: BackupDestination,
@@ -96,7 +96,11 @@ async function removeStaleMirrorFile(
   expected: BackupObject,
   signal: AbortSignal,
 ): Promise<void> {
-  if (!expected.key.startsWith(`mirror/${destination.libraryId}/`)) return;
+  const mirrorKey = expected.key.startsWith(`mirror/${destination.libraryId}/`);
+  const legacyKey =
+    expected.key ===
+    `libraries/${destination.libraryId}/entries/${entry.id}/blobs/${expected.sha256}`;
+  if (!mirrorKey && !legacyKey) return;
   const owner = await repo.objectOwner(destination.id, expected.key);
   if (owner?.entryId !== entry.id || !sameObjectIdentity(owner.object, expected)) return;
   const current = await provider.inspect(expected.key, signal, expected.locator);
@@ -298,7 +302,7 @@ export class BackupEngine {
     const retainedKeys = new Set(files.map((file) => file.object.key));
     for (const oldFile of previous?.files ?? []) {
       if (retainedKeys.has(oldFile.object.key)) continue;
-      await removeStaleMirrorFile(provider, repo, destination, entry, oldFile.object, signal);
+      await removeStaleEntryObject(provider, repo, destination, entry, oldFile.object, signal);
     }
     await this.assertFence(ctx, 'Backup changed during catalog publication');
     return repo.finish(entry, destination, ctx.owner, manifest);
