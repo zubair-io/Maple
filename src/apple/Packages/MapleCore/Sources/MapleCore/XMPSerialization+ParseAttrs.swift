@@ -341,7 +341,7 @@ extension _XMPParserDelegate {
     case "papp:WbScaleVersion": break
     // Lightroom culling
     case "xmp:Rating":
-      if let n = Int(value) { culling.stars = max(0, min(5, n)) }
+      culling.stars = XMPParser.parseRatingValue(value, current: culling.stars)
     // Canonical cull flag (#2221). Matched case-sensitively against the
     // bare lowercase vocabulary, exactly like `metadata-parser.ts` and
     // `xmp-culling.ts` — a laxer match here would let a sidecar resolve
@@ -366,11 +366,7 @@ extension _XMPParserDelegate {
     // colour words out of it would turn every legacy pick into red.
     case "xmp:Label":
       guard !cullFlagSeen else { break }
-      switch value.lowercased() {
-      case "red", "pick": culling.flag = .pick
-      case "reject", "rejected": culling.flag = .reject
-      default: break
-      }
+      if let flag = XMPParser.parseLabelFlag(value) { culling.flag = flag }
     // Colour label (#1656/#1657). Unknown values leave the label unset
     // rather than storing an out-of-vocabulary string, mirroring the
     // API parser's `VALID_COLOR_LABELS` membership gate. The match is

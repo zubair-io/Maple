@@ -227,7 +227,10 @@ final class XMPCullFlagTests: XCTestCase {
     /// A sidecar already on disk in the legacy spelling upgrades to the
     /// canonical key on the next save without losing the flag — the
     /// migration path for existing users, driven entirely by normal saves
-    /// (nothing rewrites files behind the user's back).
+    /// (nothing rewrites files behind the user's back). Since #4403 the
+    /// authored `xmp:Label` bytes stay too: the attribute is also Adobe's
+    /// live colour-label key, so deleting it on sight destroyed Lightroom
+    /// labels — the raw is only dropped once the flag itself is edited.
     func testLegacySidecarUpgradesToTheCanonicalKeyOnResave() async throws {
         let rawURL = makeTempRawURL()
         defer { removeSidecar(for: rawURL) }
@@ -244,6 +247,7 @@ final class XMPCullFlagTests: XCTestCase {
 
         let rewritten = try String(contentsOf: sidecarURL, encoding: .utf8)
         XCTAssertTrue(rewritten.contains(#"papp:Flag="reject""#))
-        XCTAssertFalse(rewritten.contains("xmp:Label="))
+        XCTAssertTrue(rewritten.contains(#"xmp:Label="Rejected""#),
+                      "the authored label bytes survive the canonical upgrade (#4403)")
     }
 }

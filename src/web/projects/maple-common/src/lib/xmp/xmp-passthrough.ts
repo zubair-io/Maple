@@ -18,18 +18,20 @@ import {
 import type { RetouchSpot } from '../models/retouch-spot';
 import { CRS_NAMESPACE, managedXmpName, RDF_NAMESPACE, XMP_NAMESPACE } from './xmp-dom-utils';
 
-/** Attributes fully owned by Maple and therefore excluded from passthrough. */
+/**
+ * Attributes fully owned by Maple and therefore excluded from passthrough.
+ * `xmp:Rating` / `Rating` and `xmp:Label` / `Label` are deliberately absent:
+ * they are conditionally owned (#4403) — captured like unknown attributes,
+ * then kept verbatim only when the culling still matches what they parse
+ * to (see `keepsRawCullingAttribute` in `xmp-serializer-parts.ts`).
+ */
 const KNOWN_ATTRIBUTES = new Set<string>([
   ...ADJUSTMENT_FIELDS.map((field) => field.xmpKey),
   ...LEGACY_READ_ALIASES.map((field) => field.xmpKey),
   WB_PRESET_FIELD.xmpKey,
-  'xmp:Rating',
-  'Rating',
   'maple:Flag',
   'papp:Flag',
   'Flag',
-  'xmp:Label',
-  'Label',
   'maple:ColorLabel',
   'papp:ColorLabel',
   'ColorLabel',

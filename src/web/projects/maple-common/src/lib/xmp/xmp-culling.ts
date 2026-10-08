@@ -37,12 +37,20 @@ const VALID_FLAGS = new Set<string>(['pick', 'reject', 'unflagged']);
 
 const isValidColorLabel = (s: string): boolean => isColorLabelValue(s);
 
+/**
+ * The star count an `xmp:Rating` raw parses to, clamped to the valid 0..5
+ * integer range; 0 when absent/invalid. Shared with the serializer's
+ * keep-or-rewrite rule (#4403) so parse and preserve can never disagree.
+ */
+export function parseRatingValue(raw: string | null): number {
+  if (raw === null) return 0;
+  const n = Number(raw);
+  return !Number.isNaN(n) && n >= 0 && n <= 5 ? Math.round(n) : 0;
+}
+
 /** `xmp:Rating`, clamped to the valid 0..5 integer range; 0 when absent/invalid. */
 function parseRating(desc: Element): number {
-  const ratingStr = attrOf(desc, ['xmp:Rating', 'Rating']);
-  if (ratingStr === null) return 0;
-  const n = Number(ratingStr);
-  return !Number.isNaN(n) && n >= 0 && n <= 5 ? Math.round(n) : 0;
+  return parseRatingValue(attrOf(desc, ['xmp:Rating', 'Rating']));
 }
 
 /** `maple:Flag` (canonical) with `papp:Flag` as fallback for interop. */
@@ -52,12 +60,20 @@ function parseFlag(desc: Element): XmpFlag {
 }
 
 /**
+ * The color label an `xmp:Label` word parses to; null for anything outside
+ * Adobe's word list. Shared with the serializer's keep-or-rewrite rule
+ * (#4403) so parse and preserve can never disagree.
+ */
+export function parseLabelColorWord(raw: string | null): XmpColorLabel {
+  return raw !== null && raw in LABEL_MAP ? LABEL_MAP[raw] : null;
+}
+
+/**
  * `xmp:Label` (XMP standard color word) with `maple:ColorLabel` (Maple's own
  * color names) as an override when both are present.
  */
 function parseColorLabel(desc: Element): XmpColorLabel {
-  const labelStr = attrOf(desc, ['xmp:Label', 'Label']);
-  const fromLabel = labelStr !== null && labelStr in LABEL_MAP ? LABEL_MAP[labelStr] : null;
+  const fromLabel = parseLabelColorWord(attrOf(desc, ['xmp:Label', 'Label']));
 
   const mapleLabel = attrOf(desc, ['maple:ColorLabel', 'papp:ColorLabel', 'ColorLabel']);
   const fromMapleLabel =

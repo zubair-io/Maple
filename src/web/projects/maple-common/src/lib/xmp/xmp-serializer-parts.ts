@@ -8,6 +8,7 @@
 import type { AdjustmentModel, Crop } from '../models/adjustment-model';
 import type { ColorLabel, Flag } from '../models/asset';
 import type { PassthroughBucket, XmpMetadata } from './xmp.types';
+import { parseLabelColorWord, parseRatingValue } from './xmp-culling';
 import { metadataAttrParts } from './xmp-metadata';
 
 /**
@@ -148,14 +149,48 @@ export function cropParts(crop: Crop | undefined): string[] {
   return parts;
 }
 
-/** Rating / flag / colorLabel — omitted at their default (0 / unflagged / null). */
-export function cullingParts(culling?: {
+/** The culling shape the part builders accept — optional throughout, with a
+ * plain `string` fallback beyond `Flag` / `ColorLabel` (see
+ * `culling-attr-escape.spec.ts`). */
+export interface CullingWriteModel {
   rating?: number;
   flag?: Flag | string;
   colorLabel?: ColorLabel | string | null;
-}): string[] {
+}
+
+/** Conditionally owned (#4403) raw spellings: modeled AND captured, kept
+ * verbatim only when the culling still matches what they parse to. */
+const RATING_RAW_NAMES = new Set(['xmp:Rating', 'Rating']);
+const LABEL_RAW_NAMES = new Set(['xmp:Label', 'Label']);
+
+/**
+ * Whether a captured rating/label raw survives this save (#4403): only when
+ * the culling still matches what the raw parses to — an edited or cleared
+ * field rewrites canonically instead. Without culling (a metadata-only
+ * bucket filter) every raw stays; the serialize step decides later.
+ */
+export function keepsRawCullingAttribute(
+  name: string,
+  value: string,
+  culling?: CullingWriteModel,
+): boolean {
+  if (!culling) return true;
+  if (RATING_RAW_NAMES.has(name)) return parseRatingValue(value) === (culling.rating ?? 0);
+  if (LABEL_RAW_NAMES.has(name)) return parseLabelColorWord(value) === (culling.colorLabel ?? null);
+  return true;
+}
+
+/** Rating / flag / colorLabel — omitted at their default (0 / unflagged / null). */
+export function cullingParts(
+  culling?: CullingWriteModel,
+  passthrough?: PassthroughBucket,
+): string[] {
   const parts: string[] = [];
-  if (culling?.rating && culling.rating > 0) {
+  const ratingRawKept = (passthrough?.unknownAttributes ?? []).some(
+    (attr) =>
+      RATING_RAW_NAMES.has(attr.name) && keepsRawCullingAttribute(attr.name, attr.value, culling),
+  );
+  if (culling?.rating && culling.rating > 0 && !ratingRawKept) {
     parts.push(`xmp:Rating="${culling.rating}"`);
   }
   if (culling?.flag && culling.flag !== 'unflagged') {
@@ -172,11 +207,16 @@ export function metadataAttrPartsOrEmpty(metadata: XmpMetadata | undefined): str
   return metadata ? metadataAttrParts(metadata) : [];
 }
 
-/** Unknown attributes from the source sidecar, preserved verbatim. */
-export function passthroughAttrParts(passthrough: PassthroughBucket | undefined): string[] {
-  return (passthrough?.unknownAttributes ?? []).map(
-    (attr) => `${attr.name}="${escapeXmpAttr(attr.value)}"`,
-  );
+/** Unknown attributes from the source sidecar, preserved verbatim — except
+ * conditionally owned rating/label raws the culling no longer matches
+ * (#4403), which the canonical emission above replaces. */
+export function passthroughAttrParts(
+  passthrough: PassthroughBucket | undefined,
+  culling?: CullingWriteModel,
+): string[] {
+  return (passthrough?.unknownAttributes ?? [])
+    .filter((attr) => keepsRawCullingAttribute(attr.name, attr.value, culling))
+    .map((attr) => `${attr.name}="${escapeXmpAttr(attr.value)}"`);
 }
 
 /** The two passthrough node lists `canonicalDocument` splices in outside `rdf:Description`. */

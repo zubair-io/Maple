@@ -255,14 +255,17 @@ final class XMPPassthroughTests: XCTestCase {
         let passthrough = XMPParser.parsePassthrough(source)
         XCTAssertTrue(passthrough.unknownNodes.isEmpty,
                       "a Maple-authored sidecar has nothing foreign in it")
-        XCTAssertTrue(passthrough.unknownAttributes.isEmpty,
-                      "…and no unknown attributes either: \(passthrough.unknownAttributes)")
+        // Since #4403 the bucket intentionally carries the conditionally
+        // owned `xmp:Rating` raw: the keep-or-rewrite rule re-emits it
+        // instead of the canonical twin, so nothing doubles.
+        XCTAssertEqual(passthrough.unknownAttributes,
+                       [XMPPassthrough.Attribute(name: "xmp:Rating", value: "4")])
 
         let rewritten = XMPSerializer.serialize(
             model: XMPCanonicalFormatTests.canonicalFixtureModel(),
             culling: XMPCanonicalFormatTests.canonicalFixtureCulling(),
             passthrough: passthrough)
-        XCTAssertEqual(rewritten, source, "an empty bucket must not change a single byte")
+        XCTAssertEqual(rewritten, source, "a kept raw must not change a single byte")
     }
 
     /// The guard behind the whole known-set design: anything the serializer

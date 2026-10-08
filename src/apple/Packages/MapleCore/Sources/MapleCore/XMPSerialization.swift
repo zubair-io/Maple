@@ -445,8 +445,10 @@ public struct XMPSerializer {
     passthrough: XMPPassthrough = .empty
   ) -> String {
     let attrs =
-      _buildAttrs(model: model, culling: culling, omitWhiteBalance: omitWhiteBalance)
-      + _passthroughAttrs(passthrough)
+      _buildAttrs(
+        model: model, culling: culling, omitWhiteBalance: omitWhiteBalance,
+        passthrough: passthrough)
+      + _passthroughAttrs(passthrough, culling: culling)
     let keywordsBlock = _buildKeywordsBlock(culling: culling)
     // Point tone curves (#365) — the second nested child block. Children
     // of `rdf:Description` sit at six spaces in this document shape (see
