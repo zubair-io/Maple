@@ -39,7 +39,7 @@ export const facetsRoute = new Elysia().get(
     // A text search's most relevant matches are whichever engine ranks its
     // list: Meilisearch when it serves this query, the database otherwise.
     const facets = await searchFacets(where, undefined, {
-      ranking: () => meiliFacetRanking(query as SearchQuery, FACET_TOP_MATCHES),
+      ranking: meiliFacetRanking(query as SearchQuery, FACET_TOP_MATCHES),
     });
 
     // Join the person-id buckets to display names; ids whose person is

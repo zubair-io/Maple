@@ -22,27 +22,36 @@ import { extractDatesFromQuery, type SearchQuery } from './query.ts';
 
 const searchLog = childLogger('search');
 
-/** Meilisearch's best `limit` matches for `query`, or null to use the database. */
-export async function meiliFacetRanking(
+/**
+ * How to ask Meilisearch for `query`'s best `limit` matches, or undefined when
+ * it would not serve this list at all — not configured, no text, or a filter it
+ * cannot express. The difference matters to the facet cache: undefined means
+ * the database ranking *is* this search's answer, cached as such, while a
+ * ranking that resolves to null is Meilisearch failing a search it should have
+ * served, whose stand-in answer is not kept (#4431).
+ */
+export function meiliFacetRanking(
   query: SearchQuery,
   limit: number,
-): Promise<ExternalRanking | null> {
+): (() => Promise<ExternalRanking | null>) | undefined {
   const resolved = extractDatesFromQuery(query, new Date());
   const meili = meilisearchClient();
-  if (!usesPlaceText(resolved) || !meili.isConfigured()) return null;
-  if (unpushableFilters(resolved).length > 0) return null;
-  try {
-    const hit = await meili.search(resolved.placeQuery!.trim(), {
-      ...meiliSearchOptions(resolved, query.libraryId, meili.semanticConfigured()),
-      offset: 0,
-      limit,
-    });
-    return { mapleIds: hit.ids, total: hit.estimatedTotal };
-  } catch (err) {
-    searchLog.warn(
-      { err: err instanceof Error ? err.message : String(err), placeQuery: resolved.placeQuery },
-      'meilisearch facet ranking failed; faceting the database ranking instead',
-    );
-    return null;
-  }
+  if (!usesPlaceText(resolved) || !meili.isConfigured()) return undefined;
+  if (unpushableFilters(resolved).length > 0) return undefined;
+  return async () => {
+    try {
+      const hit = await meili.search(resolved.placeQuery!.trim(), {
+        ...meiliSearchOptions(resolved, query.libraryId, meili.semanticConfigured()),
+        offset: 0,
+        limit,
+      });
+      return { mapleIds: hit.ids, total: hit.estimatedTotal };
+    } catch (err) {
+      searchLog.warn(
+        { err: err instanceof Error ? err.message : String(err), placeQuery: resolved.placeQuery },
+        'meilisearch facet ranking failed; faceting the database ranking instead',
+      );
+      return null;
+    }
+  };
 }

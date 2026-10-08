@@ -22,10 +22,11 @@ import {
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
 let live: LiveTestDatabase;
+let libraryId: string;
 
 beforeEach(async () => {
   live = await createLiveTestDatabase();
-  const libraryId = insertFolder(live.db, { slug: 'facets-meili', path: '/lib' });
+  libraryId = insertFolder(live.db, { slug: 'facets-meili', path: '/lib' });
   const assets: Array<[string, string, string]> = [
     ['maple-a', 'Canon', 'greyson beach'],
     ['maple-b', 'Canon', 'greyson dunes'],
@@ -172,6 +173,53 @@ describe('GET /api/search/facets — the ranking behind a text search', () => {
     // A Meilisearch answer is cached as usual: no third search.
     await facets('placeQuery=greyson');
     expect(calls).toHaveLength(2);
+  });
+
+  /** One more asset matching "greyson" with a 5 rating, after the first answer. */
+  function addMatch(): void {
+    seedSearchAsset(live.db, libraryId, {
+      mapleId: 'maple-late',
+      cameraMake: 'Canon',
+      cameraModel: 'M',
+      rating: 5,
+      searchBlob: 'greyson late',
+    });
+  }
+
+  it('caches the database ranking when Meilisearch is not configured', async () => {
+    setMeilisearchClientForTests({
+      ...fakeMeili(async () => ({ ids: [], estimatedTotal: 0 })).client,
+      isConfigured: () => false,
+    });
+    const first = await facets('placeQuery=greyson');
+    addMatch();
+    const second = await facets('placeQuery=greyson');
+    // Served from the cache: the asset added in between is not counted.
+    expect(second.total).toBe(first.total);
+    expect(first.total).toBe(3);
+  });
+
+  it('caches the database ranking for a filter Meilisearch cannot express', async () => {
+    const { client, calls } = fakeMeili(async () => ({ ids: ['maple-d'], estimatedTotal: 1 }));
+    setMeilisearchClientForTests(client);
+    const first = await facets('placeQuery=greyson&rating=4');
+    addMatch();
+    const second = await facets('placeQuery=greyson&rating=4');
+    expect(calls).toHaveLength(0);
+    expect(first.total).toBe(1);
+    expect(second.total).toBe(1);
+  });
+
+  it('does not cache the stand-in when Meilisearch fails a search it should serve', async () => {
+    const { client, calls } = fakeMeili(async () => {
+      throw new Error('meilisearch timed out');
+    });
+    setMeilisearchClientForTests(client);
+    await facets('placeQuery=greyson');
+    addMatch();
+    const second = await facets('placeQuery=greyson');
+    expect(calls).toHaveLength(2);
+    expect(second.total).toBe(4);
   });
 
   it('never asks Meilisearch for a filter it cannot express', async () => {
