@@ -125,7 +125,10 @@
 /// - 15 — native highlight tiles retain full-frame scene evidence and sampling
 ///   phase, include complete guided-cell support, and recover highlights before
 ///   supported lens warps, matching the full develop order (#4378).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 15;
+/// - 16 — headless develop and export entries rasterize brush masks from
+///   their `papp:BrushCorrections` dabs instead of rendering them at weight 0
+///   (#360).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 16;
 
 #[cfg(test)]
 mod tests {
