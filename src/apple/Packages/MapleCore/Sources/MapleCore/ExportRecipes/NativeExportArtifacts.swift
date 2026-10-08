@@ -37,6 +37,10 @@ final class NativeExportArtifacts: @unchecked Sendable {
   }
 
   func write(_ bytes: Data, to url: URL) throws {
+    try write(to: url) { try $0.write(contentsOf: bytes) }
+  }
+
+  func write(to url: URL, _ produce: (FileHandle) throws -> Void) throws {
     lock.lock()
     defer { lock.unlock() }
     let descriptor = Darwin.open(url.path, O_CREAT | O_EXCL | O_RDWR | O_NOFOLLOW, 0o600)
@@ -49,7 +53,7 @@ final class NativeExportArtifacts: @unchecked Sendable {
     let identity = "\(stat.st_dev):\(stat.st_ino)"
     let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
     do {
-      try handle.write(contentsOf: bytes)
+      try produce(handle)
       try register(url, identity: identity)
       try handle.synchronize()
       try NativeExportStorage.syncDirectory(url.deletingLastPathComponent())
