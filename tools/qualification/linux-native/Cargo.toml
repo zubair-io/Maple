@@ -20,3 +20,5 @@ maple-linux = { path = "../../../src/linux" }
 rav1d = { path = "../../../src/raw-pipeline/third_party/rav1d" }
 zune-jpeg = { path = "../../../src/raw-pipeline/third_party/zune-jpeg" }
 avif-parse = { path = "../../../src/raw-pipeline/third_party/avif-parse" }
+ravif = { path = "../../../src/raw-pipeline/third_party/ravif" }
+avif-serialize = { path = "../../../src/raw-pipeline/third_party/avif-serialize" }
