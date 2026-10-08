@@ -90,22 +90,22 @@ test('Google mirror migration requeues old entries and disconnects duplicate roo
     { id: 'folder', enabled: 1, generation: 1, root_id: null, account_id: null },
   ]);
   const entries = handle.db
-    .query<{
-      destination_id: string;
-      sequence: number;
-      verified_sequence: number;
-      snapshot_hash: string | null;
-      attempts: number;
-      retry_at: number;
-      last_error: string | null;
-      lease_owner: string | null;
-      lease_until: number;
-      manifest: string | null;
-    }>(
+    .query(
       `SELECT destination_id,sequence,verified_sequence,snapshot_hash,attempts,retry_at,last_error,
         lease_owner,lease_until,manifest FROM backup_entries ORDER BY destination_id`,
     )
-    .all();
+    .all() as {
+    destination_id: string;
+    sequence: number;
+    verified_sequence: number;
+    snapshot_hash: string | null;
+    attempts: number;
+    retry_at: number;
+    last_error: string | null;
+    lease_owner: string | null;
+    lease_until: number;
+    manifest: string | null;
+  }[];
   for (const row of entries.filter((value) => value.destination_id.startsWith('drive-'))) {
     expect(row).toMatchObject({
       sequence: 6,
