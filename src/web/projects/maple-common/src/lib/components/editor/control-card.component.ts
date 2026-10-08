@@ -30,7 +30,15 @@
 // Reset button in header zeroes the visible group.
 // Per-slider double-click zeroes that one slider (handled via resetRequest).
 
-import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  input,
+  output,
+} from '@angular/core';
 import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
 import { ProfileSectionComponent } from './profile-section.component';
 import { MapleIconComponent, type MapleIconName } from '../../icons/maple-icon.component';
@@ -293,7 +301,7 @@ export class ControlCardComponent {
     if (!id || !isWired(tool)) return;
     this.dragAssetId = id;
     this.pendingNoisePanel = false;
-    this.toolAtDragStart = this.editorState.armedTool();
+    this.armCountAtDragStart = this.editorState.toolArmCount;
     this.editorState.commit();
     // Marks the gesture for the command router (#2450): navigation is
     // refused while a drag is in flight, so the ticks below can never be
@@ -308,21 +316,28 @@ export class ControlCardComponent {
    *  pointer). */
   private dragAssetId: string | null = null;
   private pendingNoisePanel = false;
-  private toolAtDragStart: ToolId | null = null;
+  private armCountAtDragStart = 0;
+  private destroyed = false;
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => (this.destroyed = true));
+  }
 
   onSliderDragEnd(): void {
     const assetId = this.dragAssetId;
     const pendingNoisePanel = this.pendingNoisePanel;
-    const toolUnchanged = this.editorState.armedTool() === this.toolAtDragStart;
+    const noToolPicked = this.editorState.toolArmCount === this.armCountAtDragStart;
     this.dragAssetId = null;
     this.pendingNoisePanel = false;
-    this.toolAtDragStart = null;
     this.editorState.endGesture();
-    // #4352: arming Noise removes this card. Keep its captured slider alive
-    // until release/cancel, then expose the existing sub-parameter panel —
-    // unless the user picked another tool mid-gesture.
-    if (pendingNoisePanel && toolUnchanged && assetId === this.libraryState.focusedAssetId())
-      this.editorState.armTool('noise');
+    if (!pendingNoisePanel || !noToolPicked) return;
+    // #4352: arming Noise removes this card, so it waits for release/cancel.
+    // A microtask lets a mid-gesture panel open (which tears this card down
+    // and cancels the slider) finish first; that user choice then wins.
+    queueMicrotask(() => {
+      if (!this.destroyed && assetId === this.libraryState.focusedAssetId())
+        this.editorState.armTool('noise');
+    });
   }
 
   onSliderChange(tool: ToolId, value: number): void {

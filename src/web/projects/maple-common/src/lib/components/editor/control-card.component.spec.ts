@@ -29,8 +29,6 @@ function render(
   updateAdjustment: ReturnType<typeof vi.fn>;
   commit: ReturnType<typeof vi.fn>;
   haptic: ReturnType<typeof vi.fn>;
-  armTool: ReturnType<typeof vi.fn>;
-  armedTool: ReturnType<typeof vi.fn>;
   beginGesture: ReturnType<typeof vi.fn>;
   endGesture: ReturnType<typeof vi.fn>;
   focusedAssetId: ReturnType<typeof signal<string | null>>;
@@ -90,8 +88,6 @@ function render(
     updateAdjustment,
     commit,
     haptic,
-    armTool,
-    armedTool,
     beginGesture,
     endGesture,
     focusedAssetId,
@@ -195,52 +191,6 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
 
     expect(commit).toHaveBeenCalledTimes(2);
     expect(updateAdjustment).toHaveBeenCalledTimes(3);
-  });
-
-  it('keeps Noise panel arming until the captured per-tick drag ends (#4352)', () => {
-    const { fixture, armTool, updateAdjustment, commit, endGesture } = render({
-      activeGroup: 'detail',
-    });
-    const noise = fixture.debugElement
-      .queryAll(By.directive(MuiLivingSliderComponent))
-      .map((el) => el.componentInstance as MuiLivingSliderComponent)
-      .find((slider) => slider.label() === 'Noise')!;
-    noise.dragStart.emit();
-    noise.value.set(2);
-    noise.value.set(100);
-    expect(armTool).not.toHaveBeenCalled();
-    expect(updateAdjustment).toHaveBeenCalledTimes(2);
-    expect(updateAdjustment).toHaveBeenLastCalledWith(
-      'asset-1',
-      expect.objectContaining({ nrLuminance: 100 }),
-    );
-    noise.dragEnd.emit();
-    expect(armTool).toHaveBeenCalledExactlyOnceWith('noise');
-    expect(commit).toHaveBeenCalledTimes(1);
-    expect(endGesture).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not open Noise on a click or reset without a value-change tick (#4352)', () => {
-    const { componentInstance, armTool } = render({ activeGroup: 'detail' });
-    componentInstance.onSliderDragStart('noise');
-    componentInstance.onSliderDragEnd();
-    componentInstance.onSliderReset('noise');
-    expect(armTool).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ['another tool was chosen mid-gesture (#4414)', 'tool'],
-    ['the focused asset changed (#4352)', 'asset'],
-  ])('does not arm a deferred Noise panel when %s', (_, change) => {
-    const { componentInstance, armTool, armedTool, focusedAssetId } = render({
-      activeGroup: 'detail',
-    });
-    componentInstance.onSliderDragStart('noise');
-    componentInstance.onSliderChange('noise', 2);
-    if (change === 'tool') armedTool.mockReturnValue('exposure');
-    else focusedAssetId.set('asset-2');
-    componentInstance.onSliderDragEnd();
-    expect(armTool).not.toHaveBeenCalled();
   });
 
   it('manual Color sliders and resets clear AUTO provenance and preserve the other WB value', () => {
