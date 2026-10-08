@@ -1,7 +1,9 @@
 # Maple Linux native host
 
 The native Rust Linux port is tracked in [#4317](https://github.com/zubair-io/Maple/issues/4317).
-This is an incremental implementation of that issue. The window uses egui/eframe
+This is an incremental implementation of that issue. Linux is not yet a release
+surface: the editor is not feature-complete, and releases do not publish a Linux
+build. The window uses egui/eframe
 and wgpu directly, with Wayland and X11 support; it contains no WebView.
 The application creates one raw-gpu context and gives its device, queue, adapter
 and instance handles to eframe. The compute owner lives until the window exits;
