@@ -15,13 +15,14 @@
  * them and taking the first rows of the result order — score, then newest
  * capture, then id — gives exactly the rows the full join would, at the cost of
  * a few thousand index probes instead of a hundred thousand row reads. When the
- * filters leave too few of them it ranks again with more, sized by how many
- * survived, and after {@link MAX_PASSES} passes it falls back to the full
- * predicate, which is exact for any filter.
+ * filters leave too few of them it ranks once more with as many as the
+ * survival rate says it needs — unless that is too many, see
+ * {@link MAX_WIDENING} — and otherwise falls back to the full predicate, which
+ * is exact for any filter.
  */
 
 import { FTS_RANK_ORDER, FTS_RANK_SQL } from './search.fts.ts';
-import { rankedPageSql, type BoundStatement } from './search.sql.ts';
+import { rankedPageSql, statement, type BoundStatement } from './search.sql.ts';
 import { monthNarrowing, searchWhereSql, type SearchWhere } from './search.where.ts';
 import { readBulk, type SqliteDb } from './db-handle.ts';
 
@@ -40,13 +41,22 @@ export interface RankedAsset {
 const OVERFETCH = 2;
 
 /**
- * How many score-only passes to try before giving up on them, and how much
- * margin each widening adds over the survival rate the last pass measured.
- * A filter that keeps a third of the matches (`rating >= 4`) is answered by
- * the second pass; one that keeps almost none goes to the full predicate.
+ * When the score-only pass falls short, how far it may widen before the full
+ * predicate is the cheaper answer.
+ *
+ * A filter's survival rate among the first pass's hits says how many hits a
+ * second pass would need. One that keeps a fair share of them — a camera, a
+ * common rating — is answered by one wider pass, sized from that rate with
+ * {@link WIDENING_MARGIN} to spare. One that keeps almost none would need a
+ * pass over most of the library, probing every hit, and that costs far more
+ * than the full statement it was meant to avoid: on the production snapshot
+ * `rating=4` kept 1 of 4,000 hits, and widening from that took two passes of
+ * 4.4 s each against 0.55 s for the full statement (#4431). So a widening
+ * larger than {@link MAX_WIDENING} times the first pass, or a second shortfall,
+ * goes straight to the full predicate.
  */
-const MAX_PASSES = 3;
 const WIDENING_MARGIN = 1.5;
+const MAX_WIDENING = 4;
 
 /**
  * The first `limit` rows of the result order among the best `k` matches, in
@@ -65,7 +75,9 @@ const WIDENING_MARGIN = 1.5;
  *   capture date has to be read — and as many as fit are taken.
  *
  * The final `LEFT JOIN` from a one-row `flag` makes the statement answer at
- * least one row, so an empty survivor set still reports whether it is final.
+ * least one row, so an empty survivor set still reports whether it is final
+ * and how many hits passed the filters — the survival rate a widening is sized
+ * from.
  */
 export function firstRankedSql(where: SearchWhere, k: number, limit: number): BoundStatement {
   if (where.match.kind !== 'match') throw new Error('firstRankedSql: not a text query');
@@ -99,8 +111,9 @@ export function firstRankedSql(where: SearchWhere, k: number, limit: number): Bo
          WHERE alive.rank = (SELECT rank FROM edge)
          ORDER BY assets.captured_at DESC, assets.id
          LIMIT ? - (SELECT COUNT(*) FROM alive WHERE rank < (SELECT rank FROM edge)))),
-    flag AS (SELECT (SELECT rank IS NULL FROM stop) AS complete)
-  SELECT flag.complete AS complete, chosen.r AS r, chosen.id AS id
+    flag AS (SELECT (SELECT rank IS NULL FROM stop) AS complete,
+                    (SELECT COUNT(*) FROM alive) AS survived)
+  SELECT flag.complete AS complete, flag.survived AS survived, chosen.r AS r, chosen.id AS id
     FROM flag LEFT JOIN chosen ON 1`,
     params: [
       where.match.expression,
@@ -114,30 +127,54 @@ export function firstRankedSql(where: SearchWhere, k: number, limit: number): Bo
   };
 }
 
-/** The first `limit` rows from score-only passes, or null when they fell short. */
-async function scoreFirst(
+/** One score-only pass over `k` hits: its rows, whether they are the answer, and how many survived. */
+async function scorePass(
   db: SqliteDb,
   where: SearchWhere,
   limit: number,
   k: number,
-  pass: number,
+): Promise<{ rows: RankedAsset[]; enough: boolean; survived: number }> {
+  const pass = firstRankedSql(where, k, limit);
+  const answer = await readBulk<{
+    complete: number;
+    survived: number;
+    r: number | null;
+    id: string | null;
+  }>(db, pass.sql, pass.params);
+  const rows = answer
+    .filter(
+      (row): row is { complete: number; survived: number; r: number; id: string } =>
+        row.r !== null && row.id !== null,
+    )
+    .map((row) => ({ r: row.r, id: row.id }));
+  return {
+    rows,
+    enough: rows.length === limit || answer[0]?.complete === 1,
+    survived: answer[0]?.survived ?? 0,
+  };
+}
+
+/**
+ * The first `limit` rows from at most two score-only passes, or null when the
+ * full predicate is the better answer. See {@link MAX_WIDENING}.
+ *
+ * The second pass is sized from how many of the first pass's hits survived the
+ * filters. A pass whose hits all tie at the score it stopped at keeps none of
+ * them without any filter being at fault; that, too, sizes a pass beyond the
+ * bound and goes to the full predicate, which orders ties itself.
+ */
+async function scoreFirst(
+  db: SqliteDb,
+  where: SearchWhere,
+  limit: number,
 ): Promise<RankedAsset[] | null> {
-  const statement = firstRankedSql(where, k, limit);
-  const answer = await readBulk<{ complete: number; r: number | null; id: string | null }>(
-    db,
-    statement.sql,
-    statement.params,
-  );
-  const rows = answer.filter(
-    (row): row is { complete: number; r: number; id: string } => row.r !== null && row.id !== null,
-  );
-  if (rows.length === limit || answer[0]?.complete === 1) {
-    return rows.map((row) => ({ r: row.r, id: row.id }));
-  }
-  if (pass === MAX_PASSES) return null;
-  const survivors = Math.max(rows.length, limit / 16);
-  const widened = Math.ceil((k * limit * WIDENING_MARGIN) / survivors);
-  return scoreFirst(db, where, limit, widened, pass + 1);
+  const k = OVERFETCH * limit;
+  const first = await scorePass(db, where, limit, k);
+  if (first.enough) return first.rows;
+  const widened = Math.ceil((k * limit * WIDENING_MARGIN) / Math.max(first.survived, 1));
+  if (widened > MAX_WIDENING * k) return null;
+  const second = await scorePass(db, where, limit, widened);
+  return second.enough ? second.rows : null;
 }
 
 /**
@@ -153,10 +190,25 @@ export async function firstRanked(
   where: SearchWhere,
   limit: number,
 ): Promise<RankedAsset[]> {
-  const scored =
-    where.hidden === 1 ? null : await scoreFirst(db, where, limit, OVERFETCH * limit, 1);
+  const scored = where.hidden === 1 ? null : await scoreFirst(db, where, limit);
   if (scored) return scored;
   const page = rankedPageSql(where, limit, 0, undefined, 'assets.rowid AS r, assets.id AS id');
   const rows = await readBulk<RankedAsset>(db, page.sql, page.params);
   return rows.map((row) => ({ r: row.r, id: row.id }));
+}
+
+/**
+ * Up to `limit` matches of a filtered text search, unranked: every match when
+ * fewer come back.
+ *
+ * A filter the inverted index cannot see — a rating, a camera, a flag, hidden
+ * assets only — decides membership row by row, so counting its matches already
+ * joins every full-text hit. When it keeps few of them, that one join is the
+ * whole answer: these are all the matches, there is nothing to rank among, and
+ * a score-only pass would find almost none of them in its first hits (#4431).
+ * When it keeps many, the statement stops as soon as it has `limit` and costs
+ * little.
+ */
+export function someMatchesSql(where: SearchWhere, limit: number): BoundStatement {
+  return statement('assets.rowid AS r, assets.id AS id', where, 'LIMIT ?', undefined, [limit]);
 }
