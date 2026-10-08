@@ -136,6 +136,8 @@ public final class SearchViewModel {
   /// Live "Show N results" count for the current filter set — the facets
   /// total when one is loaded, else the result-list total.
   public var facetTotal: Int { facets?.total ?? total }
+  /// Which matches the facet rows count (#4431); `.all` until facets load.
+  public var facetScope: FacetScope { facets?.scope ?? .all }
 
   // MARK: - Loaders
 
