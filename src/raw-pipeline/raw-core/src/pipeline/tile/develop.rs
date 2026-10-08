@@ -22,7 +22,6 @@
 
 use crate::{
     color::dcp,
-    demosaic,
     error::Result,
     image::RawImage,
     stages::{
@@ -43,7 +42,7 @@ use crate::stages::{capture_sharpening, local_adjustments, retouch, vignette};
 /// The per-render values the tile entry threads into the chain besides the
 /// mosaic and the model: the host-measured anchors (WB delta anchor, #1725;
 /// auto-exposure gain, #1167) and the tile's window in the frame (#1157).
-pub(super) struct TileAnchors {
+pub(super) struct TileAnchors<'a> {
     /// See [`develop_scene_linear_from_padded_mosaic`].
     pub decoded_wb_anchor: Option<(f32, f32)>,
     /// See [`develop_scene_linear_from_padded_mosaic`].
@@ -57,6 +56,7 @@ pub(super) struct TileAnchors {
     pub active_area: Option<crate::image::CropRect>,
     /// Padded crop's top-left in full demosaiced coordinates (sensor / divisor).
     pub tile_origin: (u32, u32),
+    pub highlight_frame: crate::stages::highlight_recovery::FrameAnchor<'a>,
 }
 
 pub(super) struct DevelopedTile {
@@ -117,7 +117,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
-    anchors: TileAnchors,
+    anchors: TileAnchors<'_>,
     cancel: crate::CancelToken<'_>,
 ) -> Result<DevelopedTile> {
     let TileAnchors {
@@ -127,6 +127,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         inner,
         active_area,
         tile_origin,
+        highlight_frame,
     } = anchors;
     if raw.cfa == crate::image::CfaPattern::LinearRgb {
         return Err(crate::error::Error::Pipeline(
@@ -149,18 +150,21 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         ));
     }
     mosaic.assert_space(crate::image::ColorSpace::CameraNativeMosaic);
-    // Full uses RCD like every other on-screen path (#3412). Its 5-px
-    // stencil sits far inside `TILE_OVERLAP_PX` (48), so the padded crop's
-    // interior — the part `trim_image_to_inner` keeps — is reconstructed
-    // from real neighbours and a tile matches the same region of the
-    // full-image render.
-    let mut camera_rgb = stage("tile_demosaic", || {
-        let algo = crate::pipeline::bayer_kernel(quality, model, raw);
-        demosaic::demosaic_cancellable(algo, mosaic, raw.cfa, cancel)
-    });
+    let mut camera_rgb = super::prefix::from_mosaic(mosaic, raw, model, quality, cancel);
 
+    stage("tile_highlight_recovery", || {
+        highlight_recovery::apply_in_region_with_anchor(
+            &mut camera_rgb,
+            model.highlight_recovery,
+            raw.as_shot_neutral,
+            raw.baseline_exposure,
+            active_area,
+            Some(highlight_frame),
+        )
+    });
     // DNG OpcodeList3 (#376, #4288): vendor corrections applied in
-    // ActiveArea coordinates before DefaultCrop / baseline exposure.
+    // ActiveArea coordinates after baseline exposure, AsShot pre-gain and
+    // highlight recovery, before DefaultCrop and DCP, matching full develop.
     if let Some((list, aa)) = raw.opcode_list3.as_ref() {
         if list.opcodes.len() == 1 {
             if let crate::pipeline::pano::opcodes::PanoOpcode::WarpRectilinear(w) = &list.opcodes[0]
@@ -195,35 +199,6 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     if cancel.is_cancelled() {
         return Err(crate::error::Error::Cancelled);
     }
-    if raw.baseline_exposure.abs() > 1e-4 {
-        stage("tile_baseline_exposure", || {
-            let be_gain = raw.baseline_exposure.exp2();
-            for p in &mut camera_rgb.pixels {
-                p[0] *= be_gain;
-                p[1] *= be_gain;
-                p[2] *= be_gain;
-            }
-        });
-    }
-
-    // WB pre-gain: matches the unsized + sized variants (Phase 1.2 contract).
-    // The DCP profile downstream runs with `wb_already_baked = true` for
-    // Bayer paths, expecting input camera RGB to have been divided by
-    // AsShotNeutral. Skip would have been required for 8-bit lossy LinearRaw
-    // but this entire function rejects LinearRaw at the top, so the only
-    // path here is Bayer — always pre-gain.
-    stage("tile_white_balance::apply_pre_gain", || {
-        white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
-    });
-    stage("tile_highlight_recovery", || {
-        highlight_recovery::apply_in_region(
-            &mut camera_rgb,
-            model.highlight_recovery,
-            raw.as_shot_neutral,
-            raw.baseline_exposure,
-            active_area,
-        )
-    });
     let (mut camera_rgb, window, mut inner) = stage("tile_crop_to_default", || {
         clip_to_default_crop(camera_rgb, window, inner)
     });

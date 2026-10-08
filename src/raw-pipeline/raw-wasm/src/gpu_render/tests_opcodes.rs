@@ -97,4 +97,103 @@ fn highlight_recovery_and_unbounded_cubic_opcodes_match_cpu() {
             &model,
         );
     }
+    assert_guided_prefix_parity();
+}
+
+// #1690: positively exercise both guided tiers at the real CPU/GPU decode
+// boundary. Keep the existing Bayer/warp/ActiveArea cases above unchanged.
+fn assert_guided_prefix_parity() {
+    use raw_core::{
+        image::CfaPattern,
+        linearize,
+        stages::{highlight_recovery, white_balance},
+    };
+
+    for (edge, expected_green) in [(15u32, 1.4f32), (101, 1.6)] {
+        let bytes = SyntheticGreyDng {
+            width: 192,
+            height: 192,
+            ..Default::default()
+        }
+        .write_to_bytes();
+        let mut raw =
+            raw_core::decode::decode_bytes(&bytes, "dng").expect("guided synthetic decode");
+        // Preserve genuine decoded DCP metadata, but isolate sensor recovery
+        // from demosaic interpolation just like the core's bounds controls.
+        raw.cfa = CfaPattern::LinearRgb;
+        raw.white_level = 10_000;
+        raw.black_level = [0; 4];
+        raw.baseline_exposure = 0.0;
+        raw.as_shot_neutral = [0.5, 1.0, 0.7];
+        let start = 96 - edge / 2;
+        raw.raw_data = (0..192u32 * 192)
+            .flat_map(|i| {
+                let (x, y) = (i % 192, i / 192);
+                if (start..start + edge).contains(&x) && (start..start + edge).contains(&y) {
+                    [9000u16, 10_000, 4200]
+                } else {
+                    [4500u16, 7000, 2100]
+                }
+            })
+            .collect();
+
+        let mut camera = linearize::linearraw_to_camera_rgb(&raw).expect("guided LinearRaw");
+        white_balance::apply_pre_gain(&mut camera, raw.as_shot_neutral);
+        let index = 96 * 192 + 96;
+        let before = camera.pixels[index];
+        // All 49 tier-1 neighbors are genuinely clipped in green. The 15px
+        // block reaches regional cells; the 101px block needs the scene prior.
+        for y in 93..=99 {
+            for x in 93..=99 {
+                assert!(camera.pixels[y * 192 + x][1] >= 0.995);
+            }
+        }
+        highlight_recovery::apply(
+            &mut camera,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            raw.as_shot_neutral,
+            raw.baseline_exposure,
+        );
+        let recovered = camera.pixels[index];
+        assert_eq!(
+            recovered[0].to_bits(),
+            before[0].to_bits(),
+            "known R changed"
+        );
+        assert_eq!(
+            recovered[2].to_bits(),
+            before[2].to_bits(),
+            "known B changed"
+        );
+        assert!(
+            (recovered[1] - expected_green).abs() < 0.01,
+            "guided {edge}px center must engage its tier: {before:?} -> {recovered:?}"
+        );
+
+        let off = AdjustmentModel {
+            auto_exposure: AutoExposureMode::Off,
+            profile: Profile::Neutral,
+            highlight_recovery: HighlightRecoveryMode::Off,
+            ..Default::default()
+        };
+        let on = AdjustmentModel {
+            highlight_recovery: HighlightRecoveryMode::ChromaticAdaptation,
+            ..off.clone()
+        };
+        let (_, _, original) = super::cpu_reference(&raw, &bytes, "dng", &off);
+        let (_, _, changed) = super::cpu_reference(&raw, &bytes, "dng", &on);
+        assert_ne!(
+            original, changed,
+            "guided {edge}px must affect the rendered output"
+        );
+        for (mode, model) in [("off", off), ("on", on)] {
+            assert_gpu_matches_cpu(
+                &format!("guided-{edge}px-{mode}"),
+                &raw,
+                &bytes,
+                "dng",
+                &model,
+            );
+        }
+    }
 }

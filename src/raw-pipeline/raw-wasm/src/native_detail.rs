@@ -6,6 +6,7 @@ use raw_core::{
     image::RawImage,
     pipeline::{self, DetailContext, DetailRenderOptions, RawInput, RenderQuality, TileRect},
 };
+use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 
 /// Includes filter overlap, before any tile scratch allocation.
@@ -13,7 +14,7 @@ const MAX_WORKING_PIXELS: u64 = 8 * 1024 * 1024;
 
 #[wasm_bindgen]
 pub struct NativeDetailSession {
-    raw: RawImage,
+    raw: Arc<RawImage>,
     bytes: Vec<u8>,
     ext: String,
     prepared: Option<PreparedDetail>,
@@ -56,7 +57,7 @@ impl NativeDetailSession {
     pub fn new(bytes: &[u8], ext: &str) -> Result<Self, JsError> {
         let raw = raw_core::decode::decode_bytes(bytes, ext).map_err(js_error)?;
         Ok(Self {
-            raw,
+            raw: Arc::new(raw),
             bytes: bytes.to_vec(),
             ext: ext.to_owned(),
             prepared: None,
@@ -84,16 +85,17 @@ impl NativeDetailSession {
             p.xmp != xmp || p.cap != cap || p.preview != preview || p.film_bytes != film_bytes
         });
         if prepare {
-            // Release prior artifacts before creating the new bounded reference.
-            self.prepared = None;
+            // Release prior artifacts before creating the new bounded reference,
+            // keeping only native frame evidence that remains exact.
+            let previous = self.prepared.take().map(|prepared| prepared.context);
             let model = crate::mask_registry::parse_model(xmp.as_deref()).map_err(js_error)?;
             let film = if film_bytes.is_empty() {
                 None
             } else {
                 Some(raw_core::film::decode_mlut(film_bytes).map_err(js_error)?)
             };
-            let (_, _, _, context) = pipeline::render_detail_base(
-                &self.raw,
+            let (_, _, _, context) = pipeline::render_detail_base_retained(
+                Arc::clone(&self.raw),
                 &model,
                 RawInput::Bytes {
                     bytes: &self.bytes,
@@ -108,6 +110,8 @@ impl NativeDetailSession {
                     max_long_edge: cap,
                     film_lut: film.as_ref(),
                 },
+                MAX_WORKING_PIXELS,
+                previous,
             )
             .map_err(js_error)?;
             self.prepared = Some(PreparedDetail {
@@ -142,3 +146,7 @@ impl NativeDetailSession {
 fn js_error(error: impl std::fmt::Display) -> JsError {
     JsError::new(&error.to_string())
 }
+
+#[cfg(test)]
+#[path = "native_detail_tests.rs"]
+mod tests;

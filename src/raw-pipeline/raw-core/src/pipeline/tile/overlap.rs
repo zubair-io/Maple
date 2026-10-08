@@ -10,9 +10,9 @@
 //! frame (the highlights/shadows detail mask, #2476) contributes its reach
 //! at the tile's develop resolution.
 //!
-//! [`TILE_OVERLAP_PX`] stays as the floor: it already covers the default
-//! model's stencils with headroom, so no existing render gets a smaller pad
-//! than it had, and the calculator only ever GROWS the pad for the stages
+//! [`TILE_OVERLAP_PX`] stays as the floor, so no existing render gets a
+//! smaller pad. Guided highlight recovery contributes its developed-pixel
+//! support even at defaults; the calculator grows the pad for the stages
 //! that need more — capture sharpening (~96 px at the σ = 8 clamp) and the
 //! S/H mask at deep zoom (hundreds of px on a 100 MP frame), both of which
 //! were rejected at the entry before this existed.
@@ -77,6 +77,7 @@ pub(super) fn tile_overlap_px(
         })
         .unwrap_or(0);
     let sum: usize = PRE_SCENE_REACH_PX
+        + crate::stages::highlight_recovery::stencil_reach_px(model.highlight_recovery)
         + warp_reach
         + capture_sharpening_params_from_model(model)
             .map(|p| capture_sharpening::stencil_reach_px(&p))
@@ -89,7 +90,7 @@ pub(super) fn tile_overlap_px(
             .unwrap_or(0)
         + local_spatial_reach_px(model)
         + tail_reach_px(model);
-    let mosaic_px = (sum as u32).saturating_mul(divisor);
+    let mosaic_px = (sum as u32).saturating_mul(qd);
     TILE_OVERLAP_PX.max(mosaic_px)
 }
 
@@ -131,12 +132,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_model_stays_on_the_fixed_pad() {
-        // sharpen 40 @ σ 1 (reach 3 + 1) + nr_color 25 (5) + pre-scene 8 = 17 < 48.
-        assert_eq!(
-            tile_overlap_px(None, &AdjustmentModel::default(), 6000, 1),
-            TILE_OVERLAP_PX
-        );
+    fn guided_default_counts_complete_cell_support() {
+        let model = AdjustmentModel::default();
+        assert_eq!(tile_overlap_px(None, &model, 6000, 1), 8 + 47 + 4 + 5);
+        assert_eq!(tile_overlap_px(None, &model, 3000, 2), 2 * (8 + 47 + 4 + 5));
+        let off = AdjustmentModel {
+            highlight_recovery: crate::xmp::HighlightRecoveryMode::Off,
+            ..model
+        };
+        assert_eq!(tile_overlap_px(None, &off, 6000, 1), TILE_OVERLAP_PX);
     }
 
     /// A layer engaging clarity/texture/sharpness/noise widens the pad by
@@ -145,6 +149,7 @@ mod tests {
     fn per_mask_spatial_controls_widen_the_pad() {
         use crate::types::{LocalAdjustment, PartialAdjustments, Point2};
         let quiet = AdjustmentModel {
+            highlight_recovery: crate::xmp::HighlightRecoveryMode::Off,
             sharpen_amount: 0.0,
             nr_color: 0.0,
             ..AdjustmentModel::default()
@@ -184,6 +189,7 @@ mod tests {
     #[test]
     fn sliders_at_zero_contribute_nothing_and_engaged_reaches_add() {
         let quiet = AdjustmentModel {
+            highlight_recovery: crate::xmp::HighlightRecoveryMode::Off,
             sharpen_amount: 0.0,
             nr_color: 0.0,
             ..AdjustmentModel::default()

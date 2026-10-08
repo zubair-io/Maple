@@ -58,10 +58,10 @@ pub use pano::{decode_for_pano, read_pano_metadata, PanoIngest, PanoSourceMetada
 pub use render::{
     cached_auto_profile_fit, decode_raster_base, fit_auto_profile_from_raw,
     fit_auto_profile_from_raw_at_cap, fit_profile_curve_from_raw, native_render_dims,
-    render_detail_base, render_detail_base_cancellable, render_detail_tile,
-    render_detail_tile_cancellable, render_export_from_raw, render_export_from_raw_with_film,
-    render_export_raster, render_export_raster_cancellable, render_from_raw,
-    render_from_raw_with_auto_fit, render_from_raw_with_quality,
+    render_detail_base, render_detail_base_cancellable, render_detail_base_retained,
+    render_detail_tile, render_detail_tile_cancellable, render_export_from_raw,
+    render_export_from_raw_with_film, render_export_raster, render_export_raster_cancellable,
+    render_from_raw, render_from_raw_with_auto_fit, render_from_raw_with_quality,
     render_from_raw_with_quality_and_source, render_from_raw_with_quality_source_and_film,
     render_from_scene_linear, render_from_scene_linear_with_chain,
     render_scene_linear_from_raw_with_quality, render_scene_linear_from_raw_with_quality_f32,
@@ -85,11 +85,14 @@ pub use scene_linear_chain::{
     encode_display_f32, encode_display_srgb_f32, encode_display_u10_f32, ChainOptions, ChainWindow,
 };
 pub use tile::{
-    render_scene_linear_tile_cancellable_f32, render_scene_linear_tile_from_raw_with_quality,
+    reject_untileable_tile, render_scene_linear_tile_cancellable_f32,
+    render_scene_linear_tile_from_frame_context, render_scene_linear_tile_from_frame_context_f32,
+    render_scene_linear_tile_from_raw_with_quality,
     render_scene_linear_tile_from_raw_with_quality_and_wb_anchor,
     render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32,
     render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32,
-    render_scene_linear_tile_from_raw_with_quality_f32, TileRect, TILE_OVERLAP_PX,
+    render_scene_linear_tile_from_raw_with_quality_f32, HighlightFrameContext, TileRect,
+    TILE_OVERLAP_PX,
 };
 
 /// Wraps a pipeline stage with `Instant::now()` timing, emitting one line
