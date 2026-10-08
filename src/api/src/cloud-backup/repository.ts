@@ -229,6 +229,19 @@ export class BackupRepository {
       checkpoint: rows[0]?.checkpoint ? JSON.parse(rows[0].checkpoint) : null,
     };
   }
+  async objectOwner(
+    destinationId: string,
+    key: string,
+  ): Promise<{ entryId: string; object: BackupObject | null } | null> {
+    const rows = await this.db.read<{ entry_id: string; object: string | null }>(
+      `SELECT entry_id,object FROM backup_objects WHERE destination_id=? AND key=?`,
+      [destinationId, key],
+    );
+    const row = rows[0];
+    return row
+      ? { entryId: row.entry_id, object: row.object ? JSON.parse(row.object) : null }
+      : null;
+  }
   async saveObject(
     destinationId: string,
     entryId: string,

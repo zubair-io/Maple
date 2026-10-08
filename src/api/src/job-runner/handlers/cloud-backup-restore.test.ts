@@ -132,14 +132,14 @@ test('restore handler rejects an unknown destination without opening a provider'
   }
 });
 
-test('restore handler forwards an explicit immutable version and binds its durable source journal', async () => {
+test('restore handler restores the current mirror version and binds its durable source journal', async () => {
   const f = await fixture();
   try {
     f.provider.manifest(1);
     f.provider.manifest(2);
-    const payload = { ...f.payload, includeTrash: false, entryId, sequence: 1 };
+    const payload = { ...f.payload, includeTrash: false, entryId, sequence: 2 };
     expect((await cloudBackupRestoreHandler.run(payload, f.ctx)).kind).toBe('done');
-    expect(await readFile(path.join(f.root, 'photo.jpg'), 'utf8')).toBe(`${entryId}-version-1`);
+    expect(await readFile(path.join(f.root, 'photo.jpg'), 'utf8')).toBe(`${entryId}-version-2`);
     const journal = JSON.parse(
       await readFile(
         path.join(f.root, `.maple-recovery-${f.ctx.jobId.toHexString()}.json`),
@@ -151,7 +151,7 @@ test('restore handler forwards an explicit immutable version and binds its durab
       rootId: 'drive-root',
       accountId: 'drive-account',
     });
-    expect(journal.selection).toEqual({ includeTrash: false, entryId, sequence: 1 });
+    expect(journal.selection).toEqual({ includeTrash: false, entryId, sequence: 2 });
     expect(f.checkpoint()).toEqual({ targetPath: f.root, journal: f.ctx.jobId.toHexString() });
     expect(f.live.db.query('SELECT COUNT(*) AS n FROM assets').get()).toEqual({ n: 1 });
     expect(f.providerSpy.mock.calls[0]![0]).toMatchObject({

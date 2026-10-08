@@ -181,6 +181,44 @@ test('mirror uploads preserve exact folder and filename paths and replace bytes 
   for await (const object of provider.list('mirror/')) listed.push(object);
   expect(listed).toEqual([updated]);
 });
+test('catalog listing resolves its prefix and never enumerates mirrored photo folders', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const library = 'a'.repeat(24);
+  const mirror = await provider.mirrorFile(
+    `mirror/${library}/2024/Wedding/photo.jpg`,
+    '2024/Wedding/photo.jpg',
+    source(new Uint8Array([1, 2, 3])),
+    { saveCheckpoint: async () => {} },
+  );
+  await provider.publish(
+    `libraries/${library}/entries/entry-1/manifests/1.json`,
+    source(new Uint8Array([4])),
+    { saveCheckpoint: async () => {} },
+  );
+  const mediaFolderIds = new Set<string>();
+  let parentId = store.files.get(mirror.locator)!.parents[0]!;
+  while (parentId !== root) {
+    mediaFolderIds.add(parentId);
+    parentId = store.files.get(parentId)!.parents[0]!;
+  }
+  const before = store.requests.length;
+  const listed: BackupObject[] = [];
+  for await (const object of provider.list(`libraries/${library}/entries/entry-1/manifests/`))
+    listed.push(object);
+  expect(listed.map((object) => object.key)).toEqual([
+    `libraries/${library}/entries/entry-1/manifests/1.json`,
+  ]);
+  const listQueries = store.requests
+    .slice(before)
+    .filter((request) => request.method === 'GET' && request.query?.includes('in parents'));
+  expect(listQueries.length).toBeGreaterThan(0);
+  expect(
+    listQueries.some((request) =>
+      [...mediaFolderIds].some((folderId) => request.query?.includes(`'${folderId}' in parents`)),
+    ),
+  ).toBe(false);
+});
 test('inspect hashes bytes when Google does not supply a native SHA; marker metadata cannot forge verification', async () => {
   const store = googleStore();
   const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
