@@ -58,6 +58,11 @@ import {
   type IndexSyncResult,
 } from './meilisearch-settings-sync.ts';
 import {
+  KEYWORD_ONLY,
+  createQueryEmbedder,
+  type HybridQuery,
+} from './meilisearch-query-embedding.ts';
+import {
   vectorFingerprint as computeVectorFingerprint,
   withTemplateFields,
   type VectorFingerprintInput,
@@ -163,6 +168,8 @@ interface ClientConfig extends MeilisearchTransportConfig {
   embedderModel: string;
   /** Hybrid semantic ratio (0 = pure keyword, 1 = pure vector). */
   semanticRatio: number;
+  /** Overrides the query-embedding deadline; tests only. */
+  queryEmbedDeadlineMs?: number;
 }
 
 function readConfig(): ClientConfig {
@@ -245,22 +252,20 @@ function searchRequest(
   config: ClientConfig,
   query: string,
   options: MeilisearchSearchOptions,
+  hybridQuery: HybridQuery,
 ): Record<string, unknown> {
-  const body: Record<string, unknown> = {
+  return {
     q: query,
     filter: buildFilter(options),
     offset: options.offset ?? 0,
     limit: options.limit ?? 100,
     attributesToRetrieve: ['id'],
     showRankingScore: true,
+    ...(hybridQuery.kind === 'keyword-only'
+      ? {}
+      : { hybrid: { embedder: EMBEDDER_NAME, semanticRatio: config.semanticRatio } }),
+    ...(hybridQuery.kind === 'vector' ? { vector: hybridQuery.vector } : {}),
   };
-  if (options.semantic && config.semantic) {
-    body.hybrid = {
-      embedder: EMBEDDER_NAME,
-      semanticRatio: config.semanticRatio,
-    };
-  }
-  return body;
 }
 
 function parseSearchResult(body: MeiliSearchResponse): MeilisearchSearchResult {
@@ -303,6 +308,8 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
     }
     return ensurePromise;
   };
+
+  const queryEmbedder = createQueryEmbedder(cfg, EMBEDDER_NAME);
 
   return {
     isConfigured(): boolean {
@@ -425,10 +432,12 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
       if (!isLiveConfig(cfg)) {
         return { ids: [], estimatedTotal: 0 };
       }
+      const hybridQuery =
+        opts.semantic && cfg.semantic ? await queryEmbedder.hybridQuery(q) : KEYWORD_ONLY;
       const body = await searchWithReadingDiversity(
         cfg,
         cfg.indexName,
-        searchRequest(cfg, q, opts),
+        searchRequest(cfg, q, opts, hybridQuery),
       );
       return parseSearchResult(body);
     },
