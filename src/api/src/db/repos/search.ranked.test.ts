@@ -164,3 +164,31 @@ test("a selective filter's facets are its matches, read once, with no ranking", 
     });
   });
 });
+
+test('a tie thousands wide at the cutoff goes to the full statement after one pass', async () => {
+  using handle = await createTestDatabase();
+  const libraryId = insertFolder(handle.db, { slug: 'tied' });
+  // Thirty short captions score best; then two thousand assets share one
+  // caption and score exactly alike; a few hundred others match one word.
+  // A first pass of 100 hits keeps the thirty and stops inside the tie, so
+  // widening by the survival rate would land inside it again.
+  for (let index = 0; index < 2_330; index++) {
+    seedSearchAsset(handle.db, libraryId, {
+      searchBlob:
+        index < 30
+          ? 'harbour lantern'
+          : index < 2_030
+            ? 'harbour lantern night'
+            : `harbour ${'x'.repeat(1 + (index % 29))}${index}`,
+      capturedAt: `2024-0${(index % 9) + 1}-1${index % 10}T10:00:00.000Z`,
+    });
+  }
+  for (let index = 0; index < 400; index++) {
+    seedSearchAsset(handle.db, libraryId, { searchBlob: `meadow ${index}` });
+  }
+  const where = translate({ placeQuery: 'harbour lantern' });
+  const { handle: recorded, issued } = recording(handle.db);
+  const rows = await firstRanked(recorded, where, 50);
+  expect(rows.map((row) => row.r).sort((a, b) => a - b)).toEqual(listHead(handle.db, where, 50));
+  expect({ passes: passes(issued), full: fullStatements(issued) }).toEqual({ passes: 1, full: 1 });
+});
