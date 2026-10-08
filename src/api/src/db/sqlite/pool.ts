@@ -68,6 +68,7 @@ import {
   type SqliteWorkerStats,
 } from './worker-handle.ts';
 import { retryOnBusy } from './busy-retry.ts';
+import { ReadGate } from './read-gate.ts';
 
 /**
  * Backoff sleep. Unref'd for the same reason the request timer is: a pool
@@ -198,6 +199,8 @@ export class SqlitePool {
   private readonly respawns: ReaderRespawnState[];
   private readonly onReaderRespawn: (event: ReaderRespawnEvent) => void;
   private readonly respawnDelaysMs: readonly number[];
+  /** Bounds the bulk-read lane to one fewer than the readers. See {@link readBulk}. */
+  private readonly bulkGate: ReadGate;
   /** Round-robin cursor, used only to break ties between equally idle readers. */
   private cursor = 0;
   private closed = false;
@@ -213,6 +216,7 @@ export class SqlitePool {
     this.readers = readers;
     this.onReaderRespawn = onReaderRespawn;
     this.respawnDelaysMs = respawnDelaysMs;
+    this.bulkGate = new ReadGate(Math.max(1, readers.length - 1));
     this.respawns = readers.map(() => ({
       inFlight: false,
       attempt: 0,
@@ -304,6 +308,30 @@ export class SqlitePool {
       );
     }
     return reader.read(sql, params) as Promise<T[]>;
+  }
+
+  /**
+   * Run one statement on a reader as part of a bulk lane that may never hold
+   * every reader at once.
+   *
+   * A facet request issues a dozen aggregations together. Through {@link read}
+   * each is queued on a reader the moment it is issued, so they occupy every
+   * reader and a grid page issued a moment later waits behind all of them —
+   * measured at 4.8–12.7 s for a page that costs under a second alone (#4413).
+   * This lane admits at most `readers − 1` (and at least one) statements at a
+   * time and holds the rest in this process, so one reader is always left for
+   * {@link read}. Callers that fan out should use it; a single request-path
+   * statement should not.
+   */
+  // fallow-ignore-next-line unused-class-member -- reached structurally through `readBulk` in db/repos/db-handle.ts, and by pool.bulk-lane.test.ts
+  readBulk<T = SqlRow>(sql: string, params?: SqlParams): Promise<T[]> {
+    return this.rejectIfClosed() ?? this.bulkGate.run(() => this.read<T>(sql, params));
+  }
+
+  /** How many bulk-lane statements may run at once. */
+  // fallow-ignore-next-line unused-class-member -- read by pool.bulk-lane.test.ts
+  get bulkReadLimit(): number {
+    return this.bulkGate.limit;
   }
 
   /**

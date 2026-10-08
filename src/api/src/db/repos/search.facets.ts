@@ -32,7 +32,7 @@ import {
   type FacetName,
 } from './search.facets.sql.ts';
 import type { SearchWhere } from './search.where.ts';
-import { assetsDb, type SqliteDb } from './db-handle.ts';
+import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
 import type { SqlRow } from '../sqlite/protocol.ts';
 
 /** A `{ value, count }` bucket — the shape most facets return on the wire. */
@@ -127,14 +127,17 @@ function range<T extends number | string>(
   return { min: row.min as T, max: row.max as T };
 }
 
-/** Runs every facet statement concurrently, on whichever readers are free. */
+/**
+ * Runs every facet statement concurrently, through the pool's bulk lane so they
+ * leave a reader free for the grid page the same search is waiting on.
+ */
 async function runFacets<K extends FacetName>(
   db: SqliteDb,
   statements: Record<K, BoundStatement>,
 ): Promise<Record<K, SqlRow[]>> {
   const names = Object.keys(statements) as K[];
   const results = await Promise.all(
-    names.map((name) => db.read(statements[name].sql, statements[name].params)),
+    names.map((name) => readBulk(db, statements[name].sql, statements[name].params)),
   );
   return Object.fromEntries(names.map((name, index) => [name, results[index]!])) as Record<
     K,
@@ -161,7 +164,7 @@ async function runFacets<K extends FacetName>(
 async function facetRows(db: SqliteDb, where: SearchWhere): Promise<Record<FacetName, SqlRow[]>> {
   if (where.match.kind !== 'match') return runFacets(db, facetStatements(where));
   const candidates = facetCandidatesSql(where);
-  const matched = await db.read<{ r: number }>(candidates.sql, candidates.params);
+  const matched = await readBulk<{ r: number }>(db, candidates.sql, candidates.params);
   const rowids = matched.map((row) => row.r);
   const { total: _total, ...groupings } = facetStatements(scopedToCandidates(where, rowids));
   const rows = await runFacets(db, groupings);
