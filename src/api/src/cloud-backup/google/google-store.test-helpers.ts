@@ -50,8 +50,16 @@ class GoogleStore {
   private reserve = 0;
   private active: Upload | null = null;
   private loseFinalResponse = false;
+  private failNextChunk = false;
+  private expireNextSessionProbe = false;
   loseFinal() {
     this.loseFinalResponse = true;
+  }
+  failChunk() {
+    this.failNextChunk = true;
+  }
+  expireSessionProbe() {
+    this.expireNextSessionProbe = true;
   }
   readonly transport: GoogleFetch = async (raw, init) => {
     const url = new URL(raw);
@@ -161,6 +169,16 @@ class GoogleStore {
     });
   }
   private uploadChunk(init?: RequestInit) {
+    const headers = new Headers(init?.headers);
+    if (this.expireNextSessionProbe && headers.get('content-range')?.startsWith('bytes */')) {
+      this.expireNextSessionProbe = false;
+      this.active = null;
+      return new Response(null, { status: 404 });
+    }
+    if (this.failNextChunk && headers.has('content-range')) {
+      this.failNextChunk = false;
+      throw new Error('Simulated interrupted upload');
+    }
     const active = this.active;
     if (!active) return new Response(null, { status: 404 });
     const body = init?.body as Uint8Array | undefined;

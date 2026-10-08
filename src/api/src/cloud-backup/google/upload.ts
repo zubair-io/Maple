@@ -218,27 +218,34 @@ interface Progress {
   next: number;
   completed: BackupObject | null;
 }
+async function reconcileExpiredReplacement(
+  ctx: UploadContext,
+  state: GoogleCheckpoint,
+  error: unknown,
+): Promise<Progress> {
+  const current = await ctx.provider.inspect(state.key, ctx.options.signal, state.fileId);
+  if (current) {
+    if (current.sha256 === state.sha256 && current.size === state.size)
+      return { state, next: 0, completed: current };
+    return { state: { ...state, session: null }, next: 0, completed: null };
+  }
+  if (!isDriveStatus(error, 404)) throw error;
+  return {
+    state: {
+      ...state,
+      fileId: await ctx.provider.client.reserveId(ctx.options.signal),
+      replace: false,
+      session: null,
+    },
+    next: 0,
+    completed: null,
+  };
+}
 async function reconcileExpired(ctx: UploadContext, state: GoogleCheckpoint): Promise<Progress> {
   try {
     return { state, next: 0, completed: await verify(ctx, state) };
   } catch (error) {
-    if (state.replace) {
-      const current = await ctx.provider.inspect(state.key, ctx.options.signal, state.fileId);
-      if (current && current.sha256 === state.sha256 && current.size === state.size)
-        return { state, next: 0, completed: current };
-      if (current) return { state: { ...state, session: null }, next: 0, completed: null };
-      if (!isDriveStatus(error, 404)) throw error;
-      return {
-        state: {
-          ...state,
-          fileId: await ctx.provider.client.reserveId(ctx.options.signal),
-          replace: false,
-          session: null,
-        },
-        next: 0,
-        completed: null,
-      };
-    }
+    if (state.replace) return reconcileExpiredReplacement(ctx, state, error);
     if (!isDriveStatus(error, 404)) throw error;
     return { state: { ...state, session: null }, next: 0, completed: null };
   }

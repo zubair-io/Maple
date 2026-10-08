@@ -468,3 +468,91 @@ test('an empty upload completes without a status-probe Content-Range and reconci
   expect(object.sha256).toBe(content.sha256);
   expect(objectCount(store)).toBe(1);
 });
+
+test('expired immutable upload sessions retry the durable reserved ID', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const content = source(new Uint8Array([1, 2, 3]));
+  let checkpoint: UploadCheckpoint | null = null;
+  store.failChunk();
+  await expect(
+    provider.publish('blobs/expired', content, {
+      saveCheckpoint: async (value) => {
+        checkpoint = value;
+      },
+    }),
+  ).rejects.toThrow('request failed');
+  const reservedId = checkpoint!.state.fileId as string;
+
+  store.expireSessionProbe();
+  const object = await provider.publish('blobs/expired', content, {
+    checkpoint,
+    saveCheckpoint: async (value) => {
+      checkpoint = value;
+    },
+  });
+
+  expect(object.locator).toBe(reservedId);
+  expect(object.sha256).toBe(content.sha256);
+});
+
+test('expired mirror replacement sessions retain the current object ID when it still exists', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const key = `mirror/${'a'.repeat(24)}/IMG_0042.JPG`;
+  const original = await provider.mirrorFile(key, 'IMG_0042.JPG', source(new Uint8Array([1])), {
+    saveCheckpoint: async () => {},
+  });
+  const replacement = source(new Uint8Array([2, 3]));
+  let checkpoint: UploadCheckpoint | null = null;
+  store.failChunk();
+  await expect(
+    provider.mirrorFile(key, 'IMG_0042.JPG', replacement, {
+      saveCheckpoint: async (value) => {
+        checkpoint = value;
+      },
+    }),
+  ).rejects.toThrow('request failed');
+
+  store.expireSessionProbe();
+  const object = await provider.mirrorFile(key, 'IMG_0042.JPG', replacement, {
+    checkpoint,
+    saveCheckpoint: async (value) => {
+      checkpoint = value;
+    },
+  });
+
+  expect(object.locator).toBe(original.locator);
+  expect(object.sha256).toBe(replacement.sha256);
+});
+
+test('expired mirror replacement sessions reserve a new ID if the old object disappeared', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const key = `mirror/${'a'.repeat(24)}/IMG_0042.JPG`;
+  const original = await provider.mirrorFile(key, 'IMG_0042.JPG', source(new Uint8Array([1])), {
+    saveCheckpoint: async () => {},
+  });
+  const replacement = source(new Uint8Array([2, 3]));
+  let checkpoint: UploadCheckpoint | null = null;
+  store.failChunk();
+  await expect(
+    provider.mirrorFile(key, 'IMG_0042.JPG', replacement, {
+      saveCheckpoint: async (value) => {
+        checkpoint = value;
+      },
+    }),
+  ).rejects.toThrow('request failed');
+  store.files.delete(original.locator);
+
+  store.expireSessionProbe();
+  const object = await provider.mirrorFile(key, 'IMG_0042.JPG', replacement, {
+    checkpoint,
+    saveCheckpoint: async (value) => {
+      checkpoint = value;
+    },
+  });
+
+  expect(object.locator).not.toBe(original.locator);
+  expect(object.sha256).toBe(replacement.sha256);
+});
