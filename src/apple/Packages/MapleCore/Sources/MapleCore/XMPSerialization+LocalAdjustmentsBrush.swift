@@ -28,7 +28,10 @@ extension LocalAdjustmentXMP {
       }
       var values: [Double] = []
       for token in tokens[chunk..<chunk + 5] {
-        guard let v = Double(String(token)), v.isFinite else { return nil }
+        // raw-core's decimal grammar: `Double` alone also takes hex floats.
+        guard token.allSatisfy({ "0123456789+-.eE".contains($0) }),
+          let v = Double(String(token)), v.isFinite
+        else { return nil }
         values.append(v)
       }
       dabs.append(

@@ -116,6 +116,7 @@ public enum BrushRaster {
       wire.append(dab.erase ? 1 : 0)
     }
     var out = [UInt8](repeating: 0, count: width * height)
+    if wire.isEmpty { return out }
     let rc: Int32 =
       wire.withUnsafeBufferPointer { wireBuf in
         out.withUnsafeMutableBufferPointer { outBuf in

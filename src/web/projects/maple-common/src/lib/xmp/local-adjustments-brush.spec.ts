@@ -166,6 +166,7 @@ describe('XMP local adjustments — brush masks (#360)', () => {
     ['non-numeric token', '0.5 0.5 0.05 0.5 one 0'],
     ['non-finite token', '0.5 0.5 0.05 0.5 Infinity 0'],
     ['bad erase flag', '0.5 0.5 0.05 0.5 1 2'],
+    ['hex token', '0x1 0.5 0.05 0.5 1 0'],
   ])('drops a correction with %s in papp:Dabs', (_name, dabs) => {
     const leaf = `<rdf:li crs:What="Mask/Paint" crs:MaskValue="1" papp:BrushVersion="1" papp:Dabs="${dabs}"/>`;
     expect(
