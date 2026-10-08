@@ -20,7 +20,7 @@ function deferredTask(started: string[], name: string) {
 }
 
 test('runs at most `limit` tasks at once and admits the rest in arrival order', async () => {
-  const gate = new ReadGate(2);
+  const gate = new ReadGate(() => 2);
   const started: string[] = [];
   const tasks = ['a', 'b', 'c', 'd'].map((name) => deferredTask(started, name));
   const results = tasks.map((t) => gate.run(t.task));
@@ -41,7 +41,7 @@ test('runs at most `limit` tasks at once and admits the rest in arrival order', 
 });
 
 test('a task that throws still releases its slot', async () => {
-  const gate = new ReadGate(1);
+  const gate = new ReadGate(() => 1);
   const failed = gate.run(() => Promise.reject(new Error('boom')));
   const next = gate.run(() => Promise.resolve('next'));
   await expect(failed).rejects.toThrow('boom');
@@ -49,7 +49,53 @@ test('a task that throws still releases its slot', async () => {
   expect(gate.running).toBe(0);
 });
 
-test('refuses a limit that would admit nothing', () => {
-  expect(() => new ReadGate(0)).toThrow();
-  expect(() => new ReadGate(1.5)).toThrow();
+test('refuses a limit that would admit nothing', async () => {
+  await expect(new ReadGate(() => 0).run(() => Promise.resolve('ran'))).rejects.toThrow();
+  await expect(new ReadGate(() => 1.5).run(() => Promise.resolve('ran'))).rejects.toThrow();
+});
+
+test('a shrinking limit keeps running tasks and admits nothing until under it', async () => {
+  const capacity = { limit: 2 };
+  const gate = new ReadGate(() => capacity.limit);
+  const started: string[] = [];
+  const tasks = ['a', 'b', 'c'].map((name) => deferredTask(started, name));
+  const results = tasks.map((t) => gate.run(t.task));
+  await Promise.resolve();
+
+  capacity.limit = 1;
+  tasks[0]!.finish();
+  await results[0];
+  await Promise.resolve();
+  const afterFirst = { started: [...started], running: gate.running };
+  tasks[1]!.finish();
+  await results[1];
+  await Promise.resolve();
+  const afterSecond = { started: [...started], running: gate.running };
+  tasks[2]!.finish();
+  await results[2];
+
+  expect(afterFirst).toEqual({ started: ['a', 'b'], running: 1 });
+  expect(afterSecond).toEqual({ started: ['a', 'b', 'c'], running: 1 });
+  expect(gate.running).toBe(0);
+});
+
+test('a grown limit admits waiters on admitWaiting, without waiting for a release', async () => {
+  const capacity = { limit: 1 };
+  const gate = new ReadGate(() => capacity.limit);
+  const started: string[] = [];
+  const tasks = ['a', 'b', 'c'].map((name) => deferredTask(started, name));
+  const results = tasks.map((t) => gate.run(t.task));
+  await Promise.resolve();
+  const beforeGrowth = [...started];
+
+  capacity.limit = 2;
+  gate.admitWaiting();
+  await Promise.resolve();
+  await Promise.resolve();
+  const afterGrowth = { started: [...started], running: gate.running };
+  for (const t of tasks) t.finish();
+  await Promise.all(results);
+
+  expect(beforeGrowth).toEqual(['a']);
+  expect(afterGrowth).toEqual({ started: ['a', 'b'], running: 2 });
 });
