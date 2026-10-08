@@ -36,6 +36,23 @@ function hangingFetch(): { fetchImpl: typeof fetch; requests: RecordedRequest[] 
   return { fetchImpl, requests };
 }
 
+/** A hanging fetch whose requests the test can fail on demand, for calls
+ * whose own bound is too long to wait out. */
+function releasableFetch(): {
+  fetchImpl: typeof fetch;
+  requests: RecordedRequest[];
+  release: () => void;
+} {
+  const requests: RecordedRequest[] = [];
+  const rejects: Array<(reason: Error) => void> = [];
+  const fetchImpl = ((input: RequestInfo | URL, init?: RequestInit) => {
+    requests.push({ url: String(input), signal: init?.signal ?? null });
+    return new Promise<Response>((_resolve, reject) => rejects.push(reject));
+  }) as typeof fetch;
+  const release = () => rejects.forEach((reject) => reject(new Error('released by test')));
+  return { fetchImpl, requests, release };
+}
+
 /** A fetch that answers 200 and then never finishes the body — a sidecar
  * that stalls mid-response. The body errors when the signal aborts. */
 function stalledBodyFetch(): typeof fetch {
@@ -84,11 +101,18 @@ describe('Meilisearch request timeout', () => {
   });
 
   it('gives background bulk uploads a longer bound than the request timeout', async () => {
-    const { fetchImpl, requests } = hangingFetch();
-    void hungClient(fetchImpl).upsertBatchOrThrow!([BACKGROUND_DOC]);
-    void hungClient(fetchImpl).tombstoneBatchOrThrow!(['abc123'], 30_000);
+    const { fetchImpl, requests, release } = releasableFetch();
+    const uploads = [
+      hungClient(fetchImpl).upsertBatchOrThrow!([BACKGROUND_DOC]),
+      hungClient(fetchImpl).tombstoneBatchOrThrow!(['abc123'], 30_000),
+    ];
     await Bun.sleep(TEST_REQUEST_TIMEOUT_MS * 2);
     expect(requests.map((r) => r.signal === null)).toEqual([false, false]);
     expect(requests.map((r) => r.signal?.aborted)).toEqual([false, false]);
+    // Settle both uploads here: left pending, their two-minute bound would
+    // reject them mid-suite as unhandled errors.
+    release();
+    const settled = await Promise.allSettled(uploads);
+    expect(settled.map((s) => s.status)).toEqual(['rejected', 'rejected']);
   });
 });
