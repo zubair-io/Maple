@@ -332,9 +332,13 @@ export class ControlCardComponent {
     // so the value chip and the sub-param panel follow the active slider.
     // On web this is also what makes a multi-param tool's extra tiers
     // reachable — the Noise pill's Deep / Prefilter (#1153).
+    this.armForChange(tool);
+    this.libraryState.updateAdjustment(id, manualAdjustmentPatch({ [field]: value }, current));
+  }
+
+  private armForChange(tool: ToolId): void {
     if (tool === 'noise' && this.dragAssetId !== null) this.pendingNoisePanel = true;
     else if (this.editorState.armedTool() !== tool) this.editorState.armTool(tool);
-    this.libraryState.updateAdjustment(id, manualAdjustmentPatch({ [field]: value }, current));
   }
 
   onSliderReset(tool: ToolId): void {
