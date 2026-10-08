@@ -38,6 +38,13 @@ struct SearchFilterPanel: View {
             params: vm.params,
             onSelection: { Task { await vm.submit() } })
           dateSection
+          if let note = vm.facetScope.note {
+            Text(note)
+              .font(MapleTokens.Typography.body)
+              .foregroundStyle(MapleTokens.textMuted)
+              .fixedSize(horizontal: false, vertical: true)
+              .accessibilityIdentifier("search-facet-scope-note")
+          }
           facetRowsSection(
             title: "People",
             rows: SearchFilterPanelVM.rowModels(
