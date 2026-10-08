@@ -81,6 +81,37 @@ describe('toTextFilter', () => {
     }
   });
 
+  test('drops bare stopwords from the OR group (#4413)', () => {
+    expect(expression('scenic shots featuring vibrant orange and red autumn foliage')).toBe(
+      '(("scenic" OR "shots" OR "featuring" OR "vibrant" OR "orange" OR "red" OR "autumn" OR "foliage"))',
+    );
+    expect(expression('The Harbour at Dawn')).toBe('(("Harbour" OR "Dawn"))');
+  });
+
+  test('keeps stopwords when they are the whole positive query', () => {
+    expect(expression('and')).toBe('(("and"))');
+    expect(expression('to be or not to be')).toBe(
+      '(("to" OR "be" OR "or" OR "not" OR "to" OR "be"))',
+    );
+    expect(expression('the -boat')).toBe('(("the")) NOT ("boat")');
+  });
+
+  test('a quoted phrase keeps its stopwords, and a phrase alone drops bare ones', () => {
+    expect(expression('"bread and butter"')).toBe('("bread and butter")');
+    expect(expression('"paper lanterns" in the street')).toBe('("paper lanterns" AND ("street"))');
+    expect(expression('"paper lanterns" the')).toBe('("paper lanterns")');
+  });
+
+  test('a negated stopword is still excluded', () => {
+    expect(expression('harbour -the')).toBe('(("harbour")) NOT ("the")');
+  });
+
+  test('stopwords do not count against the term cap', () => {
+    const wordy = Array.from({ length: 30 }, (_, i) => `the term${i}`).join(' ');
+    expect(expression(wordy)).toContain('"term23"');
+    expect(expression(wordy)).not.toContain('"the"');
+  });
+
   test('keeps non-Latin terms, which an [a-z0-9] test would drop', () => {
     expect(expression('東京')).toBe('(("東京"))');
     expect(expression('naïve')).toBe('(("naïve"))');
@@ -122,6 +153,14 @@ describe('what a translated query actually finds', () => {
     seedSearchLibrary(handle.db);
     const found = await search(handle.db, 'harbour lanterns');
     expect(found.sort()).toEqual(['clip.mp4', 'harbour.dng', 'lantern.dng']);
+  });
+
+  test('a stopword no longer widens a query to every caption containing it', async () => {
+    using handle = await createTestDatabase();
+    seedSearchLibrary(handle.db);
+    // Nearly every fixture blob has an "a" in it; ORed in, it used to add them
+    // all to a search for the harbour.
+    expect((await search(handle.db, 'a harbour')).sort()).toEqual(['clip.mp4', 'harbour.dng']);
   });
 
   test('a phrase requires the words adjacent', async () => {
