@@ -25,13 +25,15 @@
  */
 
 import {
-  facetCandidatesSql,
   facetStatements,
   scopedToCandidates,
   type BoundStatement,
   type FacetName,
 } from './search.facets.sql.ts';
 import type { SearchWhere } from './search.where.ts';
+import { firstRankedRowids } from './search.ranked.ts';
+import { textCount } from './search.text-count.ts';
+import { cachedFacets } from './search.facets.cache.ts';
 import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
 import type { SqlRow } from '../sqlite/protocol.ts';
 
@@ -65,7 +67,39 @@ export interface SearchFacets {
   people: Array<{ id: string; count: number }>;
   places: ValueBucket[];
   owners: Array<{ id: string; count: number }>;
+  /** Which matches the buckets above count. See {@link FacetScope}. */
+  scope: FacetScope;
 }
+
+/**
+ * The most relevant matches a broad text search's facets describe (#4431).
+ *
+ * A text query matching more assets than this is faceted over its first
+ * `FACET_TOP_MATCHES` results in the list's own order — best `bm25()` score,
+ * then newest capture, then id — rather than over every match. Counting every
+ * match of "group of people standing in front of the ocean" meant reading
+ * 98,635 asset rows per facet on production, about six seconds in all; the
+ * best two thousand cost a few milliseconds per facet.
+ *
+ * The trade-off, plainly: for such a query the buckets say "among the 2,000
+ * best matches, 312 were shot on a Canon", not "312 of all 98,635 matches
+ * were". A camera, place or person that appears only among the weaker matches
+ * gets no bucket. `total` stays the exact number of matches, so a client can
+ * tell the two apart through {@link FacetScope}. A query matching this many or
+ * fewer is faceted over every match, exactly as before.
+ */
+const FACET_TOP_MATCHES = 2_000;
+
+/**
+ * What the facet buckets count.
+ *
+ * `all` — every match, which is every search without text and every text
+ * search with at most {@link FACET_TOP_MATCHES} matches. `top` — only the
+ * first `limit` results of `of` matches. Clients that do not read the field
+ * see the shape they always did; one that does should label the buckets
+ * "in the 2,000 most relevant of 98,635 results".
+ */
+export type FacetScope = { kind: 'all' } | { kind: 'top'; limit: number; of: number };
 
 /** A non-empty string, or `null` — the filter every text bucket applies. */
 function nonEmpty(value: unknown): string | null {
@@ -146,29 +180,41 @@ async function runFacets<K extends FacetName>(
 }
 
 /**
- * Every facet's rows, with a text query's match evaluated once rather than
- * once per facet.
+ * Every facet's rows, with a text query's matches resolved once rather than
+ * once per facet, and a broad one cut to its most relevant matches.
  *
  * A full-text search reaches every facet through the same join — the inverted
- * index, `asset_search`, then `assets` — and that join is the whole cost of a
- * facet: at 335k assets a caption-style query hits most of the library, and
- * each of thirteen statements joined, filtered and grouped those rows for
- * itself, 0.5–0.8 s apiece (#4413). Resolving the matching assets once and
- * grouping over their row ids makes each facet a keyed probe per match
- * instead. The total is that set's size, which is the count the shared
- * statement would have produced.
+ * index, `asset_search`, then `assets` — and that join was the whole cost of a
+ * facet (#4413), so the assets to group are resolved once and each grouping
+ * becomes a keyed probe per asset. Resolving every match stopped paying off at
+ * around a hundred thousand of them, where the probes themselves cost seconds,
+ * so the set is now the first {@link FACET_TOP_MATCHES} results of the list
+ * (#4431) — which, for a search with no more matches than that, is every
+ * match, exactly the set it always was. The total is the exact match count.
  *
  * A search without text keeps the statements as they were: each of them
  * already reads one index, or one join the planner has been measured on.
  */
-async function facetRows(db: SqliteDb, where: SearchWhere): Promise<Record<FacetName, SqlRow[]>> {
-  if (where.match.kind !== 'match') return runFacets(db, facetStatements(where));
-  const candidates = facetCandidatesSql(where);
-  const matched = await readBulk<{ r: number }>(db, candidates.sql, candidates.params);
-  const rowids = matched.map((row) => row.r);
+async function facetRows(
+  db: SqliteDb,
+  where: SearchWhere,
+  topMatches: number,
+): Promise<{ rows: Record<FacetName, SqlRow[]>; scope: FacetScope }> {
+  if (where.match.kind !== 'match') {
+    return { rows: await runFacets(db, facetStatements(where)), scope: { kind: 'all' } };
+  }
+  // Both at once: the first rows of the list are every match when there are
+  // no more than `topMatches` of them, so the count only decides the label.
+  const [total, rowids] = await Promise.all([
+    textCount(db, where),
+    firstRankedRowids(db, where, topMatches),
+  ]);
   const { total: _total, ...groupings } = facetStatements(scopedToCandidates(where, rowids));
   const rows = await runFacets(db, groupings);
-  return { ...rows, total: [{ n: rowids.length }] };
+  return {
+    rows: { ...rows, total: [{ n: total }] },
+    scope: total > topMatches ? { kind: 'top', limit: topMatches, of: total } : { kind: 'all' },
+  };
 }
 
 /**
@@ -179,13 +225,29 @@ async function facetRows(db: SqliteDb, where: SearchWhere): Promise<Record<Facet
  * so the route waits for the slowest rather than for the sum. That is the whole
  * reason the pool has readers — a facet aggregation must never be able to delay
  * a grid page, and on the writer thread it would.
+ *
+ * A text search's answer is cached briefly — see `search.facets.cache.ts`.
+ * `topMatches` exists so the tests can cross {@link FACET_TOP_MATCHES} on a
+ * fixture library; the route never passes it.
  */
 export async function searchFacets(
   where: SearchWhere,
   dbOverride?: SqliteDb,
+  topMatches = FACET_TOP_MATCHES,
 ): Promise<SearchFacets> {
   const db = assetsDb(dbOverride);
-  const rows = await facetRows(db, where);
+  return where.match.kind === 'match'
+    ? cachedFacets(db, [where, topMatches], () => computeFacets(db, where, topMatches))
+    : computeFacets(db, where, topMatches);
+}
+
+/** The facets themselves, uncached. */
+async function computeFacets(
+  db: SqliteDb,
+  where: SearchWhere,
+  topMatches: number,
+): Promise<SearchFacets> {
+  const { rows, scope } = await facetRows(db, where, topMatches);
   const as = <T>(name: FacetName): T[] => rows[name] as unknown as T[];
 
   const screenshot = as<{ bucket: number; count: number }>('is_screenshot');
@@ -217,5 +279,6 @@ export async function searchFacets(
     owners: as<{ id: string | null; count: number }>('owners')
       .filter((row): row is { id: string; count: number } => typeof row.id === 'string')
       .map((row) => ({ id: row.id, count: row.count })),
+    scope,
   };
 }

@@ -83,7 +83,7 @@ describe('facets over a candidate set', () => {
     expect(result.people).toEqual([]);
   });
 
-  test('a text query evaluates its MATCH once, not once per facet', async () => {
+  test('a text query evaluates its MATCH for the total and the candidates, not per facet', async () => {
     using handle = await createTestDatabase();
     seedSearchLibrary(handle.db);
     const inner = testSqliteDb(handle.db);
@@ -98,7 +98,9 @@ describe('facets over a candidate set', () => {
     };
     const result = await searchFacets(where({ placeQuery: 'new york' }), recording);
     expect(result.total).toBe(3);
-    expect(issued.filter((sql) => sql.includes('MATCH')).length).toBe(1);
-    expect(issued.length).toBe(13);
+    // The exact total and the score-only ranking read the inverted index
+    // (#4431); the join of the best matches and the twelve groupings do not.
+    expect(issued.filter((sql) => sql.includes('MATCH')).length).toBe(2);
+    expect(issued.length).toBe(15);
   });
 });

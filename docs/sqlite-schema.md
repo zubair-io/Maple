@@ -520,6 +520,19 @@ caption query no longer extracts the capture date from every match's `exif`.
 `search.page.ranked.test.ts` holds it row-for-row to the single-statement form
 it replaced, and `search.query-plan.text.test.ts` pins the plan.
 
+A text search's facets (#4431) count every match only while there are at most
+`FACET_TOP_MATCHES` (2,000) of them. Past that they count the first 2,000 rows
+of the result order instead: one statement ranks the matches on `assets_fts`
+alone and keeps the best 4,000, only those are joined to `asset_search` and
+`assets` for liveness, visibility and every filter, and the twelve groupings
+run over the survivors' `assets.rowid`s. The response's `total` stays exact —
+for a text-only search it is the full-text match count less the matches among
+`assets_unlisted` (trashed, without a live file, or hidden; migration
+`0020-assets-unlisted`) — and `scope` says which matches the buckets describe.
+Answers are cached per translated query for 30 s. `search.facets.top.test.ts`
+holds the counts to the list's first rows and `search.query-plan.top.test.ts`
+pins the plans.
+
 The translation answers one of three things, and the third is the one that is
 easy to get wrong. A blank query carries no text filter. A query with terms
 becomes an expression. A query whose terms all cancel — `???`, `-boat`, `((((`
