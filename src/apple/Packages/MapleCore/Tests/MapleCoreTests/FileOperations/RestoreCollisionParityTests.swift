@@ -5,11 +5,7 @@ import XCTest
 @testable import MapleCore
 
 final class RestoreCollisionParityTests: XCTestCase {
-  private func physicalRAW() throws -> Data {
-    var root = URL(fileURLWithPath: #filePath)
-    for _ in 0..<8 { root.deleteLastPathComponent() }
-    return try Data(contentsOf: root.appending(path: "test-fixtures/raws/test_0017.dng"))
-  }
+  private func physicalRAW() throws -> Data { try RestorePhysicalRAW.data() }
 
   func testLocalRestoreCollisionPreservesPhotoAndForeignXmp() async throws {
     let root = try SidecarContractIO.makeTempDirectory(prefix: "restore-4139")
@@ -91,6 +87,10 @@ final class RestoreCollisionParityTests: XCTestCase {
           try Data(
             contentsOf: fixture.share.appendingPathComponent(
               RestoreCaseFoldedWorkflowFixture.restoredName)), xml)
+        XCTAssertEqual(try Data(contentsOf: photo), original)
+        XCTAssertEqual(try Data(contentsOf: sidecar), xml)
+        let touched = await transport.trashedSourcesTouched
+        XCTAssertEqual(touched, [])
       } catch {
         XCTAssertEqual(try Data(contentsOf: photo), original)
         XCTAssertEqual(try Data(contentsOf: sidecar), xml)
@@ -137,42 +137,6 @@ final class RestoreCollisionParityTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: trashed), foreign.original)
   }
 
-  func testAuthenticatedSMBCleanupReplacementRetainsUnrelatedFile() async throws {
-    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
-    let foreign = try NativeWorkflowControlFixture.files()
-    defer { try? FileManager.default.removeItem(at: foreign.directory) }
-    do {
-      let original = try physicalRAW()
-      try original.write(to: fixture.raw)
-      let xml = try Data(contentsOf: SidecarPath.sidecarURL(for: fixture.raw))
-      let ref = try await fixture.image()
-      let trash = try await fixture.source.trashAsset(ref)
-      let connected = await fixture.source.client
-      let client = try XCTUnwrap(connected)
-      let share = fixture.share
-      let foreignPath = foreign.raw
-      let transport = RestoreRealSMBTransport(
-        client: client,
-        removalMutation: { path in
-          let selected = share.appendingPathComponent(String(path.dropFirst()))
-          try FileManager.default.removeItem(at: selected)
-          try FileManager.default.copyItem(at: foreignPath, to: selected)
-        })
-      do {
-        _ = try await SMBFileOperations.restoreFromMapleTrash(
-          trash.primaryPath, transport: transport)
-      } catch {}
-      XCTAssertEqual(try Data(contentsOf: fixture.raw), original)
-      XCTAssertEqual(try Data(contentsOf: SidecarPath.sidecarURL(for: fixture.raw)), xml)
-      let retained = share.appendingPathComponent(String(trash.primaryPath.dropFirst()))
-      XCTAssertEqual(try Data(contentsOf: retained), foreign.original)
-      await fixture.close()
-    } catch {
-      await fixture.close(error: error)
-      throw error
-    }
-  }
-
   func testAuthenticatedSMBRestoreVerificationDeliversBoundedPhysicalRAWChunks() async throws {
     let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
     do {
@@ -190,13 +154,16 @@ final class RestoreCollisionParityTests: XCTestCase {
       XCTAssertEqual(probe.digest(), SHA256.hash(data: original))
       XCTAssertLessThanOrEqual(probe.maximum, 1024 * 1024)
       do {
-        try await client.removeRestoreFile(
-          atPath: "photo.dng", expectedIdentity: inode,
+        try await client.moveRestoreFile(
+          atPath: "photo.dng", toPath: "rejected.dng", expectedIdentity: inode,
           consume: { XCTAssertLessThanOrEqual($0.count, 1024 * 1024) },
           validate: { _ in false })
-        XCTFail("Rejected verification removed the physical original")
+        XCTFail("Rejected verification renamed the physical original")
       } catch let error as POSIXError { XCTAssertEqual(error.code, .ESTALE) }
       XCTAssertEqual(try Data(contentsOf: fixture.raw), original)
+      XCTAssertFalse(
+        FileManager.default.fileExists(
+          atPath: fixture.share.appendingPathComponent("rejected.dng").path))
       await fixture.close()
     } catch {
       await fixture.close(error: error)
@@ -301,10 +268,11 @@ final class RestoreCollisionParityTests: XCTestCase {
       XCTAssertEqual(try Data(contentsOf: trashedPath), original)
       XCTAssertEqual(try Data(contentsOf: SidecarPath.sidecarURL(for: trashedPath)), xml)
       // Handle custody rejects the replacement before publication. The
-      // unowned stage is retained, while the original pair remains in trash.
+      // unowned stage is retained for the expiry sweep, while the original
+      // pair remains in trash.
       XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.raw.path))
       let stages = try FileManager.default.contentsOfDirectory(
-        at: share, includingPropertiesForKeys: nil
+        at: share.appendingPathComponent(".maple/restore-staging"), includingPropertiesForKeys: nil
       )
       .filter { $0.lastPathComponent.contains(".tmp.") }
       XCTAssertEqual(try stages.filter { try Data(contentsOf: $0) == foreign.original }.count, 1)
@@ -451,14 +419,16 @@ final class RestoreCollisionParityTests: XCTestCase {
       for name in incoming {
         let renamed = "photo.restored.2" + String(name.dropFirst("photo".count))
         XCTAssertEqual(try Data(contentsOf: fixture.share.appendingPathComponent(renamed)), xml)
-        XCTAssertFalse(
-          FileManager.default.fileExists(
-            atPath: trashed.deletingLastPathComponent().appendingPathComponent(name).path))
+        XCTAssertEqual(
+          try Data(contentsOf: trashed.deletingLastPathComponent().appendingPathComponent(name)),
+          xml)
       }
       for name in occupants {
         XCTAssertEqual(try Data(contentsOf: fixture.share.appendingPathComponent(name)), occupied)
       }
-      XCTAssertFalse(FileManager.default.fileExists(atPath: trashed.path))
+      XCTAssertEqual(try Data(contentsOf: trashed), original)
+      let touched = await transport.trashedSourcesTouched
+      XCTAssertEqual(touched, [])
       await fixture.close()
     } catch {
       await fixture.close(error: error)
@@ -513,7 +483,8 @@ final class RestoreCollisionParityTests: XCTestCase {
       let transport = RestoreRealSMBTransport(client: try XCTUnwrap(connected)) { _, _ in }
       do {
         _ = try await SMBFileOperations.restoreFilePair(
-          trash.primaryPath, to: "/blocked", transport: transport)
+          trash.primaryPath, to: "/blocked",
+          staging: SMBFileOperations.restoreStagingDir(shareRoot: "/"), transport: transport)
         XCTFail("Restore accepted a file as a destination directory")
       } catch {}
       let trashed = fixture.share.appendingPathComponent(String(trash.primaryPath.dropFirst()))
