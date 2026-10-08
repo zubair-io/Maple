@@ -93,7 +93,7 @@ describe('hybrid search query embeddings (#4437)', () => {
     const result = await client(meili, ollama).search('  winter   scenes ', { semantic: true });
 
     expect(result.ids).toEqual(['snowy-field']);
-    expect(ollama.embeds).toEqual([{ model: MODEL, input: 'winter scenes', keep_alive: '24h' }]);
+    expect(ollama.embeds).toEqual([{ model: MODEL, input: 'winter scenes', keep_alive: -1 }]);
     expect(meili.searches[0]).toMatchObject({
       q: '  winter   scenes ',
       vector: VECTOR,
