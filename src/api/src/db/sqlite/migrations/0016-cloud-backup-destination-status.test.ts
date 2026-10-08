@@ -42,6 +42,7 @@ test('destination coverage counts backfill correctly and track location and Tras
   expect(result.applied).toEqual([
     '0016-cloud-backup-destination-status',
     '0017-cloud-backup-object-entry-index',
+    '0018-cloud-backup-google-mirror-layout',
   ]);
   expect(
     handle.db
