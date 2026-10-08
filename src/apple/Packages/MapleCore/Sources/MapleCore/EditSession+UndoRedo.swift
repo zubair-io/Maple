@@ -85,7 +85,7 @@ extension EditSession {
     guard let tx = transactions.undoStack.popLast() else { return }
     transactions.redoStack.append(tx)
     trim(&transactions.redoStack)
-    model = tx.before
+    model = rebindingBrushRasters(live: model, restored: tx.before)
     scheduleSemanticSidecarCommit(
       model: tx.before, culling: culling, action: "undo", label: "Undo \(tx.description)")
     lastCommittedTransaction = tx
@@ -102,7 +102,7 @@ extension EditSession {
     guard let tx = transactions.redoStack.popLast() else { return }
     transactions.undoStack.append(tx)
     trim(&transactions.undoStack)
-    model = tx.after
+    model = rebindingBrushRasters(live: model, restored: tx.after)
     scheduleSemanticSidecarCommit(
       model: tx.after, culling: culling, action: "redo", label: "Redo \(tx.description)")
     lastCommittedTransaction = tx

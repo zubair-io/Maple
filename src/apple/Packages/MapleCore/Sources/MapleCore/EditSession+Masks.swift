@@ -140,7 +140,7 @@ extension EditSession {
     }
   }
 
-  private func rehydratedBrush(dabs: [BrushDab], fallback: LocalMask) -> LocalMask {
+  func rehydratedBrush(dabs: [BrushDab], fallback: LocalMask) -> LocalMask {
     let digest = BrushRaster.digest(dabs)
     guard !dabs.isEmpty, let (w, h, bytes) = sourceBrushRaster(dabs: dabs),
       let id = MaskRasterRegistry.register(digest: digest, width: w, height: h, bytes: bytes)
@@ -174,6 +174,33 @@ extension EditSession {
       mask: .everywhere, range: .skinTone, adjustments: PartialAdjustments())
     model.localAdjustments.append(layer)
     selectedMaskId = layer.id
+  }
+
+  /// `restored` as an undo/redo snapshot comes back: a stroke appended
+  /// after the snapshot released the snapshot's brush raster, so any brush
+  /// id `live` no longer holds re-registers from its dabs, and live brush
+  /// ids the snapshot dropped are released.
+  func rebindingBrushRasters(live: AdjustmentModel, restored: AdjustmentModel)
+    -> AdjustmentModel
+  {
+    func brushRasterIds(_ model: AdjustmentModel) -> Set<UInt32> {
+      Set(
+        model.localAdjustments.compactMap { layer in
+          guard case .brush(_, _, let id) = layer.mask, id != 0 else { return nil }
+          return id
+        })
+    }
+    let liveIds = brushRasterIds(live)
+    var out = restored
+    for index in out.localAdjustments.indices {
+      guard case .brush(let dabs, _, let rasterId) = out.localAdjustments[index].mask,
+        !liveIds.contains(rasterId)
+      else { continue }
+      out.localAdjustments[index].mask = rehydratedBrush(
+        dabs: dabs, fallback: out.localAdjustments[index].mask)
+    }
+    liveIds.subtracting(brushRasterIds(out)).forEach(MaskRasterRegistry.release)
+    return out
   }
 
   /// The full-frame raster a brush stroke describes: its dabs stamped at
