@@ -42,11 +42,12 @@ const QUERY_EMBED_DEADLINE_MS = 800;
  * above the measured 3.9 s cold load. */
 const QUERY_EMBED_CEILING_MS = 30_000;
 
-/** How long Ollama keeps the model loaded after each query. A day bridges the
- * gaps between search sessions, overnight included. Holding it costs nothing
- * the host needs back: Ollama unloads an idle model early when another model
- * needs the memory, so describe work is never blocked by it. */
-const QUERY_EMBED_KEEP_ALIVE = '24h';
+/** Keep the model loaded indefinitely. Ollama applies the keep-alive of the
+ * latest request, so any finite value here would cut short a host configured
+ * with `OLLAMA_KEEP_ALIVE=-1`. Holding it costs nothing the host needs back:
+ * Ollama unloads an idle model early when another model needs the memory, so
+ * describe work is never blocked by it. */
+const QUERY_EMBED_KEEP_ALIVE = -1;
 
 /** bge-m3 vectors are 1024 numbers, so 256 cached queries are a few MB. */
 const QUERY_VECTOR_CACHE_ENTRIES = 256;
