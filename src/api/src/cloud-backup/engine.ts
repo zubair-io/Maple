@@ -300,9 +300,15 @@ export class BackupEngine {
     }
     const previous = entry.manifest ? (JSON.parse(entry.manifest) as BackupManifest) : null;
     const retainedKeys = new Set(files.map((file) => file.object.key));
-    for (const oldFile of previous?.files ?? []) {
-      if (retainedKeys.has(oldFile.object.key)) continue;
-      await removeStaleEntryObject(provider, repo, destination, entry, oldFile.object, signal);
+    const previousObjects = new Map(
+      (previous?.files ?? []).map((file) => [file.object.key, file.object]),
+    );
+    for (const oldObject of await repo.objectsForEntry(destination.id, entry.id)) {
+      previousObjects.set(oldObject.key, oldObject);
+    }
+    for (const oldObject of previousObjects.values()) {
+      if (retainedKeys.has(oldObject.key)) continue;
+      await removeStaleEntryObject(provider, repo, destination, entry, oldObject, signal);
     }
     await this.assertFence(ctx, 'Backup changed during catalog publication');
     return repo.finish(entry, destination, ctx.owner, manifest);

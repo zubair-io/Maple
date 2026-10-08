@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import * as fs from '../fs/mirrored.ts';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -97,23 +98,29 @@ test('mirror migration removes an unreferenced legacy blob after publishing its 
   const entry = (await repo.entries(destination.id))[0]!;
   const original = prior.files.find((file) => file.role === 'original')!;
   const bytes = provider.objects.get(original.object.key)!.bytes;
-  const legacyKey = `libraries/${libraryId}/entries/${entry.id}/blobs/${original.object.sha256}`;
-  const legacyObject = await provider.publish(
-    legacyKey,
-    {
-      size: bytes.length,
-      sha256: original.object.sha256,
-      open: (offset) =>
-        new ReadableStream({
-          start(controller) {
-            controller.enqueue(bytes.subarray(offset));
-            controller.close();
-          },
-        }),
-    },
-    { saveCheckpoint: async () => {} },
-  );
-  await repo.saveObject(destination.id, entry.id, legacyKey, legacyObject, null);
+  async function publishLegacyBlob(content: Uint8Array) {
+    const sha256 = createHash('sha256').update(content).digest('hex');
+    const key = `libraries/${libraryId}/entries/${entry.id}/blobs/${sha256}`;
+    const object = await provider.publish(
+      key,
+      {
+        size: content.length,
+        sha256,
+        open: (offset) =>
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(content.subarray(offset));
+              controller.close();
+            },
+          }),
+      },
+      { saveCheckpoint: async () => {} },
+    );
+    await repo.saveObject(destination.id, entry.id, key, object, null);
+    return { key, object };
+  }
+  const { key: legacyKey, object: legacyObject } = await publishLegacyBlob(bytes);
+  const { key: historicalKey } = await publishLegacyBlob(Buffer.from('older backup sequence'));
   const legacyManifest = {
     ...prior,
     files: prior.files.map((file) =>
@@ -128,7 +135,9 @@ test('mirror migration removes an unreferenced legacy blob after publishing its 
   run(live.db, 'UPDATE assets SET sidecar_ver=sidecar_ver+1 WHERE id=?', assetId);
   expect(await engine.backupAsset(assetId)).toBe(true);
   expect(provider.objects.has(legacyKey)).toBe(false);
+  expect(provider.objects.has(historicalKey)).toBe(false);
   expect(await repo.objectOwner(destination.id, legacyKey)).toBeNull();
+  expect(await repo.objectOwner(destination.id, historicalKey)).toBeNull();
 });
 test('a disconnected target retries independently while healthy targets publish', async () => {
   using live = await createLiveTestDatabase();
