@@ -1,15 +1,15 @@
-// XMPSerialization+LocalAdjustmentsBrush.swift — the paint container's XMP
-// codecs (#360), split from `XMPSerialization+LocalAdjustments.swift` (at
-// its file budget): the `crs:Dabs` series parser + writer and the
-// `Mask/Paint` leaf emitter. `docs/xmp-canonical-format.md` § "Brush masks
-// (paint)" is the contract; `raw-core/src/xmp/local_adjustments/` is the
+// XMPSerialization+LocalAdjustmentsBrush.swift — the `papp:BrushCorrections`
+// XMP codecs (#360), split from `XMPSerialization+LocalAdjustments.swift`
+// (at its file budget): the `papp:Dabs` series parser + writer and the
+// `Mask/Paint` leaf emitter. `docs/xmp-canonical-format.md` § "Brush masks"
+// is the contract; `raw-core/src/xmp/local_adjustments/` is the
 // reference implementation this mirrors byte-for-byte on the write side
 // and semantically on the read side.
 
 import Foundation
 
 extension LocalAdjustmentXMP {
-  /// Decode the `crs:Dabs` attribute value: six whitespace-separated
+  /// Decode the `papp:Dabs` attribute value: six whitespace-separated
   /// tokens per dab — `x y radius feather weight erase`, erase exactly
   /// `0`/`1`. Nil input is an empty stroke; a malformed series is nil
   /// (the correction is dropped).
@@ -39,13 +39,13 @@ extension LocalAdjustmentXMP {
     return dabs
   }
 
-  /// Encode a dab series as the `crs:Dabs` attribute value: six
+  /// Encode a dab series as the `papp:Dabs` attribute value: six
   /// whitespace-separated tokens per dab — `x y radius feather weight
   /// erase`. Positions and radius ride the 6-decimal mask-coordinate
   /// format; feather/weight ride 4 decimals (the rasterizer quantizes to
   /// R8, so deeper precision would be unwritten precision); erase is
-  /// `0`/`1`. `docs/xmp-canonical-format.md` § "Brush masks (paint)" is
-  /// the contract.
+  /// `0`/`1`. `docs/xmp-canonical-format.md` § "Brush masks" is the
+  /// contract.
   ///
   /// Dabs with a non-finite field are dropped, not written: one bad stamp
   /// in hundreds is a host bug, not a misplaced mask, and emitting it
@@ -70,12 +70,8 @@ extension LocalAdjustmentXMP {
 }
 
 extension XMPSerializer {
-  /// The `Mask/Paint` leaf lines. `rasterId` is deliberately NOT written —
-  /// the id is an in-process registry handle resolved from
-  /// `papp:BrushDigest` at load time, so the sidecar stays portable
-  /// between machines. The digest rides only when the host has computed
-  /// one; `crs:Dabs` is omitted for an empty series rather than written
-  /// as an empty string.
+  /// The `Mask/Paint` leaf lines. `rasterId` is never written: it is an
+  /// in-process registry handle, re-resolved after load.
   static func _localAdjustmentBrushLines(_ mask: LocalMask, indent: String) -> [String] {
     guard case .brush(let dabs, let digest, _) = mask else { return [] }
     let series = LocalAdjustmentXMP.writeDabSeries(dabs)
@@ -83,8 +79,9 @@ extension XMPSerializer {
       "\(indent)<rdf:li",
       "\(indent)  crs:What=\"\(LocalAdjustmentXMP.maskWhat(.brush))\"",
       "\(indent)  crs:MaskValue=\"1\"",
+      "\(indent)  papp:BrushVersion=\"\(LocalMaskWire.brushVersion)\"",
     ]
-    if !series.isEmpty { lines.append("\(indent)  crs:Dabs=\"\(series)\"") }
+    if !series.isEmpty { lines.append("\(indent)  papp:Dabs=\"\(series)\"") }
     if !digest.isEmpty {
       lines.append("\(indent)  papp:BrushDigest=\"\(escapeXMLAttr(digest))\"")
     }

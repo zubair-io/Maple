@@ -8,7 +8,7 @@
 //!
 //! Dab wire: a flat `Float32Array`, [`BRUSH_DAB_STRIDE`] `f32`s per dab —
 //! `x, y, radius, feather, weight, erase`, where `erase` is exactly `0` or
-//! `1`. Same field order as the `crs:Dabs` XMP series and the C ABI.
+//! `1`. Same field order as the `papp:Dabs` XMP series and the C ABI.
 
 use raw_core::types::{rasterize_brush, BrushDab, Point2};
 use wasm_bindgen::prelude::*;

@@ -1,11 +1,12 @@
-// xmp-local-adjustments-brush.ts — the paint container's XMP codecs (#360),
-// split from `xmp-local-adjustments.ts` (at its file budget): the
+// xmp-local-adjustments-brush.ts — the `papp:BrushCorrections` XMP codecs
+// (#360), split from `xmp-local-adjustments.ts` (at its file budget): the
 // `Mask/Paint` leaf parser + emitter and the scalar codecs the dab series
 // shares with the other writers. `docs/xmp-canonical-format.md`
-// § "Brush masks (paint)" is the contract; `raw-core/src/xmp/
+// § "Brush masks" is the contract; `raw-core/src/xmp/
 // local_adjustments/` is the reference implementation this mirrors
 // byte-for-byte on the write side and semantically on the read side.
 
+import { BRUSH_VERSION } from '../generated/local-mask-wire.generated';
 import type { BrushDab, BrushMask, LeafMask } from '../models/local-adjustment';
 import { attrOf } from './xmp-dom-utils';
 
@@ -40,16 +41,17 @@ export const escapeRecipeAttr = (s: string): string =>
   s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
 
 /**
- * A `Mask/Paint` leaf (#360): the dab series in `crs:Dabs` — six
- * whitespace-separated tokens per dab (`x y radius feather weight erase`,
- * erase exactly `0`/`1`) — plus `papp:BrushDigest`, the FNV-1a content
- * hash (`brushDigest`), absent on foreign paint masks. A missing `crs:Dabs`
- * is an empty stroke (weight 0), not an error; a present-but-malformed
- * series drops the correction (raw-core hard-errors there; this reader is
- * tolerant like its siblings).
+ * A `Mask/Paint` leaf (#360): `papp:BrushVersion`, the dab series in
+ * `papp:Dabs` — six whitespace-separated tokens per dab (`x y radius feather
+ * weight erase`, erase exactly `0`/`1`) — plus `papp:BrushDigest`, the
+ * FNV-1a content hash (`brushDigest`). A missing `papp:Dabs` is an empty
+ * stroke (weight 0); an unknown version or a malformed series drops the
+ * correction (raw-core hard-errors on the latter; this reader is tolerant
+ * like its siblings).
  */
 export function parseBrushLeaf(leaf: Element): LeafMask | undefined {
-  const series = attrOf(leaf, ['crs:Dabs']);
+  if (attrOf(leaf, ['papp:BrushVersion']) !== String(BRUSH_VERSION)) return undefined;
+  const series = attrOf(leaf, ['papp:Dabs']);
   const tokens = series === null || series.trim().length === 0 ? [] : series.trim().split(/\s+/);
   if (tokens.length % 6 !== 0) return undefined;
   const dabs: BrushDab[] = [];
@@ -72,7 +74,7 @@ export function parseBrushLeaf(leaf: Element): LeafMask | undefined {
 }
 
 /**
- * The `crs:Dabs` attribute value (#360): six whitespace-separated tokens per
+ * The `papp:Dabs` attribute value (#360): six whitespace-separated tokens per
  * dab — `x y radius feather weight erase` — positions/radius in the
  * 6-decimal mask-coordinate format, feather/weight in 4 decimals (the
  * rasterizer quantizes to R8), erase as `0`/`1`. Dabs with a non-finite
@@ -97,15 +99,15 @@ function dabSeries(dabs: readonly BrushDab[]): string {
 }
 
 export function brushLines(mask: BrushMask, indent: string): string[] {
-  // `rasterId` is deliberately NOT written — it is an in-process handle,
-  // resolved from `papp:BrushDigest` on load, so the sidecar stays portable.
+  // `rasterId` is never written: it is an in-process handle, re-resolved on load.
   const lines = [
     `${indent}<rdf:li`,
     `${indent}  crs:What="${MASK_WHAT_PAINT}"`,
     `${indent}  crs:MaskValue="1"`,
+    `${indent}  papp:BrushVersion="${BRUSH_VERSION}"`,
   ];
   const series = dabSeries(mask.dabs);
-  if (series.length > 0) lines.push(`${indent}  crs:Dabs="${series}"`);
+  if (series.length > 0) lines.push(`${indent}  papp:Dabs="${series}"`);
   if (mask.digest.length > 0)
     lines.push(`${indent}  papp:BrushDigest="${escapeRecipeAttr(mask.digest)}"`);
   // The last attribute line carries the self-closing `/>`.

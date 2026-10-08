@@ -74,23 +74,31 @@
 //! in a third-party renderer", not exact re-derivation of Maple's UI state
 //! from arbitrary foreign masks.
 //!
-//! **Cross-type order.** Adobe's schema keeps linear, radial, (#360) brush
-//! and (#3271) bitmap/everywhere corrections in four separate top-level
-//! arrays, so a document with layers interleaved in the model (linear,
-//! radial, linear, …) round-trips through the wire form as contiguous
-//! per-type runs (all linear, then all radial, then all paint, then all
-//! group) rather than preserving cross-type interleaving. It is called out
-//! here so it isn't rediscovered as a bug later.
+//! **Cross-type order.** Adobe's schema keeps linear, radial and (#3271)
+//! bitmap/everywhere corrections in separate top-level arrays, and Maple's
+//! own brush container (#360) is a fourth, so a document with layers
+//! interleaved in the model (linear, radial, linear, …) round-trips through
+//! the wire form as contiguous per-type runs (all linear, then all radial,
+//! then all brush, then all group) rather than preserving cross-type
+//! interleaving. It is called out here so it isn't rediscovered as a bug
+//! later.
+//!
+//! **Brush is Maple-owned.** Lightroom's own `crs:PaintBasedCorrections` is
+//! NOT read here: its dab shape (a nested `crs:Dabs` list, radius/flow on
+//! the mask) cannot be re-emitted from Maple's model without loss, so it
+//! stays verbatim passthrough on every host. Maple's dab series lives in
+//! `papp:BrushCorrections` with a `papp:BrushVersion` on each leaf.
 //!
 //! **Tolerant reader**, matching [`crate::types::local_adjustment::wire`]'s
 //! stated contract for this feature: a `crs:CorrectionMasks` entry whose
 //! `crs:What` is not one this module models (a range or AI mask — neither
-//! of which Maple models — or a paint leaf in any container but the paint
-//! one) is skipped, which drops that one correction (no mask ⇒ nothing to
+//! of which Maple models — a paint leaf in any container but Maple's brush
+//! one, or a brush leaf whose `papp:BrushVersion` this build does not
+//! know) is skipped, which drops that one correction (no mask ⇒ nothing to
 //! render) without failing the whole subtree or the parse. A *recognized*
 //! mask's core geometry (`ZeroX/ZeroY/FullX/FullY` for a gradient;
 //! `Top/Left/Bottom/Right` for a circular gradient; a well-formed
-//! `crs:Dabs` series — when present — for a paint mask) is **required** —
+//! `papp:Dabs` series — when present — for a brush mask) is **required** —
 //! missing or non-numeric is a hard parse error rather than a silently
 //! invented `0`/`1` default, matching every other known key in the schema
 //! (`docs/xmp-canonical-format.md` § "Enum fields and parse strictness").
@@ -136,9 +144,11 @@ const RADIAL_CONTAINER: &str = "crs:CircularGradientBasedCorrections";
 /// its AI masks, so a reader that doesn't understand `papp:MaskSource`
 /// still sees a structurally valid correction.
 const GROUP_CONTAINER: &str = "crs:MaskGroupBasedCorrections";
-/// Brush masks (#360) — Adobe's own paint container. The mask leaf is
-/// `crs:What="Mask/Paint"` with the dab series in `crs:Dabs` (§ `parse.rs`).
-const PAINT_CONTAINER: &str = "crs:PaintBasedCorrections";
+/// Brush masks (#360) — Maple's own container, deliberately NOT Adobe's
+/// `crs:PaintBasedCorrections` (whose dab shape Maple does not model and so
+/// passes through verbatim). The mask leaf is `crs:What="Mask/Paint"` with
+/// `papp:BrushVersion` and the dab series in `papp:Dabs` (§ `parse.rs`).
+const BRUSH_CONTAINER: &str = "papp:BrushCorrections";
 const MASKS: &str = "crs:CorrectionMasks";
 const MASK_WHAT_LINEAR: &str = "Mask/Gradient";
 const MASK_WHAT_RADIAL: &str = "Mask/CircularGradient";
@@ -155,7 +165,7 @@ enum Kind {
     /// `crs:MaskGroupBasedCorrections` (#3271) — `Mask::Bitmap` /
     /// `Mask::Everywhere` layers.
     Group,
-    /// `crs:PaintBasedCorrections` (#360) — `Mask::Brush` layers.
+    /// `papp:BrushCorrections` (#360) — `Mask::Brush` layers.
     Brush,
 }
 
@@ -217,7 +227,7 @@ impl LocalAdjustmentsWalker {
                 LINEAR_CONTAINER => Some(Kind::Linear),
                 RADIAL_CONTAINER => Some(Kind::Radial),
                 GROUP_CONTAINER => Some(Kind::Group),
-                PAINT_CONTAINER => Some(Kind::Brush),
+                BRUSH_CONTAINER => Some(Kind::Brush),
                 _ => None,
             };
             return Ok(self.container.is_some());
@@ -403,7 +413,7 @@ impl LocalAdjustmentsWalker {
         if name == LINEAR_CONTAINER
             || name == RADIAL_CONTAINER
             || name == GROUP_CONTAINER
-            || name == PAINT_CONTAINER
+            || name == BRUSH_CONTAINER
         {
             self.container = None;
         }
@@ -412,10 +422,10 @@ impl LocalAdjustmentsWalker {
     /// Consume the walker, returning every layer collected across all four
     /// containers in document order (all `GradientBasedCorrections` layers,
     /// then all `CircularGradientBasedCorrections` layers, then all
-    /// `PaintBasedCorrections` layers, then all `MaskGroupBasedCorrections`
+    /// `papp:BrushCorrections` layers, then all `MaskGroupBasedCorrections`
     /// layers, matching whichever containers the document listed and in what
     /// order — Maple's own writer always emits linear, then radial, then
-    /// paint, then group, see [`serialize_local_adjustments`]).
+    /// brush, then group, see [`serialize_local_adjustments`]).
     pub(super) fn finish(self) -> Vec<LocalAdjustment> {
         self.finished
     }

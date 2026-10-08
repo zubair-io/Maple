@@ -252,6 +252,7 @@ pub fn render_export_raster_cancellable(
     // Share the editor base so asymmetric edits cannot rotate relative to it.
     let (width, height, rgba) =
         decode_raster_base(bytes, max_long_edge.unwrap_or(u32::MAX), cancel)?;
+    let model = &*crate::types::with_brush_rasters(model, width, height);
     let mut scene = Image::new(width, height, ColorSpace::SceneLinearRec2020);
     let chained = apply_scene_linear_chain_f32_with_film_cancellable(
         &rgba,

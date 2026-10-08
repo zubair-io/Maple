@@ -298,4 +298,51 @@ mod tests {
             assert_eq!(len, 0);
         }
     }
+    #[test]
+    fn headless_export_renders_a_brush_mask_from_its_dabs() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("original.jpg");
+        let mut original = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut original, 100)
+            .encode(&[64; 64 * 32 * 3], 64, 32, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        std::fs::write(&source, &original).unwrap();
+        let brush = |dabs: &str| {
+            format!(
+                r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:papp="http://ns.justmaple.app/photo/1.0/"><papp:BrushCorrections><rdf:Seq><rdf:li><rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="True" crs:LocalExposure2012="2"><crs:CorrectionMasks><rdf:Seq><rdf:li crs:What="Mask/Paint" crs:MaskValue="1" papp:BrushVersion="1"{dabs}/></rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li></rdf:Seq></papp:BrushCorrections></rdf:Description></rdf:RDF></x:xmpmeta>"#
+            )
+        };
+        let render = |xmp: String, name: &str| {
+            let output = root.path().join(name);
+            let source_c = CString::new(source.to_str().unwrap()).unwrap();
+            let output_c = CString::new(output.to_str().unwrap()).unwrap();
+            let xmp = CString::new(xmp).unwrap();
+            let recipe = ExportRecipe {
+                format: "png".into(),
+                quality: None,
+                ..Default::default()
+            };
+            let recipe = CString::new(serde_json::to_string(&recipe).unwrap()).unwrap();
+            let rc = unsafe {
+                maple_export_recipe_to_file(
+                    source_c.as_ptr(),
+                    xmp.as_ptr(),
+                    recipe.as_ptr(),
+                    std::ptr::null(),
+                    output_c.as_ptr(),
+                )
+            };
+            assert_eq!(rc, 0);
+            image::open(&output).unwrap().to_rgb8()
+        };
+        let unpainted = render(brush(""), "unpainted.png");
+        let painted = render(brush(r#" papp:Dabs="0.1 0.5 0.15 0 1 0""#), "painted.png");
+        assert_eq!(painted.get_pixel(60, 16), unpainted.get_pixel(60, 16));
+        assert!(
+            painted.get_pixel(6, 16)[0] > unpainted.get_pixel(6, 16)[0] + 40,
+            "brushed region must brighten: {:?} vs {:?}",
+            painted.get_pixel(6, 16),
+            unpainted.get_pixel(6, 16)
+        );
+    }
 }

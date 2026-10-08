@@ -82,6 +82,8 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
+    let (frame_w, frame_h) = crate::pipeline::native_render_dims(raw);
+    let model = &*crate::types::with_brush_rasters(model, frame_w, frame_h);
     let mut camera_rgb = match raw.cfa {
         crate::image::CfaPattern::LinearRgb => {
             // LinearRaw DNG: data is already 3-channel RGB. Skip the

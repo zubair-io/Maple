@@ -5,6 +5,7 @@
 
 use super::{Kind, MASK_WHAT_IMAGE, MASK_WHAT_LINEAR, MASK_WHAT_PAINT, MASK_WHAT_RADIAL};
 use crate::error::{Error, Result};
+use crate::types::local_adjustment::brush::BRUSH_VERSION;
 use crate::types::local_adjustment::flat::MASK_GROUP_VERSION;
 use crate::types::local_adjustment::{
     BitmapRecipe, BrushDab, Mask, MaskCombine, MaskComponent, MaskSource, PartialAdjustments,
@@ -255,13 +256,13 @@ pub(super) fn parse_mask_attrs(kind: Kind, e: &BytesStart<'_>) -> Result<Option<
             }))
         }
         Kind::Brush => {
-            // Absent `crs:Dabs` is an empty stroke (weight 0), not an error —
-            // unlike a misplaced gradient, an empty dab series cannot render
-            // a plausible-looking mask in the wrong place. A PRESENT but
-            // malformed series is a hard error, like any other recognized
-            // geometry. `papp:BrushDigest` is absent on foreign paint masks;
-            // the host mints one when it first rasterizes.
-            let dabs = match attr_str(e, "crs:Dabs")? {
+            // A leaf from a newer brush encoding is dropped, not misread. An
+            // absent `papp:Dabs` is an empty stroke (weight 0); a PRESENT but
+            // malformed series is a hard error, like any recognized geometry.
+            if attr_str(e, "papp:BrushVersion")? != Some(BRUSH_VERSION.to_string()) {
+                return Ok(None);
+            }
+            let dabs = match attr_str(e, "papp:Dabs")? {
                 Some(series) => parse_dab_series(&series)?,
                 None => Vec::new(),
             };
@@ -317,7 +318,7 @@ pub(super) fn parse_mask_attrs(kind: Kind, e: &BytesStart<'_>) -> Result<Option<
     }
 }
 
-/// Parse a `crs:Dabs` series (#360): whitespace-separated floats, six per
+/// Parse a `papp:Dabs` series (#360): whitespace-separated floats, six per
 /// dab — `x y radius feather weight erase` — where `erase` is exactly `0`
 /// or `1`. `docs/xmp-canonical-format.md` § "Brush masks (paint)" is the
 /// contract; `serialize.rs`'s writer and the Swift/TypeScript mirrors emit
@@ -329,16 +330,18 @@ fn parse_dab_series(series: &str) -> Result<Vec<BrushDab>> {
     fn number(token: &str) -> Result<f32> {
         let v: f32 = token
             .parse()
-            .map_err(|err| Error::Xmp(format!("crs:Dabs has non-numeric token {token}: {err}")))?;
+            .map_err(|err| Error::Xmp(format!("papp:Dabs has non-numeric token {token}: {err}")))?;
         if !v.is_finite() {
-            return Err(Error::Xmp(format!("crs:Dabs has non-finite token {token}")));
+            return Err(Error::Xmp(format!(
+                "papp:Dabs has non-finite token {token}"
+            )));
         }
         Ok(v)
     }
     let tokens: Vec<&str> = series.split_whitespace().collect();
     if tokens.len() % 6 != 0 {
         return Err(Error::Xmp(format!(
-            "crs:Dabs has {} tokens, not a multiple of 6",
+            "papp:Dabs has {} tokens, not a multiple of 6",
             tokens.len()
         )));
     }
@@ -350,7 +353,7 @@ fn parse_dab_series(series: &str) -> Result<Vec<BrushDab>> {
                 "1" => true,
                 other => {
                     return Err(Error::Xmp(format!(
-                        "crs:Dabs erase flag must be 0 or 1, got {other}"
+                        "papp:Dabs erase flag must be 0 or 1, got {other}"
                     )));
                 }
             };

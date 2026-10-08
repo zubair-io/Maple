@@ -4,11 +4,11 @@
 
 use super::{AdjustmentModel, LocalAdjustment, Mask, PartialAdjustments, RangeRefinement};
 use super::{
-    GROUP_CONTAINER, LINEAR_CONTAINER, MASK_WHAT_IMAGE, MASK_WHAT_LINEAR, MASK_WHAT_PAINT,
-    MASK_WHAT_RADIAL, PAINT_CONTAINER, RADIAL_CONTAINER,
+    BRUSH_CONTAINER, GROUP_CONTAINER, LINEAR_CONTAINER, MASK_WHAT_IMAGE, MASK_WHAT_LINEAR,
+    MASK_WHAT_PAINT, MASK_WHAT_RADIAL, RADIAL_CONTAINER,
 };
 use crate::types::local_adjustment::flat::MASK_GROUP_VERSION;
-use crate::types::local_adjustment::BrushDab;
+use crate::types::local_adjustment::{BrushDab, BRUSH_VERSION};
 use crate::types::{MaskCombine, MaskSource};
 
 /// Round to the canonical 2-decimal wire precision
@@ -41,7 +41,7 @@ fn fmt_mask_coord(v: f32) -> String {
 }
 
 /// Emit the canonical `crs:GradientBasedCorrections` /
-/// `crs:CircularGradientBasedCorrections` / `crs:PaintBasedCorrections` /
+/// `crs:CircularGradientBasedCorrections` / `papp:BrushCorrections` /
 /// `crs:MaskGroupBasedCorrections` nested child elements for
 /// `model.local_adjustments`, each line prefixed so the container element
 /// sits at `indent` — same contract as [`super::super::serialize_tone_curves`].
@@ -58,7 +58,7 @@ pub fn serialize_local_adjustments(model: &AdjustmentModel, indent: &str) -> Str
         .iter()
         .filter(|l| matches!(&l.mask, Mask::Radial { .. }))
         .collect();
-    // Brush (#360) rides Adobe's own paint container.
+    // Brush (#360) rides Maple's own container, never Adobe's paint one.
     let paint: Vec<&LocalAdjustment> = model
         .local_adjustments
         .iter()
@@ -91,7 +91,7 @@ pub fn serialize_local_adjustments(model: &AdjustmentModel, indent: &str) -> Str
         if !out.is_empty() {
             out.push('\n');
         }
-        out.push_str(&serialize_container(PAINT_CONTAINER, &paint, indent));
+        out.push_str(&serialize_container(BRUSH_CONTAINER, &paint, indent));
     }
     if !group.is_empty() {
         if !out.is_empty() {
@@ -252,17 +252,13 @@ fn serialize_mask(mask: &Mask, indent: &str) -> String {
         Mask::Brush {
             dabs, digest, ..
         } => {
-            // `raster_id` is deliberately NOT written — the id is an
-            // in-process registry handle resolved from `papp:BrushDigest` at
-            // load time, so the sidecar stays portable between machines. The
-            // digest rides only when the host has minted one (fresh strokes
-            // and foreign paint masks carry none); `crs:Dabs` is omitted for
-            // an empty series rather than written as an empty string.
+            // `raster_id` is never written: it is an in-process registry
+            // handle, re-resolved from the dabs or `papp:BrushDigest` on load.
             let dabs_attr = write_dab_series(dabs);
             let dabs_line = if dabs_attr.is_empty() {
                 String::new()
             } else {
-                format!("\n{indent}  crs:Dabs=\"{dabs_attr}\"")
+                format!("\n{indent}  papp:Dabs=\"{dabs_attr}\"")
             };
             let digest_line = if digest.is_empty() {
                 String::new()
@@ -272,7 +268,8 @@ fn serialize_mask(mask: &Mask, indent: &str) -> String {
             format!(
                 "{indent}<rdf:li\n\
                  {indent}  crs:What=\"{MASK_WHAT_PAINT}\"\n\
-                 {indent}  crs:MaskValue=\"1\"{dabs_line}{digest_line}/>\n"
+                 {indent}  crs:MaskValue=\"1\"\n\
+                 {indent}  papp:BrushVersion=\"{BRUSH_VERSION}\"{dabs_line}{digest_line}/>\n"
             )
         }
         Mask::Group(group) => group.components.iter().map(|component| {
@@ -291,7 +288,7 @@ fn serialize_mask(mask: &Mask, indent: &str) -> String {
     }
 }
 
-/// Encode a dab series as the `crs:Dabs` attribute value: six
+/// Encode a dab series as the `papp:Dabs` attribute value: six
 /// whitespace-separated tokens per dab — `x y radius feather weight erase`.
 /// Positions and radius ride the 6-decimal mask-coordinate format;
 /// feather/weight ride 4 decimals (the rasterizer quantizes to R8, so deeper

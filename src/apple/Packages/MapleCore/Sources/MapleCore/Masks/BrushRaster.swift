@@ -38,7 +38,7 @@ public struct BrushTip: Sendable, Equatable {
 
 public enum BrushRaster {
   /// `f32`s per dab on the `maple_brush_rasterize` wire — `x, y, radius,
-  /// feather, weight, erase`, the same field order as the `crs:Dabs` XMP
+  /// feather, weight, erase`, the same field order as the `papp:Dabs` XMP
   /// series and the wasm entry.
   public static let dabStride = 6
 

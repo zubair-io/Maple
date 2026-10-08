@@ -171,18 +171,16 @@ describe('parseMetadata round-trip', () => {
   it('leaves a genuinely-unknown node in passthrough untouched', () => {
     // `crs:ToneCurvePV2012` used to be this test's example — since #2232 it
     // is a MODELED field; `crs:MaskGroupBasedCorrections` took its place
-    // until #3300 modeled that too, then `crs:PaintBasedCorrections` until
-    // #360 modeled brush masks — so `crs:DepthBasedCorrections` (depth
-    // masks, a documented extension point no platform models) is the
-    // example now.
+    // until #3300 modeled that too, so `crs:PaintBasedCorrections` (brush
+    // masks — still genuinely unmodeled on every platform) is the example now.
     const src = ser.serialize(defaultAdjustmentModel(), {
       unknownAttributes: [],
       unknownNodes: [
-        '<crs:DepthBasedCorrections><rdf:Seq><rdf:li>0, 0</rdf:li></rdf:Seq></crs:DepthBasedCorrections>',
+        '<crs:PaintBasedCorrections><rdf:Seq><rdf:li>0, 0</rdf:li></rdf:Seq></crs:PaintBasedCorrections>',
       ],
     });
     const { passthrough } = parser.parseAdjustmentModel(src);
-    expect(passthrough.unknownNodes.join('')).toContain('crs:DepthBasedCorrections');
+    expect(passthrough.unknownNodes.join('')).toContain('crs:PaintBasedCorrections');
   });
 
   it('reads empty / whitespace-only attributes back as undefined (not "")', () => {

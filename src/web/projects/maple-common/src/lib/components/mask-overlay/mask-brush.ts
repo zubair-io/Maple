@@ -208,7 +208,7 @@ export function mapDabsToCrop(
 }
 
 /** `f32`s per dab on the `register-brush-raster` wire — `x, y, radius,
- *  feather, weight, erase`, the same field order as the `crs:Dabs` XMP series
+ *  feather, weight, erase`, the same field order as the `papp:Dabs` XMP series
  *  and the C ABI. */
 const BRUSH_DAB_STRIDE = 6;
 

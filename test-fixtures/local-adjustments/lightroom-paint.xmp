@@ -1,0 +1,83 @@
+<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 7.0-c000 1.000000, 0000/00/00-00:00:00        ">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+   crs:Version="15.4"
+   crs:ProcessVersion="11.0"
+   crs:Exposure2012="+0.35">
+   <crs:PaintBasedCorrections>
+    <rdf:Seq>
+     <rdf:li>
+      <rdf:Description
+       crs:What="Correction"
+       crs:CorrectionAmount="1.000000"
+       crs:CorrectionActive="true"
+       crs:CorrectionName="Brush 1"
+       crs:CorrectionSyncID="7A1C3E5B9D2F4A6C8E0B1D3F5A7C9E1B"
+       crs:LocalExposure="0.000000"
+       crs:LocalHue="0.000000"
+       crs:LocalSaturation="0.000000"
+       crs:LocalContrast="0.000000"
+       crs:LocalClarity="0.000000"
+       crs:LocalSharpness="0.000000"
+       crs:LocalBrightness="0.000000"
+       crs:LocalToningHue="0.000000"
+       crs:LocalToningSaturation="0.000000"
+       crs:LocalExposure2012="0.650000"
+       crs:LocalContrast2012="0.000000"
+       crs:LocalHighlights2012="-0.250000"
+       crs:LocalShadows2012="0.000000"
+       crs:LocalWhites2012="0.000000"
+       crs:LocalBlacks2012="0.000000"
+       crs:LocalClarity2012="0.150000"
+       crs:LocalDehaze="0.000000"
+       crs:LocalLuminanceNoise="0.000000"
+       crs:LocalMoire="0.000000"
+       crs:LocalDefringe="0.000000"
+       crs:LocalTemperature="0.000000"
+       crs:LocalTint="0.000000"
+       crs:LocalTexture="0.000000"
+       crs:LocalGrain="0.000000">
+      <crs:CorrectionMasks>
+       <rdf:Seq>
+        <rdf:li
+         crs:What="Mask/Paint"
+         crs:MaskValue="1.000000"
+         crs:Radius="0.084351"
+         crs:Flow="0.650000"
+         crs:CenterWeight="0.500000">
+        <crs:Dabs>
+         <rdf:Seq>
+          <rdf:li>d 0.318466 0.408284</rdf:li>
+          <rdf:li>d 0.331290 0.410876</rdf:li>
+          <rdf:li>d 0.344117 0.413902</rdf:li>
+          <rdf:li>d 0.356942 0.418215</rdf:li>
+          <rdf:li>d 0.369768 0.423392</rdf:li>
+          <rdf:li>d 0.382594 0.429001</rdf:li>
+         </rdf:Seq>
+        </crs:Dabs>
+        </rdf:li>
+        <rdf:li
+         crs:What="Mask/Paint"
+         crs:MaskValue="0.000000"
+         crs:Radius="0.042175"
+         crs:Flow="1.000000"
+         crs:CenterWeight="0.000000">
+        <crs:Dabs>
+         <rdf:Seq>
+          <rdf:li>d 0.344117 0.413902</rdf:li>
+          <rdf:li>d 0.350530 0.415630</rdf:li>
+         </rdf:Seq>
+        </crs:Dabs>
+        </rdf:li>
+       </rdf:Seq>
+      </crs:CorrectionMasks>
+      </rdf:Description>
+     </rdf:li>
+    </rdf:Seq>
+   </crs:PaintBasedCorrections>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>

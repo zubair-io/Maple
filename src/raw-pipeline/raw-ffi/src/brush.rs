@@ -7,7 +7,7 @@
 //!
 //! Dab wire: `dab_count` dabs × [`BRUSH_DAB_STRIDE`] `f32`s —
 //! `x, y, radius, feather, weight, erase`, where `erase` is exactly `0.0`
-//! or `1.0`. Same field order as the `crs:Dabs` XMP series, minus the
+//! or `1.0`. Same field order as the `papp:Dabs` XMP series, minus the
 //! string layer.
 
 use raw_core::types::{rasterize_brush, BrushDab, Point2};

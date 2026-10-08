@@ -12,6 +12,7 @@ public enum LocalMaskWire {
   public static let componentInvertOffset: Int = 12
   public static let componentCodeCount: Int = 24
   public static let maskGroupVersion: Int = 1
+  public static let brushVersion: Int = 1
 }
 
 public enum MaskCombine: Int, CaseIterable, Codable, Sendable, Hashable {

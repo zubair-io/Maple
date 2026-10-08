@@ -40,7 +40,10 @@ mod group;
 mod raster;
 mod wire;
 
-pub use brush::{brush_raster_dims, rasterize_brush, BrushDab, BRUSH_RASTER_LONG_EDGE};
+pub use brush::{
+    brush_raster_dims, rasterize_brush, with_brush_rasters, BrushDab, BRUSH_RASTER_LONG_EDGE,
+    BRUSH_VERSION,
+};
 pub use flat::{layers_from_flat, layers_to_flat, LAYER_FLAT_LEN};
 pub use group::{MaskCombine, MaskComponent, MaskGroup};
 pub use raster::MaskRaster;
@@ -199,7 +202,7 @@ pub enum Mask {
     },
     /// A painted stroke series (#360, [`brush`](self::brush)): `dabs` is the
     /// authored content — ordered paint/erase stamps, the lossless form that
-    /// round-trips through `crs:PaintBasedCorrections` — and `raster_id`
+    /// round-trips through `papp:BrushCorrections` — and `raster_id`
     /// resolves the DERIVED bitmap the host rasterized from them (once per
     /// edit, via [`rasterize_brush`](self::brush::rasterize_brush)) in the
     /// same registry `Bitmap` uses. `0` means unresolved: nothing registered
@@ -209,8 +212,8 @@ pub enum Mask {
     /// registering host minted (a content hash of the dab series in
     /// practice), carried as `papp:BrushDigest` so a re-parse finds the
     /// already-registered raster the way `BitmapRecipe::digest` does. Empty
-    /// on a foreign (reference-authored) paint mask, which has dabs but no
-    /// Maple digest; the host mints one when it first rasterizes.
+    /// until a host mints one; hosts recompute it from the dabs when they
+    /// rasterize rather than trusting the stored value.
     Brush {
         dabs: Vec<BrushDab>,
         digest: String,
