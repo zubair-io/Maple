@@ -284,8 +284,14 @@ export async function sweepDetail(
     },
     { arm, maximum },
   );
-  await page.mouse.up();
+  // #4352: the real captured control must survive every tick. Noise exposes
+  // its sub-parameter panel only after release; never retarget during a sweep.
   await expect(slider).toHaveAttribute('aria-valuenow', String(maximum));
+  await page.mouse.up();
+  if (arm === 'nrLuminance')
+    await expect(
+      page.getByRole('region', { name: 'Noise', exact: true }).getByRole('slider'),
+    ).toHaveAttribute('aria-valuenow', '100');
   await fenceDetailRequests(page);
   const raw = await page.evaluate(() => (window as any).__detailPerf);
   const attr = {
