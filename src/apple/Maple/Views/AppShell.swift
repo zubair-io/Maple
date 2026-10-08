@@ -1337,7 +1337,7 @@ struct AppShell: View {
         sessions: $sessions,
         // ServerAdmin (#2766) reaches the Settings tab through here.
         sessionFor: sessionFor,
-        phoneSearchServerKey: phoneSearchServerKey,
+        phoneSearchSessionKey: phoneSearchSessionKey,
         makePhoneSearchSession: { await makePhoneSearchSession() },
         resolveSearchAsset: { asset, server in prepareCloudSession(asset, server: server) },
         pendingSearchSeed: $pendingPhoneSearchSeed,

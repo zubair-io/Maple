@@ -134,7 +134,7 @@
     /// result-tap resolver. This tab owns its own `SearchViewModel`
     /// (`PhoneSearchSession.vm`) — there is no separate desktop-style
     /// overlay VM on iPhone (#3163).
-    let phoneSearchServerKey: String?
+    let phoneSearchSessionKey: String?
     let makePhoneSearchSession: () async -> PhoneSearchSession?
     let resolveSearchAsset: (SearchAsset, URL) -> ResolvedCloudAsset
     /// A widget/URL deep-link or Map pin tap's `SearchParams`, waiting to be
@@ -367,7 +367,7 @@
               sessions: $sessions,
               query: $searchQuery,
               pendingSeed: $pendingSearchSeed,
-              serverKey: phoneSearchServerKey,
+              sessionKey: phoneSearchSessionKey,
               makeSession: makePhoneSearchSession,
               resolveAsset: resolveSearchAsset,
               loadSiblingAssets: searchPreviewSiblingAssets,

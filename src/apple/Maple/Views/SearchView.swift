@@ -30,6 +30,12 @@
     var thumbCache: CloudThumbCache?
     /// Live query text, owned by the host's `.searchable` search field.
     @Binding var query: String
+    /// The library's generated searches, shown as cards on the idle page.
+    var collections: GeneratedSearchCollectionsViewModel? = nil
+    /// The card whose results are still being fetched, shown as busy.
+    var openingCollectionID: String? = nil
+    /// Card tap — the host opens the collection's results.
+    var onSelectCollection: (GeneratedSearchCard) -> Void = { _ in }
     /// Result tap — the host opens the asset (Preview first, per Fast
     /// Preview §1).
     var onSelectAsset: (SearchAsset) -> Void = { _ in }
@@ -76,6 +82,14 @@
           }
 
           if trimmedQuery.isEmpty && !filtersActive {
+            if let collections {
+              SearchGeneratedCollections(
+                model: collections,
+                provider: thumbProvider,
+                host: host,
+                openingID: openingCollectionID,
+                onTap: onSelectCollection)
+            }
             SearchRecentQueries(recent: recent, onTap: tapRecent)
           } else {
             SearchPhotoResultsSection(
@@ -112,6 +126,11 @@
         // response, and an empty-query Search tab never submits — warm
         // them here so the panel is usable without a query (#2879).
         Task { await viewModel?.loadFacetsIfNeeded() }
+      }
+      // Once per page lifetime: a tab re-appearance keeps today's cards.
+      .task {
+        guard let collections, collections.collections.isEmpty else { return }
+        await collections.load()
       }
       .onDisappear {
         debounceTask?.cancel()
@@ -195,6 +214,13 @@
       debounceTask?.cancel()
       let trimmed = trimmedQuery
       guard !trimmed.isEmpty || filtersActive else {
+        isDebouncing = false
+        return
+      }
+      // The host already put this text's results up (a tapped collection
+      // card, a deep-link seed) — a debounce here would only flash the
+      // spinner over them before `submitIfChanged` found nothing to do.
+      guard trimmed != viewModel?.params.placeQuery else {
         isDebouncing = false
         return
       }
