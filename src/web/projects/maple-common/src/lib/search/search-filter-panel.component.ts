@@ -19,6 +19,7 @@ import { MapleIconComponent } from '../icons/maple-icon.component';
 import type { FacetScope } from '../api/search.service';
 import {
   DATE_PRESETS,
+  facetScopeNote,
   SearchFilters,
   setCustomRange,
   toggleOwner,
@@ -76,13 +77,8 @@ export class SearchFilterPanelComponent {
   protected readonly presets = DATE_PRESETS;
 
   /** Said above the facet sections when they count only a broad text
-   * search's most relevant results, so a missing person or place reads as
-   * "not among the best matches", not "not in the results" (#4431). */
-  protected readonly scopeNote = computed(() => {
-    const scope = this.scope();
-    if (scope === null || scope.kind !== 'top') return null;
-    return `Filters from the ${scope.limit.toLocaleString()} most relevant of ${scope.of.toLocaleString()} results`;
-  });
+   * search's most relevant results (#4431). */
+  protected readonly scopeNote = computed(() => facetScopeNote(this.scope()));
 
   protected readonly showLabel = computed(() => {
     const t = this.total();

@@ -30,6 +30,7 @@
             [places]="facetPlaces()"
             [selectedPeople]="filters().people"
             [selectedPlaces]="filters().places"
+            [scope]="facetScope()"
             (pick)="onTagPick($event)"
           />
         </div>
