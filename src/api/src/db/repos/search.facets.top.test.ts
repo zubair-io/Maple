@@ -20,7 +20,7 @@ import {
 import { FTS_RANK_SQL } from './search.fts.ts';
 import { facetStatements, scopedToCandidates } from './search.facets.sql.ts';
 import { searchFacets } from './search.facets.ts';
-import { firstRankedRowids } from './search.ranked.ts';
+import { firstRanked } from './search.ranked.ts';
 import { countSql, statement } from './search.sql.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
 import { seedSearchAsset, type SeedAsset } from './search.test-helpers.ts';
@@ -101,15 +101,17 @@ const QUERIES: Array<[string, SearchQuery, excludeAda?: boolean]> = [
 ];
 
 describe('the first k results of a text search', () => {
+  // Compared as sets: a facet groups them, so their order is not returned.
   for (const [name, q, excludeAda] of QUERIES) {
     test(`${name}: are the list's first k rows, for every k`, async () => {
       await withLibrary(async (db, ada) => {
         const where = translate(q, excludeAda ? [ada] : []);
         const handle = testSqliteDb(db);
         for (const k of [1, 2, 3, 5, 8, 13, 40, 200]) {
-          expect({ k, rows: await firstRankedRowids(handle, where, k) }).toEqual({
+          const ranked = await firstRanked(handle, where, k);
+          expect({ k, rows: ranked.map((row) => row.r).sort((a, b) => a - b) }).toEqual({
             k,
-            rows: listHead(db, where, k),
+            rows: listHead(db, where, k).sort((a, b) => a - b),
           });
         }
       });
