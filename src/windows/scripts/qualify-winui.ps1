@@ -17,6 +17,8 @@ param(
     [string]$AppExe = "$PSScriptRoot\..\Maple.WinUI\bin\x64\Debug\net8.0-windows10.0.19041.0\Maple.WinUI.exe",
     [string]$MapleCli = "$PSScriptRoot\..\..\raw-pipeline\target\release\maple-cli.exe",
     [double]$ParityBudgetMean = 2.0,
+    [ValidateRange(1000, 1800000)]
+    [int]$RunTimeoutMs = 300000,
     [string]$Python = 'python3'
 )
 $ErrorActionPreference = 'Stop'
@@ -78,7 +80,7 @@ function Invoke-QualifyRun([hashtable]$extraEnv, [string]$outDir) {
     $psi.EnvironmentVariables["MAPLE_QUALIFY_OUT"] = $outDir
     foreach ($k in $extraEnv.Keys) { $psi.EnvironmentVariables[$k] = $extraEnv[$k] }
     $proc = [System.Diagnostics.Process]::Start($psi)
-    if (-not $proc.WaitForExit(300000)) { $proc.Kill(); throw "qualify run timed out" }
+    if (-not $proc.WaitForExit($RunTimeoutMs)) { $proc.Kill(); throw "qualify run timed out after $RunTimeoutMs ms" }
     if ((Get-FileHash -LiteralPath $runRaw -Algorithm SHA256).Hash -ne $sourceHash) {
         throw 'Qualification modified an owned RAW copy.'
     }
