@@ -20,8 +20,9 @@
 // `AppShellIPhoneShell`) is sufficient to make that row work here too.
 //
 // AppShell.body dispatches between this shell and the Mac/iPad pane
-// shell via `MapleShellKind.current == .phoneTab`. Persistence: the
-// active tab survives a cold restart via `@AppStorage("cm.tab.shell")`.
+// shell via `MapleShellKind.current == .phoneTab`. The active tab lives in
+// `@AppStorage("cm.tab.shell")` so deep links can switch it from outside the
+// view; `MapleApp.init` resets it to Library on every launch (#4433).
 // We deliberately introduce `cm.tab.shell` (not the original `cm.tab`)
 // to keep the phone shell's tab key separate from any future Detail-
 // panel tab key collision — see Risk §6.1 in the S1 spec. Today the
@@ -41,8 +42,8 @@
   import UIKit
 
   struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: View {
-    /// Cold-start tab restoration. Distinct from any Detail-panel tab
-    /// key (see file header). Default `"library"` matches the spec.
+    /// The selected tab, shared with deep-link handlers that switch it.
+    /// Reset to `"library"` at launch (see file header).
     @AppStorage("cm.tab.shell") private var activeTab: String = "library"
 
     /// Library tab navigation stack. A Library cell tap appends
