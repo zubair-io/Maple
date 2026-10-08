@@ -29,6 +29,7 @@ function render(
   updateAdjustment: ReturnType<typeof vi.fn>;
   commit: ReturnType<typeof vi.fn>;
   haptic: ReturnType<typeof vi.fn>;
+  armTool: ReturnType<typeof vi.fn>;
   beginGesture: ReturnType<typeof vi.fn>;
   endGesture: ReturnType<typeof vi.fn>;
   focusedAssetId: ReturnType<typeof signal<string | null>>;
@@ -88,6 +89,7 @@ function render(
     updateAdjustment,
     commit,
     haptic,
+    armTool,
     beginGesture,
     endGesture,
     focusedAssetId,
@@ -191,6 +193,38 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
 
     expect(commit).toHaveBeenCalledTimes(2);
     expect(updateAdjustment).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps Noise panel arming until the captured per-tick drag ends (#4352)', () => {
+    const { fixture, armTool, updateAdjustment, commit, endGesture } = render({
+      activeGroup: 'detail',
+    });
+    const noise = fixture.debugElement
+      .queryAll(By.directive(MuiLivingSliderComponent))
+      .map((el) => el.componentInstance as MuiLivingSliderComponent)
+      .find((slider) => slider.label() === 'Noise')!;
+    noise.dragStart.emit();
+    noise.value.set(2);
+    noise.value.set(100);
+    expect(armTool).not.toHaveBeenCalled();
+    expect(updateAdjustment).toHaveBeenCalledTimes(2);
+    expect(updateAdjustment).toHaveBeenLastCalledWith(
+      'asset-1',
+      expect.objectContaining({ nrLuminance: 100 }),
+    );
+    noise.dragEnd.emit();
+    expect(armTool).toHaveBeenCalledExactlyOnceWith('noise');
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(endGesture).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not arm a deferred Noise panel on a different focused asset (#4352)', () => {
+    const { componentInstance, armTool, focusedAssetId } = render({ activeGroup: 'detail' });
+    componentInstance.onSliderDragStart('noise');
+    componentInstance.onSliderChange('noise', 2);
+    focusedAssetId.set('asset-2');
+    componentInstance.onSliderDragEnd();
+    expect(armTool).not.toHaveBeenCalled();
   });
 
   it('manual Color sliders and resets clear AUTO provenance and preserve the other WB value', () => {
