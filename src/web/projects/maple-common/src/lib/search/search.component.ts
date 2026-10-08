@@ -204,6 +204,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
     () => this.facets()?.owners ?? [],
   );
   protected readonly facetTotal = computed(() => this.facets()?.total ?? null);
+  protected readonly facetScope = computed(() => this.facets()?.scope ?? null);
 
   /** True when there are server-side results not yet loaded locally. */
   protected readonly canLoadMore = computed(() => this.results().length < this.total());
