@@ -104,7 +104,12 @@ struct MaskOverlay: View {
           stampStroke(from: last, to: next)
         }
       }
-      .onEnded { _ in finishStroke() }
+      .onEnded { value in
+        // The smoother trails the pointer; land the stroke where it was released.
+        let at = normalized(value.location, fullFrame: fullFrame)
+        if let last = strokeLast, last != at { stampStroke(from: last, to: at) }
+        finishStroke()
+      }
   }
 
   /// Lay the pointer segment's dabs onto the stroke (a tap stamps one).

@@ -217,6 +217,22 @@ describe('BrushRasterSync', () => {
     expect(io.uploads).toHaveLength(2);
   });
 
+  it('re-sends an upload that was in flight when the worker was recreated', async () => {
+    const layers = [brushLayer([dab(0.1)])];
+    const io = makeIo(layers);
+    const sync = new BrushRasterSync(io);
+    sync.sync(layers);
+    sync.reset();
+    sync.sync(layers);
+    expect(io.uploads).toHaveLength(2);
+    io.resolveOldest(3);
+    io.resolveOldest(4);
+    await flush();
+    expect(io.released).toEqual([3]);
+    sync.sync(layers);
+    expect(io.uploads).toHaveLength(2);
+  });
+
   it('neither uploads nor stamps an empty stroke', () => {
     const layers = [brushLayer([], '')];
     const io = makeIo(layers);

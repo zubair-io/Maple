@@ -164,7 +164,15 @@ export function localAdjustmentContainerKind(
   child: Element,
 ): LocalAdjustmentContainerKind | undefined {
   const name = managedXmpName(child);
-  return CONTAINERS.find((c) => name === c.tag)?.kind;
+  const kind = CONTAINERS.find((c) => name === c.tag)?.kind;
+  // Brush is all-or-nothing: one unreadable correction (a newer
+  // `papp:BrushVersion`) keeps the whole container verbatim passthrough.
+  if (kind !== 'brush') return kind;
+  const corrections = correctionDescriptions(child);
+  return corrections.length > 0 &&
+    corrections.every((description) => parseLocalCorrection(description, 'brush'))
+    ? kind
+    : undefined;
 }
 
 // ── Parse ──────────────────────────────────────────────────────────────────

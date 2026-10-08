@@ -169,7 +169,7 @@ describe('XMP local adjustments — brush masks (#360)', () => {
   ])('drops a correction with %s in papp:Dabs', (_name, dabs) => {
     const leaf = `<rdf:li crs:What="Mask/Paint" crs:MaskValue="1" papp:BrushVersion="1" papp:Dabs="${dabs}"/>`;
     expect(
-      parser.parseAdjustmentModel(sidecar(brushCorrection(leaf))).model.localAdjustments,
+      parser.parseAdjustmentModel(sidecar(brushCorrection(leaf))).model.localAdjustments ?? [],
     ).toEqual([]);
   });
 
@@ -179,7 +179,7 @@ describe('XMP local adjustments — brush masks (#360)', () => {
   ])('drops a leaf with a %s papp:BrushVersion', (_name, version) => {
     const leaf = `<rdf:li crs:What="Mask/Paint" crs:MaskValue="1"${version} papp:Dabs="0.5 0.5 0.05 0.5 1 0"/>`;
     expect(
-      parser.parseAdjustmentModel(sidecar(brushCorrection(leaf))).model.localAdjustments,
+      parser.parseAdjustmentModel(sidecar(brushCorrection(leaf))).model.localAdjustments ?? [],
     ).toEqual([]);
   });
 
@@ -305,6 +305,38 @@ describe('XMP local adjustments — brush masks (#360)', () => {
         },
       },
     ]);
+  });
+
+  it('keeps a brush container it cannot fully read verbatim, modelling none of it', () => {
+    const correction = (version: string) =>
+      [
+        '          <rdf:li>',
+        '            <rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="True">',
+        '              <crs:CorrectionMasks>',
+        '                <rdf:Seq>',
+        `                  <rdf:li crs:What="Mask/Paint" crs:MaskValue="1" papp:BrushVersion="${version}" papp:Dabs="0.5 0.5 0.05 0.5 1 0"/>`,
+        '                </rdf:Seq>',
+        '              </crs:CorrectionMasks>',
+        '            </rdf:Description>',
+        '          </rdf:li>',
+      ].join('\n');
+    const future = [
+      '      <papp:BrushCorrections>',
+      '        <rdf:Seq>',
+      correction('1'),
+      correction('2'),
+      '        </rdf:Seq>',
+      '      </papp:BrushCorrections>',
+    ].join('\n');
+    const { model, passthrough } = parser.parseAdjustmentModel(sidecar(future));
+    expect(model.localAdjustments ?? []).toEqual([]);
+    const saved = serializer.serialize(
+      { ...defaultAdjustmentModel(), ...model, localAdjustments: [BRUSH_LAYER] },
+      passthrough,
+    );
+    expect(saved).toContain('papp:BrushVersion="2"');
+    expect(saved).toContain(CANONICAL_BRUSH_BLOCK);
+    expect(parser.parseAdjustmentModel(saved).model.localAdjustments).toEqual([BRUSH_LAYER]);
   });
 
   // ── Lightroom paint passthrough ─────────────────────────────────────────

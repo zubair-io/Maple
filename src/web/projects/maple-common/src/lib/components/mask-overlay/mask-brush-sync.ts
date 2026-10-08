@@ -40,16 +40,19 @@ export class BrushRasterSync {
   private readonly pending = new Set<string>();
   /** Registrations the latest pass wanted; a late upload outside it is garbage. */
   private wanted = new Set<string>();
+  /** Bumped by `reset`; an upload sent before it is superseded. */
+  private epoch = 0;
 
   constructor(private readonly io: BrushSyncIo) {}
 
   /** Forget every registration — the worker was recreated, so the registry
-   *  is empty. In-flight uploads are NOT cancelled: they were dispatched
-   *  through `ensureWorker`, so they land in the live registry and their
-   *  completions repopulate this map; ones the retire rejected retry on the
-   *  next pass, which the worker-generation bump triggers. */
+   *  is empty. In-flight uploads are forgotten too, so the pass the
+   *  worker-generation bump triggers re-sends them; a superseded upload that
+   *  still lands is released rather than adopted. */
   reset(): void {
     this.registered.clear();
+    this.pending.clear();
+    this.epoch++;
   }
 
   /** True when no raster is held and none is uploading — the session's
@@ -84,8 +87,13 @@ export class BrushRasterSync {
       wanted.add(key);
       if (this.registered.has(key) || this.pending.has(key)) return;
       this.pending.add(key);
+      const epoch = this.epoch;
       this.io.register({ digest, width, height, dabs: flattenBrushDabs(dabs) }).then(
         (rasterId) => {
+          if (epoch !== this.epoch) {
+            this.io.release(rasterId);
+            return;
+          }
           this.pending.delete(key);
           if (!this.wanted.has(key)) {
             this.io.release(rasterId);
@@ -96,7 +104,7 @@ export class BrushRasterSync {
           if (prev !== undefined && prev !== rasterId) this.io.release(prev);
         },
         () => {
-          this.pending.delete(key);
+          if (epoch === this.epoch) this.pending.delete(key);
         },
       );
     });

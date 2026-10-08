@@ -283,6 +283,16 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
   }
 
   protected onPointerUp(ev: PointerEvent): void {
+    const stroking = this.stroke.active;
+    const mask = this.mask();
+    if (stroking && mask?.kind === 'brush') {
+      // The smoother trails the pointer; land the stroke where it was released.
+      const { px, py } = this.localPoint(ev);
+      const at = maskFromScreen(this.map(), px, py);
+      if (at.x !== stroking.last.x || at.y !== stroking.last.y) {
+        this.stampStrokeSegment(mask, stroking.last, at, penPressure(ev));
+      }
+    }
     this.stroke.end(ev, this.session);
     this.drag.end(ev, this.session);
   }
