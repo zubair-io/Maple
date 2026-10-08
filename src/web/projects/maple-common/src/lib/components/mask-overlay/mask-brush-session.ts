@@ -118,7 +118,6 @@ export class MaskBrushSession {
 
   /** Append a brush layer carrying an empty dab series, select it, return
    *  its index — one undo entry. Called from `mask-panel.component.html`. */
-  // fallow-ignore-next-line unused-class-member
   add(): number {
     return this.deps.addLayer(defaultBrushMask());
   }

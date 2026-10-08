@@ -46,9 +46,7 @@ export class ImageCanvasAdjustmentEffect {
           return;
         }
         this.syncFilm(asset, model);
-        const rastersLanded = this.brushRasters !== null && brushRasters !== this.brushRasters;
-        this.brushRasters = brushRasters;
-        if (xmp === host.lastRenderedXmp && !rastersLanded) return;
+        if (this.isCurrentRender(xmp, brushRasters)) return;
         if (changed && !host.gpuPresent.active())
           this.restorePreview(previous!, selection, asset.id, xmp);
         host.scheduleRerender(xmp);
@@ -60,6 +58,14 @@ export class ImageCanvasAdjustmentEffect {
       this.reset();
     };
   }
+  /** Whether `xmp` is already on screen. A brush raster landing leaves the
+   *  sidecar unchanged but still needs a render. */
+  private isCurrentRender(xmp: string, brushRasters: number): boolean {
+    const landed = this.brushRasters !== null && brushRasters !== this.brushRasters;
+    this.brushRasters = brushRasters;
+    return xmp === this.host.lastRenderedXmp && !landed;
+  }
+
   reset(): void {
     this.selection = null;
     this.brushRasters = null;
