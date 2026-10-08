@@ -6,7 +6,10 @@
 // infinite-scroll pagination — the last loaded tile's appearance asks the host
 // to page in the next batch. (The old capped 9-tile preview + "See all" hop was
 // dropped: the results ARE the page, so there's nowhere separate to "see all".)
-// Stale state (debounced fetch in flight) dims the grid to 60% opacity.
+// Three outcomes are kept distinct: while a search is pending (debounce or
+// request in flight) a spinner replaces the previous query's results, a
+// failed request says so, and only a completed empty response reads as
+// "No matches".
 //
 // M3 (#1490): migrated from SearchResultTile placeholder tiles + CloudThumbTile
 // to the shared PhotoGrid / PhotoThumbnailCell / ThumbnailProvider stack.
@@ -20,7 +23,11 @@ import MapleCore
 struct SearchPhotoResultsSection: View {
     let results: [SearchAsset]
     let total: Int
-    let isStale: Bool
+    /// A fresh search is pending — the debounce window or the request.
+    let isLoading: Bool
+    /// The last fresh search failed (network/decode), as opposed to
+    /// returning nothing.
+    var failed: Bool = false
     let hasQuery: Bool
     let query: String
     /// Result tap — the host opens the asset.
@@ -39,7 +46,22 @@ struct SearchPhotoResultsSection: View {
     var host: String = ""
 
     var body: some View {
-        if hasQuery && results.isEmpty && !isStale {
+        if isLoading {
+            ProgressView("Searching\u{2026}")
+                .font(.custom("Lato-Regular", size: 13))
+                .foregroundStyle(MapleTokens.textMuted)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+                .accessibilityIdentifier("search-loading")
+        } else if failed {
+            Text("Search failed. Check your connection and try again.")
+                .font(.custom("Lato-Regular", size: 13))
+                .foregroundStyle(MapleTokens.textMuted)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+                .accessibilityIdentifier("search-failed")
+        } else if hasQuery && results.isEmpty {
             // Empty `query` = a filters-only search (#2866) — quote nothing.
             Text(query.trimmingCharacters(in: .whitespaces).isEmpty
                  ? "No matches for the current filters"
@@ -69,8 +91,6 @@ struct SearchPhotoResultsSection: View {
                         PhotoGridItem(cloud: asset, host: host, style: .phone)
                     }
                 )
-                .opacity(isStale ? 0.6 : 1.0)
-                .animation(.linear(duration: 0.12), value: isStale)
                 .accessibilityIdentifier("search-photo-grid")
 
                 if isLoadingMore {
@@ -91,7 +111,7 @@ struct SearchPhotoResultsSection: View {
                         abs_path: "/p/img-\($0).dng", filename: "img-\($0).dng")
         },
         total: 42,
-        isStale: false,
+        isLoading: false,
         hasQuery: true,
         query: "paris",
         onTap: { _ in }
@@ -100,14 +120,14 @@ struct SearchPhotoResultsSection: View {
     .background(MapleTokens.bg)
 }
 
-#Preview("Photos — stale (dimmed)") {
+#Preview("Photos — loading") {
     SearchPhotoResultsSection(
         results: (1...6).map {
             SearchAsset(id: "r\($0)", folder_id: "f1",
                         abs_path: "/p/img-\($0).dng", filename: "img-\($0).dng")
         },
         total: 42,
-        isStale: true,
+        isLoading: true,
         hasQuery: true,
         query: "paris",
         onTap: { _ in }
@@ -120,7 +140,7 @@ struct SearchPhotoResultsSection: View {
     SearchPhotoResultsSection(
         results: [],
         total: 0,
-        isStale: false,
+        isLoading: false,
         hasQuery: true,
         query: "nothing matches",
         onTap: { _ in }
