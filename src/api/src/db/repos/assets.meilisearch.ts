@@ -238,6 +238,20 @@ export async function advanceVectorFingerprint(
   );
 }
 
+/** Rewrite one exact marker (a pending marker, #4432) to `fingerprint` on
+ * live assets — an indexed equality match, unlike the shape-prefix scan. */
+export async function promoteVectorFingerprint(
+  marker: string,
+  fingerprint: string,
+  dbOverride?: SqliteDb,
+): Promise<void> {
+  await sqliteDb(dbOverride).write(
+    `UPDATE assets SET semantic_vector_fingerprint = ?
+      WHERE ${LIVE_ASSET_PREDICATE} AND semantic_vector_fingerprint = ?`,
+    [fingerprint, marker],
+  );
+}
+
 /** How many live assets there are — the denominator of vector coverage. */
 export async function countLiveAssetRows(dbOverride?: SqliteDb): Promise<number> {
   const rows = await sqliteDb(dbOverride).read<{ n: number }>(

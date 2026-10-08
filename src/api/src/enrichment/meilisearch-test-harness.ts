@@ -132,6 +132,7 @@ export function fakeMeilisearchIndex(
     '/indexes/assets/stats': () =>
       jsonResponse({ numberOfDocuments: options.documents ?? 0, isIndexing: false }),
     '/indexes/assets/search': () => jsonResponse({ hits: [{ id: 'a1' }], estimatedTotalHits: 1 }),
+    '/indexes/assets/documents': () => jsonResponse({ taskUid: 42 }, 202),
   };
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(typeof input === 'string' ? input : input.toString());

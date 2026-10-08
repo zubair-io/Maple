@@ -16,6 +16,7 @@ import {
   countLiveAssetRows,
   countLiveAssetRowsWithFingerprint,
   markAssetRowsVectorized,
+  promoteVectorFingerprint,
 } from '../db/repos/assets.meilisearch.ts';
 import type { MeilisearchClient } from './meilisearch-client.ts';
 
@@ -62,39 +63,71 @@ export function documentShapeOf(fingerprint: string | null | undefined): string 
 /** A completed embedder-settings task re-embeds documents already confirmed
  * in Meilisearch. Carry only those markers forward, and only WITHIN one
  * document shape (see `documentShapeOf`); unmarked rows stay uncovered
- * until their stage/backfill task succeeds. */
+ * until their stage/backfill task succeeds. A pending marker is never a
+ * target: it is not a fingerprint. */
 export async function advanceKnownVectorCoverage(
   fingerprint: string | null | undefined,
 ): Promise<void> {
-  if (!fingerprint) return;
+  if (!fingerprint || isPendingMarker(fingerprint)) return;
   const shape = documentShapeOf(fingerprint);
   if (shape === null) return;
   // Only rows whose stored fingerprint has the SAME document shape. A shape
   // change matches nothing, leaving every row uncovered — which is what
   // surfaces "re-embed needed" on Settings → Workers and what the backfill
-  // route then works through.
+  // route then works through. Same-shape pending markers match too.
   await advanceVectorFingerprint(`${shape}:`, fingerprint);
 }
 
+const PENDING = 'pending';
+
+function isPendingMarker(marker: string): boolean {
+  return marker.endsWith(`:${PENDING}`);
+}
+
+function pendingMarker(fingerprint: string | null): string | null {
+  const shape = documentShapeOf(fingerprint);
+  return shape === null ? null : `${shape}:${PENDING}`;
+}
+
 /**
- * The fingerprint a write may record as "embedded by the current embedder",
- * or `null` while the live index embedder differs from Settings (#4432):
- * Meilisearch then embeds with the OLD url/model, so stamping Settings'
- * fingerprint would claim coverage the index does not have. Rows written
- * meanwhile keep their previous marker; once the operator-applied re-embed
- * finishes, `advanceKnownVectorCoverage` carries them forward.
+ * The Settings fingerprint, but only once `ensureIndex` has confirmed the live
+ * index embedder matches it (#4432). `null` while it drifts, while a settings
+ * task is still running, and for a freshly (re)configured client that has not
+ * been checked yet.
  */
-export function coverageFingerprint(client: CoverageClient): string | null {
-  return client.embedderInSync?.() === false ? null : (client.semanticFingerprint?.() ?? null);
+export function confirmedFingerprint(client: CoverageClient): string | null {
+  return client.embedderInSync?.() === true ? (client.semanticFingerprint?.() ?? null) : null;
+}
+
+/**
+ * What a document write records in `semantic_vector_fingerprint` (#4432).
+ * Confirmed in sync: the Settings fingerprint. Otherwise Meilisearch may be
+ * embedding with a different url/model, so the row gets `v<shape>:pending`:
+ * it is not counted as covered, and the next confirmed-in-sync check
+ * advances it (`advancePendingVectorCoverage`). Whenever the live embedder
+ * matches Settings, every document in the index carries that embedder's
+ * vectors — a settings task that fails leaves the old embedder live, so the
+ * rows stay pending until a later check confirms a match.
+ */
+export function coverageMarker(client: CoverageClient): string | null {
+  return confirmedFingerprint(client) ?? pendingMarker(client.semanticFingerprint?.() ?? null);
+}
+
+/** Promote rows written while the embedder was unconfirmed. Indexed exact
+ * match, cheap enough for every readiness pass. */
+export async function advancePendingVectorCoverage(fingerprint: string | null): Promise<void> {
+  const pending = pendingMarker(fingerprint);
+  if (fingerprint === null || pending === null) return;
+  await promoteVectorFingerprint(pending, fingerprint);
 }
 
 /** Health-check, sync index settings, then carry coverage forward when the
- * live embedder matches. Resolves `false` when Meilisearch is unreachable. */
+ * live embedder is confirmed to match. Resolves `false` when unreachable. */
 export async function syncIndexAndCoverage(
   client: CoverageClient & Pick<MeilisearchClient, 'health' | 'ensureIndex'>,
 ): Promise<boolean> {
   if (!(await client.health())) return false;
   await client.ensureIndex();
-  await advanceKnownVectorCoverage(coverageFingerprint(client));
+  await advanceKnownVectorCoverage(confirmedFingerprint(client));
   return true;
 }

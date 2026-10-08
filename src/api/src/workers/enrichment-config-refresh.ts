@@ -16,7 +16,8 @@ import { meilisearchClient, reconfigureMeilisearch } from '../enrichment/meilise
 import { child as childLogger } from '../log.ts';
 import {
   advanceKnownVectorCoverage,
-  coverageFingerprint,
+  advancePendingVectorCoverage,
+  confirmedFingerprint,
 } from '../enrichment/meilisearch-vector-coverage.ts';
 
 const log = childLogger('workers:enrichment-config');
@@ -68,11 +69,13 @@ async function ensureMeilisearchReady(): Promise<boolean> {
   if (!meili.isConfigured()) return true;
   if (!(await meili.health())) return false;
   await meili.ensureIndex();
-  const fingerprint = coverageFingerprint(meili);
-  if (fingerprint !== null && fingerprint !== readyVectorFingerprint) {
+  const fingerprint = confirmedFingerprint(meili);
+  if (fingerprint === null) return true;
+  if (fingerprint !== readyVectorFingerprint) {
     await advanceKnownVectorCoverage(fingerprint);
     readyVectorFingerprint = fingerprint;
   }
+  await advancePendingVectorCoverage(fingerprint);
   return true;
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  coverageFingerprint,
+  confirmedFingerprint,
+  coverageMarker,
   documentShapeOf,
   syncIndexAndCoverage,
 } from './meilisearch-vector-coverage.ts';
@@ -52,20 +53,26 @@ describe('documentShapeOf', () => {
   });
 });
 
-describe('coverageFingerprint (#4432)', () => {
+describe('coverage markers (#4432)', () => {
   const client = (embedderInSync: boolean | null) => ({
     semanticFingerprint: () => 'v8:settings',
     embedderInSync: () => embedderInSync,
   });
 
-  it('withholds the fingerprint while the live embedder drifts from Settings', () => {
-    expect(coverageFingerprint(client(false))).toBeNull();
+  it('records the Settings fingerprint only once ensureIndex confirmed the embedder', () => {
+    expect(coverageMarker(client(true))).toBe('v8:settings');
+    expect(confirmedFingerprint(client(true))).toBe('v8:settings');
   });
 
-  it('uses the Settings fingerprint once in sync, or before the first check', () => {
-    expect(coverageFingerprint(client(true))).toBe('v8:settings');
-    expect(coverageFingerprint(client(null))).toBe('v8:settings');
-    expect(coverageFingerprint({ semanticFingerprint: () => null })).toBeNull();
+  it('records a pending marker while drifted or not yet checked after a reconfigure', () => {
+    expect(coverageMarker(client(false))).toBe('v8:pending');
+    expect(coverageMarker(client(null))).toBe('v8:pending');
+    expect(coverageMarker({ semanticFingerprint: () => 'v8:settings' })).toBe('v8:pending');
+    expect(confirmedFingerprint(client(null))).toBeNull();
+  });
+
+  it('records nothing without semantic search', () => {
+    expect(coverageMarker({ semanticFingerprint: () => null })).toBeNull();
   });
 });
 
