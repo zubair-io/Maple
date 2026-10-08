@@ -104,7 +104,8 @@ export class MaskSessionService {
 
   addComponent(kind: 'linear' | 'radial', combine: MaskCombine): void {
     const selected = this.selected();
-    if (!selected) return;
+    // Brush is a top-level-only mask: no reader models it inside a group.
+    if (!selected || selected.mask.kind === 'brush') return;
     const asset = this.library.focusedAsset();
     const aspect = asset?.width && asset?.height ? asset.width / asset.height : 1;
     const mask = kind === 'linear' ? defaultLinearMask() : defaultRadialMask(aspect);
@@ -193,7 +194,8 @@ export class MaskSessionService {
     if (!Number.isFinite(opacity)) return;
     const clamped = Math.min(1, Math.max(0, opacity));
     this.updateSelected(false, (layer) => {
-      if (layer.mask.kind !== 'group' && clamped === 1) return layer;
+      if (layer.mask.kind === 'brush' || (layer.mask.kind !== 'group' && clamped === 1))
+        return layer;
       const mask =
         layer.mask.kind === 'group'
           ? layer.mask

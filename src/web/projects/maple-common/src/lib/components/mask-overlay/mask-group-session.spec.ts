@@ -35,6 +35,13 @@ describe('mask-group authoring (#3408)', () => {
     return mask;
   };
 
+  it('never wraps a brush in a group: composition and opacity leave it top-level', () => {
+    session.brush.add();
+    session.addComponent('linear', 'add');
+    session.setOpacity(0.5);
+    expect(session.selected()?.mask.kind).toBe('brush');
+  });
+
   it('wraps the existing mask, preserving correction values and range, as one undo step', () => {
     session.addRadial();
     session.setAdjustment('exposure', 0.7);

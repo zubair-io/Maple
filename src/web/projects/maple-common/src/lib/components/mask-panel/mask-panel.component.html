@@ -75,24 +75,26 @@
 
   @if (selected(); as layer) {
     <div class="mask-controls flex flex-col gap-2" data-testid="mask-controls">
-      <div class="grid grid-cols-2 gap-2" data-testid="mask-compose">
-        @for (mode of combineModes; track mode) {
-          <mui-button
-            size="sm"
-            [ariaLabel]="mode + ' linear component'"
-            [testId]="'mask-' + mode + '-linear-component'"
-            (pressed)="session.addComponent('linear', mode)"
-            >{{ combineLabels[mode] }} linear</mui-button
-          >
-          <mui-button
-            size="sm"
-            [ariaLabel]="mode + ' radial component'"
-            [testId]="'mask-' + mode + '-radial-component'"
-            (pressed)="session.addComponent('radial', mode)"
-            >{{ combineLabels[mode] }} radial</mui-button
-          >
-        }
-      </div>
+      @if (layer.mask.kind !== 'brush') {
+        <div class="grid grid-cols-2 gap-2" data-testid="mask-compose">
+          @for (mode of combineModes; track mode) {
+            <mui-button
+              size="sm"
+              [ariaLabel]="mode + ' linear component'"
+              [testId]="'mask-' + mode + '-linear-component'"
+              (pressed)="session.addComponent('linear', mode)"
+              >{{ combineLabels[mode] }} linear</mui-button
+            >
+            <mui-button
+              size="sm"
+              [ariaLabel]="mode + ' radial component'"
+              [testId]="'mask-' + mode + '-radial-component'"
+              (pressed)="session.addComponent('radial', mode)"
+              >{{ combineLabels[mode] }} radial</mui-button
+            >
+          }
+        </div>
+      }
       @if (group(); as maskGroup) {
         <div role="list" data-testid="mask-components">
           @for (component of componentRows(); track component.index) {
@@ -144,16 +146,18 @@
           (checkedChange)="session.setGroupInverted($event)"
         />
       }
-      <mui-living-slider
-        label="Opacity"
-        [value]="group()?.opacity ?? 1"
-        [min]="0"
-        [max]="1"
-        [step]="0.01"
-        (valueChange)="session.setOpacity($event)"
-        (dragStart)="onDragStart()"
-        (dragEnd)="onDragEnd()"
-      />
+      @if (layer.mask.kind !== 'brush') {
+        <mui-living-slider
+          label="Opacity"
+          [value]="group()?.opacity ?? 1"
+          [min]="0"
+          [max]="1"
+          [step]="0.01"
+          (valueChange)="session.setOpacity($event)"
+          (dragStart)="onDragStart()"
+          (dragEnd)="onDragEnd()"
+        />
+      }
       @if (feather() !== null) {
         <mui-living-slider
           label="Feather"
