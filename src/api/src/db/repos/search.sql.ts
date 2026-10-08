@@ -57,6 +57,14 @@ export interface BoundStatement {
  * right for the same reason the semi-join is right elsewhere — the smallest
  * driving set goes first.
  *
+ * The unary `+` on the join is what keeps it leading. Given a selective index
+ * on `assets` — `assets_live_month` was the one that surfaced this (#4413) —
+ * the planner otherwise starts from that index and probes the virtual table by
+ * rowid per row, and an FTS5 rowid probe re-evaluates the entire `MATCH` each
+ * time: the subjects and people facets went from 0.6 s to 8–9 s that way. With
+ * the rowid wrapped it is not a constraint the virtual table can be handed, so
+ * the inverted index is scanned once, first.
+ *
  * A text query no row can satisfy also leads with `assets`: there is no
  * expression to hand `MATCH`, the `WHERE` is the constant `0`, and joining an
  * inverted index to prove that is work for nothing.
@@ -64,7 +72,7 @@ export interface BoundStatement {
 export function fromClause(where: SearchWhere): string {
   if (where.match.kind !== 'match') return 'FROM assets';
   return `FROM assets_fts
-      JOIN asset_search ON asset_search.rowid = assets_fts.rowid
+      JOIN asset_search ON asset_search.rowid = +assets_fts.rowid
       JOIN assets ON assets.id = asset_search.asset_id`;
 }
 
@@ -332,7 +340,7 @@ export function serviceTextSearchSql(scope: string): string {
   return `
   SELECT assets.maple_id AS maple_id, ${FTS_RANK_SQL}
     FROM assets_fts
-    JOIN asset_search ON asset_search.rowid = assets_fts.rowid
+    JOIN asset_search ON asset_search.rowid = +assets_fts.rowid
     JOIN assets ON assets.id = asset_search.asset_id
    WHERE assets_fts MATCH ?
      AND ${QUALIFIED_LIVE_PREDICATE}

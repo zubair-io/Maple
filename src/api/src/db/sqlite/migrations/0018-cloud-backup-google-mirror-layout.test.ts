@@ -69,9 +69,16 @@ test('Google mirror migration requeues old entries and disconnects duplicate roo
     asset,
   );
 
-  expect((await runMigrations(handle.migrationDb, ALL_MIGRATIONS)).applied).toEqual([
-    '0018-cloud-backup-google-mirror-layout',
-  ]);
+  expect(
+    (
+      await runMigrations(
+        handle.migrationDb,
+        ALL_MIGRATIONS.filter(
+          (migration) => migration.id <= '0018-cloud-backup-google-mirror-layout',
+        ),
+      )
+    ).applied,
+  ).toEqual(['0018-cloud-backup-google-mirror-layout']);
 
   expect(
     handle.db
