@@ -1,7 +1,7 @@
 {
   "generator": "tools/codegen.sh (codegen --schema capability-registry --target json)",
   "build": {
-    "pipeline_output_version": 14,
+    "pipeline_output_version": 15,
     "schema_version": 5
   },
   "capabilities": [
@@ -38,13 +38,13 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "sidecar_contract_api",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -55,23 +55,23 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "synthetic_grey",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "grey_dcp",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "color_chart",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "color_harness",
@@ -80,8 +80,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "apple_canvas_golden",
@@ -137,13 +137,13 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "sidecar_contract_api",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -154,23 +154,23 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "synthetic_grey",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "grey_dcp",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "color_chart",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "color_harness",
@@ -179,8 +179,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "apple_canvas_golden",
@@ -263,13 +263,13 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "sidecar_contract_api",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -280,23 +280,23 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "synthetic_grey",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "grey_dcp",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "color_chart",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "color_harness",
@@ -305,8 +305,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "apple_canvas_golden",
@@ -366,13 +366,13 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "sidecar_contract_api",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -383,23 +383,23 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "synthetic_grey",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "grey_dcp",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "color_chart",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "color_harness",
@@ -408,8 +408,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "apple_canvas_golden",
@@ -448,13 +448,13 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "sidecar_contract_api",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -465,13 +465,13 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "apple_canvas_golden",
@@ -511,13 +511,13 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "sidecar_contract_api",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         }
       ],
       "qualification": [
@@ -542,8 +542,8 @@
       "integration": [
         {
           "source": "sidecar_contract_api",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         }
       ],
       "qualification": []
@@ -628,13 +628,13 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "sidecar_contract_api",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -680,25 +680,25 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "sidecar_contract_api",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         }
       ],
       "qualification": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         },
         {
           "source": "sidecar_contract_api",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v14, current is v15"
         }
       ]
     },
@@ -739,7 +739,7 @@
         "src/raw-pipeline/raw-core/tests/whites_anchor_develop.rs"
       ],
       "corpus_hash": "blake3:586dda5d1f3fc7d144dcfe3194e46a6212faf4e1d697f16a89b3fcf139226c2d",
-      "status": "satisfied",
+      "status": "stale_pipeline",
       "record": {
         "backend": "cpu-reference",
         "pipeline_version": 14,
@@ -762,7 +762,7 @@
       "expected_cases": 6,
       "corpus": ["src/raw-pipeline/raw-core/tests/grey_invariants.rs"],
       "corpus_hash": "blake3:fcf261c40600660bbbc89f0ec6055348550ac5430d428adb0ba9eefff89006c7",
-      "status": "satisfied",
+      "status": "stale_pipeline",
       "record": {
         "backend": "cpu-reference",
         "pipeline_version": 14,
@@ -785,7 +785,7 @@
       "expected_cases": 5,
       "corpus": ["src/raw-pipeline/raw-core/tests/grey_dcp_phase1.rs"],
       "corpus_hash": "blake3:5cb9b885cf0a893b73e4710df4d066eb5e38ef4346956d169ecce416ee80ed2c",
-      "status": "satisfied",
+      "status": "stale_pipeline",
       "record": {
         "backend": "cpu-reference",
         "pipeline_version": 14,
@@ -808,7 +808,7 @@
       "expected_cases": 7,
       "corpus": ["src/raw-pipeline/raw-core/tests/color_chart_invariants.rs"],
       "corpus_hash": "blake3:7f41cb1428044e2013c7d2f811e013734029b4a5fb9c7e9b9e4b83c9cb2fe244",
-      "status": "satisfied",
+      "status": "stale_pipeline",
       "record": {
         "backend": "cpu-reference",
         "pipeline_version": 14,
@@ -855,7 +855,7 @@
         "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractSMBTests.swift"
       ],
       "corpus_hash": "blake3:287a591997e0eeacc4a82411e114093f472af2560a8573a23789e77d1022c60b",
-      "status": "satisfied",
+      "status": "stale_pipeline",
       "record": {
         "backend": "xctest-macos",
         "pipeline_version": 14,
@@ -878,7 +878,7 @@
       "expected_cases": 3,
       "corpus": ["src/api/src/routes/xmp.sidecar-contract.test.ts"],
       "corpus_hash": "blake3:a9ed184663114494494af5c644866d163d987ceae7dda1c7a7fd9e78b5f480b6",
-      "status": "satisfied",
+      "status": "stale_pipeline",
       "record": {
         "backend": "bun",
         "pipeline_version": 14,
@@ -919,8 +919,8 @@
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:8c41bda12a052dfff2dda41320100373fe54eea54ab6120acfc13af85acd78ec",
-      "status": "satisfied",
+      "corpus_hash": "blake3:732584ac4f55b99a7bc61b6eee80ef146e8f9bdb727f7ddf769e8482cbd878ad",
+      "status": "stale_pipeline",
       "record": {
         "backend": "metal",
         "pipeline_version": 14,

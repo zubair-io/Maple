@@ -122,7 +122,10 @@
 ///   match the CPU absent-artifact tail.
 /// - 14 — sharpening darkening above the amount-40 attenuation continues as a
 ///   positive inverse gain instead of driving positive light to zero (#4112).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 14;
+/// - 15 — native highlight tiles retain full-frame scene evidence and sampling
+///   phase, include complete guided-cell support, and recover highlights before
+///   supported lens warps, matching the full develop order (#4378).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 15;
 
 #[cfg(test)]
 mod tests {
