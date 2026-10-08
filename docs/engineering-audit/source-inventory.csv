@@ -585,8 +585,6 @@ src/api/src/routes/search/person-exclude.e2e.test.ts,src/api,src/api/src/routes,
 src/api/src/routes/search/project.test.ts,src/api,src/api/src/routes,test-or-story,.ts,71
 src/api/src/routes/search/project.ts,src/api,src/api/src/routes,implementation,.ts,132
 src/api/src/routes/search/query-schema.ts,src/api,src/api/src/routes,implementation,.ts,135
-src/api/src/routes/search/query-timeout.test.ts,src/api,src/api/src/routes,test-or-story,.ts,43
-src/api/src/routes/search/query-timeout.ts,src/api,src/api/src/routes,implementation,.ts,57
 src/api/src/routes/search/query.test.ts,src/api,src/api/src/routes,test-or-story,.ts,178
 src/api/src/routes/search/query.ts,src/api,src/api/src/routes,implementation,.ts,563
 src/api/src/routes/search/sort.ts,src/api,src/api/src/routes,implementation,.ts,34
