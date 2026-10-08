@@ -107,6 +107,32 @@ test('logical key and checkpoint URL injection cannot transmit bearer credential
   ).rejects.toThrow('resumable session');
   expect(store.requests).toHaveLength(0);
 });
+test('legacy checkpoints are safely discarded and restarted in the current backup subtree', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const content = source(new Uint8Array([1, 2, 3]));
+  let checkpoint: UploadCheckpoint | null = {
+    provider: 'google-drive',
+    version: 1,
+    state: {
+      rootId: root,
+      key: 'blobs/legacy',
+      fileId: 'old-reservation',
+      sha256: content.sha256,
+      size: content.size,
+      session: null,
+    },
+  };
+  const object = await provider.publish('blobs/legacy', content, {
+    checkpoint,
+    saveCheckpoint: async (value) => {
+      checkpoint = value;
+    },
+  });
+  expect(object.sha256).toBe(content.sha256);
+  expect(store.files.get(object.locator)!.parents[0]).not.toBe(root);
+  expect(checkpoint?.state).toMatchObject({ parentId: expect.any(String), replace: false });
+});
 test('immutable key content mismatch never overwrites existing Google bytes', async () => {
   const store = googleStore();
   const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);

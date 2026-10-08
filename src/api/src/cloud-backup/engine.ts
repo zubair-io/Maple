@@ -9,7 +9,13 @@ import {
   type InventoryLocation,
 } from './inventory.ts';
 import { startEntryLease } from './entry-lease.ts';
-import type { BackupManifest, BackupObject, BackupProvider, PublishSource } from './provider.ts';
+import type {
+  BackupManifest,
+  BackupObject,
+  BackupProvider,
+  PublishSource,
+  UploadCheckpoint,
+} from './provider.ts';
 
 export function jsonSource(value: unknown): PublishSource {
   const data = new TextEncoder().encode(JSON.stringify(value));
@@ -38,6 +44,12 @@ interface TransferContext {
   provider: BackupProvider;
   signal: AbortSignal;
 }
+interface UploadCallOptions {
+  signal?: AbortSignal;
+  checkpoint?: UploadCheckpoint | null;
+  saveCheckpoint: (checkpoint: UploadCheckpoint) => Promise<void>;
+}
+type UploadCall = (options: UploadCallOptions) => Promise<BackupObject>;
 function lifecycleMetadata(location: InventoryLocation) {
   const state = location.relative_path.startsWith('.maple/trash/')
     ? ('trash' as const)
@@ -137,19 +149,16 @@ export class BackupEngine {
       await this.repo.saveObject(destination.id, entry.id, key, existing, null);
       return existing;
     }
-    const object = await provider.publish(key, source, {
+    return this.uploadObject(
+      destination,
+      entry,
+      key,
+      source,
+      saved.checkpoint,
+      (options) => provider.publish(key, source, options),
+      'Backup transfer',
       signal,
-      checkpoint: saved.checkpoint,
-      saveCheckpoint: async (checkpoint) => {
-        await this.repo.saveObject(destination.id, entry.id, key, null, checkpoint);
-        if (!entry.lease_owner || !(await this.repo.fence(entry, destination, entry.lease_owner)))
-          throw new Error('Backup lifecycle changed during upload');
-      },
-    });
-    if (object.size !== source.size || object.sha256 !== source.sha256)
-      throw new Error('Backup transfer integrity mismatch');
-    await this.repo.saveObject(destination.id, entry.id, key, object, null);
-    return object;
+    );
   }
   private async mirrorFile(
     provider: BackupProvider,
@@ -161,17 +170,38 @@ export class BackupEngine {
     signal?: AbortSignal,
   ): Promise<BackupObject> {
     const saved = await this.repo.object(destination.id, key);
-    const object = await provider.mirrorFile(key, relativePath, source, {
+    return this.uploadObject(
+      destination,
+      entry,
+      key,
+      source,
+      saved.checkpoint,
+      (options) => provider.mirrorFile(key, relativePath, source, options),
+      'Backup mirror',
       signal,
-      checkpoint: saved.checkpoint,
-      saveCheckpoint: async (checkpoint) => {
-        await this.repo.saveObject(destination.id, entry.id, key, null, checkpoint);
+    );
+  }
+  private async uploadObject(
+    destination: BackupDestination,
+    entry: BackupEntry,
+    key: string,
+    source: PublishSource,
+    checkpoint: UploadCheckpoint | null,
+    upload: UploadCall,
+    label: string,
+    signal?: AbortSignal,
+  ): Promise<BackupObject> {
+    const object = await upload({
+      signal,
+      checkpoint,
+      saveCheckpoint: async (value) => {
+        await this.repo.saveObject(destination.id, entry.id, key, null, value);
         if (!entry.lease_owner || !(await this.repo.fence(entry, destination, entry.lease_owner)))
           throw new Error('Backup lifecycle changed during upload');
       },
     });
     if (object.size !== source.size || object.sha256 !== source.sha256)
-      throw new Error('Backup mirror integrity mismatch');
+      throw new Error(`${label} integrity mismatch`);
     await this.repo.saveObject(destination.id, entry.id, key, object, null);
     return object;
   }

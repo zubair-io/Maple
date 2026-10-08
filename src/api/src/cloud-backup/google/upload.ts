@@ -15,41 +15,85 @@ interface GoogleCheckpoint {
   sha256: string;
   size: number;
   session: string | null;
+  legacy?: boolean;
+}
+function normalizeCheckpoint(saved: GoogleCheckpoint, rootId: string): GoogleCheckpoint {
+  const hasPlacement = [saved.parentId, saved.name, saved.replace, saved.exactName].some(
+    (value) => value !== undefined,
+  );
+  return hasPlacement
+    ? { ...saved, legacy: false }
+    : {
+        ...saved,
+        parentId: rootId,
+        name: typeof saved.key === 'string' ? saved.key.replace(/\//g, '__') : '',
+        replace: false,
+        exactName: false,
+        legacy: true,
+      };
+}
+function validCheckpointCore(state: GoogleCheckpoint, rootId: string): boolean {
+  return (
+    state.rootId === rootId &&
+    /^[A-Za-z0-9_-]{1,200}$/.test(state.fileId) &&
+    typeof state.key === 'string' &&
+    Boolean(state.key) &&
+    /^[a-f0-9]{64}$/.test(state.sha256) &&
+    Number.isSafeInteger(state.size) &&
+    state.size >= 0
+  );
+}
+function validCheckpointPlacement(state: GoogleCheckpoint): boolean {
+  if (state.legacy) return true;
+  return (
+    typeof state.parentId === 'string' &&
+    /^[A-Za-z0-9_-]{1,200}$/.test(state.parentId) &&
+    Boolean(state.name) &&
+    typeof state.replace === 'boolean' &&
+    typeof state.exactName === 'boolean'
+  );
+}
+function validCheckpoint(state: GoogleCheckpoint, rootId: string): boolean {
+  return validCheckpointCore(state, rootId) && validCheckpointPlacement(state);
+}
+function validateSession(state: GoogleCheckpoint): void {
+  if (!state.session) return;
+  const session = new URL(state.session);
+  if (
+    session.origin !== 'https://www.googleapis.com' ||
+    !/^\/upload\/drive\/v3\/files(?:\/[A-Za-z0-9_-]{1,200})?$/.test(session.pathname) ||
+    (state.replace && session.pathname !== `/upload/drive/v3/files/${state.fileId}`) ||
+    (!state.replace && session.pathname !== '/upload/drive/v3/files') ||
+    !session.searchParams.has('upload_id')
+  )
+    throw new Error('Invalid Google resumable session.');
 }
 export function parseCheckpoint(checkpoint: UploadCheckpoint, rootId: string): GoogleCheckpoint {
-  const state = checkpoint.state as unknown as GoogleCheckpoint;
+  const state = normalizeCheckpoint(checkpoint.state as unknown as GoogleCheckpoint, rootId);
   if (
     checkpoint.provider !== 'google-drive' ||
     checkpoint.version !== 1 ||
-    state.rootId !== rootId ||
-    !/^[A-Za-z0-9_-]{1,200}$/.test(state.fileId) ||
-    !/^[A-Za-z0-9_-]{1,200}$/.test(state.parentId) ||
-    !state.name ||
-    typeof state.replace !== 'boolean' ||
-    typeof state.exactName !== 'boolean' ||
-    !state.key ||
-    !/^[a-f0-9]{64}$/.test(state.sha256) ||
-    !Number.isSafeInteger(state.size) ||
-    state.size < 0
+    !validCheckpoint(state, rootId)
   )
     throw new Error('Invalid Google upload checkpoint.');
-  if (state.session) {
-    const session = new URL(state.session);
-    if (
-      session.origin !== 'https://www.googleapis.com' ||
-      !/^\/upload\/drive\/v3\/files(?:\/[A-Za-z0-9_-]{1,200})?$/.test(session.pathname) ||
-      (state.replace && session.pathname !== `/upload/drive/v3/files/${state.fileId}`) ||
-      (!state.replace && session.pathname !== '/upload/drive/v3/files') ||
-      !session.searchParams.has('upload_id')
-    )
-      throw new Error('Invalid Google resumable session.');
-  }
+  validateSession(state);
   return state;
 }
 const envelope = (state: GoogleCheckpoint): UploadCheckpoint => ({
   provider: 'google-drive',
   version: 1,
-  state: { ...state },
+  state: {
+    rootId: state.rootId,
+    key: state.key,
+    fileId: state.fileId,
+    parentId: state.parentId,
+    name: state.name,
+    replace: state.replace,
+    exactName: state.exactName,
+    sha256: state.sha256,
+    size: state.size,
+    session: state.session,
+  },
 });
 
 async function chunk(
@@ -119,9 +163,13 @@ function displayName(key: string, source: PublishSource): string {
     : `${name}__${source.sha256.slice(0, 12)}`;
 }
 
-function savedCheckpoint(ctx: UploadContext): GoogleCheckpoint | null {
+async function savedCheckpoint(ctx: UploadContext): Promise<GoogleCheckpoint | null> {
   if (!ctx.options.checkpoint) return null;
   const state = parseCheckpoint(ctx.options.checkpoint, ctx.provider.rootId);
+  if (state.legacy) {
+    await ctx.provider.abort(ctx.options.checkpoint, ctx.options.signal);
+    return null;
+  }
   if (state.key !== ctx.key || state.sha256 !== ctx.source.sha256 || state.size !== ctx.source.size)
     throw new Error('Upload checkpoint content changed.');
   return state;
@@ -267,6 +315,57 @@ async function uploadChunks(
   } while (next < ctx.source.size);
   return verify(ctx, state);
 }
+function matchesSource(object: BackupObject | null, source: PublishSource): object is BackupObject {
+  return Boolean(object && object.sha256 === source.sha256 && object.size === source.size);
+}
+async function mirrorCheckpoint(
+  ctx: UploadContext,
+  target: { parentId: string; name: string },
+): Promise<GoogleCheckpoint | null> {
+  const checkpoint = ctx.options.checkpoint;
+  if (!checkpoint) return null;
+  const saved = parseCheckpoint(checkpoint, ctx.provider.rootId);
+  if (saved.legacy) {
+    await ctx.provider.abort(checkpoint, ctx.options.signal);
+    return null;
+  }
+  if (saved.key !== ctx.key || saved.parentId !== target.parentId || saved.name !== target.name)
+    throw new Error('Google mirror checkpoint destination changed.');
+  return saved;
+}
+async function mirrorState(
+  ctx: UploadContext,
+  target: { parentId: string; name: string },
+  saved: GoogleCheckpoint | null,
+  existing: BackupObject | null,
+): Promise<GoogleCheckpoint> {
+  if (saved && (saved.sha256 !== ctx.source.sha256 || saved.size !== ctx.source.size)) {
+    await ctx.provider.abort(envelope(saved), ctx.options.signal);
+    saved = null;
+  }
+  const state = saved ?? {
+    rootId: ctx.provider.rootId,
+    key: ctx.key,
+    fileId: existing?.locator ?? (await ctx.provider.client.reserveId(ctx.options.signal)),
+    parentId: target.parentId,
+    name: target.name,
+    replace: Boolean(existing),
+    exactName: true,
+    sha256: ctx.source.sha256,
+    size: ctx.source.size,
+    session: null,
+  };
+  await save(ctx, state);
+  return state;
+}
+async function uploadMirror(ctx: UploadContext, state: GoogleCheckpoint): Promise<BackupObject> {
+  contentType(ctx.source);
+  const probed = await probeSession(ctx, state);
+  if (matchesSource(probed.completed, ctx.source)) return probed.completed;
+  const ready = probed.state.session ? probed : await createSession(ctx, probed.state);
+  if (matchesSource(ready.completed, ctx.source)) return ready.completed;
+  return uploadChunks(ctx, ready.state, ready.next);
+}
 export async function publishGoogleObject(
   provider: GoogleDriveProvider,
   key: string,
@@ -275,7 +374,7 @@ export async function publishGoogleObject(
 ): Promise<BackupObject> {
   const target = await provider.objectTarget(key, options.signal);
   const ctx = { provider, key, source, options, replace: false };
-  const saved = savedCheckpoint(ctx);
+  const saved = await savedCheckpoint(ctx);
   const existing = await provider.inspect(key, options.signal, saved?.fileId);
   if (existing) {
     if (existing.sha256 !== source.sha256 || existing.size !== source.size)
@@ -312,42 +411,11 @@ export async function publishGoogleMirrorFile(
 ): Promise<BackupObject> {
   const target = await provider.objectTarget(key, options.signal);
   if (target.name !== relativePath.split('/').at(-1))
-    throw new Error('Google mirror path does not match its logical key.');
+    throw new Error('Invalid Google mirror path.');
   const ctx = { provider, key, source, options, replace: true };
-  let saved: GoogleCheckpoint | null = null;
-  if (options.checkpoint) {
-    saved = parseCheckpoint(options.checkpoint, provider.rootId);
-    if (saved.key !== key || saved.parentId !== target.parentId || saved.name !== target.name)
-      throw new Error('Google mirror checkpoint destination changed.');
-  }
+  const saved = await mirrorCheckpoint(ctx, target);
   const existing = await provider.inspect(key, options.signal, saved?.fileId);
-  if (existing && existing.sha256 === source.sha256 && existing.size === source.size)
-    return existing;
-  if (saved && (saved.sha256 !== source.sha256 || saved.size !== source.size)) {
-    await provider.abort(envelope(saved), options.signal);
-    saved = null;
-  }
-  const initial = saved ?? {
-    rootId: provider.rootId,
-    key,
-    fileId: existing?.locator ?? (await provider.client.reserveId(options.signal)),
-    parentId: target.parentId,
-    name: target.name,
-    replace: Boolean(existing),
-    exactName: true,
-    sha256: source.sha256,
-    size: source.size,
-    session: null,
-  };
-  if (initial.parentId !== target.parentId || initial.name !== target.name)
-    throw new Error('Google mirror destination changed during upload.');
-  await save(ctx, initial);
-  contentType(source);
-  const probed = await probeSession(ctx, initial);
-  if (probed.completed?.sha256 === source.sha256 && probed.completed.size === source.size)
-    return probed.completed;
-  const ready = probed.state.session ? probed : await createSession(ctx, probed.state);
-  if (ready.completed?.sha256 === source.sha256 && ready.completed.size === source.size)
-    return ready.completed;
-  return uploadChunks(ctx, ready.state, ready.next);
+  if (matchesSource(existing, source)) return existing;
+  const state = await mirrorState(ctx, target, saved, existing);
+  return uploadMirror(ctx, state);
 }

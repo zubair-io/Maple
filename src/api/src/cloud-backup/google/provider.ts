@@ -73,7 +73,11 @@ export class GoogleDriveProvider implements BackupProvider {
     if (!relativePath) throw new Error('Invalid Google mirror path.');
     return relativePath;
   }
-  private async findFolders(parts: string[], signal?: AbortSignal): Promise<string | null> {
+  private async resolveFolders(
+    parts: string[],
+    create: boolean,
+    signal?: AbortSignal,
+  ): Promise<string | null> {
     let parentId = this.rootId;
     let path = '';
     for (const name of parts) {
@@ -85,102 +89,100 @@ export class GoogleDriveProvider implements BackupProvider {
         continue;
       }
       if (parentId !== this.rootId) await this.assertManagedFolder(parentId, signal);
-      const marker = JSON.stringify({ mapleBackupFolder: 1, rootId: this.rootId, path });
-      const existing = [];
-      for await (const child of this.client.list(
-        `'${parentId}' in parents and trashed = false`,
-        signal,
-      ))
-        if (child.name === name && child.mimeType === 'application/vnd.google-apps.folder')
-          existing.push(child);
-      if (existing.length > 1)
-        throw new Error(`Multiple folders named ${name} exist in the Maple backup path.`);
-      if (!existing.length) return null;
-      const folder = existing[0]!;
-      if (
-        folder.description !== marker ||
-        folder.parents?.[0] !== parentId ||
-        !isOwnedMyDriveFile(folder)
-      )
-        throw new Error(`The folder ${name} in the Maple backup path is not Maple-managed.`);
-      this.folders.set(path, folder.id);
-      parentId = folder.id;
+      const folderId = await this.resolveFolder(parentId, name, path, create, signal);
+      if (!folderId) return null;
+      this.folders.set(path, folderId);
+      parentId = folderId;
     }
     return parentId;
   }
-  private async ensureFolders(parts: string[], signal?: AbortSignal): Promise<string> {
-    let parentId = this.rootId;
-    let path = '';
-    for (const name of parts) {
-      path = path ? `${path}/${name}` : name;
-      const cached = this.folders.get(path);
-      if (cached) {
-        await this.assertManagedFolder(cached, signal);
-        parentId = cached;
-        continue;
-      }
-      if (parentId !== this.rootId) await this.assertManagedFolder(parentId, signal);
-      const marker = JSON.stringify({ mapleBackupFolder: 1, rootId: this.rootId, path });
-      const existing = [];
-      for await (const child of this.client.list(
-        `'${parentId}' in parents and trashed = false`,
-        signal,
-      ))
-        if (child.name === name && child.mimeType === 'application/vnd.google-apps.folder')
-          existing.push(child);
-      if (existing.length > 1)
-        throw new Error(`Multiple folders named ${name} exist in the Maple backup path.`);
-      const folder = existing[0]
-        ? existing[0].description === marker &&
-          existing[0].parents?.[0] === parentId &&
-          isOwnedMyDriveFile(existing[0])
-          ? existing[0]
-          : null
-        : await this.client.json<{ id: string }>(
-            `${DRIVE_API}/files?fields=id`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                name,
-                mimeType: 'application/vnd.google-apps.folder',
-                parents: [parentId],
-                description: marker,
-              }),
-            },
-            signal,
-          );
-      if (!folder)
+  private async resolveFolder(
+    parentId: string,
+    name: string,
+    path: string,
+    create: boolean,
+    signal?: AbortSignal,
+  ): Promise<string | null> {
+    const marker = JSON.stringify({ mapleBackupFolder: 1, rootId: this.rootId, path });
+    const matches = await this.matchingFolders(parentId, name, signal);
+    if (matches.length > 1)
+      throw new Error(`Multiple folders named ${name} exist in the Maple backup path.`);
+    const existing = matches[0];
+    if (existing) {
+      if (!this.matchesManagedFolder(existing, parentId, marker))
         throw new Error(`The folder ${name} in the Maple backup path is not Maple-managed.`);
-      const id = 'id' in folder ? folder.id : existing[0]!.id;
-      this.folders.set(path, id);
-      parentId = id;
+      return existing.id;
     }
-    return parentId;
+    if (!create) return null;
+    const created = await this.client.json<{ id: string }>(
+      `${DRIVE_API}/files?fields=id`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          mimeType: 'application/vnd.google-apps.folder',
+          parents: [parentId],
+          description: marker,
+        }),
+      },
+      signal,
+    );
+    return created.id;
+  }
+  private async matchingFolders(
+    parentId: string,
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<DriveFile[]> {
+    const matches: DriveFile[] = [];
+    for await (const child of this.client.list(
+      `'${parentId}' in parents and trashed = false`,
+      signal,
+    ))
+      if (child.name === name && child.mimeType === 'application/vnd.google-apps.folder')
+        matches.push(child);
+    return matches;
+  }
+  private matchesManagedFolder(file: DriveFile, parentId: string, marker: string): boolean {
+    return (
+      file.description === marker && file.parents?.[0] === parentId && isOwnedMyDriveFile(file)
+    );
+  }
+  private async findFolders(parts: string[], signal?: AbortSignal): Promise<string | null> {
+    return this.resolveFolders(parts, false, signal);
+  }
+  private async ensureFolders(parts: string[], signal?: AbortSignal): Promise<string> {
+    const folderId = await this.resolveFolders(parts, true, signal);
+    if (!folderId) throw new Error('Google backup folder could not be created.');
+    return folderId;
+  }
+  private async parentWithinRoot(parentId: string, signal?: AbortSignal): Promise<string> {
+    let parent: DriveFile;
+    try {
+      parent = await this.client.metadata(parentId, signal);
+    } catch {
+      throw new Error('Google backup object moved outside the owned backup folder.');
+    }
+    if (
+      !isOwnedMyDriveFile(parent) ||
+      parent.trashed ||
+      parent.mimeType !== 'application/vnd.google-apps.folder' ||
+      parent.parents?.length !== 1
+    )
+      throw new Error('Google backup object moved outside the owned backup folder.');
+    return parent.parents[0]!;
   }
   async assertWithinRoot(file: DriveFile, signal?: AbortSignal): Promise<void> {
     if (file.parents?.length !== 1)
       throw new Error('Google backup object moved outside the owned backup folder.');
     const visited = new Set<string>();
     let parentId = file.parents[0]!;
-    for (let depth = 0; parentId !== this.rootId; depth++) {
-      if (depth >= 128 || visited.has(parentId))
+    while (parentId !== this.rootId) {
+      if (visited.has(parentId) || visited.size >= 128)
         throw new Error('Google backup object has invalid folder ancestry.');
       visited.add(parentId);
-      let parent: DriveFile;
-      try {
-        parent = await this.client.metadata(parentId, signal);
-      } catch {
-        throw new Error('Google backup object moved outside the owned backup folder.');
-      }
-      if (
-        !isOwnedMyDriveFile(parent) ||
-        parent.trashed ||
-        parent.mimeType !== 'application/vnd.google-apps.folder' ||
-        parent.parents?.length !== 1
-      )
-        throw new Error('Google backup object moved outside the owned backup folder.');
-      parentId = parent.parents[0]!;
+      parentId = await this.parentWithinRoot(parentId, signal);
     }
   }
   private async assertManagedFolder(folderId: string, signal?: AbortSignal): Promise<void> {
@@ -198,6 +200,13 @@ export class GoogleDriveProvider implements BackupProvider {
     await this.probe(signal);
     const startFolder = await this.findFolders(listingFolderParts(prefix), signal);
     if (!startFolder) return;
+    for await (const file of this.managedFiles(startFolder, signal)) {
+      const marker = objectMarker(file);
+      if (marker?.rootId === this.rootId && marker.key.startsWith(prefix))
+        yield backupObject(file, this.rootId);
+    }
+  }
+  private async *managedFiles(startFolder: string, signal?: AbortSignal): AsyncIterable<DriveFile> {
     const queue = [startFolder];
     const visited = new Set<string>();
     while (queue.length) {
@@ -206,30 +215,34 @@ export class GoogleDriveProvider implements BackupProvider {
         if (visited.has(parentId)) throw new Error('Google backup folder tree contains a cycle.');
         visited.add(parentId);
       }
-      const childrenByParent = await Promise.all(
-        parents.map(async (parentId) => {
-          if (parentId !== this.rootId) await this.assertManagedFolder(parentId, signal);
-          const files: DriveFile[] = [];
-          for await (const file of this.client.list(
-            `'${parentId}' in parents and trashed = false`,
-            signal,
-          ))
-            files.push(file);
-          return files;
-        }),
-      );
-      for (const children of childrenByParent) {
-        for (const file of children) {
-          if (file.mimeType === 'application/vnd.google-apps.folder') {
-            if (managedFolder(file, this.rootId)) queue.push(file.id);
-            continue;
-          }
-          const marker = objectMarker(file);
-          if (marker?.rootId === this.rootId && marker.key.startsWith(prefix))
-            yield backupObject(file, this.rootId);
-        }
-      }
+      const files = await this.listFolderBatch(parents, signal);
+      this.enqueueManagedFolders(files, queue);
+      for (const file of files)
+        if (file.mimeType !== 'application/vnd.google-apps.folder') yield file;
     }
+  }
+  private async listFolderBatch(parents: string[], signal?: AbortSignal): Promise<DriveFile[]> {
+    const children = await Promise.all(
+      parents.map(async (parentId) => {
+        if (parentId !== this.rootId) await this.assertManagedFolder(parentId, signal);
+        const files: DriveFile[] = [];
+        for await (const file of this.client.list(
+          `'${parentId}' in parents and trashed = false`,
+          signal,
+        ))
+          files.push(file);
+        return files;
+      }),
+    );
+    return children.flat();
+  }
+  private enqueueManagedFolders(files: DriveFile[], queue: string[]): void {
+    for (const file of files)
+      if (
+        file.mimeType === 'application/vnd.google-apps.folder' &&
+        managedFolder(file, this.rootId)
+      )
+        queue.push(file.id);
   }
   async inspect(
     key: string,

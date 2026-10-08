@@ -13,6 +13,31 @@ import {
 import * as path from 'node:path';
 import { recoverBackup, recoveryPreview } from './restore.ts';
 import { recoveryFixture as fixture, libraryId, entryId, source } from './restore.test-helpers.ts';
+import type { BackupManifest } from './provider.ts';
+
+test('recovery continues to read manifests created before the mirror layout', async () => {
+  const f = await fixture();
+  try {
+    const current = f.provider.manifest(1);
+    const file = current.files[0]!;
+    const oldKey = `libraries/${libraryId}/entries/${entryId}/blobs/${file.object.sha256}`;
+    const stored = f.provider.objects.get(file.object.key)!;
+    f.provider.objects.delete(file.object.key);
+    stored.object.key = oldKey;
+    f.provider.objects.set(oldKey, stored);
+    const legacy: BackupManifest = {
+      ...current,
+      files: [{ ...file, object: { ...file.object, key: oldKey } }],
+    };
+    f.provider.saveManifest(legacy);
+
+    expect((await recoverBackup(f.provider, f.request, f.ctx, source)).kind).toBe('done');
+    expect(await readFile(path.join(f.root, 'photo.jpg'), 'utf8')).toBe(`${entryId}-version-1`);
+  } finally {
+    await f.close();
+  }
+});
+
 test('preview rejects a partial version selection instead of broadening to a whole library', async () => {
   const f = await fixture();
   try {
