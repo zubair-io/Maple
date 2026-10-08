@@ -9,6 +9,7 @@
 
 import { afterEach, describe, expect, it } from 'bun:test';
 import { ASSETS_INDEX, createMeilisearchClient } from './meilisearch-client.ts';
+import { createQueryEmbedder } from './meilisearch-query-embedding.ts';
 
 const MODEL = 'bge-m3:latest';
 const VECTOR = [0.25, -0.5, 0.75];
@@ -22,6 +23,7 @@ interface FakeOllama {
 interface FakeMeili {
   url: string;
   searches: Array<Record<string, unknown>>;
+  embedderReads: number[];
 }
 
 const servers: Array<ReturnType<typeof Bun.serve>> = [];
@@ -46,11 +48,13 @@ function fakeOllama(answer: () => Response | Promise<Response>): FakeOllama {
 
 function fakeMeili(liveEmbedder: Record<string, unknown> | null): FakeMeili {
   const searches: Array<Record<string, unknown>> = [];
+  const embedderReads: number[] = [];
   const server = Bun.serve({
     port: 0,
     async fetch(req) {
       const path = new URL(req.url).pathname;
       if (req.method === 'GET' && path === `/indexes/${ASSETS_INDEX}/settings/embedders`) {
+        embedderReads.push(Date.now());
         return Response.json(liveEmbedder === null ? {} : { caption: liveEmbedder });
       }
       if (req.method === 'POST' && path === `/indexes/${ASSETS_INDEX}/search`) {
@@ -61,7 +65,7 @@ function fakeMeili(liveEmbedder: Record<string, unknown> | null): FakeMeili {
     },
   });
   servers.push(server);
-  return { url: `http://127.0.0.1:${server.port}`, searches };
+  return { url: `http://127.0.0.1:${server.port}`, searches, embedderReads };
 }
 
 function matchingEmbedder(ollama: FakeOllama): Record<string, unknown> {
@@ -178,5 +182,29 @@ describe('hybrid search query embeddings (#4437)', () => {
 
     expect(ollama.embeds).toHaveLength(0);
     expect(meili.searches[0]!.vector).toBeUndefined();
+  });
+
+  it('trusts an in-sync settings check without reading the live embedder', async () => {
+    const ollama = fakeOllama(embedded);
+    const meili = fakeMeili(null);
+    const config = {
+      url: meili.url,
+      apiKey: undefined,
+      fetchImpl: globalThis.fetch.bind(globalThis),
+      taskPollIntervalMs: 10,
+      taskTimeoutMs: 1_000,
+      indexName: ASSETS_INDEX,
+      embedderUrl: ollama.url,
+      embedderModel: MODEL,
+    };
+
+    const inSync = await createQueryEmbedder(config, 'caption', () => true).hybridQuery('winter');
+    const unsynced = await createQueryEmbedder(config, 'caption', () => null).hybridQuery('winter');
+    const drifted = await createQueryEmbedder(config, 'caption', () => false).hybridQuery('winter');
+
+    expect(inSync).toEqual({ kind: 'vector', vector: VECTOR });
+    expect(unsynced).toEqual({ kind: 'meili-embeds' });
+    expect(drifted).toEqual({ kind: 'meili-embeds' });
+    expect(meili.embedderReads).toHaveLength(2);
   });
 });

@@ -174,9 +174,21 @@ async function liveEmbedderMatches(
   );
 }
 
-function embedderCheck(config: QueryEmbeddingConfig, embedderName: string) {
+/**
+ * Whether this client's vectors are comparable with the index's. A `true`
+ * from the client's own settings sync (#4432) is trusted outright. Its `null`
+ * (this client has not synced yet, as after a settings save) and its `false`
+ * (which nothing in this process re-checks once an operator-applied re-embed
+ * finishes) are settled by reading the live embedder instead.
+ */
+function embedderCheck(
+  config: QueryEmbeddingConfig,
+  embedderName: string,
+  embedderInSync: () => boolean | null,
+) {
   const reading: { matches?: boolean; at?: number } = {};
   return async (): Promise<boolean | null> => {
+    if (embedderInSync() === true) return true;
     const fresh = reading.at !== undefined && Date.now() - reading.at < EMBEDDER_CHECK_TTL_MS;
     if (fresh) return reading.matches!;
     const matches = await liveEmbedderMatches(config, embedderName);
@@ -224,8 +236,9 @@ async function embeddedQuery(config: QueryEmbeddingConfig, text: string): Promis
 export function createQueryEmbedder(
   config: QueryEmbeddingConfig,
   embedderName: string,
+  embedderInSync: () => boolean | null,
 ): QueryEmbedder {
-  const embedderMatches = embedderCheck(config, embedderName);
+  const embedderMatches = embedderCheck(config, embedderName, embedderInSync);
   return {
     async hybridQuery(text: string): Promise<HybridQuery> {
       return (await embedderMatches()) === true ? embeddedQuery(config, text) : MEILI_EMBEDS;

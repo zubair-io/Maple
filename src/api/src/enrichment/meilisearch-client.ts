@@ -309,7 +309,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
     return ensurePromise;
   };
 
-  const queryEmbedder = createQueryEmbedder(cfg, EMBEDDER_NAME);
+  const queryEmbedder = createQueryEmbedder(cfg, EMBEDDER_NAME, () => embedderInSync);
 
   return {
     isConfigured(): boolean {
