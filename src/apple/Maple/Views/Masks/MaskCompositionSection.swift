@@ -10,12 +10,20 @@ struct MaskCompositionSection: View {
     return nil
   }
 
+  private var isBrush: Bool {
+    if case .brush = session.selectedMaskGeometry { return true }
+    return false
+  }
+
   var body: some View {
     VStack(spacing: 6) {
-      HStack {
-        composeMenu(.add, label: "Add to mask")
-        composeMenu(.subtract, label: "Subtract")
-        composeMenu(.intersect, label: "Intersect")
+      // A brush is top-level only: no reader models it inside a group.
+      if !isBrush {
+        HStack {
+          composeMenu(.add, label: "Add to mask")
+          composeMenu(.subtract, label: "Subtract")
+          composeMenu(.intersect, label: "Intersect")
+        }
       }
       if let group {
         ForEach(Array(group.components.enumerated()), id: \.offset) { index, component in
@@ -56,7 +64,9 @@ struct MaskCompositionSection: View {
         )
         .accessibilityIdentifier("editor-mask-group-invert")
       }
-      slider("Opacity", value: group?.opacity ?? 1, change: session.setMaskOpacity)
+      if !isBrush {
+        slider("Opacity", value: group?.opacity ?? 1, change: session.setMaskOpacity)
+      }
       if let feather = feather {
         slider("Feather", value: feather, change: setFeather)
       }
@@ -65,7 +75,7 @@ struct MaskCompositionSection: View {
           .accessibilityIdentifier("editor-mask-invert")
       }
       // Brush tip (#360): tool state, not a layer edit — no gesture, no undo.
-      if case .brush = session.selectedMaskGeometry {
+      if isBrush {
         brushSlider(
           "Size", value: session.brushTip.size, range: 0.002...0.5,
           change: { session.brushTip.size = $0 }, id: "editor-mask-brush-size")

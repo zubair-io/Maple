@@ -445,6 +445,39 @@ final class LocalAdjustmentBrushTests: XCTestCase {
         XCTAssertNotEqual(brush().id, undone)
     }
 
+    /// Reset restores the opened snapshot through the same rebinding: the
+    /// original stroke's raster was released by the later stroke.
+    @MainActor
+    func testResetToOriginalRebindsTheOpenedStroke() throws {
+        let dir = try brushTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dab = BrushDab(
+            center: MaskPoint(x: 0.25, y: 0.5), radius: 0.05, feather: 0.5, weight: 1, erase: false)
+        var opened = AdjustmentModel()
+        opened.localAdjustments = [
+            LocalAdjustment(
+                mask: .brush(dabs: [dab], digest: "", rasterId: 0), adjustments: PartialAdjustments())
+        ]
+        let session = EditSession(
+            asset: AssetRef(url: dir.appendingPathComponent("photo.dng")), model: opened,
+            culling: CullingState())
+        session.model = session.rebindingBrushRasters(live: AdjustmentModel(), restored: opened)
+        guard case .brush(_, _, let first) = session.model.localAdjustments[0].mask else {
+            return XCTFail("fixture")
+        }
+        session.selectedMaskId = session.model.localAdjustments[0].id
+        session.beginBrushStroke()
+        session.appendBrushDabs([dab])
+        session.endBrushStroke()
+        session.resetToOriginal()
+        guard case .brush(let dabs, _, let id) = session.model.localAdjustments[0].mask else {
+            return XCTFail("expected the opened brush")
+        }
+        XCTAssertEqual(dabs.count, 1)
+        XCTAssertNotEqual(id, 0)
+        XCTAssertNotEqual(id, first, "reset restored a released raster id")
+    }
+
     // MARK: - Flat wire
 
     /// A brush encodes as a bitmap record carrying the registry id —
