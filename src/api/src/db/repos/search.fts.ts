@@ -142,6 +142,74 @@ function splitBareTerm(text: string): string[] {
  */
 const TERM = /(-?)(?:"([^"]*)"?|(\S+))/g;
 
+/**
+ * English function words a bare term is dropped for — Lucene's classic English
+ * stop set.
+ *
+ * Every caption the describe stage writes is prose, so a word like `and` sits
+ * in about nine search blobs in ten. ORed with the rest of a query it matches
+ * nearly the whole library, and every statement a search runs then joins,
+ * filters and ranks those hundreds of thousands of rows: measured at 0.5–0.8 s
+ * per statement at 335k assets, fifteen statements per search (#4413).
+ *
+ * It buys no relevance in exchange. FTS5's `bm25()` clamps the IDF of a term
+ * present in more than half the rows to 1e-6, so such a word cannot move a
+ * match up the ranking; the top of a page is the same with or without it, and
+ * what it adds is a tail of rows that match nothing the user meant.
+ */
+const STOPWORDS: ReadonlySet<string> = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'but',
+  'by',
+  'for',
+  'if',
+  'in',
+  'into',
+  'is',
+  'it',
+  'no',
+  'not',
+  'of',
+  'on',
+  'or',
+  'such',
+  'that',
+  'the',
+  'their',
+  'then',
+  'there',
+  'these',
+  'they',
+  'this',
+  'to',
+  'was',
+  'will',
+  'with',
+]);
+
+function isOptionalStopword(term: ParsedTerm): boolean {
+  return !term.phrase && !term.negated && STOPWORDS.has(term.text.toLowerCase());
+}
+
+/**
+ * The terms with bare stopwords removed — unless that would leave no positive
+ * term, in which case they are what the user is searching for.
+ *
+ * `and` on its own still looks for "and" rather than becoming `nothing`, and a
+ * quoted phrase keeps its stopwords because adjacency is the point of quoting.
+ * Dropped before the term cap, so a wordy query is not truncated by filler.
+ */
+function withoutStopwords(terms: readonly ParsedTerm[]): readonly ParsedTerm[] {
+  const kept = terms.filter((term) => !isOptionalStopword(term));
+  return kept.some((term) => !term.negated) ? kept : terms;
+}
+
 /** Split a search string into terms, honouring quotes and leading `-`. */
 function parseTerms(input: string): ParsedTerm[] {
   const terms = [...input.matchAll(TERM)].flatMap((match): ParsedTerm[] => {
@@ -150,7 +218,8 @@ function parseTerms(input: string): ParsedTerm[] {
     if (phrase !== undefined) return [{ text: phrase, phrase: true, negated }];
     return splitBareTerm(match[3] ?? '').map((text) => ({ text, phrase: false, negated }));
   });
-  return terms.filter((term) => HAS_TOKEN_CHARS.test(term.text)).slice(0, MAX_TERMS);
+  const tokenised = terms.filter((term) => HAS_TOKEN_CHARS.test(term.text));
+  return withoutStopwords(tokenised).slice(0, MAX_TERMS);
 }
 
 /** One term as an FTS5 string literal: double-quoted, inner quotes doubled. */
