@@ -172,7 +172,7 @@ fn stamp_dab(dab: &BrushDab, acc: &mut [f32], w: usize, h: usize) {
 /// registered its raster, or there is no brush), else a copy whose
 /// unresolved brushes are rasterized once onto the
 /// [`brush_raster_dims`] grid for an `image_width × image_height` oriented
-/// frame and attached by a fresh id. Headless callers (the API's sidecar
+/// frame and attached under the next unused id. Headless callers (the API's sidecar
 /// derivatives, `maple-cli`, Windows exports) have no host registry, so this
 /// is what makes a brush render there exactly as the editor's registered
 /// raster does. Called once per render, never from the per-pixel stage.
@@ -207,10 +207,9 @@ pub fn with_brush_rasters(
         else {
             continue;
         };
-        let id = (0..=u32::MAX)
-            .rev()
-            .find(|id| *id != 0 && !mask_rasters.iter().any(|r| r.id == *id))
-            .expect("fewer rasters than ids");
+        // Ids count up from the largest in use: the flat render wire carries
+        // them as f32, exact only below 2^24.
+        let id = mask_rasters.iter().map(|r| r.id).max().unwrap_or(0) + 1;
         let bytes = rasterize_brush(dabs, width, height);
         mask_rasters.push(Arc::new(MaskRaster::from_u8(
             id, digest, width, height, &bytes,
@@ -396,7 +395,7 @@ mod attach_tests {
     fn unresolved_brush_gets_its_dabs_rasterized_on_the_shared_grid() {
         let mut model = AdjustmentModel::default();
         model.local_adjustments = vec![brush(stroke(), "", 0), brush(stroke(), "", 0)];
-        model.mask_rasters = vec![Arc::new(MaskRaster::from_u8(u32::MAX, "", 1, 1, &[0]))];
+        model.mask_rasters = vec![Arc::new(MaskRaster::from_u8(5, "", 1, 1, &[0]))];
         let attached = with_brush_rasters(&model, 6000, 4000).into_owned();
         assert_eq!(attached.mask_rasters.len(), 3);
         let ids: Vec<u32> = attached
@@ -407,7 +406,7 @@ mod attach_tests {
                 _ => unreachable!(),
             })
             .collect();
-        assert_eq!(ids, vec![u32::MAX - 1, u32::MAX - 2]);
+        assert_eq!(ids, vec![6, 7]);
         let raster = resolve(&attached.local_adjustments[0].mask, &attached.mask_rasters)
             .expect("attached raster resolves");
         assert_eq!((raster.width, raster.height), brush_raster_dims(6000, 4000));
