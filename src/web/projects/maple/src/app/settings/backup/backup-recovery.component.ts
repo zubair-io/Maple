@@ -126,7 +126,7 @@ export class BackupRecoveryComponent {
       (view.job.status === 'failed' || view.job.status === 'cancelled')
     );
   });
-  protected readonly historyOptions = computed(() => {
+  protected readonly entryOptions = computed(() => {
     const view = this.view();
     const entries =
       view.kind !== 'ready'
@@ -141,7 +141,7 @@ export class BackupRecoveryComponent {
       { value: '', label: 'Current library' },
       ...entries.map((entry) => ({
         value: JSON.stringify({ entryId: entry.entryId, sequence: entry.sequence }),
-        label: `${entry.originalPath} · generation ${entry.sequence} · ${entry.state === 'trash' ? 'Trash' : 'Active'}`,
+        label: `${entry.currentPath} · ${entry.state === 'trash' ? 'Trash' : 'Active'}`,
       })),
     ];
   });
@@ -207,7 +207,7 @@ export class BackupRecoveryComponent {
       const request = this.request();
       if (!request)
         throw new Error(
-          'The selected generation is unavailable. Refresh the catalog and select a recoverable generation.',
+          'The selected backup entry is unavailable. Refresh the catalog and select a recoverable entry.',
         );
       const result = await firstValueFrom(this.api.previewRestore(this.destinationId(), request));
       this.preview.set({ request, result });
@@ -225,7 +225,7 @@ export class BackupRecoveryComponent {
       const request = this.request();
       if (!request)
         throw new Error(
-          'The selected generation is unavailable. Refresh the catalog before restoring.',
+          'The selected backup entry is unavailable. Refresh the catalog before restoring.',
         );
       const response = await firstValueFrom(this.api.restore(this.destinationId(), request));
       this.jobId.set(response.jobId);

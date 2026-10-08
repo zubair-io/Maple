@@ -134,9 +134,8 @@ async function drainRemoteBatch(
         await retryPurge(engine, destination.id, row.entry_id, signal);
       }
     }
-    // Google stores objects flat in the dedicated root. Share two streaming
-    // inventories across the batch, including portable objects from earlier
-    // versions that lack any newly introduced entry-specific search index.
+    // Catalog objects remain entry-keyed. Mirror files are removed by their
+    // exact paths from the current manifest before this shared catalog sweep.
     const libraryPrefix = `libraries/${destination.libraryId}/entries/`;
     await scanRemoteBatch(engine, destination.id, provider, libraryPrefix, ready, true, signal);
     await scanRemoteBatch(engine, destination.id, provider, libraryPrefix, ready, false, signal);
@@ -241,15 +240,29 @@ async function removeSavedRemoteObjects(
   prefix: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  const pending = await engine.repo.db.read<{
+  const entryId = prefix.split('/')[3];
+  const objectColumns = `key,object,checkpoint`;
+  const catalogObjects = await engine.repo.db.read<{
     key: string;
     object: string | null;
     checkpoint: string | null;
   }>(
-    `SELECT key,object,checkpoint FROM backup_objects
-          WHERE destination_id=? AND key>=? AND key<?`,
+    `SELECT ${objectColumns} FROM backup_objects
+        WHERE destination_id=? AND key>=? AND key<?`,
     [destinationId, prefix, prefix.slice(0, -1) + '0'],
   );
+  const entryObjects = await engine.repo.db.read<{
+    key: string;
+    object: string | null;
+    checkpoint: string | null;
+  }>(
+    `SELECT ${objectColumns} FROM backup_objects
+        WHERE destination_id=? AND entry_id=? AND key<>?`,
+    [destinationId, entryId, `purges/${entryId}.json`],
+  );
+  const pending = [
+    ...new Map([...catalogObjects, ...entryObjects].map((row) => [row.key, row])).values(),
+  ];
   for (const saved of pending) {
     signal?.throwIfAborted();
     if (saved.checkpoint) {

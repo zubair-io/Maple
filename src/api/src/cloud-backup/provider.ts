@@ -35,6 +35,17 @@ export interface BackupProvider {
       saveCheckpoint: (checkpoint: UploadCheckpoint) => Promise<void>;
     },
   ): Promise<BackupObject>;
+  /** Keep a user-visible file at its library-relative path, replacing its current bytes. */
+  mirrorFile(
+    key: string,
+    relativePath: string,
+    source: PublishSource,
+    options: {
+      signal?: AbortSignal;
+      checkpoint?: UploadCheckpoint | null;
+      saveCheckpoint: (checkpoint: UploadCheckpoint) => Promise<void>;
+    },
+  ): Promise<BackupObject>;
   download(object: BackupObject, signal?: AbortSignal): Promise<ReadableStream<Uint8Array>>;
   remove(object: BackupObject, signal?: AbortSignal): Promise<void>;
   abort(checkpoint: UploadCheckpoint, signal?: AbortSignal): Promise<void>;

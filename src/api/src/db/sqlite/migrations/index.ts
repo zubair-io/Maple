@@ -38,6 +38,7 @@ import { ownerCapturePaginationMigration } from './0013-owner-capture-pagination
 import { cloudBackupMigration } from './0014-cloud-backup.ts';
 import { personSegmentationsMigration } from './0015-person-segmentations.ts';
 import { cloudBackupDestinationStatusMigration } from './0016-cloud-backup-destination-status.ts';
+import { cloudBackupObjectEntryIndexMigration } from './0017-cloud-backup-object-entry-index.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -56,4 +57,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   cloudBackupMigration,
   personSegmentationsMigration,
   cloudBackupDestinationStatusMigration,
+  cloudBackupObjectEntryIndexMigration,
 ];

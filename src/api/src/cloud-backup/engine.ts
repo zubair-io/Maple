@@ -121,6 +121,30 @@ export class BackupEngine {
     await this.repo.saveObject(destination.id, entry.id, key, object, null);
     return object;
   }
+  private async mirrorFile(
+    provider: BackupProvider,
+    destination: BackupDestination,
+    entry: BackupEntry,
+    key: string,
+    relativePath: string,
+    source: PublishSource,
+    signal?: AbortSignal,
+  ): Promise<BackupObject> {
+    const saved = await this.repo.object(destination.id, key);
+    const object = await provider.mirrorFile(key, relativePath, source, {
+      signal,
+      checkpoint: saved.checkpoint,
+      saveCheckpoint: async (checkpoint) => {
+        await this.repo.saveObject(destination.id, entry.id, key, null, checkpoint);
+        if (!entry.lease_owner || !(await this.repo.fence(entry, destination, entry.lease_owner)))
+          throw new Error('Backup lifecycle changed during upload');
+      },
+    });
+    if (object.size !== source.size || object.sha256 !== source.sha256)
+      throw new Error('Backup mirror integrity mismatch');
+    await this.repo.saveObject(destination.id, entry.id, key, object, null);
+    return object;
+  }
   private async assertFence(ctx: TransferContext, message: string): Promise<void> {
     if (!(await this.repo.fence(ctx.entry, ctx.destination, ctx.owner))) throw new Error(message);
   }
@@ -128,16 +152,17 @@ export class BackupEngine {
     ctx: TransferContext,
     files: CapturedFiles,
   ): Promise<BackupManifest['files']> {
-    const prefix = entryPrefix(ctx.destination.libraryId, ctx.entry.id);
     const objects: BackupManifest['files'] = [];
     for (const file of files) {
       ctx.signal.throwIfAborted();
       await this.assertFence(ctx, 'Backup lease or lifecycle changed');
-      const object = await this.publish(
+      const key = `mirror/${ctx.destination.libraryId}/${file.path}`;
+      const object = await this.mirrorFile(
         ctx.provider,
         ctx.destination,
         ctx.entry,
-        `${prefix}blobs/${file.source.sha256}`,
+        key,
+        file.path,
         file.source,
         ctx.signal,
       );
@@ -164,6 +189,7 @@ export class BackupEngine {
     files: BackupManifest['files'],
   ): Promise<boolean> {
     const { destination, entry, provider, signal } = ctx;
+    const repo: BackupRepository = this.repo;
     const { state, originalPath, deletedAt, hidden } = lifecycleMetadata(location);
     const manifest: BackupManifest = {
       version: 1,
@@ -198,8 +224,28 @@ export class BackupEngine {
       jsonSource(manifest),
       signal,
     );
+    for await (const oldManifest of provider.list(
+      `${entryPrefix(destination.libraryId, entry.id)}manifests/`,
+      signal,
+    )) {
+      if (
+        oldManifest.key !==
+        `${entryPrefix(destination.libraryId, entry.id)}manifests/${entry.sequence}.json`
+      )
+        await provider.remove(oldManifest, signal);
+    }
+    const previous = entry.manifest ? (JSON.parse(entry.manifest) as BackupManifest) : null;
+    const retainedKeys = new Set(files.map((file) => file.object.key));
+    for (const oldFile of previous?.files ?? []) {
+      if (!oldFile.object.key.startsWith(`mirror/${destination.libraryId}/`)) continue;
+      if (retainedKeys.has(oldFile.object.key)) continue;
+      const current = await provider.inspect(oldFile.object.key, signal, oldFile.object.locator);
+      if (current) {
+        await provider.remove(current, signal);
+        await repo.forgetObject(destination.id, current.key, current.locator);
+      }
+    }
     await this.assertFence(ctx, 'Backup changed during catalog publication');
-    const repo: BackupRepository = this.repo;
     return repo.finish(entry, destination, ctx.owner, manifest);
   }
   async transfer(

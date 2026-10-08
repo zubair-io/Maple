@@ -27,7 +27,7 @@
         </details>
       }
       <p class="set-fhint">
-        {{ vm.catalog.entries.length }} committed generations ·
+        {{ vm.catalog.entries.length }} current backup entries ·
         {{ vm.catalog.purges.length }} permanent-delete records. Purged history is excluded from
         recovery.
       </p>
@@ -49,11 +49,11 @@
           />
         </div>
         <div>
-          <span class="set-flabel">Library or edit generation</span
+          <span class="set-flabel">Whole library or one photo</span
           ><mui-select
-            ariaLabel="Backup generation to restore"
+            ariaLabel="Backup content to restore"
             [value]="selection()"
-            [options]="historyOptions()"
+            [options]="entryOptions()"
             [disabled]="busy() || running()"
             (valueChange)="selection.set($event)"
           />

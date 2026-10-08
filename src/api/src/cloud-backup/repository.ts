@@ -239,7 +239,8 @@ export class BackupRepository {
     await this.db.transaction([
       {
         sql: `INSERT INTO backup_objects(destination_id,key,entry_id,object,checkpoint) VALUES(?,?,?,?,?)
-      ON CONFLICT(destination_id,key) DO UPDATE SET object=COALESCE(excluded.object,object),checkpoint=excluded.checkpoint`,
+      ON CONFLICT(destination_id,key) DO UPDATE SET entry_id=excluded.entry_id,
+      object=COALESCE(excluded.object,object),checkpoint=excluded.checkpoint`,
         params: [
           destinationId,
           key,
@@ -253,6 +254,13 @@ export class BackupRepository {
         params: [destinationId, entryId],
       },
     ]);
+  }
+  async forgetObject(destinationId: string, key: string, locator: string): Promise<void> {
+    await this.db.write(
+      `DELETE FROM backup_objects WHERE destination_id=? AND key=?
+      AND json_extract(object,'$.locator')=?`,
+      [destinationId, key, locator],
+    );
   }
   async purges(destinationId: string): Promise<
     Array<{

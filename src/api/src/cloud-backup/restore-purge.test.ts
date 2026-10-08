@@ -13,17 +13,16 @@ test('per-file purge fences do not list or download unrelated purge journals', a
   const f = await fixture();
   try {
     const manifest = f.provider.manifest();
-    const prefix = `libraries/${libraryId}/entries/${entryId}/blobs/`;
     manifest.files.push(
       {
         path: 'photo.xmp',
         role: 'sidecar',
-        object: f.provider.put(prefix + 'sidecar', '<x:xmpmeta> exact </x:xmpmeta>'),
+        object: f.provider.put(`mirror/${libraryId}/photo.xmp`, '<x:xmpmeta> exact </x:xmpmeta>'),
       },
       {
         path: 'photo-rendered.jpg',
         role: 'companion',
-        object: f.provider.put(prefix + 'companion', 'companion bytes'),
+        object: f.provider.put(`mirror/${libraryId}/photo-rendered.jpg`, 'companion bytes'),
       },
     );
     f.provider.saveManifest(manifest);
