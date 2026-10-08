@@ -259,6 +259,13 @@ Apple's sidebar offers the folder operations as a right-click context menu on a 
 
 Apple routes trash by source: on macOS a local file goes to the real Finder Trash, on iOS/iPadOS and SMB it goes to Maple's own `.maple/trash` with an in-app browser and restore, a server asset is trashed through the API, and PhotoKit assets cannot be trashed at all. Windows uses the Windows Recycle Bin for local fixed drives and Maple's trash for network paths.
 
+Restore keeps a photo and every paired XMP (canonical, conflict copies, workflow variants) together. Each member is copied to a private staging location and verified by content hash, then published under the original name with an exclusive claim that never replaces an existing file; an occupied name moves the whole pair to `name.restored.ext`, then `name.restored.1.ext` and so on, up to 1,000 attempts.
+
+What happens to the trashed copy depends on the transport:
+
+- **Local filesystem (iOS/iPadOS `.maple/trash`).** After publication, restore removes the trashed originals by first renaming each one into a private custody name and checking it is still the file it verified.
+- **SMB shares.** Restore is copy-only: it never deletes or renames any file that existed before it started. A process on the NAS itself (local disk access or NFS) is not bound by SMB locks, and Samba carries out deletes and renames by pathname. If such a process swaps another file into the trashed photo's place, a delete or rename would hit that unrelated file — this was reproduced against a real Samba server (#4173). Instead, the trashed photo and its XMP stay where they are, and restore adds a `<name>.restored-YYYY-MM-DD` marker beside them. The Trash view then hides the item, and the normal trash expiry removes it with the rest of the trash, 30 days after it was trashed. That expiry is the only process that deletes anything restore leaves behind, including copies an interrupted restore left in `.maple/restore-staging`. Windows restore does not yet read the marker or pair non-canonical sidecars (#2847).
+
 ---
 
 ## 7. Settings and admin
