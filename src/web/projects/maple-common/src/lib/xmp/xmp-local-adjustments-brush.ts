@@ -10,6 +10,8 @@ import { BRUSH_VERSION } from '../generated/local-mask-wire.generated';
 import type { BrushDab, BrushMask, LeafMask } from '../models/local-adjustment';
 import { attrOf } from './xmp-dom-utils';
 
+const DECIMAL_TOKEN = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+
 /** The `crs:What` a paint leaf carries. */
 export const MASK_WHAT_PAINT = 'Mask/Paint';
 
@@ -56,7 +58,10 @@ export function parseBrushLeaf(leaf: Element): LeafMask | undefined {
   if (tokens.length % 6 !== 0) return undefined;
   const dabs: BrushDab[] = [];
   for (let i = 0; i < tokens.length; i += 6) {
-    const nums = tokens.slice(i, i + 5).map(Number);
+    const fields = tokens.slice(i, i + 5);
+    // raw-core's decimal float grammar: `Number` also accepts hex and blanks.
+    if (!fields.every((token) => DECIMAL_TOKEN.test(token))) return undefined;
+    const nums = fields.map(Number);
     if (nums.some((n) => !Number.isFinite(n))) return undefined;
     const [x, y, radius, feather, weight] = nums as [number, number, number, number, number];
     const erase = tokens[i + 5];

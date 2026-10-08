@@ -259,6 +259,8 @@ final class LocalAdjustmentBrushTests: XCTestCase {
             "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" papp:BrushVersion=\"1\" papp:Dabs=\"0.5 0.5 0.1 0.5 1\"/>",
             // Non-numeric token.
             "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" papp:BrushVersion=\"1\" papp:Dabs=\"0.5 0.5 wide 0.5 1 0\"/>",
+            // Hex float, which `Double` accepts and raw-core rejects.
+            "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" papp:BrushVersion=\"1\" papp:Dabs=\"0x1p-1 0.5 0.1 0.5 1 0\"/>",
             // Erase flag that is neither 0 nor 1.
             "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" papp:BrushVersion=\"1\" papp:Dabs=\"0.5 0.5 0.1 0.5 1 2\"/>",
         ] {
