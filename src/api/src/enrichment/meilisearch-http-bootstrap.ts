@@ -3,7 +3,7 @@ import { loadEnrichmentConfig } from './enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from './enrichment-config.resolve.ts';
 import { meilisearchClient, reconfigureMeilisearch } from './meilisearch-client.ts';
 import { configureServiceSearchRateLimit } from './service-search-rate-limit.ts';
-import { advanceKnownVectorCoverage } from './meilisearch-vector-coverage.ts';
+import { advanceKnownVectorCoverage, coverageFingerprint } from './meilisearch-vector-coverage.ts';
 
 const log = childLogger('meilisearch:http-bootstrap');
 
@@ -30,9 +30,7 @@ export async function initializeHttpSearch(): Promise<void> {
       return;
     }
     await client.ensureIndex();
-    if (client.embedderInSync?.() !== false) {
-      await advanceKnownVectorCoverage(client.semanticFingerprint?.());
-    }
+    await advanceKnownVectorCoverage(coverageFingerprint(client));
     log.info({ semanticEnabled: client.semanticConfigured() }, 'Meilisearch search sidecar ready');
   } catch (error) {
     log.warn(

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'bun:test';
-import { documentShapeOf } from './meilisearch-vector-coverage.ts';
+import {
+  coverageFingerprint,
+  documentShapeOf,
+  syncIndexAndCoverage,
+} from './meilisearch-vector-coverage.ts';
 import {
   EMBEDDER_TEMPLATE_SHAPE_VERSION,
   vectorFingerprint,
@@ -45,5 +49,50 @@ describe('documentShapeOf', () => {
     // #2992: the live shape prefix now tracks EMBEDDER_TEMPLATE_SHAPE_VERSION,
     // not ASSET_DOC_SHAPE_VERSION — see meilisearch-embedder-template.ts.
     expect(documentShapeOf(live)).toBe(`v${EMBEDDER_TEMPLATE_SHAPE_VERSION}`);
+  });
+});
+
+describe('coverageFingerprint (#4432)', () => {
+  const client = (embedderInSync: boolean | null) => ({
+    semanticFingerprint: () => 'v8:settings',
+    embedderInSync: () => embedderInSync,
+  });
+
+  it('withholds the fingerprint while the live embedder drifts from Settings', () => {
+    expect(coverageFingerprint(client(false))).toBeNull();
+  });
+
+  it('uses the Settings fingerprint once in sync, or before the first check', () => {
+    expect(coverageFingerprint(client(true))).toBe('v8:settings');
+    expect(coverageFingerprint(client(null))).toBe('v8:settings');
+    expect(coverageFingerprint({ semanticFingerprint: () => null })).toBeNull();
+  });
+});
+
+describe('syncIndexAndCoverage (#4432)', () => {
+  it('reports an unreachable Meilisearch without touching the index', async () => {
+    let ensured = false;
+    const reachable = await syncIndexAndCoverage({
+      health: async () => false,
+      ensureIndex: async () => {
+        ensured = true;
+      },
+    });
+    expect(reachable).toBe(false);
+    expect(ensured).toBe(false);
+  });
+
+  it('ensures the index and skips coverage while the embedder drifts', async () => {
+    let ensured = false;
+    const reachable = await syncIndexAndCoverage({
+      health: async () => true,
+      ensureIndex: async () => {
+        ensured = true;
+      },
+      semanticFingerprint: () => 'v8:settings',
+      embedderInSync: () => false,
+    });
+    expect(reachable).toBe(true);
+    expect(ensured).toBe(true);
   });
 });

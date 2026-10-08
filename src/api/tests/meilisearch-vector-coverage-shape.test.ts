@@ -16,6 +16,15 @@ import { describe, expect, it } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { createLiveTestDatabase, run } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
 import { advanceKnownVectorCoverage } from '../src/enrichment/meilisearch-vector-coverage.ts';
+import {
+  commitBatch,
+  type BackfillRow,
+  type WriteBatch,
+} from '../src/enrichment/meilisearch-backfill-compose.ts';
+import type {
+  MeilisearchAssetDoc,
+  MeilisearchClient,
+} from '../src/enrichment/meilisearch-client.ts';
 import { seedIndexableAsset } from './helpers/meili-backfill-fixtures.ts';
 
 /** A live asset carrying a given stored fingerprint. */
@@ -74,5 +83,42 @@ describe('advanceKnownVectorCoverage — document-shape gate', () => {
     await advanceKnownVectorCoverage('v8:newhash');
 
     expect(storedFingerprints(live.db)['trashed']).toBe('v8:oldhash');
+  });
+});
+
+describe('backfill coverage markers while the index embedder drifts (#4432)', () => {
+  function batchFor(id: string): WriteBatch {
+    return {
+      docs: [{ row: { id } as BackfillRow, doc: { id: 'maple-drift' } as MeilisearchAssetDoc }],
+      tombstoneIds: [],
+    };
+  }
+
+  function client(embedderInSync: boolean): MeilisearchClient {
+    return {
+      isConfigured: () => true,
+      semanticConfigured: () => true,
+      semanticFingerprint: () => 'v8:settings',
+      embedderInSync: () => embedderInSync,
+      health: async () => true,
+      ensureIndex: async () => {},
+      upsert: async () => {},
+      upsertOrThrow: async () => {},
+      upsertBatchOrThrow: async () => {},
+      tombstone: async () => {},
+      search: async () => ({ ids: [], estimatedTotal: 0 }),
+    };
+  }
+
+  it('keeps the previous marker: the old live embedder built those vectors', async () => {
+    using live = await createLiveTestDatabase();
+    const id = seedIndexableAsset(live.db, { mapleId: 'drift' });
+    run(live.db, `UPDATE assets SET semantic_vector_fingerprint = 'v8:live' WHERE id = ?`, id);
+
+    await commitBatch(client(false), batchFor(id));
+    expect(storedFingerprints(live.db)['drift']).toBe('v8:live');
+
+    await commitBatch(client(true), batchFor(id));
+    expect(storedFingerprints(live.db)['drift']).toBe('v8:settings');
   });
 });
