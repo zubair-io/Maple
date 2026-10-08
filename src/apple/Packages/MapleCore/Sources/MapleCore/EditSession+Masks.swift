@@ -103,6 +103,15 @@ extension EditSession {
   /// keeps `rasterId: 0` (still weight 0, logged) rather than failing the
   /// whole hydration.
   func rehydratedMaskRasters(in source: AdjustmentModel) async -> AdjustmentModel {
+    let paintsStrokes = source.localAdjustments.contains {
+      guard case .brush(let dabs, _, _) = $0.mask else { return false }
+      return !dabs.isEmpty
+    }
+    // A brush raster's grid follows the image aspect: wait for the
+    // metadata size rather than registering a square raster for a 3:2 photo.
+    if paintsStrokes, nativeImageSize == .zero {
+      await seedNativeImageSizeFromMetadataAsync(asset)
+    }
     var out = source
     for index in out.localAdjustments.indices {
       out.localAdjustments[index].mask = await out.localAdjustments[index].mask.mappingLeavesAsync {

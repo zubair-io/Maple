@@ -60,6 +60,7 @@ import {
 } from './mask-geometry';
 import {
   StrokeSmoother,
+  appendedBrushDigest,
   applyPressure,
   interpolateDabs,
   mapDabsToCrop,
@@ -68,6 +69,10 @@ import {
 
 /** Grab radius for the handles, in CSS px — matches the crop overlay. */
 const HANDLE_TOLERANCE = 14;
+
+/** Pressure only a pen measures: a mouse reports a fixed 0.5 while pressed,
+ *  which must paint at full size like Apple's pointer does, not at half. */
+const penPressure = (ev: PointerEvent): number => (ev.pointerType === 'pen' ? ev.pressure : 0);
 /** Raster resolution of the weight tint along the footprint's long edge. */
 const TINT_LONG_EDGE = 192;
 /** Tint colour (`--pro-accent`, #C4493A) and peak opacity at `w = 1`. */
@@ -215,7 +220,7 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
       const smoother = new StrokeSmoother();
       const at = smoother.reset(maskFromScreen(this.map(), px, py));
       this.stroke.begin(ev, { smoother, last: at });
-      this.stampStrokeSegment(mask, at, at, ev.pressure);
+      this.stampStrokeSegment(mask, at, at, penPressure(ev));
       return;
     }
     const handle = hitTestMaskHandle(px, py, mask, this.map(), HANDLE_TOLERANCE);
@@ -236,7 +241,7 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
       if (mask?.kind !== 'brush') return;
       const { px, py } = this.localPoint(ev);
       const at = stroking.smoother.next(maskFromScreen(this.map(), px, py));
-      this.stampStrokeSegment(mask, stroking.last, at, ev.pressure);
+      this.stampStrokeSegment(mask, stroking.last, at, penPressure(ev));
       stroking.last = at;
       ev.preventDefault();
       return;
@@ -270,7 +275,11 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
       erase: this.session.brush.erase(),
     });
     if (dabs.length === 0) return;
-    this.session.setShape({ ...mask, dabs: [...mask.dabs, ...dabs] });
+    this.session.setShape({
+      ...mask,
+      dabs: [...mask.dabs, ...dabs],
+      digest: appendedBrushDigest(mask, dabs),
+    });
   }
 
   protected onPointerUp(ev: PointerEvent): void {

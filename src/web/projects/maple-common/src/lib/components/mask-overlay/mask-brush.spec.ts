@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest';
 import type { BrushDab } from '../../models/local-adjustment';
 import {
   StrokeSmoother,
+  appendedBrushDigest,
   applyPressure,
   brushDigest,
   brushRasterDims,
@@ -185,6 +186,18 @@ describe('brush registration helpers', () => {
     expect(digest).toMatch(/^[0-9a-f]{16}$/);
     expect(brushDigest(dabs)).toBe(digest);
     expect(brushDigest([dab(0.51, 0.5, 0.05, 0.5, 1, false)])).not.toBe(digest);
+  });
+
+  it('extends a digest incrementally to the whole-series digest', () => {
+    const first = [dab(0.5, 0.5, 0.05, 0.5, 1, false), dab(0.52, 0.5, 0.05, 0.5, 1, false)];
+    const added = [dab(0.54, 0.5, 0.05, 0.5, 1, true)];
+    const mask = { kind: 'brush' as const, dabs: first, digest: brushDigest(first), rasterId: 0 };
+    expect(appendedBrushDigest(mask, added)).toBe(brushDigest([...first, ...added]));
+    const empty = { kind: 'brush' as const, dabs: [], digest: '', rasterId: 0 };
+    expect(appendedBrushDigest(empty, added)).toBe(brushDigest(added));
+    const foreign = { ...mask, digest: '0123456789abcdef' };
+    expect(appendedBrushDigest(foreign, added)).toMatch(/^[0-9a-f]{16}$/);
+    expect(appendedBrushDigest(foreign, added)).not.toBe(foreign.digest);
   });
 
   it('flattens dabs onto the six-float wire in field order', () => {

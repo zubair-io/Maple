@@ -241,6 +241,25 @@ export function flattenBrushDabs(dabs: readonly BrushDab[]): Float32Array {
   return out.subarray(0, n * BRUSH_DAB_STRIDE);
 }
 
+const FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
+
+const dabPayload = (dabs: readonly BrushDab[]): string =>
+  dabs
+    .map((d) => [d.center.x, d.center.y, d.radius, d.feather, d.weight, d.erase ? 1 : 0].join(','))
+    .join(';');
+
+function fnv1a(state: bigint, payload: string): string {
+  let h = state;
+  for (let i = 0; i < payload.length; i++) {
+    h ^= BigInt(payload.charCodeAt(i));
+    h = (h * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  return h.toString(16).padStart(16, '0');
+}
+
+/** A digest the raster registry accepts: exactly 16 lowercase hex chars. */
+export const isBrushDigest = (digest: string): boolean => /^[0-9a-f]{16}$/.test(digest);
+
 /**
  * The 16-lowercase-hex digest naming a brush raster — FNV-1a over the dab
  * payload, the same shape (not the same value: the payload serialization is
@@ -248,13 +267,19 @@ export function flattenBrushDabs(dabs: readonly BrushDab[]): Float32Array {
  * re-parse finds the already-registered raster instead of re-registering.
  */
 export function brushDigest(dabs: readonly BrushDab[]): string {
-  const payload = dabs
-    .map((d) => [d.center.x, d.center.y, d.radius, d.feather, d.weight, d.erase ? 1 : 0].join(','))
-    .join(';');
-  let h = 0xcbf29ce484222325n;
-  for (let i = 0; i < payload.length; i++) {
-    h ^= BigInt(payload.charCodeAt(i));
-    h = (h * 0x100000001b3n) & 0xffffffffffffffffn;
+  return fnv1a(FNV_OFFSET_BASIS, dabPayload(dabs));
+}
+
+/**
+ * The digest of `previous` with `added` appended, in O(`added`): FNV-1a's
+ * running state IS the digest, so hashing continues from it. Equals
+ * `brushDigest` of the whole series whenever `previous.digest` was itself
+ * this host's digest; any other valid digest (an Apple-authored stroke)
+ * still yields a stable name that changes with the content.
+ */
+export function appendedBrushDigest(previous: BrushMask, added: readonly BrushDab[]): string {
+  if (previous.dabs.length === 0 || !isBrushDigest(previous.digest)) {
+    return brushDigest([...previous.dabs, ...added]);
   }
-  return h.toString(16).padStart(16, '0');
+  return fnv1a(BigInt(`0x${previous.digest}`), `;${dabPayload(added)}`);
 }

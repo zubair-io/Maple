@@ -8,9 +8,9 @@
 // and exposes it as `brush`.
 //
 // The render samples a brush layer's RASTER (registered in the worker under
-// the stroke's content digest), while the model carries the DABS. The sync
-// (`mask-brush-sync.ts`) keeps the two attached; the digest/raster-id stamps
-// are derived metadata, so they bypass the undo stack. `image-canvas`
+// the digest the layer carries), while the model carries the DABS. The sync
+// (`mask-brush-sync.ts`) keeps the two attached without touching the layer
+// stack, except to name a stroke that carries no usable digest. `image-canvas`
 // injects the owning service to keep the sync alive for renders the mask
 // tool never armed.
 
@@ -21,7 +21,6 @@ import {
   BRUSH_DEFAULT_FEATHER,
   BRUSH_DEFAULT_FLOW,
   BRUSH_DEFAULT_SIZE,
-  brushDigest,
   defaultBrushMask,
 } from './mask-brush';
 import { BrushRasterSync } from './mask-brush-sync';
@@ -77,14 +76,11 @@ export class MaskBrushSession {
       },
       register: (upload) => deps.registerRaster(upload),
       release: (rasterId) => deps.releaseRaster(rasterId),
-      stampDigest: (index, digest) => {
-        this.stamp(index, digest, undefined);
-      },
-      stampRasterId: (index, digest, rasterId) => this.stamp(index, digest, rasterId),
+      stampDigest: (index, digest) => this.stampDigest(index, digest),
     });
     // Brush-raster sync: every layer-stack change re-attaches dab series to
-    // worker rasters. Stamps converge (a stamped digest reads back equal),
-    // so the effect settles after at most two passes. Layers are read
+    // worker rasters. A digest stamp converges (it reads back valid), so the
+    // effect settles after at most two passes. Layers are read
     // FIRST: with no brush layer and nothing registered there is nothing to
     // sync, and the pipeline is not touched at all (no worker subscription
     // for non-brush sessions).
@@ -123,23 +119,17 @@ export class MaskBrushSession {
     return this.deps.addLayer(defaultBrushMask());
   }
 
-  /**
-   * Stamp derived brush metadata (content digest, worker raster id) onto the
-   * brush leaf at `index` — no undo entry. Refuses unless the leaf still
-   * hashes to `digest`, so an upload completion a longer stroke outgrew
-   * stamps nothing. Returns whether the leaf carries `digest` afterwards.
-   */
-  private stamp(index: number, digest: string, rasterId: number | undefined): boolean {
+  /** Name the brush leaf at `index` — no undo entry. Only a stroke that
+   *  carries no usable digest (hand-authored) reaches this. */
+  private stampDigest(index: number, digest: string): void {
     const a = this.deps.focusedAsset();
     const layers = this.deps.layers();
-    const layer = a ? layers[index] : undefined;
-    if (!a || layer?.mask.kind !== 'brush' || brushDigest(layer.mask.dabs) !== digest) return false;
-    const mask = { ...layer.mask, digest, rasterId: rasterId ?? layer.mask.rasterId };
-    if (mask.digest === layer.mask.digest && mask.rasterId === layer.mask.rasterId) return true;
+    const layer = layers[index];
+    if (!a || layer?.mask.kind !== 'brush') return;
+    const mask = { ...layer.mask, digest };
     this.deps.updateLayers(
       a.id,
       layers.map((l, i) => (i === index ? { ...l, mask } : l)),
     );
-    return true;
   }
 }

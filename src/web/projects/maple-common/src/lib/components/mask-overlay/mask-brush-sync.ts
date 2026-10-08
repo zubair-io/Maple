@@ -1,29 +1,27 @@
 // mask-brush-sync.ts — brush-raster registry sync (#360).
 //
 // The render samples a brush layer's RASTER (registered in the worker under
-// the stroke's content digest), while the model carries the DABS. This class
-// keeps the two attached: each sync pass stamps the computed digest onto
-// leaves that carry a stale one, uploads unregistered strokes, and releases
-// rasters whose stroke is gone (deleted, undone past, asset switched).
-// `MaskSessionService` drives it from an effect over the layer stack, so
-// every authoring path, undo/redo, and a sidecar re-parse converge without
-// their own registration code; `image-canvas` keeps that service alive for
-// renders the mask tool never armed.
+// the digest the layer carries), while the model carries the DABS. This class
+// keeps the two attached: each sync pass uploads strokes with no live raster
+// for the current grid and releases rasters whose stroke is gone (deleted,
+// undone past, asset switched). `MaskSessionService` drives it from an effect
+// over the layer stack, so every authoring path, undo/redo, and a sidecar
+// re-parse converge without their own registration code; `image-canvas`
+// keeps that service alive for renders the mask tool never armed.
 //
-// The worker registry is id-keyed but digest-addressed: every upload mints a
-// NEW id (`mask_raster_register` semantics), and the render resolves a
-// carried id first, then the digest. Uploads are content-keyed, so a stroke
-// that stops changing uploads once; a stroke mid-drag uploads per pass, and
-// the superseded ids are released by the sweep below (the fresh-parse render
-// resolves by digest, so a lingering duplicate would serve a stale frame).
+// Nothing here writes the layer stack on the common path: the render resolves
+// a brush by the digest it carries (raw-wasm `resolve_into`), so registering
+// under that digest is enough, and a store patch would rewrite the sidecar
+// and churn every mtime-keyed cache just for opening a photo. The authoring
+// overlay moves the digest with the dabs (`appendedBrushDigest`); only a
+// stroke carrying no usable digest gets one stamped.
 
 import type { LocalAdjustment } from '../../models/local-adjustment';
 import type { BrushRasterUpload } from '../../raw-pipeline/raw-pipeline.brush-raster.types';
-import { brushDigest, brushRasterDims, flattenBrushDabs } from './mask-brush';
+import { brushDigest, brushRasterDims, flattenBrushDabs, isBrushDigest } from './mask-brush';
 
 /** The host surface the sync writes through — the service's pipeline +
- *  library calls, faked in the spec. Stamps carry no undo entry: the digest
- *  and the raster id are derived metadata, not authored content. */
+ *  library calls, faked in the spec. */
 export interface BrushSyncIo {
   /** Focused asset dims, or null when nothing can register yet. */
   dims: () => { width: number; height: number } | null;
@@ -31,14 +29,8 @@ export interface BrushSyncIo {
   register: (upload: BrushRasterUpload) => Promise<number>;
   /** Forget one raster id. */
   release: (rasterId: number) => void;
-  /** Set the digest of the brush leaf at `index`. */
+  /** Name the brush leaf at `index`, which carries no usable digest. */
   stampDigest: (index: number, digest: string) => void;
-  /**
-   * Set the raster id of the brush leaf at `index` — but ONLY if that leaf
-   * still hashes to `digest` (the stroke may have grown past the uploaded
-   * content while the upload was in flight). Returns whether it stamped.
-   */
-  stampRasterId: (index: number, digest: string, rasterId: number) => boolean;
 }
 
 export class BrushRasterSync {
@@ -46,6 +38,8 @@ export class BrushRasterSync {
   private readonly registered = new Map<string, number>();
   /** Registrations with an upload in flight — a second pass must not double-send. */
   private readonly pending = new Set<string>();
+  /** Registrations the latest pass wanted; a late upload outside it is garbage. */
+  private wanted = new Set<string>();
 
   constructor(private readonly io: BrushSyncIo) {}
 
@@ -53,7 +47,7 @@ export class BrushRasterSync {
    *  is empty. In-flight uploads are NOT cancelled: they were dispatched
    *  through `ensureWorker`, so they land in the live registry and their
    *  completions repopulate this map; ones the retire rejected retry on the
-   *  next pass. */
+   *  next pass, which the worker-generation bump triggers. */
   reset(): void {
     this.registered.clear();
   }
@@ -68,15 +62,18 @@ export class BrushRasterSync {
   sync(layers: readonly LocalAdjustment[]): void {
     const dims = this.io.dims();
     const grid = dims ? brushRasterDims(dims.width, dims.height) : null;
-    const seen = new Set<string>();
+    const wanted = new Set<string>();
     layers.forEach((layer, index) => {
-      if (layer.mask.kind !== 'brush') return;
-      const digest = brushDigest(layer.mask.dabs);
-      if (layer.mask.digest !== digest) this.io.stampDigest(index, digest);
+      if (layer.mask.kind !== 'brush' || layer.mask.dabs.length === 0) return;
+      const { dabs, digest } = layer.mask;
+      if (!isBrushDigest(digest)) {
+        this.io.stampDigest(index, brushDigest(dabs));
+        return;
+      }
       if (!grid) {
         // Nothing focused: keep this stroke's rasters until dims return.
         for (const key of this.registered.keys()) {
-          if (key.startsWith(`${digest}@`)) seen.add(key);
+          if (key.startsWith(`${digest}@`)) wanted.add(key);
         }
         return;
       }
@@ -84,16 +81,13 @@ export class BrushRasterSync {
       // The raster's shape follows the image aspect, so the same stroke on
       // a differently shaped photo is a different registration.
       const key = `${digest}@${width}x${height}`;
-      seen.add(key);
-      if (layer.mask.dabs.length === 0 || this.registered.has(key) || this.pending.has(key)) return;
-      const dabs = flattenBrushDabs(layer.mask.dabs);
+      wanted.add(key);
+      if (this.registered.has(key) || this.pending.has(key)) return;
       this.pending.add(key);
-      this.io.register({ digest, width, height, dabs }).then(
+      this.io.register({ digest, width, height, dabs: flattenBrushDabs(dabs) }).then(
         (rasterId) => {
           this.pending.delete(key);
-          if (!this.io.stampRasterId(index, digest, rasterId)) {
-            // The stroke moved on mid-upload — nobody will ever carry this
-            // digest, so the raster is garbage already.
+          if (!this.wanted.has(key)) {
             this.io.release(rasterId);
             return;
           }
@@ -102,14 +96,13 @@ export class BrushRasterSync {
           if (prev !== undefined && prev !== rasterId) this.io.release(prev);
         },
         () => {
-          // The worker refused the upload (or died mid-flight and the
-          // retire rejected it): stay unregistered, the next pass retries.
           this.pending.delete(key);
         },
       );
     });
+    this.wanted = wanted;
     for (const [key, rasterId] of this.registered) {
-      if (seen.has(key)) continue;
+      if (wanted.has(key)) continue;
       this.registered.delete(key);
       this.io.release(rasterId);
     }
