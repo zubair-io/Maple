@@ -185,6 +185,13 @@
       query = seed.placeQuery
       guard let session else { return }
       pendingSeed = nil
+      run(seed, in: session)
+    }
+
+    /// Run a stored search: the deep-link/Map seed above, or a tapped
+    /// generated-search card (#4410).
+    private func run(_ seed: SearchParams, in session: PhoneSearchSession) {
+      query = seed.placeQuery
       // Pop any pushed Preview/editor so the user lands on the fresh
       // results, mirroring `PhoneTabShell.searchFor(_:)`'s `libraryPath = []`
       // for the face-chip text-seed case.
@@ -201,6 +208,23 @@
           thumbClient: session.thumbClient,
           thumbCache: session.thumbCache,
           query: $query,
+          collections: session.collections,
+          onSelectCollection: { card in
+            guard let collections = session.collections else { return }
+            var seed = SearchParams.fromDeepLinkQuery(card.query)
+            seed.libraryID = collections.libraryID
+            // The cover fetch already ran the collection's query; show that
+            // page rather than running the (slow) search again.
+            guard let firstPage = collections.firstPages[card.id] else {
+              run(seed, in: session)
+              return
+            }
+            query = seed.placeQuery
+            path = []
+            session.vm.showCollection(params: seed, firstPage: firstPage) { offset, limit in
+              try await collections.page(of: card.id, offset: offset, limit: limit)
+            }
+          },
           onSelectAsset: { asset in
             let resolved = resolveAsset(asset, session.server)
             previewSource = resolved.source

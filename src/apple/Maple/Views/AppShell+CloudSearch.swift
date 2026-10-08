@@ -120,6 +120,9 @@ extension AppShell {
     let vm: SearchViewModel
     let thumbClient: CloudThumbClient
     let thumbCache: CloudThumbCache
+    /// The library's daily generated searches for the idle page's cards;
+    /// nil when no library could be resolved for the server.
+    let collections: GeneratedSearchCollectionsViewModel?
   }
 
   @MainActor
@@ -154,11 +157,34 @@ extension AppShell {
         libraryID: nil,  // account-wide
         searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient),
         currentUserID: session.user?.id)
+      let libraryID = await resolveGeneratedSearchLibraryID(
+        server: serverID,
+        folders: CloudFoldersClient(server: effectiveServer, httpClient: httpClient))
       return PhoneSearchSession(
         server: serverID,
         vm: vm,
         thumbClient: CloudThumbClient(server: effectiveServer, httpClient: httpClient),
-        thumbCache: CloudThumbCache())
+        thumbCache: CloudThumbCache(),
+        collections: libraryID.map {
+          GeneratedSearchCollectionsViewModel(
+            libraryID: $0,
+            client: GeneratedSearchClient(server: effectiveServer, httpClient: httpClient))
+        })
+    }
+
+    /// Generated searches are per library while phone search is
+    /// account-wide: the open cloud library, else the remembered selection,
+    /// else the server's first library — the widget's resolution order.
+    private func resolveGeneratedSearchLibraryID(
+      server: URL, folders: CloudFoldersClient
+    ) async -> String? {
+      if case .cloudLibrary(let openServer, let folderID) = librarySelection, openServer == server {
+        return folderID
+      }
+      if let selected = CloudServerRegistry.shared.selectedLibraryID(for: server) {
+        return selected
+      }
+      return try? await folders.listFolders().first?.id
     }
   }
 #endif

@@ -235,6 +235,63 @@ final class SearchViewModelTests: XCTestCase {
     XCTAssertEqual(vm.facets?.total, 1)
   }
 
+  // MARK: - Generated-search collection (#4410)
+
+  func test_showCollection_showsCachedPageWithoutARequest() async throws {
+    let counter = RequestCounter()
+    let vm = makeCountingVM(counter)
+    var seed = SearchParams(libraryID: "lib-test")
+    seed.placeQuery = "autumn foliage"
+
+    vm.showCollection(
+      params: seed,
+      firstPage: GeneratedSearchAssetPage(results: [makeAsset(id: "c1")], total: 3)
+    ) { _, _ in GeneratedSearchAssetPage(results: [], total: 3) }
+    await vm.submitIfChanged()
+
+    XCTAssertEqual(vm.results.map(\.id), ["c1"])
+    XCTAssertEqual(vm.total, 3)
+    XCTAssertFalse(vm.isLoading)
+    XCTAssertEqual(vm.params.placeQuery, "autumn foliage")
+    XCTAssertEqual(counter.count, 0, "the cached page must not re-run the search")
+  }
+
+  func test_showCollection_loadMorePagesThroughTheCollection() async {
+    let vm = makeVM(throwing: URLError(.cancelled))
+    var requestedOffsets: [Int] = []
+    vm.showCollection(
+      params: SearchParams(libraryID: "lib-test"),
+      firstPage: GeneratedSearchAssetPage(results: [makeAsset(id: "c1")], total: 2)
+    ) { offset, _ in
+      requestedOffsets.append(offset)
+      return GeneratedSearchAssetPage(results: [self.makeAsset(id: "c2")], total: 2)
+    }
+
+    await vm.loadMore()
+
+    XCTAssertEqual(requestedOffsets, [1])
+    XCTAssertEqual(vm.results.map(\.id), ["c1", "c2"])
+    XCTAssertFalse(vm.canLoadMore)
+  }
+
+  func test_submit_leavesCollectionMode() async {
+    let vm = makeVM(throwing: URLError(.cancelled))
+    var pagerCalls = 0
+    vm.showCollection(
+      params: SearchParams(libraryID: "lib-test"),
+      firstPage: GeneratedSearchAssetPage(results: [makeAsset(id: "c1")], total: 5)
+    ) { _, _ in
+      pagerCalls += 1
+      return GeneratedSearchAssetPage(results: [], total: 5)
+    }
+
+    await vm.submit()
+    vm.seedForLoadMore(results: [makeAsset(id: "s1")], total: 9)
+    await vm.loadMore()
+
+    XCTAssertEqual(pagerCalls, 0, "after a new search, paging must not use the collection endpoint")
+  }
+
   // MARK: - Account-wide search (nil libraryID)
 
   @MainActor
