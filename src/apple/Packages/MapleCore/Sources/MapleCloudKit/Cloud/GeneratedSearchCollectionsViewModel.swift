@@ -47,6 +47,8 @@ public final class GeneratedSearchCollectionsViewModel {
   }
 
   public let libraryID: String
+  /// Enough to fill the first screens of a 3-column grid; the rest pages in.
+  nonisolated static let firstPageSize = 30
   private let client: GeneratedSearchClient
   private var generation: Int = 0
 
@@ -89,7 +91,10 @@ public final class GeneratedSearchCollectionsViewModel {
     await withTaskGroup(of: (String, GeneratedSearchAssetPage?).self) { group in
       for collection in loaded {
         group.addTask { [client] in
-          (collection.id, try? await client.assets(collectionID: collection.id))
+          (
+            collection.id,
+            try? await client.assets(collectionID: collection.id, limit: Self.firstPageSize)
+          )
         }
       }
       for await (id, page) in group {
