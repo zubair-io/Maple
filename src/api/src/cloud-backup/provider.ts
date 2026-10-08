@@ -48,7 +48,8 @@ export interface BackupProvider {
   ): Promise<BackupObject>;
   download(object: BackupObject, signal?: AbortSignal): Promise<ReadableStream<Uint8Array>>;
   remove(object: BackupObject, signal?: AbortSignal): Promise<void>;
-  abort(checkpoint: UploadCheckpoint, signal?: AbortSignal): Promise<void>;
+  /** Cancels an upload and reports it if a replacement completed before its checkpoint was saved. */
+  abort(checkpoint: UploadCheckpoint, signal?: AbortSignal): Promise<BackupObject | null>;
 }
 
 export interface BackupManifest {
@@ -62,7 +63,11 @@ export interface BackupManifest {
   currentPath: string;
   deletedAt: string | null;
   hidden: boolean;
-  files: Array<{ path: string; role: 'original' | 'sidecar' | 'companion'; object: BackupObject }>;
+  files: Array<{
+    path: string;
+    role: 'original' | 'sidecar' | 'companion';
+    object: BackupObject;
+  }>;
 }
 
 export interface PurgeRecord {

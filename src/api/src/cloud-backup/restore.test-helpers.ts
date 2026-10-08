@@ -96,7 +96,9 @@ class MemoryProvider implements BackupProvider {
   async remove(object: BackupObject) {
     this.objects.delete(object.key);
   }
-  async abort() {}
+  async abort() {
+    return null;
+  }
 }
 export async function recoveryFixture() {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'maple-recovery-')));

@@ -132,6 +132,7 @@ export function createTestProvider(): ProviderFixture {
     },
     async abort(_checkpoint: UploadCheckpoint, signal?: AbortSignal) {
       check(signal);
+      return null;
     },
   };
   return provider;
