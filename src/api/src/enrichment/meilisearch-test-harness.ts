@@ -38,38 +38,32 @@ export function makeFakeFetch(opts: FakeFetchOpts = {}): {
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
     const method = init?.method ?? 'GET';
-    const headers: Record<string, string> = {};
-    const rawHeaders = init?.headers as Record<string, string> | undefined;
-    if (rawHeaders) {
-      for (const [k, v] of Object.entries(rawHeaders)) headers[k] = v;
-    }
-    let body: unknown = undefined;
-    if (typeof init?.body === 'string') {
-      try {
-        body = JSON.parse(init.body);
-      } catch {
-        body = init.body;
-      }
-    }
-    calls.push({ url, method, headers, body });
+    calls.push({
+      url,
+      method,
+      headers: { ...(init?.headers as Record<string, string>) },
+      body: parsedBody(init?.body),
+    });
 
     const path = new URL(url).pathname;
-    for (const r of opts.routes ?? []) {
-      if (r.method === method && path.startsWith(r.pathPrefix)) {
-        if (r.throwError) throw r.throwError;
-        const status = r.status ?? 200;
-        return new Response(JSON.stringify(r.body ?? {}), {
-          status,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-    }
-    return new Response(JSON.stringify(opts.defaultBody ?? {}), {
-      status: opts.defaultStatus ?? 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const route = (opts.routes ?? []).find(
+      (r) => r.method === method && path.startsWith(r.pathPrefix),
+    );
+    if (route?.throwError) throw route.throwError;
+    return route
+      ? jsonResponse(route.body ?? {}, route.status ?? 200)
+      : jsonResponse(opts.defaultBody ?? {}, opts.defaultStatus ?? 200);
   }) as unknown as typeof fetch;
   return { fetchImpl, calls };
+}
+
+function parsedBody(body: unknown): unknown {
+  if (typeof body !== 'string') return undefined;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
 }
 
 export interface FakeMeilisearchIndex {
