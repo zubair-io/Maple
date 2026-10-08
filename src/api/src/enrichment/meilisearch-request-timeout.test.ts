@@ -1,7 +1,7 @@
 /**
  * #4420 — every Meilisearch call that can sit on a user request (boot health,
  * the connection test, the trash route's tombstone) is bounded by the
- * per-request timeout; background bulk uploads are not.
+ * per-request timeout; background bulk uploads get a longer bound.
  */
 
 import { describe, expect, it } from 'bun:test';
@@ -83,10 +83,12 @@ describe('Meilisearch request timeout', () => {
     await expect(hungClient(stalledBodyFetch()).search('museum')).rejects.toThrow();
   });
 
-  it('leaves background bulk uploads unbounded', async () => {
+  it('gives background bulk uploads a longer bound than the request timeout', async () => {
     const { fetchImpl, requests } = hangingFetch();
     void hungClient(fetchImpl).upsertBatchOrThrow!([BACKGROUND_DOC]);
+    void hungClient(fetchImpl).tombstoneBatchOrThrow!(['abc123'], 30_000);
     await Bun.sleep(TEST_REQUEST_TIMEOUT_MS * 2);
-    expect(requests[0]?.signal).toBeNull();
+    expect(requests.map((r) => r.signal === null)).toEqual([false, false]);
+    expect(requests.map((r) => r.signal?.aborted)).toEqual([false, false]);
   });
 });
