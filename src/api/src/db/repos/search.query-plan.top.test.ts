@@ -20,7 +20,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { createTestDatabase } from '../sqlite/test-sqlite.test-helpers.ts';
-import { firstRankedSql, someMatchesSql } from './search.ranked.ts';
+import { firstRankedSql, mapleIdRowsSql, someMatchesSql } from './search.ranked.ts';
 import { assetFacetRowsSql, sideFacetRowsSql } from './search.facets.top.ts';
 import type { BoundStatement } from './search.sql.ts';
 import { textOnlyCountSql } from './search.text-count.ts';
@@ -151,6 +151,23 @@ describe("a filtered search's matches are read with the inverted index leading",
         const plan = planOf(db, someMatchesSql(translate(q), 2_001));
         expect(plan[0]).toBe('SCAN assets_fts VIRTUAL TABLE INDEX 0:M1');
         expect(plan.filter((line) => line.includes('0:='))).toEqual([]);
+        expect(plan.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
+      });
+    });
+  }
+});
+
+describe("another engine's ranked ids become rows by key", () => {
+  for (const q of QUERIES) {
+    test(JSON.stringify(q), async () => {
+      await withDb((db) => {
+        const plan = planOf(db, mapleIdRowsSql(translate(q), ['maple-a', 'maple-b']));
+        // By the ids, or by the month when one narrows further — a keyed search
+        // either way, never a walk of the table.
+        expect(plan[0]).toMatch(
+          /^SEARCH assets USING (COVERING )?INDEX (assets_maple_id \(maple_id=\?\)|assets_live_month )/,
+        );
+        expect(plan.some((line) => line.includes('assets_fts'))).toBe(false);
         expect(plan.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
       });
     });

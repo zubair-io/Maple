@@ -27,7 +27,7 @@
 import { facetStatements, type BoundStatement, type FacetName } from './search.facets.sql.ts';
 import { facetRowsOf } from './search.facets.top.ts';
 import type { SearchWhere } from './search.where.ts';
-import { firstRanked, someMatchesSql, type RankedAsset } from './search.ranked.ts';
+import { firstRanked, mapleIdRowsSql, someMatchesSql, type RankedAsset } from './search.ranked.ts';
 import { textCount, textOnly } from './search.text-count.ts';
 import { cachedFacets } from './search.facets.cache.ts';
 import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
@@ -84,7 +84,26 @@ export interface SearchFacets {
  * tell the two apart through {@link FacetScope}. A query matching this many or
  * fewer is faceted over every match, exactly as before.
  */
-const FACET_TOP_MATCHES = 2_000;
+export const FACET_TOP_MATCHES = 2_000;
+
+/**
+ * Another engine's ranking of a text search's matches — Meilisearch's, when it
+ * serves the list — for the facets to describe instead of the database's
+ * (#4431): its best matches by `maple_id`, best first, and its own count of
+ * every match.
+ */
+export interface ExternalRanking {
+  mapleIds: readonly string[];
+  total: number;
+}
+
+/** How a text search's facets choose the matches they describe. */
+export interface FacetOptions {
+  /** How many of the most relevant matches; the tests cross it on small libraries. */
+  topMatches?: number;
+  /** The list's own ranking when another engine serves it; null falls back to the database's. */
+  ranking?: () => Promise<ExternalRanking | null>;
+}
 
 /**
  * What the facet buckets count.
@@ -194,11 +213,14 @@ async function runFacets<K extends FacetName>(
 async function facetRows(
   db: SqliteDb,
   where: SearchWhere,
-  topMatches: number,
+  options: FacetOptions,
 ): Promise<{ rows: Record<FacetName, SqlRow[]>; scope: FacetScope }> {
   if (where.match.kind !== 'match') {
     return { rows: await runFacets(db, facetStatements(where)), scope: { kind: 'all' } };
   }
+  const topMatches = options.topMatches ?? FACET_TOP_MATCHES;
+  const external = options.ranking ? await options.ranking() : null;
+  if (external) return externallyRankedRows(db, where, external);
   if (!textOnly(where)) {
     const few = await fewMatches(db, where, topMatches);
     if (few) {
@@ -217,6 +239,32 @@ async function facetRows(
   return {
     rows: { ...rows, total: [{ n: total }] },
     scope: total > topMatches ? { kind: 'top', limit: topMatches, of: total } : { kind: 'all' },
+  };
+}
+
+/**
+ * The facets of another engine's best matches, its own count as the total.
+ *
+ * The ids are mapped back to rows with every filter of the search but its
+ * text, exactly as the list's Meilisearch page is: the sidecar did the text
+ * half, typo-tolerantly, and a database `MATCH` over its hits would reject the
+ * very rows it found. Ids with no surviving row drop out.
+ */
+async function externallyRankedRows(
+  db: SqliteDb,
+  where: SearchWhere,
+  ranking: ExternalRanking,
+): Promise<{ rows: Record<FacetName, SqlRow[]>; scope: FacetScope }> {
+  const ids = mapleIdRowsSql(where, ranking.mapleIds);
+  const assets =
+    ranking.mapleIds.length === 0 ? [] : await readBulk<RankedAsset>(db, ids.sql, ids.params);
+  const rows = await facetRowsOf(db, assets);
+  const cut = ranking.total > ranking.mapleIds.length;
+  return {
+    rows: { ...rows, total: [{ n: ranking.total }] },
+    scope: cut
+      ? { kind: 'top', limit: ranking.mapleIds.length, of: ranking.total }
+      : { kind: 'all' },
   };
 }
 
@@ -243,28 +291,29 @@ async function fewMatches(
  * reason the pool has readers — a facet aggregation must never be able to delay
  * a grid page, and on the writer thread it would.
  *
- * A text search's answer is cached briefly — see `search.facets.cache.ts`.
- * `topMatches` exists so the tests can cross {@link FACET_TOP_MATCHES} on a
- * fixture library; the route never passes it.
+ * A text search's answer is cached briefly — see `search.facets.cache.ts` —
+ * keyed apart by whether another engine ranked it. See {@link FacetOptions}.
  */
 export async function searchFacets(
   where: SearchWhere,
   dbOverride?: SqliteDb,
-  topMatches = FACET_TOP_MATCHES,
+  options: FacetOptions = {},
 ): Promise<SearchFacets> {
   const db = assetsDb(dbOverride);
+  const topMatches = options.topMatches ?? FACET_TOP_MATCHES;
+  const source = options.ranking ? 'external' : 'database';
   return where.match.kind === 'match'
-    ? cachedFacets(db, [where, topMatches], () => computeFacets(db, where, topMatches))
-    : computeFacets(db, where, topMatches);
+    ? cachedFacets(db, [where, topMatches, source], () => computeFacets(db, where, options))
+    : computeFacets(db, where, options);
 }
 
 /** The facets themselves, uncached. */
 async function computeFacets(
   db: SqliteDb,
   where: SearchWhere,
-  topMatches: number,
+  options: FacetOptions,
 ): Promise<SearchFacets> {
-  const { rows, scope } = await facetRows(db, where, topMatches);
+  const { rows, scope } = await facetRows(db, where, options);
   const as = <T>(name: FacetName): T[] => rows[name] as unknown as T[];
 
   const screenshot = as<{ bucket: number; count: number }>('is_screenshot');

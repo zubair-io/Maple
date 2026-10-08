@@ -146,7 +146,7 @@ test("a selective filter's facets are its matches, read once, with no ranking", 
       flag: 'pick',
     });
     const { handle, issued } = recording(db);
-    const facets = await searchFacets(where, handle, 50);
+    const facets = await searchFacets(where, handle, { topMatches: 50 });
     expect(facets.total).toBe(2);
     expect(facets.scope).toEqual({ kind: 'all' });
     const direct = facetStatements(where).cameras;
