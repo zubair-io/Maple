@@ -59,6 +59,7 @@ import {
   freeTextTerm,
   gradeTerms,
   libraryTerm,
+  monthFilter,
   orGroup,
   pathPrefixTerm,
   peopleTerm,
@@ -111,6 +112,12 @@ export interface SearchWhere {
    * the kind of thing that works until someone renames a column.
    */
   hidden: 0 | 1 | null;
+  /**
+   * The month-of-year filter, which is also among `clauses`. Carried on its
+   * own so a text query can narrow the inverted index to that month's rows
+   * before joining anything — see {@link searchWhereSql}.
+   */
+  month: number | null;
 }
 
 /** A translated query, or the 400 the route should answer instead. */
@@ -207,6 +214,7 @@ export function buildSearchWhere(
     match: toTextFilter(text(q.placeQuery) ?? ''),
     ownerId,
     hidden: hiddenFilter(q),
+    month: monthFilter(q),
   };
 }
 
@@ -329,6 +337,34 @@ function textPredicate(match: TextFilter): BoundPredicate | null {
 }
 
 /**
+ * The full-text rows of one capture month, for a text query to be narrowed to
+ * before it joins anything (#4413).
+ *
+ * The inverted index leads every text statement, and a caption-style query
+ * hits most of the library; without this each hit was joined to `asset_search`
+ * and `assets`, and only then had its month read out of the exif JSON. Built
+ * from `assets_live_month`, the month's rowids are a small set the scan
+ * checks before any join: a statement that cost 0.5–0.8 s at 335k assets
+ * costs a tenth of that.
+ *
+ * The unary `+` is load-bearing. Without it SQLite may read the list as a
+ * constraint on the virtual table's rowid and re-run the whole `MATCH` once
+ * per listed row, which is the plan `search.query-plan.test.ts` exists to keep
+ * out: measured at over ten minutes.
+ */
+function monthNarrowing(where: SearchWhere): BoundPredicate | null {
+  if (where.match.kind !== 'match' || where.month === null) return null;
+  const visible = where.hidden === null ? [] : [`assets.hidden = ${where.hidden}`];
+  return {
+    sql: `+assets_fts.rowid IN (SELECT asset_search.rowid
+          FROM assets INDEXED BY assets_live_month
+          JOIN asset_search ON asset_search.asset_id = assets.id
+         WHERE ${[QUALIFIED_LIVE_PREDICATE, ...visible, 'assets.captured_month = ?'].join(' AND ')})`,
+    params: [where.month],
+  };
+}
+
+/**
  * The `WHERE` clause for a translated query, and its parameters in the order
  * the placeholders appear.
  *
@@ -343,8 +379,10 @@ function textPredicate(match: TextFilter): BoundPredicate | null {
  */
 export function searchWhereSql(where: SearchWhere, extra?: BoundPredicate): BoundPredicate {
   const lead = textPredicate(where.match);
+  const narrowing = monthNarrowing(where);
   const clauses = [
     ...(lead ? [lead.sql] : []),
+    ...(narrowing ? [narrowing.sql] : []),
     QUALIFIED_LIVE_PREDICATE,
     ...(where.hidden === null ? [] : [`assets.hidden = ${where.hidden}`]),
     ...where.clauses,
@@ -352,6 +390,11 @@ export function searchWhereSql(where: SearchWhere, extra?: BoundPredicate): Boun
   ];
   return {
     sql: `WHERE ${clauses.join('\n     AND ')}`,
-    params: [...(lead?.params ?? []), ...where.params, ...(extra?.params ?? [])],
+    params: [
+      ...(lead?.params ?? []),
+      ...(narrowing?.params ?? []),
+      ...where.params,
+      ...(extra?.params ?? []),
+    ],
   };
 }
