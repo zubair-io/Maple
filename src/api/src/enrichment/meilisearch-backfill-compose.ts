@@ -20,7 +20,7 @@ import type { AssetFaceDoc, FileInfo, Place, TranscriptDoc, VisionDoc } from '..
 import { classifyMediaType } from '../indexer/media-types.ts';
 import { child as childLogger } from '../log.ts';
 import { MeilisearchTaskError } from './meilisearch-transport.ts';
-import { markAssetsVectorized } from './meilisearch-vector-coverage.ts';
+import { coverageFingerprint, markAssetsVectorized } from './meilisearch-vector-coverage.ts';
 import { composeSearchBlob } from './search-blob.ts';
 import { placeTextForIndex, transcriptForIndex } from './asset-doc-fields.ts';
 import type { MeilisearchAssetDoc, MeilisearchClient } from './meilisearch-client.ts';
@@ -257,6 +257,6 @@ export async function commitBatch(
 
   if (client.tombstoneBatchOrThrow) await client.tombstoneBatchOrThrow(batch.tombstoneIds);
   else for (const id of batch.tombstoneIds) await client.tombstone(id);
-  await markAssetsVectorized(writes.assetIds, client.semanticFingerprint?.());
+  await markAssetsVectorized(writes.assetIds, coverageFingerprint(client));
   return writes;
 }

@@ -163,6 +163,23 @@ describe('meiliHandler — embedder policy gate (#3315)', () => {
     expect(pauses).toHaveLength(0);
   });
 
+  it('does not stamp the vector fingerprint while the index embedder drifts from Settings (#4432)', async () => {
+    recordPauses();
+    const fingerprintWrites = (embedderInSync: boolean | null) => async () => {
+      const { client } = semanticClient(semanticStatus({}));
+      client.embedderInSync = () => embedderInSync;
+      setMeilisearchClientForTests(client);
+      const result = (await meiliHandler(fakeDoc(), fakeCtx)) as {
+        patch: Array<{ sql: string; params: unknown[] }>;
+      };
+      return result.patch.filter((s) => s.sql.includes('semantic_vector_fingerprint'));
+    };
+
+    expect(await fingerprintWrites(false)()).toEqual([]);
+    expect((await fingerprintWrites(true)())[0]?.params[0]).toBe('fp-policy-test');
+    expect((await fingerprintWrites(null)())[0]?.params[0]).toBe('fp-policy-test');
+  });
+
   it('through the runner: the asset keeps a retryable attempt and is never stamped done', async () => {
     using live = await createLiveTestDatabase();
     const pauses = recordPauses();

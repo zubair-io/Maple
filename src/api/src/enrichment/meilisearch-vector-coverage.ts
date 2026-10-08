@@ -17,6 +17,9 @@ import {
   countLiveAssetRowsWithFingerprint,
   markAssetRowsVectorized,
 } from '../db/repos/assets.meilisearch.ts';
+import type { MeilisearchClient } from './meilisearch-client.ts';
+
+type CoverageClient = Pick<MeilisearchClient, 'semanticFingerprint' | 'embedderInSync'>;
 
 /** How many live assets the library holds — vector coverage's denominator. */
 export async function countLiveAssets(): Promise<number> {
@@ -71,4 +74,27 @@ export async function advanceKnownVectorCoverage(
   // surfaces "re-embed needed" on Settings → Workers and what the backfill
   // route then works through.
   await advanceVectorFingerprint(`${shape}:`, fingerprint);
+}
+
+/**
+ * The fingerprint a write may record as "embedded by the current embedder",
+ * or `null` while the live index embedder differs from Settings (#4432):
+ * Meilisearch then embeds with the OLD url/model, so stamping Settings'
+ * fingerprint would claim coverage the index does not have. Rows written
+ * meanwhile keep their previous marker; once the operator-applied re-embed
+ * finishes, `advanceKnownVectorCoverage` carries them forward.
+ */
+export function coverageFingerprint(client: CoverageClient): string | null {
+  return client.embedderInSync?.() === false ? null : (client.semanticFingerprint?.() ?? null);
+}
+
+/** Health-check, sync index settings, then carry coverage forward when the
+ * live embedder matches. Resolves `false` when Meilisearch is unreachable. */
+export async function syncIndexAndCoverage(
+  client: CoverageClient & Pick<MeilisearchClient, 'health' | 'ensureIndex'>,
+): Promise<boolean> {
+  if (!(await client.health())) return false;
+  await client.ensureIndex();
+  await advanceKnownVectorCoverage(coverageFingerprint(client));
+  return true;
 }
