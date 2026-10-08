@@ -1425,18 +1425,6 @@ public class SMB2Manager: NSObject, NSSecureCoding, Codable, NSCopying, CustomRe
 }
 
 extension SMB2Manager {
-  /// #4139: validate and delete the same server handle, denying concurrent
-  /// writes and namespace deletion until disposition is committed.
-  public func removeRestoreFile(
-    atPath path: String, expectedIdentity: UInt64,
-    consume: @Sendable @escaping (Data) -> Void,
-    validate: @Sendable @escaping (UInt64) -> Bool
-  ) async throws {
-    try await withVerifiedRestoreFile(path, identity: expectedIdentity, consume: consume, validate: validate) { file in
-      try file.setInfo(smb2_file_disposition_info(delete_pending: 1), infoClass: .disposition)
-    }
-  }
-
   /// Bounded verification reads keep one server handle through both stat checks.
   public func readRestoreFile(
     atPath path: String, expectedIdentity: UInt64,

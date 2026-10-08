@@ -27,10 +27,6 @@ public protocol SMBFileTransport: Sendable {
   func readRestoreFile(
     atPath path: String, expectedIdentity: UInt64,
     consume: @Sendable @escaping (Data) -> Void) async throws
-  func removeRestoreFile(
-    atPath path: String, expectedIdentity: UInt64,
-    consume: @Sendable @escaping (Data) -> Void,
-    validate: @Sendable @escaping (UInt64) -> Bool) async throws
   func moveRestoreFile(
     atPath path: String, toPath destination: String, expectedIdentity: UInt64,
     consume: @Sendable @escaping (Data) -> Void,
@@ -69,13 +65,6 @@ extension SMBFileTransport {
   public func readRestoreFile(
     atPath path: String, expectedIdentity: UInt64,
     consume: @Sendable @escaping (Data) -> Void
-  ) async throws {
-    throw POSIXError(.ENOTSUP)
-  }
-  public func removeRestoreFile(
-    atPath path: String, expectedIdentity: UInt64,
-    consume: @Sendable @escaping (Data) -> Void,
-    validate: @Sendable @escaping (UInt64) -> Bool
   ) async throws {
     throw POSIXError(.ENOTSUP)
   }

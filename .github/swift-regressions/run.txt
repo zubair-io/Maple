@@ -375,3 +375,6 @@ SMBCopyChunkWireTests
 
 # Real Local RAW/XMP restore collision and failure safety (#4139).
 RestoreSafetyTests
+
+# SMB restore is copy-only: trashed files are marked, never deleted or renamed (#4139/#4173).
+SMBCopyOnlyRestoreTests

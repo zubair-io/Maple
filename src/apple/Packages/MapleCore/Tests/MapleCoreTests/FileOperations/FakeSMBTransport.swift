@@ -39,6 +39,20 @@ actor FakeSMBTransport: SMBFileTransport {
     failCopyToPath = path
   }
 
+  /// Every path a delete or rename consumed, so copy-only restore tests can
+  /// prove no pre-existing file was touched.
+  private(set) var consumedPaths: [String] = []
+  private var failCopiesInto: String?
+  private var replacementAtRestoreMark: (item: String, contents: String)?
+
+  func setFailCopiesInto(_ directory: String) { failCopiesInto = directory }
+
+  /// Simulates a backing-filesystem actor that replaces `item` with an
+  /// unrelated file (new identity) the moment restore marks it restored.
+  func setReplacementAtRestoreMark(_ item: String, contents: String) {
+    replacementAtRestoreMark = (item, contents)
+  }
+
   /// Seed a file directly (bypassing `copyItem`) — the SMB equivalent of
   /// `FileOperationsTestSupport.write(_:to:)`.
   func seed(_ contents: String, at path: String, mtime: Date = Date()) {
@@ -115,6 +129,10 @@ actor FakeSMBTransport: SMBFileTransport {
       failCopyToPath = nil  // one-shot — the retry after a caller's rollback should succeed
       throw FakeSMBTransportError.injectedFailure(toPath)
     }
+    if let failCopiesInto, toPath.hasPrefix(failCopiesInto + "/") {
+      files[toPath] = entry(data: Data("partial".utf8), mtime: Date())
+      throw FakeSMBTransportError.injectedFailure(toPath)
+    }
     guard let source = files[path] else { throw FakeSMBTransportError.notFound(path) }
     guard files[toPath] == nil, !directories.contains(toPath) else { throw POSIXError(.EEXIST) }
     files[toPath] = entry(data: source.data, mtime: source.mtime)
@@ -122,6 +140,7 @@ actor FakeSMBTransport: SMBFileTransport {
   }
 
   func removeItem(atPath path: String) async throws {
+    consumedPaths.append(path)
     if files.removeValue(forKey: path) != nil { return }
     if directories.contains(path) {
       let prefix = path + "/"
@@ -140,19 +159,6 @@ actor FakeSMBTransport: SMBFileTransport {
     guard let file = files[path], file.inode == expectedIdentity else { throw POSIXError(.ESTALE) }
     consume(file.data)
   }
-  func removeRestoreFile(
-    atPath path: String, expectedIdentity: UInt64,
-    consume: @Sendable @escaping (Data) -> Void,
-    validate: @Sendable @escaping (UInt64) -> Bool
-  ) async throws {
-    guard let captured = files[path], captured.inode == expectedIdentity
-    else {
-      throw POSIXError(.ESTALE)
-    }
-    consume(captured.data)
-    guard validate(UInt64(captured.data.count)) else { throw POSIXError(.ESTALE) }
-    files.removeValue(forKey: path)
-  }
   func moveRestoreFile(
     atPath path: String, toPath: String, expectedIdentity: UInt64,
     consume: @Sendable @escaping (Data) -> Void,
@@ -165,15 +171,23 @@ actor FakeSMBTransport: SMBFileTransport {
     consume(captured.data)
     guard validate(UInt64(captured.data.count)) else { throw POSIXError(.ESTALE) }
     guard files[toPath] == nil, !directories.contains(toPath) else { throw POSIXError(.EEXIST) }
+    consumedPaths.append(path)
     files[toPath] = captured
     files.removeValue(forKey: path)
     registerDirectory((toPath as NSString).deletingLastPathComponent)
   }
   func createDirectory(atPath path: String) async throws {
+    if let replacement = replacementAtRestoreMark,
+      path.hasPrefix(replacement.item + ".restored-")
+    {
+      files[replacement.item] = entry(data: Data(replacement.contents.utf8), mtime: Date())
+      replacementAtRestoreMark = nil
+    }
     registerDirectory(path)
   }
 
   func moveItem(atPath path: String, toPath: String) async throws {
+    consumedPaths.append(path)
     guard files[toPath] == nil, !directories.contains(toPath) else { throw POSIXError(.EEXIST) }
     if let entry = files.removeValue(forKey: path) {
       files[toPath] = entry

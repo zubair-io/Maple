@@ -193,3 +193,4 @@ NativeExportMemoryTests slow Requires explicitly staged owned 100MP fixture; rec
 
 # Owned physical RAW + authenticated Samba restore qualification (#4139).
 RestoreCollisionParityTests fixture owned physical RAW plus authenticated disposable Samba qualification (#4139/#4142)
+SMBCopyOnlyRestoreControlTests fixture owned physical RAW plus authenticated disposable Samba backing-replacement control (#4173)

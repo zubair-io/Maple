@@ -72,9 +72,9 @@ final class SMBFileOperationsFolderTests: XCTestCase {
     }
 
     /// Restoring a folder-trashed photo is per-`TrashedItem` (there is no
-    /// folder-level restore) and must clean up its marker the same way a
-    /// single-file trash/restore round-trip already does.
-    func testRestoringAFolderTrashedPhotoCleansUpItsMarker() async throws {
+    /// folder-level restore) and hides it from the trash the same way a
+    /// single-file copy-only restore does (#4139).
+    func testRestoringAFolderTrashedPhotoHidesItFromTheTrash() async throws {
         let t = FakeSMBTransport()
         await t.seed("a", at: "/2024/Paris/IMG_1.dng")
         _ = try await SMBFileOperations.deleteFolder("/2024", transport: t)

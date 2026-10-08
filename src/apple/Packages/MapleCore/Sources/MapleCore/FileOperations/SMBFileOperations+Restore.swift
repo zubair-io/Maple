@@ -2,103 +2,94 @@ import CryptoKit
 import Foundation
 
 extension SMBFileOperations {
-  /// Server-side copies remain private until both members are verified; SMB rename
-  /// is exclusive (replace_if_exist = 0), so publication never replaces an occupant.
-  static func restoreFilePair(_ source: String, to directory: String, transport: SMBFileTransport)
-    async throws -> RelocateOutcome
-  {
+  /// Copy-only restore (#4139): server-side copies stage in Maple's private
+  /// `staging` directory and publish only once both members are verified; SMB
+  /// rename is exclusive (replace_if_exist = 0), so publication never replaces an
+  /// occupant. Nothing that existed before the restore is deleted or renamed:
+  /// Samba executes pathname operations that local/NFS actors can redirect to an
+  /// unrelated file. The caller marks the trashed pair restored, and the trash
+  /// expiry sweep is the only deleter, including of staging copies a failed
+  /// restore leaves behind.
+  static func restoreFilePair(
+    _ source: String, to directory: String, staging: String, transport: SMBFileTransport
+  ) async throws -> RelocateOutcome {
     let sidecars = try await restorePairedSidecars(source, transport: transport)
     var originals: [(path: String, identity: RestoreSMBFile)] = []
     for path in sidecars + [source] {
       originals.append((path, try await RestoreSMBFile.capture(path, transport: transport)))
     }
     try await ensureRestoreDirectory(directory, transport: transport)
+    try await ensureRestoreDirectory(staging, transport: transport)
     let original = posixJoin(directory, (source as NSString).lastPathComponent)
-    let stagePrefix = original + ".tmp." + UUID().uuidString
+    let stagePrefix = posixJoin(staging, TrashMarker.restoreStagingName(date: Date(), id: UUID()))
     var members:
       [(source: String, original: RestoreSMBFile, staged: String, copy: RestoreSMBFile)] = []
-    do {
-      for (index, original) in originals.enumerated() {
-        let staged = stagePrefix + "." + String(index)
-        try await transport.copyItem(
-          atPath: original.path, toPath: staged, recursive: false, progress: nil)
-        let copied = try await RestoreSMBFile.capture(staged, transport: transport)
-        guard !originals.contains(where: { $0.identity.inode == copied.inode }) else {
-          throw FileOperationError.verificationFailed("Restore staging aliases an original")
-        }
-        members.append((original.path, original.identity, staged, copied))
-        guard copied.hash == original.identity.hash else {
-          throw FileOperationError.verificationFailed(
-            "Restore copy differs from source: \(original.path)")
-        }
+    for (index, original) in originals.enumerated() {
+      let staged = stagePrefix + "." + String(index)
+      try await transport.copyItem(
+        atPath: original.path, toPath: staged, recursive: false, progress: nil)
+      let copied = try await RestoreSMBFile.capture(staged, transport: transport)
+      guard !originals.contains(where: { $0.identity.inode == copied.inode }) else {
+        throw FileOperationError.verificationFailed("Restore staging aliases an original")
       }
-      for attempt in -1...CollisionResolver.maxAttempts {
-        try Task.checkCancellation()
-        let target = RestoreCollisionNaming.candidate(original, attempt: attempt)
-        guard !(try await RestoreSMBFile.exists(target, transport: transport)),
-          try await restorePairedSidecars(target, transport: transport).isEmpty
-        else { continue }
-        let destinations = try members.map { member in
-          member.source == source
-            ? target : try RestoreSidecarPairing.target(member.source, from: source, to: target)
-        }
-        var published: [Int] = []
-        do {
-          for member in members {
-            try await member.original.assertUnchanged(member.source, transport: transport)
-          }
-          for (index, member) in members.enumerated() {
-            try await member.copy.assertUnchanged(member.staged, transport: transport)
-            try await member.copy.moveIfUnchanged(
-              member.staged, to: destinations[index], transport: transport)
-            published.append(index)
-            try await member.copy.assertUnchanged(destinations[index], transport: transport)
-          }
-        } catch {
-          try await restoreUnpublish(
-            published, members: members, destinations: destinations, transport: transport)
-          if let error = error as? POSIXError, error.code == .EEXIST { continue }
-          throw error
-        }
-        let finalSidecars = try await restorePairedSidecars(target, transport: transport)
-        if Set(finalSidecars) != Set(destinations.dropLast()) {
-          try await restoreUnpublish(
-            published, members: members, destinations: destinations, transport: transport)
-          continue
-        }
-        do {
-          for (index, member) in members.enumerated() {
-            try await member.copy.assertUnchanged(destinations[index], transport: transport)
-          }
-          for member in members {
-            try await member.original.assertUnchanged(member.source, transport: transport)
-          }
-        } catch {
-          try await restoreUnpublish(
-            published, members: members, destinations: destinations, transport: transport)
-          throw error
-        }
-        for member in members {
-          try await member.original.removeIfUnchanged(member.source, transport: transport)
-        }
-        await invalidateDerivedCaches(forOldPrimaryPath: source, transport: transport)
-        let canonical = sidecarPath(for: target)
-        let selected =
-          destinations.dropLast().first { $0 == canonical } ?? destinations.dropLast().first
-        return RelocateOutcome(
-          primaryPath: target, sidecarPath: selected,
-          renamedDueToCollision: attempt >= 0, sidecarFollowed: !sidecars.isEmpty)
+      members.append((original.path, original.identity, staged, copied))
+      guard copied.hash == original.identity.hash else {
+        throw FileOperationError.verificationFailed(
+          "Restore copy differs from source: \(original.path)")
       }
-      throw FileOperationError.destinationExists(
-        "Restore exhausted collision candidates for \(original)")
-    } catch {
-      // Copy/publication failures retain all originals. Once every member is
-      // published, a source-cleanup failure leaves the verified complete pair.
-      for member in members {
-        try? await member.copy.removeIfUnchanged(member.staged, transport: transport)
-      }
-      throw error
     }
+    for attempt in -1...CollisionResolver.maxAttempts {
+      try Task.checkCancellation()
+      let target = RestoreCollisionNaming.candidate(original, attempt: attempt)
+      guard !(try await RestoreSMBFile.exists(target, transport: transport)),
+        try await restorePairedSidecars(target, transport: transport).isEmpty
+      else { continue }
+      let destinations = try members.map { member in
+        member.source == source
+          ? target : try RestoreSidecarPairing.target(member.source, from: source, to: target)
+      }
+      var published: [Int] = []
+      do {
+        for member in members {
+          try await member.original.assertUnchanged(member.source, transport: transport)
+        }
+        for (index, member) in members.enumerated() {
+          try await member.copy.assertUnchanged(member.staged, transport: transport)
+          try await member.copy.moveIfUnchanged(
+            member.staged, to: destinations[index], transport: transport)
+          published.append(index)
+          try await member.copy.assertUnchanged(destinations[index], transport: transport)
+        }
+      } catch {
+        try await restoreUnpublish(
+          published, members: members, destinations: destinations, transport: transport)
+        if let error = error as? POSIXError, error.code == .EEXIST { continue }
+        throw error
+      }
+      let finalSidecars = try await restorePairedSidecars(target, transport: transport)
+      if Set(finalSidecars) != Set(destinations.dropLast()) {
+        try await restoreUnpublish(
+          published, members: members, destinations: destinations, transport: transport)
+        continue
+      }
+      do {
+        for (index, member) in members.enumerated() {
+          try await member.copy.assertUnchanged(destinations[index], transport: transport)
+        }
+      } catch {
+        try await restoreUnpublish(
+          published, members: members, destinations: destinations, transport: transport)
+        throw error
+      }
+      let canonical = sidecarPath(for: target)
+      let selected =
+        destinations.dropLast().first { $0 == canonical } ?? destinations.dropLast().first
+      return RelocateOutcome(
+        primaryPath: target, sidecarPath: selected,
+        renamedDueToCollision: attempt >= 0, sidecarFollowed: !sidecars.isEmpty)
+    }
+    throw FileOperationError.destinationExists(
+      "Restore exhausted collision candidates for \(original)")
   }
 
   private static func restorePairedSidecars(_ primary: String, transport: SMBFileTransport)
@@ -112,6 +103,8 @@ extension SMBFileOperations {
     }
   }
 
+  /// Rolls a partial publication back into staging. Like publication itself, it
+  /// only ever renames verified copies this restore created.
   private static func restoreUnpublish(
     _ published: [Int],
     members: [(source: String, original: RestoreSMBFile, staged: String, copy: RestoreSMBFile)],
@@ -197,14 +190,6 @@ private struct RestoreSMBFile {
     let digest = RestoreSMBDigest()
     try await transport.moveRestoreFile(
       atPath: path, toPath: destination, expectedIdentity: inode, consume: digest.update
-    ) { digest.count == $0 && digest.finalize() == expected }
-  }
-
-  func removeIfUnchanged(_ path: String, transport: SMBFileTransport) async throws {
-    let expected = hash
-    let digest = RestoreSMBDigest()
-    try await transport.removeRestoreFile(
-      atPath: path, expectedIdentity: inode, consume: digest.update
     ) { digest.count == $0 && digest.finalize() == expected }
   }
 }

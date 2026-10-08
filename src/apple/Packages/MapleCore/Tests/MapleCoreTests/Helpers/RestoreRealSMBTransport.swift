@@ -4,21 +4,28 @@ import Foundation
 @testable import MapleCore
 
 /// Real authenticated transport. The owned fixture mutation occurs at the
-/// actual publication call boundary; reads/copies/renames use the live SDK.
+/// actual publication call boundary, and `markMutation` where the copy-only
+/// restore marks the trashed pair restored; reads/copies/renames use the live
+/// SDK. Every delete or rename whose source is a trashed file is recorded.
 actor RestoreRealSMBTransport: SMBFileTransport {
   let client: SMB2Manager
   let mutation: @Sendable (String, String) throws -> Void
-  let removalMutation: (@Sendable (String) throws -> Void)?
-  private var removed = false
+  let markMutation: (@Sendable (String) throws -> Void)?
+  private(set) var trashedSourcesTouched: [String] = []
+  private var marked = false
   private var intercepted = false
 
   init(
-    client: SMB2Manager, removalMutation: (@Sendable (String) throws -> Void)? = nil,
+    client: SMB2Manager, markMutation: (@Sendable (String) throws -> Void)? = nil,
     mutation: @escaping @Sendable (String, String) throws -> Void = { _, _ in }
   ) {
     self.client = client
     self.mutation = mutation
-    self.removalMutation = removalMutation
+    self.markMutation = markMutation
+  }
+
+  private func record(_ path: String) {
+    if path.contains("/.maple/trash/") { trashedSourcesTouched.append(path) }
   }
   func attributesOfItem(atPath path: String) async throws -> [URLResourceKey: any Sendable] {
     try await client.attributesOfItem(atPath: path)
@@ -36,10 +43,7 @@ actor RestoreRealSMBTransport: SMBFileTransport {
       atPath: path, toPath: toPath, recursive: recursive, progress: progress)
   }
   func removeItem(atPath path: String) async throws {
-    if !removed && path.contains("/.maple/trash/") && path.hasSuffix(".dng") {
-      removed = true
-      try removalMutation?(path)
-    }
+    record(path)
     try await client.removeItem(atPath: path)
   }
   func readRestoreFile(
@@ -49,23 +53,12 @@ actor RestoreRealSMBTransport: SMBFileTransport {
     try await client.readRestoreFile(
       atPath: path, expectedIdentity: expectedIdentity, consume: consume)
   }
-  func removeRestoreFile(
-    atPath path: String, expectedIdentity: UInt64,
-    consume: @Sendable @escaping (Data) -> Void,
-    validate: @Sendable @escaping (UInt64) -> Bool
-  ) async throws {
-    if !removed && path.contains("/.maple/trash/") && path.hasSuffix(".dng") {
-      removed = true
-      try removalMutation?(path)
-    }
-    try await client.removeRestoreFile(
-      atPath: path, expectedIdentity: expectedIdentity, consume: consume, validate: validate)
-  }
   func moveRestoreFile(
     atPath path: String, toPath: String, expectedIdentity: UInt64,
     consume: @Sendable @escaping (Data) -> Void,
     validate: @Sendable @escaping (UInt64) -> Bool
   ) async throws {
+    record(path)
     if !intercepted && path.contains(".tmp.") && toPath.lowercased().hasSuffix(".dng") {
       intercepted = true
       try mutation(path, toPath)
@@ -75,9 +68,17 @@ actor RestoreRealSMBTransport: SMBFileTransport {
       validate: validate)
   }
   func createDirectory(atPath path: String) async throws {
+    if !marked, path.contains("/.maple/trash/"),
+      let marker = path.range(of: ".restored-", options: .backwards),
+      path[..<marker.lowerBound].hasSuffix(".dng")
+    {
+      marked = true
+      try markMutation?(String(path[..<marker.lowerBound]))
+    }
     try await client.createDirectory(atPath: path)
   }
   func moveItem(atPath path: String, toPath: String) async throws {
+    record(path)
     if !intercepted && path.contains(".tmp.") && toPath.hasSuffix(".dng") {
       intercepted = true
       try mutation(path, toPath)
