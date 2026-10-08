@@ -18,9 +18,10 @@ import {
   testSqliteDb,
 } from '../sqlite/test-sqlite.test-helpers.ts';
 import { FTS_RANK_SQL } from './search.fts.ts';
-import { facetStatements, scopedToCandidates } from './search.facets.sql.ts';
+import { facetStatements } from './search.facets.sql.ts';
 import { searchFacets } from './search.facets.ts';
 import { firstRanked } from './search.ranked.ts';
+import { facetRowsOf } from './search.facets.top.ts';
 import { countSql, statement } from './search.sql.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
 import { seedSearchAsset, type SeedAsset } from './search.test-helpers.ts';
@@ -81,6 +82,16 @@ function listHead(db: Database, where: SearchWhere, k: number): number[] {
   return rows.map((row) => row.r);
 }
 
+/** `where` cut to the given rows — the per-facet statements' answer for them. */
+function onlyRows(where: SearchWhere, rowids: readonly number[]): SearchWhere {
+  return {
+    ...where,
+    match: { kind: 'none' },
+    clauses: ['assets.rowid IN (SELECT value FROM json_each(?))'],
+    params: [JSON.stringify(rowids)],
+  };
+}
+
 function sorted(db: Database, bound: { sql: string; params: unknown[] }): string[] {
   return db
     .query(bound.sql)
@@ -119,6 +130,42 @@ describe('the first k results of a text search', () => {
   }
 });
 
+/** Rows as sorted, key-ordered JSON, so neither column nor tie order can flake. */
+function canonical(rows: readonly object[]): string[] {
+  return rows.map((row) => JSON.stringify(Object.fromEntries(Object.entries(row).sort()))).sort();
+}
+
+describe('every facet of the first k results, counted in TypeScript', () => {
+  for (const [name, q, excludeAda] of QUERIES) {
+    test(`${name}: equals the per-facet statements over the same rows`, async () => {
+      await withLibrary(async (db, ada) => {
+        const where = translate(q, excludeAda ? [ada] : []);
+        const handle = testSqliteDb(db);
+        for (const k of [3, 10, 1_000]) {
+          const ranked = await firstRanked(handle, where, k);
+          const counted = await facetRowsOf(handle, ranked);
+          const expected = facetStatements(
+            onlyRows(
+              where,
+              ranked.map((row) => row.r),
+            ),
+          );
+          for (const facet of Object.keys(counted) as Array<keyof typeof counted>) {
+            const want = db
+              .query(expected[facet].sql)
+              .all(...(expected[facet].params as never[])) as object[];
+            expect({ k, facet, rows: canonical(counted[facet]) }).toEqual({
+              k,
+              facet,
+              rows: canonical(want),
+            });
+          }
+        }
+      });
+    });
+  }
+});
+
 describe('facets of a broad text search', () => {
   for (const [name, q, excludeAda] of QUERIES) {
     test(`${name}: count exactly the list's first k rows`, async () => {
@@ -129,7 +176,7 @@ describe('facets of a broad text search', () => {
         for (const k of [3, 10]) {
           const facets = await searchFacets(where, testSqliteDb(db), k);
           const head = listHead(db, where, k);
-          const expected = facetStatements(scopedToCandidates(where, head));
+          const expected = facetStatements(onlyRows(where, head));
           const covered = Math.min(k, total);
           expect(facets.total).toBe(total);
           expect(facets.scope).toEqual(

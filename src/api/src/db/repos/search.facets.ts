@@ -24,12 +24,8 @@
  * today, and what keeps a facet total and a grid page from disagreeing.
  */
 
-import {
-  facetStatements,
-  scopedToCandidates,
-  type BoundStatement,
-  type FacetName,
-} from './search.facets.sql.ts';
+import { facetStatements, type BoundStatement, type FacetName } from './search.facets.sql.ts';
+import { facetRowsOf } from './search.facets.top.ts';
 import type { SearchWhere } from './search.where.ts';
 import { firstRanked } from './search.ranked.ts';
 import { textCount } from './search.text-count.ts';
@@ -203,15 +199,12 @@ async function facetRows(
   if (where.match.kind !== 'match') {
     return { rows: await runFacets(db, facetStatements(where)), scope: { kind: 'all' } };
   }
-  // Both at once: the first rows of the list are every match when there are
-  // no more than `topMatches` of them, so the count only decides the label.
-  const [total, ranked] = await Promise.all([
+  // The count runs beside the ranking: the first rows of the list are every
+  // match when there are no more than `topMatches`, so it only decides the label.
+  const [total, rows] = await Promise.all([
     textCount(db, where),
-    firstRanked(db, where, topMatches),
+    firstRanked(db, where, topMatches).then((ranked) => facetRowsOf(db, ranked)),
   ]);
-  const rowids = ranked.map((row) => row.r);
-  const { total: _total, ...groupings } = facetStatements(scopedToCandidates(where, rowids));
-  const rows = await runFacets(db, groupings);
   return {
     rows: { ...rows, total: [{ n: total }] },
     scope: total > topMatches ? { kind: 'top', limit: topMatches, of: total } : { kind: 'all' },

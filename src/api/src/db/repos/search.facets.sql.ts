@@ -334,37 +334,5 @@ export function facetStatements(where: SearchWhere): Record<FacetName, BoundStat
   };
 }
 
-/**
- * The row ids of every asset a search matches — one evaluation of the whole
- * query, full-text join included, for the facets to group over.
- *
- * `rowid` rather than `id`: it is the integer key `assets` is stored under, so
- * a facet scoped to the set probes the table directly instead of going through
- * the `id` index first, and the bound list is a third the size.
- */
-export function facetCandidatesSql(where: SearchWhere): BoundStatement {
-  return statement('assets.rowid AS r', where);
-}
-
-/**
- * `where` narrowed to a set of matched row ids, in place of the filters and
- * the text query that produced them.
- *
- * Every facet built from it reads the same assets the original would have:
- * the set already satisfies every residual and the match, and the live and
- * visibility predicates still apply on top, unchanged, so the partial indexes
- * stay usable. The ids travel as one JSON array rather than one placeholder
- * each, because a broad query matches far more rows than SQLite allows bound
- * parameters.
- */
-export function scopedToCandidates(where: SearchWhere, rowids: readonly number[]): SearchWhere {
-  return {
-    ...where,
-    match: { kind: 'none' },
-    clauses: ['assets.rowid IN (SELECT value FROM json_each(?))'],
-    params: [JSON.stringify(rowids)],
-  };
-}
-
 /** Re-exported so a caller needs one import for a facet statement and its type. */
 export type { BoundStatement };
