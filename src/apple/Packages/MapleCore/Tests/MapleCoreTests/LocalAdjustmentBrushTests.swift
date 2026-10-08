@@ -322,6 +322,45 @@ final class LocalAdjustmentBrushTests: XCTestCase {
         }
     }
 
+    /// One unreadable correction keeps the whole brush container verbatim
+    /// in the passthrough and models none of it, so a save never drops a
+    /// newer stroke this build cannot read.
+    func testUnreadableBrushContainerSurvivesASaveVerbatim() throws {
+        func correction(_ version: String) -> String {
+            """
+                      <rdf:li>
+                        <rdf:Description crs:What="Correction">
+                          <crs:CorrectionMasks>
+                            <rdf:Seq>
+                              <rdf:li crs:What="Mask/Paint" crs:MaskValue="1" papp:BrushVersion="\(version)" papp:Dabs="0.5 0.5 0.1 0.5 1 0"/>
+                            </rdf:Seq>
+                          </crs:CorrectionMasks>
+                        </rdf:Description>
+                      </rdf:li>
+            """
+        }
+        let future = """
+              <papp:BrushCorrections>
+                <rdf:Seq>
+            \(correction("1"))
+            \(correction("2"))
+                </rdf:Seq>
+              </papp:BrushCorrections>
+            """
+        let source = brushSidecar(future)
+        let (model, culling) = try XMPParser.parse(source)
+        XCTAssertTrue(model.localAdjustments.isEmpty)
+        let passthrough = XMPParser.parsePassthrough(source)
+        XCTAssertEqual(passthrough.unknownNodes.count, 1)
+        var edited = model
+        edited.localAdjustments = [brushLayer]
+        let saved = XMPSerializer.serialize(model: edited, culling: culling, passthrough: passthrough)
+        XCTAssertTrue(saved.contains(passthrough.unknownNodes[0]), saved)
+        XCTAssertTrue(saved.contains(canonicalBrushBlock), saved)
+        let (reloaded, _) = try XMPParser.parse(saved)
+        XCTAssertEqual(reloaded.localAdjustments.count, 1)
+    }
+
     // MARK: - Lightroom paint passthrough
 
     /// A Lightroom brush stroke (`crs:PaintBasedCorrections`, nested

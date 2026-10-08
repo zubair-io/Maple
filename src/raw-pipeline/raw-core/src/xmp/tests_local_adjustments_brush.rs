@@ -376,3 +376,24 @@ fn maple_brush_beside_lightroom_paint_reads_only_the_maple_brush() {
     };
     assert_eq!(dabs.len(), 3);
 }
+
+#[test]
+fn brush_container_with_an_unreadable_correction_models_none_of_it() {
+    let correction = |leaf: &str| {
+        format!(
+            "          <rdf:li>\n            <rdf:Description crs:What=\"Correction\" crs:CorrectionAmount=\"1\" crs:CorrectionActive=\"True\" crs:LocalExposure2012=\"0.5\">\n              <crs:CorrectionMasks>\n                <rdf:Seq>\n                  {leaf}\n                </rdf:Seq>\n              </crs:CorrectionMasks>\n            </rdf:Description>\n          </rdf:li>\n"
+        )
+    };
+    let doc = sidecar(&format!(
+        "      <papp:BrushCorrections>\n        <rdf:Seq>\n{}{}        </rdf:Seq>\n      </papp:BrushCorrections>\n{}",
+        correction("<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" papp:BrushVersion=\"1\" papp:Dabs=\"0.5 0.5 0.05 0.5 1 0\"/>"),
+        correction("<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" papp:BrushVersion=\"2\" papp:Dabs=\"0.5 0.5 0.05 0.5 1 0\"/>"),
+        CANONICAL_BRUSH_BLOCK,
+    ));
+    let parsed = parse(&doc).expect("parse");
+    assert_eq!(parsed.local_adjustments.len(), 1, "doc:\n{doc}");
+    let Mask::Brush { dabs, .. } = &parsed.local_adjustments[0].mask else {
+        panic!("expected the readable container's brush");
+    };
+    assert_eq!(dabs.len(), 3);
+}

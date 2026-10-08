@@ -30,7 +30,8 @@ pub const BRUSH_DAB_STRIDE: usize = 6;
 ///    0   success
 ///   -1   `dabs_ptr` null with `dab_count > 0`, or `out_ptr` null with
 ///        `out_len > 0`
-///   -2   `out_len != width * height` (or the product overflows)
+///   -2   `out_len != width * height`, or either `width * height` or the
+///        dab wire length overflows
 ///   -3   a dab has a non-finite field or an erase flag that is not exactly
 ///        `0.0`/`1.0` — the wire is validated loudly so a host marshalling
 ///        bug surfaces here rather than as a silently wrong stroke
@@ -52,10 +53,13 @@ pub extern "C" fn maple_brush_rasterize(
     if out_len != expected_len {
         return -2;
     }
+    let Some(wire_len) = dab_count.checked_mul(BRUSH_DAB_STRIDE) else {
+        return -2;
+    };
     let wire: &[f32] = if dab_count == 0 {
         &[]
     } else {
-        unsafe { std::slice::from_raw_parts(dabs_ptr, dab_count * BRUSH_DAB_STRIDE) }
+        unsafe { std::slice::from_raw_parts(dabs_ptr, wire_len) }
     };
     let mut dabs = Vec::with_capacity(dab_count);
     for dab in wire.chunks_exact(BRUSH_DAB_STRIDE) {
@@ -133,6 +137,10 @@ mod tests {
         );
         assert_eq!(
             maple_brush_rasterize(flat.as_ptr(), 1, 4, 4, out.as_mut_ptr(), 15),
+            -2
+        );
+        assert_eq!(
+            maple_brush_rasterize(flat.as_ptr(), usize::MAX, 4, 4, out.as_mut_ptr(), 16),
             -2
         );
         assert_eq!(

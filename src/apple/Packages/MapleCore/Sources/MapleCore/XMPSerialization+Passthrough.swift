@@ -32,6 +32,9 @@ extension XMPParser {
         if LocalAdjustmentXMP.isLocalName($0.qName, "MaskGroupBasedCorrections") {
           return !groups.groupSources.contains($0.source)
         }
+        if $0.qName == LocalAdjustmentXMP.brushContainer {
+          return !LocalAdjustmentXMP.isModeledBrushContainer($0.source)
+        }
         return !XMPKnownFields.isManagedChild($0.qName)
       }
       .map { groups.unownedGroupSources[$0.source] ?? $0.source }

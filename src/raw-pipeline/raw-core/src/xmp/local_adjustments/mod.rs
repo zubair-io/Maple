@@ -211,6 +211,11 @@ pub(super) struct LocalAdjustmentsWalker {
     in_masks: bool,
     in_masks_seq: bool,
     finished: Vec<LocalAdjustment>,
+    /// `finished.len()` when the open container started, and whether it
+    /// dropped a correction: a brush container is all-or-nothing, so the
+    /// writers that model it can keep a partly unreadable one verbatim.
+    container_start: usize,
+    container_dropped: bool,
     namespaces: namespaces::Namespaces,
 }
 
@@ -230,6 +235,8 @@ impl LocalAdjustmentsWalker {
                 BRUSH_CONTAINER => Some(Kind::Brush),
                 _ => None,
             };
+            self.container_start = self.finished.len();
+            self.container_dropped = false;
             return Ok(self.container.is_some());
         }
         if self.current.is_none() {
@@ -382,13 +389,16 @@ impl LocalAdjustmentsWalker {
                     } else {
                         cur.mask
                     };
-                    if let Some(mask) = mask {
-                        self.finished.push(LocalAdjustment {
+                    match mask {
+                        Some(mask) => self.finished.push(LocalAdjustment {
                             mask,
                             range: cur.range,
                             adjustments: cur.adjustments,
-                        });
+                        }),
+                        None => self.container_dropped = true,
                     }
+                } else {
+                    self.container_dropped = true;
                 }
             } else {
                 // Not the Description closing yet (e.g. the End half of a
@@ -415,6 +425,9 @@ impl LocalAdjustmentsWalker {
             || name == GROUP_CONTAINER
             || name == BRUSH_CONTAINER
         {
+            if self.container == Some(Kind::Brush) && self.container_dropped {
+                self.finished.truncate(self.container_start);
+            }
             self.container = None;
         }
     }

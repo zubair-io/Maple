@@ -277,11 +277,15 @@ struct LocalAdjustmentWalker {
   private var inMasksSeq = false
   private var current: InProgress?
   private var finished: [LocalAdjustment] = []
+  private var containerStart = 0
+  private var containerDropped = false
 
   mutating func start(_ qual: String, attributes: [String: String]) -> Bool {
     guard let kind = container else {
       container = LocalAdjustmentXMP.containerKind(qual)
       if container != nil { depth = 1 }
+      containerStart = finished.count
+      containerDropped = false
       return container != nil
     }
     depth += 1
@@ -328,10 +332,17 @@ struct LocalAdjustmentWalker {
             xmpMetadata: kind == .group
               ? LocalAdjustmentXMP.metadata(
                 cur.attributes, owned: LocalAdjustmentXMP.correctionKeys) : nil))
+      } else {
+        containerDropped = true
       }
       current = nil
     }
-    if depth == 1 { container = nil }
+    if depth == 1 {
+      // Brush is all-or-nothing: the passthrough keeps a partly unreadable
+      // container verbatim (`isModeledBrushContainer`).
+      if kind == .brush, containerDropped { finished.removeSubrange(containerStart...) }
+      container = nil
+    }
     depth -= 1
   }
 

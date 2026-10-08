@@ -69,6 +69,23 @@ extension LocalAdjustmentXMP {
   }
 }
 
+extension LocalAdjustmentXMP {
+  /// Whether `source` (a `papp:BrushCorrections` element's bytes) is one the
+  /// model owns: at least one correction, and every one of them readable.
+  /// Anything else rides the passthrough verbatim, so a save never drops a
+  /// stroke this build cannot read (a newer `papp:BrushVersion`).
+  static func isModeledBrushContainer(_ source: String) -> Bool {
+    let document = """
+      <x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF \
+      xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description \
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" \
+      xmlns:papp="http://ns.justmaple.app/photo/1.0/">\(source)</rdf:Description></rdf:RDF></x:xmpmeta>
+      """
+    guard let (model, _) = try? XMPParser.parse(document) else { return false }
+    return !model.localAdjustments.isEmpty
+  }
+}
+
 extension XMPSerializer {
   /// The `Mask/Paint` leaf lines. `rasterId` is never written: it is an
   /// in-process registry handle, re-resolved after load.
