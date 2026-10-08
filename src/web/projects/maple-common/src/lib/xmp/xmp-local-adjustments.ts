@@ -1,6 +1,8 @@
 // xmp-local-adjustments.ts — nested-element XMP I/O for local adjustments
-// (#358, #3300): the canonical Adobe Camera Raw `crs:GradientBasedCorrections`
-// (linear masks) / `crs:CircularGradientBasedCorrections` (radial masks) /
+// (#358, #3300, #360): the canonical Adobe Camera Raw
+// `crs:GradientBasedCorrections` (linear masks) /
+// `crs:CircularGradientBasedCorrections` (radial masks) /
+// Maple's own `papp:BrushCorrections` (brush masks) /
 // `crs:MaskGroupBasedCorrections` (bitmap + everywhere masks, Lightroom 11+'s
 // own container for its AI masks) containers, each an `rdf:Seq` of `rdf:li`
 // → `rdf:Description` corrections carrying the `crs:Local*2012` sliders and
@@ -11,21 +13,24 @@
 //
 // Read-side tolerance matches every other TypeScript reader in this
 // directory rather than raw-core's hard-error posture: a correction whose
-// mask isn't a shape Maple models (a brush, or a Lightroom AI `Mask/Image`
-// with no `papp:` recipe), that is inactive (`CorrectionActive="False"`), or
-// whose required geometry (or, for a person/skin mask, its `papp:MaskDigest`)
-// is missing or non-numeric is DROPPED — never silently placed at an
-// invented `0`/`1` — and the rest of the document still loads. A corrupt
-// slider value on an otherwise valid correction reads as "not set", the same
-// `NaN`-means-absent rule `xmp-adjustment-walk.ts` applies to the flat
-// sliders. Group-container corrections omitted from the model survive in
-// xmp-mask-group-passthrough.ts, including foreign/composite AI masks.
+// mask isn't a shape Maple models (a Lightroom range mask, or an AI
+// `Mask/Image` with no `papp:` recipe), that is inactive
+// (`CorrectionActive="False"`), or whose required geometry (or, for a
+// person/skin mask, its `papp:MaskDigest`, or, for a brush, a known
+// `papp:BrushVersion` and a well-formed `papp:Dabs` series) is missing or non-numeric is DROPPED — never silently
+// placed at an invented `0`/`1` — and the rest of the document still loads.
+// A corrupt slider value on an otherwise valid correction reads as "not
+// set", the same `NaN`-means-absent rule `xmp-adjustment-walk.ts` applies to
+// the flat sliders. Group-container corrections omitted from the model
+// survive in xmp-mask-group-passthrough.ts, including foreign/composite AI
+// masks.
 
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type {
   LocalAdjustment,
   LocalMask,
   LeafMask,
+  LinearMask,
   MaskComponent,
   MaskPoint,
   PartialAdjustments,
@@ -54,13 +59,23 @@ import {
   maskLeaves,
   xmpBool,
 } from './xmp-crs-corrections';
+// Paint codecs (#360): same sibling-file split as the mask-raster types.
+import {
+  MASK_WHAT_PAINT,
+  brushLines,
+  escapeRecipeAttr,
+  fractionSerializer,
+  maskCoord,
+  parseBrushLeaf,
+} from './xmp-local-adjustments-brush';
 
-export type LocalAdjustmentContainerKind = 'linear' | 'radial' | 'group';
+export type LocalAdjustmentContainerKind = 'linear' | 'radial' | 'brush' | 'group';
 
 /** Container element per mask kind, in canonical emit order. */
 const CONTAINERS: ReadonlyArray<{ tag: string; kind: LocalAdjustmentContainerKind }> = [
   { tag: 'crs:GradientBasedCorrections', kind: 'linear' },
   { tag: 'crs:CircularGradientBasedCorrections', kind: 'radial' },
+  { tag: 'papp:BrushCorrections', kind: 'brush' },
   { tag: 'crs:MaskGroupBasedCorrections', kind: 'group' },
 ];
 
@@ -69,12 +84,13 @@ const MASKS_ELEMENT = 'crs:CorrectionMasks';
 const MASK_WHAT: Readonly<Record<LocalAdjustmentContainerKind, string>> = {
   linear: 'Mask/Gradient',
   radial: 'Mask/CircularGradient',
+  brush: MASK_WHAT_PAINT,
   group: 'Mask/Image',
 };
 
 /** Which container a mask rides: bitmap and everywhere share the group container. */
 const containerKindOf = (mask: LocalMask): LocalAdjustmentContainerKind =>
-  mask.kind === 'linear' || mask.kind === 'radial' ? mask.kind : 'group';
+  mask.kind === 'linear' || mask.kind === 'radial' || mask.kind === 'brush' ? mask.kind : 'group';
 
 /**
  * Slider attribute → model field, in canonical emit order. Every field has a
@@ -148,7 +164,15 @@ export function localAdjustmentContainerKind(
   child: Element,
 ): LocalAdjustmentContainerKind | undefined {
   const name = managedXmpName(child);
-  return CONTAINERS.find((c) => name === c.tag)?.kind;
+  const kind = CONTAINERS.find((c) => name === c.tag)?.kind;
+  // Brush is all-or-nothing: one unreadable correction (a newer
+  // `papp:BrushVersion`) keeps the whole container verbatim passthrough.
+  if (kind !== 'brush') return kind;
+  const corrections = correctionDescriptions(child);
+  return corrections.length > 0 &&
+    corrections.every((description) => parseLocalCorrection(description, 'brush'))
+    ? kind
+    : undefined;
 }
 
 // ── Parse ──────────────────────────────────────────────────────────────────
@@ -249,14 +273,23 @@ function parseGroupLeaf(leaf: Element): LeafMask | undefined {
 
 const LEAF_PARSERS: Readonly<
   Record<LocalAdjustmentContainerKind, (leaf: Element) => LeafMask | undefined>
-> = { linear: parseLinearLeaf, radial: parseRadialLeaf, group: parseGroupLeaf };
+> = {
+  linear: parseLinearLeaf,
+  radial: parseRadialLeaf,
+  brush: parseBrushLeaf,
+  group: parseGroupLeaf,
+};
 
 function parseGroupComponent(leaf: Element): MaskComponent | undefined {
   if (!validGroupComponentAttributes(leaf)) return undefined;
   const kind = (Object.keys(MASK_WHAT) as LocalAdjustmentContainerKind[]).find(
     (key) => MASK_WHAT[key] === attrOf(leaf, ['crs:What']),
   );
-  const mask = kind ? LEAF_PARSERS[kind](leaf) : undefined;
+  // Brush is a top-level-only mask in this slice (#360): a paint leaf here
+  // rejects the component, and the group with it, rather than half-modelling
+  // a brush-in-group composition.
+  if (!kind || kind === 'brush') return undefined;
+  const mask = LEAF_PARSERS[kind](leaf);
   if (!mask) return undefined;
   const operation = groupComponentOperation(leaf);
   if (!operation) return undefined;
@@ -355,27 +388,6 @@ export function parseLocalAdjustmentsContainer(
 
 // ── Serialize ──────────────────────────────────────────────────────────────
 
-/**
- * The `FRACTION_SCALED` keys ride Adobe's ±1 scale, so the canonical
- * two-decimal codec (`numericSerializer`) would quantise Maple's ±100 slider
- * to whole units and drift a fractional value on every round-trip (−42.5 →
- * "-0.43" → −43). Four decimals keep two decimals of the ±100 value —
- * mirrors raw-core's `fmt4` and Swift's `fmtNum4` so all four writers stay
- * byte-identical (#3400, #3407). Rounded away from zero like both of those —
- * `Math.round` alone rounds a negative tie toward +∞ (−2.5 → −2), which
- * would split the writers at an exact four-decimal midpoint.
- */
-const fractionSerializer = (v: number): string =>
-  ((Math.sign(v) * Math.round(Math.abs(v) * 10_000)) / 10_000).toString();
-
-/**
- * Exactly raw-core's `escape_attr` (`&`, `<`, `"` — and nothing else, so the
- * bytes stay identical): the two free-text recipe fields are the only place
- * a `crs:`/`papp:` attribute value here could legally carry one of those.
- */
-const escapeRecipeAttr = (s: string): string =>
-  s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
-
 function rangeLines(range: RangeRefinement | undefined, indent: string): string[] {
   if (!range || RANGE_KEYS.some(([, field]) => !Number.isFinite(range[field]))) return [];
   return [
@@ -422,33 +434,45 @@ function bitmapLines(mask: BitmapMask, indent: string): string[] {
 }
 
 function maskLines(mask: LocalMask, indent: string, modern = false): string[] {
-  if (mask.kind === 'group')
-    return mask.components.flatMap((component) => componentLines(component, indent));
-  const n = modern ? (value: number) => String(value) : numericSerializer;
-  const coord = (value: number) => {
-    if (modern) return String(value);
-    const rounded = (Math.sign(value) * Math.round(Math.abs(value) * 1e6)) / 1e6;
-    return rounded === 0 ? '0' : rounded.toFixed(6).replace(/\.?0+$/, '');
-  };
-  if (mask.kind === 'linear') {
-    return [
-      `${indent}<rdf:li`,
-      `${indent}  crs:What="${MASK_WHAT.linear}"`,
-      `${indent}  crs:MaskValue="1"`,
-      `${indent}  crs:ZeroX="${coord(mask.start.x)}" crs:ZeroY="${coord(mask.start.y)}"`,
-      `${indent}  crs:FullX="${coord(mask.end.x)}" crs:FullY="${coord(mask.end.y)}"`,
-      `${indent}  papp:LocalFeather="${n(mask.feather)}"/>`,
-    ];
+  switch (mask.kind) {
+    case 'group':
+      return mask.components.flatMap((component) => componentLines(component, indent));
+    case 'linear':
+      return linearLines(mask, indent, modern);
+    case 'radial':
+      return radialLines(mask, indent, modern);
+    case 'bitmap':
+      return bitmapLines(mask, indent);
+    case 'brush':
+      return brushLines(mask, indent);
+    case 'everywhere':
+      return [
+        `${indent}<rdf:li`,
+        `${indent}  crs:What="${MASK_WHAT.group}"`,
+        `${indent}  crs:MaskValue="1"`,
+        `${indent}  papp:MaskSource="Everywhere"/>`,
+      ];
   }
-  if (mask.kind === 'bitmap') return bitmapLines(mask, indent);
-  if (mask.kind === 'everywhere') {
-    return [
-      `${indent}<rdf:li`,
-      `${indent}  crs:What="${MASK_WHAT.group}"`,
-      `${indent}  crs:MaskValue="1"`,
-      `${indent}  papp:MaskSource="Everywhere"/>`,
-    ];
-  }
+}
+
+const modernNumber = (value: number): string => String(value);
+
+function linearLines(mask: LinearMask, indent: string, modern: boolean): string[] {
+  const n = modern ? modernNumber : numericSerializer;
+  const coord = modern ? modernNumber : maskCoord;
+  return [
+    `${indent}<rdf:li`,
+    `${indent}  crs:What="${MASK_WHAT.linear}"`,
+    `${indent}  crs:MaskValue="1"`,
+    `${indent}  crs:ZeroX="${coord(mask.start.x)}" crs:ZeroY="${coord(mask.start.y)}"`,
+    `${indent}  crs:FullX="${coord(mask.end.x)}" crs:FullY="${coord(mask.end.y)}"`,
+    `${indent}  papp:LocalFeather="${n(mask.feather)}"/>`,
+  ];
+}
+
+function radialLines(mask: RadialMask, indent: string, modern: boolean): string[] {
+  const n = modern ? modernNumber : numericSerializer;
+  const coord = modern ? modernNumber : maskCoord;
   const top = coord(mask.center.y - mask.radii.y);
   const left = coord(mask.center.x - mask.radii.x);
   const bottom = coord(mask.center.y + mask.radii.y);
@@ -524,13 +548,15 @@ function containerBlock(tag: string, layers: readonly LocalAdjustment[], indent:
  * line prefixed so the container sits at `indent`. Byte-identical to
  * raw-core's `serialize_local_adjustments` and Swift's
  * `_buildLocalAdjustmentsBlock` for the same layers — the cross-language
- * parity fixtures in `local-adjustments.spec.ts` (linear + radial) and
- * `local-adjustments-bitmap.spec.ts` (bitmap + everywhere) pin that.
+ * parity fixtures in `local-adjustments.spec.ts` (linear + radial),
+ * `local-adjustments-bitmap.spec.ts` (bitmap + everywhere) and
+ * `local-adjustments-brush.spec.ts` (brush) pin that.
  *
  * Adobe keeps each mask kind in its own array, so an interleaved model
- * stack round-trips as up to three contiguous runs (all linear, then all
- * radial, then all bitmap/everywhere). Returns the empty string when there
- * are no layers, so an unedited model adds nothing to the document.
+ * stack round-trips as up to four contiguous runs (all linear, then all
+ * radial, then all brush, then all bitmap/everywhere). Returns the empty
+ * string when there are no layers, so an unedited model adds nothing to the
+ * document.
  */
 export function localAdjustmentBlocks(model: Partial<AdjustmentModel>, indent: string): string {
   const layers = model.localAdjustments ?? [];

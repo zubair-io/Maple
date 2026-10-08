@@ -7,9 +7,9 @@
 // `AdjustmentModel` never carries it and this mirror is permanent — the
 // same generated-fields / hand-written-type split `Crop` and `ToneCurve`
 // use. The XMP wire form (`crs:GradientBasedCorrections` /
-// `crs:CircularGradientBasedCorrections` / `crs:MaskGroupBasedCorrections`)
-// lives in `../xmp/xmp-local-adjustments.ts`; `docs/xmp-canonical-format.md`
-// § "Local adjustments" is the contract.
+// `crs:CircularGradientBasedCorrections` / `papp:BrushCorrections` /
+// `crs:MaskGroupBasedCorrections`) lives in `../xmp/xmp-local-adjustments.ts`;
+// `docs/xmp-canonical-format.md` § "Local adjustments" is the contract.
 //
 // Coordinates are normalized to `[0, 1]` on each axis, origin top-left,
 // independent of pixel dimensions — the same convention `Crop` uses — so
@@ -120,6 +120,43 @@ export interface EverywhereMask {
   kind: 'everywhere';
 }
 
+/**
+ * One brush stamp in a `BrushMask` dab series (#360). Mirror of
+ * `raw_core::types::BrushDab`: `center` is normalized `[0, 1]` over the full
+ * oriented image; `radius` is a fraction of the image WIDTH and the stamp is
+ * circular in pixel space; `feather` is the soft-edge fraction of the radius
+ * (`0` = hard disc); `weight` (`0..1`) is the dab's peak value (the
+ * pressure→flow modulation); `erase` dabs subtract instead of adding.
+ */
+export interface BrushDab {
+  center: MaskPoint;
+  radius: number;
+  feather: number;
+  weight: number;
+  erase: boolean;
+}
+
+export interface BrushMask {
+  kind: 'brush';
+  /** The authored stroke content — ordered paint/erase stamps, the lossless
+   *  form that round-trips through `papp:BrushCorrections`. */
+  dabs: BrushDab[];
+  /**
+   * Names the registered raster — the FNV-1a content hash of `dabs` (see
+   * `brushDigest`), carried as `papp:BrushDigest` so a re-parse finds the
+   * already-registered raster. Empty until the session stamps the computed
+   * hash on its first sync.
+   */
+  digest: string;
+  /**
+   * The registry handle the render actually samples — an in-process id
+   * from the render worker's brush registration, never persisted (the
+   * sidecar carries dabs + digest). `0` means unresolved, which renders
+   * as weight 0 rather than silently falling back to `everywhere`.
+   */
+  rasterId: number;
+}
+
 /** The two masks with parametric on-canvas geometry (handles, feather). */
 export type GeometricMask = LinearMask | RadialMask;
 
@@ -139,8 +176,11 @@ export type GeometricMask = LinearMask | RadialMask;
  *   `recipe` records how to rebuild it.
  * - `everywhere`: weight 1 over the whole frame — the no-person-detected
  *   fallback a range refinement then narrows.
+ * - `brush`: a painted dab series (#360) — `dabs` is the authored content,
+ *   `rasterId` the derived bitmap the render samples, `digest` the label
+ *   that re-attaches them after a re-parse.
  */
-export type LeafMask = LinearMask | RadialMask | BitmapMask | EverywhereMask;
+export type LeafMask = LinearMask | RadialMask | BitmapMask | EverywhereMask | BrushMask;
 
 /** Host-only imported XML data; never interpreted as render controls. */
 export interface LocalXmpMetadata {

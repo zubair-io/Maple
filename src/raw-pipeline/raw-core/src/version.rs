@@ -120,7 +120,15 @@
 /// - 13 — GPU tails omit absent Auto curve and residual-LUT passes instead of
 ///   running identity substitutes (PR #4193); Neutral/unavailable Auto now
 ///   match the CPU absent-artifact tail.
-pub const PIPELINE_OUTPUT_VERSION: u32 = 13;
+/// - 14 — sharpening darkening above the amount-40 attenuation continues as a
+///   positive inverse gain instead of driving positive light to zero (#4112).
+/// - 15 — native highlight tiles retain full-frame scene evidence and sampling
+///   phase, include complete guided-cell support, and recover highlights before
+///   supported lens warps, matching the full develop order (#4378).
+/// - 16 — headless develop and export entries rasterize brush masks from
+///   their `papp:BrushCorrections` dabs instead of rendering them at weight 0
+///   (#360).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 16;
 
 #[cfg(test)]
 mod tests {

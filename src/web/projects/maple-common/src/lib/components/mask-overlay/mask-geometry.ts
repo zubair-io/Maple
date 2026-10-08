@@ -43,11 +43,15 @@ const EPSILON = 1.1920929e-7;
  *  A `bitmap` mask's raster lives in the render worker's registry, not on
  *  the main thread, so the overlay tint treats it as unresolved — weight 0,
  *  the same "never a silent global correction" rule raw-core applies to an
- *  unresolved raster id (#3300). `everywhere` is weight 1 by definition. */
+ *  unresolved raster id (#3300). `everywhere` is weight 1 by definition. A
+ *  `brush` mask reads 0 here too: stamping a dab series per query point is
+ *  the wrong shape for a per-pixel evaluator (the render samples the
+ *  registered raster instead), so the overlay tints brush through
+ *  `rasterizeBrushDabs` and never calls this for it. */
 export function evaluateMaskWeight(mask: LocalMask, x: number, y: number): number {
   if (mask.kind === 'group') return evaluateGroupWeight(mask, x, y);
   if (mask.kind === 'everywhere') return 1;
-  if (mask.kind === 'bitmap') return 0;
+  if (mask.kind === 'bitmap' || mask.kind === 'brush') return 0;
   if (mask.kind === 'linear') {
     const dx = mask.end.x - mask.start.x;
     const dy = mask.end.y - mask.start.y;
@@ -91,8 +95,12 @@ function combineCoverage(weight: number, value: number, combine: MaskCombine): n
 
 function evaluateGroupWeight(mask: MaskGroup, x: number, y: number): number {
   if (!mask.components.length || !Number.isFinite(mask.opacity)) return 0;
-  // An unresolved component keeps the entire group inert, even when inverted.
-  for (const component of mask.components) if (component.mask.kind === 'bitmap') return 0;
+  // An unresolved component keeps the entire group inert, even when inverted
+  // — and a brush component (unconstructible through the parser or the UI,
+  // but not through a hand-built model) fails closed the same way rather
+  // than silently skipping a subtract it cannot evaluate.
+  for (const component of mask.components)
+    if (component.mask.kind === 'bitmap' || component.mask.kind === 'brush') return 0;
   let weight = 0;
   for (const component of mask.components) {
     const raw = evaluateMaskWeight(component.mask, x, y);
@@ -176,6 +184,8 @@ export interface MaskCanvasMap {
   footprint: Footprint;
   cropToFull: MaskAffine;
   fullToCrop: MaskAffine;
+  /** Full-frame width / height in pixels — normalized units are not isotropic. */
+  imageAspect: number;
 }
 
 export function makeMaskCanvasMap(
@@ -185,7 +195,13 @@ export function makeMaskCanvasMap(
   imgH: number,
 ): MaskCanvasMap {
   const cropToFull = cropToFullFrameAffine(crop, imgW, imgH);
-  return { footprint, cropToFull, fullToCrop: invertAffine(cropToFull) ?? IDENTITY_AFFINE };
+  const imageAspect = imgW > 0 && imgH > 0 ? imgW / imgH : 1;
+  return {
+    footprint,
+    cropToFull,
+    fullToCrop: invertAffine(cropToFull) ?? IDENTITY_AFFINE,
+    imageAspect,
+  };
 }
 
 export function maskToScreen(map: MaskCanvasMap, p: MaskPoint): { x: number; y: number } {

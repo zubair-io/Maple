@@ -3,12 +3,13 @@
 //! competing with this file's own growth for the 570-line headroom budget —
 //! same rationale as `xmp/fields.rs` being split out of `xmp/mod.rs` in #365.
 
-use super::{Kind, MASK_WHAT_IMAGE, MASK_WHAT_LINEAR, MASK_WHAT_RADIAL};
+use super::{Kind, MASK_WHAT_IMAGE, MASK_WHAT_LINEAR, MASK_WHAT_PAINT, MASK_WHAT_RADIAL};
 use crate::error::{Error, Result};
+use crate::types::local_adjustment::brush::BRUSH_VERSION;
 use crate::types::local_adjustment::flat::MASK_GROUP_VERSION;
 use crate::types::local_adjustment::{
-    BitmapRecipe, Mask, MaskCombine, MaskComponent, MaskSource, PartialAdjustments, Point2,
-    RangeRefinement,
+    BitmapRecipe, BrushDab, Mask, MaskCombine, MaskComponent, MaskSource, PartialAdjustments,
+    Point2, RangeRefinement,
 };
 use crate::types::SKIN_TONE_RANGE;
 use crate::xmp::parse_xmp_bool;
@@ -209,6 +210,7 @@ pub(super) fn parse_mask_attrs(kind: Kind, e: &BytesStart<'_>) -> Result<Option<
         (Kind::Linear, Some(MASK_WHAT_LINEAR))
             | (Kind::Radial, Some(MASK_WHAT_RADIAL))
             | (Kind::Group, Some(MASK_WHAT_IMAGE))
+            | (Kind::Brush, Some(MASK_WHAT_PAINT))
     );
     if !recognized {
         return Ok(None);
@@ -251,6 +253,23 @@ pub(super) fn parse_mask_attrs(kind: Kind, e: &BytesStart<'_>) -> Result<Option<
                 angle: angle_deg.to_radians(),
                 feather: (feather_pct / if modern { 50.0 } else { 100.0 }).clamp(0.0, 1.0),
                 invert: flipped ^ modern,
+            }))
+        }
+        Kind::Brush => {
+            // A leaf from a newer brush encoding is dropped, not misread. An
+            // absent `papp:Dabs` is an empty stroke (weight 0); a PRESENT but
+            // malformed series is a hard error, like any recognized geometry.
+            if attr_str(e, "papp:BrushVersion")? != Some(BRUSH_VERSION.to_string()) {
+                return Ok(None);
+            }
+            let dabs = match attr_str(e, "papp:Dabs")? {
+                Some(series) => parse_dab_series(&series)?,
+                None => Vec::new(),
+            };
+            Ok(Some(Mask::Brush {
+                dabs,
+                digest: attr_str(e, "papp:BrushDigest")?.unwrap_or_default(),
+                raster_id: 0,
             }))
         }
         Kind::Group => match attr_str(e, "papp:MaskSource")?.as_deref() {
@@ -297,6 +316,56 @@ pub(super) fn parse_mask_attrs(kind: Kind, e: &BytesStart<'_>) -> Result<Option<
             _ => Ok(None),
         },
     }
+}
+
+/// Parse a `papp:Dabs` series (#360): whitespace-separated floats, six per
+/// dab — `x y radius feather weight erase` — where `erase` is exactly `0`
+/// or `1`. `docs/xmp-canonical-format.md` § "Brush masks (paint)" is the
+/// contract; `serialize.rs`'s writer and the Swift/TypeScript mirrors emit
+/// this exact shape. Malformed (non-numeric, non-finite, a token count that
+/// is not a multiple of six, a bad erase flag) is a hard error — a garbled
+/// dab series would otherwise render a plausible-looking mask in the wrong
+/// place, the case the strictness rule exists for.
+fn parse_dab_series(series: &str) -> Result<Vec<BrushDab>> {
+    fn number(token: &str) -> Result<f32> {
+        let v: f32 = token
+            .parse()
+            .map_err(|err| Error::Xmp(format!("papp:Dabs has non-numeric token {token}: {err}")))?;
+        if !v.is_finite() {
+            return Err(Error::Xmp(format!(
+                "papp:Dabs has non-finite token {token}"
+            )));
+        }
+        Ok(v)
+    }
+    let tokens: Vec<&str> = series.split_whitespace().collect();
+    if tokens.len() % 6 != 0 {
+        return Err(Error::Xmp(format!(
+            "papp:Dabs has {} tokens, not a multiple of 6",
+            tokens.len()
+        )));
+    }
+    tokens
+        .chunks_exact(6)
+        .map(|dab| {
+            let erase = match dab[5] {
+                "0" => false,
+                "1" => true,
+                other => {
+                    return Err(Error::Xmp(format!(
+                        "papp:Dabs erase flag must be 0 or 1, got {other}"
+                    )));
+                }
+            };
+            Ok(BrushDab::new(
+                Point2::new(number(dab[0])?, number(dab[1])?),
+                number(dab[2])?,
+                number(dab[3])?,
+                number(dab[4])?,
+                erase,
+            ))
+        })
+        .collect()
 }
 
 /// A geometric/recipe component in a modern Adobe group. Unknown leaf kinds

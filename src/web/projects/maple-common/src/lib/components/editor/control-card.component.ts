@@ -30,7 +30,15 @@
 // Reset button in header zeroes the visible group.
 // Per-slider double-click zeroes that one slider (handled via resetRequest).
 
-import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  input,
+  output,
+} from '@angular/core';
 import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
 import { ProfileSectionComponent } from './profile-section.component';
 import { MapleIconComponent, type MapleIconName } from '../../icons/maple-icon.component';
@@ -292,6 +300,11 @@ export class ControlCardComponent {
     const id = this.libraryState.focusedAssetId();
     if (!id || !isWired(tool)) return;
     this.dragAssetId = id;
+    this.activeGestures.add(tool);
+    if (tool === 'noise') {
+      this.pendingNoisePanel = false;
+      this.armCountAtNoiseStart = this.editorState.toolArmCount;
+    }
     this.editorState.commit();
     // Marks the gesture for the command router (#2450): navigation is
     // refused while a drag is in flight, so the ticks below can never be
@@ -305,10 +318,34 @@ export class ControlCardComponent {
    *  navigation mid-drag; this covers a filmstrip tap from a second
    *  pointer). */
   private dragAssetId: string | null = null;
+  private readonly activeGestures = new Set<ToolId>();
+  private pendingNoisePanel = false;
+  private armCountAtNoiseStart = 0;
+  private destroyed = false;
 
-  onSliderDragEnd(): void {
-    this.dragAssetId = null;
-    this.editorState.endGesture();
+  constructor() {
+    inject(DestroyRef).onDestroy(() => (this.destroyed = true));
+  }
+
+  onSliderDragEnd(tool: ToolId): void {
+    const assetId = this.dragAssetId;
+    this.activeGestures.delete(tool);
+    if (this.activeGestures.size === 0) {
+      this.dragAssetId = null;
+      this.editorState.endGesture();
+    }
+    if (tool !== 'noise') return;
+    const pendingNoisePanel = this.pendingNoisePanel;
+    this.pendingNoisePanel = false;
+    if (!pendingNoisePanel || this.editorState.toolArmCount !== this.armCountAtNoiseStart) return;
+    // #4352: arming Noise removes this card, so it waits for release/cancel.
+    // A microtask lets a mid-gesture panel open (which tears this card down
+    // and cancels the slider) finish first; that user choice then wins.
+    queueMicrotask(() => {
+      const idle = this.activeGestures.size === 0;
+      if (!this.destroyed && idle && assetId === this.libraryState.focusedAssetId())
+        this.editorState.armTool('noise');
+    });
   }
 
   onSliderChange(tool: ToolId, value: number): void {
@@ -323,8 +360,13 @@ export class ControlCardComponent {
     // so the value chip and the sub-param panel follow the active slider.
     // On web this is also what makes a multi-param tool's extra tiers
     // reachable — the Noise pill's Deep / Prefilter (#1153).
-    if (this.editorState.armedTool() !== tool) this.editorState.armTool(tool);
+    this.armForChange(tool);
     this.libraryState.updateAdjustment(id, manualAdjustmentPatch({ [field]: value }, current));
+  }
+
+  private armForChange(tool: ToolId): void {
+    if (tool === 'noise' && this.activeGestures.has('noise')) this.pendingNoisePanel = true;
+    else if (this.editorState.armedTool() !== tool) this.editorState.armTool(tool);
   }
 
   onSliderReset(tool: ToolId): void {

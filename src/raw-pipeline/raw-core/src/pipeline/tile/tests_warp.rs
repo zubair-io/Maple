@@ -225,7 +225,15 @@ fn hasselblad_l3d_reach_calculation() {
     raw.width = 12288;
     raw.height = 8192;
     attach_warp(&mut raw, warp);
-    let model = base_model();
+    let guided = base_model();
+    assert_eq!(
+        overlap::tile_overlap_px(Some(&raw), &guided, 0, 1),
+        8 + 47 + 55
+    );
+    let model = AdjustmentModel {
+        highlight_recovery: crate::xmp::HighlightRecoveryMode::Off,
+        ..guided
+    };
     let overlap = overlap::tile_overlap_px(Some(&raw), &model, 0, 1);
     assert_eq!(overlap, 63, "overlap includes warp reach: {overlap}");
 

@@ -44,8 +44,8 @@ mod detail;
 mod display_prefix;
 mod finish;
 pub use detail::{
-    render_detail_base, render_detail_base_cancellable, render_detail_tile,
-    render_detail_tile_cancellable, DetailContext, DetailRenderOptions,
+    render_detail_base, render_detail_base_cancellable, render_detail_base_retained,
+    render_detail_tile, render_detail_tile_cancellable, DetailContext, DetailRenderOptions,
 };
 
 // Export render — the display chain at a caller-chosen depth / primaries (#943).
@@ -451,6 +451,7 @@ fn render_display_scene_with_context_cancellable(
     Ok((
         scene,
         DetailContext {
+            native_highlight: None,
             model: model.clone(),
             active_model: active_model.clone(),
             ae_gain,

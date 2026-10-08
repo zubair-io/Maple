@@ -15,6 +15,7 @@ public static class LocalMaskWire
     public const int COMPONENT_INVERT_OFFSET = 12;
     public const int COMPONENT_CODE_COUNT = 24;
     public const int MASK_GROUP_VERSION = 1;
+    public const int BRUSH_VERSION = 1;
 }
 
 public enum MaskCombine

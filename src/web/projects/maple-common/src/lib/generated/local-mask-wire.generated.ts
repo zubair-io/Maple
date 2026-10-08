@@ -11,6 +11,7 @@ export const COMPONENT_COMBINE_STRIDE = 4;
 export const COMPONENT_INVERT_OFFSET = 12;
 export const COMPONENT_CODE_COUNT = 24;
 export const MASK_GROUP_VERSION = 1;
+export const BRUSH_VERSION = 1;
 
 export const MASK_COMBINE_CODES = {
   add: 0,

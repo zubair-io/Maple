@@ -217,11 +217,6 @@ fn tile_matches_full_develop_for_windowed_and_computed_overlap_stages() {
     }
 }
 
-/// Accepted tile-vs-full divergence for large clipped interiors (#1690;
-/// permanent fix tracked in #4388). ~2x the measured 3.02e-2 max-abs lane
-/// diff, so the seam can only shrink; ratchet down when #4388 lands.
-const LARGE_BLOWN_TILE_MAX_ABS: f32 = 6.0e-2;
-
 /// [`camera_chart_raw`] with a clipped block blown in mosaic space: R sensels
 /// at white, G/B at 40% of range, so the demosaiced interior carries mask
 /// `0b001` and tier 1 defers it. The block (x 32..384, y 32..344) covers
@@ -248,12 +243,13 @@ fn blown_chart_raw() -> crate::image::RawImage {
 }
 
 #[test]
-fn tile_vs_full_large_blown_region_stays_within_accepted_bound() {
-    // A clipped block covering the padded tile leaves the tile with no
-    // scene evidence — tier-3 `None` collapses to neutral — while the
-    // full-frame render sees the warm surround and reconstructs a chromatic
-    // prior (#4388). Until the tile path takes a frame-level prior, this
-    // pins the accepted divergence so it can only shrink.
+fn tile_vs_full_large_blown_region_matches_full_frame() {
+    // A clipped block covering the padded tile leaves the crop with no scene
+    // evidence of its own, while the full-frame render sees the warm
+    // surround and reconstructs a chromatic prior. The tile carries the
+    // full frame's prior and cell phase (#4378, #4388), so the seam the
+    // crop-local prior used to open (3.02e-2) closes to the spatial-stage
+    // ceiling.
     let raw = blown_chart_raw();
     let model = AdjustmentModel {
         sharpen_amount: 0.0,
@@ -277,20 +273,13 @@ fn tile_vs_full_large_blown_region_stays_within_accepted_bound() {
             .expect("recovery-off develop"),
     );
     let moved = max_abs(&full, &off);
-    eprintln!(
-        "[large-blown tile-vs-full] max_abs {diff:.4e} (recovery moved the image by {moved:.3e})"
-    );
     assert!(
         moved > MIN_CASE_EFFECT,
         "recovery moved the image by only {moved:.3e} — too close to a no-op for the ceiling to mean anything"
     );
     assert!(
-        diff > 1e-3,
-        "test must actually exercise the seam, got {diff:.3e}"
-    );
-    assert!(
-        diff <= LARGE_BLOWN_TILE_MAX_ABS,
-        "tile diverges from the full develop on large blown interiors: max abs diff {diff:.4e} > {LARGE_BLOWN_TILE_MAX_ABS:.4e}"
+        diff <= 1e-4,
+        "tile diverges from the full develop on large blown interiors: max abs diff {diff:.4e}"
     );
 }
 

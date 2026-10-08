@@ -449,6 +449,10 @@ public final class EditSession {
   /// Set from the slider's `onEditingChanged`, cleared on release.
   public var isAdjustingMask: Bool = false
 
+  /// Current brush tip (#360) — tool state, not layer state: every dab the
+  /// overlay stamps copies these values in.
+  public var brushTip: BrushTip = .default
+
   /// Latest scope sample (#3277); published by the GPU present or `EditSession+ScopeCpu.swift`.
   public var scopeSample: ScopeSample?
 

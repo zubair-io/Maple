@@ -312,6 +312,12 @@ import type {
   RegisterMaskRasterError,
   ReleaseMaskRasterRequest,
 } from './raw-pipeline.mask-raster.types';
+// Brush-raster registration (#360): same sibling-file split.
+import type {
+  RegisterBrushRasterRequest,
+  RegisterBrushRasterSuccess,
+  RegisterBrushRasterError,
+} from './raw-pipeline.brush-raster.types';
 
 export type WorkerResponse =
   | import('./raw-pipeline.guided-geometry').GuidedGeometryResponse
@@ -344,6 +350,8 @@ export type WorkerResponse =
   | import('./raw-pipeline.sample-range.types').SampleRangeError
   | RegisterMaskRasterSuccess
   | RegisterMaskRasterError
+  | RegisterBrushRasterSuccess
+  | RegisterBrushRasterError
   | ExportSuccess
   | ExportError;
 
@@ -447,6 +455,7 @@ export type WorkerRequest =
   | import('./raw-pipeline.sample-range.types').SampleRangeRequest
   | RegisterMaskRasterRequest
   | ReleaseMaskRasterRequest
+  | RegisterBrushRasterRequest
   | ExportRequest;
 
 export interface DecodedImage {

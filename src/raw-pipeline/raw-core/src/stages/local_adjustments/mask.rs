@@ -19,31 +19,36 @@ fn smoothstep(t: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Resolve the raster a [`Mask::Bitmap`] refers to: by `raster_id` first
-/// (the flat-wire path — the FFI registry stamps a resolved id back onto
-/// the layer), falling back to the recipe's digest (the in-memory /
-/// XMP-parsed path, where no id has been assigned yet). `None` for every
-/// other mask variant, and for a `Bitmap` whose raster is not registered —
-/// an unresolved recipe evaluates to weight 0 (§ [`evaluate`]), never a
-/// silent global correction.
+/// Resolve the raster a [`Mask::Bitmap`] or [`Mask::Brush`] refers to: by
+/// `raster_id` first (the flat-wire path — the FFI registry stamps a resolved
+/// id back onto the layer), falling back to the digest (the in-memory /
+/// XMP-parsed path, where no id has been assigned yet — the recipe digest for
+/// a bitmap, `papp:BrushDigest` for a brush). `None` for every other mask
+/// variant, and for a bitmap/brush whose raster is not registered — an
+/// unresolved mask evaluates to weight 0 (§ [`evaluate`]), never a silent
+/// global correction.
 pub fn resolve<'a>(mask: &Mask, rasters: &'a [Arc<MaskRaster>]) -> Option<&'a MaskRaster> {
-    let Mask::Bitmap { recipe, raster_id } = mask else {
-        return None;
+    let (raster_id, digest) = match mask {
+        Mask::Bitmap { recipe, raster_id } => (*raster_id, recipe.digest.as_str()),
+        Mask::Brush {
+            digest, raster_id, ..
+        } => (*raster_id, digest.as_str()),
+        _ => return None,
     };
     rasters
         .iter()
-        .find(|r| *raster_id != 0 && r.id == *raster_id)
+        .find(|r| raster_id != 0 && r.id == raster_id)
         .or_else(|| {
             rasters
                 .iter()
-                .find(|r| !recipe.digest.is_empty() && r.digest == recipe.digest)
+                .find(|r| !digest.is_empty() && r.digest == digest)
         })
         .map(|r| r.as_ref())
 }
 
 /// Compute the mask weight at normalized point (`x`, `y`). `raster` is the
 /// result of [`resolve`] for this mask — irrelevant for every variant
-/// except `Bitmap`, where `None` (unresolved) evaluates to 0.
+/// except `Bitmap`/`Brush`, where `None` (unresolved) evaluates to 0.
 pub fn evaluate(mask: &Mask, raster: Option<&MaskRaster>, x: f32, y: f32) -> f32 {
     let p = Point2::new(x, y);
     match mask {
@@ -66,7 +71,7 @@ pub fn evaluate(mask: &Mask, raster: Option<&MaskRaster>, x: f32, y: f32) -> f32
                 w
             }
         }
-        Mask::Bitmap { .. } => raster.map(|r| r.sample(x, y)).unwrap_or(0.0),
+        Mask::Bitmap { .. } | Mask::Brush { .. } => raster.map(|r| r.sample(x, y)).unwrap_or(0.0),
         Mask::Everywhere => 1.0,
         Mask::Group(group) => {
             // A single raster argument cannot resolve several component
@@ -393,5 +398,39 @@ mod tests {
         assert!(resolve(&linear_mask(), &rasters).is_none());
         assert!(resolve(&radial_mask(), &rasters).is_none());
         assert!(resolve(&Mask::Everywhere, &rasters).is_none());
+    }
+
+    #[test]
+    fn brush_resolves_by_id_then_digest_like_bitmap() {
+        use crate::types::BrushDab;
+        let raster = Arc::new(MaskRaster::from_u8(9, "aabbccddeeff0011", 1, 1, &[200]));
+        let rasters = std::slice::from_ref(&raster);
+        let by_id = Mask::Brush {
+            dabs: vec![BrushDab::new(Point2::new(0.5, 0.5), 0.05, 0.5, 1.0, false)],
+            digest: "unregistered".into(),
+            raster_id: 9,
+        };
+        assert_eq!(resolve(&by_id, rasters).unwrap().id, 9);
+        let by_digest = Mask::Brush {
+            dabs: Vec::new(),
+            digest: "aabbccddeeff0011".into(),
+            raster_id: 0,
+        };
+        assert_eq!(resolve(&by_digest, rasters).unwrap().id, 9);
+        assert!(
+            (evaluate(&by_digest, resolve(&by_digest, rasters), 0.0, 0.0) - 200.0 / 255.0).abs()
+                < 1e-6
+        );
+    }
+
+    #[test]
+    fn brush_with_no_registered_raster_is_weight_zero() {
+        let m = Mask::Brush {
+            dabs: Vec::new(),
+            digest: String::new(),
+            raster_id: 0,
+        };
+        assert_eq!(resolve(&m, &[]), None);
+        assert_eq!(evaluate(&m, None, 0.5, 0.5), 0.0);
     }
 }

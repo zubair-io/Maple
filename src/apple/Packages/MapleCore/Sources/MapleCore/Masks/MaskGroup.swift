@@ -22,7 +22,8 @@ public struct LocalXmpMetadata: Codable, Sendable, Equatable, Hashable {
 }
 
 /// An ordered leaf: combine/invert belong here, develop controls to its layer.
-/// The constructor and decoder reject nested groups, matching raw-core.
+/// The constructor and decoder reject nested groups and brush masks,
+/// matching raw-core.
 public struct MaskComponent: Codable, Sendable, Equatable, Hashable {
   public private(set) var mask: LocalMask
   public var combine: MaskCombine
@@ -34,6 +35,7 @@ public struct MaskComponent: Codable, Sendable, Equatable, Hashable {
     xmpMetadata: LocalXmpMetadata? = nil
   ) {
     if case .group = mask { return nil }
+    if case .brush = mask { return nil }
     self.mask = mask
     self.combine = combine
     self.invert = invert
@@ -43,6 +45,7 @@ public struct MaskComponent: Codable, Sendable, Equatable, Hashable {
   @discardableResult
   public mutating func replaceMask(_ mask: LocalMask) -> Bool {
     if case .group = mask { return false }
+    if case .brush = mask { return false }
     self.mask = mask
     return true
   }
@@ -60,7 +63,7 @@ public struct MaskComponent: Codable, Sendable, Equatable, Hashable {
     else {
       throw DecodingError.dataCorruptedError(
         forKey: .mask, in: values,
-        debugDescription: "Mask components cannot contain groups")
+        debugDescription: "Mask components cannot contain groups or brush masks")
     }
     self = component
   }
@@ -105,8 +108,26 @@ extension LocalMask {
     switch self {
     case .bitmap(let recipe, let rasterId): return [(recipe, rasterId)]
     case .group(let group): return group.components.flatMap { $0.mask.bitmapMasks }
-    case .linear, .radial, .everywhere: return []
+    case .linear, .radial, .everywhere, .brush: return []
     }
+  }
+
+  /// Every brush leaf under this mask — a group never holds one
+  /// (`MaskComponent` rejects brush), so this is either empty or the mask
+  /// itself. The rehydration, delete and coverage paths walk this the way
+  /// they walk `bitmapMasks`.
+  public var brushMasks: [(dabs: [BrushDab], digest: String, rasterId: UInt32)] {
+    switch self {
+    case .brush(let dabs, let digest, let rasterId): return [(dabs, digest, rasterId)]
+    case .group(let group): return group.components.flatMap { $0.mask.brushMasks }
+    case .linear, .radial, .everywhere, .bitmap: return []
+    }
+  }
+
+  /// Every registry id this mask holds (bitmap and brush leaves alike), unresolved `0`s
+  /// dropped — what a release or a superseded rehydration must hand back.
+  public var registeredRasterIds: [UInt32] {
+    (bitmapMasks.map(\.rasterId) + brushMasks.map(\.rasterId)).filter { $0 != 0 }
   }
 
   public func mappingLeavesAsync(_ transform: (LocalMask) async -> LocalMask) async -> LocalMask {

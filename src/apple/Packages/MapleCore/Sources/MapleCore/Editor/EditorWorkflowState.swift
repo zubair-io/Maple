@@ -245,8 +245,7 @@ public final class EditorWorkflowState {
   }
 
   func releaseRasters(_ model: AdjustmentModel) {
-    Set(model.localAdjustments.flatMap { $0.mask.bitmapMasks.map(\.rasterId) }.filter { $0 != 0 })
-      .forEach(MaskRasterRegistry.release)
+    Set(model.localAdjustments.flatMap(\.mask.registeredRasterIds)).forEach(MaskRasterRegistry.release)
   }
 
   func restoredState(_ xml: String, session: EditSession) async throws -> (

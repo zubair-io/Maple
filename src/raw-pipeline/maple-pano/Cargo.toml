@@ -76,6 +76,12 @@ path = "src/bin/pano-ingest-probe.rs"
 name = "pano-gen-fixture"
 path = "src/bin/pano-gen-fixture/main.rs"
 
+# #3243: generate coherent pre-blend source crops for fixed ghosting ROIs.
+# Diagnostic only; uses the production stitch/warp with unchanged defaults.
+[[bin]]
+name = "pano-seam-evidence"
+path = "src/bin/pano-seam-evidence.rs"
+required-features = ["ml"]
 
 # M1a gate tests need the testkit; `cargo test -p maple-pano` (no
 # features) skips them, `--all-features` runs them. Other test targets

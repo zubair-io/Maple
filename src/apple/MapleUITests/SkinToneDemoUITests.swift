@@ -5,8 +5,8 @@
 // publishes (#3279), matching CLAUDE.md's "no eyeballing" rule for anything
 // this repo can make objective.
 //
-// Skip-passes without test_0003 locally, same convention as
-// SliderMatrixUITests / test_color_pipeline.sh's "no fixtures, skipping."
+// Skip-passes without test_0003.CR2 at the repository default fixture root,
+// and fails when an explicitly configured root lacks it (UITestFixtureRoot).
 //
 // The shared adaptive inspector exposes Mask through the same dock action
 // at every editor width (#3252).
@@ -17,7 +17,7 @@ import XCTest
 
   final class SkinToneDemoUITests: XCTestCase {
     func testCreatingASkinMaskAndDraggingHueMovesTheCloudTowardTheSkinLine() throws {
-      let driver = try MapleAppDriver.launch(fixture: "test_0003.DNG")
+      let driver = try MapleAppDriver.launch(fixture: "test_0003.CR2")
       defer { driver.cleanupStagedFixture() }
       defer { driver.app.terminate() }
       driver.waitForCanvasReady(timeout: 30)

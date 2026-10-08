@@ -85,6 +85,7 @@ const MASK_KIND_LABEL: Readonly<Record<LocalMask['kind'], string>> = {
   radial: 'Radial',
   bitmap: 'Person',
   everywhere: 'Everywhere',
+  brush: 'Brush',
   group: 'Mask group',
 };
 
@@ -93,6 +94,7 @@ const MASK_KIND_ICON: Readonly<Record<LocalMask['kind'], MapleIconName>> = {
   radial: 'tool-vignette',
   bitmap: 'person-circle',
   everywhere: 'photos',
+  brush: 'edit',
   group: 'photos',
 };
 
@@ -169,6 +171,7 @@ export class MaskPanelComponent {
   protected readonly isRadial = computed(
     () => this.session.selectedMask()?.kind === 'radial' && !this.group(),
   );
+  protected readonly isBrush = computed(() => this.session.selectedMask()?.kind === 'brush');
   protected readonly inverted = computed(() => {
     const mask = this.selected()?.mask;
     return mask?.kind === 'radial' ? mask.invert : false;
@@ -247,5 +250,23 @@ export class MaskPanelComponent {
 
   protected onInvertChange(checked: boolean): void {
     this.session.setInverted(checked);
+  }
+
+  // ── Brush tip (#360): tool state, not a layer edit — no gesture, no undo.
+
+  protected onBrushSizeChange(value: number): void {
+    this.session.brush.setSize(value);
+  }
+
+  protected onBrushFeatherChange(value: number): void {
+    this.session.brush.setFeather(value);
+  }
+
+  protected onBrushFlowChange(value: number): void {
+    this.session.brush.setFlow(value);
+  }
+
+  protected onBrushEraseChange(checked: boolean): void {
+    this.session.brush.setErase(checked);
   }
 }

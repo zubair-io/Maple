@@ -90,6 +90,13 @@ public enum LocalAdjustmentFlat {
     case .bitmap(_, let rasterId):
       out[base + 2] = Float(rasterId)
       out[base + 6] = kindBitmap
+    case .brush(_, _, let rasterId):
+      // A brush renders as its derived raster, so it encodes as a bitmap
+      // record carrying the id — mirror of raw-core's `write_mask` brush
+      // arm. The GPU plane, the registries and `is_bitmap_record` need no
+      // brush case; the dabs live only in the model and the sidecar.
+      out[base + 2] = Float(rasterId)
+      out[base + 6] = kindBitmap
     case .everywhere:
       out[base + 6] = kindEverywhere
     case .group(let group):
@@ -149,7 +156,9 @@ public enum LocalAdjustmentFlat {
 
   /// `rasterDigests` maps a resolved raster id (slot 2 of a bitmap record)
   /// to its digest, so a decoded `LocalMask.bitmap`'s recipe carries the right
-  /// identity even though the flat wire itself only stores the id.
+  /// identity even though the flat wire itself only stores the id. A brush
+  /// layer decodes as `.bitmap` (render-equivalent — same registered
+  /// raster), never back to `.brush`: the flat wire carries no dabs.
   public static func fromFlat(_ flat: [Float], rasterDigests: [UInt32: String]) -> [LocalAdjustment]
   {
     var layers: [LocalAdjustment] = []

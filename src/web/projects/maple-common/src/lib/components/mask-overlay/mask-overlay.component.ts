@@ -14,6 +14,11 @@
 // forces fit on entry, so the painted image maps 1:1 onto it); the canvas
 // map folds the applied crop/straighten in, so a mask on a cropped image is
 // drawn where raw-core applies it. The pure math is `mask-geometry.ts`.
+//
+// A brush layer (#360) has no handles: pointer-down starts a stroke, and the
+// tint is the dab series stamped through `rasterizeBrushDabs` (the port of
+// raw-core's rasterizer, so again the tint IS what the render applies). One
+// undo entry per stroke.
 
 import {
   AfterViewInit,
@@ -31,7 +36,13 @@ import {
 import { LibraryStateService } from '../../state/library-state.service';
 import { ImageCanvasService } from '../image-canvas/image-canvas.service';
 import { MaskSessionService } from './mask-session.service';
-import { isGeometricMask, type LocalMask, type MaskPoint } from '../../models/local-adjustment';
+import {
+  isGeometricMask,
+  type BrushDab,
+  type BrushMask,
+  type LocalMask,
+  type MaskPoint,
+} from '../../models/local-adjustment';
 import type { Footprint } from '../crop-overlay/crop-geometry';
 import { OverlayDrag, OverlayPlacement } from '../crop-overlay/overlay-host';
 import {
@@ -47,9 +58,21 @@ import {
   maskHandles,
   maskToScreen,
 } from './mask-geometry';
+import {
+  StrokeSmoother,
+  appendedBrushDigest,
+  applyPressure,
+  interpolateDabs,
+  mapDabsToCrop,
+  rasterizeBrushDabs,
+} from './mask-brush';
 
 /** Grab radius for the handles, in CSS px — matches the crop overlay. */
 const HANDLE_TOLERANCE = 14;
+
+/** Pressure only a pen measures: a mouse reports a fixed 0.5 while pressed,
+ *  which must paint at full size like Apple's pointer does, not at half. */
+const penPressure = (ev: PointerEvent): number => (ev.pointerType === 'pen' ? ev.pressure : 0);
 /** Raster resolution of the weight tint along the footprint's long edge. */
 const TINT_LONG_EDGE = 192;
 /** Tint colour (`--pro-accent`, #C4493A) and peak opacity at `w = 1`. */
@@ -60,6 +83,11 @@ interface DragState {
   handle: MaskHandle;
   startMask: LocalMask;
   anchor: MaskPoint;
+}
+
+interface StrokeState {
+  smoother: StrokeSmoother;
+  last: MaskPoint;
 }
 
 interface HandleView {
@@ -91,6 +119,7 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
 
   private readonly tintCanvas = viewChild<ElementRef<HTMLCanvasElement>>('tint');
   private readonly drag = new OverlayDrag<DragState>();
+  private readonly stroke = new OverlayDrag<StrokeState>();
 
   /** Host size, applied crop, fit footprint and the full-frame ↔ screen map
    *  — shared with every other canvas overlay (`overlay-host.ts`). */
@@ -142,6 +171,7 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
     if (mask.kind === 'linear') return 'Linear gradient mask';
     if (mask.kind === 'bitmap') return 'Person skin mask';
     if (mask.kind === 'everywhere') return 'Whole-image mask';
+    if (mask.kind === 'brush') return 'Brush mask';
     return mask.invert ? 'Inverted radial mask' : 'Radial mask';
   });
 
@@ -184,6 +214,18 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
     const mask = this.mask();
     if (!mask) return;
     const { px, py } = this.localPoint(ev);
+    if (mask.kind === 'brush') {
+      const fp = this.map().footprint;
+      // A press on letterbox padding is not on the photo: paint nothing.
+      if (px < fp.left || py < fp.top || px > fp.left + fp.width || py > fp.top + fp.height) return;
+      // One undo entry per stroke — opened before the first dab lands.
+      this.session.beginGesture();
+      const smoother = new StrokeSmoother();
+      const at = smoother.reset(maskFromScreen(this.map(), px, py));
+      this.stroke.begin(ev, { smoother, last: at });
+      this.stampStrokeSegment(mask, at, at, penPressure(ev));
+      return;
+    }
     const handle = hitTestMaskHandle(px, py, mask, this.map(), HANDLE_TOLERANCE);
     if (!handle) return;
     // One undo entry per gesture — opened before the first mutation lands.
@@ -196,6 +238,17 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
   }
 
   protected onPointerMove(ev: PointerEvent): void {
+    const stroking = this.stroke.active;
+    if (stroking) {
+      const mask = this.mask();
+      if (mask?.kind !== 'brush') return;
+      const { px, py } = this.localPoint(ev);
+      const at = stroking.smoother.next(maskFromScreen(this.map(), px, py));
+      this.stampStrokeSegment(mask, stroking.last, at, penPressure(ev));
+      stroking.last = at;
+      ev.preventDefault();
+      return;
+    }
     const drag = this.drag.active;
     if (!drag) return;
     const { px, py } = this.localPoint(ev);
@@ -204,15 +257,58 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
     ev.preventDefault();
   }
 
+  /** Lay the pointer segment's dabs onto the stroke (a tap stamps one). */
+  private stampStrokeSegment(
+    mask: BrushMask,
+    from: MaskPoint,
+    to: MaskPoint,
+    pressure: number,
+  ): void {
+    const a = this.library.focusedAsset();
+    const aspect = a?.width && a?.height ? a.width / a.height : 1;
+    const { radius, weight } = applyPressure(
+      this.session.brush.size(),
+      this.session.brush.flow(),
+      pressure,
+    );
+    const dabs = interpolateDabs(from, to, aspect, {
+      radius,
+      feather: this.session.brush.feather(),
+      weight,
+      erase: this.session.brush.erase(),
+    });
+    if (dabs.length === 0) return;
+    this.session.setShape({
+      ...mask,
+      dabs: [...mask.dabs, ...dabs],
+      digest: appendedBrushDigest(mask, dabs),
+    });
+  }
+
   protected onPointerUp(ev: PointerEvent): void {
+    const stroking = this.stroke.active;
+    const mask = this.mask();
+    if (stroking && mask?.kind === 'brush') {
+      // The smoother trails the pointer; land the stroke where it was released.
+      const { px, py } = this.localPoint(ev);
+      const at = maskFromScreen(this.map(), px, py);
+      if (at.x !== stroking.last.x || at.y !== stroking.last.y) {
+        this.stampStrokeSegment(mask, stroking.last, at, penPressure(ev));
+      }
+    }
+    this.stroke.end(ev, this.session);
     this.drag.end(ev, this.session);
   }
 
   protected readonly cursor = signal<string>('default');
 
   protected onHover(ev: PointerEvent): void {
-    if (this.drag.active) return;
+    if (this.drag.active || this.stroke.active) return;
     const mask = this.mask();
+    if (mask?.kind === 'brush') {
+      this.cursor.set('crosshair');
+      return;
+    }
     const { px, py } = this.localPoint(ev);
     const handle = mask ? hitTestMaskHandle(px, py, mask, this.map(), HANDLE_TOLERANCE) : null;
     this.cursor.set(handle === null ? 'default' : handle === 'radialRotate' ? 'grab' : 'move');
@@ -233,8 +329,15 @@ function tintRasterSize(fp: Footprint): { width: number; height: number } {
 
 /** Fill `image` with the tint: each raster pixel is a crop-normalized point,
  *  mapped to full-frame coordinates through the crop map and evaluated with
- *  the same math the render pipeline runs. */
+ *  the same math the render pipeline runs. A brush layer stamps its dab
+ *  series instead — per-pixel evaluation would re-stamp the stroke per query
+ *  point, so the weight comes from the rasterizer both here and in the
+ *  render. */
 function fillTint(image: ImageData, mask: LocalMask, map: MaskCanvasMap): void {
+  if (mask.kind === 'brush') {
+    fillBrushTint(image, mask.dabs, map);
+    return;
+  }
   const { width, height, data } = image;
   for (let j = 0; j < height; j++) {
     const v = (j + 0.5) / height;
@@ -247,6 +350,28 @@ function fillTint(image: ImageData, mask: LocalMask, map: MaskCanvasMap): void {
       data[base + 2] = TINT_RGB[2];
       data[base + 3] = Math.round(w * TINT_PEAK_ALPHA * 255);
     }
+  }
+}
+
+/** Tint a brush layer: map the dab series into crop space and stamp it at
+ *  tint resolution. The radius is a fraction of the FULL-frame width while
+ *  the grid spans the crop, so radii scale by the full/crop width ratio —
+ *  the crop's x-axis length measured in full-frame pixels, since a straighten
+ *  rotation mixes the non-isotropic normalized axes. */
+function fillBrushTint(image: ImageData, dabs: readonly BrushDab[], map: MaskCanvasMap): void {
+  const { data } = image;
+  const cropWidth = Math.hypot(map.cropToFull.a, map.cropToFull.b / map.imageAspect);
+  const grid = rasterizeBrushDabs(
+    mapDabsToCrop(dabs, map.fullToCrop, cropWidth > 1e-9 ? 1 / cropWidth : 1),
+    image.width,
+    image.height,
+  );
+  for (let i = 0; i < grid.length; i++) {
+    const base = i * 4;
+    data[base] = TINT_RGB[0];
+    data[base + 1] = TINT_RGB[1];
+    data[base + 2] = TINT_RGB[2];
+    data[base + 3] = Math.round((grid[i] / 255) * TINT_PEAK_ALPHA * 255);
   }
 }
 

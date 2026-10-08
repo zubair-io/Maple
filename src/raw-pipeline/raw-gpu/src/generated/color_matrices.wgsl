@@ -75,3 +75,5 @@ fn mul_srgb_to_rec2020(v: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(dot(M_SRGB_TO_REC2020_R0, v), dot(M_SRGB_TO_REC2020_R1, v), dot(M_SRGB_TO_REC2020_R2, v));
 }
 
+// Existing import-default maximum attenuation (#4112).
+const SHARPEN_PRESERVED_DARKENING: f32 = 0.4f;

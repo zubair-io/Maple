@@ -21,10 +21,13 @@
 //! 3. **USM scale** (`sharpen_usm.wgsl`): the per-pixel luma USM with the shadow
 //!    guard + scale clamp, producing the "full-strength sharpened" RGBA
 //!    (amount=100, masking=0). Luma-only: one scalar scales all three channels, so
-//!    chroma ratios are preserved (the #439 no-fringing contract).
+//!    chroma ratios are preserved (the #439 no-fringing contract). Its private
+//!    scratch alpha carries bounded darkening for the next pass.
 //! 4. **edge-mix** (`sharpen_mix.wgsl`): blend observed → sharpened by
 //!    `mix = overall_mix * edge`, where `edge` gates flat vs edge regions when
 //!    masking is on (a central-difference gradient on the ORIGINAL luma plane).
+//!    Darkening uses a reciprocal gain after this mix (#4112); brightening
+//!    retains the original USM blend, and both restore original source alpha.
 //!
 //! ## Buffer budget (every kernel ≤ 4 storage)
 //!

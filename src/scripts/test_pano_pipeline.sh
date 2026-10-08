@@ -276,6 +276,9 @@ if ! python3 -c "import numpy, PIL" >/dev/null 2>&1; then
   exit 0
 fi
 
+echo "test_pano_pipeline: running coherent-source ghosting controls ..."
+python3 -m unittest discover -s "$SCRIPT_DIR" -p test_pano_ghost_metrics.py
+
 echo "test_pano_pipeline: running metrics self-test (pano_metrics.py --self-test) ..."
 if ! python3 "$METRICS_PY" --self-test --fixture-root "$REPO_ROOT/test-fixtures"; then
   err "metrics self-test FAILED"

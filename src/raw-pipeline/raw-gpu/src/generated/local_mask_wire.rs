@@ -11,3 +11,4 @@ pub const COMPONENT_COMBINE_STRIDE: u32 = 4;
 pub const COMPONENT_INVERT_OFFSET: u32 = 12;
 pub const COMPONENT_CODE_COUNT: u32 = 24;
 pub const MASK_GROUP_VERSION: u32 = 1;
+pub const BRUSH_VERSION: u32 = 1;

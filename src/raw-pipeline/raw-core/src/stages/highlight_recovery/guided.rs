@@ -15,6 +15,7 @@
 //! blown block — 9× the sparse stage budget — where the per-cell field
 //! resolves the same workload for ~2 ms of a ~6 ms total.
 
+use super::FrameAnchor;
 use crate::image::Image;
 
 /// Tier-2 coarse cell size (px). Cells accumulate unclipped means (the
@@ -32,6 +33,10 @@ const CELL_MIN_SAMPLES: f32 = 4.0;
 
 /// Tier-2 gather radius in cells: 5×5, ≈80 px window, ≈40 px reach.
 const GATHER_RADIUS: i32 = 2;
+
+/// Furthest sample in either of the two surrounding cells, including the
+/// complete target cell: max47px from a requested pixel (not merely32).
+pub(super) const STENCIL_REACH: usize = ((GATHER_RADIUS + 1) * CELL - 1) as usize;
 
 /// Bilateral sharpness K in `w = 1/(1+K·d²)²`, with K = 1/(2σ²) and σ = 0.12
 /// per-channel-ratio units. The squared inverse keeps the Gaussian's
@@ -194,11 +199,18 @@ impl CellField {
         top: i32,
         right: i32,
         bottom: i32,
+        anchor: Option<FrameAnchor>,
     ) {
         let w = img.width as i32;
-        let mut y = top;
+        let phase = anchor.map_or((0, 0), |a| {
+            (
+                (a.active_origin.0 - a.origin.0 - left).rem_euclid(MEANS_STRIDE),
+                (a.active_origin.1 - a.origin.1 - top).rem_euclid(MEANS_STRIDE),
+            )
+        });
+        let mut y = top + phase.1;
         while y < bottom {
-            let mut x = left;
+            let mut x = left + phase.0;
             while x < right {
                 let idx = (y * w + x) as usize;
                 if clip_mask[idx] == 0 {
@@ -308,9 +320,10 @@ pub(super) fn resolve_deferred(
     scene: Option<[f32; 3]>,
     region: (i32, i32, i32, i32),
     floor: f32,
+    anchor: Option<FrameAnchor>,
 ) {
     let (left, top, right, bottom) = region;
-    field.build_means(img, clip_mask, left, top, right, bottom);
+    field.build_means(img, clip_mask, left, top, right, bottom, anchor);
     field.resolve_cells(floor);
     // The scene ratios depend only on the clip mask (6 partial masks), so
     // hoist them out of the per-pixel loop.
@@ -403,13 +416,20 @@ pub(super) fn scene_median(
             })
         })
     };
-    let count = eligible().count();
+    decimated_median(eligible(), eligible().count())
+}
+
+/// Per-channel median of every k-th of `count` eligible samples, with k sized
+/// so at most `SCENE_SAMPLE_CAP` survive. Shared by the full render and the
+/// native tile frame evidence (#4378) so both select identical samples.
+pub(super) fn decimated_median(
+    eligible: impl Iterator<Item = [f32; 3]>,
+    count: usize,
+) -> Option<[f32; 3]> {
     if count == 0 {
         return None;
     }
-    let mut samples: Vec<[f32; 3]> = eligible()
-        .step_by(count.div_ceil(SCENE_SAMPLE_CAP))
-        .collect();
+    let mut samples: Vec<[f32; 3]> = eligible.step_by(count.div_ceil(SCENE_SAMPLE_CAP)).collect();
     let mid = samples.len() / 2;
     Some(std::array::from_fn(|c| {
         // Each call re-partitions the same buffer for its own channel: the
