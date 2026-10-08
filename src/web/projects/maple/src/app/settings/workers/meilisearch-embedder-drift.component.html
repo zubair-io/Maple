@@ -1,0 +1,67 @@
+@if (drift(); as d) {
+  @switch (d.state) {
+    @case ('drift') {
+      <div class="field-label">Search index embedder differs from Settings</div>
+      <div class="field-hint" data-testid="meilisearch-embedder-drift">
+        The index embeds with <span class="set-mono">{{ live() }}</span
+        >; Settings say <span class="set-mono">{{ configured() }}</span
+        >. Hybrid search keeps using the index's embedder until you apply the change.
+      </div>
+      @if (removesEmbedder()) {
+        <div class="field-hint">
+          Semantic search is off. Applying removes the index's embedder and its vectors.
+        </div>
+      } @else if (d.reembedsAllDocuments) {
+        <div class="field-hint" data-testid="meilisearch-embedder-reembed-warning">
+          Applying makes Meilisearch re-embed {{ documents() }} with the new embedder. On a large
+          library this takes hours and keeps the embedding server busy.
+        </div>
+      } @else {
+        <div class="field-hint">Applying does not re-embed any documents.</div>
+      }
+      @if (confirming()) {
+        <div class="flex gap-2 mt-2">
+          <mui-button
+            size="sm"
+            [loading]="applying()"
+            (pressed)="apply()"
+            data-testid="meilisearch-embedder-confirm"
+          >
+            @if (d.reembedsAllDocuments && !removesEmbedder()) {
+              Re-embed {{ documents() }}
+            } @else {
+              Apply to index
+            }
+          </mui-button>
+          <mui-button variant="ghost" size="sm" (pressed)="confirming.set(false)">
+            Cancel
+          </mui-button>
+        </div>
+      } @else {
+        <div class="mt-2">
+          <mui-button
+            variant="ghost"
+            size="sm"
+            (pressed)="confirming.set(true)"
+            data-testid="meilisearch-embedder-apply"
+          >
+            Apply to index…
+          </mui-button>
+        </div>
+      }
+    }
+    @case ('pending') {
+      <div class="field-hint" data-testid="meilisearch-embedder-pending">
+        Meilisearch is still applying an index settings change — when the embedder changed, it is
+        re-embedding documents. Search keeps working meanwhile.
+        <mui-button variant="ghost" size="sm" (pressed)="refresh()">Recheck</mui-button>
+      </div>
+    }
+    @case ('unreachable') {
+      <div class="field-hint">Could not read the search index's embedder settings.</div>
+    }
+  }
+}
+@if (error(); as message) {
+  <div class="set-test-result err">{{ message }}</div>
+}
