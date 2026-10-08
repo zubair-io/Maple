@@ -14,6 +14,10 @@ import Observation
 @MainActor
 @Observable
 public final class SearchViewModel {
+  /// Serves a generated-search collection's rows after `offset`.
+  public typealias CollectionPager =
+    @MainActor (_ offset: Int, _ limit: Int) async throws -> GeneratedSearchAssetPage
+
   // MARK: - Published state
 
   public private(set) var results: [SearchAsset] = []
@@ -73,6 +77,10 @@ public final class SearchViewModel {
   /// redundant round-trip when nothing actually changed (e.g. the filter
   /// popover closes without an edit).
   private var lastSubmittedParams: SearchParams?
+  /// Set while the results are a generated-search collection (#4410): further
+  /// pages come from the collection's own endpoint, whose order (newest
+  /// first) differs from a relevance-ranked search. Any submit clears it.
+  private var collectionPager: CollectionPager?
 
   /// In-memory result cache so re-issuing an identical query (clear-then-
   /// reapply, popover round-trips, toggling a sort back) serves from memory
@@ -157,6 +165,7 @@ public final class SearchViewModel {
   /// pending debounce. Filter controls call this immediately on change.
   public func submit() async {
     debounceTask?.cancel()
+    collectionPager = nil
     generation &+= 1
     let g = generation
     page = 0
@@ -234,6 +243,30 @@ public final class SearchViewModel {
     }
   }
 
+  /// Show a generated-search collection's already-fetched first page as the
+  /// results — no request — with `params` set to its stored query so the
+  /// field and chips describe it. `nextPage` serves the rest of the
+  /// collection; an edit to the query or filters runs a normal search.
+  public func showCollection(
+    params seed: SearchParams,
+    firstPage: GeneratedSearchAssetPage,
+    nextPage: @escaping CollectionPager
+  ) {
+    debounceTask?.cancel()
+    generation &+= 1
+    params = seed
+    lastSubmittedParams = seed
+    collectionPager = nextPage
+    results = firstPage.results
+    total = firstPage.total
+    page = 0
+    nextCursor = nil
+    appliedDates = nil
+    isLoading = false
+    isLoadingMore = false
+    loadError = nil
+  }
+
   /// Populate the filter panel's option lists WITHOUT running a result
   /// search. The iPhone Search tab shows recent queries until the user
   /// types, so nothing ever calls `submit()` from a cold, empty search —
@@ -279,6 +312,21 @@ public final class SearchViewModel {
     // A fresh submit resets this flag; an older completion must never clear
     // the flag belonging to the new owner's pagination request.
     defer { if g == generation { isLoadingMore = false } }
+
+    if let collectionPager {
+      do {
+        let more = try await collectionPager(results.count, limit)
+        guard g == generation else { return }
+        page += 1
+        results.append(contentsOf: more.results)
+        total = more.results.isEmpty ? results.count : more.total
+      } catch {
+        if Self.isCancellation(error) { return }
+        guard g == generation else { return }
+        loadError = error
+      }
+      return
+    }
 
     let next = page + 1
     let requested = params

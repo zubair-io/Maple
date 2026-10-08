@@ -1,8 +1,8 @@
-// src/apple/Maple TV/TVGeneratedSearchViewModel.swift
+// GeneratedSearchCollectionsViewModel.swift
 //
-// Drives `MemoriesScreen`: the themed collections the server's
-// generated-search worker invents daily ("Spooky Nights", "Seven Summers of
-// Lake George").
+// Drives the tvOS `MemoriesScreen` and the iPhone Search tab's idle-page
+// cards: the themed collections the server's generated-search worker invents
+// daily ("Spooky Nights", "Seven Summers of Lake George").
 //
 // Two behaviours are deliberate:
 //
@@ -17,34 +17,40 @@
 //     stored query; a client that rebuilt the query would drop both, on a
 //     television, unattended.
 //
-// Generation-counter staleness guard mirrors `TVTimelineViewModel`: bump
+// Generation-counter staleness guard: bump
 // before any `await`, re-check after every suspension point, so a library
 // switch can't let an older response clobber newer state.
 
 import Foundation
-import MapleCloudKit
 import Observation
 
 @MainActor
 @Observable
-final class TVGeneratedSearchViewModel {
-  private(set) var collections: [GeneratedSearchCard] = []
-  private(set) var isLoading: Bool = false
+public final class GeneratedSearchCollectionsViewModel {
+  public private(set) var collections: [GeneratedSearchCard] = []
+  public private(set) var isLoading: Bool = false
   /// Non-nil only when a load failed *with nothing to fall back on*. A
   /// refresh that fails after a set has already rendered leaves that set up
   /// and clears this — there is nothing useful to say over a working wall of
   /// memories, and a stale non-nil error would invite a caller to show one.
-  private(set) var loadError: Error?
-  /// First asset of each collection, keyed by collection id — a card needs a
-  /// real `abs_path` to render a cover (the collection carries only an id),
-  /// and fetching it here doubles as a preload for the viewer.
-  private(set) var covers: [String: SearchAsset] = [:]
+  public private(set) var loadError: Error?
+  /// First page of each collection, keyed by collection id. The cover needs
+  /// a real `abs_path` (the collection carries only an id), and the server's
+  /// cost is the query, not the page size — so the cover fetch takes a whole
+  /// page and opening the collection reuses it instead of re-running the
+  /// query.
+  public private(set) var firstPages: [String: GeneratedSearchAssetPage] = [:]
 
-  private let libraryID: String
+  /// First asset of each collection — the card's cover.
+  public var covers: [String: SearchAsset] {
+    firstPages.compactMapValues(\.results.first)
+  }
+
+  public let libraryID: String
   private let client: GeneratedSearchClient
   private var generation: Int = 0
 
-  init(libraryID: String, client: GeneratedSearchClient) {
+  public init(libraryID: String, client: GeneratedSearchClient) {
     self.libraryID = libraryID
     self.client = client
   }
@@ -52,7 +58,7 @@ final class TVGeneratedSearchViewModel {
   /// Load the most recent day that produced anything. Omitting the date is
   /// what keeps a late or empty run showing yesterday's set rather than
   /// blanking the screen.
-  func load() async {
+  public func load() async {
     generation += 1
     let g = generation
     isLoading = true
@@ -76,31 +82,39 @@ final class TVGeneratedSearchViewModel {
     // the screen. Pruning rather than clearing keeps the covers that survived
     // the reload on screen instead of blanking every card for a beat.
     let loadedIDs = Set(loaded.map(\.id))
-    covers = covers.filter { loadedIDs.contains($0.key) }
+    firstPages = firstPages.filter { loadedIDs.contains($0.key) }
 
-    // One small fetch per collection (there are a handful per day), run
+    // One fetch per collection (there are a handful per day), run
     // concurrently. A failure just leaves that card on its gradient.
-    await withTaskGroup(of: (String, SearchAsset?).self) { group in
+    await withTaskGroup(of: (String, GeneratedSearchAssetPage?).self) { group in
       for collection in loaded {
         group.addTask { [client] in
-          let page = try? await client.assets(collectionID: collection.id, limit: 1)
-          return (collection.id, page?.results.first)
+          (collection.id, try? await client.assets(collectionID: collection.id))
         }
       }
-      for await (id, asset) in group {
+      for await (id, page) in group {
         guard g == generation else { return }
-        if let asset { covers[id] = asset }
+        if let page { firstPages[id] = page }
       }
     }
   }
 
   /// The FIRST PAGE of one collection's photos, plus the collection's full
-  /// size — or an empty page when the fetch fails, in which case the caller
-  /// simply doesn't open anything. The grid this opens pages onward from here
-  /// (`TVMemoryAssetsViewModel`); a collection is routinely bigger than one
-  /// response.
-  func firstPage(of collection: GeneratedSearchCard) async -> GeneratedSearchAssetPage {
-    (try? await client.assets(collectionID: collection.id))
+  /// size — the page `load()` already fetched when there is one, else a
+  /// fresh fetch, else an empty page (the caller then doesn't open
+  /// anything). The grid this opens pages onward from here; a collection is
+  /// routinely bigger than one response.
+  public func firstPage(of collection: GeneratedSearchCard) async -> GeneratedSearchAssetPage {
+    if let cached = firstPages[collection.id] { return cached }
+    return (try? await client.assets(collectionID: collection.id))
       ?? GeneratedSearchAssetPage(results: [], total: 0)
+  }
+
+  /// The next page of a collection after `offset` rows, through the same
+  /// endpoint as the first so the order (newest first) stays consistent.
+  public func page(
+    of collectionID: String, offset: Int, limit: Int
+  ) async throws -> GeneratedSearchAssetPage {
+    try await client.assets(collectionID: collectionID, limit: limit, offset: offset)
   }
 }
