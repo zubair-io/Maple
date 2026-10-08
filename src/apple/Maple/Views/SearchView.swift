@@ -34,7 +34,9 @@
     /// Preview §1).
     var onSelectAsset: (SearchAsset) -> Void = { _ in }
 
-    @State private var isStale: Bool = false
+    /// True from a keystroke until its debounced submit lands — covers the
+    /// 250ms window before `viewModel.isLoading` takes over.
+    @State private var isDebouncing: Bool = false
     @State private var showFilters = false
     @AppStorage("cm.search.recent") private var recentJSON: String = "[]"
 
@@ -79,7 +81,8 @@
             SearchPhotoResultsSection(
               results: results,
               total: total,
-              isStale: isStale,
+              isLoading: isDebouncing || (viewModel?.isLoading ?? false),
+              failed: viewModel?.loadError != nil,
               hasQuery: true,
               query: query,
               onTap: { asset in
@@ -188,10 +191,10 @@
       debounceTask?.cancel()
       let trimmed = trimmedQuery
       guard !trimmed.isEmpty || filtersActive else {
-        isStale = false
+        isDebouncing = false
         return
       }
-      isStale = true
+      isDebouncing = true
       debounceTask = Task { [viewModel] in
         try? await Task.sleep(for: .milliseconds(250))
         if Task.isCancelled { return }
@@ -202,7 +205,10 @@
         // param set — unchanged; `submitIfChanged` skips the redundant
         // round-trip in that case.
         await viewModel?.submitIfChanged()
-        await MainActor.run { isStale = false }
+        // A newer keystroke cancelled this task and owns the flag now;
+        // clearing it here showed "No matches" while that search ran.
+        if Task.isCancelled { return }
+        await MainActor.run { isDebouncing = false }
       }
     }
   }

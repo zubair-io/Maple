@@ -194,8 +194,10 @@ public final class SearchViewModel {
     async let facetResp = searchClient.facets(requested)
     do {
       let resp = try await searchClient.search(requested, page: 0, limit: limit)
-      let facetsResult = try? await facetResp
-      guard g == generation else { return }
+      guard g == generation else {
+        _ = try? await facetResp
+        return
+      }
       pageCache[pageKey] = resp
       results = resp.results
       nextCursor = resp.nextCursor
@@ -205,6 +207,11 @@ public final class SearchViewModel {
       // instead would keep `canLoadMore` true and drop `loadMore()` back to
       // deep page-based SKIP pagination.
       total = resp.seekExhausted ? resp.results.count : resp.total
+      // Results publish before facets: the facet aggregation is the slower
+      // request and only feeds the filter panel, so it must not hold the grid.
+      isLoading = false
+      let facetsResult = try? await facetResp
+      guard g == generation else { return }
       if let facetsResult {
         facetCache[requested] = facetsResult
         facets = facetsResult
