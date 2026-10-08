@@ -11,7 +11,10 @@ test('adds the live month index over an existing library', async () => {
   );
   insertAsset(handle.db);
 
-  const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+  const result = await runMigrations(
+    handle.migrationDb,
+    ALL_MIGRATIONS.filter((migration) => migration.id <= '0019-assets-live-month'),
+  );
   const index = handle.db
     .query(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'assets_live_month'`)
     .get() as { sql: string } | null;
