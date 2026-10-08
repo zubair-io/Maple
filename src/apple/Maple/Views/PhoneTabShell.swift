@@ -385,6 +385,12 @@
       // iOS 26 floating tab bar that minimizes on scroll — the collapse
       // behaviour the Search screen used to fake with a custom pill.
       .tabBarMinimizeBehavior(.onScrollDown)
+      // iOS 27 only keeps a `.search`-role tab as the separate floating
+      // button when selecting it activates search. Without this the tab
+      // renders inline with a nav-bar search field, and the keyboard
+      // animation re-runs `setTabs` each frame until the watchdog kills
+      // the app.
+      .tabViewSearchActivation(.searchTabSelection)
       .tint(MapleTokens.primary)
       // Face chips in the info pane → prefill the Search tab and run it
       // (#2518). Overrides the AppShell-root (mac/iPad) `searchForText` for
