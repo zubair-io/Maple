@@ -21,7 +21,7 @@ fn native_texture_matches_present_and_reuses_dispatch() {
             ..Default::default()
         },
         capture: None,
-        curve: nonidentity_curve(),
+        curve: Some(nonidentity_curve()),
         lut: nonidentity_lut(9),
         wb_method: WbMethod::Cat16,
         film_lut: None,

@@ -154,10 +154,11 @@ pub fn develop_prefix_rgba_cancellable(
 /// entry `apply_auto_profile` shares a cache with — see #924 / #972) and flatten
 /// them into the `(profile_curve_flat, residual_lut_size, residual_lut_data)` shape
 /// [`build_full_chain_inputs`] consumes, plus the achieved Auto outcome (#4096):
-/// `Some(fitted)` for `Profile::Auto`, `None` otherwise. An absent curve stays
-/// empty so the chain omits the Auto curve pass (#4216) rather than crushing
-/// white through an identity curve. The fit is keyed on the RAW BYTES (not the
-/// model), so after the first call it is cache-served.
+/// `Some(fitted)` for `Profile::Auto`, `None` otherwise. An absent curve or LUT
+/// stays ABSENT (empty flat / size-0 LUT) so the chain omits that look pass
+/// (#4216), matching raw-core's `if let Some` skips; never substitute identity,
+/// whose curve knee crushes white 1.0 → 0.975. The fit is keyed on the RAW BYTES
+/// (not the model), so after the first call it is cache-served.
 pub fn fit_profile_artifacts_with_status(
     raw_img: &crate::image::RawImage,
     raw: &[u8],
@@ -176,15 +177,17 @@ pub fn fit_profile_artifacts_with_status(
         .unwrap_or((None, None)),
         _ => (None, None),
     };
-    let auto_fit = (model.profile == Profile::Auto).then_some(curve.is_some() || lut.is_some());
+    flatten_profile_artifacts(curve, lut, model.profile)
+}
+
+pub(crate) fn flatten_profile_artifacts(
+    curve: Option<auto_profile::curve::ProfileCurve>,
+    lut: Option<auto_profile::lut::ColorLut>,
+    profile: Profile,
+) -> (Vec<f32>, usize, Vec<f32>, Option<bool>) {
+    let auto_fit = (profile == Profile::Auto).then_some(curve.is_some() || lut.is_some());
     let profile_curve_flat = curve.map(|c| c.to_flat()).unwrap_or_default();
-    let (residual_lut_size, residual_lut_data) = match lut {
-        Some(l) => (l.size, l.data),
-        None => {
-            let id = auto_profile::lut::ColorLut::identity(auto_profile::DEFAULT_LUT_SIZE);
-            (id.size, id.data)
-        }
-    };
+    let (residual_lut_size, residual_lut_data) = lut.map_or((0, Vec::new()), |l| (l.size, l.data));
     (
         profile_curve_flat,
         residual_lut_size,
