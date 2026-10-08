@@ -60,8 +60,11 @@ use rayon::prelude::*;
 
 #[path = "nlm_accumulate.rs"]
 mod accumulate;
+#[path = "nlm_chroma.rs"]
+mod chroma;
 #[path = "nlm_tiled.rs"]
 mod tiled;
+pub(crate) use chroma::denoise_chroma_pair_cancellable;
 
 /// Fast exp(-x) lookup. The NLM weight is `exp(-d²/(h²·area))` where the
 /// argument is always ≥ 0. For x ≥ `FAST_EXP_RANGE` the weight is ≤ ~3.4e-4
@@ -203,43 +206,37 @@ pub fn denoise_plane_cancellable(
         return plane.to_vec();
     }
     let p = params.patch_radius;
-    let s = params.search_radius as isize;
     if p == 2 && noise_profile.is_none() && n >= 16384 {
         return tiled::denoise(plane, w, h, params, cancel);
     }
 
-    let use_dynamic = noise_profile.is_some();
-    let (s_coeff, o_coeff) = if use_dynamic {
-        get_noise_params(noise_profile, iso, is_chroma)
-    } else {
-        (0.0, 0.0)
-    };
+    let (local_s_plane, local_inv_norm_plane) =
+        chroma::prepare_scaling(n, params, l_plane, noise_profile, iso, is_chroma);
+    denoise_prepared(
+        plane,
+        w,
+        h,
+        params,
+        cancel,
+        &local_s_plane,
+        &local_inv_norm_plane,
+        noise_profile.is_some(),
+    )
+}
 
-    let mut local_s_plane = Vec::new();
-    let mut local_inv_norm_plane = Vec::new();
-    if use_dynamic {
-        let patch_area = ((2 * p + 1) * (2 * p + 1)) as f32;
-        local_s_plane = vec![0isize; n];
-        local_inv_norm_plane = vec![0.0f32; n];
-        local_s_plane
-            .par_iter_mut()
-            .zip(local_inv_norm_plane.par_iter_mut())
-            .zip(l_plane.par_iter())
-            .for_each(|((s_out, inv_norm_out), &l_val)| {
-                let local_l = l_val.clamp(0.0, 10.0);
-                let var = s_coeff * local_l + o_coeff;
-                let sigma = var.max(0.0).sqrt();
-                let scale = (sigma / 0.002366).clamp(0.1, 10.0);
-
-                let local_h = params.h * scale;
-                let local_h_sq = local_h * local_h;
-                *inv_norm_out = 1.0 / (local_h_sq * patch_area);
-
-                let local_s = (params.search_radius as f32 * scale).round() as isize;
-                *s_out = local_s.clamp(1, params.search_radius as isize);
-            });
-    }
-
+fn denoise_prepared(
+    plane: &[f32],
+    w: usize,
+    h: usize,
+    params: NlmParams,
+    cancel: CancelToken<'_>,
+    local_s_plane: &[isize],
+    local_inv_norm_plane: &[f32],
+    use_dynamic: bool,
+) -> Vec<f32> {
+    let n = w * h;
+    let p = params.patch_radius;
+    let s = params.search_radius as isize;
     // Persistent scratch — allocated once, reused across all shifts. (#1195
     // replaced the per-shift (w+1)×(h+1) f32 integral image with a FUSED
     // separable sliding box-sum: the horizontal sums are computed per strip into
@@ -274,8 +271,8 @@ pub fn denoise_plane_cancellable(
                 dx,
                 dy,
                 params,
-                &local_s_plane,
-                &local_inv_norm_plane,
+                local_s_plane,
+                local_inv_norm_plane,
                 use_dynamic,
                 &mut sqdiff,
                 &mut acc,
@@ -335,224 +332,7 @@ fn fallback_noise_params(iso: u32) -> (f32, f32) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn process_shift(
-    plane: &[f32],
-    w: usize,
-    h: usize,
-    p: usize,
-    dx: isize,
-    dy: isize,
-    params: NlmParams,
-    local_s_plane: &[isize],
-    local_inv_norm_plane: &[f32],
-    use_dynamic: bool,
-    sqdiff: &mut [f32],
-    acc: &mut [f32],
-    wsum: &mut [f32],
-    max_w: &mut [f32],
-) {
-    // 1) Build the squared-difference plane for this shift. Parallel
-    //    over rows. Rows where the shifted sample lands outside the
-    //    image are zeroed.
-    sqdiff
-        .par_chunks_mut(w)
-        .enumerate()
-        .for_each(|(y, out_row)| {
-            let ys = y as isize + dy;
-            if ys < 0 || ys >= h as isize {
-                for v in out_row.iter_mut() {
-                    *v = 0.0;
-                }
-                return;
-            }
-            let ys = ys as usize;
-            let src_row = &plane[y * w..(y + 1) * w];
-            let shift_row = &plane[ys * w..(ys + 1) * w];
-            // Clamp both bounds to `w`. When `|dx| >= w` (which can
-            // happen if `search_radius > w-1`) the naive formulas
-            // produce `xs_lo > w` or `xs_hi > w` and the zero-fill
-            // loops below index past the end of `out_row` — panic.
-            // Clamping turns over-wide shifts into a fully-zero
-            // sqdiff row, which the patch-fit guard later early-
-            // returns on, so the math is unchanged for valid shifts.
-            let (xs_lo, xs_hi) = if dx >= 0 {
-                (0usize, w.saturating_sub(dx as usize))
-            } else {
-                (((-dx) as usize).min(w), w)
-            };
-            // Out-of-bounds region: zero.
-            for x in 0..xs_lo {
-                out_row[x] = 0.0;
-            }
-            for x in xs_hi..w {
-                out_row[x] = 0.0;
-            }
-            for x in xs_lo..xs_hi {
-                let xs = (x as isize + dx) as usize;
-                let d = src_row[x] - shift_row[xs];
-                out_row[x] = d * d;
-            }
-        });
-
-    // 2) The horizontal box-sum (inner half of the separable patch sum) is FUSED
-    //    into the accumulate strips below — each strip computes the horizontal
-    //    sums for just its halo'd rows into a thread-local buffer, so the
-    //    full-frame `hsum` plane never round-trips through DRAM. See step 3.
-
-    // 3) Update accumulators over the valid pixel range. The patch around p must
-    //    fit AND the patch around p+(dx,dy) must fit. The patch-SSD is the
-    //    separable vertical sum of the horizontal box-sums:
-    //        ssd(x,y) = Σ_{oy=-p}^{p} hsum[(y+oy)*w + x]
-    //    i.e. Σ_oy (Σ_ox sqdiff). The vertical sum is itself a RUNNING WINDOW
-    //    down each column (`colsum[x] += hsum[(y+p)] − hsum[(y−p−1)]`), so each
-    //    horizontal-sum element is touched once per output row — contiguous,
-    //    cache-friendly reads, no (2p+1)× strided re-reads. The column window is
-    //    sequential, so we parallelise over STRIPS of consecutive output rows
-    //    (height chosen adaptively below); each strip seeds its own colsum
-    //    directly at its first row (a direct (2p+1)-row sum), which also
-    //    re-anchors vertical drift at every strip boundary.
-    let p_isz = p as isize;
-    let x_lo = p_isz.max(p_isz - dx);
-    let x_hi = (w as isize - 1 - p_isz).min(w as isize - 1 - dx - p_isz);
-    let y_lo = p_isz.max(p_isz - dy);
-    let y_hi = (h as isize - 1 - p_isz).min(h as isize - 1 - dy - p_isz);
-    if x_lo > x_hi || y_lo > y_hi {
-        return;
-    }
-    let x_lo = x_lo as usize;
-    let x_hi = x_hi as usize;
-    let y_lo = y_lo as usize;
-    let y_hi = y_hi as usize;
-
-    // Chunk acc/wsum/max_w into strips of consecutive output rows over
-    // [y_lo, y_hi] and process each strip as a FUSED separable box-sum: the
-    // horizontal sums for the strip's rows (plus the p-row halo above and below
-    // the vertical window needs) are computed into a small THREAD-LOCAL buffer,
-    // and the vertical running window slides down the strip out of that buffer.
-    // No full-frame horizontal-sum plane is therefore written to or read from
-    // DRAM — that is the bandwidth win over the integral image (which streamed
-    // its (w+1)×(h+1) prefix buffer twice). The horizontal sums live only in the
-    // per-thread `hloc` strip scratch, recycled across strips via `for_each_init`
-    // (one alloc per worker, not per strip), so the render loop adds no
-    // per-pixel/per-tick allocation.
-    //
-    // Fixed reseed boundaries make output independent of the Rayon pool size.
-    let vstrip = VSTRIP_ROWS;
-    let strip_len = vstrip * w;
-    // Thread-local horizontal-sum scratch: at most (VSTRIP_ROWS + 2p) rows ×
-    // w cols. Sized for the cap so it is allocated once per worker and reused.
-    let hloc_rows = VSTRIP_ROWS + 2 * p;
-
-    let acc_band = &mut acc[y_lo * w..(y_hi + 1) * w];
-    let wsum_band = &mut wsum[y_lo * w..(y_hi + 1) * w];
-    let max_w_band = &mut max_w[y_lo * w..(y_hi + 1) * w];
-    let x_last = w.saturating_sub(1 + p);
-
-    acc_band
-        .par_chunks_mut(strip_len)
-        .zip(wsum_band.par_chunks_mut(strip_len))
-        .zip(max_w_band.par_chunks_mut(strip_len))
-        .enumerate()
-        .for_each_init(
-            // One scratch buffer per worker thread, reused across its strips:
-            // (hloc horizontal-sum strip, colsum vertical-window row).
-            || (vec![0.0f32; hloc_rows * w], vec![0.0f32; w]),
-            |(hloc, colsum), (strip_idx, ((acc_strip, wsum_strip), max_w_strip))| {
-                let strip_y0 = y_lo + strip_idx * vstrip;
-                let rows_in_strip = acc_strip.len() / w;
-                // Halo: the vertical window over output rows [strip_y0, strip_last]
-                // reads horizontal sums for source rows [strip_y0-p, strip_last+p].
-                let strip_last = strip_y0 + rows_in_strip - 1;
-                let src_lo = strip_y0 - p;
-                let src_hi = strip_last + p;
-
-                // (a) Horizontal box-sum for the halo'd strip into `hloc`, indexed
-                //     by local row (src_row - src_lo). Sliding window + periodic
-                //     re-seed, exactly as the full-frame pass — but cache-resident.
-                if w > 2 * p {
-                    for src_y in src_lo..=src_hi {
-                        let li = src_y - src_lo;
-                        let src = &sqdiff[src_y * w..(src_y + 1) * w];
-                        let hrow = &mut hloc[li * w..(li + 1) * w];
-                        let mut s = 0.0f32;
-                        let mut next_reseed = p;
-                        for x in p..=x_last {
-                            if x == next_reseed {
-                                s = 0.0;
-                                for ox in (x - p)..=(x + p) {
-                                    s += src[ox];
-                                }
-                                next_reseed = x + RESEED_STRIDE;
-                            } else {
-                                s += src[x + p] - src[x - p - 1];
-                            }
-                            hrow[x] = s;
-                        }
-                    }
-                }
-
-                // (b) Vertical running window down the strip out of `hloc`. Seed
-                //     the column sum at the first output row (local rows [0, 2p]).
-                for (x, cs) in colsum.iter_mut().enumerate().take(x_hi + 1).skip(x_lo) {
-                    let mut s = 0.0f32;
-                    for oy in 0..=(2 * p) {
-                        s += hloc[oy * w + x];
-                    }
-                    *cs = s;
-                }
-                for r in 0..rows_in_strip {
-                    let y = strip_y0 + r;
-                    if r > 0 {
-                        // Slide one row: +bottom halo row, −top halo row. In local
-                        // (hloc) coords the bottom of the window for output row y is
-                        // local row (y + p - src_lo), the trailing is (y - p - 1 - src_lo).
-                        let bot = (y + p - src_lo) * w;
-                        let top = (y - p - 1 - src_lo) * w;
-                        for x in x_lo..=x_hi {
-                            colsum[x] += hloc[bot + x] - hloc[top + x];
-                        }
-                    }
-                    let sy = (y as isize + dy) as usize;
-                    let shift_row = &plane[sy * w..(sy + 1) * w];
-                    let acc_row = &mut acc_strip[r * w..(r + 1) * w];
-                    let wsum_row = &mut wsum_strip[r * w..(r + 1) * w];
-                    let max_w_row = &mut max_w_strip[r * w..(r + 1) * w];
-                    for x in x_lo..=x_hi {
-                        if !use_dynamic {
-                            // Classic constant-h NLM: no dynamic scaling, no pruning
-                            let ssd = colsum[x].max(0.0);
-                            let patch_area = ((2 * p + 1) * (2 * p + 1)) as f32;
-                            let inv_norm = 1.0 / (params.h * params.h * patch_area);
-                            let weight = fast_neg_exp(ssd * inv_norm);
-                            let sx = (x as isize + dx) as usize;
-                            acc_row[x] += weight * shift_row[sx];
-                            wsum_row[x] += weight;
-                            if weight > max_w_row[x] {
-                                max_w_row[x] = weight;
-                            }
-                        } else {
-                            // Dynamic variance-scaled NLM
-                            let idx = y * w + x;
-                            let local_s = local_s_plane[idx];
-
-                            if dx.abs() > local_s || dy.abs() > local_s {
-                                continue;
-                            }
-
-                            let ssd = colsum[x].max(0.0);
-                            let weight = fast_neg_exp(ssd * local_inv_norm_plane[idx]);
-                            let sx = (x as isize + dx) as usize;
-                            acc_row[x] += weight * shift_row[sx];
-                            wsum_row[x] += weight;
-                            if weight > max_w_row[x] {
-                                max_w_row[x] = weight;
-                            }
-                        }
-                    }
-                }
-            },
-        );
-}
+include!("nlm_shift.rs");
 
 // Tests live in the sibling `nlm_tests.rs` so this file stays under the
 // 600-LOC budget (#951 — the in-kernel cancellation proof pushed the inline

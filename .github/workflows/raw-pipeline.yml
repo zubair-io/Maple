@@ -30,6 +30,8 @@ on:
     branches: [main]
     paths:
       - 'src/raw-pipeline/**'
+      - 'tools/test_nlm_wasm_simd.py'
+      - 'tools/fixtures/nlm_simd_witness.rs'
       - 'test-fixtures/budgets.json'
       - 'test-fixtures/pano-budgets.json'
       - 'src/scripts/test_color_pipeline.sh'
@@ -72,6 +74,8 @@ on:
   pull_request:
     paths:
       - 'src/raw-pipeline/**'
+      - 'tools/test_nlm_wasm_simd.py'
+      - 'tools/fixtures/nlm_simd_witness.rs'
       - 'test-fixtures/budgets.json'
       - 'test-fixtures/pano-budgets.json'
       - 'src/scripts/test_color_pipeline.sh'
@@ -117,6 +121,22 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  wasm-nlm-simd:
+    name: WASM NLM SIMD scalar bit parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 tools/test_nlm_wasm_simd.py
+
   # Cheap, unconditional compile gate for the Apple FFI crate. This does NOT
   # need fixtures or the color harness — it exists to catch the "raw-ffi
   # doesn't compile against raw-core" failure class (e.g. an unresolved

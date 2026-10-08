@@ -159,6 +159,38 @@ Twelve IndexedDB databases go through one hand-rolled helper (`util/idb.ts`) tha
 | `maple-lens-profiles` (#3479)              | `profiles`            | BLAKE3 digest of the `.lcp`     | LCP XML text             | Nothing — content-addressed; the core re-verifies the digest on every restore |
 | `maple-subject-masks` (#3300)              | `rasters-by-digest`   | recipe digest (FNV-1a 64)       | subject-mask PNG bytes   | Nothing — content-addressed; a corrupt PNG falls through to the server fetch  |
 
+### Resident CPU editor preview (#4352 / #4112)
+
+The Web worker retains one immutable RAW source and decoded `RawImage` for sized
+CPU requests. The service source token is scoped to the worker and the editor's
+immutable byte-array identity; its existing serialized decode chain fences reuse
+behind the open reply. Failed requests, new sources, worker retirement, non-RAW
+opens and GPU session opens clear that custody, as does every request that decodes
+its own RAW copy (export, native detail, the WB/mask samplers, the Auto probe and
+lens-profile requests), so no full-resolution develop shares the wasm32 heap with
+the retained source. A GPU open is not queued behind CPU work; sized decodes queued
+before it render once without retaining. No original bytes are transferred again
+for a tick on the same source.
+
+`CpuPreview` retains the existing sized scene **after vignette and before global
+sharpening, luminance NR and colour NR**. Its key is the complete adjustment model
+with only those three global amounts removed, plus requested quality, viewport
+cap, Film LUT contents and source identity. All upstream edits, local masks and
+resolved rasters therefore invalidate the prefix, and so does any lens-profile
+registration or cache clear in the worker. The retained image carries the
+original AE/Whites anchors, colour-space tag and sampling density. Ticks restore
+the reusable scene buffer, execute the unchanged three kernels and canonical
+Film/Auto/display/dither/geometry tail. Output and existing kernel scratch buffers
+still have their ordinary costs; retaining two scene buffers is not a claim that
+the whole tick allocates nothing.
+
+The fast phase retains its Preview-density prefix. Refine uses the same decoded
+RAW through the canonical AMaZE sized renderer and does not replace the warm fast
+prefix. An invalid prefix is released before rebuilding, so old and replacement
+full develops do not coexist. The existing CPU sensor/viewport memory clamp still
+applies; native allocator witnesses alone do not establish browser heap capacity
+or the 16/50 ms input-to-publication gates.
+
 In memory (`state/library-cache.service.ts`, `state/lru-cache.ts`):
 
 | Cache                      | Bound                                         | Notes                                                                                                                                                       |
@@ -174,7 +206,7 @@ In Hosted mode the browser writes into the same `.maple/previews/` folder throug
 
 Thumbnail loading is additionally gated at **4 concurrent loads** (`state/library-cache.thumb-queue.ts`, `components/timeline-view/timeline-thumb-loader.ts`).
 
-The render worker (`raw-pipeline/raw-pipeline.worker.ts`) holds **no decode cache** — every request is one-shot decode-post-free. What it does retain is a single live GPU session (`raw-pipeline/raw-pipeline.session-handler.ts`): one image open at a time, opening a new one replaces the resident session, and operations are serialized through a chain because the wasm-bindgen `&mut self` borrow spans a whole render promise.
+Apart from the retained CPU editor source described above, the render worker (`raw-pipeline/raw-pipeline.worker.ts`) holds **no decode cache** — every other request is one-shot decode-post-free. It also retains a single live GPU session (`raw-pipeline/raw-pipeline.session-handler.ts`): one image open at a time, opening a new one replaces the resident session, and operations are serialized through a chain because the wasm-bindgen `&mut self` borrow spans a whole render promise.
 
 The tile path's per-render overlap pad and its frame window (`raw-core/src/pipeline/tile/overlap.rs`, `region::TileWindow`, #1157) are computed from the model and the rect on every call and hold no state: they add no cache, and they do not change what the `NativeDetailRenderer` handle keys on — a patch for the same `(asset, source mtime, stripped baked model)` still renders from the same inputs, just with a pad sized to the model's engaged stages.
 

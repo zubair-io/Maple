@@ -26,6 +26,6 @@
 #   inside this ceiling; re-derive its constants with the
 #   `raw-core mem-probe` example when the stage set changes.
 rustflags = [
-    "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals",
+    "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals,+simd128",
     "-C", "link-arg=--max-memory=4294967296",
 ]

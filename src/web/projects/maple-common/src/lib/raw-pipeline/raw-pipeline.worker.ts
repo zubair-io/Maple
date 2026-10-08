@@ -1,3 +1,4 @@
+import { releaseRetainedCpuBefore, renderRetainedCpu } from './raw-pipeline.cpu-handler';
 import { cameraSupportFromJson } from '../state/camera-support';
 import { lensProfileFromJson } from '../lens/lens-profile.metadata';
 /// <reference lib="webworker" />
@@ -86,15 +87,11 @@ import {
 // import cycle back through this file (file-size budget, #2683).
 void ensureReady();
 
-// This dispatch switch's cyclomatic complexity scales with the number of
-// request kinds the worker handles — it was already at 9 branches on
-// `main` before #3039 added the 10th (`develop-non-raw`, a single case
-// following the exact same one-line-per-kind shape as every other arm).
-// Splitting the dispatch itself out of proportion to the actual branching
-// it does is not a win; flagged as complexity, not fixed here.
+// One case per request kind; the dispatch's complexity is the kind count.
 // fallow-ignore-next-line complexity
 addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
+  releaseRetainedCpuBefore(req);
   // Imported lens profiles (#3479): the import handshake, the main thread's
   // fetch acknowledgement, and — for every request that carries a sidecar —
   // registering the profile it names BEFORE the render that needs it.
@@ -404,7 +401,10 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
     // outer `catch` and mislabel a successful decode as a `decode-error`.
     const wasmStartMark = `maple:wasm:${req.id}:start`;
     markStart(wasmStartMark);
-    const result = await decodeViaPlan(plan, bytes, req);
+    const result =
+      req.cpuSourceToken !== undefined
+        ? renderRetainedCpu(req, plan.filmLutBytes)
+        : await decodeViaPlan(plan, bytes, req);
     markEnd(wasmStartMark, `maple:wasm:${req.id}:end`, plan.markTag);
     postLegacyDecodeSuccess(req, result);
   } catch (e) {

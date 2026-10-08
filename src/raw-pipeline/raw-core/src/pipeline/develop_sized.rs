@@ -20,9 +20,9 @@ use crate::{
     linearize,
     stages::{
         auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, defringe, dehaze,
-        highlight_recovery, highlight_recovery_oklab, hot_pixel, hsl, local_adjustments,
-        noise_reduction, retouch, saturation, scene_tone_controls, sharpen, texture, tone_curves,
-        vibrance, vignette, wb_camera, white_balance,
+        highlight_recovery, highlight_recovery_oklab, hot_pixel, hsl, local_adjustments, retouch,
+        saturation, scene_tone_controls, texture, tone_curves, vibrance, vignette, wb_camera,
+        white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -121,6 +121,20 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_with_gain(
 /// decode, so this is the entry that must export the gain for tile-develop
 /// parity to hold on the interactive path, not just the cold full-res open.
 pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+    cancel: CancelToken<'_>,
+) -> Result<(crate::image::Image, f32)> {
+    let (mut scene, ae_gain) = develop_sized_prefix(raw, model, quality, max_long_edge, cancel)?;
+    super::sized_detail::apply(&mut scene, raw, model, cancel)?;
+    Ok((scene, ae_gain))
+}
+
+/// Exact sized develop up to the immutable pre-detail scene. Both consumers
+/// preserve native clipping/crop/WB/AE/density before any preview detail work.
+pub(super) fn develop_sized_prefix(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
@@ -453,48 +467,5 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
         vignette::apply(&mut scene, model.vignette_amount, model.vignette_feather)
     });
     dump_after("12c_vignette", &scene);
-    stage("sized_sharpen", || {
-        let radius = sharpen::radius_at_scale(model.sharpen_radius, scene.nr_sampling_scale);
-        sharpen::apply_cancellable(
-            &mut scene,
-            model.sharpen_amount,
-            radius,
-            model.sharpen_detail,
-            model.sharpen_masking,
-            cancel,
-        )
-    });
-    dump_after("13_sharpen", &scene);
-    if cancel.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
-    stage("sized_nr_luminance", || {
-        noise_reduction::apply_luminance_cancellable(
-            &mut scene,
-            model.nr_luminance,
-            cancel,
-            raw.noise_profile.as_deref(),
-            raw.iso,
-        )
-    });
-    dump_after("14_nr_luminance", &scene);
-    if cancel.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
-    let nr_sampling_scale = scene.nr_sampling_scale;
-    stage("sized_nr_color", || {
-        noise_reduction::apply_color_sampled_cancellable(
-            &mut scene,
-            model.nr_color,
-            cancel,
-            raw.noise_profile.as_deref(),
-            raw.iso,
-            nr_sampling_scale,
-        )
-    });
-    dump_after("15_nr_color", &scene);
-    if cancel.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
     Ok((scene, ae_gain))
 }
