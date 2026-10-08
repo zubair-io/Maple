@@ -13,6 +13,7 @@ import { MaskSessionService } from '../mask-overlay/mask-session.service';
 /** Branch selection shares the existing RAW/live session and invalidates late render publications. */
 export class ImageCanvasAdjustmentEffect {
   private selection: WorkflowVariantSelection | null = null;
+  private brushRasters: number | null = null;
   private readonly previews = new ImageCanvasVariantPreviews();
   constructor(
     private readonly host: ImageCanvasComponent,
@@ -22,9 +23,10 @@ export class ImageCanvasAdjustmentEffect {
   wire(injector: Injector): () => void {
     // The root mask session owns the effect that re-registers a loaded sidecar's brush
     // rasters (#360); it must exist for every render, not only once the mask tool is armed.
-    injector.get(MaskSessionService);
+    const masks = injector.get(MaskSessionService);
     const reactive = effect(
       () => {
+        const brushRasters = masks.brush.rasterRevision();
         const host = this.host;
         const asset = host.state.focusedAsset();
         if (!asset) {
@@ -44,7 +46,9 @@ export class ImageCanvasAdjustmentEffect {
           return;
         }
         this.syncFilm(asset, model);
-        if (xmp === host.lastRenderedXmp) return;
+        const rastersLanded = this.brushRasters !== null && brushRasters !== this.brushRasters;
+        this.brushRasters = brushRasters;
+        if (xmp === host.lastRenderedXmp && !rastersLanded) return;
         if (changed && !host.gpuPresent.active())
           this.restorePreview(previous!, selection, asset.id, xmp);
         host.scheduleRerender(xmp);
@@ -58,6 +62,7 @@ export class ImageCanvasAdjustmentEffect {
   }
   reset(): void {
     this.selection = null;
+    this.brushRasters = null;
     this.previews.clear();
   }
 
