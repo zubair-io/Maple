@@ -522,16 +522,21 @@ it replaced, and `search.query-plan.text.test.ts` pins the plan.
 
 A text search's facets (#4431) count every match only while there are at most
 `FACET_TOP_MATCHES` (2,000) of them. Past that they count the first 2,000 rows
-of the result order instead: one statement ranks the matches on `assets_fts`
-alone and keeps the best 4,000, only those are joined to `asset_search` and
-`assets` for liveness, visibility and every filter, and the twelve groupings
-run over the survivors' `assets.rowid`s. The response's `total` stays exact —
-for a text-only search it is the full-text match count less the matches among
-`assets_unlisted` (trashed, without a live file, or hidden; migration
-`0020-assets-unlisted`) — and `scope` says which matches the buckets describe.
-Answers are cached per translated query for 30 s. `search.facets.top.test.ts`
-holds the counts to the list's first rows and `search.query-plan.top.test.ts`
-pins the plans.
+of the result order instead. One statement (`firstRankedSql`) ranks the matches
+on `assets_fts` alone in a materialised CTE, keeps the best 4,000, probes only
+those by key through `asset_search` and `assets_live_id` for liveness,
+visibility and every filter, and reads a capture date only for rows tying the
+2,000th score. The facet columns of those rows are then read once — `assets` by
+rowid, and `asset_locations`, `asset_detail`, `asset_subjects` and `faces` by
+asset id — and the buckets are counted in TypeScript with the same semantics as
+the per-facet statements, which still serve every search without text. The
+response's `total` stays exact — for a text-only search it is the full-text
+match count less the matches among `assets_unlisted` (trashed, without a live
+file, or hidden; migration `0020-assets-unlisted`) — and `scope` says which
+matches the buckets describe. Answers are cached per translated query for 30 s.
+`search.facets.top.test.ts` holds the rows and every bucket to the list's first
+rows and the per-facet statements, and `search.query-plan.top.test.ts` pins the
+plans.
 
 The translation answers one of three things, and the third is the one that is
 easy to get wrong. A blank query carries no text filter. A query with terms

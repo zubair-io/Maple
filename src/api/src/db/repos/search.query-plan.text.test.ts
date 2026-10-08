@@ -18,7 +18,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { createTestDatabase } from '../sqlite/test-sqlite.test-helpers.ts';
-import { facetCandidatesSql, facetStatements, scopedToCandidates } from './search.facets.sql.ts';
+import { facetStatements } from './search.facets.sql.ts';
 import { countSql, pageSql, type BoundStatement } from './search.sql.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
 import { seedSearchLibrary } from './search.test-helpers.ts';
@@ -42,7 +42,6 @@ function textStatements(where: SearchWhere): Array<[string, BoundStatement]> {
   return [
     ['page', pageSql(where, 'captured_desc', 30, 0)],
     ['count', countSql(where)],
-    ['facet candidates', facetCandidatesSql(where)],
     ...Object.entries(facetStatements(where)).map(([name, statement]): [string, BoundStatement] => [
       `facet ${name}`,
       statement,
@@ -119,25 +118,6 @@ describe('a month narrows the inverted index before any join', () => {
       expect(plan).toContain(
         'assets USING INDEX assets_live_month (captured_month=? AND hidden=?)',
       );
-    });
-  });
-});
-
-describe('facets scoped to a candidate set probe assets by rowid', () => {
-  test('every grouping, the subjects and people facets included', async () => {
-    await withDb((db) => {
-      const where = scopedToCandidates(translate({ placeQuery: 'harbour', month: '6' }), [1, 2]);
-      for (const [name, statement] of Object.entries(facetStatements(where))) {
-        const plan = planOf(db, statement);
-        expect({ name, first: plan[0] }).toEqual({
-          name,
-          first: 'SEARCH assets USING INTEGER PRIMARY KEY (rowid=?)',
-        });
-        expect({ name, fts: plan.some((line) => line.includes('assets_fts')) }).toEqual({
-          name,
-          fts: false,
-        });
-      }
     });
   });
 });

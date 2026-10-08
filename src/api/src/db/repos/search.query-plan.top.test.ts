@@ -9,7 +9,9 @@
  *    narrowing aside, which is a list built once), and only those are joined,
  *    probing `asset_search` and `assets` by key;
  *  - the exact total reads the inverted index and the `assets_unlisted` index,
- *    never an asset per match.
+ *    never an asset per match;
+ *  - the facet columns of those results are read once, by key: `assets` by
+ *    rowid and each side table by asset id, never by walking a table.
  *
  * None may contain `0:=`, the per-row FTS5 rowid probe that re-runs the whole
  * `MATCH` (see `search.query-plan.text.test.ts`).
@@ -19,6 +21,7 @@ import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { createTestDatabase } from '../sqlite/test-sqlite.test-helpers.ts';
 import { firstRankedSql } from './search.ranked.ts';
+import { assetFacetRowsSql, sideFacetRowsSql } from './search.facets.top.ts';
 import type { BoundStatement } from './search.sql.ts';
 import { textOnlyCountSql } from './search.text-count.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
@@ -106,6 +109,37 @@ describe('the exact total reads no asset per match', () => {
       );
       expect(plan.some((line) => line.includes('assets_live_id'))).toBe(false);
       expect(plan.filter((line) => line.includes('0:='))).toEqual([]);
+    });
+  });
+});
+
+describe('the facet columns of the first results are read by key', () => {
+  test('assets by rowid, each side table by asset id', async () => {
+    await withDb((db) => {
+      const assets = [{ r: 1, id: '0123456789abcdef01234567' }];
+      const reads: Array<[string, BoundStatement]> = [
+        ['assets', assetFacetRowsSql(assets)],
+        ...Object.entries(sideFacetRowsSql(assets)),
+      ];
+      const leads = reads.map(([name, statement]) => [name, planOf(db, statement)[0]]);
+      expect(leads).toEqual([
+        ['assets', 'SEARCH assets USING INTEGER PRIMARY KEY (rowid=?)'],
+        [
+          'extensions',
+          'SEARCH l USING INDEX sqlite_autoindex_asset_locations_1 (asset_id=? AND ordinal=?)',
+        ],
+        ['details', 'SEARCH d USING INDEX sqlite_autoindex_asset_detail_1 (asset_id=?)'],
+        [
+          'subjects',
+          'SEARCH s USING COVERING INDEX sqlite_autoindex_asset_subjects_1 (asset_id=?)',
+        ],
+        ['people', 'SEARCH f USING INDEX sqlite_autoindex_faces_1 (asset_id=?)'],
+      ]);
+      for (const [, statement] of reads) {
+        expect(
+          planOf(db, statement).filter((line) => /^SCAN (assets|l|d|s|f)\b/.test(line)),
+        ).toEqual([]);
+      }
     });
   });
 });

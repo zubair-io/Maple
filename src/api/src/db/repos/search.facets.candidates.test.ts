@@ -1,17 +1,20 @@
 /**
- * A text search's facets group a candidate set resolved once (#4413), and must
- * answer exactly what the per-facet full-text join answered before.
+ * A text search's facets — the first results of its list, read once and
+ * counted in TypeScript (#4413, #4431) — must answer exactly what the
+ * per-facet full-text join answers whenever those results are every match.
  *
- * The comparison runs both shapes against the fixture library for each facet,
- * rather than restating expected buckets: the per-facet statements are what
- * every other facet test already pins, so agreeing with them row for row is the
- * property that matters.
+ * The comparison runs both against the fixture library for each facet, rather
+ * than restating expected buckets: the per-facet statements are what every
+ * other facet test already pins, and they still serve every search without
+ * text, so agreeing with them row for row is the property that matters.
  */
 
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { createTestDatabase, testSqliteDb } from '../sqlite/test-sqlite.test-helpers.ts';
-import { facetCandidatesSql, facetStatements, scopedToCandidates } from './search.facets.sql.ts';
+import { facetStatements } from './search.facets.sql.ts';
+import { facetRowsOf } from './search.facets.top.ts';
+import { firstRanked } from './search.ranked.ts';
 import { countSql } from './search.sql.ts';
 import { searchFacets } from './search.facets.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
@@ -25,10 +28,13 @@ function where(q: SearchQuery, excluded: readonly string[] = []): SearchWhere {
   return built;
 }
 
-/** A statement's rows in a stable order, so a tie in `ORDER BY count` cannot flake. */
+/** Rows as sorted, key-ordered JSON, so neither column nor tie order can flake. */
+function canonical(rows: readonly object[]): string[] {
+  return rows.map((row) => JSON.stringify(Object.fromEntries(Object.entries(row).sort()))).sort();
+}
+
 function rowsOf(db: Database, statement: { sql: string; params: unknown[] }): string[] {
-  const rows = db.query(statement.sql).all(...(statement.params as never[]));
-  return rows.map((row) => JSON.stringify(row)).sort();
+  return canonical(db.query(statement.sql).all(...(statement.params as never[])) as object[]);
 }
 
 const TEXT_QUERIES: SearchQuery[] = [
@@ -43,23 +49,19 @@ const TEXT_QUERIES: SearchQuery[] = [
   { placeQuery: 'zzzznomatch' },
 ];
 
-describe('facets over a candidate set', () => {
+describe('text facets over the first results', () => {
   for (const q of TEXT_QUERIES) {
     test(`every facet agrees with the per-facet join for ${JSON.stringify(q)}`, async () => {
       using handle = await createTestDatabase();
       seedSearchLibrary(handle.db);
       const built = where(q);
-      const candidates = facetCandidatesSql(built);
-      const rowids = (
-        handle.db.query(candidates.sql).all(...(candidates.params as never[])) as Array<{
-          r: number;
-        }>
-      ).map((row) => row.r);
+      const db = testSqliteDb(handle.db);
+      const ranked = await firstRanked(db, built, 10_000);
+      const counted = await facetRowsOf(db, ranked);
 
       const direct = facetStatements(built);
-      const scoped = facetStatements(scopedToCandidates(built, rowids));
-      for (const name of Object.keys(direct) as Array<keyof typeof direct>) {
-        expect({ name, rows: rowsOf(handle.db, scoped[name]) }).toEqual({
+      for (const name of Object.keys(counted) as Array<keyof typeof counted>) {
+        expect({ name, rows: canonical(counted[name]) }).toEqual({
           name,
           rows: rowsOf(handle.db, direct[name]),
         });
@@ -67,11 +69,11 @@ describe('facets over a candidate set', () => {
       const count = handle.db
         .query(countSql(built).sql)
         .get(...(countSql(built).params as never[]));
-      expect(rowids.length).toBe((count as { n: number }).n);
+      expect(ranked.length).toBe((count as { n: number }).n);
     });
   }
 
-  test('an excluded person stays excluded through the candidate set', async () => {
+  test('an excluded person stays excluded', async () => {
     using handle = await createTestDatabase();
     const library = seedSearchLibrary(handle.db);
     const db = testSqliteDb(handle.db);
@@ -83,7 +85,7 @@ describe('facets over a candidate set', () => {
     expect(result.people).toEqual([]);
   });
 
-  test('a text query evaluates its MATCH for the total and the candidates, not per facet', async () => {
+  test('a text query reads the inverted index twice and each table once', async () => {
     using handle = await createTestDatabase();
     seedSearchLibrary(handle.db);
     const inner = testSqliteDb(handle.db);
@@ -99,8 +101,8 @@ describe('facets over a candidate set', () => {
     const result = await searchFacets(where({ placeQuery: 'new york' }), recording);
     expect(result.total).toBe(3);
     // The exact total and the ranking of the first results read the inverted
-    // index (#4431); the twelve groupings do not.
+    // index (#4431); then one read of `assets` and one per side table.
     expect(issued.filter((sql) => sql.includes('MATCH')).length).toBe(2);
-    expect(issued.length).toBe(14);
+    expect(issued.length).toBe(7);
   });
 });
