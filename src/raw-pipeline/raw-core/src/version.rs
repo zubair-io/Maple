@@ -120,7 +120,9 @@
 /// - 13 — GPU tails omit absent Auto curve and residual-LUT passes instead of
 ///   running identity substitutes (PR #4193); Neutral/unavailable Auto now
 ///   match the CPU absent-artifact tail.
-pub const PIPELINE_OUTPUT_VERSION: u32 = 13;
+/// - 14 — sharpening darkening above the amount-40 attenuation continues as a
+///   positive inverse gain instead of driving positive light to zero (#4112).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 14;
 
 #[cfg(test)]
 mod tests {
