@@ -73,6 +73,22 @@ test('original and exact XMP bytes mirror to one current remote path without the
   expect((await readRemoteCatalog(provider)).entries).toHaveLength(1);
   expect(await fs.readFile(path.join(root, 'photo.dng'), 'utf8')).toBe('immutable original');
 });
+test('outgoing entry cleanup preserves a mirror path that another entry has claimed', async () => {
+  using live = await createLiveTestDatabase();
+  const { assetId, destination, repo, provider, engine } = await setup(live);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  const firstManifest = latestManifests((await readRemoteCatalog(provider)).entries)[0]!;
+  const firstObject = firstManifest.files.find((file) => file.role === 'original')!.object;
+  const otherEntryId = crypto.randomUUID();
+  await repo.saveObject(destination.id, otherEntryId, firstObject.key, firstObject, null);
+
+  run(live.db, 'UPDATE asset_locations SET filename=? WHERE asset_id=?', 'renamed.dng', assetId);
+  await fs.rename(path.join(root, 'photo.dng'), path.join(root, 'renamed.dng'));
+  run(live.db, 'UPDATE assets SET sidecar_ver=sidecar_ver+1 WHERE id=?', assetId);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  expect(provider.objects.has(firstObject.key)).toBe(true);
+  expect((await repo.objectOwner(destination.id, firstObject.key))?.entryId).toBe(otherEntryId);
+});
 test('a disconnected target retries independently while healthy targets publish', async () => {
   using live = await createLiveTestDatabase();
   const setupResult = await setup(live);

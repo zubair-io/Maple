@@ -34,6 +34,14 @@ function validKey(key: string) {
     throw new Error('Invalid backup logical key.');
   }
 }
+function listingFolderParts(prefix: string): string[] {
+  if (!prefix) return [];
+  const mappedPath = prefix.startsWith('mirror/')
+    ? prefix.split('/').slice(2).join('/')
+    : `.maple-backup/${prefix}`;
+  const pathParts = mappedPath.split('/').filter(Boolean);
+  return prefix.endsWith('/') ? pathParts : pathParts.slice(0, -1);
+}
 
 export class GoogleDriveProvider implements BackupProvider {
   readonly client: DriveClient;
@@ -188,7 +196,9 @@ export class GoogleDriveProvider implements BackupProvider {
   }
   async *list(prefix: string, signal?: AbortSignal): AsyncIterable<BackupObject> {
     await this.probe(signal);
-    const queue = [this.rootId];
+    const startFolder = await this.findFolders(listingFolderParts(prefix), signal);
+    if (!startFolder) return;
+    const queue = [startFolder];
     const visited = new Set<string>();
     while (queue.length) {
       const parents = queue.splice(0, 8);

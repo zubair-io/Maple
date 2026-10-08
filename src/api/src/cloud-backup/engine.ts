@@ -64,6 +64,36 @@ function snapshotHash(location: InventoryLocation, files: CapturedFiles): string
     files: files.map((file) => [file.path, file.role, file.source.sha256, file.source.size]),
   }).sha256;
 }
+function sameObjectIdentity(
+  object: BackupObject | null | undefined,
+  expected: BackupObject,
+): boolean {
+  return Boolean(
+    object &&
+    object.key === expected.key &&
+    object.locator === expected.locator &&
+    object.sha256 === expected.sha256 &&
+    object.size === expected.size,
+  );
+}
+async function removeStaleMirrorFile(
+  provider: BackupProvider,
+  repo: BackupRepository,
+  destination: BackupDestination,
+  entry: BackupEntry,
+  expected: BackupObject,
+  signal: AbortSignal,
+): Promise<void> {
+  if (!expected.key.startsWith(`mirror/${destination.libraryId}/`)) return;
+  const owner = await repo.objectOwner(destination.id, expected.key);
+  if (owner?.entryId !== entry.id || !sameObjectIdentity(owner.object, expected)) return;
+  const current = await provider.inspect(expected.key, signal, expected.locator);
+  if (!sameObjectIdentity(current, expected)) return;
+  const stillOwned = await repo.objectOwner(destination.id, expected.key);
+  if (stillOwned?.entryId !== entry.id || !sameObjectIdentity(stillOwned.object, expected)) return;
+  await provider.remove(current!, signal);
+  await repo.forgetObject(destination.id, current!.key, current!.locator);
+}
 export class BackupEngine {
   constructor(
     readonly provider: ProviderFactory,
@@ -237,13 +267,8 @@ export class BackupEngine {
     const previous = entry.manifest ? (JSON.parse(entry.manifest) as BackupManifest) : null;
     const retainedKeys = new Set(files.map((file) => file.object.key));
     for (const oldFile of previous?.files ?? []) {
-      if (!oldFile.object.key.startsWith(`mirror/${destination.libraryId}/`)) continue;
       if (retainedKeys.has(oldFile.object.key)) continue;
-      const current = await provider.inspect(oldFile.object.key, signal, oldFile.object.locator);
-      if (current) {
-        await provider.remove(current, signal);
-        await repo.forgetObject(destination.id, current.key, current.locator);
-      }
+      await removeStaleMirrorFile(provider, repo, destination, entry, oldFile.object, signal);
     }
     await this.assertFence(ctx, 'Backup changed during catalog publication');
     return repo.finish(entry, destination, ctx.owner, manifest);
