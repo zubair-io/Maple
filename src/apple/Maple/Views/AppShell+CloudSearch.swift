@@ -116,6 +116,8 @@ extension AppShell {
   /// Everything the iPhone Search tab needs: an account-wide SearchViewModel
   /// plus a thumb client/cache, all sharing one AuthenticatedHTTPClient.
   struct PhoneSearchSession {
+    /// The `phoneSearchSessionKey` this session was built for.
+    let key: String
     let server: URL
     let vm: SearchViewModel
     let thumbClient: CloudThumbClient
@@ -135,10 +137,14 @@ extension AppShell {
       return CloudServerRegistry.shared.servers.first
     }
 
-    /// Stable identity for the resolved server. Drives the Search tab's
-    /// `.task(id:)` so the session rebuilds when the active account changes
-    /// (open a cloud library, sign in). nil → empty state.
-    var phoneSearchServerKey: String? { resolveSearchServerURL()?.absoluteString }
+    /// Stable identity for the Search tab's session: the resolved server plus
+    /// the library its generated-search cards belong to. Drives the tab's
+    /// `.task(id:)` so the session rebuilds when the account or the selected
+    /// library changes. nil → empty state.
+    var phoneSearchSessionKey: String? {
+      guard let server = resolveSearchServerURL() else { return nil }
+      return "\(server.absoluteString)|\(selectedGeneratedSearchLibraryID(server: server) ?? "")"
+    }
 
     /// Build an account-wide (no libraryID) search session for the resolved
     /// server. Bootstraps the auth session first (cold-start keychain
@@ -161,6 +167,7 @@ extension AppShell {
         server: serverID,
         folders: CloudFoldersClient(server: effectiveServer, httpClient: httpClient))
       return PhoneSearchSession(
+        key: phoneSearchSessionKey ?? serverID.absoluteString,
         server: serverID,
         vm: vm,
         thumbClient: CloudThumbClient(server: effectiveServer, httpClient: httpClient),
@@ -178,13 +185,18 @@ extension AppShell {
     private func resolveGeneratedSearchLibraryID(
       server: URL, folders: CloudFoldersClient
     ) async -> String? {
+      if let selected = selectedGeneratedSearchLibraryID(server: server) { return selected }
+      return try? await folders.listFolders().first?.id
+    }
+
+    /// The library the user has chosen on `server`, if any — the part of the
+    /// resolution that can change without a server switch, so it is also
+    /// part of `phoneSearchSessionKey`.
+    private func selectedGeneratedSearchLibraryID(server: URL) -> String? {
       if case .cloudLibrary(let openServer, let folderID) = librarySelection, openServer == server {
         return folderID
       }
-      if let selected = CloudServerRegistry.shared.selectedLibraryID(for: server) {
-        return selected
-      }
-      return try? await folders.listFolders().first?.id
+      return CloudServerRegistry.shared.selectedLibraryID(for: server)
     }
   }
 #endif
