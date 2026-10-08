@@ -330,8 +330,10 @@ export class ControlCardComponent {
   onSliderDragEnd(tool: ToolId): void {
     const assetId = this.dragAssetId;
     this.activeGestures.delete(tool);
-    if (this.activeGestures.size === 0) this.dragAssetId = null;
-    this.editorState.endGesture();
+    if (this.activeGestures.size === 0) {
+      this.dragAssetId = null;
+      this.editorState.endGesture();
+    }
     if (tool !== 'noise') return;
     const pendingNoisePanel = this.pendingNoisePanel;
     this.pendingNoisePanel = false;
