@@ -62,7 +62,7 @@ export interface MaskGroupTemplate {
 
 /**
  * Unknown attributes and nested elements from a source sidecar that Maple
- * does not model (`crs:DepthBasedCorrections`, `xmpMM:History`, etc. —
+ * does not model (`crs:PaintBasedCorrections`, `xmpMM:History`, etc. —
  * with opaque group corrections kept separately, #3423).
  * Preserved verbatim on writes so Lightroom round-trips are non-destructive.
  */

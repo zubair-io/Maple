@@ -249,6 +249,8 @@ fn develop_tile_with_frame(
         out_h,
     } = rect;
     guards::reject_untileable(raw, model, rect)?;
+    let (frame_w, frame_h) = crate::pipeline::native_render_dims(raw);
+    let model = &*crate::types::with_brush_rasters(model, frame_w, frame_h);
     // (src_x, src_y, src_w, src_h) are in DISPLAY-oriented source coords —
     // that's what callers (Apple NativeDetailRenderer, maple-cli `tile`
     // subcommand) know about. Translate to sensor coords before cropping

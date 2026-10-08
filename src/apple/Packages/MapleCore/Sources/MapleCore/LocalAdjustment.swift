@@ -185,7 +185,7 @@ public struct BrushDab: Codable, Sendable, Equatable, Hashable {
 ///   range refinement then narrows.
 /// - `brush`: a painted dab series (#360) — `dabs` is the authored content
 ///   (the lossless form that round-trips through
-///   `crs:PaintBasedCorrections`), `rasterId` the derived bitmap the render
+///   `papp:BrushCorrections`), `rasterId` the derived bitmap the render
 ///   samples, `digest` the content hash that re-attaches them after a
 ///   re-parse.
 public enum LocalMask: Codable, Sendable, Equatable, Hashable {

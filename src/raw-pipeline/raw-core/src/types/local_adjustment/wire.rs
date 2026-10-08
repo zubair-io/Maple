@@ -137,7 +137,7 @@ fn mask_to_json(m: &Mask) -> Value {
         // Brush (#360) postdates this migration-only wire, as do
         // Bitmap/Everywhere/Group — and the reader has no arm for it (skipped
         // by kind above), so this arm exists only so the match stays
-        // exhaustive. Canonical persistence is `crs:PaintBasedCorrections`.
+        // exhaustive. Canonical persistence is `papp:BrushCorrections`.
         Mask::Brush { ref digest, .. } => json!({
             "type": "brush",
             "digest": digest,

@@ -2,7 +2,7 @@
 // (#358, #3300, #360): the canonical Adobe Camera Raw
 // `crs:GradientBasedCorrections` (linear masks) /
 // `crs:CircularGradientBasedCorrections` (radial masks) /
-// `crs:PaintBasedCorrections` (brush masks) /
+// Maple's own `papp:BrushCorrections` (brush masks) /
 // `crs:MaskGroupBasedCorrections` (bitmap + everywhere masks, Lightroom 11+'s
 // own container for its AI masks) containers, each an `rdf:Seq` of `rdf:li`
 // → `rdf:Description` corrections carrying the `crs:Local*2012` sliders and
@@ -16,8 +16,8 @@
 // mask isn't a shape Maple models (a Lightroom range mask, or an AI
 // `Mask/Image` with no `papp:` recipe), that is inactive
 // (`CorrectionActive="False"`), or whose required geometry (or, for a
-// person/skin mask, its `papp:MaskDigest`, or, for a brush, a well-formed
-// `crs:Dabs` series) is missing or non-numeric is DROPPED — never silently
+// person/skin mask, its `papp:MaskDigest`, or, for a brush, a known
+// `papp:BrushVersion` and a well-formed `papp:Dabs` series) is missing or non-numeric is DROPPED — never silently
 // placed at an invented `0`/`1` — and the rest of the document still loads.
 // A corrupt slider value on an otherwise valid correction reads as "not
 // set", the same `NaN`-means-absent rule `xmp-adjustment-walk.ts` applies to
@@ -69,13 +69,13 @@ import {
   parseBrushLeaf,
 } from './xmp-local-adjustments-brush';
 
-export type LocalAdjustmentContainerKind = 'linear' | 'radial' | 'paint' | 'group';
+export type LocalAdjustmentContainerKind = 'linear' | 'radial' | 'brush' | 'group';
 
 /** Container element per mask kind, in canonical emit order. */
 const CONTAINERS: ReadonlyArray<{ tag: string; kind: LocalAdjustmentContainerKind }> = [
   { tag: 'crs:GradientBasedCorrections', kind: 'linear' },
   { tag: 'crs:CircularGradientBasedCorrections', kind: 'radial' },
-  { tag: 'crs:PaintBasedCorrections', kind: 'paint' },
+  { tag: 'papp:BrushCorrections', kind: 'brush' },
   { tag: 'crs:MaskGroupBasedCorrections', kind: 'group' },
 ];
 
@@ -84,19 +84,13 @@ const MASKS_ELEMENT = 'crs:CorrectionMasks';
 const MASK_WHAT: Readonly<Record<LocalAdjustmentContainerKind, string>> = {
   linear: 'Mask/Gradient',
   radial: 'Mask/CircularGradient',
-  paint: MASK_WHAT_PAINT,
+  brush: MASK_WHAT_PAINT,
   group: 'Mask/Image',
 };
 
-/**
- * Which container a mask rides: brush has the paint container to itself;
- * bitmap and everywhere share the group container.
- */
-const containerKindOf = (mask: LocalMask): LocalAdjustmentContainerKind => {
-  if (mask.kind === 'brush') return 'paint';
-  if (mask.kind === 'linear' || mask.kind === 'radial') return mask.kind;
-  return 'group';
-};
+/** Which container a mask rides: bitmap and everywhere share the group container. */
+const containerKindOf = (mask: LocalMask): LocalAdjustmentContainerKind =>
+  mask.kind === 'linear' || mask.kind === 'radial' || mask.kind === 'brush' ? mask.kind : 'group';
 
 /**
  * Slider attribute → model field, in canonical emit order. Every field has a
@@ -274,7 +268,7 @@ const LEAF_PARSERS: Readonly<
 > = {
   linear: parseLinearLeaf,
   radial: parseRadialLeaf,
-  paint: parseBrushLeaf,
+  brush: parseBrushLeaf,
   group: parseGroupLeaf,
 };
 
@@ -286,7 +280,7 @@ function parseGroupComponent(leaf: Element): MaskComponent | undefined {
   // Brush is a top-level-only mask in this slice (#360): a paint leaf here
   // rejects the component, and the group with it, rather than half-modelling
   // a brush-in-group composition.
-  if (!kind || kind === 'paint') return undefined;
+  if (!kind || kind === 'brush') return undefined;
   const mask = LEAF_PARSERS[kind](leaf);
   if (!mask) return undefined;
   const operation = groupComponentOperation(leaf);

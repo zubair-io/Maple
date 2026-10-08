@@ -331,25 +331,22 @@ describe('XMP local adjustments — bitmap + everywhere masks (#3300)', () => {
     );
   });
 
-  it('still passes an unmodeled container (depth masks) through untouched', () => {
-    // Brush masks used to be this test's example — #360 modeled them, so
-    // depth masks (a documented extension point no platform models) take
-    // their place as the genuinely-unmodeled container.
-    const depth =
-      '<crs:DepthBasedCorrections><rdf:Seq><rdf:li><rdf:Description crs:What="Correction"/></rdf:li></rdf:Seq></crs:DepthBasedCorrections>';
+  it('still passes an unmodeled container (brush masks) through untouched', () => {
+    const brush =
+      '<crs:PaintBasedCorrections><rdf:Seq><rdf:li><rdf:Description crs:What="Correction"/></rdf:li></rdf:Seq></crs:PaintBasedCorrections>';
     const original = serializer.serialize(withLayers([EVERYWHERE_LAYER]), {
       unknownAttributes: [],
-      unknownNodes: [depth],
+      unknownNodes: [brush],
     });
     const { model, passthrough } = parser.parseAdjustmentModel(original);
     expect(model.localAdjustments).toEqual([EVERYWHERE_LAYER]);
-    expect(passthrough.unknownNodes.join('')).toContain('crs:DepthBasedCorrections');
+    expect(passthrough.unknownNodes.join('')).toContain('crs:PaintBasedCorrections');
     // A re-save keeps both: the modeled group container regenerated from the
-    // model, and the depth container carried verbatim (self-contained, so the
+    // model, and the brush container carried verbatim (self-contained, so the
     // passthrough writer stamps its namespaces on it — the existing contract).
     const resaved = serializer.serialize({ ...defaultAdjustmentModel(), ...model }, passthrough);
     expect(resaved).toContain('papp:MaskSource="Everywhere"');
-    expect(resaved).toContain('<crs:DepthBasedCorrections');
+    expect(resaved).toContain('<crs:PaintBasedCorrections');
     expect(resaved).toContain('<rdf:Description crs:What="Correction"/>');
     expect(parser.parseAdjustmentModel(resaved).model.localAdjustments).toEqual([EVERYWHERE_LAYER]);
   });

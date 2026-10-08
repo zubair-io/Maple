@@ -22,9 +22,9 @@ pub use adjustment::{
 };
 pub use inpaint::{BakeGrade, InpaintPatch, Removal};
 pub use local_adjustment::{
-    brush_raster_dims, layers_from_flat, layers_to_flat, rasterize_brush, BitmapRecipe, BrushDab,
-    LocalAdjustment, Mask, MaskCombine, MaskComponent, MaskGroup, MaskRaster, MaskSource,
-    PartialAdjustments, Point2, RangeRefinement, BRUSH_RASTER_LONG_EDGE, LAYER_FLAT_LEN,
-    SKIN_TONE_RANGE,
+    brush_raster_dims, layers_from_flat, layers_to_flat, rasterize_brush, with_brush_rasters,
+    BitmapRecipe, BrushDab, LocalAdjustment, Mask, MaskCombine, MaskComponent, MaskGroup,
+    MaskRaster, MaskSource, PartialAdjustments, Point2, RangeRefinement, BRUSH_RASTER_LONG_EDGE,
+    LAYER_FLAT_LEN, SKIN_TONE_RANGE,
 };
 pub use retouch::{RetouchKind, RetouchSpot};

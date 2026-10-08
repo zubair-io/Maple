@@ -1,16 +1,26 @@
 //! Brush (painted) masks (#360): an ordered dab series on disk, a bitmap in
 //! memory.
 //!
-//! The spec's recommendation (`docs/strategy/milestones/m3-local-adjustments.md`
-//! §3.4): the authored stroke is an ordered dab series in
-//! `crs:PaintBasedCorrections` (reference-compatible); evaluation reads a
+//! The authored stroke is an ordered dab series in Maple's own
+//! `papp:BrushCorrections` container (versioned by [`BRUSH_VERSION`];
+//! Lightroom's `crs:PaintBasedCorrections` is passthrough, never modelled);
+//! evaluation reads a
 //! rasterized bitmap through the same registry + GPU-plane substrate
 //! `Mask::Bitmap` uses (#3282), rasterized once per EDIT — never per frame.
 //! The raster is derived data: the sidecar carries dabs, never pixels, and an
 //! unresolved brush (`raster_id == 0`, nothing registered yet) evaluates to
 //! weight 0, never a silent global correction.
 
-use super::Point2;
+use std::borrow::Cow;
+use std::sync::Arc;
+
+use super::{Mask, MaskRaster, Point2};
+use crate::stages::local_adjustments::mask::resolve;
+use crate::types::AdjustmentModel;
+
+/// The `papp:BrushVersion` every brush leaf carries. A reader drops a leaf
+/// with any other version rather than misreading a newer dab encoding.
+pub const BRUSH_VERSION: u32 = 1;
 
 /// Long edge of a brush raster in texels. Hosts size brush rasters
 /// aspect-preserving at this long edge (see [`brush_raster_dims`]) — the same
@@ -157,6 +167,59 @@ fn stamp_dab(dab: &BrushDab, acc: &mut [f32], w: usize, h: usize) {
     }
 }
 
+/// The model a develop or export entry renders: `model` itself when every
+/// brush layer already resolves against `model.mask_rasters` (the host
+/// registered its raster, or there is no brush), else a copy whose
+/// unresolved brushes are rasterized once onto the
+/// [`brush_raster_dims`] grid for an `image_width × image_height` oriented
+/// frame and attached by a fresh id. Headless callers (the API's sidecar
+/// derivatives, `maple-cli`, Windows exports) have no host registry, so this
+/// is what makes a brush render there exactly as the editor's registered
+/// raster does. Called once per render, never from the per-pixel stage.
+pub fn with_brush_rasters(
+    model: &AdjustmentModel,
+    image_width: u32,
+    image_height: u32,
+) -> Cow<'_, AdjustmentModel> {
+    let unresolved = |mask: &Mask| {
+        matches!(mask, Mask::Brush { dabs, .. } if !dabs.is_empty())
+            && resolve(mask, &model.mask_rasters).is_none()
+    };
+    if !model.local_adjustments.iter().any(|l| unresolved(&l.mask)) {
+        return Cow::Borrowed(model);
+    }
+    let (width, height) = brush_raster_dims(image_width, image_height);
+    let mut owned = model.clone();
+    let AdjustmentModel {
+        local_adjustments,
+        mask_rasters,
+        ..
+    } = &mut owned;
+    for layer in local_adjustments.iter_mut() {
+        if !unresolved(&layer.mask) {
+            continue;
+        }
+        let Mask::Brush {
+            dabs,
+            digest,
+            raster_id,
+        } = &mut layer.mask
+        else {
+            continue;
+        };
+        let id = (0..=u32::MAX)
+            .rev()
+            .find(|id| *id != 0 && !mask_rasters.iter().any(|r| r.id == *id))
+            .expect("fewer rasters than ids");
+        let bytes = rasterize_brush(dabs, width, height);
+        mask_rasters.push(Arc::new(MaskRaster::from_u8(
+            id, digest, width, height, &bytes,
+        )));
+        *raster_id = id;
+    }
+    Cow::Owned(owned)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,3 +339,83 @@ mod tests {
         assert!(rasterize_brush(&dabs, 51, 51).iter().all(|b| *b == 0));
     }
 }
+
+#[cfg(test)]
+mod attach_tests {
+    use super::*;
+    use crate::types::{LocalAdjustment, PartialAdjustments};
+
+    fn brush(dabs: Vec<BrushDab>, digest: &str, raster_id: u32) -> LocalAdjustment {
+        LocalAdjustment {
+            mask: Mask::Brush {
+                dabs,
+                digest: digest.to_string(),
+                raster_id,
+            },
+            range: None,
+            adjustments: PartialAdjustments {
+                exposure: Some(1.0),
+                ..Default::default()
+            },
+        }
+    }
+
+    fn stroke() -> Vec<BrushDab> {
+        vec![BrushDab::new(Point2::new(0.5, 0.5), 0.1, 0.0, 1.0, false)]
+    }
+
+    #[test]
+    fn model_without_unresolved_brushes_is_borrowed() {
+        let empty = AdjustmentModel::default();
+        assert!(matches!(
+            with_brush_rasters(&empty, 600, 400),
+            Cow::Borrowed(_)
+        ));
+        let mut registered = AdjustmentModel::default();
+        registered.local_adjustments = vec![brush(stroke(), "aabbccddeeff0011", 0)];
+        registered.mask_rasters = vec![Arc::new(MaskRaster::from_u8(
+            3,
+            "aabbccddeeff0011",
+            1,
+            1,
+            &[255],
+        ))];
+        assert!(matches!(
+            with_brush_rasters(&registered, 600, 400),
+            Cow::Borrowed(_)
+        ));
+        let mut blank = AdjustmentModel::default();
+        blank.local_adjustments = vec![brush(Vec::new(), "", 0)];
+        assert!(matches!(
+            with_brush_rasters(&blank, 600, 400),
+            Cow::Borrowed(_)
+        ));
+    }
+
+    #[test]
+    fn unresolved_brush_gets_its_dabs_rasterized_on_the_shared_grid() {
+        let mut model = AdjustmentModel::default();
+        model.local_adjustments = vec![brush(stroke(), "", 0), brush(stroke(), "", 0)];
+        model.mask_rasters = vec![Arc::new(MaskRaster::from_u8(u32::MAX, "", 1, 1, &[0]))];
+        let attached = with_brush_rasters(&model, 6000, 4000).into_owned();
+        assert_eq!(attached.mask_rasters.len(), 3);
+        let ids: Vec<u32> = attached
+            .local_adjustments
+            .iter()
+            .map(|l| match l.mask {
+                Mask::Brush { raster_id, .. } => raster_id,
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(ids, vec![u32::MAX - 1, u32::MAX - 2]);
+        let raster = resolve(&attached.local_adjustments[0].mask, &attached.mask_rasters)
+            .expect("attached raster resolves");
+        assert_eq!((raster.width, raster.height), brush_raster_dims(6000, 4000));
+        assert_eq!(raster.sample(0.5, 0.5), 1.0);
+        assert_eq!(raster.sample(0.0, 0.0), 0.0);
+    }
+}
+
+#[cfg(test)]
+#[path = "brush_develop_tests.rs"]
+mod develop_tests;

@@ -1,6 +1,7 @@
-//! `Mask::Brush` XMP I/O (#360) — the fourth `crs:PaintBasedCorrections`
-//! container: a `Mask/Paint` leaf whose `crs:Dabs` attribute carries the
-//! ordered dab series. Split from `tests_local_adjustments.rs` for the same
+//! `Mask::Brush` XMP I/O (#360) — Maple's own `papp:BrushCorrections`
+//! container: a versioned `Mask/Paint` leaf whose `papp:Dabs` attribute
+//! carries the ordered dab series. Lightroom's `crs:PaintBasedCorrections`
+//! is never modelled. Split from `tests_local_adjustments.rs` for the same
 //! size-budget reason that file's header explains for its own split from
 //! `xmp/tests.rs`. Helpers (`sidecar`, `INDENT`) come from that sibling.
 
@@ -66,8 +67,8 @@ fn model_to_bytes_to_model_round_trips_brush() {
 /// produce it byte-for-byte from the same brush layer at the same indent —
 /// the same contract as the `CANONICAL_BLOCK` in
 /// `tests_local_adjustments_canonical.rs`. (The C# suite pins only the
-/// linear/radial literal: Windows passes paint through unmodelled.)
-const CANONICAL_PAINT_BLOCK: &str = r#"      <crs:PaintBasedCorrections>
+/// linear/radial literal: Windows passes the brush container through.)
+const CANONICAL_BRUSH_BLOCK: &str = r#"      <papp:BrushCorrections>
         <rdf:Seq>
           <rdf:li>
             <rdf:Description
@@ -80,28 +81,29 @@ const CANONICAL_PAINT_BLOCK: &str = r#"      <crs:PaintBasedCorrections>
                   <rdf:li
                     crs:What="Mask/Paint"
                     crs:MaskValue="1"
-                    crs:Dabs="0.25 0.3 0.05 0.5 0.8 0 0.3 0.35 0.05 0.5 0.8 0 0.275 0.325 0.02 0 1 1"
+                    papp:BrushVersion="1"
+                    papp:Dabs="0.25 0.3 0.05 0.5 0.8 0 0.3 0.35 0.05 0.5 0.8 0 0.275 0.325 0.02 0 1 1"
                     papp:BrushDigest="0123456789abcdef"/>
                 </rdf:Seq>
               </crs:CorrectionMasks>
             </rdf:Description>
           </rdf:li>
         </rdf:Seq>
-      </crs:PaintBasedCorrections>"#;
+      </papp:BrushCorrections>"#;
 
 #[test]
-fn brush_serializes_to_the_canonical_paint_block() {
+fn brush_serializes_to_the_canonical_brush_block() {
     let mut model = AdjustmentModel::default();
     model.local_adjustments = vec![brush_layer()];
     assert_eq!(
         serialize_local_adjustments(&model, INDENT),
-        CANONICAL_PAINT_BLOCK
+        CANONICAL_BRUSH_BLOCK
     );
 }
 
 #[test]
-fn canonical_paint_block_parses_back_to_the_brush_layer() {
-    let parsed = parse(&sidecar(CANONICAL_PAINT_BLOCK)).expect("parse");
+fn canonical_brush_block_parses_back_to_the_brush_layer() {
+    let parsed = parse(&sidecar(CANONICAL_BRUSH_BLOCK)).expect("parse");
     assert_eq!(parsed.local_adjustments.len(), 1);
     let Mask::Brush { dabs, digest, .. } = &parsed.local_adjustments[0].mask else {
         panic!("expected a brush mask");
@@ -131,7 +133,7 @@ fn brush_round_trips_through_a_real_sidecar_file() {
 }
 
 #[test]
-fn paint_container_sorts_after_radial_before_group() {
+fn brush_container_sorts_after_linear_before_group() {
     let mut model = AdjustmentModel::default();
     model.local_adjustments = vec![brush_layer()];
     model.local_adjustments.push(LocalAdjustment::linear(
@@ -146,7 +148,11 @@ fn paint_container_sorts_after_radial_before_group() {
     });
     let block = serialize_local_adjustments(&model, INDENT);
     let gradient = block.find("crs:GradientBasedCorrections").expect("linear");
-    let paint = block.find("crs:PaintBasedCorrections").expect("paint");
+    assert!(
+        !block.contains("crs:PaintBasedCorrections"),
+        "block:\n{block}"
+    );
+    let paint = block.find("papp:BrushCorrections").expect("brush");
     let group = block.find("crs:MaskGroupBasedCorrections").expect("group");
     assert!(gradient < paint && paint < group, "block:\n{block}");
 }
@@ -156,9 +162,10 @@ fn missing_dabs_is_an_empty_stroke_not_an_error() {
     let leaf = concat!(
         "<rdf:li\n",
         "  crs:What=\"Mask/Paint\"\n",
-        "  crs:MaskValue=\"1\"/>",
+        "  crs:MaskValue=\"1\"\n",
+        "  papp:BrushVersion=\"1\"/>",
     );
-    let doc = sidecar(&paint_correction(leaf));
+    let doc = sidecar(&brush_correction(leaf));
     let parsed = parse(&doc).expect("parse");
     assert_eq!(parsed.local_adjustments.len(), 1);
     assert!(matches!(
@@ -168,14 +175,15 @@ fn missing_dabs_is_an_empty_stroke_not_an_error() {
 }
 
 #[test]
-fn missing_digest_reads_as_empty_for_foreign_paint_masks() {
+fn missing_digest_reads_as_empty() {
     let leaf = concat!(
         "<rdf:li\n",
         "  crs:What=\"Mask/Paint\"\n",
         "  crs:MaskValue=\"1\"\n",
-        "  crs:Dabs=\"0.5 0.5 0.05 0.5 1 0\"/>",
+        "  papp:BrushVersion=\"1\"\n",
+        "  papp:Dabs=\"0.5 0.5 0.05 0.5 1 0\"/>",
     );
-    let parsed = parse(&sidecar(&paint_correction(leaf))).expect("parse");
+    let parsed = parse(&sidecar(&brush_correction(leaf))).expect("parse");
     assert!(matches!(
         &parsed.local_adjustments[0].mask,
         Mask::Brush { digest, .. } if digest.is_empty()
@@ -187,7 +195,7 @@ fn empty_series_omits_both_dabs_and_digest() {
     let mut model = AdjustmentModel::default();
     model.local_adjustments = vec![LocalAdjustment::brush(PartialAdjustments::default())];
     let block = serialize_local_adjustments(&model, INDENT);
-    assert!(!block.contains("crs:Dabs"), "block:\n{block}");
+    assert!(!block.contains("papp:Dabs"), "block:\n{block}");
     assert!(!block.contains("papp:BrushDigest"), "block:\n{block}");
     let parsed = parse(&sidecar(&block)).expect("parse");
     assert!(matches!(
@@ -229,15 +237,15 @@ fn malformed_dabs_is_a_hard_error() {
         ("bad erase flag", "0.5 0.5 0.05 0.5 1 2"),
     ] {
         let leaf = format!(
-            "<rdf:li\n  crs:What=\"Mask/Paint\"\n  crs:MaskValue=\"1\"\n  crs:Dabs=\"{dabs}\"/>"
+            "<rdf:li\n  crs:What=\"Mask/Paint\"\n  crs:MaskValue=\"1\"\n  papp:BrushVersion=\"1\"\n  papp:Dabs=\"{dabs}\"/>"
         );
-        let err = parse(&sidecar(&paint_correction(&leaf))).expect_err(name);
-        assert!(err.to_string().contains("crs:Dabs"), "{name}: {err}");
+        let err = parse(&sidecar(&brush_correction(&leaf))).expect_err(name);
+        assert!(err.to_string().contains("papp:Dabs"), "{name}: {err}");
     }
 }
 
 #[test]
-fn paint_leaf_outside_the_paint_container_is_skipped() {
+fn paint_leaf_outside_the_brush_container_is_skipped() {
     let doc = sidecar(&format!(
         concat!(
             "      <crs:GradientBasedCorrections>\n",
@@ -257,16 +265,16 @@ fn paint_leaf_outside_the_paint_container_is_skipped() {
             "        </rdf:Seq>\n",
             "      </crs:GradientBasedCorrections>"
         ),
-        "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" crs:Dabs=\"0.5 0.5 0.05 0.5 1 0\"/>"
+        "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" papp:BrushVersion=\"1\" papp:Dabs=\"0.5 0.5 0.05 0.5 1 0\"/>"
     ));
     let parsed = parse(&doc).expect("parse");
     assert!(parsed.local_adjustments.is_empty());
 }
 
 #[test]
-fn gradient_leaf_inside_the_paint_container_is_skipped() {
+fn gradient_leaf_inside_the_brush_container_is_skipped() {
     let leaf = "<rdf:li crs:What=\"Mask/Gradient\" crs:ZeroX=\"0\" crs:ZeroY=\"0\" crs:FullX=\"1\" crs:FullY=\"1\"/>";
-    let parsed = parse(&sidecar(&paint_correction(leaf))).expect("parse");
+    let parsed = parse(&sidecar(&brush_correction(leaf))).expect("parse");
     assert!(parsed.local_adjustments.is_empty());
 }
 
@@ -283,7 +291,7 @@ fn group_with_a_paint_leaf_is_dropped_not_widened() {
         "              papp:MaskGroupVersion=\"1\">\n",
         "              <crs:CorrectionMasks>\n",
         "                <rdf:Seq>\n",
-        "                  <rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" crs:Dabs=\"0.5 0.5 0.05 0.5 1 0\"/>\n",
+        "                  <rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" papp:BrushVersion=\"1\" papp:Dabs=\"0.5 0.5 0.05 0.5 1 0\"/>\n",
         "                </rdf:Seq>\n",
         "              </crs:CorrectionMasks>\n",
         "            </rdf:Description>\n",
@@ -295,10 +303,10 @@ fn group_with_a_paint_leaf_is_dropped_not_widened() {
     assert!(parsed.local_adjustments.is_empty());
 }
 
-fn paint_correction(leaf: &str) -> String {
+fn brush_correction(leaf: &str) -> String {
     format!(
         concat!(
-            "      <crs:PaintBasedCorrections>\n",
+            "      <papp:BrushCorrections>\n",
             "        <rdf:Seq>\n",
             "          <rdf:li>\n",
             "            <rdf:Description\n",
@@ -313,8 +321,58 @@ fn paint_correction(leaf: &str) -> String {
             "            </rdf:Description>\n",
             "          </rdf:li>\n",
             "        </rdf:Seq>\n",
-            "      </crs:PaintBasedCorrections>"
+            "      </papp:BrushCorrections>"
         ),
         leaf.replace('\n', "\n                  ")
     )
+}
+
+#[test]
+fn brush_leaf_without_a_known_version_is_dropped_not_misread() {
+    for version in ["", "  papp:BrushVersion=\"2\"\n"] {
+        let leaf = format!(
+            "<rdf:li\n  crs:What=\"Mask/Paint\"\n  crs:MaskValue=\"1\"\n{version}  papp:Dabs=\"0.5 0.5 0.05 0.5 1 0\"/>"
+        );
+        let parsed = parse(&sidecar(&brush_correction(&leaf))).expect("parse");
+        assert!(parsed.local_adjustments.is_empty(), "version {version:?}");
+    }
+}
+
+const LIGHTROOM_PAINT: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../test-fixtures/local-adjustments/lightroom-paint.xmp"
+));
+
+#[test]
+fn lightroom_paint_corrections_are_not_modelled() {
+    let parsed = parse(LIGHTROOM_PAINT).expect("a Lightroom paint sidecar parses");
+    assert!(parsed.local_adjustments.is_empty());
+    assert!((parsed.exposure - 0.35).abs() < 1e-6);
+}
+
+#[test]
+fn maple_brush_beside_lightroom_paint_reads_only_the_maple_brush() {
+    let brush = sidecar(CANONICAL_BRUSH_BLOCK);
+    let start = LIGHTROOM_PAINT
+        .find("   <crs:PaintBasedCorrections>")
+        .unwrap();
+    let end = LIGHTROOM_PAINT
+        .find("</crs:PaintBasedCorrections>")
+        .unwrap()
+        + "</crs:PaintBasedCorrections>".len();
+    let close = brush
+        .find("    </rdf:Description>")
+        .expect("sidecar closes its description");
+    let doc = format!(
+        "{}{}\n{}",
+        &brush[..close],
+        &LIGHTROOM_PAINT[start..end],
+        &brush[close..]
+    );
+    let parsed = parse(&doc).expect("parse");
+    assert_eq!(parsed.local_adjustments.len(), 1, "doc:\n{doc}");
+    let Mask::Brush { dabs, .. } = &parsed.local_adjustments[0].mask else {
+        panic!("expected the Maple brush");
+    };
+    assert_eq!(dabs.len(), 3);
 }

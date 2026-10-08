@@ -7,7 +7,7 @@
 // `AdjustmentModel` never carries it and this mirror is permanent — the
 // same generated-fields / hand-written-type split `Crop` and `ToneCurve`
 // use. The XMP wire form (`crs:GradientBasedCorrections` /
-// `crs:CircularGradientBasedCorrections` / `crs:PaintBasedCorrections` /
+// `crs:CircularGradientBasedCorrections` / `papp:BrushCorrections` /
 // `crs:MaskGroupBasedCorrections`) lives in `../xmp/xmp-local-adjustments.ts`;
 // `docs/xmp-canonical-format.md` § "Local adjustments" is the contract.
 //
@@ -139,14 +139,13 @@ export interface BrushDab {
 export interface BrushMask {
   kind: 'brush';
   /** The authored stroke content — ordered paint/erase stamps, the lossless
-   *  form that round-trips through `crs:PaintBasedCorrections`. */
+   *  form that round-trips through `papp:BrushCorrections`. */
   dabs: BrushDab[];
   /**
    * Names the registered raster — the FNV-1a content hash of `dabs` (see
    * `brushDigest`), carried as `papp:BrushDigest` so a re-parse finds the
-   * already-registered raster. Empty on a foreign paint mask, which has
-   * dabs but no Maple digest; the session stamps the computed hash on its
-   * first sync.
+   * already-registered raster. Empty until the session stamps the computed
+   * hash on its first sync.
    */
   digest: string;
   /**

@@ -1,7 +1,8 @@
 // LocalAdjustmentBrushTests.swift — brush-mask XMP I/O, flat wire and
-// raster math (#360): the fourth `crs:PaintBasedCorrections` container, a
-// `Mask/Paint` leaf whose `crs:Dabs` attribute carries the ordered dab
-// series. Split from `LocalAdjustmentXMPTests.swift` the way the Rust
+// raster math (#360): Maple's own `papp:BrushCorrections` container, a
+// versioned `Mask/Paint` leaf whose `papp:Dabs` attribute carries the
+// ordered dab series. Lightroom's `crs:PaintBasedCorrections` is passthrough.
+// Split from `LocalAdjustmentXMPTests.swift` the way the Rust
 // suite splits `tests_local_adjustments_brush.rs` off its sibling.
 
 import XCTest
@@ -30,12 +31,12 @@ private let brushLayer = LocalAdjustment(
         digest: "0123456789abcdef", rasterId: 7),
     adjustments: PartialAdjustments(exposure: 0.5))
 
-/// Cross-language byte-parity fixture (`CANONICAL_PAINT_BLOCK` in Rust and
+/// Cross-language byte-parity fixture (`CANONICAL_BRUSH_BLOCK` in Rust and
 /// TypeScript): all three serializers must produce this byte-for-byte from
 /// the fixture layer at the same indent. (The C# suite pins only the
-/// linear/radial literal: Windows passes paint through unmodelled.)
-private let canonicalPaintBlock = """
-      <crs:PaintBasedCorrections>
+/// linear/radial literal: Windows passes the brush container through.)
+private let canonicalBrushBlock = """
+      <papp:BrushCorrections>
         <rdf:Seq>
           <rdf:li>
             <rdf:Description
@@ -48,14 +49,15 @@ private let canonicalPaintBlock = """
                   <rdf:li
                     crs:What="Mask/Paint"
                     crs:MaskValue="1"
-                    crs:Dabs="0.25 0.3 0.05 0.5 0.8 0 0.3 0.35 0.05 0.5 0.8 0 0.275 0.325 0.02 0 1 1"
+                    papp:BrushVersion="1"
+                    papp:Dabs="0.25 0.3 0.05 0.5 0.8 0 0.3 0.35 0.05 0.5 0.8 0 0.275 0.325 0.02 0 1 1"
                     papp:BrushDigest="0123456789abcdef"/>
                 </rdf:Seq>
               </crs:CorrectionMasks>
             </rdf:Description>
           </rdf:li>
         </rdf:Seq>
-      </crs:PaintBasedCorrections>
+      </papp:BrushCorrections>
 """
 
 /// Wrap a nested child block in a sidecar envelope.
@@ -93,15 +95,15 @@ final class LocalAdjustmentBrushTests: XCTestCase {
 
     // MARK: - Cross-language parity
 
-    func testSerializesCanonicalPaintBlockFromAHandBuiltModel() {
+    func testSerializesCanonicalBrushBlockFromAHandBuiltModel() {
         XCTAssertEqual(
             XMPSerializer._buildLocalAdjustmentsBlock(
                 model: withLayers([brushLayer]), indent: brushIndent),
-            canonicalPaintBlock)
+            canonicalBrushBlock)
     }
 
-    func testParsesCanonicalPaintBlockIntoTheFixtureLayer() throws {
-        let (model, _) = try XMPParser.parse(brushSidecar(canonicalPaintBlock))
+    func testParsesCanonicalBrushBlockIntoTheFixtureLayer() throws {
+        let (model, _) = try XMPParser.parse(brushSidecar(canonicalBrushBlock))
         XCTAssertEqual(model.localAdjustments.count, 1)
         guard case .brush(let dabs, let digest, let rasterId) = model.localAdjustments[0].mask
         else { return XCTFail("expected a brush mask") }
@@ -115,16 +117,16 @@ final class LocalAdjustmentBrushTests: XCTestCase {
     }
 
     /// bytes → model → bytes is the identity function.
-    func testRoundTripsCanonicalPaintBlockByteForByte() throws {
-        let (model, _) = try XMPParser.parse(brushSidecar(canonicalPaintBlock))
+    func testRoundTripsCanonicalBrushBlockByteForByte() throws {
+        let (model, _) = try XMPParser.parse(brushSidecar(canonicalBrushBlock))
         XCTAssertEqual(
             XMPSerializer._buildLocalAdjustmentsBlock(model: model, indent: brushIndent),
-            canonicalPaintBlock)
+            canonicalBrushBlock)
     }
 
-    /// A paint layer interleaved with other kinds serializes in canonical
-    /// container order: linear, radial, paint, group.
-    func testPaintContainerSortsBetweenRadialAndGroup() {
+    /// A brush layer interleaved with other kinds serializes in canonical
+    /// container order: linear, radial, brush, group.
+    func testBrushContainerSortsBetweenRadialAndGroup() {
         let linear = LocalAdjustment(
             mask: .linear(
                 start: MaskPoint(x: 0, y: 0), end: MaskPoint(x: 1, y: 0), feather: 0.5),
@@ -133,21 +135,22 @@ final class LocalAdjustmentBrushTests: XCTestCase {
         let block = XMPSerializer._buildLocalAdjustmentsBlock(
             model: withLayers([everywhere, brushLayer, linear]), indent: brushIndent)
         guard let gradient = block.range(of: "<crs:GradientBasedCorrections>"),
-            let paint = block.range(of: "<crs:PaintBasedCorrections>"),
+            let paint = block.range(of: "<papp:BrushCorrections>"),
             let group = block.range(of: "<crs:MaskGroupBasedCorrections>")
         else { return XCTFail("all three containers must be emitted: \(block)") }
         XCTAssertLessThan(gradient.lowerBound, paint.lowerBound)
         XCTAssertLessThan(paint.lowerBound, group.lowerBound)
+        XCTAssertFalse(block.contains("PaintBasedCorrections"), block)
     }
 
     // MARK: - Whole-document behaviour
 
-    /// The paint container is modeled, not passthrough: a Maple-authored
+    /// The brush container is modeled, not passthrough: a Maple-authored
     /// sidecar parses to an empty node bucket, and a re-save is a fixed point.
     func testRidesTheModelNotThePassthroughBucket() throws {
         let original = XMPSerializer.serialize(
             model: withLayers([brushLayer]), culling: CullingState())
-        XCTAssertTrue(original.contains(canonicalPaintBlock), original)
+        XCTAssertTrue(original.contains(canonicalBrushBlock), original)
 
         let passthrough = XMPParser.parsePassthrough(original)
         XCTAssertTrue(passthrough.unknownNodes.isEmpty, "\(passthrough.unknownNodes)")
@@ -167,7 +170,7 @@ final class LocalAdjustmentBrushTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let rawURL = dir.appendingPathComponent("photo.dng")
         let sidecarURL = SidecarPath.sidecarURL(for: rawURL)
-        try brushSidecar(canonicalPaintBlock).write(
+        try brushSidecar(canonicalBrushBlock).write(
             to: sidecarURL, atomically: true, encoding: .utf8)
 
         let store = XMPSidecarStore(rawURL: rawURL)
@@ -185,7 +188,7 @@ final class LocalAdjustmentBrushTests: XCTestCase {
         await store.flush()
         let first = try String(contentsOf: sidecarURL, encoding: .utf8)
         XCTAssertTrue(first.contains("crs:Exposure2012=\"1.25\""))
-        XCTAssertTrue(first.contains(canonicalPaintBlock), first)
+        XCTAssertTrue(first.contains(canonicalBrushBlock), first)
 
         let reopened = XMPSidecarStore(rawURL: rawURL)
         let (reloaded, reloadedCulling) = try await reopened.load()
@@ -197,12 +200,12 @@ final class LocalAdjustmentBrushTests: XCTestCase {
 
     // MARK: - Tolerant reader
 
-    private func paintCorrection(
+    private func brushCorrection(
         descriptionAttrs: String = "crs:What=\"Correction\"",
         maskLeaf: String
     ) -> String {
         """
-              <crs:PaintBasedCorrections>
+              <papp:BrushCorrections>
                 <rdf:Seq>
                   <rdf:li>
                     <rdf:Description \(descriptionAttrs)>
@@ -214,14 +217,15 @@ final class LocalAdjustmentBrushTests: XCTestCase {
                     </rdf:Description>
                   </rdf:li>
                 </rdf:Seq>
-              </crs:PaintBasedCorrections>
+              </papp:BrushCorrections>
         """
     }
 
-    /// No `crs:Dabs` is an empty stroke (weight 0), not an error.
+    /// No `papp:Dabs` is an empty stroke (weight 0), not an error.
     func testMissingDabsParsesAsAnEmptyStroke() throws {
-        let block = paintCorrection(
-            maskLeaf: "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\"/>")
+        let block = brushCorrection(
+            maskLeaf:
+                "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" papp:BrushVersion=\"1\"/>")
         let (model, _) = try XMPParser.parse(brushSidecar(block))
         XCTAssertEqual(model.localAdjustments.count, 1)
         guard case .brush(let dabs, let digest, let rasterId) = model.localAdjustments[0].mask
@@ -231,11 +235,12 @@ final class LocalAdjustmentBrushTests: XCTestCase {
         XCTAssertEqual(rasterId, 0)
     }
 
-    /// A foreign paint mask — dabs but no Maple digest — loads with an
-    /// empty digest; the session recomputes it when it rasterizes.
-    func testForeignPaintMaskLoadsWithAnEmptyDigest() throws {
-        let block = paintCorrection(
-            maskLeaf: "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" crs:Dabs=\"0.5 0.5 0.1 0.5 1 0\"/>"
+    /// A brush with dabs but no digest loads with an empty digest; the
+    /// session recomputes it when it rasterizes.
+    func testBrushWithoutADigestLoadsWithAnEmptyDigest() throws {
+        let block = brushCorrection(
+            maskLeaf:
+                "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" papp:BrushVersion=\"1\" papp:Dabs=\"0.5 0.5 0.1 0.5 1 0\"/>"
         )
         let (model, _) = try XMPParser.parse(brushSidecar(block))
         XCTAssertEqual(model.localAdjustments.count, 1)
@@ -251,13 +256,13 @@ final class LocalAdjustmentBrushTests: XCTestCase {
     func testMalformedDabsDropsTheCorrection() throws {
         for leaf in [
             // Five tokens, not a multiple of six.
-            "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" crs:Dabs=\"0.5 0.5 0.1 0.5 1\"/>",
+            "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" papp:BrushVersion=\"1\" papp:Dabs=\"0.5 0.5 0.1 0.5 1\"/>",
             // Non-numeric token.
-            "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" crs:Dabs=\"0.5 0.5 wide 0.5 1 0\"/>",
+            "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" papp:BrushVersion=\"1\" papp:Dabs=\"0.5 0.5 wide 0.5 1 0\"/>",
             // Erase flag that is neither 0 nor 1.
-            "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" crs:Dabs=\"0.5 0.5 0.1 0.5 1 2\"/>",
+            "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" papp:BrushVersion=\"1\" papp:Dabs=\"0.5 0.5 0.1 0.5 1 2\"/>",
         ] {
-            let (model, _) = try XMPParser.parse(brushSidecar(paintCorrection(maskLeaf: leaf)))
+            let (model, _) = try XMPParser.parse(brushSidecar(brushCorrection(maskLeaf: leaf)))
             XCTAssertTrue(model.localAdjustments.isEmpty, leaf)
         }
     }
@@ -273,7 +278,7 @@ final class LocalAdjustmentBrushTests: XCTestCase {
                       <crs:CorrectionMasks>
                         <rdf:Seq>
                           <rdf:li crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroX="0" crs:ZeroY="0" crs:FullX="1" crs:FullY="0" crs:MaskActive="True" crs:MaskBlendMode="0" crs:MaskInverted="False"/>
-                          <rdf:li crs:What="Mask/Paint" crs:MaskValue="1" crs:Dabs="0.5 0.5 0.1 0.5 1 0" crs:MaskActive="True" crs:MaskBlendMode="0" crs:MaskInverted="False"/>
+                          <rdf:li crs:What="Mask/Paint" crs:MaskValue="1" papp:BrushVersion="1" papp:Dabs="0.5 0.5 0.1 0.5 1 0" crs:MaskActive="True" crs:MaskBlendMode="0" crs:MaskInverted="False"/>
                         </rdf:Seq>
                       </crs:CorrectionMasks>
                     </rdf:Description>
@@ -285,7 +290,7 @@ final class LocalAdjustmentBrushTests: XCTestCase {
         XCTAssertTrue(model.localAdjustments.isEmpty)
     }
 
-    /// A paint leaf outside the paint container is not a brush mask.
+    /// A paint leaf outside the brush container is not a brush mask.
     func testPaintWhatInAGradientContainerIsDropped() throws {
         let block = """
               <crs:GradientBasedCorrections>
@@ -294,7 +299,7 @@ final class LocalAdjustmentBrushTests: XCTestCase {
                     <rdf:Description crs:What="Correction">
                       <crs:CorrectionMasks>
                         <rdf:Seq>
-                          <rdf:li crs:What="Mask/Paint" crs:MaskValue="1" crs:Dabs="0.5 0.5 0.1 0.5 1 0"/>
+                          <rdf:li crs:What="Mask/Paint" crs:MaskValue="1" papp:BrushVersion="1" papp:Dabs="0.5 0.5 0.1 0.5 1 0"/>
                         </rdf:Seq>
                       </crs:CorrectionMasks>
                     </rdf:Description>
@@ -304,6 +309,99 @@ final class LocalAdjustmentBrushTests: XCTestCase {
         """
         let (model, _) = try XMPParser.parse(brushSidecar(block))
         XCTAssertTrue(model.localAdjustments.isEmpty)
+    }
+
+    /// A leaf without this build's `papp:BrushVersion` is dropped, never
+    /// misread as the current dab encoding.
+    func testUnknownBrushVersionDropsTheCorrection() throws {
+        for version in ["", " papp:BrushVersion=\"2\""] {
+            let leaf =
+                "<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\"\(version) papp:Dabs=\"0.5 0.5 0.1 0.5 1 0\"/>"
+            let (model, _) = try XMPParser.parse(brushSidecar(brushCorrection(maskLeaf: leaf)))
+            XCTAssertTrue(model.localAdjustments.isEmpty, leaf)
+        }
+    }
+
+    // MARK: - Lightroom paint passthrough
+
+    /// A Lightroom brush stroke (`crs:PaintBasedCorrections`, nested
+    /// `crs:Dabs` list) survives a Maple brush edit and save byte-for-byte,
+    /// beside Maple's own brush container. Real files, no mocks.
+    func testLightroomPaintSurvivesAMapleBrushEdit() async throws {
+        let fixture = try MaskGroupFixture.root().appendingPathComponent("lightroom-paint.xmp")
+        let source = try String(contentsOf: fixture, encoding: .utf8)
+        guard let start = source.range(of: "<crs:PaintBasedCorrections>"),
+            let end = source.range(of: "</crs:PaintBasedCorrections>")
+        else { return XCTFail("fixture lost its paint block") }
+        let lightroomBlock = String(source[start.lowerBound..<end.upperBound])
+
+        let dir = try brushTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let rawURL = dir.appendingPathComponent("photo.dng")
+        let sidecarURL = SidecarPath.sidecarURL(for: rawURL)
+        try FileManager.default.copyItem(at: fixture, to: sidecarURL)
+
+        let store = XMPSidecarStore(rawURL: rawURL)
+        let (model, culling) = try await store.load()
+        XCTAssertTrue(model.localAdjustments.isEmpty)
+        var edited = model
+        edited.localAdjustments = [brushLayer]
+        await store.update(model: edited, culling: culling)
+        await store.flush()
+
+        let saved = try String(contentsOf: sidecarURL, encoding: .utf8)
+        XCTAssertTrue(saved.contains(lightroomBlock), saved)
+        XCTAssertTrue(saved.contains(canonicalBrushBlock), saved)
+        let (reloaded, _) = try XMPParser.parse(saved)
+        XCTAssertEqual(reloaded.localAdjustments.count, 1)
+        guard case .brush(let dabs, _, _) = reloaded.localAdjustments[0].mask else {
+            return XCTFail("expected the Maple brush")
+        }
+        XCTAssertEqual(dabs.count, 3)
+    }
+
+    // MARK: - Undo
+
+    /// A second stroke releases the first stroke's raster, so undo must
+    /// re-register the restored stroke rather than restore a dead id.
+    @MainActor
+    func testUndoAndRedoRebindLiveBrushRasters() throws {
+        let dir = try brushTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let session = EditSession(asset: AssetRef(url: dir.appendingPathComponent("photo.dng")))
+        func stroke(_ x: Double) {
+            session.beginBrushStroke()
+            session.appendBrushDabs([
+                BrushDab(
+                    center: MaskPoint(x: x, y: 0.5), radius: 0.05, feather: 0.5, weight: 1,
+                    erase: false)
+            ])
+            session.endBrushStroke()
+        }
+        func brush() -> (count: Int, id: UInt32) {
+            guard case .brush(let dabs, _, let id) = session.model.localAdjustments.first?.mask
+            else { return (-1, 0) }
+            return (dabs.count, id)
+        }
+        session.createBrushMask()
+        stroke(0.25)
+        let first = brush().id
+        stroke(0.75)
+        let second = brush().id
+        XCTAssertNotEqual(first, 0)
+        XCTAssertNotEqual(second, first)
+
+        session.undo()
+        XCTAssertEqual(brush().count, 1)
+        XCTAssertNotEqual(brush().id, 0)
+        XCTAssertNotEqual(brush().id, first, "undo restored a released raster id")
+        let undone = brush().id
+
+        session.redo()
+        XCTAssertEqual(brush().count, 2)
+        XCTAssertNotEqual(brush().id, 0)
+        XCTAssertNotEqual(brush().id, second, "redo restored a released raster id")
+        XCTAssertNotEqual(brush().id, undone)
     }
 
     // MARK: - Flat wire
