@@ -213,7 +213,9 @@ describe('Meilisearch asynchronous tasks', () => {
     expect(calls.map((call) => `${call.method} ${new URL(call.url).pathname}`)).toEqual([
       'POST /indexes',
       'GET /tasks/45',
+      'GET /tasks',
       `GET /indexes/${ASSETS_INDEX}/settings`,
+      `GET /indexes/${ASSETS_INDEX}/stats`,
       `PATCH /indexes/${ASSETS_INDEX}/settings`,
       'GET /tasks/46',
     ]);
@@ -288,7 +290,9 @@ describe('Meilisearch asynchronous tasks', () => {
 
     expect(calls.map((call) => `${call.method} ${new URL(call.url).pathname}`)).toEqual([
       'POST /indexes',
+      'GET /tasks',
       `GET /indexes/${ASSETS_INDEX}/settings`,
+      `GET /indexes/${ASSETS_INDEX}/stats`,
     ]);
   });
 
@@ -360,7 +364,9 @@ describe('Meilisearch asynchronous tasks', () => {
         {
           method: 'GET',
           pathPrefix: `/indexes/${ASSETS_INDEX}/settings/embedders`,
-          body: { caption: { source: 'ollama', model: 'bge-m3' } },
+          body: {
+            caption: { source: 'ollama', model: 'bge-m3', url: 'http://localhost:11434/api/embed' },
+          },
         },
         {
           method: 'GET',

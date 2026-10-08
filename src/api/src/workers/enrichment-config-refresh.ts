@@ -66,7 +66,8 @@ async function ensureMeilisearchReady(): Promise<boolean> {
   if (!(await meili.health())) return false;
   await meili.ensureIndex();
   const fingerprint = meili.semanticFingerprint?.() ?? null;
-  if (fingerprint && fingerprint !== readyVectorFingerprint) {
+  const embedderMatches = meili.embedderInSync?.() !== false;
+  if (fingerprint && fingerprint !== readyVectorFingerprint && embedderMatches) {
     await advanceKnownVectorCoverage(fingerprint);
     readyVectorFingerprint = fingerprint;
   }

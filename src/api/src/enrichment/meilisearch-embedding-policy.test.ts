@@ -93,7 +93,13 @@ describe('Meilisearch embedding IP policy diagnostics (#3315)', () => {
         {
           method: 'GET',
           pathPrefix: '/indexes/assets/settings/embedders',
-          body: { caption: { source: 'ollama', model: 'bge-m3' } },
+          body: {
+            caption: {
+              source: 'ollama',
+              model: 'bge-m3',
+              url: 'http://ollama.local:11434/api/embed',
+            },
+          },
         },
         {
           method: 'GET',
@@ -112,6 +118,7 @@ describe('Meilisearch embedding IP policy diagnostics (#3315)', () => {
       {
         ...config(fetchImpl),
         semantic: true,
+        embedderUrl: 'http://ollama.local:11434',
         embedderModel: 'bge-m3',
         semanticRatio: 0.5,
       },
@@ -143,7 +150,13 @@ describe('embedding policy rejection classification (#3315)', () => {
         {
           method: 'GET',
           pathPrefix: '/indexes/assets/settings/embedders',
-          body: { caption: { source: 'ollama', model: 'bge-m3' } },
+          body: {
+            caption: {
+              source: 'ollama',
+              model: 'bge-m3',
+              url: 'http://ollama.local:11434/api/embed',
+            },
+          },
         },
         {
           method: 'GET',
@@ -159,7 +172,13 @@ describe('embedding policy rejection classification (#3315)', () => {
       ],
     });
     const status = await readMeilisearchSemanticStatus(
-      { ...config(fetchImpl), semantic: true, embedderModel: 'bge-m3', semanticRatio: 0.5 },
+      {
+        ...config(fetchImpl),
+        semantic: true,
+        embedderUrl: 'http://ollama.local:11434',
+        embedderModel: 'bge-m3',
+        semanticRatio: 0.5,
+      },
       'assets',
       'caption',
     );
@@ -171,7 +190,13 @@ describe('embedding policy rejection classification (#3315)', () => {
       routes: [{ method: 'GET', pathPrefix: '/health', status: 503, body: { status: 'down' } }],
     });
     const status = await readMeilisearchSemanticStatus(
-      { ...config(fetchImpl), semantic: true, embedderModel: 'bge-m3', semanticRatio: 0.5 },
+      {
+        ...config(fetchImpl),
+        semantic: true,
+        embedderUrl: 'http://ollama.local:11434',
+        embedderModel: 'bge-m3',
+        semanticRatio: 0.5,
+      },
       'assets',
       'caption',
     );

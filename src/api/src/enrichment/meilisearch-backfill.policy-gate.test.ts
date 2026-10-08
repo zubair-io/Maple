@@ -65,7 +65,9 @@ function fakeMeilisearch(probe: Route): Route[] {
     {
       method: 'GET',
       pathPrefix: `/indexes/${ASSETS_INDEX}/settings/embedders`,
-      body: { caption: { source: 'ollama', model: 'bge-m3' } },
+      body: {
+        caption: { source: 'ollama', model: 'bge-m3', url: 'http://localhost:11434/api/embed' },
+      },
     },
     { method: 'GET', pathPrefix: `/indexes/${ASSETS_INDEX}/settings`, body: {} },
     {

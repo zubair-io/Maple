@@ -45,7 +45,8 @@ const AI_WORKERS = [
   {
     id: 'semantic-search',
     name: 'Semantic search',
-    detail: 'Document and query embeddings · Ollama embedding model',
+    detail:
+      'Document and query embeddings · Ollama embedding model · a changed connection or model reaches the search index only via Apply to index on Settings → Workers, which re-embeds every document',
     multiple: false,
     providers: ['ollama'],
   },
