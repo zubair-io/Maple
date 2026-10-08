@@ -8,18 +8,30 @@
  * them thirteen facet statements fill every reader's queue and a grid page
  * issued a moment later waits behind all of them.
  *
- * A released slot passes straight to the next waiter rather than being freed
- * and re-acquired, so a burst of new arrivals cannot overtake a task already
- * queued.
+ * The limit is read afresh on every admission rather than fixed at
+ * construction, because the pool's capacity is not fixed: a dead or restarting
+ * reader takes no reads, and a lane sized from the configured width would hand
+ * the survivors every slot it was meant to leave free. A shrinking limit never
+ * cancels a task already running — it only stops admitting until enough have
+ * finished. A growing one is noticed on the next release, or at once when the
+ * owner calls {@link admitWaiting}.
+ *
+ * Arrivals queue behind anyone already waiting, so a burst of new calls cannot
+ * overtake a task queued before them.
  */
 export class ReadGate {
   private active = 0;
   private readonly waiting: Array<() => void> = [];
 
-  constructor(readonly limit: number) {
+  constructor(private readonly capacity: () => number) {}
+
+  /** How many tasks may run at once right now. */
+  get limit(): number {
+    const limit = this.capacity();
     if (!Number.isInteger(limit) || limit < 1) {
       throw new Error(`read gate: limit must be a positive integer, got ${limit}`);
     }
+    return limit;
   }
 
   /** Tasks currently holding a slot. */
@@ -36,8 +48,16 @@ export class ReadGate {
     }
   }
 
+  /** Admit as many waiters as the current limit allows. */
+  admitWaiting(): void {
+    while (this.waiting.length > 0 && this.active < this.limit) {
+      this.active += 1;
+      this.waiting.shift()!();
+    }
+  }
+
   private acquire(): Promise<void> {
-    if (this.active < this.limit) {
+    if (this.waiting.length === 0 && this.active < this.limit) {
       this.active += 1;
       return Promise.resolve();
     }
@@ -45,8 +65,7 @@ export class ReadGate {
   }
 
   private release(): void {
-    const next = this.waiting.shift();
-    if (next) next();
-    else this.active -= 1;
+    this.active -= 1;
+    this.admitWaiting();
   }
 }
