@@ -101,7 +101,12 @@ export interface ExternalRanking {
 export interface FacetOptions {
   /** How many of the most relevant matches; the tests cross it on small libraries. */
   topMatches?: number;
-  /** The list's own ranking when another engine serves it; null falls back to the database's. */
+  /**
+   * The list's own ranking when another engine serves this search — absent
+   * when it does not, so the database ranking is the answer and is cached as
+   * one. A ranking that resolves to null failed, and its database stand-in is
+   * served but not cached.
+   */
   ranking?: () => Promise<ExternalRanking | null>;
 }
 
