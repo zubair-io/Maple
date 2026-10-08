@@ -194,6 +194,13 @@ async function runFacets<K extends FacetName>(
   >;
 }
 
+/** Every facet's rows, what they describe, and whose ranking chose them. */
+interface FacetAnswer {
+  rows: Record<FacetName, SqlRow[]>;
+  scope: FacetScope;
+  ranking: 'external' | 'database';
+}
+
 /**
  * Every facet's rows, with a text query's matches resolved once rather than
  * once per facet, and a broad one cut to its most relevant matches.
@@ -214,9 +221,13 @@ async function facetRows(
   db: SqliteDb,
   where: SearchWhere,
   options: FacetOptions,
-): Promise<{ rows: Record<FacetName, SqlRow[]>; scope: FacetScope }> {
+): Promise<FacetAnswer> {
   if (where.match.kind !== 'match') {
-    return { rows: await runFacets(db, facetStatements(where)), scope: { kind: 'all' } };
+    return {
+      rows: await runFacets(db, facetStatements(where)),
+      scope: { kind: 'all' },
+      ranking: 'database',
+    };
   }
   const topMatches = options.topMatches ?? FACET_TOP_MATCHES;
   const external = options.ranking ? await options.ranking() : null;
@@ -227,6 +238,7 @@ async function facetRows(
       return {
         rows: { ...(await facetRowsOf(db, few)), total: [{ n: few.length }] },
         scope: { kind: 'all' },
+        ranking: 'database',
       };
     }
   }
@@ -239,6 +251,7 @@ async function facetRows(
   return {
     rows: { ...rows, total: [{ n: total }] },
     scope: total > topMatches ? { kind: 'top', limit: topMatches, of: total } : { kind: 'all' },
+    ranking: 'database',
   };
 }
 
@@ -260,7 +273,7 @@ async function externallyRankedRows(
   db: SqliteDb,
   where: SearchWhere,
   ranking: ExternalRanking,
-): Promise<{ rows: Record<FacetName, SqlRow[]>; scope: FacetScope }> {
+): Promise<FacetAnswer> {
   const ids = mapleIdRowsSql(where, ranking.mapleIds);
   const assets =
     ranking.mapleIds.length === 0 ? [] : await readBulk<RankedAsset>(db, ids.sql, ids.params);
@@ -271,6 +284,7 @@ async function externallyRankedRows(
     scope: cut
       ? { kind: 'top', limit: ranking.mapleIds.length, of: ranking.total }
       : { kind: 'all' },
+    ranking: 'external',
   };
 }
 
@@ -307,26 +321,35 @@ export async function searchFacets(
 ): Promise<SearchFacets> {
   const db = assetsDb(dbOverride);
   const topMatches = options.topMatches ?? FACET_TOP_MATCHES;
-  const source = options.ranking ? 'external' : 'database';
-  return where.match.kind === 'match'
-    ? cachedFacets(db, [where, topMatches, source], () => computeFacets(db, where, options))
-    : computeFacets(db, where, options);
+  if (where.match.kind !== 'match') return (await computeFacets(db, where, options)).facets;
+  // Cached under the ranking asked for, and kept only when that ranking
+  // answered: a database fallback for a failed Meilisearch request is served
+  // to whoever was waiting on it, never to the next 30 s of requests.
+  const wanted = options.ranking ? 'external' : 'database';
+  const answer = await cachedFacets(
+    db,
+    [where, topMatches, wanted],
+    () => computeFacets(db, where, options),
+    Date.now(),
+    (computed) => computed.ranking === wanted,
+  );
+  return answer.facets;
 }
 
-/** The facets themselves, uncached. */
+/** The facets themselves, uncached, and whose ranking chose their rows. */
 async function computeFacets(
   db: SqliteDb,
   where: SearchWhere,
   options: FacetOptions,
-): Promise<SearchFacets> {
-  const { rows, scope } = await facetRows(db, where, options);
+): Promise<{ facets: SearchFacets; ranking: FacetAnswer['ranking'] }> {
+  const { rows, scope, ranking } = await facetRows(db, where, options);
   const as = <T>(name: FacetName): T[] => rows[name] as unknown as T[];
 
   const screenshot = as<{ bucket: number; count: number }>('is_screenshot');
   const bucket = (value: number): number =>
     screenshot.find((row) => row.bucket === value)?.count ?? 0;
 
-  return {
+  const facets: SearchFacets = {
     total: (as<{ n: number }>('total')[0]?.n ?? 0) as number,
     cameras: as<{ make: string | null; model: string | null; count: number }>('cameras').map(
       (row) => ({ make: row.make ?? null, model: row.model ?? null, count: row.count }),
@@ -353,4 +376,5 @@ async function computeFacets(
       .map((row) => ({ id: row.id, count: row.count })),
     scope,
   };
+  return { facets, ranking };
 }

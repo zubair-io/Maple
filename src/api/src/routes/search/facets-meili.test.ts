@@ -151,6 +151,29 @@ describe('GET /api/search/facets — the ranking behind a text search', () => {
     ]);
   });
 
+  it('does not keep a fallback cached once Meilisearch answers again', async () => {
+    let failing = true;
+    const { client, calls } = fakeMeili(async () => {
+      if (failing) throw new Error('meilisearch timed out');
+      return { ids: ['maple-d', 'maple-c'], estimatedTotal: 4_000 };
+    });
+    setMeilisearchClientForTests(client);
+
+    const fallback = await facets('placeQuery=greyson');
+    expect(fallback.scope).toEqual({ kind: 'all' });
+    expect(fallback.total).toBe(3);
+
+    failing = false;
+    const ranked = await facets('placeQuery=greyson');
+    expect(calls).toHaveLength(2);
+    expect(ranked.total).toBe(4_000);
+    expect(ranked.scope).toEqual({ kind: 'top', limit: 2, of: 4_000 });
+
+    // A Meilisearch answer is cached as usual: no third search.
+    await facets('placeQuery=greyson');
+    expect(calls).toHaveLength(2);
+  });
+
   it('never asks Meilisearch for a filter it cannot express', async () => {
     const { client, calls } = fakeMeili(async () => ({ ids: ['maple-d'], estimatedTotal: 1 }));
     setMeilisearchClientForTests(client);

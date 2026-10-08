@@ -56,12 +56,19 @@ function entriesFor(db: SqliteDb): Map<string, Entry<unknown>> {
 /**
  * The cached answer for `query` — the translated `SearchWhere` and anything
  * else the answer depends on — or `compute()`'s, cached for the next caller.
+ *
+ * `keep` says whether a computed answer is the one `query` asked for. One that
+ * is not — the database's ranking standing in for a Meilisearch ranking that
+ * failed — still answers the callers waiting on it, and is then forgotten, so
+ * the next request asks again rather than being served the stand-in for the
+ * whole window.
  */
 export function cachedFacets<T>(
   db: SqliteDb,
   query: unknown,
   compute: () => Promise<T>,
   nowMs = Date.now(),
+  keep: (answer: T) => boolean = () => true,
 ): Promise<T> {
   const entries = entriesFor(db);
   const key = JSON.stringify(query);
@@ -75,8 +82,9 @@ export function cachedFacets<T>(
   const value = compute();
   const entry: Entry<unknown> = { expiresMs: nowMs + FACET_CACHE_TTL_MS, value };
   entries.set(key, entry);
-  value.catch(() => {
+  const forget = () => {
     if (entries.get(key) === entry) entries.delete(key);
-  });
+  };
+  value.then((answer) => (keep(answer) ? undefined : forget())).catch(forget);
   return value;
 }
