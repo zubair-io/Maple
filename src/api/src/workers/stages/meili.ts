@@ -129,7 +129,7 @@ function getClient(): MeilisearchClient {
 }
 
 /** Test-only setter. Call with `null` to reset between tests. */
-export function setMeilisearchClientForTests(client: MeilisearchClient | null): void {
+export function setMeiliStageClientForTests(client: MeilisearchClient | null): void {
   _testClient = client;
 }
 

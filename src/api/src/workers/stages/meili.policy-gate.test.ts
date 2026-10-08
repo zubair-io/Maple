@@ -27,7 +27,7 @@ import {
   insertLocation,
   run,
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
-import meiliStage, { meiliHandler, setMeilisearchClientForTests } from './meili.ts';
+import meiliStage, { meiliHandler, setMeiliStageClientForTests } from './meili.ts';
 
 const rejected =
   'Index `assets`: While embedding documents for embedder `caption`: runtime error: could not reach embedding server: bad uri: Rejected URI';
@@ -118,7 +118,7 @@ function recordPauses(): string[] {
 const fakeCtx = {} as never;
 
 afterEach(() => {
-  setMeilisearchClientForTests(null);
+  setMeiliStageClientForTests(null);
   _configureEmbeddingGateForTests(null);
 });
 
@@ -126,7 +126,7 @@ describe('meiliHandler — embedder policy gate (#3315)', () => {
   it('refuses the upsert, pauses the stage with the policy reason, and throws for the retry path', async () => {
     const pauses = recordPauses();
     const { client, upserts } = semanticClient(rejectedStatus);
-    setMeilisearchClientForTests(client);
+    setMeiliStageClientForTests(client);
 
     await expect(meiliHandler(fakeDoc(), fakeCtx)).rejects.toBeInstanceOf(
       MeilisearchEmbedderPolicyError,
@@ -141,7 +141,7 @@ describe('meiliHandler — embedder policy gate (#3315)', () => {
   it('refuses the tombstone for a trashed asset just the same — the template embeds those too', async () => {
     const pauses = recordPauses();
     const { client, tombstones } = semanticClient(rejectedStatus);
-    setMeilisearchClientForTests(client);
+    setMeiliStageClientForTests(client);
 
     await expect(
       meiliHandler(fakeDoc({ deleted_at: '2026-09-01T00:00:00.000Z' } as never), fakeCtx),
@@ -154,7 +154,7 @@ describe('meiliHandler — embedder policy gate (#3315)', () => {
   it('indexes normally and pauses nothing when the embedder is admitted', async () => {
     const pauses = recordPauses();
     const { client, upserts } = semanticClient(semanticStatus({}));
-    setMeilisearchClientForTests(client);
+    setMeiliStageClientForTests(client);
 
     const result = await meiliHandler(fakeDoc(), fakeCtx);
 
@@ -168,7 +168,7 @@ describe('meiliHandler — embedder policy gate (#3315)', () => {
     const fingerprintWrites = (embedderInSync: boolean | null) => async () => {
       const { client } = semanticClient(semanticStatus({}));
       client.embedderInSync = () => embedderInSync;
-      setMeilisearchClientForTests(client);
+      setMeiliStageClientForTests(client);
       const result = (await meiliHandler(fakeDoc(), fakeCtx)) as {
         patch: Array<{ sql: string; params: unknown[] }>;
       };
@@ -184,7 +184,7 @@ describe('meiliHandler — embedder policy gate (#3315)', () => {
     using live = await createLiveTestDatabase();
     const pauses = recordPauses();
     const { client } = semanticClient(rejectedStatus);
-    setMeilisearchClientForTests(client);
+    setMeiliStageClientForTests(client);
 
     // One claimable asset with its upstream stages done, so the claim hands it
     // to this handler. `maple_id` matters: without one the handler skips before
