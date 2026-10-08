@@ -13,6 +13,9 @@ public final class AssetOwnerFilterModel {
 
   public let currentUserID: String?
   public private(set) var owners: [AssetOwnerFacet] = []
+  /// Which matches the owner counts describe (#4431). This request leaves the
+  /// owner out, so its scope can differ from the search's own facets.
+  public private(set) var facetScope: FacetScope = .all
   public private(set) var isLoading = false
   public private(set) var loadError: Error?
   private let searchClient: CloudSearchClient
@@ -51,7 +54,10 @@ public final class AssetOwnerFilterModel {
     let requested = Self.scope(for: params)
     generation &+= 1
     let g = generation
-    if scope != requested { owners = [] }
+    if scope != requested {
+      owners = []
+      facetScope = .all
+    }
     scope = requested
     isLoading = true
     loadError = nil
@@ -60,6 +66,7 @@ public final class AssetOwnerFilterModel {
       let facets = try await searchClient.facets(requested)
       guard g == generation, !Task.isCancelled else { return }
       owners = facets.owners
+      facetScope = facets.scope
       for owner in owners {
         let email = owner.email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         knownLabels[owner.id] = email.isEmpty ? owner.id : email

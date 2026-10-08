@@ -24,6 +24,36 @@ final class AssetOwnerFilterModelTests: XCTestCase {
       ["All owners", "device-null", "device-absent", "blank"])
   }
 
+  func testOwnerFacetScopeComesFromTheOwnerRequestAndResetsWithItsScope() async {
+    let server = URL(string: "https://example.test")!
+    nonisolated(unsafe) var attempt = 0
+    let session = URLSession.stubbedSequence { request in
+      attempt += 1
+      let body =
+        attempt == 1
+        ? #"{"total":98635,"owners":[{"id":"me","email":"me@test","count":1}],"scope":{"kind":"top","limit":1000,"of":98635}}"#
+        : #"{"total":2,"owners":[]}"#
+      return (
+        Self.facetData(body),
+        HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+      )
+    }
+    let client = CloudSearchClient(
+      server: server,
+      httpClient: .unauthenticated(server: server, urlSession: session))
+    let model = AssetOwnerFilterModel(searchClient: client, currentUserID: "me")
+    var params = SearchParams(libraryID: "library")
+    params.placeQuery = "group of people"
+    await model.load(params)
+    XCTAssertEqual(model.facetScope, .top(limit: 1000, of: 98635))
+    XCTAssertNotNil(model.facetScope.note)
+
+    params.placeQuery = "harbour"
+    await model.load(params)
+    XCTAssertEqual(model.facetScope, .all)
+    XCTAssertNil(model.facetScope.note)
+  }
+
   func testScopedOptionsKeepSelectedEmailThroughZeroResultsAndRetry() async throws {
     let server = URL(string: "https://example.test")!
     nonisolated(unsafe) var attempt = 0
