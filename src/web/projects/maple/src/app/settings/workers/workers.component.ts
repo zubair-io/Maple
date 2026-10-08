@@ -59,6 +59,7 @@ import { CanvasColorSpaceSettingsComponent } from './canvas-color-space-settings
 import { FacePurgePanelComponent } from './face-purge-panel.component';
 import { ServiceApiKeysComponent } from './service-api-keys.component';
 import { AiWorkerSummaryComponent } from '../ai/ai-worker-summary.component';
+import { MeilisearchEmbedderDriftComponent } from './meilisearch-embedder-drift.component';
 import {
   groupStagesByPipeline,
   summarizeStages,
@@ -107,6 +108,7 @@ import {
     FacePurgePanelComponent,
     ServiceApiKeysComponent,
     AiWorkerSummaryComponent,
+    MeilisearchEmbedderDriftComponent,
   ],
   templateUrl: './workers.component.html',
   styleUrl: './workers.component.scss',

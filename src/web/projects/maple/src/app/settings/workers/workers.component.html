@@ -745,10 +745,13 @@
                         <div class="field-hint">
                           Combines keyword relevance with vector similarity. Saving applies the
                           change immediately; existing assets still need the semantic-vector
-                          migration to become searchable by meaning.
+                          migration to become searchable by meaning. On an index that already holds
+                          documents, a new or changed embedder waits for Apply to index below,
+                          because Meilisearch then re-embeds every document.
                         </div>
                       </div>
                       <maple-ai-worker-summary worker="semantic-search" />
+                      <maple-meilisearch-embedder-drift />
                       <div class="field set-field">
                         <div class="field-label">Semantic blend</div>
                         <div class="num-input set-num-input">
