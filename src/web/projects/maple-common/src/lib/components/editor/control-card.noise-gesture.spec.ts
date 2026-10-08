@@ -81,8 +81,31 @@ describe('ControlCardComponent — deferred Noise panel arming (#4352, #4414)', 
   it('does not open Noise on a click or reset without a value-change tick', async () => {
     const { card, editorState } = render();
     card.onSliderDragStart('noise');
-    card.onSliderDragEnd();
+    card.onSliderDragEnd('noise');
     card.onSliderReset('noise');
+    await Promise.resolve();
+    expect(editorState.armTool).not.toHaveBeenCalled();
+  });
+
+  it('waits for the Noise gesture itself when another slider is released first', async () => {
+    const { card, editorState } = render();
+    card.onSliderDragStart('noise');
+    card.onSliderDragStart('sharpen');
+    card.onSliderChange('noise', 2);
+    card.onSliderDragEnd('sharpen');
+    await Promise.resolve();
+    expect(editorState.armTool).not.toHaveBeenCalled();
+    card.onSliderDragEnd('noise');
+    await Promise.resolve();
+    expect(editorState.armTool).toHaveBeenCalledExactlyOnceWith('noise');
+  });
+
+  it('does not unmount a slider still being dragged when Noise is released first', async () => {
+    const { card, editorState } = render();
+    card.onSliderDragStart('noise');
+    card.onSliderDragStart('sharpen');
+    card.onSliderChange('noise', 2);
+    card.onSliderDragEnd('noise');
     await Promise.resolve();
     expect(editorState.armTool).not.toHaveBeenCalled();
   });
@@ -97,7 +120,7 @@ describe('ControlCardComponent — deferred Noise panel arming (#4352, #4414)', 
     card.onSliderChange('noise', 2);
     if (change === 'tool') editorState.toolArmCount += 2;
     if (change === 'asset') focusedAssetId.set('asset-2');
-    card.onSliderDragEnd();
+    card.onSliderDragEnd('noise');
     if (change === 'panel') fixture.destroy();
     await Promise.resolve();
     expect(editorState.armTool).not.toHaveBeenCalled();
