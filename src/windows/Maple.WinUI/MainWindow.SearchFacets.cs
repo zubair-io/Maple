@@ -19,6 +19,10 @@ public sealed partial class MainWindow
             CloudSearchOptions.Visibility = ViewModel.IsServerSearch ? Visibility.Visible : Visibility.Collapsed;
             var facets = ViewModel.SearchFacets;
             ScopeSearchBox.SelectedIndex = (int)ViewModel.CloudSearchScope;
+            // A broad text search's pickers list only its most relevant results (#4431).
+            var scopeNote = facets?.FacetScope.Note;
+            SearchFacetScopeNote.Text = scopeNote ?? "";
+            SearchFacetScopeNote.Visibility = scopeNote is null ? Visibility.Collapsed : Visibility.Visible;
             Fill(PeopleSearchBox, facets?.People, ViewModel.CloudPeopleFilter, "All people");
             Fill(PlaceSearchBox, facets?.Places, ViewModel.CloudPlaceFilter, "All places");
             var owners = ViewModel.OwnerFilterOptions();

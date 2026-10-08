@@ -29,6 +29,29 @@ public sealed class CloudSearchFacetsTests
     }
 
     [Theory]
+    [InlineData("{\"total\":98635,\"scope\":{\"kind\":\"top\",\"limit\":2000,\"of\":98635}}", 2000L, 98635L)]
+    [InlineData("{\"total\":3,\"scope\":{\"kind\":\"all\"}}", null, null)]
+    [InlineData("{\"total\":3}", null, null)]
+    [InlineData("{\"total\":3,\"scope\":{\"kind\":\"sampled\",\"limit\":10,\"of\":3}}", null, null)]
+    [InlineData("{\"total\":3,\"scope\":\"top\"}", null, null)]
+    [InlineData("{\"total\":3,\"scope\":{\"kind\":\"top\",\"limit\":\"many\",\"of\":3}}", null, null)]
+    public async Task ScopeDecodesDefensively(string body, long? limit, long? of)
+    {
+        await WithClient(HttpStatusCode.OK, body, async (client, _) =>
+        {
+            var result = await client.GetSearchFacetsAsync(new(), CancellationToken.None);
+            Assert.Equal(new CloudFacetScope(limit, of), result!.FacetScope);
+            Assert.Equal(limit is not null, result.FacetScope.Note is not null);
+        });
+    }
+
+    [Fact]
+    public void TopScopeNoteUsesTheServersNumbers() =>
+        Assert.Equal(
+            string.Format(System.Globalization.CultureInfo.CurrentCulture, "Filters from the {0:N0} most relevant of {1:N0} results", 1000L, 8217L),
+            new CloudFacetScope(1000, 8217).Note);
+
+    [Theory]
     [InlineData(HttpStatusCode.NotFound)]
     [InlineData(HttpStatusCode.NotImplemented)]
     public async Task UnsupportedEndpointIsNotAnEmptyFacetSet(HttpStatusCode status) =>
