@@ -42,9 +42,9 @@ export interface BrushSyncIo {
 }
 
 export class BrushRasterSync {
-  /** Digests with a live raster in the worker, each mapped to its id. */
+  /** `digest@WxH` registrations live in the worker, each mapped to its id. */
   private readonly registered = new Map<string, number>();
-  /** Digests with an upload in flight — a second pass must not double-send. */
+  /** Registrations with an upload in flight — a second pass must not double-send. */
   private readonly pending = new Set<string>();
 
   constructor(private readonly io: BrushSyncIo) {}
@@ -66,42 +66,51 @@ export class BrushRasterSync {
   }
 
   sync(layers: readonly LocalAdjustment[]): void {
+    const dims = this.io.dims();
+    const grid = dims ? brushRasterDims(dims.width, dims.height) : null;
     const seen = new Set<string>();
     layers.forEach((layer, index) => {
       if (layer.mask.kind !== 'brush') return;
       const digest = brushDigest(layer.mask.dabs);
-      seen.add(digest);
       if (layer.mask.digest !== digest) this.io.stampDigest(index, digest);
-      if (layer.mask.dabs.length === 0 || this.registered.has(digest) || this.pending.has(digest))
+      if (!grid) {
+        // Nothing focused: keep this stroke's rasters until dims return.
+        for (const key of this.registered.keys()) {
+          if (key.startsWith(`${digest}@`)) seen.add(key);
+        }
         return;
-      const dims = this.io.dims();
-      if (!dims) return;
-      const [width, height] = brushRasterDims(dims.width, dims.height);
+      }
+      const [width, height] = grid;
+      // The raster's shape follows the image aspect, so the same stroke on
+      // a differently shaped photo is a different registration.
+      const key = `${digest}@${width}x${height}`;
+      seen.add(key);
+      if (layer.mask.dabs.length === 0 || this.registered.has(key) || this.pending.has(key)) return;
       const dabs = flattenBrushDabs(layer.mask.dabs);
-      this.pending.add(digest);
+      this.pending.add(key);
       this.io.register({ digest, width, height, dabs }).then(
         (rasterId) => {
-          this.pending.delete(digest);
+          this.pending.delete(key);
           if (!this.io.stampRasterId(index, digest, rasterId)) {
             // The stroke moved on mid-upload — nobody will ever carry this
             // digest, so the raster is garbage already.
             this.io.release(rasterId);
             return;
           }
-          const prev = this.registered.get(digest);
-          this.registered.set(digest, rasterId);
+          const prev = this.registered.get(key);
+          this.registered.set(key, rasterId);
           if (prev !== undefined && prev !== rasterId) this.io.release(prev);
         },
         () => {
           // The worker refused the upload (or died mid-flight and the
           // retire rejected it): stay unregistered, the next pass retries.
-          this.pending.delete(digest);
+          this.pending.delete(key);
         },
       );
     });
-    for (const [digest, rasterId] of this.registered) {
-      if (seen.has(digest)) continue;
-      this.registered.delete(digest);
+    for (const [key, rasterId] of this.registered) {
+      if (seen.has(key)) continue;
+      this.registered.delete(key);
       this.io.release(rasterId);
     }
   }

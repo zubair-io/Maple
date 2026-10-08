@@ -107,6 +107,36 @@ describe('BrushRasterSync', () => {
     expect(io.uploads).toHaveLength(1);
   });
 
+  it('re-registers the same stroke on a differently shaped photo', async () => {
+    const layers = [brushLayer([dab(0.1)])];
+    const io = makeIo(layers);
+    const sync = new BrushRasterSync(io);
+    sync.sync(layers);
+    io.resolveOldest(3);
+    await flush();
+    io.dims = () => ({ width: 2000, height: 3000 });
+    sync.sync(layers);
+    expect(io.uploads).toHaveLength(2);
+    expect(io.uploads[1]).toMatchObject({ width: 682, height: 1024 });
+    expect(io.released).toEqual([3]);
+    io.resolveOldest(4);
+    await flush();
+    expect(io.layers[0].mask).toMatchObject({ rasterId: 4 });
+  });
+
+  it('keeps a registration while no photo is focused', async () => {
+    const layers = [brushLayer([dab(0.1)])];
+    const io = makeIo(layers);
+    const sync = new BrushRasterSync(io);
+    sync.sync(layers);
+    io.resolveOldest(3);
+    await flush();
+    io.dims = () => null;
+    sync.sync(layers);
+    expect(io.released).toEqual([]);
+    expect(io.uploads).toHaveLength(1);
+  });
+
   it('releases the raster whose stroke disappeared', async () => {
     const layers = [brushLayer([dab(0.1)])];
     const io = makeIo(layers);
