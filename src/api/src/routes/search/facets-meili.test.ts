@@ -101,6 +101,24 @@ describe('GET /api/search/facets — the ranking behind a text search', () => {
     expect(body.cameras).toEqual([]);
   });
 
+  it('reports the cut Meilisearch actually made, not the one it was asked for', async () => {
+    // Meilisearch's default `pagination.maxTotalHits` is 1,000: asked for 2,000
+    // it returns 1,000, with an estimated total of every match. The scope must
+    // say 1,000 — the client's note prints it.
+    const ids = ['maple-c', 'maple-d', ...Array.from({ length: 998 }, (_, i) => `maple-x${i}`)];
+    const { client, calls } = fakeMeili(async () => ({ ids, estimatedTotal: 8_217 }));
+    setMeilisearchClientForTests(client);
+
+    const body = await facets('placeQuery=greyson');
+    expect(calls[0]?.opts.limit).toBe(2_000);
+    expect(body.total).toBe(8_217);
+    expect(body.scope).toEqual({ kind: 'top', limit: 1_000, of: 8_217 });
+    expect(body.cameras.map((row) => [row.make, row.count]).sort()).toEqual([
+      ['Apple', 1],
+      ['SONY', 1],
+    ]);
+  });
+
   it('maps the ids to rows and counts them, every match when Meilisearch has no more', async () => {
     const { client } = fakeMeili(async () => ({
       ids: ['maple-d', 'maple-c'],

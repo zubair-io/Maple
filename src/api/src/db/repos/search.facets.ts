@@ -249,6 +249,12 @@ async function facetRows(
  * text, exactly as the list's Meilisearch page is: the sidecar did the text
  * half, typo-tolerantly, and a database `MATCH` over its hits would reject the
  * very rows it found. Ids with no surviving row drop out.
+ *
+ * The cut is however many ids the engine returned, never the number asked
+ * for: Meilisearch answers at most `pagination.maxTotalHits` hits (1,000 by
+ * default), so a request for 2,000 can come back with 1,000, and the scope —
+ * which clients print — has to say 1,000. The `of` is the engine's own
+ * estimate of every match, the same number the list shows as its total.
  */
 async function externallyRankedRows(
   db: SqliteDb,
