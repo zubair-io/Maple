@@ -445,11 +445,11 @@ impl EvidenceSource {
             EvidenceSource::ColorHarness => 796,
             EvidenceSource::SidecarContractApple => 12,
             EvidenceSource::SidecarContractApi => 3,
-            // 23: the absent-curve, fitted-identity, and residual-only
-            // Auto-fit regressions (#4171) and the high-amount sharpen
-            // undershoot case (#4112) join the existing 19 parity cases.
-            EvidenceSource::GpuChainParityLavapipe => 23,
-            EvidenceSource::GpuChainParityMetal => 23,
+            // 19: the high-amount sharpen undershoot case (#4112) joins the 18
+            // raw-wasm gpu_render parity cases; the Auto-fit regressions (#4171)
+            // now run with the shared gpu_host in raw-core.
+            EvidenceSource::GpuChainParityLavapipe => 19,
+            EvidenceSource::GpuChainParityMetal => 19,
             EvidenceSource::AppleCanvasGolden => 1,
         }
     }
