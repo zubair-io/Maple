@@ -511,6 +511,15 @@ returns a negative number whose magnitude grows with relevance, so the best
 match is the smallest value and the sort is ascending. `FTS_RANK_SQL` and
 `FTS_RANK_ORDER` are the pair that keeps that straight.
 
+A ranked grid page (`pageSql` for a text query) scores before it reads rows
+(#4419). A `MATERIALIZED` CTE keeps the full predicate but carries only
+`assets.id` and the score; the score of the last row the page can reach is the
+cutoff, and only rows at or below it — the page plus boundary ties — are joined
+back to `assets` for `captured_at` (the tie-break) and the page columns. A broad
+caption query no longer extracts the capture date from every match's `exif`.
+`search.page.ranked.test.ts` holds it row-for-row to the single-statement form
+it replaced, and `search.query-plan.text.test.ts` pins the plan.
+
 The translation answers one of three things, and the third is the one that is
 easy to get wrong. A blank query carries no text filter. A query with terms
 becomes an expression. A query whose terms all cancel — `???`, `-boat`, `((((`
