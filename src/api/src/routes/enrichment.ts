@@ -465,7 +465,9 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
           try {
             if (await meili.health()) {
               await meili.ensureIndex();
-              await advanceKnownVectorCoverage(meili.semanticFingerprint?.());
+              if (meili.embedderInSync?.() !== false) {
+                await advanceKnownVectorCoverage(meili.semanticFingerprint?.());
+              }
             }
           } catch (err) {
             log.warn({ err }, 'Meilisearch reconfigure health/ensureIndex failed (non-fatal)');

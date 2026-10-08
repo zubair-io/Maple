@@ -1,5 +1,6 @@
 import {
   isLiveConfig,
+  joinMeilisearchUrl,
   meilisearchHttp,
   type MeilisearchTransportConfig,
 } from './meilisearch-transport.ts';
@@ -10,6 +11,7 @@ import {
 
 export interface SemanticStatusConfig extends MeilisearchTransportConfig {
   semantic: boolean;
+  embedderUrl: string;
   embedderModel: string;
   semanticRatio: number;
 }
@@ -75,7 +77,7 @@ export async function readMeilisearchSemanticStatus(
   if (!isLiveConfig(config)) return failedStatus(config, embedderName);
   const [health, embedders, stats] = await Promise.all([
     meilisearchHttp<{ status: string }>(config, 'GET', '/health'),
-    meilisearchHttp<Record<string, { source?: string; model?: string }>>(
+    meilisearchHttp<Record<string, { source?: string; model?: string; url?: string }>>(
       config,
       'GET',
       `/indexes/${indexName}/settings/embedders`,
@@ -87,8 +89,13 @@ export async function readMeilisearchSemanticStatus(
     }>(config, 'GET', `/indexes/${indexName}/stats`),
   ]);
   const embedder = embedders.body?.[embedderName];
+  // The url is part of "configured": an index still embedding against an old
+  // Ollama host must not read as healthy on Settings (#4432).
   const embedderConfigured =
-    embedders.ok && embedder?.source === 'ollama' && embedder.model === config.embedderModel;
+    embedders.ok &&
+    embedder?.source === 'ollama' &&
+    embedder.model === config.embedderModel &&
+    embedder.url === joinMeilisearchUrl(config.embedderUrl, '/api/embed');
 
   let embedderReachable = false;
   let probeError: string | null = null;

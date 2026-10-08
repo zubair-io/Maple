@@ -30,12 +30,14 @@ export async function initializeHttpSearch(): Promise<void> {
       return;
     }
     await client.ensureIndex();
-    await advanceKnownVectorCoverage(client.semanticFingerprint?.());
+    if (client.embedderInSync?.() !== false) {
+      await advanceKnownVectorCoverage(client.semanticFingerprint?.());
+    }
     log.info({ semanticEnabled: client.semanticConfigured() }, 'Meilisearch search sidecar ready');
   } catch (error) {
     log.warn(
       { err: error },
-      'Meilisearch setup failed — search will fall back to built-in text search',
+      'Meilisearch setup did not complete — the worker retries index settings; search falls back to built-in text search only while Meilisearch is unreachable',
     );
   }
 }

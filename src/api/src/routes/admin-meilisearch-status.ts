@@ -9,6 +9,11 @@ import {
 } from '../enrichment/meilisearch-config.ts';
 import type { MeilisearchSemanticStatus } from '../enrichment/meilisearch-client.ts';
 import {
+  EmbedderApplyConflictError,
+  UNCONFIGURED_EMBEDDER_REPORT,
+  type EmbedderDriftReport,
+} from '../enrichment/meilisearch-settings-sync.ts';
+import {
   countLiveAssets,
   countLiveAssetsWithFingerprint,
 } from '../enrichment/meilisearch-vector-coverage.ts';
@@ -134,4 +139,30 @@ export const adminMeilisearchStatusRoutes = new Elysia({
 })
   .use(requireAuth)
   .use(requireOwner)
-  .get('/meilisearch-status', loadAdminMeilisearchStatus);
+  .get('/meilisearch-status', loadAdminMeilisearchStatus)
+  .get('/meilisearch-embedder', async (): Promise<EmbedderDriftReport> => {
+    const client = meilisearchClient();
+    return client.embedderDrift?.() ?? UNCONFIGURED_EMBEDDER_REPORT;
+  })
+  // Re-embeds the library on Meilisearch's side (#4432), so it is an explicit
+  // operator action and never part of a settings save.
+  .post('/meilisearch-embedder/apply', async ({ set }) => {
+    const client = meilisearchClient();
+    if (!client.applyEmbedderSettings) {
+      set.status = 409;
+      return { error: 'Meilisearch is not configured', state: 'unconfigured' };
+    }
+    try {
+      const result = await client.applyEmbedderSettings();
+      statusCache = null;
+      set.status = 202;
+      return result;
+    } catch (error) {
+      if (error instanceof EmbedderApplyConflictError) {
+        set.status = 409;
+        return { error: error.message, state: error.state };
+      }
+      set.status = 502;
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+  });

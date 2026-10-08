@@ -163,21 +163,135 @@ function embedderMatches(actual: unknown, expected: unknown): boolean {
   );
 }
 
+const SETTING_MATCHERS: Readonly<Record<string, (actual: unknown, expected: unknown) => boolean>> =
+  {
+    searchableAttributes: sameStringArray,
+    filterableAttributes: sameStringSet,
+    sortableAttributes: sameStringSet,
+    embedders: embedderMatches,
+  };
+
+/**
+ * The subset of `expected` whose top-level settings differ from the live
+ * index — exactly the body to PATCH. Sending only drifted keys keeps an
+ * unchanged embedder out of a searchable-attributes update and vice versa.
+ */
+export function driftedAssetsIndexSettings(
+  actual: unknown,
+  expected: Record<string, unknown>,
+): Record<string, unknown> {
+  const live = isRecord(actual) ? actual : {};
+  return Object.fromEntries(
+    Object.entries(expected).filter(([key, value]) => {
+      const matches = SETTING_MATCHERS[key];
+      return matches === undefined || !matches(live[key], value);
+    }),
+  );
+}
+
 export function assetsIndexSettingsMatch(
   actual: unknown,
   expected: Record<string, unknown>,
 ): boolean {
-  if (!isRecord(actual)) return false;
-  const searchableMatches = sameStringArray(
-    actual.searchableAttributes,
-    expected.searchableAttributes,
+  return isRecord(actual) && Object.keys(driftedAssetsIndexSettings(actual, expected)).length === 0;
+}
+
+export interface EmbedderSummary {
+  url: string | null;
+  model: string | null;
+}
+
+export interface EmbedderChange {
+  /** Managed fields that differ, or `['removed']` when Maple wants none. */
+  changedFields: string[];
+  /** Value for `embedders.<name>` in a settings PATCH: only the changed
+   * fields (Meilisearch merges a partial embedder object into the stored
+   * one), the full object for a new embedder, or `null` to remove it. */
+  patch: Record<string, unknown> | null;
+  live: EmbedderSummary | null;
+  configured: EmbedderSummary | null;
+  /** Meilisearch regenerates every stored embedding for this change: any
+   * Ollama `source`/`model`/`url` change does, and so does a template change
+   * that alters every rendered document. Only `dimensions` (for non-OpenAI
+   * sources) and removal never re-embed. */
+  reembedsAllDocuments: boolean;
+}
+
+function summary(embedder: Record<string, unknown> | null): EmbedderSummary | null {
+  if (embedder === null) return null;
+  const text = (value: unknown) => (typeof value === 'string' ? value : null);
+  return { url: text(embedder.url), model: text(embedder.model) };
+}
+
+function embedderAt(embedders: unknown, name: string): Record<string, unknown> | null {
+  const embedder = isRecord(embedders) ? embedders[name] : undefined;
+  return isRecord(embedder) ? embedder : null;
+}
+
+function changedEmbedderFields(
+  live: Record<string, unknown>,
+  wanted: Record<string, unknown>,
+): string[] {
+  return Object.keys(wanted).filter(
+    (field) => JSON.stringify(live[field]) !== JSON.stringify(wanted[field]),
   );
-  const orderInsensitiveMatches = ['filterableAttributes', 'sortableAttributes'].every((field) =>
-    sameStringSet(actual[field], expected[field]),
-  );
-  return (
-    searchableMatches &&
-    orderInsensitiveMatches &&
-    embedderMatches(actual.embedders, expected.embedders)
-  );
+}
+
+function partialEmbedderPatch(
+  live: Record<string, unknown>,
+  wanted: Record<string, unknown>,
+  changedFields: string[],
+): Record<string, unknown> {
+  const picked = Object.fromEntries(changedFields.map((field) => [field, wanted[field]]));
+  // A merged update keeps the old model's stored `dimensions` when we send
+  // none (unknown model); reset it so Meilisearch probes the new model.
+  const modelChanged = changedFields.includes('model') || changedFields.includes('source');
+  const staleDimensions =
+    modelChanged && wanted.dimensions === undefined && live.dimensions !== undefined;
+  return staleDimensions ? { ...picked, dimensions: null } : picked;
+}
+
+/** URL and model of the `name` embedder in an `embedders` settings value. */
+export function embedderSummary(embedders: unknown, name: string): EmbedderSummary | null {
+  return summary(embedderAt(embedders, name));
+}
+
+/** How the live `name` embedder differs from Maple's, or `null` when it
+ * matches. Never carries `apiKey` or `headers`. */
+export function embedderChange(
+  liveEmbedders: unknown,
+  expectedEmbedders: unknown,
+  name: string,
+): EmbedderChange | null {
+  const live = embedderAt(liveEmbedders, name);
+  const wanted = embedderAt(expectedEmbedders, name);
+  if (wanted === null) {
+    return live === null
+      ? null
+      : {
+          changedFields: ['removed'],
+          patch: null,
+          live: summary(live),
+          configured: null,
+          reembedsAllDocuments: false,
+        };
+  }
+  if (live === null) {
+    return {
+      changedFields: Object.keys(wanted),
+      patch: wanted,
+      live: null,
+      configured: summary(wanted),
+      reembedsAllDocuments: true,
+    };
+  }
+  const changedFields = changedEmbedderFields(live, wanted);
+  if (changedFields.length === 0) return null;
+  return {
+    changedFields,
+    patch: partialEmbedderPatch(live, wanted, changedFields),
+    live: summary(live),
+    configured: summary(wanted),
+    reembedsAllDocuments: changedFields.some((field) => field !== 'dimensions'),
+  };
 }
