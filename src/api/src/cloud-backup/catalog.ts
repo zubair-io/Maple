@@ -84,7 +84,11 @@ export async function readEntryPurge(
     throw new Error('Backup purge record identity mismatch');
   return purge;
 }
-function parseFile(value: unknown, libraryId: string): BackupManifest['files'][number] {
+function parseFile(
+  value: unknown,
+  libraryId: string,
+  entryId: string,
+): BackupManifest['files'][number] {
   const file = record(value),
     object = record(file.object);
   const role = stringValue(file.role);
@@ -94,7 +98,9 @@ function parseFile(value: unknown, libraryId: string): BackupManifest['files'][n
   const sha256 = stringValue(object.sha256);
   if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error('Invalid backup file checksum');
   const key = stringValue(object.key);
-  if (key !== `mirror/${libraryId}/${path}`)
+  const currentKey = `mirror/${libraryId}/${path}`;
+  const legacyKey = `libraries/${libraryId}/entries/${entryId}/blobs/${sha256}`;
+  if (key !== currentKey && key !== legacyKey)
     throw new Error('Backup mirror key does not match its library-relative path');
   if (typeof object.size !== 'number' || !Number.isSafeInteger(object.size) || object.size < 0)
     throw new Error('Invalid backup file size');
@@ -104,10 +110,14 @@ function parseFile(value: unknown, libraryId: string): BackupManifest['files'][n
     object: { key, locator: stringValue(object.locator), sha256, size: object.size },
   };
 }
-function manifestFiles(value: unknown, libraryId: string): BackupManifest['files'] {
+function manifestFiles(
+  value: unknown,
+  libraryId: string,
+  entryId: string,
+): BackupManifest['files'] {
   if (!Array.isArray(value) || !value.length || value.length > 512)
     throw new Error('Invalid backup manifest files');
-  const files = value.map((file) => parseFile(file, libraryId));
+  const files = value.map((file) => parseFile(file, libraryId, entryId));
   const names = new Set<string>();
   for (const file of files) {
     const normalized = file.path.normalize('NFC').toLocaleLowerCase('en-US');
@@ -142,7 +152,7 @@ export function parseManifest(value: unknown): BackupManifest {
     originalPath: relativeBackupPath(stringValue(row.originalPath)),
     currentPath: relativeBackupPath(stringValue(row.currentPath)),
     deletedAt: row.deletedAt === null ? null : timestampValue(row.deletedAt),
-    files: manifestFiles(row.files, ids.libraryId),
+    files: manifestFiles(row.files, ids.libraryId, ids.entryId),
   };
   validateManifestLifecycle(manifest);
   return manifest;

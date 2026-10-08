@@ -62,6 +62,9 @@ class GoogleStore {
       query: url.searchParams.get('q'),
       headers: new Headers(init?.headers),
     });
+    return this.route(url, method, init);
+  };
+  private route(url: URL, method: string, init?: RequestInit): Response {
     if (url.pathname === `/drive/v3/files/${root}`) return this.rootMetadata();
     switch (url.pathname) {
       case '/drive/v3/files/generateIds':
@@ -74,7 +77,7 @@ class GoogleStore {
         if (url.pathname.startsWith('/drive/v3/files/')) return this.fileRequest(url, method);
         throw new Error(`Unexpected test request ${method} ${url.pathname}`);
     }
-  };
+  }
   private rootMetadata() {
     return Response.json({
       id: root,
