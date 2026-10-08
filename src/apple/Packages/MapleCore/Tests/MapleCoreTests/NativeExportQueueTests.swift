@@ -430,6 +430,33 @@ final class NativeExportQueueTests: XCTestCase {
       try NativeExportPublication.prepare(prepared, record: record, access: access))
     XCTAssertEqual(try Data(contentsOf: fixture.raw), fixture.original)
   }
+
+  func testNativeExportStorageRootHonorsEnvironmentOverrides() {
+    let customPath = "/tmp/test-custom-queue-\(UUID().uuidString)"
+    let uitestPath = "/tmp/test-uitest-queue-\(UUID().uuidString)"
+    let argPath = "/tmp/test-arg-queue-\(UUID().uuidString)"
+
+    XCTAssertEqual(
+      NativeExportStorage.root(environment: ["MAPLE_EXPORT_QUEUE_ROOT": customPath], arguments: [])
+        .path,
+      customPath)
+
+    XCTAssertEqual(
+      NativeExportStorage.root(environment: ["MAPLE_UITEST_EXPORT_ROOT": uitestPath], arguments: [])
+        .path,
+      uitestPath)
+
+    XCTAssertEqual(
+      NativeExportStorage.root(environment: [:], arguments: ["--export-queue-root", argPath]).path,
+      argPath)
+
+    XCTAssertEqual(
+      NativeExportStorage.root(environment: [:], arguments: ["--uitest-export-root", argPath]).path,
+      argPath)
+
+    let defaultRoot = NativeExportStorage.root(environment: [:], arguments: []).path
+    XCTAssertTrue(defaultRoot.contains("Maple/Exports"))
+  }
 }
 
 actor NativeExportTestFence {

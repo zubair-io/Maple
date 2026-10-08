@@ -17,9 +17,12 @@ import XCTest
         try FileManager.default.copyItem(at: fixture, to: root.appendingPathComponent(name))
       }
       let app = XCUIApplication()
+      let queueDirectory = root.appendingPathComponent("queue", isDirectory: true)
+      try FileManager.default.createDirectory(at: queueDirectory, withIntermediateDirectories: true)
       app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = "first.png"
       app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = root.path
-      app.launchArguments = ["--uitest-browse"]
+      app.launchEnvironment["MAPLE_EXPORT_QUEUE_ROOT"] = queueDirectory.path
+      app.launchArguments = ["--uitest-browse", "--export-queue-root", queueDirectory.path]
       app.launch()
       defer { app.terminate() }
       XCTAssertTrue(app.buttons["thumb-first"].waitForExistence(timeout: 30))
@@ -49,9 +52,13 @@ import XCTest
       try FileManager.default.copyItem(at: fixture, to: source)
       let before = try Data(contentsOf: source)
       defer { try? FileManager.default.removeItem(at: root) }
+      let queueDirectory = root.appendingPathComponent("queue", isDirectory: true)
+      try FileManager.default.createDirectory(at: queueDirectory, withIntermediateDirectories: true)
       let app = XCUIApplication()
       app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = source.lastPathComponent
       app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = root.path
+      app.launchEnvironment["MAPLE_EXPORT_QUEUE_ROOT"] = queueDirectory.path
+      app.launchArguments = ["--export-queue-root", queueDirectory.path]
       app.launch()
       defer { app.terminate() }
       let more = app.buttons["editor-more"]

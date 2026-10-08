@@ -55,8 +55,26 @@ public actor NativeExportRecipeStore {
 }
 
 enum NativeExportStorage {
-  static func root() -> URL {
-    FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+  static func root(
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    arguments: [String] = ProcessInfo.processInfo.arguments
+  ) -> URL {
+    if let env = environment["MAPLE_EXPORT_QUEUE_ROOT"]
+      ?? environment["MAPLE_UITEST_EXPORT_ROOT"],
+      !env.isEmpty
+    {
+      return URL(fileURLWithPath: env, isDirectory: true)
+    }
+    if let idx = arguments.firstIndex(of: "--export-queue-root")
+      ?? arguments.firstIndex(of: "--uitest-export-root"),
+      idx + 1 < arguments.count
+    {
+      let path = arguments[idx + 1]
+      if !path.isEmpty {
+        return URL(fileURLWithPath: path, isDirectory: true)
+      }
+    }
+    return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
       .appendingPathComponent("Maple", isDirectory: true)
       .appendingPathComponent("Exports", isDirectory: true)
   }
