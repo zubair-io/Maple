@@ -24,7 +24,13 @@
  * today, and what keeps a facet total and a grid page from disagreeing.
  */
 
-import { facetStatements, type BoundStatement, type FacetName } from './search.facets.sql.ts';
+import {
+  facetCandidatesSql,
+  facetStatements,
+  scopedToCandidates,
+  type BoundStatement,
+  type FacetName,
+} from './search.facets.sql.ts';
 import type { SearchWhere } from './search.where.ts';
 import { assetsDb, type SqliteDb } from './db-handle.ts';
 import type { SqlRow } from '../sqlite/protocol.ts';
@@ -122,18 +128,44 @@ function range<T extends number | string>(
 }
 
 /** Runs every facet statement concurrently, on whichever readers are free. */
-async function runFacets(
+async function runFacets<K extends FacetName>(
   db: SqliteDb,
-  statements: Record<FacetName, BoundStatement>,
-): Promise<Record<FacetName, SqlRow[]>> {
-  const names = Object.keys(statements) as FacetName[];
+  statements: Record<K, BoundStatement>,
+): Promise<Record<K, SqlRow[]>> {
+  const names = Object.keys(statements) as K[];
   const results = await Promise.all(
-    names.map((name) => db.read(statements[name]!.sql, statements[name]!.params)),
+    names.map((name) => db.read(statements[name].sql, statements[name].params)),
   );
   return Object.fromEntries(names.map((name, index) => [name, results[index]!])) as Record<
-    FacetName,
+    K,
     SqlRow[]
   >;
+}
+
+/**
+ * Every facet's rows, with a text query's match evaluated once rather than
+ * once per facet.
+ *
+ * A full-text search reaches every facet through the same join — the inverted
+ * index, `asset_search`, then `assets` — and that join is the whole cost of a
+ * facet: at 335k assets a caption-style query hits most of the library, and
+ * each of thirteen statements joined, filtered and grouped those rows for
+ * itself, 0.5–0.8 s apiece (#4413). Resolving the matching assets once and
+ * grouping over their row ids makes each facet a keyed probe per match
+ * instead. The total is that set's size, which is the count the shared
+ * statement would have produced.
+ *
+ * A search without text keeps the statements as they were: each of them
+ * already reads one index, or one join the planner has been measured on.
+ */
+async function facetRows(db: SqliteDb, where: SearchWhere): Promise<Record<FacetName, SqlRow[]>> {
+  if (where.match.kind !== 'match') return runFacets(db, facetStatements(where));
+  const candidates = facetCandidatesSql(where);
+  const matched = await db.read<{ r: number }>(candidates.sql, candidates.params);
+  const rowids = matched.map((row) => row.r);
+  const { total: _total, ...groupings } = facetStatements(scopedToCandidates(where, rowids));
+  const rows = await runFacets(db, groupings);
+  return { ...rows, total: [{ n: rowids.length }] };
 }
 
 /**
@@ -150,7 +182,7 @@ export async function searchFacets(
   dbOverride?: SqliteDb,
 ): Promise<SearchFacets> {
   const db = assetsDb(dbOverride);
-  const rows = await runFacets(db, facetStatements(where));
+  const rows = await facetRows(db, where);
   const as = <T>(name: FacetName): T[] => rows[name] as unknown as T[];
 
   const screenshot = as<{ bucket: number; count: number }>('is_screenshot');
