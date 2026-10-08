@@ -28,7 +28,7 @@ import { monthNarrowing, type SearchWhere } from './search.where.ts';
 import type { SqliteDb } from './db-handle.ts';
 
 /** Whether the only things narrowing the match are the default visibility and a month. */
-function textOnly(where: SearchWhere): boolean {
+export function textOnly(where: SearchWhere): boolean {
   return where.hidden === 0 && where.clauses.length === (where.month === null ? 0 : 1);
 }
 

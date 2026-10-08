@@ -27,8 +27,8 @@
 import { facetStatements, type BoundStatement, type FacetName } from './search.facets.sql.ts';
 import { facetRowsOf } from './search.facets.top.ts';
 import type { SearchWhere } from './search.where.ts';
-import { firstRanked } from './search.ranked.ts';
-import { textCount } from './search.text-count.ts';
+import { firstRanked, someMatchesSql, type RankedAsset } from './search.ranked.ts';
+import { textCount, textOnly } from './search.text-count.ts';
 import { cachedFacets } from './search.facets.cache.ts';
 import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
 import type { SqlRow } from '../sqlite/protocol.ts';
@@ -199,6 +199,15 @@ async function facetRows(
   if (where.match.kind !== 'match') {
     return { rows: await runFacets(db, facetStatements(where)), scope: { kind: 'all' } };
   }
+  if (!textOnly(where)) {
+    const few = await fewMatches(db, where, topMatches);
+    if (few) {
+      return {
+        rows: { ...(await facetRowsOf(db, few)), total: [{ n: few.length }] },
+        scope: { kind: 'all' },
+      };
+    }
+  }
   // The count runs beside the ranking: the first rows of the list are every
   // match when there are no more than `topMatches`, so it only decides the label.
   const [total, rows] = await Promise.all([
@@ -209,6 +218,20 @@ async function facetRows(
     rows: { ...rows, total: [{ n: total }] },
     scope: total > topMatches ? { kind: 'top', limit: topMatches, of: total } : { kind: 'all' },
   };
+}
+
+/**
+ * Every match of a filtered text search, when there are at most `limit` —
+ * otherwise null, and the search is broad enough to rank. See `someMatchesSql`.
+ */
+async function fewMatches(
+  db: SqliteDb,
+  where: SearchWhere,
+  limit: number,
+): Promise<RankedAsset[] | null> {
+  const some = someMatchesSql(where, limit + 1);
+  const rows = await readBulk<RankedAsset>(db, some.sql, some.params);
+  return rows.length <= limit ? rows : null;
 }
 
 /**

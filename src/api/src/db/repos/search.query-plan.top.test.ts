@@ -20,7 +20,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { createTestDatabase } from '../sqlite/test-sqlite.test-helpers.ts';
-import { firstRankedSql } from './search.ranked.ts';
+import { firstRankedSql, someMatchesSql } from './search.ranked.ts';
 import { assetFacetRowsSql, sideFacetRowsSql } from './search.facets.top.ts';
 import type { BoundStatement } from './search.sql.ts';
 import { textOnlyCountSql } from './search.text-count.ts';
@@ -142,4 +142,17 @@ describe('the facet columns of the first results are read by key', () => {
       }
     });
   });
+});
+
+describe("a filtered search's matches are read with the inverted index leading", () => {
+  for (const q of QUERIES) {
+    test(JSON.stringify(q), async () => {
+      await withDb((db) => {
+        const plan = planOf(db, someMatchesSql(translate(q), 2_001));
+        expect(plan[0]).toBe('SCAN assets_fts VIRTUAL TABLE INDEX 0:M1');
+        expect(plan.filter((line) => line.includes('0:='))).toEqual([]);
+        expect(plan.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
+      });
+    });
+  }
 });
