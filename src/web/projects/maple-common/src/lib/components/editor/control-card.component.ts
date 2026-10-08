@@ -293,6 +293,7 @@ export class ControlCardComponent {
     if (!id || !isWired(tool)) return;
     this.dragAssetId = id;
     this.pendingNoisePanel = false;
+    this.toolAtDragStart = this.editorState.armedTool();
     this.editorState.commit();
     // Marks the gesture for the command router (#2450): navigation is
     // refused while a drag is in flight, so the ticks below can never be
@@ -307,16 +308,20 @@ export class ControlCardComponent {
    *  pointer). */
   private dragAssetId: string | null = null;
   private pendingNoisePanel = false;
+  private toolAtDragStart: ToolId | null = null;
 
   onSliderDragEnd(): void {
     const assetId = this.dragAssetId;
     const pendingNoisePanel = this.pendingNoisePanel;
+    const toolUnchanged = this.editorState.armedTool() === this.toolAtDragStart;
     this.dragAssetId = null;
     this.pendingNoisePanel = false;
+    this.toolAtDragStart = null;
     this.editorState.endGesture();
     // #4352: arming Noise removes this card. Keep its captured slider alive
-    // until release/cancel, then expose the existing sub-parameter panel.
-    if (pendingNoisePanel && assetId === this.libraryState.focusedAssetId())
+    // until release/cancel, then expose the existing sub-parameter panel —
+    // unless the user picked another tool mid-gesture.
+    if (pendingNoisePanel && toolUnchanged && assetId === this.libraryState.focusedAssetId())
       this.editorState.armTool('noise');
   }
 
