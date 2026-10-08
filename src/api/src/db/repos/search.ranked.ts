@@ -75,9 +75,10 @@ const MAX_WIDENING = 4;
  *   capture date has to be read — and as many as fit are taken.
  *
  * The final `LEFT JOIN` from a one-row `flag` makes the statement answer at
- * least one row, so an empty survivor set still reports whether it is final
- * and how many hits passed the filters — the survival rate a widening is sized
- * from.
+ * least one row, so an empty survivor set still reports whether it is final,
+ * how many hits scored strictly better than the stop (`considered`), and how
+ * many of those passed the filters (`survived`) — what a widening is sized
+ * from, and what tells a filter's shortfall from a tie's.
  */
 export function firstRankedSql(where: SearchWhere, k: number, limit: number): BoundStatement {
   if (where.match.kind !== 'match') throw new Error('firstRankedSql: not a text query');
@@ -112,8 +113,12 @@ export function firstRankedSql(where: SearchWhere, k: number, limit: number): Bo
          ORDER BY assets.captured_at DESC, assets.id
          LIMIT ? - (SELECT COUNT(*) FROM alive WHERE rank < (SELECT rank FROM edge)))),
     flag AS (SELECT (SELECT rank IS NULL FROM stop) AS complete,
+                    (SELECT COUNT(*) FROM hit
+                      WHERE hit.rank < (SELECT rank FROM stop)
+                         OR (SELECT rank FROM stop) IS NULL) AS considered,
                     (SELECT COUNT(*) FROM alive) AS survived)
-  SELECT flag.complete AS complete, flag.survived AS survived, chosen.r AS r, chosen.id AS id
+  SELECT flag.complete AS complete, flag.considered AS considered,
+         flag.survived AS survived, chosen.r AS r, chosen.id AS id
     FROM flag LEFT JOIN chosen ON 1`,
     params: [
       where.match.expression,
@@ -127,41 +132,49 @@ export function firstRankedSql(where: SearchWhere, k: number, limit: number): Bo
   };
 }
 
-/** One score-only pass over `k` hits: its rows, whether they are the answer, and how many survived. */
+/** One score-only pass over `k` hits: its rows, whether they are the answer, and its counts. */
 async function scorePass(
   db: SqliteDb,
   where: SearchWhere,
   limit: number,
   k: number,
-): Promise<{ rows: RankedAsset[]; enough: boolean; survived: number }> {
+): Promise<{ rows: RankedAsset[]; enough: boolean; considered: number; survived: number }> {
   const pass = firstRankedSql(where, k, limit);
   const answer = await readBulk<{
     complete: number;
+    considered: number;
     survived: number;
     r: number | null;
     id: string | null;
   }>(db, pass.sql, pass.params);
   const rows = answer
     .filter(
-      (row): row is { complete: number; survived: number; r: number; id: string } =>
+      (row): row is (typeof answer)[number] & { r: number; id: string } =>
         row.r !== null && row.id !== null,
     )
     .map((row) => ({ r: row.r, id: row.id }));
   return {
     rows,
     enough: rows.length === limit || answer[0]?.complete === 1,
+    considered: answer[0]?.considered ?? 0,
     survived: answer[0]?.survived ?? 0,
   };
 }
 
 /**
  * The first `limit` rows from at most two score-only passes, or null when the
- * full predicate is the better answer. See {@link MAX_WIDENING}.
+ * full predicate is the better answer.
  *
- * The second pass is sized from how many of the first pass's hits survived the
- * filters. A pass whose hits all tie at the score it stopped at keeps none of
- * them without any filter being at fault; that, too, sizes a pass beyond the
- * bound and goes to the full predicate, which orders ties itself.
+ * Two shortfalls look alike and are not. A filter can keep too few of the
+ * hits; then a wider pass, sized from the rate it kept them at and bounded by
+ * {@link MAX_WIDENING}, finds the rest. Or the pass can stop inside a tie: the
+ * hits scoring exactly what it stopped at are left out, because a match it did
+ * not return may share that score, and a library where thousands of assets
+ * carry the same caption puts thousands of hits in one tie. When fewer hits
+ * than the page needs scored strictly better than the stop, no filter is at
+ * fault and widening would only walk further into the same tie, scoring every
+ * match each time — so it goes to the full predicate at once, which orders ties
+ * itself.
  */
 async function scoreFirst(
   db: SqliteDb,
@@ -171,7 +184,10 @@ async function scoreFirst(
   const k = OVERFETCH * limit;
   const first = await scorePass(db, where, limit, k);
   if (first.enough) return first.rows;
-  const widened = Math.ceil((k * limit * WIDENING_MARGIN) / Math.max(first.survived, 1));
+  if (first.considered < limit) return null;
+  const widened = Math.ceil(
+    (first.considered * limit * WIDENING_MARGIN) / Math.max(first.survived, 1),
+  );
   if (widened > MAX_WIDENING * k) return null;
   const second = await scorePass(db, where, limit, widened);
   return second.enough ? second.rows : null;
