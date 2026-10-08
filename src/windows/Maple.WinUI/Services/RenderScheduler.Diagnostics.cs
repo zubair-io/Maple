@@ -5,17 +5,18 @@ namespace Maple.WinUI.Services;
 
 public sealed partial class RenderScheduler
 {
-    // #4329: diagnostic readback runs only in a separate parity process, with
-    // the production session and all parameter arrays still pinned under _gate.
+    // #4329: diagnostic readback runs only in a separate parity process. Use
+    // an isolated GPU session so the readback render cannot mutate the live
+    // present session's pooled pass/bind-group state.
     private static unsafe void DumpGpuFrameIfRequested(
-        Native.MapleGpuLiveSession* handle, Native.MapleGpuLiveParams* parameters,
+        Native.MapleGpuLiveParams* parameters,
         DecodedImage image, Models.AdjustmentState state, ulong generation)
     {
         var path = Environment.GetEnvironmentVariable("MAPLE_DUMP_GPU_FRAME");
         if (string.IsNullOrEmpty(path) || File.Exists(path)) return;
         try
         {
-            CaptureGpuFrame(handle, parameters, image, state, generation, path);
+            CaptureGpuFrame(parameters, image, state, generation, path);
         }
         catch (Exception error)
         {
@@ -32,15 +33,36 @@ public sealed partial class RenderScheduler
     }
 
     private static unsafe void CaptureGpuFrame(
-        Native.MapleGpuLiveSession* handle, Native.MapleGpuLiveParams* parameters,
+        Native.MapleGpuLiveParams* parameters,
         DecodedImage image, Models.AdjustmentState state, ulong generation, string path)
     {
         var rgb = new byte[checked(image.Width * image.Height * 3)];
+        var diagnostic = default(Native.MapleGpuLiveSession);
+        var captureParameters = *parameters;
+        // Scope readback is owned by the production present path. The parity
+        // render only needs pixels; polling the same async scope state a second
+        // time can race the present's scope submission bookkeeping.
+        captureParameters.scope_enabled = 0;
+        captureParameters.scope_out = null;
+        Native.MapleGpuLiveParams* captureParams = &captureParameters;
+        Native.MapleGpuLiveSession* session = &diagnostic;
         fixed (byte* output = rgb)
+        fixed (float* pixels = image.Pixels)
         {
-            var rc = Native.RawFfi.maple_gpu_live_render(handle, parameters, output);
+            var rc = Native.RawFfi.maple_gpu_live_open(pixels, (uint)image.Width, (uint)image.Height, session);
             if (rc != 0)
-                throw new InvalidOperationException($"GPU parity readback rc={rc}: {Native.RawFfi.LastError()}");
+                throw new InvalidOperationException($"GPU parity session open rc={rc}: {Native.RawFfi.LastError()}");
+            try
+            {
+                rc = Native.RawFfi.maple_gpu_live_render(session, captureParams, output);
+                if (rc != 0)
+                    throw new InvalidOperationException($"GPU parity readback rc={rc}: {Native.RawFfi.LastError()}");
+            }
+            finally
+            {
+                Native.RawFfi.maple_gpu_live_close(session);
+                diagnostic.inner = IntPtr.Zero;
+            }
         }
         var bgra = new byte[checked(image.Width * image.Height * 4)];
         for (int source = 0, destination = 0; source < rgb.Length; source += 3, destination += 4)
