@@ -72,32 +72,38 @@ struct AppShellIPhoneDrawer<MainContent: View, SidebarContent: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                // Base — the actual Library tab content. Wrapped by the
-                // caller in a NavigationStack so navigationTitle +
-                // toolbar work. Block taps to the base when the drawer
-                // is open so a mis-aimed tap behind the drawer doesn't
-                // trigger background actions.
-                mainContent()
-                    .disabled(isDrawerOpen)
+        ZStack(alignment: .leading) {
+            // Base — the actual Library tab content. Wrapped by the
+            // caller in a NavigationStack so navigationTitle +
+            // toolbar work. Block taps to the base when the drawer
+            // is open so a mis-aimed tap behind the drawer doesn't
+            // trigger background actions.
+            //
+            // Kept OUTSIDE the GeometryReader: a geometry change (every
+            // keyboard-animation frame) re-runs the reader's closure, and
+            // re-building the TabView there made SwiftUI re-issue
+            // `setTabs`, which re-moved the keyboard — a main-thread loop
+            // the watchdog killed on iOS 27.
+            mainContent()
+                .disabled(isDrawerOpen)
 
-                // Dim overlay — fades in proportional to drawer position.
-                // Tap-anywhere dismisses. Hidden when fully closed so it
-                // doesn't intercept taps on the base layer.
-                if drawerProgress > 0.001 {
-                    Color.black
-                        .opacity(0.45 * drawerProgress)
-                        .ignoresSafeArea()
-                        .onTapGesture { closeDrawer() }
-                        .accessibilityHidden(true)
-                }
+            // Dim overlay — fades in proportional to drawer position.
+            // Tap-anywhere dismisses. Hidden when fully closed so it
+            // doesn't intercept taps on the base layer.
+            if drawerProgress > 0.001 {
+                Color.black
+                    .opacity(0.45 * drawerProgress)
+                    .ignoresSafeArea()
+                    .onTapGesture { closeDrawer() }
+                    .accessibilityHidden(true)
+            }
 
-                // The drawer itself. Chrome header (eyebrow + identity) is
-                // painted here; sidebar content slot fills the rest.
-                // `LibrarySidebar` paints its own background
-                // (MapleTokens.sidebar), which we extend behind the chrome
-                // via the drawer container.
+            // The drawer itself. Chrome header (eyebrow + identity) is
+            // painted here; sidebar content slot fills the rest.
+            // `LibrarySidebar` paints its own background
+            // (MapleTokens.sidebar), which we extend behind the chrome
+            // via the drawer container.
+            GeometryReader { proxy in
                 drawerStack
                     // Pad the chrome below the status bar; the drawer's own
                     // background then extends up under it (via .ignoresSafeArea
@@ -126,13 +132,13 @@ struct AppShellIPhoneDrawer<MainContent: View, SidebarContent: View>: View {
                     // at the bottom and under the status bar at the top (#692).
                     .ignoresSafeArea()
             }
-            // Edge-swipe to open. Only fires from the leftmost 20pt and
-            // only when the drawer is closed AND we're in browse mode.
-            // `.simultaneousGesture` so it doesn't pre-empt the grid's
-            // horizontal scrolls — start-location guard makes off-edge
-            // drags fall through.
-            .simultaneousGesture(edgeOpenDragGesture)
         }
+        // Edge-swipe to open. Only fires from the leftmost 20pt and
+        // only when the drawer is closed AND we're in browse mode.
+        // `.simultaneousGesture` so it doesn't pre-empt the grid's
+        // horizontal scrolls — start-location guard makes off-edge
+        // drags fall through.
+        .simultaneousGesture(edgeOpenDragGesture)
         .ignoresSafeArea(.keyboard)
     }
 
@@ -143,7 +149,7 @@ struct AppShellIPhoneDrawer<MainContent: View, SidebarContent: View>: View {
         // The LIBRARY header (eyebrow + connection-identity row + close X) was
         // removed in #692 — the drawer is just the source tree now. It closes
         // via tap-on-dim or drag-back; the status-bar inset is applied in
-        // `body` via `proxy.safeAreaInsets.top`.
+        // the drawer layer's `GeometryReader` via `proxy.safeAreaInsets.top`.
         sidebarContent()
             .padding(.top, 8)
     }
