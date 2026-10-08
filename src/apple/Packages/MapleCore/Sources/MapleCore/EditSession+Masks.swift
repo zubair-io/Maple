@@ -120,7 +120,7 @@ extension EditSession {
         case .bitmap(let recipe, let rasterId) where rasterId == 0:
           return await self.rehydratedBitmap(recipe: recipe, fallback: mask)
         case .brush(let dabs, _, let rasterId) where rasterId == 0:
-          return self.rehydratedBrush(dabs: dabs, fallback: mask)
+          return self.rehydratedBrush(dabs: dabs)
         default:
           return mask
         }
@@ -149,7 +149,7 @@ extension EditSession {
     }
   }
 
-  func rehydratedBrush(dabs: [BrushDab], fallback: LocalMask) -> LocalMask {
+  func rehydratedBrush(dabs: [BrushDab]) -> LocalMask {
     let digest = BrushRaster.digest(dabs)
     guard !dabs.isEmpty, let (w, h, bytes) = sourceBrushRaster(dabs: dabs),
       let id = MaskRasterRegistry.register(digest: digest, width: w, height: h, bytes: bytes)
@@ -205,8 +205,7 @@ extension EditSession {
       guard case .brush(let dabs, _, let rasterId) = out.localAdjustments[index].mask,
         !liveIds.contains(rasterId)
       else { continue }
-      out.localAdjustments[index].mask = rehydratedBrush(
-        dabs: dabs, fallback: out.localAdjustments[index].mask)
+      out.localAdjustments[index].mask = rehydratedBrush(dabs: dabs)
     }
     liveIds.subtracting(brushRasterIds(out)).forEach(MaskRasterRegistry.release)
     return out
