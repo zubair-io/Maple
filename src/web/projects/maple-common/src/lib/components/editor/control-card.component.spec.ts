@@ -30,6 +30,7 @@ function render(
   commit: ReturnType<typeof vi.fn>;
   haptic: ReturnType<typeof vi.fn>;
   armTool: ReturnType<typeof vi.fn>;
+  armedTool: ReturnType<typeof vi.fn>;
   beginGesture: ReturnType<typeof vi.fn>;
   endGesture: ReturnType<typeof vi.fn>;
   focusedAssetId: ReturnType<typeof signal<string | null>>;
@@ -90,6 +91,7 @@ function render(
     commit,
     haptic,
     armTool,
+    armedTool,
     beginGesture,
     endGesture,
     focusedAssetId,
@@ -223,6 +225,15 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
     componentInstance.onSliderDragStart('noise');
     componentInstance.onSliderDragEnd();
     componentInstance.onSliderReset('noise');
+    expect(armTool).not.toHaveBeenCalled();
+  });
+
+  it('does not arm a deferred Noise panel after another tool was chosen mid-gesture (#4414)', () => {
+    const { componentInstance, armTool, armedTool } = render({ activeGroup: 'detail' });
+    componentInstance.onSliderDragStart('noise');
+    componentInstance.onSliderChange('noise', 2);
+    armedTool.mockReturnValue('exposure');
+    componentInstance.onSliderDragEnd();
     expect(armTool).not.toHaveBeenCalled();
   });
 
