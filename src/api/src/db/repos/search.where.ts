@@ -352,7 +352,7 @@ function textPredicate(match: TextFilter): BoundPredicate | null {
  * per listed row, which is the plan `search.query-plan.test.ts` exists to keep
  * out: measured at over ten minutes.
  */
-function monthNarrowing(where: SearchWhere): BoundPredicate | null {
+export function monthNarrowing(where: SearchWhere): BoundPredicate | null {
   if (where.match.kind !== 'match' || where.month === null) return null;
   const visible = where.hidden === null ? [] : [`assets.hidden = ${where.hidden}`];
   return {
