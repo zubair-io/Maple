@@ -70,7 +70,10 @@ describe('a text search scans the inverted index once, first', () => {
       await withDb((db) => {
         for (const [name, statement] of textStatements(translate(q))) {
           const plan = planOf(db, statement);
-          expect({ name, first: plan[0] }).toEqual({
+          // The page ranks inside a materialised CTE (#4419); what matters is
+          // the first thing read, which the `MATERIALIZE` header only names.
+          const firstRead = plan.find((line) => !line.startsWith('MATERIALIZE'));
+          expect({ name, first: firstRead }).toEqual({
             name,
             first: 'SCAN assets_fts VIRTUAL TABLE INDEX 0:M1',
           });
@@ -135,6 +138,33 @@ describe('facets scoped to a candidate set probe assets by rowid', () => {
           fts: false,
         });
       }
+    });
+  });
+});
+
+describe('a ranked page scores ids first and reads rows for the page only', () => {
+  for (const q of TEXT_QUERIES) {
+    test(`the plan for ${JSON.stringify(q)}`, async () => {
+      await withDb((db) => {
+        const plan = planOf(db, pageSql(translate(q), 'captured_desc', 30, 0));
+        expect(plan.slice(0, 2)).toEqual([
+          'MATERIALIZE ranked',
+          'SCAN assets_fts VIRTUAL TABLE INDEX 0:M1',
+        ]);
+        expect(plan.filter((line) => line.includes('assets_fts'))).toHaveLength(1);
+        const afterRanking = plan.slice(plan.indexOf('SCAN ranked'));
+        expect(afterRanking.filter((line) => /^(SCAN|SEARCH) assets\b/.test(line))).toEqual([
+          'SEARCH assets USING INDEX sqlite_autoindex_assets_1 (id=?)',
+        ]);
+      });
+    });
+  }
+
+  test('the scores are materialised once, not re-planned per reference', async () => {
+    await withDb((db) => {
+      const statement = pageSql(translate({ placeQuery: 'harbour' }), 'captured_desc', 30, 0);
+      expect(statement.sql).toContain('ranked AS MATERIALIZED');
+      expect(planOf(db, statement).filter((line) => line === 'MATERIALIZE ranked')).toHaveLength(1);
     });
   });
 });
