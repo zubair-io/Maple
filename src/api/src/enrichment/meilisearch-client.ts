@@ -81,6 +81,11 @@ export const ASSETS_INDEX = 'assets';
  * shape is unchanged, so this needs no re-index of existing documents. */
 const REQUIRED_SETTINGS_VERSION = 4;
 
+/** Bulk document uploads run only in the background stage and backfill, never
+ * on a user request, and a large batch to a busy sidecar can legitimately take
+ * longer than the per-request ceiling; their task wait is bounded separately. */
+const UNBOUNDED_BULK_UPLOAD = null;
+
 /** The Meili embedder name we register + reference in hybrid queries. */
 export const EMBEDDER_NAME = 'caption';
 
@@ -373,6 +378,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
         'POST',
         `/indexes/${cfg.indexName}/documents`,
         docs.map(withTemplateFields),
+        UNBOUNDED_BULK_UPLOAD,
       );
       await waitForMeilisearchTask(cfg, accepted, 'batch upsert');
     },
@@ -386,6 +392,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
         'POST',
         `/indexes/${cfg.indexName}/documents`,
         ids.map((id) => withTemplateFields({ id, deletedAt })),
+        UNBOUNDED_BULK_UPLOAD,
       );
       // Per-call override (#2359): a short-timeout copy of `cfg` is used
       // only for the wait below, so the shared config's own
