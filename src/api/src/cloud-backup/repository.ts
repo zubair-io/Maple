@@ -271,6 +271,13 @@ export class BackupRepository {
         }
       : null;
   }
+  async objectsForEntry(destinationId: string, entryId: string): Promise<BackupObject[]> {
+    const rows = await this.db.read<{ object: string }>(
+      `SELECT object FROM backup_objects WHERE destination_id=? AND entry_id=? AND object IS NOT NULL`,
+      [destinationId, entryId],
+    );
+    return rows.map((row) => JSON.parse(row.object) as BackupObject);
+  }
   async saveObject(
     destinationId: string,
     entryId: string,
