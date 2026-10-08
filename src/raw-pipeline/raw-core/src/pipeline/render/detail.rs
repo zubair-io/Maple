@@ -13,6 +13,7 @@ use crate::{
 };
 
 pub struct DetailContext {
+    pub(super) native_highlight: Option<super::super::HighlightFrameContext>,
     pub(super) model: AdjustmentModel,
     pub(super) active_model: AdjustmentModel,
     pub(super) ae_gain: f32,
@@ -71,6 +72,45 @@ pub fn render_detail_base_cancellable(
     );
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
+    }
+    Ok((w, h, rgb, context))
+}
+
+/// Retained-source counterpart for a native-detail session. The base keeps
+/// its requested quality; native evidence is separately prepared at Auto and
+/// carried over from `previous` while its prefix inputs are unchanged.
+pub fn render_detail_base_retained(
+    raw: std::sync::Arc<RawImage>,
+    model: &AdjustmentModel,
+    source: RawInput<'_>,
+    options: DetailRenderOptions<'_>,
+    max_working_pixels: u64,
+    previous: Option<DetailContext>,
+) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
+    let (w, h, rgb, mut context) = render_detail_base(&raw, model, source, options)?;
+    let reusable = previous
+        .and_then(|previous| previous.native_highlight)
+        .filter(|frame| frame.reusable_for(&raw, &context.active_model, RenderQuality::Auto));
+    if reusable.is_some() {
+        context.native_highlight = reusable;
+    } else if raw.cfa.is_bayer_2x2()
+        && context.active_model.auto_lateral_ca != crate::types::adjustment::AutoLateralCa::On
+    {
+        if super::super::HighlightFrameContext::preparation_working_pixels(
+            &raw,
+            &context.active_model,
+            RenderQuality::Auto,
+        ) > max_working_pixels
+        {
+            return Err(Error::Pipeline(
+                "native-detail preparation exceeds working-pixel budget".into(),
+            ));
+        }
+        context.native_highlight = Some(super::super::HighlightFrameContext::prepare(
+            raw,
+            &context.active_model,
+            RenderQuality::Auto,
+        )?);
     }
     Ok((w, h, rgb, context))
 }
@@ -175,15 +215,32 @@ pub fn render_detail_tile_cancellable(
             "native-detail patch exceeds the memory budget".into(),
         ));
     }
-    let (w, h, rgba) = super::super::tile::render_scene_linear_tile_cancellable_f32(
-        raw,
-        &context.active_model,
-        absolute,
-        quality,
-        None,
-        context.ae_gain,
-        cancel,
-    )?;
+    let (w, h, rgba) = match context.native_highlight.as_ref() {
+        Some(frame) => {
+            if !std::ptr::eq(raw, frame.raw()) {
+                return Err(Error::Pipeline(
+                    "native-detail source was replaced; prepare a new context".into(),
+                ));
+            }
+            super::super::tile::render_scene_linear_tile_from_frame_context_cancellable_f32(
+                frame,
+                &context.active_model,
+                absolute,
+                None,
+                context.ae_gain,
+                cancel,
+            )?
+        }
+        None => super::super::tile::render_scene_linear_tile_cancellable_f32(
+            raw,
+            &context.active_model,
+            absolute,
+            quality,
+            None,
+            context.ae_gain,
+            cancel,
+        )?,
+    };
     let rgb: Vec<f32> = rgba
         .chunks_exact(4)
         .flat_map(|p| [p[0], p[1], p[2]])
