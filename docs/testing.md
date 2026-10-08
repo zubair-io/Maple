@@ -647,6 +647,18 @@ publication ordering and retries an ordinary save with identical accepted XML.
 Neither a mounted share nor a
 mock sidecar qualifies these tests.
 
+SMB restore is copy-only (#4139/#4173; contract in `docs/features.md`).
+`SMBCopyOnlyRestoreTests` runs in the required Swift inventory against the
+in-memory transport. It records every delete and rename and fails if restore
+consumes a pre-existing path. It also covers a replacement made at the moment the
+item is marked, staging-copy failure, and expiry as the only deleter. The physical
+counterparts `SMBCopyOnlyRestoreControlTests` and `RestoreCollisionParityTests`
+need the gitignored `test-fixtures/raws/test_0017.dng`, so they are excluded from
+CI and run locally against the owned Samba server. The backing-replacement control
+moves the trashed RAW and XMP aside on the server's own filesystem, puts unrelated
+files at those names, and asserts that both the unrelated files and the moved-aside
+originals survive byte-for-byte.
+
 The fixture disables Samba's temporary-directory mkdir path using
 `vfs mkdir use tmp name = no`: Homebrew Samba on macOS otherwise creates mode
 `000` directories and rejects mkdir, reproduced with an independent SMB client.
