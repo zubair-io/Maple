@@ -74,3 +74,28 @@ test('holds at most the bounded number of entries, oldest out first', async () =
   await cachedFacets(db, 0, compute, 0);
   expect(calls.n).toBe(FACET_CACHE_MAX_ENTRIES + 2);
 });
+
+test('an answer the query did not ask for serves its waiters, then is forgotten', async () => {
+  const db = handle();
+  let release: (value: string) => void = () => {};
+  const first = cachedFacets(
+    db,
+    'q',
+    () => new Promise<string>((resolve) => (release = resolve)),
+    0,
+    (answer) => answer === 'external',
+  );
+  const waiting = cachedFacets(db, 'q', () => Promise.resolve('never'), 1);
+  release('database');
+  expect(await Promise.all([first, waiting])).toEqual(['database', 'database']);
+  expect(
+    await cachedFacets(
+      db,
+      'q',
+      () => Promise.resolve('external'),
+      2,
+      (a) => a === 'external',
+    ),
+  ).toBe('external');
+  expect(await cachedFacets(db, 'q', () => Promise.resolve('recomputed'), 3)).toBe('external');
+});
