@@ -82,7 +82,8 @@
               results: results,
               total: total,
               isLoading: isDebouncing || (viewModel?.isLoading ?? false),
-              failed: viewModel?.loadError != nil,
+              // A failed later page keeps the pages already shown.
+              failed: viewModel?.loadError != nil && results.isEmpty,
               hasQuery: true,
               query: query,
               onTap: { asset in
@@ -112,7 +113,10 @@
         // them here so the panel is usable without a query (#2879).
         Task { await viewModel?.loadFacetsIfNeeded() }
       }
-      .onDisappear { debounceTask?.cancel() }
+      .onDisappear {
+        debounceTask?.cancel()
+        isDebouncing = false
+      }
       .sheet(isPresented: $showFilters) {
         if let viewModel {
           SearchFilterPanel(vm: viewModel, onClose: { showFilters = false })
@@ -195,20 +199,20 @@
         return
       }
       isDebouncing = true
-      debounceTask = Task { [viewModel] in
+      debounceTask = Task { @MainActor [viewModel] in
         try? await Task.sleep(for: .milliseconds(250))
-        if Task.isCancelled { return }
-        await MainActor.run {
-          viewModel?.params.placeQuery = trimmed
-        }
+        // A newer keystroke cancelled this task and owns the flag now.
+        guard !Task.isCancelled else { return }
+        viewModel?.params.placeQuery = trimmed
+        // Hand the spinner to `viewModel.isLoading` in this same main-actor
+        // turn — `submit()` raises it before its first suspension, so there
+        // is no gap — rather than after the submit returns, which also waits
+        // out the slower facets request and hid results that had landed.
+        isDebouncing = false
         // A trailing-whitespace edit leaves `trimmed` — and so the whole
         // param set — unchanged; `submitIfChanged` skips the redundant
         // round-trip in that case.
         await viewModel?.submitIfChanged()
-        // A newer keystroke cancelled this task and owns the flag now;
-        // clearing it here showed "No matches" while that search ran.
-        if Task.isCancelled { return }
-        await MainActor.run { isDebouncing = false }
       }
     }
   }
