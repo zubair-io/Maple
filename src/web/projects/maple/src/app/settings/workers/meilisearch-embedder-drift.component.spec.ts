@@ -78,6 +78,17 @@ describe('MeilisearchEmbedderDriftComponent', () => {
     expect(el().querySelector('[data-testid="meilisearch-embedder-pending"]')).not.toBeNull();
   });
 
+  it('rechecks the index after the Workers page saves enrichment settings', async () => {
+    await load(drift);
+    expect(el().hidden).toBe(false);
+
+    fixture.componentRef.setInput('config', { meilisearch_semantic_enabled: true });
+    fixture.detectChanges();
+    await load({ ...drift, state: 'in_sync', live: drift.configured, changedFields: [] });
+
+    expect(el().hidden).toBe(true);
+  });
+
   it('stays hidden when the index matches Settings', async () => {
     await load({ ...drift, state: 'in_sync', live: drift.configured, changedFields: [] });
     expect(el().hidden).toBe(true);

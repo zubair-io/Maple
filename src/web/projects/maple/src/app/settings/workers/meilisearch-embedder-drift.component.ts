@@ -8,10 +8,12 @@ import { HttpErrorResponse } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
-  OnInit,
   computed,
+  effect,
   inject,
+  input,
   signal,
+  untracked,
 } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import {
@@ -34,8 +36,13 @@ function describe(embedder: MeilisearchEmbedderSummary | null): string {
   host: { class: 'field field-wide set-field', '[hidden]': '!visible()' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class MeilisearchEmbedderDriftComponent implements OnInit {
+export class MeilisearchEmbedderDriftComponent {
   private readonly api = inject(MeilisearchEmbedderApiService);
+
+  /** The Workers page's saved enrichment config. A save replaces it, and a
+   * saved semantic or Meilisearch setting can create or clear drift, so each
+   * new value re-reads the index. */
+  readonly config = input<unknown>(null);
 
   protected readonly drift = signal<MeilisearchEmbedderDrift | null>(null);
   protected readonly error = signal<string | null>(null);
@@ -57,8 +64,11 @@ export class MeilisearchEmbedderDriftComponent implements OnInit {
   );
   protected readonly removesEmbedder = computed(() => this.drift()?.configured === null);
 
-  async ngOnInit(): Promise<void> {
-    await this.refresh();
+  constructor() {
+    effect(() => {
+      this.config();
+      untracked(() => void this.refresh());
+    });
   }
 
   protected async refresh(): Promise<void> {
