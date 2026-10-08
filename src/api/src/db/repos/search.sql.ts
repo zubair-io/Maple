@@ -225,17 +225,18 @@ export function pageSql(
  * `MATERIALIZED` is what makes the scores computed once: inlined, `ranked`
  * would be planned twice and the inverted index scanned for each.
  */
-function rankedPageSql(
+export function rankedPageSql(
   where: SearchWhere,
   limit: number,
   offset: number,
   seek?: BoundPredicate,
+  projection: string = PAGE_COLUMNS,
 ): BoundStatement {
   const candidates = statement(`assets.id AS id, ${FTS_RANK_SQL}`, where, '', seek);
   return {
     sql: `WITH ranked AS MATERIALIZED (${candidates.sql}),
     cutoff AS (SELECT rank FROM ranked ORDER BY ${FTS_RANK_ORDER} LIMIT 1 OFFSET ?)
-  SELECT ${PAGE_COLUMNS},
+  SELECT ${projection},
            ranked.rank AS rank
     FROM ranked
     JOIN assets ON assets.id = ranked.id
