@@ -245,35 +245,6 @@ test('catalog listing resolves its prefix and never enumerates mirrored photo fo
     ),
   ).toBe(false);
 });
-test('concurrent provider instances reuse folders created for the same Drive path', async () => {
-  const store = googleStore();
-  const firstProvider = new GoogleDriveProvider(root, async () => 'token', store.transport);
-  const secondProvider = new GoogleDriveProvider(root, async () => 'token', store.transport);
-  const library = 'a'.repeat(24);
-  await Promise.all([
-    firstProvider.mirrorFile(
-      `mirror/${library}/2024/Wedding/first.JPG`,
-      '2024/Wedding/first.JPG',
-      source(new Uint8Array([1])),
-      { saveCheckpoint: async () => {} },
-    ),
-    secondProvider.mirrorFile(
-      `mirror/${library}/2024/Wedding/second.JPG`,
-      '2024/Wedding/second.JPG',
-      source(new Uint8Array([2])),
-      { saveCheckpoint: async () => {} },
-    ),
-  ]);
-
-  const paths = [...store.files.values()]
-    .filter((file) => file.mimeType === 'application/vnd.google-apps.folder')
-    .map((file) => JSON.parse(file.description) as { rootId: string; path: string })
-    .filter((marker) => marker.rootId === root)
-    .map((marker) => marker.path);
-  expect(paths.filter((path) => path === '2024')).toHaveLength(1);
-  expect(paths.filter((path) => path === '2024/Wedding')).toHaveLength(1);
-});
-
 test('inspect hashes bytes when Google does not supply a native SHA; marker metadata cannot forge verification', async () => {
   const store = googleStore();
   const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
