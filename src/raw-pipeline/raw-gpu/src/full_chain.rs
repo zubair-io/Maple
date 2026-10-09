@@ -311,6 +311,11 @@ pub struct FullChainInputs<'a> {
     /// bit-identical pre-#3411 output. Appended at the struct tail per the
     /// append-only convention.
     pub defringe: DefringeInputs,
+    /// EXIF tag (1..=8) taking the uploaded buffer to the upright frame the
+    /// masks in `local_adjustments` are authored in (#4426). 1 for a host
+    /// that uploads an already-oriented decode (Apple, Windows); the
+    /// sensor-framed prefix hosts (Web, Linux) pass the RAW's own tag.
+    pub mask_orientation: u32,
 }
 
 // `InputShape` lives in a sibling file to keep this module inside the
@@ -445,7 +450,8 @@ pub fn build_split<'a>(
     if local_adjustments_are_active(&inputs.local_adjustments, inputs.scope.layer) {
         suffix.push(Box::new(
             LocalAdjustmentsPass::new(&inputs.local_adjustments, &inputs.mask_rasters)
-                .with_scope_layer(inputs.scope.layer),
+                .with_scope_layer(inputs.scope.layer)
+                .with_orientation(inputs.mask_orientation),
         ));
     }
     // Vignette (#1109) — develop's 12c position: after local_adjustments,

@@ -59,6 +59,7 @@ pub(super) fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs<'static> {
         local_adjustments: layers_flat,
         mask_rasters: Vec::new(),
         scope: crate::ScopeRequest::default(),
+        mask_orientation: 1,
         defringe: crate::DefringeInputs::default(),
         vignette_amount: 0.0,
         vignette_feather: 50.0,

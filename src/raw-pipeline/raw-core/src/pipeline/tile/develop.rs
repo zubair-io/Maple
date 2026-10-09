@@ -458,6 +458,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
             &model.mask_rasters,
             window.origin,
             window.full,
+            raw.orientation,
         )
     });
     stage("tile_vignette", || {

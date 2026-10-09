@@ -445,7 +445,12 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
     });
     dump_after("12a_defringe", &scene);
     stage("sized_local_adjustments", || {
-        local_adjustments::apply(&mut scene, &model.local_adjustments, &model.mask_rasters)
+        local_adjustments::apply_oriented(
+            &mut scene,
+            &model.local_adjustments,
+            &model.mask_rasters,
+            raw.orientation,
+        )
     });
     dump_after("12b_local_adjustments", &scene);
     // Vignette (#1109) — normalized elliptical radius makes the gain field

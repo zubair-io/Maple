@@ -43,14 +43,16 @@
 use rayon::prelude::*;
 use std::sync::Arc;
 
-use crate::image::{ColorSpace, Image};
+use crate::image::{ColorSpace, ExifOrientation, Image};
 use crate::stages::hsl::HSL_HUE_MAX_RAD;
 use crate::stages::saturation;
 use crate::stages::scene_tone_controls::{highlights_mult, shadows_mult, smoothstep, LUMA_REC2020};
 use crate::stages::vibrance;
 use crate::stages::white_balance;
 use crate::types::{LocalAdjustment, Mask, MaskRaster, PartialAdjustments, RangeRefinement};
+use frame::MaskFrame;
 
+mod frame;
 pub mod hue;
 pub mod mask;
 pub mod range;
@@ -70,25 +72,44 @@ pub mod spatial;
 /// and `sharpen`). Thin wrapper over [`apply_with_scope`] with no scope
 /// target, discarding the (never-computed) weights.
 pub fn apply(img: &mut Image, layers: &[LocalAdjustment], rasters: &[Arc<MaskRaster>]) {
-    let full = (img.width, img.height);
-    apply_windowed(img, layers, rasters, (0, 0), full);
+    apply_oriented(img, layers, rasters, ExifOrientation::Normal);
 }
 
-/// [`apply`] for a buffer that is a WINDOW of the full frame (#1157): mask
-/// weights evaluate in coordinates normalised to `full`, with the buffer's
-/// pixel `(x, y)` sitting at frame pixel `origin + (x, y)`. The whole-frame
-/// entry is `origin = (0, 0)`, `full = (img.width, img.height)`, for which
-/// the per-pixel float sequence is unchanged (`0 + x` is `x`), so it is
-/// bit-identical to the pre-#1157 stage. `origin` is signed because a tile's
-/// padded crop may start before the frame's DefaultCrop origin.
+/// [`apply`] for a whole-frame buffer still in SENSOR framing (#4426): the
+/// develop chains orient only at the end, while masks are authored over the
+/// upright frame, so each pixel reads the mask at its post-`orientation`
+/// position. `Normal` is [`apply`] exactly.
+pub fn apply_oriented(
+    img: &mut Image,
+    layers: &[LocalAdjustment],
+    rasters: &[Arc<MaskRaster>],
+    orientation: ExifOrientation,
+) {
+    let full = (img.width, img.height);
+    apply_windowed(img, layers, rasters, (0, 0), full, orientation);
+}
+
+/// [`apply_oriented`] for a buffer that is a WINDOW of the full frame
+/// (#1157): the buffer's pixel `(x, y)` sits at sensor-frame pixel
+/// `origin + (x, y)` of a `full`-sized frame, which `orientation` then maps
+/// onto the authored frame. The whole-frame, `Normal` call is bit-identical
+/// to the pre-#1157 stage. `origin` is signed because a tile's padded crop
+/// may start before the frame's DefaultCrop origin.
 pub fn apply_windowed(
     img: &mut Image,
     layers: &[LocalAdjustment],
     rasters: &[Arc<MaskRaster>],
     origin: (i32, i32),
     full: (u32, u32),
+    orientation: ExifOrientation,
 ) {
-    apply_core(img, layers, rasters, origin, full, None);
+    apply_core(
+        img,
+        layers,
+        rasters,
+        MaskFrame::new(origin, full, orientation),
+        None,
+    );
 }
 
 /// Mask geometry × range refinement at one pixel, in `[0, 1]` — the exact
@@ -140,8 +161,8 @@ pub fn apply_with_scope(
     rasters: &[Arc<MaskRaster>],
     scope_layer: Option<usize>,
 ) -> Option<Vec<f32>> {
-    let full = (img.width, img.height);
-    apply_core(img, layers, rasters, (0, 0), full, scope_layer)
+    let frame = MaskFrame::new((0, 0), (img.width, img.height), ExifOrientation::Normal);
+    apply_core(img, layers, rasters, frame, scope_layer)
 }
 
 /// The one loop both public entries share: windowed coordinates (#1157) and
@@ -150,8 +171,7 @@ fn apply_core(
     img: &mut Image,
     layers: &[LocalAdjustment],
     rasters: &[Arc<MaskRaster>],
-    origin: (i32, i32),
-    full: (u32, u32),
+    frame: MaskFrame,
     scope_layer: Option<usize>,
 ) -> Option<Vec<f32>> {
     if layers.is_empty() {
@@ -164,27 +184,6 @@ fn apply_core(
     if w == 0 || h == 0 {
         return None;
     }
-    let (full_w, full_h) = (full.0 as usize, full.1 as usize);
-    // Normalized-coordinate denominators. For the common case (dim > 1),
-    // using `(dim - 1)` so the first pixel maps to 0.0 and the last pixel
-    // maps to 1.0 exactly — important for mask endpoints that sit on image
-    // corners. For the degenerate single-pixel-axis case (dim == 1), the
-    // denominator is undefined; we fall back to `inv = 0.0` so the lone
-    // pixel maps to 0.0. Mask endpoints on the far edge will see weight 0
-    // along that axis, which is consistent with the smoothstep falloff
-    // — a one-pixel-tall or one-pixel-wide image isn't a useful target
-    // for local adjustments, and we don't want to divide by zero.
-    let inv_w = if full_w > 1 {
-        1.0 / (full_w as f32 - 1.0)
-    } else {
-        0.0
-    };
-    let inv_h = if full_h > 1 {
-        1.0 / (full_h as f32 - 1.0)
-    } else {
-        0.0
-    };
-
     let mut weights: Option<Vec<f32>> = scope_layer
         .filter(|&li| li < layers.len())
         .map(|_| vec![0.0f32; w * h]);
@@ -238,16 +237,15 @@ fn apply_core(
         match record {
             Some(weight_buf) => {
                 if let Some(group) = group {
-                    mask::fill_group_weights(group, rasters, weight_buf, w, origin, (inv_w, inv_h));
+                    mask::fill_group_weights(group, rasters, weight_buf, w, &frame);
                 }
                 img.pixels
                     .par_chunks_mut(w)
                     .zip(weight_buf.par_chunks_mut(w))
                     .enumerate()
                     .for_each(|(y, (row, weight_row))| {
-                        let ny = (origin.1 + y as i32) as f32 * inv_h;
                         for (x, p) in row.iter_mut().enumerate() {
-                            let nx = (origin.0 + x as i32) as f32 * inv_w;
+                            let (nx, ny) = frame.normalized(x, y);
                             let weight = if group.is_some() {
                                 let geometric = weight_row[x];
                                 layer
@@ -277,9 +275,8 @@ fn apply_core(
                     .par_chunks_mut(w)
                     .enumerate()
                     .for_each(|(y, row)| {
-                        let ny = (origin.1 + y as i32) as f32 * inv_h;
                         for (x, p) in row.iter_mut().enumerate() {
-                            let nx = (origin.0 + x as i32) as f32 * inv_w;
+                            let (nx, ny) = frame.normalized(x, y);
                             let weight = combined_weight(
                                 &layer.mask,
                                 raster,

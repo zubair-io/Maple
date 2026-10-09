@@ -100,8 +100,7 @@ pub(super) fn fill_group_weights(
     rasters: &[Arc<MaskRaster>],
     weights: &mut [f32],
     width: usize,
-    origin: (i32, i32),
-    inv: (f32, f32),
+    frame: &super::MaskFrame,
 ) {
     weights.fill(0.0);
     for component in &group.components {
@@ -116,9 +115,8 @@ pub(super) fn fill_group_weights(
             .par_chunks_mut(width)
             .enumerate()
             .for_each(|(y, row)| {
-                let ny = (origin.1 + y as i32) as f32 * inv.1;
                 for (x, weight) in row.iter_mut().enumerate() {
-                    let nx = (origin.0 + x as i32) as f32 * inv.0;
+                    let (nx, ny) = frame.normalized(x, y);
                     let raw = evaluate(component.mask(), raster, nx, ny);
                     let value = if component.invert { 1.0 - raw } else { raw };
                     *weight = component.combine.weight(*weight, value);

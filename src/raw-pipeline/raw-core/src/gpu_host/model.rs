@@ -179,6 +179,7 @@ fn build_with_storage(
         // No Web entry point drives the vectorscope scope pass yet (#3272 is
         // Apple-first) — always disabled here.
         scope: raw_gpu::ScopeRequest::default(),
+        mask_orientation: 1,
         defringe: crate::stages::defringe::params_from_model(model)
             .map(|p| raw_gpu::DefringeInputs {
                 // The GLOBAL controls claim no hue-agnostic strength — that
@@ -342,5 +343,6 @@ pub fn update_chain_inputs(model: &AdjustmentModel, inputs: &mut FullChainInputs
     replacement.input_shape = inputs.input_shape;
     replacement.nr_sampling_scale = inputs.nr_sampling_scale;
     replacement.scope = inputs.scope;
+    replacement.mask_orientation = inputs.mask_orientation;
     *inputs = replacement;
 }

@@ -32,6 +32,7 @@ fn bench_inputs(anchor: f32, sampling_scale: f32) -> FullChainInputs<'static> {
         local_adjustments: Vec::new(),
         mask_rasters: Vec::new(),
         scope: raw_gpu::ScopeRequest::default(),
+        mask_orientation: 1,
         defringe: raw_gpu::DefringeInputs::default(),
         vignette_amount: 0.0,
         vignette_feather: 50.0,

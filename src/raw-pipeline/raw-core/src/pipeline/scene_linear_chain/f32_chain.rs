@@ -143,6 +143,7 @@ pub(super) fn apply_scene_linear_chain_f32_inner_cancellable(
                 &model.mask_rasters,
                 (w.x as i32, w.y as i32),
                 (w.full_width, w.full_height),
+                crate::image::ExifOrientation::Normal,
             );
             return None;
         }
