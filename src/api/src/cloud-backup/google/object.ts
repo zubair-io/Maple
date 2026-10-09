@@ -24,19 +24,21 @@ export function backupObject(file: DriveFile, rootId: string): BackupObject {
   const marker = objectMarker(file);
   if (!isOwnedMyDriveFile(file))
     throw new Error('Google backup object must remain owned by this account in My Drive.');
-  if (
-    !marker ||
-    marker.rootId !== rootId ||
-    file.trashed ||
-    file.mimeType === 'application/vnd.google-apps.shortcut' ||
-    file.parents?.length !== 1 ||
-    !Number.isSafeInteger(Number(file.size)) ||
-    Number(file.size) < 0 ||
-    (file.sha256Checksum && file.sha256Checksum !== marker.sha256)
-  ) {
-    throw new Error('Google object failed identity or integrity validation.');
-  }
-  return { key: marker.key, locator: file.id, size: Number(file.size), sha256: marker.sha256 };
+  if (!marker) throw invalidObject('backup marker is missing or malformed');
+  if (marker.rootId !== rootId) throw invalidObject('backup marker belongs to a different root');
+  if (file.trashed) throw invalidObject('file is in Drive Trash');
+  if (file.mimeType === 'application/vnd.google-apps.shortcut')
+    throw invalidObject('shortcuts cannot be backup objects');
+  if (file.parents?.length !== 1) throw invalidObject('file does not have exactly one parent');
+  const size = Number(file.size);
+  if (!Number.isSafeInteger(size) || size < 0)
+    throw invalidObject('file size is missing or invalid');
+  if (file.sha256Checksum && file.sha256Checksum !== marker.sha256)
+    throw invalidObject('Google’s checksum does not match the backup marker');
+  return { key: marker.key, locator: file.id, size, sha256: marker.sha256 };
+}
+function invalidObject(reason: string): Error {
+  return new Error(`Google object failed identity or integrity validation: ${reason}.`);
 }
 export function assertObjectIdentity(
   actual: BackupObject,
