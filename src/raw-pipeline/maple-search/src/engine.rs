@@ -102,20 +102,17 @@ impl SearchEngine {
         Ok(fuse(&vector_hits?, &text_hits?, k))
     }
 
-    /// Nearest [`LEG_DEPTH`] rows to `vector`, minus any whose text contains
-    /// a term the query excluded with `-`.
+    /// Nearest [`LEG_DEPTH`] rows to `vector` among those whose text contains
+    /// no term the query excluded with `-`.
     pub fn vector_leg(&self, parsed: &TextQuery, vector: &[f32]) -> Result<Vec<ScoredId>> {
-        let hits = self.read_vectors().nearest(vector, LEG_DEPTH)?;
-        let excluded = match parsed {
-            TextQuery::Terms { excluded, .. } if !excluded.is_empty() => excluded,
-            _ => return Ok(hits),
+        let unwanted = match parsed {
+            TextQuery::Terms { excluded, .. } if !excluded.is_empty() => {
+                self.text.ids_matching_any(excluded)?
+            }
+            _ => Vec::new(),
         };
-        let ids: Vec<&str> = hits.iter().map(|hit| hit.id.as_str()).collect();
-        let unwanted = self.text.ids_matching_any(excluded, &ids)?;
-        Ok(hits
-            .into_iter()
-            .filter(|hit| !unwanted.contains(&hit.id))
-            .collect())
+        self.read_vectors()
+            .nearest_excluding(vector, LEG_DEPTH, &unwanted)
     }
 
     pub fn text_leg(&self, parsed: &TextQuery) -> Result<Vec<ScoredId>> {

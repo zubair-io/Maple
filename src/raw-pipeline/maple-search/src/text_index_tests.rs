@@ -144,16 +144,39 @@ fn rebuild_replaces_everything() {
 }
 
 #[test]
-fn finds_which_ids_contain_an_excluded_term() {
+fn finds_every_id_containing_an_excluded_term() {
     let (_dir, index) = library();
-    let matched = index
-        .ids_matching_any(
-            &["boats".to_owned(), "paper lanterns".to_owned()],
-            &["clip", "harbour", "lantern"],
-        )
+    let mut matched = index
+        .ids_matching_any(&["boats".to_owned(), "paper lanterns".to_owned()])
         .unwrap();
-    let mut matched: Vec<String> = matched.into_iter().collect();
     matched.sort();
     assert_eq!(matched, ["clip", "lantern"]);
-    assert!(index.ids_matching_any(&[], &["clip"]).unwrap().is_empty());
+    assert!(index.ids_matching_any(&[]).unwrap().is_empty());
+}
+
+#[test]
+fn excluded_ids_survive_segments_and_deletes() {
+    let (_dir, index) = library();
+    index.upsert("ferry", "a ferry full of boats").unwrap();
+    index.delete("clip");
+    index.commit().unwrap();
+    let mut matched = index.ids_matching_any(&["boats".to_owned()]).unwrap();
+    matched.sort();
+    assert_eq!(matched, ["ferry"]);
+}
+
+#[test]
+fn accents_fold_in_both_directions() {
+    let dir = tempfile::tempdir().unwrap();
+    let index = TextIndex::open(dir.path()).unwrap();
+    index
+        .rebuild([
+            ("accented", "a café with a naïve mural"),
+            ("plain", "a cafe with a naive mural"),
+        ])
+        .unwrap();
+    for query in ["cafe", "café", "naive", "naïve", "CAFÉ"] {
+        assert_eq!(find(&index, query), ["accented", "plain"], "{query:?}");
+    }
+    assert_eq!(find(&index, r#""naïve mural""#), ["accented", "plain"]);
 }
