@@ -8,7 +8,7 @@ use super::{
     MASK_WHAT_PAINT, MASK_WHAT_RADIAL, RADIAL_CONTAINER,
 };
 use crate::types::local_adjustment::flat::MASK_GROUP_VERSION;
-use crate::types::local_adjustment::{BrushDab, BRUSH_VERSION};
+use crate::types::local_adjustment::{BrushDab, BRUSH_VERSION, LAYER_ORDER_ATTRIBUTE};
 use crate::types::{MaskCombine, MaskSource};
 
 /// Round to the canonical 2-decimal wire precision
@@ -40,6 +40,16 @@ fn fmt_mask_coord(v: f32) -> String {
         .into()
 }
 
+/// Container rank in canonical emit order: linear, radial, brush, group.
+fn container_rank(mask: &Mask) -> usize {
+    match mask {
+        Mask::Linear { .. } => 0,
+        Mask::Radial { .. } => 1,
+        Mask::Brush { .. } => 2,
+        Mask::Bitmap { .. } | Mask::Everywhere | Mask::Group(_) => 3,
+    }
+}
+
 /// Emit the canonical `crs:GradientBasedCorrections` /
 /// `crs:CircularGradientBasedCorrections` / `papp:BrushCorrections` /
 /// `crs:MaskGroupBasedCorrections` nested child elements for
@@ -47,62 +57,41 @@ fn fmt_mask_coord(v: f32) -> String {
 /// sits at `indent` — same contract as [`super::super::serialize_tone_curves`].
 /// Returns the empty string when there are no layers, so an unedited model
 /// adds nothing to the document.
+///
+/// A stack whose kinds already appear in container order needs no order
+/// key; any other stack stamps every correction with its model index in
+/// `papp:LayerOrder` (#4427), so readers can undo the per-kind grouping.
 pub fn serialize_local_adjustments(model: &AdjustmentModel, indent: &str) -> String {
-    let linear: Vec<&LocalAdjustment> = model
-        .local_adjustments
-        .iter()
-        .filter(|l| matches!(&l.mask, Mask::Linear { .. }))
-        .collect();
-    let radial: Vec<&LocalAdjustment> = model
-        .local_adjustments
-        .iter()
-        .filter(|l| matches!(&l.mask, Mask::Radial { .. }))
-        .collect();
-    // Brush (#360) rides Maple's own container, never Adobe's paint one.
-    let paint: Vec<&LocalAdjustment> = model
-        .local_adjustments
-        .iter()
-        .filter(|l| matches!(&l.mask, Mask::Brush { .. }))
-        .collect();
-    // Bitmap and Everywhere (#3271) share a fourth container — Lightroom
-    // 11+'s own shape for its AI masks, `crs:MaskGroupBasedCorrections`.
-    let group: Vec<&LocalAdjustment> = model
-        .local_adjustments
-        .iter()
-        .filter(|l| {
-            matches!(
-                &l.mask,
-                Mask::Bitmap { .. } | Mask::Everywhere | Mask::Group(_)
-            )
-        })
-        .collect();
-
-    let mut out = String::new();
-    if !linear.is_empty() {
-        out.push_str(&serialize_container(LINEAR_CONTAINER, &linear, indent));
-    }
-    if !radial.is_empty() {
-        if !out.is_empty() {
-            out.push('\n');
-        }
-        out.push_str(&serialize_container(RADIAL_CONTAINER, &radial, indent));
-    }
-    if !paint.is_empty() {
-        if !out.is_empty() {
-            out.push('\n');
-        }
-        out.push_str(&serialize_container(BRUSH_CONTAINER, &paint, indent));
-    }
-    if !group.is_empty() {
-        if !out.is_empty() {
-            out.push('\n');
-        }
-        out.push_str(&serialize_container(GROUP_CONTAINER, &group, indent));
-    }
-    out
+    let layers = &model.local_adjustments;
+    let keyed = layers
+        .windows(2)
+        .any(|pair| container_rank(&pair[0].mask) > container_rank(&pair[1].mask));
+    [
+        LINEAR_CONTAINER,
+        RADIAL_CONTAINER,
+        BRUSH_CONTAINER,
+        GROUP_CONTAINER,
+    ]
+    .iter()
+    .enumerate()
+    .filter_map(|(rank, container)| {
+        let members: Vec<(Option<usize>, &LocalAdjustment)> = layers
+            .iter()
+            .enumerate()
+            .filter(|(_, layer)| container_rank(&layer.mask) == rank)
+            .map(|(index, layer)| (keyed.then_some(index), layer))
+            .collect();
+        (!members.is_empty()).then(|| serialize_container(container, &members, indent))
+    })
+    .collect::<Vec<_>>()
+    .join("\n")
 }
 
-fn serialize_container(container: &str, layers: &[&LocalAdjustment], indent: &str) -> String {
+fn serialize_container(
+    container: &str,
+    layers: &[(Option<usize>, &LocalAdjustment)],
+    indent: &str,
+) -> String {
     let i1 = format!("{indent}  ");
     let i2 = format!("{indent}    ");
     let i3 = format!("{indent}      ");
@@ -111,12 +100,15 @@ fn serialize_container(container: &str, layers: &[&LocalAdjustment], indent: &st
     let i6 = format!("{indent}            ");
 
     let mut out = format!("{indent}<{container}>\n{i1}<rdf:Seq>\n");
-    for layer in layers {
+    for (order, layer) in layers {
         out.push_str(&format!("{i2}<rdf:li>\n"));
         out.push_str(&format!("{i3}<rdf:Description\n"));
         out.push_str(&format!(
             "{i4}crs:What=\"Correction\"\n{i4}crs:CorrectionAmount=\"1\"\n{i4}crs:CorrectionActive=\"True\""
         ));
+        if let Some(order) = order {
+            out.push_str(&format!("\n{i4}{LAYER_ORDER_ATTRIBUTE}=\"{order}\""));
+        }
         out.push_str(&serialize_adjustments(&layer.adjustments, &i4));
         out.push_str(&serialize_range(layer.range, &i4));
         if let Mask::Group(group) = &layer.mask {

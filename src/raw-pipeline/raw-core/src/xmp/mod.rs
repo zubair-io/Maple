@@ -430,6 +430,8 @@ mod tests_local_adjustments_brush;
 #[cfg(test)]
 mod tests_local_adjustments_canonical;
 #[cfg(test)]
+mod tests_local_adjustments_order;
+#[cfg(test)]
 mod tests_local_adjustments_spatial;
 #[cfg(test)]
 mod tests_metadata;
