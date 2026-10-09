@@ -1,29 +1,5 @@
-/**
- * Per-process memory telemetry — the instrument that names the culprit after
- * an OOM kill (#4445).
- *
- * On 2026-10-09 the production container was OOM-killed at a 25.6 GB peak from
- * a 1.0–1.3 GB steady state. The kernel's record was not retained and no
- * process logged its own memory, so which of the four long-lived processes
- * (API, worker, raw-ffi decode child, face-pool child) ballooned could not be
- * established afterwards. Every one of them now runs this reporter.
- *
- * Once a minute each process logs ONE structured line under the `memory`
- * component — `process.memoryUsage()` plus whatever the caller's `extra`
- * contributes (the worker adds per-stage in-flight counts and the FFI pool's
- * queue depth) — so a `component=memory` grep lines the processes up side by
- * side. A warning fires when RSS crosses `RSS_WARN_BYTES`, rate-limited so a
- * process that stays high does not spam.
- *
- * Always on, by design: a `process.memoryUsage()` call costs microseconds and
- * there is nothing an operator would gain from switching the one line a
- * minute off. The timer is `.unref()`'d so it never keeps a process alive.
- *
- * A child process can additionally hand each sample to its parent over the
- * IPC channel (`report`), which is how the worker learns its native children's
- * numbers for the Settings → Workers page without sampling anything itself.
- */
-
+// Always on and never toggled: the 2026-10-09 OOM kill (#4445) had no record of
+// which process ballooned, so every long-lived process logs one line a minute.
 import type { Logger } from 'pino';
 import { child as childLogger } from '../log.ts';
 
