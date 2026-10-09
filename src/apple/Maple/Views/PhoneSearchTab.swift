@@ -191,7 +191,7 @@
     ///     is the one that completes it.
     private func applySeedIfNeeded() {
       guard let seed = pendingSeed else { return }
-      seededQuery = seed.placeQuery
+      seededQuery = seed.placeQuery == query ? nil : seed.placeQuery
       query = seed.placeQuery
       guard let session else { return }
       pendingSeed = nil
@@ -200,7 +200,7 @@
 
     /// Run a stored search from a deep-link/Map seed.
     private func run(_ seed: SearchParams, in session: PhoneSearchSession) {
-      seededQuery = seed.placeQuery
+      seededQuery = seed.placeQuery == query ? nil : seed.placeQuery
       query = seed.placeQuery
       // Pop any pushed Preview/editor so the user lands on the fresh
       // results, mirroring `PhoneTabShell.searchFor(_:)`'s `libraryPath = []`
@@ -253,7 +253,7 @@
       session.vm.showCollection(params: seed, firstPage: page) { offset, limit in
         try await collections.page(of: card.id, offset: offset, limit: limit)
       }
-      seededQuery = seed.placeQuery
+      seededQuery = seed.placeQuery == query ? nil : seed.placeQuery
       query = seed.placeQuery
     }
 

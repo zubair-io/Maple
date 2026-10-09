@@ -295,7 +295,13 @@ public final class SearchViewModel {
     // Best-effort: a facet failure is not a search failure, so it must not
     // raise the error banner over the (perfectly fine) Recents list.
     guard let loaded = try? await searchClient.facets(requested) else { return }
-    guard g == generation else { return }
+    guard g == generation else {
+      // A reset superseded this load; the panel may already be open on the
+      // new params, so fetch those now rather than leaving it empty.
+      isLoadingFacets = false
+      await loadFacetsIfNeeded()
+      return
+    }
     facetCache[requested] = loaded
     facets = loaded
   }

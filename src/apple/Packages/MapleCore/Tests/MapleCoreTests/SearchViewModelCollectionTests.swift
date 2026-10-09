@@ -120,6 +120,29 @@ final class SearchViewModelCollectionTests: XCTestCase {
     XCTAssertNil(vm.facets, "the panel must refetch unfiltered facets, not keep the filtered set")
   }
 
+  func test_resetFilters_duringFacetLoad_refetchesForTheNewParams() async throws {
+    let gate = SlowFacetsURLProtocol.armGate()
+    let server = URL(string: "https://stub.test")!
+    let cfg = URLSessionConfiguration.ephemeral
+    cfg.protocolClasses = [SlowFacetsURLProtocol.self]
+    let client = CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(
+        server: server, urlSession: URLSession(configuration: cfg)))
+    let vm = SearchViewModel(server: server, libraryID: "lib-test", searchClient: client)
+    vm.params.people = ["Priya Patel"]
+
+    let firstLoad = Task { await vm.loadFacetsIfNeeded() }
+    try await Task.sleep(for: .milliseconds(50))
+    vm.resetFilters()
+    // One signal per facets request: the superseded one, then its refetch.
+    gate.signal()
+    gate.signal()
+    await firstLoad.value
+
+    XCTAssertEqual(vm.facets?.total, 1, "the superseded load must refetch for the reset params")
+  }
+
   // MARK: - Helpers
 
   private func makeVM() -> SearchViewModel {
