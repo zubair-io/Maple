@@ -128,7 +128,9 @@
 /// - 16 — headless develop and export entries rasterize brush masks from
 ///   their `papp:BrushCorrections` dabs instead of rendering them at weight 0
 ///   (#360).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 16;
+/// - 17 — local-adjustment masks on EXIF-rotated or mirrored RAWs evaluate in
+///   the upright frame they are authored in, not the sensor frame (#4426).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 17;
 
 #[cfg(test)]
 mod tests {
