@@ -218,7 +218,7 @@ pub fn chain_inputs_with_status(
 ) -> (FullChainInputs<'static>, Option<bool>) {
     let (profile_curve_flat, residual_lut_size, residual_lut_data, auto_fit) =
         fit_profile_artifacts_with_status(raw_img, raw, ext, model);
-    let mut inputs = build_full_chain_inputs(
+    let inputs = build_full_chain_inputs(
         model,
         profile_curve_flat,
         residual_lut_size,
@@ -233,7 +233,7 @@ pub fn chain_inputs_with_status(
         film_lut,
         film_lut_key,
         whites_anchor_ev,
+        raw_img.orientation.exif_tag(),
     );
-    inputs.mask_orientation = raw_img.orientation.exif_tag();
     (inputs, auto_fit)
 }

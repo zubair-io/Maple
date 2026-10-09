@@ -12,9 +12,13 @@ use crate::image::ExifOrientation;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct MaskFrame {
+    /// Upright pixel = `linear · (origin + (x, y)) + offset`, each linear
+    /// entry in {-1, 0, 1}: the orientation's pixel permutation as integer
+    /// affine, so the per-pixel cost is branch-free and `Normal` stays the
+    /// identity `(origin + x, origin + y)`.
     origin: (i32, i32),
-    sensor: (i32, i32),
-    orientation: ExifOrientation,
+    linear: [i32; 4],
+    offset: (i32, i32),
     inv: (f32, f32),
 }
 
@@ -38,10 +42,21 @@ impl MaskFrame {
         } else {
             full
         };
+        let (last_x, last_y) = (full.0 as i32 - 1, full.1 as i32 - 1);
+        let (linear, offset) = match orientation {
+            ExifOrientation::Normal => ([1, 0, 0, 1], (0, 0)),
+            ExifOrientation::HorizontalFlip => ([-1, 0, 0, 1], (last_x, 0)),
+            ExifOrientation::Rotate180 => ([-1, 0, 0, -1], (last_x, last_y)),
+            ExifOrientation::VerticalFlip => ([1, 0, 0, -1], (0, last_y)),
+            ExifOrientation::Transpose => ([0, 1, 1, 0], (0, 0)),
+            ExifOrientation::Rotate90 => ([0, -1, 1, 0], (last_y, 0)),
+            ExifOrientation::Transverse => ([0, -1, -1, 0], (last_y, last_x)),
+            ExifOrientation::Rotate270 => ([0, 1, -1, 0], (0, last_x)),
+        };
         Self {
             origin,
-            sensor: (full.0 as i32, full.1 as i32),
-            orientation,
+            linear,
+            offset,
             inv: (inv_extent(display_w), inv_extent(display_h)),
         }
     }
@@ -51,17 +66,9 @@ impl MaskFrame {
     pub(super) fn normalized(&self, x: usize, y: usize) -> (f32, f32) {
         let sx = self.origin.0 + x as i32;
         let sy = self.origin.1 + y as i32;
-        let (last_x, last_y) = (self.sensor.0 - 1, self.sensor.1 - 1);
-        let (dx, dy) = match self.orientation {
-            ExifOrientation::Normal => (sx, sy),
-            ExifOrientation::HorizontalFlip => (last_x - sx, sy),
-            ExifOrientation::Rotate180 => (last_x - sx, last_y - sy),
-            ExifOrientation::VerticalFlip => (sx, last_y - sy),
-            ExifOrientation::Transpose => (sy, sx),
-            ExifOrientation::Rotate90 => (last_y - sy, sx),
-            ExifOrientation::Transverse => (last_y - sy, last_x - sx),
-            ExifOrientation::Rotate270 => (sy, last_x - sx),
-        };
+        let [a, b, c, d] = self.linear;
+        let dx = a * sx + b * sy + self.offset.0;
+        let dy = c * sx + d * sy + self.offset.1;
         (dx as f32 * self.inv.0, dy as f32 * self.inv.1)
     }
 }

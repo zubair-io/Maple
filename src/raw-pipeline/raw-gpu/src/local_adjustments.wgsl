@@ -58,8 +58,8 @@ struct Params {
     inv_w: f32,        // 1 / (upright_width - 1), or 0 when that is 1
     inv_h: f32,        // 1 / (upright_height - 1), or 0 when that is 1
     orientation: u32,  // EXIF tag mapping this buffer onto the upright frame (#4426)
-    frame_w: u32,      // full-image width in this buffer's own framing
-    frame_h: u32,      // full-image height in this buffer's own framing
+    frame_w: u32,      // whole-frame width in this buffer's own framing
+    frame_h: u32,      // whole-frame height; flips need origin 0 (all callers)
     _pad: u32,
 };
 

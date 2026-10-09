@@ -72,8 +72,9 @@ pub fn build_full_chain_inputs(
     film_lut: Option<&crate::film::FilmLut>,
     film_lut_key: u32,
     whites_anchor_ev: f32,
+    mask_orientation: u32,
 ) -> FullChainInputs<'static> {
-    build_with_storage(
+    let inputs = build_with_storage(
         model,
         profile_curve_flat,
         residual_lut_size,
@@ -83,7 +84,11 @@ pub fn build_full_chain_inputs(
         film_lut_key,
         whites_anchor_ev,
         Default::default(),
-    )
+    );
+    FullChainInputs {
+        mask_orientation,
+        ..inputs
+    }
 }
 
 fn reuse_points(mut storage: Vec<(f32, f32)>, points: &[(f32, f32)]) -> Vec<(f32, f32)> {

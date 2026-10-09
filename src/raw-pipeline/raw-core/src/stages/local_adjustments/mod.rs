@@ -195,9 +195,8 @@ fn apply_core(
     // `local_adjustments_bench` example prints an FNV-1a fingerprint of the
     // output buffer, which is the same before and after).
     //
-    // The parallel unit is the row rather than the whole image because the row
-    // index supplies `ny` once for the whole span, matching the serial loop's
-    // hoist. Layers stay SEQUENTIAL: each layer composites on top of the
+    // The parallel unit is the row, so each worker walks contiguous pixels
+    // and maps them through the branch-free `MaskFrame`. Layers stay SEQUENTIAL: each layer composites on top of the
     // previous layer's result, so they cannot be fused or reordered.
     //
     // No allocation PER LAYER: `par_chunks_mut` borrows the existing pixel

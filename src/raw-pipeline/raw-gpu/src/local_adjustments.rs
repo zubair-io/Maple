@@ -142,7 +142,9 @@ struct Params {
     /// EXIF tag (1..=8) mapping the buffer onto the upright frame masks are
     /// authored in (#4426); 1 when the buffer is already upright.
     orientation: u32,
-    /// The buffer's own extent, which the kernel flips coordinates within.
+    /// The whole frame's extent in the buffer's own framing, which the kernel
+    /// flips coordinates within. `encode` only ever renders whole frames
+    /// (origin 0), so this is the buffer's size.
     frame_w: u32,
     frame_h: u32,
     _pad: u32,
