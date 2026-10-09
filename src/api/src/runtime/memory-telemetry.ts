@@ -131,12 +131,14 @@ export function createMemoryReporter(opts: MemoryTelemetryOptions): MemoryReport
     tick(now: number = Date.now()): ProcessMemoryRow {
       const sample = sampleProcessMemory(opts.readMemory, now);
       const row: ProcessMemoryRow = { process: opts.process, pid, ...sample };
-      const { at: _at, ...fields } = row;
+      // pino already stamps every record with this process's pid; only the
+      // status payload needs it on the row.
+      const { at: _at, pid: _pid, ...fields } = row;
       log.info({ ...fields, ...(opts.extra?.() ?? {}) }, 'process memory');
       if (shouldWarn(sample.rss, now)) {
         lastWarnAt = now;
         log.warn(
-          { process: opts.process, pid, rss: sample.rss, rssWarnBytes },
+          { process: opts.process, rss: sample.rss, rssWarnBytes },
           'process rss above threshold',
         );
       }
