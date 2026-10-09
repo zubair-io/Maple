@@ -19,6 +19,7 @@ import { ALL_STAGE_NAMES } from './stages/manifest.ts';
 import {
   readStatusCountsDemand,
   writeStatusCounts,
+  writeWorkerMemory,
   writeWorkerStatus,
 } from '../db/repos/worker-status.repo.ts';
 import type { StageStatusSnapshot } from './registry.ts';
@@ -55,6 +56,7 @@ interface StatusBody {
   damaged: number;
   newlyHiddenTotal: number;
   countsAt: number | null;
+  memory: Array<{ process: string; pid: number; rss: number; at: number }>;
 }
 
 async function status(): Promise<StatusBody> {
@@ -182,6 +184,37 @@ describe('GET /api/workers/status', () => {
   it('reports countsAt: null before the worker has ever counted', async () => {
     using _live = await createLiveTestDatabase();
     expect((await status()).countsAt).toBeNull();
+  });
+
+  it('reports only this process in memory before the worker has sampled (#4445)', async () => {
+    using _live = await createLiveTestDatabase();
+
+    const { memory } = await status();
+
+    expect(memory).toHaveLength(1);
+    expect(memory[0]).toMatchObject({ process: 'api', pid: process.pid });
+    expect(memory[0]!.rss).toBeGreaterThan(0);
+  });
+
+  it('serves the worker and child memory rows the worker persisted (#4445)', async () => {
+    using _live = await createLiveTestDatabase();
+    const sample = { heapUsed: 1, heapTotal: 2, external: 3, arrayBuffers: 4, at: 1_700_000_000 };
+    await writeWorkerMemory({
+      rows: [
+        { process: 'worker', pid: 41, rss: 213_000_000, ...sample },
+        { process: 'ffi-decode', pid: 42, rss: 291_000_000, ...sample },
+        { process: 'face', pid: 43, rss: 484_000_000, ...sample },
+      ],
+    });
+
+    const { memory } = await status();
+
+    expect(memory.map((row) => [row.process, row.pid, row.rss])).toEqual([
+      ['api', process.pid, memory[0]!.rss],
+      ['worker', 41, 213_000_000],
+      ['ffi-decode', 42, 291_000_000],
+      ['face', 43, 484_000_000],
+    ]);
   });
 
   it('pokes the worker demand flag so counts refresh while the page is watched', async () => {

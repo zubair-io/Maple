@@ -9,7 +9,12 @@
 // All Angular-bearing types are imported via `import type` so this module
 // can compile/be tested as plain TS.
 
-import type { EnrichmentConfigResponse, StageStatus, WorkerConfig } from '@maple-common';
+import type {
+  EnrichmentConfigResponse,
+  ProcessMemoryRow,
+  StageStatus,
+  WorkerConfig,
+} from '@maple-common';
 import { STAGE_META, type StageGroup } from './workers-stage-meta';
 export { STAGE_META, stageMeta } from './workers-stage-meta';
 export type { StageGroup, StageMeta, EnrichmentKind } from './workers-stage-meta';
@@ -316,6 +321,19 @@ export function formatBytes(bytes: number | undefined | null): string {
 export function countsAsOfLabel(countsAt: number | null | undefined): string {
   if (countsAt == null) return 'Counting…';
   return `Counts as of ${new Date(countsAt).toLocaleTimeString()}`;
+}
+
+/** The Memory chip's value: resident set across every reported process. */
+export function totalRss(rows: readonly ProcessMemoryRow[] | undefined): number {
+  return (rows ?? []).reduce((acc, row) => acc + row.rss, 0);
+}
+
+/** The Memory chip's label (#4445): one `name RSS` entry per server process,
+ * so the one that balloons is named on the page rather than only in the
+ * logs. A frame with no rows (an older server) says so instead of "0 B". */
+export function memoryBreakdownLabel(rows: readonly ProcessMemoryRow[] | undefined): string {
+  if (!rows || rows.length === 0) return 'Memory · no samples yet';
+  return `Memory · ${rows.map((row) => `${row.process} ${formatBytes(row.rss)}`).join(' · ')}`;
 }
 
 export function formatDate(iso: string | null): string {

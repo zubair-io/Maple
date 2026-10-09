@@ -24,6 +24,7 @@ import {
   type StatusCountsSnapshot,
 } from '../db/repos/worker-status.repo.ts';
 import { ALL_KNOWN_WORKER_NAMES } from './status-counts.ts';
+import { sampleProcessMemory, type ProcessMemoryRow } from '../runtime/memory-telemetry.ts';
 import { enabledRemainingTotal, loadAllMigrationStates } from './migration-config.repo.ts';
 
 export { ALL_KNOWN_WORKER_NAMES } from './status-counts.ts';
@@ -92,6 +93,10 @@ export interface WorkersStatusPayload {
   /** Epoch ms when the pending / ready / dead / damaged counts were computed,
    * or null when the worker has not counted yet (every count reads 0). */
   countsAt: number | null;
+  /** One row per long-lived process (#4445): this API process sampled now,
+   * then the worker and its native children as the worker last persisted
+   * them. The worker's rows are absent until its first per-minute sample. */
+  memory: ProcessMemoryRow[];
 }
 
 async function loadConfigMap(): Promise<Map<string, WorkerConfig>> {
@@ -167,9 +172,15 @@ function assembleStageRow(
   };
 }
 
+function assembleMemoryRows(workerRows: readonly ProcessMemoryRow[]): ProcessMemoryRow[] {
+  const api: ProcessMemoryRow = { process: 'api', pid: process.pid, ...sampleProcessMemory() };
+  return [api, ...workerRows];
+}
+
 function assembleWorkersStatus(
   statuses: Record<string, StageStatusSnapshot>,
   dbState: StatusDbState,
+  workerMemory: readonly ProcessMemoryRow[],
 ): WorkersStatusPayload {
   const counts = dbState.counts;
   const nameSet = new Set<string>([
@@ -185,6 +196,7 @@ function assembleWorkersStatus(
     damaged: counts?.damaged ?? 0,
     newlyHiddenTotal: counts?.newly_hidden ?? 0,
     countsAt: counts?.computed_at ?? null,
+    memory: assembleMemoryRows(workerMemory),
   };
 }
 
@@ -197,9 +209,13 @@ export async function computeWorkersStatus(): Promise<WorkersStatusPayload> {
     loadConfigMap(),
     loadAllMigrationStates(),
   ]);
-  return assembleWorkersStatus(snap?.statuses ?? {}, {
-    configMap,
-    counts: snap?.counts ?? null,
-    migrationPending: enabledRemainingTotal(migrationStates),
-  });
+  return assembleWorkersStatus(
+    snap?.statuses ?? {},
+    {
+      configMap,
+      counts: snap?.counts ?? null,
+      migrationPending: enabledRemainingTotal(migrationStates),
+    },
+    snap?.memory?.rows ?? [],
+  );
 }

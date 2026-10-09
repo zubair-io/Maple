@@ -13,7 +13,13 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import { ChildProcessWorker, StderrRing, childScriptPath } from './child-process-worker.ts';
+import {
+  ChildProcessWorker,
+  StderrRing,
+  childMemoryReports,
+  childScriptPath,
+  niceIncrementFromEnv,
+} from './child-process-worker.ts';
 
 const CHILD = childScriptPath(import.meta.url, '../ffi/raw_ffi.child.ts');
 const CRASH_CHILD = childScriptPath(import.meta.url, './__fixtures__/stderr-crash-child.ts');
@@ -78,6 +84,25 @@ describe('ChildProcessWorker — real Bun child transport', () => {
     // not take down this parent process.
     expect(true).toBe(true);
   }, 20000);
+
+  it('keeps the memory row a child relays over IPC until that child exits (#4445)', async () => {
+    const w = new ChildProcessWorker(CHILD, { label: 'test', nice: 10 });
+    const errP = nextError(w);
+    // The child takes its first sample at boot and relays it before answering
+    // anything, so a round-trip is a reliable "the report has arrived" barrier.
+    const got = nextMessage(w);
+    w.postMessage({ type: 'renderBitmapThumb', id: 1, rawPath: '/no/such/file.dng' });
+    await got;
+
+    const row = childMemoryReports().find((r) => r.pid === w.pid);
+    expect(row).toMatchObject({ process: 'ffi-decode', pid: w.pid });
+    expect(row!.rss).toBeGreaterThan(0);
+    expect(row!.heapUsed).toBeGreaterThan(0);
+
+    process.kill(w.pid, 'SIGKILL');
+    await errP;
+    expect(childMemoryReports().some((r) => r.pid === w.pid)).toBe(false);
+  }, 20000);
 });
 
 describe('ChildProcessWorker — FFI child wire guard (#3518)', () => {
@@ -101,6 +126,17 @@ describe('ChildProcessWorker — FFI child wire guard (#3518)', () => {
       w.terminate();
     }
   }, 20000);
+});
+
+describe('niceIncrementFromEnv — the spawn-time nice increment', () => {
+  it('clamps to [0, 19] and treats an unset or junk value as 0', () => {
+    expect(niceIncrementFromEnv({})).toBe(0);
+    expect(niceIncrementFromEnv({ MAPLE_NATIVE_CHILD_NICE: '10' })).toBe(10);
+    expect(niceIncrementFromEnv({ MAPLE_NATIVE_CHILD_NICE: '7.9' })).toBe(7);
+    expect(niceIncrementFromEnv({ MAPLE_NATIVE_CHILD_NICE: '40' })).toBe(19);
+    expect(niceIncrementFromEnv({ MAPLE_NATIVE_CHILD_NICE: '-3' })).toBe(0);
+    expect(niceIncrementFromEnv({ MAPLE_NATIVE_CHILD_NICE: 'nope' })).toBe(0);
+  });
 });
 
 describe('StderrRing — bounded tail buffer (#899)', () => {

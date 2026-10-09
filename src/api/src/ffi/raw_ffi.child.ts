@@ -34,10 +34,12 @@ import {
 } from './raw_ffi-protocol.ts';
 import { handleFfiRequest } from './raw_ffi-dispatch.ts';
 import { installChildHardening } from '../runtime/child-process-worker.ts';
+import { reportMemoryToParent, startMemoryTelemetry } from '../runtime/memory-telemetry.ts';
 
 // Lower CPU priority (so the HTTP server's event loop wins under indexer load)
 // + self-exit if the parent dies. Shared with the face child; see runtime.
 installChildHardening('ffi-decode');
+startMemoryTelemetry({ process: 'ffi-decode', onSample: reportMemoryToParent });
 
 const ffi = tryGetRawFfi();
 

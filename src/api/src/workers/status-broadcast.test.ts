@@ -33,6 +33,7 @@ const fakePayload: WorkersStatusPayload = {
   damaged: 0,
   newlyHiddenTotal: 0,
   countsAt: 1_700_000_000_000,
+  memory: [],
 };
 
 /** Every broadcaster under test gets a no-op demand poke — the real one sets
