@@ -19,7 +19,7 @@ import {
   type ListPeopleOptions,
   type PersonWithCount,
 } from './people.list.ts';
-import { peopleMeiliRearmStatement } from './people.search-reindex.ts';
+import { peopleSearchRearmStatements } from './people.search-reindex.ts';
 import { flaggedPersonIdsSql, setVisibilitySql } from './people.sql.ts';
 
 /**
@@ -84,7 +84,7 @@ async function setVisibilityFlag(
       sql: setVisibilitySql(column),
       params: [value ? 1 : 0, new Date().toISOString(), id.toHexString()],
     },
-    peopleMeiliRearmStatement([id.toHexString()]),
+    ...peopleSearchRearmStatements([id.toHexString()]),
   ]);
 }
 

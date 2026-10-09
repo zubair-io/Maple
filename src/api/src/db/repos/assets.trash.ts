@@ -44,7 +44,7 @@ import {
   type TrashPurgeCandidate,
 } from '../../cloud-backup/trash-purge-admission.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
-import { meiliRearmStatement, relocateCacheRearmStatements } from './assets.stage-rearm.ts';
+import { searchRearmStatements, relocateCacheRearmStatements } from './assets.stage-rearm.ts';
 import {
   sqliteDb,
   changesAt,
@@ -183,7 +183,7 @@ function moveTailStatements(
 ): SqlStatement[] {
   return [
     ...locationStatements(assetId, destination, source),
-    meiliRearmStatement(assetId),
+    ...searchRearmStatements(assetId),
     ...relocateCacheRearmStatements(assetId),
   ];
 }

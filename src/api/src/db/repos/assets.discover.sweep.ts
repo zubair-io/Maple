@@ -12,7 +12,7 @@
 import type { ObjectId } from '../object-id.ts';
 import type { AssetExif, FileInfo } from '../schema.ts';
 import type { LocationKey } from './assets.discover.ts';
-import { meiliRearmStatement, relocateCacheRearmStatements } from './assets.stage-rearm.ts';
+import { searchRearmStatements, relocateCacheRearmStatements } from './assets.stage-rearm.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toBool, toHex, toObjectId } from './values.ts';
 
@@ -121,7 +121,7 @@ export async function repointLocation(
   if (moved.changes === 0) return false;
   await db.transaction([
     { sql: `UPDATE assets SET indexed_at = ? WHERE id = ?`, params: [indexedAt, id] },
-    meiliRearmStatement(id),
+    ...searchRearmStatements(id),
     ...relocateCacheRearmStatements(id),
   ]);
   return true;

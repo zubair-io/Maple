@@ -28,7 +28,7 @@
  */
 
 import type { ObjectId } from '../object-id.ts';
-import { meiliRearmStatement } from './assets.stage-rearm.ts';
+import { searchRearmStatements } from './assets.stage-rearm.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toHex, toObjectId } from './values.ts';
 
@@ -131,7 +131,7 @@ export async function renameLocation(
       sql: `UPDATE assets SET indexed_at = ?, deleted_at = NULL WHERE id = ?`,
       params: [indexedAt, assetId],
     },
-    meiliRearmStatement(assetId),
+    ...searchRearmStatements(assetId),
   ]);
   return toObjectId(assetId);
 }

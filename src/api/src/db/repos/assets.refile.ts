@@ -46,7 +46,7 @@ import {
   type MigrationCandidate,
   type MigrationMarker,
 } from './assets.migrations.ts';
-import { meiliRearmStatement, relocateCacheRearmStatements } from './assets.stage-rearm.ts';
+import { searchRearmStatements, relocateCacheRearmStatements } from './assets.stage-rearm.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toHex } from './values.ts';
 
@@ -170,7 +170,7 @@ export async function repointBackupLocation(
       params:
         marker === undefined ? [appleRenderedPath, id] : [appleRenderedPath, marker.version, id],
     },
-    meiliRearmStatement(id),
+    ...searchRearmStatements(id),
     ...relocateCacheRearmStatements(id),
   ]);
   return true;

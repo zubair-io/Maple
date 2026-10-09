@@ -114,7 +114,7 @@ describe('refile-backups end-to-end', () => {
       phassetDevices: ['dev'],
       place: JAPAN,
       exif: { captured_year: 2024 },
-      stages: ['thumb', 'preview', 'meili'],
+      stages: ['thumb', 'preview', 'meili', 'embed'],
       location: { libraryId: library.folderId, path: oldRel, filename: 'IMG_GEO.HEIC' },
     });
     library.db.run(`UPDATE stage_state SET version = 1 WHERE asset_id = ?`, [id]);
@@ -124,7 +124,7 @@ describe('refile-backups end-to-end', () => {
       `UPDATE stage_state
           SET version = 3, attempts = 5, last_error = 'boom', dead = 1,
               processed_at = '2024-01-01T00:00:00.000Z'
-        WHERE asset_id = ? AND stage = 'meili'`,
+        WHERE asset_id = ? AND stage IN ('meili', 'embed')`,
       [id],
     );
 
@@ -133,7 +133,7 @@ describe('refile-backups end-to-end', () => {
     expect(location(library, id).path).toBe('2024/Japan/Kyoto');
     expect(location(library, id).filename).toBe('IMG_GEO.HEIC');
     expect(assetRow(library.db, id)!.backup_layout_version).toBe(BACKUP_LAYOUT_VERSION);
-    for (const stage of ['thumb', 'preview', 'meili']) {
+    for (const stage of ['thumb', 'preview', 'meili', 'embed']) {
       expect(stageRow(library.db, id, stage)).toEqual({
         version: 0,
         attempts: 0,
