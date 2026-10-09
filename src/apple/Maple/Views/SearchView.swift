@@ -115,7 +115,17 @@
       }
       .background(MapleTokens.bg.ignoresSafeArea())
       .accessibilityIdentifier("search-root")
-      .onChange(of: query) { _, _ in scheduleSearch() }
+      .onChange(of: query) { previous, current in
+        // The field's clear button empties the text in one step. Treat it
+        // as leaving the search: drop the filters too, so the page returns
+        // to Recents instead of re-running a filters-only search.
+        if current.isEmpty && !previous.trimmingCharacters(in: .whitespaces).isEmpty
+          && filtersActive
+        {
+          viewModel?.resetFilters()
+        }
+        scheduleSearch()
+      }
       .onAppear {
         // The session / view model can arrive AFTER the user has already
         // typed (the `.searchable` field lives above this view and is
