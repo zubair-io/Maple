@@ -60,6 +60,9 @@ export interface ProcessMemoryRow {
   /** `api`, `worker`, `ffi-decode` or `face`. */
   process: string;
   pid: number;
+  /** Which tier spawned it — both the API and the worker run `ffi-decode`
+   * children. Absent on frames from a server older than #4445's follow-up. */
+  owner?: 'api' | 'worker';
   rss: number;
   heapUsed: number;
   heapTotal: number;

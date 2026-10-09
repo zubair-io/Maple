@@ -38,11 +38,18 @@ export interface ProcessMemorySample {
   at: number;
 }
 
+/** Which long-lived tier spawned a process. Both the API and the worker run
+ * their own FFI decode children, so a `ffi-decode` row needs this to say
+ * whose it is. */
+export type ProcessOwner = 'api' | 'worker';
+
 /** One process's latest sample, as the status payload and the IPC report carry it. */
 export interface ProcessMemoryRow extends ProcessMemorySample {
   /** Which process: `api`, `worker`, `ffi-decode`, `face`. */
   process: string;
   pid: number;
+  /** Set by the status assembler; a child's own IPC report does not know it. */
+  owner?: ProcessOwner;
 }
 
 /** The IPC message a child sends its parent with each sample. */

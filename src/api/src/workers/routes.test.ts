@@ -56,7 +56,13 @@ interface StatusBody {
   damaged: number;
   newlyHiddenTotal: number;
   countsAt: number | null;
-  memory: Array<{ process: string; pid: number; rss: number; at: number }>;
+  memory: Array<{
+    process: string;
+    pid: number;
+    rss: number;
+    at: number;
+    owner: string;
+  }>;
 }
 
 async function status(): Promise<StatusBody> {
@@ -174,8 +180,17 @@ describe('GET /api/workers/status', () => {
     const byName = new Map(
       (body.stages as Array<{ name: string } & Record<string, unknown>>).map((s) => [s.name, s]),
     );
-    expect(byName.get('exif')).toMatchObject({ pending: 12, ready: 5, blocked: 7, dead: 1 });
-    expect(byName.get('missing-reaper')).toMatchObject({ pending: 3, ready: 3, blocked: 0 });
+    expect(byName.get('exif')).toMatchObject({
+      pending: 12,
+      ready: 5,
+      blocked: 7,
+      dead: 1,
+    });
+    expect(byName.get('missing-reaper')).toMatchObject({
+      pending: 3,
+      ready: 3,
+      blocked: 0,
+    });
     expect(body.damaged).toBe(4);
     expect(body.newlyHiddenTotal).toBe(2);
     expect(body.countsAt).toBe(computedAt);
@@ -192,13 +207,51 @@ describe('GET /api/workers/status', () => {
     const { memory } = await status();
 
     expect(memory).toHaveLength(1);
-    expect(memory[0]).toMatchObject({ process: 'api', pid: process.pid });
+    expect(memory[0]).toMatchObject({
+      process: 'api',
+      pid: process.pid,
+      owner: 'api',
+    });
     expect(memory[0]!.rss).toBeGreaterThan(0);
+  });
+
+  it("includes the API's own decode children, tagged as API-owned (#4445)", async () => {
+    using _live = await createLiveTestDatabase();
+    const { computeWorkersStatus } = await import('./routes-status.ts');
+    const sample = {
+      heapUsed: 1,
+      heapTotal: 2,
+      external: 3,
+      arrayBuffers: 4,
+      at: 1_700_000_000,
+    };
+    await writeWorkerMemory({
+      rows: [
+        { process: 'worker', pid: 41, rss: 213_000_000, ...sample },
+        { process: 'ffi-decode', pid: 42, rss: 291_000_000, ...sample },
+      ],
+    });
+    const apiChildren = () => [{ process: 'ffi-decode', pid: 77, rss: 150_000_000, ...sample }];
+
+    const { memory } = await computeWorkersStatus(apiChildren);
+
+    expect(memory.map((row) => [row.process, row.pid, row.owner])).toEqual([
+      ['api', process.pid, 'api'],
+      ['ffi-decode', 77, 'api'],
+      ['worker', 41, 'worker'],
+      ['ffi-decode', 42, 'worker'],
+    ]);
   });
 
   it('serves the worker and child memory rows the worker persisted (#4445)', async () => {
     using _live = await createLiveTestDatabase();
-    const sample = { heapUsed: 1, heapTotal: 2, external: 3, arrayBuffers: 4, at: 1_700_000_000 };
+    const sample = {
+      heapUsed: 1,
+      heapTotal: 2,
+      external: 3,
+      arrayBuffers: 4,
+      at: 1_700_000_000,
+    };
     await writeWorkerMemory({
       rows: [
         { process: 'worker', pid: 41, rss: 213_000_000, ...sample },
@@ -209,11 +262,11 @@ describe('GET /api/workers/status', () => {
 
     const { memory } = await status();
 
-    expect(memory.map((row) => [row.process, row.pid, row.rss])).toEqual([
-      ['api', process.pid, memory[0]!.rss],
-      ['worker', 41, 213_000_000],
-      ['ffi-decode', 42, 291_000_000],
-      ['face', 43, 484_000_000],
+    expect(memory.map((row) => [row.process, row.pid, row.rss, row.owner])).toEqual([
+      ['api', process.pid, memory[0]!.rss, 'api'],
+      ['worker', 41, 213_000_000, 'worker'],
+      ['ffi-decode', 42, 291_000_000, 'worker'],
+      ['face', 43, 484_000_000, 'worker'],
     ]);
   });
 
@@ -232,8 +285,14 @@ describe('GET /api/workers/status', () => {
   it("the migration row's pending is the enabled migrations' persisted remaining", async () => {
     using _live = await createLiveTestDatabase();
     const { patchMigrationState } = await import('./migration-config.repo.ts');
-    await patchMigrationState('refile-backups', { enabled: true, remaining: 40 });
-    await patchMigrationState('refile-legacy-daydir', { enabled: false, remaining: 99 });
+    await patchMigrationState('refile-backups', {
+      enabled: true,
+      remaining: 40,
+    });
+    await patchMigrationState('refile-legacy-daydir', {
+      enabled: false,
+      remaining: 99,
+    });
 
     const body = await status();
 
@@ -246,16 +305,26 @@ describe('GET /api/workers/status', () => {
   it("surfaces a stage as 'error' when the worker wrote it that way", async () => {
     using _live = await createLiveTestDatabase();
     await writeWorkerStatus(
-      snapshotOf(['face'], { status: 'error', lastError: 'ONNX model not found' }),
+      snapshotOf(['face'], {
+        status: 'error',
+        lastError: 'ONNX model not found',
+      }),
       Date.now(),
     );
 
     const body = await status();
 
     const face = (
-      body.stages as Array<{ name: string; status: string; lastError: string | null }>
+      body.stages as Array<{
+        name: string;
+        status: string;
+        lastError: string | null;
+      }>
     ).find((s) => s.name === 'face');
-    expect(face).toMatchObject({ status: 'error', lastError: 'ONNX model not found' });
+    expect(face).toMatchObject({
+      status: 'error',
+      lastError: 'ONNX model not found',
+    });
   });
 });
 
@@ -284,7 +353,10 @@ describe('pause and resume', () => {
   it('clears a self-imposed pause reason on resume', async () => {
     using _live = await createLiveTestDatabase();
     const repo = new WorkerConfigRepo();
-    await repo.patch('meili', { paused: true, pause_reason: 'embedder address rejected' });
+    await repo.patch('meili', {
+      paused: true,
+      pause_reason: 'embedder address rejected',
+    });
 
     await post('meili/resume');
 
@@ -309,7 +381,12 @@ describe('the dead-letter and damaged surfaces', () => {
     using live = await createLiveTestDatabase();
     const libraryId = insertFolder(live.db, { path: '/lib' });
     const assetId = insertAsset(live.db);
-    insertLocation(live.db, { assetId, libraryId, path: 'a', filename: 'broken.dng' });
+    insertLocation(live.db, {
+      assetId,
+      libraryId,
+      path: 'a',
+      filename: 'broken.dng',
+    });
     live.db.run(
       `INSERT INTO stage_state (asset_id, stage, version, attempts, dead, last_error, processed_at)
        VALUES (?, 'exif', 0, 3, 1, 'Unknown file format', '2026-01-01T00:00:00Z')`,
@@ -340,7 +417,12 @@ describe('the dead-letter and damaged surfaces', () => {
     using live = await createLiveTestDatabase();
     const libraryId = insertFolder(live.db, { path: '/lib' });
     const assetId = insertAsset(live.db);
-    insertLocation(live.db, { assetId, libraryId, path: 'a', filename: 'corrupt.cr2' });
+    insertLocation(live.db, {
+      assetId,
+      libraryId,
+      path: 'a',
+      filename: 'corrupt.cr2',
+    });
     live.db.run(
       `UPDATE assets SET damaged_since = '2026-01-01T00:00:00Z', damaged_stage = 'exif',
               damaged_reason = 'Unknown file format', maple_id = 'abc' WHERE id = ?`,
