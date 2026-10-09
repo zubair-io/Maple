@@ -3,7 +3,7 @@ import { collectMaskGroups, sharesMaskGroupContext } from './xmp-mask-group-pass
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { PassthroughBucket } from './xmp.types';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
-import { authoredCullingOf, DC_NAMESPACE } from './xmp-culling';
+import { DC_NAMESPACE } from './xmp-culling';
 import { METADATA_NAMESPACES } from './xmp-metadata';
 import { parseToneCurveElement, toneCurveElementKey } from './xmp-tone-curves';
 import {
@@ -235,7 +235,6 @@ export function collectXmpPassthrough(
     }))
     .filter((namespace): namespace is { prefix: string; uri: string } => !!namespace.uri);
   return {
-    authoredCulling: authoredCullingOf(description),
     unknownNamespaces,
     unknownAttributes,
     unknownNodes,

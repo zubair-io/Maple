@@ -69,6 +69,19 @@ final class XMPAuthoredCullingTests: XCTestCase {
         XCTAssertEqual(xml.components(separatedBy: "xmp:Label=").count, 2)
     }
 
+    func testCullingInASecondDescriptionSurvivesAnExposureEdit() async throws {
+        let split = lightroomSidecar("").replacingOccurrences(
+            of: "</rdf:Description>",
+            with: """
+            </rdf:Description>
+              <rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+                xmp:Rating="-1" xmp:Label="Red"/>
+            """)
+        let xml = try await saved(from: split) { model, _ in model.exposure = 1.25 }
+        XCTAssertEqual(xml.components(separatedBy: #"xmp:Rating="-1""#).count, 2, xml)
+        XCTAssertEqual(xml.components(separatedBy: #"xmp:Label="Red""#).count, 2, xml)
+    }
+
     func testUnchangedFractionalRatingKeepsItsBytes() async throws {
         let xml = try await saved(from: lightroomSidecar(#"xmp:Rating="3.0""#)) { model, culling in
             XCTAssertEqual(culling.stars, 3)
@@ -122,5 +135,6 @@ final class XMPAuthoredCullingTests: XCTestCase {
         XCTAssertEqual(XMPParser.ratingValue("-1"), 0)
         XCTAssertEqual(XMPParser.ratingValue("5"), 5)
         XCTAssertEqual(XMPParser.ratingValue("nope"), 0)
+        XCTAssertEqual(XMPParser.ratingValue("6"), 0)
     }
 }

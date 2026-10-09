@@ -70,6 +70,19 @@ describe('xmp:Rating and xmp:Label survive saves (#4403)', () => {
     expect(parser.parseCulling(xml).colorLabel).toBe('red');
   });
 
+  it('keeps culling authored in a separate rdf:Description block', async () => {
+    const split = lightroomSidecar('').replace(
+      '</rdf:Description>',
+      `</rdf:Description>
+  <rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+    xmp:Rating="-1" xmp:Label="Red"/>`,
+    );
+    const xml = await saved(split, { exposure: 1.25 });
+    expect(xml.split('xmp:Rating="-1"')).toHaveLength(2);
+    expect(xml.split('xmp:Label="Red"')).toHaveLength(2);
+    expect(parser.parseCulling(xml).colorLabel).toBe('red');
+  });
+
   it('keeps an unchanged fractional rating byte-for-byte', async () => {
     const xml = await saved(lightroomSidecar('xmp:Rating="3.0"'), { exposure: 0.75 });
     expect(xml).toContain('xmp:Rating="3.0"');
