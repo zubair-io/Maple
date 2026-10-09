@@ -30,6 +30,7 @@ import {
   embedTexts,
   type OllamaEmbedTarget,
 } from '../../enrichment/ollama-embed-client.ts';
+import { EMBED_STAGE } from '../../db/repos/assets.stage-rearm.ts';
 import {
   rearmEmbedForModelChange,
   upsertAssetVectorStatement,
@@ -129,15 +130,18 @@ export async function embedHandler(image: ImageDoc, _ctx: StageContext): Promise
 
 const sweep: { lastAt: number } = { lastAt: 0 };
 
+export async function rearmForEmbedderTarget(target: OllamaEmbedTarget): Promise<void> {
+  const fingerprint = `${target.model} @ ${target.url}`;
+  const repo = new WorkerConfigRepo();
+  const targetChanged = (await repo.load(EMBED_STAGE))?.ai_model !== fingerprint;
+  await rearmEmbedForModelChange(target.model, { includeDead: targetChanged });
+  if (targetChanged) await repo.patch(EMBED_STAGE, { ai_model: fingerprint });
+}
+
 async function rearmAfterModelChange(_processedThisTick: number, idle: boolean): Promise<void> {
   if (!idle || Date.now() - sweep.lastAt < MODEL_DRIFT_SWEEP_INTERVAL_MS) return;
   sweep.lastAt = Date.now();
-  const { url, model } = await currentEmbedderTarget();
-  const fingerprint = `${model} @ ${url}`;
-  const repo = new WorkerConfigRepo();
-  const targetChanged = (await repo.load(embedStage.name))?.ai_model !== fingerprint;
-  await rearmEmbedForModelChange(model, { includeDead: targetChanged });
-  if (targetChanged) await repo.patch(embedStage.name, { ai_model: fingerprint });
+  await rearmForEmbedderTarget(await currentEmbedderTarget());
 }
 
 // Staged per CLAUDE.md principle 6: nothing reads asset_vectors until #4463 lands the search cut-over.
