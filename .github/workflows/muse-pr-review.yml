@@ -35,7 +35,9 @@ jobs:
   review:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     timeout-minutes: 60
-    runs-on: ubuntu-latest
+    # Keep Muse reviews on the Maple Proxmox runner. Other CI remains on
+    # GitHub-hosted runners; this label prevents accidental routing elsewhere.
+    runs-on: [self-hosted, Linux, X64, maple-review]
     env:
       # 1.18.34 github run omits AGENT; its prompt uses this effective default.
       OPENCODE_CONFIG_CONTENT: '{"default_agent":"review"}'
