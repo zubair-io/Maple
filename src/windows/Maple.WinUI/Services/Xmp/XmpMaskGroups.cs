@@ -94,7 +94,11 @@ namespace Maple.WinUI.Services.Xmp
             var group = new MaskGroup(components.Select(component => component!).ToArray(),
                 Finite(description, "papp:MaskGroupOpacity") ?? 1,
                 XmpBool(Attr(description, "papp:MaskGroupInverted")) ?? false);
-            return new LocalAdjustment(group, adjustments, range) { XmpSource = SelfContained(li) };
+            return new LocalAdjustment(group, adjustments, range)
+            {
+                XmpSource = SelfContained(li),
+                XmpLayerOrder = XmpLayerOrder.Read(description),
+            };
         }
 
         // Copy in-scope namespace bindings before detaching, including aliases

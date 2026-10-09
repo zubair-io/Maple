@@ -218,9 +218,8 @@ namespace Maple.WinUI.Tests
             }, 0.625, true), new PartialAdjustments { Exposure = 0.5, Texture = 12.5 }, new(55, 25, 0.02, 0.15, 0.95, 0.3)));
             doc.Adjustments.LocalAdjustments.Add(XmpLocalAdjustmentsTests.LinearLayer);
             var saved = SaveReload(doc);
-            // Canonical containers emit ordinary geometry before group corrections.
             Assert.Equal(2, saved.Adjustments.LocalAdjustments.Count);
-            var layer = saved.Adjustments.LocalAdjustments[1];
+            var layer = saved.Adjustments.LocalAdjustments[0];
             var group = Assert.IsType<MaskGroup>(layer.Mask);
             Assert.Equal(0.625, group.Opacity);
             Assert.True(group.Invert);

@@ -82,6 +82,7 @@ namespace Maple.WinUI.Services.Xmp
             var sawPapp = DocumentCarriesPappNamespace(source);
             ParseAttributes(primary, doc, sawPapp);
             ParseChildren(primary, doc, xml);
+            doc.Adjustments.LocalAdjustments = XmpLayerOrder.Sorted(doc.Adjustments.LocalAdjustments);
             CollectSiblingPassthrough(rdf, primary, doc);
             return doc;
         }
@@ -383,6 +384,8 @@ namespace Maple.WinUI.Services.Xmp
                     doc.ChildOrder.Add(ChildSlot.ForModeled(containerTag));
                     continue;
                 }
+                if (XmpLayerOrder.IsBrushContainer(child))
+                    doc.VerbatimLayerOrders.AddRange(XmpLayerOrder.Keys(XmpLayerOrder.ContainerItems(child)));
                 doc.PassthroughNodes.Add(child.ToString(SaveOptions.DisableFormatting));
                 doc.ChildOrder.Add(ChildSlot.ForPassthrough(doc.PassthroughNodes.Count - 1));
             }

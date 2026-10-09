@@ -91,7 +91,7 @@ namespace Maple.WinUI.Services.Xmp
             return leaf;
         }
 
-        internal static string GroupCorrection(LocalAdjustment layer)
+        internal static string GroupCorrection(LocalAdjustment layer, double? order)
         {
             if (layer.Mask is not MaskGroup group) throw new ArgumentException("Expected a group", nameof(layer));
             var li = layer.XmpSource is null
@@ -104,6 +104,8 @@ namespace Maple.WinUI.Services.Xmp
             SetOwned(description, "crs:What", "Correction");
             SetOwned(description, "crs:CorrectionAmount", "1");
             SetOwned(description, "crs:CorrectionActive", "True");
+            if (order is { } layerOrder) SetOwned(description, LocalMaskWire.LAYER_ORDER_ATTRIBUTE, XmpLayerOrder.Format(layerOrder));
+            else RemoveOwned(description, LocalMaskWire.LAYER_ORDER_ATTRIBUTE);
             SetOwned(description, "papp:MaskGroupVersion", LocalMaskWire.MASK_GROUP_VERSION.ToString(CultureInfo.InvariantCulture));
             SetOwned(description, "papp:MaskGroupOpacity", Precise(group.Opacity));
             SetOwned(description, "papp:MaskGroupInverted", Boolean(group.Invert));
@@ -135,12 +137,12 @@ namespace Maple.WinUI.Services.Xmp
             return li.ToString(SaveOptions.DisableFormatting);
         }
 
-        private static string? GroupBlock(IReadOnlyList<LocalAdjustment> layers, string indent)
+        private static string? GroupBlock(IReadOnlyList<(LocalAdjustment Layer, double? Order)> keyed, string indent)
         {
-            var groups = layers.Where(layer => layer.Mask is MaskGroup).ToArray();
+            var groups = keyed.Where(entry => entry.Layer.Mask is MaskGroup).ToArray();
             return groups.Length == 0 ? null : string.Join("\n",
                 new[] { $"{indent}<{GroupContainer}>", $"{indent}  <rdf:Seq>" }
-                    .Concat(groups.Select(layer => indent + "    " + GroupCorrection(layer)))
+                    .Concat(groups.Select(entry => indent + "    " + GroupCorrection(entry.Layer, entry.Order)))
                     .Concat(new[] { $"{indent}  </rdf:Seq>", $"{indent}</{GroupContainer}>" }));
         }
     }
