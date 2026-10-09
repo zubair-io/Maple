@@ -126,14 +126,25 @@ describe('WorkersComponent', () => {
         memory: [
           { process: 'api', pid: 1, rss: 111 * MB, ...sample },
           { process: 'worker', pid: 2, rss: 213 * MB, ...sample },
-          { process: 'ffi-decode', pid: 3, rss: 291 * MB, ...sample },
+          { process: 'ffi-decode', pid: 3, rss: 200 * MB, ...sample },
+          { process: 'ffi-decode', pid: 4, rss: 91 * MB, ...sample },
         ],
       },
       counted: true,
     });
     fixture.detectChanges();
 
-    expect(chip()).toEqual(['615 MB', 'Memory · api 111 MB · worker 213 MB · ffi-decode 291 MB']);
+    expect(chip()).toEqual([
+      '615 MB',
+      'Memory · api 111 MB · worker 213 MB · ffi-decode ×2 291 MB',
+    ]);
+    const title: string = fixture.nativeElement.querySelector('[data-testid="memory-chip"]').title;
+    expect(title.split('\n').slice(2)).toEqual([
+      'api (pid 1) 111 MB',
+      'worker (pid 2) 213 MB',
+      'ffi-decode (pid 3) 200 MB',
+      'ffi-decode (pid 4) 91 MB',
+    ]);
   });
 
   it('renders Status column correctly', () => {

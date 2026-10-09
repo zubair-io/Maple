@@ -34,11 +34,7 @@
         <span class="chip-val">{{ summary().pending | number }}</span>
         <span class="chip-label">Pending · {{ countsNote() }}</span>
       </span>
-      <span
-        class="chip set-chip"
-        data-testid="memory-chip"
-        [title]="'Resident memory of each server process (API, worker, RAW decode and face children), as each last sampled it — the same numbers the per-minute memory log line carries'"
-      >
+      <span class="chip set-chip" data-testid="memory-chip" [title]="memoryTitle()">
         <span class="chip-val">{{ memoryTotal() }}</span>
         <span class="chip-label">{{ memoryNote() }}</span>
       </span>
