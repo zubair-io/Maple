@@ -52,8 +52,15 @@ COPY src/raw-pipeline/ raw-pipeline/
 # Run the canonical build script. The fast-path stamp won't trigger on a
 # fresh image; first build does the full compile, subsequent layer-cache
 # rebuilds skip on identical Rust sources.
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/build/raw-pipeline/target \
+#
+# Both cargo stages share one registry cache, so it is mounted
+# `sharing=locked`: BuildKit runs this stage and rust-builder in parallel, and
+# wasm-pack's `cargo metadata` downloads every package in Cargo.lock, so on a
+# cold cache the two stages unpacked the same crate into the same directory at
+# once and one failed with `.cargo-ok: File exists`. Each stage keeps its own
+# target cache (nightly wasm vs stable host builds share no artifacts).
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=raw-pipeline-target-wasm,target=/build/raw-pipeline/target \
     bash raw-pipeline/raw-wasm/build.sh \
  && cp -R raw-pipeline/raw-wasm/pkg /wasm-pkg
 
@@ -129,8 +136,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY src/raw-pipeline/ raw-pipeline/
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/build/raw-pipeline/target \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=raw-pipeline-target-ffi,target=/build/raw-pipeline/target \
     cd raw-pipeline \
  && cargo build --release -p raw-ffi --features search \
  && cp target/release/libraw_ffi.so /libraw_ffi.so
