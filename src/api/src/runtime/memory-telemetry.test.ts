@@ -50,7 +50,7 @@ describe('memory telemetry', () => {
     });
   });
 
-  it('logs one info line per tick naming the process, its pid, and the extra fields', () => {
+  it('logs one info line per tick naming the process and the extra fields', () => {
     const { logger, lines } = captureLogger();
     const reporter = createMemoryReporter({
       process: 'worker',
@@ -68,7 +68,6 @@ describe('memory telemetry', () => {
       msg: 'process memory',
       fields: {
         process: 'worker',
-        pid: process.pid,
         rss: 213 * MB,
         heapUsed: 10 * MB,
         heapTotal: 20 * MB,
