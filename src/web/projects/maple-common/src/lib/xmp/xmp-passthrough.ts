@@ -1,5 +1,7 @@
 import { selfContainedXml } from './xmp-foreign-xml';
 import { collectMaskGroups, sharesMaskGroupContext } from './xmp-mask-group-passthrough';
+import { inReadLayerOrder, readLayerOrder } from './xmp-local-adjustment-order';
+import { verbatimLayerOrders } from './xmp-verbatim-layer-order';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { PassthroughBucket } from './xmp.types';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
@@ -191,6 +193,7 @@ export function collectXmpPassthrough(
       return { name: attr.name, value: attr.value };
     });
   const unknownNodes: string[] = [];
+  const brushKeys: number[] = [];
   const passthroughPrefixes = new Set<string>();
   // Repair spots (#3409) are collected in one pass of their own so the
   // child loop below keeps a single skip branch for them rather than the
@@ -218,10 +221,18 @@ export function collectXmpPassthrough(
     }
     // `isManagedChild` covers both repair containers (#3409), hydrated above.
     if (isManagedChild(child)) continue;
+    if (managedXmpName(child) === 'papp:BrushCorrections')
+      brushKeys.push(...verbatimLayerOrders(child));
     unknownNodes.push(selfContainedXml(child));
   }
 
-  const maskGroups = collectMaskGroups(description, model);
+  const { verbatim: groupKeys, ...maskGroups } = collectMaskGroups(description, model);
+  if (model.localAdjustments) model.localAdjustments = inReadLayerOrder(model.localAdjustments);
+  const verbatimLayerOrderKeys = [...brushKeys, ...groupKeys];
+  for (const layer of verbatimLayerOrderKeys.length ? (model.localAdjustments ?? []) : []) {
+    const key = readLayerOrder(layer);
+    if (key !== undefined) layer.xmpLayerOrder = key;
+  }
 
   for (const attr of unknownAttributes) {
     const colon = attr.name.indexOf(':');
@@ -239,6 +250,7 @@ export function collectXmpPassthrough(
     unknownAttributes,
     unknownNodes,
     ...maskGroups,
+    ...(verbatimLayerOrderKeys.length ? { verbatimLayerOrders: verbatimLayerOrderKeys } : {}),
     ...preservedStructure(description, document),
   };
 }
