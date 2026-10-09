@@ -19,6 +19,10 @@ import * as os from 'node:os';
 import { Elysia } from 'elysia';
 import { xmpBatchRoutes } from './xmp-batch.ts';
 import { parseXmpMetadata } from '../xmp/metadata-parser.ts';
+import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
+import { updateXmpAtomic } from '../fs/xmp.ts';
+import { writeXmpIfUnchanged } from '../fs/xmp-conditional.ts';
+import { computeBodyETag } from '../runtime/http-etag.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { insertStageState } from '../db/repos/assets.test-helpers.ts';
 import {
@@ -192,6 +196,44 @@ describe('POST /api/xmp/batch', () => {
     const parsed = parseXmpMetadata(sidecarXml);
     expect(parsed.title).toBe('Summer Trip');
     expect(parsed.city).toBe('Rome');
+  });
+
+  test('holds the sidecar barrier across batch read-merge-write against a conditional save', async () => {
+    const filename = 'interleaved.dng';
+    const sidecar = rawPath('interleaved.xmp');
+    await fs.writeFile(rawPath(filename), '');
+    const initialXml = mergeMetadataIntoXmp('', { city: 'Before' });
+    await fs.writeFile(sidecar, initialXml);
+
+    let markRead!: () => void;
+    const readComplete = new Promise<void>((resolve) => {
+      markRead = resolve;
+    });
+    let releaseUpdate!: () => void;
+    const updateGate = new Promise<void>((resolve) => {
+      releaseUpdate = resolve;
+    });
+
+    const batchUpdate = updateXmpAtomic(rawPath(filename), async (existingXml) => {
+      markRead();
+      await updateGate;
+      return mergeMetadataIntoXmp(existingXml, { city: 'Batch edit' });
+    });
+    await readComplete;
+
+    const staleSave = writeXmpIfUnchanged(
+      rawPath(filename),
+      mergeMetadataIntoXmp(initialXml, { title: 'Client edit' }),
+      computeBodyETag(initialXml),
+    );
+    releaseUpdate();
+
+    const [batchResult, saveResult] = await Promise.all([batchUpdate, staleSave]);
+    expect(batchResult.ok).toBe(true);
+    expect(saveResult.kind).toBe('conflict');
+    const finalMetadata = parseXmpMetadata(await fs.readFile(sidecar, 'utf-8'));
+    expect(finalMetadata.city).toBe('Batch edit');
+    expect(finalMetadata.title).toBeUndefined();
   });
 
   test('returns error for address with unknown slug', async () => {
