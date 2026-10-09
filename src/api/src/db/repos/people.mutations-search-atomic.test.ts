@@ -57,6 +57,32 @@ function failSearchWrites(db: Database): void {
   }
 }
 
+const SEARCH_STAGES = [MEILI_STAGE, EMBED_STAGE];
+
+function seedIndexedStages(db: Database, assetId: string): void {
+  SEARCH_STAGES.forEach((stage) =>
+    insertStageState(db, assetId, stage, {
+      version: 6,
+      attempts: 3,
+      dead: true,
+      lastError: 'old failure',
+      processedAt: '2025-01-01T00:00:00Z',
+    }),
+  );
+}
+
+function expectSearchStagesRearmed(db: Database, assetId: string): void {
+  SEARCH_STAGES.forEach((stage) =>
+    expect(stageRow(db, assetId, stage)).toMatchObject({
+      version: 0,
+      attempts: 0,
+      dead: 0,
+      last_error: null,
+      processed_at: null,
+    }),
+  );
+}
+
 describe.each(mutations)('$name commits with its local search work', (mutation) => {
   test.each([false, true])('rollback and retry with missing stage=%s', async (missingStage) => {
     using handle = await createTestDatabase('file');
@@ -80,15 +106,7 @@ describe.each(mutations)('$name commits with its local search work', (mutation) 
     ]) {
       insertFace(db, { assetId: assetId!, personId });
       if (assetId !== asset || !missingStage) {
-        for (const stage of [MEILI_STAGE, EMBED_STAGE]) {
-          insertStageState(db, assetId!, stage, {
-            version: 6,
-            attempts: 3,
-            dead: true,
-            lastError: 'old failure',
-            processedAt: '2025-01-01T00:00:00Z',
-          });
-        }
+        seedIndexedStages(db, assetId!);
       }
     }
     const fixture = {
@@ -107,15 +125,7 @@ describe.each(mutations)('$name commits with its local search work', (mutation) 
     await mutation.run(fixture);
     expect(state(db).people).not.toEqual(before.people);
     for (const assetId of mutation.merges ? [asset, otherAsset] : [asset]) {
-      for (const stage of [MEILI_STAGE, EMBED_STAGE]) {
-        expect(stageRow(db, assetId, stage)).toMatchObject({
-          version: 0,
-          attempts: 0,
-          dead: 0,
-          last_error: null,
-          processed_at: null,
-        });
-      }
+      expectSearchStagesRearmed(db, assetId);
     }
     expect(stageRow(db, unrelated, MEILI_STAGE)?.version).toBe(6);
     if (!mutation.merges) expect(stageRow(db, otherAsset, MEILI_STAGE)?.version).toBe(6);
