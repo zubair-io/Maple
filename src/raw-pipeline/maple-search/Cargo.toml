@@ -1,0 +1,38 @@
+# maple-search — in-process hybrid search for the Self Hosted API (#4462,
+# epic #4460). Linked only into the API's bun:ffi dylib through raw-ffi's
+# `search` feature; never into raw-core, the Apple xcframework or WASM.
+# See README.md for the ONNX Runtime alignment with maple-pano.
+[package]
+name = "maple-search"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+bench = ["dep:clap"]
+
+[[bin]]
+name = "search-bench"
+path = "src/bin/search-bench.rs"
+required-features = ["bench"]
+
+[dependencies]
+# Resolved through the workspace `[patch.crates-io]` to third_party/fastembed
+# (5.8.0 + a configurable intra-op thread count). 5.8.0 is the last release
+# that pins `ort =2.0.0-rc.10`, the workspace's pin. Default features are off:
+# no bundled ORT download (the dylib is loaded at runtime like maple-pano's)
+# and no image models.
+fastembed = { version = "=5.8.0", default-features = false, features = ["hf-hub-rustls-tls", "ort-load-dynamic"] }
+ort = { workspace = true, features = ["load-dynamic"] }
+libloading.workspace = true
+tantivy = "0.26"
+clap = { workspace = true, optional = true }
+rayon.workspace = true
+regex = "1"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
