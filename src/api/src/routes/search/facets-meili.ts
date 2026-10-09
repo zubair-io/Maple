@@ -17,8 +17,14 @@
 import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
 import { child as childLogger } from '../../log.ts';
 import type { ExternalRanking } from '../../db/repos/search.facets.ts';
-import { meiliSearchOptions, unpushableFilters, usesPlaceText } from './list-meili.ts';
+import {
+  meiliSearchOptions,
+  recordSearchTiming,
+  unpushableFilters,
+  usesPlaceText,
+} from './list-meili.ts';
 import { extractDatesFromQuery, type SearchQuery } from './query.ts';
+import type { StageTimings } from './stage-timings.ts';
 
 const searchLog = childLogger('search');
 
@@ -33,6 +39,7 @@ const searchLog = childLogger('search');
 export function meiliFacetRanking(
   query: SearchQuery,
   limit: number,
+  timings?: StageTimings,
 ): (() => Promise<ExternalRanking | null>) | undefined {
   const resolved = extractDatesFromQuery(query, new Date());
   const meili = meilisearchClient();
@@ -45,6 +52,7 @@ export function meiliFacetRanking(
         offset: 0,
         limit,
       });
+      recordSearchTiming(timings, hit);
       return { mapleIds: hit.ids, total: hit.estimatedTotal };
     } catch (err) {
       searchLog.warn(

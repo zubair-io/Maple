@@ -99,6 +99,7 @@ export type {
   MeilisearchMediaType,
   MeilisearchSearchOptions,
   MeilisearchSearchResult,
+  MeilisearchSearchTiming,
 } from './meilisearch-types.ts';
 
 export interface MeilisearchClient {
@@ -432,14 +433,23 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
       if (!isLiveConfig(cfg)) {
         return { ids: [], estimatedTotal: 0 };
       }
+      const embedStarted = performance.now();
       const hybridQuery =
         opts.semantic && cfg.semantic ? await queryEmbedder.hybridQuery(q) : KEYWORD_ONLY;
+      const searchStarted = performance.now();
       const body = await searchWithReadingDiversity(
         cfg,
         cfg.indexName,
         searchRequest(cfg, q, opts, hybridQuery),
       );
-      return parseSearchResult(body);
+      return {
+        ...parseSearchResult(body),
+        timing: {
+          embedMs: searchStarted - embedStarted,
+          searchMs: performance.now() - searchStarted,
+          hybrid: hybridQuery.kind,
+        },
+      };
     },
 
     async semanticStatus(): Promise<MeilisearchSemanticStatus> {

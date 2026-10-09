@@ -20,8 +20,13 @@ import { FACET_TOP_MATCHES } from '../../db/repos/search.facets.ts';
 import { meiliFacetRanking } from './facets-meili.ts';
 import { emailsForUserIds } from '../../db/repos/auth.users.repo.ts';
 import { namesForPersonIds } from '../../people/people-search-filter.repo.ts';
+import { usesPlaceText } from './list-meili.ts';
 import { SearchQueryT, type SearchQuery } from './query.ts';
 import { resolveSearchScope } from './scope.ts';
+import { stageTimings } from './stage-timings.ts';
+import { child as childLogger } from '../../log.ts';
+
+const searchLog = childLogger('search');
 
 /** Canonical (lowercase) hex for a person-id bucket key, so the map lookup
  * against `namesForPersonIds`' canonical keys can't miss on case. Invalid ids
@@ -33,21 +38,28 @@ function canonicalHex(id: string): string {
 export const facetsRoute = new Elysia().get(
   '/facets',
   async ({ query }) => {
-    const where = await resolveSearchScope(query as SearchQuery);
+    const timings = stageTimings();
+    const where = await timings.time('peopleMs', () => resolveSearchScope(query as SearchQuery));
     if (where instanceof Response) return where;
 
     // A text search's most relevant matches are whichever engine ranks its
     // list: Meilisearch when it serves this query, the database otherwise.
-    const facets = await searchFacets(where, undefined, {
-      ranking: meiliFacetRanking(query as SearchQuery, FACET_TOP_MATCHES),
-    });
+    // `facetsMs` covers the ranking too; a cached answer records no ranking.
+    const ranking = meiliFacetRanking(query as SearchQuery, FACET_TOP_MATCHES, timings);
+    const facets = await timings.time('facetsMs', () =>
+      searchFacets(where, undefined, {
+        ranking: ranking && (() => timings.time('rankingMs', ranking)),
+      }),
+    );
 
     // Join the person-id buckets to display names; ids whose person is
     // hidden, merged away, or gone drop out (count order is preserved).
-    const [personNames, ownerEmails] = await Promise.all([
-      namesForPersonIds(facets.people.map((row) => canonicalHex(row.id))),
-      emailsForUserIds(facets.owners.map((row) => canonicalHex(row.id))),
-    ]);
+    const [personNames, ownerEmails] = await timings.time('namesMs', () =>
+      Promise.all([
+        namesForPersonIds(facets.people.map((row) => canonicalHex(row.id))),
+        emailsForUserIds(facets.owners.map((row) => canonicalHex(row.id))),
+      ]),
+    );
     const people = facets.people
       .map((row) => ({ value: personNames.get(canonicalHex(row.id)), count: row.count }))
       .filter((row): row is { value: string; count: number } => typeof row.value === 'string');
@@ -60,6 +72,17 @@ export const facetsRoute = new Elysia().get(
         count: row.count,
       };
     });
+
+    const text = usesPlaceText(query as SearchQuery);
+    searchLog[text ? 'info' : 'debug'](
+      {
+        engine: ranking ? 'meilisearch' : 'database',
+        scope: facets.scope.kind,
+        placeQuery: query.placeQuery,
+        ...timings.report(),
+      },
+      'search facets served',
+    );
 
     // Native clients gate controls on explicit support rather than assuming
     // an older server will reject unknown filters instead of ignoring them.

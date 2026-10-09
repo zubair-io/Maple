@@ -28,17 +28,22 @@ import { searchByMapleIds, type SearchWhere } from '../../db/repos/search.repo.t
 import {
   meilisearchClient,
   type MeilisearchSearchOptions,
+  type MeilisearchSearchResult,
+  type MeilisearchSearchTiming,
 } from '../../enrichment/meilisearch-client.ts';
 import { child as childLogger } from '../../log.ts';
 import { projectAssets, type SearchResult } from './project.ts';
 import { libraryMaps } from './libraries.ts';
 import { peopleNames, widenFromDate, widenToDate, type SearchQuery } from './query.ts';
+import type { StageTimings } from './stage-timings.ts';
 
 const searchLog = childLogger('search');
 
 export interface MeiliPage {
   total: number;
   results: SearchResult[];
+  /** How the search used semantic ranking, for the route's log line. */
+  hybrid: MeilisearchSearchTiming['hybrid'] | undefined;
 }
 
 export interface MeiliPageInput {
@@ -50,6 +55,8 @@ export interface MeiliPageInput {
   libraryId: string | undefined;
   skip: number;
   limit: number;
+  /** Where each stage's duration is recorded (#4443). */
+  timings?: StageTimings;
 }
 
 /** True when there is residual free text for the relevance path to rank. */
@@ -239,13 +246,32 @@ export function meiliSearchOptions(
   };
 }
 
+/** `work` timed under `stage` when the caller records stages, else as is. */
+function timed<T>(
+  timings: StageTimings | undefined,
+  stage: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  return timings ? timings.time(stage, work) : work();
+}
+
+/** The embed wait and the Meilisearch call, as the client measured them. */
+export function recordSearchTiming(
+  timings: StageTimings | undefined,
+  hit: MeilisearchSearchResult,
+): void {
+  if (!timings || !hit.timing) return;
+  timings.record('embedMs', hit.timing.embedMs);
+  timings.record('meiliMs', hit.timing.searchMs);
+}
+
 /**
  * One page of Meilisearch-ranked results, or `null` when the sidecar isn't
  * configured, this isn't a text query, or the query failed (logged; the
  * caller falls through to the database full-text path).
  */
 export async function meiliPage(input: MeiliPageInput): Promise<MeiliPage | null> {
-  const { where, resolved, libraryId, skip, limit } = input;
+  const { where, resolved, libraryId, skip, limit, timings } = input;
   const meili = meilisearchClient();
   if (!usesPlaceText(resolved) || !meili.isConfigured()) return null;
 
@@ -271,7 +297,9 @@ export async function meiliPage(input: MeiliPageInput): Promise<MeiliPage | null
       offset: skip,
       limit,
     });
-    if (hit.ids.length === 0) return { total: hit.estimatedTotal, results: [] };
+    recordSearchTiming(timings, hit);
+    const hybrid = hit.timing?.hybrid;
+    if (hit.ids.length === 0) return { total: hit.estimatedTotal, results: [], hybrid };
 
     // Fetch full asset rows for the Meilisearch ids, in the order Meilisearch
     // ranked them. `searchByMapleIds` drops the free-text half of `where` and
@@ -279,11 +307,12 @@ export async function meiliPage(input: MeiliPageInput): Promise<MeiliPage | null
     // and re-running it over a typo-tolerant hit ("Musum" → "Museum") would
     // zero the result. Ids with no surviving row drop out, which is what a
     // mid-flight hard delete looks like.
-    const docs = await searchByMapleIds(where, hit.ids);
-    const { libs, idToSlug } = await libraryMaps();
+    const docs = await timed(timings, 'rowsMs', () => searchByMapleIds(where, hit.ids));
+    const { libs, idToSlug } = await timed(timings, 'librariesMs', libraryMaps);
     return {
       total: hit.estimatedTotal,
-      results: await projectAssets(docs, libs, idToSlug),
+      results: await timed(timings, 'projectMs', () => projectAssets(docs, libs, idToSlug)),
+      hybrid,
     };
   } catch (err) {
     // Log and let the caller fall through to the database's own full-text

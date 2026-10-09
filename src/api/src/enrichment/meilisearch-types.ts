@@ -131,4 +131,14 @@ export interface MeilisearchSearchResult {
   /** Ranking scores keyed by asset id when the Meilisearch version exposes
    * `_rankingScore`. Older servers omit it and callers return `null`. */
   scores?: Record<string, number>;
+  /** How long the query embedding and the Meilisearch call each took, and
+   * how the search used semantic ranking — for the search routes' per-stage
+   * log line (#4443). */
+  timing?: MeilisearchSearchTiming;
+}
+
+export interface MeilisearchSearchTiming {
+  embedMs: number;
+  searchMs: number;
+  hybrid: 'keyword-only' | 'meili-embeds' | 'vector';
 }

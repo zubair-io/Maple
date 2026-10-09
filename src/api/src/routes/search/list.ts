@@ -27,6 +27,7 @@
 
 import { Elysia } from 'elysia';
 import { buildSearchWhere, searchPage } from '../../db/repos/search.repo.ts';
+import { child as childLogger } from '../../log.ts';
 import { personIdsToDrop } from '../../people/people.repo.ts';
 import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
 import { projectAssets } from './project.ts';
@@ -45,6 +46,26 @@ import { libraryMaps } from './libraries.ts';
 import { meiliPage, usesPlaceText } from './list-meili.ts';
 import { resolvePaging } from './list-paging.ts';
 import { getCachedTotal } from './total-cache.ts';
+import { stageTimings, type StageTimings } from './stage-timings.ts';
+
+const searchLog = childLogger('search');
+
+/**
+ * The per-stage breakdown of one list request (#4443), at info for a text
+ * search — the one whose cost spans the embedder, Meilisearch and the
+ * database — and at debug for a browse page, which infinite scroll repeats.
+ */
+function logServed(
+  timings: StageTimings,
+  resolved: SearchQuery,
+  fields: Record<string, unknown>,
+): void {
+  const level = usesPlaceText(resolved) ? 'info' : 'debug';
+  searchLog[level](
+    { ...fields, placeQuery: resolved.placeQuery, ...timings.report() },
+    'search list served',
+  );
+}
 
 export const listRoute = new Elysia().get(
   '/',
@@ -55,6 +76,7 @@ export const listRoute = new Elysia().get(
     // ("2023") leave an empty residual and skip the text path entirely.
     // One `now` for both calls: the extraction and its provenance must not
     // disagree across a midnight boundary.
+    const timings = stageTimings();
     const now = new Date();
     const resolved = extractDatesFromQuery(query as SearchQuery, now);
     // What the client shows so an inferred window is never invisible (#2956).
@@ -62,11 +84,15 @@ export const listRoute = new Elysia().get(
     const withDates = dateFilter === undefined ? {} : { dateFilter };
     // Excluded people (#2894) drop unconditionally; hidden people only when
     // the request opted in (see `personIdsToDrop`).
-    const dropIds = await personIdsToDrop(resolved.excludeHiddenPeople);
+    const dropIds = await timings.time('peopleMs', () =>
+      personIdsToDrop(resolved.excludeHiddenPeople),
+    );
     // The `people` param carries display names; the face clause needs the
     // person ids faces are tagged with. Resolution is async, so it happens
     // here and `buildSearchWhere` stays pure (same contract as `dropIds`).
-    const peopleIds = await personIdsForNames(peopleNames(resolved.people));
+    const peopleIds = await timings.time('peopleMs', () =>
+      personIdsForNames(peopleNames(resolved.people)),
+    );
     const whereOrError = buildSearchWhere(resolved, dropIds, peopleIds);
     if ('error' in whereOrError) {
       set.status = 400;
@@ -125,8 +151,14 @@ export const listRoute = new Elysia().get(
       libraryId: query.libraryId,
       skip: paging.skip,
       limit,
+      timings,
     });
     if (meili) {
+      logServed(timings, resolved, {
+        engine: 'meilisearch',
+        hybrid: meili.hybrid,
+        results: meili.results.length,
+      });
       return {
         total: meili.total,
         page,
@@ -145,12 +177,14 @@ export const listRoute = new Elysia().get(
     // can't shrink `total` as the user scrolls. Runs concurrently with the
     // page below.
     const [docs, total] = await Promise.all([
-      searchPage(where, { sort, limit, skip: paging.skip, cursor: paging.cursor }),
-      getCachedTotal(query as SearchQuery, where),
+      timings.time('pageMs', () =>
+        searchPage(where, { sort, limit, skip: paging.skip, cursor: paging.cursor }),
+      ),
+      timings.time('countMs', () => getCachedTotal(query as SearchQuery, where)),
     ]);
 
-    const { libs, idToSlug } = await libraryMaps();
-    const results = await projectAssets(docs, libs, idToSlug);
+    const { libs, idToSlug } = await timings.time('librariesMs', libraryMaps);
+    const results = await timings.time('projectMs', () => projectAssets(docs, libs, idToSlug));
     // A short page is the last page: no cursor, so the client stops. A full
     // page always mints one, even if the next fetch turns out empty — knowing
     // that would cost an extra row read per request.
@@ -158,6 +192,7 @@ export const listRoute = new Elysia().get(
       paging.direction !== null && docs.length === limit
         ? encodeCursor(cursorFromDoc(docs[docs.length - 1]!, paging.direction))
         : null;
+    logServed(timings, resolved, { engine: 'database', results: results.length });
     return { total, page, limit, results, cursorPaging, nextCursor, ...withDates };
   },
   { query: SearchQueryT },
