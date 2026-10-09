@@ -7,7 +7,14 @@ import type { LocalAdjustment } from '../models/local-adjustment';
 import { LAYER_ORDER_ATTRIBUTE } from '../generated/local-mask-wire.generated';
 import { attrOf } from './xmp-dom-utils';
 import { correctionDescriptions } from './xmp-crs-corrections';
-import { layerOrderOf, parseLayerOrder, type LayerOrderOf } from './xmp-local-adjustment-order';
+import {
+  inReadLayerOrder,
+  layerOrderOf,
+  parseLayerOrder,
+  readLayerOrder,
+  type LayerOrderOf,
+} from './xmp-local-adjustment-order';
+import type { AdjustmentModel } from '../models/adjustment-model';
 
 /** Keys of the correction descriptions in a container Maple re-emits verbatim. */
 export const verbatimLayerOrders = (container: Element): number[] =>
@@ -15,6 +22,23 @@ export const verbatimLayerOrders = (container: Element): number[] =>
     const key = parseLayerOrder(attrOf(description, [LAYER_ORDER_ATTRIBUTE]));
     return key === undefined ? [] : [key];
   });
+
+/**
+ * Restore the stack's read order, and keep each layer's read key only when a
+ * verbatim correction needs the writer to order around it.
+ */
+export function orderLocalAdjustments(
+  model: Partial<AdjustmentModel>,
+  verbatim: readonly number[],
+): void {
+  if (!model.localAdjustments) return;
+  model.localAdjustments = inReadLayerOrder(model.localAdjustments);
+  if (verbatim.length === 0) return;
+  for (const layer of model.localAdjustments) {
+    const key = readLayerOrder(layer);
+    if (key !== undefined) layer.xmpLayerOrder = key;
+  }
+}
 
 interface Chain {
   length: number;
