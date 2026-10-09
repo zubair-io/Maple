@@ -143,3 +143,25 @@ fn an_empty_matrix_or_zero_k_finds_nothing() {
     let matrix = VectorMatrix::from_le_bytes(&to_bytes(&[basis(0, 1.0)]), ids(&["a"])).unwrap();
     assert!(matrix.nearest(&basis(0, 1.0), 0).unwrap().is_empty());
 }
+
+#[test]
+fn excluded_rows_never_take_a_top_k_slot() {
+    let rows: Vec<Vec<f32>> = (0..10)
+        .map(|row| {
+            let mut vector = basis(0, 1.0);
+            vector[1] = row as f32;
+            vector
+        })
+        .collect();
+    let names: Vec<String> = (0..10).map(|row| format!("r{row}")).collect();
+    let matrix = VectorMatrix::from_le_bytes(&to_bytes(&rows), names).unwrap();
+    let excluded: Vec<String> = ["r0", "r1", "r2", "unknown"].map(str::to_owned).to_vec();
+    let hits = matrix
+        .nearest_excluding(&basis(0, 1.0), 3, &excluded)
+        .unwrap();
+    assert_eq!(hit_ids(&hits), ["r3", "r4", "r5"]);
+    assert_eq!(
+        hit_ids(&matrix.nearest(&basis(0, 1.0), 3).unwrap()),
+        ["r0", "r1", "r2"]
+    );
+}

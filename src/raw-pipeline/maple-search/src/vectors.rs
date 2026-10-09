@@ -99,12 +99,25 @@ impl VectorMatrix {
     /// The `k` rows most similar to `query`, best first; equal scores are
     /// ordered by id so a result never depends on row order or thread count.
     pub fn nearest(&self, query: &[f32], k: usize) -> Result<Vec<ScoredId>> {
+        self.nearest_excluding(query, k, &[])
+    }
+
+    /// [`Self::nearest`] over every row except those whose id is in
+    /// `excluded`; the excluded rows are skipped during the scan, so they never
+    /// take a top-`k` slot from a row that qualifies.
+    pub fn nearest_excluding(
+        &self,
+        query: &[f32],
+        k: usize,
+        excluded: &[String],
+    ) -> Result<Vec<ScoredId>> {
         check_dimension(query)?;
         if k == 0 || self.is_empty() {
             return Ok(Vec::new());
         }
         let mut unit_query = query.to_vec();
         normalise(&mut unit_query);
+        let skip = self.row_mask(excluded);
         let rows_per_task =
             (self.len() / (rayon::current_num_threads() * 4)).max(MIN_ROWS_PER_TASK);
         let candidates: Vec<(usize, f32)> = self
@@ -116,7 +129,9 @@ impl VectorMatrix {
                 let scored: Vec<(usize, f32)> = block
                     .chunks_exact(DIM)
                     .enumerate()
-                    .map(|(offset, row)| (first_row + offset, similarity(row, &unit_query)))
+                    .map(|(offset, row)| (first_row + offset, row))
+                    .filter(|(row_index, _)| !skip.get(*row_index).copied().unwrap_or(false))
+                    .map(|(row_index, row)| (row_index, similarity(row, &unit_query)))
                     .collect();
                 self.best(scored, k)
             })
@@ -129,6 +144,18 @@ impl VectorMatrix {
                 score,
             })
             .collect())
+    }
+
+    fn row_mask(&self, excluded: &[String]) -> Vec<bool> {
+        if excluded.is_empty() {
+            return Vec::new();
+        }
+        let mut mask = vec![false; self.len()];
+        excluded
+            .iter()
+            .filter_map(|id| self.rows_by_id.get(id))
+            .for_each(|&row| mask[row] = true);
+        mask
     }
 
     fn rank(&self, a: &(usize, f32), b: &(usize, f32)) -> Ordering {

@@ -1,24 +1,33 @@
 //! The keyword leg: a Tantivy index of one text blob per asset, English-stemmed,
 //! ranked with BM25. The index is a rebuildable cache of the API's SQLite
 //! rows, so nothing here is the source of truth for any asset.
+//!
+//! Text is analysed like the API's FTS5 table (`unicode61`, diacritics
+//! removed, porter stemming): split on non-alphanumerics, lowercased,
+//! ASCII-folded and stemmed, at index and query time alike, so `cafe` and
+//! `café` find each other.
 
 use crate::error::{Result, SearchError};
 use crate::terms::TextQuery;
 use crate::vectors::ScoredId;
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tantivy::collector::{DocSetCollector, TopDocs};
 use tantivy::directory::MmapDirectory;
-use tantivy::query::{BooleanQuery, Occur, PhraseQuery, Query, TermQuery, TermSetQuery};
+use tantivy::query::{BooleanQuery, Occur, PhraseQuery, Query, TermQuery};
 use tantivy::schema::{
-    Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, STORED, STRING,
+    Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST, STORED, STRING,
+};
+use tantivy::tokenizer::{
+    AsciiFoldingFilter, Language, LowerCaser, RemoveLongFilter, SimpleTokenizer, Stemmer,
+    TextAnalyzer,
 };
 use tantivy::{
     doc, DocAddress, Index, IndexReader, IndexWriter, ReloadPolicy, Searcher, TantivyDocument, Term,
 };
 
-const TOKENIZER: &str = "en_stem";
+const TOKENIZER: &str = "maple_en_folded";
+const MAX_TOKEN_BYTES: usize = 40;
 const WRITER_MEMORY_BYTES: usize = 256 * 1024 * 1024;
 
 pub struct TextIndex {
@@ -32,7 +41,7 @@ pub struct TextIndex {
 
 fn schema() -> Schema {
     let mut builder = Schema::builder();
-    builder.add_text_field("id", STRING | STORED);
+    builder.add_text_field("id", STRING | STORED | FAST);
     builder.add_text_field(
         "text",
         TextOptions::default().set_indexing_options(
@@ -42,6 +51,15 @@ fn schema() -> Schema {
         ),
     );
     builder.build()
+}
+
+fn analyzer() -> TextAnalyzer {
+    TextAnalyzer::builder(SimpleTokenizer::default())
+        .filter(RemoveLongFilter::limit(MAX_TOKEN_BYTES))
+        .filter(LowerCaser)
+        .filter(AsciiFoldingFilter)
+        .filter(Stemmer::new(Language::English))
+        .build()
 }
 
 impl TextIndex {
@@ -54,6 +72,7 @@ impl TextIndex {
         std::fs::create_dir_all(path).map_err(|e| at_path(e.to_string()))?;
         let directory = MmapDirectory::open(path).map_err(|e| at_path(e.to_string()))?;
         let index = Index::open_or_create(directory, schema())?;
+        index.tokenizers().register(TOKENIZER, analyzer());
         let reader = index
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)
@@ -175,25 +194,36 @@ impl TextIndex {
             .collect()
     }
 
-    /// Which of `ids` contain any of the `excluded` terms or phrases.
-    pub fn ids_matching_any(&self, excluded: &[String], ids: &[&str]) -> Result<HashSet<String>> {
+    /// Every id whose text contains any of the `excluded` terms or phrases,
+    /// read from the id fast field rather than the document store.
+    pub fn ids_matching_any(&self, excluded: &[String]) -> Result<Vec<String>> {
         let exclusions = self.excluded_clauses(excluded, Occur::Should);
-        if exclusions.is_empty() || ids.is_empty() {
-            return Ok(HashSet::new());
+        if exclusions.is_empty() {
+            return Ok(Vec::new());
         }
-        let id_terms = ids.iter().map(|id| Term::from_field_text(self.id, id));
-        let query = BooleanQuery::new(vec![
-            (
-                Occur::Must,
-                Box::new(TermSetQuery::new(id_terms)) as Box<dyn Query>,
-            ),
-            (Occur::Must, Box::new(BooleanQuery::new(exclusions))),
-        ]);
         let searcher = self.reader.searcher();
-        searcher
-            .search(&query, &DocSetCollector)?
-            .into_iter()
-            .map(|address| self.stored_id(&searcher, address))
+        let docs = searcher.search(&BooleanQuery::new(exclusions), &DocSetCollector)?;
+        let columns = searcher
+            .segment_readers()
+            .iter()
+            .map(|segment| segment.fast_fields().str("id"))
+            .collect::<tantivy::Result<Vec<_>>>()?;
+        docs.into_iter()
+            .map(|address| {
+                let mut id = String::new();
+                let found = columns[address.segment_ord as usize]
+                    .as_ref()
+                    .and_then(|column| {
+                        let ord = column.term_ords(address.doc_id).next()?;
+                        Some(column.ord_to_str(ord, &mut id))
+                    })
+                    .transpose()
+                    .map_err(|e| self.error(e.to_string()))?;
+                match found {
+                    Some(true) => Ok(id),
+                    _ => Err(self.error(format!("document {address:?} has no id"))),
+                }
+            })
             .collect()
     }
 
@@ -230,10 +260,14 @@ impl TextIndex {
             .get_first(self.id)
             .and_then(|value| value.as_str())
             .map(str::to_owned)
-            .ok_or_else(|| SearchError::TextIndex {
-                path: self.path.clone(),
-                message: format!("document {address:?} has no stored id"),
-            })
+            .ok_or_else(|| self.error(format!("document {address:?} has no stored id")))
+    }
+
+    fn error(&self, message: String) -> SearchError {
+        SearchError::TextIndex {
+            path: self.path.clone(),
+            message,
+        }
     }
 
     fn lock_writer(&self) -> std::sync::MutexGuard<'_, IndexWriter> {

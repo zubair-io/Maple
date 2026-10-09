@@ -157,3 +157,56 @@ fn config_parses_from_json_and_rejects_unknown_keys() {
         Err(SearchError::Config(_))
     ));
 }
+
+#[test]
+fn an_exclusion_covering_the_nearest_hundred_still_fills_the_vector_leg() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = SearchEngine::open(&SearchConfig {
+        index_dir: dir.path().join("text"),
+        embedder: None,
+    })
+    .unwrap();
+    let rows: Vec<(String, f32, &str)> = (0..150)
+        .map(|i| {
+            (
+                format!("boat{i:03}"),
+                1.0 - i as f32 * 1e-4,
+                "boats in the harbour",
+            )
+        })
+        .chain((0..150).map(|i| {
+            (
+                format!("quay{i:03}"),
+                0.5 - i as f32 * 1e-4,
+                "an empty harbour",
+            )
+        }))
+        .collect();
+    let bytes: Vec<u8> = rows
+        .iter()
+        .flat_map(|(_, weight, _)| {
+            let mut vector = basis(0);
+            vector[0] = *weight;
+            vector[1] = 1.0 - weight;
+            vector
+        })
+        .flat_map(f32::to_le_bytes)
+        .collect();
+    let ids = rows.iter().map(|(id, _, _)| id.clone()).collect();
+    engine.load_vectors(&bytes, ids).unwrap();
+    engine
+        .rebuild_text(rows.iter().map(|(id, _, text)| (id.as_str(), *text)))
+        .unwrap();
+
+    let unfiltered = engine
+        .vector_leg(&parse_text_query("harbour"), &basis(0))
+        .unwrap();
+    assert!(unfiltered.iter().all(|hit| hit.id.starts_with("boat")));
+
+    let leg = engine
+        .vector_leg(&parse_text_query("harbour -boats"), &basis(0))
+        .unwrap();
+    assert_eq!(leg.len(), LEG_DEPTH);
+    assert!(leg.iter().all(|hit| hit.id.starts_with("quay")));
+    assert_eq!(leg[0].id, "quay000");
+}
