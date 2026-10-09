@@ -123,6 +123,8 @@
         "src/ffi/raw_ffi.child-integrity.test.ts",
         // #3529: temporary binary symlink and synthetic fixtures under os.tmpdir().
         "src/ffi/native-resolution.test.ts",
+        // #4462: a disposable Tantivy index directory under os.tmpdir().
+        "src/ffi/search-ffi.test.ts",
         "src/fs/browse-roots-memo.test.ts",
         "src/fs/browse.ts",
         "src/fs/browse.stub-audio.test.ts",

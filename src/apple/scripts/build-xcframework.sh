@@ -684,6 +684,17 @@ WINDOWS_ONLY_SYMBOLS=(
     maple_gpu_present_chain_winui_scaled   # WinUI3 scaled present variant (#2678, Windows-only)
 )
 
+# EXCEPTION — API-only symbols (#4462): every `maple_search_*` entry is compiled
+# only under raw-ffi's `search` feature, which only the Self Hosted API's bun:ffi
+# dylib build (src/api/scripts/build-raw-ffi.sh) enables. cbindgen wraps them in
+# `#if defined(MAPLE_SEARCH)`, which nothing defines for an Apple compile, but the
+# grep below still sees them — so, like the Windows-only symbols, they must be
+# ABSENT from every Apple slice. Matched by prefix so a new search entry needs no
+# edit here.
+is_api_only_symbol() {
+    [[ "$1" == maple_search_* ]]
+}
+
 # (No `mapfile` — the Xcode/CLI shebang resolves to macOS's bash 3.2, which
 # lacks it. Read line-by-line into the array the portable way.)
 EXPECTED_SYMBOLS=()
@@ -782,6 +793,11 @@ while IFS= read -r slice_lib; do
                     echo "ERROR: macOS slice $slice_dir: found iOS-only symbol $sym (should be absent)" >&2
                     guard_failed=1
                 fi
+            fi
+        elif is_api_only_symbol "$sym"; then
+            if grep -qxF "_$sym" <<<"$defined"; then
+                echo "ERROR: Apple slice $slice_dir: found API-only symbol $sym (should be absent)" >&2
+                guard_failed=1
             fi
         elif is_windows_only_symbol "$sym"; then
             # Windows-only symbols: never expected on ANY Apple slice (macOS
