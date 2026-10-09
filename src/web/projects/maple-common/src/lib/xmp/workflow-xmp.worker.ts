@@ -9,7 +9,7 @@ import init, {
   workflow_variant_filename,
 } from '../raw-pipeline/pkg/raw_wasm';
 // Metadata needs neither pixel buffers nor Rayon. Never used for render ticks.
-const ready = init({ module_or_path: '/raw_wasm_bg.wasm' });
+const ready = init({ module_or_path: '/pkg/raw_wasm_bg.wasm' });
 addEventListener(
   'message',
   async (

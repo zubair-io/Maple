@@ -36,7 +36,7 @@ const ASSETS = [
     magic: [0x89, 0x50, 0x4e, 0x47],
   },
   {
-    path: '/raw_wasm_bg.wasm',
+    path: '/pkg/raw_wasm_bg.wasm',
     contentType: 'application/wasm',
     magic: [0x00, 0x61, 0x73, 0x6d],
   },
@@ -58,7 +58,7 @@ test('Hosted enforces its production security policy in Chrome', async ({ page }
   expect(await page.evaluate(() => navigator.userAgent)).toContain('Chrome/');
 
   const runtimeCapabilities = await page.evaluate(async (expectedHeaders) => {
-    const wasmResponse = await fetch('/raw_wasm_bg.wasm');
+    const wasmResponse = await fetch('/pkg/raw_wasm_bg.wasm');
     const wasmHeaders = Object.fromEntries(
       Object.keys(expectedHeaders).map((name) => [
         name,
