@@ -118,7 +118,7 @@ git status --ignored --short vendor | grep -q '^!!' \
   || echo 'vendor tree complete'
 ```
 
-`scripts/stub-api-only-vendor.py` (#4462) reduces every package reachable *only* through the API-only `maple-search` crate (fastembed, Tantivy and their tree — about 330 MB, mostly Windows import libraries) to a manifest-only stub: its `Cargo.toml`, empty target files, a `MAPLE-API-ONLY-STUB` marker and a checksum file carrying just the lockfile's package checksum. The Apple build never compiles those packages, but its offline resolution reads every manifest in `Cargo.lock`, so they must exist. The API build that does compile them resolves from crates.io, not `vendor/`.
+`scripts/stub-api-only-vendor.py` (#4462) reduces every package reachable _only_ through the API-only `maple-search` crate (fastembed, Tantivy and their tree — about 330 MB, mostly Windows import libraries) to a manifest-only stub: its `Cargo.toml`, empty target files, a `MAPLE-API-ONLY-STUB` marker and a checksum file carrying just the lockfile's package checksum. The Apple build never compiles those packages, but its offline resolution reads every manifest in `Cargo.lock`, so they must exist. The API build that does compile them resolves from crates.io, not `vendor/`.
 
 Commit the `Cargo.lock` change and the regenerated `vendor/` together. Verify before pushing:
 
