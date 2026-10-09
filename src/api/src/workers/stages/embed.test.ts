@@ -7,7 +7,13 @@ import { insertPerson } from '../../db/repos/people.test-helpers.ts';
 import { EMBEDDER_TEMPLATE_SHAPE_VERSION } from '../../enrichment/meilisearch-embedder-template.ts';
 import { decodeVector, l2Normalize } from '../../enrichment/ollama-embed-client.ts';
 import { forgetEmbedderTarget } from '../embed/embedder-target.ts';
-import embedStage, { embedHandler, setEmbedBatchForTests } from './embed.ts';
+import embedStage, {
+  embedHandler,
+  rearmForEmbedderTarget,
+  setEmbedBatchForTests,
+} from './embed.ts';
+import { WorkerConfigRepo } from '../../db/repos/worker-config.repo.ts';
+import { seedClaimableAsset, stageRow } from '../../db/repos/stage-runtime.test-helpers.ts';
 
 const fakeCtx = { log: console as never, signal: new AbortController().signal };
 
@@ -115,5 +121,29 @@ describe('embed stage definition', () => {
     expect(embedStage.targetVersion).toBe(EMBEDDER_TEMPLATE_SHAPE_VERSION);
     expect(embedStage.defaults.pausedOnFirstBoot).toBe(true);
     expect(embedStage.dependsOn).toEqual(['exif']);
+  });
+});
+
+describe('rearmForEmbedderTarget', () => {
+  const target = { url: 'http://gpu:11434', model: 'bge-m3' };
+
+  it('revives dead-lettered assets once per embedder target, not on every sweep', async () => {
+    using live = await createLiveTestDatabase();
+    const dead = seedClaimableAsset(live.db, {
+      stages: { embed: { version: 0, attempts: 3, dead: true } },
+    });
+
+    await rearmForEmbedderTarget(target);
+    expect(stageRow(live.db, dead, 'embed')?.dead).toBe(0);
+    expect((await new WorkerConfigRepo().load('embed'))?.ai_model).toBe(
+      'bge-m3 @ http://gpu:11434',
+    );
+
+    live.db.run(`UPDATE stage_state SET dead = 1 WHERE asset_id = ? AND stage = 'embed'`, [dead]);
+    await rearmForEmbedderTarget(target);
+    expect(stageRow(live.db, dead, 'embed')?.dead).toBe(1);
+
+    await rearmForEmbedderTarget({ ...target, model: 'other-model' });
+    expect(stageRow(live.db, dead, 'embed')?.dead).toBe(0);
   });
 });
