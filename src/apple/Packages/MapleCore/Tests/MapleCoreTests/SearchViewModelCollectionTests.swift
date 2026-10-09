@@ -117,6 +117,7 @@ final class SearchViewModelCollectionTests: XCTestCase {
     XCTAssertTrue(vm.results.isEmpty)
     XCTAssertEqual(vm.total, 0)
     XCTAssertEqual(counter.count, 0, "clearing must not fetch anything")
+    XCTAssertNil(vm.facets, "the panel must refetch unfiltered facets, not keep the filtered set")
   }
 
   // MARK: - Helpers
