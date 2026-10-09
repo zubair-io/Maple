@@ -76,12 +76,12 @@
 //!
 //! **Cross-type order.** Adobe's schema keeps linear, radial and (#3271)
 //! bitmap/everywhere corrections in separate top-level arrays, and Maple's
-//! own brush container (#360) is a fourth, so a document with layers
-//! interleaved in the model (linear, radial, linear, …) round-trips through
-//! the wire form as contiguous per-type runs (all linear, then all radial,
-//! then all brush, then all group) rather than preserving cross-type
-//! interleaving. It is called out here so it isn't rediscovered as a bug
-//! later.
+//! own brush container (#360) is a fourth, so the wire form always groups
+//! layers by kind (all linear, then all radial, then all brush, then all
+//! group). When the model stack interleaves kinds, every correction carries
+//! its model index in `papp:LayerOrder` (#4427) and [`LocalAdjustmentsWalker::finish`]
+//! restores that order — but only when every modeled correction has one, so
+//! an older or foreign sidecar keeps the per-kind order it always had.
 //!
 //! **Brush is Maple-owned.** Lightroom's own `crs:PaintBasedCorrections` is
 //! NOT read here: its dab shape (a nested `crs:Dabs` list, radius/flow on
@@ -195,6 +195,7 @@ struct InProgressCorrection {
     group_invert: bool,
     group_supported: bool,
     group_explicit: bool,
+    order: Option<u32>,
 }
 
 /// Incremental state for the local-adjustments nested-element walk, driven
@@ -211,6 +212,8 @@ pub(super) struct LocalAdjustmentsWalker {
     in_masks: bool,
     in_masks_seq: bool,
     finished: Vec<LocalAdjustment>,
+    /// `papp:LayerOrder` of each `finished` layer, index for index.
+    orders: Vec<Option<u32>>,
     /// `finished.len()` when the open container started, and whether it
     /// dropped a correction: a brush container is all-or-nothing, so the
     /// writers that model it can keep a partly unreadable one verbatim.
@@ -260,6 +263,7 @@ impl LocalAdjustmentsWalker {
                     group_invert: attrs.group_invert,
                     group_supported: attrs.group_supported,
                     group_explicit: attrs.group_explicit,
+                    order: attrs.order,
                 });
                 return Ok(true);
             }
@@ -390,11 +394,14 @@ impl LocalAdjustmentsWalker {
                         cur.mask
                     };
                     match mask {
-                        Some(mask) => self.finished.push(LocalAdjustment {
-                            mask,
-                            range: cur.range,
-                            adjustments: cur.adjustments,
-                        }),
+                        Some(mask) => {
+                            self.finished.push(LocalAdjustment {
+                                mask,
+                                range: cur.range,
+                                adjustments: cur.adjustments,
+                            });
+                            self.orders.push(cur.order);
+                        }
                         None => self.container_dropped = true,
                     }
                 } else {
@@ -427,19 +434,26 @@ impl LocalAdjustmentsWalker {
         {
             if self.container == Some(Kind::Brush) && self.container_dropped {
                 self.finished.truncate(self.container_start);
+                self.orders.truncate(self.container_start);
             }
             self.container = None;
         }
     }
 
     /// Consume the walker, returning every layer collected across all four
-    /// containers in document order (all `GradientBasedCorrections` layers,
-    /// then all `CircularGradientBasedCorrections` layers, then all
-    /// `papp:BrushCorrections` layers, then all `MaskGroupBasedCorrections`
-    /// layers, matching whichever containers the document listed and in what
-    /// order — Maple's own writer always emits linear, then radial, then
-    /// brush, then group, see [`serialize_local_adjustments`]).
+    /// containers: in `papp:LayerOrder` order when every layer carries one
+    /// (ties keep document order), otherwise in document order — all
+    /// `GradientBasedCorrections` layers, then all
+    /// `CircularGradientBasedCorrections`, then all `papp:BrushCorrections`,
+    /// then all `MaskGroupBasedCorrections`, matching whichever containers
+    /// the document listed and in what order (see
+    /// [`serialize_local_adjustments`]).
     pub(super) fn finish(self) -> Vec<LocalAdjustment> {
-        self.finished
+        let Some(keys) = self.orders.into_iter().collect::<Option<Vec<u32>>>() else {
+            return self.finished;
+        };
+        let mut keyed: Vec<(u32, LocalAdjustment)> = keys.into_iter().zip(self.finished).collect();
+        keyed.sort_by_key(|(key, _)| *key);
+        keyed.into_iter().map(|(_, layer)| layer).collect()
     }
 }

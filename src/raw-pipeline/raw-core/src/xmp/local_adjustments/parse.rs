@@ -7,6 +7,7 @@ use super::{Kind, MASK_WHAT_IMAGE, MASK_WHAT_LINEAR, MASK_WHAT_PAINT, MASK_WHAT_
 use crate::error::{Error, Result};
 use crate::types::local_adjustment::brush::BRUSH_VERSION;
 use crate::types::local_adjustment::flat::MASK_GROUP_VERSION;
+use crate::types::local_adjustment::LAYER_ORDER_ATTRIBUTE;
 use crate::types::local_adjustment::{
     BitmapRecipe, BrushDab, Mask, MaskCombine, MaskComponent, MaskSource, PartialAdjustments,
     Point2, RangeRefinement,
@@ -74,6 +75,8 @@ pub(super) struct CorrectionAttrs {
     pub(super) group_invert: bool,
     pub(super) group_supported: bool,
     pub(super) group_explicit: bool,
+    /// `papp:LayerOrder` (#4427): the layer's position in the model stack.
+    pub(super) order: Option<u32>,
 }
 
 /// Parse a correction `rdf:Description`'s Local* sliders plus the
@@ -138,6 +141,15 @@ pub(super) fn parse_correction_attrs(e: &BytesStart<'_>) -> Result<CorrectionAtt
             && attr_str(e, "papp:RangeKind")?.is_none_or(|kind| kind == "Color")
             && valid_optional_booleans(e, &["papp:MaskGroupInverted", "crs:CorrectionActive"])?,
         group_explicit: attr_str(e, "papp:MaskGroupVersion")?.is_some(),
+        order: attr_str(e, LAYER_ORDER_ATTRIBUTE)?
+            .map(|v| {
+                v.trim().parse::<u32>().map_err(|err| {
+                    Error::Xmp(format!(
+                        "{LAYER_ORDER_ATTRIBUTE} has invalid value {v}: {err}"
+                    ))
+                })
+            })
+            .transpose()?,
     })
 }
 
