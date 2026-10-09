@@ -19,6 +19,9 @@ import * as os from 'node:os';
 import { Elysia } from 'elysia';
 import { xmpBatchRoutes } from './xmp-batch.ts';
 import { parseXmpMetadata } from '../xmp/metadata-parser.ts';
+import { primarySidecarDestination } from '../fs/xmp.ts';
+import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
+import { writeSidecarAtomic } from '../fs/sidecar-io.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { insertStageState } from '../db/repos/assets.test-helpers.ts';
 import {
@@ -192,6 +195,41 @@ describe('POST /api/xmp/batch', () => {
     const parsed = parseXmpMetadata(sidecarXml);
     expect(parsed.title).toBe('Summer Trip');
     expect(parsed.city).toBe('Rome');
+  });
+
+  test('a save landing between the batch read and write is not lost (#4402)', async () => {
+    const filename = 'raced.dng';
+    const sidecarFile = rawPath('raced.xmp');
+    await fs.writeFile(rawPath(filename), '');
+    const sidecarWith = (exposure: string) => `<?xml version="1.0" encoding="UTF-8"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+   xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+   crs:Exposure2012="${exposure}"
+   crs:HasSettings="True">
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>`;
+    await fs.writeFile(sidecarFile, sidecarWith('0.25'));
+
+    const destination = await primarySidecarDestination(rawPath(filename));
+    if (!destination.ok) throw new Error(destination.error);
+    const { promise: saveReleased, resolve: releaseSave } = Promise.withResolvers<void>();
+    const inFlightSave = serializeSidecarWrite(destination.data, async () => {
+      await saveReleased;
+      return writeSidecarAtomic(destination.data, sidecarWith('1.5'), 'XMP write failed');
+    });
+
+    const batch = post({ entries: [{ address: addr(filename), metadata: { title: 'Raced' } }] });
+    await Bun.sleep(100);
+    releaseSave();
+
+    expect((await inFlightSave).ok).toBe(true);
+    expect((await batch).status).toBe(200);
+    const sidecarXml = await fs.readFile(sidecarFile, 'utf-8');
+    expect(sidecarXml).toContain('crs:Exposure2012="1.5"');
+    expect(parseXmpMetadata(sidecarXml).title).toBe('Raced');
   });
 
   test('returns error for address with unknown slug', async () => {

@@ -4,10 +4,11 @@
  * Accepts N `{ address, metadata }` entries where address is a slug:relPath
  * string. For each:
  *   1. Resolves the address to an absolute path inside the library jail.
- *   2. Reads existing sidecar (creates a stub when none exists).
- *   3. Merges the metadata fields into the sidecar via `mergeMetadataIntoXmp`.
- *   4. Writes the merged sidecar atomically (temp-file + rename).
- *   5. Marks the asset's `sidecar-metadata-index` stage dirty in the database so the
+ *   2. Inside the per-sidecar write barrier, reads the existing sidecar (or
+ *      starts a stub), merges the metadata fields via `mergeMetadataIntoXmp`,
+ *      and writes the result atomically (temp-file + rename), so a concurrent
+ *      save in this process cannot land between the read and the write.
+ *   3. Marks the asset's `sidecar-metadata-index` stage dirty in the database so the
  *      polled stage reconciles `metadata_override` on the next tick.
  *
  * Partial failures are reported per-asset; successes are not rolled back.
@@ -17,11 +18,10 @@
  */
 
 import { Elysia, t } from 'elysia';
-import * as fs from 'node:fs/promises';
 import { COLOR_LABELS } from '../xmp/color-label.ts';
 import * as path from 'node:path';
 import { resolveAddressString } from '../library/address.ts';
-import { xmpSidecarPath, writeXmpAtomic } from '../fs/xmp.ts';
+import { updateXmpAtomic } from '../fs/xmp.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
 import type { XmpMetadataInput } from '../xmp/metadata-input.ts';
@@ -57,39 +57,13 @@ async function processEntry(entry: BatchEntry): Promise<EntryResult> {
     const msg = err instanceof Error ? err.message : String(err);
     return { address: entry.address, ok: false, error: msg };
   }
-  const sidecarPath = xmpSidecarPath(absPath);
-
-  // Read existing sidecar (or start with empty string → stub created by mergeMetadataIntoXmp).
-  let existingXml = '';
-  try {
-    existingXml = await fs.readFile(sidecarPath, 'utf-8');
-  } catch (err: unknown) {
-    if (
-      !err ||
-      typeof err !== 'object' ||
-      !('code' in err) ||
-      (err as NodeJS.ErrnoException).code !== 'ENOENT'
-    ) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return {
-        address: entry.address,
-        ok: false,
-        error: `XMP read failed: ${msg}`,
-      };
-    }
-    // ENOENT is expected — start from empty (serializer will create stub).
-  }
-
-  // Merge metadata into sidecar. For video assets with no existing sidecar,
-  // use a metadata-only stub (no Camera Raw Settings attrs) so the sidecar
-  // is not misinterpreted as containing pixel adjustments.
-  const metadataOnly = existingXml.length === 0 && isVideoFilename(path.basename(absPath));
-  const merged = mergeMetadataIntoXmp(existingXml, entry.metadata, {
-    metadataOnly,
+  const isVideo = isVideoFilename(path.basename(absPath));
+  const writeResult = await updateXmpAtomic(absPath, (existingXml) => {
+    const baseXml = existingXml ?? '';
+    return mergeMetadataIntoXmp(baseXml, entry.metadata, {
+      metadataOnly: baseXml.length === 0 && isVideo,
+    });
   });
-
-  // Write atomically.
-  const writeResult = await writeXmpAtomic(absPath, merged);
   if (!writeResult.ok) {
     return { address: entry.address, ok: false, error: writeResult.error };
   }
