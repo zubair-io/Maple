@@ -1,4 +1,6 @@
 //! In-process hybrid search C ABI over `maple_search::SearchEngine` (#4462).
+//! No API code calls it yet by design: the search child process and the
+//! `/api/search` cut-over setting that consume it are #4463 (epic #4460).
 //!
 //! **API-only.** Compiled only under the `search` feature, which only the
 //! Self Hosted API's bun:ffi dylib build enables (`src/api/scripts/
