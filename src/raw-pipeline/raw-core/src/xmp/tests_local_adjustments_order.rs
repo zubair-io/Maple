@@ -145,8 +145,9 @@ const CANONICAL_ORDER_BLOCK: &str = r#"      <crs:GradientBasedCorrections>
 /// Cross-language fixture for a correction a host keeps verbatim (#4427):
 /// a stroke with a brush version this build cannot read sits between two
 /// modeled layers. Hosts that keep it (Apple, Web, Windows) insert a new
-/// linear layer at the bottom, emit `PASSTHROUGH_ORDER_BLOCK` for the
-/// modeled layers and renumber the stroke's key from 1 to 2. raw-core has no
+/// linear layer at the bottom and emit `PASSTHROUGH_ORDER_BLOCK` for the
+/// modeled layers — existing keys untouched, the new layer keyed below
+/// them — while the stroke stays byte-for-byte. raw-core has no
 /// passthrough, so it pins only the read side.
 const BRUSH_V2_BLOCK: &str = r#"      <papp:BrushCorrections>
         <rdf:Seq>
@@ -178,7 +179,7 @@ const PASSTHROUGH_ORDER_BLOCK: &str = r#"      <crs:GradientBasedCorrections>
               crs:What="Correction"
               crs:CorrectionAmount="1"
               crs:CorrectionActive="True"
-              papp:LayerOrder="0"
+              papp:LayerOrder="-1"
               crs:LocalExposure2012="0.1">
               <crs:CorrectionMasks>
                 <rdf:Seq>
@@ -197,7 +198,7 @@ const PASSTHROUGH_ORDER_BLOCK: &str = r#"      <crs:GradientBasedCorrections>
               crs:What="Correction"
               crs:CorrectionAmount="1"
               crs:CorrectionActive="True"
-              papp:LayerOrder="1"
+              papp:LayerOrder="0"
               crs:LocalExposure2012="0.4">
               <crs:CorrectionMasks>
                 <rdf:Seq>
@@ -220,7 +221,7 @@ const PASSTHROUGH_ORDER_BLOCK: &str = r#"      <crs:GradientBasedCorrections>
               crs:What="Correction"
               crs:CorrectionAmount="1"
               crs:CorrectionActive="True"
-              papp:LayerOrder="3"
+              papp:LayerOrder="2"
               crs:LocalExposure2012="0.2">
               <crs:CorrectionMasks>
                 <rdf:Seq>
@@ -239,8 +240,7 @@ const PASSTHROUGH_ORDER_BLOCK: &str = r#"      <crs:GradientBasedCorrections>
 
 #[test]
 fn the_passthrough_literal_reads_in_full_stack_order() {
-    let renumbered = BRUSH_V2_BLOCK.replace("papp:LayerOrder=\"1\"", "papp:LayerOrder=\"2\"");
-    let document = sidecar(&format!("{PASSTHROUGH_ORDER_BLOCK}\n{renumbered}"));
+    let document = sidecar(&format!("{PASSTHROUGH_ORDER_BLOCK}\n{BRUSH_V2_BLOCK}"));
     assert_eq!(
         parse(&document).expect("parse").local_adjustments,
         vec![
@@ -332,7 +332,7 @@ fn a_partially_keyed_sidecar_keeps_container_order() {
 #[test]
 fn a_malformed_order_key_is_a_parse_error() {
     let saved = save(vec![radial(exposure(0.2)), linear(exposure(0.4))]);
-    let corrupt = saved.replacen("papp:LayerOrder=\"1\"", "papp:LayerOrder=\"-1\"", 1);
+    let corrupt = saved.replacen("papp:LayerOrder=\"1\"", "papp:LayerOrder=\"one\"", 1);
     assert!(parse(&corrupt).is_err());
 }
 
