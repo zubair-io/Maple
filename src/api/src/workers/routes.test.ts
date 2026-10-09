@@ -72,6 +72,14 @@ async function status(): Promise<StatusBody> {
   return (await res.json()) as StatusBody;
 }
 
+/** The route reports this process's live native children (#4445). In a full
+ * `bun test` run those are whatever decode and face children earlier test
+ * files spawned and left running, so the route-level memory assertions look
+ * past them — `computeWorkersStatus` is where the API-owned rows are pinned. */
+function withoutLiveTestChildren(memory: StatusBody['memory']): StatusBody['memory'] {
+  return memory.filter((row) => !(row.owner === 'api' && row.process !== 'api'));
+}
+
 describe('sanitizeWorkerConfig', () => {
   it('strips removed knobs (pollIntervalMs / batchSize) from a stale config', () => {
     // A row written before #674 can still carry the removed knobs. The /status
@@ -204,7 +212,7 @@ describe('GET /api/workers/status', () => {
   it('reports only this process in memory before the worker has sampled (#4445)', async () => {
     using _live = await createLiveTestDatabase();
 
-    const { memory } = await status();
+    const memory = withoutLiveTestChildren((await status()).memory);
 
     expect(memory).toHaveLength(1);
     expect(memory[0]).toMatchObject({
@@ -260,7 +268,7 @@ describe('GET /api/workers/status', () => {
       ],
     });
 
-    const { memory } = await status();
+    const memory = withoutLiveTestChildren((await status()).memory);
 
     expect(memory.map((row) => [row.process, row.pid, row.rss, row.owner])).toEqual([
       ['api', process.pid, memory[0]!.rss, 'api'],
