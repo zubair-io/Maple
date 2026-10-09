@@ -317,29 +317,7 @@ namespace Maple.WinUI.ViewModels
                         photo.EditPath, model, PreviewLongEdge, RefineDecodeQuality.Preview, cancelFlag);
                     if (generation != _decodeGeneration)
                         return;
-                    var registered = model.LocalAdjustments
-                        .Select(layer => layer.Mask is BrushMask brush
-                            ? (layer, mask: BrushMaskRasterizer.Register(brush, decoded.Width, decoded.Height))
-                            : (layer, mask: (BrushMask?)null))
-                        .Where(x => x.mask != null).ToList();
-                    OnUi(() =>
-                    {
-                        if (_disposed || generation != _decodeGeneration)
-                        {
-                            foreach (var entry in registered)
-                                if (entry.mask is { } stale) RawFfi.maple_mask_raster_release(stale.RasterId);
-                            return;
-                        }
-                        foreach (var entry in registered)
-                        {
-                            var index = Adjustments.LocalAdjustments.FindIndex(x => x.Mask is BrushMask b && b.Digest == ((BrushMask)entry.layer.Mask).Digest);
-                            if (index < 0 || entry.mask == null) continue;
-                            Adjustments.LocalAdjustments[index] = Adjustments.LocalAdjustments[index] with { Mask = entry.mask };
-                            _brushRasterIds.Add(entry.mask.RasterId);
-                        }
-                        Renderer.SetImage(decoded, () => !_disposed && generation == Volatile.Read(ref _decodeGeneration));
-                        ApplyDecodedState(generation, photo, decoded);
-                    });
+                    RegisterBrushRastersAndPublish(generation, photo, decoded, model);
                     ScheduleAmazeUpgrade(generation, photo, model, decoded);
                 }
                 catch (Exception ex)
@@ -364,14 +342,6 @@ namespace Maple.WinUI.ViewModels
                     _decodeCancel.Release(cancelFlag);
                 }
             });
-        }
-
-        private readonly List<uint> _brushRasterIds = new();
-
-        private void ReleaseBrushRasters()
-        {
-            foreach (var id in _brushRasterIds) RawFfi.maple_mask_raster_release(id);
-            _brushRasterIds.Clear();
         }
 
         private void CancelActiveDecode()
