@@ -388,6 +388,27 @@ public final class SearchViewModel {
     Task { await submit() }
   }
 
+  /// Drop every filter without running a search: the text field was just
+  /// cleared, so the page shows Recents and nothing should be fetched.
+  public func resetFilters() {
+    let keptSort = params.sort
+    var fresh = SearchParams(libraryID: libraryID)
+    fresh.sort = keptSort
+    debounceTask?.cancel()
+    generation &+= 1
+    collectionPager = nil
+    params = fresh
+    lastSubmittedParams = fresh
+    results = []
+    total = 0
+    page = 0
+    nextCursor = nil
+    appliedDates = nil
+    isLoading = false
+    isLoadingMore = false
+    loadError = nil
+  }
+
   // MARK: - Preview
 
   public enum PreviewState: Sendable {

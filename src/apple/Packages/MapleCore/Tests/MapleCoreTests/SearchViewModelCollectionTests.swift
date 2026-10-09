@@ -97,6 +97,28 @@ final class SearchViewModelCollectionTests: XCTestCase {
     XCTAssertEqual(pagerCalls, 0, "after a new search, paging must not use the collection endpoint")
   }
 
+  func test_resetFilters_dropsFiltersAndResultsWithoutARequest() async {
+    let counter = RequestCounter()
+    let vm = makeCountingVM(counter)
+    vm.params.placeQuery = "autumn"
+    vm.params.people = ["Priya Patel"]
+    vm.params.sort = .capturedAsc
+    vm.showCollection(
+      params: vm.params,
+      firstPage: GeneratedSearchAssetPage(results: [Self.makeAsset(id: "c1")], total: 1)
+    ) { _, _ in GeneratedSearchAssetPage(results: [], total: 1) }
+
+    vm.resetFilters()
+    await vm.submitIfChanged()
+
+    XCTAssertFalse(vm.hasUnifiedFilters)
+    XCTAssertEqual(vm.params.placeQuery, "")
+    XCTAssertEqual(vm.params.sort, .capturedAsc, "sort is a preference, not a filter")
+    XCTAssertTrue(vm.results.isEmpty)
+    XCTAssertEqual(vm.total, 0)
+    XCTAssertEqual(counter.count, 0, "clearing must not fetch anything")
+  }
+
   // MARK: - Helpers
 
   private func makeVM() -> SearchViewModel {
