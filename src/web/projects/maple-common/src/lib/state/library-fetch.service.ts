@@ -143,10 +143,17 @@ export class LibraryFetch {
   /** User-authored adjustment fields layered over the persisted sidecar base. */
   private readonly _apiAdjustmentPatches = new Map<AssetId, Partial<AdjustmentModel>>();
 
+  private _isDestroyed = false;
+
   constructor() {
     inject(DestroyRef).onDestroy(() => {
+      this._isDestroyed = true;
       if (this._indexWriteTimer) clearTimeout(this._indexWriteTimer);
       this._indexWriteTimer = null;
+      for (const timer of this._apiXmpTimers.values()) {
+        clearTimeout(timer);
+      }
+      this._apiXmpTimers.clear();
     });
     // Debounced index write: re-fires 500ms after the last culling change.
     effect(() => {
@@ -1396,14 +1403,17 @@ export class LibraryFetch {
   // ── Index write debounce ───────────────────────────────────────────────────
 
   private _scheduleIndexWrite(): void {
+    if (this._isDestroyed) return;
     if (this._indexWriteTimer) clearTimeout(this._indexWriteTimer);
     this._indexWriteTimer = setTimeout(() => {
       this._indexWriteTimer = null;
+      if (this._isDestroyed) return;
       this._startIndexWrite();
     }, 500);
   }
 
   private _startIndexWrite(): void {
+    if (this._isDestroyed) return;
     const write = this._writeIndex();
     this._indexWrites.add(write);
     void write.then(
@@ -1422,7 +1432,7 @@ export class LibraryFetch {
       if (this._indexWriteTimer !== null) {
         clearTimeout(this._indexWriteTimer);
         this._indexWriteTimer = null;
-        this._startIndexWrite();
+        if (!this._isDestroyed) this._startIndexWrite();
       }
       for (const result of await Promise.allSettled(this._indexWrites)) {
         if (result.status === 'rejected') failures.push(result.reason);
@@ -1438,6 +1448,7 @@ export class LibraryFetch {
   // reasoning as browse-shell.component.ts's onKeydown suppression (#2293).
   // fallow-ignore-next-line complexity
   private async _writeIndex(): Promise<void> {
+    if (this._isDestroyed) return;
     const folder = this.store.currentFolder();
     if (!folder?.write || !this.store.folderIndex) return;
 

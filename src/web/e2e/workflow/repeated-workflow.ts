@@ -144,9 +144,15 @@ export async function repeatedWorkflow(deployment: CycleDeployment) {
           );
           evidence.push({ cycle, tool, value, historyCount: retained!.history.length });
         } finally {
+          await fresh.library.flushPendingXmpWrites();
+          await fresh.library.flushPendingIndexWrites();
+          fresh.library.cancelPendingPreviewWrites();
           fresh.app.destroy();
         }
       } finally {
+        await active.library.flushPendingXmpWrites();
+        await active.library.flushPendingIndexWrites();
+        active.library.cancelPendingPreviewWrites();
         active.app.destroy();
       }
     }

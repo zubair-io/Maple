@@ -27,6 +27,7 @@ import {
   fsAccessEnsureSubdirectory,
   fsAccessResolveCommonParent,
   fsAccessPickContainingFolder,
+  fsAccessSettleWrites,
   getPersistedHandles,
   removePersistedHandle,
 } from './fs-access-backend';
@@ -397,6 +398,16 @@ export class FolderAccessService {
       return fsAccessWriteFile(folder, path, data);
     }
     return fallbackWriteFile(folder, path, data);
+  }
+
+  /**
+   * Settle all in-flight file writes against `folder` (FS Access only).
+   */
+  // fallow-ignore-next-line unused-class-member
+  async settleWrites(folder: MapleFolderHandle): Promise<void> {
+    if (this.backend === 'fs-access') {
+      await fsAccessSettleWrites(folder);
+    }
   }
 
   /**

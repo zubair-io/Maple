@@ -423,11 +423,18 @@ export class LibraryStateService {
   }
 
   // ── Developed-preview persist flush (#2018) ─────────────────────────────────
-  /** Immediately fire every pending developed-preview persist. Call on
-   * navigate-away / close / editor-teardown — see
-   * `EditPreviewPersistService.flushAll`'s doc. */
-  flushPendingPreviewWrites(): void {
+  /** Immediately fire every pending developed-preview persist and wait for
+   * in-flight persists to settle. Call on navigate-away / close / editor-teardown
+   * — see `EditPreviewPersistService.flushAll`'s doc. */
+  async flushPendingPreviewWrites(): Promise<void> {
     this.previewPersist.flushAll();
+    await this.previewPersist.whenIdle();
+  }
+
+  /** Cancel all pending developed-preview debounces without queueing. */
+  // fallow-ignore-next-line unused-class-member
+  cancelPendingPreviewWrites(): void {
+    this.previewPersist.cancelAll();
   }
 
   // ── Index write helper (called by AssetGridComponent post-write) ──────────
