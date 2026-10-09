@@ -113,8 +113,14 @@ RUN bun x ng build maple --configuration=production
 # ---------------------------------------------------------------------------
 # Stage 2: build the native libraw_ffi.so for the runtime image's arch.
 # Stable Rust; entirely independent of the wasm-builder stage.
+#
+# `--features search` compiles the API-only `maple_search_*` symbols (#4462:
+# fastembed + Tantivy), whose tree needs Rust >= 1.86 (tantivy 0.26). The base
+# tracks the workspace's `stable` toolchain (src/raw-pipeline/rust-toolchain.toml,
+# which rustup honours inside this directory) and stays on bookworm so the .so
+# links against the same glibc as the bookworm-based runtime image.
 # ---------------------------------------------------------------------------
-FROM rust:1.83-slim AS rust-builder
+FROM rust:1.98-slim-bookworm AS rust-builder
 
 WORKDIR /build
 
@@ -126,7 +132,7 @@ COPY src/raw-pipeline/ raw-pipeline/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/raw-pipeline/target \
     cd raw-pipeline \
- && cargo build --release -p raw-ffi \
+ && cargo build --release -p raw-ffi --features search \
  && cp target/release/libraw_ffi.so /libraw_ffi.so
 
 # CPU-only speech-to-text runtime. Model weights download on first use.
@@ -203,6 +209,29 @@ COPY --from=rust-builder /libraw_ffi.so native/
 # Select the library this image just built explicitly, so the loader never
 # prefers an npm-installed @justmaple/maple-<platform> prebuilt over it.
 ENV MAPLE_NATIVE_LIB=/app/native/libraw_ffi.so
+
+# ONNX Runtime for maple-search's query embedder (#4462). Like maple-pano's
+# `ml` feature, the crate dlopens a libonnxruntime >= 1.23 from a configured
+# path rather than linking one in. The image already carries one: the
+# onnxruntime-node dependency (face detection) ships the CPU build for each
+# Linux arch, so it is linked at a stable path instead of shipping a second
+# copy. The check dlopens both libraries the way the search child will, so a
+# runtime that is too old, a missing arch, or a dylib built without
+# `--features search` fails `docker build` instead of the first search.
+RUN case "$(uname -m)" in \
+      x86_64) ort_arch=x64 ;; \
+      aarch64) ort_arch=arm64 ;; \
+      *) echo "no onnxruntime-node build for $(uname -m)" >&2; exit 1 ;; \
+    esac \
+ && ln -s "/app/node_modules/onnxruntime-node/bin/napi-v6/linux/$ort_arch/libonnxruntime.so.1" \
+      native/libonnxruntime.so \
+ && bun -e " \
+      const { dlopen, CFunction, read } = require('bun:ffi'); \
+      const ort = dlopen('/app/native/libonnxruntime.so', { OrtGetApiBase: { args: [], returns: 'ptr' } }); \
+      const version = String(CFunction({ ptr: read.ptr(ort.symbols.OrtGetApiBase(), 8), returns: 'cstring' })()); \
+      if (Number(version.split('.')[1]) < 23) throw new Error('ONNX Runtime ' + version + ' is older than 1.23'); \
+      dlopen('/app/native/libraw_ffi.so', { maple_search_open: { args: ['ptr'], returns: 'ptr' } }); \
+      console.log('ONNX Runtime ' + version + ', maple_search_* present');"
 
 ENV PORT=3000
 # The library database. /app/data is meant to be a mounted volume — see the
