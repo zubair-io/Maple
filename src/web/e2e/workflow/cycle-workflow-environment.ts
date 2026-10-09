@@ -6,6 +6,7 @@ import { provideSelfHostedWorkspace } from '../../projects/maple-common/src/lib/
 import { LibraryStore } from '../../projects/maple-common/src/lib/state/library-store.service';
 import { LibraryStateService } from '../../projects/maple-common/src/lib/state/library-state.service';
 import { FolderAccessService } from '../../projects/maple-common/src/lib/folder-access/folder-access.service';
+import { fsAccessSettleWrites } from '../../projects/maple-common/src/lib/folder-access/fs-access-backend';
 import { EditorStateService } from '../../projects/maple-common/src/lib/editor/editor-state.service';
 import { XmpAdjustmentRestoreService } from '../../projects/maple-common/src/lib/xmp/xmp-adjustment-restore.service';
 import { GpuLiveRenderGate } from '../../projects/maple-common/src/lib/raw-pipeline/gpu-live-render.gate';
@@ -46,6 +47,7 @@ export async function cycleStorage(deployment: CycleDeployment, xml: string) {
       const access = bootstrap.injector.get(FolderAccessService);
       await access.writeFile(folder, 'photo.dng', new Uint8Array(original));
       await access.writeFile(folder, 'photo.xmp', new TextEncoder().encode(xml));
+      await access.settleWrites(folder);
     }
   } finally {
     bootstrap.destroy();
@@ -97,11 +99,18 @@ export async function cycleStorage(deployment: CycleDeployment, xml: string) {
           original: [...(await access.readFile(folder, 'photo.dng'))],
         };
       } finally {
+        if (folder) {
+          const access = app.injector.get(FolderAccessService);
+          await access.settleWrites(folder);
+        }
         app.destroy();
       }
     },
     async dispose() {
-      if (folder) await root.removeEntry(name, { recursive: true });
+      if (folder) {
+        await fsAccessSettleWrites(folder);
+        await root.removeEntry(name, { recursive: true });
+      }
       // Server fixtures are removed by the owned workflow server at shutdown.
     },
   };

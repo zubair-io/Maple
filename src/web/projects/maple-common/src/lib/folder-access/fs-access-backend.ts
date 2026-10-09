@@ -339,6 +339,20 @@ export async function fsAccessFileMetadata(
 
 // ── Write file ────────────────────────────────────────────────────────────────
 
+const activeWrites = new WeakMap<FileSystemDirectoryHandle, Set<Promise<void>>>();
+
+/**
+ * Await all in-flight file writes against `folder`'s directory handle to settle.
+ */
+export async function fsAccessSettleWrites(folder: MapleFolderHandle): Promise<void> {
+  if (!folder.native) return;
+  const writes = activeWrites.get(folder.native);
+  if (!writes) return;
+  while (writes.size > 0) {
+    await Promise.allSettled(Array.from(writes));
+  }
+}
+
 /**
  * Write `data` to `path` relative to the folder. Creates intermediate
  * directories as needed. Uses a FileSystemWritableFileStream.
@@ -350,21 +364,37 @@ export async function fsAccessWriteFile(
 ): Promise<void> {
   if (!folder.native) throw new Error('fs-access: no native handle');
   if (!folder.write) throw new Error('fs-access: no write permission');
-  const fileHandle = await resolveFileHandle(folder, path, true);
-  const writable = await (fileHandle as FsFileHandleWithWritable).createWritable();
-  try {
-    // Copy into a plain ArrayBuffer so the writable stream gets the correct type.
-    const ab = new ArrayBuffer(data.byteLength);
-    new Uint8Array(ab).set(data);
-    await writable.write(ab);
-    await writable.close();
-  } catch (error) {
+  const dir = folder.native;
+  let writes = activeWrites.get(dir);
+  if (!writes) {
+    writes = new Set();
+    activeWrites.set(dir, writes);
+  }
+
+  const writePromise = (async () => {
+    const fileHandle = await resolveFileHandle(folder, path, true);
+    const writable = await (fileHandle as FsFileHandleWithWritable).createWritable();
     try {
-      await writable.abort();
-    } catch (cleanupError) {
-      throw new AggregateError([error, cleanupError], 'File write and stream cleanup failed');
+      // Copy into a plain ArrayBuffer so the writable stream gets the correct type.
+      const ab = new ArrayBuffer(data.byteLength);
+      new Uint8Array(ab).set(data);
+      await writable.write(ab);
+      await writable.close();
+    } catch (error) {
+      try {
+        await writable.abort();
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], 'File write and stream cleanup failed');
+      }
+      throw error;
     }
-    throw error;
+  })();
+
+  writes.add(writePromise);
+  try {
+    await writePromise;
+  } finally {
+    writes.delete(writePromise);
   }
 }
 

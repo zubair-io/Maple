@@ -42,7 +42,7 @@
 //     (`encodeDevelopedRenderToJpeg`) rather than deferring — this path
 //     genuinely persists the edited preview on every browser today.
 
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, DestroyRef } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import type { AssetId } from '../models/asset';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
@@ -88,7 +88,9 @@ export class EditPreviewPersistService {
   private readonly pipeline = inject(RawPipelineService);
   private readonly xmpSerializer = inject(XmpSerializerService);
   private readonly sidecars = inject(XmpStoreService);
+  private readonly destroyRef = inject(DestroyRef, { optional: true });
 
+  private isDestroyed = false;
   private readonly _timers = new Map<AssetId, ReturnType<typeof setTimeout>>();
 
   // Batch edits can mature thousands of idle timers together. Queue before
@@ -96,11 +98,36 @@ export class EditPreviewPersistService {
   private persistChain: Promise<void> = Promise.resolve();
   private readonly queued = new Set<AssetId>();
 
+  constructor() {
+    this.destroyRef?.onDestroy(() => {
+      this.isDestroyed = true;
+      this.cancelAll();
+    });
+  }
+
+  /**
+   * Cancel every scheduled debounce timer without queueing persists.
+   */
+  cancelAll(): void {
+    for (const timer of this._timers.values()) {
+      clearTimeout(timer);
+    }
+    this._timers.clear();
+  }
+
+  /**
+   * Resolves when all queued and in-flight preview persist operations settle.
+   */
+  whenIdle(): Promise<void> {
+    return this.persistChain;
+  }
+
   private enqueue(id: AssetId): void {
-    if (this.queued.has(id)) return;
+    if (this.isDestroyed || this.queued.has(id)) return;
     this.queued.add(id);
     this.persistChain = this.persistChain.then(async () => {
       this.queued.delete(id);
+      if (this.isDestroyed) return;
       await this._persist(id);
     });
   }
@@ -114,10 +141,12 @@ export class EditPreviewPersistService {
    * location) — `_persist` no-ops cleanly in those cases.
    */
   schedule(id: AssetId): void {
+    if (this.isDestroyed) return;
     const existing = this._timers.get(id);
     if (existing) clearTimeout(existing);
     const timeout = setTimeout(() => {
       this._timers.delete(id);
+      if (this.isDestroyed) return;
       this.enqueue(id);
     }, IDLE_PERSIST_DEBOUNCE_MS);
     this._timers.set(id, timeout);
@@ -134,6 +163,7 @@ export class EditPreviewPersistService {
    * may be lost — acceptable for a pure, re-derivable cache entry.
    */
   flushAll(): void {
+    if (this.isDestroyed) return;
     for (const [id, timer] of this._timers.entries()) {
       clearTimeout(timer);
       this.enqueue(id);
@@ -145,8 +175,9 @@ export class EditPreviewPersistService {
    * the Hosted or server-backed write path. Every failure (decode, encode,
    * network, disk) is caught and logged — this is a cache write, never
    * allowed to surface as a user-visible error or affect the editor. */
+  // fallow-ignore-next-line complexity
   private async _persist(id: AssetId): Promise<void> {
-    if (!this.isPrimary(id)) return;
+    if (this.isDestroyed || !this.isPrimary(id)) return;
     const asset = this.store.findAsset(id);
     // There is no longer a decode-side reason to skip non-RAW assets here:
     // `RawPipelineService.decode`'s non-RAW branch DOES now apply `xmp` via
@@ -224,7 +255,7 @@ export class EditPreviewPersistService {
     // Full quality (not the fast-phase half-res Preview demosaic) — this
     // is a persisted cache artifact, not a live-render tick.
     const img = await this.pipeline.decode(bytes, ext, xmp, PREVIEW_LONG_EDGE_PX, false);
-    if (!current()) return;
+    if (this.isDestroyed || !current()) return;
 
     if (this.store.backend === 'self-hosted') {
       await this._persistServerBacked(id, img, current);
@@ -247,12 +278,12 @@ export class EditPreviewPersistService {
     if (!absPath || !this.serverPersistence) return;
     const avif = await encodeDevelopedRenderToAvif(img);
     if (avif) {
-      if (!current()) return;
+      if (this.isDestroyed || !current()) return;
       await firstValueFrom(this.serverPersistence.writePreview(absPath, avif, 'image/avif'));
       return;
     }
     const jpeg = await encodeDevelopedRenderToJpeg(img);
-    if (!current()) return;
+    if (this.isDestroyed || !current()) return;
     await firstValueFrom(this.serverPersistence.writePreview(absPath, jpeg, 'image/jpeg'));
   }
 
@@ -266,11 +297,14 @@ export class EditPreviewPersistService {
     target: HostedPreviewTarget,
     current: () => boolean,
   ): Promise<void> {
-    if (this.store.currentFolder() !== target.folder || !target.folder.write) return;
+    if (this.isDestroyed || this.store.currentFolder() !== target.folder || !target.folder.write)
+      return;
     const avif = await encodeDevelopedRenderToAvif(img);
     const blob = avif ?? (await encodeDevelopedRenderToJpeg(img));
+    if (this.isDestroyed) return;
     const sourceAfter = await this.cache.hostedBytes.identityFor(id);
-    if (!current() || !samePreviewSource(target.sourceBefore, sourceAfter)) return;
+    if (this.isDestroyed || !current() || !samePreviewSource(target.sourceBefore, sourceAfter))
+      return;
     await this.mapleCache.writePreview(
       target.folder,
       target.location.dir,
