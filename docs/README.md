@@ -53,6 +53,12 @@ cloud editor, build/package commands and current qualification limits.
 | [indexer-enrichment.md](indexer-enrichment.md) | The discover sweep, the stage runner, every registered stage, the job runner, search indexing, and face clustering.                                                          |
 | [windows.md](windows.md)                       | The WinUI 3 shell, its P/Invoke surface onto the Rust core, File Explorer integration, tests, and CI.                                                                        |
 
+## Operations and CI
+
+| Doc                                              | Covers                                                                                               |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| [ci/muse-pr-review-runner.md](ci/muse-pr-review-runner.md) | The Proxmox CT 126 runner setup, its dedicated label, repo-only registration, and Muse review routing. |
+
 ## Design system
 
 | Doc                                                          | Covers                                                                                                                                                                        |
