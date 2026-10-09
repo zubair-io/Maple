@@ -103,6 +103,38 @@ function resolveDescribeModel(
   return DEFAULT_DESCRIBE_MODELS[provider] || FIXED_DESCRIBE_MODEL;
 }
 
+const API_KEY_FIELD = {
+  openai: 'openai_api_key',
+  anthropic: 'anthropic_api_key',
+  gemini: 'gemini_api_key',
+} as const;
+
+export function providerApiKey(
+  provider: DescribeProviderName,
+  cfg: Pick<
+    ReturnType<typeof resolveEnrichmentConfig>,
+    (typeof API_KEY_FIELD)[keyof typeof API_KEY_FIELD]
+  >,
+): string | null {
+  return provider in API_KEY_FIELD
+    ? cfg[API_KEY_FIELD[provider as keyof typeof API_KEY_FIELD]]
+    : null;
+}
+
+const DEFAULT_LEGACY_CONCURRENCY = 2;
+
+export function legacyChoice(
+  cfg: Pick<ReturnType<typeof resolveEnrichmentConfig>, 'describe_provider' | 'describe_model'>,
+  worker: { ai_provider?: string | null; ai_model?: string | null; concurrency?: number } | null,
+): { provider: DescribeProviderName; model: string; concurrency: number } {
+  const provider = resolveDescribeProvider(worker?.ai_provider, cfg.describe_provider);
+  return {
+    provider,
+    model: resolveDescribeModel(worker?.ai_model, cfg.describe_model, provider),
+    concurrency: worker?.concurrency ?? DEFAULT_LEGACY_CONCURRENCY,
+  };
+}
+
 async function createDescribePool(
   provider: DescribeProviderName,
   cfg: ReturnType<typeof resolveEnrichmentConfig>,
@@ -111,14 +143,7 @@ async function createDescribePool(
   if (provider === 'ollama') {
     return new DescribeServerPool(await describeServersForRuntime(cfg));
   }
-  const apiKey =
-    provider === 'openai'
-      ? cfg.openai_api_key
-      : provider === 'anthropic'
-        ? cfg.anthropic_api_key
-        : provider === 'gemini'
-          ? cfg.gemini_api_key
-          : null;
+  const apiKey = providerApiKey(provider, cfg);
   return new DescribeServerPool([{ url: provider, concurrency }], () =>
     getDescribeProvider(provider, { apiKey }),
   );
@@ -128,13 +153,8 @@ async function legacySelection(
   cfg: ReturnType<typeof resolveEnrichmentConfig>,
   worker: Awaited<ReturnType<typeof loadWorkerConfigSafe>>,
 ) {
-  const provider = resolveDescribeProvider(worker?.ai_provider, cfg.describe_provider);
-  const model = resolveDescribeModel(worker?.ai_model, cfg.describe_model, provider);
-  return {
-    provider,
-    model,
-    pool: await createDescribePool(provider, cfg, worker?.concurrency ?? 2),
-  };
+  const { provider, model, concurrency } = legacyChoice(cfg, worker);
+  return { provider, model, pool: await createDescribePool(provider, cfg, concurrency) };
 }
 
 async function getDeps(): Promise<DescribeDeps> {

@@ -16,7 +16,12 @@ import {
 import { loadWorkerConfigSafe } from '../db/repos/worker-config.repo.ts';
 import { loadGeneratedSearchConfig } from '../workers/generated-search/config.repo.ts';
 import { listProviderModels, handleAiTestConnection } from '../enrichment/ai-providers.service.ts';
-import { embedderPatch, embedderSettingsView } from '../enrichment/embedder-settings.ts';
+import { embedderSettingsView } from '../enrichment/embedder-settings.ts';
+import {
+  embedderSaveOutcome,
+  normalizeAssignments,
+  normalizeConnections,
+} from '../enrichment/ai-connections-normalize.ts';
 import { resetDescribeDeps } from '../workers/stages/describe.ts';
 import { resetVideoDescribeDeps } from '../workers/stages/video-describe.ts';
 
@@ -84,34 +89,10 @@ export const aiConnectionRoutes = new Elysia({ prefix: '/connections' })
     '/',
     async ({ body, set }) => {
       const current = await loadConfig();
-      const connections = body.connections.map((c) => ({
-        ...c,
-        name: c.name.trim(),
-        url: c.url.trim().replace(/\/+$/, ''),
-        api_key:
-          c.api_key === undefined
-            ? current.connections.find((old) => old.id === c.id && old.provider === c.provider)
-                ?.api_key
-            : c.api_key?.trim() || null,
-      }));
-      const assignments = Object.fromEntries(
-        Object.entries(body.assignments as Record<string, AiAssignment>).map(([id, a]) => [
-          id,
-          {
-            ...a,
-            model: a.model.trim(),
-            ...(a.connection_models
-              ? {
-                  connection_models: Object.fromEntries(
-                    a.connection_ids.map((key) => [key, (a.connection_models![key] ?? '').trim()]),
-                  ),
-                }
-              : {}),
-          },
-        ]),
-      );
+      const connections = normalizeConnections(body.connections, current.connections);
+      const assignments = normalizeAssignments(body.assignments as Record<string, AiAssignment>);
       const config = { connections, assignments };
-      const embedder = body.embedder === undefined ? {} : embedderPatch(body.embedder);
+      const embedder = embedderSaveOutcome(body.embedder);
       const error =
         ('error' in embedder ? embedder.error : null) ??
         validateAiConnections(config) ??

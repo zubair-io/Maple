@@ -38,7 +38,7 @@ import { createBatcher } from '../embed/batcher.ts';
 import { currentEmbedderTarget } from '../embed/embedder-target.ts';
 import { loadNamedPeople, peopleNamesForFaces } from './meili.ts';
 
-export const EMBED_STAGE_VERSION = EMBEDDER_TEMPLATE_SHAPE_VERSION;
+const EMBED_STAGE_VERSION = EMBEDDER_TEMPLATE_SHAPE_VERSION;
 
 const BATCH_LINGER_MS = 25;
 const MODEL_DRIFT_SWEEP_INTERVAL_MS = 60_000;
