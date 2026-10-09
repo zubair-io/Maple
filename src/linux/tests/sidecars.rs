@@ -420,3 +420,69 @@ fn unchanged_foreign_ratings_survive_unrelated_edits() {
     document.culling.rating = 0;
     assert!(!document.serialize().unwrap().contains("xmp:Rating"));
 }
+
+#[test]
+fn lightroom_paint_and_maple_brush_survive_a_linux_edit_byte_for_byte() {
+    use raw_core::types::Mask;
+    let fixture = fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-fixtures/local-adjustments/lightroom-paint.xmp"),
+    )
+    .unwrap();
+    let brush = r#"   <papp:BrushCorrections xmlns:papp="http://ns.justmaple.app/photo/1.0/">
+    <rdf:Seq>
+     <rdf:li>
+      <rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="True" crs:LocalExposure2012="0.5">
+       <crs:CorrectionMasks>
+        <rdf:Seq>
+         <rdf:li crs:What="Mask/Paint" crs:MaskValue="1" papp:BrushVersion="1" papp:Dabs="0.25 0.3 0.05 0.5 0.8 0 0.3 0.35 0.05 0.5 0.8 0"/>
+        </rdf:Seq>
+       </crs:CorrectionMasks>
+      </rdf:Description>
+     </rdf:li>
+    </rdf:Seq>
+   </papp:BrushCorrections>
+"#;
+    let close = fixture.rfind("  </rdf:Description>").unwrap();
+    let source = format!("{}{}{}", &fixture[..close], brush, &fixture[close..]);
+    let block = |xml: &str, open: &str, end: &str| {
+        let start = xml.find(open).unwrap();
+        xml[start..xml.find(end).unwrap() + end.len()].to_owned()
+    };
+    let paint = block(
+        &source,
+        "<crs:PaintBasedCorrections>",
+        "</crs:PaintBasedCorrections>",
+    );
+    let maple = block(
+        &source,
+        "<papp:BrushCorrections",
+        "</papp:BrushCorrections>",
+    );
+
+    let temp = TempDir::new().unwrap();
+    let original = temp.path().join("photo.dng");
+    fs::write(&original, b"original").unwrap();
+    fs::write(sidecar_path(&original).unwrap(), &source).unwrap();
+    let (mut store, mut document) = SidecarStore::open(&original).unwrap();
+    assert_eq!(document.model.local_adjustments.len(), 1);
+    assert!(matches!(
+        &document.model.local_adjustments[0].mask,
+        Mask::Brush { dabs, .. } if dabs.len() == 2
+    ));
+    Control::Exposure.set(&mut document.model, 1.25).unwrap();
+    store.save(&document).unwrap();
+    let saved = fs::read_to_string(store.path()).unwrap();
+    assert_eq!(
+        block(
+            &saved,
+            "<crs:PaintBasedCorrections>",
+            "</crs:PaintBasedCorrections>"
+        ),
+        paint
+    );
+    assert_eq!(
+        block(&saved, "<papp:BrushCorrections", "</papp:BrushCorrections>"),
+        maple
+    );
+}

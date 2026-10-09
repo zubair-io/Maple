@@ -2,4 +2,7 @@
 
 public enum FilenameVocabulary {
   public static let originalPathMarkerSuffix = ".origpath"
+  public static let restoreCollisionSuffix = ".restored"
+  public static let pairedSidecarSuffixPattern =
+    "(?:\\.xmp| \\(conflict from [^)]+\\)(?: \\(\\d+\\))?\\.xmp)"
 }

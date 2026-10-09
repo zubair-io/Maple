@@ -81,49 +81,87 @@ extension EditSession {
     return layer
   }
 
-  /// Re-register every bitmap mask a loaded sidecar carries (#3366).
+  /// Re-register every bitmap and brush mask a loaded sidecar carries
+  /// (#3366, brush by #360).
   ///
   /// The raster registry is per-PROCESS and `rasterId` is deliberately
   /// never persisted (it is a cache handle, not content), so a sidecar
-  /// parses every `.bitmap` layer back with `rasterId: 0`. Nothing then
-  /// registered the raster again: the per-tick wire carries only the id,
-  /// raw-ffi resolves an unknown id to weight 0 — never a silent global
-  /// correction — and so a mask the user SAVED did nothing on reopen:
-  /// sliders inert, scope empty, while the overlay (which reads the PNG by
-  /// digest) still drew the selection and made it look like a pipeline
-  /// bug. The create path (`createPersonSkinMask`) was the only place a
-  /// raster ever got registered.
+  /// parses every `.bitmap`/`.brush` layer back with `rasterId: 0`. Nothing
+  /// then registered the raster again: the per-tick wire carries only the
+  /// id, raw-ffi resolves an unknown id to weight 0 — never a silent
+  /// global correction — and so a mask the user SAVED did nothing on
+  /// reopen: sliders inert, scope empty, while the overlay (which reads
+  /// the PNG by digest) still drew the selection and made it look like a
+  /// pipeline bug. The create path (`createPersonSkinMask`) was the only
+  /// place a raster ever got registered.
   ///
-  /// Bytes come from `maskRasterStore` — the cached PNG by digest, or a
-  /// fresh Vision pass rebuilt from the recipe on a cache miss. A layer
-  /// whose raster cannot be produced keeps `rasterId: 0` (still weight 0,
-  /// logged) rather than failing the whole hydration.
+  /// Bitmap bytes come from `maskRasterStore` — the cached PNG by digest,
+  /// or a fresh Vision pass rebuilt from the recipe on a cache miss.
+  /// Brush bytes re-rasterize from the parsed dabs (exact and cheap, so no
+  /// disk cache), and the digest is recomputed from the dabs — a foreign
+  /// paint mask carries none. A layer whose raster cannot be produced
+  /// keeps `rasterId: 0` (still weight 0, logged) rather than failing the
+  /// whole hydration.
   func rehydratedMaskRasters(in source: AdjustmentModel) async -> AdjustmentModel {
+    let paintsStrokes = source.localAdjustments.contains {
+      guard case .brush(let dabs, _, _) = $0.mask else { return false }
+      return !dabs.isEmpty
+    }
+    // A brush raster's grid follows the image aspect: wait for the
+    // metadata size rather than registering a square raster for a 3:2 photo.
+    if paintsStrokes, nativeImageSize == .zero {
+      await seedNativeImageSizeFromMetadataAsync(asset)
+    }
     var out = source
     for index in out.localAdjustments.indices {
       out.localAdjustments[index].mask = await out.localAdjustments[index].mask.mappingLeavesAsync {
         mask in
-        guard case .bitmap(let recipe, let rasterId) = mask, rasterId == 0 else { return mask }
-        do {
-          let (w, h, bytes) = try await self.sourceMaskRaster(for: recipe)
-          guard
-            let id = MaskRasterRegistry.register(
-              digest: recipe.digest, width: w, height: h, bytes: bytes)
-          else {
-            editSessionLogger.error(
-              "mask raster \(recipe.digest, privacy: .public): registration rejected")
-            return mask
-          }
-          return .bitmap(recipe: recipe, rasterId: id)
-        } catch {
-          editSessionLogger.error(
-            "mask raster \(recipe.digest, privacy: .public): \(String(describing: error), privacy: .public)"
-          )
+        switch mask {
+        case .bitmap(let recipe, let rasterId) where rasterId == 0:
+          return await self.rehydratedBitmap(recipe: recipe, fallback: mask)
+        case .brush(let dabs, _, let rasterId) where rasterId == 0:
+          return self.rehydratedBrush(dabs: dabs)
+        default:
           return mask
         }
       }
     }
     return out
+  }
+
+  private func rehydratedBitmap(recipe: BitmapRecipe, fallback: LocalMask) async -> LocalMask {
+    do {
+      let (w, h, bytes) = try await sourceMaskRaster(for: recipe)
+      guard
+        let id = MaskRasterRegistry.register(
+          digest: recipe.digest, width: w, height: h, bytes: bytes)
+      else {
+        editSessionLogger.error(
+          "mask raster \(recipe.digest, privacy: .public): registration rejected")
+        return fallback
+      }
+      return .bitmap(recipe: recipe, rasterId: id)
+    } catch {
+      editSessionLogger.error(
+        "mask raster \(recipe.digest, privacy: .public): \(String(describing: error), privacy: .public)"
+      )
+      return fallback
+    }
+  }
+
+  func rehydratedBrush(dabs: [BrushDab]) -> LocalMask {
+    let digest = BrushRaster.digest(dabs)
+    guard !dabs.isEmpty, let (w, h, bytes) = sourceBrushRaster(dabs: dabs),
+      let id = MaskRasterRegistry.register(digest: digest, width: w, height: h, bytes: bytes)
+    else {
+      // An empty stroke needs no raster (weight 0 either way); a failed
+      // rasterize/registration keeps the id unset, logged, like bitmap.
+      if !dabs.isEmpty {
+        editSessionLogger.error("brush raster \(digest, privacy: .public): registration rejected")
+      }
+      return .brush(dabs: dabs, digest: digest, rasterId: 0)
+    }
+    return .brush(dabs: dabs, digest: digest, rasterId: id)
   }
 
   /// The full-frame raster `recipe` describes: `maskRasterStore`'s cached
@@ -147,9 +185,92 @@ extension EditSession {
     selectedMaskId = layer.id
   }
 
+  /// `restored` as an undo/redo snapshot comes back: a stroke appended
+  /// after the snapshot released the snapshot's brush raster, so any brush
+  /// id `live` no longer holds re-registers from its dabs, and live brush
+  /// ids the snapshot dropped are released.
+  func rebindingBrushRasters(live: AdjustmentModel, restored: AdjustmentModel)
+    -> AdjustmentModel
+  {
+    func brushRasterIds(_ model: AdjustmentModel) -> Set<UInt32> {
+      Set(
+        model.localAdjustments.compactMap { layer in
+          guard case .brush(_, _, let id) = layer.mask, id != 0 else { return nil }
+          return id
+        })
+    }
+    let liveIds = brushRasterIds(live)
+    var out = restored
+    for index in out.localAdjustments.indices {
+      guard case .brush(let dabs, _, let rasterId) = out.localAdjustments[index].mask,
+        !liveIds.contains(rasterId)
+      else { continue }
+      out.localAdjustments[index].mask = rehydratedBrush(dabs: dabs)
+    }
+    liveIds.subtracting(brushRasterIds(out)).forEach(MaskRasterRegistry.release)
+    return out
+  }
+
+  /// The full-frame raster a brush stroke describes: its dabs stamped at
+  /// the 1024-long-edge grid through `maple_brush_rasterize`. Shared by
+  /// sidecar rehydration, the coverage preview and the per-window derived
+  /// rasters of `EditSession+MaskRemap.swift` (#355).
+  func sourceBrushRaster(dabs: [BrushDab]) -> MaskRasterStore.Raster? {
+    let size = nativeImageSize
+    let dims = BrushRaster.rasterDims(
+      imageWidth: Int(size.width), imageHeight: Int(size.height))
+    guard let bytes = BrushRaster.rasterize(dabs: dabs, width: dims.width, height: dims.height)
+    else { return nil }
+    return (dims.width, dims.height, bytes)
+  }
+
+  /// An empty brush layer, selected. No raster registers until the first
+  /// dab lands (`rasterId: 0` renders as weight 0).
+  public func createBrushMask() {
+    beginEdit(kind: .mask, description: "Add brush mask")
+    let layer = LocalAdjustment(
+      mask: .brush(dabs: [], digest: BrushRaster.digest([]), rasterId: 0),
+      adjustments: PartialAdjustments())
+    model.localAdjustments.append(layer)
+    selectedMaskId = layer.id
+    endEdit()
+  }
+
+  /// Open the one undo entry a stroke records. Unlike `setMaskDragActive`
+  /// this does NOT hide the overlay tint — the stroke must stay visible
+  /// while it grows.
+  public func beginBrushStroke() {
+    beginEdit(kind: .mask, description: "Brush stroke")
+  }
+
+  /// Close the stroke's undo entry. A stroke that landed no dabs records
+  /// nothing (`endEdit` drops no-op transactions).
+  public func endBrushStroke() {
+    endEdit()
+  }
+
+  /// Append `dabs` to the selected brush layer and re-register its raster:
+  /// the new id registers BEFORE the old one releases, so a render can
+  /// never observe the digest id-less mid-swap. A failed rasterize or
+  /// registration keeps the previous stroke rather than corrupting it. The
+  /// caller owns the transaction (`beginBrushStroke`/`endBrushStroke`).
+  public func appendBrushDabs(_ dabs: [BrushDab]) {
+    guard let index = model.localAdjustments.firstIndex(where: { $0.id == selectedMaskId }),
+      case .brush(let existing, _, let rasterId) = model.localAdjustments[index].mask,
+      !dabs.isEmpty
+    else { return }
+    let next = existing + dabs
+    let digest = BrushRaster.digest(next)
+    guard let (w, h, bytes) = sourceBrushRaster(dabs: next),
+      let id = MaskRasterRegistry.register(digest: digest, width: w, height: h, bytes: bytes)
+    else { return }
+    if rasterId != 0 { MaskRasterRegistry.release(rasterId) }
+    model.localAdjustments[index].mask = .brush(dabs: next, digest: digest, rasterId: id)
+  }
+
   public func deleteMask(id: UUID) {
     guard let layer = model.localAdjustments.first(where: { $0.id == id }) else { return }
-    Set(layer.mask.bitmapMasks.map(\.rasterId)).forEach(MaskRasterRegistry.release)
+    Set(layer.mask.registeredRasterIds).forEach(MaskRasterRegistry.release)
     model.localAdjustments.removeAll { $0.id == id }
     disabledMaskIds.remove(id)
     if selectedMaskId == id { selectedMaskId = nil }

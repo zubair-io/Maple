@@ -4,10 +4,10 @@
 
 use super::*;
 
-/// Reference for the PRE-#1089 two-sweep form: a full `observed` clone + a
+/// Reference for the two-sweep form: a full `observed` clone + a
 /// full `sharpened` buffer, USM scale built in one serial sweep, the edge mix
-/// applied in a second sweep reading both. This is the EXACT arithmetic the
-/// fused single-pass `apply` replaced. Not called by production code.
+/// applied in a second sweep reading both, including the #4112 darkening
+/// continuation. Not called by production code.
 fn apply_two_sweep_reference(img: &mut Image, amount: f32, radius: f32, detail: f32, masking: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     if amount.abs() < 1e-3 {
@@ -27,6 +27,7 @@ fn apply_two_sweep_reference(img: &mut Image, amount: f32, radius: f32, detail: 
     // Sweep 1: USM scale into a dedicated buffer, off an observed clone.
     let observed = img.pixels.clone();
     let mut sharpened: Vec<[f32; 3]> = vec![[0.0; 3]; img.pixels.len()];
+    let mut full_strength_scales = vec![1.0; img.pixels.len()];
     for i in 0..img.pixels.len() {
         let (o, li, lb) = (observed[i], luma[i], luma_blur[i]);
         let lo = li + (li - lb);
@@ -34,6 +35,7 @@ fn apply_two_sweep_reference(img: &mut Image, amount: f32, radius: f32, detail: 
         let bounded = (lo / li.max(SHADOW_EPSILON)).clamp(MIN_SCALE, MAX_SCALE);
         let scale = 1.0 + weight * (bounded - 1.0);
         sharpened[i] = [o[0] * scale, o[1] * scale, o[2] * scale];
+        full_strength_scales[i] = scale;
     }
 
     // Sweep 2: edge-aware mix.
@@ -62,17 +64,24 @@ fn apply_two_sweep_reference(img: &mut Image, amount: f32, radius: f32, detail: 
             };
             let mix = overall_mix * edge;
             let (o, s) = (observed[i], sharpened[i]);
-            img.pixels[i] = [
-                o[0] + (s[0] - o[0]) * mix,
-                o[1] + (s[1] - o[1]) * mix,
-                o[2] + (s[2] - o[2]) * mix,
-            ];
+            img.pixels[i] = if mix * (1.0 - full_strength_scales[i]) > PRESERVED_DARKENING {
+                let darkening = 1.0 - full_strength_scales[i];
+                let join = 1.0 - PRESERVED_DARKENING;
+                let gain = join * join / (join + (mix * darkening - PRESERVED_DARKENING));
+                [o[0] * gain, o[1] * gain, o[2] * gain]
+            } else {
+                [
+                    o[0] + (s[0] - o[0]) * mix,
+                    o[1] + (s[1] - o[1]) * mix,
+                    o[2] + (s[2] - o[2]) * mix,
+                ]
+            };
         }
     }
 }
 
 /// #1089 bit-identity gate: the fused single-pass `apply` must reproduce the
-/// pre-#1089 two-sweep reference to the LAST BIT, across slider corners that
+/// two-sweep reference to the LAST BIT, across slider corners that
 /// exercise every branch — masking on/off (the `gradient` path), amount
 /// below/at/above 100, several radii, detail=0. A textured field (ramp +
 /// impulse + coloured patch + deep-shadow pixel) keeps the USM scale, the

@@ -51,6 +51,7 @@ pub(crate) fn parse(source: &str) -> Result<(AdjustmentModel, Culling), SidecarE
                             "crs:GradientBasedCorrections"
                                 | "crs:CircularGradientBasedCorrections"
                                 | "crs:RetouchAreas"
+                                | "papp:BrushCorrections"
                                 | "papp:Workflow"
                         )
                 })

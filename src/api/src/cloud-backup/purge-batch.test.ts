@@ -33,7 +33,7 @@ async function batchFixture() {
   return { live, repo, libraryId, destination, entries };
 }
 
-test('Google purge batch shares two root inventories and removes legacy manifests, blobs and lost-response reservations', async () => {
+test('Google purge batch shares two owned-tree inventories and removes manifests, blobs and lost-response reservations', async () => {
   const f = await batchFixture();
   try {
     const store = googleStore();
@@ -66,16 +66,33 @@ test('Google purge batch shares two root inventories and removes legacy manifest
     const inventory = store.requests
       .slice(before)
       .filter(
-        (request) => request.path === '/drive/v3/files' && !request.query?.includes('mapleKeyHash'),
+        (request) =>
+          request.path === '/drive/v3/files' &&
+          !!request.query &&
+          !request.query.includes('mapleKeyHash'),
       );
-    expect(inventory).toHaveLength(2);
+    const folderIds = new Set([
+      'maple-root',
+      ...[...store.files.values()]
+        .filter((file) => file.mimeType === 'application/vnd.google-apps.folder')
+        .filter((file) => JSON.parse(file.description).rootId === 'maple-root')
+        .map((file) => file.id),
+    ]);
+    expect(inventory.length).toBeGreaterThan(2);
     expect(
-      inventory.every((request) => request.query === "'maple-root' in parents and trashed = false"),
+      inventory.every((request) => {
+        const parentId = /'([^']+)' in parents/.exec(request.query ?? '')?.[1];
+        return (
+          request.query === `'${parentId}' in parents and trashed = false` &&
+          folderIds.has(parentId ?? '')
+        );
+      }),
     ).toBe(true);
     expect((await f.repo.purges(f.destination.id)).every((row) => row.completed === 1)).toBe(true);
-    const remaining = [...store.files.values()].map(
-      (file) => JSON.parse(file.description).key as string,
-    );
+    const remaining = [...store.files.values()].flatMap((file) => {
+      const marker = JSON.parse(file.description) as { key?: string };
+      return marker.key ? [marker.key] : [];
+    });
     const survivor = entryPrefix(f.libraryId, f.entries[2]!.id);
     expect(remaining.filter((value) => value.startsWith(survivor))).toHaveLength(4);
     for (const row of f.entries.slice(0, 2)) {
@@ -116,6 +133,94 @@ test('a moved saved object blocks only its entry while the batch cleans other en
   }
 });
 
+test('permanent deletion removes a mirrored Trash path left by an interrupted catalog commit', async () => {
+  const f = await batchFixture();
+  try {
+    const provider = createTestProvider();
+    const entry = f.entries[0]!;
+    const key = `mirror/${f.libraryId}/.maple/trash/photo-0.dng`;
+    const object = await provider.mirrorFile(key, '.maple/trash/photo-0.dng', jsonSource('photo'), {
+      saveCheckpoint: async () => {},
+    });
+    await f.repo.saveObject(f.destination.id, entry.id, key, object, null);
+
+    await drainPurges(new BackupEngine(async () => provider, f.repo), f.destination);
+
+    expect(provider.objects.has(key)).toBe(false);
+    expect(
+      (await f.repo.purges(f.destination.id)).find((row) => row.entry_id === entry.id)?.completed,
+    ).toBe(1);
+  } finally {
+    f.live.close();
+  }
+});
+
+test('permanent deletion reconciles a completed mirror replacement before removing it', async () => {
+  const f = await batchFixture();
+  try {
+    const store = googleStore();
+    const provider = new GoogleDriveProvider('maple-root', async () => 'token', store.transport);
+    const entry = f.entries[0]!;
+    const key = `mirror/${f.libraryId}/photo-0.dng`;
+    const oldSource = jsonSource('old bytes');
+    const oldObject = await provider.mirrorFile(key, 'photo-0.dng', oldSource, {
+      saveCheckpoint: async () => {},
+    });
+    await f.repo.saveObject(f.destination.id, entry.id, key, oldObject, null);
+
+    store.loseFinal();
+    await expect(
+      provider.mirrorFile(key, 'photo-0.dng', jsonSource('replacement bytes'), {
+        saveCheckpoint: async (checkpoint) =>
+          f.repo.saveObject(f.destination.id, entry.id, key, null, checkpoint),
+      }),
+    ).rejects.toThrow('request failed');
+    expect(store.files.get(oldObject.locator)!.bytes).not.toEqual(
+      new TextEncoder().encode('old bytes'),
+    );
+
+    await drainPurges(new BackupEngine(async () => provider, f.repo), f.destination);
+
+    expect(store.files.has(oldObject.locator)).toBe(false);
+    expect(
+      (await f.repo.purges(f.destination.id)).find((row) => row.entry_id === entry.id)?.completed,
+    ).toBe(1);
+  } finally {
+    f.live.close();
+  }
+});
+
+test('permanent deletion rechecks mirror ownership after its purge snapshot', async () => {
+  const f = await batchFixture();
+  try {
+    const provider = createTestProvider();
+    const purged = f.entries[0]!;
+    const replacement = f.entries[2]!;
+    const key = `mirror/${f.libraryId}/photo-0.dng`;
+    const object = await provider.mirrorFile(key, 'photo-0.dng', jsonSource('same bytes'), {
+      saveCheckpoint: async () => {},
+    });
+    await f.repo.saveObject(f.destination.id, purged.id, key, object, {
+      provider: 'test',
+      version: 1,
+      state: {},
+    });
+    provider.abort = async () => {
+      // A replacement entry adopts the same bytes and locator after purge
+      // selected the old row but before it can remove the remote object.
+      await f.repo.saveObject(f.destination.id, replacement.id, key, object, null);
+      return null;
+    };
+
+    await drainPurges(new BackupEngine(async () => provider, f.repo), f.destination);
+
+    expect(provider.objects.has(key)).toBe(true);
+    expect((await f.repo.objectOwner(f.destination.id, key))?.entryId).toBe(replacement.id);
+  } finally {
+    f.live.close();
+  }
+});
+
 test('an incomplete shared absence scan leaves all unfinished purge obligations pending', async () => {
   const f = await batchFixture();
   try {
@@ -134,7 +239,7 @@ test('an incomplete shared absence scan leaves all unfinished purge obligations 
   }
 });
 
-test('saved entry cleanup seeks the destination/key primary index with an exact prefix range', async () => {
+test('saved entry cleanup uses exact key-prefix and entry indexes', async () => {
   const f = await batchFixture();
   try {
     const prefix = entryPrefix(f.libraryId, f.entries[0]!.id);
@@ -143,13 +248,22 @@ test('saved entry cleanup seeks the destination/key primary index with an exact 
         `EXPLAIN QUERY PLAN SELECT key,object,checkpoint FROM backup_objects
       WHERE destination_id=? AND key>=? AND key<?`,
       )
-      .all(f.destination.id, prefix, prefix.slice(0, -1) + '0') as Array<{ detail: string }>;
+      .all(f.destination.id, prefix, prefix.slice(0, -1) + '0') as Array<{
+      detail: string;
+    }>;
     expect(plan.map((row) => row.detail).join(' ')).toMatch(
       /SEARCH backup_objects USING PRIMARY KEY/,
     );
     expect(plan.map((row) => row.detail).join(' ')).toContain(
       'destination_id=? AND key>? AND key<?',
     );
+    const entryPlan = f.live.db
+      .query(
+        `EXPLAIN QUERY PLAN SELECT key,object,checkpoint FROM backup_objects INDEXED BY backup_objects_entry
+        WHERE destination_id=? AND entry_id=?`,
+      )
+      .all(f.destination.id, f.entries[0]!.id) as Array<{ detail: string }>;
+    expect(entryPlan.map((row) => row.detail).join(' ')).toContain('backup_objects_entry');
   } finally {
     f.live.close();
   }

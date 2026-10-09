@@ -146,6 +146,28 @@ public struct BitmapRecipe: Codable, Sendable, Equatable, Hashable {
   }
 }
 
+/// One brush stamp in a `.brush` dab series (#360). Mirror of
+/// `raw_core::types::BrushDab`: `center` is normalized `[0, 1]` over the full
+/// oriented image; `radius` is a fraction of the image WIDTH and the stamp is
+/// circular in pixel space; `feather` is the soft-edge fraction of the radius
+/// (`0` = hard disc); `weight` (`0...1`) is the dab's peak value (the
+/// pressure→flow modulation); `erase` dabs subtract instead of adding.
+public struct BrushDab: Codable, Sendable, Equatable, Hashable {
+  public var center: MaskPoint
+  public var radius: Double
+  public var feather: Double
+  public var weight: Double
+  public var erase: Bool
+
+  public init(center: MaskPoint, radius: Double, feather: Double, weight: Double, erase: Bool) {
+    self.center = center
+    self.radius = radius
+    self.feather = feather
+    self.weight = weight
+    self.erase = erase
+  }
+}
+
 /// Mask shape — the per-pixel weight `w ∈ [0, 1]` a layer is scaled by.
 /// Mirror of `raw_core::types::Mask`.
 ///
@@ -161,11 +183,17 @@ public struct BitmapRecipe: Codable, Sendable, Equatable, Hashable {
 ///   rebuild it.
 /// - `everywhere`: weight 1 over the whole frame — the whole-image case a
 ///   range refinement then narrows.
+/// - `brush`: a painted dab series (#360) — `dabs` is the authored content
+///   (the lossless form that round-trips through
+///   `papp:BrushCorrections`), `rasterId` the derived bitmap the render
+///   samples, `digest` the content hash that re-attaches them after a
+///   re-parse.
 public enum LocalMask: Codable, Sendable, Equatable, Hashable {
   case linear(start: MaskPoint, end: MaskPoint, feather: Double)
   case radial(center: MaskPoint, radii: MaskPoint, angle: Double, feather: Double, invert: Bool)
   case bitmap(recipe: BitmapRecipe, rasterId: UInt32)
   case everywhere
+  case brush(dabs: [BrushDab], digest: String, rasterId: UInt32)
   case group(MaskGroup)
 }
 

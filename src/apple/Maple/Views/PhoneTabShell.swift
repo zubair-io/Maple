@@ -20,8 +20,9 @@
 // `AppShellIPhoneShell`) is sufficient to make that row work here too.
 //
 // AppShell.body dispatches between this shell and the Mac/iPad pane
-// shell via `MapleShellKind.current == .phoneTab`. Persistence: the
-// active tab survives a cold restart via `@AppStorage("cm.tab.shell")`.
+// shell via `MapleShellKind.current == .phoneTab`. The active tab lives in
+// `@AppStorage("cm.tab.shell")` so deep links can switch it from outside the
+// view; `MapleApp.init` resets it to Library on every launch (#4433).
 // We deliberately introduce `cm.tab.shell` (not the original `cm.tab`)
 // to keep the phone shell's tab key separate from any future Detail-
 // panel tab key collision — see Risk §6.1 in the S1 spec. Today the
@@ -41,8 +42,8 @@
   import UIKit
 
   struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: View {
-    /// Cold-start tab restoration. Distinct from any Detail-panel tab
-    /// key (see file header). Default `"library"` matches the spec.
+    /// The selected tab, shared with deep-link handlers that switch it.
+    /// Reset to `"library"` at launch (see file header).
     @AppStorage("cm.tab.shell") private var activeTab: String = "library"
 
     /// Library tab navigation stack. A Library cell tap appends
@@ -134,7 +135,7 @@
     /// result-tap resolver. This tab owns its own `SearchViewModel`
     /// (`PhoneSearchSession.vm`) — there is no separate desktop-style
     /// overlay VM on iPhone (#3163).
-    let phoneSearchServerKey: String?
+    let phoneSearchSessionKey: String?
     let makePhoneSearchSession: () async -> PhoneSearchSession?
     let resolveSearchAsset: (SearchAsset, URL) -> ResolvedCloudAsset
     /// A widget/URL deep-link or Map pin tap's `SearchParams`, waiting to be
@@ -359,6 +360,21 @@
           }
         }
 
+        Tab("Settings", systemImage: "gearshape", value: "settings") {
+          NavigationStack {
+            SettingsView(sessionFor: sessionFor)
+          }
+        }
+
+        // Declared last on purpose (#4439). While Search is open, iOS 27
+        // collapses the bar to one button; on device that button showed, and
+        // returned to, whichever tab was declared AFTER this one (Settings),
+        // regardless of the tab the user came from. With nothing declared
+        // after it, the button shows Library. Apple documents no rule for
+        // this; the placement was established by testing both orders on an
+        // iPhone 17 Pro Max running iOS 27.2. The visible tab order is
+        // unchanged — the search-role tab is always drawn trailing.
+        //
         // Selection owns the action surface. Remove the floating Search tab
         // until Done so it cannot overlap the selection controls on Duo.
         if !browseVM.isSelecting {
@@ -367,7 +383,7 @@
               sessions: $sessions,
               query: $searchQuery,
               pendingSeed: $pendingSearchSeed,
-              serverKey: phoneSearchServerKey,
+              sessionKey: phoneSearchSessionKey,
               makeSession: makePhoneSearchSession,
               resolveAsset: resolveSearchAsset,
               loadSiblingAssets: searchPreviewSiblingAssets,
@@ -375,16 +391,16 @@
             )
           }
         }
-
-        Tab("Settings", systemImage: "gearshape", value: "settings") {
-          NavigationStack {
-            SettingsView(sessionFor: sessionFor)
-          }
-        }
       }
       // iOS 26 floating tab bar that minimizes on scroll — the collapse
       // behaviour the Search screen used to fake with a custom pill.
       .tabBarMinimizeBehavior(.onScrollDown)
+      // iOS 27 only keeps a `.search`-role tab as the separate floating
+      // button when selecting it activates search. Without this the tab
+      // renders inline with a nav-bar search field, and the keyboard
+      // animation re-runs `setTabs` each frame until the watchdog kills
+      // the app.
+      .tabViewSearchActivation(.searchTabSelection)
       .tint(MapleTokens.primary)
       // Face chips in the info pane → prefill the Search tab and run it
       // (#2518). Overrides the AppShell-root (mac/iPad) `searchForText` for

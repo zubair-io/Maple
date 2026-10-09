@@ -31,6 +31,7 @@ struct VectorscopeHud: View {
     case .bitmap, .everywhere: return "Skin"
     case .linear: return "Gradient"
     case .radial: return "Radial"
+    case .brush: return "Brush"
     case .group: return "Mask group"
     }
   }

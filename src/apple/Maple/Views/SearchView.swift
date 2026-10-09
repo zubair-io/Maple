@@ -30,11 +30,25 @@
     var thumbCache: CloudThumbCache?
     /// Live query text, owned by the host's `.searchable` search field.
     @Binding var query: String
+    /// The library's generated searches, shown as cards on the idle page.
+    var collections: GeneratedSearchCollectionsViewModel? = nil
+    /// The card whose results are still being fetched, shown as busy.
+    var openingCollectionID: String? = nil
+    /// Card tap — the host opens the collection's results.
+    var onSelectCollection: (GeneratedSearchCard) -> Void = { _ in }
+    /// The text the host just set programmatically (deep link, Map pin,
+    /// card), cleared by `onSeedApplied` once the change is observed. That
+    /// change is a seed, not the user clearing the field, so a filters-only
+    /// seed keeps its filters; a later user clear is not masked.
+    var seededQuery: String? = nil
+    var onSeedApplied: () -> Void = {}
     /// Result tap — the host opens the asset (Preview first, per Fast
     /// Preview §1).
     var onSelectAsset: (SearchAsset) -> Void = { _ in }
 
-    @State private var isStale: Bool = false
+    /// True from a keystroke until its debounced submit lands — covers the
+    /// 250ms window before `viewModel.isLoading` takes over.
+    @State private var isDebouncing: Bool = false
     @State private var showFilters = false
     @AppStorage("cm.search.recent") private var recentJSON: String = "[]"
 
@@ -74,12 +88,22 @@
           }
 
           if trimmedQuery.isEmpty && !filtersActive {
+            if let collections {
+              SearchGeneratedCollections(
+                model: collections,
+                provider: thumbProvider,
+                host: host,
+                openingID: openingCollectionID,
+                onTap: onSelectCollection)
+            }
             SearchRecentQueries(recent: recent, onTap: tapRecent)
           } else {
             SearchPhotoResultsSection(
               results: results,
               total: total,
-              isStale: isStale,
+              isLoading: isDebouncing || (viewModel?.isLoading ?? false),
+              // A failed later page keeps the pages already shown.
+              failed: viewModel?.loadError != nil && results.isEmpty,
               hasQuery: true,
               query: query,
               onTap: { asset in
@@ -97,7 +121,22 @@
       }
       .background(MapleTokens.bg.ignoresSafeArea())
       .accessibilityIdentifier("search-root")
-      .onChange(of: query) { _, _ in scheduleSearch() }
+      .onChange(of: query) { previous, current in
+        let isSeed = seededQuery != nil && current == seededQuery
+        if isSeed { onSeedApplied() }
+        // The field's clear button empties the text in one step, which
+        // SwiftUI reports the same way as a backspace. A multi-character
+        // drop to empty is the button; a single-character one is ambiguous
+        // (backspacing "a" to retype, or the button on a one-letter query)
+        // and keeps the filters — losing them while editing is the worse
+        // mistake. On the button, drop the filters too so the page returns
+        // to Recents instead of re-running a filters-only search.
+        let clearedByButton = current.isEmpty && previous.count > 1
+        if !isSeed && clearedByButton && filtersActive {
+          viewModel?.resetFilters()
+        }
+        scheduleSearch()
+      }
       .onAppear {
         // The session / view model can arrive AFTER the user has already
         // typed (the `.searchable` field lives above this view and is
@@ -109,7 +148,15 @@
         // them here so the panel is usable without a query (#2879).
         Task { await viewModel?.loadFacetsIfNeeded() }
       }
-      .onDisappear { debounceTask?.cancel() }
+      // Once per page lifetime: a tab re-appearance keeps today's cards.
+      .task {
+        guard let collections, collections.collections.isEmpty else { return }
+        await collections.load()
+      }
+      .onDisappear {
+        debounceTask?.cancel()
+        isDebouncing = false
+      }
       .sheet(isPresented: $showFilters) {
         if let viewModel {
           SearchFilterPanel(vm: viewModel, onClose: { showFilters = false })
@@ -188,21 +235,31 @@
       debounceTask?.cancel()
       let trimmed = trimmedQuery
       guard !trimmed.isEmpty || filtersActive else {
-        isStale = false
+        isDebouncing = false
         return
       }
-      isStale = true
-      debounceTask = Task { [viewModel] in
+      // The host already put this text's results up (a tapped collection
+      // card, a deep-link seed) — a debounce here would only flash the
+      // spinner over them before `submitIfChanged` found nothing to do.
+      guard trimmed != viewModel?.params.placeQuery else {
+        isDebouncing = false
+        return
+      }
+      isDebouncing = true
+      debounceTask = Task { @MainActor [viewModel] in
         try? await Task.sleep(for: .milliseconds(250))
-        if Task.isCancelled { return }
-        await MainActor.run {
-          viewModel?.params.placeQuery = trimmed
-        }
+        // A newer keystroke cancelled this task and owns the flag now.
+        guard !Task.isCancelled else { return }
+        viewModel?.params.placeQuery = trimmed
+        // Hand the spinner to `viewModel.isLoading` in this same main-actor
+        // turn — `submit()` raises it before its first suspension, so there
+        // is no gap — rather than after the submit returns, which also waits
+        // out the slower facets request and hid results that had landed.
+        isDebouncing = false
         // A trailing-whitespace edit leaves `trimmed` — and so the whole
         // param set — unchanged; `submitIfChanged` skips the redundant
         // round-trip in that case.
         await viewModel?.submitIfChanged()
-        await MainActor.run { isStale = false }
       }
     }
   }

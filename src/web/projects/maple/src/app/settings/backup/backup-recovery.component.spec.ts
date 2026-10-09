@@ -118,7 +118,7 @@ describe('BackupRecoveryComponent', () => {
     expect(api.restoreJob).toHaveBeenCalledWith('job');
     expect(el().textContent).toContain('Recovery done');
   });
-  it('never broadens an unavailable generation into a whole-library restore', async () => {
+  it('never broadens an unavailable entry into a whole-library restore', async () => {
     await settle();
     target('/Photos/Recovered');
     const component = fixture.componentInstance as unknown as {
@@ -129,9 +129,9 @@ describe('BackupRecoveryComponent', () => {
     button('Preview recovery').click();
     await settle();
     expect(api.previewRestore).not.toHaveBeenCalled();
-    expect(el().textContent).toContain('selected generation is unavailable');
+    expect(el().textContent).toContain('selected backup entry is unavailable');
   });
-  it('sends historical selection using the server flat entryId/sequence contract', async () => {
+  it('sends a single-photo selection using the server entryId/sequence contract', async () => {
     await settle();
     target('/Photos/Recovered');
     const component = fixture.componentInstance as unknown as {

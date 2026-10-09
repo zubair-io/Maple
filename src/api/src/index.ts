@@ -100,6 +100,7 @@ import { initOtel, shutdownOtel } from './otel.ts';
 import { getChangeFeedTailer } from './runtime/change-feed-tailer.ts';
 import { getApnsPushTrigger } from './apns/push-trigger.ts';
 import { startEventLoopLagMonitor, stopEventLoopLagMonitor } from './runtime/diag-eventloop.ts';
+import { startMemoryTelemetry, stopMemoryTelemetry } from './runtime/memory-telemetry.ts';
 import { startWorkerSupervisor, stopWorkerSupervisor } from './runtime/worker-supervisor.ts';
 import { SERVER_PORT } from './runtime/server-port.ts';
 import { TLS_ENABLED, listenOptions } from './runtime/tls-config.ts';
@@ -437,6 +438,9 @@ async function start(): Promise<void> {
   // timers are unref'd so it never holds the process open. See
   // `runtime/diag-eventloop.ts`.
   startEventLoopLagMonitor();
+  // Per-process memory line once a minute, always on (#4445). The worker and
+  // the native children run the same reporter under their own process names.
+  startMemoryTelemetry({ process: 'api' });
   startDbBackupScheduler();
 
   const server = buildApp();
@@ -455,6 +459,7 @@ async function shutdown(signal: string): Promise<void> {
   // Stop the event-loop lag probe (no-op if it was never started).
   try {
     stopEventLoopLagMonitor();
+    stopMemoryTelemetry();
   } catch (e) {
     log.warn({ err: e }, 'error stopping event-loop lag monitor');
   }

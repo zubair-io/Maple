@@ -75,6 +75,9 @@ import XCTest
       }
 
       let app = XCUIApplication()
+      let queueDirectory = stagedDirectory.appendingPathComponent(
+        "exports-queue", isDirectory: true)
+      app.launchEnvironment["MAPLE_EXPORT_QUEUE_ROOT"] = queueDirectory.path
       // Pass the basename (not the full path); MapleApp.init combines it
       // with MAPLE_UITEST_FIXTURE_ROOT inside the running process — here
       // pointed at the STAGED copy, not the original repo path, so the

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import { documentShapeOf } from './meilisearch-vector-coverage.ts';
+import {
+  confirmedFingerprint,
+  coverageMarker,
+  documentShapeOf,
+  syncIndexAndCoverage,
+} from './meilisearch-vector-coverage.ts';
 import {
   EMBEDDER_TEMPLATE_SHAPE_VERSION,
   vectorFingerprint,
@@ -45,5 +50,56 @@ describe('documentShapeOf', () => {
     // #2992: the live shape prefix now tracks EMBEDDER_TEMPLATE_SHAPE_VERSION,
     // not ASSET_DOC_SHAPE_VERSION — see meilisearch-embedder-template.ts.
     expect(documentShapeOf(live)).toBe(`v${EMBEDDER_TEMPLATE_SHAPE_VERSION}`);
+  });
+});
+
+describe('coverage markers (#4432)', () => {
+  const client = (embedderInSync: boolean | null) => ({
+    semanticFingerprint: () => 'v8:settings',
+    embedderInSync: () => embedderInSync,
+  });
+
+  it('records the Settings fingerprint only once ensureIndex confirmed the embedder', () => {
+    expect(coverageMarker(client(true))).toBe('v8:settings');
+    expect(confirmedFingerprint(client(true))).toBe('v8:settings');
+  });
+
+  it('records a pending marker while drifted or not yet checked after a reconfigure', () => {
+    expect(coverageMarker(client(false))).toBe('v8:pending');
+    expect(coverageMarker(client(null))).toBe('v8:pending');
+    expect(coverageMarker({ semanticFingerprint: () => 'v8:settings' })).toBe('v8:pending');
+    expect(confirmedFingerprint(client(null))).toBeNull();
+  });
+
+  it('records nothing without semantic search', () => {
+    expect(coverageMarker({ semanticFingerprint: () => null })).toBeNull();
+  });
+});
+
+describe('syncIndexAndCoverage (#4432)', () => {
+  it('reports an unreachable Meilisearch without touching the index', async () => {
+    let ensured = false;
+    const reachable = await syncIndexAndCoverage({
+      health: async () => false,
+      ensureIndex: async () => {
+        ensured = true;
+      },
+    });
+    expect(reachable).toBe(false);
+    expect(ensured).toBe(false);
+  });
+
+  it('ensures the index and skips coverage while the embedder drifts', async () => {
+    let ensured = false;
+    const reachable = await syncIndexAndCoverage({
+      health: async () => true,
+      ensureIndex: async () => {
+        ensured = true;
+      },
+      semanticFingerprint: () => 'v8:settings',
+      embedderInSync: () => false,
+    });
+    expect(reachable).toBe(true);
+    expect(ensured).toBe(true);
   });
 });

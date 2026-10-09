@@ -201,8 +201,17 @@ export function seekExhausted(r: SearchResponse): boolean {
   return r.cursorPaging === true && (r.nextCursor ?? null) === null;
 }
 
+/**
+ * Which matches the facet counts describe (#4431). `all` — every match. `top`
+ * — a broad text search's `limit` most relevant results of `of` matches, so the
+ * buckets can omit values that appear only among weaker matches.
+ */
+export type FacetScope = { kind: 'all' } | { kind: 'top'; limit: number; of: number };
+
 export interface SearchFacets {
   total: number;
+  /** Absent on servers predating the field; readers treat it as `all`. */
+  scope?: FacetScope;
   cameras: Array<{ make: string | null; model: string | null; count: number }>;
   lenses: Array<{ value: string | null; count: number }>;
   extensions: Array<{ value: string; count: number }>;

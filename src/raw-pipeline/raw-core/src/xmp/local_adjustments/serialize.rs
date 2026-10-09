@@ -4,10 +4,11 @@
 
 use super::{AdjustmentModel, LocalAdjustment, Mask, PartialAdjustments, RangeRefinement};
 use super::{
-    GROUP_CONTAINER, LINEAR_CONTAINER, MASK_WHAT_IMAGE, MASK_WHAT_LINEAR, MASK_WHAT_RADIAL,
-    RADIAL_CONTAINER,
+    BRUSH_CONTAINER, GROUP_CONTAINER, LINEAR_CONTAINER, MASK_WHAT_IMAGE, MASK_WHAT_LINEAR,
+    MASK_WHAT_PAINT, MASK_WHAT_RADIAL, RADIAL_CONTAINER,
 };
 use crate::types::local_adjustment::flat::MASK_GROUP_VERSION;
+use crate::types::local_adjustment::{BrushDab, BRUSH_VERSION};
 use crate::types::{MaskCombine, MaskSource};
 
 /// Round to the canonical 2-decimal wire precision
@@ -40,7 +41,8 @@ fn fmt_mask_coord(v: f32) -> String {
 }
 
 /// Emit the canonical `crs:GradientBasedCorrections` /
-/// `crs:CircularGradientBasedCorrections` nested child elements for
+/// `crs:CircularGradientBasedCorrections` / `papp:BrushCorrections` /
+/// `crs:MaskGroupBasedCorrections` nested child elements for
 /// `model.local_adjustments`, each line prefixed so the container element
 /// sits at `indent` — same contract as [`super::super::serialize_tone_curves`].
 /// Returns the empty string when there are no layers, so an unedited model
@@ -56,7 +58,13 @@ pub fn serialize_local_adjustments(model: &AdjustmentModel, indent: &str) -> Str
         .iter()
         .filter(|l| matches!(&l.mask, Mask::Radial { .. }))
         .collect();
-    // Bitmap and Everywhere (#3271) share a third container — Lightroom
+    // Brush (#360) rides Maple's own container, never Adobe's paint one.
+    let paint: Vec<&LocalAdjustment> = model
+        .local_adjustments
+        .iter()
+        .filter(|l| matches!(&l.mask, Mask::Brush { .. }))
+        .collect();
+    // Bitmap and Everywhere (#3271) share a fourth container — Lightroom
     // 11+'s own shape for its AI masks, `crs:MaskGroupBasedCorrections`.
     let group: Vec<&LocalAdjustment> = model
         .local_adjustments
@@ -78,6 +86,12 @@ pub fn serialize_local_adjustments(model: &AdjustmentModel, indent: &str) -> Str
             out.push('\n');
         }
         out.push_str(&serialize_container(RADIAL_CONTAINER, &radial, indent));
+    }
+    if !paint.is_empty() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&serialize_container(BRUSH_CONTAINER, &paint, indent));
     }
     if !group.is_empty() {
         if !out.is_empty() {
@@ -235,6 +249,29 @@ fn serialize_mask(mask: &Mask, indent: &str) -> String {
              {indent}  crs:MaskValue=\"1\"\n\
              {indent}  papp:MaskSource=\"Everywhere\"/>\n"
         ),
+        Mask::Brush {
+            dabs, digest, ..
+        } => {
+            // `raster_id` is never written: it is an in-process registry
+            // handle, re-resolved from the dabs or `papp:BrushDigest` on load.
+            let dabs_attr = write_dab_series(dabs);
+            let dabs_line = if dabs_attr.is_empty() {
+                String::new()
+            } else {
+                format!("\n{indent}  papp:Dabs=\"{dabs_attr}\"")
+            };
+            let digest_line = if digest.is_empty() {
+                String::new()
+            } else {
+                format!("\n{indent}  papp:BrushDigest=\"{}\"", escape_attr(digest))
+            };
+            format!(
+                "{indent}<rdf:li\n\
+                 {indent}  crs:What=\"{MASK_WHAT_PAINT}\"\n\
+                 {indent}  crs:MaskValue=\"1\"\n\
+                 {indent}  papp:BrushVersion=\"{BRUSH_VERSION}\"{dabs_line}{digest_line}/>\n"
+            )
+        }
         Mask::Group(group) => group.components.iter().map(|component| {
             let xml = match component.mask() {
                 Mask::Linear { .. } | Mask::Radial { .. } => serialize_geometric_mask(component.mask(), indent, true),
@@ -251,10 +288,44 @@ fn serialize_mask(mask: &Mask, indent: &str) -> String {
     }
 }
 
-/// Minimal XML-attribute escaping for the two free-text bitmap-recipe
-/// fields (`MaskModel`, `MaskDigest`) — every other value on this element
-/// is a closed enum or a formatted number, so this is the one place a
-/// `crs:*`/`papp:*` attribute value could legally contain `&`/`<`/`"`.
+/// Encode a dab series as the `papp:Dabs` attribute value: six
+/// whitespace-separated tokens per dab — `x y radius feather weight erase`.
+/// Positions and radius ride the 6-decimal mask-coordinate format;
+/// feather/weight ride 4 decimals (the rasterizer quantizes to R8, so deeper
+/// precision would be unwritten precision); erase is `0`/`1`.
+/// `docs/xmp-canonical-format.md` § "Brush masks (paint)" is the contract.
+///
+/// Dabs with a non-finite field are dropped, not written: one bad stamp in
+/// hundreds is a host bug, not a misplaced mask, and emitting it would
+/// produce a sidecar this module's own reader rejects.
+fn write_dab_series(dabs: &[BrushDab]) -> String {
+    dabs.iter()
+        .filter(|d| {
+            d.center.x.is_finite()
+                && d.center.y.is_finite()
+                && d.radius.is_finite()
+                && d.feather.is_finite()
+                && d.weight.is_finite()
+        })
+        .map(|d| {
+            format!(
+                "{} {} {} {} {} {}",
+                fmt_mask_coord(d.center.x),
+                fmt_mask_coord(d.center.y),
+                fmt_mask_coord(d.radius),
+                fmt4(d.feather),
+                fmt4(d.weight),
+                if d.erase { 1 } else { 0 },
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Minimal XML-attribute escaping for the free-text recipe fields
+/// (`MaskModel`, `MaskDigest`, `BrushDigest`) — every other value on this
+/// element is a closed enum or a formatted number, so this is the one place
+/// a `crs:*`/`papp:*` attribute value could legally contain `&`/`<`/`"`.
 fn escape_attr(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -262,7 +333,7 @@ fn escape_attr(s: &str) -> String {
 }
 
 /// Only ever called for `Linear`/`Radial` — [`serialize_mask`] routes
-/// `Bitmap`/`Everywhere` to its own two arms before falling through here.
+/// `Bitmap`/`Everywhere`/`Brush` to their own arms before falling through here.
 fn serialize_geometric_mask(mask: &Mask, indent: &str, modern: bool) -> String {
     let number = |value: f32| {
         if modern {
@@ -279,8 +350,8 @@ fn serialize_geometric_mask(mask: &Mask, indent: &str, modern: bool) -> String {
         }
     };
     match *mask {
-        Mask::Bitmap { .. } | Mask::Everywhere | Mask::Group(_) => {
-            unreachable!("serialize_mask routes Bitmap/Everywhere before calling this")
+        Mask::Bitmap { .. } | Mask::Brush { .. } | Mask::Everywhere | Mask::Group(_) => {
+            unreachable!("serialize_mask routes Bitmap/Brush/Everywhere before calling this")
         }
         Mask::Linear {
             start,

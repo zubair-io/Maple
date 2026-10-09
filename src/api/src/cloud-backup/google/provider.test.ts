@@ -4,10 +4,13 @@ import { GoogleDriveProvider } from './provider.ts';
 import { logicalKeyHash } from './client.ts';
 import { googleStore } from './google-store.test-helpers.ts';
 import type { GoogleFetch } from './oauth.ts';
-import type { PublishSource, UploadCheckpoint } from '../provider.ts';
+import type { BackupObject, PublishSource, UploadCheckpoint } from '../provider.ts';
 
 const root = 'maple-root';
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+const objectCount = (store: ReturnType<typeof googleStore>) =>
+  [...store.files.values()].filter((file) => file.mimeType !== 'application/vnd.google-apps.folder')
+    .length;
 function source(bytes: Uint8Array): PublishSource {
   return {
     size: bytes.length,
@@ -40,7 +43,7 @@ test('immutable uploads reserve IDs durably, align chunks and resume after a los
   ).rejects.toThrow('request failed');
   expect(checkpoint).not.toBeNull();
   expect(checkpointWrites).toBeGreaterThanOrEqual(5);
-  expect(store.files.size).toBe(1);
+  expect(objectCount(store)).toBe(1);
   const object = await provider.publish('blobs/immutable-sha', content, {
     checkpoint,
     saveCheckpoint: async (value) => {
@@ -48,7 +51,7 @@ test('immutable uploads reserve IDs durably, align chunks and resume after a los
     },
   });
   expect(object.sha256).toBe(content.sha256);
-  expect(store.files.size).toBe(1);
+  expect(objectCount(store)).toBe(1);
   const chunks = store.requests.filter((r) => r.method === 'PUT');
   expect(chunks[0]!.headers.get('content-range')).toBe(
     `bytes 0-${8 * 1024 * 1024 - 1}/${bytes.length}`,
@@ -73,7 +76,7 @@ test('listing is root scoped; foreign and moved locators are refused for downloa
   ).toBe(false);
   await expect(provider.download(object)).rejects.toThrow('outside');
   await expect(provider.remove(object)).rejects.toThrow('outside');
-  expect(store.files.size).toBe(1);
+  expect(objectCount(store)).toBe(1);
   expect(store.requests.some((r) => r.method === 'DELETE')).toBe(false);
 });
 test('logical key and checkpoint URL injection cannot transmit bearer credentials to arbitrary endpoints', async () => {
@@ -92,6 +95,10 @@ test('logical key and checkpoint URL injection cannot transmit bearer credential
         rootId: root,
         key: 'blobs/test',
         fileId: 'file-1',
+        parentId: root,
+        name: 'test',
+        replace: false,
+        exactName: true,
         size: 1,
         sha256: sha(new Uint8Array([1])),
         session: 'https://evil.example/upload?upload_id=1',
@@ -99,6 +106,32 @@ test('logical key and checkpoint URL injection cannot transmit bearer credential
     }),
   ).rejects.toThrow('resumable session');
   expect(store.requests).toHaveLength(0);
+});
+test('legacy checkpoints are safely discarded and restarted in the current backup subtree', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const content = source(new Uint8Array([1, 2, 3]));
+  let checkpoint: UploadCheckpoint | null = {
+    provider: 'google-drive',
+    version: 1,
+    state: {
+      rootId: root,
+      key: 'blobs/legacy',
+      fileId: 'old-reservation',
+      sha256: content.sha256,
+      size: content.size,
+      session: null,
+    },
+  };
+  const object = await provider.publish('blobs/legacy', content, {
+    checkpoint,
+    saveCheckpoint: async (value) => {
+      checkpoint = value;
+    },
+  });
+  expect(object.sha256).toBe(content.sha256);
+  expect(store.files.get(object.locator)!.parents[0]).not.toBe(root);
+  expect(checkpoint?.state).toMatchObject({ parentId: expect.any(String), replace: false });
 });
 test('immutable key content mismatch never overwrites existing Google bytes', async () => {
   const store = googleStore();
@@ -132,9 +165,85 @@ test('Google display names preserve photo extension and MIME while immutable key
   expect(JSON.parse(file.description).key).toBe('blobs/photo-sha');
   expect(
     store.requests
-      .find((request) => request.method === 'POST')!
+      .find((request) => request.path.startsWith('/upload/drive/v3/files'))!
       .headers.get('x-upload-content-type'),
   ).toBe('image/jpeg');
+});
+
+test('mirror uploads preserve exact folder and filename paths and replace bytes in place', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const relativePath = '2024/Wedding/IMG_0042.JPG';
+  const key = `mirror/${'a'.repeat(24)}/${relativePath}`;
+  const firstBytes = new Uint8Array([1, 2, 3]);
+  const first = await provider.mirrorFile(key, relativePath, source(firstBytes), {
+    saveCheckpoint: async () => {},
+  });
+  const file = store.files.get(first.locator)!;
+  expect(file.name).toBe('IMG_0042.JPG');
+  expect(file.parents).toHaveLength(1);
+  expect(file.parents[0]).not.toBe(root);
+  const folderNames: string[] = [];
+  let parentId = file.parents[0]!;
+  while (parentId !== root) {
+    const parent = store.files.get(parentId)!;
+    folderNames.unshift(parent.name);
+    parentId = parent.parents[0]!;
+  }
+  expect(folderNames).toEqual(['2024', 'Wedding']);
+  const changedBytes = new Uint8Array([4, 5, 6, 7]);
+  const updated = await provider.mirrorFile(key, relativePath, source(changedBytes), {
+    saveCheckpoint: async () => {},
+  });
+  expect(updated.locator).toBe(first.locator);
+  expect(updated.sha256).toBe(sha(changedBytes));
+  expect(store.files.get(first.locator)!.bytes).toEqual(changedBytes);
+  expect(
+    [...store.files.values()].filter(
+      (item) => item.mimeType !== 'application/vnd.google-apps.folder',
+    ),
+  ).toHaveLength(1);
+  const listed: BackupObject[] = [];
+  for await (const object of provider.list('mirror/')) listed.push(object);
+  expect(listed).toEqual([updated]);
+});
+test('catalog listing resolves its prefix and never enumerates mirrored photo folders', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const library = 'a'.repeat(24);
+  const mirror = await provider.mirrorFile(
+    `mirror/${library}/2024/Wedding/photo.jpg`,
+    '2024/Wedding/photo.jpg',
+    source(new Uint8Array([1, 2, 3])),
+    { saveCheckpoint: async () => {} },
+  );
+  await provider.publish(
+    `libraries/${library}/entries/entry-1/manifests/1.json`,
+    source(new Uint8Array([4])),
+    { saveCheckpoint: async () => {} },
+  );
+  const mediaFolderIds = new Set<string>();
+  let parentId = store.files.get(mirror.locator)!.parents[0]!;
+  while (parentId !== root) {
+    mediaFolderIds.add(parentId);
+    parentId = store.files.get(parentId)!.parents[0]!;
+  }
+  const before = store.requests.length;
+  const listed: BackupObject[] = [];
+  for await (const object of provider.list(`libraries/${library}/entries/entry-1/manifests/`))
+    listed.push(object);
+  expect(listed.map((object) => object.key)).toEqual([
+    `libraries/${library}/entries/entry-1/manifests/1.json`,
+  ]);
+  const listQueries = store.requests
+    .slice(before)
+    .filter((request) => request.method === 'GET' && request.query?.includes('in parents'));
+  expect(listQueries.length).toBeGreaterThan(0);
+  expect(
+    listQueries.some((request) =>
+      [...mediaFolderIds].some((folderId) => request.query?.includes(`'${folderId}' in parents`)),
+    ),
+  ).toBe(false);
 });
 test('inspect hashes bytes when Google does not supply a native SHA; marker metadata cannot forge verification', async () => {
   const store = googleStore();
@@ -163,6 +272,10 @@ test('cleanup of a corrupt reservation cannot delete another owned backup object
         rootId: root,
         key: 'blobs/purged',
         fileId: object.locator,
+        parentId: root,
+        name: 'purged',
+        replace: false,
+        exactName: true,
         sha256: object.sha256,
         size: object.size,
         session: null,
@@ -191,19 +304,25 @@ test('exact inspection queries a bounded public key hash and never enumerates un
     store.files.set(`unrelated-${index}`, {
       ...file,
       id: `unrelated-${index}`,
+      parents: [root],
       properties: { mapleKeyHash: logicalKeyHash(otherKey) },
       description: JSON.stringify({ ...JSON.parse(file.description), key: otherKey }),
     });
   }
+  const beforeSearch = store.requests.length;
   expect(await provider.inspect(key)).toEqual(object);
-  const lists = store.requests.filter((request) => request.path === '/drive/v3/files');
-  expect(lists.length).toBeGreaterThan(0);
-  for (const request of lists) {
-    expect(request.query).toBe(
-      `'${root}' in parents and trashed = false and properties has { key='mapleKeyHash' and value='${logicalKeyHash(key)}' }`,
-    );
-    expect(request.query).not.toContain('é');
-  }
+  const lists = store.requests.filter(
+    (request) =>
+      store.requests.indexOf(request) >= beforeSearch &&
+      request.path === '/drive/v3/files' &&
+      request.query?.includes('properties has'),
+  );
+  expect(lists).toHaveLength(1);
+  expect(lists[0]!.query).toBe(
+    `'${file.parents[0]}' in parents and trashed = false and properties has { key='mapleKeyHash' and value='${logicalKeyHash(key)}' }`,
+  );
+  expect(lists[0]!.query).not.toContain(`'${root}' in parents`);
+  expect(lists[0]!.query).not.toContain('é');
 });
 
 test('portable root listings and direct downloads do not depend on the searchable property', async () => {
@@ -226,9 +345,30 @@ test('portable root listings and direct downloads do not depend on the searchabl
     .slice(before)
     .filter((request) => request.path === '/drive/v3/files');
   expect(lists).toHaveLength(1);
+  expect(lists[0]!.query).toContain(`'${store.files.get(object.locator)!.parents[0]}' in parents`);
   expect(lists[0]!.query).toContain('properties has');
   store.files.delete(object.locator);
   expect(await provider.inspect(object.key, undefined, object.locator)).toBeNull();
+});
+
+test('cached photo folders are checked before reading them after a user moves one outside the root', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const target = await provider.objectTarget('mirror/library/2024/Wedding/IMG_0042.JPG');
+  const moved = store.files.get(target.parentId)!;
+  moved.parents = ['outside-root'];
+  const before = store.requests.length;
+
+  await expect(provider.inspect('mirror/library/2024/Wedding/IMG_0042.JPG')).rejects.toThrow(
+    'moved outside',
+  );
+
+  const folderQueries = store.requests
+    .slice(before)
+    .filter((request) => request.query?.includes(' in parents'));
+  expect(
+    folderQueries.some((request) => request.query?.includes(`'${target.parentId}' in parents`)),
+  ).toBe(false);
 });
 
 test('exact search rejects inconsistent public metadata and duplicates across result pages', async () => {
@@ -244,7 +384,10 @@ test('exact search rejects inconsistent public metadata and duplicates across re
   file.description = original;
   const paged: GoogleFetch = async (raw, init) => {
     const url = new URL(raw);
-    if (url.pathname === '/drive/v3/files') {
+    if (
+      url.pathname === '/drive/v3/files' &&
+      url.searchParams.get('q')?.includes('properties has')
+    ) {
       expect(url.searchParams.get('q')).toContain(`value='${logicalKeyHash(object.key)}'`);
       return Response.json({
         files: [{ ...file, id: url.searchParams.has('pageToken') ? 'duplicate-id' : file.id }],
@@ -323,5 +466,93 @@ test('an empty upload completes without a status-probe Content-Range and reconci
   });
   expect(object.size).toBe(0);
   expect(object.sha256).toBe(content.sha256);
-  expect(store.files.size).toBe(1);
+  expect(objectCount(store)).toBe(1);
+});
+
+test('expired immutable upload sessions retry the durable reserved ID', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const content = source(new Uint8Array([1, 2, 3]));
+  let checkpoint: UploadCheckpoint | null = null;
+  store.failChunk();
+  await expect(
+    provider.publish('blobs/expired', content, {
+      saveCheckpoint: async (value) => {
+        checkpoint = value;
+      },
+    }),
+  ).rejects.toThrow('request failed');
+  const reservedId = checkpoint!.state.fileId as string;
+
+  store.expireSessionProbe();
+  const object = await provider.publish('blobs/expired', content, {
+    checkpoint,
+    saveCheckpoint: async (value) => {
+      checkpoint = value;
+    },
+  });
+
+  expect(object.locator).toBe(reservedId);
+  expect(object.sha256).toBe(content.sha256);
+});
+
+test('expired mirror replacement sessions retain the current object ID when it still exists', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const key = `mirror/${'a'.repeat(24)}/IMG_0042.JPG`;
+  const original = await provider.mirrorFile(key, 'IMG_0042.JPG', source(new Uint8Array([1])), {
+    saveCheckpoint: async () => {},
+  });
+  const replacement = source(new Uint8Array([2, 3]));
+  let checkpoint: UploadCheckpoint | null = null;
+  store.failChunk();
+  await expect(
+    provider.mirrorFile(key, 'IMG_0042.JPG', replacement, {
+      saveCheckpoint: async (value) => {
+        checkpoint = value;
+      },
+    }),
+  ).rejects.toThrow('request failed');
+
+  store.expireSessionProbe();
+  const object = await provider.mirrorFile(key, 'IMG_0042.JPG', replacement, {
+    checkpoint,
+    saveCheckpoint: async (value) => {
+      checkpoint = value;
+    },
+  });
+
+  expect(object.locator).toBe(original.locator);
+  expect(object.sha256).toBe(replacement.sha256);
+});
+
+test('expired mirror replacement sessions reserve a new ID if the old object disappeared', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const key = `mirror/${'a'.repeat(24)}/IMG_0042.JPG`;
+  const original = await provider.mirrorFile(key, 'IMG_0042.JPG', source(new Uint8Array([1])), {
+    saveCheckpoint: async () => {},
+  });
+  const replacement = source(new Uint8Array([2, 3]));
+  let checkpoint: UploadCheckpoint | null = null;
+  store.failChunk();
+  await expect(
+    provider.mirrorFile(key, 'IMG_0042.JPG', replacement, {
+      saveCheckpoint: async (value) => {
+        checkpoint = value;
+      },
+    }),
+  ).rejects.toThrow('request failed');
+  store.files.delete(original.locator);
+
+  store.expireSessionProbe();
+  const object = await provider.mirrorFile(key, 'IMG_0042.JPG', replacement, {
+    checkpoint,
+    saveCheckpoint: async (value) => {
+      checkpoint = value;
+    },
+  });
+
+  expect(object.locator).not.toBe(original.locator);
+  expect(object.sha256).toBe(replacement.sha256);
 });

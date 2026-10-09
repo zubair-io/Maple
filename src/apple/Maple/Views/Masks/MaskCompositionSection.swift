@@ -10,12 +10,20 @@ struct MaskCompositionSection: View {
     return nil
   }
 
+  private var isBrush: Bool {
+    if case .brush = session.selectedMaskGeometry { return true }
+    return false
+  }
+
   var body: some View {
     VStack(spacing: 6) {
-      HStack {
-        composeMenu(.add, label: "Add to mask")
-        composeMenu(.subtract, label: "Subtract")
-        composeMenu(.intersect, label: "Intersect")
+      // A brush is top-level only: no reader models it inside a group.
+      if !isBrush {
+        HStack {
+          composeMenu(.add, label: "Add to mask")
+          composeMenu(.subtract, label: "Subtract")
+          composeMenu(.intersect, label: "Intersect")
+        }
       }
       if let group {
         ForEach(Array(group.components.enumerated()), id: \.offset) { index, component in
@@ -56,13 +64,33 @@ struct MaskCompositionSection: View {
         )
         .accessibilityIdentifier("editor-mask-group-invert")
       }
-      slider("Opacity", value: group?.opacity ?? 1, change: session.setMaskOpacity)
+      if !isBrush {
+        slider("Opacity", value: group?.opacity ?? 1, change: session.setMaskOpacity)
+      }
       if let feather = feather {
         slider("Feather", value: feather, change: setFeather)
       }
       if group == nil, case .radial(_, _, _, _, let inverted) = session.selectedMaskGeometry {
         MuiToggle(checked: Binding(get: { inverted }, set: setRadialInverted), label: "Invert")
           .accessibilityIdentifier("editor-mask-invert")
+      }
+      // Brush tip (#360): tool state, not a layer edit — no gesture, no undo.
+      if isBrush {
+        brushSlider(
+          "Size", value: session.brushTip.size, range: 0.002...0.5,
+          change: { session.brushTip.size = $0 }, id: "editor-mask-brush-size")
+        brushSlider(
+          "Feather", value: session.brushTip.feather, range: 0...1,
+          change: { session.brushTip.feather = $0 }, id: "editor-mask-brush-feather")
+        brushSlider(
+          "Flow", value: session.brushTip.flow, range: 0.01...1,
+          change: { session.brushTip.flow = $0 }, id: "editor-mask-brush-flow")
+        MuiToggle(
+          checked: Binding(
+            get: { session.brushTip.erase }, set: { session.brushTip.erase = $0 }),
+          label: "Erase"
+        )
+        .accessibilityIdentifier("editor-mask-brush-erase")
       }
     }
     .accessibilityElement(children: .contain)
@@ -96,6 +124,22 @@ struct MaskCompositionSection: View {
         .font(.system(size: 11).monospacedDigit()).frame(width: 40, alignment: .trailing)
     }
     .accessibilityIdentifier("editor-mask-\(label.lowercased())")
+  }
+
+  /// A brush-tip slider: no `onEditingChanged` transaction — the tip is
+  /// tool state, and dragging it must not open an undo entry.
+  private func brushSlider(
+    _ label: String, value: Double, range: ClosedRange<Double>,
+    change: @escaping (Double) -> Void, id: String
+  ) -> some View {
+    HStack {
+      Text(label).font(.system(size: 11)).frame(width: 90, alignment: .leading)
+      Slider(value: Binding(get: { value }, set: change), in: range)
+        .accessibilityLabel(label)
+      Text(value, format: .percent.precision(.fractionLength(0)))
+        .font(.system(size: 11).monospacedDigit()).frame(width: 40, alignment: .trailing)
+    }
+    .accessibilityIdentifier(id)
   }
 
   private var feather: Double? {
@@ -132,6 +176,7 @@ struct MaskCompositionSection: View {
     case .radial: name = "Radial"
     case .bitmap: name = "Person"
     case .everywhere: name = "Everywhere"
+    case .brush: name = "Brush"
     case .group: name = "Mask group"
     }
     return "\(name) \(index + 1)"

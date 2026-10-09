@@ -46,6 +46,15 @@ extension EditSession {
         rasters[bitmap.rasterId] = try? await sourceMaskRaster(for: bitmap.recipe)
       }
     }
+    // Brush leaves re-rasterize from their dabs through the same
+    // `maple_brush_rasterize` the registry upload uses, so the preview is
+    // exactly what the render samples.
+    for brush in mask.brushMasks where brush.rasterId != 0 {
+      guard !Task.isCancelled else { return nil }
+      if rasters[brush.rasterId] == nil, let raster = sourceBrushRaster(dabs: brush.dabs) {
+        rasters[brush.rasterId] = raster
+      }
+    }
     let resolved = rasters
     let size = nativeImageSize
     let task = Task.detached(priority: .userInitiated) {

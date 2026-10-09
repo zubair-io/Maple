@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import * as fs from '../fs/mirrored.ts';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -50,7 +51,7 @@ async function setup(live: Awaited<ReturnType<typeof createLiveTestDatabase>>) {
   return { assetId, libraryId, destination, repo, provider, engine };
 }
 
-test('original and exact XMP bytes publish durable versions recoverable without the local catalog', async () => {
+test('original and exact XMP bytes mirror to one current remote path without the local catalog', async () => {
   using live = await createLiveTestDatabase();
   const { assetId, destination, repo, provider, engine } = await setup(live);
   expect(await engine.backupAsset(assetId)).toBe(true);
@@ -64,14 +65,79 @@ test('original and exact XMP bytes publish durable versions recoverable without 
   run(live.db, 'UPDATE assets SET sidecar_ver=sidecar_ver+1 WHERE id=?', assetId);
   expect(await engine.backupAsset(assetId)).toBe(true);
   const remote = await readRemoteCatalog(provider);
-  expect(remote.entries).toHaveLength(2);
+  expect(remote.entries).toHaveLength(1);
   const latest = latestManifests(remote.entries)[0]!;
   expect(latest.sequence).toBeGreaterThan(first.sequence);
   expect(latest.files[0]!.object.locator).toBe(first.files[0]!.object.locator);
   expect((await repo.entries(destination.id))[0]!.verified_sequence).toBe(latest.sequence);
   run(live.db, 'DELETE FROM backup_entries');
-  expect((await readRemoteCatalog(provider)).entries).toHaveLength(2);
+  expect((await readRemoteCatalog(provider)).entries).toHaveLength(1);
   expect(await fs.readFile(path.join(root, 'photo.dng'), 'utf8')).toBe('immutable original');
+});
+test('outgoing entry cleanup preserves a mirror path that another entry has claimed', async () => {
+  using live = await createLiveTestDatabase();
+  const { assetId, destination, repo, provider, engine } = await setup(live);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  const firstManifest = latestManifests((await readRemoteCatalog(provider)).entries)[0]!;
+  const firstObject = firstManifest.files.find((file) => file.role === 'original')!.object;
+  const otherEntryId = crypto.randomUUID();
+  await repo.saveObject(destination.id, otherEntryId, firstObject.key, firstObject, null);
+
+  run(live.db, 'UPDATE asset_locations SET filename=? WHERE asset_id=?', 'renamed.dng', assetId);
+  await fs.rename(path.join(root, 'photo.dng'), path.join(root, 'renamed.dng'));
+  run(live.db, 'UPDATE assets SET sidecar_ver=sidecar_ver+1 WHERE id=?', assetId);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  expect(provider.objects.has(firstObject.key)).toBe(true);
+  expect((await repo.objectOwner(destination.id, firstObject.key))?.entryId).toBe(otherEntryId);
+});
+test('mirror migration removes an unreferenced legacy blob after publishing its replacement', async () => {
+  using live = await createLiveTestDatabase();
+  const { assetId, libraryId, destination, repo, provider, engine } = await setup(live);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  const prior = latestManifests((await readRemoteCatalog(provider)).entries)[0]!;
+  const entry = (await repo.entries(destination.id))[0]!;
+  const original = prior.files.find((file) => file.role === 'original')!;
+  const bytes = provider.objects.get(original.object.key)!.bytes;
+  async function publishLegacyBlob(content: Uint8Array) {
+    const sha256 = createHash('sha256').update(content).digest('hex');
+    const key = `libraries/${libraryId}/entries/${entry.id}/blobs/${sha256}`;
+    const object = await provider.publish(
+      key,
+      {
+        size: content.length,
+        sha256,
+        open: (offset) =>
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(content.subarray(offset));
+              controller.close();
+            },
+          }),
+      },
+      { saveCheckpoint: async () => {} },
+    );
+    await repo.saveObject(destination.id, entry.id, key, object, null);
+    return { key, object };
+  }
+  const { key: legacyKey, object: legacyObject } = await publishLegacyBlob(bytes);
+  const { key: historicalKey } = await publishLegacyBlob(Buffer.from('older backup sequence'));
+  const legacyManifest = {
+    ...prior,
+    files: prior.files.map((file) =>
+      file.path === original.path ? { ...file, object: legacyObject } : file,
+    ),
+  };
+  await repo.db.write('UPDATE backup_entries SET manifest=? WHERE id=?', [
+    JSON.stringify(legacyManifest),
+    entry.id,
+  ]);
+
+  run(live.db, 'UPDATE assets SET sidecar_ver=sidecar_ver+1 WHERE id=?', assetId);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  expect(provider.objects.has(legacyKey)).toBe(false);
+  expect(provider.objects.has(historicalKey)).toBe(false);
+  expect(await repo.objectOwner(destination.id, legacyKey)).toBeNull();
+  expect(await repo.objectOwner(destination.id, historicalKey)).toBeNull();
 });
 test('a disconnected target retries independently while healthy targets publish', async () => {
   using live = await createLiveTestDatabase();
@@ -98,7 +164,7 @@ test('a known object moved outside the backup root blocks reuse and retains its 
   using live = await createLiveTestDatabase();
   const { assetId, destination, repo, provider, engine } = await setup(live);
   expect(await engine.backupAsset(assetId)).toBe(true);
-  const blob = [...provider.objects.values()].find((row) => row.object.key.includes('/blobs/'))!;
+  const blob = [...provider.objects.values()].find((row) => row.object.key.startsWith('mirror/'))!;
   const locator = blob.object.locator;
   const count = provider.objects.size;
   blob.moved = true;
@@ -127,7 +193,8 @@ test('Trash and restore advance the remote state without rewriting original byte
   const { assetId, engine, provider } = await setup(live);
   expect(await engine.backupAsset(assetId)).toBe(true);
   expect((await trashAssetById(new ObjectId(assetId))).kind).toBe('ok');
-  expect(await engine.backupAsset(assetId)).toBe(true);
+  const trashBackupResult = await engine.backupAsset(assetId);
+  expect(trashBackupResult).toBe(true);
   expect(latestManifests((await readRemoteCatalog(provider)).entries)[0]!.state).toBe('trash');
   expect((await restoreAssetById(new ObjectId(assetId))).kind).toBe('ok');
   expect(await engine.backupAsset(assetId)).toBe(true);
@@ -145,7 +212,7 @@ test('permanent purge remains durable offline, suppresses old catalogs, and bloc
   await drainPurges(engine, destination);
   expect((await repo.purges(destination.id))[0]!.completed).toBe(0);
   provider.offline = false;
-  const blob = [...provider.objects.values()].find((row) => row.object.key.includes('/blobs/'))!;
+  const blob = [...provider.objects.values()].find((row) => row.object.key.startsWith('mirror/'))!;
   blob.moved = true;
   await drainPurges(engine, destination);
   expect((await repo.purges(destination.id))[0]!.completed).toBe(0);

@@ -50,6 +50,12 @@ struct MapleApp: App {
     // 2.0 is the default since the M2 flip). See Auto1Flag's module doc
     // for why `open -n` needs the launch-argument form.
     Auto1Flag.propagateToProcessEnvironmentIfNeeded()
+    #if os(iOS)
+      // The phone opens on Library every launch (#4433). `cm.tab.shell` only
+      // carries in-session switches (deep links, Map pins), which arrive after
+      // this runs.
+      UserDefaults.standard.set("library", forKey: "cm.tab.shell")
+    #endif
     #if os(macOS)
       AgentBridgeController.shared.syncWithPreference()
     #endif

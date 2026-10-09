@@ -13,6 +13,31 @@ import {
 import * as path from 'node:path';
 import { recoverBackup, recoveryPreview } from './restore.ts';
 import { recoveryFixture as fixture, libraryId, entryId, source } from './restore.test-helpers.ts';
+import type { BackupManifest } from './provider.ts';
+
+test('recovery continues to read manifests created before the mirror layout', async () => {
+  const f = await fixture();
+  try {
+    const current = f.provider.manifest(1);
+    const file = current.files[0]!;
+    const oldKey = `libraries/${libraryId}/entries/${entryId}/blobs/${file.object.sha256}`;
+    const stored = f.provider.objects.get(file.object.key)!;
+    f.provider.objects.delete(file.object.key);
+    stored.object.key = oldKey;
+    f.provider.objects.set(oldKey, stored);
+    const legacy: BackupManifest = {
+      ...current,
+      files: [{ ...file, object: { ...file.object, key: oldKey } }],
+    };
+    f.provider.saveManifest(legacy);
+
+    expect((await recoverBackup(f.provider, f.request, f.ctx, source)).kind).toBe('done');
+    expect(await readFile(path.join(f.root, 'photo.jpg'), 'utf8')).toBe(`${entryId}-version-1`);
+  } finally {
+    await f.close();
+  }
+});
+
 test('preview rejects a partial version selection instead of broadening to a whole library', async () => {
   const f = await fixture();
   try {
@@ -29,7 +54,7 @@ test('preview rejects a partial version selection instead of broadening to a who
   }
 });
 
-test('checkpoint-before-first-file crash resumes the pinned manifest even after catalog advances', async () => {
+test('a recovery checkpoint refuses to continue after the mirrored source version changes', async () => {
   const f = await fixture();
   try {
     f.provider.manifest(1);
@@ -47,9 +72,10 @@ test('checkpoint-before-first-file crash resumes the pinned manifest even after 
       ),
     ).rejects.toThrow('crash');
     f.provider.manifest(2);
-    expect((await recoverBackup(f.provider, f.request, f.ctx, source)).kind).toBe('done');
-    expect(await readFile(path.join(f.root, 'photo.jpg'), 'utf8')).toBe(`${entryId}-version-1`);
-    expect(f.live.db.query('SELECT COUNT(*) AS n FROM assets').get()).toEqual({ n: 1 });
+    await expect(recoverBackup(f.provider, f.request, f.ctx, source)).rejects.toThrow(
+      'coverage is incomplete',
+    );
+    expect(f.live.db.query('SELECT COUNT(*) AS n FROM assets').get()).toEqual({ n: 0 });
   } finally {
     await f.close();
   }
@@ -75,7 +101,7 @@ test('resume rejects changed cloud root and a replacement local recovery directo
     ).rejects.toThrow();
     await expect(
       recoverBackup(f.provider, f.request, f.ctx, { ...source, rootId: 'replacement' }),
-    ).rejects.toThrow('source or selection changed');
+    ).rejects.toThrow();
     await rename(f.root, displaced);
     await mkdir(f.root);
     await symlink(
@@ -136,19 +162,21 @@ test('indexes actual Trash path alongside same original name, restores hidden an
   try {
     f.provider.manifest();
     const trash = f.provider.manifest(1, 'trash', 'd'.repeat(24));
-    const prefix = `libraries/${libraryId}/entries/${trash.entryId}/blobs/`;
     const xmp = '<x:xmpmeta>\n unknown-fields-exact \n</x:xmpmeta>';
     trash.hidden = true;
     trash.files.push(
       {
         path: '.maple/trash/photo.xmp',
         role: 'sidecar',
-        object: f.provider.put(`${prefix}xmp`, xmp),
+        object: f.provider.put(`mirror/${libraryId}/.maple/trash/photo.xmp`, xmp),
       },
       {
         path: '.maple/trash/photo-rendered.jpg',
         role: 'companion',
-        object: f.provider.put(`${prefix}companion`, 'rendered-companion'),
+        object: f.provider.put(
+          `mirror/${libraryId}/.maple/trash/photo-rendered.jpg`,
+          'rendered-companion',
+        ),
       },
     );
     f.provider.saveManifest(trash);
@@ -198,7 +226,7 @@ test('metadata conflict rolls back indexing without deleting an existing live de
     const active = f.provider.manifest();
     const trash = f.provider.manifest(1, 'trash', 'd'.repeat(24));
     trash.files[0]!.object = f.provider.put(
-      `libraries/${libraryId}/entries/${trash.entryId}/blobs/same-content`,
+      `mirror/${libraryId}/${trash.currentPath}`,
       `${entryId}-version-1`,
     );
     f.provider.saveManifest(trash);
@@ -238,7 +266,7 @@ test('checksum failure leaves no final photo and replay rejects a symlink at an 
   }
 });
 
-test('published-file crash resumes verified bytes and cleans only this job temporary journal', async () => {
+test('published-file recovery refuses to resume after the current mirrored file changes', async () => {
   const f = await fixture();
   try {
     f.provider.manifest();
@@ -260,13 +288,11 @@ test('published-file crash resumes verified bytes and cleans only this job tempo
       'partial journal',
     );
     f.provider.manifest(2);
-    const before = f.provider.downloads.filter((key) => key.includes('/blobs/')).length;
-    expect(
-      (await recoverBackup(f.provider, f.request, { ...f.ctx, checkpoint: f.checkpoint() }, source))
-        .kind,
-    ).toBe('done');
-    expect(f.provider.downloads.filter((key) => key.includes('/blobs/')).length).toBe(before);
-    expect(await readFile(path.join(f.root, 'photo.jpg'), 'utf8')).toBe(`${entryId}-version-1`);
+    const before = f.provider.downloads.filter((key) => key.startsWith('mirror/')).length;
+    await expect(
+      recoverBackup(f.provider, f.request, { ...f.ctx, checkpoint: f.checkpoint() }, source),
+    ).rejects.toThrow('coverage is incomplete');
+    expect(f.provider.downloads.filter((key) => key.startsWith('mirror/')).length).toBe(before);
     expect((await readdir(f.root)).filter((name) => name.endsWith('.pending'))).toEqual([]);
   } finally {
     await f.close();

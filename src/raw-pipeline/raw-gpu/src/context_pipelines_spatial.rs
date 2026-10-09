@@ -15,7 +15,9 @@
 //! `GpuContext` struct defined in `context.rs`.
 
 use crate::context::GpuContext;
-use crate::context_pipelines_helpers::{compile_cs, compile_nr, compile_standalone};
+use crate::context_pipelines_helpers::{
+    compile_cs, compile_nr, compile_standalone, compile_with_matrices,
+};
 
 impl GpuContext {
     /// The cached tone-curves compute pipeline (epic #925 P2 / #990).
@@ -268,7 +270,7 @@ impl GpuContext {
     /// gradient). 4 storage.
     pub fn sharpen_mix_pipeline(&self) -> &wgpu::ComputePipeline {
         self.sharpen_mix_pipeline.get_or_init(|| {
-            compile_standalone(
+            compile_with_matrices(
                 &self.device,
                 "sharpen-mix",
                 include_str!("sharpen_mix.wgsl"),

@@ -1425,6 +1425,73 @@ public class SMB2Manager: NSObject, NSSecureCoding, Codable, NSCopying, CustomRe
 }
 
 extension SMB2Manager {
+  /// Bounded verification reads keep one server handle through both stat checks.
+  public func readRestoreFile(
+    atPath path: String, expectedIdentity: UInt64,
+    consume: @Sendable @escaping (Data) -> Void
+  ) async throws {
+    try await withVerifiedRestoreFile(
+      path, identity: expectedIdentity, consume: consume, validate: { _ in true }
+    ) { _ in }
+  }
+
+  /// Exclusive rename of the verified handle also closes the rollback race.
+  public func moveRestoreFile(
+    atPath path: String, toPath destination: String, expectedIdentity: UInt64,
+    consume: @Sendable @escaping (Data) -> Void,
+    validate: @Sendable @escaping (UInt64) -> Bool
+  ) async throws {
+    try await withVerifiedRestoreFile(path, identity: expectedIdentity, consume: consume, validate: validate) { file in
+      var name = Data(destination.canonical.replacingOccurrences(of: "/", with: "\\").utf8)
+      name.append(0)
+      try name.withUnsafeMutableBytes { buffer in
+        var rename = smb2_file_rename_info()
+        rename.replace_if_exist = 0
+        rename.file_name = UnsafePointer(buffer.baseAddress!.assumingMemoryBound(to: UInt8.self))
+        try file.setInfo(rename, infoClass: .rename)
+      }
+    }
+  }
+
+  private func withVerifiedRestoreFile(
+    _ path: String, identity: UInt64, consume: @Sendable @escaping (Data) -> Void,
+    validate: @Sendable @escaping (UInt64) -> Bool,
+    action: @Sendable @escaping (SMB2FileHandle) throws -> Void
+  ) async throws {
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      // A Void continuation matches both `asyncHandler` overloads; the
+      // annotation selects the Result-based bridge `with` expects here.
+      let completionHandler: @Sendable (Result<Void, any Error>) -> Void = asyncHandler(
+        continuation)
+      with(completionHandler: completionHandler) { client in
+        let file = try SMB2FileHandle(
+          path: path.canonical, desiredAccess: [.read, .delete, .synchronize],
+          shareAccess: [.read], createDisposition: .open,
+          createOptions: [.nonDirectoryFile, .openReparsePoint], on: client)
+        defer { file.close() }
+        let before = try file.fstat()
+        guard before.smb2_type == UInt32(SMB2_TYPE_FILE), before.smb2_ino == identity,
+          identity != 0 else { throw POSIXError(.ESTALE) }
+        let readSize = min(file.optimizedReadSize, 1024 * 1024)
+        guard readSize > 0 else { throw POSIXError(.EIO) }
+        var count: UInt64 = 0
+        while true {
+          let chunk = try file.read(length: readSize)
+          if chunk.isEmpty { break }
+          guard count <= before.smb2_size,
+            UInt64(chunk.count) <= before.smb2_size - count else { throw POSIXError(.ESTALE) }
+          count += UInt64(chunk.count)
+          consume(chunk)
+        }
+        let after = try file.fstat()
+        guard after.smb2_ino == identity, after.smb2_size == count, before.smb2_size == count,
+          after.smb2_mtime == before.smb2_mtime, after.smb2_mtime_nsec == before.smb2_mtime_nsec,
+          validate(count) else { throw POSIXError(.ESTALE) }
+        try action(file)
+      }
+    }
+  }
+
   /// Maple #4065: server-owned publication; the persistent lock is never unlinked.
   public func publishSidecar(
     atPath path: String,
@@ -1675,28 +1742,31 @@ extension SMB2Manager {
         let fileSource = try SMB2FileHandle(forReadingAtPath: path, on: client)
         let size = try Int64(fileSource.fstat().smb2_size)
         let sourceKey: IOCtl.RequestResumeKey = try fileSource.fcntl(command: .srvRequestResumeKey)
-        // TODO: Get chunk size from server
-        let chunkSize = fileSource.optimizedWriteSize
-        let chunkArray = stride(from: 0, to: UInt64(size), by: chunkSize).map {
-            IOCtl.SrvCopyChunk(
-                sourceOffset: $0, targetOffset: $0,
-                length: min(UInt32(UInt64(size) - $0), UInt32(chunkSize))
-            )
-        }
+        // #4142: one bounded negotiation, using actual server-advertised limits.
+        var chunkSize = UInt64(min(fileSource.optimizedWriteSize, Int(UInt32.max)))
+        guard chunkSize > 0 else { throw POSIXError(.EINVAL) }
         let fileDest = try SMB2FileHandle(forCreatingIfNotExistsAtPath: toPath, on: client)
+        var offset: UInt64 = 0
+        var negotiated = false
         var shouldContinue = true
-        for chunk in chunkArray {
-            let chunkCopy = IOCtl.SrvCopyChunkCopy(sourceKey: sourceKey.resumeKey, chunks: [chunk])
-            try fileDest.fcntl(command: .srvCopyChunk, args: chunkCopy)
-            if let progress {
-                shouldContinue =
-                    progress(Int64(chunk.length), Int64(chunk.sourceOffset) + Int64(chunk.length), size) != nil
+        while offset < UInt64(size) && shouldContinue {
+            let length = UInt32(min(UInt64(size) - offset, chunkSize))
+            let chunk = IOCtl.SrvCopyChunk(sourceOffset: offset, targetOffset: offset, length: length)
+            let request = IOCtl.SrvCopyChunkCopy(sourceKey: sourceKey.resumeKey, chunks: [chunk])
+            let response = try fileDest.copyChunk(request)
+            if response.status == SMB2_STATUS_INVALID_PARAMETER {
+                guard !negotiated else { throw POSIXError(.EINVAL) }
+                chunkSize = UInt64(try response.data.reducedChunkSize(rejectedLength: length))
+                negotiated = true
+                continue
             }
-            
-            if !shouldContinue {
-                break
+            try response.data.validateCopied(length: length)
+            offset += UInt64(length)
+            if let progress {
+                shouldContinue = progress(Int64(length), Int64(offset), size) != nil
             }
         }
+        if shouldContinue { try fileDest.fsync() }
         return shouldContinue ? size : nil
     }
 

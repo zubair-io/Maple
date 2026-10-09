@@ -47,6 +47,7 @@ export * from './lib/api/workers-api.service';
 export * from './lib/api/worker-events.service';
 export * from './lib/api/imports-api.service';
 export * from './lib/api/ai-api.service';
+export * from './lib/api/meilisearch-embedder-api.service';
 // #1231 — Panorama stitching
 export * from './lib/api/pano.service';
 export * from './lib/pano/pano-dialog.component';

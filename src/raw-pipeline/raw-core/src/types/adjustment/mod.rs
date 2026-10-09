@@ -564,7 +564,7 @@ pub struct AdjustmentModel {
 
 /// Fresh-import defaults. Split into a sibling module (#376) so this
 /// file stays under the 600-LOC hard budget.
-mod defaults;
+pub(crate) mod defaults;
 
 #[cfg(test)]
 mod tests;

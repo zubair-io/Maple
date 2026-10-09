@@ -85,7 +85,10 @@ public enum MaskRemap {
         angle: angle2,
         feather: feather,
         invert: invert)
-    case .bitmap, .everywhere:
+    case .bitmap, .everywhere, .brush:
+      // Raster-backed leaves pass through untouched: the remap swaps the
+      // registered id for a derived one (`EditSession+MaskRemap`), and the
+      // dabs/recipe keep describing the full-frame source.
       return mask
     case .group:
       return mask.mappingLeaves { remap($0, bufferToFull: m, fullToBuffer: inverse) }

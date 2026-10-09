@@ -1,7 +1,8 @@
 // XMPSerialization+LocalAdjustments.swift — nested-element XMP I/O for
-// local adjustments (#358): the canonical Adobe Camera Raw
+// local adjustments (#358, brush by #360): the canonical Adobe Camera Raw
 // `crs:GradientBasedCorrections` (linear masks) /
-// `crs:CircularGradientBasedCorrections` (radial masks) containers, each an
+// `crs:CircularGradientBasedCorrections` (radial masks) containers plus
+// Maple's own `papp:BrushCorrections` (brush masks), each an
 // `rdf:Seq` of `rdf:li` → `rdf:Description` corrections carrying the
 // `crs:Local*2012` sliders and one nested `crs:CorrectionMasks` mask leaf:
 //
@@ -42,23 +43,28 @@ import Foundation
 /// Shared wire-format constants and codecs for the local-adjustment containers.
 enum LocalAdjustmentXMP {
   enum Kind {
-    case linear, radial, group
+    case linear, radial, brush, group
   }
 
   static let linearContainer = "crs:GradientBasedCorrections"
   static let radialContainer = "crs:CircularGradientBasedCorrections"
+  /// Brush masks (#360) — Maple's own container. Lightroom's
+  /// `crs:PaintBasedCorrections` is never modelled: its dab shape cannot be
+  /// re-emitted from this model, so it stays verbatim passthrough.
+  static let brushContainer = "papp:BrushCorrections"
   /// Bitmap and Everywhere masks (#3271) — Lightroom 11+'s own container
   /// for its AI masks, so a reader that doesn't understand
   /// `papp:MaskSource` still sees a structurally valid correction.
   static let groupContainer = "crs:MaskGroupBasedCorrections"
-  /// All three containers, in canonical emit order.
-  static let containers = [linearContainer, radialContainer, groupContainer]
+  /// All four containers, in canonical emit order.
+  static let containers = [linearContainer, radialContainer, brushContainer, groupContainer]
   static let masksElement = "crs:CorrectionMasks"
 
   static func containerKind(_ qual: String) -> Kind? {
     switch qual {
     case linearContainer: return .linear
     case radialContainer: return .radial
+    case brushContainer: return .brush
     case groupContainer: return .group
     default: return nil
     }
@@ -68,6 +74,7 @@ enum LocalAdjustmentXMP {
     switch kind {
     case .linear: return "Mask/Gradient"
     case .radial: return "Mask/CircularGradient"
+    case .brush: return "Mask/Paint"
     case .group: return "Mask/Image"
     }
   }
@@ -204,6 +211,13 @@ enum LocalAdjustmentXMP {
         angle: degreesToRadians(finite(a, "crs:Angle") ?? 0),
         feather: min(1, max(0, featherPct / (modern ? 50 : 100))),
         invert: (bool(a["crs:Flipped"]) ?? false) != modern)
+    case .brush:
+      // An unknown `papp:BrushVersion` or a malformed series drops the
+      // correction; a missing `papp:Dabs` is an empty stroke.
+      guard a["papp:BrushVersion"] == String(LocalMaskWire.brushVersion),
+        let dabs = parseDabSeries(a["papp:Dabs"])
+      else { return nil }
+      return .brush(dabs: dabs, digest: a["papp:BrushDigest"] ?? "", rasterId: 0)
     case .group:
       // `papp:MaskSource` is what separates Maple's two group-container
       // masks from a Lightroom AI mask sharing `Mask/Image` — anything
@@ -263,11 +277,15 @@ struct LocalAdjustmentWalker {
   private var inMasksSeq = false
   private var current: InProgress?
   private var finished: [LocalAdjustment] = []
+  private var containerStart = 0
+  private var containerDropped = false
 
   mutating func start(_ qual: String, attributes: [String: String]) -> Bool {
     guard let kind = container else {
       container = LocalAdjustmentXMP.containerKind(qual)
       if container != nil { depth = 1 }
+      containerStart = finished.count
+      containerDropped = false
       return container != nil
     }
     depth += 1
@@ -314,10 +332,17 @@ struct LocalAdjustmentWalker {
             xmpMetadata: kind == .group
               ? LocalAdjustmentXMP.metadata(
                 cur.attributes, owned: LocalAdjustmentXMP.correctionKeys) : nil))
+      } else {
+        containerDropped = true
       }
       current = nil
     }
-    if depth == 1 { container = nil }
+    if depth == 1 {
+      // Brush is all-or-nothing: the passthrough keeps a partly unreadable
+      // container verbatim (`isModeledBrushContainer`).
+      if kind == .brush, containerDropped { finished.removeSubrange(containerStart...) }
+      container = nil
+    }
     depth -= 1
   }
 
@@ -333,10 +358,11 @@ extension XMPSerializer {
   /// `localAdjustmentBlocks` for the same layers — `LocalAdjustmentXMPTests`
   /// pins that against the shared literal.
   ///
-  /// Adobe keeps linear and radial corrections in two separate arrays, so
-  /// an interleaved model stack round-trips as two contiguous runs (all
-  /// linear, then all radial). Returns the empty string when there are no
-  /// layers, so an unedited model adds nothing to the document.
+  /// Adobe keeps each correction kind in its own array, so an interleaved
+  /// model stack round-trips as contiguous per-kind runs (all linear, then
+  /// all radial, then all brush, then all group). Returns the empty string
+  /// when there are no layers, so an unedited model adds nothing to the
+  /// document.
   static func _buildLocalAdjustmentsBlock(model: AdjustmentModel, indent: String) -> String {
     let kinds: [(tag: String, isKind: (LocalMask) -> Bool)] = [
       (
@@ -354,11 +380,18 @@ extension XMPSerializer {
         }
       ),
       (
+        LocalAdjustmentXMP.brushContainer,
+        {
+          if case .brush = $0 { return true }
+          return false
+        }
+      ),
+      (
         LocalAdjustmentXMP.groupContainer,
         {
           switch $0 {
           case .bitmap, .everywhere, .group: return true
-          case .linear, .radial: return false
+          case .linear, .radial, .brush: return false
           }
         }
       ),
@@ -489,6 +522,8 @@ extension XMPSerializer {
         "\(indent)  papp:MaskModel=\"\(escapeXMLAttr(recipe.model))\"",
         "\(indent)  papp:MaskDigest=\"\(escapeXMLAttr(recipe.digest))\"/>",
       ]
+    case .brush:
+      return _localAdjustmentBrushLines(mask, indent: indent)
     case .group(let group):
       return _maskGroupLines(group, indent: indent) { mask, indent, modern in
         _localAdjustmentMaskLines(mask, indent: indent, modern: modern)

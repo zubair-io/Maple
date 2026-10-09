@@ -57,6 +57,14 @@ export interface BoundStatement {
  * right for the same reason the semi-join is right elsewhere — the smallest
  * driving set goes first.
  *
+ * The unary `+` on the join is what keeps it leading. Given a selective index
+ * on `assets` — `assets_live_month` was the one that surfaced this (#4413) —
+ * the planner otherwise starts from that index and probes the virtual table by
+ * rowid per row, and an FTS5 rowid probe re-evaluates the entire `MATCH` each
+ * time: the subjects and people facets went from 0.6 s to 8–9 s that way. With
+ * the rowid wrapped it is not a constraint the virtual table can be handed, so
+ * the inverted index is scanned once, first.
+ *
  * A text query no row can satisfy also leads with `assets`: there is no
  * expression to hand `MATCH`, the `WHERE` is the constant `0`, and joining an
  * inverted index to prove that is work for nothing.
@@ -64,7 +72,7 @@ export interface BoundStatement {
 export function fromClause(where: SearchWhere): string {
   if (where.match.kind !== 'match') return 'FROM assets';
   return `FROM assets_fts
-      JOIN asset_search ON asset_search.rowid = assets_fts.rowid
+      JOIN asset_search ON asset_search.rowid = +assets_fts.rowid
       JOIN assets ON assets.id = asset_search.asset_id`;
 }
 
@@ -175,11 +183,8 @@ export function pageSql(
   offset: number,
   seek?: BoundPredicate,
 ): BoundStatement {
-  const ranked = where.match.kind === 'match';
-  const projection = ranked ? `${PAGE_COLUMNS},\n           ${FTS_RANK_SQL}` : PAGE_COLUMNS;
-  const order = ranked
-    ? `${FTS_RANK_ORDER}, assets.captured_at DESC, assets.id`
-    : (ORDER_BY[sort] ?? ORDER_BY.captured_desc!);
+  if (where.match.kind === 'match') return rankedPageSql(where, limit, offset, seek);
+  const order = ORDER_BY[sort] ?? ORDER_BY.captured_desc!;
   const captureIndex =
     where.ownerId === null
       ? 'assets_live_captured'
@@ -191,13 +196,55 @@ export function pageSql(
       ? `FROM assets INDEXED BY ${captureIndex}`
       : fromClause(where);
   return statement(
-    projection,
+    PAGE_COLUMNS,
     where,
     `ORDER BY ${order}\n   LIMIT ? OFFSET ?`,
     seek,
     [limit, offset],
     from,
   );
+}
+
+/**
+ * One page of a text search, ranked on ids and scores before any full row is
+ * read (#4419).
+ *
+ * A caption-style query matches most of the library, and the order is
+ * `bm25()` with the capture date and id as tie-breaks. Sorting the matches
+ * with their full rows attached meant every one of them — 130k at 335k assets
+ * — had its `exif` JSON read and its capture date extracted, only for all but
+ * a page to be thrown away: about a quarter of a 0.7 s statement.
+ *
+ * So `ranked` keeps the whole predicate (live, visibility, every filter, the
+ * month narrowing) but carries only the id and the score. `cutoff` is the score of the last row the page can reach. Every row that
+ * belongs on the page scores at or below it, so only those — the page plus
+ * whatever ties the boundary — are joined back to `assets` for the capture
+ * date and the columns, and sorted exactly as before. With fewer matches than
+ * the page reaches there is no cutoff and every match goes through.
+ *
+ * `MATERIALIZED` is what makes the scores computed once: inlined, `ranked`
+ * would be planned twice and the inverted index scanned for each.
+ */
+export function rankedPageSql(
+  where: SearchWhere,
+  limit: number,
+  offset: number,
+  seek?: BoundPredicate,
+  projection: string = PAGE_COLUMNS,
+): BoundStatement {
+  const candidates = statement(`assets.id AS id, ${FTS_RANK_SQL}`, where, '', seek);
+  return {
+    sql: `WITH ranked AS MATERIALIZED (${candidates.sql}),
+    cutoff AS (SELECT rank FROM ranked ORDER BY ${FTS_RANK_ORDER} LIMIT 1 OFFSET ?)
+  SELECT ${projection},
+           ranked.rank AS rank
+    FROM ranked
+    JOIN assets ON assets.id = ranked.id
+   WHERE NOT EXISTS (SELECT 1 FROM cutoff) OR ranked.rank <= (SELECT rank FROM cutoff)
+   ORDER BY ranked.rank ASC, assets.captured_at DESC, assets.id
+   LIMIT ? OFFSET ?`,
+    params: [...candidates.params, offset + limit - 1, limit, offset],
+  };
 }
 
 /**
@@ -332,7 +379,7 @@ export function serviceTextSearchSql(scope: string): string {
   return `
   SELECT assets.maple_id AS maple_id, ${FTS_RANK_SQL}
     FROM assets_fts
-    JOIN asset_search ON asset_search.rowid = assets_fts.rowid
+    JOIN asset_search ON asset_search.rowid = +assets_fts.rowid
     JOIN assets ON assets.id = asset_search.asset_id
    WHERE assets_fts MATCH ?
      AND ${QUALIFIED_LIVE_PREDICATE}

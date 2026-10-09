@@ -2,11 +2,28 @@ import * as fs from './mirrored.ts';
 import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { filesIdentical, moveNoClobber } from '../backup/fs-util.ts';
-import { listPairedSidecarsStrict as listPairedSidecars } from './xmp-conflict.ts';
+import { listPairedSidecarsStrict } from './xmp-conflict.ts';
+import { workflowSidecarBase } from './workflow-sidecar-pairing';
+import { isVideoFilename } from '../indexer/media-types';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('fs/trash-restore');
+
+/** Restore associates the saved pair case-insensitively. Ordinary move/trash
+ * keeps differently cased UUID branches separate; retain that contract there.
+ * The existing UUID parser still rejects malformed identities and suffixes. */
+async function listPairedSidecars(source: string): Promise<string[]> {
+  const paired = await listPairedSidecarsStrict(source);
+  const directory = path.dirname(source);
+  const base = path.basename(source, isVideoFilename(source) ? '' : path.extname(source));
+  const comparisonBase = base.toLowerCase();
+  const entries = await fs.readdir(directory);
+  const workflow = entries
+    .filter((name) => workflowSidecarBase(name)?.toLowerCase() === comparisonBase)
+    .map((name) => path.join(directory, name));
+  return [...new Set([...paired, ...workflow])];
+}
 
 /** A sidecar without a primary still owns its stem. Restoring an unedited
  * photo there would silently apply someone else's edits. ENOENT alone means

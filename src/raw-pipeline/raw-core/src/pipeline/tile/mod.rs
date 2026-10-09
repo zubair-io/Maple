@@ -25,15 +25,25 @@
 //! * [`overlap`] — the per-render pad calculator.
 //! * [`develop`] — the develop chain run on the padded crop.
 
+mod context;
 mod develop;
 mod guards;
+mod highlight_frame;
+pub(crate) use context::render_scene_linear_tile_from_frame_context_cancellable_f32;
+pub use context::{
+    render_scene_linear_tile_from_frame_context, render_scene_linear_tile_from_frame_context_f32,
+    HighlightFrameContext,
+};
 mod overlap;
+mod prefix;
 mod region;
 
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_full_parity;
+#[cfg(test)]
+mod tests_guided_context;
 #[cfg(test)]
 mod tests_live_parity;
 #[cfg(test)]
@@ -60,7 +70,7 @@ pub(crate) fn raster_window_overlap(model: &AdjustmentModel, long_edge: u32) -> 
     tile_overlap_px(None, model, long_edge as usize, 1)
 }
 use overlap::tile_overlap_px;
-use region::{pad_and_clamp_mosaic_rect, trim_image_to_inner, TileWindow};
+use region::{trim_image_to_inner, TileWindow};
 
 /// Tile-overlap pad in source pixels per edge. Picked to satisfy
 /// clarity's stencil reach (40 px per side: a guided filter at
@@ -108,6 +118,15 @@ pub struct TileRect {
     pub out_h: u32,
 }
 
+/// The tile entry's refusal, checked before a host prepares frame evidence.
+pub fn reject_untileable_tile(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: TileRect,
+) -> Result<()> {
+    guards::reject_untileable(raw, model, rect)
+}
+
 /// Exact padded working area for a host's allocation budget (#1107).
 pub(crate) fn tile_working_pixels(
     raw: &RawImage,
@@ -126,8 +145,9 @@ pub(crate) fn tile_working_pixels(
         full_frame_long_edge(raw, quality),
         divisor,
     );
-    let ((_, _, pw, ph), _) = pad_and_clamp_mosaic_rect(x, y, w, h, overlap, raw.width, raw.height);
-    Ok(u64::from(pw) * u64::from(ph))
+    let ((_, _, pw, ph), _) =
+        highlight_frame::padded_rect(raw, model, quality, (x, y, w, h), overlap);
+    Ok((u64::from(pw) * u64::from(ph)).max(highlight_frame::scratch_pixels(raw, model, quality)))
 }
 
 /// Render a tile of the developed scene-linear Rec.2020 fp16 RGBA image.
@@ -194,6 +214,29 @@ fn develop_tile_oriented_f32(
     ae_gain: f32,
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>)> {
+    develop_tile_with_frame(
+        raw,
+        model,
+        rect,
+        quality,
+        decoded_wb_anchor,
+        ae_gain,
+        None,
+        cancel,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn develop_tile_with_frame(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: TileRect,
+    quality: RenderQuality,
+    decoded_wb_anchor: Option<(f32, f32)>,
+    ae_gain: f32,
+    frame: Option<&HighlightFrameContext>,
+    cancel: crate::CancelToken<'_>,
+) -> Result<(u32, u32, Vec<f32>)> {
     if cancel.is_cancelled() {
         return Err(crate::error::Error::Cancelled);
     }
@@ -206,6 +249,8 @@ fn develop_tile_oriented_f32(
         out_h,
     } = rect;
     guards::reject_untileable(raw, model, rect)?;
+    let (frame_w, frame_h) = crate::pipeline::native_render_dims(raw);
+    let model = &*crate::types::with_brush_rasters(model, frame_w, frame_h);
     // (src_x, src_y, src_w, src_h) are in DISPLAY-oriented source coords —
     // that's what callers (Apple NativeDetailRenderer, maple-cli `tile`
     // subcommand) know about. Translate to sensor coords before cropping
@@ -228,7 +273,7 @@ fn develop_tile_oriented_f32(
         divisor,
     );
     let (rect, (left_pad, top_pad)) =
-        pad_and_clamp_mosaic_rect(s_x, s_y, s_w, s_h, overlap_px, raw.width, raw.height);
+        highlight_frame::padded_rect(raw, model, quality, (s_x, s_y, s_w, s_h), overlap_px);
     // Linearize ONLY the padded crop region — not the full sensor.
     // For a 100 MP RAW (~12288×8192) the per-tile cost was ~480 ms;
     // a 512+overlap region is ~582×582 px, ~10 ms. ~50× speedup with
@@ -238,6 +283,11 @@ fn develop_tile_oriented_f32(
     // Where this padded crop sits in the developed frame — what vignette and
     // local adjustments anchor their fields to (#1157).
     let window = TileWindow::for_padded_crop(raw, rx, ry, divisor);
+    let lazy_scene = highlight_frame::LazyScene::new(raw, model, quality);
+    let highlight_frame = match frame {
+        Some(context) => context.anchor((rx / divisor, ry / divisor), model)?,
+        None => highlight_frame::anchor(raw, quality, (rx / divisor, ry / divisor), &lazy_scene),
+    };
     let mut mosaic = stage("tile_linearize", || {
         linearize::sensor_linearize_region(raw, rx, ry, rw, rh)
     });
@@ -287,6 +337,7 @@ fn develop_tile_oriented_f32(
             inner,
             active_area,
             tile_origin: (rx / divisor, ry / divisor),
+            highlight_frame,
         },
         cancel,
     )?;
@@ -372,12 +423,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
     // Parallel (#1089 item 8), same rationale as the full-frame packs in
     // `render::scene_linear`: scalar software convert, order-preserving
     // indexed collect, bit-identical output.
-    let fp16: Vec<u16> = stage("tile_pack_fp16", || {
-        oriented_f32
-            .par_iter()
-            .map(|&v| f32_to_f16_bits(v))
-            .collect()
-    });
+    let fp16 = pack_fp16(&oriented_f32);
     Ok((w, h, fp16))
 }
 
@@ -478,4 +524,10 @@ pub fn render_scene_linear_tile_cancellable_f32(
         ae_gain,
         cancel,
     )
+}
+
+fn pack_fp16(pixels: &[f32]) -> Vec<u16> {
+    stage("tile_pack_fp16", || {
+        pixels.par_iter().map(|&v| f32_to_f16_bits(v)).collect()
+    })
 }

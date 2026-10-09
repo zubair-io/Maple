@@ -24,6 +24,7 @@ interface Upload {
   mimeType: string;
   size: number;
   parts: Uint8Array[];
+  existingId: string | null;
 }
 function metadata(file: TestFile) {
   const { bytes: _bytes, ...safe } = file;
@@ -47,10 +48,19 @@ class GoogleStore {
     headers: Headers;
   }> = [];
   private reserve = 0;
-  private active: Upload | null = null;
+  private readonly active = new Map<string, Upload>();
   private loseFinalResponse = false;
+  private failNextChunk = false;
+  private expireNextSessionProbe = false;
+  private sessionSequence = 0;
   loseFinal() {
     this.loseFinalResponse = true;
+  }
+  failChunk() {
+    this.failNextChunk = true;
+  }
+  expireSessionProbe() {
+    this.expireNextSessionProbe = true;
   }
   readonly transport: GoogleFetch = async (raw, init) => {
     const url = new URL(raw);
@@ -61,19 +71,22 @@ class GoogleStore {
       query: url.searchParams.get('q'),
       headers: new Headers(init?.headers),
     });
+    return this.route(url, method, init);
+  };
+  private route(url: URL, method: string, init?: RequestInit): Response {
     if (url.pathname === `/drive/v3/files/${root}`) return this.rootMetadata();
     switch (url.pathname) {
       case '/drive/v3/files/generateIds':
         return Response.json({ ids: [`file-${++this.reserve}`] });
       case '/drive/v3/files':
-        return this.listFiles(url);
-      case '/upload/drive/v3/files':
-        return this.uploadRequest(method, init);
+        return method === 'POST' ? this.createFile(init) : this.listFiles(url);
       default:
+        if (url.pathname.startsWith('/upload/drive/v3/files'))
+          return this.uploadRequest(url, method, init);
         if (url.pathname.startsWith('/drive/v3/files/')) return this.fileRequest(url, method);
         throw new Error(`Unexpected test request ${method} ${url.pathname}`);
     }
-  };
+  }
   private rootMetadata() {
     return Response.json({
       id: root,
@@ -81,11 +94,28 @@ class GoogleStore {
       mimeType: 'application/vnd.google-apps.folder',
       ownedByMe: true,
       parents: ['my-drive'],
-      description: JSON.stringify({ mapleBackupRoot: 1, identity: 'backup-uuid' }),
+      description: JSON.stringify({
+        mapleBackupRoot: 1,
+        identity: 'backup-uuid',
+      }),
     });
+  }
+  private createFile(init?: RequestInit) {
+    const fileMetadata = JSON.parse(String(init?.body)) as Omit<TestFile, 'id' | 'size' | 'bytes'>;
+    const id = `folder-${++this.reserve}`;
+    this.files.set(id, {
+      ...fileMetadata,
+      id,
+      size: '0',
+      bytes: new Uint8Array(),
+      ownedByMe: true,
+      driveId: undefined,
+    });
+    return Response.json({ id });
   }
   private listFiles(url: URL) {
     const query = url.searchParams.get('q') ?? '';
+    const parent = /'([^']+)' in parents/.exec(query)?.[1];
     const hash = /properties has \{ key='mapleKeyHash' and value='([a-f0-9]{64})' \}/.exec(
       query,
     )?.[1];
@@ -93,7 +123,8 @@ class GoogleStore {
       files: [...this.files.values()]
         .filter(
           (file) =>
-            file.parents.includes(root) && (!hash || file.properties?.['mapleKeyHash'] === hash),
+            (!parent || file.parents.includes(parent)) &&
+            (!hash || file.properties?.['mapleKeyHash'] === hash),
         )
         .map(metadata),
     });
@@ -109,30 +140,50 @@ class GoogleStore {
     if (url.searchParams.get('alt') === 'media') return new Response(new Uint8Array(file.bytes));
     return Response.json(metadata(file));
   }
-  private uploadRequest(method: string, init?: RequestInit) {
+  private uploadRequest(url: URL, method: string, init?: RequestInit) {
     if (method === 'DELETE') {
-      this.active = null;
+      const sessionId = url.searchParams.get('upload_id');
+      if (sessionId) this.active.delete(sessionId);
       return new Response(null, { status: 204 });
     }
-    if (method === 'POST') return this.startUpload(init);
-    if (method === 'PUT') return this.uploadChunk(init);
+    if (method === 'POST' || method === 'PATCH') return this.startUpload(url, method, init);
+    if (method === 'PUT') return this.uploadChunk(url, init);
     throw new Error(`Unexpected upload method ${method}`);
   }
-  private startUpload(init?: RequestInit) {
-    this.active = {
-      ...JSON.parse(String(init!.body)),
+  private startUpload(url: URL, method: string, init?: RequestInit) {
+    const existingId = method === 'PATCH' ? url.pathname.split('/').at(-1)! : null;
+    const previous = existingId ? this.files.get(existingId) : null;
+    if (existingId && !previous) return new Response(null, { status: 404 });
+    const body = JSON.parse(String(init!.body));
+    const sessionId = `session-${++this.sessionSequence}`;
+    this.active.set(sessionId, {
+      ...body,
+      id: existingId ?? body.id,
+      parents: body.parents ?? previous!.parents,
       size: Number(new Headers(init?.headers).get('x-upload-content-length')),
       parts: [],
-    };
+      existingId,
+    });
     return new Response(null, {
       status: 200,
       headers: {
-        Location: 'https://www.googleapis.com/upload/drive/v3/files?upload_id=session-1',
+        Location: `https://www.googleapis.com/upload/drive/v3/files${existingId ? `/${existingId}` : ''}?upload_id=${sessionId}`,
       },
     });
   }
-  private uploadChunk(init?: RequestInit) {
-    const active = this.active;
+  private uploadChunk(url: URL, init?: RequestInit) {
+    const sessionId = url.searchParams.get('upload_id');
+    const headers = new Headers(init?.headers);
+    if (this.expireNextSessionProbe && headers.get('content-range')?.startsWith('bytes */')) {
+      this.expireNextSessionProbe = false;
+      if (sessionId) this.active.delete(sessionId);
+      return new Response(null, { status: 404 });
+    }
+    if (this.failNextChunk && headers.has('content-range')) {
+      this.failNextChunk = false;
+      throw new Error('Simulated interrupted upload');
+    }
+    const active = sessionId ? this.active.get(sessionId) : null;
     if (!active) return new Response(null, { status: 404 });
     const body = init?.body as Uint8Array | undefined;
     if (body?.length) active.parts.push(body);
@@ -155,6 +206,7 @@ class GoogleStore {
       sha256Checksum: createHash('sha256').update(bytes).digest('hex'),
       bytes,
     });
+    if (sessionId) this.active.delete(sessionId);
     if (this.loseFinalResponse) {
       this.loseFinalResponse = false;
       throw new Error('Simulated lost final response');

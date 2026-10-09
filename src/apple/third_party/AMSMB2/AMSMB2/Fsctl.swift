@@ -133,6 +133,38 @@ extension IOCtl {
         }
     }
     
+    // MS-SMB2 2.2.32.1: the same three fields are limits on INVALID_PARAMETER.
+    struct SrvCopyChunkResponse: DecodableResponse {
+        let chunks: UInt32
+        let chunkBytes: UInt32
+        let totalBytes: UInt32
+
+        init(data: Data) throws {
+            guard data.count == 12,
+                let chunks = data.scanValue(offset: 0, as: UInt32.self),
+                let chunkBytes = data.scanValue(offset: 4, as: UInt32.self),
+                let totalBytes = data.scanValue(offset: 8, as: UInt32.self)
+            else { throw POSIXError(.EINVAL) }
+            self.chunks = chunks
+            self.chunkBytes = chunkBytes
+            self.totalBytes = totalBytes
+        }
+
+        func reducedChunkSize(rejectedLength: UInt32) throws -> UInt32 {
+            let bound = min(chunkBytes, totalBytes)
+            guard chunks > 0, bound > 0, bound < rejectedLength else {
+                throw POSIXError(.EINVAL)
+            }
+            return bound
+        }
+
+        func validateCopied(length: UInt32) throws {
+            guard chunks == 1, chunkBytes == 0, totalBytes == length else {
+                throw POSIXError(.EIO)
+            }
+        }
+    }
+
     struct RequestResumeKey: DecodableResponse {
         let resumeKey: Data
         

@@ -191,6 +191,16 @@ CREATE TABLE worker_status (
 `;
 
 /**
+ * The worker tier's latest memory samples — its own and its native children's
+ * (#4445), as `{ rows: ProcessMemoryRow[] }`. A fourth column with one writer
+ * (the worker's per-minute reporter), kept out of `statuses` so a process name
+ * can never be mistaken for a stage name by the status assembler.
+ */
+export const WORKER_STATUS_MEMORY_DDL = `
+ALTER TABLE worker_status ADD COLUMN memory TEXT CHECK (memory IS NULL OR json_valid(memory));
+`;
+
+/**
  * Resume state for the Meilisearch backfill: where the cursor reached and what
  * it has done since it started.
  *

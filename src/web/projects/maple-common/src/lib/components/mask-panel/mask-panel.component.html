@@ -16,6 +16,14 @@
       (pressed)="session.addRadial()"
       >Radial</mui-button
     >
+    <mui-button
+      size="sm"
+      iconLeading="plus"
+      ariaLabel="Add brush mask"
+      testId="mask-add-brush"
+      (pressed)="session.brush.add()"
+      >Brush</mui-button
+    >
     @if (detectAvailable) {
       <mui-button
         size="sm"
@@ -37,7 +45,7 @@
 
   @if (rows().length === 0) {
     <mui-text variant="body" color="muted" data-testid="mask-empty">
-      No masks yet — add a linear or radial mask to edit part of the image.
+      No masks yet — add a linear, radial, or brush mask to edit part of the image.
     </mui-text>
   } @else {
     <div class="mask-list flex flex-col" role="list" data-testid="mask-list">
@@ -67,24 +75,26 @@
 
   @if (selected(); as layer) {
     <div class="mask-controls flex flex-col gap-2" data-testid="mask-controls">
-      <div class="grid grid-cols-2 gap-2" data-testid="mask-compose">
-        @for (mode of combineModes; track mode) {
-          <mui-button
-            size="sm"
-            [ariaLabel]="mode + ' linear component'"
-            [testId]="'mask-' + mode + '-linear-component'"
-            (pressed)="session.addComponent('linear', mode)"
-            >{{ combineLabels[mode] }} linear</mui-button
-          >
-          <mui-button
-            size="sm"
-            [ariaLabel]="mode + ' radial component'"
-            [testId]="'mask-' + mode + '-radial-component'"
-            (pressed)="session.addComponent('radial', mode)"
-            >{{ combineLabels[mode] }} radial</mui-button
-          >
-        }
-      </div>
+      @if (layer.mask.kind !== 'brush') {
+        <div class="grid grid-cols-2 gap-2" data-testid="mask-compose">
+          @for (mode of combineModes; track mode) {
+            <mui-button
+              size="sm"
+              [ariaLabel]="mode + ' linear component'"
+              [testId]="'mask-' + mode + '-linear-component'"
+              (pressed)="session.addComponent('linear', mode)"
+              >{{ combineLabels[mode] }} linear</mui-button
+            >
+            <mui-button
+              size="sm"
+              [ariaLabel]="mode + ' radial component'"
+              [testId]="'mask-' + mode + '-radial-component'"
+              (pressed)="session.addComponent('radial', mode)"
+              >{{ combineLabels[mode] }} radial</mui-button
+            >
+          }
+        </div>
+      }
       @if (group(); as maskGroup) {
         <div role="list" data-testid="mask-components">
           @for (component of componentRows(); track component.index) {
@@ -136,16 +146,18 @@
           (checkedChange)="session.setGroupInverted($event)"
         />
       }
-      <mui-living-slider
-        label="Opacity"
-        [value]="group()?.opacity ?? 1"
-        [min]="0"
-        [max]="1"
-        [step]="0.01"
-        (valueChange)="session.setOpacity($event)"
-        (dragStart)="onDragStart()"
-        (dragEnd)="onDragEnd()"
-      />
+      @if (layer.mask.kind !== 'brush') {
+        <mui-living-slider
+          label="Opacity"
+          [value]="group()?.opacity ?? 1"
+          [min]="0"
+          [max]="1"
+          [step]="0.01"
+          (valueChange)="session.setOpacity($event)"
+          (dragStart)="onDragStart()"
+          (dragEnd)="onDragEnd()"
+        />
+      }
       @if (feather() !== null) {
         <mui-living-slider
           label="Feather"
@@ -164,6 +176,38 @@
           [checked]="inverted()"
           inputId="mask-invert"
           (checkedChange)="onInvertChange($event)"
+        />
+      }
+      @if (isBrush()) {
+        <mui-living-slider
+          label="Size"
+          [value]="session.brush.size()"
+          [min]="0.002"
+          [max]="0.5"
+          [step]="0.001"
+          (valueChange)="onBrushSizeChange($event)"
+        />
+        <mui-living-slider
+          label="Feather"
+          [value]="session.brush.feather()"
+          [min]="0"
+          [max]="1"
+          [step]="0.01"
+          (valueChange)="onBrushFeatherChange($event)"
+        />
+        <mui-living-slider
+          label="Flow"
+          [value]="session.brush.flow()"
+          [min]="0.01"
+          [max]="1"
+          [step]="0.01"
+          (valueChange)="onBrushFlowChange($event)"
+        />
+        <mui-checkbox
+          label="Erase"
+          [checked]="session.brush.erase()"
+          inputId="mask-brush-erase"
+          (checkedChange)="onBrushEraseChange($event)"
         />
       }
       @for (control of controls; track control.id) {

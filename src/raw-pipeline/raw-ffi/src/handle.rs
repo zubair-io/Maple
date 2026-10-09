@@ -39,12 +39,15 @@ use raw_core::decode::decode_bytes;
 use raw_core::xmp;
 use std::ffi::{c_char, CStr};
 
+#[path = "handle_context.rs"]
+mod context;
 #[path = "handle_geometry.rs"]
 mod geometry;
 
 /// Internal state behind the opaque pointer. Not exposed in the C ABI.
 pub(crate) struct MapleRawHandleInner {
-    pub(crate) raw: raw_core::image::RawImage,
+    pub(crate) raw: std::sync::Arc<raw_core::image::RawImage>,
+    frame: context::FrameCache,
     pub(crate) model: xmp::AdjustmentModel,
 }
 
@@ -132,10 +135,7 @@ pub unsafe extern "C" fn maple_open_raw_handle(
                 return 7;
             }
         };
-        let inner = Box::new(MapleRawHandleInner {
-            raw: raw_img,
-            model,
-        });
+        let inner = Box::new(MapleRawHandleInner::new(raw_img, model));
         let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
         let handle = Box::new(MapleRawHandle { inner: inner_ptr });
         unsafe {
@@ -200,10 +200,7 @@ pub unsafe extern "C" fn maple_open_raw_handle_bytes(
                 return 7;
             }
         };
-        let inner = Box::new(MapleRawHandleInner {
-            raw: raw_img,
-            model,
-        });
+        let inner = Box::new(MapleRawHandleInner::new(raw_img, model));
         let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
         let handle = Box::new(MapleRawHandle { inner: inner_ptr });
         unsafe {
@@ -271,9 +268,7 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
         set_last_error("handle has been freed".into());
         return 1;
     }
-    let inner: &MapleRawHandleInner = &*inner_ptr;
-    let raw_addr = (&inner.raw) as *const _ as usize;
-    let model_addr = (&inner.model) as *const _ as usize;
+    let inner_addr = inner_ptr as usize;
     let out_ptr = out as usize;
     let quality = if quality_preview != 0 {
         raw_core::pipeline::RenderQuality::Preview
@@ -293,51 +288,47 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
         // RawImageCache; see Task 5). The references read here live in
         // the heap-boxed `MapleRawHandleInner` whose lifetime is tied
         // to the matching `maple_close_raw_handle` call.
-        let raw_img: &raw_core::image::RawImage =
-            unsafe { &*(raw_addr as *const raw_core::image::RawImage) };
-        let model: &xmp::AdjustmentModel = unsafe { &*(model_addr as *const xmp::AdjustmentModel) };
+        let inner = unsafe { &*(inner_addr as *const MapleRawHandleInner) };
+        let model = &inner.model;
         if dehaze_active(model) {
             set_last_error("dehaze unsupported on tile path".into());
             return 10;
         }
-        let (w, h, fp16) =
-            match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
-                raw_img,
-                model,
-                raw_core::pipeline::TileRect {
-                    src_x,
-                    src_y,
-                    src_w,
-                    src_h,
-                    out_w,
-                    out_h,
-                },
-                quality,
-                wb_anchor,
-            ) {
-                Ok(t) => t,
-                Err(e) => {
-                    let msg = format!("{}", e);
-                    set_last_error(msg.clone());
-                    // rc=10 — model not tile-compatible; caller should fall
-                    // back to the full-image render. Covers the core entry's
-                    // dehaze / vignette / deep-denoise / local-adjustments /
-                    // capture-sharpening rejections (#1084, #1105, #1109).
-                    if crate::model::is_untileable_model_error(&msg) {
-                        return 10;
-                    }
-                    if msg.contains("tile source rectangle") {
-                        return 9;
-                    }
-                    if msg.contains("upscale") || msg.contains("downscale-only") {
-                        return 11;
-                    }
-                    if msg.contains("matching aspect") {
-                        return 12;
-                    }
-                    return 8;
+        let (w, h, fp16) = match inner.render_tile_fp16(
+            raw_core::pipeline::TileRect {
+                src_x,
+                src_y,
+                src_w,
+                src_h,
+                out_w,
+                out_h,
+            },
+            quality,
+            wb_anchor,
+        ) {
+            Ok(t) => t,
+            Err(e) => {
+                let msg = format!("{}", e);
+                set_last_error(msg.clone());
+                // rc=10 — model not tile-compatible; caller should fall
+                // back to the full-image render. Covers the core entry's
+                // dehaze / vignette / deep-denoise / local-adjustments /
+                // capture-sharpening rejections (#1084, #1105, #1109).
+                if crate::model::is_untileable_model_error(&msg) {
+                    return 10;
                 }
-            };
+                if msg.contains("tile source rectangle") {
+                    return 9;
+                }
+                if msg.contains("upscale") || msg.contains("downscale-only") {
+                    return 11;
+                }
+                if msg.contains("matching aspect") {
+                    return 12;
+                }
+                return 8;
+            }
+        };
         write_scene_linear_buf(out_ptr, w, h, fp16);
         0
     })
@@ -480,9 +471,7 @@ unsafe fn render_handle_scene_linear_tile_f32_impl(
         set_last_error("handle has been freed".into());
         return 1;
     }
-    let inner: &MapleRawHandleInner = &*inner_ptr;
-    let raw_addr = (&inner.raw) as *const _ as usize;
-    let model_addr = (&inner.model) as *const _ as usize;
+    let inner_addr = inner_ptr as usize;
     let out_ptr = out as usize;
     let quality = if quality_preview != 0 {
         raw_core::pipeline::RenderQuality::Preview
@@ -498,21 +487,13 @@ unsafe fn render_handle_scene_linear_tile_f32_impl(
         // SAFETY: identical to `maple_render_handle_scene_linear_tile` — the
         // caller (actor-isolated RawImageCache) keeps the handle alive for the
         // call; the references live in the heap-boxed `MapleRawHandleInner`.
-        let raw_img: &raw_core::image::RawImage =
-            unsafe { &*(raw_addr as *const raw_core::image::RawImage) };
-        let model: &xmp::AdjustmentModel = unsafe { &*(model_addr as *const xmp::AdjustmentModel) };
+        let inner = unsafe { &*(inner_addr as *const MapleRawHandleInner) };
+        let model = &inner.model;
         if dehaze_active(model) {
             set_last_error("dehaze unsupported on tile path".into());
             return 10;
         }
-        let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32(
-            raw_img,
-            model,
-            rect,
-            quality,
-            wb_anchor,
-            ae_gain,
-        ) {
+        let (w, h, f32_rgba) = match inner.render_tile_f32(rect, quality, wb_anchor, ae_gain) {
             Ok(t) => t,
             Err(e) => {
                 let msg = format!("{}", e);
@@ -532,6 +513,7 @@ unsafe fn render_handle_scene_linear_tile_f32_impl(
                 return 8;
             }
         };
+        let raw_img = &inner.raw;
         crate::scene_linear_f32::write_scene_linear_buf_f32(
             out_ptr,
             w,

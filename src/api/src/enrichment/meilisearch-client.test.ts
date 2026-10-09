@@ -139,20 +139,22 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     await client.ensureIndex();
     await client.ensureIndex();
 
-    // The second ensure is cached. The first creates, reads, then patches.
-    expect(calls.length).toBe(3);
+    // The second ensure is cached. The first creates, checks for a pending
+    // settings task, reads, then patches.
+    expect(calls.length).toBe(5);
+    expect(calls[1]!.url).toContain('/tasks?');
+    expect(calls[3]!.url).toContain(`/indexes/${ASSETS_INDEX}/stats`);
     expect(calls[0]!.method).toBe('POST');
     expect(calls[0]!.url).toContain('/indexes');
     expect(calls[0]!.body).toEqual({ uid: ASSETS_INDEX, primaryKey: 'id' });
     expect(calls[0]!.headers.Authorization).toBe('Bearer secret-key');
 
-    expect(calls[1]!.method).toBe('GET');
-    expect(calls[1]!.url).toContain(`/indexes/${ASSETS_INDEX}/settings`);
-
-    expect(calls[2]!.method).toBe('PATCH');
+    expect(calls[2]!.method).toBe('GET');
     expect(calls[2]!.url).toContain(`/indexes/${ASSETS_INDEX}/settings`);
-    expect(calls[2]!.body).toEqual({
-      embedders: null,
+
+    expect(calls[4]!.method).toBe('PATCH');
+    expect(calls[4]!.url).toContain(`/indexes/${ASSETS_INDEX}/settings`);
+    expect(calls[4]!.body).toEqual({
       searchableAttributes: [
         'filename',
         'people',
@@ -176,14 +178,23 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
       ],
       sortableAttributes: ['capturedAt'],
     });
-    // Semantic switch OFF (default) — explicitly reset any previously
-    // configured embedder; omission would preserve it on a settings PATCH.
-    expect((calls[2]!.body as Record<string, unknown>).embedders).toBeNull();
+    // Semantic switch OFF and the live index has no embedder — nothing to
+    // reset, so the drift-only PATCH leaves `embedders` out.
+    expect(calls[4]!.body as Record<string, unknown>).not.toHaveProperty('embedders');
     expect(calls.some((c) => c.url.includes('/experimental-features'))).toBe(false);
   });
 
-  it('ensureIndex() registers the Ollama embedder without retired experimental flags', async () => {
-    const { fetchImpl, calls } = makeFakeFetch();
+  it('ensureIndex() registers the Ollama embedder on an empty index without retired experimental flags', async () => {
+    // A populated index never gets its embedder changed automatically (#4432).
+    const { fetchImpl, calls } = makeFakeFetch({
+      routes: [
+        {
+          method: 'GET',
+          pathPrefix: `/indexes/${ASSETS_INDEX}/stats`,
+          body: { numberOfDocuments: 0 },
+        },
+      ],
+    });
     const client = createMeilisearchClient({
       url: 'http://meili.local:7700',
       fetchImpl,
@@ -295,7 +306,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     });
     // Must not throw even though /indexes returned 409.
     await client.ensureIndex();
-    expect(calls.length).toBe(4);
+    expect(calls.length).toBe(6);
   });
 
   it('upsert() POSTs the doc array to /indexes/assets/documents', async () => {

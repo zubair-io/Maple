@@ -20,8 +20,44 @@ async function fixture() {
     path: null,
   });
   await repo.updateDestination(destination.id, { enabled: true });
-  return { live, repo, destination, assetId, [Symbol.dispose]: () => live[Symbol.dispose]() };
+  return {
+    live,
+    repo,
+    destination,
+    assetId,
+    [Symbol.dispose]: () => live[Symbol.dispose](),
+  };
 }
+
+test('a Google Drive root cannot be shared across destinations', async () => {
+  using f = await fixture();
+  const secondLibrary = insertFolder(f.live.db, { path: '/second-library' });
+  const second = await f.repo.createDestination({
+    libraryId: secondLibrary,
+    kind: 'google-drive',
+    name: 'Second Drive',
+    path: null,
+  });
+  const third = await f.repo.createDestination({
+    libraryId: f.destination.libraryId,
+    kind: 'google-drive',
+    name: 'Second destination for first library',
+    path: null,
+  });
+  const first = (await f.repo.destination(f.destination.id))!;
+  expect(await f.repo.attachGoogleRoot(first.id, 'shared-root', 'account', first.generation)).toBe(
+    true,
+  );
+  expect(
+    await f.repo.attachGoogleRoot(second.id, 'shared-root', 'account', second.generation),
+  ).toBe(false);
+  expect(
+    await f.repo.attachGoogleRoot(second.id, 'separate-root', 'account', second.generation),
+  ).toBe(true);
+  expect(await f.repo.attachGoogleRoot(third.id, 'shared-root', 'account', third.generation)).toBe(
+    false,
+  );
+});
 
 test('a watcher identity at a prepared restore target cannot admit or publish a backup', async () => {
   using f = await fixture();

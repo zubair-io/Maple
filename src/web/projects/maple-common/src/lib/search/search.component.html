@@ -30,6 +30,7 @@
             [places]="facetPlaces()"
             [selectedPeople]="filters().people"
             [selectedPlaces]="filters().places"
+            [scope]="facetScope()"
             (pick)="onTagPick($event)"
           />
         </div>
@@ -93,6 +94,7 @@
       [places]="facetPlaces()"
       [owners]="facetOwners()"
       [total]="facetTotal()"
+      [scope]="facetScope()"
       [asSheet]="panelOpen()"
       (filtersChange)="onFiltersChange($event)"
       (clearAll)="onClearAll()"

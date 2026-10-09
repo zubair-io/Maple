@@ -79,6 +79,26 @@ export function peopleDb(dbOverride?: SqliteDb): SqliteDb {
 }
 
 /**
+ * A read issued as one of many fanned out together, through the pool's bounded
+ * bulk lane when the handle has one (`SqlitePool.readBulk`), so the fan-out can
+ * never hold every reader and stall a concurrent grid page (#4413).
+ *
+ * Detected rather than required on {@link SqliteDb}: a test's own connection
+ * runs one statement at a time and has no lane to bound, and the dozens of
+ * recording handles the tests wrap around it should not have to grow one.
+ */
+export function readBulk<T = SqlRow>(db: SqliteDb, sql: string, params?: SqlParams): Promise<T[]> {
+  const lane = (db as Partial<Pick<BulkReadHandle, 'readBulk'>>).readBulk;
+  return typeof lane === 'function'
+    ? (lane.call(db, sql, params) as Promise<T[]>)
+    : db.read<T>(sql, params);
+}
+
+interface BulkReadHandle {
+  readBulk<T = SqlRow>(sql: string, params?: SqlParams): Promise<T[]>;
+}
+
+/**
  * What an update reports.
  *
  * `matchedCount` and `modifiedCount` are always equal, which is worth knowing

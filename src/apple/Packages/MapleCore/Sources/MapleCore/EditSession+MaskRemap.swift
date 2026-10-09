@@ -46,11 +46,21 @@ extension EditSession {
     var out = MaskRemap.remappedGeometry(layers, through: affine)
     for index in out.indices {
       out[index].mask = await out[index].mask.mappingLeavesAsync { mask in
-        guard case .bitmap(let recipe, let rasterId) = mask, rasterId != 0 else { return mask }
-        guard let derived = await self.derivedMaskRasterId(recipe: recipe, affine: affine) else {
-          return .bitmap(recipe: recipe, rasterId: 0)
+        switch mask {
+        case .bitmap(let recipe, let rasterId) where rasterId != 0:
+          guard let derived = await self.derivedMaskRasterId(recipe: recipe, affine: affine) else {
+            return .bitmap(recipe: recipe, rasterId: 0)
+          }
+          return .bitmap(recipe: recipe, rasterId: derived)
+        case .brush(let dabs, let digest, let rasterId) where rasterId != 0:
+          guard let derived = await self.derivedBrushRasterId(dabs: dabs, digest: digest, affine: affine)
+          else {
+            return .brush(dabs: dabs, digest: digest, rasterId: 0)
+          }
+          return .brush(dabs: dabs, digest: digest, rasterId: derived)
+        default:
+          return mask
         }
-        return .bitmap(recipe: recipe, rasterId: derived)
       }
     }
     return out
@@ -59,35 +69,58 @@ extension EditSession {
   /// The registry id of `recipe`'s raster resampled through `affine` —
   /// from `maskRemapRasters` on a hit, else built, registered and cached.
   private func derivedMaskRasterId(recipe: BitmapRecipe, affine: MaskAffine) async -> UInt32? {
-    let key = MaskRemapRasterCache.Key(digest: recipe.digest, affine: affine)
-    if let hit = maskRemapRasters.id(for: key) { return hit }
+    let source: MaskRasterStore.Raster
     do {
-      let source = try await sourceMaskRaster(for: recipe)
-      // Detached: the resample is a few hundred thousand bilinear samples
-      // over a segmentation-sized raster, and this runs on the MainActor.
-      // Only ever on a miss (a crop change, or a settled 1:1 window), but
-      // a miss must not stall the canvas.
-      let derived = await Task.detached(priority: .userInitiated) {
-        MaskRemapRasterCache.resample(source, through: affine)
-      }.value
-      guard
-        let id = MaskRasterRegistry.register(
-          digest: MaskRemapRasterCache.derivedDigest(for: key),
-          width: derived.width, height: derived.height, bytes: derived.bytes)
-      else {
-        editSessionLogger.error(
-          "mask raster \(recipe.digest, privacy: .public): derived registration rejected")
-        return nil
-      }
-      maskRemapRasters.insert(id, for: key)
-      // The cache may already hold an id for this key from a racing miss;
-      // it kept that one and released `id`, so read back the winner.
-      return maskRemapRasters.id(for: key)
+      source = try await sourceMaskRaster(for: recipe)
     } catch {
       editSessionLogger.error(
         "mask raster \(recipe.digest, privacy: .public): derived raster unavailable — \(String(describing: error), privacy: .public)"
       )
       return nil
     }
+    return await derivedRasterId(digest: recipe.digest, source: source, affine: affine)
+  }
+
+  /// The registry id of a brush stroke's raster resampled through `affine`
+  /// — same cache, but the source bytes stamp from the dabs rather than
+  /// loading from the raster store.
+  private func derivedBrushRasterId(dabs: [BrushDab], digest: String, affine: MaskAffine) async
+    -> UInt32?
+  {
+    guard let source = sourceBrushRaster(dabs: dabs) else {
+      editSessionLogger.error(
+        "brush raster \(digest, privacy: .public): derived raster unavailable")
+      return nil
+    }
+    return await derivedRasterId(digest: digest, source: source, affine: affine)
+  }
+
+  /// Resample `source` through `affine`, register the derived raster and
+  /// cache its id — shared by the bitmap and brush paths above.
+  private func derivedRasterId(
+    digest: String, source: MaskRasterStore.Raster, affine: MaskAffine
+  ) async -> UInt32? {
+    let key = MaskRemapRasterCache.Key(digest: digest, affine: affine)
+    if let hit = maskRemapRasters.id(for: key) { return hit }
+    // Detached: the resample is a few hundred thousand bilinear samples
+    // over a segmentation-sized raster, and this runs on the MainActor.
+    // Only ever on a miss (a crop change, or a settled 1:1 window), but
+    // a miss must not stall the canvas.
+    let derived = await Task.detached(priority: .userInitiated) {
+      MaskRemapRasterCache.resample(source, through: affine)
+    }.value
+    guard
+      let id = MaskRasterRegistry.register(
+        digest: MaskRemapRasterCache.derivedDigest(for: key),
+        width: derived.width, height: derived.height, bytes: derived.bytes)
+    else {
+      editSessionLogger.error(
+        "mask raster \(digest, privacy: .public): derived registration rejected")
+      return nil
+    }
+    maskRemapRasters.insert(id, for: key)
+    // The cache may already hold an id for this key from a racing miss;
+    // it kept that one and released `id`, so read back the winner.
+    return maskRemapRasters.id(for: key)
   }
 }

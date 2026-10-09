@@ -8,6 +8,14 @@
     >
   </header>
   <div class="min-h-0 flex-1 overflow-y-auto p-2">
+    @if (scopeNote(); as note) {
+      <p
+        class="m-0 px-[10px] pt-1 pb-2 font-['Lato',sans-serif] text-[11px] leading-[1.4] text-text-muted"
+        data-testid="tag-picker-scope-note"
+      >
+        {{ note }}
+      </p>
+    }
     @if (isEmpty()) {
       <p class="mui-chrome-option-none p-[10px]" data-testid="tag-picker-empty">
         No matching people or places

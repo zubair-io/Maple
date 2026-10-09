@@ -9,7 +9,13 @@ import {
   type InventoryLocation,
 } from './inventory.ts';
 import { startEntryLease } from './entry-lease.ts';
-import type { BackupManifest, BackupObject, BackupProvider, PublishSource } from './provider.ts';
+import type {
+  BackupManifest,
+  BackupObject,
+  BackupProvider,
+  PublishSource,
+  UploadCheckpoint,
+} from './provider.ts';
 
 export function jsonSource(value: unknown): PublishSource {
   const data = new TextEncoder().encode(JSON.stringify(value));
@@ -38,6 +44,12 @@ interface TransferContext {
   provider: BackupProvider;
   signal: AbortSignal;
 }
+interface UploadCallOptions {
+  signal?: AbortSignal;
+  checkpoint?: UploadCheckpoint | null;
+  saveCheckpoint: (checkpoint: UploadCheckpoint) => Promise<void>;
+}
+type UploadCall = (options: UploadCallOptions) => Promise<BackupObject>;
 function lifecycleMetadata(location: InventoryLocation) {
   const state = location.relative_path.startsWith('.maple/trash/')
     ? ('trash' as const)
@@ -63,6 +75,40 @@ function snapshotHash(location: InventoryLocation, files: CapturedFiles): string
     hidden,
     files: files.map((file) => [file.path, file.role, file.source.sha256, file.source.size]),
   }).sha256;
+}
+function sameObjectIdentity(
+  object: BackupObject | null | undefined,
+  expected: BackupObject,
+): boolean {
+  return Boolean(
+    object &&
+    object.key === expected.key &&
+    object.locator === expected.locator &&
+    object.sha256 === expected.sha256 &&
+    object.size === expected.size,
+  );
+}
+async function removeStaleEntryObject(
+  provider: BackupProvider,
+  repo: BackupRepository,
+  destination: BackupDestination,
+  entry: BackupEntry,
+  expected: BackupObject,
+  signal: AbortSignal,
+): Promise<void> {
+  const mirrorKey = expected.key.startsWith(`mirror/${destination.libraryId}/`);
+  const legacyKey =
+    expected.key ===
+    `libraries/${destination.libraryId}/entries/${entry.id}/blobs/${expected.sha256}`;
+  if (!mirrorKey && !legacyKey) return;
+  const owner = await repo.objectOwner(destination.id, expected.key);
+  if (owner?.entryId !== entry.id || !sameObjectIdentity(owner.object, expected)) return;
+  const current = await provider.inspect(expected.key, signal, expected.locator);
+  if (!sameObjectIdentity(current, expected)) return;
+  const stillOwned = await repo.objectOwner(destination.id, expected.key);
+  if (stillOwned?.entryId !== entry.id || !sameObjectIdentity(stillOwned.object, expected)) return;
+  await provider.remove(current!, signal);
+  await repo.forgetObject(destination.id, current!.key, current!.locator);
 }
 export class BackupEngine {
   constructor(
@@ -107,17 +153,59 @@ export class BackupEngine {
       await this.repo.saveObject(destination.id, entry.id, key, existing, null);
       return existing;
     }
-    const object = await provider.publish(key, source, {
+    return this.uploadObject(
+      destination,
+      entry,
+      key,
+      source,
+      saved.checkpoint,
+      (options) => provider.publish(key, source, options),
+      'Backup transfer',
       signal,
-      checkpoint: saved.checkpoint,
-      saveCheckpoint: async (checkpoint) => {
-        await this.repo.saveObject(destination.id, entry.id, key, null, checkpoint);
+    );
+  }
+  private async mirrorFile(
+    provider: BackupProvider,
+    destination: BackupDestination,
+    entry: BackupEntry,
+    key: string,
+    relativePath: string,
+    source: PublishSource,
+    signal?: AbortSignal,
+  ): Promise<BackupObject> {
+    const saved = await this.repo.object(destination.id, key);
+    return this.uploadObject(
+      destination,
+      entry,
+      key,
+      source,
+      saved.checkpoint,
+      (options) => provider.mirrorFile(key, relativePath, source, options),
+      'Backup mirror',
+      signal,
+    );
+  }
+  private async uploadObject(
+    destination: BackupDestination,
+    entry: BackupEntry,
+    key: string,
+    source: PublishSource,
+    checkpoint: UploadCheckpoint | null,
+    upload: UploadCall,
+    label: string,
+    signal?: AbortSignal,
+  ): Promise<BackupObject> {
+    const object = await upload({
+      signal,
+      checkpoint,
+      saveCheckpoint: async (value) => {
+        await this.repo.saveObject(destination.id, entry.id, key, null, value);
         if (!entry.lease_owner || !(await this.repo.fence(entry, destination, entry.lease_owner)))
           throw new Error('Backup lifecycle changed during upload');
       },
     });
     if (object.size !== source.size || object.sha256 !== source.sha256)
-      throw new Error('Backup transfer integrity mismatch');
+      throw new Error(`${label} integrity mismatch`);
     await this.repo.saveObject(destination.id, entry.id, key, object, null);
     return object;
   }
@@ -128,16 +216,17 @@ export class BackupEngine {
     ctx: TransferContext,
     files: CapturedFiles,
   ): Promise<BackupManifest['files']> {
-    const prefix = entryPrefix(ctx.destination.libraryId, ctx.entry.id);
     const objects: BackupManifest['files'] = [];
     for (const file of files) {
       ctx.signal.throwIfAborted();
       await this.assertFence(ctx, 'Backup lease or lifecycle changed');
-      const object = await this.publish(
+      const key = `mirror/${ctx.destination.libraryId}/${file.path}`;
+      const object = await this.mirrorFile(
         ctx.provider,
         ctx.destination,
         ctx.entry,
-        `${prefix}blobs/${file.source.sha256}`,
+        key,
+        file.path,
         file.source,
         ctx.signal,
       );
@@ -164,6 +253,7 @@ export class BackupEngine {
     files: BackupManifest['files'],
   ): Promise<boolean> {
     const { destination, entry, provider, signal } = ctx;
+    const repo: BackupRepository = this.repo;
     const { state, originalPath, deletedAt, hidden } = lifecycleMetadata(location);
     const manifest: BackupManifest = {
       version: 1,
@@ -198,8 +288,29 @@ export class BackupEngine {
       jsonSource(manifest),
       signal,
     );
+    for await (const oldManifest of provider.list(
+      `${entryPrefix(destination.libraryId, entry.id)}manifests/`,
+      signal,
+    )) {
+      if (
+        oldManifest.key !==
+        `${entryPrefix(destination.libraryId, entry.id)}manifests/${entry.sequence}.json`
+      )
+        await provider.remove(oldManifest, signal);
+    }
+    const previous = entry.manifest ? (JSON.parse(entry.manifest) as BackupManifest) : null;
+    const retainedKeys = new Set(files.map((file) => file.object.key));
+    const previousObjects = new Map(
+      (previous?.files ?? []).map((file) => [file.object.key, file.object]),
+    );
+    for (const oldObject of await repo.objectsForEntry(destination.id, entry.id)) {
+      previousObjects.set(oldObject.key, oldObject);
+    }
+    for (const oldObject of previousObjects.values()) {
+      if (retainedKeys.has(oldObject.key)) continue;
+      await removeStaleEntryObject(provider, repo, destination, entry, oldObject, signal);
+    }
     await this.assertFence(ctx, 'Backup changed during catalog publication');
-    const repo: BackupRepository = this.repo;
     return repo.finish(entry, destination, ctx.owner, manifest);
   }
   async transfer(

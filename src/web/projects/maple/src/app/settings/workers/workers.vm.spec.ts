@@ -5,9 +5,20 @@
 // assert behaviour without spinning up TestBed — that's the whole point
 // of the split.
 
-import { countsAsOfLabel } from './workers.vm';
+import {
+  countsAsOfLabel,
+  groupMemoryByProcess,
+  memoryBreakdownLabel,
+  memoryDetailTitle,
+  totalRss,
+} from './workers.vm';
 import { describe, it, expect } from 'vitest';
-import type { EnrichmentConfigResponse, StageStatus, WorkerConfig } from '@maple-common';
+import type {
+  EnrichmentConfigResponse,
+  ProcessMemoryRow,
+  StageStatus,
+  WorkerConfig,
+} from '@maple-common';
 import {
   CONCURRENCY_MAX,
   DEFAULT_RUNTIME,
@@ -443,5 +454,106 @@ describe('countsAsOfLabel', () => {
   it('stamps the snapshot time once counts exist', () => {
     const at = Date.UTC(2026, 8, 11, 12, 34, 56);
     expect(countsAsOfLabel(at)).toBe(`Counts as of ${new Date(at).toLocaleTimeString()}`);
+  });
+});
+
+describe('memory chip (#4445)', () => {
+  const MB = 1024 * 1024;
+  const row = (process: string, rss: number, pid = 1): ProcessMemoryRow => ({
+    process,
+    pid,
+    rss,
+    heapUsed: 0,
+    heapTotal: 0,
+    external: 0,
+    arrayBuffers: 0,
+    at: 0,
+  });
+
+  it('names every process with its resident set, API first', () => {
+    const rows = [row('api', 111 * MB), row('worker', 213 * MB), row('face', 484 * MB)];
+    expect(memoryBreakdownLabel(rows)).toBe('Memory · api 111 MB · worker 213 MB · face 484 MB');
+    expect(totalRss(rows)).toBe(808 * MB);
+  });
+
+  it('says so when a frame carries no samples (older server)', () => {
+    expect(memoryBreakdownLabel(undefined)).toBe('Memory · no samples yet');
+    expect(memoryBreakdownLabel([])).toBe('Memory · no samples yet');
+    expect(totalRss(undefined)).toBe(0);
+    expect(groupMemoryByProcess(undefined)).toEqual([]);
+  });
+
+  it('folds repeated process types into one count + summed entry', () => {
+    const rows = [
+      row('api', 111 * MB),
+      row('ffi-decode', 100 * MB, 3),
+      row('ffi-decode', 50 * MB, 4),
+    ];
+    expect(groupMemoryByProcess(rows)).toEqual([
+      { process: 'api', count: 1, rss: 111 * MB },
+      { process: 'ffi-decode', count: 2, rss: 150 * MB },
+    ]);
+    expect(memoryBreakdownLabel(rows)).toBe('Memory · api 111 MB · ffi-decode ×2 150 MB');
+  });
+
+  it('orders the summary api → worker → ffi-decode → face regardless of frame order', () => {
+    const rows = [
+      row('face', 484 * MB, 9),
+      row('ffi-decode', 291 * MB, 3),
+      row('worker', 213 * MB, 2),
+      row('api', 111 * MB, 1),
+    ];
+    expect(memoryBreakdownLabel(rows)).toBe(
+      'Memory · api 111 MB · worker 213 MB · ffi-decode 291 MB · face 484 MB',
+    );
+  });
+
+  it('keeps an unknown process type after the known ones instead of dropping it', () => {
+    const rows = [row('sidecar', 10 * MB, 7), row('api', 111 * MB)];
+    expect(memoryBreakdownLabel(rows)).toBe('Memory · api 111 MB · sidecar 10 MB');
+  });
+
+  it('stays four entries wide at the 16-worker FFI maximum (17 ffi-decode rows)', () => {
+    const ffi = Array.from({ length: 17 }, (_, i) => row('ffi-decode', 253 * MB, 10 + i));
+    const rows = [
+      row('api', 111 * MB, 1),
+      row('worker', 213 * MB, 2),
+      ...ffi,
+      row('face', 484 * MB, 99),
+    ];
+    const label = memoryBreakdownLabel(rows);
+    expect(label).toBe('Memory · api 111 MB · worker 213 MB · ffi-decode ×17 4.2 GB · face 484 MB');
+    expect(label.split(' · ')).toHaveLength(5);
+    expect(totalRss(rows)).toBe((111 + 213 + 17 * 253 + 484) * MB);
+  });
+
+  it('folds API-owned and worker-owned decode children into one ffi-decode entry', () => {
+    const rows = [
+      row('api', 111 * MB, 1),
+      { ...row('ffi-decode', 150 * MB, 77), owner: 'api' as const },
+      { ...row('ffi-decode', 291 * MB, 42), owner: 'worker' as const },
+    ];
+    expect(memoryBreakdownLabel(rows)).toBe('Memory · api 111 MB · ffi-decode ×2 441 MB');
+    expect(memoryDetailTitle(rows).split('\n').slice(2)).toEqual([
+      'api (pid 1) 111 MB',
+      'ffi-decode (api · pid 77) 150 MB',
+      'ffi-decode (worker · pid 42) 291 MB',
+    ]);
+  });
+
+  it('puts the full per-PID list in the tooltip, one process per line', () => {
+    const rows = [
+      row('api', 111 * MB, 1),
+      row('ffi-decode', 100 * MB, 3),
+      row('ffi-decode', 50 * MB, 4),
+    ];
+    const lines = memoryDetailTitle(rows).split('\n');
+    expect(lines[0]).toContain('Resident memory of each server process');
+    expect(lines.slice(2)).toEqual([
+      'api (pid 1) 111 MB',
+      'ffi-decode (pid 3) 100 MB',
+      'ffi-decode (pid 4) 50 MB',
+    ]);
+    expect(memoryDetailTitle(undefined).split('\n')).toHaveLength(1);
   });
 });

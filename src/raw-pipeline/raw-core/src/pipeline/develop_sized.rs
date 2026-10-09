@@ -130,6 +130,8 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
+    let (frame_w, frame_h) = crate::pipeline::native_render_dims(raw);
+    let model = &*crate::types::with_brush_rasters(model, frame_w, frame_h);
     // DefaultCrop coordinate divisor — tracks the demosaic output resolution so
     // `crop_to_default` (below) maps sensor-crop coords onto the actual
     // post-demosaic buffer. The Bayer arm overrides this to 2 when it drops to

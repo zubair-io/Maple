@@ -314,8 +314,12 @@ export class EditorStateService {
     return restoreWorkflow(this, command);
   }
 
+  /** Increments on every arm, so a gesture can tell A→B→A apart from no change. */
+  toolArmCount = 0;
+
   armTool(tool: ToolId): void {
     this._discardDeferred();
+    this.toolArmCount += 1;
     this.armedTool.set(tool);
     this.armedGroup.set(groupOf(tool));
     this.armedSubParamId.set(this._resolveSubParamId(tool));

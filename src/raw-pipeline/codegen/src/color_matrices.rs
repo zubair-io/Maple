@@ -206,6 +206,12 @@ pub fn emit_wgsl() -> String {
         &m_srgb_to_rec2020,
     );
 
+    // The sharpening mix consumes the same import-default anchor as CPU.
+    // This common generated header keeps raw-gpu independent of raw-core.
+    out.push_str(&format!(
+        "// Existing import-default maximum attenuation (#4112).\nconst SHARPEN_PRESERVED_DARKENING: f32 = {};\n",
+        wgsl_f(raw_core::stages::sharpen::PRESERVED_DARKENING),
+    ));
     out
 }
 

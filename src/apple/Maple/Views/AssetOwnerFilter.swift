@@ -14,6 +14,15 @@ struct AssetOwnerFilter: View {
       Text("OWNER")
         .font(MapleTokens.Typography.eyebrow)
         .foregroundStyle(MapleTokens.textMuted)
+      // The owner choices come from their own facets request (the owner left
+      // out), so they carry their own scope (#4431).
+      if let note = model.facetScope.note {
+        Text(note)
+          .font(MapleTokens.Typography.body)
+          .foregroundStyle(MapleTokens.textMuted)
+          .fixedSize(horizontal: false, vertical: true)
+          .accessibilityIdentifier("asset-owner-scope-note")
+      }
       MuiSelect(
         value: Binding(
           get: { ownerID ?? "" },

@@ -44,22 +44,19 @@
 //!
 //! Per-pixel texture always comes from the target's own surviving channels
 //! (`known_level × ratio`): neighbors supply chromaticity, never luminance.
-//! Tiers 2–3 are computed per render, so tile renders may differ slightly
-//! from full-frame renders inside clipped regions wider than 7 px (cell phase
-//! and scene sampling vary); tier 1 — the overwhelmingly common case — reads
-//! within 3 px and stays exactly tile-stable. The large-interior seam is
-//! pinned at 6.0e-2 max-abs by
-//! `pipeline::tile::tests_full_parity::tile_vs_full_large_blown_region_stays_within_accepted_bound`
-//! (measured 3.02e-2); threading a frame-level prior into the tile path to
-//! close it is tracked in #4388.
+//! Tile recovery uses the full-frame scene prior and globally phased cell
+//! sampling (#4378); a cropped histogram cannot replace scene evidence.
 
 use crate::{
     image::{ColorSpace, CropRect, Image},
     xmp::HighlightRecoveryMode,
 };
 
+#[path = "highlight_recovery/frame.rs"]
+mod frame;
 #[path = "highlight_recovery/guided.rs"]
 mod guided;
+pub(crate) use frame::{FrameAnchor, ScenePrior, SceneSamples};
 #[cfg(test)]
 use guided::chroma_weight;
 use guided::{resolve_deferred, scene_median, CellField, SkipGrid, SKIP_GRID_TRIGGER};
@@ -74,6 +71,17 @@ const NEIGHBOR_RADIUS: i32 = 3; // 7×7 window per spec.
 /// Number of pixels in the 7×7 window — used as the denominator when computing
 /// the confidence weight.
 const NEIGHBOR_WINDOW_AREA: f32 = ((2 * NEIGHBOR_RADIUS + 1) * (2 * NEIGHBOR_RADIUS + 1)) as f32;
+
+/// Local support needed in developed pixels; global scene evidence is supplied
+/// separately. Count complete16px cells and both neighboring cells (#4378).
+pub(crate) fn stencil_reach_px(mode: HighlightRecoveryMode) -> usize {
+    match mode {
+        HighlightRecoveryMode::Blend
+        | HighlightRecoveryMode::Luminance
+        | HighlightRecoveryMode::ChromaticAdaptation => guided::STENCIL_REACH,
+        _ => 0,
+    }
+}
 
 /// Apply highlight reconstruction per spec § 3.3a.
 ///
@@ -101,6 +109,24 @@ pub(crate) fn apply_in_region(
     baseline_exposure: f32,
     active_area: Option<CropRect>,
 ) {
+    apply_in_region_with_anchor(
+        img,
+        mode,
+        as_shot_neutral,
+        baseline_exposure,
+        active_area,
+        None,
+    );
+}
+
+pub(crate) fn apply_in_region_with_anchor(
+    img: &mut Image,
+    mode: HighlightRecoveryMode,
+    as_shot_neutral: [f32; 3],
+    baseline_exposure: f32,
+    active_area: Option<CropRect>,
+    anchor: Option<FrameAnchor>,
+) {
     img.assert_space(ColorSpace::CameraNativeLinearRgb);
     match mode {
         HighlightRecoveryMode::Off => {}
@@ -109,10 +135,22 @@ pub(crate) fn apply_in_region(
             // get the new chromatic-adaptation behavior. The old code paths
             // produced the magenta cast that motivated this rewrite (see
             // module-level comment) — silently upgrading is the right call.
-            apply_chromatic_adaptation(img, as_shot_neutral, baseline_exposure, active_area);
+            apply_chromatic_adaptation(
+                img,
+                as_shot_neutral,
+                baseline_exposure,
+                active_area,
+                anchor,
+            );
         }
         HighlightRecoveryMode::ChromaticAdaptation => {
-            apply_chromatic_adaptation(img, as_shot_neutral, baseline_exposure, active_area);
+            apply_chromatic_adaptation(
+                img,
+                as_shot_neutral,
+                baseline_exposure,
+                active_area,
+                anchor,
+            );
         }
         HighlightRecoveryMode::OklabChromaReduction => {
             // Ticket #471: this variant runs POST-DCP in scene-linear
@@ -152,6 +190,7 @@ fn apply_chromatic_adaptation(
     neutral: [f32; 3],
     baseline_exposure: f32,
     active_area: Option<CropRect>,
+    anchor: Option<FrameAnchor>,
 ) {
     let w = img.width as i32;
     let h = img.height as i32;
@@ -328,8 +367,12 @@ fn apply_chromatic_adaptation(
         // loop is exact: the pass reads only frozen-mask unclipped pixels,
         // which no tier-1 write touches (writes land on clipped targets
         // only), so this equals an eager pre-loop sample. `None` when
-        // nothing unclipped exists to sample.
-        let scene_chroma = scene_median(img, &clip_mask, left, top, right, bottom);
+        // nothing unclipped exists to sample. A tile carries the full frame's
+        // prior in its anchor (#4378).
+        let scene_chroma = anchor.map_or_else(
+            || scene_median(img, &clip_mask, left, top, right, bottom),
+            |a| a.prior.scene(),
+        );
         resolve_deferred(
             field,
             img,
@@ -338,6 +381,7 @@ fn apply_chromatic_adaptation(
             scene_chroma,
             (left, top, right, bottom),
             denominator_floor,
+            anchor,
         );
     }
 }

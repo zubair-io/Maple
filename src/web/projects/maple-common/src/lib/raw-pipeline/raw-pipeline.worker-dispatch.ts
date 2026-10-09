@@ -214,6 +214,18 @@ const settleRegisterMaskRaster: Settler<'register-mask-raster'> = (msg, handler)
   return false;
 };
 
+const settleRegisterBrushRaster: Settler<'register-brush-raster'> = (msg, handler) => {
+  if (msg.type === 'register-brush-raster-success') {
+    handler.resolve(msg.rasterId);
+    return true;
+  }
+  if (msg.type === 'register-brush-raster-error') {
+    handler.reject(new Error(msg.message));
+    return true;
+  }
+  return false;
+};
+
 const settleLensProfile: Settler<'lens-profile'> = (msg, handler) => {
   if (msg.type === 'lens-profile-success') {
     handler.resolve(msg.profile);
@@ -298,6 +310,7 @@ const SETTLERS: { [K in NonNativeKind]: Settler<K> } = {
   'sample-range': settleSampleRange,
   'guided-geometry': settleGuidedGeometry,
   'register-mask-raster': settleRegisterMaskRaster,
+  'register-brush-raster': settleRegisterBrushRaster,
   'lens-profile': settleLensProfile,
   'lens-profile-compatible': settleLensProfileCompatible,
   'lens-profile-evidence': settleLensProfileEvidence,

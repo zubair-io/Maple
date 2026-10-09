@@ -9,11 +9,19 @@ export interface MeilisearchTransportConfig {
   fetchImpl: typeof fetch;
   taskPollIntervalMs: number;
   taskTimeoutMs: number;
+  requestTimeoutMs?: number;
 }
 
 /** Bulk embedding can be CPU-bound; allow ten minutes before retrying the
  * same durable batch. Operators can tune this from Settings → Workers. */
 export const DEFAULT_MEILISEARCH_TASK_TIMEOUT_MS = 10 * 60 * 1000;
+
+/** Per-request ceiling for a single Meilisearch HTTP round trip (#4420).
+ * A healthy local sidecar answers a keyword search in tens of milliseconds and
+ * a warm hybrid search (one Ollama query embedding) in a few hundred, so 5 s
+ * only trips a hung or wedged sidecar — and leaves the search route time to
+ * fall back to SQLite well inside the pool's 30 s backstop. */
+const MEILISEARCH_REQUEST_TIMEOUT_MS = 5_000;
 
 export interface MeilisearchHttpResult<T> {
   ok: boolean;
@@ -73,6 +81,7 @@ export async function meilisearchHttp<T>(
   method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
   path: string,
   body?: unknown,
+  timeoutMs: number | null = config.requestTimeoutMs ?? MEILISEARCH_REQUEST_TIMEOUT_MS,
 ): Promise<MeilisearchHttpResult<T>> {
   if (!isLiveConfig(config)) {
     return { ok: true, status: 200, body: null, errorText: null };
@@ -87,25 +96,41 @@ export async function meilisearchHttp<T>(
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: timeoutMs === null ? undefined : AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
-    return {
-      ok: false,
-      status: 0,
-      body: null,
-      errorText: error instanceof Error ? error.message : String(error),
-    };
+    return transportFailure(0, error);
   }
+  return readResponse<T>(response);
+}
 
-  const text = await response.text().catch(() => '');
-  let parsed: unknown = null;
-  if (text.length > 0) {
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = text;
-    }
+function transportFailure<T>(status: number, error: unknown): MeilisearchHttpResult<T> {
+  return {
+    ok: false,
+    status,
+    body: null,
+    errorText: error instanceof Error ? error.message : String(error),
+  };
+}
+
+function parseBody(text: string): unknown {
+  if (text.length === 0) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
   }
+}
+
+async function readResponse<T>(response: Response): Promise<MeilisearchHttpResult<T>> {
+  // A body that stalls after the headers is aborted by the request's signal;
+  // that read failing is a failed request, not an empty success.
+  const bodyRead = await response.text().then(
+    (text) => ({ text }),
+    (error: unknown) => ({ error }),
+  );
+  if ('error' in bodyRead) return transportFailure(response.status, bodyRead.error);
+  const parsed = parseBody(bodyRead.text);
   if (!response.ok) {
     return {
       ok: false,

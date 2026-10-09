@@ -9,7 +9,7 @@ import type {
 
 import {
   meiliHandler,
-  setMeilisearchClientForTests,
+  setMeiliStageClientForTests,
   SINGLE_DOC_TOMBSTONE_TIMEOUT_MS,
 } from './meili.ts';
 import { composeDocument } from '../../enrichment/meilisearch-backfill-compose.ts';
@@ -154,13 +154,13 @@ function unconfiguredClient(): MeilisearchClient {
 const fakeCtx = {} as never;
 
 afterEach(() => {
-  setMeilisearchClientForTests(null);
+  setMeiliStageClientForTests(null);
 });
 
 describe('meiliHandler — upsert payload shape', () => {
   it('writes the search blob and upserts with correct id, folderId, capturedAt, searchBlob, description, ocrText', async () => {
     const { client, upserts } = capturingClient();
-    setMeilisearchClientForTests(client);
+    setMeiliStageClientForTests(client);
     const doc = fakeDoc();
     const result = await meiliHandler(doc, fakeCtx);
     // The patch carries the `asset_search` row behind the built-in full-text
@@ -196,7 +196,7 @@ describe('meiliHandler — upsert payload shape', () => {
 
   it('fans vision.scene_type / activity / subjects into discrete upsert fields', async () => {
     const { client, upserts } = capturingClient();
-    setMeilisearchClientForTests(client);
+    setMeiliStageClientForTests(client);
     const doc = {
       ...fakeDoc(),
       ...({
@@ -232,7 +232,7 @@ describe('meiliHandler — upsert payload shape', () => {
 
   it('forwards is_screenshot: true to the upsert payload', async () => {
     const { client, upserts } = capturingClient();
-    setMeilisearchClientForTests(client);
+    setMeiliStageClientForTests(client);
     const doc = {
       ...fakeDoc(),
       ...({ is_screenshot: true } as unknown as Partial<ImageDoc>),
@@ -246,7 +246,7 @@ describe('meiliHandler — upsert payload shape', () => {
 describe('meiliHandler — no maple_id', () => {
   it("returns { skip: 'no-maple-id' } and skips the upsert when maple_id is absent", async () => {
     const { client, upserts } = capturingClient();
-    setMeilisearchClientForTests(client);
+    setMeiliStageClientForTests(client);
     // Override to drop maple_id — cast through unknown since it's not on ImageDoc's
     // base type (it's an IndexerAssetFields extension).
     const doc = {
@@ -262,7 +262,7 @@ describe('meiliHandler — no maple_id', () => {
 describe('meiliHandler — trashed assets (#2354)', () => {
   it("tombstones instead of upserting when the root deleted_at is set, returning { skip: 'trashed' }", async () => {
     const { client, upserts, tombstones } = capturingClient();
-    setMeilisearchClientForTests(client);
+    setMeiliStageClientForTests(client);
     // A trashed asset: root deleted_at stamped, but the fileinfo entry
     // points at the trash location and stays live per-entry — exactly the
     // shape markSoftDeleted writes, and the shape the claim query hands
@@ -281,7 +281,7 @@ describe('meiliHandler — trashed assets (#2354)', () => {
 
   it('passes the short single-doc timeout override to tombstoneBatchOrThrow, not the 10-minute bulk-batch default (#2359)', async () => {
     const { client, tombstoneTimeouts } = capturingClient();
-    setMeilisearchClientForTests(client);
+    setMeiliStageClientForTests(client);
     const doc = { ...fakeDoc(), deleted_at: '2026-07-01T00:00:00.000Z' } as ImageDoc;
     await meiliHandler(doc, fakeCtx);
     expect(tombstoneTimeouts).toEqual([SINGLE_DOC_TOMBSTONE_TIMEOUT_MS]);
@@ -290,7 +290,7 @@ describe('meiliHandler — trashed assets (#2354)', () => {
 
   it('throws when the tombstone write fails, so the runtime retries (search-index convergence)', async () => {
     const { client } = capturingClient();
-    setMeilisearchClientForTests({
+    setMeiliStageClientForTests({
       ...client,
       tombstoneBatchOrThrow: async () => {
         throw new Error('simulated meili outage');
@@ -301,7 +301,7 @@ describe('meiliHandler — trashed assets (#2354)', () => {
   });
 
   it("skips without a tombstone round-trip when Meilisearch isn't configured", async () => {
-    setMeilisearchClientForTests(unconfiguredClient());
+    setMeiliStageClientForTests(unconfiguredClient());
     const doc = { ...fakeDoc(), deleted_at: '2026-07-01T00:00:00.000Z' } as ImageDoc;
     const result = await meiliHandler(doc, fakeCtx);
     expect((result as { skip: string }).skip).toBe('trashed');
@@ -309,7 +309,7 @@ describe('meiliHandler — trashed assets (#2354)', () => {
 
   it('re-indexes the FULL document (vision facets, isScreenshot) once the asset is restored', async () => {
     const { client, upserts, tombstones } = capturingClient();
-    setMeilisearchClientForTests(client);
+    setMeiliStageClientForTests(client);
     const enriched = {
       ...({
         vision: {
@@ -356,7 +356,7 @@ describe('meiliHandler — trashed assets (#2354)', () => {
 
 describe('meiliHandler — Meilisearch error tolerance', () => {
   it('Meilisearch upsert failure results in handler throw so runtime retries', async () => {
-    setMeilisearchClientForTests(failingClient());
+    setMeiliStageClientForTests(failingClient());
     const doc = fakeDoc();
     await expect(meiliHandler(doc, fakeCtx)).rejects.toThrow('simulated meili failure');
   });
@@ -364,7 +364,7 @@ describe('meiliHandler — Meilisearch error tolerance', () => {
 
 describe('meiliHandler — unconfigured Meilisearch', () => {
   it('still writes the search blob even when Meilisearch is not configured', async () => {
-    setMeilisearchClientForTests(unconfiguredClient());
+    setMeiliStageClientForTests(unconfiguredClient());
     const doc = fakeDoc();
     const result = await meiliHandler(doc, fakeCtx);
     const blob = blobOf(result);
@@ -405,7 +405,7 @@ describe('resolveAssetPeopleNames + people in the doc/blob', () => {
     insertPerson(live.db, { id: PERSON_EXCLUDED, name: 'Excluded Edith', excluded: true });
 
     const { client, upserts } = capturingClient();
-    setMeilisearchClientForTests(client);
+    setMeiliStageClientForTests(client);
     const doc = {
       ...fakeDoc(),
       faces: facesFor(PERSON_A, PERSON_AUTO, PERSON_MERGED, PERSON_HIDDEN, PERSON_EXCLUDED),
@@ -428,7 +428,7 @@ describe('resolveAssetPeopleNames + people in the doc/blob', () => {
 describe('meiliHandler — null enrichment fields', () => {
   it('produces a valid (possibly empty) blob when description and ocr_text are null', async () => {
     const { client, upserts } = capturingClient();
-    setMeilisearchClientForTests(client);
+    setMeiliStageClientForTests(client);
     const doc = {
       ...fakeDoc(),
       description: null,
@@ -455,9 +455,9 @@ describe('document field parity between the two writers (#2384)', () => {
 
   it('the meili stage writes transcript and placeText as prose', async () => {
     const { client, upserts } = capturingClient();
-    setMeilisearchClientForTests(client);
+    setMeiliStageClientForTests(client);
     await meiliHandler(hvacRow(), fakeCtx);
-    setMeilisearchClientForTests(null);
+    setMeiliStageClientForTests(null);
 
     expect(upserts.length).toBe(1);
     expect(upserts[0]!.transcript).toBe(transcriptText);
@@ -466,10 +466,10 @@ describe('document field parity between the two writers (#2384)', () => {
 
   it('the backfill writer emits byte-identical values for the same row', async () => {
     const { client, upserts } = capturingClient();
-    setMeilisearchClientForTests(client);
+    setMeiliStageClientForTests(client);
     const row = hvacRow();
     await meiliHandler(row, fakeCtx);
-    setMeilisearchClientForTests(null);
+    setMeiliStageClientForTests(null);
 
     const primary = row.fileinfo![0]!;
     const backfilled = composeDocument(
@@ -490,9 +490,9 @@ describe('document field parity between the two writers (#2384)', () => {
 
   it('leaves both fields null when the asset has no transcript or place', async () => {
     const { client, upserts } = capturingClient();
-    setMeilisearchClientForTests(client);
+    setMeiliStageClientForTests(client);
     await meiliHandler({ ...fakeDoc(), place: null } as ImageDoc, fakeCtx);
-    setMeilisearchClientForTests(null);
+    setMeiliStageClientForTests(null);
 
     expect(upserts[0]!.transcript).toBeNull();
     expect(upserts[0]!.placeText).toBeNull();

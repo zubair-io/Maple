@@ -2,9 +2,9 @@
  * `worker_status` — the one row the worker process keeps up to date and the
  * API process reads to answer `GET /api/workers/status` (#3787).
  *
- * ## Three writers, one row, and no two of them touch the same column
+ * ## Four writers, one row, and no two of them touch the same column
  *
- * The singleton carries three independent things, and keeping them in one row
+ * The singleton carries four independent things, and keeping them in one row
  * is only safe because each has exactly one writer:
  *
  *  - `statuses` / `face_models` / `updated_at` — the worker's registry
@@ -13,6 +13,8 @@
  *    worker's count refresher (`workers/status-counts.ts`).
  *  - `counts_wanted_until` — the demand flag, raised by the API whenever
  *    someone is looking at Settings → Workers.
+ *  - `memory` — the worker's and its native children's latest memory samples
+ *    (#4445), written by the worker's per-minute reporter.
  *
  * Every statement below names only its own columns, so the upserts cannot
  * clobber each other the way a whole-document write would. That is the same
@@ -37,6 +39,7 @@
  */
 
 import type { FaceModelsLoadStatus } from '../../enrichment/face-models.ts';
+import type { ProcessMemoryRow } from '../../runtime/memory-telemetry.ts';
 import type { StageStatusSnapshot } from '../../workers/registry.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { parseJson } from './values.ts';
@@ -74,12 +77,18 @@ export interface StatusCountsSnapshot {
   duration_ms: number;
 }
 
+/** The worker tier's latest memory samples: its own row plus one per native child (#4445). */
+export interface WorkerMemorySnapshot {
+  rows: ProcessMemoryRow[];
+}
+
 /** What the status route reads back. */
 export interface WorkerStatusRead {
   statuses: Record<string, StageStatusSnapshot>;
   face_models?: FaceModelsStatusSnapshot;
   updated_at: number;
   counts: StatusCountsSnapshot | null;
+  memory: WorkerMemorySnapshot | null;
 }
 
 interface WorkerStatusRow {
@@ -87,7 +96,7 @@ interface WorkerStatusRow {
   face_models: string | null;
   updated_at: number;
   counts: string | null;
-  counts_wanted_until: number | null;
+  memory: string | null;
 }
 
 const SINGLETON = 'singleton';
@@ -142,6 +151,19 @@ export async function writeStatusCounts(
   );
 }
 
+/** Worker-side: store the memory samples the per-minute reporter just took. */
+export async function writeWorkerMemory(
+  memory: WorkerMemorySnapshot,
+  dbOverride?: SqliteDb,
+): Promise<void> {
+  await sqliteDb(dbOverride).write(
+    `INSERT INTO worker_status (id, statuses, updated_at, memory)
+     VALUES (?, '{}', 0, json(?))
+     ON CONFLICT (id) DO UPDATE SET memory = excluded.memory`,
+    [SINGLETON, JSON.stringify(memory)],
+  );
+}
+
 /** API-side: record that the Workers page is being watched until `untilMs`. */
 export async function pokeStatusCountsDemand(
   untilMs: number,
@@ -180,7 +202,7 @@ export async function readStatusCountsDemand(dbOverride?: SqliteDb): Promise<num
 export async function readWorkerStatus(dbOverride?: SqliteDb): Promise<WorkerStatusRead | null> {
   try {
     const rows = await sqliteDb(dbOverride).read<WorkerStatusRow>(
-      `SELECT statuses, face_models, updated_at, counts, counts_wanted_until
+      `SELECT statuses, face_models, updated_at, counts, memory
          FROM worker_status WHERE id = ?`,
       [SINGLETON],
     );
@@ -192,6 +214,7 @@ export async function readWorkerStatus(dbOverride?: SqliteDb): Promise<WorkerSta
       ...(faceModels === null ? {} : { face_models: faceModels }),
       updated_at: row.updated_at,
       counts: parseJson<StatusCountsSnapshot | null>(row.counts, null),
+      memory: parseJson<WorkerMemorySnapshot | null>(row.memory, null),
     };
   } catch {
     return null;
