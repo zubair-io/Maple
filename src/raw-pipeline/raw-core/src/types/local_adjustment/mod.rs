@@ -49,6 +49,11 @@ pub use group::{MaskCombine, MaskComponent, MaskGroup};
 pub use raster::MaskRaster;
 pub use wire::{decode_local_adjustments, encode_local_adjustments};
 
+/// Correction attribute carrying a layer's stack position across the
+/// per-kind XMP containers (#4427); `docs/xmp-canonical-format.md` §
+/// "Cross-type order" is the contract.
+pub const LAYER_ORDER_ATTRIBUTE: &str = "papp:LayerOrder";
+
 /// A subset of `AdjustmentModel` that may be applied locally (within a mask).
 ///
 /// `None` means "do not apply this control locally"; `Some(v)` means "apply

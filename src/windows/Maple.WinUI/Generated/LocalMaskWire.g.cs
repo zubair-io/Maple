@@ -16,6 +16,7 @@ public static class LocalMaskWire
     public const int COMPONENT_CODE_COUNT = 24;
     public const int MASK_GROUP_VERSION = 1;
     public const int BRUSH_VERSION = 1;
+    public const string LAYER_ORDER_ATTRIBUTE = "papp:LayerOrder";
 }
 
 public enum MaskCombine

@@ -3,6 +3,7 @@
 use crate::Target;
 use raw_core::types::local_adjustment::brush::BRUSH_VERSION;
 use raw_core::types::local_adjustment::flat::*;
+use raw_core::types::local_adjustment::LAYER_ORDER_ATTRIBUTE;
 use raw_core::types::MaskCombine;
 
 pub fn emit(target: Target) -> String {
@@ -72,6 +73,16 @@ pub fn emit(target: Target) -> String {
             _ => unreachable!(),
         });
     }
+    out.push_str(&match target {
+        Target::Ts => format!("export const LAYER_ORDER_ATTRIBUTE = '{LAYER_ORDER_ATTRIBUTE}';\n"),
+        Target::Swift => {
+            format!("  public static let layerOrderAttribute = \"{LAYER_ORDER_ATTRIBUTE}\"\n")
+        }
+        Target::Cs => format!(
+            "    public const string LAYER_ORDER_ATTRIBUTE = \"{LAYER_ORDER_ATTRIBUTE}\";\n"
+        ),
+        _ => String::new(),
+    });
     if matches!(target, Target::Swift | Target::Cs) {
         out.push_str("}\n");
     }
