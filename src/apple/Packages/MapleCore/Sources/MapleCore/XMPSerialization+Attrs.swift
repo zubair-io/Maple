@@ -26,7 +26,8 @@ extension XMPSerializer {
   static func _buildAttrs(
     model: AdjustmentModel,
     culling: CullingState,
-    omitWhiteBalance: Bool = false
+    omitWhiteBalance: Bool = false,
+    passthrough: XMPPassthrough = .empty
   ) -> [(String, String)] {
     let wbAttrs = omitWhiteBalance ? [] : whiteBalanceAttrs(model)
     var attrs: [(String, String)] =
@@ -66,8 +67,14 @@ extension XMPSerializer {
       ]
     // Star rating — Adobe's convention is that absence means unrated, so
     // zero is omitted rather than written as `xmp:Rating="0"` (canonical
-    // format § "Culling fields"). Matches the TS writer.
-    if culling.stars > 0 {
+    // format § "Culling fields"). Matches the TS writer. A kept raw
+    // suppresses the canonical emission so an unchanged "-1" / "3.0" /
+    // "03" keeps its authored bytes instead of normalizing (#4403).
+    let ratingRawKept = passthrough.unknownAttributes.contains {
+      $0.name == "xmp:Rating"
+        && _keepsRawCullingAttribute(name: $0.name, value: $0.value, culling: culling)
+    }
+    if culling.stars > 0 && !ratingRawKept {
       attrs.append(("xmp:Rating", String(culling.stars)))
     }
     // Cull flag (#2221). Canonical key is `papp:Flag` with the bare

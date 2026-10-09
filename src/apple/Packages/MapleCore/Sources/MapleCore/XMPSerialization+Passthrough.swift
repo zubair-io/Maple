@@ -48,11 +48,51 @@ extension XMPParser {
     guard let xml = String(data: data, encoding: .utf8) else { return .empty }
     return parsePassthrough(xml)
   }
+
+  /// The star count an `xmp:Rating` raw parses to, exactly matching the
+  /// `applyAttribute` arm in `XMPSerialization+ParseAttrs.swift`: integers
+  /// clamp to 0...5, anything else leaves the incoming value untouched.
+  /// Shared with the keep-or-rewrite rule below (#4403) so parse and
+  /// preserve can never disagree.
+  static func parseRatingValue(_ raw: String, current: Int) -> Int {
+    guard let n = Int(raw) else { return current }
+    return max(0, min(5, n))
+  }
+
+  /// The flag an `xmp:Label` raw parses to under the legacy alias read
+  /// (#2221), or nil when the word means no flag. Shared with the
+  /// keep-or-rewrite rule below (#4403).
+  static func parseLabelFlag(_ raw: String) -> CullFlag? {
+    switch raw.lowercased() {
+    case "red", "pick": return .pick
+    case "reject", "rejected": return .reject
+    default: return nil
+    }
+  }
 }
 
 // MARK: - Re-emission
 
 extension XMPSerializer {
+  /// Whether a captured raw survives this save. Ordinary passthrough
+  /// always does; a conditionally owned raw (#4403) only when the model
+  /// still matches what it parses to — an edited or cleared field
+  /// rewrites canonically instead, and a label word that means no flag
+  /// (`"Blue"`) can never be "edited" through the flag, so it always stays.
+  static func _keepsRawCullingAttribute(
+    name: String, value: String, culling: CullingState
+  ) -> Bool {
+    switch name {
+    case "xmp:Rating":
+      return XMPParser.parseRatingValue(value, current: 0) == culling.stars
+    case "xmp:Label":
+      guard let flag = XMPParser.parseLabelFlag(value) else { return true }
+      return flag == culling.flag
+    default:
+      return true
+    }
+  }
+
   /// Unknown attributes as canonical `(name, value)` pairs. Values are
   /// re-escaped because the bucket holds decoded text, exactly as the
   /// TypeScript serializer re-escapes `passthrough.unknownAttributes`.
@@ -61,8 +101,14 @@ extension XMPSerializer {
   /// `XMPCanonical.sorted`, whose unknown-namespace rank (500) drops them
   /// after every known attribute — `docs/xmp-canonical-format.md`
   /// § "Attribute ordering on `rdf:Description`".
-  static func _passthroughAttrs(_ passthrough: XMPPassthrough) -> [(String, String)] {
-    passthrough.unknownAttributes.map { ($0.name, escapeXMLAttr($0.value)) }
+  static func _passthroughAttrs(
+    _ passthrough: XMPPassthrough, culling: CullingState
+  ) -> [(String, String)] {
+    passthrough.unknownAttributes
+      .filter {
+        _keepsRawCullingAttribute(name: $0.name, value: $0.value, culling: culling)
+      }
+      .map { ($0.name, escapeXMLAttr($0.value)) }
   }
 
   /// Unknown nested elements, in original document order — masks, history
@@ -104,7 +150,7 @@ final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
     // deterministic run to run, which keeps tests and diffs stable.
     unknownAttributes =
       attributeDict
-      .filter { !XMPKnownFields.isKnownAttribute($0.key) }
+      .filter { XMPKnownFields.isCapturedAttribute($0.key) }
       .map { XMPPassthrough.Attribute(name: $0.key, value: $0.value) }
       .sorted { $0.name < $1.name }
   }

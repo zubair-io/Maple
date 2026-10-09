@@ -102,9 +102,19 @@ final class CloudSidecarStoreTests: XCTestCase {
       URLProtocolStub.capturedBodies["https://batch-preservation/api/assets/asset/xmp"])
     let written = String(decoding: body, as: UTF8.self)
     XCTAssertEqual(XMPParser.parseMetadata(written), XMPParser.parseMetadata(document.read()))
+    // Since #4403 the bucket carries the conditionally owned `xmp:Rating`
+    // raw: this write changes the rating (remote 3 → culling 4), so the
+    // rewritten document canonically carries 4 where the remote carries 3.
+    // Everything else must still match exactly.
+    XCTAssertTrue(written.contains(#"xmp:Rating="4""#))
+    let withoutRating = { (bucket: XMPPassthrough) in
+      XMPPassthrough(
+        unknownAttributes: bucket.unknownAttributes.filter { $0.name != "xmp:Rating" },
+        unknownNodes: bucket.unknownNodes, maskGroups: bucket.maskGroups)
+    }
     XCTAssertEqual(
-      XMPParser.parsePassthrough(data: body),
-      XMPParser.parsePassthrough(data: Data(document.read().utf8)))
+      withoutRating(XMPParser.parsePassthrough(data: body)),
+      withoutRating(XMPParser.parsePassthrough(data: Data(document.read().utf8))))
     XCTAssertEqual(try XMPParser.parse(data: body).0.exposure, 1.75)
   }
 

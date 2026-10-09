@@ -160,10 +160,22 @@ enum XMPKnownFields {
   }()
 
   /// Rating / flag / colour label / hidden, including the read-only
-  /// `xmp:Label` legacy flag alias (#2221) the serializer never writes back.
+  /// `xmp:Label` legacy flag alias (#2221) the serializer never authors
+  /// canonically — though since #4403 it does write both `xmp:` names back
+  /// verbatim when their value is unchanged (see
+  /// `conditionallyOwnedAttributes`).
   private static let culling: Set<String> = [
     "xmp:Rating", "papp:Flag", "xmp:Label", "papp:ColorLabel", "papp:Hidden",
   ]
+
+  /// Owned names that are ALSO captured into the passthrough bucket. A
+  /// value the user never touched keeps its authored bytes on save —
+  /// a Lightroom reject (`xmp:Rating="-1"`), a non-integer spelling
+  /// (`"3.0"`), or a colour word in `xmp:Label` — while an edited or
+  /// cleared field rewrites canonically and drops the raw (#4403,
+  /// mirroring the Linux shell's `keep_rating` rule). The serializer's
+  /// `_keepsRawCullingAttribute` decides per raw at write time.
+  static let conditionallyOwnedAttributes: Set<String> = ["xmp:Rating", "xmp:Label"]
 
   /// The IPTC/EXIF batch-metadata attributes (`XMPSerialization+Metadata.swift`).
   private static let metadata: Set<String> = [
@@ -219,6 +231,12 @@ enum XMPKnownFields {
   static func isManagedChild(_ qName: String) -> Bool {
     managedChildElements.contains(qName)
       || qName == "subject" || qName.hasSuffix(":subject")
+  }
+
+  /// True when `name` is captured into the passthrough bucket: anything
+  /// Maple does not model, plus the conditionally owned names (#4403).
+  static func isCapturedAttribute(_ name: String) -> Bool {
+    conditionallyOwnedAttributes.contains(name) || !isKnownAttribute(name)
   }
 
   /// True when `name` is an attribute the passthrough bucket must ignore:
