@@ -198,12 +198,16 @@
     }
 
     /// Set the field's text for a seed and mark it so `SearchView` doesn't
-    /// read the change as the user clearing the field. An unchanged
-    /// assignment emits no change, so it leaves any pending marker alone
-    /// rather than clearing it before SwiftUI has delivered the first one.
+    /// read the change as the user clearing the field. The marker lives for
+    /// exactly one render: `SearchView` consumes it when it observes the
+    /// change, and the host drops it on the next main-actor turn regardless
+    /// — so a seed applied while no `SearchView` exists (cold start, session
+    /// still building) can't leave a marker that masks a later real clear.
     private func seedQuery(_ text: String) {
-      if text != query { seededQuery = text }
+      guard text != query else { return }
+      seededQuery = text
       query = text
+      Task { @MainActor in seededQuery = nil }
     }
 
     /// Run a stored search from a deep-link/Map seed.
