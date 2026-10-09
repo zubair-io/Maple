@@ -1,15 +1,17 @@
 # Maple Self Hosted — auto-deploy timer.
 #
-# Fires maple-deploy.service every minute. Each tick is a cheap `git fetch`;
-# the service only does real work when origin/main has new commits.
+# Backstop for maple-deploy-webhook.service (#4450), which starts a deploy the
+# moment GitHub reports a push to main. GitHub does not redeliver a failed
+# webhook, so this tick catches anything missed. Each tick is a cheap
+# `git fetch`; the service only does real work when origin/main has moved.
 
 [Unit]
-Description=Run Maple auto-deploy every minute
+Description=Maple auto-deploy backstop (every 15 minutes)
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=1min
-AccuracySec=10s
+OnUnitActiveSec=15min
+AccuracySec=1min
 Unit=maple-deploy.service
 
 [Install]

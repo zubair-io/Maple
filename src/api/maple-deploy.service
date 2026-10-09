@@ -1,6 +1,7 @@
 # Maple Self Hosted — auto-deploy oneshot
 #
-# Triggered by maple-deploy.timer. Pulls main and rebuilds/restarts the
+# Triggered by maple-deploy-webhook.service on a push to main, with
+# maple-deploy.timer as a backstop. Pulls main and rebuilds/restarts the
 # container if there are new commits. See scripts/auto-deploy.sh.
 #
 # Install:

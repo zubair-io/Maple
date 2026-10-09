@@ -1,0 +1,48 @@
+# Maple Self Hosted — GitHub push webhook listener (#4450)
+#
+# Starts maple-deploy.service the moment GitHub reports a push to main, so the
+# deploy no longer waits on maple-deploy.timer (now a 15-minute backstop for
+# missed deliveries). Runs on the host because the deploy replaces the API
+# container. See scripts/deploy-webhook.ts.
+#
+# Install:
+#   1. Generate a secret and write /opt/maple/deploy-webhook.env (chmod 600):
+#        MAPLE_DEPLOY_WEBHOOK_SECRET=<openssl rand -hex 32>
+#        MAPLE_DEPLOY_WEBHOOK_HOST=<maple-net gateway, from:
+#          docker network inspect maple-net -f '{{(index .IPAM.Config 0).Gateway}}'>
+#      Binding the gateway makes the listener reachable from the cloudflared
+#      container on maple-net without publishing it on the LAN.
+#   2. sudo cp /root/Maple/src/api/maple-deploy-webhook.service /etc/systemd/system/
+#      sudo cp /root/Maple/src/api/maple-deploy.timer           /etc/systemd/system/
+#      sudo systemctl daemon-reload
+#      sudo systemctl enable --now maple-deploy-webhook.service
+#      sudo systemctl restart maple-deploy.timer
+#   3. Cloudflare Zero Trust → the maple tunnel → Public hostname:
+#        deploy.maple.lawrence.io → http://<gateway>:9871
+#   4. GitHub → repo Settings → Webhooks → Add webhook:
+#        Payload URL  https://deploy.maple.lawrence.io/github
+#        Content type application/json
+#        Secret       the MAPLE_DEPLOY_WEBHOOK_SECRET value
+#        Events       Just the push event
+#      GitHub sends a ping on save; Recent Deliveries should show 200.
+#
+# Tail logs:
+#   journalctl -fu maple-deploy-webhook.service
+
+[Unit]
+Description=Maple Self Hosted deploy webhook listener
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/opt/maple/deploy-webhook.env
+ExecStart=/root/.bun/bin/bun /root/Maple/src/api/scripts/deploy-webhook.ts
+# The maple-net gateway address only exists once Docker has created the
+# network, so a boot-time bind can fail; keep retrying until it is up.
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -223,7 +223,7 @@ Pass `MAPLE_SQLITE_PATH` explicitly and mount the directory it names, as above. 
 
 The `maple_data` volume is the one that must not be dropped — it holds the SQLite library file, and a container recreate without it starts over with an empty library. `docker-compose.yml` brings the server up under the `app` profile and a Cloudflare Tunnel under the `proxy` profile; there is no database service to start alongside them. The health check is `GET /api/health`.
 
-**systemd.** `maple.service` runs `bun src/index.ts` from `/opt/maple` as a `maple` user under `ProtectSystem=strict`, with the photo library and `/var/lib/maple` in `ReadWritePaths`. `maple-deploy.timer` fires `maple-deploy.service` every minute, which runs `scripts/auto-deploy.sh` — a cheap `git fetch` that only rebuilds and restarts when `origin/main` has moved.
+**systemd.** `maple.service` runs `bun src/index.ts` from `/opt/maple` as a `maple` user under `ProtectSystem=strict`, with the photo library and `/var/lib/maple` in `ReadWritePaths`. Deploys are push-driven: `maple-deploy-webhook.service` runs `scripts/deploy-webhook.ts` on the host, reached through the Cloudflare tunnel, and on a signature-verified GitHub push to `main` starts `maple-deploy.service`. That runs `scripts/auto-deploy.sh`, which rebuilds and restarts until it has caught up with `origin/main`, so a push that lands mid-build is picked up when the build finishes. `maple-deploy.timer` runs the same service every 15 minutes as a backstop, because GitHub does not redeliver a failed webhook. Install steps are in the header of `maple-deploy-webhook.service`.
 
 ## Development and testing
 
