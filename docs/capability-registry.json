@@ -1,7 +1,7 @@
 {
   "generator": "tools/codegen.sh (codegen --schema capability-registry --target json)",
   "build": {
-    "pipeline_output_version": 16,
+    "pipeline_output_version": 17,
     "schema_version": 5
   },
   "capabilities": [
@@ -742,7 +742,7 @@
       "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 16,
+        "pipeline_version": 17,
         "schema_version": 5,
         "corpus_hash": "blake3:586dda5d1f3fc7d144dcfe3194e46a6212faf4e1d697f16a89b3fcf139226c2d",
         "expected_cases": 41,
@@ -765,7 +765,7 @@
       "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 16,
+        "pipeline_version": 17,
         "schema_version": 5,
         "corpus_hash": "blake3:fcf261c40600660bbbc89f0ec6055348550ac5430d428adb0ba9eefff89006c7",
         "expected_cases": 6,
@@ -788,7 +788,7 @@
       "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 16,
+        "pipeline_version": 17,
         "schema_version": 5,
         "corpus_hash": "blake3:5cb9b885cf0a893b73e4710df4d066eb5e38ef4346956d169ecce416ee80ed2c",
         "expected_cases": 5,
@@ -811,7 +811,7 @@
       "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 16,
+        "pipeline_version": 17,
         "schema_version": 5,
         "corpus_hash": "blake3:7f41cb1428044e2013c7d2f811e013734029b4a5fb9c7e9b9e4b83c9cb2fe244",
         "expected_cases": 7,
@@ -858,7 +858,7 @@
       "status": "satisfied",
       "record": {
         "backend": "xctest-macos",
-        "pipeline_version": 16,
+        "pipeline_version": 17,
         "schema_version": 5,
         "corpus_hash": "blake3:287a591997e0eeacc4a82411e114093f472af2560a8573a23789e77d1022c60b",
         "expected_cases": 12,
@@ -881,7 +881,7 @@
       "status": "satisfied",
       "record": {
         "backend": "bun",
-        "pipeline_version": 16,
+        "pipeline_version": 17,
         "schema_version": 5,
         "corpus_hash": "blake3:a9ed184663114494494af5c644866d163d987ceae7dda1c7a7fd9e78b5f480b6",
         "expected_cases": 3,
@@ -923,7 +923,7 @@
       "status": "satisfied",
       "record": {
         "backend": "metal",
-        "pipeline_version": 16,
+        "pipeline_version": 17,
         "schema_version": 5,
         "corpus_hash": "blake3:732584ac4f55b99a7bc61b6eee80ef146e8f9bdb727f7ddf769e8482cbd878ad",
         "expected_cases": 19,

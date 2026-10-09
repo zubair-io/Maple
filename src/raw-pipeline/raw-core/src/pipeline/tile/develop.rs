@@ -452,13 +452,12 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // before sharpen.
     stage("tile_defringe", || defringe::apply_model(&mut scene, model));
     stage("tile_local_adjustments", || {
-        local_adjustments::apply_windowed(
-            &mut scene,
+        let (layers, rasters) = crate::pipeline::mask::orient_adjustments_to_sensor(
             &model.local_adjustments,
             &model.mask_rasters,
-            window.origin,
-            window.full,
-        )
+            raw.orientation,
+        );
+        local_adjustments::apply_windowed(&mut scene, &layers, &rasters, window.origin, window.full)
     });
     stage("tile_vignette", || {
         vignette::apply_windowed(
