@@ -527,6 +527,20 @@ describe('memory chip (#4445)', () => {
     expect(totalRss(rows)).toBe((111 + 213 + 17 * 253 + 484) * MB);
   });
 
+  it('folds API-owned and worker-owned decode children into one ffi-decode entry', () => {
+    const rows = [
+      row('api', 111 * MB, 1),
+      { ...row('ffi-decode', 150 * MB, 77), owner: 'api' as const },
+      { ...row('ffi-decode', 291 * MB, 42), owner: 'worker' as const },
+    ];
+    expect(memoryBreakdownLabel(rows)).toBe('Memory · api 111 MB · ffi-decode ×2 441 MB');
+    expect(memoryDetailTitle(rows).split('\n').slice(2)).toEqual([
+      'api (pid 1) 111 MB',
+      'ffi-decode (api · pid 77) 150 MB',
+      'ffi-decode (worker · pid 42) 291 MB',
+    ]);
+  });
+
   it('puts the full per-PID list in the tooltip, one process per line', () => {
     const rows = [
       row('api', 111 * MB, 1),

@@ -376,7 +376,9 @@ const MEMORY_TITLE_INTRO =
  * one process per line — bounded by the tooltip rather than the header. */
 export function memoryDetailTitle(rows: readonly ProcessMemoryRow[] | undefined): string {
   if (!rows || rows.length === 0) return MEMORY_TITLE_INTRO;
-  const lines = rows.map((row) => `${row.process} (pid ${row.pid}) ${formatBytes(row.rss)}`);
+  const who = (row: ProcessMemoryRow): string =>
+    row.owner ? `${row.owner} · pid ${row.pid}` : `pid ${row.pid}`;
+  const lines = rows.map((row) => `${row.process} (${who(row)}) ${formatBytes(row.rss)}`);
   return `${MEMORY_TITLE_INTRO}\n\n${lines.join('\n')}`;
 }
 
