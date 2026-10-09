@@ -45,6 +45,15 @@ jobs:
       contents: read
       pull-requests: write # to post the review comment
     steps:
+      - name: Verify Proxmox runner identity
+        env:
+          EXPECTED_RUNNER_NAME: maple-muse-ct126
+        run: |
+          if [[ "$RUNNER_NAME" != "$EXPECTED_RUNNER_NAME" ]]; then
+            echo "Expected Proxmox runner $EXPECTED_RUNNER_NAME, got $RUNNER_NAME" >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0 # full history so the diff step can reach the base
