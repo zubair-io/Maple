@@ -28,12 +28,12 @@ describe('Hosted SSR Worker', () => {
 	it('streams a WASM object byte-for-byte and forces application/wasm', async () => {
 		fetchMock
 			.get('https://origin.test')
-			.intercept({ path: '/mapleaperture/raw_wasm_bg.wasm', method: 'GET' })
+			.intercept({ path: '/mapleaperture/pkg/raw_wasm_bg.wasm', method: 'GET' })
 			.reply(200, WASM_MAGIC, {
 				headers: { 'content-type': 'application/octet-stream' },
 			});
 
-		const request = new IncomingRequest('https://mapleaperture.com/raw_wasm_bg.wasm');
+		const request = new IncomingRequest('https://mapleaperture.com/pkg/raw_wasm_bg.wasm');
 		const ctx = createExecutionContext();
 		const response = await fetchWorker(request, env, ctx);
 		await waitOnExecutionContext(ctx);
@@ -129,7 +129,7 @@ describe('Hosted SSR Worker', () => {
 	it('never overrides the origin cache-control with an immutable policy', async () => {
 		fetchMock
 			.get('https://origin.test')
-			.intercept({ path: '/mapleaperture/raw_wasm_bg.wasm', method: 'GET' })
+			.intercept({ path: '/mapleaperture/pkg/raw_wasm_bg.wasm', method: 'GET' })
 			.reply(200, WASM_MAGIC, {
 				headers: { 'content-type': 'application/wasm' },
 				// Azure did not set a Cache-Control on this stable-named object —
@@ -137,7 +137,7 @@ describe('Hosted SSR Worker', () => {
 				// policy (the exact production bug in #2474).
 			});
 
-		const request = new IncomingRequest('https://mapleaperture.com/raw_wasm_bg.wasm');
+		const request = new IncomingRequest('https://mapleaperture.com/pkg/raw_wasm_bg.wasm');
 		const ctx = createExecutionContext();
 		const response = await fetchWorker(request, env, ctx);
 		await waitOnExecutionContext(ctx);
@@ -340,12 +340,12 @@ describe('Hosted SSR Worker', () => {
 	it('preserves the request method when proxying (HEAD stays HEAD)', async () => {
 		fetchMock
 			.get('https://origin.test')
-			.intercept({ path: '/mapleaperture/raw_wasm_bg.wasm', method: 'HEAD' })
+			.intercept({ path: '/mapleaperture/pkg/raw_wasm_bg.wasm', method: 'HEAD' })
 			.reply(200, '', {
 				headers: { 'content-type': 'application/octet-stream' },
 			});
 
-		const request = new IncomingRequest('https://mapleaperture.com/raw_wasm_bg.wasm', {
+		const request = new IncomingRequest('https://mapleaperture.com/pkg/raw_wasm_bg.wasm', {
 			method: 'HEAD',
 		});
 		const ctx = createExecutionContext();
