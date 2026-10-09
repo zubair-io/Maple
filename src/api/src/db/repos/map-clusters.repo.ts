@@ -34,6 +34,7 @@ import { bucketedIds, locationsByAssetIdsSql } from './assets.sql.ts';
 import { toFileInfo, type LocationRow } from './assets.rows.ts';
 import { assetsDb, type SqliteDb } from './db-handle.ts';
 import { placeholders } from './values.ts';
+import { fromClause } from './search.sql.ts';
 import { searchWhereSql, type BoundPredicate, type SearchWhere } from './search.where.ts';
 
 export type { SqliteDb } from './db-handle.ts';
@@ -65,22 +66,6 @@ export interface MapClusterCell {
    * `count === 1` test is the same decision, made one layer up.
    */
   fileinfo: FileInfo[];
-}
-
-/**
- * The tables a translated search reads from.
- *
- * Mirrors `fromClause` in `search.sql.ts`, which is not exported: without a text
- * query the source is `assets` alone, and with one FTS5 leads because the
- * inverted index is the most selective thing in the query. A text query no row
- * can satisfy leads with `assets` too — its `WHERE` is the folded constant `0`,
- * and joining an index to prove that is work for nothing.
- */
-function fromClause(where: SearchWhere): string {
-  if (where.match.kind !== 'match') return 'FROM assets';
-  return `FROM assets_fts
-      JOIN asset_search ON asset_search.rowid = assets_fts.rowid
-      JOIN assets ON assets.id = asset_search.asset_id`;
 }
 
 /**

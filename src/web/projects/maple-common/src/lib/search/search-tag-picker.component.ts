@@ -12,6 +12,8 @@
 
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import type { FacetOption } from './search-filter-panel.component';
+import type { FacetScope } from '../api/search.service';
+import { facetScopeNote } from './search-filters';
 import { MapleIconComponent } from '../icons/maple-icon.component';
 
 export interface TagPick {
@@ -44,6 +46,8 @@ export class SearchTagPickerComponent {
   readonly places = input<readonly FacetOption[]>([]);
   readonly selectedPeople = input<readonly string[]>([]);
   readonly selectedPlaces = input<readonly string[]>([]);
+  /** Which matches the People / Places counts describe (#4431). */
+  readonly scope = input<FacetScope | null>(null);
 
   readonly pick = output<TagPick>();
 
@@ -63,6 +67,7 @@ export class SearchTagPickerComponent {
   );
 
   protected readonly isEmpty = computed(() => this.sections().length === 0);
+  protected readonly scopeNote = computed(() => facetScopeNote(this.scope()));
 
   protected initial(name: string): string {
     return name.trim().charAt(0).toUpperCase();

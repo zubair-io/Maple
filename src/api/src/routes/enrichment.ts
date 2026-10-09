@@ -35,7 +35,7 @@ import {
 } from '../enrichment/meilisearch-client.ts';
 import { validMeilisearchSemanticRatio } from '../enrichment/meilisearch-config.ts';
 import { configureServiceSearchRateLimit } from '../enrichment/service-search-rate-limit.ts';
-import { advanceKnownVectorCoverage } from '../enrichment/meilisearch-vector-coverage.ts';
+import { syncIndexAndCoverage } from '../enrichment/meilisearch-vector-coverage.ts';
 import { testMeilisearchConnection } from '../enrichment/meilisearch-connection-test.ts';
 
 const log = childLogger('enrichment:routes');
@@ -461,16 +461,9 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
           embedderModel: resolved.meilisearch_embedder_model,
           semanticRatio: resolved.meilisearch_semantic_ratio,
         });
-        void (async () => {
-          try {
-            if (await meili.health()) {
-              await meili.ensureIndex();
-              await advanceKnownVectorCoverage(meili.semanticFingerprint?.());
-            }
-          } catch (err) {
-            log.warn({ err }, 'Meilisearch reconfigure health/ensureIndex failed (non-fatal)');
-          }
-        })();
+        void syncIndexAndCoverage(meili).catch((err) => {
+          log.warn({ err }, 'Meilisearch reconfigure health/ensureIndex failed (non-fatal)');
+        });
       }
 
       // Strip the secret key before returning.

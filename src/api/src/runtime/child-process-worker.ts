@@ -38,8 +38,18 @@
 import { fileURLToPath } from 'node:url';
 import * as os from 'node:os';
 import { child as childLogger } from '../log.ts';
+import { isChildMemoryReport, type ProcessMemoryRow } from './memory-telemetry.ts';
 
 const log = childLogger('native-child');
+
+/** Latest memory sample each live child relayed over IPC, keyed by pid (#4445). */
+const childMemory = new Map<number, ProcessMemoryRow>();
+
+/** What this process knows about its children's memory — nothing is sampled
+ * here; a child that has not reported yet is simply absent. */
+export function childMemoryReports(): ProcessMemoryRow[] {
+  return [...childMemory.values()];
+}
 
 /** Env var the parent sets at spawn so the child knows how much to `nice`
  * itself. Read child-side by `installChildHardening`. */
@@ -175,10 +185,15 @@ export class ChildProcessWorker implements ChildWorkerHost {
     // for the crash-diagnostic `onExit` log (#899).
     this.proc = Bun.spawn([process.execPath, scriptPath, ...(opts.argv ?? [])], {
       ipc: (message: unknown) => {
+        if (isChildMemoryReport(message)) {
+          childMemory.set(this.proc.pid, message.row);
+          return;
+        }
         if (this.onMessage) this.onMessage({ data: message });
         else this.pendingMessages.push({ data: message });
       },
       onExit: (_proc, exitCode, signalCode, error) => {
+        childMemory.delete(this.proc.pid);
         if (this.terminating) return; // a death we asked for — not a crash
         void this.reportCrashExit(exitCode, signalCode, error);
       },
@@ -323,26 +338,33 @@ export function childScriptPath(metaUrl: string, relative: string): string {
  *    → re-parented to init), so we never linger as an orphan. The timer is
  *    unref'd so it never keeps an otherwise-idle child alive on its own.
  */
-export function installChildHardening(label: string): void {
-  const incRaw = Number(process.env[NICE_ENV] ?? '0');
-  const increment = Number.isFinite(incRaw) ? Math.max(0, Math.min(19, Math.floor(incRaw))) : 0;
-  if (increment > 0) {
-    try {
-      // `MAPLE_NATIVE_CHILD_NICE` is a RELATIVE increment, but `os.setPriority`
-      // sets an ABSOLUTE nice value — so add it to the priority this child
-      // inherited from the parent at spawn rather than overwriting it. That
-      // keeps the child strictly below the parent (the HTTP server) even when
-      // the parent is itself niced (a container/systemd `Nice=`). `increment`
-      // is non-negative and we clamp to 19, so we only ever RAISE our own
-      // niceness — always permitted without privileges.
-      const current = os.getPriority(); // this process — inherited from the parent
-      os.setPriority(0, Math.min(19, current + increment));
-    } catch (e) {
-      // Best-effort: some sandboxes disallow setpriority. Not fatal — the child
-      // just runs at the inherited priority.
-      log.warn({ label, err: e instanceof Error ? e.message : String(e) }, 'setPriority failed');
-    }
+/** The spawn-time nice increment, clamped to what `setpriority` accepts. */
+export function niceIncrementFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env[NICE_ENV] ?? '0');
+  return Number.isFinite(raw) ? Math.max(0, Math.min(19, Math.floor(raw))) : 0;
+}
+
+function lowerOwnPriority(label: string, increment: number): void {
+  if (increment <= 0) return;
+  try {
+    // `MAPLE_NATIVE_CHILD_NICE` is a RELATIVE increment, but `os.setPriority`
+    // sets an ABSOLUTE nice value — so add it to the priority this child
+    // inherited from the parent at spawn rather than overwriting it. That
+    // keeps the child strictly below the parent (the HTTP server) even when
+    // the parent is itself niced (a container/systemd `Nice=`). `increment`
+    // is non-negative and we clamp to 19, so we only ever RAISE our own
+    // niceness — always permitted without privileges.
+    const current = os.getPriority(); // this process — inherited from the parent
+    os.setPriority(0, Math.min(19, current + increment));
+  } catch (e) {
+    // Best-effort: some sandboxes disallow setpriority. Not fatal — the child
+    // just runs at the inherited priority.
+    log.warn({ label, err: e instanceof Error ? e.message : String(e) }, 'setPriority failed');
   }
+}
+
+export function installChildHardening(label: string): void {
+  lowerOwnPriority(label, niceIncrementFromEnv());
 
   const parentPid = process.ppid;
   const watch = setInterval(() => {

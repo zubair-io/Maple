@@ -22,10 +22,12 @@ import { OnnxFaceDetector, ThumbDecodeError, type DetectedFace } from './face-de
 import { loadFaceModels, type FaceModelsConfig } from './face-models.ts';
 import type { FaceWorkerRequest, FaceWorkerResponse } from './face-pool-protocol.ts';
 import { installChildHardening } from '../runtime/child-process-worker.ts';
+import { reportMemoryToParent, startMemoryTelemetry } from '../runtime/memory-telemetry.ts';
 
 // Lower CPU priority (so the HTTP server wins under indexer load) + self-exit
 // if the parent dies. Shared with the FFI decode child; see runtime.
 installChildHardening('face');
+startMemoryTelemetry({ process: 'face', onSample: reportMemoryToParent });
 
 // One detector for the process lifetime; it lazily loads the model pair on the
 // first detect/embed/preload via `loadFaceModels`'s singleton.

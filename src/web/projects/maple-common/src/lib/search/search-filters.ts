@@ -8,7 +8,7 @@
 // either side clears the other so the active-chip list never shows two
 // date chips.
 
-import type { AppliedDateFilter, SearchParams } from '../api/search.service';
+import type { AppliedDateFilter, FacetScope, SearchParams } from '../api/search.service';
 
 export type DatePreset = 'today' | 'last7' | 'last30' | 'thisYear';
 
@@ -328,4 +328,15 @@ export function parseDeepLinkFilters(
     ...(people.length > 0 ? { people } : {}),
     ...(ownerId !== null ? { ownerId } : {}),
   };
+}
+
+/**
+ * The line a facet surface shows when a broad text search's facets count only
+ * its most relevant results (#4431) — so a person or place missing from them
+ * reads as "not among the best matches", not "not in the results". Null when
+ * the counts cover every match, or the server predates the field.
+ */
+export function facetScopeNote(scope: FacetScope | null | undefined): string | null {
+  if (!scope || scope.kind !== 'top') return null;
+  return `Filters from the ${scope.limit.toLocaleString()} most relevant of ${scope.of.toLocaleString()} results`;
 }

@@ -38,7 +38,10 @@ test('destination coverage counts backfill correctly and track location and Tras
   });
   run(handle.db, `UPDATE assets SET deleted_reason='reaped' WHERE id=?`, reapedAsset);
 
-  const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+  const result = await runMigrations(
+    handle.migrationDb,
+    ALL_MIGRATIONS.filter((migration) => migration.id <= '0018-cloud-backup-google-mirror-layout'),
+  );
   expect(result.applied).toEqual([
     '0016-cloud-backup-destination-status',
     '0017-cloud-backup-object-entry-index',

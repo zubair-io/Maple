@@ -268,6 +268,25 @@ smb2_process_ioctl_fixed(struct smb2_context *smb2,
         smb2_get_uint32(iov, 36, &rep->output_count);
         smb2_get_uint32(iov, 40, &rep->flags);
 
+        uint32_t request_command = 0;
+        if (pdu->header.command == SMB2_IOCTL && pdu->out.niov > 1 &&
+            pdu->out.iov[1].len >= 8) {
+                smb2_get_uint32(&pdu->out.iov[1], 4, &request_command);
+        }
+        int copychunk_request = request_command == SMB2_FSCTL_SRV_COPYCHUNK ||
+                                request_command == SMB2_FSCTL_SRV_COPYCHUNK_WRITE;
+        /* Both the successful acknowledgement and negotiated limits consist
+         * of exactly three uint32 fields. Validate before allocating/reading. */
+        if (copychunk_request &&
+            (rep->ctl_code != request_command ||
+             ((pdu->copychunk_limits_reply || smb2->hdr.status == SMB2_STATUS_SUCCESS) &&
+              (rep->output_count != 12 || rep->input_count != 0)))) {
+                smb2_set_error(smb2, "Invalid COPYCHUNK response command or size");
+                pdu->payload = NULL;
+                free(rep);
+                return -1;
+        }
+
         if (rep->output_count == 0) {
                 return 0;
         }
@@ -298,7 +317,7 @@ smb2_process_ioctl_variable(struct smb2_context *smb2,
         struct smb2_iovec vec;
         void *ptr;
 
-        if (rep->output_count > iov->len - IOV_OFFSET) {
+        if (IOV_OFFSET > iov->len || rep->output_count > iov->len - IOV_OFFSET) {
                 return -EINVAL;
         }
 
@@ -321,7 +340,7 @@ smb2_process_ioctl_variable(struct smb2_context *smb2,
                 if (ptr == NULL) {
                         return -ENOMEM;
                 }
-                memcpy(ptr, &iov->buf[IOV_OFFSET], iov->len - IOV_OFFSET);
+                memcpy(ptr, &iov->buf[IOV_OFFSET], rep->output_count);
         }
 
         rep->output = ptr;

@@ -58,6 +58,15 @@
       </div>
     </section>
 
+    @if (scopeNote(); as note) {
+      <p
+        class="m-0 font-['Lato',sans-serif] text-[12px] leading-[1.4] text-text-muted"
+        data-testid="filter-scope-note"
+      >
+        {{ note }}
+      </p>
+    }
+
     <app-search-facet-section
       title="People"
       kind="person"

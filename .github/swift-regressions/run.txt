@@ -226,6 +226,8 @@ SearchAssetAddressTests
 SearchCursorPaginationTests
 SearchParamsTests
 SearchViewModelTests
+SearchViewModelCollectionTests
+GeneratedSearchCollectionsViewModelTests
 SessionPruningTests
 SidecarModifyIdempotencyTests
 SidecarPathTests
@@ -366,3 +368,13 @@ TopShelfLinkTests
 NativeExportRecipeTests
 NativeExportQueueTests
 NativeExportSnapshotTests
+
+# Server-advertised COPYCHUNK limits and response ownership (#4142).
+SMBCopyChunkResponseTests
+SMBCopyChunkWireTests
+
+# Real Local RAW/XMP restore collision and failure safety (#4139).
+RestoreSafetyTests
+
+# SMB restore is copy-only: trashed files are marked, never deleted or renamed (#4139/#4173).
+SMBCopyOnlyRestoreTests

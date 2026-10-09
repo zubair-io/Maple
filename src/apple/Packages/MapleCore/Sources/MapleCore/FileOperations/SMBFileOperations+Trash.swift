@@ -17,6 +17,7 @@ extension SMBFileOperations {
     let trashDir = try trashDestinationDir(for: primaryPath, shareRoot: shareRoot)
     let outcome = try await relocate(
       primaryPath, to: trashDir, mode: .move, collision: .autoSuffix, transport: transport)
+    await removeTrashedMarker(forItemAt: outcome.primaryPath, transport: transport)
     await writeTrashedMarker(forItemAt: outcome.primaryPath, transport: transport)
     return outcome
   }
@@ -52,16 +53,26 @@ extension SMBFileOperations {
   // file header for the marker scheme this mirrors)
 
   /// Restore a `.maple/trash`-backed item to its original location — the
-  /// mirror image of `trashDestinationDir`.
+  /// mirror image of `trashDestinationDir`. Copy-only (#4139): the trashed
+  /// photo and XMP stay where they are behind a `.restored-` marker, and
+  /// `sweepExpiredMapleTrash` removes them when their trash period ends.
   public static func restoreFromMapleTrash(
     _ trashedPath: String, shareRoot: String = "/",
     transport: SMBFileTransport
   ) async throws -> RelocateOutcome {
+    guard URL(fileURLWithPath: trashedPath).standardizedFileURL.path == trashedPath else {
+      throw FileOperationError.invalidDestination(trashedPath)
+    }
     let originalDir = try originalDestinationDir(for: trashedPath, shareRoot: shareRoot)
-    let outcome = try await relocate(
-      trashedPath, to: originalDir, mode: .move, collision: .autoSuffix, transport: transport)
-    await removeTrashedMarker(forItemAt: trashedPath, transport: transport)
+    let outcome = try await restoreFilePair(
+      trashedPath, to: originalDir, staging: restoreStagingDir(shareRoot: shareRoot),
+      transport: transport)
+    await writeTrashedMarker(forItemAt: trashedPath, kind: .restored, transport: transport)
     return outcome
+  }
+
+  static func restoreStagingDir(shareRoot: String) -> String {
+    posixJoin(normalizedPosixDir(shareRoot), ".maple/restore-staging")
   }
 
   /// Inverse of `trashDestinationDir`.
@@ -80,12 +91,21 @@ extension SMBFileOperations {
     return posixJoin(root, relSuffix)
   }
 
-  /// Every item currently sitting in `<shareRoot>/.maple/trash`, newest
-  /// first. A single recursive listing (one round-trip), split into
-  /// marker directories (name → trashed date) and primary files. Windows
-  /// original-path metadata is bookkeeping, never a restorable item (#4009).
+  /// Every restorable item in `<shareRoot>/.maple/trash`, newest first.
+  /// Items already restored by a copy-only restore are hidden.
   public static func listMapleTrash(shareRoot: String = "/", transport: SMBFileTransport) async
     -> [TrashedItem]
+  {
+    await listMapleTrashEntries(shareRoot: shareRoot, transport: transport)
+      .filter { $0.restoredDate == nil }.map(\.item)
+  }
+
+  /// Every item sitting in `<shareRoot>/.maple/trash`, newest first. A
+  /// single recursive listing (one round-trip), split into marker
+  /// directories (name → date) and primary files. Windows original-path
+  /// metadata is bookkeeping, never a restorable item (#4009).
+  static func listMapleTrashEntries(shareRoot: String = "/", transport: SMBFileTransport) async
+    -> [(item: TrashedItem, restoredDate: Date?)]
   {
     let root = normalizedPosixDir(shareRoot)
     let trashRoot = posixJoin(root, ".maple/trash")
@@ -107,17 +127,22 @@ extension SMBFileOperations {
     }
 
     var markerDateByPrimaryPath: [String: Date] = [:]
+    var restoredDateByPrimaryPath: [String: Date] = [:]
     for entry in parsed where entry.isDir {
       guard let parsedMarker = TrashMarker.parseMarkerDirName(entry.name) else { continue }
-      let parent = (entry.path as NSString).deletingLastPathComponent
-      markerDateByPrimaryPath[posixJoin(parent, parsedMarker.basename)] = parsedMarker.date
+      let primary = posixJoin(
+        (entry.path as NSString).deletingLastPathComponent, parsedMarker.basename)
+      switch parsedMarker.kind {
+      case .trashed: markerDateByPrimaryPath[primary] = parsedMarker.date
+      case .restored: restoredDateByPrimaryPath[primary] = parsedMarker.date
+      }
     }
 
     let xmpPaths = Set(
       parsed.filter { !$0.isDir && $0.name.lowercased().hasSuffix(".xmp") }.map(\.path))
     let trashPrefix = trashRoot == "/" ? "/" : trashRoot + "/"
 
-    var items: [TrashedItem] = []
+    var items: [(item: TrashedItem, restoredDate: Date?)] = []
     for entry in parsed where !entry.isDir && !entry.name.lowercased().hasSuffix(".xmp") {
       guard !entry.name.lowercased().hasSuffix(FilenameVocabulary.originalPathMarkerSuffix) else {
         continue
@@ -127,15 +152,20 @@ extension SMBFileOperations {
         entry.path.hasPrefix(trashPrefix)
         ? String(entry.path.dropFirst(trashPrefix.count)) : entry.path
       items.append(
-        TrashedItem(
-          id: entry.path, primaryPath: entry.path,
-          sidecarPath: xmpPaths.contains(sidecarPath) ? sidecarPath : nil,
-          originalRelativePath: rel,
-          trashedDate: markerDateByPrimaryPath[entry.path],
-          size: entry.size
+        (
+          TrashedItem(
+            id: entry.path, primaryPath: entry.path,
+            sidecarPath: xmpPaths.contains(sidecarPath) ? sidecarPath : nil,
+            originalRelativePath: rel,
+            trashedDate: markerDateByPrimaryPath[entry.path],
+            size: entry.size
+          ),
+          restoredDateByPrimaryPath[entry.path]
         ))
     }
-    return items.sorted { ($0.trashedDate ?? .distantPast) > ($1.trashedDate ?? .distantPast) }
+    return items.sorted {
+      ($0.item.trashedDate ?? .distantPast) > ($1.item.trashedDate ?? .distantPast)
+    }
   }
 
   /// Permanently unlinks a trashed item — primary, sidecar, and its
@@ -174,28 +204,49 @@ extension SMBFileOperations {
   /// Permanently deletes every item in `<shareRoot>/.maple/trash` whose
   /// marker says it's MORE than `olderThanDays` full calendar days old —
   /// see `TrashMarker.daysElapsed`'s doc comment for the day-granularity
-  /// reasoning. Items with no marker are left alone — see
-  /// `LocalFileOperations.sweepExpiredMapleTrash`'s doc comment for why.
-  /// Also removes orphaned markers (`sweepOrphanedMarkers`). Returns the
-  /// total count of primaries purged plus orphaned markers removed.
+  /// reasoning. A restored item ages from its trashed date, or from its
+  /// restore date when it has none. Items with no marker are left alone —
+  /// see `LocalFileOperations.sweepExpiredMapleTrash`'s doc comment for why.
+  /// Also removes orphaned markers (`sweepOrphanedMarkers`) and expired
+  /// restore staging copies. Returns the total count of primaries purged
+  /// plus orphaned markers and staging copies removed.
   @discardableResult
   public static func sweepExpiredMapleTrash(
     shareRoot: String = "/", olderThanDays: Int = 30, now: Date = Date(),
     transport: SMBFileTransport
   ) async -> Int {
     var purged = 0
-    for item in await listMapleTrash(shareRoot: shareRoot, transport: transport) {
-      guard let trashedDate = item.trashedDate,
-        TrashMarker.daysElapsed(since: trashedDate, now: now) > olderThanDays
+    for entry in await listMapleTrashEntries(shareRoot: shareRoot, transport: transport) {
+      guard let agedFrom = entry.item.trashedDate ?? entry.restoredDate,
+        TrashMarker.daysElapsed(since: agedFrom, now: now) > olderThanDays
       else { continue }
       if (try? await permanentlyDeleteFromMapleTrash(
-        item, shareRoot: shareRoot, transport: transport)) != nil
+        entry.item, shareRoot: shareRoot, transport: transport)) != nil
       {
         purged += 1
       }
     }
     purged += await sweepOrphanedMarkers(shareRoot: shareRoot, transport: transport)
+    purged += await sweepExpiredRestoreStaging(
+      shareRoot: shareRoot, olderThanDays: olderThanDays, now: now, transport: transport)
     return purged
+  }
+
+  static func sweepExpiredRestoreStaging(
+    shareRoot: String, olderThanDays: Int, now: Date, transport: SMBFileTransport
+  ) async -> Int {
+    let staging = restoreStagingDir(shareRoot: shareRoot)
+    guard let entries = try? await transport.contentsOfDirectory(atPath: staging, recursive: false)
+    else { return 0 }
+    var removed = 0
+    for attrs in entries {
+      guard (attrs[.isDirectoryKey] as? Bool) != true, let name = attrs[.nameKey] as? String,
+        let staged = TrashMarker.restoreStagingDate(name),
+        TrashMarker.daysElapsed(since: staged, now: now) > olderThanDays
+      else { continue }
+      if (try? await transport.removeItem(atPath: posixJoin(staging, name))) != nil { removed += 1 }
+    }
+    return removed
   }
 
   /// Removes a trashed-date marker whose primary no longer exists — the
@@ -228,13 +279,14 @@ extension SMBFileOperations {
   // MARK: - Trashed-date marker
 
   static func writeTrashedMarker(
-    forItemAt path: String, date: Date = Date(), transport: SMBFileTransport
+    forItemAt path: String, date: Date = Date(), kind: TrashMarker.Kind = .trashed,
+    transport: SMBFileTransport
   ) async {
     let dir = (path as NSString).deletingLastPathComponent
     let markerPath = posixJoin(
       dir,
       TrashMarker.markerName(
-        forItemBasename: (path as NSString).lastPathComponent, date: date))
+        forItemBasename: (path as NSString).lastPathComponent, date: date, kind: kind))
     try? await transport.createDirectory(atPath: markerPath)
   }
 

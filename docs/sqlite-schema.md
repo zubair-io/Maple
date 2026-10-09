@@ -254,6 +254,18 @@ directions avoid sorting equal-date burst frames when traversing oldest first.
 The existing `assets_facet_owner` continues to serve owner counts and facets;
 full-text queries retain their relevance-ranked plan.
 
+The month-of-year filter (`month=1`–`12`) reads `assets_live_month`
+(`captured_month, hidden, id`, live predicate), added by migration
+`0019-assets-live-month` (#4413). Every full-text statement still leads with
+`assets_fts`, pinned by joining on `+assets_fts.rowid`: given this index the
+planner would otherwise start from `assets` and probe FTS5 by rowid, which
+re-runs the whole `MATCH` per asset (8–9 s per facet at 335k assets). With a
+month, the scan is first narrowed by `+assets_fts.rowid IN (<that month's
+search rowids>)`, built from this index, so only the month's hits are joined.
+A text search's facets resolve the matching `assets.rowid`s once and group over
+`rowid IN (SELECT value FROM json_each(?))`. `search.query-plan.text.test.ts`
+holds all three shapes.
+
 ## Every query pattern in `src/api/src/db/`, and the index that serves it
 
 Sources: `assets.repo.ts`, `assets.trash.ts`, `changes.repo.ts` and
@@ -498,6 +510,33 @@ Ranking sorts the other way from a conventional relevance score: `bm25()`
 returns a negative number whose magnitude grows with relevance, so the best
 match is the smallest value and the sort is ascending. `FTS_RANK_SQL` and
 `FTS_RANK_ORDER` are the pair that keeps that straight.
+
+A ranked grid page (`pageSql` for a text query) scores before it reads rows
+(#4419). A `MATERIALIZED` CTE keeps the full predicate but carries only
+`assets.id` and the score; the score of the last row the page can reach is the
+cutoff, and only rows at or below it — the page plus boundary ties — are joined
+back to `assets` for `captured_at` (the tie-break) and the page columns. A broad
+caption query no longer extracts the capture date from every match's `exif`.
+`search.page.ranked.test.ts` holds it row-for-row to the single-statement form
+it replaced, and `search.query-plan.text.test.ts` pins the plan.
+
+A text search's facets (#4431) count every match only while there are at most
+`FACET_TOP_MATCHES` (2,000) of them. Past that they count the first 2,000 rows
+of the result order instead. One statement (`firstRankedSql`) ranks the matches
+on `assets_fts` alone in a materialised CTE, keeps the best 4,000, probes only
+those by key through `asset_search` and `assets_live_id` for liveness,
+visibility and every filter, and reads a capture date only for rows tying the
+2,000th score. The facet columns of those rows are then read once — `assets` by
+rowid, and `asset_locations`, `asset_detail`, `asset_subjects` and `faces` by
+asset id — and the buckets are counted in TypeScript with the same semantics as
+the per-facet statements, which still serve every search without text. The
+response's `total` stays exact — for a text-only search it is the full-text
+match count less the matches among `assets_unlisted` (trashed, without a live
+file, or hidden; migration `0020-assets-unlisted`) — and `scope` says which
+matches the buckets describe. Answers are cached per translated query for 30 s.
+`search.facets.top.test.ts` holds the rows and every bucket to the list's first
+rows and the per-facet statements, and `search.query-plan.top.test.ts` pins the
+plans.
 
 The translation answers one of three things, and the third is the one that is
 easy to get wrong. A blank query carries no text filter. A query with terms

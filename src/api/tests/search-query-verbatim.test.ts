@@ -19,10 +19,12 @@ import { createMeilisearchClient } from '../src/enrichment/meilisearch-client.ts
 
 const FIXTURE_QUERY = 'HVAC air conditioning installation';
 
-/** A client whose fetch records the exact JSON body sent to Meilisearch. */
+/** A client whose fetch records the exact JSON body of each search sent to
+ * Meilisearch. The live-embedder lookup a hybrid search makes first (#4437)
+ * reads no embedder here, so Meilisearch is left to embed the query. */
 function capturingClient(sink: Array<Record<string, unknown>>) {
-  const fetchImpl = (async (_url: string, init?: { body?: string }) => {
-    sink.push(JSON.parse(init?.body ?? '{}'));
+  const fetchImpl = (async (url: string, init?: { body?: string }) => {
+    if (url.endsWith('/search')) sink.push(JSON.parse(init?.body ?? '{}'));
     return new Response(JSON.stringify({ hits: [], estimatedTotalHits: 0 }), {
       status: 200,
     });

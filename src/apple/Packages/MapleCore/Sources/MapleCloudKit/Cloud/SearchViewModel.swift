@@ -14,6 +14,10 @@ import Observation
 @MainActor
 @Observable
 public final class SearchViewModel {
+  /// Serves a generated-search collection's rows after `offset`.
+  public typealias CollectionPager =
+    @MainActor (_ offset: Int, _ limit: Int) async throws -> GeneratedSearchAssetPage
+
   // MARK: - Published state
 
   public private(set) var results: [SearchAsset] = []
@@ -73,6 +77,10 @@ public final class SearchViewModel {
   /// redundant round-trip when nothing actually changed (e.g. the filter
   /// popover closes without an edit).
   private var lastSubmittedParams: SearchParams?
+  /// Set while the results are a generated-search collection (#4410): further
+  /// pages come from the collection's own endpoint, whose order (newest
+  /// first) differs from a relevance-ranked search. Any submit clears it.
+  private var collectionPager: CollectionPager?
 
   /// In-memory result cache so re-issuing an identical query (clear-then-
   /// reapply, popover round-trips, toggling a sort back) serves from memory
@@ -128,6 +136,8 @@ public final class SearchViewModel {
   /// Live "Show N results" count for the current filter set — the facets
   /// total when one is loaded, else the result-list total.
   public var facetTotal: Int { facets?.total ?? total }
+  /// Which matches the facet rows count (#4431); `.all` until facets load.
+  public var facetScope: FacetScope { facets?.scope ?? .all }
 
   // MARK: - Loaders
 
@@ -157,6 +167,7 @@ public final class SearchViewModel {
   /// pending debounce. Filter controls call this immediately on change.
   public func submit() async {
     debounceTask?.cancel()
+    collectionPager = nil
     generation &+= 1
     let g = generation
     page = 0
@@ -194,8 +205,10 @@ public final class SearchViewModel {
     async let facetResp = searchClient.facets(requested)
     do {
       let resp = try await searchClient.search(requested, page: 0, limit: limit)
-      let facetsResult = try? await facetResp
-      guard g == generation else { return }
+      guard g == generation else {
+        _ = try? await facetResp
+        return
+      }
       pageCache[pageKey] = resp
       results = resp.results
       nextCursor = resp.nextCursor
@@ -205,6 +218,11 @@ public final class SearchViewModel {
       // instead would keep `canLoadMore` true and drop `loadMore()` back to
       // deep page-based SKIP pagination.
       total = resp.seekExhausted ? resp.results.count : resp.total
+      // Results publish before facets: the facet aggregation is the slower
+      // request and only feeds the filter panel, so it must not hold the grid.
+      isLoading = false
+      let facetsResult = try? await facetResp
+      guard g == generation else { return }
       if let facetsResult {
         facetCache[requested] = facetsResult
         facets = facetsResult
@@ -225,6 +243,33 @@ public final class SearchViewModel {
       // facets as loaded, so clearing here would strand the panel empty
       // until the next successful search (#2879).
     }
+  }
+
+  /// Show a generated-search collection's already-fetched first page as the
+  /// results — no request — with `params` set to its stored query so the
+  /// field and chips describe it. `nextPage` serves the rest of the
+  /// collection; an edit to the query or filters runs a normal search.
+  public func showCollection(
+    params seed: SearchParams,
+    firstPage: GeneratedSearchAssetPage,
+    nextPage: @escaping CollectionPager
+  ) {
+    debounceTask?.cancel()
+    generation &+= 1
+    params = seed
+    lastSubmittedParams = seed
+    collectionPager = nextPage
+    results = firstPage.results
+    total = firstPage.total
+    page = 0
+    nextCursor = nil
+    appliedDates = nil
+    isLoading = false
+    isLoadingMore = false
+    loadError = nil
+    // The panel's People / Places rows belong to the previous query;
+    // `loadFacetsIfNeeded()` refetches them for the card's when it opens.
+    facets = nil
   }
 
   /// Populate the filter panel's option lists WITHOUT running a result
@@ -250,7 +295,13 @@ public final class SearchViewModel {
     // Best-effort: a facet failure is not a search failure, so it must not
     // raise the error banner over the (perfectly fine) Recents list.
     guard let loaded = try? await searchClient.facets(requested) else { return }
-    guard g == generation else { return }
+    guard g == generation else {
+      // A reset superseded this load; the panel may already be open on the
+      // new params, so fetch those now rather than leaving it empty.
+      isLoadingFacets = false
+      await loadFacetsIfNeeded()
+      return
+    }
     facetCache[requested] = loaded
     facets = loaded
   }
@@ -272,6 +323,21 @@ public final class SearchViewModel {
     // A fresh submit resets this flag; an older completion must never clear
     // the flag belonging to the new owner's pagination request.
     defer { if g == generation { isLoadingMore = false } }
+
+    if let collectionPager {
+      do {
+        let more = try await collectionPager(results.count, limit)
+        guard g == generation else { return }
+        page += 1
+        results.append(contentsOf: more.results)
+        total = more.results.isEmpty ? results.count : more.total
+      } catch {
+        if Self.isCancellation(error) { return }
+        guard g == generation else { return }
+        loadError = error
+      }
+      return
+    }
 
     let next = page + 1
     let requested = params
@@ -326,6 +392,30 @@ public final class SearchViewModel {
     fresh.sort = keptSort
     params = fresh
     Task { await submit() }
+  }
+
+  /// Drop every filter without running a search: the text field was just
+  /// cleared, so the page shows Recents and nothing should be fetched.
+  public func resetFilters() {
+    let keptSort = params.sort
+    var fresh = SearchParams(libraryID: libraryID)
+    fresh.sort = keptSort
+    debounceTask?.cancel()
+    generation &+= 1
+    collectionPager = nil
+    params = fresh
+    lastSubmittedParams = fresh
+    results = []
+    total = 0
+    page = 0
+    nextCursor = nil
+    appliedDates = nil
+    isLoading = false
+    isLoadingMore = false
+    loadError = nil
+    // The panel's People / Places rows were scoped to the dropped filters;
+    // `loadFacetsIfNeeded()` refetches the unfiltered set when it opens.
+    facets = nil
   }
 
   // MARK: - Preview

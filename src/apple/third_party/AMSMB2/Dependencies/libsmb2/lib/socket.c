@@ -326,6 +326,43 @@ smb2_write_to_socket(struct smb2_context *smb2)
 typedef ssize_t (*read_func)(struct smb2_context *smb2,
                              const struct iovec *iov, int iovcnt);
 
+static int smb2_is_copychunk_request(struct smb2_pdu *pdu)
+{
+        uint32_t command;
+        if (pdu->header.command != SMB2_IOCTL || pdu->out.niov <= 1 ||
+            pdu->out.iov[1].len < 8) {
+                return 0;
+        }
+        smb2_get_uint32(&pdu->out.iov[1], 4, &command);
+        return command == SMB2_FSCTL_SRV_COPYCHUNK ||
+               command == SMB2_FSCTL_SRV_COPYCHUNK_WRITE;
+}
+
+/* Bound COPYCHUNK bodies to BOTH the compound command
+ * and the enclosing plaintext packet (socket SPL or decrypted buffer SPL).
+ * A peer-supplied NextCommand is never itself evidence of available bytes. */
+static int smb2_copychunk_packet_end(struct smb2_context *smb2,
+                                    int has_xfrmhdr, size_t *end)
+{
+        size_t frame_end = (size_t)smb2->spl + (has_xfrmhdr ? 0 : SMB2_SPL_SIZE);
+        size_t command_start;
+        if (smb2->payload_offset < SMB2_HEADER_SIZE ||
+            smb2->payload_offset > frame_end) {
+                return -1;
+        }
+        command_start = smb2->payload_offset - SMB2_HEADER_SIZE;
+        *end = frame_end;
+        if (smb2->hdr.next_command) {
+                size_t next = smb2->hdr.next_command;
+                if (next < SMB2_HEADER_SIZE || (next & 7) ||
+                    next > frame_end - command_start) {
+                        return -1;
+                }
+                *end = command_start + next;
+        }
+        return 0;
+}
+
 static int smb2_read_data(struct smb2_context *smb2, read_func func,
                           int has_xfrmhdr)
 {
@@ -554,18 +591,94 @@ read_more_data:
                         return -1;
                 }
 
+                /* Validate before the first fixed-body read too: even the
+                 * common error prefix may not cross the declared frame. */
+                if (!smb2_is_server(smb2) &&
+                    pdu->header.command == SMB2_IOCTL &&
+                    smb2->hdr.command == SMB2_IOCTL &&
+                    pdu->out.niov > 1 && pdu->out.iov[1].len >= 8) {
+                        uint32_t command;
+                        smb2_get_uint32(&pdu->out.iov[1], 4, &command);
+                        if (command == SMB2_FSCTL_SRV_COPYCHUNK ||
+                            command == SMB2_FSCTL_SRV_COPYCHUNK_WRITE) {
+                                size_t packet_end;
+                                if (smb2_copychunk_packet_end(smb2, has_xfrmhdr, &packet_end) ||
+                                    smb2->in.num_done > packet_end ||
+                                    (size_t)(len & 0xfffe) > packet_end - smb2->in.num_done) {
+                                        smb2_set_error(smb2, "Truncated COPYCHUNK fixed body");
+                                        return -1;
+                                }
+                        }
+                }
                 smb2->recv_state = SMB2_RECV_FIXED;
                 smb2_add_iovector(smb2, &smb2->in,
                                   malloc(len & 0xfffe),
                                   len & 0xfffe, free);
                 goto read_more_data;
         case SMB2_RECV_FIXED:
+                /* MS-SMB2 3.3.5.15.6.2: COPYCHUNK limits are an IOCTL
+                 * response (StructureSize 49), not a generic error (9).
+                 * Read the common 8-byte prefix first so genuine errors
+                 * keep their existing parser and cannot make us over-read.
+                 */
+                if (!smb2_is_server(smb2) &&
+                    smb2->hdr.status == SMB2_STATUS_INVALID_PARAMETER &&
+                    pdu->header.command == SMB2_IOCTL &&
+                    smb2->hdr.command == SMB2_IOCTL &&
+                    pdu->out.niov > 1 && pdu->out.iov[1].len >= 8) {
+                        struct smb2_iovec *fixed = &smb2->in.iov[smb2->in.niov - 1];
+                        uint16_t structure_size;
+                        uint32_t command, response_command;
+                        smb2_get_uint32(&pdu->out.iov[1], 4, &command);
+                        smb2_get_uint16(fixed, 0, &structure_size);
+                        smb2_get_uint32(fixed, 4, &response_command);
+                        if (fixed->len == (SMB2_ERROR_REPLY_SIZE & 0xfffe) &&
+                            structure_size == SMB2_IOCTL_REPLY_SIZE &&
+                            response_command == command &&
+                            (command == SMB2_FSCTL_SRV_COPYCHUNK ||
+                             command == SMB2_FSCTL_SRV_COPYCHUNK_WRITE)) {
+                                size_t extra = (SMB2_IOCTL_REPLY_SIZE & 0xfffe) - fixed->len;
+                                size_t packet_end;
+                                if (smb2_copychunk_packet_end(smb2, has_xfrmhdr, &packet_end)) {
+                                        smb2_set_error(smb2, "Invalid COPYCHUNK packet boundary");
+                                        return -1;
+                                }
+                                uint8_t *expanded;
+                                if (smb2->in.num_done > packet_end ||
+                                    extra > packet_end - smb2->in.num_done) {
+                                        smb2_set_error(smb2, "Truncated COPYCHUNK IOCTL response");
+                                        return -1;
+                                }
+                                expanded = realloc(fixed->buf, SMB2_IOCTL_REPLY_SIZE & 0xfffe);
+                                if (!expanded) {
+                                        return -ENOMEM;
+                                }
+                                fixed->buf = expanded;
+                                fixed->len += extra;
+                                smb2->in.total_size += extra;
+                                pdu->copychunk_limits_reply = 1;
+                                goto read_more_data;
+                        }
+                }
                 len = smb2_process_payload_fixed(smb2, pdu);
                 if (len < 0) {
                         smb2_set_error(smb2, "Failed to parse fixed part of "
                                        "command payload. %s",
                                        smb2_get_error(smb2));
                         return -1;
+                }
+
+                if (smb2_is_copychunk_request(pdu)) {
+                        size_t packet_end;
+                        if (smb2_copychunk_packet_end(smb2, has_xfrmhdr, &packet_end)) {
+                                smb2_set_error(smb2, "Invalid COPYCHUNK limits boundary");
+                                return -1;
+                        }
+                        if (smb2->in.num_done > packet_end ||
+                            (size_t)len > packet_end - smb2->in.num_done) {
+                                smb2_set_error(smb2, "Truncated COPYCHUNK limits buffer");
+                                return -1;
+                        }
                 }
 
                 /* Add application provided iovectors */

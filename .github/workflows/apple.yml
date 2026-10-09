@@ -300,6 +300,7 @@ jobs:
           cp -R test-fixtures/local-adjustments "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           cp -R test-fixtures/workflow "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           cp -R test-fixtures/export-recipes "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
+          cp -R test-fixtures/file-operations "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           mkdir -p "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/batch-transfer"
           cp test-fixtures/batch-transfer/{source,target}.dng "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/batch-transfer/"
       # Independent saved-recipe transport gate (#4207), using the real host archive.

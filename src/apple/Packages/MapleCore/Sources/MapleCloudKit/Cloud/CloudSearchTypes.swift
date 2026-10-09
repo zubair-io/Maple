@@ -357,6 +357,49 @@ public struct ScreenshotFacet: Codable, Equatable, Sendable {
   }
 }
 
+/// Which matches the facet counts describe (#4431). `.all` — every match.
+/// `.top` — a broad text search's `limit` most relevant results of `of`
+/// matches, so a person or place found only among weaker matches has no
+/// bucket. Servers predating the field, and any `kind` this client doesn't
+/// know, decode as `.all`.
+public enum FacetScope: Codable, Sendable, Equatable {
+  case all
+  case top(limit: Int, of: Int)
+
+  private enum CodingKeys: String, CodingKey { case kind, limit, of }
+
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    guard
+      try c.decodeIfPresent(String.self, forKey: .kind) == "top",
+      let limit = try c.decodeIfPresent(Int.self, forKey: .limit),
+      let of = try c.decodeIfPresent(Int.self, forKey: .of)
+    else {
+      self = .all
+      return
+    }
+    self = .top(limit: limit, of: of)
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    switch self {
+    case .all:
+      try c.encode("all", forKey: .kind)
+    case .top(let limit, let of):
+      try c.encode("top", forKey: .kind)
+      try c.encode(limit, forKey: .limit)
+      try c.encode(of, forKey: .of)
+    }
+  }
+
+  /// The line a filter surface shows when the counts are cut, else nil.
+  public var note: String? {
+    guard case .top(let limit, let of) = self else { return nil }
+    return "Filters from the \(limit.formatted()) most relevant of \(of.formatted()) results"
+  }
+}
+
 public struct SearchFacets: Codable, Sendable {
   public let total: Int
   public let cameras: [CameraFacet]
@@ -381,6 +424,8 @@ public struct SearchFacets: Codable, Sendable {
   public let places: [ValueFacet]
   /// Absent on older servers; their existing search filters still decode.
   public let owners: [AssetOwnerFacet]
+  /// Which matches the buckets above count. See ``FacetScope``.
+  public let scope: FacetScope
 
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -397,5 +442,7 @@ public struct SearchFacets: Codable, Sendable {
     people = try c.decodeIfPresent([ValueFacet].self, forKey: .people) ?? []
     places = try c.decodeIfPresent([ValueFacet].self, forKey: .places) ?? []
     owners = try c.decodeIfPresent([AssetOwnerFacet].self, forKey: .owners) ?? []
+    // A malformed scope must not cost the whole facet response its filters.
+    scope = (try? c.decodeIfPresent(FacetScope.self, forKey: .scope)) ?? .all
   }
 }

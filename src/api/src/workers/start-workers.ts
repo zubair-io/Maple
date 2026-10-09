@@ -36,7 +36,13 @@ import { getFaceModelsStatus } from '../enrichment/face-models.ts';
 import { startDescribeWorker, stopDescribeWorker } from '../enrichment/describe-bootstrap.ts';
 import { startJobRunner, stopJobRunner } from '../job-runner/runner.ts';
 import { startImportRunner, stopImportRunner } from '../imports/worker.ts';
-import { writeWorkerStatus } from '../db/repos/worker-status.repo.ts';
+import { writeWorkerMemory, writeWorkerStatus } from '../db/repos/worker-status.repo.ts';
+import { childMemoryReports } from '../runtime/child-process-worker.ts';
+import {
+  startMemoryTelemetry,
+  stopMemoryTelemetry,
+  type ProcessMemoryRow,
+} from '../runtime/memory-telemetry.ts';
 import { startStatusCountsRefresher, type RefresherHandle } from './status-counts.ts';
 import { startMaintenanceJobs, stopMaintenanceJobs } from './maintenance.ts';
 import { flushPendingMirrorOps } from '../fs/mirrored.ts';
@@ -67,6 +73,22 @@ async function startSubsystem(start: () => unknown, failureMessage: string): Pro
   } catch (err) {
     log.warn({ err }, failureMessage);
   }
+}
+
+/** What the worker tier is holding in flight, folded into its memory line
+ * (#4445): per-stage in-flight counts and the FFI pool's busy/queued depth, so
+ * a growing RSS can be read against what the process was doing. */
+function workerLoadSnapshot(): Record<string, unknown> {
+  const stages = Object.fromEntries(
+    Object.entries(stageRegistry.statuses()).map(([name, s]) => [name, s.inFlight]),
+  );
+  return { stages, ffi: ffiPool().stats() };
+}
+
+/** The worker's own sample plus whatever its native children last relayed,
+ * persisted so the API process can show them on Settings → Workers. */
+function persistWorkerMemory(row: ProcessMemoryRow): void {
+  writeWorkerMemory({ rows: [row, ...childMemoryReports()] }).catch(() => {});
 }
 
 export async function startWorkers(): Promise<void> {
@@ -174,6 +196,13 @@ export async function startWorkers(): Promise<void> {
   // computed here, in the worker, and persisted — never on the API's request
   // path (#3491). See `status-counts.ts` for the demand-aware cadence.
   _countsRefresher = startStatusCountsRefresher();
+
+  // Last, so the first per-minute memory line already reflects a booted tier.
+  startMemoryTelemetry({
+    process: 'worker',
+    extra: workerLoadSnapshot,
+    onSample: persistWorkerMemory,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +210,7 @@ export async function startWorkers(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function stopWorkers(): Promise<void> {
+  stopMemoryTelemetry();
   stopWorkerEnrichmentConfigRefresh();
 
   // Clear the status-publishing interval before tearing down subsystems so

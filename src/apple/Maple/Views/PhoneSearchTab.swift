@@ -40,8 +40,9 @@
     /// `AppShell.switchToPhoneSearchTab(seeding:)`; cleared here once
     /// applied so a later tab re-appearance doesn't replay it.
     @Binding var pendingSeed: SearchParams?
-    /// Stable id for the resolved cloud account; nil → no account → empty state.
-    let serverKey: String?
+    /// Stable id for the resolved cloud account and the library its
+    /// generated-search cards come from; nil → no account → empty state.
+    let sessionKey: String?
     /// Builds the account-wide search session for the resolved server.
     let makeSession: () async -> PhoneSearchSession?
     /// Resolve a tapped result into an openable asset — its `AssetRef`
@@ -74,6 +75,13 @@
     /// time, replaced by the containing folder's listing (with `ref` spliced
     /// in at its own position) once `loadSiblingAssets` returns (#3551).
     @State private var previewAssets: [AssetRef] = []
+    /// The generated-search card whose first page is being fetched — its
+    /// cover fetch hasn't landed yet — so the card can show it's working.
+    @State private var openingCollectionID: String?
+    /// The text the host last set programmatically (deep link, Map pin,
+    /// card). `SearchView` reads a change TO this value as a seed, not as the
+    /// user clearing the field, so a seed with filters but no text keeps them.
+    @State private var seededQuery: String?
 
     var body: some View {
       NavigationStack(path: $path) {
@@ -127,29 +135,30 @@
       // The native search field for the `Tab(role: .search)` this view
       // lives in — its text drives the same `query` the content reads.
       .searchable(text: $query, prompt: "Search your library")
-      // Build the account-wide session once per resolved account. Guard on
-      // the existing session's own server so a tab re-appearance KEEPS the
+      // Build the account-wide session once per account + library. Guard on
+      // the existing session's own key so a tab re-appearance KEEPS the
       // current view model — and its results — instead of rebuilding an
-      // empty one. Rebuild only when the account changes, or none exists yet.
-      .task(id: serverKey) {
-        guard let key = serverKey else {
+      // empty one. Rebuild only when the account or the library changes
+      // (the cards are per library), or none exists yet.
+      .task(id: sessionKey) {
+        guard let key = sessionKey else {
           session = nil
           didLoad = true
           return
         }
-        // Same account as the current session — keep it (and its results).
-        if session?.server.absoluteString == key {
+        // Same account and library as the current session — keep it.
+        if session?.key == key {
           didLoad = true
           applySeedIfNeeded()
           return
         }
-        // Account changed: clear the stale session so the loading state
+        // Account or library changed: clear the stale session so the loading state
         // shows (not the previous account's results) while the new one
         // builds.
         session = nil
         didLoad = false
         let newSession = await makeSession()
-        // `.task(id:)` cancels this when serverKey changes again; don't let
+        // `.task(id:)` cancels this when sessionKey changes again; don't let
         // a superseded build overwrite a newer session.
         guard !Task.isCancelled else { return }
         session = newSession
@@ -159,7 +168,7 @@
       // Covers the already-mounted case: the session exists (built by the
       // `.task` above on an earlier appearance) and a NEW seed arrives
       // while this tab is already alive — `.task(id:)` won't re-run since
-      // `serverKey` hasn't changed.
+      // `sessionKey` hasn't changed.
       .onChange(of: pendingSeed) { _, _ in applySeedIfNeeded() }
     }
 
@@ -182,15 +191,80 @@
     ///     is the one that completes it.
     private func applySeedIfNeeded() {
       guard let seed = pendingSeed else { return }
-      query = seed.placeQuery
+      seedQuery(seed.placeQuery)
       guard let session else { return }
       pendingSeed = nil
+      run(seed, in: session)
+    }
+
+    /// Set the field's text for a seed and mark it so `SearchView` doesn't
+    /// read the change as the user clearing the field. The marker lives for
+    /// exactly one render: `SearchView` consumes it when it observes the
+    /// change, and the host drops it on the next main-actor turn regardless
+    /// — so a seed applied while no `SearchView` exists (cold start, session
+    /// still building) can't leave a marker that masks a later real clear.
+    private func seedQuery(_ text: String) {
+      guard text != query else { return }
+      seededQuery = text
+      query = text
+      Task { @MainActor in seededQuery = nil }
+    }
+
+    /// Run a stored search from a deep-link/Map seed.
+    private func run(_ seed: SearchParams, in session: PhoneSearchSession) {
+      seedQuery(seed.placeQuery)
       // Pop any pushed Preview/editor so the user lands on the fresh
       // results, mirroring `PhoneTabShell.searchFor(_:)`'s `libraryPath = []`
       // for the face-chip text-seed case.
       path = []
       session.vm.params = seed
       Task { await session.vm.submit() }
+    }
+
+    /// Open a generated-search card on its collection's own results. Always
+    /// through the collection endpoint, never a search rebuilt from
+    /// `card.query`: the server forces the hidden-people and screenshot
+    /// exclusions and newest-first order there, so the grid matches the
+    /// card's cover and count.
+    private func openCollection(
+      _ card: GeneratedSearchCard,
+      from collections: GeneratedSearchCollectionsViewModel,
+      in session: PhoneSearchSession
+    ) {
+      guard let firstPage = collections.firstPages[card.id] else {
+        openingCollectionID = card.id
+        Task { @MainActor in
+          let page = await collections.firstPage(of: card)
+          // A later tap, or a second tap on this card, superseded this one.
+          guard openingCollectionID == card.id else { return }
+          openingCollectionID = nil
+          // An empty page for a non-empty card is a failed fetch; stay put.
+          guard !page.results.isEmpty || card.result_count == 0 else { return }
+          show(card, page: page, from: collections, in: session)
+        }
+        return
+      }
+      openingCollectionID = nil
+      show(card, page: firstPage, from: collections, in: session)
+    }
+
+    private func show(
+      _ card: GeneratedSearchCard,
+      page: GeneratedSearchAssetPage,
+      from collections: GeneratedSearchCollectionsViewModel,
+      in session: PhoneSearchSession
+    ) {
+      var seed = SearchParams.fromDeepLinkQuery(card.query)
+      // A card's query is per library; scoping the seed to it keeps an
+      // edited query on that library — the widget link does the same.
+      seed.libraryID = collections.libraryID
+      path = []
+      // Params first: the `query` change below then matches them, so
+      // SearchView's debounce has nothing to submit.
+      session.vm.showCollection(params: seed, firstPage: page) { offset, limit in
+        try await collections.page(of: card.id, offset: offset, limit: limit)
+      }
+      seedQuery(seed.placeQuery)
     }
 
     @ViewBuilder
@@ -201,6 +275,14 @@
           thumbClient: session.thumbClient,
           thumbCache: session.thumbCache,
           query: $query,
+          collections: session.collections,
+          openingCollectionID: openingCollectionID,
+          onSelectCollection: { card in
+            guard let collections = session.collections else { return }
+            openCollection(card, from: collections, in: session)
+          },
+          seededQuery: seededQuery,
+          onSeedApplied: { seededQuery = nil },
           onSelectAsset: { asset in
             let resolved = resolveAsset(asset, session.server)
             previewSource = resolved.source

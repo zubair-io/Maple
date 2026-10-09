@@ -291,6 +291,18 @@ export function exifTerms(q: SearchQuery): Term[] {
 }
 
 /**
+ * The month-of-year filter, or null when there is none.
+ *
+ * An out-of-range or non-integer month is dropped rather than passed through:
+ * a filter matching nothing is worse than no filter, because the
+ * generated-search worker reads the result count as a quality signal.
+ */
+export function monthFilter(q: SearchQuery): number | null {
+  const month = asNumber(q.month);
+  return month !== undefined && Number.isInteger(month) && month >= 1 && month <= 12 ? month : null;
+}
+
+/**
  * The scalar grid filters: month, rating, flag and colour.
  *
  * `isScreenshot=false` is `IS NOT 1`, not `= 0`, and the difference is the whole
@@ -310,14 +322,10 @@ export function exifTerms(q: SearchQuery): Term[] {
  * asymmetry is in the schema, not an oversight here.
  */
 export function gradeTerms(q: SearchQuery, flag: -1 | 0 | 1 | undefined): Term[] {
-  // An out-of-range or non-integer month is dropped rather than passed through:
-  // a filter matching nothing is worse than no filter, because the
-  // generated-search worker reads the result count as a quality signal.
-  const month = asNumber(q.month);
-  const usableMonth = month !== undefined && Number.isInteger(month) && month >= 1 && month <= 12;
+  const month = monthFilter(q);
   const rating = asNumber(q.rating);
   return [
-    ...(usableMonth ? [{ sql: 'assets.captured_month = ?', params: [month!] }] : []),
+    ...(month === null ? [] : [{ sql: 'assets.captured_month = ?', params: [month] }]),
     ...(rating === undefined ? [] : [{ sql: 'assets.rating >= ?', params: [rating] }]),
     ...(flag === undefined ? [] : [{ sql: 'assets.flag = ?', params: [flag] }]),
     ...(q.color === undefined ? [] : [{ sql: 'assets.color_label = ?', params: [q.color] }]),

@@ -34,6 +34,7 @@ import { placeTextForIndex, transcriptForIndex } from '../../enrichment/asset-do
 import { ASSET_DOC_SHAPE_VERSION } from '../../enrichment/meilisearch-embedder-template.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { searchBlobStatements } from '../../db/repos/assets.stage-patches.ts';
+import { coverageMarker } from '../../enrichment/meilisearch-vector-coverage.ts';
 import { indexableNamesForPersonIds } from '../../db/repos/people.search-filter.ts';
 import type { AssetFaceDoc, FileInfo, VisionDoc } from '../../db/schema.ts';
 import { classifyMediaType } from '../../indexer/media-types.ts';
@@ -128,7 +129,7 @@ function getClient(): MeilisearchClient {
 }
 
 /** Test-only setter. Call with `null` to reset between tests. */
-export function setMeilisearchClientForTests(client: MeilisearchClient | null): void {
+export function setMeiliStageClientForTests(client: MeilisearchClient | null): void {
   _testClient = client;
 }
 
@@ -280,9 +281,8 @@ export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise
     );
   }
 
-  const semanticFingerprint = client.semanticFingerprint?.();
   return {
-    patch: searchBlobStatements(image._id.toHexString(), blob, semanticFingerprint ?? null),
+    patch: searchBlobStatements(image._id.toHexString(), blob, coverageMarker(client)),
   };
 }
 

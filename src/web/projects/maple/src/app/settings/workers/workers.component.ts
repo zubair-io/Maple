@@ -59,6 +59,7 @@ import { CanvasColorSpaceSettingsComponent } from './canvas-color-space-settings
 import { FacePurgePanelComponent } from './face-purge-panel.component';
 import { ServiceApiKeysComponent } from './service-api-keys.component';
 import { AiWorkerSummaryComponent } from '../ai/ai-worker-summary.component';
+import { MeilisearchEmbedderDriftComponent } from './meilisearch-embedder-drift.component';
 import {
   groupStagesByPipeline,
   summarizeStages,
@@ -71,6 +72,9 @@ import {
   formatBytes,
   formatDate,
   countsAsOfLabel,
+  memoryBreakdownLabel,
+  memoryDetailTitle,
+  totalRss,
   runtimeFormToPatch,
   meilisearchFormToPatch,
   blankRuntime,
@@ -107,6 +111,7 @@ import {
     FacePurgePanelComponent,
     ServiceApiKeysComponent,
     AiWorkerSummaryComponent,
+    MeilisearchEmbedderDriftComponent,
   ],
   templateUrl: './workers.component.html',
   styleUrl: './workers.component.scss',
@@ -159,6 +164,9 @@ export class WorkersComponent implements OnInit, OnDestroy {
   protected readonly summary = computed(() => summarizeStages(this.stages()));
   protected readonly damagedCount = computed(() => this.status()?.damaged ?? 0);
   protected readonly countsNote = computed(() => countsAsOfLabel(this.status()?.countsAt));
+  protected readonly memoryTotal = computed(() => formatBytes(totalRss(this.status()?.memory)));
+  protected readonly memoryNote = computed(() => memoryBreakdownLabel(this.status()?.memory));
+  protected readonly memoryTitle = computed(() => memoryDetailTitle(this.status()?.memory));
 
   private statusSub: Subscription | null = null;
   private fallbackSub: Subscription | null = null;

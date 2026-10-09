@@ -40,6 +40,9 @@ import { personSegmentationsMigration } from './0015-person-segmentations.ts';
 import { cloudBackupDestinationStatusMigration } from './0016-cloud-backup-destination-status.ts';
 import { cloudBackupObjectEntryIndexMigration } from './0017-cloud-backup-object-entry-index.ts';
 import { cloudBackupGoogleMirrorLayoutMigration } from './0018-cloud-backup-google-mirror-layout.ts';
+import { assetsLiveMonthMigration } from './0019-assets-live-month.ts';
+import { assetsUnlistedMigration } from './0020-assets-unlisted.ts';
+import { workerStatusMemoryMigration } from './0021-worker-status-memory.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -60,4 +63,7 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   cloudBackupDestinationStatusMigration,
   cloudBackupObjectEntryIndexMigration,
   cloudBackupGoogleMirrorLayoutMigration,
+  assetsLiveMonthMigration,
+  assetsUnlistedMigration,
+  workerStatusMemoryMigration,
 ];

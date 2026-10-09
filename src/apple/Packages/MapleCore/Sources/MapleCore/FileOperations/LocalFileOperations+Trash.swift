@@ -55,7 +55,9 @@ extension LocalFileOperations {
   {
     let trashDir = try trashDestinationDir(for: primaryURL, libraryRoot: libraryRoot)
     let outcome = try await relocate(primaryURL, to: trashDir, mode: .move, collision: .autoSuffix)
-    writeTrashedMarker(forItemAt: URL(fileURLWithPath: outcome.primaryPath))
+    let trashed = URL(fileURLWithPath: outcome.primaryPath)
+    removeTrashedMarker(forItemAt: trashed)
+    writeTrashedMarker(forItemAt: trashed)
     return outcome
   }
 
@@ -82,15 +84,39 @@ extension LocalFileOperations {
 
   /// Restore a `.maple/trash`-backed item to its original location — the
   /// mirror image of `trashDestinationDir` — auto-suffixing on a
-  /// collision the same way every other unattended relocate here does.
+  /// collision using the shared `.restored[.N]` namespace.
   public static func restoreFromMapleTrash(_ trashedPrimaryURL: URL, libraryRoot: URL) async throws
     -> RelocateOutcome
   {
     let originalDir = try originalDestinationDir(for: trashedPrimaryURL, libraryRoot: libraryRoot)
-    let outcome = try await relocate(
-      trashedPrimaryURL, to: originalDir, mode: .move, collision: .autoSuffix)
+    let realRoot = libraryRoot.resolvingSymlinksInPath().standardizedFileURL
+    let rootPath = realRoot.path
+    let realTrash =
+      realRoot.appendingPathComponent(".maple").appendingPathComponent("trash").path + "/"
+    guard trashedPrimaryURL.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(realTrash)
+    else {
+      throw FileOperationError.invalidDestination(trashedPrimaryURL.path)
+    }
+    let realDestination = originalDir.resolvingSymlinksInPath().standardizedFileURL.path
+    let rootPrefix = rootPath == "/" ? "/" : rootPath + "/"
+    guard realDestination == rootPath || realDestination.hasPrefix(rootPrefix) else {
+      throw FileOperationError.invalidDestination(originalDir.path)
+    }
+    let job = Task.detached(priority: .userInitiated) {
+      try restoreFilePair(trashedPrimaryURL, to: originalDir, confinedTo: libraryRoot)
+    }
+    let plan = try await withTaskCancellationHandler {
+      try await job.value
+    } onCancel: {
+      job.cancel()
+    }
+    await invalidateDerivedCaches(forOldPrimaryPath: plan.sourcePrimaryPath)
+    await refreshLibraryIndexAfterMove(plan)
     removeTrashedMarker(forItemAt: trashedPrimaryURL)
-    return outcome
+    return RelocateOutcome(
+      primaryPath: plan.finalPrimaryPath, sidecarPath: plan.finalSidecarPath,
+      renamedDueToCollision: plan.renamedDueToCollision,
+      sidecarFollowed: plan.finalSidecarPath != nil)
   }
 
   /// Inverse of `trashDestinationDir`: given an item's CURRENT location
@@ -113,7 +139,14 @@ extension LocalFileOperations {
   /// first. Skips `.xmp` sidecars (folded into their primary's
   /// `TrashedItem.sidecarPath`) and marker directories (folded into
   /// `trashedDate`). Windows original-path metadata is also hidden (#4009).
+  /// Every restorable item; an item an SMB copy-only restore marked
+  /// `.restored-` on the same share is hidden (#4139).
   public static func listMapleTrash(libraryRoot: URL) -> [TrashedItem] {
+    listMapleTrashEntries(libraryRoot: libraryRoot).filter { $0.restoredDate == nil }.map(\.item)
+  }
+
+  static func listMapleTrashEntries(libraryRoot: URL) -> [(item: TrashedItem, restoredDate: Date?)]
+  {
     let trashRoot = libraryRoot.appendingPathComponent(".maple").appendingPathComponent("trash")
     // Standardized once, for the pathComponents-based `rel` computation
     // below — a raw string-length drop against `trashRoot.path` breaks
@@ -128,7 +161,7 @@ extension LocalFileOperations {
         options: [.skipsHiddenFiles]
       )
     else { return [] }
-    var items: [TrashedItem] = []
+    var items: [(item: TrashedItem, restoredDate: Date?)] = []
     for case let url as URL in enumerator {
       guard let isDir = try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory,
         isDir == false
@@ -144,15 +177,20 @@ extension LocalFileOperations {
       let size =
         ((try? fm.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.int64Value ?? 0
       items.append(
-        TrashedItem(
-          id: url.path, primaryPath: url.path,
-          sidecarPath: fm.fileExists(atPath: sidecarURL.path) ? sidecarURL.path : nil,
-          originalRelativePath: rel,
-          trashedDate: trashedDate(forItemAt: url),
-          size: size
+        (
+          TrashedItem(
+            id: url.path, primaryPath: url.path,
+            sidecarPath: fm.fileExists(atPath: sidecarURL.path) ? sidecarURL.path : nil,
+            originalRelativePath: rel,
+            trashedDate: trashedDate(forItemAt: url),
+            size: size
+          ),
+          trashedDate(forItemAt: url, kind: .restored)
         ))
     }
-    return items.sorted { ($0.trashedDate ?? .distantPast) > ($1.trashedDate ?? .distantPast) }
+    return items.sorted {
+      ($0.item.trashedDate ?? .distantPast) > ($1.item.trashedDate ?? .distantPast)
+    }
   }
 
   /// Permanently unlinks a trashed item — primary, sidecar, and its
@@ -208,11 +246,11 @@ extension LocalFileOperations {
     libraryRoot: URL, olderThanDays: Int = 30, now: Date = Date()
   ) -> Int {
     var purged = 0
-    for item in listMapleTrash(libraryRoot: libraryRoot) {
-      guard let trashedDate = item.trashedDate,
-        TrashMarker.daysElapsed(since: trashedDate, now: now) > olderThanDays
+    for entry in listMapleTrashEntries(libraryRoot: libraryRoot) {
+      guard let agedFrom = entry.item.trashedDate ?? entry.restoredDate,
+        TrashMarker.daysElapsed(since: agedFrom, now: now) > olderThanDays
       else { continue }
-      if (try? permanentlyDeleteFromMapleTrash(item, libraryRoot: libraryRoot)) != nil {
+      if (try? permanentlyDeleteFromMapleTrash(entry.item, libraryRoot: libraryRoot)) != nil {
         purged += 1
       }
     }
@@ -298,14 +336,16 @@ extension LocalFileOperations {
     }
   }
 
-  static func trashedDate(forItemAt primaryURL: URL) -> Date? {
+  static func trashedDate(forItemAt primaryURL: URL, kind: TrashMarker.Kind = .trashed) -> Date? {
     let dir = primaryURL.deletingLastPathComponent()
     guard let contents = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else {
       return nil
     }
     let basename = primaryURL.lastPathComponent
     for name in contents {
-      if let date = TrashMarker.date(fromMarkerName: name, itemBasename: basename) { return date }
+      if let date = TrashMarker.date(fromMarkerName: name, itemBasename: basename, kind: kind) {
+        return date
+      }
     }
     return nil
   }

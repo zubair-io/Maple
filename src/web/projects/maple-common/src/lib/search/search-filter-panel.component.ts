@@ -16,8 +16,10 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { FacetRow, SearchFacetSectionComponent } from './search-facet-section.component';
 import { MapleIconComponent } from '../icons/maple-icon.component';
+import type { FacetScope } from '../api/search.service';
 import {
   DATE_PRESETS,
+  facetScopeNote,
   SearchFilters,
   setCustomRange,
   toggleOwner,
@@ -61,6 +63,8 @@ export class SearchFilterPanelComponent {
   readonly owners = input<readonly OwnerOption[]>([]);
   /** Live result count for the footer button; null while loading. */
   readonly total = input<number | null>(null);
+  /** Which matches the facet counts describe; null or `all` needs no note. */
+  readonly scope = input<FacetScope | null>(null);
   /** True when the host renders this inside the phone bottom sheet —
    * shows the grab handle + close ✕. */
   readonly asSheet = input<boolean>(false);
@@ -71,6 +75,10 @@ export class SearchFilterPanelComponent {
   readonly dismiss = output<void>();
 
   protected readonly presets = DATE_PRESETS;
+
+  /** Said above the facet sections when they count only a broad text
+   * search's most relevant results (#4431). */
+  protected readonly scopeNote = computed(() => facetScopeNote(this.scope()));
 
   protected readonly showLabel = computed(() => {
     const t = this.total();

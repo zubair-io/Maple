@@ -188,7 +188,10 @@ describe('Meilisearch client — search()', () => {
       semanticRatio: 0.6,
     });
     await client.search('a boy playing ball', { semantic: true });
-    const body = calls[0]!.body as Record<string, unknown>;
+    const body = calls.find((call) => call.url.endsWith('/search'))!.body as Record<
+      string,
+      unknown
+    >;
     expect(body.hybrid).toEqual({ embedder: 'caption', semanticRatio: 0.6 });
   });
 

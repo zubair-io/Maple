@@ -49,7 +49,19 @@ import {
   searchWithReadingDiversity,
   type MeiliSearchResponse,
 } from './meilisearch-search-diversity.ts';
-import { assetsIndexSettings, assetsIndexSettingsMatch } from './meilisearch-index-settings.ts';
+import {
+  applyEmbedderSettings,
+  readEmbedderDrift,
+  syncAssetsIndexSettings,
+  type EmbedderApplyResult,
+  type EmbedderDriftReport,
+  type IndexSyncResult,
+} from './meilisearch-settings-sync.ts';
+import {
+  KEYWORD_ONLY,
+  createQueryEmbedder,
+  type HybridQuery,
+} from './meilisearch-query-embedding.ts';
 import {
   vectorFingerprint as computeVectorFingerprint,
   withTemplateFields,
@@ -73,13 +85,11 @@ const log = childLogger('enrichment:meilisearch');
  * gets one index regardless of how many libraries the user has registered. */
 export const ASSETS_INDEX = 'assets';
 
-/** Latest stable v1 features we rely on; bumped when we change the schema.
- * v3: adds filename/media/hidden fields and the operator-facing semantic
- * status surface.
- * v4: makes the existing `capturedAt` field filterable so service callers can
- * constrain a search to a capture-date window. Settings-only — the document
- * shape is unchanged, so this needs no re-index of existing documents. */
-const REQUIRED_SETTINGS_VERSION = 4;
+/** Bulk document uploads run only in the background stage and backfill, never
+ * on a user request, and a large batch to a busy sidecar can legitimately take
+ * longer than the per-request ceiling — but a hung sidecar must still release
+ * the stage's concurrency slot, so they get a long bound rather than none. */
+const BULK_UPLOAD_TIMEOUT_MS = 120_000;
 
 /** The Meili embedder name we register + reference in hybrid queries. */
 export const EMBEDDER_NAME = 'caption';
@@ -133,6 +143,14 @@ export interface MeilisearchClient {
   search(q: string, opts?: MeilisearchSearchOptions): Promise<MeilisearchSearchResult>;
   /** Operator-facing semantic configuration and raw index population snapshot. */
   semanticStatus?(): Promise<MeilisearchSemanticStatus>;
+  /** Result of the last `ensureIndex`: whether the live embedder matches
+   * Settings. `null` before the first ensure. Coverage is carried forward
+   * only when this is not `false`. */
+  embedderInSync?(): boolean | null;
+  /** Live embedder vs Settings, for the operator's "apply" decision. */
+  embedderDrift?(): Promise<EmbedderDriftReport>;
+  /** Operator action: PATCH the drifted embedder fields (re-embeds). */
+  applyEmbedderSettings?(): Promise<EmbedderApplyResult>;
 }
 
 interface ClientConfig extends MeilisearchTransportConfig {
@@ -150,6 +168,8 @@ interface ClientConfig extends MeilisearchTransportConfig {
   embedderModel: string;
   /** Hybrid semantic ratio (0 = pure keyword, 1 = pure vector). */
   semanticRatio: number;
+  /** Overrides the query-embedding deadline; tests only. */
+  queryEmbedDeadlineMs?: number;
 }
 
 function readConfig(): ClientConfig {
@@ -188,7 +208,6 @@ function throwCreateIndexFailure(result: MeilisearchHttpResult<MeilisearchTaskSu
     {
       status: result.status,
       err: result.errorText,
-      settingsVersion: REQUIRED_SETTINGS_VERSION,
     },
     'meilisearch ensureIndex create-index failed',
   );
@@ -223,59 +242,30 @@ async function createAssetsIndex(config: ClientConfig): Promise<void> {
   await awaitIndexCreation(config, result);
 }
 
-async function applyAssetsIndexSettings(config: ClientConfig): Promise<void> {
-  const settings = assetsIndexSettings(config, EMBEDDER_NAME);
-  const current = await meilisearchHttp<Record<string, unknown>>(
-    config,
-    'GET',
-    `/indexes/${config.indexName}/settings`,
-  );
-  if (current.ok && assetsIndexSettingsMatch(current.body, settings)) return;
-
-  const result = await meilisearchHttp<MeilisearchTaskSummary>(
-    config,
-    'PATCH',
-    `/indexes/${config.indexName}/settings`,
-    settings,
-  );
-  if (!result.ok) {
-    log.warn(
-      { status: result.status, err: result.errorText },
-      'meilisearch ensureIndex apply-settings failed',
-    );
-    throw new Error(`meilisearch apply settings failed: ${result.errorText ?? result.status}`);
-  }
-  if (result.status === 202) {
-    await waitForMeilisearchTask(config, result, 'apply assets index settings');
-  }
-}
-
-async function ensureAssetsIndex(config: ClientConfig): Promise<void> {
-  if (!isLiveConfig(config)) return;
+async function ensureAssetsIndex(config: ClientConfig): Promise<IndexSyncResult> {
+  if (!isLiveConfig(config)) return { embedderInSync: true };
   await createAssetsIndex(config);
-  await applyAssetsIndexSettings(config);
+  return syncAssetsIndexSettings(config, EMBEDDER_NAME);
 }
 
 function searchRequest(
   config: ClientConfig,
   query: string,
   options: MeilisearchSearchOptions,
+  hybridQuery: HybridQuery,
 ): Record<string, unknown> {
-  const body: Record<string, unknown> = {
+  return {
     q: query,
     filter: buildFilter(options),
     offset: options.offset ?? 0,
     limit: options.limit ?? 100,
     attributesToRetrieve: ['id'],
     showRankingScore: true,
+    ...(hybridQuery.kind === 'keyword-only'
+      ? {}
+      : { hybrid: { embedder: EMBEDDER_NAME, semanticRatio: config.semanticRatio } }),
+    ...(hybridQuery.kind === 'vector' ? { vector: hybridQuery.vector } : {}),
   };
-  if (options.semantic && config.semantic) {
-    body.hybrid = {
-      embedder: EMBEDDER_NAME,
-      semanticRatio: config.semanticRatio,
-    };
-  }
-  return body;
 }
 
 function parseSearchResult(body: MeiliSearchResponse): MeilisearchSearchResult {
@@ -296,17 +286,30 @@ function parseSearchResult(body: MeiliSearchResponse): MeilisearchSearchResult {
  * to inject a mocked `fetch`. */
 export function createMeilisearchClient(override?: Partial<ClientConfig>): MeilisearchClient {
   const cfg: ClientConfig = { ...readConfig(), ...override };
-  let ensurePromise: Promise<void> | null = null;
+  let ensurePromise: Promise<IndexSyncResult> | null = null;
+  let embedderInSync: boolean | null = null;
 
-  const ensureIndexOnce = (): Promise<void> => {
+  // Cached only once the embedder matches: while it drifts (or a settings
+  // task is still running) every ensure re-checks, so coverage advances as
+  // soon as an operator-applied re-embed finishes.
+  const ensureIndexOnce = (): Promise<IndexSyncResult> => {
     if (!ensurePromise) {
-      ensurePromise = ensureAssetsIndex(cfg).catch((error) => {
-        ensurePromise = null;
-        throw error;
-      });
+      ensurePromise = ensureAssetsIndex(cfg).then(
+        (result) => {
+          embedderInSync = result.embedderInSync;
+          if (!result.embedderInSync) ensurePromise = null;
+          return result;
+        },
+        (error) => {
+          ensurePromise = null;
+          throw error;
+        },
+      );
     }
     return ensurePromise;
   };
+
+  const queryEmbedder = createQueryEmbedder(cfg, EMBEDDER_NAME, () => embedderInSync);
 
   return {
     isConfigured(): boolean {
@@ -336,6 +339,21 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
 
     async ensureIndex(): Promise<void> {
       await ensureIndexOnce();
+    },
+
+    embedderInSync(): boolean | null {
+      return embedderInSync;
+    },
+
+    async embedderDrift(): Promise<EmbedderDriftReport> {
+      return readEmbedderDrift(cfg, EMBEDDER_NAME);
+    },
+
+    async applyEmbedderSettings(): Promise<EmbedderApplyResult> {
+      const result = await applyEmbedderSettings(cfg, EMBEDDER_NAME);
+      ensurePromise = null;
+      embedderInSync = false;
+      return result;
     },
 
     async upsert(doc: MeilisearchAssetDoc): Promise<void> {
@@ -373,6 +391,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
         'POST',
         `/indexes/${cfg.indexName}/documents`,
         docs.map(withTemplateFields),
+        BULK_UPLOAD_TIMEOUT_MS,
       );
       await waitForMeilisearchTask(cfg, accepted, 'batch upsert');
     },
@@ -386,6 +405,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
         'POST',
         `/indexes/${cfg.indexName}/documents`,
         ids.map((id) => withTemplateFields({ id, deletedAt })),
+        BULK_UPLOAD_TIMEOUT_MS,
       );
       // Per-call override (#2359): a short-timeout copy of `cfg` is used
       // only for the wait below, so the shared config's own
@@ -412,10 +432,12 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
       if (!isLiveConfig(cfg)) {
         return { ids: [], estimatedTotal: 0 };
       }
+      const hybridQuery =
+        opts.semantic && cfg.semantic ? await queryEmbedder.hybridQuery(q) : KEYWORD_ONLY;
       const body = await searchWithReadingDiversity(
         cfg,
         cfg.indexName,
-        searchRequest(cfg, q, opts),
+        searchRequest(cfg, q, opts, hybridQuery),
       );
       return parseSearchResult(body);
     },

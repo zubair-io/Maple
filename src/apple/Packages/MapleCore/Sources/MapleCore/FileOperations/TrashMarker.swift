@@ -27,7 +27,13 @@
 import Foundation
 
 enum TrashMarker {
-    private static let suffix = ".trashed-"
+    /// `.restored-` marks an SMB trash item whose verified copy was published by
+    /// a copy-only restore (#4139): it is hidden from listings and left for the
+    /// expiry sweep, the only deleter.
+    enum Kind: String, CaseIterable {
+        case trashed = ".trashed-"
+        case restored = ".restored-"
+    }
 
     private static let dayFormatter: DateFormatter = {
         let df = DateFormatter()
@@ -40,19 +46,24 @@ enum TrashMarker {
 
     /// The marker's own basename, a sibling of the trashed item — e.g.
     /// `IMG_1.dng.trashed-2026-08-09` next to `IMG_1.dng`.
-    static func markerName(forItemBasename basename: String, date: Date) -> String {
-        basename + suffix + dayFormatter.string(from: date)
+    static func markerName(forItemBasename basename: String, date: Date, kind: Kind = .trashed)
+        -> String
+    {
+        basename + kind.rawValue + dayFormatter.string(from: date)
     }
 
     /// Parses a marker directory's own basename back into the item
-    /// basename it marks and the date it was trashed. `nil` if `name`
-    /// isn't shaped like a marker at all.
-    static func parseMarkerDirName(_ name: String) -> (basename: String, date: Date)? {
-        guard let range = name.range(of: suffix, options: .backwards) else { return nil }
-        let basename = String(name[..<range.lowerBound])
-        guard !basename.isEmpty, let date = dayFormatter.date(from: String(name[range.upperBound...]))
-        else { return nil }
-        return (basename, date)
+    /// basename it marks, the date it records and its kind. `nil` if
+    /// `name` isn't shaped like a marker at all.
+    static func parseMarkerDirName(_ name: String) -> (basename: String, date: Date, kind: Kind)? {
+        Kind.allCases.lazy.compactMap { kind -> (basename: String, date: Date, kind: Kind)? in
+            guard let range = name.range(of: kind.rawValue, options: .backwards) else { return nil }
+            let basename = String(name[..<range.lowerBound])
+            guard !basename.isEmpty,
+                let date = dayFormatter.date(from: String(name[range.upperBound...]))
+            else { return nil }
+            return (basename, date, kind)
+        }.first
     }
 
     /// `true` when `name` is shaped like a marker for ANY item — used to
@@ -61,16 +72,31 @@ enum TrashMarker {
         parseMarkerDirName(name) != nil
     }
 
-    /// `true` when `name` is specifically the marker for `itemBasename`.
+    /// `true` when `name` is a marker of any kind for `itemBasename`.
     static func isMarker(_ name: String, forItemBasename itemBasename: String) -> Bool {
         parseMarkerDirName(name)?.basename == itemBasename
     }
 
-    /// The trashed date encoded in `name`, if `name` is a marker for
-    /// `itemBasename`.
-    static func date(fromMarkerName name: String, itemBasename: String) -> Date? {
-        guard let parsed = parseMarkerDirName(name), parsed.basename == itemBasename else { return nil }
+    /// The date `name` records, if `name` is a `kind` marker for `itemBasename`.
+    static func date(fromMarkerName name: String, itemBasename: String, kind: Kind = .trashed)
+        -> Date?
+    {
+        guard let parsed = parseMarkerDirName(name), parsed.basename == itemBasename,
+            parsed.kind == kind
+        else { return nil }
         return parsed.date
+    }
+
+    /// A restore staging copy's name inside `.maple/restore-staging`; the
+    /// leading day lets the expiry sweep age out copies an interrupted
+    /// restore left behind.
+    static func restoreStagingName(date: Date, id: UUID) -> String {
+        dayFormatter.string(from: date) + ".tmp." + id.uuidString
+    }
+
+    static func restoreStagingDate(_ name: String) -> Date? {
+        guard let range = name.range(of: ".tmp.") else { return nil }
+        return dayFormatter.date(from: String(name[..<range.lowerBound]))
     }
 
     /// Whole calendar days elapsed between `trashedDate` and `now`, both

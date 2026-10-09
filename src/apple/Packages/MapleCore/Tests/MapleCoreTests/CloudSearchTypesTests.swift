@@ -50,6 +50,28 @@ final class CloudSearchTypesTests: XCTestCase {
       modern.owners, [AssetOwnerFacet(id: "member", email: "studio@example.com", count: 3)])
   }
 
+  func test_facetScopeDecodesTopAndDefaultsToAllWhenAbsentUnknownOrMalformed() throws {
+    let base =
+      "\"total\":98635,\"cameras\":[],\"lenses\":[],\"extensions\":[],\"scene_types\":[],\"activities\":[],\"subjects\":[],\"is_screenshot\":{\"true\":0,\"false\":3,\"unknown\":0}"
+    func decode(_ scope: String) throws -> SearchFacets {
+      try JSONDecoder().decode(SearchFacets.self, from: Data("{\(base)\(scope)}".utf8))
+    }
+    let top = try decode(",\"scope\":{\"kind\":\"top\",\"limit\":2000,\"of\":98635}")
+    XCTAssertEqual(top.scope, .top(limit: 2000, of: 98635))
+    XCTAssertEqual(
+      top.scope.note,
+      "Filters from the \(2000.formatted()) most relevant of \(98635.formatted()) results")
+    XCTAssertEqual(try decode(",\"scope\":{\"kind\":\"all\"}").scope, .all)
+    XCTAssertEqual(try decode("").scope, .all)
+    XCTAssertEqual(try decode(",\"scope\":{\"kind\":\"sampled\",\"limit\":10}").scope, .all)
+    XCTAssertEqual(try decode(",\"scope\":\"top\"").scope, .all)
+    XCTAssertEqual(try decode(",\"scope\":{\"kind\":\"top\",\"limit\":\"many\"}").scope, .all)
+    XCTAssertNil(FacetScope.all.note)
+
+    let encoded = try JSONEncoder().encode(top.scope)
+    XCTAssertEqual(try JSONDecoder().decode(FacetScope.self, from: encoded), top.scope)
+  }
+
   func test_ownerFacetsRoundTripNullAndAbsentEmail() throws {
     for field in [",\"email\":null", ""] {
       let data = Data("{\"id\":\"device\",\"count\":2\(field)}".utf8)

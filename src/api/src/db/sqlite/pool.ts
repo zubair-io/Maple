@@ -68,6 +68,7 @@ import {
   type SqliteWorkerStats,
 } from './worker-handle.ts';
 import { retryOnBusy } from './busy-retry.ts';
+import { ReadGate } from './read-gate.ts';
 
 /**
  * Backoff sleep. Unref'd for the same reason the request timer is: a pool
@@ -198,6 +199,8 @@ export class SqlitePool {
   private readonly respawns: ReaderRespawnState[];
   private readonly onReaderRespawn: (event: ReaderRespawnEvent) => void;
   private readonly respawnDelaysMs: readonly number[];
+  /** Bounds the bulk-read lane to one fewer than the live readers. See {@link readBulk}. */
+  private readonly bulkGate: ReadGate;
   /** Round-robin cursor, used only to break ties between equally idle readers. */
   private cursor = 0;
   private closed = false;
@@ -213,6 +216,7 @@ export class SqlitePool {
     this.readers = readers;
     this.onReaderRespawn = onReaderRespawn;
     this.respawnDelaysMs = respawnDelaysMs;
+    this.bulkGate = new ReadGate(() => Math.max(1, this.liveReaderCount() - 1));
     this.respawns = readers.map(() => ({
       inFlight: false,
       attempt: 0,
@@ -307,6 +311,43 @@ export class SqlitePool {
   }
 
   /**
+   * Run one statement on a reader as part of a bulk lane that may never hold
+   * every reader at once.
+   *
+   * A facet request issues a dozen aggregations together. Through {@link read}
+   * each is queued on a reader the moment it is issued, so they occupy every
+   * reader and a grid page issued a moment later waits behind all of them —
+   * measured at 4.8–12.7 s for a page that costs under a second alone (#4413).
+   * This lane admits at most `readers − 1` (and at least one) statements at a
+   * time and holds the rest in this process, so one reader is always left for
+   * {@link read}. Callers that fan out should use it; a single request-path
+   * statement should not.
+   *
+   * "Readers" means the ones alive now, not the configured width: a dead,
+   * restarting or retired reader takes no reads, so counting it would let the
+   * lane fill every survivor for the whole respawn ladder, or for good. A
+   * statement already admitted when a reader dies keeps running; the lane just
+   * admits nothing more until it is back under the smaller limit.
+   *
+   * With one reader left the lane still admits one statement rather than none.
+   * A facet request must finish, and a lane that waits for a second reader
+   * would hang it for as long as the slot stays dead — forever, once retired.
+   * The cost is that a plain read can wait behind one bulk statement there,
+   * never behind the whole fan-out, which is the same bargain a pool configured
+   * with a single reader has always made.
+   */
+  // fallow-ignore-next-line unused-class-member -- reached structurally through `readBulk` in db/repos/db-handle.ts, and by pool.bulk-lane.test.ts
+  readBulk<T = SqlRow>(sql: string, params?: SqlParams): Promise<T[]> {
+    return this.rejectIfClosed() ?? this.bulkGate.run(() => this.read<T>(sql, params));
+  }
+
+  /** How many bulk-lane statements may run at once, given the readers alive now. */
+  // fallow-ignore-next-line unused-class-member -- read by pool.bulk-lane.test.ts
+  get bulkReadLimit(): number {
+    return this.bulkGate.limit;
+  }
+
+  /**
    * Run one statement on the writer. Writes are executed in call order.
    *
    * Call order is a guarantee about *this* process. Since the cutover (#3752)
@@ -360,6 +401,10 @@ export class SqlitePool {
    */
   get isClosed(): boolean {
     return this.closed;
+  }
+
+  private liveReaderCount(): number {
+    return this.readers.filter((reader) => reader.alive).length;
   }
 
   /**
@@ -450,6 +495,7 @@ export class SqlitePool {
         }
         state.completedAtRestart = reader.stats().completed;
         this.report({ reader: index, attempt, outcome: 'respawned', reason: death });
+        this.bulkGate.admitWaiting();
         break;
       } catch (e) {
         lastFailure = e instanceof Error ? e.message : String(e);

@@ -23,7 +23,7 @@ struct MemoriesScreen: View {
   let session: TVCloudSession
   let libraryID: String
 
-  @State private var viewModel: TVGeneratedSearchViewModel
+  @State private var viewModel: GeneratedSearchCollectionsViewModel
   /// The memory whose grid is open, with the photos already fetched for it.
   /// Wrapped because `fullScreenCover(item:)` needs an `Identifiable`.
   @State private var openMemory: OpenMemory?
@@ -49,7 +49,7 @@ struct MemoriesScreen: View {
     self.session = session
     self.libraryID = libraryID
     _viewModel = State(
-      initialValue: TVGeneratedSearchViewModel(
+      initialValue: GeneratedSearchCollectionsViewModel(
         libraryID: libraryID,
         client: session.generatedSearchClient
       ))

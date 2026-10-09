@@ -37,6 +37,13 @@ mod date;
 /// Shared with generated Apple and Windows filename vocabulary (#4009).
 pub const TRASH_ORIGINAL_PATH_SUFFIX: &str = ".origpath";
 
+/// Restore collisions use a distinct name from ordinary move/copy (#4139).
+pub const TRASH_RESTORE_COLLISION_SUFFIX: &str = ".restored";
+
+/// Canonical/conflict XMP names paired to a photo or full video filename.
+pub const PAIRED_SIDECAR_SUFFIX_PATTERN: &str =
+    r"(?:\.xmp| \(conflict from [^)]+\)(?: \(\d+\))?\.xmp)";
+
 use date::{format_strftime, parse_exif_datetime, FALLBACK_DATE_TEXT};
 
 /// Per-render inputs describing exactly one output filename. Everything

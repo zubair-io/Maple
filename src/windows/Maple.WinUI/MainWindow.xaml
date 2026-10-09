@@ -452,6 +452,7 @@
                                                 <ComboBoxItem Content="All photos"/>
                                                 <ComboBoxItem Content="Photos with a location"/>
                                             </ComboBox>
+                                            <TextBlock x:Name="SearchFacetScopeNote" Visibility="Collapsed" TextWrapping="Wrap" MaxWidth="260" FontSize="12" Foreground="{StaticResource MapleTextMuted}" AutomationProperties.LiveSetting="Polite"/>
                                             <ComboBox x:Name="PeopleSearchBox" Header="People" SelectionChanged="OnSearchFacetSelected" AutomationProperties.Name="Filter by person"/>
                                             <ComboBox x:Name="PlaceSearchBox" Header="Places" SelectionChanged="OnSearchFacetSelected" AutomationProperties.Name="Filter by place"/>
                                             <ComboBox x:Name="OwnerSearchBox" Header="Owner" SelectionChanged="OnSearchFacetSelected" AutomationProperties.Name="Filter by owner"/>

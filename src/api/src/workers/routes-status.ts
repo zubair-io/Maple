@@ -24,6 +24,8 @@ import {
   type StatusCountsSnapshot,
 } from '../db/repos/worker-status.repo.ts';
 import { ALL_KNOWN_WORKER_NAMES } from './status-counts.ts';
+import { sampleProcessMemory, type ProcessMemoryRow } from '../runtime/memory-telemetry.ts';
+import { childMemoryReports } from '../runtime/child-process-worker.ts';
 import { enabledRemainingTotal, loadAllMigrationStates } from './migration-config.repo.ts';
 
 export { ALL_KNOWN_WORKER_NAMES } from './status-counts.ts';
@@ -92,6 +94,13 @@ export interface WorkersStatusPayload {
   /** Epoch ms when the pending / ready / dead / damaged counts were computed,
    * or null when the worker has not counted yet (every count reads 0). */
   countsAt: number | null;
+  /** One row per long-lived process (#4445): this API process sampled now,
+   * the decode children it spawned itself (histogram, lens-profile import),
+   * then the worker and its native children as the worker last persisted
+   * them. Every row carries its `owner` tier so the two sets of `ffi-decode`
+   * rows stay distinguishable. The worker's rows are absent until its first
+   * per-minute sample. */
+  memory: ProcessMemoryRow[];
 }
 
 async function loadConfigMap(): Promise<Map<string, WorkerConfig>> {
@@ -138,7 +147,12 @@ function resolveStageCounts(name: string, dbState: StatusDbState) {
 
 function resolveLiveSnapshot(s: StageStatusSnapshot | undefined) {
   if (!s) {
-    return { status: 'stopped' as const, inFlight: 0, throughput: 0, lastError: null };
+    return {
+      status: 'stopped' as const,
+      inFlight: 0,
+      throughput: 0,
+      lastError: null,
+    };
   }
   return {
     status: s.status,
@@ -167,9 +181,34 @@ function assembleStageRow(
   };
 }
 
+/** The API's own sample and its children's reports are tagged `api`; the
+ * persisted rows are the worker's, so a row the worker wrote without an owner
+ * (an older worker build) defaults to `worker`. */
+function assembleMemoryRows(
+  workerRows: readonly ProcessMemoryRow[],
+  apiChildren: readonly ProcessMemoryRow[],
+): ProcessMemoryRow[] {
+  const api: ProcessMemoryRow = {
+    process: 'api',
+    pid: process.pid,
+    owner: 'api',
+    ...sampleProcessMemory(),
+  };
+  return [
+    api,
+    ...apiChildren.map((row) => ({ ...row, owner: 'api' as const })),
+    ...workerRows.map((row) => ({
+      ...row,
+      owner: row.owner ?? ('worker' as const),
+    })),
+  ];
+}
+
 function assembleWorkersStatus(
   statuses: Record<string, StageStatusSnapshot>,
   dbState: StatusDbState,
+  workerMemory: readonly ProcessMemoryRow[],
+  apiChildren: readonly ProcessMemoryRow[],
 ): WorkersStatusPayload {
   const counts = dbState.counts;
   const nameSet = new Set<string>([
@@ -185,21 +224,30 @@ function assembleWorkersStatus(
     damaged: counts?.damaged ?? 0,
     newlyHiddenTotal: counts?.newly_hidden ?? 0,
     countsAt: counts?.computed_at ?? null,
+    memory: assembleMemoryRows(workerMemory, apiChildren),
   };
 }
 
 /** Full `/status` payload: one `worker_status` read (registry snapshot +
  * persisted counts), the `worker_config` rows, and the migration settings row.
- * No backlog count anywhere on this path. */
-export async function computeWorkersStatus(): Promise<WorkersStatusPayload> {
+ * No backlog count anywhere on this path. `apiChildren` is what this process's
+ * own native children last relayed over IPC; tests hand in a fixed list. */
+export async function computeWorkersStatus(
+  apiChildren: () => readonly ProcessMemoryRow[] = childMemoryReports,
+): Promise<WorkersStatusPayload> {
   const [snap, configMap, migrationStates] = await Promise.all([
     readWorkerStatus(),
     loadConfigMap(),
     loadAllMigrationStates(),
   ]);
-  return assembleWorkersStatus(snap?.statuses ?? {}, {
-    configMap,
-    counts: snap?.counts ?? null,
-    migrationPending: enabledRemainingTotal(migrationStates),
-  });
+  return assembleWorkersStatus(
+    snap?.statuses ?? {},
+    {
+      configMap,
+      counts: snap?.counts ?? null,
+      migrationPending: enabledRemainingTotal(migrationStates),
+    },
+    snap?.memory?.rows ?? [],
+    apiChildren(),
+  );
 }

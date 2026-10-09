@@ -13,6 +13,10 @@
 // established server-side — rather than the generic `.N` CollisionResolver
 // uses elsewhere in this module.
 //
+// Staged behind #2847: only that naming is shared. Paired conflict/UUID/video
+// sidecars (the API/Apple restore-collisions corpus) and Apple's copy-only
+// SMB restore with its `.restored-` trash marker are not ported here yet.
+//
 // #2743 review fix: the ORIGINAL relative path is no longer recovered by
 // inverting `TrashPaths.TrashDestinationDir`'s path math alone. That
 // inversion is exact for the common case, but `TrashToMapleFolderAsync`
@@ -188,12 +192,12 @@ namespace Maple.WinUI.Services.FileOperations
             var ext = Path.GetExtension(basename);
             var stem = ext.Length > 0 ? basename[..^ext.Length] : basename;
 
-            var first = $"{stem}.restored{ext}";
+            var first = $"{stem}{FilenameVocabulary.RestoreCollisionSuffix}{ext}";
             if (!Occupied(destinationDir, first)) return first;
 
             for (var n = 1; n <= CollisionResolver.MaxAttempts; n++)
             {
-                var candidate = $"{stem}.restored.{n}{ext}";
+                var candidate = $"{stem}{FilenameVocabulary.RestoreCollisionSuffix}.{n}{ext}";
                 if (!Occupied(destinationDir, candidate)) return candidate;
             }
 

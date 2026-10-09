@@ -9,7 +9,12 @@
 // All Angular-bearing types are imported via `import type` so this module
 // can compile/be tested as plain TS.
 
-import type { EnrichmentConfigResponse, StageStatus, WorkerConfig } from '@maple-common';
+import type {
+  EnrichmentConfigResponse,
+  ProcessMemoryRow,
+  StageStatus,
+  WorkerConfig,
+} from '@maple-common';
 import { STAGE_META, type StageGroup } from './workers-stage-meta';
 export { STAGE_META, stageMeta } from './workers-stage-meta';
 export type { StageGroup, StageMeta, EnrichmentKind } from './workers-stage-meta';
@@ -316,6 +321,65 @@ export function formatBytes(bytes: number | undefined | null): string {
 export function countsAsOfLabel(countsAt: number | null | undefined): string {
   if (countsAt == null) return 'Counting…';
   return `Counts as of ${new Date(countsAt).toLocaleTimeString()}`;
+}
+
+/** The Memory chip's value: resident set across every reported process. */
+export function totalRss(rows: readonly ProcessMemoryRow[] | undefined): number {
+  return (rows ?? []).reduce((acc, row) => acc + row.rss, 0);
+}
+
+const MEMORY_PROCESS_ORDER: readonly string[] = ['api', 'worker', 'ffi-decode', 'face'];
+
+export interface MemoryProcessGroup {
+  process: string;
+  count: number;
+  rss: number;
+}
+
+/** Rows folded per process type in the fixed api → worker → ffi-decode →
+ * face order; a type the page does not know about lands after those, in
+ * first-seen order, so a new child process still shows up. */
+export function groupMemoryByProcess(
+  rows: readonly ProcessMemoryRow[] | undefined,
+): readonly MemoryProcessGroup[] {
+  const groups = new Map<string, MemoryProcessGroup>();
+  for (const row of rows ?? []) {
+    const group = groups.get(row.process) ?? { process: row.process, count: 0, rss: 0 };
+    groups.set(row.process, { ...group, count: group.count + 1, rss: group.rss + row.rss });
+  }
+  const rank = (process: string): number => {
+    const index = MEMORY_PROCESS_ORDER.indexOf(process);
+    return index === -1 ? MEMORY_PROCESS_ORDER.length : index;
+  };
+  return [...groups.values()].sort((a, b) => rank(a.process) - rank(b.process));
+}
+
+/** The Memory chip's label (#4445): one `name [×count] RSS` entry per process
+ * TYPE, so the one that balloons is named on the page rather than only in the
+ * logs. Grouping keeps the chip bounded — a 16-worker FFI pool reports up to
+ * 17 `ffi-decode` rows, and listing each PID here grew the header into many
+ * lines on exactly the deployments where the number matters. The per-PID
+ * list lives in `memoryDetailTitle`. A frame with no rows (an older server)
+ * says so instead of "0 B". */
+export function memoryBreakdownLabel(rows: readonly ProcessMemoryRow[] | undefined): string {
+  const groups = groupMemoryByProcess(rows);
+  if (groups.length === 0) return 'Memory · no samples yet';
+  const entry = ({ process, count, rss }: MemoryProcessGroup): string =>
+    count > 1 ? `${process} ×${count} ${formatBytes(rss)}` : `${process} ${formatBytes(rss)}`;
+  return `Memory · ${groups.map(entry).join(' · ')}`;
+}
+
+const MEMORY_TITLE_INTRO =
+  'Resident memory of each server process (API, worker, RAW decode and face children), as each last sampled it — the same numbers the per-minute memory log line carries';
+
+/** The Memory chip's tooltip: the full per-PID list the label summarises,
+ * one process per line — bounded by the tooltip rather than the header. */
+export function memoryDetailTitle(rows: readonly ProcessMemoryRow[] | undefined): string {
+  if (!rows || rows.length === 0) return MEMORY_TITLE_INTRO;
+  const who = (row: ProcessMemoryRow): string =>
+    row.owner ? `${row.owner} · pid ${row.pid}` : `pid ${row.pid}`;
+  const lines = rows.map((row) => `${row.process} (${who(row)}) ${formatBytes(row.rss)}`);
+  return `${MEMORY_TITLE_INTRO}\n\n${lines.join('\n')}`;
 }
 
 export function formatDate(iso: string | null): string {

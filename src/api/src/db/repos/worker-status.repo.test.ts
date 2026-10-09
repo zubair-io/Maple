@@ -1,9 +1,9 @@
 /**
- * The `worker_status` singleton: three writers, one row, and no two of them
+ * The `worker_status` singleton: four writers, one row, and no two of them
  * allowed to clobber each other.
  *
- * Every test here is really the same question asked three ways — after a write
- * from one of the three owners, is what the other two wrote still there? The
+ * Every test here is really the same question asked four ways — after a write
+ * from one of the four owners, is what the other three wrote still there? The
  * Mongo version got that property from narrow `$set`s; here it comes from each
  * upsert naming only its own columns, which is easy to break and silent when it
  * is.
@@ -17,8 +17,10 @@ import {
   readStatusCountsDemand,
   readWorkerStatus,
   writeStatusCounts,
+  writeWorkerMemory,
   writeWorkerStatus,
   type StatusCountsSnapshot,
+  type WorkerMemorySnapshot,
 } from './worker-status.repo.ts';
 
 const SNAPSHOT: Record<string, StageStatusSnapshot> = {
@@ -42,6 +44,21 @@ const COUNTS: StatusCountsSnapshot = {
   duration_ms: 17,
 };
 
+const MEMORY: WorkerMemorySnapshot = {
+  rows: [
+    {
+      process: 'worker',
+      pid: 41,
+      rss: 213_000_000,
+      heapUsed: 1,
+      heapTotal: 2,
+      external: 3,
+      arrayBuffers: 4,
+      at: 1_700_000_000_000,
+    },
+  ],
+};
+
 describe('the registry snapshot', () => {
   it('round-trips, and reports null before anything has been written', async () => {
     using handle = await createTestDatabase();
@@ -55,6 +72,7 @@ describe('the registry snapshot', () => {
       face_models: { kind: 'loaded', errorDetail: null },
       updated_at: 1234,
       counts: null,
+      memory: null,
     });
   });
 
@@ -85,6 +103,7 @@ describe('the counts snapshot', () => {
       statuses: {},
       updated_at: 0,
       counts: COUNTS,
+      memory: null,
     });
   });
 
@@ -99,6 +118,36 @@ describe('the counts snapshot', () => {
     expect(read?.counts).toEqual(COUNTS);
     expect(read?.statuses).toEqual(SNAPSHOT);
     expect(read?.updated_at).toBe(99);
+  });
+});
+
+describe('the memory snapshot (#4445)', () => {
+  it('can be written before the status writer has ever run', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+
+    await writeWorkerMemory(MEMORY, db);
+
+    expect((await readWorkerStatus(db))?.memory).toEqual(MEMORY);
+  });
+
+  it('survives a status write and a counts write, and vice versa', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    await writeWorkerStatus(SNAPSHOT, 1, { kind: 'loaded', errorDetail: null }, db);
+    await writeStatusCounts(COUNTS, db);
+
+    await writeWorkerMemory(MEMORY, db);
+    await writeWorkerStatus(SNAPSHOT, 2, undefined, db);
+    await writeStatusCounts(COUNTS, db);
+
+    expect(await readWorkerStatus(db)).toEqual({
+      statuses: SNAPSHOT,
+      face_models: { kind: 'loaded', errorDetail: null },
+      updated_at: 2,
+      counts: COUNTS,
+      memory: MEMORY,
+    });
   });
 });
 
