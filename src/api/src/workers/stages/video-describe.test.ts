@@ -174,7 +174,10 @@ describe('video-describe handler', () => {
     expect(meta.frame_count).toBe(3);
     expect(meta.fallback_level).toBe('full');
     expect(meta.server_url).toBe('http://gpu-box:11434');
-    expect((result as unknown as { invalidates: string[] }).invalidates).toEqual(['meili']);
+    expect((result as unknown as { invalidates: string[] }).invalidates).toEqual([
+      'meili',
+      'embed',
+    ]);
   });
 
   it('degrades to every-other-frame on a terminal provider rejection, then succeeds', async () => {

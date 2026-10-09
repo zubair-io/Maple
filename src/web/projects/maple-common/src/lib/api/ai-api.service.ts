@@ -12,8 +12,15 @@ export interface AiConnection {
   has_key?: boolean;
   api_key?: string | null;
 }
+export interface AiEmbedderSettings {
+  url: string;
+  model: string;
+  default_url: string;
+  default_model: string;
+}
 export interface AiConnectionsResponse {
   needs_save?: boolean;
+  embedder: AiEmbedderSettings;
   connections: AiConnection[];
   assignments: Record<
     string,
@@ -37,7 +44,9 @@ export class AiApiService {
     return this.http.get<AiConnectionsResponse>(`${this.baseUrl}/ai/connections/`);
   }
   saveConnections(
-    config: Pick<AiConnectionsResponse, 'connections' | 'assignments'>,
+    config: Pick<AiConnectionsResponse, 'connections' | 'assignments'> & {
+      embedder: Pick<AiEmbedderSettings, 'url' | 'model'>;
+    },
   ): Observable<AiConnectionsResponse> {
     return this.http.put<AiConnectionsResponse>(`${this.baseUrl}/ai/connections/`, config);
   }

@@ -290,13 +290,21 @@ export class AiSettingsComponent implements OnInit {
         },
       });
   }
+  setEmbedder(field: 'url' | 'model', value: string): void {
+    this.config.update((c) => c && { ...c, embedder: { ...c.embedder, [field]: value } });
+    this.changed();
+  }
   save(): void {
     const c = this.config();
     if (!c || this.saving()) return;
     this.saving.set(true);
     this.error.set('');
     this.api
-      .saveConnections({ connections: c.connections, assignments: c.assignments })
+      .saveConnections({
+        connections: c.connections,
+        assignments: c.assignments,
+        embedder: { url: c.embedder.url, model: c.embedder.model },
+      })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (config) => {

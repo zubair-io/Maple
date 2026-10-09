@@ -282,7 +282,7 @@ export async function videoDescribeHandler(
     // search_blob folds in the summary + scene text (enrichment/search-blob.ts) —
     // re-arm meili in the same atomic write so a fresh video description is
     // searchable without waiting for an unrelated meili re-run.
-    invalidates: ['meili'],
+    invalidates: ['meili', 'embed'],
   };
 }
 

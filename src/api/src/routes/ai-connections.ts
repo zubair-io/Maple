@@ -16,6 +16,7 @@ import {
 import { loadWorkerConfigSafe } from '../db/repos/worker-config.repo.ts';
 import { loadGeneratedSearchConfig } from '../workers/generated-search/config.repo.ts';
 import { listProviderModels, handleAiTestConnection } from '../enrichment/ai-providers.service.ts';
+import { embedderPatch, embedderSettingsView } from '../enrichment/embedder-settings.ts';
 import { resetDescribeDeps } from '../workers/stages/describe.ts';
 import { resetVideoDescribeDeps } from '../workers/stages/video-describe.ts';
 
@@ -32,6 +33,11 @@ const Connection = t.Object({
   concurrency: t.Integer({ minimum: 1, maximum: 100 }),
   api_key: t.Optional(t.Union([t.String(), t.Null()])),
 });
+const EmbedderBody = t.Object({
+  url: t.Union([t.String({ maxLength: 2048 }), t.Null()]),
+  model: t.Union([t.String({ maxLength: 200 }), t.Null()]),
+});
+
 const Config = t.Object({
   connections: t.Array(Connection, { maxItems: 32 }),
   assignments: t.Record(
@@ -42,7 +48,13 @@ const Config = t.Object({
       connection_models: t.Optional(t.Record(t.String(), t.String({ maxLength: 200 }))),
     }),
   ),
+  embedder: t.Optional(EmbedderBody),
 });
+
+async function embedderView() {
+  const saved = await loadEnrichmentConfig();
+  return embedderSettingsView(saved, resolveEnrichmentConfig(saved));
+}
 
 async function loadConfig() {
   const saved = await loadEnrichmentConfig();
@@ -60,9 +72,14 @@ async function loadConfig() {
 
 export const aiConnectionRoutes = new Elysia({ prefix: '/connections' })
   .use(requireAuth)
-  .get('/', async () => publicAiConnections(await loadConfig()), {
-    beforeHandle: requireOwnerBeforeHandle,
-  })
+  .get(
+    '/',
+    async () => ({
+      ...publicAiConnections(await loadConfig()),
+      embedder: await embedderView(),
+    }),
+    { beforeHandle: requireOwnerBeforeHandle },
+  )
   .put(
     '/',
     async ({ body, set }) => {
@@ -94,14 +111,17 @@ export const aiConnectionRoutes = new Elysia({ prefix: '/connections' })
         ]),
       );
       const config = { connections, assignments };
+      const embedder = body.embedder === undefined ? {} : embedderPatch(body.embedder);
       const error =
-        validateAiConnections(config) ?? (await validateAssignedModels(config, current));
+        ('error' in embedder ? embedder.error : null) ??
+        validateAiConnections(config) ??
+        (await validateAssignedModels(config, current));
       if (error) {
         set.status = 400;
         return { error };
       }
       // One document update: credentials, connections and every assignment change together.
-      await saveEnrichmentConfig({ ai_connections: config });
+      await saveEnrichmentConfig({ ai_connections: config, ...embedder });
       const resolved = resolveEnrichmentConfig(await loadEnrichmentConfig());
       reconfigureMeilisearch({
         url: resolved.meilisearch_url,
@@ -114,7 +134,7 @@ export const aiConnectionRoutes = new Elysia({ prefix: '/connections' })
       });
       resetDescribeDeps();
       resetVideoDescribeDeps();
-      return publicAiConnections(config);
+      return { ...publicAiConnections(config), embedder: await embedderView() };
     },
     { body: Config, beforeHandle: requireOwnerBeforeHandle },
   )

@@ -186,6 +186,48 @@ describe('central AI connections', () => {
     expect((await request('PUT', d)).status).toBe(400);
     expect(await loadEnrichmentConfig()).toEqual(before);
   });
+  it('lets the embed stage override the embedder, defaulting to the semantic-search values', async () => {
+    const c = await config();
+    expect(c.embedder).toEqual({
+      url: '',
+      model: '',
+      default_url: 'http://gpu1:11434',
+      default_model: 'bge-m3',
+    });
+    expect(resolveEnrichmentConfig(await loadEnrichmentConfig())).toMatchObject({
+      embedder_url: 'http://gpu1:11434',
+      embedder_model: 'bge-m3',
+    });
+
+    const saved = await request('PUT', {
+      ...c,
+      embedder: { url: 'http://gpu3:11434/', model: ' qwen3-embedding ' },
+    });
+    expect(saved.status).toBe(200);
+    expect((await saved.json()).embedder).toMatchObject({
+      url: 'http://gpu3:11434',
+      model: 'qwen3-embedding',
+    });
+    expect(resolveEnrichmentConfig(await loadEnrichmentConfig())).toMatchObject({
+      embedder_url: 'http://gpu3:11434',
+      embedder_model: 'qwen3-embedding',
+      meilisearch_embedder_url: 'http://gpu1:11434',
+      meilisearch_embedder_model: 'bge-m3',
+    });
+
+    await request('PUT', { ...c, embedder: { url: '', model: '' } });
+    expect(resolveEnrichmentConfig(await loadEnrichmentConfig())).toMatchObject({
+      embedder_url: 'http://gpu1:11434',
+      embedder_model: 'bge-m3',
+    });
+  });
+  it('rejects an invalid embedder URL before any write', async () => {
+    const c = await config();
+    const before = await loadEnrichmentConfig();
+    const response = await request('PUT', { ...c, embedder: { url: 'ftp://nope', model: null } });
+    expect(response.status).toBe(400);
+    expect(await loadEnrichmentConfig()).toEqual(before);
+  });
   it('rejects legacy model writes after migration while allowing runtime controls', async () => {
     await request('PUT', await config());
     const writes: Array<[string, string, object]> = [

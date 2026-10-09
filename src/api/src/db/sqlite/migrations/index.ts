@@ -43,6 +43,7 @@ import { cloudBackupGoogleMirrorLayoutMigration } from './0018-cloud-backup-goog
 import { assetsLiveMonthMigration } from './0019-assets-live-month.ts';
 import { assetsUnlistedMigration } from './0020-assets-unlisted.ts';
 import { workerStatusMemoryMigration } from './0021-worker-status-memory.ts';
+import { assetVectorsMigration } from './0022-asset-vectors.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -66,4 +67,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   assetsLiveMonthMigration,
   assetsUnlistedMigration,
   workerStatusMemoryMigration,
+  assetVectorsMigration,
 ];

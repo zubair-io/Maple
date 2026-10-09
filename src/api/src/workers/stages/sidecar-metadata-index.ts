@@ -200,7 +200,7 @@ export async function sidecarMetadataIndexHandler(
   // Effective hidden/screenshot/place metadata changes affect Meilisearch
   // filters or semantic document text, so the search document is rebuilt
   // atomically with the metadata projection.
-  const invalidates = ['meili'];
+  const invalidates = ['meili', 'embed'];
 
   // The inverse transition — explicitly un-hidden — re-arms `cf-thumb-sync` so
   // the pipeline picks the asset back up: that stage's own `{ skip: 'hidden' }`
