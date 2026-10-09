@@ -36,6 +36,12 @@
     var openingCollectionID: String? = nil
     /// Card tap — the host opens the collection's results.
     var onSelectCollection: (GeneratedSearchCard) -> Void = { _ in }
+    /// The text the host just set programmatically (deep link, Map pin,
+    /// card), cleared by `onSeedApplied` once the change is observed. That
+    /// change is a seed, not the user clearing the field, so a filters-only
+    /// seed keeps its filters; a later user clear is not masked.
+    var seededQuery: String? = nil
+    var onSeedApplied: () -> Void = {}
     /// Result tap — the host opens the asset (Preview first, per Fast
     /// Preview §1).
     var onSelectAsset: (SearchAsset) -> Void = { _ in }
@@ -116,12 +122,16 @@
       .background(MapleTokens.bg.ignoresSafeArea())
       .accessibilityIdentifier("search-root")
       .onChange(of: query) { previous, current in
-        // The field's clear button empties the text in one step. Treat it
-        // as leaving the search: drop the filters too, so the page returns
-        // to Recents instead of re-running a filters-only search.
-        if current.isEmpty && !previous.trimmingCharacters(in: .whitespaces).isEmpty
-          && filtersActive
-        {
+        let isSeed = seededQuery != nil && current == seededQuery
+        if isSeed { onSeedApplied() }
+        // The field's clear button empties the text in one step, which
+        // SwiftUI reports the same way as a backspace. A multi-character
+        // drop to empty is the button; a single-character one is the user
+        // editing (backspacing "a" to retype), and keeps the filters. On
+        // the button, drop the filters too so the page returns to Recents
+        // instead of re-running a filters-only search.
+        let clearedByButton = current.isEmpty && previous.count > 1
+        if !isSeed && clearedByButton && filtersActive {
           viewModel?.resetFilters()
         }
         scheduleSearch()
