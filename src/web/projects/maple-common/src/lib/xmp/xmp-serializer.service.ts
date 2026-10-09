@@ -20,6 +20,7 @@ import type { ColorLabel, Flag } from '../models/asset';
 import { ADJUSTMENT_FIELDS, WB_PRESET_FIELD, type NumericAdjustmentKey } from './xmp-fields';
 import { toneCurveBlocks } from './xmp-tone-curves';
 import { localAdjustmentBlocksWithPassthrough } from './xmp-mask-group-passthrough';
+import { planLayerOrder } from './xmp-verbatim-layer-order';
 import { passthroughForMetadataReplacement } from './xmp-metadata-passthrough';
 import { retouchAreasBlock } from './xmp-retouch';
 import { DESCRIPTION_CHILD_INDENT, canonicalDocument } from './xmp-canonical';
@@ -151,6 +152,7 @@ export class XmpSerializerService {
       model,
       indent,
       passthrough?.maskGroups,
+      planLayerOrder(model.localAdjustments ?? [], passthrough?.verbatimLayerOrders ?? []),
     );
 
     // Repair spots (#3409) — the `crs:RetouchAreas` container, byte-identical
