@@ -186,6 +186,7 @@ namespace Maple.WinUI.ViewModels
                 Interlocked.Increment(ref _decodeGeneration);
                 CancelActiveDecode();
                 Renderer.SetImage(null);
+                ReleaseBrushRasters();
             }
         }
 
@@ -210,6 +211,7 @@ namespace Maple.WinUI.ViewModels
             // Never let a stale image produce frames for the new photo; the
             // Preview screen shows the embedded JPEG until Edit decodes.
             Renderer.SetImage(null);
+            ReleaseBrushRasters();
             IsDecoding = false;
             DecodeStatus = string.Empty;
 
@@ -291,7 +293,11 @@ namespace Maple.WinUI.ViewModels
             CancelActiveDecode();
             // Repair-only updates retain the last completed base so exposure and
             // other chain controls can render while the replacement decodes.
-            if (!preserveCurrentBase) Renderer.SetImage(null);
+            if (!preserveCurrentBase)
+            {
+                Renderer.SetImage(null);
+                ReleaseBrushRasters();
+            }
 
             IsDecoding = true;
             HasDecodeError = false;
@@ -311,8 +317,29 @@ namespace Maple.WinUI.ViewModels
                         photo.EditPath, model, PreviewLongEdge, RefineDecodeQuality.Preview, cancelFlag);
                     if (generation != _decodeGeneration)
                         return;
-                    Renderer.SetImage(decoded, () => !_disposed && generation == Volatile.Read(ref _decodeGeneration));
-                    OnUi(() => ApplyDecodedState(generation, photo, decoded));
+                    var registered = model.LocalAdjustments
+                        .Select(layer => layer.Mask is BrushMask brush
+                            ? (layer, mask: BrushMaskRasterizer.Register(brush, decoded.Width, decoded.Height))
+                            : (layer, mask: (BrushMask?)null))
+                        .Where(x => x.mask != null).ToList();
+                    OnUi(() =>
+                    {
+                        if (_disposed || generation != _decodeGeneration)
+                        {
+                            foreach (var entry in registered)
+                                if (entry.mask is { } stale) RawFfi.maple_mask_raster_release(stale.RasterId);
+                            return;
+                        }
+                        foreach (var entry in registered)
+                        {
+                            var index = Adjustments.LocalAdjustments.FindIndex(x => x.Mask is BrushMask b && b.Digest == ((BrushMask)entry.layer.Mask).Digest);
+                            if (index < 0 || entry.mask == null) continue;
+                            Adjustments.LocalAdjustments[index] = Adjustments.LocalAdjustments[index] with { Mask = entry.mask };
+                            _brushRasterIds.Add(entry.mask.RasterId);
+                        }
+                        Renderer.SetImage(decoded, () => !_disposed && generation == Volatile.Read(ref _decodeGeneration));
+                        ApplyDecodedState(generation, photo, decoded);
+                    });
                     ScheduleAmazeUpgrade(generation, photo, model, decoded);
                 }
                 catch (Exception ex)
@@ -337,6 +364,14 @@ namespace Maple.WinUI.ViewModels
                     _decodeCancel.Release(cancelFlag);
                 }
             });
+        }
+
+        private readonly List<uint> _brushRasterIds = new();
+
+        private void ReleaseBrushRasters()
+        {
+            foreach (var id in _brushRasterIds) RawFfi.maple_mask_raster_release(id);
+            _brushRasterIds.Clear();
         }
 
         private void CancelActiveDecode()
