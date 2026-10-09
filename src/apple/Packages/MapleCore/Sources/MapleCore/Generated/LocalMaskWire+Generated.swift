@@ -13,6 +13,7 @@ public enum LocalMaskWire {
   public static let componentCodeCount: Int = 24
   public static let maskGroupVersion: Int = 1
   public static let brushVersion: Int = 1
+  public static let layerOrderAttribute = "papp:LayerOrder"
 }
 
 public enum MaskCombine: Int, CaseIterable, Codable, Sendable, Hashable {
