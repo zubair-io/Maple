@@ -78,6 +78,10 @@
     /// The generated-search card whose first page is being fetched — its
     /// cover fetch hasn't landed yet — so the card can show it's working.
     @State private var openingCollectionID: String?
+    /// The text the host last set programmatically (deep link, Map pin,
+    /// card). `SearchView` reads a change TO this value as a seed, not as the
+    /// user clearing the field, so a seed with filters but no text keeps them.
+    @State private var seededQuery: String?
 
     var body: some View {
       NavigationStack(path: $path) {
@@ -187,6 +191,7 @@
     ///     is the one that completes it.
     private func applySeedIfNeeded() {
       guard let seed = pendingSeed else { return }
+      seededQuery = seed.placeQuery
       query = seed.placeQuery
       guard let session else { return }
       pendingSeed = nil
@@ -195,6 +200,7 @@
 
     /// Run a stored search from a deep-link/Map seed.
     private func run(_ seed: SearchParams, in session: PhoneSearchSession) {
+      seededQuery = seed.placeQuery
       query = seed.placeQuery
       // Pop any pushed Preview/editor so the user lands on the fresh
       // results, mirroring `PhoneTabShell.searchFor(_:)`'s `libraryPath = []`
@@ -247,6 +253,7 @@
       session.vm.showCollection(params: seed, firstPage: page) { offset, limit in
         try await collections.page(of: card.id, offset: offset, limit: limit)
       }
+      seededQuery = seed.placeQuery
       query = seed.placeQuery
     }
 
@@ -264,6 +271,8 @@
             guard let collections = session.collections else { return }
             openCollection(card, from: collections, in: session)
           },
+          seededQuery: seededQuery,
+          onSeedApplied: { seededQuery = nil },
           onSelectAsset: { asset in
             let resolved = resolveAsset(asset, session.server)
             previewSource = resolved.source
