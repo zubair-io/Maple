@@ -713,7 +713,13 @@ if [[ "${#EXPECTED_SYMBOLS[@]}" -eq 0 ]]; then
     echo "       Refusing to bless a possibly-empty xcframework." >&2
     exit 1
 fi
-echo "    expecting ${#EXPECTED_SYMBOLS[@]} exported maple_* symbols (${#IOS_ONLY_SYMBOLS[@]} iOS-only, ${#WINDOWS_ONLY_SYMBOLS[@]} windows-only)"
+API_ONLY_COUNT=0
+for sym in "${EXPECTED_SYMBOLS[@]}"; do
+    if is_api_only_symbol "$sym"; then
+        API_ONLY_COUNT=$((API_ONLY_COUNT + 1))
+    fi
+done
+echo "    expecting ${#EXPECTED_SYMBOLS[@]} exported maple_* symbols (${#IOS_ONLY_SYMBOLS[@]} iOS-only, ${#WINDOWS_ONLY_SYMBOLS[@]} windows-only, $API_ONLY_COUNT API-only)"
 
 # Helper: returns 0 (true) if $1 is in the IOS_ONLY_SYMBOLS list.
 is_ios_only_symbol() {
@@ -827,7 +833,7 @@ if [[ "$guard_failed" -ne 0 ]]; then
     echo "       rebuild every slice from the current sources." >&2
     exit 1
 fi
-echo "    OK — all ${#EXPECTED_SYMBOLS[@]} symbols verified across all slices (${#IOS_ONLY_SYMBOLS[@]} iOS-only, ${#WINDOWS_ONLY_SYMBOLS[@]} windows-only)"
+echo "    OK — all ${#EXPECTED_SYMBOLS[@]} symbols verified across all slices (${#IOS_ONLY_SYMBOLS[@]} iOS-only, ${#WINDOWS_ONLY_SYMBOLS[@]} windows-only, $API_ONLY_COUNT API-only and absent from every slice)"
 
 # Mark this build as up-to-date for the staleness fast-path. We store the
 # input content hash (NOT a bare touch) so the next run can compare content,
