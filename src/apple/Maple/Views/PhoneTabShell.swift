@@ -360,6 +360,21 @@
           }
         }
 
+        Tab("Settings", systemImage: "gearshape", value: "settings") {
+          NavigationStack {
+            SettingsView(sessionFor: sessionFor)
+          }
+        }
+
+        // Declared last on purpose (#4439). While Search is open, iOS 27
+        // collapses the bar to one button; on device that button showed, and
+        // returned to, whichever tab was declared AFTER this one (Settings),
+        // regardless of the tab the user came from. With nothing declared
+        // after it, the button shows Library. Apple documents no rule for
+        // this; the placement was established by testing both orders on an
+        // iPhone 17 Pro Max running iOS 27.2. The visible tab order is
+        // unchanged — the search-role tab is always drawn trailing.
+        //
         // Selection owns the action surface. Remove the floating Search tab
         // until Done so it cannot overlap the selection controls on Duo.
         if !browseVM.isSelecting {
@@ -374,12 +389,6 @@
               loadSiblingAssets: searchPreviewSiblingAssets,
               onPrimeSession: onPrimeSession
             )
-          }
-        }
-
-        Tab("Settings", systemImage: "gearshape", value: "settings") {
-          NavigationStack {
-            SettingsView(sessionFor: sessionFor)
           }
         }
       }
