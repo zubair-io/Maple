@@ -171,6 +171,22 @@ jobs:
       - name: cargo fmt --check -p raw-ffi
         working-directory: src/raw-pipeline
         run: cargo fmt --check -p raw-ffi
+      # In-process search (#4462): maple-search's fixture-free unit tests
+      # (term-parser parity with search.fts.ts, exact vector scan, Tantivy
+      # leg, RRF), its lint/fmt gates, and a compile of raw-ffi's API-only
+      # `search` feature — no other CI job builds that symbol set.
+      - name: cargo test -p maple-search
+        working-directory: src/raw-pipeline
+        run: cargo test -p maple-search
+      - name: cargo clippy -p maple-search --all-targets --all-features
+        working-directory: src/raw-pipeline
+        run: cargo clippy -p maple-search --all-targets --all-features -- -D warnings
+      - name: cargo fmt --check -p maple-search
+        working-directory: src/raw-pipeline
+        run: cargo fmt --check -p maple-search
+      - name: cargo build -p raw-ffi --features search (compile gate)
+        working-directory: src/raw-pipeline
+        run: cargo build -p raw-ffi --features search
       # Pano feature compile gate (#1259): `--features pano` pulls maple-pano
       # with its ML stack; this is the only always-on CI step that compiles
       # maple-cli with that feature. The gate is compile-only — no tests, no
