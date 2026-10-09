@@ -5,6 +5,7 @@ members = [
     "raw-gpu",
     "maple-cli",
     "maple-pano",
+    "maple-search",
     "raw-ffi",
     "raw-wasm",
     "raw-napi",
@@ -120,3 +121,6 @@ zune-jpeg = { path = "third_party/zune-jpeg" }
 avif-parse = { path = "third_party/avif-parse" }
 ravif = { path = "third_party/ravif" }
 avif-serialize = { path = "third_party/avif-serialize" }
+# fastembed 5.8.0 plus a configurable ONNX Runtime intra-op thread count for
+# maple-search (#4462). See third_party/fastembed/MAPLE-PATCH.md.
+fastembed = { path = "third_party/fastembed" }
