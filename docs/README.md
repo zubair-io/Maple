@@ -55,8 +55,8 @@ cloud editor, build/package commands and current qualification limits.
 
 ## Operations and CI
 
-| Doc                                              | Covers                                                                                               |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| Doc                                                        | Covers                                                                                                 |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | [ci/muse-pr-review-runner.md](ci/muse-pr-review-runner.md) | The Proxmox CT 126 runner setup, its dedicated label, repo-only registration, and Muse review routing. |
 
 ## Design system
