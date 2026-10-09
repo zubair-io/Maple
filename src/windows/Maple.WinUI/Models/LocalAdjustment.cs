@@ -99,6 +99,11 @@ namespace Maple.WinUI.Models
     public sealed record RadialMask(
         MaskPoint Center, MaskPoint Radii, double Angle, double Feather, bool Invert) : LocalMask;
 
+    public readonly record struct BrushDab(MaskPoint Center, double Radius, double Feather, double Weight, bool Erase);
+
+    /// <summary>Painted dab series; RasterId is a process-local registered R8 mask handle.</summary>
+    public sealed record BrushMask(IReadOnlyList<BrushDab> Dabs, string Digest, uint RasterId = 0) : LocalMask;
+
     /// <summary>One local-adjustment layer: a mask and the controls it scales.</summary>
     public sealed record LocalAdjustment(
         LocalMask Mask, PartialAdjustments Adjustments, ColorRangeRefinement? Range = null)

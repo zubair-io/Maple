@@ -17,6 +17,7 @@ namespace Maple.WinUI.ViewModels
             // Stop rejects SetImage even if a decoder passed its generation
             // check just before disposal. Its native cancellation is advisory.
             Renderer.Dispose();
+            ReleaseBrushRasters();
             _sidecarTimer?.Dispose();
             _undoTimer?.Dispose();
             _sidecarWatcher.Dispose();

@@ -50,6 +50,15 @@ namespace Maple.WinUI.Native
         public static extern void maple_free_scene_linear_buffer_f32(
             MapleSceneLinearBufferF32* buffer);
 
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_brush_rasterize(float* dabs, nuint dabCount, uint width, uint height, byte* output, nuint outputLength);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_mask_raster_register(byte* digest, uint width, uint height, byte* data, nuint dataLength);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void maple_mask_raster_release(uint rasterId);
+
         // --- Per-tick chain: scene-linear f32 in → display-encoded sRGB f32 out.
         //     Aliasing in/out is explicitly permitted for this fused entry. ---
 
