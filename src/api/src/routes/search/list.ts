@@ -28,13 +28,10 @@
 import { Elysia } from 'elysia';
 import { buildSearchWhere, searchPage } from '../../db/repos/search.repo.ts';
 import { child as childLogger } from '../../log.ts';
-import { personIdsToDrop } from '../../people/people.repo.ts';
-import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
 import { projectAssets } from './project.ts';
 import {
   clampInt,
   extractDatesFromQuery,
-  peopleNames,
   SEARCH_SCOPES,
   SearchQueryT,
   type SearchQuery,
@@ -45,6 +42,7 @@ import { cursorFromDoc, encodeCursor } from './cursor.ts';
 import { libraryMaps } from './libraries.ts';
 import { meiliPage, usesPlaceText } from './list-meili.ts';
 import { resolvePaging } from './list-paging.ts';
+import { resolvePeopleIds } from './scope.ts';
 import { getCachedTotal } from './total-cache.ts';
 import { stageTimings, type StageTimings } from './stage-timings.ts';
 
@@ -82,17 +80,11 @@ export const listRoute = new Elysia().get(
     // What the client shows so an inferred window is never invisible (#2956).
     const dateFilter = appliedDateFilter(resolved, query as SearchQuery, now);
     const withDates = dateFilter === undefined ? {} : { dateFilter };
-    // Excluded people (#2894) drop unconditionally; hidden people only when
-    // the request opted in (see `personIdsToDrop`).
-    const dropIds = await timings.time('peopleMs', () =>
-      personIdsToDrop(resolved.excludeHiddenPeople),
-    );
-    // The `people` param carries display names; the face clause needs the
-    // person ids faces are tagged with. Resolution is async, so it happens
-    // here and `buildSearchWhere` stays pure (same contract as `dropIds`).
-    const peopleIds = await timings.time('peopleMs', () =>
-      personIdsForNames(peopleNames(resolved.people)),
-    );
+    // Excluded people (#2894) drop unconditionally, hidden people only when
+    // the request opted in, and the `people` display names become the person
+    // ids faces are tagged with. Both are async, so they resolve here and
+    // `buildSearchWhere` stays pure.
+    const { dropIds, peopleIds } = await timings.time('peopleMs', () => resolvePeopleIds(resolved));
     const whereOrError = buildSearchWhere(resolved, dropIds, peopleIds);
     if ('error' in whereOrError) {
       set.status = 400;
