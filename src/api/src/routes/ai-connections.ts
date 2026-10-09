@@ -20,6 +20,8 @@ import { embedderSettingsView } from '../enrichment/embedder-settings.ts';
 import {
   embedderSaveOutcome,
   normalizeAssignments,
+  probeApiKey,
+  probeFailureStatus,
   normalizeConnections,
 } from '../enrichment/ai-connections-normalize.ts';
 import { resetDescribeDeps } from '../workers/stages/describe.ts';
@@ -123,15 +125,11 @@ export const aiConnectionRoutes = new Elysia({ prefix: '/connections' })
     '/probe',
     async ({ body, set }) => {
       const current = await loadConfig();
-      const c = body.connection;
-      const apiKey =
-        c.api_key === undefined
-          ? current.connections.find((old) => old.id === c.id && old.provider === c.provider)
-              ?.api_key
-          : c.api_key;
+      const { connection: c } = body;
+      const apiKey = probeApiKey(c, current.connections);
       if (body.models) return listProviderModels(c.provider, { url: c.url, apiKey });
       const result = await handleAiTestConnection(c.provider, c.url, apiKey);
-      if (!result.ok) set.status = result.status ?? 400;
+      set.status = probeFailureStatus(result);
       return result;
     },
     {
