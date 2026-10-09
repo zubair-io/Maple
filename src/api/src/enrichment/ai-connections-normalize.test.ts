@@ -3,6 +3,8 @@ import {
   embedderSaveOutcome,
   normalizeAssignments,
   normalizeConnections,
+  probeApiKey,
+  probeFailureStatus,
 } from './ai-connections-normalize.ts';
 
 const saved = [
@@ -59,5 +61,23 @@ describe('embedderSaveOutcome', () => {
       embedder_url: null,
       embedder_model: null,
     });
+  });
+});
+
+describe('probeApiKey', () => {
+  it('uses a sent key, else the saved key of the same connection', () => {
+    const base = { id: 'a', provider: 'openai' };
+    expect(probeApiKey({ ...base, api_key: 'sent' }, saved)).toBe('sent');
+    expect(probeApiKey({ ...base, api_key: null }, saved)).toBeNull();
+    expect(probeApiKey(base, saved)).toBe('old-key');
+    expect(probeApiKey({ id: 'a', provider: 'gemini' }, saved)).toBeUndefined();
+  });
+});
+
+describe('probeFailureStatus', () => {
+  it('is 200 on success and the reported status, defaulting to 400, on failure', () => {
+    expect(probeFailureStatus({ ok: true, status: 204 })).toBe(200);
+    expect(probeFailureStatus({ ok: false, status: 502 })).toBe(502);
+    expect(probeFailureStatus({ ok: false })).toBe(400);
   });
 });

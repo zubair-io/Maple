@@ -228,6 +228,26 @@ describe('central AI connections', () => {
     expect(response.status).toBe(400);
     expect(await loadEnrichmentConfig()).toEqual(before);
   });
+  it('probes a saved connection for models and for reachability, reporting failures', async () => {
+    const c = await config();
+    const probe = (models: boolean) =>
+      request('POST', { connection: c.connections[0], models }, owner, '/api/ai/connections/probe');
+    const fetchSpy = spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(Response.json({ models: [{ name: 'bge-m3' }] }))
+      .mockResolvedValueOnce(Response.json({ models: [] }))
+      .mockResolvedValueOnce(new Response('down', { status: 503 }));
+    const listed = await probe(true);
+    const reachable = await probe(false);
+    const unreachable = await probe(false);
+    fetchSpy.mockRestore();
+
+    expect(listed.status).toBe(200);
+    expect(await listed.json()).toMatchObject({ models: ['bge-m3'] });
+    expect(reachable.status).toBe(200);
+    expect((await reachable.json()).ok).toBe(true);
+    expect(unreachable.status).toBeGreaterThanOrEqual(400);
+    expect((await unreachable.json()).ok).toBe(false);
+  });
   it('rejects legacy model writes after migration while allowing runtime controls', async () => {
     await request('PUT', await config());
     const writes: Array<[string, string, object]> = [

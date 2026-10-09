@@ -49,3 +49,21 @@ export function embedderSaveOutcome(
 ): ReturnType<typeof embedderPatch> {
   return input === undefined ? {} : embedderPatch(input);
 }
+
+/** The key to probe with: the one sent, else the saved key of the same connection. */
+export function probeApiKey(
+  connection: { id: string; provider: string; api_key?: string | null },
+  saved: readonly AiConnection[],
+): string | null | undefined {
+  return connection.api_key === undefined
+    ? saved.find((old) => old.id === connection.id && old.provider === connection.provider)?.api_key
+    : connection.api_key;
+}
+
+const OK_STATUS = 200;
+const DEFAULT_FAILURE_STATUS = 400;
+
+/** The HTTP status for a connection test result. */
+export function probeFailureStatus(result: { ok: boolean; status?: number | null }): number {
+  return result.ok ? OK_STATUS : (result.status ?? DEFAULT_FAILURE_STATUS);
+}
