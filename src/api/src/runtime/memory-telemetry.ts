@@ -1,5 +1,4 @@
-// Always on and never toggled: the 2026-10-09 OOM kill (#4445) had no record of
-// which process ballooned, so every long-lived process logs one line a minute.
+// Always on: the 2026-10-09 OOM kill (#4445) left no record of which process ballooned.
 import type { Logger } from 'pino';
 import { child as childLogger } from '../log.ts';
 
