@@ -197,6 +197,30 @@
             }
           </div>
         </section>
+        <section aria-labelledby="embedder-title">
+          <h2 id="embedder-title">Search vectors</h2>
+          <p>
+            The embed stage turns each photo’s caption, people, place, transcript and text into a
+            search vector. Leave a field blank to follow the Semantic search assignment above.
+            Changing the model re-embeds the whole library.
+          </p>
+          <div class="fields">
+            <label class="wide"
+              >Embedding endpoint URL<mui-input
+                ariaLabel="Embedding endpoint URL"
+                [value]="cfg.embedder.url"
+                [placeholder]="cfg.embedder.default_url"
+                (valueChange)="setEmbedder('url', $event)"
+            /></label>
+            <label
+              >Embedding model<mui-input
+                ariaLabel="Embedding model"
+                [value]="cfg.embedder.model"
+                [placeholder]="cfg.embedder.default_model"
+                (valueChange)="setEmbedder('model', $event)"
+            /></label>
+          </div>
+        </section>
       </fieldset>
       <footer class="save-bar">
         <span>{{ dirty() ? 'Unsaved changes' : 'All changes saved' }}</span

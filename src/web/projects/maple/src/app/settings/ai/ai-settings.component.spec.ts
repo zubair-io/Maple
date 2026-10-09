@@ -7,6 +7,12 @@ import { API_BASE_URL, type AiConnectionsResponse } from '@maple-common';
 import { AiSettingsComponent } from './ai-settings.component';
 
 const CONFIG: AiConnectionsResponse = {
+  embedder: {
+    url: '',
+    model: '',
+    default_url: 'http://gpu1:11434',
+    default_model: 'bge-m3',
+  },
   connections: [
     { id: 'gpu1', name: 'GPU one', provider: 'ollama', url: 'http://gpu1:11434', concurrency: 2 },
     { id: 'gpu2', name: 'GPU two', provider: 'ollama', url: 'http://gpu2:11434', concurrency: 1 },
@@ -157,5 +163,15 @@ describe('AI connections and assignments', () => {
     expect(component.error()).toBe('Unknown connection');
     expect(component.dirty()).toBe(true);
     expect(component.config()?.assignments['describe']?.model).toBe('new-vision');
+  });
+  it('saves the embedding overrides and shows the semantic defaults as placeholders', () => {
+    const url = fixture.nativeElement.querySelector('[aria-label="Embedding endpoint URL"]');
+    expect(url.placeholder).toBe('http://gpu1:11434');
+    component.setEmbedder('model', 'qwen3-embedding');
+    expect(component.dirty()).toBe(true);
+    component.save();
+    const request = http.expectOne('/api/ai/connections/');
+    expect(request.request.body.embedder).toEqual({ url: '', model: 'qwen3-embedding' });
+    request.flush(component.config());
   });
 });

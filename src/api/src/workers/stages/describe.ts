@@ -363,12 +363,12 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
     }
   }
 
-  // `invalidates: ['meili']` — meili depends on exif+thumb only, so for most
+  // `invalidates: ['meili', 'embed']` — meili depends on exif+thumb only, so for most
   // assets the search index was built long before this caption existed. The
   // runner resets `stages.meili` in the same atomic write as the patch, so
   // every describe success (first run or post-retry-dead recovery, #2172)
   // gets its caption/OCR reindexed into Meilisearch + the search blob.
-  return { patch, invalidates: ['meili'] };
+  return { patch, invalidates: ['meili', 'embed'] };
 }
 
 const describeStage = defineStage({

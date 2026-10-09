@@ -92,7 +92,7 @@ describe('describeHandler — happy path', () => {
 
     // A describe success marks meili stale so the caption/OCR gets reindexed
     // — meili depends on exif+thumb only and usually ran long before (#2172).
-    expect((result as { invalidates?: readonly string[] }).invalidates).toEqual(['meili']);
+    expect((result as { invalidates?: readonly string[] }).invalidates).toEqual(['meili', 'embed']);
   });
 
   it('threads VISION_DOC_JSON_SCHEMA through to the provider as `format`', async () => {

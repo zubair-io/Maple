@@ -245,7 +245,10 @@ describe('sidecarMetadataIndexHandler — video assets (M5)', () => {
 describe('sidecarMetadataIndexHandler — downstream re-arms', () => {
   test('re-arms only the search index when nothing else changed', async () => {
     const image = await writeSidecar(library, makeXmp('photoshop:City="Paris"'));
-    expect(invalidatesOf(await sidecarMetadataIndexHandler(image, fakeCtx))).toEqual(['meili']);
+    expect(invalidatesOf(await sidecarMetadataIndexHandler(image, fakeCtx))).toEqual([
+      'meili',
+      'embed',
+    ]);
   });
 
   test('re-arms geocode when the sidecar moved the coordinates', async () => {
