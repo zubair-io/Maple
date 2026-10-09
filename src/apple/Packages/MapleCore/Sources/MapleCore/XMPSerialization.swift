@@ -50,10 +50,13 @@ public struct XMPParser {
     // Local adjustments (#358) — collected by the nested-element walker
     // rather than the flat attribute switch; see
     // `XMPSerialization+LocalAdjustments.swift`.
-    m.localAdjustments = delegate.localAdjustments.finish()
+    // The `papp:LayerOrder` sort (#4427) must see the merged stack.
     let groups = XMPMaskGroupSources.collect(xml)
-    m.localAdjustments =
-      m.localAdjustments.filter { !XMPMaskGroupSources.isGroup($0.mask) } + groups.layers
+    m.localAdjustments = LocalAdjustmentOrder.restore(
+      delegate.localAdjustments.finish().filter { !XMPMaskGroupSources.isGroup($0.layer.mask) }
+        + zip(groups.layers, groups.keys).map { (layer: $0, key: $1) },
+      retainingKeys: delegate.localAdjustments.verbatimKeyed
+        || LocalAdjustmentOrder.hasVerbatimKeys(groups.templates))
     // Repair spots (#3409) — same nested-element walker shape; see
     // `XMPSerialization+Retouch.swift`.
     m.retouchSpots = delegate.retouch.finish()
@@ -459,7 +462,8 @@ public struct XMPSerializer {
     // the curves and before the passthrough nodes, the slot the
     // TypeScript and C# writers use too.
     let localAdjustmentsBlock = _buildLocalAdjustmentsBlockWithPassthrough(
-      model: model, indent: XMPCanonical.childIndent, templates: passthrough.maskGroups)
+      LocalAdjustmentOrder.keyed(model.localAdjustments, around: passthrough),
+      indent: XMPCanonical.childIndent, templates: passthrough.maskGroups)
     // Repair spots (#3409) — the `crs:RetouchAreas` container, after the
     // mask containers and before the passthrough nodes, the same slot the
     // TypeScript writer gives it.

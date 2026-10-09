@@ -68,7 +68,8 @@ extension XMPSerializer {
         let toneCurvesBlock = _buildToneCurvesBlock(
             model: model, indent: XMPCanonical.childIndent)
         let localAdjustmentsBlock = _buildLocalAdjustmentsBlock(
-            model: model, indent: XMPCanonical.childIndent)
+            LocalAdjustmentOrder.keyed(model.localAdjustments, around: passthrough),
+            indent: XMPCanonical.childIndent)
         let isRightsBlock: (String) -> Bool = { block in
             block.contains("<dc:rights>") || block.contains("<xmpRights:UsageTerms>")
         }

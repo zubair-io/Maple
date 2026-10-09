@@ -223,6 +223,9 @@ public struct LocalAdjustment: Codable, Sendable, Equatable, Hashable, Identifia
   public var adjustments: PartialAdjustments
   public var xmpMetadata: LocalXmpMetadata?
   public var xmpGroupSlot: Int?
+  /// The `papp:LayerOrder` this layer was read with, kept only when the
+  /// sidecar also holds keyed corrections Maple re-emits verbatim (#4427).
+  public var xmpLayerOrder: Double?
 
   public init(
     id: UUID = UUID(),
@@ -230,7 +233,8 @@ public struct LocalAdjustment: Codable, Sendable, Equatable, Hashable, Identifia
     range: RangeRefinement? = nil,
     adjustments: PartialAdjustments,
     xmpMetadata: LocalXmpMetadata? = nil,
-    xmpGroupSlot: Int? = nil
+    xmpGroupSlot: Int? = nil,
+    xmpLayerOrder: Double? = nil
   ) {
     self.id = id
     self.mask = mask
@@ -238,6 +242,7 @@ public struct LocalAdjustment: Codable, Sendable, Equatable, Hashable, Identifia
     self.adjustments = adjustments
     self.xmpMetadata = xmpMetadata
     self.xmpGroupSlot = xmpGroupSlot
+    self.xmpLayerOrder = xmpLayerOrder
   }
 
   public static func == (lhs: LocalAdjustment, rhs: LocalAdjustment) -> Bool {
@@ -247,7 +252,7 @@ public struct LocalAdjustment: Codable, Sendable, Equatable, Hashable, Identifia
     // which has no id field at all.
     lhs.mask == rhs.mask && lhs.range == rhs.range && lhs.adjustments == rhs.adjustments
       && lhs.xmpMetadata == rhs.xmpMetadata
-      && lhs.xmpGroupSlot == rhs.xmpGroupSlot
+      && lhs.xmpGroupSlot == rhs.xmpGroupSlot && lhs.xmpLayerOrder == rhs.xmpLayerOrder
   }
 
   // Hashes only the fields `==` compares — `id` must stay out so two
@@ -258,10 +263,11 @@ public struct LocalAdjustment: Codable, Sendable, Equatable, Hashable, Identifia
     hasher.combine(adjustments)
     hasher.combine(xmpMetadata)
     hasher.combine(xmpGroupSlot)
+    hasher.combine(xmpLayerOrder)
   }
 
   private enum CodingKeys: String, CodingKey {
-    case id, mask, range, adjustments, xmpMetadata, xmpGroupSlot
+    case id, mask, range, adjustments, xmpMetadata, xmpGroupSlot, xmpLayerOrder
   }
 
   /// `id` is decoded leniently: it is a UI-side identity with no Rust
@@ -275,5 +281,6 @@ public struct LocalAdjustment: Codable, Sendable, Equatable, Hashable, Identifia
     self.adjustments = try c.decode(PartialAdjustments.self, forKey: .adjustments)
     self.xmpMetadata = try c.decodeIfPresent(LocalXmpMetadata.self, forKey: .xmpMetadata)
     self.xmpGroupSlot = try c.decodeIfPresent(Int.self, forKey: .xmpGroupSlot)
+    self.xmpLayerOrder = try c.decodeIfPresent(Double.self, forKey: .xmpLayerOrder)
   }
 }

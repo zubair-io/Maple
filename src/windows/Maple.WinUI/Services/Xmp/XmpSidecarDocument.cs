@@ -104,6 +104,8 @@ namespace Maple.WinUI.Services.Xmp
         public List<ChildSlot> ChildOrder { get; set; } = new();
         /// <summary>Original group containers with stable modeled slots and opaque XML.</summary>
         internal List<XmpMaskGroupTemplate> MaskGroups { get; } = new();
+        /// <summary>`papp:LayerOrder` keys of corrections re-emitted verbatim, in document order.</summary>
+        internal List<double> VerbatimLayerOrders { get; } = new();
 
         /// <summary>Siblings of `rdf:Description` inside `rdf:RDF`, verbatim XML.</summary>
         public List<string> PassthroughRdfNodes { get; set; } = new();

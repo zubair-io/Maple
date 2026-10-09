@@ -18,7 +18,10 @@ extension LocalAdjustmentXMP {
   ]
   static var correctionKeys: Set<String> {
     groupKeys.union(rangeKeys).union(sliders.map(\.key))
-      .union(["crs:What", "crs:CorrectionActive", "crs:CorrectionAmount"])
+      .union([
+        "crs:What", "crs:CorrectionActive", "crs:CorrectionAmount",
+        LocalMaskWire.layerOrderAttribute,
+      ])
   }
 
   static func metadata(_ attributes: [String: String], owned: Set<String>) -> LocalXmpMetadata? {

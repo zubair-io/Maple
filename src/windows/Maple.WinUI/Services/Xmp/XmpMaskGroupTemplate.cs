@@ -30,6 +30,7 @@ namespace Maple.WinUI.Services.Xmp
             var canAppend = sequences.Length == 1 && !sequences[0].IsEmpty;
             if (!canAppend)
             {
+                doc.VerbatimLayerOrders.AddRange(XmpLayerOrder.Keys(sequences.Elements(Rdf + "li")));
                 parts.Add(new Part(Xml: XmpGroupSource.ScopeOpening(source[span.Start..span.End], container)));
             }
             else
@@ -41,7 +42,11 @@ namespace Maple.WinUI.Services.Xmp
                 foreach (var li in seq.Elements(Rdf + "li"))
                 {
                     var layer = XmpLocalAdjustments.ParseGroupCorrection(li);
-                    if (layer is null) continue;
+                    if (layer is null)
+                    {
+                        doc.VerbatimLayerOrders.AddRange(XmpLayerOrder.Keys(new[] { li }));
+                        continue;
+                    }
                     var liSpan = XmpGroupSource.ElementSpan(li, source);
                     parts.Add(new Part(Xml: source[cursor..liSpan.Start]));
                     parts.Add(new Part(Slot: nextSlot));
@@ -61,41 +66,42 @@ namespace Maple.WinUI.Services.Xmp
 
         private static string Key(int index) => XmpLocalAdjustments.GroupContainer + ":" + index;
 
-        private string Render(IReadOnlyList<LocalAdjustment> layers, IReadOnlyList<LocalAdjustment> fresh, string indent)
+        private string Render(IReadOnlyList<(LocalAdjustment Layer, double? Order)> keyed,
+            IReadOnlyList<(LocalAdjustment Layer, double? Order)> fresh, string indent)
         {
-            var bySlot = layers.Where(layer => layer.Mask is MaskGroup && layer.XmpGroupSlot is not null)
-                .GroupBy(layer => layer.XmpGroupSlot!.Value).ToDictionary(group => group.Key, group => group.First());
+            var bySlot = keyed.Where(entry => entry.Layer.Mask is MaskGroup && entry.Layer.XmpGroupSlot is not null)
+                .GroupBy(entry => entry.Layer.XmpGroupSlot!.Value).ToDictionary(group => group.Key, group => group.First());
             var output = new StringBuilder(indent);
             foreach (var part in parts)
             {
                 if (part.Xml is { } xml) output.Append(xml);
-                else if (part.Slot is { } slot && bySlot.TryGetValue(slot, out var layer))
-                    output.Append(XmpLocalAdjustments.GroupCorrection(layer));
+                else if (part.Slot is { } slot && bySlot.TryGetValue(slot, out var entry))
+                    output.Append(XmpLocalAdjustments.GroupCorrection(entry.Layer, entry.Order));
                 else if (part.Append)
-                    foreach (var added in fresh) output.Append(XmpLocalAdjustments.GroupCorrection(added));
+                    foreach (var added in fresh) output.Append(XmpLocalAdjustments.GroupCorrection(added.Layer, added.Order));
             }
             return output.ToString();
         }
 
-        internal static IEnumerable<(string Tag, string? Block)> Blocks(XmpSidecarDocument doc, string indent)
+        internal static IEnumerable<(string Tag, string? Block)> Blocks(XmpSidecarDocument doc,
+            IReadOnlyList<(LocalAdjustment Layer, double? Order)> keyed, string indent)
         {
-            var layers = doc.Adjustments.LocalAdjustments;
             foreach (var tag in new[] { XmpLocalAdjustments.LinearContainer, XmpLocalAdjustments.RadialContainer })
-                yield return (tag, XmpLocalAdjustments.Block(tag, layers, indent));
+                yield return (tag, XmpLocalAdjustments.Block(tag, keyed, indent));
             if (doc.MaskGroups.Count == 0)
             {
-                yield return (XmpLocalAdjustments.GroupContainer, XmpLocalAdjustments.Block(XmpLocalAdjustments.GroupContainer, layers, indent));
+                yield return (XmpLocalAdjustments.GroupContainer, XmpLocalAdjustments.Block(XmpLocalAdjustments.GroupContainer, keyed, indent));
                 yield break;
             }
             var claimed = doc.MaskGroups.SelectMany(group => group.Slots).ToHashSet();
-            var fresh = layers.Where(layer => layer.Mask is MaskGroup
-                && (layer.XmpGroupSlot is null || !claimed.Contains(layer.XmpGroupSlot.Value))).ToArray();
+            var fresh = keyed.Where(entry => entry.Layer.Mask is MaskGroup
+                && (entry.Layer.XmpGroupSlot is null || !claimed.Contains(entry.Layer.XmpGroupSlot.Value))).ToArray();
             var appendTo = doc.MaskGroups.FindLastIndex(group => group.acceptsNew);
             if (appendTo < 0)
                 yield return (XmpLocalAdjustments.GroupContainer, XmpLocalAdjustments.Block(XmpLocalAdjustments.GroupContainer, fresh, indent));
             for (var index = 0; index < doc.MaskGroups.Count; index++)
-                yield return (Key(index), doc.MaskGroups[index].Render(layers,
-                    index == appendTo ? fresh : Array.Empty<LocalAdjustment>(), indent));
+                yield return (Key(index), doc.MaskGroups[index].Render(keyed,
+                    index == appendTo ? fresh : Array.Empty<(LocalAdjustment, double?)>(), indent));
         }
     }
 }
