@@ -262,6 +262,7 @@ WorkingSetEnumeratorChangesTests
 WorkingSetEnumeratorFileChangesTests
 WorkingSetEnumeratorTests
 WorkingSetTests
+XMPAuthoredCullingTests
 XMPCanonicalFormatTests
 XMPCullFlagTests
 XMPLocalAdjustmentsTests

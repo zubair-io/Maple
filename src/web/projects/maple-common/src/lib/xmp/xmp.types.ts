@@ -66,7 +66,16 @@ export interface MaskGroupTemplate {
  * with opaque group corrections kept separately, #3423).
  * Preserved verbatim on writes so Lightroom round-trips are non-destructive.
  */
+/** `xmp:Rating` / `xmp:Label` as the source authored them, plus the colour label the source resolved to. */
+export interface AuthoredCulling {
+  rating?: string;
+  label?: string;
+  colorLabel: XmpColorLabel;
+}
+
 export interface PassthroughBucket {
+  /** Kept byte-for-byte on save unless the user changed the rating or colour label (#4403). */
+  authoredCulling?: AuthoredCulling;
   /** Opaque AI correction XML with replaceable slots for Maple-owned layers. */
   maskGroups?: { templates: MaskGroupTemplate[] };
   /** Namespace declarations needed by passthrough attributes/nodes. */

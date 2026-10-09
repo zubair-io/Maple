@@ -7,8 +7,9 @@
 
 import type { AdjustmentModel, Crop } from '../models/adjustment-model';
 import type { ColorLabel, Flag } from '../models/asset';
-import type { PassthroughBucket, XmpMetadata } from './xmp.types';
+import type { AuthoredCulling, PassthroughBucket, XmpMetadata } from './xmp.types';
 import { metadataAttrParts } from './xmp-metadata';
+import { isAdobeColorWord, ratingValue } from './xmp-culling';
 
 /**
  * Minimal XML text-content escaping for `rdf:li` content (not attribute
@@ -148,16 +149,46 @@ export function cropParts(crop: Crop | undefined): string[] {
   return parts;
 }
 
+/**
+ * `xmp:Rating` keeps its authored bytes (a Lightroom `-1` reject, a `3.0`)
+ * until the user changes the rating; a changed rating is written canonically
+ * and omitted at zero.
+ */
+function ratingParts(rating: number | undefined, authored: string | undefined): string[] {
+  if (authored !== undefined && (rating === undefined || ratingValue(authored) === rating))
+    return [`xmp:Rating="${escapeXmpAttr(authored)}"`];
+  return rating && rating > 0 ? [`xmp:Rating="${rating}"`] : [];
+}
+
+/**
+ * `xmp:Label` is never Maple's to author: it survives unless the user changed
+ * the colour label and the authored word is one of the six colours it would
+ * now contradict.
+ */
+function labelParts(
+  colorLabel: ColorLabel | string | null | undefined,
+  authored: AuthoredCulling | undefined,
+): string[] {
+  if (authored?.label === undefined) return [];
+  const unchanged = colorLabel === undefined || (colorLabel ?? null) === authored.colorLabel;
+  return unchanged || !isAdobeColorWord(authored.label)
+    ? [`xmp:Label="${escapeXmpAttr(authored.label)}"`]
+    : [];
+}
+
 /** Rating / flag / colorLabel — omitted at their default (0 / unflagged / null). */
-export function cullingParts(culling?: {
-  rating?: number;
-  flag?: Flag | string;
-  colorLabel?: ColorLabel | string | null;
-}): string[] {
-  const parts: string[] = [];
-  if (culling?.rating && culling.rating > 0) {
-    parts.push(`xmp:Rating="${culling.rating}"`);
-  }
+export function cullingParts(
+  culling?: {
+    rating?: number;
+    flag?: Flag | string;
+    colorLabel?: ColorLabel | string | null;
+  },
+  authored?: AuthoredCulling,
+): string[] {
+  const parts: string[] = [
+    ...ratingParts(culling?.rating, authored?.rating),
+    ...labelParts(culling?.colorLabel, authored),
+  ];
   if (culling?.flag && culling.flag !== 'unflagged') {
     parts.push(`papp:Flag="${escapeXmpAttr(culling.flag)}"`);
   }
