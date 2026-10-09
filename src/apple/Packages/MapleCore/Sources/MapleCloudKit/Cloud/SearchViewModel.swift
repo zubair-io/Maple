@@ -407,6 +407,9 @@ public final class SearchViewModel {
     isLoading = false
     isLoadingMore = false
     loadError = nil
+    // The panel's People / Places rows were scoped to the dropped filters;
+    // `loadFacetsIfNeeded()` refetches the unfiltered set when it opens.
+    facets = nil
   }
 
   // MARK: - Preview
