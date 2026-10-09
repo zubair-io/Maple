@@ -107,6 +107,35 @@ describe('WorkersComponent', () => {
     expect(rows.length).toBe(4);
   });
 
+  it('shows per-process memory from the status frame in the Memory chip (#4445)', () => {
+    initWithMock();
+    const chip = (): string[] =>
+      ['.chip-val', '.chip-label'].map(
+        (part) =>
+          fixture.nativeElement
+            .querySelector(`[data-testid="memory-chip"] ${part}`)
+            ?.textContent?.trim() ?? '',
+      );
+    expect(chip()).toEqual(['0 B', 'Memory · no samples yet']);
+
+    const MB = 1024 * 1024;
+    const sample = { heapUsed: 0, heapTotal: 0, external: 0, arrayBuffers: 0, at: 0 };
+    wsFrames.next({
+      status: {
+        ...MOCK_STATUS,
+        memory: [
+          { process: 'api', pid: 1, rss: 111 * MB, ...sample },
+          { process: 'worker', pid: 2, rss: 213 * MB, ...sample },
+          { process: 'ffi-decode', pid: 3, rss: 291 * MB, ...sample },
+        ],
+      },
+      counted: true,
+    });
+    fixture.detectChanges();
+
+    expect(chip()).toEqual(['615 MB', 'Memory · api 111 MB · worker 213 MB · ffi-decode 291 MB']);
+  });
+
   it('renders Status column correctly', () => {
     initWithMock();
     const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll(

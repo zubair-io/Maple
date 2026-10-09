@@ -53,6 +53,22 @@ export interface StageStatus {
   batchSize: number;
 }
 
+/** One long-lived server process's latest memory sample (#4445): the API
+ * process sampled on the request, then the worker and its native children as
+ * the worker last persisted them. Byte counts from `process.memoryUsage()`. */
+export interface ProcessMemoryRow {
+  /** `api`, `worker`, `ffi-decode` or `face`. */
+  process: string;
+  pid: number;
+  rss: number;
+  heapUsed: number;
+  heapTotal: number;
+  external: number;
+  arrayBuffers: number;
+  /** Epoch ms the sample was taken. */
+  at: number;
+}
+
 export interface WorkersStatusResponse {
   stages: StageStatus[];
   /** Collection-level count of assets tagged `damaged` (unreadable bytes,
@@ -65,6 +81,9 @@ export interface WorkersStatusResponse {
    * The counts are computed in the worker process on its own cadence and
    * persisted — never on the request path (#3491). */
   countsAt?: number | null;
+  /** Per-process memory, API first. Optional so a frame from an older server
+   * reads as "no samples" rather than failing to render. */
+  memory?: ProcessMemoryRow[];
 }
 
 /** One row in the dead-letter list — returned by GET /api/workers/:name/dead. */

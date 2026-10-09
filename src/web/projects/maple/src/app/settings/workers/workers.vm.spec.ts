@@ -5,9 +5,14 @@
 // assert behaviour without spinning up TestBed — that's the whole point
 // of the split.
 
-import { countsAsOfLabel } from './workers.vm';
+import { countsAsOfLabel, memoryBreakdownLabel, totalRss } from './workers.vm';
 import { describe, it, expect } from 'vitest';
-import type { EnrichmentConfigResponse, StageStatus, WorkerConfig } from '@maple-common';
+import type {
+  EnrichmentConfigResponse,
+  ProcessMemoryRow,
+  StageStatus,
+  WorkerConfig,
+} from '@maple-common';
 import {
   CONCURRENCY_MAX,
   DEFAULT_RUNTIME,
@@ -443,5 +448,31 @@ describe('countsAsOfLabel', () => {
   it('stamps the snapshot time once counts exist', () => {
     const at = Date.UTC(2026, 8, 11, 12, 34, 56);
     expect(countsAsOfLabel(at)).toBe(`Counts as of ${new Date(at).toLocaleTimeString()}`);
+  });
+});
+
+describe('memory chip (#4445)', () => {
+  const MB = 1024 * 1024;
+  const row = (process: string, rss: number): ProcessMemoryRow => ({
+    process,
+    pid: 1,
+    rss,
+    heapUsed: 0,
+    heapTotal: 0,
+    external: 0,
+    arrayBuffers: 0,
+    at: 0,
+  });
+
+  it('names every process with its resident set, API first', () => {
+    const rows = [row('api', 111 * MB), row('worker', 213 * MB), row('face', 484 * MB)];
+    expect(memoryBreakdownLabel(rows)).toBe('Memory · api 111 MB · worker 213 MB · face 484 MB');
+    expect(totalRss(rows)).toBe(808 * MB);
+  });
+
+  it('says so when a frame carries no samples (older server)', () => {
+    expect(memoryBreakdownLabel(undefined)).toBe('Memory · no samples yet');
+    expect(memoryBreakdownLabel([])).toBe('Memory · no samples yet');
+    expect(totalRss(undefined)).toBe(0);
   });
 });

@@ -72,6 +72,8 @@ import {
   formatBytes,
   formatDate,
   countsAsOfLabel,
+  memoryBreakdownLabel,
+  totalRss,
   runtimeFormToPatch,
   meilisearchFormToPatch,
   blankRuntime,
@@ -161,6 +163,8 @@ export class WorkersComponent implements OnInit, OnDestroy {
   protected readonly summary = computed(() => summarizeStages(this.stages()));
   protected readonly damagedCount = computed(() => this.status()?.damaged ?? 0);
   protected readonly countsNote = computed(() => countsAsOfLabel(this.status()?.countsAt));
+  protected readonly memoryTotal = computed(() => formatBytes(totalRss(this.status()?.memory)));
+  protected readonly memoryNote = computed(() => memoryBreakdownLabel(this.status()?.memory));
 
   private statusSub: Subscription | null = null;
   private fallbackSub: Subscription | null = null;
