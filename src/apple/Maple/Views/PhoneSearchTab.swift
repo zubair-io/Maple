@@ -191,17 +191,24 @@
     ///     is the one that completes it.
     private func applySeedIfNeeded() {
       guard let seed = pendingSeed else { return }
-      seededQuery = seed.placeQuery == query ? nil : seed.placeQuery
-      query = seed.placeQuery
+      seedQuery(seed.placeQuery)
       guard let session else { return }
       pendingSeed = nil
       run(seed, in: session)
     }
 
+    /// Set the field's text for a seed and mark it so `SearchView` doesn't
+    /// read the change as the user clearing the field. An unchanged
+    /// assignment emits no change, so it leaves any pending marker alone
+    /// rather than clearing it before SwiftUI has delivered the first one.
+    private func seedQuery(_ text: String) {
+      if text != query { seededQuery = text }
+      query = text
+    }
+
     /// Run a stored search from a deep-link/Map seed.
     private func run(_ seed: SearchParams, in session: PhoneSearchSession) {
-      seededQuery = seed.placeQuery == query ? nil : seed.placeQuery
-      query = seed.placeQuery
+      seedQuery(seed.placeQuery)
       // Pop any pushed Preview/editor so the user lands on the fresh
       // results, mirroring `PhoneTabShell.searchFor(_:)`'s `libraryPath = []`
       // for the face-chip text-seed case.
@@ -253,8 +260,7 @@
       session.vm.showCollection(params: seed, firstPage: page) { offset, limit in
         try await collections.page(of: card.id, offset: offset, limit: limit)
       }
-      seededQuery = seed.placeQuery == query ? nil : seed.placeQuery
-      query = seed.placeQuery
+      seedQuery(seed.placeQuery)
     }
 
     @ViewBuilder
