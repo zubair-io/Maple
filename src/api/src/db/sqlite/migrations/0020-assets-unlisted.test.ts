@@ -11,7 +11,10 @@ test('adds the unlisted-asset index over an existing library', async () => {
   );
   insertAsset(handle.db);
 
-  const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+  const result = await runMigrations(
+    handle.migrationDb,
+    ALL_MIGRATIONS.filter((migration) => migration.id <= '0020-assets-unlisted'),
+  );
   const index = handle.db
     .query(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'assets_unlisted'`)
     .get() as { sql: string } | null;
