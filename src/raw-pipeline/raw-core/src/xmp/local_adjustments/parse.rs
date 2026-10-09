@@ -76,7 +76,7 @@ pub(super) struct CorrectionAttrs {
     pub(super) group_supported: bool,
     pub(super) group_explicit: bool,
     /// `papp:LayerOrder` (#4427): the layer's position in the model stack.
-    pub(super) order: Option<u32>,
+    pub(super) order: Option<f64>,
 }
 
 /// Parse a correction `rdf:Description`'s Local* sliders plus the
@@ -142,12 +142,11 @@ pub(super) fn parse_correction_attrs(e: &BytesStart<'_>) -> Result<CorrectionAtt
             && valid_optional_booleans(e, &["papp:MaskGroupInverted", "crs:CorrectionActive"])?,
         group_explicit: attr_str(e, "papp:MaskGroupVersion")?.is_some(),
         order: attr_str(e, LAYER_ORDER_ATTRIBUTE)?
-            .map(|v| {
-                v.trim().parse::<u32>().map_err(|err| {
-                    Error::Xmp(format!(
-                        "{LAYER_ORDER_ATTRIBUTE} has invalid value {v}: {err}"
-                    ))
-                })
+            .map(|v| match v.trim().parse::<f64>() {
+                Ok(key) if key.is_finite() => Ok(key),
+                _ => Err(Error::Xmp(format!(
+                    "{LAYER_ORDER_ATTRIBUTE} has non-numeric value {v}"
+                ))),
             })
             .transpose()?,
     })

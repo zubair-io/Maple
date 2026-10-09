@@ -195,7 +195,7 @@ struct InProgressCorrection {
     group_invert: bool,
     group_supported: bool,
     group_explicit: bool,
-    order: Option<u32>,
+    order: Option<f64>,
 }
 
 /// Incremental state for the local-adjustments nested-element walk, driven
@@ -213,7 +213,7 @@ pub(super) struct LocalAdjustmentsWalker {
     in_masks_seq: bool,
     finished: Vec<LocalAdjustment>,
     /// `papp:LayerOrder` of each `finished` layer, index for index.
-    orders: Vec<Option<u32>>,
+    orders: Vec<Option<f64>>,
     /// `finished.len()` when the open container started, and whether it
     /// dropped a correction: a brush container is all-or-nothing, so the
     /// writers that model it can keep a partly unreadable one verbatim.
@@ -449,11 +449,11 @@ impl LocalAdjustmentsWalker {
     /// the document listed and in what order (see
     /// [`serialize_local_adjustments`]).
     pub(super) fn finish(self) -> Vec<LocalAdjustment> {
-        let Some(keys) = self.orders.into_iter().collect::<Option<Vec<u32>>>() else {
+        let Some(keys) = self.orders.into_iter().collect::<Option<Vec<f64>>>() else {
             return self.finished;
         };
-        let mut keyed: Vec<(u32, LocalAdjustment)> = keys.into_iter().zip(self.finished).collect();
-        keyed.sort_by_key(|(key, _)| *key);
+        let mut keyed: Vec<(f64, LocalAdjustment)> = keys.into_iter().zip(self.finished).collect();
+        keyed.sort_by(|(a, _), (b, _)| a.total_cmp(b));
         keyed.into_iter().map(|(_, layer)| layer).collect()
     }
 }
