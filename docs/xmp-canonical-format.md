@@ -247,9 +247,8 @@ Two keys have a canonical spelling that must win over a legacy one **regardless 
 
 - `papp:CaptureSharpeningSigma` beats `papp:CaptureSharpeningRadius` (the PSF changed from a tripled box blur to a true Gaussian; the value is not rescaled).
 - `papp:Profile` beats the `papp:Look` → `Profile` migration (`Default`/`Auto` → `Auto`, `Neutral` → `Neutral`).
-- `papp:Flag` beats the legacy `xmp:Label` cull-flag spelling.
 
-Each reader implements this with a per-element "seen" flag or a two-pass walk (`sigma_seen` / `profile_seen` in `fields.rs`, `captureSharpeningSigmaSeen` / `profileSeen` / `cullFlagSeen` in `XMPSerialization.swift`, the `legacyDeferred` second pass in `xmp-parser.service.ts`). The flags are scoped to a single element so a second `rdf:Description` is judged on its own attribute set. The legacy keys are read-only: no writer emits them.
+Each reader implements this with a per-element "seen" flag or a two-pass walk (`sigma_seen` / `profile_seen` in `fields.rs`, `captureSharpeningSigmaSeen` / `profileSeen` in `XMPSerialization.swift`, the `legacyDeferred` second pass in `xmp-parser.service.ts`). The flags are scoped to a single element so a second `rdf:Description` is judged on its own attribute set. The legacy keys are read-only: no writer emits them.
 
 ## White balance
 
@@ -515,15 +514,20 @@ Two rules govern reading. The four edges are **gated by `crs:HasCrop`** — when
 
 ## Culling fields
 
-| Attribute         | Values                                               | Written when                                          |
-| ----------------- | ---------------------------------------------------- | ----------------------------------------------------- |
-| `xmp:Rating`      | `1`–`5`                                              | rating > 0 (Adobe's absence-means-unrated convention) |
-| `papp:Flag`       | `pick`, `reject`                                     | flagged                                               |
-| `papp:ColorLabel` | `red`, `orange`, `yellow`, `green`, `blue`, `purple` | set                                                   |
-| `papp:Hidden`     | `true`, `false`                                      | explicitly touched (tri-state; absent ≠ false)        |
-| `dc:subject`      | nested `rdf:Bag` of `rdf:li` keywords                | any keyword present                                   |
+| Attribute         | Values                                               | Written when                                     |
+| ----------------- | ---------------------------------------------------- | ------------------------------------------------ |
+| `xmp:Rating`      | `1`–`5`                                              | rating > 0, or the authored value when unchanged |
+| `papp:Flag`       | `pick`, `reject`                                     | flagged                                          |
+| `papp:ColorLabel` | `red`, `orange`, `yellow`, `green`, `blue`, `purple` | set                                              |
+| `papp:Hidden`     | `true`, `false`                                      | explicitly touched (tri-state; absent ≠ false)   |
+| `dc:subject`      | nested `rdf:Bag` of `rdf:li` keywords                | any keyword present                              |
 
-The colour-label vocabulary is matched case-sensitively against that exact six-word list; an out-of-vocabulary value leaves the label unset rather than storing a string no other platform would accept. The web reader additionally maps Adobe's `xmp:Label` colour words (`Red`…`Purple`) onto colour labels, with `papp:ColorLabel` winning when both are present. Apple's reader does _not_ — the same attribute was historically overloaded there for the pick/reject flag (`Red` / `Rejected`), so reading Adobe colour words out of it would turn every legacy pick into a red label; it reads `xmp:Label` only as a legacy flag alias, and never writes it. The Linux shell has no colour-label control and follows the web reading for flags: `xmp:Label` is never a flag there (only `papp:Flag` is), and it passes through a Linux save byte-for-byte. Linux also keeps an unchanged `xmp:Rating` exactly as authored, so a Lightroom reject (`-1`) or a `3.0` survives an unrelated edit; changing the rating rewrites it canonically.
+The colour-label vocabulary is matched case-sensitively against that exact six-word list; an out-of-vocabulary value leaves the label unset rather than storing a string no other platform would accept. The Apple, web, Windows and API readers also map Adobe's `xmp:Label` colour words (`Red`…`Purple`, case-sensitive) onto colour labels, with `papp:ColorLabel` winning when both are present.
+
+**`xmp:Rating` and `xmp:Label` belong to the author, not to Maple (#4403).** The Apple, web, Windows and Linux writers keep both exactly as the source wrote them unless the user changes the matching field in Maple:
+
+- `xmp:Label` is never a flag; only `papp:Flag` carries pick/reject. It survives a save byte-for-byte unless the user changes the colour label _and_ the authored word is one of the six colour words the new label would contradict — then it is dropped and `papp:ColorLabel` carries the new label. A non-colour word (a Lightroom custom label set such as `To Do`, or the `Rejected` reject spelling pre-#2221 Apple builds wrote) is never touched; the matching pre-#2221 Apple pick spelling, `Red`, now reads as a red colour label. Writers never author `xmp:Label` themselves. (Linux has no colour-label control, so there it always passes through.)
+- An unchanged `xmp:Rating` keeps its authored bytes, so a Lightroom reject (`-1`) or a `3.0` survives an unrelated edit. Readers treat `-1` as unrated and `3.0` as 3; a reject is not mapped to `papp:Flag`. Only a user rating edit rewrites the attribute, canonically (`1`–`5`, omitted at zero).
 
 Keywords are deduplicated at parse time (first occurrence wins, source order preserved) and blank entries dropped, on every platform, because the UIs iterate the list by value identity.
 

@@ -9,8 +9,8 @@
 // `xmp:Label` as an Adobe *colour* word — so an Apple pick arrived on the
 // web as a red colour label rather than a flag.
 //
-// This file pins the canonical wire value on the Apple side, the read-only
-// legacy aliases that keep sidecars already on disk parseable, and the
+// This file pins the canonical wire value on the Apple side, that
+// `xmp:Label` is never read as a flag (#4403), and the
 // write → read → write round trip through a real `.xmp` file in a temp
 // directory (CLAUDE.md § "No mocks for the sidecar layer").
 
@@ -123,40 +123,21 @@ final class XMPCullFlagTests: XCTestCase {
         XCTAssertEqual(culling.flag, .none)
     }
 
-    // MARK: - Legacy `xmp:Label` aliases (read-only)
+    // MARK: - `xmp:Label` is never a flag (#4403)
 
-    /// `"Rejected"` is the spelling every Apple-authored sidecar on disk
-    /// carries today — the one that used to be unreadable. `"Red"` is the
-    /// matching legacy pick spelling. Both must keep parsing forever, or the
-    /// fix strands the very files it exists to rescue.
-    func testLegacyXmpLabelSpellingsStillParse() throws {
-        let cases: [(String, CullFlag)] = [
-            ("Rejected", .reject),   // what the old Apple serializer wrote
-            ("rejected", .reject),
-            ("reject", .reject),     // what the old Apple parser accepted
-            ("Red", .pick),          // what the old Apple serializer wrote
-            ("red", .pick),
-            ("pick", .pick),
-        ]
-        for (word, expected) in cases {
+    /// Lightroom writes its colour labels to `xmp:Label`, so reading any word
+    /// there as a pick or reject would turn a red label into a pick.
+    func testXmpLabelIsNeverReadAsAFlag() throws {
+        for word in ["Rejected", "rejected", "reject", "Red", "red", "pick"] {
             let (_, culling) = try XMPParser.parse(sidecar(#"xmp:Label="\#(word)""#))
-            XCTAssertEqual(culling.flag, expected,
-                           "legacy xmp:Label=\"\(word)\" must parse to \(expected.rawValue)")
+            XCTAssertEqual(culling.flag, .none, "xmp:Label=\"\(word)\" must not set a flag")
         }
     }
 
-    /// A sidecar carrying both keys resolves to the canonical one regardless
-    /// of attribute iteration order (Swift dictionaries are unordered), the
-    /// same precedence shape as `papp:CaptureSharpeningSigma` over the legacy
-    /// Radius alias.
-    func testCanonicalFlagWinsOverTheLegacyLabelAlias() throws {
-        let (_, a) = try XMPParser.parse(
-            sidecar(#"papp:Flag="reject" xmp:Label="Red""#))
-        XCTAssertEqual(a.flag, .reject)
-
-        let (_, b) = try XMPParser.parse(
-            sidecar(#"xmp:Label="Red" papp:Flag="reject""#))
-        XCTAssertEqual(b.flag, .reject)
+    func testPappFlagAndXmpLabelAreIndependent() throws {
+        let (_, culling) = try XMPParser.parse(sidecar(#"papp:Flag="reject" xmp:Label="Red""#))
+        XCTAssertEqual(culling.flag, .reject)
+        XCTAssertEqual(culling.colorLabel, .red)
     }
 
     // MARK: - Round trip through a real sidecar on disk
@@ -224,11 +205,10 @@ final class XMPCullFlagTests: XCTestCase {
         XCTAssertEqual(reloaded.flag, .reject)
     }
 
-    /// A sidecar already on disk in the legacy spelling upgrades to the
-    /// canonical key on the next save without losing the flag — the
-    /// migration path for existing users, driven entirely by normal saves
-    /// (nothing rewrites files behind the user's back).
-    func testLegacySidecarUpgradesToTheCanonicalKeyOnResave() async throws {
+    /// A non-colour `xmp:Label` word (a legacy Apple `Rejected`, or a
+    /// Lightroom custom label set) is not Maple's to rewrite: it survives a
+    /// save byte-for-byte.
+    func testNonColourXmpLabelSurvivesAResave() async throws {
         let rawURL = makeTempRawURL()
         defer { removeSidecar(for: rawURL) }
         let sidecarURL = SidecarPath.sidecarURL(for: rawURL)
@@ -237,13 +217,13 @@ final class XMPCullFlagTests: XCTestCase {
 
         let store = XMPSidecarStore(rawURL: rawURL)
         let (model, culling) = try await store.load()
-        XCTAssertEqual(culling.flag, .reject, "the legacy spelling on disk must still read")
+        XCTAssertEqual(culling.flag, .none)
 
-        await store.update(model: model, culling: culling)
+        await store.update(model: model, culling: CullingState(flag: .pick, colorLabel: .blue))
         await store.flush()
 
         let rewritten = try String(contentsOf: sidecarURL, encoding: .utf8)
-        XCTAssertTrue(rewritten.contains(#"papp:Flag="reject""#))
-        XCTAssertFalse(rewritten.contains("xmp:Label="))
+        XCTAssertTrue(rewritten.contains(#"papp:Flag="pick""#))
+        XCTAssertTrue(rewritten.contains(#"xmp:Label="Rejected""#))
     }
 }

@@ -13,6 +13,16 @@ import Foundation
 
 // ColorLabel is generated from raw-core/color_labels.rs; presentation stays local.
 
+extension ColorLabel {
+  /// The Adobe `xmp:Label` colour word (`Red`…`Purple`), matched
+  /// case-sensitively like the web, Windows and API readers.
+  public init?(adobeLabel: String) {
+    guard let label = Self.allCases.first(where: { $0.rawValue.capitalized == adobeLabel })
+    else { return nil }
+    self = label
+  }
+}
+
 // MARK: - CullingState
 
 /// Per-image metadata persisted alongside the develop model. The name is

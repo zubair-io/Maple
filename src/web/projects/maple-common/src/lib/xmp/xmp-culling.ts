@@ -7,7 +7,7 @@
 // than one large function, matching the fallow complexity/unit-size gate's
 // per-function thresholds.
 
-import type { XmpCulling, XmpFlag, XmpColorLabel } from './xmp.types';
+import type { AuthoredCulling, XmpCulling, XmpFlag, XmpColorLabel } from './xmp.types';
 import { isColorLabelValue } from '../models/color-label';
 import { attrOf } from './xmp-dom-utils';
 
@@ -37,13 +37,19 @@ const VALID_FLAGS = new Set<string>(['pick', 'reject', 'unflagged']);
 
 const isValidColorLabel = (s: string): boolean => isColorLabelValue(s);
 
-/** `xmp:Rating`, clamped to the valid 0..5 integer range; 0 when absent/invalid. */
-function parseRating(desc: Element): number {
-  const ratingStr = attrOf(desc, ['xmp:Rating', 'Rating']);
-  if (ratingStr === null) return 0;
+/** `xmp:Rating` as stars: `3.0` reads as 3; a Lightroom reject (`-1`) or anything outside 0..5 reads as unrated. */
+export function ratingValue(ratingStr: string): number {
   const n = Number(ratingStr);
   return !Number.isNaN(n) && n >= 0 && n <= 5 ? Math.round(n) : 0;
 }
+
+function parseRating(desc: Element): number {
+  const ratingStr = attrOf(desc, ['xmp:Rating', 'Rating']);
+  return ratingStr === null ? 0 : ratingValue(ratingStr);
+}
+
+/** True when `label` is one of Adobe's six `xmp:Label` colour words. */
+export const isAdobeColorWord = (label: string): boolean => Object.hasOwn(LABEL_MAP, label);
 
 /** `maple:Flag` (canonical) with `papp:Flag` as fallback for interop. */
 function parseFlag(desc: Element): XmpFlag {
@@ -57,7 +63,7 @@ function parseFlag(desc: Element): XmpFlag {
  */
 function parseColorLabel(desc: Element): XmpColorLabel {
   const labelStr = attrOf(desc, ['xmp:Label', 'Label']);
-  const fromLabel = labelStr !== null && labelStr in LABEL_MAP ? LABEL_MAP[labelStr] : null;
+  const fromLabel = labelStr !== null && isAdobeColorWord(labelStr) ? LABEL_MAP[labelStr] : null;
 
   const mapleLabel = attrOf(desc, ['maple:ColorLabel', 'papp:ColorLabel', 'ColorLabel']);
   const fromMapleLabel =
@@ -110,6 +116,17 @@ function parseKeywordBag(desc: Element): string[] {
     keywords.push(text);
   }
   return keywords;
+}
+
+/** `xmp:Rating` / `xmp:Label` exactly as authored, for the writer to keep unless the user edits them (#4403). */
+export function authoredCullingOf(desc: Element): AuthoredCulling {
+  const rating = attrOf(desc, ['xmp:Rating', 'Rating']);
+  const label = attrOf(desc, ['xmp:Label', 'Label']);
+  return {
+    ...(rating === null ? {} : { rating }),
+    ...(label === null ? {} : { label }),
+    colorLabel: parseColorLabel(desc),
+  };
 }
 
 /**

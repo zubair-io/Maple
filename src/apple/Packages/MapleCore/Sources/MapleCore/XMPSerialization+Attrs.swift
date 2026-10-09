@@ -64,12 +64,6 @@ extension XMPSerializer {
         ("crs:LuminanceSmoothing", fmtNum(model.nrLuminance)),
         ("crs:ColorNoiseReduction", fmtNum(model.nrColor)),
       ]
-    // Star rating — Adobe's convention is that absence means unrated, so
-    // zero is omitted rather than written as `xmp:Rating="0"` (canonical
-    // format § "Culling fields"). Matches the TS writer.
-    if culling.stars > 0 {
-      attrs.append(("xmp:Rating", String(culling.stars)))
-    }
     // Cull flag (#2221). Canonical key is `papp:Flag` with the bare
     // lowercase `pick` / `reject` values — byte-identical to what the
     // TS serializer (`xmp-serializer.service.ts`) and the API
@@ -78,8 +72,8 @@ extension XMPSerializer {
     // `"Rejected"`, which no other side reads as a flag at all (the web
     // parser reads `xmp:Label` as an Adobe *colour* word, so a pick came
     // back as a red colour label) and which Apple's own parser couldn't
-    // read back for reject. The legacy spellings stay readable — see the
-    // `xmp:Label` arm in `XMPSerialization.swift` — but are never written.
+    // read back for reject. `xmp:Label` is never a flag (#4403); the rating
+    // and that label are emitted by `_ratingAndLabelAttrs`.
     if culling.flag != .none {
       attrs.append(("papp:Flag", culling.flag.rawValue))
     }
@@ -89,11 +83,6 @@ extension XMPSerializer {
     // vocabulary raw value, byte-identical to what the TS serializer
     // writes and the API parser gates on, so a label authored here
     // survives a round trip through Maple Hosted.
-    //
-    // Deliberately NOT also written to `xmp:Label`: this serializer
-    // already overloads that attribute for the pick/reject flag
-    // (`"Red"` / `"Rejected"`, just above), so a second writer would
-    // collide with it.
     if let colorLabel = culling.colorLabel {
       attrs.append(("papp:ColorLabel", colorLabel.rawValue))
     }

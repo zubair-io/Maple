@@ -39,6 +39,7 @@ extension XMPSerializer {
         // metadata attrs (values escaped for XML attribute context), then the
         // passthrough attributes. The canonical sort reorders all of them.
         let attrs = _buildAttrs(model: model, culling: culling)
+            + _ratingAndLabelAttrs(culling: culling, passthrough: passthrough)
             + metaAttrs.map { ($0.0, escapeXMLAttr($0.1)) }
             + _passthroughAttrs(passthrough)
 

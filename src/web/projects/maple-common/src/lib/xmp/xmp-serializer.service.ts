@@ -121,7 +121,7 @@ export class XmpSerializerService {
     // Crop / straighten (#277) — see `xmp-serializer-parts.ts`.
     parts.push(...cropParts(model.crop));
     // Rating / flag / colorLabel.
-    parts.push(...cullingParts(culling));
+    parts.push(...cullingParts(culling, passthrough?.authoredCulling));
     // Metadata block — simple attributes (Batch Metadata, spec 2026-06-26).
     // Inserted before passthrough so the fixed metadata order is stable.
     parts.push(...metadataAttrPartsOrEmpty(metadata));

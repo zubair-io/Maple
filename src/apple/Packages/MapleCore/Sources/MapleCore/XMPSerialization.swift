@@ -128,10 +128,10 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
   /// never clobbers it. Mirrors raw-core's `profile_seen` precedence
   /// (ticket #536).
   var profileSeen: Bool = false
-  /// Tracks whether the canonical `papp:Flag` attribute has been applied
-  /// so the legacy `xmp:Label` cull-flag alias never overrides it (#2221).
-  /// Same precedence shape as the two flags above.
-  var cullFlagSeen: Bool = false
+  /// Tracks whether `papp:ColorLabel` has been applied so the Adobe
+  /// `xmp:Label` colour word never overrides it. Same precedence shape as
+  /// the two flags above.
+  var colorLabelSeen: Bool = false
   /// Document-level WB-scale authorship state (#1780): whether ANY
   /// element carried the Maple `papp:` namespace (declaration or
   /// attribute), and the explicit `papp:WbScaleVersion` stamp when one
@@ -292,11 +292,10 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     if let profile = attributeDict["papp:Profile"] {
       applyAttribute(key: "papp:Profile", value: profile)
     }
-    // Pre-pass: the canonical `papp:Flag` cull flag wins over the legacy
-    // `xmp:Label` alias regardless of attribute iteration order, so a
-    // sidecar carrying both resolves to the canonical value (#2221).
-    if let flag = attributeDict["papp:Flag"] {
-      applyAttribute(key: "papp:Flag", value: flag)
+    // Pre-pass: `papp:ColorLabel` wins over the Adobe `xmp:Label` colour
+    // word regardless of attribute iteration order.
+    if let colorLabel = attributeDict["papp:ColorLabel"] {
+      applyAttribute(key: "papp:ColorLabel", value: colorLabel)
     }
     // Pre-pass: discover `crs:HasCrop` before applying the rect fields —
     // mirrors raw-core's two-pass crop gate. `crs:CropAngle` is always
@@ -309,7 +308,7 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     where rawKey != "crs:WhiteBalance"
       && rawKey != "papp:CaptureSharpeningSigma"
       && rawKey != "papp:Profile"
-      && rawKey != "papp:Flag"
+      && rawKey != "papp:ColorLabel"
     {
       applyAttribute(key: rawKey, value: value, hasCrop: hasCrop)
     }
@@ -318,7 +317,7 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     // idempotent across calls).
     captureSharpeningSigmaSeen = false
     profileSeen = false
-    cullFlagSeen = false
+    colorLabelSeen = false
   }
 
   func parser(_ parser: XMLParser, foundCharacters string: String) {
@@ -446,6 +445,7 @@ public struct XMPSerializer {
   ) -> String {
     let attrs =
       _buildAttrs(model: model, culling: culling, omitWhiteBalance: omitWhiteBalance)
+      + _ratingAndLabelAttrs(culling: culling, passthrough: passthrough)
       + _passthroughAttrs(passthrough)
     let keywordsBlock = _buildKeywordsBlock(culling: culling)
     // Point tone curves (#365) — the second nested child block. Children

@@ -341,36 +341,22 @@ extension _XMPParserDelegate {
     case "papp:WbScaleVersion": break
     // Lightroom culling
     case "xmp:Rating":
-      if let n = Int(value) { culling.stars = max(0, min(5, n)) }
+      culling.stars = XMPParser.ratingValue(value)
     // Canonical cull flag (#2221). Matched case-sensitively against the
     // bare lowercase vocabulary, exactly like `metadata-parser.ts` and
     // `xmp-culling.ts` — a laxer match here would let a sidecar resolve
     // to a flag on Apple and to unflagged on the other two.
     case "papp:Flag":
       switch value {
-      case "pick":
-        culling.flag = .pick
-        cullFlagSeen = true
-      case "reject":
-        culling.flag = .reject
-        cullFlagSeen = true
+      case "pick": culling.flag = .pick
+      case "reject": culling.flag = .reject
       default: break
       }
-    // Legacy Apple cull-flag alias — read-only (#2221). Sidecars written
-    // before the canonical key carry `xmp:Label="Red"` for a pick and
-    // `xmp:Label="Rejected"` for a reject; `"Rejected"` matched nothing
-    // here, so every reject on disk silently decayed to `.none` on
-    // reload. Both spellings of each are accepted so no existing sidecar
-    // is stranded. Deliberately NOT a colour-label mapping (#1656): this
-    // attribute is overloaded in Apple-authored files, so reading Adobe
-    // colour words out of it would turn every legacy pick into red.
+    // Adobe's colour word (#4403). Never a flag: Lightroom writes its colour
+    // labels here, and only `papp:Flag` carries pick/reject.
     case "xmp:Label":
-      guard !cullFlagSeen else { break }
-      switch value.lowercased() {
-      case "red", "pick": culling.flag = .pick
-      case "reject", "rejected": culling.flag = .reject
-      default: break
-      }
+      guard !colorLabelSeen, let label = ColorLabel(adobeLabel: value) else { break }
+      culling.colorLabel = label
     // Colour label (#1656/#1657). Unknown values leave the label unset
     // rather than storing an out-of-vocabulary string, mirroring the
     // API parser's `VALID_COLOR_LABELS` membership gate. The match is
@@ -378,7 +364,9 @@ extension _XMPParserDelegate {
     // all three platforms, and case-folding here would accept a value
     // the API would then reject.
     case "papp:ColorLabel":
-      if let label = ColorLabel(rawValue: value) { culling.colorLabel = label }
+      guard let label = ColorLabel(rawValue: value) else { break }
+      culling.colorLabel = label
+      colorLabelSeen = true
     case "papp:Hidden": culling.hidden = XMPParser.parseHiddenAttribute(value)
     default:
       _xmpApplyHSLAttribute(key: key, value: value, model: &model)

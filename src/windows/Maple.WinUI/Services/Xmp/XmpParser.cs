@@ -231,6 +231,7 @@ namespace Maple.WinUI.Services.Xmp
                     case "xmp:Rating":
                     case "Rating":
                         doc.Rating = ParseRating(attr.Value) ?? doc.Rating;
+                        doc.AuthoredRating = attr.Value;
                         break;
                     case "maple:Flag": flagMaple = attr.Value; break;
                     case "papp:Flag": flagPapp = attr.Value; break;
@@ -241,6 +242,7 @@ namespace Maple.WinUI.Services.Xmp
                     case "xmp:Label":
                     case "Label":
                         xmpLabel = attr.Value;
+                        doc.AuthoredLabel = attr.Value;
                         break;
                     default:
                         CapturePassthroughAttribute(desc, attr, doc, namespaceDecls);
@@ -269,6 +271,7 @@ namespace Maple.WinUI.Services.Xmp
             doc.ColorLabel =
                 ValidColorLabel(labelMaple) ?? ValidColorLabel(labelPapp) ?? ValidColorLabel(labelPlain)
                 ?? ColorLabelFromXmpLabel(xmpLabel);
+            doc.AuthoredColorLabel = doc.ColorLabel;
 
             // WB scale (#1780/#1875/#1893/#1894/#2670): explicit stamp wins;
             // otherwise a Maple-authored document with an explicit

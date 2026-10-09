@@ -76,7 +76,7 @@ namespace Maple.WinUI.Services.Xmp
         }
 
         /// <summary>Rating clamped to 1..5; 0/absent/invalid = unrated (null).</summary>
-        private static int? ParseRating(string value)
+        internal static int? ParseRating(string value)
         {
             if (!TryParseDouble(value, out var n) || n < 0 || n > 5) return null;
             var rounded = (int)Math.Floor(n + 0.5);
@@ -90,7 +90,7 @@ namespace Maple.WinUI.Services.Xmp
             value is not null && XmpSchema.ColorLabels.Contains(value) ? value : null;
 
         /// <summary>Adobe `xmp:Label` color word → Maple color label (Lightroom interop).</summary>
-        private static string? ColorLabelFromXmpLabel(string? label) => label switch
+        internal static string? ColorLabelFromXmpLabel(string? label) => label switch
         {
             "Red" => "red",
             "Orange" => "orange",

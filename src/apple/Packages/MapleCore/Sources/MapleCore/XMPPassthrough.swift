@@ -65,6 +65,15 @@ public struct XMPPassthrough: Sendable, Equatable {
   public var unknownNodes: [String]
   public var maskGroups: [XMPMaskGroupTemplate]
 
+  /// `xmp:Rating` and `xmp:Label` exactly as the source authored them, plus
+  /// the colour label the source resolved to. The serializer re-emits them
+  /// untouched unless the user changed the matching field (#4403), so a
+  /// Lightroom reject (`-1`), a `3.0`, or a custom label word survives an
+  /// unrelated edit.
+  public var authoredRating: String?
+  public var authoredLabel: String?
+  public var authoredColorLabel: ColorLabel?
+
   public static let empty = XMPPassthrough(unknownAttributes: [], unknownNodes: [])
 
   public var isEmpty: Bool {
@@ -73,11 +82,16 @@ public struct XMPPassthrough: Sendable, Equatable {
 
   public init(
     unknownAttributes: [Attribute] = [], unknownNodes: [String] = [],
-    maskGroups: [XMPMaskGroupTemplate] = []
+    maskGroups: [XMPMaskGroupTemplate] = [],
+    authoredRating: String? = nil, authoredLabel: String? = nil,
+    authoredColorLabel: ColorLabel? = nil
   ) {
     self.unknownAttributes = unknownAttributes
     self.unknownNodes = unknownNodes
     self.maskGroups = maskGroups
+    self.authoredRating = authoredRating
+    self.authoredLabel = authoredLabel
+    self.authoredColorLabel = authoredColorLabel
   }
 }
 
@@ -159,8 +173,9 @@ enum XMPKnownFields {
     return Set(hsl + ["crs:ConvertToGrayscale"])
   }()
 
-  /// Rating / flag / colour label / hidden, including the read-only
-  /// `xmp:Label` legacy flag alias (#2221) the serializer never writes back.
+  /// Rating / flag / colour label / hidden. `xmp:Rating` and `xmp:Label`
+  /// ride `XMPPassthrough.authoredRating` / `authoredLabel` instead of the
+  /// unknown-attribute bucket, so they are re-emitted exactly once (#4403).
   private static let culling: Set<String> = [
     "xmp:Rating", "papp:Flag", "xmp:Label", "papp:ColorLabel", "papp:Hidden",
   ]
