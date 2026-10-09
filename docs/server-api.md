@@ -185,7 +185,9 @@ both replace it. Create-only publication also uses an atomic filesystem link.
 Malformed, weak or combined precondition headers return 400. A 412 leaves the
 canonical sidecar unchanged; the client retains its pending edits and offers
 reload/conflict handling. Older callers without preconditions retain their
-existing unconditional write behaviour. The write barrier is in-memory, so these
+existing unconditional write behaviour. `/api/xmp/batch` reads, merges and
+writes each sidecar inside the same barrier, so a save cannot land between its
+read and its write. The write barrier is in-memory, so these
 checks coordinate only writers inside the API process. The worker child process
 (for example batch-sync jobs) and external filesystem writers do not participate
 and can still race a conditional save.
