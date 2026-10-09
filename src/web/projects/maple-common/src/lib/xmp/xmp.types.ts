@@ -60,12 +60,6 @@ export interface MaskGroupTemplate {
   parts: Array<string | number | null>;
 }
 
-/**
- * Unknown attributes and nested elements from a source sidecar that Maple
- * does not model (`crs:PaintBasedCorrections`, `xmpMM:History`, etc. —
- * with opaque group corrections kept separately, #3423).
- * Preserved verbatim on writes so Lightroom round-trips are non-destructive.
- */
 /** `xmp:Rating` / `xmp:Label` as the source authored them, plus the colour label the source resolved to. */
 export interface AuthoredCulling {
   rating?: string;
@@ -73,6 +67,12 @@ export interface AuthoredCulling {
   colorLabel: XmpColorLabel;
 }
 
+/**
+ * Unknown attributes and nested elements from a source sidecar that Maple
+ * does not model (`crs:PaintBasedCorrections`, `xmpMM:History`, etc. —
+ * with opaque group corrections kept separately, #3423).
+ * Preserved verbatim on writes so Lightroom round-trips are non-destructive.
+ */
 export interface PassthroughBucket {
   /** Kept byte-for-byte on save unless the user changed the rating or colour label (#4403). */
   authoredCulling?: AuthoredCulling;
