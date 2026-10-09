@@ -34,3 +34,9 @@ language = "C"
 # declaration — this fixes #2678 (symbol guard failing because the header
 # declared the symbol unconditionally with no Apple-side definition).
 "target_os = windows" = "_WIN32"
+# Maps raw-ffi's API-only `search` feature (#4462) → `#if defined(MAPLE_SEARCH)`.
+# The `maple_search_*` symbols are API-only: only the Self Hosted bun:ffi dylib
+# is built with `--features search`, nothing ever defines MAPLE_SEARCH for an
+# Apple or Windows compile, and build-xcframework.sh's symbol guard requires
+# them to be ABSENT from every Apple slice.
+"feature = search" = "MAPLE_SEARCH"
