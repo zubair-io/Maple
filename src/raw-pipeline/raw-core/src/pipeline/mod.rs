@@ -27,6 +27,7 @@ mod develop_sized;
 mod downsample;
 mod fp16;
 mod inpaint_store;
+pub(crate) mod mask;
 mod orient;
 pub(crate) mod pano;
 mod render;
