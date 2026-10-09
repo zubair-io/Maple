@@ -4,6 +4,9 @@
  *
  * Derived data only: vectors live in SQLite, never in an XMP sidecar.
  *
+ * `ai_model` on this stage's worker_config row records the endpoint and model the stage last ran
+ * with, so a change also revives rows that dead-lettered under the previous one.
+ *
  * Re-embedding is driven two ways. Bumping `EMBEDDER_TEMPLATE_SHAPE_VERSION` raises this stage's
  * target version, which re-queues every asset. Changing the embedding model leaves versions
  * alone, so `onProgress` sweeps for vectors written by another model whenever the stage idles.
@@ -31,6 +34,7 @@ import {
   rearmEmbedForModelChange,
   upsertAssetVectorStatement,
 } from '../../db/repos/asset-vectors.repo.ts';
+import { WorkerConfigRepo } from '../../db/repos/worker-config.repo.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { classifyMediaType } from '../../indexer/media-types.ts';
 import type { AssetFaceDoc, Place, TranscriptDoc } from '../../db/schema.ts';
@@ -128,9 +132,15 @@ const sweep: { lastAt: number } = { lastAt: 0 };
 async function rearmAfterModelChange(_processedThisTick: number, idle: boolean): Promise<void> {
   if (!idle || Date.now() - sweep.lastAt < MODEL_DRIFT_SWEEP_INTERVAL_MS) return;
   sweep.lastAt = Date.now();
-  await rearmEmbedForModelChange((await currentEmbedderTarget()).model);
+  const { url, model } = await currentEmbedderTarget();
+  const fingerprint = `${model} @ ${url}`;
+  const repo = new WorkerConfigRepo();
+  const targetChanged = (await repo.load(embedStage.name))?.ai_model !== fingerprint;
+  await rearmEmbedForModelChange(model, { includeDead: targetChanged });
+  if (targetChanged) await repo.patch(embedStage.name, { ai_model: fingerprint });
 }
 
+// Staged per CLAUDE.md principle 6: nothing reads asset_vectors until #4463 lands the search cut-over.
 const embedStage = defineStage({
   name: 'embed',
   targetVersion: EMBED_STAGE_VERSION,

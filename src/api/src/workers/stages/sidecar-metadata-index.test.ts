@@ -245,10 +245,7 @@ describe('sidecarMetadataIndexHandler — video assets (M5)', () => {
 describe('sidecarMetadataIndexHandler — downstream re-arms', () => {
   test('re-arms only the search index when nothing else changed', async () => {
     const image = await writeSidecar(library, makeXmp('photoshop:City="Paris"'));
-    expect(invalidatesOf(await sidecarMetadataIndexHandler(image, fakeCtx))).toEqual([
-      'meili',
-      'embed',
-    ]);
+    expect(invalidatesOf(await sidecarMetadataIndexHandler(image, fakeCtx))).toEqual(['meili']);
   });
 
   test('re-arms geocode when the sidecar moved the coordinates', async () => {
@@ -259,7 +256,9 @@ describe('sidecarMetadataIndexHandler — downstream re-arms', () => {
       library,
       makeXmp('exif:GPSLatitude="48,31.4360N" exif:GPSLongitude="2,21.0480E"'),
     );
-    expect(invalidatesOf(await sidecarMetadataIndexHandler(image, fakeCtx))).toContain('geocode');
+    const invalidates = invalidatesOf(await sidecarMetadataIndexHandler(image, fakeCtx));
+    expect(invalidates).toContain('geocode');
+    expect(invalidates).not.toContain('embed');
   });
 
   test('leaves geocode alone when the coordinates are unchanged', async () => {
