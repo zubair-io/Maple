@@ -126,10 +126,11 @@
         if isSeed { onSeedApplied() }
         // The field's clear button empties the text in one step, which
         // SwiftUI reports the same way as a backspace. A multi-character
-        // drop to empty is the button; a single-character one is the user
-        // editing (backspacing "a" to retype), and keeps the filters. On
-        // the button, drop the filters too so the page returns to Recents
-        // instead of re-running a filters-only search.
+        // drop to empty is the button; a single-character one is ambiguous
+        // (backspacing "a" to retype, or the button on a one-letter query)
+        // and keeps the filters — losing them while editing is the worse
+        // mistake. On the button, drop the filters too so the page returns
+        // to Recents instead of re-running a filters-only search.
         let clearedByButton = current.isEmpty && previous.count > 1
         if !isSeed && clearedByButton && filtersActive {
           viewModel?.resetFilters()
