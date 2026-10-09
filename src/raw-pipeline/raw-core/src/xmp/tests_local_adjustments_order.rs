@@ -142,6 +142,115 @@ const CANONICAL_ORDER_BLOCK: &str = r#"      <crs:GradientBasedCorrections>
         </rdf:Seq>
       </crs:CircularGradientBasedCorrections>"#;
 
+/// Cross-language fixture for a correction a host keeps verbatim (#4427):
+/// a stroke with a brush version this build cannot read sits between two
+/// modeled layers. Hosts that keep it (Apple, Web, Windows) insert a new
+/// linear layer at the bottom, emit `PASSTHROUGH_ORDER_BLOCK` for the
+/// modeled layers and renumber the stroke's key from 1 to 2. raw-core has no
+/// passthrough, so it pins only the read side.
+const BRUSH_V2_BLOCK: &str = r#"      <papp:BrushCorrections>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description
+              crs:What="Correction"
+              crs:CorrectionAmount="1"
+              crs:CorrectionActive="True"
+              papp:LayerOrder="1"
+              crs:LocalExposure2012="0.3">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li
+                    crs:What="Mask/Paint"
+                    crs:MaskValue="1"
+                    papp:BrushVersion="2"
+                    papp:Dabs="0.25 0.3 0.05 0.5 0.8 0"/>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </papp:BrushCorrections>"#;
+
+const PASSTHROUGH_ORDER_BLOCK: &str = r#"      <crs:GradientBasedCorrections>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description
+              crs:What="Correction"
+              crs:CorrectionAmount="1"
+              crs:CorrectionActive="True"
+              papp:LayerOrder="0"
+              crs:LocalExposure2012="0.1">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li
+                    crs:What="Mask/Gradient"
+                    crs:MaskValue="1"
+                    crs:ZeroX="0.2" crs:ZeroY="0.3"
+                    crs:FullX="0.8" crs:FullY="0.7"
+                    papp:LocalFeather="0.5"/>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+          <rdf:li>
+            <rdf:Description
+              crs:What="Correction"
+              crs:CorrectionAmount="1"
+              crs:CorrectionActive="True"
+              papp:LayerOrder="1"
+              crs:LocalExposure2012="0.4">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li
+                    crs:What="Mask/Gradient"
+                    crs:MaskValue="1"
+                    crs:ZeroX="0.2" crs:ZeroY="0.3"
+                    crs:FullX="0.8" crs:FullY="0.7"
+                    papp:LocalFeather="0.5"/>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </crs:GradientBasedCorrections>
+      <crs:CircularGradientBasedCorrections>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description
+              crs:What="Correction"
+              crs:CorrectionAmount="1"
+              crs:CorrectionActive="True"
+              papp:LayerOrder="3"
+              crs:LocalExposure2012="0.2">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li
+                    crs:What="Mask/CircularGradient"
+                    crs:MaskValue="1"
+                    crs:Top="0.375" crs:Left="0.25" crs:Bottom="0.625" crs:Right="0.75"
+                    crs:Angle="0" crs:Midpoint="50" crs:Roundness="0"
+                    crs:Feather="50" crs:Flipped="False"/>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </crs:CircularGradientBasedCorrections>"#;
+
+#[test]
+fn the_passthrough_literal_reads_in_full_stack_order() {
+    let renumbered = BRUSH_V2_BLOCK.replace("papp:LayerOrder=\"1\"", "papp:LayerOrder=\"2\"");
+    let document = sidecar(&format!("{PASSTHROUGH_ORDER_BLOCK}\n{renumbered}"));
+    assert_eq!(
+        parse(&document).expect("parse").local_adjustments,
+        vec![
+            linear(exposure(0.1)),
+            linear(exposure(0.4)),
+            radial(exposure(0.2)),
+        ]
+    );
+}
+
 #[test]
 fn interleaved_pair_matches_the_cross_language_literal() {
     let model = AdjustmentModel {
