@@ -5,6 +5,10 @@
  * foreign key: `assets.maple_id` is unique only through a partial index, which SQLite does not
  * accept as a foreign-key parent.
  *
+ * Because there is no foreign key, triggers keep the table in step with `assets`: a deleted asset
+ * takes its vector with it, and an asset whose `maple_id` changes (a dedup merge promoting the
+ * survivor) loses the stale vector and is re-armed for `embed`.
+ *
  * `version` is the embedder template shape the text was rendered with and `model` the embedding
  * model, so a vector can be recognised as stale after either changes. `vector` is `dims`
  * little-endian f32 values.
@@ -22,4 +26,21 @@ CREATE TABLE asset_vectors (
 
 export const ASSET_VECTORS_INDEX_DDL = `
 CREATE INDEX asset_vectors_model ON asset_vectors (model);
+`;
+
+export const ASSET_VECTORS_TRIGGER_DDL = `
+CREATE TRIGGER asset_vectors_asset_deleted AFTER DELETE ON assets
+WHEN OLD.maple_id IS NOT NULL
+BEGIN
+  DELETE FROM asset_vectors WHERE maple_id = OLD.maple_id;
+END;
+
+CREATE TRIGGER asset_vectors_maple_id_changed AFTER UPDATE OF maple_id ON assets
+WHEN OLD.maple_id IS NOT NULL AND OLD.maple_id IS NOT NEW.maple_id
+BEGIN
+  DELETE FROM asset_vectors WHERE maple_id = OLD.maple_id;
+  UPDATE stage_state
+     SET version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0
+   WHERE asset_id = NEW.id AND stage = 'embed';
+END;
 `;

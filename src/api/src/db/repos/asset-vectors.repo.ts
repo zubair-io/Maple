@@ -32,22 +32,24 @@ export function upsertAssetVectorStatement(record: AssetVectorRecord): SqlStatem
 
 /**
  * Re-arms `embed` for every asset whose stored vector came from a different model, so a model
- * change re-embeds the library. Returns how many assets were re-armed.
+ * change re-embeds the library. With `includeDead`, assets that exhausted their retries are
+ * re-armed too, because they failed under the previous endpoint or model and have no vector to
+ * compare. Returns how many assets were re-armed.
  */
 export async function rearmEmbedForModelChange(
   currentModel: string,
+  options: { includeDead: boolean },
   dbOverride?: SqliteDb,
 ): Promise<number> {
   const result = await assetsDb(dbOverride).write(
     `UPDATE stage_state
         SET version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0
       WHERE stage = ?
-        AND version > 0
-        AND asset_id IN (
-          SELECT a.id FROM asset_vectors v JOIN assets a ON a.maple_id = v.maple_id
-           WHERE v.model <> ?
-        )`,
-    [EMBED_STAGE, currentModel],
+        AND ((version > 0 AND asset_id IN (
+              SELECT a.id FROM asset_vectors v JOIN assets a ON a.maple_id = v.maple_id
+               WHERE v.model <> ?))
+             OR (? = 1 AND dead = 1))`,
+    [EMBED_STAGE, currentModel, options.includeDead ? 1 : 0],
   );
   return result.changes;
 }

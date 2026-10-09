@@ -198,9 +198,11 @@ export async function sidecarMetadataIndexHandler(
   }
 
   // Effective hidden/screenshot/place metadata changes affect Meilisearch
-  // filters or semantic document text, so the search document is rebuilt
-  // atomically with the metadata projection.
-  const invalidates = ['meili', 'embed'];
+  // filters, so the search document is rebuilt atomically with the metadata
+  // projection. `embed` is deliberately absent: this handler writes only the
+  // override document and culling columns, none of which the embedder template
+  // reads, and a GPS edit reaches `embed` through geocode's own success path.
+  const invalidates = ['meili'];
 
   // The inverse transition — explicitly un-hidden — re-arms `cf-thumb-sync` so
   // the pipeline picks the asset back up: that stage's own `{ skip: 'hidden' }`
