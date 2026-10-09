@@ -52,8 +52,8 @@ import {
 import { mergeInto } from './people.merge.ts';
 import { loadSuggestedMergeInfo, type SuggestedMergeInfo } from './people.merge-suggestions.ts';
 import { toAssetFace, toPerson, type PersonFaceRow, type PersonRow } from './people.rows.ts';
-import { peopleMeiliRearmStatement } from './people.search-reindex.ts';
-import { meiliRearmStatement } from './assets.stage-rearm.ts';
+import { peopleSearchRearmStatements } from './people.search-reindex.ts';
+import { searchRearmStatements } from './assets.stage-rearm.ts';
 import {
   ASSET_EXISTS_SQL,
   DIRTY_CENTROID_SQL,
@@ -180,7 +180,7 @@ async function applyRename(
       sql: RENAME_PERSON_SQL,
       params: [trimmed, caseFoldKey(trimmed), nowIso(), subject._id.toHexString()],
     },
-    peopleMeiliRearmStatement([subject._id.toHexString()]),
+    ...peopleSearchRearmStatements([subject._id.toHexString()]),
   ]);
   // A case-only rename still changes the indexed token ("alice" → "Alice"), so
   // it re-indexes too.
@@ -385,7 +385,7 @@ export async function assignFaceToPerson(
   await db.transaction([
     { sql: SET_FACE_PERSON_SQL, params: [personHex, assetId.toHexString(), faceIndex] },
     ...dirty,
-    meiliRearmStatement(assetId.toHexString()),
+    ...searchRearmStatements(assetId.toHexString()),
   ]);
 }
 
@@ -408,7 +408,7 @@ export async function hideFace(
   const statements: SqlStatement[] = [
     { sql: HIDE_FACE_SQL, params: [assetId.toHexString(), faceIndex] },
     ...(priorHex === null ? [] : [dirtyCentroid(priorHex, nowIso())]),
-    ...(priorHex === null ? [] : [meiliRearmStatement(assetId.toHexString())]),
+    ...(priorHex === null ? [] : searchRearmStatements(assetId.toHexString())),
   ];
   await db.transaction(statements);
 }

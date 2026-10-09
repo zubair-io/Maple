@@ -11,18 +11,18 @@
  */
 
 import type { SqlStatement } from '../sqlite/protocol.ts';
-import { MEILI_STAGE } from './assets.stage-rearm.ts';
+import { EMBED_STAGE, MEILI_STAGE } from './assets.stage-rearm.ts';
 import { placeholders } from './values.ts';
 
 /** Re-arm every asset carrying a face assigned to one of these people. */
-export function peopleMeiliRearmStatement(personIds: readonly string[]): SqlStatement {
-  return {
+export function peopleSearchRearmStatements(personIds: readonly string[]): SqlStatement[] {
+  return [MEILI_STAGE, EMBED_STAGE].map((stage) => ({
     sql: `INSERT INTO stage_state
             (asset_id, stage, version, attempts, last_error, processed_at, dead)
           SELECT DISTINCT asset_id, ?, 0, 0, NULL, NULL, 0
             FROM faces WHERE person_id IN (${placeholders(personIds.length)})
           ON CONFLICT (asset_id, stage) DO UPDATE SET
             version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0`,
-    params: [MEILI_STAGE, ...personIds],
-  };
+    params: [stage, ...personIds],
+  }));
 }

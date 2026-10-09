@@ -6,7 +6,7 @@ import type { SqliteDb } from './db-handle.ts';
 import { assignFaceToPerson, hideFace, renamePerson } from './people.repo.ts';
 import { mergePeopleInto } from './people.merge.ts';
 import { excludePerson, hidePerson, unexcludePerson, unhidePerson } from './people.visibility.ts';
-import { MEILI_STAGE } from './assets.stage-rearm.ts';
+import { EMBED_STAGE, MEILI_STAGE } from './assets.stage-rearm.ts';
 import { insertStageState } from './assets.test-helpers.ts';
 import { stageRow } from './stage-runtime.test-helpers.ts';
 import {
@@ -80,13 +80,15 @@ describe.each(mutations)('$name commits with its local search work', (mutation) 
     ]) {
       insertFace(db, { assetId: assetId!, personId });
       if (assetId !== asset || !missingStage) {
-        insertStageState(db, assetId!, MEILI_STAGE, {
-          version: 6,
-          attempts: 3,
-          dead: true,
-          lastError: 'old failure',
-          processedAt: '2025-01-01T00:00:00Z',
-        });
+        for (const stage of [MEILI_STAGE, EMBED_STAGE]) {
+          insertStageState(db, assetId!, stage, {
+            version: 6,
+            attempts: 3,
+            dead: true,
+            lastError: 'old failure',
+            processedAt: '2025-01-01T00:00:00Z',
+          });
+        }
       }
     }
     const fixture = {
@@ -105,13 +107,15 @@ describe.each(mutations)('$name commits with its local search work', (mutation) 
     await mutation.run(fixture);
     expect(state(db).people).not.toEqual(before.people);
     for (const assetId of mutation.merges ? [asset, otherAsset] : [asset]) {
-      expect(stageRow(db, assetId, MEILI_STAGE)).toMatchObject({
-        version: 0,
-        attempts: 0,
-        dead: 0,
-        last_error: null,
-        processed_at: null,
-      });
+      for (const stage of [MEILI_STAGE, EMBED_STAGE]) {
+        expect(stageRow(db, assetId, stage)).toMatchObject({
+          version: 0,
+          attempts: 0,
+          dead: 0,
+          last_error: null,
+          processed_at: null,
+        });
+      }
     }
     expect(stageRow(db, unrelated, MEILI_STAGE)?.version).toBe(6);
     if (!mutation.merges) expect(stageRow(db, otherAsset, MEILI_STAGE)?.version).toBe(6);

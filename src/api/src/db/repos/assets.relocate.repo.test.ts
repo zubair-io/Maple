@@ -132,7 +132,7 @@ describe('repointAssetLocation', () => {
       `UPDATE asset_locations SET missing_reason = 'enoent' WHERE asset_id = ?`,
       assetId,
     );
-    for (const stage of ['meili', 'thumb', 'preview']) {
+    for (const stage of ['meili', 'embed', 'thumb', 'preview']) {
       run(
         handle.db,
         `INSERT INTO stage_state (asset_id, stage, version, attempts, last_error, processed_at, dead)
@@ -257,6 +257,7 @@ describe('repointAssetLocation', () => {
       processed_at: null,
       dead: 0,
     });
+    expect(stageRow(handle, assetId, 'embed')).toEqual(stageRow(handle, assetId, 'meili'));
     for (const stage of ['thumb', 'preview']) {
       expect(stageRow(handle, assetId, stage)).toEqual({
         version: 0,

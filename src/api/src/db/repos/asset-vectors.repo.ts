@@ -2,7 +2,7 @@ import { assetsDb, type SqliteDb } from './db-handle.ts';
 import { encodeVector } from '../../enrichment/ollama-embed-client.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
 
-export const EMBED_STAGE = 'embed';
+import { EMBED_STAGE } from './assets.stage-rearm.ts';
 
 export interface AssetVectorRecord {
   mapleId: string;

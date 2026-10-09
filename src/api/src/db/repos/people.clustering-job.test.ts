@@ -9,7 +9,7 @@
 import { describe, expect, test } from 'bun:test';
 import { createTestDatabase } from '../sqlite/test-sqlite.test-helpers.ts';
 import type { SqliteDb } from './db-handle.ts';
-import { MEILI_STAGE } from './assets.stage-rearm.ts';
+import { EMBED_STAGE, MEILI_STAGE } from './assets.stage-rearm.ts';
 import { insertStageState } from './assets.test-helpers.ts';
 import { backfillCoverAssets, runOnlineClustering } from './people.clustering-job.ts';
 import { faceCountByPerson } from './people.face-count.ts';
@@ -262,11 +262,15 @@ describe('runOnlineClustering', () => {
     // Both look already-indexed, so only a genuine re-arm shows as a change.
     insertStageState(db, assigned, MEILI_STAGE, { version: 6 });
     insertStageState(db, untouched, MEILI_STAGE, { version: 6 });
+    insertStageState(db, assigned, EMBED_STAGE, { version: 6 });
+    insertStageState(db, untouched, EMBED_STAGE, { version: 6 });
 
     await runOnlineClustering({}, testDb(db));
 
     // The local search work commits with the assignment.
     expect(stageRow(db, assigned, MEILI_STAGE)?.version).toBe(0);
+    expect(stageRow(db, assigned, EMBED_STAGE)?.version).toBe(0);
+    expect(stageRow(db, untouched, EMBED_STAGE)?.version).toBe(6);
     // An asset the pass did not touch keeps its place in the queue — re-arming
     // every asset of every touched person would re-queue an entire library.
     expect(stageRow(db, untouched, MEILI_STAGE)?.version).toBe(6);

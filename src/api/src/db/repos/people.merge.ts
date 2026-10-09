@@ -32,7 +32,7 @@ import { caseFoldKey } from '../sqlite/case-fold.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
 import { readPerson, type PersonRow } from './people.rows.ts';
-import { peopleMeiliRearmStatement } from './people.search-reindex.ts';
+import { peopleSearchRearmStatements } from './people.search-reindex.ts';
 import {
   CLAIM_SURVIVOR_SQL,
   CLEAR_SUGGESTIONS_POINTING_AT_SQL,
@@ -85,7 +85,7 @@ export async function mergeInto(
   const db = peopleDb(dbOverride);
   await db.transaction([
     ...mergeStatements(survivor.toHexString(), orphan.toHexString(), name),
-    peopleMeiliRearmStatement([survivor.toHexString()]),
+    ...peopleSearchRearmStatements([survivor.toHexString()]),
   ]);
 }
 
@@ -122,7 +122,7 @@ export async function mergePeopleInto(
     await db.transaction([
       ...mergeable.flatMap((row) => mergeStatements(targetHex, row.id, target.name)),
       // After repointing, the survivor holds both its own and the sources' faces.
-      peopleMeiliRearmStatement([targetHex]),
+      ...peopleSearchRearmStatements([targetHex]),
     ]);
   }
 

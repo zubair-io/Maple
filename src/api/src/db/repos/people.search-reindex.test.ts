@@ -19,7 +19,7 @@ import { ObjectId } from '../object-id.ts';
 import { createTestDatabase } from '../sqlite/test-sqlite.test-helpers.ts';
 import { insertStageState } from './assets.test-helpers.ts';
 import { MEILI_STAGE, stageRearmBatchStatement } from './assets.stage-rearm.ts';
-import { peopleMeiliRearmStatement } from './people.search-reindex.ts';
+import { peopleSearchRearmStatements } from './people.search-reindex.ts';
 import { stageRow } from './stage-runtime.test-helpers.ts';
 import {
   insertFace,
@@ -41,7 +41,7 @@ function indexedAtVersionSix(db: Database, assetId: string): void {
   });
 }
 
-describe('peopleMeiliRearmStatement', () => {
+describe('peopleSearchRearmStatements', () => {
   test('re-arms every asset carrying one of these people, and nothing else', async () => {
     using handle = await createTestDatabase();
     const db = handle.db;
@@ -55,7 +55,7 @@ describe('peopleMeiliRearmStatement', () => {
     indexedAtVersionSix(db, matching);
     indexedAtVersionSix(db, unrelated);
 
-    const [written] = await testDb(db).transaction([peopleMeiliRearmStatement([subject])]);
+    const [written] = await testDb(db).transaction(peopleSearchRearmStatements([subject]));
 
     expect(written?.changes).toBe(1);
     // Back below the stage's target version, with the dead-letter and
@@ -67,6 +67,7 @@ describe('peopleMeiliRearmStatement', () => {
       last_error: null,
       processed_at: null,
     });
+    expect(stageRow(db, matching, 'embed')?.version).toBe(0);
     expect(stageRow(db, unrelated, MEILI_STAGE)?.version).toBe(6);
   });
 
@@ -80,14 +81,15 @@ describe('peopleMeiliRearmStatement', () => {
 
     // No `insertStageState` — the row is absent, which on Mongo the `$set`
     // created for free and here has to be an upsert.
-    await testDb(db).transaction([peopleMeiliRearmStatement([subject])]);
+    await testDb(db).transaction(peopleSearchRearmStatements([subject]));
 
     expect(stageRow(db, asset, MEILI_STAGE)?.version).toBe(0);
+    expect(stageRow(db, asset, 'embed')?.version).toBe(0);
   });
 
   test('an empty id list writes nothing', async () => {
     using handle = await createTestDatabase();
-    const [written] = await testDb(handle.db).transaction([peopleMeiliRearmStatement([])]);
+    const [written] = await testDb(handle.db).transaction(peopleSearchRearmStatements([]));
     expect(written?.changes).toBe(0);
   });
 });

@@ -49,7 +49,7 @@ describe('discover producer — dedup', () => {
       size: bytes.length,
       deletedAt: '2026-08-10T00:00:00.000Z',
       deletedReason: 'reaped',
-      stages: ['meili'],
+      stages: ['meili', 'embed'],
     });
     seedLocation(library.db, {
       assetId: id,
@@ -58,9 +58,10 @@ describe('discover producer — dedup', () => {
       missingSince: '2026-08-01T00:00:00.000Z',
       missingReason: 'enoent',
     });
-    library.db.run(`UPDATE stage_state SET version = 4 WHERE asset_id = ? AND stage = 'meili'`, [
-      id,
-    ]);
+    library.db.run(
+      `UPDATE stage_state SET version = 4 WHERE asset_id = ? AND stage IN ('meili', 'embed')`,
+      [id],
+    );
 
     await handleEvent({ kind: 'created', absPath: file }, library.folderId, library.root);
 
@@ -71,6 +72,7 @@ describe('discover producer — dedup', () => {
     expect(locationsOf(library.db, id)[0]!.missing_since).toBeNull();
     // Meili re-armed, so the tombstoned search document is rebuilt.
     expect(stageRow(library.db, id, 'meili')!.version).toBe(0);
+    expect(stageRow(library.db, id, 'embed')!.version).toBe(0);
   });
 
   it('dedups two files with identical content into one row with two locations', async () => {

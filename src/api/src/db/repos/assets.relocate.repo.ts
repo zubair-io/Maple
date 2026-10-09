@@ -17,7 +17,7 @@
 
 import type { ObjectId } from '../object-id.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
-import { meiliRearmStatement, relocateCacheRearmStatements } from './assets.stage-rearm.ts';
+import { searchRearmStatements, relocateCacheRearmStatements } from './assets.stage-rearm.ts';
 import { changesAt, sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toHex, toObjectId } from './values.ts';
 
@@ -164,7 +164,7 @@ export async function repointAssetLocation(
       ],
     },
     ...companion,
-    meiliRearmStatement(hex),
+    ...searchRearmStatements(hex),
     ...relocateCacheRearmStatements(hex),
   ]);
   // Index 1, not 0 — the dead-claim DELETE above is the batch's first
