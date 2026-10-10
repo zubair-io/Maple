@@ -30,6 +30,7 @@
 // fallow's audit job doesn't run.
 // fallow-ignore-next-line unresolved-import
 import init, { FallbackIdHasher, install_panic_hook } from '../raw-pipeline/pkg/raw_wasm';
+import { RAW_WASM_URL } from '../raw-pipeline/wasm-asset-url';
 import type {
   HashFallbackFinalizeRequest,
   HashFallbackRequest,
@@ -40,7 +41,7 @@ let readyPromise: Promise<void> | null = null;
 
 function ensureReady(): Promise<void> {
   if (!readyPromise) {
-    readyPromise = init().then(() => {
+    readyPromise = init({ module_or_path: RAW_WASM_URL }).then(() => {
       // Surface Rust panics in DevTools instead of opaque WASM traps.
       try {
         install_panic_hook();

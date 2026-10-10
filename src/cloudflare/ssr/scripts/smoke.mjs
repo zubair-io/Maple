@@ -23,7 +23,7 @@ import { createHash } from 'node:crypto';
 const baseUrl = process.argv[2] ?? 'https://mapleaperture.com';
 const originUrl = process.argv[3] ?? 'https://hornbeam.blob.core.windows.net/mapleaperture';
 
-const WASM_ASSET = '/raw_wasm_bg.wasm';
+const WASM_ASSET = '/pkg/raw_wasm_bg.wasm';
 const PNG_ASSET = '/assets/brand/icon-512.png';
 const WOFF2_ASSET = '/assets/fonts/Lato-Regular.woff2';
 // A path that cannot exist as a real file, used to prove the SPA fallback

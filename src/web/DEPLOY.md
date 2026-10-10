@@ -38,7 +38,7 @@ Output: `dist/maple/browser/` with hash-named JS/CSS bundles, `raw_wasm_bg.wasm`
 **Optional headers file** — add `dist/maple/browser/_headers` (or `public/_headers` in your repo root) to set explicit headers:
 
 ```
-/raw_wasm_bg.wasm
+/pkg/raw_wasm_bg.wasm
   Content-Type: application/wasm
 
 /*
@@ -63,7 +63,7 @@ Add `netlify.toml` at the repo root:
   status = 200
 
 [[headers]]
-  for = "/raw_wasm_bg.wasm"
+  for = "/pkg/raw_wasm_bg.wasm"
   [headers.values]
     Content-Type = "application/wasm"
 ```

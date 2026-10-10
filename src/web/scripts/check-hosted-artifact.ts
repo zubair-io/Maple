@@ -98,7 +98,7 @@ async function verifySecurityHeaders(): Promise<void> {
     assertContract(wildcard.get(name) === expected, `_headers has invalid ${name}`);
   }
   assertContract(
-    rules.get('/raw_wasm_bg.wasm')?.get('Content-Type') === 'application/wasm',
+    rules.get('/pkg/raw_wasm_bg.wasm')?.get('Content-Type') === 'application/wasm',
     '_headers omits the WASM MIME override',
   );
 }
@@ -176,8 +176,8 @@ async function verifyBinaryAssets(): Promise<string> {
     assertContract(startsWith(await bytes(font), [0x77, 0x4f, 0x46, 0x32]), `${font} is not WOFF2`);
   }
   assertContract(
-    startsWith(await bytes('/raw_wasm_bg.wasm'), [0x00, 0x61, 0x73, 0x6d]),
-    '/raw_wasm_bg.wasm has invalid magic bytes',
+    startsWith(await bytes('/pkg/raw_wasm_bg.wasm'), [0x00, 0x61, 0x73, 0x6d]),
+    '/pkg/raw_wasm_bg.wasm has invalid magic bytes',
   );
   assertContract(
     (await text('/pkg/raw_wasm.js')).includes('export function initThreadPool'),
