@@ -2,7 +2,7 @@
 import * as path from 'node:path';
 import { callNative } from 'maple';
 import * as fs from './mirrored';
-import { xmpSidecarPath } from './xmp';
+import { primarySidecarDestination, xmpSidecarPath } from './xmp';
 import { serializeSidecarWrite } from './sidecar-write-order';
 import { safeWriteAllowed } from './root';
 import { writeSidecarAtomic, writeSidecarCreateOnly, isMissingSidecar } from './sidecar-io';
@@ -51,6 +51,15 @@ async function variantPath(rawPath: string, id: string): Promise<string> {
   const allowed = await safeWriteAllowed(destination);
   if (!allowed.ok) throw new WorkflowVariantError(403, allowed.error ?? 'Sidecar path not allowed');
   return allowed.data ?? destination;
+}
+/** The primary's barrier key comes from the resolver ordinary saves use. No
+ *  native call precedes the barrier, so a burst of commits cannot fill the
+ *  worker pool ahead of a queued save; the in-barrier read still validates. */
+async function barrierPath(rawPath: string, id: string): Promise<string> {
+  if (id !== PRIMARY_VARIANT_ID) return variantPath(rawPath, id);
+  const primary = await primarySidecarDestination(rawPath);
+  if (!primary.ok) throw new WorkflowVariantError(403, primary.error);
+  return primary.data;
 }
 async function record(xml: string): Promise<SidecarWorkflow | null> {
   const value: unknown = JSON.parse(await nativeValue('workflowReadXmp', [xml]));
@@ -127,7 +136,7 @@ export async function writeWorkflowVariant(
   id: string,
   xml: string,
 ): Promise<string> {
-  const destination = await variantPath(rawPath, id);
+  const destination = await barrierPath(rawPath, id);
   return serializeSidecarWrite(destination, async () => {
     const existing = await readWorkflowVariant(rawPath, id);
     const oldRecord = existing === null ? null : await record(existing);
@@ -201,7 +210,7 @@ async function mutateVariant(
   expectedXmp: string | null,
   convert: (current: string | null) => Promise<string>,
 ): Promise<string> {
-  const destination = await variantPath(rawPath, id);
+  const destination = await barrierPath(rawPath, id);
   return serializeSidecarWrite(destination, async () => {
     const current = await readWorkflowVariant(rawPath, id);
     if (current !== expectedXmp)
