@@ -23,24 +23,28 @@
       }
       if showsSpecialTools {
         ForEach(visibleTools, id: \.self) { tool in
-          if #available(iOS 27.1, *) {
-            ToolbarItem(placement: .topBarTrailing) {
-              toolButton(tool)
-            }
-            .axisBehavior(.verticalPreferred)
-          } else {
-            ToolbarItem(placement: .topBarTrailing) {
-              toolButton(tool)
-            }
-          }
+          railItem { toolButton(tool) }
         }
+        railItem { moreMenu }
+      }
+    }
+
+    @ToolbarContentBuilder
+    private func railItem<Content: View>(
+      @ViewBuilder _ content: () -> Content
+    ) -> some ToolbarContent {
+      // axisBehavior ships only in the iOS 27.1 SDK (SwiftUI 8.0.85); #available alone
+      // still fails to compile under Xcode 27.0, which TestFlight pins to (#4489).
+      #if canImport(SwiftUI, _version: 8.0.85)
         if #available(iOS 27.1, *) {
-          ToolbarItem(placement: .topBarTrailing) { moreMenu }
+          ToolbarItem(placement: .topBarTrailing, content: content)
             .axisBehavior(.verticalPreferred)
         } else {
-          ToolbarItem(placement: .topBarTrailing) { moreMenu }
+          ToolbarItem(placement: .topBarTrailing, content: content)
         }
-      }
+      #else
+        ToolbarItem(placement: .topBarTrailing, content: content)
+      #endif
     }
 
     private func groupButton(_ group: ToolGroup) -> some View {
