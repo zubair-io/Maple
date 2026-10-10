@@ -12,10 +12,22 @@ export interface AssetVectorRecord {
   embeddedAt: Date;
 }
 
-export function upsertAssetVectorStatement(record: AssetVectorRecord): SqlStatement {
+/**
+ * With `claimedBy`, the write lands only while that asset's `embed` row still holds a claim. A
+ * re-arm clears the claim, so a vector computed from text that has since changed is dropped
+ * instead of overwriting the row the next run will fill.
+ */
+export function upsertAssetVectorStatement(
+  record: AssetVectorRecord,
+  claimedBy?: { assetId: string },
+): SqlStatement {
+  const claimHeld = claimedBy
+    ? `WHERE EXISTS (SELECT 1 FROM stage_claim_leases
+                      WHERE asset_id = ? AND stage = '${EMBED_STAGE}' AND next_attempt_at IS NOT NULL)`
+    : 'WHERE true';
   return {
     sql: `INSERT INTO asset_vectors (maple_id, version, model, dims, vector, embedded_at)
-          VALUES (?, ?, ?, ?, ?, ?)
+          SELECT ?, ?, ?, ?, ?, ? ${claimHeld}
           ON CONFLICT (maple_id) DO UPDATE SET
             version = excluded.version, model = excluded.model, dims = excluded.dims,
             vector = excluded.vector, embedded_at = excluded.embedded_at`,
@@ -26,6 +38,7 @@ export function upsertAssetVectorStatement(record: AssetVectorRecord): SqlStatem
       record.vector.length,
       encodeVector(record.vector),
       record.embeddedAt.toISOString(),
+      ...(claimedBy ? [claimedBy.assetId] : []),
     ],
   };
 }
@@ -43,7 +56,8 @@ export async function rearmEmbedForModelChange(
 ): Promise<number> {
   const result = await assetsDb(dbOverride).write(
     `UPDATE stage_state
-        SET version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0
+        SET version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0,
+            next_attempt_at = NULL
       WHERE stage = ?
         AND ((version > 0 AND asset_id IN (
               SELECT a.id FROM asset_vectors v JOIN assets a ON a.maple_id = v.maple_id

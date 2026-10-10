@@ -51,8 +51,11 @@ describe('embedHandler', () => {
   it('embeds the rendered template and writes a normalised little-endian f32 vector', async () => {
     using live = await createLiveTestDatabase();
     const recorded = recordingEmbedder();
+    const assetId = seedClaimableAsset(live.db, {
+      stages: { embed: { nextAttemptAt: '2026-10-09T00:10:00.000Z' } },
+    });
 
-    const result = await embedHandler(fakeDoc(), fakeCtx);
+    const result = await embedHandler(fakeDoc({ _id: new ObjectId(assetId) }), fakeCtx);
     if (!('patch' in result)) throw new Error(`expected a patch, got ${JSON.stringify(result)}`);
     await live.handle.transaction(result.patch);
 

@@ -22,7 +22,8 @@ export function peopleSearchRearmStatements(personIds: readonly string[]): SqlSt
           SELECT DISTINCT asset_id, ?, 0, 0, NULL, NULL, 0
             FROM faces WHERE person_id IN (${placeholders(personIds.length)})
           ON CONFLICT (asset_id, stage) DO UPDATE SET
-            version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0`,
+            version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0,
+            next_attempt_at = NULL`,
     params: [stage, ...personIds],
   }));
 }

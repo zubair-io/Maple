@@ -117,13 +117,10 @@ export async function embedHandler(image: ImageDoc, _ctx: StageContext): Promise
 
   return {
     patch: [
-      upsertAssetVectorStatement({
-        mapleId,
-        version: EMBED_STAGE_VERSION,
-        model,
-        vector,
-        embeddedAt: new Date(),
-      }),
+      upsertAssetVectorStatement(
+        { mapleId, version: EMBED_STAGE_VERSION, model, vector, embeddedAt: new Date() },
+        { assetId: image._id.toHexString() },
+      ),
     ],
   };
 }
