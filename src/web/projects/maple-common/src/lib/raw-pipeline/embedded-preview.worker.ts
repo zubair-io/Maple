@@ -33,12 +33,13 @@
 // fallow-ignore-next-line unresolved-import
 import init, { extract_embedded_preview, install_panic_hook } from './pkg/raw_wasm';
 import type { ExtractPreviewRequest, ExtractPreviewResponse } from './embedded-preview.types';
+import { RAW_WASM_URL } from './wasm-asset-url';
 
 let readyPromise: Promise<void> | null = null;
 
 function ensureReady(): Promise<void> {
   if (!readyPromise) {
-    readyPromise = init().then(() => {
+    readyPromise = init({ module_or_path: RAW_WASM_URL }).then(() => {
       // Surface Rust panics in DevTools instead of opaque WASM traps.
       try {
         install_panic_hook();

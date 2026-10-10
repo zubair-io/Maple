@@ -8,8 +8,9 @@ import init, {
   workflow_checkpoint_xmp,
   workflow_variant_filename,
 } from '../raw-pipeline/pkg/raw_wasm';
+import { RAW_WASM_URL } from '../raw-pipeline/wasm-asset-url';
 // Metadata needs neither pixel buffers nor Rayon. Never used for render ticks.
-const ready = init({ module_or_path: '/pkg/raw_wasm_bg.wasm' });
+const ready = init({ module_or_path: RAW_WASM_URL });
 addEventListener(
   'message',
   async (

@@ -36,6 +36,7 @@
 
 import init, { install_panic_hook } from './pkg/raw_wasm';
 import * as wasm from './pkg/raw_wasm';
+import { RAW_WASM_URL } from './wasm-asset-url';
 import { isChromiumV8Runtime, planThreading } from './threading-runtime-policy';
 
 export interface RawWasmInitResult {
@@ -102,7 +103,7 @@ function prepareThreadedHeapFn(): PrepareThreadedHeapFn | null {
 
 /** Initialize one module instance and avoid Rayon where the runtime can't safely run it. */
 export async function initRawWasm(): Promise<RawWasmInitResult> {
-  await init();
+  await init({ module_or_path: RAW_WASM_URL });
   try {
     install_panic_hook();
   } catch {
