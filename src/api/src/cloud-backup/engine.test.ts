@@ -11,6 +11,7 @@ import {
   run,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { BackupRepository } from './repository.ts';
+import { GOOGLE_CONNECTION_RECOVERY_ERROR_MESSAGES } from './google/recovery-errors.ts';
 import { BackupEngine, entryPrefix } from './engine.ts';
 import { assetInventory } from './inventory.ts';
 import { createTestProvider } from './test-provider.test-helpers.ts';
@@ -78,22 +79,53 @@ test('working Google Drive clears stale authorization errors but keeps unrelated
   using live = await createLiveTestDatabase();
   const { assetId, destination, repo, engine } = await setup(live);
   await repo.ensureEntry(destination.id, assetId, 0, 'photo.dng');
-  const [entry] = await repo.entries(destination.id, assetId);
-  expect(entry).toBeDefined();
+  const staleEntries = [];
+  for (const [ordinal, error] of GOOGLE_CONNECTION_RECOVERY_ERROR_MESSAGES.entries()) {
+    const staleAssetId = insertAsset(live.db);
+    const entry = await repo.ensureEntry(destination.id, staleAssetId, 0, `stale-${ordinal}.dng`);
+    await repo.db.write(
+      'UPDATE backup_entries SET last_error=?,attempts=4,retry_at=? WHERE id=?',
+      [error, Date.now() + 60_000, entry.id],
+    );
+    staleEntries.push(entry);
+  }
+  const integrityAssetId = insertAsset(live.db);
+  const integrityEntry = await repo.ensureEntry(destination.id, integrityAssetId, 0, 'integrity.dng');
   await repo.db.write('UPDATE backup_entries SET last_error=? WHERE id=?', [
-    'Reconnect Google Drive to resume backup.',
-    entry!.id,
+    'Google object failed identity or integrity validation.',
+    integrityEntry.id,
+  ]);
+  const offlineAssetId = insertAsset(live.db);
+  const offlineEntry = await repo.ensureEntry(destination.id, offlineAssetId, 0, 'offline.dng');
+  await repo.db.write('UPDATE backup_entries SET last_error=? WHERE id=?', [
+    'Destination offline',
+    offlineEntry.id,
   ]);
   expect(await engine.backupAsset(assetId)).toBe(true);
-  expect((await repo.entries(destination.id, assetId))[0]!.last_error).toBeNull();
-  await repo.db.write('UPDATE backup_entries SET last_error=? WHERE id=?', [
-    'Google object failed identity or integrity validation.',
-    entry!.id,
-  ]);
-  await repo.clearResolvedGoogleConnectionErrors(destination.id);
-  expect((await repo.entries(destination.id, assetId))[0]!.last_error).toBe(
+  for (const entry of staleEntries) {
+    const [cleared] = await repo.entries(destination.id, entry.asset_id);
+    expect(cleared).toMatchObject({ last_error: null, attempts: 0, retry_at: 0 });
+  }
+  expect((await repo.entries(destination.id, integrityAssetId))[0]!.last_error).toBe(
     'Google object failed identity or integrity validation.',
   );
+  expect((await repo.entries(destination.id, offlineAssetId))[0]!.last_error).toBe(
+    'Destination offline',
+  );
+  const leasedAssetId = insertAsset(live.db);
+  const leasedEntry = await repo.ensureEntry(destination.id, leasedAssetId, 0, 'leased.dng');
+  const leaseUntil = Date.now() + 120_000;
+  await repo.db.write(
+    'UPDATE backup_entries SET last_error=?,lease_owner=?,lease_until=?,retry_at=? WHERE id=?',
+    [GOOGLE_CONNECTION_RECOVERY_ERROR_MESSAGES[0], 'active-worker', leaseUntil, leaseUntil, leasedEntry.id],
+  );
+  await repo.clearResolvedGoogleConnectionErrors(destination.id);
+  expect((await repo.entries(destination.id, leasedAssetId))[0]).toMatchObject({
+    last_error: GOOGLE_CONNECTION_RECOVERY_ERROR_MESSAGES[0],
+    lease_owner: 'active-worker',
+    lease_until: leaseUntil,
+    retry_at: leaseUntil,
+  });
 });
 test('outgoing entry cleanup preserves a mirror path that another entry has claimed', async () => {
   using live = await createLiveTestDatabase();

@@ -1,4 +1,5 @@
 import { GoogleConnectionError } from './config.ts';
+import { GOOGLE_CONNECTION_RECOVERY_ERRORS as RECOVERY_ERROR } from './recovery-errors.ts';
 
 export class GoogleReconnectRequired extends GoogleConnectionError {}
 
@@ -11,7 +12,7 @@ export async function tokenResponse(response: Response, managed = false) {
 }
 function tokenFailure(body: Record<string, unknown>, managed: boolean): never {
   if (body.error === 'invalid_grant')
-    throw new GoogleReconnectRequired('Authorization expired or revoked; reconnect Google Drive.');
+    throw new GoogleReconnectRequired(RECOVERY_ERROR.authorizationExpired);
   if (body.error === 'invalid_client')
     throw new GoogleConnectionError(
       managed
@@ -19,7 +20,7 @@ function tokenFailure(body: Record<string, unknown>, managed: boolean): never {
         : 'Check the Web Application Client ID and Client Secret.',
     );
   if (managed && body.error === 'invalid_proof')
-    throw new GoogleReconnectRequired('Maple authorization changed; reconnect Google Drive.');
+    throw new GoogleReconnectRequired(RECOVERY_ERROR.mapleAuthorizationChanged);
   throw new GoogleConnectionError(
     'Google token request failed; check application permissions and retry Connect.',
   );
@@ -36,7 +37,7 @@ function parseTokens(body: Record<string, unknown>) {
     body.token_type !== 'Bearer'
   )
     throw new GoogleConnectionError(
-      'Google returned an unusable access token; reconnect Google Drive.',
+      RECOVERY_ERROR.unusableAccessToken,
     );
   return {
     accessToken: body.access_token as string,

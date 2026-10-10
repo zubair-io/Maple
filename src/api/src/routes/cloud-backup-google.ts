@@ -267,7 +267,11 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
         await requireDestination(destinationId);
         await deps.connectionChanged(destinationId);
         await ensureRoot(destinationId, rootId);
-        await deps.connectionRestored(destinationId);
+        try {
+          await deps.connectionRestored(destinationId);
+        } catch {
+          // OAuth and root setup succeeded; a later healthy Drive probe retries cleanup.
+        }
         return new Response(null, {
           status: 303,
           headers: {

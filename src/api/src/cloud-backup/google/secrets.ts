@@ -1,4 +1,5 @@
 import { GoogleConnectionError } from './config.ts';
+import { GOOGLE_CONNECTION_RECOVERY_ERRORS as RECOVERY_ERROR } from './recovery-errors.ts';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { getOrCreateJwtSecret } from '../../auth/jwt-secret.repo.ts';
 
@@ -23,7 +24,7 @@ export async function seal(value: unknown, binding: string): Promise<string> {
 export async function unseal<T>(value: string, binding: string): Promise<T> {
   const bytes = Buffer.from(value, 'base64url');
   if (bytes.length < 29)
-    throw new GoogleConnectionError('Drive credentials unavailable; reconnect Google Drive.');
+    throw new GoogleConnectionError(RECOVERY_ERROR.credentialsUnavailable);
   try {
     const cipher = createDecipheriv('aes-256-gcm', await key(), bytes.subarray(0, 12));
     cipher.setAAD(Buffer.from(binding));
@@ -32,6 +33,6 @@ export async function unseal<T>(value: string, binding: string): Promise<T> {
       Buffer.concat([cipher.update(bytes.subarray(28)), cipher.final()]).toString(),
     );
   } catch {
-    throw new GoogleConnectionError('Drive credentials unavailable; reconnect Google Drive.');
+    throw new GoogleConnectionError(RECOVERY_ERROR.credentialsUnavailable);
   }
 }

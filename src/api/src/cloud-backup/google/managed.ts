@@ -1,6 +1,7 @@
 import { DRIVE_SCOPE, RELAY_CALLBACK, RELAY_ORIGIN, GoogleConnectionError } from './config.ts';
 import type { GoogleFetch } from './oauth.ts';
 import { tokenResponse } from './token-protocol.ts';
+import { GOOGLE_CONNECTION_RECOVERY_ERRORS as RECOVERY_ERROR } from './recovery-errors.ts';
 
 const managedEndpoint = `${RELAY_ORIGIN}/api/connect/google-drive`;
 /** The shared secret remains at this fixed Maple service; only transient tokens cross it. */
@@ -49,7 +50,7 @@ export async function managedTokens(
   const tokens = await tokenResponse(response, true);
   if (!tokens.relayGrant)
     throw new GoogleConnectionError(
-      'Maple did not return a renewable authorization grant; reconnect Google Drive.',
+      RECOVERY_ERROR.renewableGrantUnavailable,
     );
   return tokens;
 }
