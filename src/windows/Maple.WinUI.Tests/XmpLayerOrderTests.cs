@@ -432,6 +432,21 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
+        public void AModeledKeyTiedWithAVerbatimKeyIsMovedOffIt()
+        {
+            var linear = CanonicalOrderBlock[..(CanonicalOrderBlock.IndexOf("</crs:GradientBasedCorrections>", StringComparison.Ordinal)
+                + "</crs:GradientBasedCorrections>".Length)].Replace("papp:LayerOrder=\"1\"", "papp:LayerOrder=\"0\"");
+            var stroke = BrushV2Block.Replace("papp:LayerOrder=\"1\"", "papp:LayerOrder=\"0\"");
+            var doc = Load(XmpLocalAdjustmentsTests.Sidecar(string.Join("\n", linear, stroke)));
+
+            var first = Save(doc);
+            var gradient = XDocument.Parse(first).Descendants(Crs + "GradientBasedCorrections").Single();
+            Assert.Equal(new[] { "-1" }, gradient.Descendants(Rdf + "Description")
+                .Select(correction => correction.Attribute(Papp + "LayerOrder")?.Value).ToArray());
+            Assert.Equal(first, Save(Assert.IsType<XmpSidecarDocument>(SidecarStore.Load(Raw))));
+        }
+
+        [Fact]
         public void AVerbatimKeyUnderAnAliasedPrefixIsReadByNamespace()
         {
             var aliased = Correction(1, 0.3, BitmapLeaf)

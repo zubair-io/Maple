@@ -114,10 +114,8 @@ namespace Maple.WinUI.Services.Xmp
                 .SelectMany(group =>
                 {
                     var members = group.ToArray();
-                    var top = members.Max(member => keys[member.index]);
                     double? low = group.Key > 0 ? sorted[group.Key - 1] : null;
-                    var above = sorted.Skip(group.Key).Where(key => key > top).ToArray();
-                    double? high = above.Length > 0 ? above[0] : null;
+                    double? high = group.Key < sorted.Length ? sorted[group.Key] : null;
                     var count = members.Length;
                     return members.Select((member, rank) => (member.index, key: (low, high) switch
                     {
