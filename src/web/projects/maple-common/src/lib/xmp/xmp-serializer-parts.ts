@@ -169,7 +169,7 @@ const LABEL_RAW_NAMES = new Set(['xmp:Label', 'Label']);
  * field rewrites canonically instead. Without culling (a metadata-only
  * bucket filter) every raw stays; the serialize step decides later.
  */
-export function keepsRawCullingAttribute(
+function keepsRawCullingAttribute(
   name: string,
   value: string,
   culling?: CullingWriteModel,

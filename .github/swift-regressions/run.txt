@@ -267,6 +267,7 @@ XMPCullFlagTests
 XMPLocalAdjustmentsTests
 XMPMetadataTests
 XMPPassthroughTests
+XMPRatingLabelPreservationTests
 XMPSerializationAutoExposureTests
 XMPSerializationBlackWhiteTests
 XMPSerializationStageKnobTests
