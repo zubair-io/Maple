@@ -130,7 +130,9 @@
 ///   (#360).
 /// - 17 — local-adjustment mask coordinates and raster layers are mapped to
 ///   sensor space matching EXIF orientation (#4426).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 17;
+/// - 18 — the GPU live chain evaluates local-adjustment masks in the upright
+///   frame on the sensor-framed Linux and Web one-shot prefixes (#4479).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 18;
 
 #[cfg(test)]
 mod tests {
