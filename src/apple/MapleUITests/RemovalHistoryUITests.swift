@@ -142,10 +142,11 @@ import XCTest
       XCTAssertFalse(app.staticTexts["editor-sidecar-save-error"].exists)
     }
 
-    func testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing() throws {
+    func testFocusedEditorHidesSavedRemovalListingWithoutChangingAcceptedData() throws {
       let staged = try stageSavedRemoval()
       defer { staged.remove() }
       let original = try Data(contentsOf: staged.raw)
+      let originalSidecar = try Data(contentsOf: staged.sidecar)
       let originalCompanions = try companionBytes(staged)
       let app = XCUIApplication()
       app.launchArguments = ["-editor.showsScope", "NO", "-editor.showsScopesPanel", "NO"]
@@ -160,49 +161,17 @@ import XCTest
         app.terminate()
       }
       try openFolderAndEditor(app, staged: staged)
-      try openSavedControls(app)
-      capture(app, name: "Saved removal enabled")
-      try clickEnabled(app.buttons["Disable removal 1"])
-      try waitForRecord(sidecar: staged.sidecar, active: false)
-      let disabled = try savedRecord(sidecar: staged.sidecar)
-      let id = try XCTUnwrap(disabled?["id"] as? String)
-      XCTAssertEqual(disabled?["schema"] as? Int, 5)
-      try clickEnabled(app.buttons["Enable removal 1"])
-      try waitForRecord(sidecar: staged.sidecar, active: true)
-      XCTAssertEqual(try savedRecord(sidecar: staged.sidecar)?["id"] as? String, id)
-      try clickEnabled(app.buttons["Replace removal 1"])
-      try clickEnabled(app.buttons["Cancel replacement"])
-      let before = try Data(contentsOf: staged.sidecar)
-      try clickEnabled(app.buttons["Replace removal 1"])
-      XCTAssertTrue(app.buttons["Cancel replacement"].waitForExistence(timeout: 30))
-      XCTAssertTrue(app.buttons["Clear selection"].isEnabled)
-      XCTAssertEqual(try Data(contentsOf: staged.sidecar), before)
-      capture(app, name: "Saved mask loaded for replacement")
-      try clickEnabled(app.buttons["Cancel replacement"])
-      XCTAssertEqual(try Data(contentsOf: staged.sidecar), before)
-      try clickEnabled(app.buttons["Delete removal 1"])
-      try waitForRecord(sidecar: staged.sidecar, active: nil)
-      app.typeKey("z", modifierFlags: .command)
-      try waitForRecord(sidecar: staged.sidecar, active: true)
-      XCTAssertEqual(try savedRecord(sidecar: staged.sidecar)?["id"] as? String, id)
-      app.typeKey("z", modifierFlags: [.command, .shift])
-      try waitForRecord(sidecar: staged.sidecar, active: nil)
-      app.typeKey("z", modifierFlags: .command)
-      try waitForRecord(sidecar: staged.sidecar, active: true)
-      app.terminate()
-      app.launch()
-      app.activate()
-      try openFolderAndEditor(app, staged: staged)
-      try openSavedControls(app)
-      XCTAssertTrue(app.buttons["Disable removal 1"].waitForExistence(timeout: 30))
-      capture(app, name: "Saved removal reopened without inference")
-      XCTAssertEqual(try savedRecord(sidecar: staged.sidecar)?["id"] as? String, id)
+      try openFocusedRemoval(app)
+      XCTAssertFalse(app.buttons["Saved removals"].exists)
+      XCTAssertFalse(app.buttons["Disable removal 1"].exists)
+      capture(app, name: "Focused editor without saved-removal listing")
+      XCTAssertEqual(try Data(contentsOf: staged.sidecar), originalSidecar)
       XCTAssertEqual(try Data(contentsOf: staged.raw), original)
       XCTAssertEqual(try companionBytes(staged), originalCompanions)
       XCTAssertFalse(app.staticTexts["editor-sidecar-save-error"].exists)
     }
 
-    private func openSavedControls(_ app: XCUIApplication) throws {
+    private func openFocusedRemoval(_ app: XCUIApplication) throws {
       _ = try XCTUnwrap(
         app.otherElements["canvas-render-ready"].waitForExistence(timeout: 60) ? true : nil)
       let dock = app.scrollViews.matching(
@@ -212,9 +181,7 @@ import XCTest
       try revealRemoveTool(in: dock, app: app)
       try clickEnabled(app.buttons["editor-dock-tool-remove"])
       _ = try XCTUnwrap(app.buttons["Clear selection"].waitForExistence(timeout: 60) ? true : nil)
-      captureTree(app, name: "Removal controls before saved expansion")
-      capture(app, name: "Removal controls before saved expansion")
-      try clickEnabled(app.buttons["Saved removals"])
+      XCTAssertTrue(app.buttons["removal-exit-editor"].exists)
     }
 
     /// Exercise the production picker grant: Xcode's fixture read exception

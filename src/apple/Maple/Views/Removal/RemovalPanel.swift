@@ -29,7 +29,7 @@ struct RemovalPanel: View {
               }
             }), disabled: removal.phase != .ready || removal.replacingRemovalID != nil)
       }
-      savedControls
+      if showsModePicker { savedControls }
       if removal.phase == .review {
         reviewControls
       } else if removal.phase == .ready || removal.phase == .selecting {
