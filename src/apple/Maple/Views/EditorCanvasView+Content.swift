@@ -98,16 +98,20 @@ extension EditorCanvasView {
       // (verified via a11y dump — even `canvas-zoom-indicator` reads
       // `editor-view` there), so the iPad harness matches on
       // label + value instead (#1769).
+      // `canvasHasOnscreenFrame`, not raw `gpuFramePresented` (#4496): the
+      // sentinel must report what the seed thumbnail reports, so a CPU
+      // full render shown by the backdrop (PhotoKit, oversized sensors)
+      // reads ready instead of `canvas-rendering` forever.
       .accessibilityValue(
         FullImageViewVM.canvasAccessibilityID(
           isRendering: state.session.isRendering,
-          hasPreview: state.session.gpuFramePresented
+          hasPreview: canvasHasOnscreenFrame
         )
       )
       .accessibilityIdentifier(
         FullImageViewVM.canvasAccessibilityID(
           isRendering: state.session.isRendering,
-          hasPreview: state.session.gpuFramePresented
+          hasPreview: canvasHasOnscreenFrame
         )
       )
     } else if let preview = state.session.showingOriginal ? nil : state.session.renderedPreview {
