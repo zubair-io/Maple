@@ -49,13 +49,13 @@
 #[cfg(test)]
 use raw_core::gpu_host::prepare::auto_will_fit;
 #[cfg(any(target_arch = "wasm32", test))]
+pub(crate) use raw_core::gpu_host::prepare::chain_inputs_with_status;
+#[cfg(any(target_arch = "wasm32", test))]
 use raw_core::gpu_host::prepare::effective_ae_mode;
 #[cfg(test)]
 pub(crate) use raw_core::gpu_host::prepare::fit_profile_artifacts_with_status;
 #[cfg(target_arch = "wasm32")]
 pub(crate) use raw_core::gpu_host::prepare::prefix_model_for;
-#[cfg(any(target_arch = "wasm32", test))]
-pub(crate) use raw_core::gpu_host::prepare::{chain_inputs_with_status, develop_prefix_rgba};
 #[cfg(any(target_arch = "wasm32", test))]
 use raw_core::xmp::AdjustmentModel;
 #[cfg(any(target_arch = "wasm32", test))]
@@ -208,7 +208,9 @@ mod primaries_tests {
 #[path = "gpu_render/prefix.rs"]
 mod prefix;
 #[cfg(any(target_arch = "wasm32", test))]
-pub(crate) use prefix::{develop_prefix_rgba_saved, require_prepared_removals};
+pub(crate) use prefix::{
+    develop_prefix_rgba, develop_prefix_rgba_saved, require_prepared_removals,
+};
 /// The decode-boundary + GPU-chain CORE, factored out of [`render_bytes_gpu`] so
 /// a NATIVE (Metal) host test can drive the exact same plumbing the wasm entry
 /// runs — `render_bytes_gpu` is `#[wasm_bindgen]` (wasm-only), but everything

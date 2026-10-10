@@ -27,6 +27,19 @@ pub(crate) fn require_prepared_removals(
     Ok(())
 }
 
+/// One-shot GPU rendering has no companion stack, so reject a sidecar that
+/// references saved removals instead of silently developing the unedited RAW.
+pub(crate) fn develop_prefix_rgba(
+    raw_img: &raw_core::image::RawImage,
+    raw: &[u8],
+    ext: &str,
+    model: &AdjustmentModel,
+    max_long_edge: u32,
+) -> Result<(Vec<f32>, u32, u32, AdjustmentModel, f32, f32), String> {
+    crate::removal_saved::require_no_unresolved_removals(model)?;
+    develop_prefix_rgba_without_removals(raw_img, raw, ext, model, max_long_edge)
+}
+
 /// Authoring/stack changes rebuild once; hot sliders reuse the uploaded prefix.
 pub(crate) fn develop_prefix_rgba_saved(
     raw_img: &raw_core::image::RawImage,
@@ -74,7 +87,7 @@ pub(crate) fn develop_prefix_rgba_saved(
 /// (raw-core's `downsample_image_area` early-returns), pinned by the
 /// `develop_prefix_rgba_uncapped_matches_unsized_develop` test.
 #[cfg(any(target_arch = "wasm32", test))]
-pub(crate) fn develop_prefix_rgba(
+fn develop_prefix_rgba_without_removals(
     raw_img: &raw_core::image::RawImage,
     raw: &[u8],
     ext: &str,
