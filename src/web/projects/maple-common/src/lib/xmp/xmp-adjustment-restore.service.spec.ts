@@ -33,7 +33,7 @@ import type { AssetId } from '../models/asset';
 import { SidecarSaveStateService } from './sidecar-save-state.service';
 import { XmpAdjustmentRestoreService } from './xmp-adjustment-restore.service';
 import { XmpStoreService } from './xmp-store.service';
-import { WorkflowXmpService } from './workflow-xmp.service';
+import { workflowXmpTestProvider } from './testing/workflow-xmp-test-provider';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import {
   fsAccessListEntries,
@@ -132,14 +132,7 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
             writeFile: fsAccessWriteFile,
           },
         },
-        {
-          provide: WorkflowXmpService,
-          useValue: {
-            read: async () => null,
-            variantFilename: async (name: string) => name,
-            checkpoint: async (xmp: string) => xmp,
-          },
-        },
+        workflowXmpTestProvider,
       ],
     });
 

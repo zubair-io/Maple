@@ -13,7 +13,7 @@ import {
 import { defaultAdjustmentModel } from '../models/adjustment-model';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpStoreService } from './xmp-store.service';
-import { WorkflowXmpService } from './workflow-xmp.service';
+import { workflowXmpTestProvider } from './testing/workflow-xmp-test-provider';
 
 it('retains source languages and authors when ordinary hydration also caches typed metadata', async () => {
   const root = await fs.mkdtemp(join(tmpdir(), 'maple-metadata-store-'));
@@ -42,14 +42,7 @@ it('retains source languages and authors when ordinary hydration also caches typ
             readFile: fsAccessReadFile,
           },
         },
-        {
-          provide: WorkflowXmpService,
-          useValue: {
-            read: async () => null,
-            variantFilename: async (name: string) => name,
-            checkpoint: async (xmp: string) => xmp,
-          },
-        },
+        workflowXmpTestProvider,
       ],
     });
     const parser = TestBed.inject(XmpParserService);
