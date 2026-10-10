@@ -42,9 +42,7 @@ test('keeps one query in flight and answers each in order', async () => {
   const first = pool.search('harbour', 100);
   const second = pool.search('kitchen', 100);
 
-  expect(child.queries().map((query) => query.type === 'query' && query.query)).toEqual([
-    'harbour',
-  ]);
+  expect(child.queries().map((query) => query.query)).toEqual(['harbour']);
   child.reply({
     type: 'query',
     id: 1,
@@ -57,17 +55,26 @@ test('keeps one query in flight and answers each in order', async () => {
   expect(await second).toBeNull();
 });
 
-test('a query that waits past its deadline falls back without unblocking the next', async () => {
+test('an in-flight query past its deadline restarts the wedged child and the next is served', async () => {
   const { pool, children } = readyPool();
-  const stalled = pool.search('harbour', 100);
   const startedAt = Date.now();
+  const hung = pool.search('harbour', 100);
+  const queued = pool.search('kitchen', 100);
 
-  expect(await stalled).toBeNull();
+  expect(await hung).toBeNull();
+  expect(await queued).toBeNull();
   expect(Date.now() - startedAt).toBeGreaterThanOrEqual(QUERY_TIMEOUT_MS - 50);
-  const next = pool.search('kitchen', 100);
+  expect(children[0]!.terminated).toBe(true);
   expect(children[0]!.queries().length).toBe(1);
-  children[0]!.reply({ type: 'query', id: 1, ok: true, hits: [] });
-  children[0]!.reply({ type: 'query', id: 2, ok: true, hits: [] });
+  expect(pool.status()).toMatchObject({ phase: 'starting', restarts: 1 });
+  expect(await pool.search('lantern', 100)).toBeNull();
+
+  await Bun.sleep(1_100);
+  children[1]!.reply({ type: 'state', state: READY });
+  const next = pool.search('lantern', 100);
+  const [served] = children[1]!.queries();
+  expect(served).toMatchObject({ query: 'lantern' });
+  children[1]!.reply({ type: 'query', id: served!.id, ok: true, hits: [] });
   expect(await next).toEqual([]);
 });
 
