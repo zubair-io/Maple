@@ -41,20 +41,10 @@ public final class GeneratedSearchCollectionsViewModel {
   /// query.
   public private(set) var firstPages: [String: GeneratedSearchAssetPage] = [:]
 
-  /// First asset of each collection — the tvOS card's cover.
+  /// First photo of each collection's filtered snapshot page — the card's cover.
+  /// An empty page has no cover, so the card shows its placeholder.
   public var covers: [String: SearchAsset] {
     firstPages.compactMapValues(\.results.first)
-  }
-
-  /// Covers resolved from each card's stored `cover_asset_id` (#4446), keyed by
-  /// collection id. They arrive without waiting on any collection's search.
-  public private(set) var coverRefs: [String: GeneratedSearchCover] = [:]
-
-  /// The card's cover: the first photo of its page, which the server filtered
-  /// live, else the stored cover asset while no page photo is available. The
-  /// direct asset lookup applies no visibility rules, so it never outranks the page.
-  public func cover(for card: GeneratedSearchCard) -> GeneratedSearchCover? {
-    firstPages[card.id]?.results.first.map(GeneratedSearchCover.init) ?? coverRefs[card.id]
   }
 
   public let libraryID: String
@@ -96,40 +86,24 @@ public final class GeneratedSearchCollectionsViewModel {
     // the reload on screen instead of blanking every card for a beat.
     let loadedIDs = Set(loaded.map(\.id))
     firstPages = firstPages.filter { loadedIDs.contains($0.key) }
-    coverRefs = coverRefs.filter { loadedIDs.contains($0.key) }
 
-    // Covers and first pages are fetched concurrently, a handful of each per
-    // day. A cover is a single asset lookup, so it lands without waiting on a
-    // collection's search; a failure just leaves that card on its gradient.
-    await withTaskGroup(of: Fetched.self) { group in
+    // One snapshot fetch per collection (there are a handful per day), run
+    // concurrently. A failure just leaves that card on its gradient.
+    await withTaskGroup(of: (String, GeneratedSearchAssetPage?).self) { group in
       for collection in loaded {
-        if let coverID = collection.cover_asset_id, coverRefs[collection.id]?.id != coverID {
-          group.addTask { [client] in
-            .cover(collection.id, try? await client.cover(assetID: coverID))
-          }
-        }
         group.addTask { [client] in
-          .page(
+          (
             collection.id,
             try? await client.assets(
-              collectionID: collection.id, limit: Self.firstPageSize, snapshot: true))
+              collectionID: collection.id, limit: Self.firstPageSize, snapshot: true)
+          )
         }
       }
-      for await fetched in group {
+      for await (id, page) in group {
         guard g == generation else { return }
-        switch fetched {
-        case .cover(let id, let cover):
-          if let cover { coverRefs[id] = cover }
-        case .page(let id, let page):
-          if let page { firstPages[id] = page }
-        }
+        if let page { firstPages[id] = page }
       }
     }
-  }
-
-  private enum Fetched: Sendable {
-    case cover(String, GeneratedSearchCover?)
-    case page(String, GeneratedSearchAssetPage?)
   }
 
   /// The FIRST PAGE of one collection's photos, plus the collection's full
@@ -144,13 +118,9 @@ public final class GeneratedSearchCollectionsViewModel {
   }
 
   /// The live first page that replaces a snapshot once the collection is
-  /// open. Only a snapshot needs replacing; the request omits the snapshot
-  /// flag, so it is always the real query.
-  public func liveFirstPage(
-    of collectionID: String, replacing snapshot: GeneratedSearchAssetPage
-  ) async -> GeneratedSearchAssetPage? {
-    guard snapshot.isSnapshot else { return nil }
-    return try? await client.assets(collectionID: collectionID, limit: Self.firstPageSize)
+  /// open. The request omits the snapshot flag, so it is always the real query.
+  public func liveFirstPage(of collectionID: String) async -> GeneratedSearchAssetPage? {
+    try? await client.assets(collectionID: collectionID, limit: Self.firstPageSize)
   }
 
   /// The next page of a collection after `offset` rows, through the same

@@ -267,9 +267,8 @@
         nextPage: { offset, limit in
           try await collections.page(of: card.id, offset: offset, limit: limit)
         },
-        liveFirstPage: {
-          await collections.liveFirstPage(of: card.id, replacing: page)
-        })
+        liveFirstPage: page.isSnapshot
+          ? { await collections.liveFirstPage(of: card.id) } : nil)
       seedQuery(seed.placeQuery)
     }
 
