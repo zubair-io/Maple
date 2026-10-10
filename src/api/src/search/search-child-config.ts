@@ -16,7 +16,7 @@ const ORT_LIBRARY_BY_PLATFORM: Readonly<Record<string, string>> = {
  * image sets it and the crate reads it itself), otherwise the copy onnxruntime-node ships, which
  * the face pipeline already depends on.
  */
-export function bundledOrtDylibPath(): string | undefined {
+function bundledOrtDylibPath(): string | undefined {
   if (process.env.ORT_DYLIB_PATH) return undefined;
   const library = ORT_LIBRARY_BY_PLATFORM[process.platform];
   if (!library) return undefined;

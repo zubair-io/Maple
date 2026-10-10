@@ -20,6 +20,7 @@ import {
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { searchChildConfig } from './search-child-config.ts';
+import { saveEnrichmentConfig } from '../enrichment/enrichment-config.repo.ts';
 import { SearchChildPool, type SearchEngineStatus } from './search-pool.ts';
 import type { SearchChildConfig } from './search-protocol.ts';
 import { storeVector } from './search.test-helpers.ts';
@@ -104,6 +105,21 @@ describe.skipIf(!searchLibrary)('search child over the real library', () => {
       expect(pool.status().phase).toBe('ready');
     } finally {
       pool.stop();
+    }
+  }, 90_000);
+
+  test('reports an embedding model other than bge-m3 as incompatible and answers nothing', async () => {
+    await saveEnrichmentConfig({ embedder_model: 'nomic-embed-text' });
+    const pool = new SearchChildPool(() => config(false));
+    pool.start();
+    try {
+      const status = await waitFor(pool, (s) => s.phase !== 'starting' && s.phase !== 'loading');
+      expect(status).toMatchObject({ phase: 'incompatible-embedder', model: 'nomic-embed-text' });
+      expect(status.error).toContain('bge-m3');
+      expect(await pool.search('harbour', 10)).toBeNull();
+    } finally {
+      pool.stop();
+      await saveEnrichmentConfig({ embedder_model: null });
     }
   }, 90_000);
 

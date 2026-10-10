@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite';
 import { encodeVector } from '../enrichment/ollama-embed-client.ts';
 import type { SearchEngineOps } from './search-index-sync.ts';
 import type { ChildProcessWorker } from '../runtime/child-process-worker.ts';
-import { SearchChildPool, type InProcessSearch } from './search-pool.ts';
+import { SearchChildPool, type InProcessSearch, type SearchEngineStatus } from './search-pool.ts';
 import type {
   SearchChildConfig,
   SearchChildRequest,
@@ -74,6 +74,18 @@ export function storeVector(
   );
 }
 
+const FAKE_DOWN: SearchEngineStatus = {
+  phase: 'starting',
+  vectors: 0,
+  texts: 0,
+  textReady: false,
+  restarts: 0,
+};
+
+function readyCounts(count: number): Partial<SearchEngineStatus> {
+  return { phase: 'ready', vectors: count, texts: count, textReady: true };
+}
+
 /** A ready in-process engine that answers `ids` in order, or a down one when `ids` is null. */
 export function fakeInProcessSearch(ids: readonly string[] | null): InProcessSearch & {
   queries: Array<{ query: string; k: number }>;
@@ -92,42 +104,41 @@ export function fakeInProcessSearch(ids: readonly string[] | null): InProcessSea
             textRank: null,
           }));
     },
-    status: () => ({
-      phase: ids === null ? 'starting' : 'ready',
-      vectors: ids?.length ?? 0,
-      texts: ids?.length ?? 0,
-      textReady: ids !== null,
-      restarts: 0,
-    }),
+    status: () => (ids === null ? FAKE_DOWN : { ...FAKE_DOWN, ...readyCounts(ids.length) }),
   };
 }
 
 /** A child process stand-in that records what the pool sends and replies on demand. */
-export class FakeChild {
-  sent: SearchChildRequest[] = [];
-  terminated = false;
-  private onMessage: (event: { data: unknown }) => void = () => {};
-  private onError: (event: { message?: string }) => void = () => {};
+export interface FakeChild {
+  sent: SearchChildRequest[];
+  terminated: boolean;
+  reply(message: SearchChildResponse): void;
+  crash(): void;
+  queries(): SearchChildRequest[];
+}
 
-  postMessage(message: unknown): void {
-    this.sent.push(message as SearchChildRequest);
-  }
-  terminate(): void {
-    this.terminated = true;
-  }
-  addEventListener(type: 'message' | 'error', cb: (event: never) => void): void {
-    if (type === 'message') this.onMessage = cb as typeof this.onMessage;
-    else this.onError = cb as typeof this.onError;
-  }
-  reply(message: SearchChildResponse): void {
-    this.onMessage({ data: message });
-  }
-  crash(): void {
-    this.onError({ message: 'search child died — signal=SIGSEGV' });
-  }
-  queries() {
-    return this.sent.filter((message) => message.type === 'query');
-  }
+function fakeChild(): { fake: FakeChild; worker: ChildProcessWorker } {
+  const listeners = {
+    message: (_event: { data: unknown }) => {},
+    error: (_event: { message?: string }) => {},
+  };
+  const fake: FakeChild = {
+    sent: [],
+    terminated: false,
+    reply: (message) => listeners.message({ data: message }),
+    crash: () => listeners.error({ message: 'search child died — signal=SIGSEGV' }),
+    queries: () => fake.sent.filter((message) => message.type === 'query'),
+  };
+  const worker = {
+    postMessage: (message: unknown) => fake.sent.push(message as SearchChildRequest),
+    terminate: () => {
+      fake.terminated = true;
+    },
+    addEventListener: (type: 'message' | 'error', cb: (event: never) => void) => {
+      listeners[type] = cb as never;
+    },
+  };
+  return { fake, worker: worker as unknown as ChildProcessWorker };
 }
 
 /** A pool whose children are {@link FakeChild}s, in spawn order. */
@@ -137,9 +148,9 @@ export function fakeChildPool(config: () => SearchChildConfig): {
 } {
   const children: FakeChild[] = [];
   const pool = new SearchChildPool(config, () => {
-    const child = new FakeChild();
-    children.push(child);
-    return child as unknown as ChildProcessWorker;
+    const { fake, worker } = fakeChild();
+    children.push(fake);
+    return worker;
   });
   return { pool, children };
 }

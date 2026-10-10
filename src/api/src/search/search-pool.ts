@@ -19,6 +19,7 @@ import {
 } from '../runtime/child-process-worker.ts';
 import type { FusedSearchHit } from './search-engine-ffi.ts';
 import type {
+  QueryResponse,
   SearchChildConfig,
   SearchChildResponse,
   SearchChildState,
@@ -143,18 +144,23 @@ export class SearchChildPool implements InProcessSearch {
   }
 
   private onMessage(worker: ChildProcessWorker, message: SearchChildResponse): void {
-    if (worker !== this.worker || !message || typeof message !== 'object') return;
-    if (message.type === 'state') {
-      this.childState = message.state;
-      this.phase = message.state.phase;
-      if (message.state.phase === 'failed') this.onDeath(worker, message.state.error ?? 'failed');
-      return;
-    }
+    if (worker !== this.worker || !message) return;
+    if (message.type === 'state') this.onState(worker, message.state);
+    else this.onQueryReply(message);
+  }
+
+  private onState(worker: ChildProcessWorker, state: SearchChildState): void {
+    this.childState = state;
+    this.phase = state.phase;
+    if (state.phase === 'failed') this.onDeath(worker, state.error ?? 'failed');
+  }
+
+  private onQueryReply(message: QueryResponse): void {
     const job = this.current;
-    if (!job || job.id !== message.id) return;
+    if (job?.id !== message.id) return;
     this.current = null;
-    this.settle(job, message.ok ? (message.hits ?? []) : null);
     if (!message.ok) log.warn({ err: message.error }, 'in-process search query failed');
+    this.settle(job, message.ok ? (message.hits ?? []) : null);
     this.pump();
   }
 

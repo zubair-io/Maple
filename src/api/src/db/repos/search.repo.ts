@@ -59,4 +59,4 @@ export { mapleIdsMatching, searchByIds, searchByMapleIds, searchCount, searchPag
 
 export { searchBuckets } from './search.buckets.ts';
 
-export { serviceLexicalSearch, serviceScopedMapleIds } from './search.service.ts';
+export { serviceLexicalSearch } from './search.service.ts';

@@ -39,7 +39,14 @@ export type SearchEngineName = 'meilisearch' | 'in-process';
 export interface SearchEngineView {
   engine: SearchEngineName;
   status: {
-    phase: 'stopped' | 'starting' | 'loading' | 'ready' | 'failed';
+    phase:
+      | 'stopped'
+      | 'starting'
+      | 'loading'
+      | 'ready'
+      | 'empty'
+      | 'incompatible-embedder'
+      | 'failed';
     vectors: number;
     texts: number;
     textReady: boolean;
