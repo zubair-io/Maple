@@ -477,4 +477,32 @@ final class LocalAdjustmentOrderTests: XCTestCase {
     XCTAssertEqual(reopened.localAdjustments.map(\.xmpLayerOrder), [0, 0.5])
     XCTAssertEqual(try save(reopened, source: saved), saved)
   }
+
+  /// A brush container under another prefix bound to the papp namespace is
+  /// passthrough the walker never models; its key still orders the stack.
+  func testAliasedBrushContainerKeyIsReadByNamespace() throws {
+    let aliased = brushV2Block.replacingOccurrences(of: "papp:", with: "maple:")
+      .replacingOccurrences(
+        of: "<maple:BrushCorrections>",
+        with: "<maple:BrushCorrections xmlns:maple=\"http://ns.justmaple.app/photo/1.0/\">")
+    let saved = try save(model([radial(exposure(0.2)), linear(exposure(0.4))]))
+    let keyed =
+      canonicalOrderBlock
+      .replacingOccurrences(of: "papp:LayerOrder=\"0\"", with: "papp:LayerOrder=\"2\"")
+      .replacingOccurrences(of: "papp:LayerOrder=\"1\"", with: "papp:LayerOrder=\"0\"")
+    let source = try roundTrip(
+      saved.replacingOccurrences(of: canonicalOrderBlock, with: keyed + "\n" + aliased),
+      name: "aliased-brush.xmp")
+    var loaded = try XMPParser.parse(source).0
+    XCTAssertEqual(loaded.localAdjustments.map(\.xmpLayerOrder), [0, 2])
+    loaded.localAdjustments.insert(linear(exposure(0.1)), at: 0)
+
+    let first = try save(loaded, source: source)
+    XCTAssertTrue(first.contains(passthroughOrderBlock), first)
+    XCTAssertTrue(first.contains(aliased), first)
+
+    let reopened = try XMPParser.parse(first).0
+    XCTAssertEqual(reopened.localAdjustments.map(\.xmpLayerOrder), [-1, 0, 2])
+    XCTAssertEqual(try save(reopened, source: first), first)
+  }
 }

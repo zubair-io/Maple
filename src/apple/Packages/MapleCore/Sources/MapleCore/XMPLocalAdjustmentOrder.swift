@@ -69,18 +69,14 @@ enum LocalAdjustmentOrder {
 /// modeled layers are keyed around them, keeping every existing key stable
 /// so a read key held in memory stays valid across saves.
 extension LocalAdjustmentOrder {
-  private static func isBrushContainer(_ node: String) -> Bool {
-    let tag = "<" + LocalAdjustmentXMP.brushContainer
-    guard node.hasPrefix(tag), let next = node.dropFirst(tag.count).first else { return false }
-    return next.isWhitespace || next == ">" || next == "/"
-  }
-
   /// Verbatim brush nodes are re-emitted under the canonical prefixes, so
-  /// they are read in that scope.
+  /// they are read in that scope plus their own declarations.
   private static func verbatimKeys(_ passthrough: XMPPassthrough) -> [Double] {
-    let brushKeys = passthrough.unknownNodes.filter(isBrushContainer).flatMap {
-      XMPMaskGroupSources.layerOrderKeys($0, namespaces: XMPMaskGroupNamespaces.owned)
+    let scope = XMPMaskGroupNamespaces.owned
+    let brushes = passthrough.unknownNodes.filter {
+      XMPMaskGroupSources.isBrushContainer($0, namespaces: scope)
     }
+    let brushKeys = brushes.flatMap { XMPMaskGroupSources.layerOrderKeys($0, namespaces: scope) }
     return passthrough.maskGroups.flatMap(\.layerOrders) + brushKeys
   }
 
