@@ -138,3 +138,13 @@ test('an incompatible or empty child counts as down', async () => {
   expect(children[0]!.queries()).toEqual([]);
   expect(children[0]!.terminated).toBe(false);
 });
+
+test('a child that asks to reload is replaced at once, without the crash backoff', () => {
+  const { pool, children } = readyPool();
+  children[0]!.reply({ type: 'reload', reason: 'embedding model changed' });
+
+  expect(children[0]!.terminated).toBe(true);
+  expect(children.length).toBe(2);
+  expect(children[1]!.sent[0]?.type).toBe('start');
+  expect(pool.status()).toMatchObject({ phase: 'starting', restarts: 1 });
+});
