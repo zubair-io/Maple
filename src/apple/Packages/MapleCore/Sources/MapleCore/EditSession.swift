@@ -150,19 +150,12 @@ public final class EditSession {
   /// rasterizing a full-sensor `CGImage`.
   public var nativeDetailPreview: CIImage?
   public internal(set) var nativeDetailSourceRect: CGRect = .zero
-  /// True only when `renderedPreview` is a COMPLETED full-canvas render of
-  /// the current model. False for cold-open seeds (cached JPEG, embedded
-  /// JPEG, `.maple` sidecar preview) and for progressive composites that
-  /// stitch a fresh viewport patch over an older underlay (visible-region
-  /// refine, deep-zoom tiles). `persistCurrentPreviewToCache` gates on this:
-  /// persisting a seed or a mixed-provenance composite bakes a tone seam
-  /// into `RenderedPreviewCache` + the browse thumbnail that then reappears
-  /// on every cold open until a full render overwrites it (#1881).
-  /// Observed since #4496: `renderedPreviewIsFullRender` feeds the canvas
-  /// readiness predicate, and `releaseTransientMemory` lowers this flag
-  /// without touching `renderedPreview`, so the view must see the flag
-  /// itself change.
-  var previewIsFullRender: Bool = false
+  /// The two stored halves of `previewIsFullRender` (EditSession+Derived.swift):
+  /// what the last publish decided, and whether `releaseTransientMemory`
+  /// evicted the decoded cache underneath it since (#1881, #4496). Both
+  /// observed — the canvas readiness predicate reads the first.
+  var previewIsCompletedRender: Bool = false
+  var previewOutlivedDecodeCache: Bool = false
 
   /// True only while `renderedPreview` holds the browse-grid-thumbnail seed
   /// (#2040) and nothing richer has landed yet. `ensureRenderStarted`'s

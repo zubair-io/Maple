@@ -93,8 +93,10 @@ extension EditSession {
     await renderActor.invalidate()
     // #1881 — the on-screen preview (if any) now predates this eviction,
     // so a refine-skip persist must not write these stale pixels under a
-    // fresh cache key later.
-    previewIsFullRender = false
+    // fresh cache key later. Only the persist half moves: the frame stays
+    // on glass, so the canvas readiness (#4496) must not regress to the
+    // seed thumbnail on the next foreground.
+    previewOutlivedDecodeCache = true
     await gpuLiveDriver?.closeSession()
   }
 
