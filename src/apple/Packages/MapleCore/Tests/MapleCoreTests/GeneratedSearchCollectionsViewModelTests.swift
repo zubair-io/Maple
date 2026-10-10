@@ -28,16 +28,17 @@ final class GeneratedSearchCollectionsViewModelTests: XCTestCase {
     XCTAssertEqual(stub.lastAssetsLimit, "30")
   }
 
-  func test_load_resolvesCoverFromStoredCoverAssetID() async {
+  func test_load_resolvesCoverFromStoredCoverAssetID_butFilteredPagePhotoWins() async {
     let stub = CollectionsStub()
     let vm = makeVM(stub)
 
     await vm.load()
 
     XCTAssertEqual(
-      vm.cover(for: vm.collections[0]),
+      vm.coverRefs["gs1"],
       GeneratedSearchCover(id: "cov1", absPath: "/p/cover.dng", filename: "cover.dng"))
     XCTAssertEqual(stub.coverRequests, 1)
+    XCTAssertEqual(vm.cover(for: vm.collections[0])?.absPath, "/p/a.dng")
   }
 
   func test_cover_fallsBackToFirstPageWhenCardHasNoCoverAssetID() async {

@@ -36,6 +36,7 @@ import { projectAssets } from './search/project.ts';
 import {
   canServeStoredPage,
   liveCoverAssetId,
+  pageWindow,
   storedPage,
 } from './generated-searches.stored-page.ts';
 
@@ -110,22 +111,23 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
         return storedPage(doc, where, limit);
       }
 
+      const window = pageWindow(doc, offset, limit);
       const meili = await meiliPage({
         where,
         resolved,
         libraryId: doc.library_id,
-        skip: offset,
-        limit,
+        skip: window.skip,
+        limit: window.fetchLimit,
       });
       if (meili !== null) {
-        return { total: meili.total, results: meili.results };
+        return { total: meili.total, results: window.trim(meili.results, (r) => r._id) };
       }
 
       // The database leg. The page and the total are composed from the same
       // `SearchWhere`, which is what stops a card claiming more photos than its
       // own grid can show.
       const [docs, total, libs, idToSlug] = await Promise.all([
-        searchPage(where, { sort: 'captured_desc', limit, skip: offset }),
+        searchPage(where, { sort: 'captured_desc', limit: window.fetchLimit, skip: window.skip }),
         searchCount(where),
         loadLibraryRoots().catch(() => new Map<string, string>()),
         loadLibraryIdToSlug().catch(() => new Map<string, string>()),
@@ -133,7 +135,11 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
 
       return {
         total,
-        results: await projectAssets(docs, libs, idToSlug),
+        results: await projectAssets(
+          window.trim(docs, (d) => d._id.toHexString()),
+          libs,
+          idToSlug,
+        ),
       };
     },
     { query: t.Object({ limit: t.Optional(t.String()), offset: t.Optional(t.String()) }) },
