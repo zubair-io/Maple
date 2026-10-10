@@ -21,6 +21,7 @@ import {
 } from '../../search/search-engine-selection.ts';
 import { setInProcessSearchForTests } from '../../search/search-pool.ts';
 import { fakeInProcessSearch } from '../../search/search.test-helpers.ts';
+import { setMeilisearchClientForTests } from '../../enrichment/meilisearch-client.ts';
 
 let live: LiveTestDatabase;
 
@@ -44,6 +45,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   setInProcessSearchForTests(null);
+  setMeilisearchClientForTests(null);
   resetSearchEngineSelectionForTests();
   _resetCacheForTests();
   live.close();
@@ -148,6 +150,34 @@ describe('GET /api/search/facets with the in-process engine', () => {
       ['Canon', 2],
       ['SONY', 1],
     ]);
+  });
+
+  it('never caches the Meilisearch stand-in for the in-process ranking', async () => {
+    const meiliCalls: string[] = [];
+    setMeilisearchClientForTests({
+      isConfigured: () => true,
+      semanticConfigured: () => false,
+      health: async () => true,
+      ensureIndex: async () => {},
+      upsert: async () => {},
+      upsertOrThrow: async () => {},
+      tombstone: async () => {},
+      search: async (q) => {
+        meiliCalls.push(q);
+        return { ids: ['meadow'], estimatedTotal: 1 };
+      },
+    });
+    setInProcessSearchForTests(fakeInProcessSearch(null));
+
+    const whileLoading = await facets('placeQuery=greyson');
+    const engine = fakeInProcessSearch(RANKED);
+    setInProcessSearchForTests(engine);
+    const onceReady = await facets('placeQuery=greyson');
+
+    expect(meiliCalls).toEqual(['greyson']);
+    expect(whileLoading.total).toBe(1);
+    expect(engine.queries.length).toBe(1);
+    expect(onceReady.total).toBe(3);
   });
 
   it('falls back to the database ranking while the child is down', async () => {
