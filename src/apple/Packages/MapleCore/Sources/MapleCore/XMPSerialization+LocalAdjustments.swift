@@ -409,31 +409,33 @@ extension XMPSerializer {
   ) -> [String] {
     let step = { (n: Int) in indent + String(repeating: " ", count: n) }
     let (i2, i3, i4, i5, i6) = (indent, step(2), step(4), step(6), step(8))
-    let attrs =
-      [
-        "\(i4)crs:What=\"Correction\"",
-        "\(i4)crs:CorrectionAmount=\"1\"",
-        "\(i4)crs:CorrectionActive=\"True\"",
-      ]
-      + (order.map {
-        ["\(i4)\(LocalMaskWire.layerOrderAttribute)=\"\(fmtMaskCoordinate($0))\""]
-      } ?? [])
-      + LocalAdjustmentXMP.sliders.compactMap { slider -> String? in
-        // Only fields actually set are written; a non-finite value is
-        // not representable in XMP and is skipped like every slider.
-        guard let value = slider.get(layer.adjustments), value.isFinite else { return nil }
-        // The fraction-scaled keys ride Adobe's ±1 scale: the
-        // canonical 2-decimal precision would quantise Maple's ±100
-        // slider to whole units, so they get four (#3280 review,
-        // extended to the six spatial controls by #3407) — mirrors
-        // raw-core's `fmt4`.
-        let text =
-          LocalAdjustmentXMP.fractionScaledKeys.contains(slider.key)
-          ? LocalAdjustmentXMP.fmtNum4(value) : fmtNum(value)
-        return "\(i4)\(slider.key)=\"\(text)\""
-      } + _localAdjustmentRangeLines(layer.range, indent: i4)
+    let bookkeeping: [String] = [
+      "\(i4)crs:What=\"Correction\"",
+      "\(i4)crs:CorrectionAmount=\"1\"",
+      "\(i4)crs:CorrectionActive=\"True\"",
+    ]
+    let orderLines: [String] =
+      order.map { ["\(i4)\(LocalMaskWire.layerOrderAttribute)=\"\(fmtMaskCoordinate($0))\""] }
+      ?? []
+    let sliderLines: [String] = LocalAdjustmentXMP.sliders.compactMap { slider -> String? in
+      // Only fields actually set are written; a non-finite value is
+      // not representable in XMP and is skipped like every slider.
+      guard let value = slider.get(layer.adjustments), value.isFinite else { return nil }
+      // The fraction-scaled keys ride Adobe's ±1 scale: the
+      // canonical 2-decimal precision would quantise Maple's ±100
+      // slider to whole units, so they get four (#3280 review,
+      // extended to the six spatial controls by #3407) — mirrors
+      // raw-core's `fmt4`.
+      let text =
+        LocalAdjustmentXMP.fractionScaledKeys.contains(slider.key)
+        ? LocalAdjustmentXMP.fmtNum4(value) : fmtNum(value)
+      return "\(i4)\(slider.key)=\"\(text)\""
+    }
+    let trailing: [String] =
+      _localAdjustmentRangeLines(layer.range, indent: i4)
       + _maskGroupAttributes(layer.mask, indent: i4)
       + _localMetadataAttributes(layer.xmpMetadata, indent: i4)
+    let attrs = bookkeeping + orderLines + sliderLines + trailing
     let opening = [
       "\(i2)<rdf:li>",
       "\(i3)<rdf:Description",
