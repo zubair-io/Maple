@@ -29,6 +29,8 @@ function routes(transport?: GoogleFetch) {
         [id],
       );
     },
+    connectionRestored: async (id) =>
+      new BackupRepository().clearResolvedGoogleConnectionErrors(id),
     transport,
   });
   return new Elysia().use(new Elysia({ name: 'isolatedGoogleOwner' }).use(owner)).use(callback);

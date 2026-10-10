@@ -32,4 +32,5 @@ export const googleBackupRoutes = buildGoogleBackupRoutes({
     const destination = await backupEngine.repo.destination(id);
     if (destination) await backupEngine.repo.rearmLibrary(destination.libraryId);
   },
+  connectionRestored: (id) => backupEngine.repo.clearResolvedGoogleConnectionErrors(id),
 });

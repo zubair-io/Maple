@@ -34,6 +34,7 @@ export interface GoogleRouteDependencies {
   } | null>;
   attachRoot: (id: string, rootId: string, accountId: string, generation: number) => Promise<void>;
   connectionChanged: (id: string) => Promise<void>;
+  connectionRestored: (id: string) => Promise<void>;
   transport?: GoogleFetch;
 }
 const IdParams = t.Object({ destinationId: t.String({ format: 'uuid' }) });
@@ -266,6 +267,7 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
         await requireDestination(destinationId);
         await deps.connectionChanged(destinationId);
         await ensureRoot(destinationId, rootId);
+        await deps.connectionRestored(destinationId);
         return new Response(null, {
           status: 303,
           headers: {
