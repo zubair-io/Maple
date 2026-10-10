@@ -15,8 +15,11 @@ extension EditSession {
   /// True while `renderedPreview` is a completed full-canvas render rather
   /// than a cold-open seed — the canvas-ready predicate reads this to let a
   /// CPU-published frame retire the seed thumbnail on the GPU leaf (#4496).
-  /// Every writer flips the flag together with `renderedPreview`, so the
-  /// observed image drives the view update.
+  /// Both inputs are observed, so a write to either one re-evaluates the
+  /// canvas: a render publishes the image and raises the flag, a seed
+  /// publishes with the flag already false (`applyWorkflowVariant` clears
+  /// it before the variant preview lands), and an invalidation that lowers
+  /// the flag alone (`releaseTransientMemory`) still reaches the view.
   public var renderedPreviewIsFullRender: Bool {
     renderedPreview != nil && previewIsFullRender
   }
