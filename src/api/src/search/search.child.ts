@@ -14,6 +14,7 @@ import { child as childLogger } from '../log.ts';
 import { loadEnrichmentConfig } from '../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
 import { openSearchEngine, type SearchEngine } from './search-engine-ffi.ts';
+import { normalisedModel } from '../db/repos/asset-vectors.search.ts';
 import {
   bootSearchIndex,
   incompatibleEmbedderState,
@@ -82,13 +83,38 @@ function followChanges(
   }, POLL_INTERVAL_MS);
 }
 
+async function resolvedEmbedderModel(): Promise<string> {
+  return resolveEnrichmentConfig(await loadEnrichmentConfig()).embedder_model;
+}
+
+/**
+ * Asks the parent for a fresh child once the embedding model this one loaded is no longer the
+ * configured one. Read from the settings row itself, so it catches every way the model can
+ * change — Settings → AI, the legacy enrichment-config endpoint, a semantic-search assignment —
+ * without each writer having to remember to restart search.
+ */
+function watchEmbedderModel(model: string): void {
+  const timer = setInterval(() => {
+    resolvedEmbedderModel()
+      .then((current) => {
+        if (normalisedModel(current) === normalisedModel(model)) return;
+        clearInterval(timer);
+        post({ type: 'reload', reason: `embedding model changed from "${model}" to "${current}"` });
+      })
+      .catch((err: unknown) =>
+        log.warn({ err: errorMessage(err) }, 'embedding model re-read failed'),
+      );
+  }, POLL_INTERVAL_MS);
+}
+
 async function start(config: SearchChildConfig): Promise<void> {
   if (engine) return;
   report({ phase: 'loading', vectors: 0, texts: 0, textReady: false });
   try {
     await openSqlitePool({ path: config.dbPath, readers: 1 });
     const saved = reusableIndexState(config.stateFile, config.engine.index_dir);
-    const model = resolveEnrichmentConfig(await loadEnrichmentConfig()).embedder_model;
+    const model = await resolvedEmbedderModel();
+    watchEmbedderModel(model);
     const incompatible = incompatibleEmbedderState(model);
     if (incompatible) {
       report(incompatible);

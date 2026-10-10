@@ -21,6 +21,12 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { searchChildConfig } from './search-child-config.ts';
 import { saveEnrichmentConfig } from '../enrichment/enrichment-config.repo.ts';
+import { Elysia } from 'elysia';
+import { enrichmentRoutes } from '../routes/enrichment.ts';
+import { signAccessToken } from '../auth/tokens.ts';
+import { withTestEnv } from '../test-support/env.test-helpers.ts';
+
+withTestEnv('MAPLE_JWT_SECRET', 'x'.repeat(32));
 import { SearchChildPool, type SearchEngineStatus } from './search-pool.ts';
 import type { SearchChildConfig } from './search-protocol.ts';
 import { storeVector } from './search.test-helpers.ts';
@@ -120,6 +126,36 @@ describe.skipIf(!searchLibrary)('search child over the real library', () => {
     } finally {
       pool.stop();
       await saveEnrichmentConfig({ embedder_model: null });
+    }
+  }, 90_000);
+
+  test('restarts when the legacy enrichment endpoint changes the embedding model', async () => {
+    const pool = new SearchChildPool(() => config(false));
+    pool.start();
+    try {
+      await waitFor(pool, (s) => s.phase === 'failed' || s.textReady);
+      const owner = await signAccessToken(
+        { sub: 'search-owner', email: 'owner@example.com', role: 'owner', file_access: true },
+        'x'.repeat(32),
+      );
+      const response = await new Elysia().use(enrichmentRoutes).handle(
+        new Request('http://localhost/api/enrichment/config', {
+          method: 'PUT',
+          headers: { authorization: `Bearer ${owner}`, 'content-type': 'application/json' },
+          body: JSON.stringify({
+            nominatim_url: null,
+            geocode_worker_enabled: false,
+            meilisearch_embedder_model: 'nomic-embed-text',
+          }),
+        }),
+      );
+      expect(response.status).toBe(200);
+
+      const status = await waitFor(pool, (s) => s.phase === 'incompatible-embedder');
+      expect(status).toMatchObject({ model: 'nomic-embed-text', restarts: 1 });
+    } finally {
+      pool.stop();
+      await saveEnrichmentConfig({ meilisearch_embedder_model: null });
     }
   }, 90_000);
 

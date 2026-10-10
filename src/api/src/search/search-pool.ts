@@ -148,7 +148,14 @@ export class SearchChildPool implements InProcessSearch {
   private onMessage(worker: ChildProcessWorker, message: SearchChildResponse): void {
     if (worker !== this.worker || !message) return;
     if (message.type === 'state') this.onState(worker, message.state);
+    else if (message.type === 'reload') this.onReload(message.reason);
     else this.onQueryReply(message);
+  }
+
+  private onReload(reason: string): void {
+    log.info({ reason }, 'search child asked to reload');
+    this.restarts++;
+    this.restart();
   }
 
   private onState(worker: ChildProcessWorker, state: SearchChildState): void {
@@ -224,10 +231,6 @@ export function searchChildPool(config: () => SearchChildConfig): SearchChildPoo
 
 export function stopSearchChildPool(): void {
   pool?.stop();
-}
-
-export function restartSearchChildPool(): void {
-  pool?.restart();
 }
 
 /** The engine the routes query: the test fake when one is installed, else the pool if created. */

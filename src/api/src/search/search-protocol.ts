@@ -62,4 +62,10 @@ export interface StateResponse {
   state: SearchChildState;
 }
 
-export type SearchChildResponse = QueryResponse | StateResponse;
+/** The child's configuration went stale (the embedding model changed); the parent restarts it. */
+export interface ReloadResponse {
+  type: 'reload';
+  reason: string;
+}
+
+export type SearchChildResponse = QueryResponse | StateResponse | ReloadResponse;
