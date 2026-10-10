@@ -447,6 +447,30 @@ describe('XMP local adjustments — cross-container layer order (#4427)', () => 
     expect(resaved).toBe(first);
   });
 
+  it('never treats a modeled group correction as verbatim, so its key stays put', () => {
+    const everywhereCorrection = [
+      '          <rdf:li>',
+      '            <rdf:Description crs:What="Correction" crs:CorrectionAmount="1"',
+      '              crs:CorrectionActive="True" papp:LayerOrder="1" crs:LocalExposure2012="0.3">',
+      '              <crs:CorrectionMasks><rdf:Seq>',
+      '                <rdf:li crs:What="Mask/Image" crs:MaskValue="1" papp:MaskSource="Everywhere"/>',
+      '              </rdf:Seq></crs:CorrectionMasks>',
+      '            </rdf:Description>',
+      '          </rdf:li>',
+    ].join('\n');
+    const keyedLinear = CANONICAL_ORDER_BLOCK.split('\n      <crs:CircularGradient')[0].replace(
+      'papp:LayerOrder="1"',
+      'papp:LayerOrder="0"',
+    );
+    const mixedGroup = FOREIGN_GROUP.replace(
+      'crs:LocalExposure2012="1">',
+      'crs:LocalExposure2012="1" papp:LayerOrder="0.5">',
+    ).replace('        <rdf:Seq>\n', `        <rdf:Seq>\n${everywhereCorrection}\n`);
+    const { resaved: first } = reopenAndResave(sidecar(`${keyedLinear}\n${mixedGroup}`));
+    expect(writtenKeys(first)).toEqual(['0', '1', '0.5']);
+    expect(reopenAndResave(first).resaved).toBe(first);
+  });
+
   it('reads a verbatim key whose papp namespace is bound to another prefix', () => {
     const aliased = TEMPLATE_SOURCE.replace(
       'papp:LayerOrder="1">',
