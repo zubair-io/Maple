@@ -13,6 +13,7 @@ import {
   SEARCH_ENGINES,
 } from '../search/search-engine-selection.ts';
 import { inProcessSearch, type SearchEngineStatus } from '../search/search-pool.ts';
+import { searchModelCacheDir } from '../search/search-child-config.ts';
 
 const NOT_RUNNING: SearchEngineStatus = {
   phase: 'stopped',
@@ -26,6 +27,7 @@ async function searchEngineView() {
   return {
     engine: await selectedSearchEngine(),
     status: inProcessSearch()?.status() ?? NOT_RUNNING,
+    modelCacheDir: searchModelCacheDir(),
   };
 }
 
