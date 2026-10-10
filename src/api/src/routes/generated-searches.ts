@@ -33,7 +33,11 @@ import { personIdsToDrop } from '../db/repos/people.visibility.ts';
 import { personIdsForNames } from '../db/repos/people.search-filter.ts';
 import { meiliPage } from './search/list-meili.ts';
 import { projectAssets } from './search/project.ts';
-import { canServeStoredPage, storedPage } from './generated-searches.stored-page.ts';
+import {
+  canServeStoredPage,
+  liveCoverAssetId,
+  storedPage,
+} from './generated-searches.stored-page.ts';
 
 /** Wire shape for a collection card. The stored `query` rides along so a
  * client can deep-link into `/search` with the same filters. */
@@ -55,7 +59,10 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
     '/',
     async ({ query }) => {
       const collections = await listGeneratedSearches(query.libraryId, query.date);
-      return { results: collections.map(toCard) };
+      const covers = await Promise.all(collections.map(liveCoverAssetId));
+      return {
+        results: collections.map((doc, i) => ({ ...toCard(doc), cover_asset_id: covers[i] })),
+      };
     },
     { query: t.Object({ libraryId: t.String(), date: t.Optional(t.String()) }) },
   )
