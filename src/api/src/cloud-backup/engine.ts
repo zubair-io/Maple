@@ -340,6 +340,8 @@ export class BackupEngine {
         throw new Error('Backup configuration or lifecycle changed');
       const provider = await this.provider(destination);
       await provider.probe(lease.signal);
+      if (destination.kind === 'google-drive')
+        await repo.clearResolvedGoogleConnectionErrors(destination.id);
       const ctx = { destination, entry, owner, provider, signal: lease.signal };
       const objects = await this.publishFiles(ctx, files);
       await this.validateCurrentInventory(ctx, location, files);

@@ -74,9 +74,9 @@ test('original and exact XMP bytes mirror to one current remote path without the
   expect((await readRemoteCatalog(provider)).entries).toHaveLength(1);
   expect(await fs.readFile(path.join(root, 'photo.dng'), 'utf8')).toBe('immutable original');
 });
-test('successful Google reconnect clears resolved authorization errors but keeps unrelated failures', async () => {
+test('working Google Drive clears stale authorization errors but keeps unrelated failures', async () => {
   using live = await createLiveTestDatabase();
-  const { assetId, destination, repo } = await setup(live);
+  const { assetId, destination, repo, engine } = await setup(live);
   await repo.ensureEntry(destination.id, assetId, 0, 'photo.dng');
   const [entry] = await repo.entries(destination.id, assetId);
   expect(entry).toBeDefined();
@@ -84,7 +84,7 @@ test('successful Google reconnect clears resolved authorization errors but keeps
     'Reconnect Google Drive to resume backup.',
     entry!.id,
   ]);
-  await repo.clearResolvedGoogleConnectionErrors(destination.id);
+  expect(await engine.backupAsset(assetId)).toBe(true);
   expect((await repo.entries(destination.id, assetId))[0]!.last_error).toBeNull();
   await repo.db.write('UPDATE backup_entries SET last_error=? WHERE id=?', [
     'Google object failed identity or integrity validation.',

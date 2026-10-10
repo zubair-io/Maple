@@ -345,7 +345,7 @@ export class BackupRepository {
     if (destination) await this.rearmLibrary(destination.libraryId);
   }
   async clearResolvedGoogleConnectionErrors(id: string): Promise<void> {
-    await this.db.write(
+    const result = await this.db.write(
       `UPDATE backup_entries SET retry_at=0,attempts=0,last_error=NULL
       WHERE destination_id=? AND last_error IS NOT NULL AND (
         lower(last_error) LIKE '%reconnect google drive%'
@@ -355,6 +355,7 @@ export class BackupRepository {
       )`,
       [id],
     );
+    if (!result.changes) return;
     const destination = await this.destination(id);
     if (destination) await this.rearmLibrary(destination.libraryId);
   }
