@@ -74,11 +74,11 @@ final class NativeFloatExportTests: XCTestCase {
     try XMPSerializer.serialize(model: model, culling: CullingState()).write(
       to: xmp, atomically: true, encoding: .utf8)
     // A controlled finite two-node linear RGB look through the real shared stage.
-    let lut = (
-      data: (0..<8).flatMap { i in
-        [Float(i & 1), Float((i >> 1) & 1), Float((i >> 2) & 1)]
-      }, size: 2, key: UInt32(1)
-    )
+    let lutData: [Float] = [
+      0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0,
+      0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1,
+    ]
+    let lut: (data: [Float], size: Int, key: UInt32) = (data: lutData, size: 2, key: 1)
     let reference = try PipelineRenderer.render(
       rawPath: raw, xmpPath: xmp, quality: .amaze, filmLut: lut)
     let image = try await RenderActor(pipeline: ImageEditPipeline()).renderForExport(

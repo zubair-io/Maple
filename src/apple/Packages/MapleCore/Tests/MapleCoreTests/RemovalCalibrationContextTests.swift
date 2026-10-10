@@ -51,10 +51,12 @@ final class RemovalCalibrationContextTests: XCTestCase {
     XCTAssertTrue(region.allSatisfy(\.isFinite))
     let inner = try RemovalBridge.calibrationContext(
       handle: raw, x: 2, y: 2, width: 3, height: 2)
-    let expected = (1...2).flatMap { row in
-      Array(region[(row * 7 + 1) * 3..<(row * 7 + 4) * 3])
-    }
-    XCTAssertEqual(inner.map(\.bitPattern), expected.map(\.bitPattern))
+    let firstRow = Array(region[24..<33])
+    let secondRow = Array(region[45..<54])
+    let expected: [Float] = firstRow + secondRow
+    let innerBits: [UInt32] = inner.map { $0.bitPattern }
+    let expectedBits: [UInt32] = expected.map { $0.bitPattern }
+    XCTAssertEqual(innerBits, expectedBits)
     XCTAssertEqual(
       try RemovalBridge.calibrationContext(handle: raw, x: 1, y: 1, width: 7, height: 5)
         .map(\.bitPattern), region.map(\.bitPattern))
