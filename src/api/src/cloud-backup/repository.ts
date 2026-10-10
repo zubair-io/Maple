@@ -1,5 +1,6 @@
 import { sqliteDb, type SqliteDb } from '../db/repos/db-handle.ts';
 import type { BackupManifest, BackupObject, UploadCheckpoint, PurgeRecord } from './provider.ts';
+import { GOOGLE_CONNECTION_RECOVERY_ERROR_MESSAGES } from './google/recovery-errors.ts';
 
 export interface BackupDestination {
   id: string;
@@ -343,6 +344,34 @@ export class BackupRepository {
     );
     const destination = await this.destination(id);
     if (destination) await this.rearmLibrary(destination.libraryId);
+  }
+  async clearResolvedGoogleConnectionErrors(id: string): Promise<void> {
+    const placeholders = GOOGLE_CONNECTION_RECOVERY_ERROR_MESSAGES.map(() => '?').join(',');
+    const [pending] = await this.db.read<{ found: number }>(
+      `SELECT EXISTS(SELECT 1 FROM backup_entries WHERE destination_id=?
+      AND last_error IN (${placeholders}) AND (lease_owner IS NULL OR lease_until<=?)) AS found`,
+      [id, ...GOOGLE_CONNECTION_RECOVERY_ERROR_MESSAGES, Date.now()],
+    );
+    if (!pending?.found) return;
+    const now = Date.now();
+    const params = [id, ...GOOGLE_CONNECTION_RECOVERY_ERROR_MESSAGES, now];
+    await this.db.transaction([
+      {
+        sql: `UPDATE stage_state SET version=0,attempts=0,dead=0,next_attempt_at=NULL
+        WHERE stage='cloud-backup' AND asset_id IN (SELECT DISTINCT asset_id FROM backup_entries
+          WHERE destination_id=? AND last_error IN (${placeholders})
+          AND (lease_owner IS NULL OR lease_until<=?))`,
+        params,
+      },
+      {
+        sql: `UPDATE backup_entries SET retry_at=0,attempts=0,last_error=NULL,
+          lease_owner=CASE WHEN lease_until<=? THEN NULL ELSE lease_owner END,
+          lease_until=CASE WHEN lease_until<=? THEN 0 ELSE lease_until END
+        WHERE destination_id=? AND last_error IN (${placeholders})
+          AND (lease_owner IS NULL OR lease_until<=?)`,
+        params: [now, now, id, ...GOOGLE_CONNECTION_RECOVERY_ERROR_MESSAGES, now],
+      },
+    ]);
   }
   async catalog(id: string): Promise<{ entries: BackupManifest[]; purges: PurgeRecord[] }> {
     const entries = await this.entries(id);

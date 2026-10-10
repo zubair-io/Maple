@@ -12,7 +12,11 @@ import { BackupRepository } from '../cloud-backup/repository.ts';
 const destinationId = 'e9aa2f31-ccdd-4e77-9999-0619988bac3c';
 const origin = 'https://photos.example.com';
 const secret = 'google-route-test-secret-must-be-long';
-function routes(transport?: GoogleFetch) {
+function routes(
+  transport?: GoogleFetch,
+  connectionRestored: (id: string) => Promise<void> = (id) =>
+    new BackupRepository().clearResolvedGoogleConnectionErrors(id),
+) {
   const { owner, callback } = buildGoogleBackupRoutes({
     origin: async () => origin,
     destination: (id) => new BackupRepository().destination(id),
@@ -29,6 +33,7 @@ function routes(transport?: GoogleFetch) {
         [id],
       );
     },
+    connectionRestored,
     transport,
   });
   return new Elysia().use(new Elysia({ name: 'isolatedGoogleOwner' }).use(owner)).use(callback);
@@ -43,7 +48,10 @@ test('owner gate stays isolated from cookie/state guarded callback; member canno
   const previous = process.env.MAPLE_JWT_SECRET;
   process.env.MAPLE_JWT_SECRET = secret;
   try {
-    const app = routes();
+    let restored = 0;
+    const app = routes(undefined, async () => {
+      restored++;
+    });
     const member = await signAccessToken(
       {
         sub: '111111111111111111111111',
@@ -82,6 +90,7 @@ test('owner gate stays isolated from cookie/state guarded callback; member canno
     expect(callback.headers.get('set-cookie')).toContain('Max-Age=0');
     expect(callback.headers.get('cache-control')).toBe('no-store');
     expect(callback.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(restored).toBe(0);
   } finally {
     process.env.MAPLE_JWT_SECRET = previous;
   }
@@ -148,43 +157,50 @@ for (const existingRoot of [undefined, 'existing-backup-root']) {
         { sub: user.toHexString(), email: null, role: 'owner', file_access: true },
         secret,
       );
+      const restored: string[] = [];
       let rootsCreated = 0;
-      const app = routes(async (url, init) => {
-        const request = new URL(url);
-        if (request.pathname.endsWith('/files/existing-backup-root'))
-          return Response.json({
-            id: 'existing-backup-root',
-            name: 'Recovered Maple backup',
-            mimeType: 'application/vnd.google-apps.folder',
-            ownedByMe: true,
-            parents: ['root'],
-            description: JSON.stringify({ mapleBackupRoot: 1, identity: 'recovered-library' }),
-          });
-        if (request.pathname.endsWith('/generateIds'))
-          return Response.json({ ids: ['automatically-created-root'] });
-        if (request.pathname.endsWith('/files/automatically-created-root'))
-          return new Response(null, { status: 404 });
-        if (request.pathname.endsWith('/files') && init?.method === 'POST') {
-          rootsCreated++;
-          const folder = JSON.parse(String(init.body));
-          expect(folder.name).toBe('Maple Photo Backup');
-          expect(folder.parents).toEqual(['root']);
-          return Response.json({ id: folder.id });
-        }
-        if (url.toString().endsWith('/token'))
-          return Response.json({
-            access_token: 'token-local',
-            refresh_token: 'refresh-local',
-            token_type: 'Bearer',
-            expires_in: 30,
-          });
-        if (url.toString().endsWith('/tokeninfo'))
-          return Response.json({
-            aud: '12345-example.apps.googleusercontent.com',
-            scope: DRIVE_SCOPE,
-          });
-        return Response.json({ user: { permissionId: 'account-1' } });
-      });
+      const app = routes(
+        async (url, init) => {
+          const request = new URL(url);
+          if (request.pathname.endsWith('/files/existing-backup-root'))
+            return Response.json({
+              id: 'existing-backup-root',
+              name: 'Recovered Maple backup',
+              mimeType: 'application/vnd.google-apps.folder',
+              ownedByMe: true,
+              parents: ['root'],
+              description: JSON.stringify({ mapleBackupRoot: 1, identity: 'recovered-library' }),
+            });
+          if (request.pathname.endsWith('/generateIds'))
+            return Response.json({ ids: ['automatically-created-root'] });
+          if (request.pathname.endsWith('/files/automatically-created-root'))
+            return new Response(null, { status: 404 });
+          if (request.pathname.endsWith('/files') && init?.method === 'POST') {
+            rootsCreated++;
+            const folder = JSON.parse(String(init.body));
+            expect(folder.name).toBe('Maple Photo Backup');
+            expect(folder.parents).toEqual(['root']);
+            return Response.json({ id: folder.id });
+          }
+          if (url.toString().endsWith('/token'))
+            return Response.json({
+              access_token: 'token-local',
+              refresh_token: 'refresh-local',
+              token_type: 'Bearer',
+              expires_in: 30,
+            });
+          if (url.toString().endsWith('/tokeninfo'))
+            return Response.json({
+              aud: '12345-example.apps.googleusercontent.com',
+              scope: DRIVE_SCOPE,
+            });
+          return Response.json({ user: { permissionId: 'account-1' } });
+        },
+        async (id) => {
+          restored.push(id);
+          throw new Error(`temporary recovery-write failure for ${id}`);
+        },
+      );
       const started = await app.handle(
         new Request(`http://127.0.0.1:3000/api/cloud-backup/google/${destinationId}/start`, {
           method: 'POST',
@@ -210,6 +226,7 @@ for (const existingRoot of [undefined, 'existing-backup-root']) {
         ),
       );
       expect(callback.status).toBe(303);
+      expect(restored).toEqual([destinationId]);
       expect(callback.headers.get('location')).toBe(
         `${origin}/settings/backup?connected=${destinationId}`,
       );
@@ -238,6 +255,7 @@ for (const existingRoot of [undefined, 'existing-backup-root']) {
       expect(completed.headers.get('location')).toBe(
         `${origin}/settings/backup?connected=${destinationId}`,
       );
+      expect(restored).toEqual([destinationId, destinationId]);
       expect(rootsCreated).toBe(existingRoot ? 0 : 1);
       const wrongOrigin = await app.handle(
         new Request(`http://127.0.0.1:3000/api/cloud-backup/google/${destinationId}/start`, {

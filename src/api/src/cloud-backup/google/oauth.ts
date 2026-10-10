@@ -1,4 +1,5 @@
 import { GoogleConnectionError } from './config.ts';
+import { GOOGLE_CONNECTION_RECOVERY_ERRORS as RECOVERY_ERROR } from './recovery-errors.ts';
 import { createHash, randomBytes } from 'node:crypto';
 import { sqliteDb } from '../../db/repos/db-handle.ts';
 import {
@@ -66,8 +67,7 @@ async function verifyScopes(
       'Content-Type': 'application/x-www-form-urlencoded',
     },
   });
-  if (!metadata.ok)
-    throw new GoogleConnectionError('Google token verification failed; reconnect Google Drive.');
+  if (!metadata.ok) throw new GoogleConnectionError(RECOVERY_ERROR.tokenVerificationFailed);
   const info = (await metadata.json()) as {
     aud?: string;
     azp?: string;
@@ -282,7 +282,7 @@ export async function finishGoogleFlow(
   }
   await ownerStillAuthorized(flow.ownerId);
   if (flow.callback !== callbackUrl(await origin()))
-    throw new GoogleConnectionError('Domain changed; reconnect Google Drive.');
+    throw new GoogleConnectionError(RECOVERY_ERROR.domainChanged);
   const epoch = await commitTokens(
     flow.destinationId,
     {
@@ -311,15 +311,15 @@ export async function googleAccessToken(
   if (cached && cached.epoch === connection.epoch && cached.expires > Date.now())
     return cached.token;
   if (!connection.config.refreshToken)
-    throw new GoogleConnectionError('Reconnect Google Drive to resume backup.');
+    throw new GoogleConnectionError(RECOVERY_ERROR.missingRefreshToken);
   const lease = randomBytes(32).toString('base64url');
   if (!(await claimRefresh(id, connection.epoch, lease)))
-    throw new GoogleConnectionError('Google token renewal is already in progress; retry shortly.');
+    throw new GoogleConnectionError(RECOVERY_ERROR.tokenRenewalInProgress);
   try {
     const tokens = await renewTokens(connection, transport);
     const account = await verifyToken(tokens.accessToken, connection.config.clientId, transport);
     if (account.accountId !== connection.config.accountId)
-      throw new GoogleConnectionError('Google account changed; reconnect.');
+      throw new GoogleConnectionError(RECOVERY_ERROR.accountChanged);
     await commitTokens(
       id,
       {
@@ -355,9 +355,7 @@ export async function googleAccessToken(
 function renewTokens(connection: Connection, transport: GoogleFetch) {
   if (connection.config.clientMode === 'maple') {
     if (!connection.config.relayGrant)
-      throw new GoogleReconnectRequired(
-        'Maple authorization is unavailable; reconnect Google Drive.',
-      );
+      throw new GoogleReconnectRequired(RECOVERY_ERROR.mapleAuthorizationUnavailable);
     return managedTokens(
       'refresh',
       {
