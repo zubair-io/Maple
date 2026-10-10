@@ -5,7 +5,11 @@ import { TestBed } from '@angular/core/testing';
 import { expect, it } from 'vitest';
 import { DiskDirectory } from '../editor/copy-paste/testing/batch-test-files';
 import { FolderAccessService } from '../folder-access/folder-access.service';
-import { fsAccessReadFile, fsAccessWriteFile } from '../folder-access/fs-access-backend';
+import {
+  fsAccessListEntries,
+  fsAccessReadFile,
+  fsAccessWriteFile,
+} from '../folder-access/fs-access-backend';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpStoreService } from './xmp-store.service';
@@ -32,9 +36,20 @@ it('retains source languages and authors when ordinary hydration also caches typ
       providers: [
         {
           provide: FolderAccessService,
-          useValue: { writeFile: fsAccessWriteFile, readFile: fsAccessReadFile },
+          useValue: {
+            listEntries: fsAccessListEntries,
+            writeFile: fsAccessWriteFile,
+            readFile: fsAccessReadFile,
+          },
         },
-        { provide: WorkflowXmpService, useValue: { read: async () => null } },
+        {
+          provide: WorkflowXmpService,
+          useValue: {
+            read: async () => null,
+            variantFilename: async (name: string) => name,
+            checkpoint: async (xmp: string) => xmp,
+          },
+        },
       ],
     });
     const parser = TestBed.inject(XmpParserService);
