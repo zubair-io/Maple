@@ -22,25 +22,29 @@
         ForEach(ToolGroup.allCases, id: \.self) { group in groupButton(group) }
       }
       if showsSpecialTools {
-        ForEach(visibleTools, id: \.self) { tool in
+        // axisBehavior ships only in the iOS 27.1 SDK (SwiftUI 8.0.85); #available alone
+        // still fails to compile under Xcode 27.0, which TestFlight pins to (#4489).
+        #if canImport(SwiftUI, _version: 8.0.85)
           if #available(iOS 27.1, *) {
-            ToolbarItem(placement: .topBarTrailing) {
-              toolButton(tool)
+            ForEach(visibleTools, id: \.self) { tool in
+              ToolbarItem(placement: .topBarTrailing) { toolButton(tool) }
+                .axisBehavior(.verticalPreferred)
             }
-            .axisBehavior(.verticalPreferred)
+            ToolbarItem(placement: .topBarTrailing) { moreMenu(moreTools) }
+              .axisBehavior(.verticalPreferred)
           } else {
-            ToolbarItem(placement: .topBarTrailing) {
-              toolButton(tool)
-            }
+            topBarToolsMenu
           }
-        }
-        if #available(iOS 27.1, *) {
-          ToolbarItem(placement: .topBarTrailing) { moreMenu }
-            .axisBehavior(.verticalPreferred)
-        } else {
-          ToolbarItem(placement: .topBarTrailing) { moreMenu }
-        }
+        #else
+          topBarToolsMenu
+        #endif
       }
+    }
+
+    // Without a vertical rail the individual tools would spill into the system
+    // overflow, which does not open on the Duo (#3860); one menu keeps them reachable.
+    private var topBarToolsMenu: some ToolbarContent {
+      ToolbarItem(placement: .topBarTrailing) { moreMenu(visibleTools + moreTools) }
     }
 
     private func groupButton(_ group: ToolGroup) -> some View {
@@ -82,9 +86,9 @@
       .accessibilityIdentifier("editor-dock-tool-\(tool.rawValue)")
     }
 
-    private var moreMenu: some View {
+    private func moreMenu(_ tools: [Tool]) -> some View {
       Menu {
-        ForEach(moreTools, id: \.self) { tool in
+        ForEach(tools, id: \.self) { tool in
           Button {
             state.arm(tool: tool)
             if tool == .presets { onPresetsTap() }
@@ -100,7 +104,7 @@
       } label: {
         MuiIcon(name: "more_horiz", size: .sm)
           .font(.system(size: 18))
-          .foregroundStyle(moreTools.contains(state.armedTool) ? ProTokens.accent : ProTokens.text)
+          .foregroundStyle(tools.contains(state.armedTool) ? ProTokens.accent : ProTokens.text)
           .frame(minWidth: 44, minHeight: 44)
           .contentShape(Rectangle())
       }
