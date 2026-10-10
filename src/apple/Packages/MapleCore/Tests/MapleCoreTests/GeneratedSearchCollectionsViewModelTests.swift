@@ -41,6 +41,20 @@ final class GeneratedSearchCollectionsViewModelTests: XCTestCase {
     XCTAssertEqual(vm.cover(for: vm.collections[0])?.absPath, "/p/a.dng")
   }
 
+  func test_prefetchAsksForTheSnapshot_andTheLiveReloadDoesNot() async {
+    let stub = CollectionsStub()
+    let vm = makeVM(stub)
+
+    await vm.load()
+    let snapshot = await vm.firstPage(of: Self.card)
+    XCTAssertTrue(snapshot.isSnapshot)
+    XCTAssertEqual(stub.snapshotFlags, [true])
+
+    let live = await vm.liveFirstPage(of: "gs1", replacing: snapshot)
+    XCTAssertEqual(live?.isSnapshot, false)
+    XCTAssertEqual(stub.snapshotFlags, [true, false])
+  }
+
   func test_cover_fallsBackToFirstPageWhenCardHasNoCoverAssetID() async {
     let stub = CollectionsStub(coverAssetID: nil)
     let vm = makeVM(stub)
@@ -87,7 +101,9 @@ final class CollectionsStub: @unchecked Sendable {
   private var _assetRequests = 0
   private var _lastAssetsLimit: String?
   private var _coverRequests = 0
+  private var _snapshotFlags: [Bool] = []
 
+  var snapshotFlags: [Bool] { lock.withLock { _snapshotFlags } }
   var coverRequests: Int { lock.withLock { _coverRequests } }
   var assetRequests: Int { lock.withLock { _assetRequests } }
   var lastAssetsLimit: String? { lock.withLock { _lastAssetsLimit } }
@@ -111,14 +127,18 @@ final class CollectionsStub: @unchecked Sendable {
     }
     let limit = URLComponents(url: url, resolvingAgainstBaseURL: false)?
       .queryItems?.first { $0.name == "limit" }?.value
+    let snapshot =
+      URLComponents(url: url, resolvingAgainstBaseURL: false)?
+      .queryItems?.contains { $0.name == "snapshot" && $0.value == "1" } ?? false
     lock.withLock {
       _assetRequests += 1
       _lastAssetsLimit = limit
+      _snapshotFlags.append(snapshot)
     }
+    let asset =
+      #"{"id":"fs:/p/a.dng","folder_id":"lib","abs_path":"/p/a.dng","filename":"a.dng"}"#
     return .http(
       status: 200,
-      body: Data(
-        #"{"total":2,"results":[{"id":"fs:/p/a.dng","folder_id":"lib","abs_path":"/p/a.dng","filename":"a.dng"}]}"#
-          .utf8))
+      body: Data(#"{"total":2,"snapshot":\#(snapshot),"results":[\#(asset)]}"#.utf8))
   }
 }

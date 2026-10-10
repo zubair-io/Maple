@@ -8,11 +8,10 @@ import { projectAssets, type SearchResult } from './search/project.ts';
 export function canServeStoredPage(
   doc: GeneratedSearchDoc,
   offset: number,
-  limit: number,
+  snapshot: string | undefined,
 ): doc is GeneratedSearchDoc & { first_page_ids: string[] } {
   const stored = doc.first_page_ids;
-  if (stored === null || offset !== 0 || stored.length === 0) return false;
-  return limit >= stored.length;
+  return snapshot === '1' && offset === 0 && stored !== null && stored.length > 0;
 }
 
 export async function storedPage(
