@@ -202,6 +202,13 @@ impl LocalSpatialPass {
         }
     }
 
+    /// Evaluate this layer's mask for a sensor-framed buffer; see
+    /// [`LocalAdjustmentsPass::with_orientation`].
+    pub fn with_orientation(mut self, orientation: u32) -> Self {
+        self.point = self.point.with_orientation(orientation);
+        self
+    }
+
     /// Override the dehaze sub-pass's airlight source. Only the headless
     /// parity gate needs this; the live chain keeps the default on-GPU
     /// reduction, which costs no readback.

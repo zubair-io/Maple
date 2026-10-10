@@ -500,3 +500,6 @@ mod film_look_tests;
 
 #[cfg(test)]
 mod auto_fit_status_tests;
+
+#[cfg(test)]
+mod mask_orientation_tests;

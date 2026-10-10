@@ -55,9 +55,31 @@ struct Params {
     origin_x: u32,     // buffer's left edge in full-image pixels
     origin_y: u32,     // buffer's top edge in full-image pixels
     scope_layer: i32,  // scope-target layer index (#3272), or -1 for none
-    inv_w: f32,        // 1 / (full_width - 1), or 0 when full_width == 1
-    inv_h: f32,        // 1 / (full_height - 1), or 0 when full_height == 1
+    inv_w: f32,        // 1 / (upright_width - 1), or 0 when that is 1
+    inv_h: f32,        // 1 / (upright_height - 1), or 0 when that is 1
+    orientation: u32,  // EXIF tag mapping this buffer onto the upright frame (#4426)
+    frame_w: u32,      // whole-frame width in this buffer's own framing
+    frame_h: u32,      // whole-frame height; flips need origin 0 (all callers)
+    _pad: u32,
 };
+
+// Masks are authored over the upright frame; a sensor-framed buffer (#4426)
+// reads them at its pixel's post-orientation position — the inverse of the
+// per-orientation source mapping `raw_core::image::apply_orientation` uses.
+fn upright_pixel(x: u32, y: u32) -> vec2<u32> {
+    let last_x = params.frame_w - 1u;
+    let last_y = params.frame_h - 1u;
+    switch params.orientation {
+        case 2u: { return vec2<u32>(last_x - x, y); }
+        case 3u: { return vec2<u32>(last_x - x, last_y - y); }
+        case 4u: { return vec2<u32>(x, last_y - y); }
+        case 5u: { return vec2<u32>(y, x); }
+        case 6u: { return vec2<u32>(last_y - y, x); }
+        case 7u: { return vec2<u32>(last_y - y, last_x - x); }
+        case 8u: { return vec2<u32>(y, last_x - x); }
+        default: { return vec2<u32>(x, y); }
+    }
+}
 
 // One serialized layer. Byte-for-byte the 40-float record
 // `raw_core::types::local_adjustment::flat` writes; see that module for the
@@ -672,9 +694,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         return;
     }
     let px = input_buf[i];
-    let x = params.origin_x + (i % params.buf_width);
-    let y = params.origin_y + (i / params.buf_width);
-    let n = vec2<f32>(f32(x) * params.inv_w, f32(y) * params.inv_h);
+    let upright = upright_pixel(params.origin_x + (i % params.buf_width), params.origin_y + (i / params.buf_width));
+    let n = vec2<f32>(f32(upright.x) * params.inv_w, f32(upright.y) * params.inv_h);
 
     var p = px.rgb;
     // Alpha carries the scope-target layer's weight instead of the upload's

@@ -99,6 +99,7 @@ mod tests {
                         None,
                         0,
                         0.0,
+                        1,
                     );
                     cached.apply(&model, &mut inputs);
                     let target = wb_camera::resolve_target_versioned(

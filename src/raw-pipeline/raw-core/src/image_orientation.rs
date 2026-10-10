@@ -1,6 +1,20 @@
 //! Shared EXIF display-to-sensor mapping for resident presentation (#4317).
 use super::ExifOrientation;
 impl ExifOrientation {
+    /// The TIFF 0x0112 value, the inverse of [`ExifOrientation::from_u16`].
+    pub fn exif_tag(self) -> u32 {
+        match self {
+            Self::Normal => 1,
+            Self::HorizontalFlip => 2,
+            Self::Rotate180 => 3,
+            Self::VerticalFlip => 4,
+            Self::Transpose => 5,
+            Self::Rotate90 => 6,
+            Self::Transverse => 7,
+            Self::Rotate270 => 8,
+        }
+    }
+
     /// Row-major inverse orientation in centred half-extent coordinates.
     /// Same pixel permutation as `apply_orientation`, with no image allocation.
     pub fn display_to_sensor_matrix(self) -> [f32; 9] {
