@@ -62,72 +62,78 @@ async function expectVariant(file: string, xml: string, id = ID) {
 }
 
 describe('portable variant asset lifecycle', () => {
-  test('mixed concurrent ordinary and semantic writers retain the admitted action', async () => {
-    const source = await stage('mixed-writers', 'photo.dng');
-    const initial = await callNative('workflowEmbedXmp', [
-      JSON.stringify({
-        schemaVersion: 1,
-        variantId: 'primary',
-        variantName: 'Primary',
-        snapshots: [],
-        history: [],
-      }),
-      XML,
-    ]);
-    if (!initial.ok) throw Error(initial.error);
-    const checkpoint = await callNative('workflowCheckpointXmp', [initial.value]);
-    if (!checkpoint.ok) throw Error(checkpoint.error);
-    await fs.writeFile(source.sidecar, initial.value);
-    const entries = Array.from({ length: 8 }, (_, index) => ({
-      id: crypto.randomUUID(),
-      createdAtMs: index + 1,
-      action: 'preset',
-      label: `Preset ${index + 1}`,
-      adjustmentXmp: checkpoint.value,
-    }));
-    const semantic = entries.map((entry) =>
-      commitWorkflowVariant(source.primary, 'primary', initial.value, initial.value, entry),
-    );
-    const ordinary = Array.from({ length: 8 }, () => writeXmpAtomic(source.primary, initial.value));
-    const [results, ordinaryResults] = await Promise.all([
-      Promise.allSettled(semantic),
-      Promise.all(ordinary),
-    ]);
-    if (
-      results.filter((result) => result.status === 'fulfilled').length !== 1 ||
-      ordinaryResults.some((result) => !result.ok)
-    ) {
-      const saved = await fs.readFile(source.sidecar, 'utf8').then(
-        (xml) => ({ xml }),
-        (error: unknown) => ({ readError: String(error) }),
+  // Repeated independent real sidecars expose the intermittent Linux writer race (#4051).
+  test.each(Array.from({ length: 100 }, (_, round) => round))(
+    'mixed concurrent ordinary and semantic writers retain the admitted action (round %i)',
+    async () => {
+      const source = await stage('mixed-writers', 'photo.dng');
+      const initial = await callNative('workflowEmbedXmp', [
+        JSON.stringify({
+          schemaVersion: 1,
+          variantId: 'primary',
+          variantName: 'Primary',
+          snapshots: [],
+          history: [],
+        }),
+        XML,
+      ]);
+      if (!initial.ok) throw Error(initial.error);
+      const checkpoint = await callNative('workflowCheckpointXmp', [initial.value]);
+      if (!checkpoint.ok) throw Error(checkpoint.error);
+      await fs.writeFile(source.sidecar, initial.value);
+      const entries = Array.from({ length: 8 }, (_, index) => ({
+        id: crypto.randomUUID(),
+        createdAtMs: index + 1,
+        action: 'preset',
+        label: `Preset ${index + 1}`,
+        adjustmentXmp: checkpoint.value,
+      }));
+      const semantic = entries.map((entry) =>
+        commitWorkflowVariant(source.primary, 'primary', initial.value, initial.value, entry),
       );
-      const diagnostics = {
-        runtime: { bun: Bun.version, platform: process.platform },
-        primary: source.primary,
-        sidecar: source.sidecar,
-        expectedXmp: initial.value,
-        savedSidecar: saved,
-        semantic: results.map((result, index) => ({
-          entry: entries[index],
-          status: result.status,
-          ...(result.status === 'fulfilled'
-            ? { outputXmp: result.value }
-            : { error: String(result.reason), stack: result.reason?.stack }),
-        })),
-        ordinaryResults,
-      };
-      console.error('Actual mixed-writer failure:', JSON.stringify(diagnostics));
-    }
-    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
-    expect(ordinaryResults.every((result) => result.ok)).toBe(true);
-    const saved = await fs.readFile(source.sidecar, 'utf8');
-    const record = await callNative('workflowReadXmp', [saved]);
-    if (!record.ok) throw Error(record.error);
-    const history = JSON.parse(record.value).history;
-    const winner = results.findIndex((result) => result.status === 'fulfilled');
-    expect(history).toEqual([entries[winner]]);
-    expect(await fs.readFile(source.primary, 'utf8')).toBe(source.original);
-  });
+      const ordinary = Array.from({ length: 8 }, () =>
+        writeXmpAtomic(source.primary, initial.value),
+      );
+      const [results, ordinaryResults] = await Promise.all([
+        Promise.allSettled(semantic),
+        Promise.all(ordinary),
+      ]);
+      if (
+        results.filter((result) => result.status === 'fulfilled').length !== 1 ||
+        ordinaryResults.some((result) => !result.ok)
+      ) {
+        const saved = await fs.readFile(source.sidecar, 'utf8').then(
+          (xml) => ({ xml }),
+          (error: unknown) => ({ readError: String(error) }),
+        );
+        const diagnostics = {
+          runtime: { bun: Bun.version, platform: process.platform },
+          primary: source.primary,
+          sidecar: source.sidecar,
+          expectedXmp: initial.value,
+          savedSidecar: saved,
+          semantic: results.map((result, index) => ({
+            entry: entries[index],
+            status: result.status,
+            ...(result.status === 'fulfilled'
+              ? { outputXmp: result.value }
+              : { error: String(result.reason), stack: result.reason?.stack }),
+          })),
+          ordinaryResults,
+        };
+        console.error('Actual mixed-writer failure:', JSON.stringify(diagnostics));
+      }
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      expect(ordinaryResults.every((result) => result.ok)).toBe(true);
+      const saved = await fs.readFile(source.sidecar, 'utf8');
+      const record = await callNative('workflowReadXmp', [saved]);
+      if (!record.ok) throw Error(record.error);
+      const history = JSON.parse(record.value).history;
+      const winner = results.findIndex((result) => result.status === 'fulfilled');
+      expect(history).toEqual([entries[winner]]);
+      expect(await fs.readFile(source.primary, 'utf8')).toBe(source.original);
+    },
+  );
 
   test('an ordinary cached Workflow payload cannot replace newer semantic history', async () => {
     const source = await stage('cached-history', 'photo.dng');
