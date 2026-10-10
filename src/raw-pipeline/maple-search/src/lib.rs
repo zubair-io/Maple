@@ -8,6 +8,7 @@ mod embedder;
 mod engine;
 mod error;
 mod fusion;
+mod score_floor;
 mod terms;
 mod text_index;
 mod vectors;

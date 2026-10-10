@@ -180,3 +180,33 @@ fn accents_fold_in_both_directions() {
     }
     assert_eq!(find(&index, r#""naïve mural""#), ["accented", "plain"]);
 }
+
+fn tied_top_hundred(ids: &[String], commit_every: usize) -> Vec<(String, usize)> {
+    let dir = tempfile::tempdir().unwrap();
+    let index = TextIndex::open(dir.path()).unwrap();
+    for (position, id) in ids.iter().enumerate() {
+        index.upsert(id, "boats moored in the harbour").unwrap();
+        if (position + 1) % commit_every == 0 {
+            index.commit().unwrap();
+        }
+    }
+    index.commit().unwrap();
+    let hits = index.search(&parse_text_query("harbour"), 100).unwrap();
+    assert!(hits.iter().all(|hit| hit.score == hits[0].score));
+    hits.into_iter()
+        .enumerate()
+        .map(|(rank, hit)| (hit.id, rank))
+        .collect()
+}
+
+#[test]
+fn equal_scores_cut_by_id_not_insertion_order() {
+    let ascending: Vec<String> = (0..150).map(|i| format!("asset{i:03}")).collect();
+    let descending: Vec<String> = ascending.iter().rev().cloned().collect();
+    let forwards = tied_top_hundred(&ascending, 150);
+    let backwards = tied_top_hundred(&descending, 40);
+    assert_eq!(forwards.len(), 100);
+    assert_eq!(forwards, backwards);
+    let expected: Vec<(String, usize)> = ascending[..100].iter().cloned().zip(0..).collect();
+    assert_eq!(forwards, expected);
+}
