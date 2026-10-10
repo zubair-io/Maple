@@ -181,6 +181,23 @@ fn accents_fold_in_both_directions() {
     assert_eq!(find(&index, r#""naïve mural""#), ["accented", "plain"]);
 }
 
+#[test]
+fn long_tokens_are_indexed_and_found() {
+    let long_token = "dji20261009harbourpanoramaframe0042exportfinalv3x12345678901";
+    assert_eq!(long_token.len(), 60);
+    let dir = tempfile::tempdir().unwrap();
+    let index = TextIndex::open(dir.path()).unwrap();
+    index
+        .rebuild([
+            ("long", format!("scan of {long_token}.dng").as_str()),
+            ("other", "a quiet harbour"),
+        ])
+        .unwrap();
+    assert_eq!(find(&index, long_token), ["long"]);
+    assert_eq!(find(&index, &format!("{long_token}.dng")), ["long"]);
+    assert_eq!(find(&index, &long_token.to_uppercase()), ["long"]);
+}
+
 fn tied_top_hundred(ids: &[String], commit_every: usize) -> Vec<(String, usize)> {
     let dir = tempfile::tempdir().unwrap();
     let index = TextIndex::open(dir.path()).unwrap();
