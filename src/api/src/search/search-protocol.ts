@@ -45,6 +45,10 @@ export interface SearchChildState {
   vectors: number;
   texts: number;
   textReady: boolean;
+  /** The embedding model whose vectors were loaded — the `embed` stage's, from Settings → AI. */
+  model?: string;
+  /** Rows of `asset_vectors` left out because another model (or dimension) wrote them. */
+  skippedVectors?: number;
   error?: string;
 }
 

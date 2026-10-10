@@ -95,6 +95,19 @@ test('a child that cannot open its engine is reported failed and retried later',
   expect(children[0]!.terminated).toBe(true);
 });
 
+test('restart reloads a running child and leaves a stopped pool stopped', () => {
+  const { pool, children } = readyPool();
+  pool.restart();
+
+  expect(children[0]!.terminated).toBe(true);
+  expect(children.length).toBe(2);
+  expect(pool.status().phase).toBe('starting');
+
+  pool.stop();
+  pool.restart();
+  expect(children.length).toBe(2);
+});
+
 test('stop terminates the child and never respawns it', async () => {
   const { pool, children } = readyPool();
   pool.stop();

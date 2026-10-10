@@ -11,9 +11,12 @@ import { installChildHardening } from '../runtime/child-process-worker.ts';
 import { reportMemoryToParent, startMemoryTelemetry } from '../runtime/memory-telemetry.ts';
 import { openSqlitePool } from '../db/sqlite/index.ts';
 import { child as childLogger } from '../log.ts';
+import { loadEnrichmentConfig } from '../enrichment/enrichment-config.repo.ts';
+import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
 import { openSearchEngine, type SearchEngine } from './search-engine-ffi.ts';
 import {
   bootSearchIndex,
+  readyState,
   reusableIndexState,
   SEARCH_INDEX_VERSION,
   writeIndexState,
@@ -42,7 +45,7 @@ function report(state: SearchChildState): void {
   post({ type: 'state', state });
 }
 
-function followChanges(follower: VectorFollower, config: SearchChildConfig): void {
+function followChanges(follower: VectorFollower, config: SearchChildConfig, model: string): void {
   let polling = false;
   const tick = async (): Promise<void> => {
     if (polling || !engine) return;
@@ -54,7 +57,7 @@ function followChanges(follower: VectorFollower, config: SearchChildConfig): voi
           version: SEARCH_INDEX_VERSION,
           textWatermark: follower.textWatermark,
         });
-        report({ phase: 'ready', ...engine.counts(), textReady: true });
+        report(await readyState(engine, model, true));
       }
     } catch (err) {
       log.warn({ err: err instanceof Error ? err.message : String(err) }, 'search poll failed');
@@ -71,10 +74,11 @@ async function start(config: SearchChildConfig): Promise<void> {
   try {
     await openSqlitePool({ path: config.dbPath, readers: 1 });
     const saved = reusableIndexState(config.stateFile, config.engine.index_dir);
+    const model = resolveEnrichmentConfig(await loadEnrichmentConfig()).embedder_model;
     const opened = openSearchEngine(config.engine);
     engine = opened;
-    const follower = await bootSearchIndex(opened, saved, config.stateFile, report);
-    followChanges(follower, config);
+    const follower = await bootSearchIndex(opened, model, saved, config.stateFile, report);
+    followChanges(follower, config, model);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err: message }, 'search engine failed to start');

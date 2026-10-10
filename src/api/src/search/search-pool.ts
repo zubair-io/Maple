@@ -93,6 +93,13 @@ export class SearchChildPool implements InProcessSearch {
     this.abandonAll();
   }
 
+  /** Reloads a running child from scratch, e.g. after the embedding model changed. */
+  restart(): void {
+    if (!this.wanted) return;
+    this.stop();
+    this.start();
+  }
+
   status(): SearchEngineStatus {
     const { phase: _phase, ...counts } = this.childState;
     return { ...counts, phase: this.phase, restarts: this.restarts };
@@ -205,6 +212,10 @@ export function searchChildPool(config: () => SearchChildConfig): SearchChildPoo
 
 export function stopSearchChildPool(): void {
   pool?.stop();
+}
+
+export function restartSearchChildPool(): void {
+  pool?.restart();
 }
 
 /** The engine the routes query: the test fake when one is installed, else the pool if created. */

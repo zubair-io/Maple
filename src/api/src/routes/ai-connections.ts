@@ -27,6 +27,7 @@ import {
 import { forgetEmbedderTarget } from '../workers/embed/embedder-target.ts';
 import { rearmForEmbedderTarget } from '../workers/embed/embedder-rearm.ts';
 import { resetDescribeDeps } from '../workers/stages/describe.ts';
+import { restartSearchChildPool } from '../search/search-pool.ts';
 import { resetVideoDescribeDeps } from '../workers/stages/video-describe.ts';
 
 const Connection = t.Object({
@@ -105,6 +106,7 @@ export const aiConnectionRoutes = new Elysia({ prefix: '/connections' })
         set.status = 400;
         return { error };
       }
+      const previousModel = resolveEnrichmentConfig(await loadEnrichmentConfig()).embedder_model;
       // One document update: credentials, connections and every assignment change together.
       await saveEnrichmentConfig({ ai_connections: config, ...embedder });
       const resolved = resolveEnrichmentConfig(await loadEnrichmentConfig());
@@ -119,6 +121,7 @@ export const aiConnectionRoutes = new Elysia({ prefix: '/connections' })
       });
       forgetEmbedderTarget();
       await rearmForEmbedderTarget({ url: resolved.embedder_url, model: resolved.embedder_model });
+      if (resolved.embedder_model !== previousModel) restartSearchChildPool();
       resetDescribeDeps();
       resetVideoDescribeDeps();
       return { ...publicAiConnections(config), embedder: await embedderView() };

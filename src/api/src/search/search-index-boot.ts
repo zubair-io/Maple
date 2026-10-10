@@ -15,6 +15,7 @@ import {
   type SearchEngineOps,
 } from './search-index-sync.ts';
 import type { SearchChildState } from './search-protocol.ts';
+import { countSkippedVectors } from '../db/repos/asset-vectors.search.ts';
 
 /** The template shape the text is rendered with, then this layout's own revision. */
 export const SEARCH_INDEX_VERSION = `${EMBEDDER_TEMPLATE_SHAPE_VERSION}.1`;
@@ -51,6 +52,21 @@ export function reusableIndexState(stateFile: string, indexDir: string): SearchI
   return null;
 }
 
+/** What the child reports once its vectors are in, with the rows it left out for their model. */
+export async function readyState(
+  engine: SearchEngineOps,
+  model: string,
+  textReady: boolean,
+): Promise<SearchChildState> {
+  return {
+    phase: 'ready',
+    ...engine.counts(),
+    textReady,
+    model,
+    skippedVectors: await countSkippedVectors(model),
+  };
+}
+
 function earlier(a: string, b: string): string {
   return a < b ? a : b;
 }
@@ -62,21 +78,23 @@ function earlier(a: string, b: string): string {
  */
 export async function bootSearchIndex(
   engine: SearchEngineOps,
+  model: string,
   saved: SearchIndexState | null,
   stateFile: string,
   report: (state: SearchChildState) => void,
 ): Promise<VectorFollower> {
   const since = isoBefore(Date.now(), CHANGE_OVERLAP_MS);
-  const held = await loadAllVectors(engine);
+  const held = await loadAllVectors(engine, model);
   // The engine copied the 1.4 GB load buffer; collect it now rather than whenever the heap grows.
   Bun.gc(true);
   const counts = () => engine.counts();
-  report({ phase: 'ready', ...counts(), textReady: false });
+  report(await readyState(engine, model, false));
 
   const follower = new VectorFollower(
     engine,
     held,
     saved ? earlier(saved.textWatermark, since) : since,
+    model,
   );
   if (!saved) await rebuildText(engine, [...held]);
   await follower.poll();
@@ -86,6 +104,6 @@ export async function bootSearchIndex(
     version: SEARCH_INDEX_VERSION,
     textWatermark: follower.textWatermark,
   });
-  report({ phase: 'ready', ...counts(), textReady: true });
+  report(await readyState(engine, model, true));
   return follower;
 }

@@ -58,12 +58,19 @@ function basis(axis: number): Uint8Array {
   return encodeVector(vector);
 }
 
-export function storeVector(db: Database, mapleId: string, axis: number, embeddedAt: string): void {
+export function storeVector(
+  db: Database,
+  mapleId: string,
+  axis: number,
+  embeddedAt: string,
+  model = 'bge-m3',
+): void {
   db.run(
     `INSERT INTO asset_vectors (maple_id, version, model, endpoint, dims, vector, embedded_at)
-     VALUES (?, 8, 'bge-m3', 'http://gpu', ?, ?, ?)
-     ON CONFLICT (maple_id) DO UPDATE SET vector = excluded.vector, embedded_at = excluded.embedded_at`,
-    [mapleId, DIMS, basis(axis), embeddedAt],
+     VALUES (?, 8, ?, 'http://gpu', ?, ?, ?)
+     ON CONFLICT (maple_id) DO UPDATE SET
+       model = excluded.model, vector = excluded.vector, embedded_at = excluded.embedded_at`,
+    [mapleId, model, DIMS, basis(axis), embeddedAt],
   );
 }
 

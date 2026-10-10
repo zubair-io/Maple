@@ -38,11 +38,12 @@ test('a first boot rebuilds the text, records the version and reports ready twic
   const states: SearchChildState[] = [];
   const stateFile = join(dir, 'state.json');
 
-  await bootSearchIndex(engine, null, stateFile, (state) => states.push(state));
+  await bootSearchIndex(engine, 'bge-m3', null, stateFile, (state) => states.push(state));
 
   expect(engine.clears).toBe(1);
   expect(engine.counts()).toEqual({ vectors: 1, texts: 1 });
   expect(readIndexState(stateFile)?.version).toBe(SEARCH_INDEX_VERSION);
+  expect(states.at(-1)).toMatchObject({ model: 'bge-m3', skippedVectors: 0 });
   expect(states.map((state) => [state.phase, state.textReady])).toEqual([
     ['ready', false],
     ['ready', true],
@@ -54,7 +55,7 @@ test('a boot on a current index only catches up instead of rebuilding', async ()
   engine.texts.set('harbour', 'kept from the last run');
   const saved = { version: SEARCH_INDEX_VERSION, textWatermark: '2020-06-01T00:00:00.000Z' };
 
-  await bootSearchIndex(engine, saved, join(dir, 'state.json'), () => {});
+  await bootSearchIndex(engine, 'bge-m3', saved, join(dir, 'state.json'), () => {});
 
   expect(engine.clears).toBe(0);
   expect(engine.texts.get('harbour')).toBe('kept from the last run');
@@ -64,7 +65,7 @@ test('a boot whose text count disagrees with the vectors rebuilds after all', as
   const engine = new RecordingEngine();
   const saved = { version: SEARCH_INDEX_VERSION, textWatermark: '2020-06-01T00:00:00.000Z' };
 
-  await bootSearchIndex(engine, saved, join(dir, 'state.json'), () => {});
+  await bootSearchIndex(engine, 'bge-m3', saved, join(dir, 'state.json'), () => {});
 
   expect(engine.clears).toBe(1);
   expect(engine.counts()).toEqual({ vectors: 1, texts: 1 });
