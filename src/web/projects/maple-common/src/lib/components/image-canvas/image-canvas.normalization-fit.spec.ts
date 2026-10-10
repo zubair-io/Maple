@@ -57,6 +57,7 @@ describe('actual X3F normalization failure provenance', () => {
       const host = {
         currentAssetId: ASSET as string | null,
         renderGeneration: 1,
+        serializeForRender: () => '<xmp/>',
         state: {
           adjustmentFor: () => model,
           autoFitRevisionFor: capabilities.autoFitRevisionFor.bind(capabilities),

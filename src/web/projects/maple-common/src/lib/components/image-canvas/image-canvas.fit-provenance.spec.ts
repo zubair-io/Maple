@@ -45,8 +45,9 @@ function harness() {
     state,
     currentAssetId: ID,
     renderGeneration: 1,
-    canvasSvc: { currentPixels: signal(null) },
+    canvasSvc: { currentPixels: signal(null), cropInputDimensions: signal(null) },
     pipeline: { decode: vi.fn(), renderLiveSession: vi.fn() },
+    savedRemovals: { load: async () => null },
     filmSync: { cpuLutBytesForCurrent: () => undefined },
     nativeDetail: { recordBase: vi.fn() },
     imageBitmap: signal(null),
@@ -175,7 +176,14 @@ it('keeps a stale full GPU reply from enabling scalar dispatch for a newly selec
   held.resolve(frame);
   await work;
   await present.render('<new Auto/>', 1, params);
-  expect(host.pipeline.renderLiveSession.mock.calls[1]).toEqual(['<new Auto/>', undefined]);
+  expect(host.pipeline.renderLiveSession.mock.calls[1].slice(0, 2)).toEqual([
+    '<new Auto/>',
+    undefined,
+  ]);
+  expect(host.pipeline.renderLiveSession.mock.calls[1][2]).toEqual({
+    manifest: '[]',
+    bytes: new Uint8Array(),
+  });
 });
 
 it('invalidates an already ready scalar prefix across rapid profile transitions before effects flush', async () => {

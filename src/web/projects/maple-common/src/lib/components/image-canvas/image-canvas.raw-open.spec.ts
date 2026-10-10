@@ -63,7 +63,7 @@ describe('ImageCanvasRawOpen', () => {
         })),
         adjustmentFor: () => signal(defaultAdjustmentModel()),
       },
-      canvasSvc: { currentPixels: pixels },
+      canvasSvc: { currentPixels: pixels, cropInputDimensions: signal(null) },
       pipeline: { decode: vi.fn(decode) },
       imageBitmap,
       loading,

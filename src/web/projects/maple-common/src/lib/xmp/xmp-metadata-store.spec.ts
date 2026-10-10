@@ -9,6 +9,7 @@ import { fsAccessReadFile, fsAccessWriteFile } from '../folder-access/fs-access-
 import { defaultAdjustmentModel } from '../models/adjustment-model';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpStoreService } from './xmp-store.service';
+import { WorkflowXmpService } from './workflow-xmp.service';
 
 it('retains source languages and authors when ordinary hydration also caches typed metadata', async () => {
   const root = await fs.mkdtemp(join(tmpdir(), 'maple-metadata-store-'));
@@ -33,6 +34,7 @@ it('retains source languages and authors when ordinary hydration also caches typ
           provide: FolderAccessService,
           useValue: { writeFile: fsAccessWriteFile, readFile: fsAccessReadFile },
         },
+        { provide: WorkflowXmpService, useValue: { read: async () => null } },
       ],
     });
     const parser = TestBed.inject(XmpParserService);
