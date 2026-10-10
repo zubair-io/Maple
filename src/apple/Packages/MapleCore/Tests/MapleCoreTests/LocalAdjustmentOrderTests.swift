@@ -429,4 +429,52 @@ final class LocalAdjustmentOrderTests: XCTestCase {
     ).map(\.key)
     XCTAssertEqual(keys, [-1, 0])
   }
+
+  /// Shared #4427 precision fixture: 25 layers appended above a kept layer
+  /// halve the gap below the stroke until the six-decimal form collapses,
+  /// so every modeled layer is re-spaced below it.
+  func testCollapsedMidpointsAreRespacedBelowTheStroke() throws {
+    let plain = try save(model([linear(exposure(0.4))]))
+    let active = "crs:CorrectionActive=\"True\"\n"
+    let closing = "</crs:GradientBasedCorrections>"
+    let source = try roundTrip(
+      plain
+        .replacingOccurrences(of: active, with: active + "              papp:LayerOrder=\"0\"\n")
+        .replacingOccurrences(of: closing, with: closing + "\n" + brushV2Block),
+      name: "precision.xmp")
+    var loaded = try XMPParser.parse(source).0
+    loaded.localAdjustments += Array(repeating: linear(exposure(0.1)), count: 25)
+
+    let saved = try save(loaded, source: source)
+    let written = saved.components(separatedBy: "papp:LayerOrder=\"").dropFirst()
+      .map { String($0.prefix { $0 != "\"" }) }
+    XCTAssertEqual(written, (-25...1).map(String.init))
+
+    let reopened = try XMPParser.parse(saved).0
+    XCTAssertEqual(
+      reopened.localAdjustments.map(\.adjustments),
+      loaded.localAdjustments.map(\.adjustments))
+    XCTAssertEqual(reopened.localAdjustments.map(\.xmpLayerOrder), (-25...0).map(Double.init))
+    XCTAssertEqual(try save(reopened, source: saved), saved)
+  }
+
+  /// A verbatim key under another prefix bound to the papp namespace still
+  /// counts: the new layer is keyed around it.
+  func testAliasedOpaqueGroupKeyIsReadByNamespace() throws {
+    let pin =
+      "<rdf:li><rdf:Description xmlns:maple=\"http://ns.justmaple.app/photo/1.0/\" crs:What=\"Correction\" maple:LayerOrder=\"1\" crs:CorrectionName=\"Foreign pin\"><crs:CorrectionMasks><rdf:Seq><rdf:li crs:What=\"Mask/Image\" crs:MaskDigest=\"vendor-only\"/></rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li>"
+    let plain = try save(model([bitmap(exposure(0.3))]))
+    let close = try XCTUnwrap(plain.range(of: "        </rdf:Seq>", options: .backwards))
+    var source = plain
+    source.insert(contentsOf: pin, at: close.lowerBound)
+    XCTAssertEqual(XMPParser.parsePassthrough(source).maskGroups.flatMap(\.layerOrders), [1])
+    var edited = try XMPParser.parse(source).0
+    edited.localAdjustments.append(linear(exposure(0.4)))
+
+    let saved = try save(edited, source: source)
+    XCTAssertTrue(saved.contains(pin), saved)
+    let reopened = try XMPParser.parse(saved).0
+    XCTAssertEqual(reopened.localAdjustments.map(\.xmpLayerOrder), [0, 0.5])
+    XCTAssertEqual(try save(reopened, source: saved), saved)
+  }
 }

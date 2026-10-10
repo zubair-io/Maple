@@ -55,8 +55,9 @@ public struct XMPParser {
     m.localAdjustments = LocalAdjustmentOrder.restore(
       delegate.localAdjustments.finish().filter { !XMPMaskGroupSources.isGroup($0.layer.mask) }
         + zip(groups.layers, groups.keys).map { (layer: $0, key: $1) },
-      retainingKeys: delegate.localAdjustments.verbatimKeyed
-        || LocalAdjustmentOrder.hasVerbatimKeys(groups.templates))
+      retainingKeys: XMPMaskGroupSources.hasVerbatimBrushKeys(
+        xml, dropped: delegate.localAdjustments.droppedBrushContainers)
+        || groups.templates.contains { !$0.layerOrders.isEmpty })
     // Repair spots (#3409) — same nested-element walker shape; see
     // `XMPSerialization+Retouch.swift`.
     m.retouchSpots = delegate.retouch.finish()
