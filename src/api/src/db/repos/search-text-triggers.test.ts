@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { createTestDatabase } from '../sqlite/test-sqlite.test-helpers.ts';
+import {
+  createTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+} from '../sqlite/test-sqlite.test-helpers.ts';
 import { insertFace, insertLibrary, insertLiveAsset, insertPerson } from './people.test-helpers.ts';
 import { insertStageState } from './assets.test-helpers.ts';
 import { stageRow } from './stage-runtime.test-helpers.ts';
@@ -123,5 +128,210 @@ describe('search-text triggers on people', () => {
     handle.db.run(`UPDATE people SET hidden = 1 WHERE id = ?`, [stranger]);
 
     expect(versions(handle, other)).toEqual([8, 8]);
+  });
+});
+
+describe('search-text triggers on asset_locations', () => {
+  async function twoLocationAsset(lowerMissing: boolean) {
+    const handle = await createTestDatabase();
+    const library = insertFolder(handle.db);
+    const asset = insertAsset(handle.db);
+    insertLocation(handle.db, {
+      assetId: asset,
+      libraryId: library,
+      ordinal: 0,
+      filename: 'IMG_LOWER.dng',
+      missingSince: lowerMissing ? '2026-10-01T00:00:00.000Z' : null,
+    });
+    insertLocation(handle.db, {
+      assetId: asset,
+      libraryId: library,
+      ordinal: 1,
+      path: 'copy',
+      filename: 'IMG_HIGHER.dng',
+    });
+    SEARCH_STAGES.forEach((stage) => insertStageState(handle.db, asset, stage, { version: 8 }));
+    return { handle, asset };
+  }
+
+  test('rediscovering a lower-ordinal location that was missing re-arms (it becomes primary)', async () => {
+    const { handle, asset } = await twoLocationAsset(true);
+    using _ = handle;
+
+    handle.db.run(
+      `UPDATE asset_locations SET missing_since = NULL WHERE asset_id = ? AND ordinal = 0`,
+      [asset],
+    );
+
+    expect(versions(handle, asset)).toEqual([0, 0]);
+  });
+
+  test('losing the primary location re-arms; changing a non-primary location does not', async () => {
+    const { handle, asset } = await twoLocationAsset(false);
+    using _ = handle;
+
+    handle.db.run(
+      `UPDATE asset_locations SET missing_since = 'x' WHERE asset_id = ? AND ordinal = 1`,
+      [asset],
+    );
+    handle.db.run(
+      `UPDATE asset_locations SET filename = 'renamed.dng' WHERE asset_id = ? AND ordinal = 1`,
+      [asset],
+    );
+    expect(versions(handle, asset)).toEqual([8, 8]);
+
+    handle.db.run(
+      `UPDATE asset_locations SET missing_since = 'x' WHERE asset_id = ? AND ordinal = 0`,
+      [asset],
+    );
+    expect(versions(handle, asset)).toEqual([0, 0]);
+  });
+
+  test('renaming the primary file re-arms, and adding a higher-ordinal copy does not', async () => {
+    const { handle, asset } = await twoLocationAsset(false);
+    using _ = handle;
+    const library = (
+      handle.db.query(`SELECT library_id AS id FROM asset_locations LIMIT 1`).get() as {
+        id: string;
+      }
+    ).id;
+
+    insertLocation(handle.db, {
+      assetId: asset,
+      libraryId: library,
+      ordinal: 2,
+      path: 'third',
+      filename: 'c.dng',
+    });
+    expect(versions(handle, asset)).toEqual([8, 8]);
+
+    handle.db.run(
+      `UPDATE asset_locations SET filename = 'renamed.dng' WHERE asset_id = ? AND ordinal = 0`,
+      [asset],
+    );
+    expect(versions(handle, asset)).toEqual([0, 0]);
+  });
+
+  test('a trashed asset re-arms nothing when its locations change', async () => {
+    const { handle, asset } = await twoLocationAsset(false);
+    using _ = handle;
+    handle.db.run(`UPDATE assets SET deleted_at = '2026-10-01T00:00:00.000Z' WHERE id = ?`, [
+      asset,
+    ]);
+
+    handle.db.run(
+      `UPDATE asset_locations SET filename = 'renamed.dng' WHERE asset_id = ? AND ordinal = 0`,
+      [asset],
+    );
+    handle.db.run(`DELETE FROM asset_locations WHERE asset_id = ?`, [asset]);
+
+    expect(versions(handle, asset)).toEqual([8, 8]);
+  });
+
+  test('a live location moved onto another asset (a merge) re-arms the survivor', async () => {
+    const { handle, asset } = await twoLocationAsset(true);
+    using _ = handle;
+    const library = (
+      handle.db.query(`SELECT library_id AS id FROM asset_locations LIMIT 1`).get() as {
+        id: string;
+      }
+    ).id;
+    const condemned = insertAsset(handle.db);
+    insertLocation(handle.db, {
+      assetId: condemned,
+      libraryId: library,
+      path: 'merged',
+      filename: 'moved.dng',
+    });
+    SEARCH_STAGES.forEach((stage) => insertStageState(handle.db, condemned, stage, { version: 8 }));
+    SEARCH_STAGES.forEach((stage) =>
+      handle.db.run(`UPDATE stage_state SET version = 8 WHERE asset_id = ? AND stage = ?`, [
+        asset,
+        stage,
+      ]),
+    );
+
+    handle.db.run(`UPDATE asset_locations SET asset_id = ?, ordinal = 5 WHERE asset_id = ?`, [
+      asset,
+      condemned,
+    ]);
+
+    expect(versions(handle, asset)).toEqual([0, 0]);
+  });
+
+  test('moving a location onto a trashed asset re-arms nothing', async () => {
+    const { handle, asset } = await twoLocationAsset(false);
+    using _ = handle;
+    const library = (
+      handle.db.query(`SELECT library_id AS id FROM asset_locations LIMIT 1`).get() as {
+        id: string;
+      }
+    ).id;
+    const other = insertAsset(handle.db);
+    insertLocation(handle.db, {
+      assetId: other,
+      libraryId: library,
+      path: 'other',
+      filename: 'o.dng',
+    });
+    handle.db.run(`UPDATE assets SET deleted_at = '2026-10-01T00:00:00.000Z' WHERE id = ?`, [
+      asset,
+    ]);
+
+    handle.db.run(`UPDATE asset_locations SET asset_id = ?, ordinal = 5 WHERE asset_id = ?`, [
+      asset,
+      other,
+    ]);
+
+    expect(versions(handle, asset)).toEqual([8, 8]);
+  });
+
+  test('a live location arriving on an asset with no live location re-arms it', async () => {
+    const { handle, asset } = await twoLocationAsset(false);
+    using _ = handle;
+    const library = (
+      handle.db.query(`SELECT library_id AS id FROM asset_locations LIMIT 1`).get() as {
+        id: string;
+      }
+    ).id;
+    handle.db.run(`DELETE FROM asset_locations WHERE asset_id = ?`, [asset]);
+    SEARCH_STAGES.forEach((stage) =>
+      handle.db.run(`UPDATE stage_state SET version = 8 WHERE asset_id = ? AND stage = ?`, [
+        asset,
+        stage,
+      ]),
+    );
+    expect(versions(handle, asset)).toEqual([8, 8]);
+
+    insertLocation(handle.db, { assetId: asset, libraryId: library, filename: 'back.dng' });
+
+    expect(versions(handle, asset)).toEqual([0, 0]);
+  });
+
+  test('a live location arriving where every existing one is missing re-arms it', async () => {
+    const { handle, asset } = await twoLocationAsset(true);
+    using _ = handle;
+    const library = (
+      handle.db.query(`SELECT library_id AS id FROM asset_locations LIMIT 1`).get() as {
+        id: string;
+      }
+    ).id;
+    handle.db.run(`UPDATE asset_locations SET missing_since = 'x' WHERE asset_id = ?`, [asset]);
+    SEARCH_STAGES.forEach((stage) =>
+      handle.db.run(`UPDATE stage_state SET version = 8 WHERE asset_id = ? AND stage = ?`, [
+        asset,
+        stage,
+      ]),
+    );
+
+    insertLocation(handle.db, {
+      assetId: asset,
+      libraryId: library,
+      ordinal: 2,
+      path: 'new',
+      filename: 'n.dng',
+    });
+
+    expect(versions(handle, asset)).toEqual([0, 0]);
   });
 });
