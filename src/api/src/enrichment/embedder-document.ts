@@ -1,4 +1,36 @@
 import { EMBEDDER_TEMPLATE_MAX_BYTES } from './meilisearch-embedder-template.ts';
+import {
+  placeTextForIndex,
+  transcriptForIndex,
+  type IndexablePlace,
+  type IndexableTranscript,
+} from './asset-doc-fields.ts';
+import { classifyMediaType } from '../indexer/media-types.ts';
+
+/** The asset fields the embedder template reads, as both the stage and the search child hold them. */
+export interface EmbeddableAssetFields {
+  description?: string | null;
+  ocr_text?: string | null;
+  transcript?: IndexableTranscript | null;
+  place?: IndexablePlace | null;
+}
+
+/** The template input for one asset; a null filename (no live location) renders a blank line. */
+export function embedderDocumentFor(
+  asset: EmbeddableAssetFields,
+  filename: string | null,
+  people: readonly string[],
+): EmbedderDocument {
+  return {
+    filename,
+    mediaType: filename === null ? null : classifyMediaType(filename),
+    people: people.length === 0 ? null : people,
+    placeText: placeTextForIndex(asset.place),
+    description: asset.description ?? null,
+    transcript: transcriptForIndex(asset.transcript),
+    ocrText: asset.ocr_text ?? null,
+  };
+}
 
 export interface EmbedderDocument {
   filename: string | null;

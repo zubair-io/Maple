@@ -20,11 +20,7 @@
 
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
-import { placeTextForIndex, transcriptForIndex } from '../../enrichment/asset-doc-fields.ts';
-import {
-  renderEmbedderDocument,
-  type EmbedderDocument,
-} from '../../enrichment/embedder-document.ts';
+import { embedderDocumentFor, renderEmbedderDocument } from '../../enrichment/embedder-document.ts';
 import { EMBEDDER_TEMPLATE_SHAPE_VERSION } from '../../enrichment/meilisearch-embedder-template.ts';
 import {
   EMBED_BATCH_SIZE,
@@ -33,7 +29,6 @@ import {
 } from '../../enrichment/ollama-embed-client.ts';
 import { upsertAssetVectorStatement } from '../../db/repos/asset-vectors.repo.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { classifyMediaType } from '../../indexer/media-types.ts';
 import type { AssetFaceDoc, Place, TranscriptDoc } from '../../db/schema.ts';
 import { createBatcher } from '../embed/batcher.ts';
 import { currentEmbedderTarget, freshEmbedderTarget } from '../embed/embedder-target.ts';
@@ -87,22 +82,6 @@ export function setEmbedBatchForTests(impl: EmbedBatchFn | null): void {
   embedBatchImpl = impl ?? ((target, inputs) => embedTexts(target, inputs));
 }
 
-function embedderDocument(
-  image: EmbeddableImage,
-  filename: string,
-  people: readonly string[],
-): EmbedderDocument {
-  return {
-    filename,
-    mediaType: classifyMediaType(filename),
-    people: people.length === 0 ? null : people,
-    placeText: placeTextForIndex(image.place),
-    description: image.description ?? null,
-    transcript: transcriptForIndex(image.transcript),
-    ocrText: image.ocr_text ?? null,
-  };
-}
-
 export async function embedHandler(image: ImageDoc, ctx: StageContext): Promise<StageResult> {
   if (ctx.lease === undefined) throw new Error('embed: the runner did not pass the claim lease');
   const embeddable = image as EmbeddableImage;
@@ -114,7 +93,7 @@ export async function embedHandler(image: ImageDoc, ctx: StageContext): Promise<
 
   const faces = embeddable.faces ?? null;
   const people = peopleNamesForFaces(faces, await loadNamedPeople([faces]));
-  const text = renderEmbedderDocument(embedderDocument(embeddable, primary.filename, people));
+  const text = renderEmbedderDocument(embedderDocumentFor(embeddable, primary.filename, people));
   const { vector, model, endpoint } = await batcher.submit(text);
 
   return {
@@ -134,7 +113,6 @@ export async function embedHandler(image: ImageDoc, ctx: StageContext): Promise<
   };
 }
 
-// Staged per CLAUDE.md principle 6: nothing reads asset_vectors until #4463 lands the search cut-over.
 const embedStage = defineStage({
   name: 'embed',
   targetVersion: EMBED_STAGE_VERSION,
