@@ -10,6 +10,8 @@
  *      save in this process cannot land between the read and the write.
  *   3. Marks the asset's `sidecar-metadata-index` stage dirty in the database so the
  *      polled stage reconciles `metadata_override` on the next tick.
+ *   4. Records one change-feed row per sidecar whose bytes changed, so File
+ *      Provider clients refetch it (#4468).
  *
  * Partial failures are reported per-asset; successes are not rolled back.
  *
@@ -22,6 +24,7 @@ import { COLOR_LABELS } from '../xmp/color-label.ts';
 import * as path from 'node:path';
 import { resolveAddressString } from '../library/address.ts';
 import { updateXmpAtomic } from '../fs/xmp.ts';
+import { publishSidecarChange } from './xmp-change.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
 import type { XmpMetadataInput } from '../xmp/metadata-input.ts';
@@ -46,6 +49,8 @@ interface EntryResult {
   error?: string;
   /** Resolved absolute path, set on success — collected for one batched dirty-mark. */
   absPath?: string;
+  /** True when the sidecar bytes actually changed, so File Provider clients need a change row. */
+  changed?: boolean;
 }
 
 async function processEntry(entry: BatchEntry): Promise<EntryResult> {
@@ -69,7 +74,7 @@ async function processEntry(entry: BatchEntry): Promise<EntryResult> {
 
   // The sidecar-metadata-index dirty-mark is batched into a single updateMany after
   // the whole request completes (see the route handler) — never per-entry.
-  return { address: entry.address, ok: true, absPath };
+  return { address: entry.address, ok: true, absPath, changed: writeResult.data === 'written' };
 }
 
 /**
@@ -178,6 +183,17 @@ export const xmpBatchRoutes = new Elysia().post(
       }
     }
 
+    // One change row per sidecar that actually changed, even when the batch
+    // names the same asset twice, so File Provider clients refetch it (#4468).
+    const changedPaths = [
+      ...new Set(results.filter((r) => r.changed && r.absPath).map((r) => r.absPath as string)),
+    ];
+    for (let i = 0; i < changedPaths.length; i += CONCURRENCY) {
+      await Promise.all(
+        changedPaths.slice(i, i + CONCURRENCY).map((p) => publishSidecarChange(p, true)),
+      );
+    }
+
     const hasErrors = results.some((r) => !r.ok);
     set.status = hasErrors ? 207 : 200;
     // Strip the internal absPath from the response.
@@ -194,7 +210,7 @@ export const xmpBatchRoutes = new Elysia().post(
     detail: {
       summary: 'Bulk-write XMP metadata sidecars',
       description:
-        'Write metadata fields to N asset sidecars in one request. Each entry is processed atomically (temp-file + rename). Partial failures are reported per-asset. Successful writes trigger the `sidecar-metadata-index` stage for each asset.',
+        'Write metadata fields to N asset sidecars in one request. Each entry is processed atomically (temp-file + rename). Partial failures are reported per-asset. Successful writes trigger the `sidecar-metadata-index` stage for each asset, and every sidecar whose bytes changed records one change-feed row for File Provider clients.',
       tags: ['xmp'],
     },
   },

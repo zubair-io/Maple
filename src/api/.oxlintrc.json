@@ -216,6 +216,8 @@
         "src/routes/xmp.conditional.test.ts",
         "src/routes/xmp-batch.ts",
         "src/routes/xmp-batch.test.ts",
+        // #4468: change-feed regression writes only disposable fixtures under os.tmpdir().
+        "src/routes/xmp-batch.records-change.test.ts",
         "src/routes/xmp.get.test.ts",
         "src/routes/xmp.post-content-type.test.ts",
         "src/routes/xmp.sidecar-contract.test.ts",

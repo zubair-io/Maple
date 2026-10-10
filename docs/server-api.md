@@ -187,7 +187,9 @@ canonical sidecar unchanged; the client retains its pending edits and offers
 reload/conflict handling. Older callers without preconditions retain their
 existing unconditional write behaviour. `/api/xmp/batch` reads, merges and
 writes each sidecar inside the same barrier, so a save cannot land between its
-read and its write. The write barrier is in-memory, so these
+read and its write. Each sidecar whose bytes actually changed records one
+change-feed row, so File Provider clients refetch it; an entry that leaves the
+sidecar identical is not rewritten and records none. The write barrier is in-memory, so these
 checks coordinate only writers inside the API process. The worker child process
 (for example batch-sync jobs) and external filesystem writers do not participate
 and can still race a conditional save.
