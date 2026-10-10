@@ -14,7 +14,7 @@ extension ReportedExportParityTests {
     let source = corpus.appendingPathComponent("portrait.dng")
     // Versioned controls include main's proxy sampling-density metadata.
     // Earlier controls remain intact for historical attribution (#1472).
-    let autoFit = corpus.appendingPathComponent("auto-fit-20261003")
+    let autoFit = corpus.appendingPathComponent("auto-fit-20261010")
     guard FileManager.default.fileExists(atPath: source.path),
       FileManager.default.fileExists(atPath: autoFit.appendingPathComponent("manifest.json").path)
     else {

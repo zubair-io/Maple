@@ -6,10 +6,20 @@ import XCTest
 
 @MainActor
 final class NativeAutoProfilePreparationTests: XCTestCase {
+  private func fixtureURL(_ relativePath: String) -> URL {
+    let stagedRoot = ProcessInfo.processInfo.environment["MAPLE_SWIFT_TEST_ROOT"]
+      .map(URL.init(fileURLWithPath:))
+    let stagedFixture = stagedRoot?.appendingPathComponent(relativePath)
+    if let stagedFixture, FileManager.default.fileExists(atPath: stagedFixture.path) {
+      return stagedFixture
+    }
+    return AutoProfileCanvasParityTests.fixtureDir(relativePath)
+  }
+
   func testPendingNativeSourceDoesNotBlockReuseAndNewDecodeOrQualityReplacesItsRequest()
     async throws
   {
-    let fixture = AutoProfileCanvasParityTests.fixtureDir("test-fixtures/removal/basic/source.dng")
+    let fixture = fixtureURL("test-fixtures/removal/basic/source.dng")
     let original = try Data(contentsOf: fixture)
     let gate = NativeAutoSourceGate()
     let started = expectation(description: "One owned source download entered")
@@ -99,7 +109,7 @@ final class NativeAutoProfilePreparationTests: XCTestCase {
 
   func testSupersededColdSourceCannotStartProfileWork() async throws {
     let original = try Data(
-      contentsOf: AutoProfileCanvasParityTests.fixtureDir("test-fixtures/removal/basic/source.dng"))
+      contentsOf: fixtureURL("test-fixtures/removal/basic/source.dng"))
     let gate = NativeAutoSourceGate()
     let started = expectation(description: "Cold source provider entered")
     let asset = AssetRef(displayName: "source", hintExtension: "dng", explicitIsRaw: true) {
@@ -139,7 +149,7 @@ final class NativeAutoProfilePreparationTests: XCTestCase {
   }
 
   func testNoPreviewIsAJoinedNegativeResultAndQualityKeysStayDistinct() async throws {
-    let source = AutoProfileCanvasParityTests.fixtureDir("test-fixtures/removal/basic/source.dng")
+    let source = fixtureURL("test-fixtures/removal/basic/source.dng")
     let original = try Data(contentsOf: source)
     let directory = try SidecarContractIO.makeTempDirectory(prefix: "native-auto-absent")
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -174,7 +184,7 @@ final class NativeAutoProfilePreparationTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: directory) }
     let raw = directory.appendingPathComponent("source.dng")
     try FileManager.default.copyItem(
-      at: AutoProfileCanvasParityTests.fixtureDir("test-fixtures/removal/basic/source.dng"),
+      at: fixtureURL("test-fixtures/removal/basic/source.dng"),
       to: raw)
     let session = EditSession(asset: AssetRef(url: raw))
     let quality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
@@ -230,7 +240,7 @@ final class NativeAutoProfilePreparationTests: XCTestCase {
   func testCancelledRemoteStagingCannotPublishToTheEditor() async throws {
     let original = try Data(
       contentsOf:
-        AutoProfileCanvasParityTests.fixtureDir("test-fixtures/removal/basic/source.dng"))
+        fixtureURL("test-fixtures/removal/basic/source.dng"))
     let gate = NativeAutoSourceGate()
     let started = expectation(description: "Source provider entered")
     let asset = AssetRef(displayName: "source", hintExtension: "dng", explicitIsRaw: true) {

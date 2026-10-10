@@ -23,12 +23,13 @@ final class NativeRemovalSelectorTests: XCTestCase {
         value.deletingLastPathComponent()
       }
       .appendingPathComponent("test-fixtures/raws/removal-inference")
-      let required = [
-        "mobile-sam-encoder.onnx", "mobile-sam-decoder.onnx", "rtdetrv2-r18.onnx", "runtime.dylib",
-        "selection-context.json", "selection-request.json", "selection-input.png",
-        "selection-reference.mimf", "detection-input.f32", "detection-input.json",
-        "detection-reference.json",
-      ]
+      let required =
+        ExperimentalRemovalModels.all.map(\.file) + [
+          "runtime.dylib",
+          "selection-context.json", "selection-request.json", "selection-input.png",
+          "selection-reference.mimf", "detection-input.f32", "detection-input.json",
+          "detection-reference.json",
+        ]
       guard
         required.allSatisfy({
           FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path)
@@ -157,6 +158,7 @@ final class NativeRemovalSelectorTests: XCTestCase {
       await removal.setMode(.people)
       await removal.chooseModelFolder(models)
       XCTAssertEqual(removal.phase, .ready, removal.message)
+      XCTAssertNotNil(removal.modelFolderName, removal.message)
       try await removal.engine.setModelDirectory(root)
       let previous = try RemovalBridge.selection(
         width: 7216, height: 5412,
@@ -200,9 +202,11 @@ final class NativeRemovalSelectorTests: XCTestCase {
       let fixture = repository.appendingPathComponent(
         "test-fixtures/raws/removal-photographic/portrait.dng")
       let models = repository.appendingPathComponent("test-fixtures/raws/removal-inference")
+      let requiredModels = ExperimentalRemovalModels.all.map(\.file) + ["runtime.dylib"]
       guard FileManager.default.fileExists(atPath: fixture.path),
-        FileManager.default.fileExists(
-          atPath: models.appendingPathComponent("rtdetrv2-r18.onnx").path)
+        requiredModels.allSatisfy({
+          FileManager.default.fileExists(atPath: models.appendingPathComponent($0).path)
+        })
       else { throw XCTSkip("Actual photographic RAW and local models are required (#3941)") }
       let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
       try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -220,6 +224,7 @@ final class NativeRemovalSelectorTests: XCTestCase {
       XCTAssertTrue(removal.message.contains("Import local AI models"))
       await removal.chooseModelFolder(models)
       XCTAssertEqual(removal.phase, .ready, removal.message)
+      XCTAssertNotNil(removal.modelFolderName, removal.message)
       XCTAssertFalse(removal.people.isEmpty, "The real portrait must produce a detected person")
       XCTAssertEqual(removal.detectedPersonMasks.count, removal.people.count)
       XCTAssertTrue(removal.people.filter { $0.role == .subject }.allSatisfy(\.keep))
