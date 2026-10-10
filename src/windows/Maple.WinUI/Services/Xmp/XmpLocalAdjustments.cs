@@ -209,7 +209,7 @@ namespace Maple.WinUI.Services.Xmp
             };
         }
 
-        private static ColorRangeRefinement? ParseRange(XElement description)
+        public static ColorRangeRefinement? ParseRange(XElement description)
         {
             if (Attr(description, "papp:RangeKind") != "Color") return null;
             double? Read(string key, double fallback) =>
