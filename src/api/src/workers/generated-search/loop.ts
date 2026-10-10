@@ -45,6 +45,8 @@ export interface SearchOutcome {
   /** Sample of captions from the matched assets — phase 3's evidence. */
   captions: string[];
   coverAssetId: string | null;
+  /** Ordered ids of the card's first grid page. */
+  firstPageIds: string[];
 }
 
 export interface LoopDeps {
@@ -190,6 +192,7 @@ async function measureAndTitle(
       query: candidate.query,
       result_count: outcome.count,
       cover_asset_id: outcome.coverAssetId,
+      first_page_ids: outcome.firstPageIds,
     },
   };
 }

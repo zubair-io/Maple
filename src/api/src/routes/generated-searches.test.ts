@@ -69,14 +69,15 @@ function seedCollection(over: Record<string, unknown> = {}): string {
     query: { month: '8' } as unknown,
     result_count: 2,
     cover_asset_id: 'a',
+    first_page_ids: null as string[] | null,
     ...over,
   };
   run(
     live.db,
     `INSERT INTO generated_searches
        (id, library_id, generated_for, generated_at, model, attempts,
-        theme, title, subtitle, query, result_count, cover_asset_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        theme, title, subtitle, query, result_count, cover_asset_id, first_page_ids)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     row.library_id as string,
     row.generated_for as string,
@@ -89,6 +90,7 @@ function seedCollection(over: Record<string, unknown> = {}): string {
     JSON.stringify(row.query),
     row.result_count as number,
     row.cover_asset_id as string,
+    row.first_page_ids === null ? null : JSON.stringify(row.first_page_ids),
   );
   return id;
 }
@@ -230,6 +232,73 @@ describe('GET /api/generated-searches/:id/assets', () => {
 
     const { body } = await get(`/api/generated-searches/${id}/assets`);
     expect(body.total).toBe(1);
+  });
+});
+
+describe('GET /api/generated-searches/:id/assets — stored first page', () => {
+  it('serves the stored ids in stored order, not the live sort order', async () => {
+    const older = seedAsset('older', { capturedAt: '2018-08-01T12:00:00.000Z' });
+    const newer = seedAsset('newer', { capturedAt: '2018-08-20T12:00:00.000Z' });
+    const id = seedCollection({
+      result_count: 2,
+      first_page_ids: [older, newer],
+    });
+
+    const { status, body } = await get(`/api/generated-searches/${id}/assets?limit=30`);
+    expect(status).toBe(200);
+    expect(body.total).toBe(2);
+    expect(body.results.map((r: { _id: string }) => r._id)).toEqual([older, newer]);
+  });
+
+  it('drops stored ids that were trashed, hidden, or belong to a hidden person', async () => {
+    people.set('Hidden', insertPerson(live.db, { name: 'Hidden', hidden: true }));
+    const kept = seedAsset('kept');
+    const trashed = seedAsset('trashed');
+    const hidden = seedAsset('hidden');
+    const faced = seedAsset('faced', { people: ['Hidden'] });
+    run(
+      live.db,
+      'UPDATE assets SET deleted_at = ? WHERE id = ?',
+      '2026-01-01T00:00:00.000Z',
+      trashed,
+    );
+    run(live.db, 'UPDATE assets SET hidden = 1 WHERE id = ?', hidden);
+    const id = seedCollection({
+      result_count: 4,
+      first_page_ids: [kept, trashed, hidden, faced],
+    });
+
+    const { body } = await get(`/api/generated-searches/${id}/assets?limit=30`);
+    expect(body.results.map((r: { _id: string }) => r._id)).toEqual([kept]);
+    expect(body.total).toBe(1);
+  });
+
+  it('falls back to the live query when no page is stored', async () => {
+    seedAsset('a');
+    const id = seedCollection({ result_count: 1, first_page_ids: null });
+
+    const { body } = await get(`/api/generated-searches/${id}/assets?limit=30`);
+    expect(body.results).toHaveLength(1);
+  });
+
+  it('keeps pages past the first on the live path', async () => {
+    const stored = seedAsset('stored', { capturedAt: '2018-08-01T12:00:00.000Z' });
+    seedAsset('live', { capturedAt: '2018-08-02T12:00:00.000Z' });
+    const id = seedCollection({ result_count: 2, first_page_ids: [stored] });
+
+    const { body } = await get(`/api/generated-searches/${id}/assets?limit=1&offset=1`);
+    expect(body.total).toBe(2);
+    expect(body.results).toHaveLength(1);
+    expect(body.results[0]._id).toBe(stored);
+  });
+
+  it('goes live when the request wants more rows than were stored', async () => {
+    const stored = seedAsset('stored');
+    seedAsset('other', { capturedAt: '2018-08-16T12:00:00.000Z' });
+    const id = seedCollection({ result_count: 2, first_page_ids: [stored] });
+
+    const { body } = await get(`/api/generated-searches/${id}/assets?limit=30`);
+    expect(body.results).toHaveLength(2);
   });
 });
 

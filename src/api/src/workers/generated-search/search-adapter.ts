@@ -38,6 +38,7 @@ import { searchCount, searchPage } from '../../db/repos/search.page.ts';
 import { meiliPage } from '../../routes/search/list-meili.ts';
 import type { SearchQuery } from '../../routes/search/query.ts';
 import { resolveSearchWhere } from './execute.ts';
+import { FIRST_PAGE_SIZE } from './first-page.ts';
 import type { SearchOutcome } from './loop.ts';
 
 const log = childLogger('generated-search');
@@ -59,7 +60,7 @@ function captionsOf(rows: readonly { description?: string | null }[]): string[] 
 }
 
 export async function runGeneratedSearch(query: SearchQuery): Promise<SearchOutcome> {
-  const empty: SearchOutcome = { count: 0, captions: [], coverAssetId: null };
+  const empty: SearchOutcome = { count: 0, captions: [], coverAssetId: null, firstPageIds: [] };
 
   const prepared = await resolveSearchWhere(query);
   if ('error' in prepared) {
@@ -74,16 +75,17 @@ export async function runGeneratedSearch(query: SearchQuery): Promise<SearchOutc
     resolved,
     libraryId: query.libraryId,
     skip: 0,
-    limit: CAPTION_SAMPLE,
+    limit: FIRST_PAGE_SIZE,
   });
   if (meili !== null) {
     return {
       count: meili.total,
-      captions: captionsOf(meili.results),
+      captions: captionsOf(meili.results.slice(0, CAPTION_SAMPLE)),
       // `_id`, not `.id`: `SearchResult.id` is the editor-facing `fs:<absPath>`
       // form, useless against `/api/assets/:id/*`. The hex id is the identity
       // both branches can agree on.
       coverAssetId: meili.results[0]?._id ?? null,
+      firstPageIds: meili.results.map((result) => result._id),
     };
   }
 
@@ -92,12 +94,15 @@ export async function runGeneratedSearch(query: SearchQuery): Promise<SearchOutc
   // they were a `countDocuments` and a `find` over separately-wrapped filters.
   const [count, rows] = await Promise.all([
     searchCount(where),
-    searchPage(where, { sort: 'captured_desc', limit: CAPTION_SAMPLE, skip: 0 }),
+    searchPage(where, { sort: 'captured_desc', limit: FIRST_PAGE_SIZE, skip: 0 }),
   ]);
 
   return {
     count,
-    captions: captionsOf(rows as ReadonlyArray<{ description?: string | null }>),
+    captions: captionsOf(
+      (rows as ReadonlyArray<{ description?: string | null }>).slice(0, CAPTION_SAMPLE),
+    ),
     coverAssetId: rows[0]?._id.toHexString() ?? null,
+    firstPageIds: rows.map((row) => row._id.toHexString()),
   };
 }

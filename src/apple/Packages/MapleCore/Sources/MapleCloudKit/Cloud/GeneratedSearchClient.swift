@@ -181,6 +181,17 @@ public actor GeneratedSearchClient {
     return GeneratedSearchAssetPage(results: decoded.results, total: decoded.total)
   }
 
+  /// `GET /api/assets/<id>` for a card's `cover_asset_id` — one primary-key
+  /// lookup, so the cover renders without the collection's query running.
+  public func cover(assetID: String) async throws -> GeneratedSearchCover {
+    let (data, resp) = try await httpClient.data(
+      for: URLRequest(url: server.appending(path: "/api/assets").appending(path: assetID))
+    )
+    try Self.checkOK(resp, data: data)
+    let decoded = try JSONDecoder().decode(GeneratedSearchCoverResponse.self, from: data)
+    return GeneratedSearchCover(id: assetID, absPath: decoded.absPath, filename: decoded.filename)
+  }
+
   // MARK: - Helpers
 
   private func makeURL(path: String, query: [URLQueryItem]) -> URL {

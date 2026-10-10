@@ -41,12 +41,12 @@ const DAY_MS = 86_400_000;
 const INSERT_SQL = `
   INSERT INTO generated_searches
     (id, library_id, generated_for, generated_at, model, attempts,
-     theme, title, subtitle, query, result_count, cover_asset_id)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+     theme, title, subtitle, query, result_count, cover_asset_id, first_page_ids)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 const SELECT_COLUMNS = `
   id, library_id, generated_for, generated_at, model, attempts,
-  theme, title, subtitle, query, result_count, cover_asset_id`;
+  theme, title, subtitle, query, result_count, cover_asset_id, first_page_ids`;
 
 /** The most recent day this library produced anything for. */
 const LATEST_DAY_SQL = `
@@ -66,6 +66,7 @@ interface GeneratedSearchRow {
   query: string;
   result_count: number;
   cover_asset_id: string | null;
+  first_page_ids: string | null;
 }
 
 function toDoc(row: GeneratedSearchRow): GeneratedSearchDoc {
@@ -82,6 +83,8 @@ function toDoc(row: GeneratedSearchRow): GeneratedSearchDoc {
     query: parseJson<GeneratedQuery>(row.query, {}),
     result_count: row.result_count,
     cover_asset_id: row.cover_asset_id,
+    first_page_ids:
+      row.first_page_ids === null ? null : parseJson<string[]>(row.first_page_ids, []),
   };
 }
 
@@ -114,6 +117,7 @@ export async function saveGeneratedSearches(
         JSON.stringify(doc.query),
         doc.result_count,
         doc.cover_asset_id,
+        JSON.stringify(doc.first_page_ids),
       ],
     })),
   );

@@ -272,6 +272,14 @@ export function mapleIdPageSql(where: SearchWhere, mapleIds: readonly string[]):
   });
 }
 
+/** Rows for stored ids under the live filters; the text match is stripped as in {@link mapleIdPageSql}. */
+export function idPageSql(where: SearchWhere, ids: readonly string[]): BoundStatement {
+  return statement(PAGE_COLUMNS, { ...where, match: { kind: 'none' } }, '', {
+    sql: `assets.id IN (${placeholders(ids.length)})`,
+    params: [...ids],
+  });
+}
+
 /**
  * The seek predicate that resumes iteration after a cursor, in the same order
  * `pageSql` imposes.

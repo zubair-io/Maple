@@ -172,6 +172,17 @@ describe('runGeneratedSearch — evidence for titling', () => {
     const outcome = await runGeneratedSearch(toSearchQuery({ month: '8' }, libraryId));
     expect(outcome.coverAssetId).toBe(oidFor('a'));
   });
+
+  it('returns the grid-ordered ids of the first page, newest first', async () => {
+    using live = await createLiveTestDatabase();
+    const libraryId = seedLibrary(live.db);
+    seedAsset(live.db, libraryId, 'a');
+    seedAsset(live.db, libraryId, 'b');
+
+    const outcome = await runGeneratedSearch(toSearchQuery({ month: '8' }, libraryId));
+    expect([...outcome.firstPageIds].sort()).toEqual([oidFor('a'), oidFor('b')].sort());
+    expect(outcome.firstPageIds[0]).toBe(outcome.coverAssetId!);
+  });
 });
 
 describe('runGeneratedSearch — hidden people, end to end', () => {

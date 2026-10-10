@@ -28,6 +28,28 @@ final class GeneratedSearchCollectionsViewModelTests: XCTestCase {
     XCTAssertEqual(stub.lastAssetsLimit, "30")
   }
 
+  func test_load_resolvesCoverFromStoredCoverAssetID() async {
+    let stub = CollectionsStub()
+    let vm = makeVM(stub)
+
+    await vm.load()
+
+    XCTAssertEqual(
+      vm.cover(for: vm.collections[0]),
+      GeneratedSearchCover(id: "cov1", absPath: "/p/cover.dng", filename: "cover.dng"))
+    XCTAssertEqual(stub.coverRequests, 1)
+  }
+
+  func test_cover_fallsBackToFirstPageWhenCardHasNoCoverAssetID() async {
+    let stub = CollectionsStub(coverAssetID: nil)
+    let vm = makeVM(stub)
+
+    await vm.load()
+
+    XCTAssertEqual(vm.cover(for: vm.collections[0])?.absPath, "/p/a.dng")
+    XCTAssertEqual(stub.coverRequests, 0)
+  }
+
   func test_firstPage_fetchesWhenNotLoaded() async {
     let stub = CollectionsStub()
     let vm = makeVM(stub)
@@ -56,19 +78,34 @@ final class GeneratedSearchCollectionsViewModelTests: XCTestCase {
 /// tallying asset requests. The responder runs off the main actor.
 final class CollectionsStub: @unchecked Sendable {
   private let lock = NSLock()
+  private let coverAssetID: String?
+
+  init(coverAssetID: String? = "cov1") {
+    self.coverAssetID = coverAssetID
+  }
   private var _assetRequests = 0
   private var _lastAssetsLimit: String?
+  private var _coverRequests = 0
 
+  var coverRequests: Int { lock.withLock { _coverRequests } }
   var assetRequests: Int { lock.withLock { _assetRequests } }
   var lastAssetsLimit: String? { lock.withLock { _lastAssetsLimit } }
 
   func respond(to request: URLRequest) -> StubResponse {
     let url = request.url!
+    if url.path == "/api/assets/cov1" {
+      lock.withLock { _coverRequests += 1 }
+      return .http(
+        status: 200,
+        body: Data(#"{"abs_path":"/p/cover.dng","filename":"cover.dng"}"#.utf8))
+    }
     guard url.path.hasSuffix("/assets") else {
       return .http(
         status: 200,
         body: Data(
-          #"{"results":[{"id":"gs1","theme":"season","title":"Autumn Colour","result_count":2,"generated_for":"2026-10-07"}]}"#
+          (#"{"results":[{"id":"gs1","theme":"season","title":"Autumn Colour","result_count":2,"#
+            + (coverAssetID.map { #""cover_asset_id":"\#($0)","# } ?? "")
+            + #""generated_for":"2026-10-07"}]}"#)
             .utf8))
     }
     let limit = URLComponents(url: url, resolvingAgainstBaseURL: false)?

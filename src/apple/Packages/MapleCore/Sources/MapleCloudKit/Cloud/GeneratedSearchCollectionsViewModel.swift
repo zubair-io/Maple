@@ -41,9 +41,19 @@ public final class GeneratedSearchCollectionsViewModel {
   /// query.
   public private(set) var firstPages: [String: GeneratedSearchAssetPage] = [:]
 
-  /// First asset of each collection — the card's cover.
+  /// First asset of each collection — the tvOS card's cover.
   public var covers: [String: SearchAsset] {
     firstPages.compactMapValues(\.results.first)
+  }
+
+  /// Covers resolved from each card's stored `cover_asset_id` (#4446), keyed by
+  /// collection id. They arrive without waiting on any collection's search.
+  public private(set) var coverRefs: [String: GeneratedSearchCover] = [:]
+
+  /// The card's cover: the stored cover asset once resolved, else the first
+  /// photo of its page for a card that carries no `cover_asset_id`.
+  public func cover(for card: GeneratedSearchCard) -> GeneratedSearchCover? {
+    coverRefs[card.id] ?? firstPages[card.id]?.results.first.map(GeneratedSearchCover.init)
   }
 
   public let libraryID: String
@@ -85,23 +95,39 @@ public final class GeneratedSearchCollectionsViewModel {
     // the reload on screen instead of blanking every card for a beat.
     let loadedIDs = Set(loaded.map(\.id))
     firstPages = firstPages.filter { loadedIDs.contains($0.key) }
+    coverRefs = coverRefs.filter { loadedIDs.contains($0.key) }
 
-    // One fetch per collection (there are a handful per day), run
-    // concurrently. A failure just leaves that card on its gradient.
-    await withTaskGroup(of: (String, GeneratedSearchAssetPage?).self) { group in
+    // Covers and first pages are fetched concurrently, a handful of each per
+    // day. A cover is a single asset lookup, so it lands without waiting on a
+    // collection's search; a failure just leaves that card on its gradient.
+    await withTaskGroup(of: Fetched.self) { group in
       for collection in loaded {
+        if let coverID = collection.cover_asset_id, coverRefs[collection.id]?.id != coverID {
+          group.addTask { [client] in
+            .cover(collection.id, try? await client.cover(assetID: coverID))
+          }
+        }
         group.addTask { [client] in
-          (
+          .page(
             collection.id,
-            try? await client.assets(collectionID: collection.id, limit: Self.firstPageSize)
-          )
+            try? await client.assets(collectionID: collection.id, limit: Self.firstPageSize))
         }
       }
-      for await (id, page) in group {
+      for await fetched in group {
         guard g == generation else { return }
-        if let page { firstPages[id] = page }
+        switch fetched {
+        case .cover(let id, let cover):
+          if let cover { coverRefs[id] = cover }
+        case .page(let id, let page):
+          if let page { firstPages[id] = page }
+        }
       }
     }
+  }
+
+  private enum Fetched: Sendable {
+    case cover(String, GeneratedSearchCover?)
+    case page(String, GeneratedSearchAssetPage?)
   }
 
   /// The FIRST PAGE of one collection's photos, plus the collection's full
