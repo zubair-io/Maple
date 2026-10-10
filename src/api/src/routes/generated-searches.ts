@@ -36,7 +36,6 @@ import { projectAssets } from './search/project.ts';
 import {
   canServeStoredPage,
   liveCoverAssetId,
-  pageWindow,
   storedPage,
 } from './generated-searches.stored-page.ts';
 
@@ -104,30 +103,30 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
       // until it has that many rows.
       const offset = clampInt(query.offset, 0, 100_000, 0);
 
-      // The worker stores the first page it measured, so the grid a card opens
-      // costs a primary-key lookup rather than a re-run of its broad query. The
-      // live filters above still gate every stored id.
+      // The stored first page is a preview, never page 1 of a paginated
+      // sequence: it answers only an offset-0 request that asks for at least
+      // the whole page, and every other request is fully live. The live
+      // filters above still gate every stored id.
       if (canServeStoredPage(doc, offset, limit)) {
-        return storedPage(doc, where, limit);
+        return storedPage(doc, where);
       }
 
-      const window = pageWindow(doc, offset, limit);
       const meili = await meiliPage({
         where,
         resolved,
         libraryId: doc.library_id,
-        skip: window.skip,
-        limit: window.fetchLimit,
+        skip: offset,
+        limit,
       });
       if (meili !== null) {
-        return { total: meili.total, results: window.trim(meili.results, (r) => r._id) };
+        return { total: meili.total, results: meili.results };
       }
 
       // The database leg. The page and the total are composed from the same
       // `SearchWhere`, which is what stops a card claiming more photos than its
       // own grid can show.
       const [docs, total, libs, idToSlug] = await Promise.all([
-        searchPage(where, { sort: 'captured_desc', limit: window.fetchLimit, skip: window.skip }),
+        searchPage(where, { sort: 'captured_desc', limit, skip: offset }),
         searchCount(where),
         loadLibraryRoots().catch(() => new Map<string, string>()),
         loadLibraryIdToSlug().catch(() => new Map<string, string>()),
@@ -135,11 +134,7 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
 
       return {
         total,
-        results: await projectAssets(
-          window.trim(docs, (d) => d._id.toHexString()),
-          libs,
-          idToSlug,
-        ),
+        results: await projectAssets(docs, libs, idToSlug),
       };
     },
     { query: t.Object({ limit: t.Optional(t.String()), offset: t.Optional(t.String()) }) },

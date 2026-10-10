@@ -81,6 +81,10 @@ public final class SearchViewModel {
   /// pages come from the collection's own endpoint, whose order (newest
   /// first) differs from a relevance-ranked search. Any submit clears it.
   private var collectionPager: CollectionPager?
+  /// True from showing a collection's snapshot until its live first page
+  /// lands. Pagination waits: offsets only mean something against the live
+  /// order.
+  private var isRefreshingCollection = false
 
   /// In-memory result cache so re-issuing an identical query (clear-then-
   /// reapply, popover round-trips, toggling a sort back) serves from memory
@@ -168,6 +172,7 @@ public final class SearchViewModel {
   public func submit() async {
     debounceTask?.cancel()
     collectionPager = nil
+    isRefreshingCollection = false
     generation &+= 1
     let g = generation
     page = 0
@@ -252,7 +257,8 @@ public final class SearchViewModel {
   public func showCollection(
     params seed: SearchParams,
     firstPage: GeneratedSearchAssetPage,
-    nextPage: @escaping CollectionPager
+    nextPage: @escaping CollectionPager,
+    liveFirstPage: (() async -> GeneratedSearchAssetPage?)? = nil
   ) {
     debounceTask?.cancel()
     generation &+= 1
@@ -270,6 +276,18 @@ public final class SearchViewModel {
     // The panel's People / Places rows belong to the previous query;
     // `loadFacetsIfNeeded()` refetches them for the card's when it opens.
     facets = nil
+
+    isRefreshingCollection = liveFirstPage != nil
+    guard let liveFirstPage else { return }
+    let g = generation
+    Task { [weak self] in
+      let live = await liveFirstPage()
+      guard let self, g == self.generation else { return }
+      self.isRefreshingCollection = false
+      guard let live else { return }
+      self.results = live.results
+      self.total = live.total
+    }
   }
 
   /// Populate the filter panel's option lists WITHOUT running a result
@@ -317,7 +335,7 @@ public final class SearchViewModel {
   /// Fetch the next page and append. No-ops when a load is already in
   /// flight or there's nothing more to fetch.
   public func loadMore() async {
-    guard canLoadMore, !isLoading, !isLoadingMore else { return }
+    guard canLoadMore, !isLoading, !isLoadingMore, !isRefreshingCollection else { return }
     let g = generation
     isLoadingMore = true
     // A fresh submit resets this flag; an older completion must never clear

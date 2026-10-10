@@ -261,9 +261,15 @@
       path = []
       // Params first: the `query` change below then matches them, so
       // SearchView's debounce has nothing to submit.
-      session.vm.showCollection(params: seed, firstPage: page) { offset, limit in
-        try await collections.page(of: card.id, offset: offset, limit: limit)
-      }
+      session.vm.showCollection(
+        params: seed,
+        firstPage: page,
+        nextPage: { offset, limit in
+          try await collections.page(of: card.id, offset: offset, limit: limit)
+        },
+        liveFirstPage: {
+          await collections.liveFirstPage(of: card.id, replacing: page)
+        })
       seedQuery(seed.placeQuery)
     }
 
