@@ -256,9 +256,11 @@ jobs:
       - name: Build real host archive
         working-directory: src/raw-pipeline
         # pano supplies maple_pano_stitch, referenced by the linked package
-        # even when no panorama test runs. Host ORT is dynamically loaded;
-        # this does not download iOS ORT or build any cross-target slice.
-        run: cargo build --locked --release -p raw-ffi --features gpu,pano
+        # even when no panorama test runs. removal supplies the native AI
+        # selection and reconstruction symbols exercised by MapleCore. Both
+        # host ORT features are dynamically loaded; this does not download iOS
+        # ORT or build any cross-target slice.
+        run: cargo build --locked --release -p raw-ffi --features gpu,pano,removal
       - name: Stage isolated Swift package and host framework
         run: |
           set -euo pipefail
