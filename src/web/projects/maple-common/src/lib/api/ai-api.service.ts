@@ -52,6 +52,7 @@ export interface SearchEngineView {
     textReady: boolean;
     restarts: number;
     model?: string;
+    matchedModels?: string[];
     skippedVectors?: number;
     error?: string;
   };

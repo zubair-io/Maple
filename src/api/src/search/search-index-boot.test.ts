@@ -45,7 +45,11 @@ test('a first boot rebuilds the text, records the version and reports ready twic
   expect(engine.clears).toBe(1);
   expect(engine.counts()).toEqual({ vectors: 1, texts: 1 });
   expect(readIndexState(stateFile)?.version).toBe(SEARCH_INDEX_VERSION);
-  expect(states.at(-1)).toMatchObject({ model: 'bge-m3', skippedVectors: 0 });
+  expect(states.at(-1)).toMatchObject({
+    model: 'bge-m3',
+    matchedModels: ['bge-m3', 'bge-m3:latest'],
+    skippedVectors: 0,
+  });
   expect(states.map((state) => [state.phase, state.textReady])).toEqual([
     ['ready', false],
     ['ready', true],
