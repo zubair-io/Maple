@@ -9,9 +9,8 @@
  * per-folder (registered roots from the DB are the boundary).
  */
 
-import { stat, readFile } from 'node:fs/promises';
+import { lstat, readFile, realpath, stat } from 'node:fs/promises';
 import * as path from 'node:path';
-import { realpath } from 'node:fs/promises';
 import { parseRootList } from './root-list.ts';
 
 export interface OpResult<T = undefined> {
@@ -88,6 +87,24 @@ export function getRegisteredRoots(): string[] {
   return [..._registeredRoots];
 }
 
+const UNLINKED_INODE_SUFFIX = ' (deleted)';
+
+/**
+ * Bun's Linux `realpath` opens the file and reads `/proc/self/fd/N`. When an
+ * atomic save renames over the file in between, the kernel names the opened,
+ * now-unlinked inode `<real path> (deleted)` — which forked the per-sidecar
+ * write barrier for one file (#4051).
+ */
+export async function resolveRealPath(filePath: string): Promise<string> {
+  const real = await realpath(filePath);
+  if (!real.endsWith(UNLINKED_INODE_SUFFIX)) return real;
+  const present = await lstat(real).then(
+    () => true,
+    () => false,
+  );
+  return present ? real : real.slice(0, -UNLINKED_INODE_SUFFIX.length);
+}
+
 /**
  * Check whether `filePath` is under one of the registered roots (or any
  * MAPLE_ROOTS env entries). Returns the real (resolved) path on success.
@@ -96,7 +113,7 @@ async function checkAllowed(filePath: string): Promise<OpResult<string>> {
   let real: string;
   try {
     // Resolve symlinks to prevent directory traversal.
-    real = await realpath(filePath);
+    real = await resolveRealPath(filePath);
   } catch {
     // File might not exist yet (e.g., XMP to be written).
     // Use path.resolve on the raw path.

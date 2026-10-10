@@ -9,7 +9,7 @@
 import * as path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { parseRootList } from '../fs/root-list.ts';
-import { isWithinRoot } from '../fs/root.ts';
+import { isWithinRoot, resolveRealPath } from '../fs/root.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { safeWriteAllowed } from '../fs/root.ts';
 import { listLibraryRoots } from '../db/repos/folders.repo.ts';
@@ -85,7 +85,7 @@ export async function safeWriteAllowedForPath(filePath: string, dbOverride?: Sql
   const destination = path.resolve(filePath);
   const parent = await realpath(path.dirname(destination)).catch(() => path.dirname(destination));
   const candidate = path.resolve(parent, path.basename(destination));
-  const resolved = await realpath(candidate).catch(() => candidate);
+  const resolved = await resolveRealPath(candidate).catch(() => candidate);
   const normalizedRoots = await Promise.all(
     roots.map((root) => realpath(root).catch(() => path.resolve(root))),
   );
