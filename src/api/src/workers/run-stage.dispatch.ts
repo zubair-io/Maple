@@ -222,7 +222,7 @@ async function runClaimedAsset(tick: TickContext, row: ClaimedStageRow): Promise
     lease: row.next_attempt_at,
   };
   try {
-    const result = await tick.stage.handler(doc, tick.ctx);
+    const result = await tick.stage.handler(doc, { ...tick.ctx, lease: row.next_attempt_at });
     await tick.batch.record(
       stageResultStatements(
         {

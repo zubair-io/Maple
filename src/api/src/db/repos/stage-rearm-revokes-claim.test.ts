@@ -33,7 +33,7 @@ describe('re-arming a stage while an attempt is in flight', () => {
         extra: [
           upsertAssetVectorStatement(
             { mapleId: 'm1', version: 8, model: 'bge-m3', vector: Float32Array.of(1), embeddedAt },
-            { assetId },
+            { assetId, lease: oldClaim.lease },
           ),
         ],
       }),
@@ -51,13 +51,36 @@ describe('re-arming a stage while an attempt is in flight', () => {
         extra: [
           upsertAssetVectorStatement(
             { mapleId: 'm1', version: 8, model: 'bge-m3', vector: Float32Array.of(0), embeddedAt },
-            { assetId },
+            { assetId, lease: newClaim.lease },
           ),
         ],
       }),
     );
 
     expect(stageRow(handle.db, assetId, 'embed')?.version).toBe(TARGET_VERSION);
+    expect(handle.db.query(`SELECT COUNT(*) AS n FROM asset_vectors`).get()).toEqual({ n: 1 });
+  });
+
+  test('a stale write is rejected even after a second claim holds a new lease', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const assetId = seedClaimableAsset(handle.db, { stages: { embed: {} } });
+    handle.db.run(`UPDATE assets SET maple_id = 'm1' WHERE id = ?`, [assetId]);
+    const claimA = await claim(db, 'embed', assetId);
+    await db.transaction(searchRearmStatements(assetId));
+    const claimB = await claim(db, 'embed', assetId);
+    const write = (lease: string, value: number) =>
+      upsertAssetVectorStatement(
+        { mapleId: 'm1', version: 8, model: 'bge-m3', vector: Float32Array.of(value), embeddedAt },
+        { assetId, lease },
+      );
+
+    expect(claimB.lease).not.toBe(claimA.lease);
+    await db.transaction([write(claimA.lease, 1)]);
+    expect(handle.db.query(`SELECT COUNT(*) AS n FROM asset_vectors`).get()).toEqual({ n: 0 });
+
+    await db.transaction([write(claimB.lease, 2)]);
+    expect(handle.db.query(`SELECT dims FROM asset_vectors`).get()).toEqual({ dims: 1 });
     expect(handle.db.query(`SELECT COUNT(*) AS n FROM asset_vectors`).get()).toEqual({ n: 1 });
   });
 

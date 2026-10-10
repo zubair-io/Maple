@@ -102,7 +102,8 @@ function embedderDocument(
   };
 }
 
-export async function embedHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
+export async function embedHandler(image: ImageDoc, ctx: StageContext): Promise<StageResult> {
+  if (ctx.lease === undefined) throw new Error('embed: the runner did not pass the claim lease');
   const embeddable = image as EmbeddableImage;
   const mapleId = embeddable.maple_id ?? '';
   if (mapleId.length === 0) return { skip: 'no-maple-id' };
@@ -119,7 +120,7 @@ export async function embedHandler(image: ImageDoc, _ctx: StageContext): Promise
     patch: [
       upsertAssetVectorStatement(
         { mapleId, version: EMBED_STAGE_VERSION, model, vector, embeddedAt: new Date() },
-        { assetId: image._id.toHexString() },
+        { assetId: image._id.toHexString(), lease: ctx.lease },
       ),
     ],
   };
