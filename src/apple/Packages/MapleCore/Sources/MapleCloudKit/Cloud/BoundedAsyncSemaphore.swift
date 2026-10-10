@@ -100,6 +100,7 @@ public actor BoundedAsyncSemaphore {
   private var queueObservers:
     [(id: UInt64, target: Int, continuation: CheckedContinuation<Bool, Never>)] = []
   private var queueObserverIDCounter: UInt64 = 0
+  package var queueObserverCount: Int { queueObservers.count }
 
   /// Clamps to ≥1 — a 0/negative cap would suspend `acquire()` forever
   /// since `current < value` would never be true.

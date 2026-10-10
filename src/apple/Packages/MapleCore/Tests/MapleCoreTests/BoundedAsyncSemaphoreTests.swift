@@ -275,17 +275,23 @@ final class BoundedAsyncSemaphoreTests: XCTestCase {
     let observerTask = Task {
       await semaphore.waitForQueue(atLeast: 1, timeout: .seconds(2))
     }
-    for _ in 0..<10 {
-      await Task.yield()
+    let observerRegistered = await waitForCondition {
+      await semaphore.queueObserverCount >= 1
     }
+    XCTAssertTrue(observerRegistered, "observer must be registered before cancellation")
+
     observerTask.cancel()
     let observed = await observerTask.value
     XCTAssertFalse(
       observed,
       "waitForQueue must return false when cancelled without queued producers"
     )
-    let count = await semaphore.queuedCount
-    XCTAssertEqual(count, 0)
+    let drained = await waitForCondition {
+      let queued = await semaphore.queuedCount
+      let observers = await semaphore.queueObserverCount
+      return queued == 0 && observers == 0
+    }
+    XCTAssertTrue(drained, "waiters and observers must be cleaned up")
 
     await semaphore.release()
   }
@@ -299,20 +305,50 @@ final class BoundedAsyncSemaphoreTests: XCTestCase {
       let observerTask = Task {
         await semaphore.waitForQueue(atLeast: 1, timeout: .seconds(2))
       }
+
+      // Explicit handshake: ensure observer is queued and awaiting registration before racing.
+      let observerRegistered = await waitForCondition {
+        await semaphore.queueObserverCount >= 1
+      }
+      XCTAssertTrue(observerRegistered, "observer must be registered before race")
+
+      observerTask.cancel()
       let producerTask = Task {
         try? await semaphore.acquire()
       }
-      observerTask.cancel()
+
       let observed = await observerTask.value
       XCTAssertFalse(
         observed,
         "waitForQueue must return false when observer task is cancelled"
       )
+
       producerTask.cancel()
       _ = await producerTask.result
+
+      // Drain producer waiter and observer cleanup deterministically before next iteration.
+      let drained = await waitForCondition {
+        let queued = await semaphore.queuedCount
+        let observers = await semaphore.queueObserverCount
+        return queued == 0 && observers == 0
+      }
+      XCTAssertTrue(drained, "producer and observer must be fully cleaned up")
     }
 
     await semaphore.release()
+  }
+
+  private func waitForCondition(
+    timeout: Duration = .seconds(2),
+    condition: @Sendable () async -> Bool
+  ) async -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now + timeout
+    while clock.now < deadline {
+      if await condition() { return true }
+      await Task.yield()
+    }
+    return await condition()
   }
 }
 
