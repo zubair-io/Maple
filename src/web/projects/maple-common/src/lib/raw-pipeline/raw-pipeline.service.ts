@@ -115,7 +115,12 @@ export class RawPipelineService implements OnDestroy {
     () => this.closeNativeDetail(),
   );
   readonly exportRevision = this.exportClient.revision;
-  readonly exportImage = this.exportClient.exportImage.bind(this.exportClient);
+
+  exportImage(
+    ...args: Parameters<RawPipelineExportClient['exportImage']>
+  ): ReturnType<RawPipelineExportClient['exportImage']> {
+    return this.exportClient.exportImage(...args);
+  }
 
   private readonly threadedSubject = new BehaviorSubject<boolean | null>(null);
   private readonly threadCountSubject = new BehaviorSubject<number>(1);
