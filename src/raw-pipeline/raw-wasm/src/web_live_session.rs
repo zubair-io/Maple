@@ -524,6 +524,9 @@ impl WebLiveSession {
         );
         self.white_balance.apply(model, &mut inputs);
         inputs.nr_sampling_scale = self.nr_sampling_scale;
+        // The canvas and its mask overlay both present this sensor-framed
+        // buffer as-is, so masks stay in that frame until #4474 orients it.
+        inputs.mask_orientation = 1;
         // #1913 (generalised by #3191): the display-encode primaries MUST match
         // the canvas colour-space tag the present surface ACHIEVED — not the
         // `target_color_space` `open` was asked for, which the browser may not

@@ -233,6 +233,7 @@ pub fn chain_inputs_with_status(
         film_lut,
         film_lut_key,
         whites_anchor_ev,
+        raw_img.orientation.exif_tag(),
     );
     (inputs, auto_fit)
 }

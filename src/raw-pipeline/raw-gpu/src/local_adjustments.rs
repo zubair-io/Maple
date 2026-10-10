@@ -124,8 +124,8 @@ pub fn local_adjustments_need_spatial(layers_flat: &[f32]) -> bool {
     logical_layers(layers_flat).any(|layer| layer_present_bits(layer) & PRESENT_SPATIAL_MASK != 0)
 }
 
-/// `repr(C)` params uniform shared with `local_adjustments.wgsl`. 32 bytes
-/// (8 x 4, a multiple of the 16-byte uniform-struct requirement).
+/// `repr(C)` params uniform shared with `local_adjustments.wgsl`. 48 bytes
+/// (12 x 4, a multiple of the 16-byte uniform-struct requirement).
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Params {
@@ -139,6 +139,15 @@ struct Params {
     scope_layer: i32,
     inv_w: f32,
     inv_h: f32,
+    /// EXIF tag (1..=8) mapping the buffer onto the upright frame masks are
+    /// authored in (#4426); 1 when the buffer is already upright.
+    orientation: u32,
+    /// The whole frame's extent in the buffer's own framing, which the kernel
+    /// flips coordinates within. `encode` only ever renders whole frames
+    /// (origin 0), so this is the buffer's size.
+    frame_w: u32,
+    frame_h: u32,
+    _pad: u32,
 }
 
 /// Normalized-coordinate denominator for one axis, reproducing the Rust
@@ -179,6 +188,8 @@ pub struct LocalAdjustmentsPass {
     /// The scope-target layer index (#3272), or `-1` for none. Set via
     /// [`Self::with_scope_layer`] — `new` always leaves it at `-1`.
     scope_layer: i32,
+    /// EXIF tag of the buffer's framing; see [`Self::with_orientation`].
+    orientation: u32,
 }
 
 impl LocalAdjustmentsPass {
@@ -249,7 +260,16 @@ impl LocalAdjustmentsPass {
             layers_flat,
             plane,
             scope_layer: -1,
+            orientation: 1,
         }
+    }
+
+    /// Evaluate masks for a SENSOR-framed buffer whose upright form is
+    /// EXIF `orientation` (#4426) — the Web and Linux prefixes, which orient
+    /// only at present time. `new` assumes an upright buffer (tag 1).
+    pub fn with_orientation(mut self, orientation: u32) -> Self {
+        self.orientation = orientation;
+        self
     }
 
     /// Record `layer`'s per-pixel weight (mask × range) into the output
@@ -285,6 +305,11 @@ impl Pass for LocalAdjustmentsPass {
         );
         let (width, height) = dims;
         let pixel_count = width * height;
+        let (upright_w, upright_h) = if (5..=8).contains(&self.orientation) {
+            (height, width)
+        } else {
+            (width, height)
+        };
 
         let params = Params {
             count: pixel_count,
@@ -293,8 +318,12 @@ impl Pass for LocalAdjustmentsPass {
             origin_x: 0,
             origin_y: 0,
             scope_layer: self.scope_layer,
-            inv_w: inv_extent(width),
-            inv_h: inv_extent(height),
+            inv_w: inv_extent(upright_w),
+            inv_h: inv_extent(upright_h),
+            orientation: self.orientation,
+            frame_w: width,
+            frame_h: height,
+            _pad: 0,
         };
         // The layer stack rides a READ-ONLY STORAGE buffer, not a uniform: a
         // uniform `array` would get a 16-byte per-element stride and silently
@@ -351,6 +380,10 @@ mod tests_bitmap;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "local_adjustments/tests_group.rs"]
 mod tests_group;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "local_adjustments/tests_orientation.rs"]
+mod tests_orientation;
 
 // The slider-tick timing harness — `#[ignore]`d, not a gate. Sibling file for
 // the same file-budget reason as `tests.rs`.

@@ -47,6 +47,20 @@ fn detail_matches_native_display_in_every_orientation_with_default_crop() {
         grain_amount: 30.0,
         grain_size: 40.0,
         vignette_amount: -35.0,
+        local_adjustments: vec![crate::types::LocalAdjustment {
+            mask: crate::types::Mask::Radial {
+                center: crate::types::Point2::new(0.3, 0.25),
+                radii: crate::types::Point2::new(0.35, 0.2),
+                angle: 0.4,
+                feather: 0.5,
+                invert: false,
+            },
+            range: None,
+            adjustments: crate::types::PartialAdjustments {
+                exposure: Some(1.5),
+                ..Default::default()
+            },
+        }],
         ..Default::default()
     };
     for orientation in [

@@ -72,8 +72,9 @@ pub fn build_full_chain_inputs(
     film_lut: Option<&crate::film::FilmLut>,
     film_lut_key: u32,
     whites_anchor_ev: f32,
+    mask_orientation: u32,
 ) -> FullChainInputs<'static> {
-    build_with_storage(
+    let inputs = build_with_storage(
         model,
         profile_curve_flat,
         residual_lut_size,
@@ -83,7 +84,11 @@ pub fn build_full_chain_inputs(
         film_lut_key,
         whites_anchor_ev,
         Default::default(),
-    )
+    );
+    FullChainInputs {
+        mask_orientation,
+        ..inputs
+    }
 }
 
 fn reuse_points(mut storage: Vec<(f32, f32)>, points: &[(f32, f32)]) -> Vec<(f32, f32)> {
@@ -179,6 +184,7 @@ fn build_with_storage(
         // No Web entry point drives the vectorscope scope pass yet (#3272 is
         // Apple-first) — always disabled here.
         scope: raw_gpu::ScopeRequest::default(),
+        mask_orientation: 1,
         defringe: crate::stages::defringe::params_from_model(model)
             .map(|p| raw_gpu::DefringeInputs {
                 // The GLOBAL controls claim no hue-agnostic strength — that
@@ -342,5 +348,6 @@ pub fn update_chain_inputs(model: &AdjustmentModel, inputs: &mut FullChainInputs
     replacement.input_shape = inputs.input_shape;
     replacement.nr_sampling_scale = inputs.nr_sampling_scale;
     replacement.scope = inputs.scope;
+    replacement.mask_orientation = inputs.mask_orientation;
     *inputs = replacement;
 }

@@ -65,6 +65,7 @@ fn refresh_retains_image_artifacts_and_canonical_mapping() {
         None,
         0,
         -1.0,
+        1,
     );
     let identities = (
         inputs.profile_curve_flat.as_ptr(),
@@ -141,6 +142,7 @@ fn refresh_retains_image_artifacts_and_canonical_mapping() {
         None,
         0,
         -1.0,
+        1,
     );
     assert_eq!(inputs.tone, expected.tone);
     assert_eq!(inputs.wb_matrix, expected.wb_matrix);
@@ -187,6 +189,7 @@ fn retained_mask_carriers_refresh_without_reallocating_same_shape() {
         None,
         0,
         0.0,
+        1,
     );
     let identities = (
         inputs.local_adjustments.as_ptr(),

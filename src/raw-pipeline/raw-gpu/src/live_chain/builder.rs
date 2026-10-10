@@ -45,25 +45,29 @@ fn push_local_adjustments<'a>(suffix: &mut impl LivePassSink<'a>, inputs: &'a Fu
     if !local_adjustments_need_spatial(flat) {
         suffix.push(
             LocalAdjustmentsPass::new(flat, &inputs.mask_rasters)
-                .with_scope_layer(inputs.scope.layer),
+                .with_scope_layer(inputs.scope.layer)
+                .with_orientation(inputs.mask_orientation),
         );
         return;
     }
     for (index, layer) in logical_layers(flat).enumerate() {
         let is_scope_target = inputs.scope.layer >= 0 && inputs.scope.layer as usize == index;
         if layer_needs_spatial(layer) {
-            suffix.push(LocalSpatialPass::new(
-                layer,
-                &inputs.mask_rasters,
-                is_scope_target,
-            ));
+            suffix.push(
+                LocalSpatialPass::new(layer, &inputs.mask_rasters, is_scope_target)
+                    .with_orientation(inputs.mask_orientation),
+            );
             continue;
         }
         // A point-only layer still needs its own dispatch so the layers stay
         // in order; `-1` unless it is the scope target, and `0` when it is
         // (this pass sees a one-layer stack).
         let scope = if is_scope_target { 0 } else { -1 };
-        suffix.push(LocalAdjustmentsPass::new(layer, &inputs.mask_rasters).with_scope_layer(scope));
+        suffix.push(
+            LocalAdjustmentsPass::new(layer, &inputs.mask_rasters)
+                .with_scope_layer(scope)
+                .with_orientation(inputs.mask_orientation),
+        );
     }
 }
 

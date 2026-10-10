@@ -223,6 +223,7 @@ impl Case {
             clarity: self.model.clarity,
             texture: self.model.texture,
             dehaze: self.model.dehaze,
+            mask_orientation: 1,
             defringe: raw_core::stages::defringe::params_from_model(&self.model)
                 .map(|p| crate::DefringeInputs {
                     all_hues_strength: p.all_hues_strength,
