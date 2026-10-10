@@ -102,9 +102,12 @@ final class CloudSidecarStoreTests: XCTestCase {
       URLProtocolStub.capturedBodies["https://batch-preservation/api/assets/asset/xmp"])
     let written = String(decoding: body, as: UTF8.self)
     XCTAssertEqual(XMPParser.parseMetadata(written), XMPParser.parseMetadata(document.read()))
-    XCTAssertEqual(
-      XMPParser.parsePassthrough(data: body),
-      XMPParser.parsePassthrough(data: Data(document.read().utf8)))
+    let writtenPassthrough = XMPParser.parsePassthrough(data: body)
+    let sourcePassthrough = XMPParser.parsePassthrough(data: Data(document.read().utf8))
+    XCTAssertEqual(writtenPassthrough.unknownAttributes, sourcePassthrough.unknownAttributes)
+    XCTAssertEqual(writtenPassthrough.unknownNodes, sourcePassthrough.unknownNodes)
+    XCTAssertEqual(writtenPassthrough.maskGroups, sourcePassthrough.maskGroups)
+    XCTAssertEqual(writtenPassthrough.authoredRating, "4")
     XCTAssertEqual(try XMPParser.parse(data: body).0.exposure, 1.75)
   }
 

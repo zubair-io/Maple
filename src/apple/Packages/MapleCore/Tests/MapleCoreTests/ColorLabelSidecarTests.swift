@@ -116,10 +116,9 @@ final class ColorLabelSidecarTests: XCTestCase {
         XCTAssertNil(parsed.colorLabel, "An unknown color must not be stored")
     }
 
-    /// Apple overloads `xmp:Label` for the pick/reject flag, so it must NOT
-    /// also be read as a color — otherwise every Apple-authored pick would
-    /// silently acquire a red color label.
-    func testXmpLabelStaysTheFlagAndDoesNotBecomeAColorLabel() throws {
+    /// `xmp:Label` carries Adobe's colour word, never a flag (#4403), and
+    /// `papp:ColorLabel` wins when both are present.
+    func testXmpLabelReadsAsTheAdobeColourWord() throws {
         let xml = """
         <?xml version="1.0"?>
         <x:xmpmeta xmlns:x="adobe:ns:meta/">
@@ -129,8 +128,15 @@ final class ColorLabelSidecarTests: XCTestCase {
         </x:xmpmeta>
         """
         let (_, parsed) = try XMPParser.parse(xml)
-        XCTAssertEqual(parsed.flag, .pick, "xmp:Label=\"Red\" is the pick flag on Apple")
-        XCTAssertNil(parsed.colorLabel, "xmp:Label must not leak into the color label")
+        XCTAssertEqual(parsed.flag, .none)
+        XCTAssertEqual(parsed.colorLabel, .red)
+
+        let both = xml.replacingOccurrences(
+            of: #"xmp:Label="Red""#,
+            with: #"xmp:Label="Red" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:ColorLabel="blue""#)
+        XCTAssertEqual(try XMPParser.parse(both).1.colorLabel, .blue)
+        let lowercase = xml.replacingOccurrences(of: #"xmp:Label="Red""#, with: #"xmp:Label="red""#)
+        XCTAssertNil(try XMPParser.parse(lowercase).1.colorLabel)
     }
 
     /// A `papp:ColorLabel` written alongside a flag round-trips without either

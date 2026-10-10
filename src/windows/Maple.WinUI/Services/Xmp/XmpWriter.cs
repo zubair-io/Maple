@@ -154,10 +154,21 @@ namespace Maple.WinUI.Services.Xmp
 
         private static void AppendCullingFields(List<string> parts, XmpSidecarDocument doc)
         {
-            if (doc.Rating is > 0)
+            var keepRating = doc.AuthoredRating is { } authored
+                && (XmpParser.ParseRating(authored) ?? 0) == (doc.Rating ?? 0);
+            if (keepRating)
+            {
+                parts.Add($"xmp:Rating=\"{XmpSchema.EscapeAttr(doc.AuthoredRating!)}\"");
+            }
+            else if (doc.Rating is > 0)
             {
                 var rating = Math.Min(doc.Rating.Value, 5);
                 parts.Add($"xmp:Rating=\"{rating.ToString(CultureInfo.InvariantCulture)}\"");
+            }
+            if (doc.AuthoredLabel is { } label
+                && (doc.ColorLabel == doc.AuthoredColorLabel || XmpParser.ColorLabelFromXmpLabel(label) is null))
+            {
+                parts.Add($"xmp:Label=\"{XmpSchema.EscapeAttr(label)}\"");
             }
             if (doc.Flag is "pick" or "reject")
             {

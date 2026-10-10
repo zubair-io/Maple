@@ -493,6 +493,12 @@ export class XmpStoreService {
     return write;
   }
 
+  /** The written document becomes the next save's source, so an edited rating or label is not resurrected from the old bytes (#4403). */
+  private _rememberWritten(assetId: AssetId, written: string, current: boolean): void {
+    if (current)
+      this._passthroughs.set(assetId, this.parser.parseAdjustmentModel(written).passthrough);
+  }
+
   private async _flushWrite(
     assetId: AssetId,
     model: AdjustmentModel,
@@ -525,8 +531,7 @@ export class XmpStoreService {
           metadata,
           binding.variantId,
         );
-        if (currentSource())
-          this._passthroughs.set(assetId, this.parser.parseAdjustmentModel(output).passthrough);
+        this._rememberWritten(assetId, output, currentSource());
         this.saveState.saved(assetId, revision);
         return;
       }
@@ -535,6 +540,7 @@ export class XmpStoreService {
       // whose close() is atomic at the OS level.  The fallback backend writes to
       // IndexedDB which is also atomic.
       await this.folderAccess.writeFile(folder, sidecarName, bytes);
+      this._rememberWritten(assetId, xml, currentSource());
       this.saveState.saved(assetId, revision);
     } catch (e) {
       this.saveState.failed(assetId, revision, e);

@@ -58,6 +58,16 @@ namespace Maple.WinUI.Services.Xmp
         /// <summary>`papp:ColorLabel` — red/orange/yellow/green/blue/purple; null = unset.</summary>
         public string? ColorLabel { get; set; }
 
+        /// <summary>
+        /// `xmp:Rating` / `xmp:Label` exactly as the source authored them, and the
+        /// colour label the source resolved to (#4403). The writer keeps them
+        /// untouched unless <see cref="Rating"/> or <see cref="ColorLabel"/> changed,
+        /// so a Lightroom reject (`-1`) or a `3.0` survives an unrelated edit.
+        /// </summary>
+        public string? AuthoredRating { get; set; }
+        public string? AuthoredLabel { get; set; }
+        public string? AuthoredColorLabel { get; set; }
+
         /// <summary>`crs:Version` — imported sidecars retain their original string.</summary>
         public string Version { get; set; } = "11.0";
 

@@ -13,7 +13,7 @@ import type { XmpCulling, PassthroughBucket, XmpMetadata } from './xmp.types';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import { resolveWbScaleVersion, normalizeParsedWb, inferForeignWbSource } from './xmp-wb-scale';
 import { parseMetadataBlock } from './xmp-metadata';
-import { parseCullingBlock } from './xmp-culling';
+import { authoredCullingOf, parseCullingBlock } from './xmp-culling';
 import { collectXmpPassthrough } from './xmp-passthrough';
 import { finalizeCrop } from './xmp-crop';
 import { walkAdjustmentAttributes, applyLegacyAliases } from './xmp-adjustment-walk';
@@ -136,7 +136,10 @@ export class XmpParserService {
 
     return {
       model,
-      passthrough: collectXmpPassthrough(sourceDescription ?? desc, model, document),
+      passthrough: {
+        ...collectXmpPassthrough(sourceDescription ?? desc, model, document),
+        authoredCulling: authoredCullingOf(desc),
+      },
       metadata: parseMetadataBlock(desc),
     };
   }

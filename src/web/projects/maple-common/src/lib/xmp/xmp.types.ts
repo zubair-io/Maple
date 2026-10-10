@@ -60,6 +60,13 @@ export interface MaskGroupTemplate {
   parts: Array<string | number | null>;
 }
 
+/** `xmp:Rating` / `xmp:Label` as the source authored them, plus the colour label the source resolved to. */
+export interface AuthoredCulling {
+  rating?: string;
+  label?: string;
+  colorLabel: XmpColorLabel;
+}
+
 /**
  * Unknown attributes and nested elements from a source sidecar that Maple
  * does not model (`crs:PaintBasedCorrections`, `xmpMM:History`, etc. —
@@ -67,6 +74,8 @@ export interface MaskGroupTemplate {
  * Preserved verbatim on writes so Lightroom round-trips are non-destructive.
  */
 export interface PassthroughBucket {
+  /** Kept byte-for-byte on save unless the user changed the rating or colour label (#4403). */
+  authoredCulling?: AuthoredCulling;
   /** Opaque AI correction XML with replaceable slots for Maple-owned layers. */
   maskGroups?: { templates: MaskGroupTemplate[] };
   /** Namespace declarations needed by passthrough attributes/nodes. */

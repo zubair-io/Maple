@@ -40,7 +40,18 @@ extension XMPParser {
       .map { groups.unownedGroupSources[$0.source] ?? $0.source }
     return XMPPassthrough(
       unknownAttributes: delegate.unknownAttributes, unknownNodes: nodes,
-      maskGroups: groups.templates)
+      maskGroups: groups.templates,
+      authoredRating: delegate.authoredRating, authoredLabel: delegate.authoredLabel,
+      authoredColorLabel: (try? parse(xml))?.1.colorLabel)
+  }
+
+  /// `xmp:Rating` as stars: `3.0` reads as 3, and a Lightroom reject (`-1`),
+  /// anything outside 0...5, or anything unparseable reads as unrated — the
+  /// same reading as the web, Windows and API parsers.
+  static func ratingValue(_ value: String) -> Int {
+    guard let rating = Double(value.trimmingCharacters(in: .whitespaces)), (0...5).contains(rating)
+    else { return 0 }
+    return Int(rating.rounded())
   }
 
   /// Convenience overload for the on-disk read path.
@@ -65,6 +76,29 @@ extension XMPSerializer {
     passthrough.unknownAttributes.map { ($0.name, escapeXMLAttr($0.value)) }
   }
 
+  /// `xmp:Rating` and `xmp:Label` (#4403). An unchanged rating keeps its
+  /// authored bytes, so a Lightroom reject (`-1`) or a `3.0` is not deleted
+  /// or rewritten by an unrelated edit; a changed one is written canonically
+  /// (omitted at zero). `xmp:Label` is never Maple's to author: it survives
+  /// unless the user changed the colour label and the authored word is one
+  /// of the six colours it would now contradict.
+  static func _ratingAndLabelAttrs(
+    culling: CullingState, passthrough: XMPPassthrough
+  ) -> [(String, String)] {
+    let authoredRating = passthrough.authoredRating.flatMap { authored in
+      XMPParser.ratingValue(authored) == culling.stars ? authored : nil
+    }
+    let rating =
+      authoredRating.map { [("xmp:Rating", escapeXMLAttr($0))] }
+      ?? (culling.stars > 0 ? [("xmp:Rating", String(culling.stars))] : [])
+    let labelUnchanged = culling.colorLabel == passthrough.authoredColorLabel
+    let label = passthrough.authoredLabel.flatMap { authored in
+      labelUnchanged || ColorLabel(adobeLabel: authored) == nil
+        ? [("xmp:Label", escapeXMLAttr(authored))] : nil
+    }
+    return rating + (label ?? [])
+  }
+
   /// Unknown nested elements, in original document order — masks, history
   /// and snapshots are ordered stacks, so sorting them would corrupt them.
   ///
@@ -83,9 +117,13 @@ extension XMPSerializer {
 ///
 /// Only that element matters: every Maple field is an attribute on it, and an
 /// unknown attribute deeper in the tree already rides along inside its
-/// enclosing passthrough node's source text.
+/// enclosing passthrough node's source text. The authored `xmp:Rating` /
+/// `xmp:Label` are the exception: the parser reads them from any description,
+/// so they are captured from the first description that carries them.
 final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
   private(set) var unknownAttributes: [XMPPassthrough.Attribute] = []
+  private(set) var authoredRating: String?
+  private(set) var authoredLabel: String?
   private var captured = false
 
   func parser(
@@ -96,7 +134,10 @@ final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
     attributes attributeDict: [String: String]
   ) {
     let qual = qName ?? elementName
-    guard !captured, qual == "Description" || qual.hasSuffix(":Description") else { return }
+    guard qual == "Description" || qual.hasSuffix(":Description") else { return }
+    authoredRating = authoredRating ?? attributeDict["xmp:Rating"]
+    authoredLabel = authoredLabel ?? attributeDict["xmp:Label"]
+    guard !captured else { return }
     captured = true
     // `attributeDict` is unordered, so source order is unrecoverable here.
     // That is fine — the canonical attribute sort reorders every attribute
