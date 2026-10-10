@@ -21,11 +21,10 @@ import { meiliFacetRanking } from './facets-meili.ts';
 import { inProcessFacetRanking } from './facets-in-process.ts';
 import { selectedSearchEngine } from '../../search/search-engine-selection.ts';
 import type { ExternalRanking, FacetOptions } from '../../db/repos/search.facets.ts';
-import type { SearchWhere } from '../../db/repos/search.where.ts';
 import { emailsForUserIds } from '../../db/repos/auth.users.repo.ts';
 import { namesForPersonIds } from '../../people/people-search-filter.repo.ts';
 import { SearchQueryT, type SearchQuery } from './query.ts';
-import { resolveSearchScope } from './scope.ts';
+import { resolveRankedScope, resolveSearchScope } from './scope.ts';
 
 /** Canonical (lowercase) hex for a person-id bucket key, so the map lookup
  * against `namesForPersonIds`' canonical keys can't miss on case. Invalid ids
@@ -38,10 +37,11 @@ function canonicalHex(id: string): string {
  * The ranking options for a text search's facets, mirroring the list: the in-process engine when
  * selected, falling back to Meilisearch's ranking when the child cannot answer.
  */
-async function facetRanking(query: SearchQuery, where: SearchWhere): Promise<FacetOptions> {
+async function facetRanking(query: SearchQuery): Promise<FacetOptions> {
   const meili = meiliFacetRanking(query, FACET_TOP_MATCHES);
   if ((await selectedSearchEngine()) !== 'in-process') return { ranking: meili };
-  const inProcess = inProcessFacetRanking(query, where);
+  const scope = await resolveRankedScope(query);
+  const inProcess = 'error' in scope ? undefined : inProcessFacetRanking(scope);
   if (!inProcess) return { ranking: meili };
   const fallback = async (): Promise<ExternalRanking | null> => {
     const answer = meili ? await meili() : null;
@@ -63,11 +63,7 @@ export const facetsRoute = new Elysia().get(
     // A text search's most relevant matches are whichever engine ranks its
     // list: the in-process engine or Meilisearch when it serves this query,
     // the database otherwise.
-    const facets = await searchFacets(
-      where,
-      undefined,
-      await facetRanking(query as SearchQuery, where),
-    );
+    const facets = await searchFacets(where, undefined, await facetRanking(query as SearchQuery));
 
     // Join the person-id buckets to display names; ids whose person is
     // hidden, merged away, or gone drop out (count order is preserved).

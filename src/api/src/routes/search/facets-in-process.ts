@@ -8,19 +8,16 @@
 
 import { mapleIdsMatching } from '../../db/repos/search.repo.ts';
 import type { ExternalRanking } from '../../db/repos/search.facets.ts';
-import type { SearchWhere } from '../../db/repos/search.where.ts';
 import { inProcessRanking } from '../../search/search-engine-selection.ts';
-import { usesPlaceText } from './list-meili.ts';
-import { extractDatesFromQuery, type SearchQuery } from './query.ts';
+import type { RankedSearchScope } from './scope.ts';
 
 export function inProcessFacetRanking(
-  query: SearchQuery,
-  where: SearchWhere,
+  scope: RankedSearchScope,
 ): (() => Promise<ExternalRanking | null>) | undefined {
-  const resolved = extractDatesFromQuery(query, new Date());
-  if (!usesPlaceText(resolved)) return undefined;
+  const { childQuery, where } = scope;
+  if (childQuery === null) return undefined;
   return async () => {
-    const hits = await inProcessRanking(resolved.placeQuery!.trim());
+    const hits = await inProcessRanking(childQuery);
     if (!hits) return null;
     const mapleIds = await mapleIdsMatching(
       where,

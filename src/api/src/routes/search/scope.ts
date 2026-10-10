@@ -17,15 +17,44 @@ import { buildSearchWhere } from '../../db/repos/search.repo.ts';
 import type { SearchWhere } from '../../db/repos/search.where.ts';
 import { personIdsToDrop } from '../../people/people.repo.ts';
 import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
-import { peopleNames, type SearchQuery } from './query.ts';
+import { extractDatesFromQuery, peopleNames, type SearchQuery } from './query.ts';
+
+async function translate(query: SearchQuery): Promise<SearchWhere | { error: string }> {
+  // Excluded people (#2894) drop unconditionally; hidden people only when the request opted in
+  // (see `personIdsToDrop`). The `people` param carries display names; the face clause needs
+  // the person ids faces are tagged with, resolved here so `buildSearchWhere` stays pure.
+  const dropIds = await personIdsToDrop(query.excludeHiddenPeople);
+  const peopleIds = await personIdsForNames(peopleNames(query.people));
+  return buildSearchWhere(query, dropIds, peopleIds);
+}
 
 /** The translated query for `query`, or the 400 to answer instead. */
 export async function resolveSearchScope(query: SearchQuery): Promise<SearchWhere | Response> {
-  // Opt-in hidden-people exclusion, then names → ids: the same two id sets the
-  // list route resolves, in the same order.
-  const dropIds = await personIdsToDrop(query.excludeHiddenPeople);
-  const peopleIds = await personIdsForNames(peopleNames(query.people));
-  const where = buildSearchWhere(query, dropIds, peopleIds);
+  const where = await translate(query);
   if ('error' in where) return Response.json({ error: where.error }, { status: 400 });
   return where;
+}
+
+/**
+ * What a relevance-ranked search runs on: the request with its natural-language dates resolved
+ * ("harbour in 2023" → text `harbour`, window 2023), that request translated, and the residual
+ * text an engine ranks (null when nothing is left, e.g. a bare "2023"). The list and the facets
+ * both take their in-process candidates' text and filters from here, so the two cannot disagree
+ * about the date window.
+ */
+export interface RankedSearchScope {
+  resolved: SearchQuery;
+  where: SearchWhere;
+  childQuery: string | null;
+}
+
+export async function resolveRankedScope(
+  query: SearchQuery,
+  now: Date = new Date(),
+): Promise<RankedSearchScope | { error: string }> {
+  const resolved = extractDatesFromQuery(query, now);
+  const where = await translate(resolved);
+  if ('error' in where) return where;
+  const text = resolved.placeQuery?.trim() ?? '';
+  return { resolved, where, childQuery: text.length > 0 ? text : null };
 }
