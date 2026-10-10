@@ -26,6 +26,8 @@
  */
 
 import type { XmpMetadataInput } from './metadata-input.ts';
+import { adobeLabelColor } from './color-label.ts';
+import { parseXmpMetadata } from './metadata-parser.ts';
 
 // ---------------------------------------------------------------------------
 // Encode helpers (copied from xmp-metadata.ts — pure math, no browser deps)
@@ -331,6 +333,8 @@ function applyMerge(xml: string, meta: XmpMetadataInput): string {
     if (field in meta) touchedTags.add(tag);
   }
 
+  if (contradictsAuthoredAdobeLabel(xml, meta)) touchedAttrKeys.add('xmp:Label');
+
   // 1. Remove ONLY the touched managed attribute keys from rdf:Description.
   let result = xml;
   for (const key of touchedAttrKeys) {
@@ -388,6 +392,18 @@ function applyMerge(xml: string, meta: XmpMetadataInput): string {
   }
 
   return result;
+}
+
+/**
+ * `xmp:Label` belongs to the author (#4403, docs/xmp-canonical-format.md § Culling fields):
+ * it is dropped only when this edit changes the colour label and the authored word is one
+ * of Adobe's six colours, which would otherwise contradict the new `papp:ColorLabel`.
+ */
+function contradictsAuthoredAdobeLabel(xml: string, meta: XmpMetadataInput): boolean {
+  if (!('colorLabel' in meta)) return false;
+  const authoredWord = /\sxmp:Label="([^"]*)"/.exec(xml)?.[1];
+  if (authoredWord === undefined || adobeLabelColor(authoredWord) === undefined) return false;
+  return (meta.colorLabel || null) !== (parseXmpMetadata(xml).colorLabel ?? null);
 }
 
 /** Find the position of the closing `>` of the `<rdf:Description …>` opening tag. */
