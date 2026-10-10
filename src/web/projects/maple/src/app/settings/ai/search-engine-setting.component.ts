@@ -45,6 +45,10 @@ export function engineStatusLine(view: SearchEngineView | null): string | null {
           : '',
         '.',
       ].join('');
+    case 'incompatible-embedder':
+      return `Not usable: ${status.error ?? 'the embedding model is not bge-m3'}. Searches use Meilisearch.`;
+    case 'empty':
+      return `No ${status.model ?? 'bge-m3'} search vectors yet — resume the embed stage on Settings → Workers. Searches use Meilisearch until then.`;
     case 'failed':
       return `Could not start: ${status.error ?? 'unknown error'}. Searches use Meilisearch until it does.`;
     case 'stopped':

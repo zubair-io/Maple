@@ -16,6 +16,7 @@ import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve
 import { openSearchEngine, type SearchEngine } from './search-engine-ffi.ts';
 import {
   bootSearchIndex,
+  incompatibleEmbedderState,
   readyState,
   reusableIndexState,
   SEARCH_INDEX_VERSION,
@@ -45,27 +46,40 @@ function report(state: SearchChildState): void {
   post({ type: 'state', state });
 }
 
-function followChanges(follower: VectorFollower, config: SearchChildConfig, model: string): void {
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+async function pollOnce(
+  follower: VectorFollower,
+  config: SearchChildConfig,
+  model: string,
+  opened: SearchEngine,
+): Promise<void> {
+  if ((await follower.poll()) === 0) return;
+  writeIndexState(config.stateFile, {
+    version: SEARCH_INDEX_VERSION,
+    textWatermark: follower.textWatermark,
+  });
+  report(await readyState(opened, model, true));
+}
+
+function followChanges(
+  follower: VectorFollower,
+  config: SearchChildConfig,
+  model: string,
+  opened: SearchEngine,
+): void {
   let polling = false;
-  const tick = async (): Promise<void> => {
-    if (polling || !engine) return;
+  setInterval(() => {
+    if (polling) return;
     polling = true;
-    try {
-      const touched = await follower.poll();
-      if (touched > 0) {
-        writeIndexState(config.stateFile, {
-          version: SEARCH_INDEX_VERSION,
-          textWatermark: follower.textWatermark,
-        });
-        report(await readyState(engine, model, true));
-      }
-    } catch (err) {
-      log.warn({ err: err instanceof Error ? err.message : String(err) }, 'search poll failed');
-    } finally {
-      polling = false;
-    }
-  };
-  setInterval(() => void tick(), POLL_INTERVAL_MS);
+    pollOnce(follower, config, model, opened)
+      .finally(() => {
+        polling = false;
+      })
+      .catch((err: unknown) => log.warn({ err: errorMessage(err) }, 'search poll failed'));
+  }, POLL_INTERVAL_MS);
 }
 
 async function start(config: SearchChildConfig): Promise<void> {
@@ -75,12 +89,17 @@ async function start(config: SearchChildConfig): Promise<void> {
     await openSqlitePool({ path: config.dbPath, readers: 1 });
     const saved = reusableIndexState(config.stateFile, config.engine.index_dir);
     const model = resolveEnrichmentConfig(await loadEnrichmentConfig()).embedder_model;
+    const incompatible = incompatibleEmbedderState(model);
+    if (incompatible) {
+      report(incompatible);
+      return;
+    }
     const opened = openSearchEngine(config.engine);
     engine = opened;
     const follower = await bootSearchIndex(opened, model, saved, config.stateFile, report);
-    followChanges(follower, config, model);
+    followChanges(follower, config, model, opened);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     log.error({ err: message }, 'search engine failed to start');
     report({ phase: 'failed', vectors: 0, texts: 0, textReady: false, error: message });
   }
@@ -94,13 +113,13 @@ function answer(id: number, query: string, k: number): void {
   try {
     post({ type: 'query', id, ok: true, hits: engine.query(query, k) });
   } catch (err) {
-    post({ type: 'query', id, ok: false, error: err instanceof Error ? err.message : String(err) });
+    post({ type: 'query', id, ok: false, error: errorMessage(err) });
   }
 }
 
-process.on('message', (raw: unknown) => {
-  const request = raw as SearchChildRequest;
-  if (!request || typeof request !== 'object') return;
+function dispatch(request: SearchChildRequest): void {
   if (request.type === 'start') void start(request.config);
-  else if (request.type === 'query') answer(request.id, request.query, request.k);
-});
+  else answer(request.id, request.query, request.k);
+}
+
+process.on('message', (raw: unknown) => dispatch(raw as SearchChildRequest));

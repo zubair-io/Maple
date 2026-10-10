@@ -18,17 +18,17 @@ import type { FusedSearchHit } from './search-engine-ffi.ts';
 
 export const SEARCH_ENGINES = ['meilisearch', 'in-process'] as const;
 export type SearchEngineName = (typeof SEARCH_ENGINES)[number];
-export const DEFAULT_SEARCH_ENGINE: SearchEngineName = 'meilisearch';
+const DEFAULT_SEARCH_ENGINE: SearchEngineName = 'meilisearch';
 
 /** How many fused hits a search asks the child for; filters and paging apply to these. */
-export const IN_PROCESS_CANDIDATES = 100;
+const IN_PROCESS_CANDIDATES = 100;
 
 const SELECTION_TTL_MS = 5_000;
 const log = childLogger('search-engine');
 
 let cached: { engine: SearchEngineName; at: number } | null = null;
 
-export function isSearchEngineName(value: unknown): value is SearchEngineName {
+function isSearchEngineName(value: unknown): value is SearchEngineName {
   return SEARCH_ENGINES.includes(value as SearchEngineName);
 }
 

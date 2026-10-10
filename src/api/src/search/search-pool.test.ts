@@ -117,3 +117,17 @@ test('stop terminates the child and never respawns it', async () => {
   expect(children.length).toBe(1);
   expect(pool.status().phase).toBe('stopped');
 });
+
+test('an incompatible or empty child counts as down', async () => {
+  const { pool, children } = readyPool();
+  for (const phase of ['incompatible-embedder', 'empty'] as const) {
+    children[0]!.reply({
+      type: 'state',
+      state: { phase, vectors: 0, texts: 0, textReady: false, error: 'not bge-m3' },
+    });
+    expect(pool.status().phase).toBe(phase);
+    expect(await pool.search('harbour', 100)).toBeNull();
+  }
+  expect(children[0]!.queries()).toEqual([]);
+  expect(children[0]!.terminated).toBe(false);
+});

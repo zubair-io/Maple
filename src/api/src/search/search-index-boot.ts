@@ -52,15 +52,42 @@ export function reusableIndexState(stateFile: string, indexDir: string): SearchI
   return null;
 }
 
-/** What the child reports once its vectors are in, with the rows it left out for their model. */
+/** The model the engine embeds queries with; document vectors must come from the same one. */
+const QUERY_EMBEDDER_MODEL = 'bge-m3';
+
+/** Whether an Ollama model name (`bge-m3`, `bge-m3:latest`, `library/bge-m3:567m`) is bge-m3. */
+export function matchesQueryEmbedder(model: string): boolean {
+  const name = model.trim().toLowerCase().split(':')[0]!.split('/').pop();
+  return name === QUERY_EMBEDDER_MODEL;
+}
+
+/** Why the configured model cannot be searched in-process, or null when it can. */
+export function incompatibleEmbedderState(model: string): SearchChildState | null {
+  if (matchesQueryEmbedder(model)) return null;
+  return {
+    phase: 'incompatible-embedder',
+    vectors: 0,
+    texts: 0,
+    textReady: false,
+    model,
+    error: `the embed stage uses "${model}", but in-process search embeds queries with ${QUERY_EMBEDDER_MODEL}; choose ${QUERY_EMBEDDER_MODEL} as the embedding model on Settings → AI`,
+  };
+}
+
+/**
+ * What the child reports once its vectors are in, with the rows it left out for their model.
+ * With no vector loaded it is `empty`, never `ready`: an engine with nothing to rank would answer
+ * every search with no results instead of letting it fall back.
+ */
 export async function readyState(
   engine: SearchEngineOps,
   model: string,
   textReady: boolean,
 ): Promise<SearchChildState> {
+  const counts = engine.counts();
   return {
-    phase: 'ready',
-    ...engine.counts(),
+    phase: counts.vectors > 0 ? 'ready' : 'empty',
+    ...counts,
     textReady,
     model,
     skippedVectors: await countSkippedVectors(model),

@@ -10,6 +10,8 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import {
   bootSearchIndex,
+  incompatibleEmbedderState,
+  matchesQueryEmbedder,
   readIndexState,
   reusableIndexState,
   SEARCH_INDEX_VERSION,
@@ -87,4 +89,30 @@ test('an index from another version is deleted before the engine opens it', () =
   mkdirSync(indexDir);
   expect(reusableIndexState(stateFile, indexDir)?.textWatermark).toBe('2026-01-01');
   expect(existsSync(indexDir)).toBe(true);
+});
+
+test('with no vector of the configured model the child reports empty, never ready', async () => {
+  live.db.run(`DELETE FROM asset_vectors`);
+  const states: SearchChildState[] = [];
+
+  await bootSearchIndex(new RecordingEngine(), 'bge-m3', null, join(dir, 'state.json'), (state) =>
+    states.push(state),
+  );
+
+  expect(states.map((state) => state.phase)).toEqual(['empty', 'empty']);
+});
+
+test('only bge-m3, under any Ollama tag, is compatible with the query embedder', () => {
+  for (const model of ['bge-m3', 'bge-m3:latest', 'BGE-M3:567m', 'library/bge-m3']) {
+    expect(matchesQueryEmbedder(model)).toBe(true);
+    expect(incompatibleEmbedderState(model)).toBeNull();
+  }
+  for (const model of ['nomic-embed-text', 'bge-large', 'qwen3-embedding:8b', '']) {
+    expect(matchesQueryEmbedder(model)).toBe(false);
+  }
+  expect(incompatibleEmbedderState('nomic-embed-text')).toMatchObject({
+    phase: 'incompatible-embedder',
+    model: 'nomic-embed-text',
+    vectors: 0,
+  });
 });

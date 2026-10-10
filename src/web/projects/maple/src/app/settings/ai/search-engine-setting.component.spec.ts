@@ -111,6 +111,14 @@ describe('Search engine setting', () => {
     expect(engineStatusLine(view('in-process', { phase: 'ready', vectors: 2 }))).toContain(
       'keyword index still building',
     );
+    expect(
+      engineStatusLine(
+        view('in-process', { phase: 'incompatible-embedder', error: 'the embed stage uses "x"' }),
+      ),
+    ).toBe('Not usable: the embed stage uses "x". Searches use Meilisearch.');
+    expect(engineStatusLine(view('in-process', { phase: 'empty', model: 'bge-m3' }))).toContain(
+      'No bge-m3 search vectors yet',
+    );
     expect(engineStatusLine(view('in-process', { phase: 'failed', error: 'no ORT' }))).toContain(
       'Could not start: no ORT',
     );

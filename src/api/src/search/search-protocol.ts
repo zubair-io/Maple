@@ -37,8 +37,11 @@ export interface QueryResponse {
 /**
  * `loading` until every vector is in memory; `ready` from then on, with `textReady` false while
  * the keyword index is still being rebuilt; `failed` when the engine could not open.
+ * `incompatible-embedder` when the configured embedding model is not the one the child embeds
+ * queries with, and `empty` while no vector of that model exists yet: in both the child answers
+ * nothing, and searches take the Meilisearch path.
  */
-export type SearchChildPhase = 'loading' | 'ready' | 'failed';
+export type SearchChildPhase = 'loading' | 'ready' | 'empty' | 'incompatible-embedder' | 'failed';
 
 export interface SearchChildState {
   phase: SearchChildPhase;
