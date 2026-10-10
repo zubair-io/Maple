@@ -126,6 +126,59 @@ final class SearchViewModelCollectionTests: XCTestCase {
     XCTAssertEqual(vm.results.map(\.id), ["live1", "live2", "tail"])
   }
 
+  func test_showCollection_onePageSnapshotRetriesFailedReloadOnLoadMore() async throws {
+    let vm = makeVM()
+    var attempts = 0
+    vm.showCollection(
+      params: SearchParams(libraryID: "lib-test"),
+      firstPage: GeneratedSearchAssetPage(
+        results: [Self.makeAsset(id: "snap")], total: 1, isSnapshot: true),
+      nextPage: { _, _ in GeneratedSearchAssetPage(results: [], total: 2) },
+      liveFirstPage: {
+        attempts += 1
+        return attempts == 1
+          ? nil
+          : GeneratedSearchAssetPage(
+            results: [Self.makeAsset(id: "live1"), Self.makeAsset(id: "live2")], total: 2)
+      })
+    try await Task.sleep(for: .milliseconds(50))
+    XCTAssertFalse(vm.canLoadMore, "precondition: the snapshot already holds its whole total")
+
+    await vm.loadMore()
+
+    XCTAssertEqual(vm.results.map(\.id), ["live1", "live2"])
+    XCTAssertEqual(vm.total, 2)
+  }
+
+  func test_showCollection_staleRefreshDoesNotBlockTheNextCollection() async throws {
+    let vm = makeVM()
+    let gate = AsyncStream<Void>.makeStream()
+    vm.showCollection(
+      params: SearchParams(libraryID: "lib-test"),
+      firstPage: GeneratedSearchAssetPage(
+        results: [Self.makeAsset(id: "a")], total: 1, isSnapshot: true),
+      nextPage: { _, _ in GeneratedSearchAssetPage(results: [], total: 1) },
+      liveFirstPage: {
+        for await _ in gate.stream { break }
+        return GeneratedSearchAssetPage(results: [Self.makeAsset(id: "stale")], total: 1)
+      })
+    vm.params.placeQuery = "new search"
+    await vm.submit()
+
+    vm.showCollection(
+      params: SearchParams(libraryID: "lib-test"),
+      firstPage: GeneratedSearchAssetPage(
+        results: [Self.makeAsset(id: "b")], total: 1, isSnapshot: true),
+      nextPage: { _, _ in GeneratedSearchAssetPage(results: [], total: 1) },
+      liveFirstPage: {
+        GeneratedSearchAssetPage(results: [Self.makeAsset(id: "fresh")], total: 1)
+      })
+    gate.continuation.yield()
+    try await Task.sleep(for: .milliseconds(100))
+
+    XCTAssertEqual(vm.results.map(\.id), ["fresh"])
+  }
+
   func test_showCollection_loadMorePagesThroughTheCollection() async {
     let vm = makeVM()
     var requestedOffsets: [Int] = []

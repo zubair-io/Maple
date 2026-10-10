@@ -85,7 +85,7 @@ public final class SearchViewModel {
   /// lands. Pagination waits: offsets only mean something against the live
   /// order.
   private var isRefreshingCollection = false
-  private var isFetchingLiveFirstPage = false
+  private var liveFirstPageGeneration: Int?
   private var pendingLiveFirstPage: (() async -> GeneratedSearchAssetPage?)?
 
   /// In-memory result cache so re-issuing an identical query (clear-then-
@@ -290,13 +290,14 @@ public final class SearchViewModel {
   /// up until a live page actually arrives; a failure leaves the snapshot in
   /// place for `loadMore()` to retry.
   private func applyLiveFirstPage() async {
-    guard let load = pendingLiveFirstPage, !isFetchingLiveFirstPage else { return }
     let g = generation
-    isFetchingLiveFirstPage = true
+    guard let load = pendingLiveFirstPage, liveFirstPageGeneration != g else { return }
+    liveFirstPageGeneration = g
     let live = await load()
-    guard g == generation else { return }
-    isFetchingLiveFirstPage = false
-    guard let live else { return }
+    // A refresh for an older generation must release its claim without
+    // touching the newer collection's.
+    if liveFirstPageGeneration == g { liveFirstPageGeneration = nil }
+    guard g == generation, let live else { return }
     results = live.results
     total = live.total
     pendingLiveFirstPage = nil
@@ -348,11 +349,13 @@ public final class SearchViewModel {
   /// Fetch the next page and append. No-ops when a load is already in
   /// flight or there's nothing more to fetch.
   public func loadMore() async {
-    guard canLoadMore, !isLoading, !isLoadingMore else { return }
+    // A snapshot always has a live page pending, whatever its total says, so a
+    // one-page collection whose reload failed still heals here.
     if isRefreshingCollection {
       await applyLiveFirstPage()
       return
     }
+    guard canLoadMore, !isLoading, !isLoadingMore else { return }
     let g = generation
     isLoadingMore = true
     // A fresh submit resets this flag; an older completion must never clear
