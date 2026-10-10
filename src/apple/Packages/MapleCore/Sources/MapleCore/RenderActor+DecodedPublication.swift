@@ -86,7 +86,7 @@ extension RenderActor {
       decodeCancelFlag = nil
       return nil
     }
-    guard currentBaked == requestedBaked else {
+    guard Self.bakedModelsMatch(currentBaked, requestedBaked) else {
       decodeTask = nil
       decodeTaskAssetID = nil
       decodeTaskSidecarURL = nil
@@ -102,7 +102,7 @@ extension RenderActor {
       sameAsset: sameAssetCached,
       sameProfile: decodedProfile == decodeProfile,
       sameAutoExposure: decodedAutoExposure == decodeAutoExposure,
-      sameBakedModel: decodedBakedModel == currentBaked,
+      sameBakedModel: Self.bakedModelsMatch(decodedBakedModel, currentBaked),
       sameQuality: decodedQuality == deliveredQuality
         || (deliveredQuality == .preview && decodedQuality != nil),
       cachedRawResolution: decodedRawResolution,

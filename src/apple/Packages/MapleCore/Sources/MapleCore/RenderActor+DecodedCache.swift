@@ -97,7 +97,7 @@ extension RenderActor {
       decodeTaskProfile == decodeProfile,
       decodeTaskAutoExposure == decodeAutoExposure,
       decodeTaskQuality == decodeQuality,
-      decodeTaskBakedModel == requestedBaked,
+      Self.bakedModelsMatch(decodeTaskBakedModel, requestedBaked),
       !wantsFull || decodeTaskIsFull
     {
       // #951: JOIN an in-flight, identity-compatible decode. Do NOT create
@@ -106,7 +106,11 @@ extension RenderActor {
       // genuinely different decode supersedes it (the replace path below).
       guard let normalized = await existing.value else { return nil }
       do {
-        guard try Self.validatedBakedModel(for: asset) == requestedBaked else { return nil }
+        guard
+          Self.bakedModelsMatch(
+            try Self.validatedBakedModel(for: asset), requestedBaked
+          )
+        else { return nil }
       } catch { return nil }
       return normalized
     }
@@ -383,7 +387,10 @@ extension RenderActor {
       // File untouched since decode → baked model unchanged.
       isFresh = true
     } else {
-      do { isFresh = (try Self.validatedBakedModel(for: asset) == decodedBakedModel) } catch {
+      do {
+        isFresh = Self.bakedModelsMatch(
+          try Self.validatedBakedModel(for: asset), decodedBakedModel)
+      } catch {
         isFresh = false
       }
       if isFresh {

@@ -34,6 +34,23 @@ extension RenderActor {
     return baked
   }
 
+  /// No sidecar and an XMP containing only live GPU edits describe the same
+  /// decoded prefix. Keep `nil` as the stored absence marker, but compare it
+  /// as the canonical default baked model at cache boundaries.
+  nonisolated static func bakedModelsMatch(
+    _ lhs: AdjustmentModel?, _ rhs: AdjustmentModel?
+  ) -> Bool {
+    if let lhs, let rhs { return lhs == rhs }
+    guard lhs != nil || rhs != nil else { return true }
+    let defaultBaked = {
+      var model = RawCoreBridge.stripAppleGPUStages(AdjustmentModel.default)
+      model.profile = AdjustmentModel.default.profile
+      model.autoExposure = AdjustmentModel.default.autoExposure
+      return model
+    }()
+    return (lhs ?? defaultBaked) == (rhs ?? defaultBaked)
+  }
+
   /// Optional inspector for seeding/tests. Production freshness and decode
   /// publication use the throwing variant so malformed is distinct from absent.
   nonisolated static func bakedModel(for asset: AssetRef) -> AdjustmentModel? {
