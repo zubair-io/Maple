@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 // Temp-only symlink fixtures intentionally bypass durable mirrored product I/O.
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join, parse, sep } from 'node:path';
 import { getRegisteredRoots, registerRoot, safeWriteAllowed, unregisterRoot } from './root.ts';
@@ -125,6 +125,49 @@ describe('safeWriteAllowed', () => {
     const result = await safeWriteAllowed(join(allowedRoot, 'photo.xmp'));
     expect(result.ok).toBe(false);
     expect(result.data).toBeUndefined();
+  });
+
+  test('resolves a permitted sidecar symlink to its target', async () => {
+    const fixture = await realpath(await mkdtemp(join(tmpdir(), 'maple-root-sidecar-target-')));
+    temporaryRoots.push(fixture);
+    await mkdir(join(fixture, 'edits'));
+    await writeFile(join(fixture, 'edits', 'shared.xmp'), '<xmpmeta/>');
+    await symlink(join('edits', 'shared.xmp'), join(fixture, 'photo.xmp'));
+    process.env.MAPLE_ROOTS = fixture;
+
+    expect(await safeWriteAllowed(join(fixture, 'photo.xmp'))).toEqual({
+      ok: true,
+      data: join(fixture, 'edits', 'shared.xmp'),
+    });
+  });
+
+  test('keeps one destination while atomic saves replace the sidecar (#4051)', async () => {
+    const fixture = await realpath(await mkdtemp(join(tmpdir(), 'maple-root-replaced-')));
+    temporaryRoots.push(fixture);
+    const sidecar = join(fixture, 'photo.xmp');
+    await writeFile(sidecar, '<xmpmeta/>');
+    process.env.MAPLE_ROOTS = fixture;
+
+    const destinations = new Set<string | undefined>();
+    let replacing = true;
+    const replace = async (round: number): Promise<void> => {
+      if (!replacing) return;
+      const temp = `${sidecar}.tmp.${round}`;
+      await writeFile(temp, `<xmpmeta round="${round}"/>`);
+      await rename(temp, sidecar);
+      return replace(round + 1);
+    };
+    const authorize = async (remaining: number): Promise<void> => {
+      if (remaining === 0) {
+        replacing = false;
+        return;
+      }
+      destinations.add((await safeWriteAllowed(sidecar)).data);
+      return authorize(remaining - 1);
+    };
+    await Promise.all([authorize(5000), replace(0)]);
+
+    expect([...destinations]).toEqual([sidecar]);
   });
 
   test('authorizes every root in the native platform path list', async () => {
