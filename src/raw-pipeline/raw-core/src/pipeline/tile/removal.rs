@@ -6,7 +6,7 @@ use crate::{
     image::{CropRect, Image, RawImage},
     linearize,
     pipeline::{removal_context::anchor_model, RenderQuality},
-    types::accepted_removal::NativeWindow,
+    types::{accepted_removal::NativeWindow, AdjustmentModel, InpaintPatch},
 };
 
 pub(in crate::pipeline) fn render_removal_camera_context(
@@ -89,4 +89,31 @@ pub(in crate::pipeline) fn render_removal_camera_context(
         window.width,
         window.height,
     ))
+}
+
+/// Render saved native detail through the bounded tile chain, with verified
+/// replacements applied before user white balance and DCP.
+pub(in crate::pipeline) fn render_saved_tile(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: super::TileRect,
+    quality: RenderQuality,
+    ae_gain: f32,
+    patches: &[InpaintPatch],
+) -> Result<(u32, u32, Vec<f32>)> {
+    if model.inpaint_removals.len() != patches.len() {
+        return Err(Error::Pipeline(
+            "native tile requires the complete verified removal stack".into(),
+        ));
+    }
+    super::develop_tile_oriented_f32(
+        raw,
+        model,
+        rect,
+        quality,
+        None,
+        ae_gain,
+        patches,
+        CancelToken::never(),
+    )
 }

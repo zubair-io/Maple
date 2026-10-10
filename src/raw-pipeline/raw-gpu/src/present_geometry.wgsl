@@ -71,7 +71,7 @@ fn quantized_display_tail(point: vec2<u32>) -> vec3<f32> {
     if (params.tail_dimensions.w == 0u) {
         let p = vec3<f32>(vec2<f32>(point), 1.0);
         return perspective_quantized_pixel(vec2<i32>(
-            i32(dot(params.crop0.xyz, p)), i32(dot(params.crop1.xyz, p))));
+            i32(round(dot(params.crop0.xyz, p))), i32(round(dot(params.crop1.xyz, p)))));
     }
     let center = vec2<f32>(params.tail_dimensions.xy) / 2.0;
     let delta = params.crop_rotation.xy + vec2<f32>(point) + vec2<f32>(0.5) - center;

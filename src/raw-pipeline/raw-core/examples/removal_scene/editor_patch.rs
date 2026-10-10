@@ -89,8 +89,12 @@ pub(super) fn bake(
     }
     let identity = fs::read(reconstruction.join("editor-identity.f16"))?;
     let replacement = fs::read(reconstruction.join("editor-patch.f16"))?;
-    if identity != prepared.finish(&input)?
-        || replacement != prepared.finish(&floats(&result_bytes, true)?)?
+    if identity != prepared.finish(&input, raw_core::CancelToken::never())?
+        || replacement
+            != prepared.finish(
+                &floats(&result_bytes, true)?,
+                raw_core::CancelToken::never(),
+            )?
         || serde_json::to_value(ContentDigest::for_bytes(&identity))? != editor["identity_digest"]
         || serde_json::to_value(ContentDigest::for_bytes(&replacement))? != editor["patch_digest"]
     {

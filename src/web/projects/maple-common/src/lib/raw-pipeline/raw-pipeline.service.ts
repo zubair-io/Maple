@@ -1,5 +1,3 @@
-import { SavedRemovalPreviewClient } from './raw-pipeline.saved-preview';
-import type { RemovalCompanionBundle } from '../removal/removal-companion-bundle';
 // RawPipelineService — Angular wrapper around the raw-decode Web Worker.
 // Lazy-creates the worker on first call, reuses for subsequent calls,
 // terminates on app destroy. All decodes run off the main thread.
@@ -12,12 +10,11 @@ import type {
   DecodedImage,
   DecodeRequest,
   SetFilmLutRequest,
-  ExportedFile,
-  RawExportOptions,
   WorkerResponse,
 } from './raw-pipeline.types';
-import { dispatchExport } from './raw-pipeline.export-request';
-import { RemovalAuthoringClient } from './raw-pipeline.removal-client';
+import { RawPipelineDecodeQueue } from './raw-pipeline.decode-queue';
+import { RawPipelineExportClient } from './raw-pipeline.export-client';
+import { RawPipelineSessionClients } from './raw-pipeline.session-clients';
 import { dispatchAutoAdjust } from './raw-pipeline.auto-adjust-request';
 import {
   dispatchImportLensProfile,
@@ -58,10 +55,10 @@ import {
 } from './raw-pipeline.gpu-live-session';
 
 export type { AutoAdjustPatch } from './raw-pipeline.types';
+import type { RemovalCompanionBundle } from '../removal/removal-companion-bundle';
 import { GpuLiveRenderGate } from './gpu-live-render.gate';
 import { CanvasColorSpacePref } from './canvas-color-space.pref';
 import { isNonRawExtension } from '../state/raw-extensions';
-import { NativeDetailClient } from './raw-pipeline.native-detail';
 import type { NativeDetailArgs, NativeDetailPixels } from './raw-pipeline.native-detail.types';
 import type {
   OpenedLiveSession,
@@ -90,6 +87,7 @@ export class RawPipelineService implements OnDestroy {
   private worker: Worker | null = null;
   private nextId = 1;
   private pending = new Map<number, PendingHandler>();
+  private readonly decodeQueue = new RawPipelineDecodeQueue();
   /** Bumped every time the worker is retired — the WASM registry (mask and brush
    *  rasters included) dies with it, so hosts memoizing registry ids re-resolve when
    *  this moves; a signal, so an effect reading it re-registers after a restart. */
@@ -101,20 +99,23 @@ export class RawPipelineService implements OnDestroy {
   }
 
   /** Paint/Smart paint preparation (#3934 / #3942), never a slider operation. */
-  readonly removal = new RemovalAuthoringClient(
+  private readonly sessionClients = new RawPipelineSessionClients(
     () => this.ensureWorker(),
     () => this.nextId++,
     this.pending,
-  );
-
-  readonly savedPreview = new SavedRemovalPreviewClient(
-    new RemovalAuthoringClient(
-      () => this.ensureWorker(),
-      () => this.nextId++,
-      this.pending,
-    ),
     (run) => this.sampleQueue(() => run()),
   );
+  readonly removal = this.sessionClients.removal;
+  readonly savedPreview = this.sessionClients.savedPreview;
+  private readonly exportClient = new RawPipelineExportClient(
+    () => this.ensureWorker(),
+    () => this.nextId++,
+    this.pending,
+    (run) => this.enqueueDecode(run),
+    () => this.closeNativeDetail(),
+  );
+  readonly exportRevision = this.exportClient.revision;
+  readonly exportImage = this.exportClient.exportImage.bind(this.exportClient);
 
   private readonly threadedSubject = new BehaviorSubject<boolean | null>(null);
   private readonly threadCountSubject = new BehaviorSubject<number>(1);
@@ -186,9 +187,7 @@ export class RawPipelineService implements OnDestroy {
     if (this.worker !== worker) return;
     this.workerEpoch.update((epoch) => epoch + 1);
     this.deepDenoiseProgress.set(null);
-    this.detailClient.workerFailed();
-    this.removal.close();
-    this.savedPreview.close();
+    this.sessionClients.workerFailed();
     this.pending.forEach(({ reject }) => reject(new Error(message)));
     this.pending.clear();
     this.worker = null;
@@ -200,29 +199,14 @@ export class RawPipelineService implements OnDestroy {
   // Two large decodes running together blow past the 4 GiB wasm32 cap and
   // abort with `RuntimeError: unreachable`. Queue them here so exactly one
   // decode sits in the worker at any moment.
-  private decodeChain: Promise<unknown> = Promise.resolve();
-  private readonly detailClient = new NativeDetailClient(
-    () => this.ensureWorker(),
-    () => this.nextId++,
-    this.pending,
-  );
-
   // Called through NativeDetailHost's Pick<RawPipelineService, ...> boundary.
   // fallow-ignore-next-line unused-class-member
   renderNativeDetail(args: NativeDetailArgs): Promise<NativeDetailPixels> {
-    const revision = this.detailClient.revision();
-    const run = () => this.detailClient.render(args, revision);
-    const next = this.decodeChain.then(run, run);
-    this.decodeChain = next.catch(() => undefined);
-    return next;
+    return this.enqueueDecode(() => this.sessionClients.renderNativeDetail(args));
   }
 
   closeNativeDetail(): void {
-    this.savedPreview.close();
-    // Canvas resets retire tile reuse. Remove shares this mosaic and owns its
-    // lifetime while open; a delayed canvas reset must not discard its draft.
-    if (this.removal.isOpen) this.detailClient.detach();
-    else this.detailClient.close(this.worker);
+    this.sessionClients.closeNativeDetail(this.worker);
   }
 
   /**
@@ -260,11 +244,7 @@ export class RawPipelineService implements OnDestroy {
             this.pending.set.bind(this.pending),
           )
       : () => this.decodeOnce(bytes, ext, xmp, maxLongEdge, qualityPreview, filmLut);
-    const next = this.decodeChain.then(run, run);
-    // Preserve the chain regardless of success/failure so one bad decode
-    // doesn't stall the queue.
-    this.decodeChain = next.catch(() => undefined);
-    return next;
+    return this.enqueueDecode(run);
   }
 
   private decodeOnce(
@@ -515,10 +495,12 @@ export class RawPipelineService implements OnDestroy {
    *  must never sit in the WASM heap at once. */
   private readonly sampleQueue: SampleQueue = (run) => {
     const once = () => this.dispatchNow(run);
-    const next = this.decodeChain.then(once, once);
-    this.decodeChain = next.catch(() => undefined);
-    return next;
+    return this.enqueueDecode(once);
   };
+
+  private enqueueDecode<T>(run: () => Promise<T>): Promise<T> {
+    return this.decodeQueue.enqueue(run);
+  }
 
   private readonly dispatchNow: SampleQueue = (run) => {
     try {
@@ -528,66 +510,8 @@ export class RawPipelineService implements OnDestroy {
     }
   };
 
-  /**
-   * Render a RAW at export quality and encode it to a deliverable file (#943).
-   *
-   * Runs behind the same `decodeChain` gate as `decode()`: a full-resolution
-   * export is by far the largest thing the WASM heap ever holds, so it must not
-   * overlap another decode competing for the same 4 GiB address space.
-   *
-   * The reply is a `Blob` — the worker drains the encoded bytes out of the WASM
-   * heap in chunks, so neither thread ever holds a second copy of the file.
-   */
-  exportImage(
-    bytes: Uint8Array,
-    ext: string,
-    options: RawExportOptions,
-    xmp?: string,
-    filmLut?: ArrayBuffer,
-    saved?: RemovalCompanionBundle,
-  ): Promise<ExportedFile> {
-    const run = () => {
-      // Export decodes its own sensor data. Release the detail viewer's cached
-      // mosaic first so a large export does not retain two full RAW decodes.
-      this.closeNativeDetail();
-      return this.exportOnce(bytes, ext, options, xmp, filmLut, saved);
-    };
-    const next = this.decodeChain.then(run, run);
-    this.decodeChain = next.catch(() => undefined);
-    return next;
-  }
-
-  private exportOnce(
-    bytes: Uint8Array,
-    ext: string,
-    options: RawExportOptions,
-    xmp: string | undefined,
-    filmLut: ArrayBuffer | undefined,
-    saved: RemovalCompanionBundle | undefined,
-  ): Promise<ExportedFile> {
-    let worker: Worker;
-    try {
-      worker = this.ensureWorker();
-    } catch {
-      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
-    }
-    const register = (id: number, handler: PendingHandler) => this.pending.set(id, handler);
-    return dispatchExport(
-      worker,
-      this.nextId++,
-      register,
-      bytes,
-      ext,
-      options,
-      xmp,
-      filmLut,
-      saved,
-    );
-  }
-
   ngOnDestroy(): void {
-    this.removal.close();
-    this.savedPreview.close();
+    this.sessionClients.close();
     this.worker?.terminate();
     this.worker = null;
     this.pending.forEach(({ reject }) => reject(new Error('RawPipelineService destroyed')));

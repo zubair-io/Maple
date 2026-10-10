@@ -238,28 +238,29 @@ fn source_geometry_and_layout_changes_never_reuse_stale_dispatches() {
 /// or dispatch resources. Output-size changes retain the separate resize gate.
 #[test]
 fn quantized_tail_updates_reuse_warmed_present_resources() {
-    use raw_core::{image::ExifOrientation, stages::crop::CropPresentation, types::Crop};
+    use raw_core::image::ExifOrientation;
     let ctx = GpuContext::new_blocking().unwrap();
     let (_, bgl) = build_present_pipeline(&ctx, wgpu::TextureFormat::Rgba8Unorm);
     let cache = PresentDispatchCache::new();
     let buffer = make_chain_buf(&ctx, "tail-source");
-    let source = (8, 8);
-    let crop = CropPresentation::new(&Crop::IDENTITY, 8, 8);
+    let identity = (1, 0);
+    let dimensions = ((8, 8), (0, 0));
     let geometry = PresentGeometry::IDENTITY.with_quantized_tail(QuantizedDisplayTail {
         orientation_rows: ExifOrientation::Normal.display_pixel_rows(8, 8),
-        crop_rows: crop.rows,
-        crop_rotation: crop.rotation,
+        crop_rows: [[1., 0., 0., 0.], [0., 1., 0., 0.]],
+        crop_rotation: [0., 0., 1., 0.],
         dimensions: [8, 8, 1, 0],
         output_size: [8, 8],
     });
-    let (_, group) = cache.get_or_build_scaled(&ctx, &bgl, &buffer, source, source, geometry);
+    let (_, group) = cache.get_or_build_scaled(&ctx, &bgl, &buffer, identity, dimensions, geometry);
     let count = cache.alloc_count();
     for orientation in 1..=8 {
         let changed = PresentGeometry::IDENTITY.with_quantized_tail(QuantizedDisplayTail {
             orientation_rows: ExifOrientation::from_u16(orientation).display_pixel_rows(8, 8),
             ..geometry.tail
         });
-        let (_, next) = cache.get_or_build_scaled(&ctx, &bgl, &buffer, source, source, changed);
+        let (_, next) =
+            cache.get_or_build_scaled(&ctx, &bgl, &buffer, identity, dimensions, changed);
         assert!(Arc::ptr_eq(&group, &next));
     }
     assert_eq!(cache.alloc_count(), count);

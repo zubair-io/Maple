@@ -32,11 +32,10 @@ import { AssetId } from '../../models/asset';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import {
   ImageCanvasGpuPresent,
-  wireGpuKillSwitchEffect,
-  wireScopeSampleEffect,
   type GpuPresentHost,
   type GpuKillSwitchHost,
 } from './image-canvas.gpu-present';
+import { wireGpuKillSwitchEffect, wireScopeSampleEffect } from './image-canvas.gpu-effects';
 import {
   computeEffectivePx,
   computeRefineTargetLongEdge,

@@ -39,7 +39,7 @@ mod overlap;
 mod prefix;
 mod region;
 mod removal;
-pub(in crate::pipeline) use removal::render_removal_camera_context;
+pub(in crate::pipeline) use removal::{render_removal_camera_context, render_saved_tile};
 
 #[cfg(test)]
 mod tests;
@@ -535,33 +535,6 @@ pub fn render_scene_linear_tile_cancellable_f32(
         ae_gain,
         &[],
         cancel,
-    )
-}
-
-/// Saved native detail uses the same bounded tile chain, with verified
-/// calibration replacements installed before user WB/DCP.
-pub(super) fn render_saved_tile(
-    raw: &RawImage,
-    model: &AdjustmentModel,
-    rect: TileRect,
-    quality: RenderQuality,
-    ae_gain: f32,
-    patches: &[crate::types::InpaintPatch],
-) -> Result<(u32, u32, Vec<f32>)> {
-    if model.inpaint_removals.len() != patches.len() {
-        return Err(crate::Error::Pipeline(
-            "native tile requires the complete verified removal stack".into(),
-        ));
-    }
-    develop_tile_oriented_f32(
-        raw,
-        model,
-        rect,
-        quality,
-        None,
-        ae_gain,
-        patches,
-        crate::CancelToken::never(),
     )
 }
 

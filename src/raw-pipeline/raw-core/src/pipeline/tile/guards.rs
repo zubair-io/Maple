@@ -90,7 +90,7 @@ pub(super) fn reject_untileable(
             "tile path is not supported when deep denoise != 0 (the BM3D reference-patch grid is frame-anchored; use the full-image render entry instead). See #1105.",
         );
     }
-// DNG OpcodeList3 (#1932, #4288): tile develop supports bounded source
+    // DNG OpcodeList3 (#1932, #4288): tile develop supports bounded source
     // gathering for a single radial WarpRectilinear opcode without lateral CA
     // or GainMap. When all lens corrections are disabled, the full chain skips
     // these opcodes too, so their presence alone is safe for a tile render.

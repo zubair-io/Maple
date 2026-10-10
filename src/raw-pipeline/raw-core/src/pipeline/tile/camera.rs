@@ -34,14 +34,16 @@ pub(super) fn prepare(
             demosaic::demosaic(algo, mosaic, raw.cfa)
         }
     });
-// Apply the bounded supported OpcodeList3 warp in the same sensor-space
+    // Apply the bounded supported OpcodeList3 warp in the same sensor-space
     // coordinate system as the full-image path. Unsupported forms are rejected
     // by the ordinary tile guard; removal uses a zero-correction anchor model.
     if let Some((list, opcode_active_area)) = raw.opcode_list3.as_ref() {
         if list.opcodes.len() == 1 {
-            if let crate::pipeline::pano::opcodes::PanoOpcode::WarpRectilinear(w) = &list.opcodes[0] {
+            if let crate::pipeline::pano::opcodes::PanoOpcode::WarpRectilinear(w) = &list.opcodes[0]
+            {
                 stage("tile_opcode_list3", || {
-                    let divisor = crate::pipeline::develop::effective_quality_divisor(quality, raw.cfa);
+                    let divisor =
+                        crate::pipeline::develop::effective_quality_divisor(quality, raw.cfa);
                     let full_w = raw.width / divisor;
                     let full_h = raw.height / divisor;
                     let scaled_active_area = crate::pipeline::pano::opcode_apply::scale_active_area(
@@ -50,7 +52,10 @@ pub(super) fn prepare(
                         full_w,
                         full_h,
                     );
-                    let scales = crate::pipeline::pano::opcode_apply::LensCorrectionScales::from_model(model);
+                    let scales =
+                        crate::pipeline::pano::opcode_apply::LensCorrectionScales::from_model(
+                            model,
+                        );
                     crate::pipeline::pano::opcode_apply::apply_warp_rectilinear_windowed(
                         &mut camera_rgb,
                         w,
@@ -73,8 +78,7 @@ pub(super) fn finish(
     raw: &RawImage,
     model: &AdjustmentModel,
     active_area: Option<CropRect>,
-) -> Result<Image>
-{
+) -> Result<Image> {
     if raw.baseline_exposure.abs() > 1e-4 {
         stage("tile_baseline_exposure", || {
             let be_gain = raw.baseline_exposure.exp2();

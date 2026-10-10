@@ -192,7 +192,7 @@ final class NativeRemovalSelectorTests: XCTestCase {
   }
 
   @MainActor
-  func testPeopleTabDetectsAutomaticallyAfterImportAndReopenOnPhotographicRAW() async throws {
+  func testPeopleTabDetectsAfterImportAndExplicitSelectionAfterReopen() async throws {
     #if os(macOS)
       let repository = (0..<7).reduce(URL(fileURLWithPath: #filePath)) {
         value, _ in value.deletingLastPathComponent()
@@ -226,6 +226,10 @@ final class NativeRemovalSelectorTests: XCTestCase {
       XCTAssertTrue(removal.people.filter { $0.role == .background }.allSatisfy { !$0.keep })
       let bounds = removal.people.map { $0.detection.bounds }
       await removal.open()
+      XCTAssertEqual(removal.phase, .ready, removal.message)
+      XCTAssertEqual(removal.mode, .paint)
+      XCTAssertTrue(removal.people.isEmpty, "Opening the removal tool must not auto-run People")
+      await removal.setMode(.people)
       XCTAssertEqual(removal.phase, .ready, removal.message)
       XCTAssertEqual(removal.people.map { $0.detection.bounds }, bounds)
       XCTAssertEqual(removal.detectedPersonMasks.count, removal.people.count)

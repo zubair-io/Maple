@@ -25,6 +25,7 @@ export type { HostedSidecarBinding } from './hosted-sidecar-bindings.service';
 import { SidecarFileIoService } from './sidecar-file-io.service';
 import { HostedRemovalWriterService } from './hosted-removal-writer.service';
 import { withRemovalWriteLock } from '../removal/removal-write-lock';
+import { XmpStoreWrites } from './xmp-store.writes';
 
 @Injectable({ providedIn: 'root' })
 export class XmpStoreService {
@@ -113,6 +114,23 @@ export class XmpStoreService {
   }
 
   private readonly _inFlightWrites = new Map<AssetId, Promise<void>>();
+  private readonly writes = new XmpStoreWrites(
+    this.files,
+    this.removalWriter,
+    this.saveState,
+    this.parser,
+    this._inFlightWrites,
+    (assetId) => this.settleAsset(assetId),
+    (assetId) => this._pendingWrites.has(assetId) || this._inFlightWrites.has(assetId),
+    (assetId, folder, rawFilename) => this.bindingFor(assetId, folder, rawFilename),
+    (assetId) => this.flushAsset(assetId),
+    (assetId) => {
+      const pending = this._pendingWrites.get(assetId);
+      if (pending) clearTimeout(pending.timeout);
+      this._pendingWrites.delete(assetId);
+    },
+    (assetId, passthrough) => this.rememberPassthrough(assetId, passthrough),
+  );
 
   private _passthroughs = new Map<AssetId, PassthroughBucket>();
   private readonly passthroughRevision = signal(0);
@@ -320,35 +338,9 @@ export class XmpStoreService {
     publish: () => Promise<string>,
     currentSource: () => boolean,
   ): Promise<string> {
-    await this.settleAsset(assetId);
-    const revision = this.saveState.queued(assetId);
-    const prior = this._inFlightWrites.get(assetId) ?? Promise.resolve();
-    const write = prior.then(async () => {
-      this.saveState.saving(assetId, revision);
-      try {
-        const output = await publish();
-        if (currentSource()) {
-          const parsed = this.parser.parseAdjustmentModel(output);
-          this.rememberPassthrough(assetId, parsed.passthrough);
-          this.rememberMetadata(assetId, parsed.metadata);
-        }
-        this.saveState.saved(assetId, revision);
-        return output;
-      } catch (error) {
-        this.saveState.failed(assetId, revision, error);
-        throw error;
-      }
-    });
-    const barrier = write.then(
-      () => undefined,
-      () => undefined,
+    return this.writes.publishWorkflow(assetId, publish, currentSource, (id, metadata) =>
+      this.rememberMetadata(id, metadata),
     );
-    this._inFlightWrites.set(assetId, barrier);
-    try {
-      return await write;
-    } finally {
-      if (this._inFlightWrites.get(assetId) === barrier) this._inFlightWrites.delete(assetId);
-    }
   }
 
   async captureRemovalRevision(
@@ -356,9 +348,7 @@ export class XmpStoreService {
     folder: MapleFolderHandle,
     rawFilename: string,
   ): Promise<string> {
-    if (this._pendingWrites.has(assetId) || this._inFlightWrites.has(assetId))
-      await this.flushAsset(assetId);
-    return this.files.revision(folder, this.bindingFor(assetId, folder, rawFilename).filename);
+    return this.writes.captureRevision(assetId, folder, rawFilename);
   }
 
   async writeRemovalConfirmed(
@@ -371,41 +361,16 @@ export class XmpStoreService {
     records: string,
     expectedRevision?: string,
   ): Promise<string> {
-    const binding = this.bindingFor(assetId, folder, rawFilename);
-    const pending = this._pendingWrites.get(assetId);
-    if (pending) clearTimeout(pending.timeout);
-    this._pendingWrites.delete(assetId);
-    const revision = this.saveState.queued(assetId);
-    const prior = this._inFlightWrites.get(assetId) ?? Promise.resolve();
-    let confirmedRevision = '';
-    const write = prior
-      .catch(() => undefined)
-      .then(async () => {
-        this.saveState.saving(assetId, revision);
-        try {
-          const output = await this.removalWriter.write(
-            binding,
-            model,
-            culling,
-            expectedRecords,
-            records,
-            expectedRevision,
-          );
-          confirmedRevision = output.revision;
-          if (this.bindingFor(assetId, folder, rawFilename).variantId === binding.variantId)
-            this.rememberPassthrough(assetId, output.passthrough);
-          this.saveState.saved(assetId, revision);
-        } catch (error) {
-          this.saveState.failed(assetId, revision, error);
-          throw error;
-        }
-      })
-      .finally(() => {
-        if (this._inFlightWrites.get(assetId) === write) this._inFlightWrites.delete(assetId);
-      });
-    this._inFlightWrites.set(assetId, write);
-    await write;
-    return confirmedRevision;
+    return this.writes.writeConfirmed(
+      assetId,
+      folder,
+      rawFilename,
+      model,
+      culling,
+      expectedRecords,
+      records,
+      expectedRevision,
+    );
   }
 
   async flushAll(): Promise<void> {

@@ -12,7 +12,8 @@ import { Injector, signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-import { ImageCanvasGpuPresent, wireScopeSampleEffect } from './image-canvas.gpu-present';
+import { ImageCanvasGpuPresent } from './image-canvas.gpu-present';
+import { wireScopeSampleEffect } from './image-canvas.gpu-effects';
 import type { GpuPresentHost } from './image-canvas.gpu-present';
 import type {
   RenderedLiveSession,

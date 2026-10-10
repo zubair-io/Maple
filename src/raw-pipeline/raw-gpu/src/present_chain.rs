@@ -551,7 +551,3 @@ mod airlight_tests;
 #[cfg(all(test, target_vendor = "apple"))]
 #[path = "present_chain/reservation_tests.rs"]
 mod reservation_tests;
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[path = "present_chain/geometry_tests.rs"]
-mod geometry_tests;

@@ -47,6 +47,7 @@ use super::{
 
 pub(super) mod camera;
 mod geometry;
+mod removal;
 
 pub(super) use geometry::{
     crop_to_default, effective_quality_divisor, highlight_active_area, lateral_ca,
@@ -63,16 +64,7 @@ pub use entries::{
     develop_scene_linear_from_raw_with_quality_with_gain,
 };
 
-/// Same develop chain as [`develop_scene_linear_from_raw_with_quality_cancellable`],
-/// additionally returning the scalar gain the `auto_exposure` stage applied
-/// (1.0 when `model.auto_exposure` is `Off`, or when the anchor computation
-/// degenerates to a no-op — see `stages::auto_exposure::apply`). Ticket #1167:
-/// this is the export the tile-develop path threads back in as its `ae_gain`
-/// input, so a deep-zoom tile can reproduce the exact per-scene AE gain the
-/// full-image develop picked instead of omitting the stage. Kept as a
-/// separate entry (rather than changing the widely-called plain function's
-/// return type) to avoid touching the ~30 existing callers across raw-core,
-/// maple-cli, and the test suite that only want the `Image`.
+/// Shared develop chain that composites accepted removals before optical geometry.
 pub(super) fn develop_with_calibration_patches(
     raw: &RawImage,
     model: &AdjustmentModel,
@@ -271,32 +263,16 @@ pub(super) fn develop_with_calibration_patches(
     let (profile, profile_source) =
         stage("dcp::profile_for", || dcp::profile_for_with_source(raw))?;
     let whites_anchor_ev = dcp::scene_white_anchor(&camera_rgb, &profile)?;
-    // #3955 qualification entry: replacements return to sensor camera RGB
-    // before optical resampling. Measure Whites from the original normal
-    // geometry above. Drop that buffer before repeating the fixed prefix to
-    // avoid retaining two full-resolution RGB plates. This whole-frame probe
-    // is not a slider entry; retained source/stack preparation remains #3955.
-    // Empty stacks do no additional pixel work or allocation.
     if !calibration_patches.is_empty() {
         drop(camera_rgb);
-        let (mut unwarped, _) = camera::prepare_unwarped(raw, model, quality, cancel)?;
-        let divisor = effective_quality_divisor(quality, raw.cfa);
-        let window = super::removal_calibration::sensor_buffer_window(
+        camera_rgb = removal::apply_calibration_patches(
             raw,
-            [unwarped.width, unwarped.height],
-            divisor,
-        );
-        super::removal_calibration::composite_camera_sampled(
-            &mut unwarped,
+            model,
+            quality,
+            cancel,
             calibration_patches,
             &profile,
-            window,
-            divisor,
         )?;
-        camera_rgb = camera::finish_geometry(raw, model, quality, unwarped)?;
-        if cancel.is_cancelled() {
-            return Err(Error::Cancelled);
-        }
     }
     // Camera-space user white balance (#1726): moves the temperature/tint
     // sliders upstream of DCP, in camera-native linear RGB, matching ACR —

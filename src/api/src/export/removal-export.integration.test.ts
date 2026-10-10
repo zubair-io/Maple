@@ -73,10 +73,13 @@ describe.skipIf(!nativeLibAvailable())('saved-removal durable export jobs (#1472
   }
 
   async function claimed(targets: Awaited<ReturnType<typeof target>>['target'][]) {
+    const originalPaths = [...new Set(targets.map((exportTarget) => exportTarget.path))];
     const job = await jobs.createJob({
       kind: 'batch_recipe_export',
+      checkpoint: { originalPaths },
       payload: {
         targets,
+        originalPaths,
         recipe: {
           ...DEFAULT_EXPORT_RECIPE,
           format: 'png',

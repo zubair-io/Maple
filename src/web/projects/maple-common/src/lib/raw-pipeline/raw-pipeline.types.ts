@@ -35,13 +35,10 @@ import type {
 // `DecodeRequest` lives in its own file (#3479, file-size budget) and is
 // re-exported here so existing import paths keep working.
 import type { DecodeRequest } from './raw-pipeline.decode.types';
+import type { CropInputDimensions } from './raw-pipeline.crop-dimensions.types';
 export type { DecodeRequest } from './raw-pipeline.decode.types';
 
-export interface DecodeSuccess {
-  /** Actual oriented develop-buffer dimensions before perspective/crop. */
-  cropInputWidth?: number;
-  cropInputHeight?: number;
-
+export interface DecodeSuccess extends CropInputDimensions {
   id: number;
   type: 'decode-success';
   width: number;
@@ -218,11 +215,7 @@ export interface ScopeSnapshot {
 }
 
 /** Reply to `open-session`: the session is live + presenting its first frame. */
-export interface OpenSessionSuccess {
-  /** Actual oriented develop-buffer dimensions before perspective/crop. */
-  cropInputWidth?: number;
-  cropInputHeight?: number;
-
+export interface OpenSessionSuccess extends CropInputDimensions {
   id: number;
   type: 'open-session-success';
   /** Developed (viewport-sized per #1080) dims — also the canvas dims. */
@@ -255,11 +248,7 @@ export interface OpenSessionSuccess {
 }
 
 /** Reply to `render-session`: a frame was presented to the surface. */
-export interface RenderSessionSuccess {
-  /** Actual oriented develop-buffer dimensions before perspective/crop. */
-  cropInputWidth?: number;
-  cropInputHeight?: number;
-
+export interface RenderSessionSuccess extends CropInputDimensions {
   id: number;
   type: 'render-session-success';
   width: number;
@@ -479,11 +468,7 @@ export type WorkerRequest =
   | RegisterBrushRasterRequest
   | ExportRequest;
 
-export interface DecodedImage {
-  /** Actual oriented develop-buffer dimensions before perspective/crop. */
-  cropInputWidth?: number;
-  cropInputHeight?: number;
-
+export interface DecodedImage extends CropInputDimensions {
   width: number;
   height: number;
   rgb: Uint8Array; // view over the transferred buffer

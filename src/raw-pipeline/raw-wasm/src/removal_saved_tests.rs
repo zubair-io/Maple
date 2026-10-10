@@ -268,7 +268,7 @@ fn saved_gpu_prefix_is_source_bound_and_reuses_hot_slider_base() {
                 prefix, hot_prefix,
                 "WB/exposure must keep the resident base"
             );
-            let mut inputs = crate::gpu_render::chain_inputs_for_model(
+            let (mut inputs, _) = crate::gpu_render::chain_inputs_with_status(
                 &raw, RAW, "dng", &grade, None, 0, anchor,
             );
             inputs.nr_sampling_scale = sampling;
