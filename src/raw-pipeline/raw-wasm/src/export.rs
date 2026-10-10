@@ -40,6 +40,18 @@ pub struct MapleExport {
     bytes: Vec<u8>,
 }
 
+impl MapleExport {
+    pub(crate) fn from_image(image: raw_core::export::ExportedImage, format: ExportFormat) -> Self {
+        Self {
+            width: image.width,
+            height: image.height,
+            bytes: image.bytes,
+            mime_type: format.mime_type().to_owned(),
+            extension: format.extension().to_owned(),
+        }
+    }
+}
+
 #[wasm_bindgen]
 impl MapleExport {
     /// Width of the encoded image, after any resize / crop / orientation.
@@ -194,6 +206,7 @@ fn export_core_with_film(
     )?;
 
     let model = crate::mask_registry::parse_model(xmp.as_deref()).map_err(|e| e.to_string())?;
+    crate::removal_saved::require_no_unresolved_removals(&model).map_err(|e| e)?;
 
     let options = ExportOptions {
         format,

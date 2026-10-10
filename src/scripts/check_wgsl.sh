@@ -29,7 +29,8 @@
 #       (b) color_matrices + kernel
 #       (c) color_matrices + agx_coeffs + kernel
 #       (d) color_matrices + local_mask_wire + kernel
-#       (e) present_chain + kernel (display histogram shares the display quantizer)
+#       (e) runtime present modules: present_chain + present_geometry, optionally
+#           followed by display_histogram (which shares that complete module)
 #   A kernel PASSES if it validates under ANY rung (unused header helpers are
 #   legal WGSL), and FAILS only if a genuine syntax/type error makes every rung
 #   fail. The generated headers are themselves validated standalone (rung a).
@@ -110,11 +111,34 @@ while IFS= read -r kernel; do
 		continue
 	fi
 
-	# Rung (e): display histogram shares the present shader's quantization.
-	cat "$WGSL_DIR/present_chain.wgsl" "$kernel" >"$assembled"
-	if validate "$assembled"; then
-		echo "PASS  $base  (+present_chain)"
-		continue
+	# Runtime presentation is a composed module: present_geometry supplies the
+	# shared Params, buffers, dither helper, and quantized display-tail functions.
+	# Validate these files in the same composition as Rust's include_str! chain;
+	# appending the module to itself would create a duplicate Params declaration.
+	case "$base" in
+	present_chain.wgsl | present_geometry.wgsl)
+		cat "$WGSL_DIR/present_chain.wgsl" "$WGSL_DIR/present_geometry.wgsl" >"$assembled"
+		if validate "$assembled"; then
+			echo "PASS  $base  (runtime present composition)"
+			continue
+		fi
+		;;
+	display_histogram.wgsl)
+		cat "$WGSL_DIR/present_chain.wgsl" "$WGSL_DIR/present_geometry.wgsl" "$kernel" >"$assembled"
+		if validate "$assembled"; then
+			echo "PASS  $base  (runtime present + histogram composition)"
+			continue
+		fi
+		;;
+	esac
+
+	# Other kernels may import the complete presentation module.
+	if [[ "$base" != "present_chain.wgsl" && "$base" != "present_geometry.wgsl" && "$base" != "display_histogram.wgsl" ]]; then
+		cat "$WGSL_DIR/present_chain.wgsl" "$WGSL_DIR/present_geometry.wgsl" "$kernel" >"$assembled"
+		if validate "$assembled"; then
+			echo "PASS  $base  (+runtime present module)"
+			continue
+		fi
 	fi
 
 	# Failed every rung — a real error. Show the richest-context diagnostic.

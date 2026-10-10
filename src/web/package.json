@@ -33,6 +33,8 @@
     "format:check": "bash scripts/format.sh --check",
     "test": "ng test",
     "e2e": "playwright test",
+    "e2e:removal": "playwright test --config=playwright.removal.config.ts",
+    "e2e:removal:self-hosted": "playwright test --config=playwright.removal-self-hosted.config.ts",
     "e2e:auto-fit": "playwright test --config playwright.auto-fit.config.ts",
     "e2e:cold-profile": "playwright test --config playwright.cold-profile.config.ts",
     "e2e:production": "playwright test --config playwright.production.config.ts",
@@ -73,6 +75,7 @@
     "exifr": "^7.1.3",
     "maplibre-gl": "^6.3.0",
     "marked": "18.0.10",
+    "onnxruntime-web": "1.30.0",
     "qrcode": "1.5.4",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"

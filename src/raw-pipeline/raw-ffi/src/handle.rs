@@ -33,11 +33,9 @@
 
 use crate::buffers::MapleSceneLinearBuffer;
 use crate::error::{set_last_error, with_large_stack};
-use crate::model::{dehaze_active, load_xmp_model_owned, LoadModel};
+use crate::model::dehaze_active;
 use crate::scene_linear::write_scene_linear_buf;
-use raw_core::decode::decode_bytes;
 use raw_core::xmp;
-use std::ffi::{c_char, CStr};
 
 #[path = "handle_context.rs"]
 mod context;
@@ -49,6 +47,8 @@ pub(crate) struct MapleRawHandleInner {
     pub(crate) raw: std::sync::Arc<raw_core::image::RawImage>,
     frame: context::FrameCache,
     pub(crate) model: xmp::AdjustmentModel,
+    pub(crate) original: raw_core::types::accepted_removal::ContentDigest,
+    saved: Option<raw_core::pipeline::ResolvedCalibrationRemovals>,
 }
 
 /// Opaque handle to a decoded RawImage + parsed AdjustmentModel.
@@ -60,155 +60,12 @@ pub(crate) struct MapleRawHandleInner {
 pub struct MapleRawHandle {
     /// Opaque pointer to a heap-allocated `MapleRawHandleInner`. Not
     /// introspected by callers.
-    inner: *mut std::ffi::c_void,
+    pub(crate) inner: *mut std::ffi::c_void,
 }
 
-/// Open a RAW + optional XMP sidecar into an opaque handle suitable for
-/// repeated tile rendering. The handle owns the rawler-decoded mosaic
-/// and the parsed AdjustmentModel; subsequent calls to
-/// `maple_render_handle_scene_linear_tile` skip both.
-///
-/// `xmp_path` may be null — in that case `AdjustmentModel::default()`
-/// is stored in the handle.
-///
-/// Returns 0 on success and writes the handle pointer into
-/// `*handle_out`. Non-zero on error (call `maple_last_error` for the
-/// message). The output handle pointer is always written: it is null
-/// on error and non-null on success.
-///
-/// The caller must eventually free the handle via
-/// `maple_close_raw_handle`. Failing to do so leaks the underlying
-/// `RawImage` (~30-300 MB depending on sensor resolution).
-#[no_mangle]
-pub unsafe extern "C" fn maple_open_raw_handle(
-    raw_path: *const c_char,
-    xmp_path: *const c_char,
-    handle_out: *mut *mut MapleRawHandle,
-) -> i32 {
-    if raw_path.is_null() || handle_out.is_null() {
-        set_last_error("null pointer argument".into());
-        return 1;
-    }
-    // Initialize the out pointer to null defensively so callers that
-    // ignore the rc and read the slot still see a sentinel value.
-    *handle_out = std::ptr::null_mut();
-    let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
-        Ok(s) => s.to_owned(),
-        Err(e) => {
-            set_last_error(format!("raw_path not UTF-8: {}", e));
-            return 2;
-        }
-    };
-    let xmp_path_str: Option<String> = if xmp_path.is_null() {
-        None
-    } else {
-        match CStr::from_ptr(xmp_path).to_str() {
-            Ok(s) => Some(s.to_owned()),
-            Err(e) => {
-                set_last_error(format!("xmp_path not UTF-8: {}", e));
-                return 3;
-            }
-        }
-    };
-    let handle_out_addr = handle_out as usize;
-    with_large_stack(move || {
-        let raw_path = std::path::Path::new(&raw_path_str);
-        let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
-            LoadModel::Ok(m) => m,
-            LoadModel::Err(rc) => return rc,
-        };
-        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path))
-        {
-            Ok(b) => b,
-            Err(e) => {
-                set_last_error(format!("raw read: {}", e));
-                return 6;
-            }
-        };
-        let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_bytes(&raw_bytes, ext)
-        }) {
-            Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
-            }
-        };
-        let inner = Box::new(MapleRawHandleInner::new(raw_img, model));
-        let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
-        let handle = Box::new(MapleRawHandle { inner: inner_ptr });
-        unsafe {
-            *(handle_out_addr as *mut *mut MapleRawHandle) = Box::into_raw(handle);
-        }
-        0
-    })
-}
-
-/// Bytes-variant of `maple_open_raw_handle`. Decodes from an in-memory
-/// RAW byte slice (PhotoKit / network-source codepaths). `hint_ext` is
-/// the extension without the leading dot (e.g. `"dng"`); pass null or
-/// empty for content-sniff fallback.
-#[no_mangle]
-pub unsafe extern "C" fn maple_open_raw_handle_bytes(
-    raw_bytes: *const u8,
-    raw_len: usize,
-    hint_ext: *const c_char,
-    xmp_path: *const c_char,
-    handle_out: *mut *mut MapleRawHandle,
-) -> i32 {
-    if raw_bytes.is_null() || handle_out.is_null() {
-        set_last_error("null pointer argument".into());
-        return 1;
-    }
-    *handle_out = std::ptr::null_mut();
-    let ext_owned: String = if hint_ext.is_null() {
-        String::new()
-    } else {
-        match CStr::from_ptr(hint_ext).to_str() {
-            Ok(s) => s.to_owned(),
-            Err(e) => {
-                set_last_error(format!("hint_ext not UTF-8: {}", e));
-                return 2;
-            }
-        }
-    };
-    let xmp_path_str: Option<String> = if xmp_path.is_null() {
-        None
-    } else {
-        match CStr::from_ptr(xmp_path).to_str() {
-            Ok(s) => Some(s.to_owned()),
-            Err(e) => {
-                set_last_error(format!("xmp_path not UTF-8: {}", e));
-                return 3;
-            }
-        }
-    };
-    let input: Vec<u8> = std::slice::from_raw_parts(raw_bytes, raw_len).to_vec();
-    let handle_out_addr = handle_out as usize;
-    with_large_stack(move || {
-        let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
-            LoadModel::Ok(m) => m,
-            LoadModel::Err(rc) => return rc,
-        };
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_bytes(&input, &ext_owned)
-        }) {
-            Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
-            }
-        };
-        let inner = Box::new(MapleRawHandleInner::new(raw_img, model));
-        let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
-        let handle = Box::new(MapleRawHandle { inner: inner_ptr });
-        unsafe {
-            *(handle_out_addr as *mut *mut MapleRawHandle) = Box::into_raw(handle);
-        }
-        0
-    })
-}
+#[path = "handle_open.rs"]
+mod open;
+pub use open::{maple_open_raw_handle, maple_open_raw_handle_bytes};
 
 /// Render a tile from a previously opened raw handle. Same arguments
 /// and error codes as `maple_render_file_scene_linear_tile` minus the
@@ -500,6 +357,9 @@ unsafe fn render_handle_scene_linear_tile_f32_impl(
                 set_last_error(msg.clone());
                 if crate::model::is_untileable_model_error(&msg) {
                     return 10;
+                }
+                if msg.contains("tile source rectangle") {
+                    return 9;
                 }
                 if msg.contains("tile source rectangle") {
                     return 9;

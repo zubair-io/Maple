@@ -65,11 +65,11 @@ fn slice_fn<'a>(src: &'a str, name: &str) -> &'a str {
     // followed by a public one must not swallow the private one's body.
     let after_sig = &src[start + name.len()..];
     let rest = &after_sig[1..];
-    let next_fn_rel = match (rest.find("\npub fn "), rest.find("\nfn ")) {
-        (Some(a), Some(b)) => Some(a.min(b)),
-        (found, None) | (None, found) => found,
-    }
-    .map(|i| i + 1);
+    let next_fn_rel = ["\npub fn ", "\npub(super) fn ", "\npub(crate) fn ", "\nfn "]
+        .iter()
+        .filter_map(|signature| rest.find(signature))
+        .min()
+        .map(|i| i + 1);
     match next_fn_rel {
         Some(rel) => &src[start..start + name.len() + rel],
         None => &src[start..],
@@ -87,9 +87,9 @@ fn slice_fn<'a>(src: &'a str, name: &str) -> &'a str {
 fn colour_chain() -> Vec<&'static str> {
     let render = include_str!("mod.rs");
     assert!(slice_fn(render, "render_display_scene").contains("render_display_scene_with_context("));
-    let wrapper = slice_fn(render, "render_display_scene_with_context");
-    assert!(wrapper.contains("render_display_scene_with_context_cancellable("));
-    let body = slice_fn(render, "render_display_scene_with_context_cancellable");
+    assert!(slice_fn(render, "render_display_scene_with_context")
+        .contains("render_display_scene_with_removals("));
+    let body = slice_fn(render, "render_display_scene_with_removals");
     assert!(body.contains("display_prefix::apply("));
     let mut stages = stage_call_order(include_str!("display_prefix.rs"));
     stages.extend(stage_call_order(body));
@@ -105,13 +105,14 @@ fn present_chains() -> Vec<(&'static str, Vec<&'static str>)> {
     let render_src = include_str!("mod.rs");
     let export_src = include_str!("export.rs");
     let synthetic_src = include_str!("synthetic.rs");
-
-    // #4096 keeps the existing entry point as a wrapper around the terminal
-    // that also reports achieved Auto fit. Check that delegation before
-    // following the actual pixel stages; the wrapper itself never quantizes.
+    // #4096 keeps the pixel-only entry point as a wrapper around the terminal
+    // that also reports achieved Auto fit. Check both delegation layers before
+    // following the actual pixel stages; neither wrapper quantizes itself.
     assert!(
         slice_fn(render_src, "render_display_from_raw").contains("render_from_raw_with_auto_fit(")
     );
+    assert!(slice_fn(render_src, "render_from_raw_with_auto_fit")
+        .contains("render_display_with_geometry("));
 
     // A depth terminal's own stages, appended to the shared colour chain, is
     // the sequence a render of that depth really runs.
@@ -124,7 +125,7 @@ fn present_chains() -> Vec<(&'static str, Vec<&'static str>)> {
     vec![
         (
             "render_display_from_raw (RAW develop path, 8-bit display terminal)",
-            terminal(render_src, "render_from_raw_with_auto_fit"),
+            terminal(render_src, "render_display_with_geometry"),
         ),
         (
             "export finish_eight (JPEG / PNG terminal)",

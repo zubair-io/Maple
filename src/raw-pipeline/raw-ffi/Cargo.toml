@@ -61,6 +61,10 @@ search = ["dep:maple-search"]
 pano = ["dep:maple-pano", "maple-pano/ml"]
 pano-ios = ["dep:maple-pano", "maple-pano/ml-static"]
 
+# Native authoring inference (#3941); same ORT environment as panorama.
+removal = ["dep:maple-removal", "maple-removal/ml"]
+removal-ios = ["dep:maple-removal", "maple-removal/ml-static"]
+
 [dependencies]
 serde_json = "1"
 # `avif` unconditionally on: the thumbnail encoder (thumbnail.rs) is AVIF-only
@@ -85,6 +89,7 @@ raw-gpu = { path = "../raw-gpu", optional = true }
 maple-pano = { path = "../maple-pano", optional = true }
 # In-process hybrid search (#4462). Gated by the API-only `search` feature.
 maple-search = { path = "../maple-search", optional = true }
+maple-removal = { path = "../maple-removal", optional = true }
 rawler.workspace = true
 image.workspace = true
 thiserror.workspace = true

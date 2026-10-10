@@ -48,6 +48,21 @@ final class RenderSchedulingBackpressureTests: XCTestCase {
     await renderer.cancelAll()
   }
 
+  func testFailedNativeCPURenderReleasesSlotForAnotherSession() async throws {
+    enum Failure: Error { case nativeTail }
+    let first = RenderActor(pipeline: ImageEditPipeline())
+    do {
+      _ = try await first.renderCPUPreview { throw Failure.nativeTail }
+      XCTFail("Failed native render was published")
+    } catch Failure.nativeTail {}
+    let next = RenderActor(pipeline: ImageEditPipeline())
+    let image = try await next.renderCPUPreview {
+      CIImage(color: .init(red: 0.2, green: 0.3, blue: 0.4, alpha: 1))
+        .cropped(to: CGRect(x: 0, y: 0, width: 4, height: 3))
+    }
+    XCTAssertEqual(image.extent, CGRect(x: 0, y: 0, width: 4, height: 3))
+  }
+
   func testCancelledCPURenderHoldsSlotUntilNativeWorkActuallyReturns() async throws {
     let firstRenderer = RenderActor(pipeline: ImageEditPipeline())
     let nextRenderer = RenderActor(pipeline: ImageEditPipeline())

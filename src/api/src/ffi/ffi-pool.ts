@@ -41,6 +41,7 @@
 import { nativeLibAvailable } from './raw_ffi.ts';
 import type { HistogramBins } from '../thumbs/histogram.ts';
 import type { LensProfileInventory } from '../lens-profiles/types.ts';
+import type { VerifiedRemovalAssets } from './raw_ffi-removal-assets.ts';
 import { defaultChildWorkerFactory } from './ffi-child-worker.ts';
 import { WorkerSlotPool } from './ffi-pool-slots.ts';
 import type { PendingRequest, PoolWorker, WorkerFactory } from './ffi-pool-slots.ts';
@@ -323,6 +324,52 @@ class FfiWorkerPool {
         onError: reject,
       });
     });
+  }
+
+  async verifyRemovalAssets(rawPath: string, records: string): Promise<VerifiedRemovalAssets> {
+    return this.verifyRemoval('removalAssets', rawPath, records);
+  }
+
+  async verifyRemovalSource(rawPath: string, records: string): Promise<VerifiedRemovalAssets> {
+    return this.verifyRemoval('removalSource', rawPath, records);
+  }
+
+  async verifyRemovalAsset(filePath: string, name: string): Promise<void> {
+    const id = this.requestId();
+    return new Promise((resolve, reject) =>
+      this.enqueue({
+        id,
+        post: (w) => w.postMessage({ type: 'validateRemovalAsset', id, filePath, name }),
+        onResponse: (msg) => {
+          if (msg.type !== 'validateRemovalAsset') return false;
+          if (msg.ok) resolve();
+          else reject(new Error(msg.error ?? 'Removal asset validation failed'));
+          return true;
+        },
+        onError: reject,
+      }),
+    );
+  }
+
+  private async verifyRemoval(
+    type: 'removalAssets' | 'removalSource',
+    rawPath: string,
+    records: string,
+  ): Promise<VerifiedRemovalAssets> {
+    const id = this.requestId();
+    return new Promise((resolve, reject) =>
+      this.enqueue({
+        id,
+        post: (w) => w.postMessage({ type, id, rawPath, records }),
+        onResponse: (msg) => {
+          if (msg.type !== type) return false;
+          if (msg.ok && msg.assets) resolve(msg.assets);
+          else reject(new Error(msg.error ?? 'Removal asset validation failed'));
+          return true;
+        },
+        onError: reject,
+      }),
+    );
   }
 
   /** True once `shutdown()` has run — `ffiPool()` uses this (#3524). Either

@@ -38,30 +38,6 @@ import Foundation
 extension EditSession {
   // MARK: - Unified decode + render
 
-  /// Auto Profile (#812) — resolve (and cache) the per-image display-space
-  /// CIColorCube for a CPU-path render. In `decodeAndRender`, call only from
-  /// the CPU-fallback branches (after `presentViaGpuLive` has declined the
-  /// frame): the fit is a cold JPEG-extract + develop the first time per
-  /// image (seconds + a multi-GB develop transient on a 100MP RAW), and
-  /// when the GPU live present handles the frame it does its own fit —
-  /// computing this before attempting the present burns that cost on a
-  /// result the GPU path never uses (#2034). `AutoProfileLUT` caches the
-  /// baked cube keyed on URL+mtime+quality so slider ticks reuse it. Nil
-  /// for non-RAW, `Profile::Neutral`, or fit failure. The editor decode
-  /// path develops at `.preview` (RenderActor's sharedDecode +
-  /// decodeSceneLinear* default to `.preview`), so the curve is fit at
-  /// `.preview` to match the displayed buffer (#844).
-  func autoProfileLUTForCPURender(asset: AssetRef, model m: AdjustmentModel) async
-    -> CIFilter?
-  {
-    guard asset.isRaw, m.profile == .auto else { return nil }
-    guard let url = try? await renderActor.rawRenderSource.url(for: asset) else { return nil }
-    let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
-    let accessing = scope.startAccessingSecurityScopedResource()
-    defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-    return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile, quality: .preview)
-  }
-
   func decodeAndRender(targetSize: CGSize?, phase: RenderPhase, gen: UInt64? = nil) async {
     if let error = partialWhiteBalanceImportError, model.partialWhiteBalance != nil {
       settleAutoFitFailure(assetID: asset.id, profile: model.profile, revision: autoFitRevision)
@@ -215,7 +191,8 @@ extension EditSession {
     )
     let phaseName: StaticString = (phase == .fast) ? "fast" : "refine"
     let phaseSignpostID = editSessionSignposter.makeSignpostID()
-    let phaseState = editSessionSignposter.beginInterval(phaseName, id: phaseSignpostID)
+    let phaseState = editSessionSignposter.beginInterval(
+      phaseName, id: phaseSignpostID, "generation \(gen ?? 0, privacy: .public)")
     defer { editSessionSignposter.endInterval(phaseName, phaseState) }
 
     let filterStageName: StaticString =
@@ -226,6 +203,7 @@ extension EditSession {
     do {
       let image: CIImage
       let achievedAutoFit: Bool
+      let nativeAutoProfileID: UUID?
       let isRaw = asset.isRaw
       let assetID = asset.id
       if let cached, cacheFresh {
@@ -264,7 +242,8 @@ extension EditSession {
           applyCrop ? CropImageStage.apply(crop, to: cached, nativeSize: cropNativeSize) : cached
         if await presentViaGpuLive(
           decoded: gpuCached, targetSize: gpuTarget, gen: gen,
-          decodeGeneration: snapshot.decodeGeneration, appliedCrop: appliedCrop,
+          decodeGeneration: snapshot.decodeGeneration, quality: snapshot.quality ?? .preview,
+          appliedCrop: appliedCrop,
           noiseProfile: cachedNoiseProfile, iso: cachedISO, whitesAnchorEv: snapshot.whitesAnchorEv,
           nrSamplingScale: snapshot.nrSamplingScale
         ) {
@@ -285,10 +264,13 @@ extension EditSession {
         // for THIS (interactive canvas) path — `EditSession+
         // FilmExport.swift`'s non-RAW export path is untouched, still
         // tracked under #2713.
-        let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
-        achievedAutoFit = profileLUT != nil
+        let autoTail = await autoProfileLUTForCPURender(
+          asset: asset, model: m, quality: snapshot.quality ?? .preview,
+          decodeGeneration: snapshot.decodeGeneration)
+        let profileLUT = autoTail.filter
+        achievedAutoFit = profileLUT != nil || autoTail.native != nil
         MemoryProbe.sample(
-          "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
+          "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(achievedAutoFit)")
         // The fit is a multi-second suspension on a cold image, and the
         // detached render below doesn't inherit cancellation — bail here
         // so a slider tick that cancelled mid-fit can't spawn a stale
@@ -302,7 +284,7 @@ extension EditSession {
         // bytes it would misinterpret as sRGB-gamma.
         let filmActive = filmLattice != nil && m.filmStrength > 0
         image = try await renderActor.renderCPUPreview {
-          let processed = mapleStage(filterStageName) { () -> CIImage in
+          let processed = try mapleStage(filterStageName) { () -> CIImage in
             if !isRaw {
               return pipeline.processSceneLinearNonRaw(
                 decoded: cached, model: m, targetSize: processTarget,
@@ -310,21 +292,24 @@ extension EditSession {
                 targetPrimariesOverride: filmActive ? .srgb : nil
               )
             }
-            return pipeline.processSceneLinear(
+            return try pipeline.processSceneLinearWithAuto(
               decoded: cached, model: m, targetSize: processTarget,
               asShot: asShot, decodedAtModel: cachedDecodedAtModel,
               profileLUT: profileLUT,
+              nativeAutoProfile: autoTail.native,
               assetID: assetID,
               noiseProfile: cachedNoiseProfile,
               iso: cachedISO,
               wbFrame: cachedWbFrame, whitesAnchorEv: snapshot.whitesAnchorEv,
               nrSamplingScale: snapshot.nrSamplingScale,
-              targetPrimariesOverride: filmActive ? .srgb : nil
+              targetPrimariesOverride: filmActive || autoTail.native?.artifacts != nil
+                ? .srgb : nil
             )
           }
           return FilmLookCube.apply(
             to: processed, lattice: filmLattice, strengthPct: m.filmStrength)
         }
+        nativeAutoProfileID = autoTail.native?.id
       } else {
         // Both phases decode to their bounded display target so the
         // full-res bitmap is never allocated (#785 fast phase, #1637
@@ -400,7 +385,8 @@ extension EditSession {
         let (freshISO, freshWbFrame) = (freshSnapshot.iso, freshSnapshot.wbFrame)
         if await presentViaGpuLive(
           decoded: gpuDecoded, targetSize: gpuTarget, gen: gen,
-          decodeGeneration: freshSnapshot.decodeGeneration, appliedCrop: appliedCrop,
+          decodeGeneration: freshSnapshot.decodeGeneration,
+          quality: freshSnapshot.quality ?? .preview, appliedCrop: appliedCrop,
           noiseProfile: freshNoiseProfile, iso: freshISO,
           whitesAnchorEv: freshSnapshot.whitesAnchorEv,
           nrSamplingScale: freshSnapshot.nrSamplingScale
@@ -418,10 +404,13 @@ extension EditSession {
         // FFI chain's display-encoded output rather than inside the
         // FFI struct itself, closing the gap for this (interactive
         // canvas) path.
-        let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
-        achievedAutoFit = profileLUT != nil
+        let autoTail = await autoProfileLUTForCPURender(
+          asset: asset, model: m, quality: freshSnapshot.quality ?? .preview,
+          decodeGeneration: freshSnapshot.decodeGeneration)
+        let profileLUT = autoTail.filter
+        achievedAutoFit = profileLUT != nil || autoTail.native != nil
         MemoryProbe.sample(
-          "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
+          "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(achievedAutoFit)")
         // Same bail as the cached branch: the fit suspension may have
         // outlived this generation, and the detached render below
         // doesn't inherit cancellation.
@@ -432,7 +421,7 @@ extension EditSession {
         // above — `FilmLookCube` assumes sRGB-encoded input.
         let filmActive = filmLattice != nil && m.filmStrength > 0
         let processed = try await renderActor.renderCPUPreview {
-          let developed = mapleStage(filterStageName) { () -> CIImage in
+          let developed = try mapleStage(filterStageName) { () -> CIImage in
             if !isRaw {
               return pipeline.processSceneLinearNonRaw(
                 decoded: decoded, model: m, targetSize: processTarget,
@@ -440,22 +429,25 @@ extension EditSession {
                 targetPrimariesOverride: filmActive ? .srgb : nil
               )
             }
-            return pipeline.processSceneLinear(
+            return try pipeline.processSceneLinearWithAuto(
               decoded: decoded, model: m, targetSize: processTarget,
               asShot: freshAsShot, decodedAtModel: freshDecodedAtModel,
               profileLUT: profileLUT,
+              nativeAutoProfile: autoTail.native,
               assetID: assetID,
               noiseProfile: freshNoiseProfile,
               iso: freshISO,
               wbFrame: freshWbFrame, whitesAnchorEv: freshSnapshot.whitesAnchorEv,
               nrSamplingScale: freshSnapshot.nrSamplingScale,
-              targetPrimariesOverride: filmActive ? .srgb : nil
+              targetPrimariesOverride: filmActive || autoTail.native?.artifacts != nil
+                ? .srgb : nil
             )
           }
           return FilmLookCube.apply(
             to: developed, lattice: filmLattice, strengthPct: m.filmStrength)
         }
         image = processed
+        nativeAutoProfileID = autoTail.native?.id
       }
 
       // Crop + straighten (#638) — final geometry op on the developed
@@ -481,6 +473,7 @@ extension EditSession {
         }
       }
       publishAutoFit(achievedAutoFit, assetID: asset.id, profile: m.profile, revision: fitRevision)
+      self.nativeAutoFrameID = nativeAutoProfileID
       renderedPreview = displayImage
       lastPublishedRenderGeneration = gen
       previewIsFullRender = true
@@ -532,6 +525,7 @@ extension EditSession {
     } catch is CancellationError {
       return
     } catch {
+      let failure = await renderActor.removalRenderFailure(error, asset: asset, model: m)
       guard !Task.isCancelled else { return }
       if let gen {
         let live = await renderActor.currentGeneration()
@@ -540,10 +534,10 @@ extension EditSession {
         }
       }
       editSessionLogger.error(
-        "decodeAndRender failed gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) error=\(String(describing: error), privacy: .public)"
+        "decodeAndRender failed gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) error=\(String(describing: failure), privacy: .public)"
       )
       settleAutoFitFailure(assetID: asset.id, profile: m.profile, revision: fitRevision)
-      renderError = error
+      renderError = failure
       // Terminal failure once the decode is done (e.g. an unreadable file):
       // no full-quality frame is coming, so settle the cold-open indicator
       // here too — otherwise `isResolvingFirstFrame` (cleared only on a

@@ -21,20 +21,64 @@
 //! re-exported here so call sites that say `raw_core::pipeline::stage`,
 //! `raw_core::pipeline::RenderQuality`, etc. continue to compile unchanged.
 
+mod accepted_removal;
 mod capture_sharpening_helper;
 mod develop;
 mod develop_sized;
 mod downsample;
 mod fp16;
+// Native legacy scene handoffs use the same half encoder as core rendering.
+pub use fp16::f32_to_f16_bits;
 mod inpaint_store;
 pub mod mask;
 mod orient;
 pub(crate) mod pano;
+mod removal_assets;
+mod removal_calibration;
+mod removal_calibration_anchor;
+pub use removal_calibration::{
+    develop_removal_calibration_patches, render_removal_calibration_context,
+    render_removal_calibration_plate,
+};
+pub use removal_calibration_anchor::removal_calibration_source_anchor;
+mod removal_context;
+pub use removal_context::render_removal_context;
+mod removal_geometry;
+pub use removal_geometry::{map_removal_display_points, RemovalGeometry};
+mod removal_encoding;
+pub use removal_encoding::RemovalModelEncoding;
+mod removal_guided_transfer;
+pub use removal_guided_transfer::guided_native_texture_transfer;
+mod removal_mask_store;
+pub use removal_assets::{removal_asset_names, verify_removal_asset, verify_removal_source};
+mod removal_selection_proxy;
+pub use removal_selection_proxy::render_removal_selection_proxy;
+mod removal_resolved;
+pub use removal_resolved::ResolvedCalibrationRemovals;
+mod removal_prepare;
+pub use removal_prepare::prepare_accepted_removal;
+mod removal_edit;
+pub use removal_edit::{
+    edit_saved_removal, saved_removal_list, saved_removal_prefix, SavedRemovalAction,
+    SAVED_REMOVAL_EDIT_VERSION, SAVED_REMOVAL_ENTRY_FIELDS,
+};
+mod removal_proposal;
+pub use removal_proposal::PreparedRemovalGeneration;
+mod removal_proposal_plan;
+pub use removal_proposal_plan::plan_removal_generation;
+mod removal_paint_groups;
+pub use removal_paint_groups::{paint_generation_intents, paint_generation_intents_packed};
 mod render;
 mod scene_linear_chain;
+pub use accepted_removal::{
+    removal_context_dependencies, removal_needs_review, removal_record_digest,
+    resolve_accepted_removal,
+};
 mod tile;
 
 pub use inpaint_store::{patch_from_bytes, patch_to_bytes, patches_from_blob, patches_to_blob};
+pub(crate) use removal_mask_store::{packed_removal_mask, PackedRemovalMask};
+pub use removal_mask_store::{removal_mask_from_bytes, removal_mask_to_bytes};
 
 /// Phase-1 end-to-end seam test (#1484): baked patch composited at the
 /// pre-grade seam via the real stages re-grades like sensor data. Test-only.
@@ -57,12 +101,13 @@ pub use develop_sized::{
 pub use downsample::downsample_image_area;
 pub use pano::{decode_for_pano, read_pano_metadata, PanoIngest, PanoSourceMetadata};
 pub use render::{
-    cached_auto_profile_fit, decode_raster_base, fit_auto_profile_from_raw,
+    fit_native_auto_profile_cancellable, cached_auto_profile_fit, decode_raster_base, fit_auto_profile_from_raw,
     fit_auto_profile_from_raw_at_cap, fit_profile_curve_from_raw, native_render_dims,
     render_detail_base, render_detail_base_cancellable, render_detail_base_retained,
-    render_detail_tile, render_detail_tile_cancellable, render_export_from_raw,
-    render_export_from_raw_with_film, render_export_raster, render_export_raster_cancellable,
-    render_from_raw, render_from_raw_with_auto_fit, render_from_raw_with_quality,
+    render_detail_tile, render_detail_tile_cancellable, render_export_f32,
+    render_export_from_raw, render_export_from_raw_with_film, render_export_raster,
+    render_export_raster_cancellable, render_from_raw, render_from_raw_with_auto_fit,
+    render_from_raw_with_quality, render_display_with_geometry,
     render_from_raw_with_quality_and_source, render_from_raw_with_quality_source_and_film,
     render_from_scene_linear, render_from_scene_linear_with_chain,
     render_scene_linear_from_raw_with_quality, render_scene_linear_from_raw_with_quality_f32,
@@ -76,14 +121,16 @@ pub use render::{
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain,
     render_sized_from_raw_with_quality_and_source,
     render_sized_from_raw_with_quality_source_and_film, validate_raster_adjustments, DetailContext,
-    DetailRenderOptions, ExportDepth, ExportPixels, FitCap, RasterDetailImage, RawInput,
+    DisplayRender, DetailRenderOptions, ExportDepth, ExportPixels, FitCap, RasterDetailImage,
+    RawInput,
 };
 pub use scene_linear_chain::{
     apply_scene_linear_chain, apply_scene_linear_chain_f32, apply_scene_linear_chain_f32_scoped,
     apply_scene_linear_chain_f32_windowed, apply_scene_linear_chain_f32_windowed_cancellable,
     apply_scene_linear_chain_f32_with_film, apply_scene_linear_chain_f32_with_film_cancellable,
     apply_scene_linear_chain_f32_with_patches, apply_scene_linear_chain_with_patches,
-    encode_display_f32, encode_display_srgb_f32, encode_display_u10_f32, ChainOptions, ChainWindow,
+    composite_window_into_f32, composite_window_into_fp16, encode_display_f32,
+    encode_display_srgb_f32, encode_display_u10_f32, ChainOptions, ChainWindow,
 };
 pub use tile::{
     reject_untileable_tile, render_scene_linear_tile_cancellable_f32,

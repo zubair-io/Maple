@@ -47,6 +47,7 @@ mod filename;
 mod film_catalog;
 mod local_mask_wire;
 mod raster_recipe;
+mod removal_models;
 mod scope_targets;
 mod support_evidence;
 mod support_tiers;
@@ -116,6 +117,8 @@ enum Schema {
     Workflow,
     /// Raster operation and encoder wire types (#3553).
     RasterRecipe,
+    /// Experimental native removal artifact pins (#3941).
+    RemovalModels,
     /// `raw_core::types::ADJUSTMENT_SCHEMA` — slider ranges, field-name enums,
     /// TS interface + default factory.
     Adjustment,
@@ -202,6 +205,20 @@ fn main() {
             std::process::exit(2);
         }
         (Schema::Filename, target) => filename::emit(target),
+        (Schema::RemovalModels, Target::Json) => {
+            serde_json::to_string_pretty(
+                &raw_core::types::removal_models::EXPERIMENTAL_REMOVAL_MODELS,
+            )
+            .expect("serialize embedded removal pins")
+                + "\n"
+        }
+        (Schema::RemovalModels, Target::Ts) => removal_models::emit_ts(),
+        (Schema::RemovalModels, Target::Swift) => removal_models::emit_swift(),
+        (Schema::RemovalModels, _) => {
+            eprintln!("codegen: --schema removal-models supports only json / ts / swift targets");
+            std::process::exit(2);
+        }
+
         (Schema::ColorLabels, Target::Swift) => color_labels::emit_swift(),
         (Schema::ColorLabels, Target::Ts) => color_labels::emit_ts(),
         (Schema::ColorLabels, Target::Cs) => color_labels::emit_cs(),

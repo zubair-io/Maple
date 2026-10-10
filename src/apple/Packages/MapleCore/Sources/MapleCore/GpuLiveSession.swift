@@ -48,18 +48,6 @@ public struct GpuLiveError: Error, Sendable {
   public let message: String
 }
 
-/// The fitted Auto Profile artifacts for one image (the A2 un-composed
-/// curve + residual LUT), held on the session so the chain's curve/LUT passes
-/// reapply them every tick without re-fitting. `nil` curve ⇒ identity (the
-/// residual alone); `nil` residual ⇒ no LUT pass.
-private struct AutoProfileArtifacts {
-  /// `PROFILE_CURVE_FLAT_LEN` floats, or `nil` if the fit produced no curve.
-  let curveFlat: [Float]?
-  /// The residual LUT edge + `size³·3` flat grid, or `nil` if no residual.
-  let lutSize: Int
-  let lutData: [Float]?
-}
-
 /// A serialized wgpu live-render session bound to one uploaded image at one set of
 /// dims. An `actor` so every FFI call (which touches the `!Send`/`!Sync` Rust
 /// context) is serialized onto one executor — the single-render-in-flight invariant.
@@ -194,6 +182,11 @@ public actor GpuLiveSession {
     }
   }
 
+  /// Rebind an immutable native tail prepared outside the GPU submission actor.
+  func setNativeAutoProfile(_ prepared: NativeAutoProfile) {
+    autoProfile = prepared.artifacts
+  }
+
   /// Fit (and cache on this session) the Auto Profile curve + residual LUT for
   /// `rawPath` under `Profile::Auto` — the A2 artifacts the chain's curve/LUT
   /// passes reapply every tick. A no-op (clears to `nil` → plain AgX) when the
@@ -204,6 +197,7 @@ public actor GpuLiveSession {
   /// or the fitted curve won't match the displayed pixels.
   @discardableResult
   public func fitAutoProfile(rawPath: String, quality: PipelineRenderer.Quality) -> Bool {
+    guard !Task.isCancelled else { return false }
     let curveLen = Int(MAPLE_PROFILE_CURVE_FLAT_LEN)
     var curve = [Float](repeating: 0, count: curveLen)
     var present: Int32 = 0
@@ -263,7 +257,7 @@ public actor GpuLiveSession {
     gpuLiveLog.notice(
       "Auto Profile: fitted curve(present=\(present == 1)) + residual(edge=\(n)) for \(rawPath, privacy: .public)"
     )
-    return present == 1 || n > 0
+    return true
   }
 
   /// Render the gated chain for `model` (decode-boundary contract via

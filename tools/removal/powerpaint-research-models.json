@@ -1,0 +1,189 @@
+{
+  "releaseQualified": false,
+  "repository": "JunhaoZhuang/PowerPaint-v2-1",
+  "revision": "5ae2be3ac38b162df209b7ad5de036d339081e33",
+  "files": [
+    {
+      "path": "PowerPaint_Brushnet/diffusion_pytorch_model.safetensors",
+      "bytes": 3544366408,
+      "sha256": "530f2886ef5bcdf199269ec344155a517639ba64219b85eeb23fd86aab93147f",
+      "hubBlobId": "f38026b6b1b8c97a637206fd564c245606058eaa"
+    },
+    {
+      "path": "PowerPaint_Brushnet/pytorch_model.bin",
+      "bytes": 492401329,
+      "sha256": "73709b4360ca06ef990a67d090e8d81a4310943d67a88845653fc4e9f7f26b65",
+      "hubBlobId": "c58e7aa7e00ccb42e0fa12940b3d6989c6fbd7f6"
+    },
+    {
+      "path": "README.md",
+      "bytes": 4432,
+      "sha256": "75ab5f3263b3252ae7756330058f393852c6baad2ce3cafdbfee0d86742c87f2",
+      "hubBlobId": "15911a13e5fad6c3e45c6718eb5fa017b35e0498"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/model_index.json",
+      "bytes": 629,
+      "sha256": "fad1e899c73b281617bbd71c5a2c4cd48ff0b4aecb87b9fcc505f3f0d01fb465",
+      "hubBlobId": "ea66866a6cdde6b933fc7238c54e300141ef2139"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/scheduler/scheduler_config.json",
+      "bytes": 379,
+      "sha256": "5b2ecb7c5ffe47b9f6c701c1e08355bbdc3e5a2554e3c021afebcbaeade106f6",
+      "hubBlobId": "3031caef0b2f1dff32883ca1dba8eca0f1261732"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/text_encoder/config.json",
+      "bytes": 560,
+      "sha256": "8d0235715cdd6e7d462d9af4ed17758f72929eed171a5119ab5d014965a10310",
+      "hubBlobId": "a60dbd23c7e0b2b56ef736342778efb490acb255"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/text_encoder/pytorch_model.bin",
+      "bytes": 492304313,
+      "sha256": "ccf6d26500a883b3e7227d2f10292bee7fe078f26cb1afef46eee26252805f0b",
+      "hubBlobId": "5a72bef8d9f1ba0e7800e39c77bbc2fccc364efa"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/tokenizer/merges.txt",
+      "bytes": 524619,
+      "sha256": "9fd691f7c8039210e0fced15865466c65820d09b63988b0174bfe25de299051a",
+      "hubBlobId": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/tokenizer/special_tokens_map.json",
+      "bytes": 588,
+      "sha256": "2cdb3b8331a60c92fc1e55a13e9fd61fd2293c5a51275fdcccd62b780052530e",
+      "hubBlobId": "cf0682d6de72c1547f41b4f6d7c59f62deffef94"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/tokenizer/tokenizer_config.json",
+      "bytes": 705,
+      "sha256": "6bdcee9ccce2a16ca2b4c0c5ed00b42c50ea225f4472a8c4c1e963a2902c2881",
+      "hubBlobId": "180a4e1be2a7d0b38a44108d6f24f585f35147b1"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/tokenizer/vocab.json",
+      "bytes": 1059962,
+      "sha256": "e089ad92ba36837a0d31433e555c8f45fe601ab5c221d4f607ded32d9f7a4349",
+      "hubBlobId": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/unet/config.json",
+      "bytes": 1784,
+      "sha256": "60095133023e7535eb92a334c86d5a1d17d11b0038df02cd81cde88f9ed58a0d",
+      "hubBlobId": "4ecf0daa6a492a6e46c9ec3707ecdc456e6fb740"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/unet/diffusion_pytorch_model.bin",
+      "bytes": 3438354725,
+      "sha256": "c8dac118ff5749ca65298f1546ec23d3fec876cded41f9559fcd863e30d969f4",
+      "hubBlobId": "99404c7446e8f777ed6a8456c31d011810b2aa29"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/vae/config.json",
+      "bytes": 606,
+      "sha256": "f4cbaf7e77439edf3860f15622d0c3db6e7c5ce3c716de8eca585d8a7d938425",
+      "hubBlobId": "a42b5d9bb56e57b7c6959d84140e3a7898f3d61c"
+    },
+    {
+      "path": "realisticVisionV60B1_v51VAE/vae/diffusion_pytorch_model.bin",
+      "bytes": 334707473,
+      "sha256": "9428a7d3cab924439bbba9f2c3e5128d466f9dffd9c12ed7098ae288a5bfe8bd",
+      "hubBlobId": "6fffa8e313a60ee7ecb035353638b9cb59041719"
+    }
+  ],
+  "licenseRecords": [
+    {
+      "repo": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+      "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14",
+      "remoteFile": "README.md",
+      "path": "MODEL-CARD-SD15.md",
+      "bytes": 14461,
+      "sha256": "2079161f9df7524bd9eca5e53ff5911271b8551e0f868b7b5a92b84776df28a3"
+    },
+    {
+      "repo": "SG161222/Realistic_Vision_V6.0_B1_noVAE",
+      "revision": "9a857a696b9aabbf509073e0aa55ec8200b6ef7d",
+      "remoteFile": "README.md",
+      "path": "MODEL-CARD-REALISTIC-VISION.md",
+      "bytes": 4231,
+      "sha256": "a51ba5985056d91937a6f5f2ea2dda16766369279ed03d8723f3f8707a7cbdf0"
+    }
+  ],
+  "sourceRepository": "https://github.com/open-mmlab/PowerPaint",
+  "sourceRevision": "5b4c3d52291709fcec2a1870d987da693fd3549c",
+  "sourceFiles": [
+    {
+      "path": "LICENSE",
+      "bytes": 1066,
+      "sha256": "ee79e7453df1d032606f54c446448ecb65b6418c6c045dde6911b8a9d8b9a811"
+    },
+    {
+      "path": "README.md",
+      "bytes": 9865,
+      "sha256": "1593732a327e33e856e50077ff9c624968d901ffc6c77bb03dc86ee49e803a61"
+    },
+    {
+      "path": "app.py",
+      "bytes": 32264,
+      "sha256": "65a4a2ca232a283189d740e26a1b198a7cf86e8d8ce75375258cccf4709bbfc6"
+    },
+    {
+      "path": "powerpaint/models/BrushNet_CA.py",
+      "bytes": 47518,
+      "sha256": "ff085e1728aa64722d70bf12efea59b754d37f9ccf97dc64c1a4dde4bcd27c74"
+    },
+    {
+      "path": "powerpaint/models/__init__.py",
+      "bytes": 145,
+      "sha256": "a320a60be76b0718d942d3d450eb467a070553f40a4c8c55ba2f855bf0a42be7"
+    },
+    {
+      "path": "powerpaint/models/unet_2d_blocks.py",
+      "bytes": 148515,
+      "sha256": "69e04f466b2cea5f65fcf09d7898b98e79694fdcd5b508d0182dc0bf8b482a0d"
+    },
+    {
+      "path": "powerpaint/models/unet_2d_condition.py",
+      "bytes": 69793,
+      "sha256": "a427dae4019a5cc664d4eade88ed3837dd1d8a148eee17efd408fe9fedbb3995"
+    },
+    {
+      "path": "powerpaint/pipelines/__init__.py",
+      "bytes": 387,
+      "sha256": "9fa4cbda62a94fe7a3f3e961b11f4074bb6cc1830441b5b5189904bd700fce31"
+    },
+    {
+      "path": "powerpaint/pipelines/pipeline_PowerPaint.py",
+      "bytes": 54162,
+      "sha256": "44d32b5f94799fd0e70bff4025e4dbe6a0f7fe6d951d0c546f81f1bb3ea5a0e4"
+    },
+    {
+      "path": "powerpaint/pipelines/pipeline_PowerPaint_Brushnet_CA.py",
+      "bytes": 74974,
+      "sha256": "6c2bdceafbc7bcff2c9d90327ecd8e1f58056c7086291444d6fb88e8bb9d27d1"
+    },
+    {
+      "path": "powerpaint/pipelines/pipeline_PowerPaint_ControlNet.py",
+      "bytes": 88062,
+      "sha256": "6b02efc540e3aaa3dab96599cf9efcdb9fe4015cac196159a72ea087b9d02295"
+    },
+    {
+      "path": "powerpaint/utils/__init__.py",
+      "bytes": 105,
+      "sha256": "be56551ee5078a46ade1c72feef0ee565ac3b95f3b6fb6c0f37c5f96afdcc1f4"
+    },
+    {
+      "path": "powerpaint/utils/utils.py",
+      "bytes": 22057,
+      "sha256": "38ba022348ae45eacdff3c8944c21ed019f49459b6538585f3b599ac444874d7"
+    },
+    {
+      "path": "requirements/requirements.txt",
+      "bytes": 128,
+      "sha256": "2cbc66b2975d827e480e13b15ebb37ed842cbbbc863a05d746f2cbfac9d23a9b"
+    }
+  ]
+}

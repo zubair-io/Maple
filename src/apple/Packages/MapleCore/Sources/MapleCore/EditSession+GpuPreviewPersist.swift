@@ -33,7 +33,7 @@ extension EditSession {
   }
 
   func refreshThumbnailFromCurrentGpuFrame(expectedModel capturedModel: AdjustmentModel) async {
-    guard gpuFramePresented, let driver = gpuLiveDriver else { return }
+    guard hasSettledAutoProfile, gpuFramePresented, let driver = gpuLiveDriver else { return }
     // A crop/baked edit can still be waiting for admission when the editor
     // disappears. Join that work, then validate the actual uploaded pixels.
     _ = await latestRenderSchedule?.value
@@ -50,6 +50,7 @@ extension EditSession {
       driver.isOpen(coveringWidth: 1, height: 1, identity: identity)
     else { return }
     let liveSession = driver.session
+    let autoID = driver.nativeAutoProfileID
     let thumbnailURL = asset.primaryURL
     let selectedVariant = workflow.selectedVariantId
     let selectedXML = workflow.previews.captureXML
@@ -65,8 +66,8 @@ extension EditSession {
     // Same WB anchor as the live present; readback reruns that chain.
     let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
     let anchor = wbDeltaAnchor
-    let cct = resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500.0
-    let tint = resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0.0
+    let cct = resolvedIsRaw ? anchor?.temperature : 6500.0
+    let tint = resolvedIsRaw ? anchor?.tint : 0.0
     guard
       let frame = await driver.renderCurrentFrameBytes(
         model: capturedModel,
@@ -76,12 +77,14 @@ extension EditSession {
       )
     else { return }
     guard model == capturedModel, driver === gpuLiveDriver,
-      liveSession === driver.session, !gpuPresentFailed
+      liveSession === driver.session, !gpuPresentFailed,
+      driver.nativeAutoProfileID == autoID, hasSettledAutoProfile
     else { return }
     let stillCurrent: @MainActor @Sendable () -> Bool = {
       self.model == capturedModel && driver === self.gpuLiveDriver
         && liveSession === driver.session && !self.gpuPresentFailed
         && self.workflow.selectedVariantId == selectedVariant
+        && driver.nativeAutoProfileID == autoID && self.hasSettledAutoProfile
     }
     // Off the MainActor (per-pixel RGBA expansion + AVIF encode), but
     // AWAITED so the exit path knows the write completed.

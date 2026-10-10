@@ -1,0 +1,469 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T07:08:26.274541+00:00",
+  "parent_commit": "0c49f045df06e44c630d38f4e1b39536c52445cb",
+  "releaseQualified": false,
+  "app_limit_changed": false,
+  "purpose": "Test stronger native-dimensional structure generation after LaMa and feature-refinement photographic failures; separate default conditioning, occluded-human selection and manual scene-hint effects before any Mac integration.",
+  "model": {
+    "repo": "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
+    "revision": "115134f363124c53c7d878647567d04daf26e41e",
+    "research_records": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/sdxl-research-models.json",
+      "sha256": "65326061ac821676b51fb6ca6162c87b06c5f5fad02a4571e5b3bc1ebd192df5"
+    },
+    "verified_model_files": 19,
+    "model_files_bytes": 6941223330,
+    "weights_format": "Verified fp16 safetensors only; local_files_only=True, explicit StableDiffusionXLInpaintPipeline, no remote/custom Python model code.",
+    "license": {
+      "base_repo": "stabilityai/stable-diffusion-xl-base-1.0",
+      "base_revision": "462165984030d82259a11f4367a4eed129e94a7b",
+      "file": "LICENSE-SDXL-BASE.md",
+      "sha256": "19b6998b569b53ac1fc2158a8a3202c8699a9a4605b47075715d9c96be7fb6d0",
+      "declared_model_card_license": "CreativeML Open RAIL++-M",
+      "production_license_review_complete": false
+    },
+    "license_file": {
+      "path": "/tmp/maple-removal-models/sdxl-inpaint-native/LICENSE-SDXL-BASE.md",
+      "sha256": "19b6998b569b53ac1fc2158a8a3202c8699a9a4605b47075715d9c96be7fb6d0"
+    },
+    "license_source_url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/462165984030d82259a11f4367a4eed129e94a7b/LICENSE.md",
+    "model_card_source_url": "https://huggingface.co/diffusers/stable-diffusion-xl-1.0-inpainting-0.1/blob/115134f363124c53c7d878647567d04daf26e41e/README.md",
+    "production_license_review_complete": false,
+    "scope": "Public local research diagnostic under declared model terms; no conclusion that Maple production distribution, linked components or operator/user terms are cleared."
+  },
+  "input": {
+    "source": {
+      "path": "/tmp/maple-removal-lama-native2048-input-20261003/market-native-2048.png",
+      "sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b"
+    },
+    "native_crop_xywh": [
+      384,
+      384,
+      1024,
+      1536
+    ],
+    "native_extent_hw": [
+      1536,
+      1024
+    ],
+    "source_resampled": false,
+    "domain": "Public CC0 RAW-developed Auto SDR PNG, not canonical scene-linear inference plate",
+    "license_manifest": {
+      "path": "/tmp/maple-removal-corpus/public-raws/sources.json",
+      "sha256": "0aa7d215b3e3e89fe342bd492440bf9332588116ce8c0155b4a5c973fc15d8bc"
+    },
+    "raw_verification": [
+      {
+        "file": "P1010153.RW2",
+        "sha256": "874b652b9d2605030aac18eab4a687903083ac4b8a73029a35f46c36b1f7ba82",
+        "unchanged": true
+      },
+      {
+        "file": "DSC06078.ARW",
+        "sha256": "ec04e3ac69d54e7300ba0ff582d10ade0fc3ad28f48507b4c35cacc115e4ee86",
+        "unchanged": true
+      }
+    ],
+    "selection_provenance": "Existing pinned MobileSAM single-person mask, plus explicit Paint rectangle [600,560,750,1320] covering overlapping unwanted people/bags. Paint rectangle is not an automatic segmentation or subject-role quality measurement."
+  },
+  "cases": [
+    {
+      "case": "empty positive / MobileSAM person",
+      "model_revision": "115134f363124c53c7d878647567d04daf26e41e",
+      "model_manifest_sha256": "65326061ac821676b51fb6ca6162c87b06c5f5fad02a4571e5b3bc1ebd192df5",
+      "positive_prompt": "",
+      "negative_prompt": "person, people, human figure, silhouette",
+      "mask": {
+        "path": "/tmp/maple-removal-guided-native-person-mask-20261003/person-hole.png",
+        "sha256": "923f14de4500e1053f16d6d48fa93e9ccc5d28dbcfc93d3c00828063c68e9666"
+      },
+      "selected_pixels": 345996,
+      "verification_ms": 2442.4227077979594,
+      "model_open_ms": 1433.1385830882937,
+      "inference_ms": 18653.49620883353,
+      "requested_steps": 20,
+      "actual_denoising_steps": 19,
+      "latent_extent_nchw": [
+        1,
+        4,
+        192,
+        128
+      ],
+      "seed": 3941,
+      "strength": 0.99,
+      "guidance": 8.0,
+      "attention_slicing": "auto",
+      "source_preprocessor_samples_exact": true,
+      "persisted_outside_mask_float_bits_changed": 0,
+      "persisted_outside_mask_u8_samples_changed": 0,
+      "decoded_and_saved_finite": true,
+      "memory": {
+        "process_peak_resident_bytes": 1039974400,
+        "max_observed_step_boundary_mps_allocated_bytes": 6957110528,
+        "max_observed_step_boundary_mps_driver_bytes": 18258870272,
+        "memory_scope": "Process RSS and sampled step-boundary MPS values are distinct, incomplete measures; do not sum or treat as total/peak GPU budget."
+      },
+      "artifacts": {
+        "report.json": {
+          "path": "/tmp/maple-removal-sdxl-native-person-20261003/report.json",
+          "sha256": "8d3018d9bf1b68bdfc1fdaad32b8f8e8dcd02377a017b420ce5a9d405c4f0b26"
+        },
+        "source.png": {
+          "path": "/tmp/maple-removal-sdxl-native-person-20261003/source.png",
+          "sha256": "2c2ba6964bb016c9c393cc970453c75fc6be0e1549369a7c2011f011e1e3f290"
+        },
+        "hole.png": {
+          "path": "/tmp/maple-removal-sdxl-native-person-20261003/hole.png",
+          "sha256": "69ba21109f380aee62af9ab4e11246d4f66b27325fefe4714c352a6fbb4ff93d"
+        },
+        "prediction.png": {
+          "path": "/tmp/maple-removal-sdxl-native-person-20261003/prediction.png",
+          "sha256": "88f726898c10fca6cae5555fd413314b56fd8deb63a0e944f72e404b5b3d38f0"
+        },
+        "result.png": {
+          "path": "/tmp/maple-removal-sdxl-native-person-20261003/result.png",
+          "sha256": "51ece6d2712aa90640dff829096eb5b5c44c84e809bb2c024719618bfaf0fc3e"
+        }
+      },
+      "result_f32_sha256": "4043b2c80b1eb846e50a9bd36e89d8e73889154cbcf1a51d1c233aa2b6aff44d",
+      "prediction_f32_sha256": "9bd1873fe21e98ca3a6da21127982e10e8b6277b782fec6d017e85a3e4a7f918",
+      "log": {
+        "path": "/tmp/maple-removal-sdxl-native-person-20261003.log",
+        "sha256": "1c6bc7f42fa709465fa8db6b23b97683613f235e6ef2633487339d6d24021253"
+      },
+      "visual_assessment": {
+        "release_passed": false,
+        "scope": "Original-size 1024x1536 diagnostic visual challenge, no hidden background truth, calibrated score, canon RAW or corpus acceptance.",
+        "observations": [
+          "Recognizable stall structure improves compared with the previous LaMa challenges.",
+          "Selected region contains a generated human connected to an unmasked overlapping arm; malformed lower-body fragments remain.",
+          "This case does not satisfy the people-removal acceptance criterion."
+        ]
+      },
+      "report_note": null
+    },
+    {
+      "case": "generic empty-background / MobileSAM person",
+      "model_revision": "115134f363124c53c7d878647567d04daf26e41e",
+      "model_manifest_sha256": "65326061ac821676b51fb6ca6162c87b06c5f5fad02a4571e5b3bc1ebd192df5",
+      "positive_prompt": "photograph of the empty background",
+      "negative_prompt": "person, people, human figure, silhouette",
+      "mask": {
+        "path": "/tmp/maple-removal-guided-native-person-mask-20261003/person-hole.png",
+        "sha256": "923f14de4500e1053f16d6d48fa93e9ccc5d28dbcfc93d3c00828063c68e9666"
+      },
+      "selected_pixels": 345996,
+      "verification_ms": 2283.586374949664,
+      "model_open_ms": 1391.421833075583,
+      "inference_ms": 13763.455958105624,
+      "requested_steps": 20,
+      "actual_denoising_steps": 19,
+      "latent_extent_nchw": [
+        1,
+        4,
+        192,
+        128
+      ],
+      "seed": 3941,
+      "strength": 0.99,
+      "guidance": 8.0,
+      "attention_slicing": "auto",
+      "source_preprocessor_samples_exact": true,
+      "persisted_outside_mask_float_bits_changed": 0,
+      "persisted_outside_mask_u8_samples_changed": 0,
+      "decoded_and_saved_finite": true,
+      "memory": {
+        "process_peak_resident_bytes": 1035370496,
+        "max_observed_step_boundary_mps_allocated_bytes": 6957110528,
+        "max_observed_step_boundary_mps_driver_bytes": 18124652544,
+        "memory_scope": "Process RSS and sampled step-boundary MPS values are distinct, incomplete measures; do not sum or treat as total/peak GPU budget."
+      },
+      "artifacts": {
+        "report.json": {
+          "path": "/tmp/maple-removal-sdxl-generic-background-person-20261003/report.json",
+          "sha256": "890abb67b28defedfc0a5ddac14f071dab712fb7aed56d4bbde19ad2ed16ac85"
+        },
+        "source.png": {
+          "path": "/tmp/maple-removal-sdxl-generic-background-person-20261003/source.png",
+          "sha256": "2c2ba6964bb016c9c393cc970453c75fc6be0e1549369a7c2011f011e1e3f290"
+        },
+        "hole.png": {
+          "path": "/tmp/maple-removal-sdxl-generic-background-person-20261003/hole.png",
+          "sha256": "69ba21109f380aee62af9ab4e11246d4f66b27325fefe4714c352a6fbb4ff93d"
+        },
+        "prediction.png": {
+          "path": "/tmp/maple-removal-sdxl-generic-background-person-20261003/prediction.png",
+          "sha256": "163c25a2683833258b33d5d74c364620f4640d32f7af48ee2ddbf8db247e22f3"
+        },
+        "result.png": {
+          "path": "/tmp/maple-removal-sdxl-generic-background-person-20261003/result.png",
+          "sha256": "3a2524ea6c4442b2917bb090aa7ae21199051401bb9893e2a0aa05e0d03d2cdf"
+        }
+      },
+      "result_f32_sha256": "0ca42799d86fc2036edaf7a7c8b753fecc2774ed3a7ce9ed5253c4b706284d8b",
+      "prediction_f32_sha256": "132d7b84fbf930c00e31893f4329b3cbab2f0ed317fb733af64c83a2ec3ee4ff",
+      "log": {
+        "path": "/tmp/maple-removal-sdxl-generic-background-person-20261003.log",
+        "sha256": "5931a0de5252cd93562286495639171463542d9cd499bccb8640b6a978d64a9f"
+      },
+      "visual_assessment": {
+        "release_passed": false,
+        "scope": "Original-size 1024x1536 diagnostic visual challenge, no hidden background truth, calibrated score, canon RAW or corpus acceptance.",
+        "observations": [
+          "Generated person remains inside selection despite generic empty-background and negative-people conditioning.",
+          "Existing partial human cues outside the mask may encourage completion; this is a hypothesis, not an isolated causal proof."
+        ]
+      },
+      "report_note": "Generic single-person raw report has an obsolete fixed caption saying empty positive; positive_prompt and executed source snapshot are authoritative. Caption fixed before combined Paint runs."
+    },
+    {
+      "case": "generic empty-background / combined Paint",
+      "model_revision": "115134f363124c53c7d878647567d04daf26e41e",
+      "model_manifest_sha256": "65326061ac821676b51fb6ca6162c87b06c5f5fad02a4571e5b3bc1ebd192df5",
+      "positive_prompt": "photograph of the empty background",
+      "negative_prompt": "person, people, human figure, silhouette",
+      "mask": {
+        "path": "/tmp/maple-removal-sdxl-combined-paint-mask-20261003.png",
+        "sha256": "4f84dc7398bc99915fda4c7ff180dc60ace6357d505e4133218ac549a8b3cc57"
+      },
+      "selected_pixels": 990000,
+      "verification_ms": 2450.5505410488695,
+      "model_open_ms": 1409.5121251884848,
+      "inference_ms": 13869.375415844843,
+      "requested_steps": 20,
+      "actual_denoising_steps": 19,
+      "latent_extent_nchw": [
+        1,
+        4,
+        192,
+        128
+      ],
+      "seed": 3941,
+      "strength": 0.99,
+      "guidance": 8.0,
+      "attention_slicing": "auto",
+      "source_preprocessor_samples_exact": true,
+      "persisted_outside_mask_float_bits_changed": 0,
+      "persisted_outside_mask_u8_samples_changed": 0,
+      "decoded_and_saved_finite": true,
+      "memory": {
+        "process_peak_resident_bytes": 1052147712,
+        "max_observed_step_boundary_mps_allocated_bytes": 6957110528,
+        "max_observed_step_boundary_mps_driver_bytes": 18124652544,
+        "memory_scope": "Process RSS and sampled step-boundary MPS values are distinct, incomplete measures; do not sum or treat as total/peak GPU budget."
+      },
+      "artifacts": {
+        "report.json": {
+          "path": "/tmp/maple-removal-sdxl-combined-paint-20261003/report.json",
+          "sha256": "57bcfef795b2fd511e7d3f0b52c6668611c5e397514984ccbcaf8e200655f152"
+        },
+        "source.png": {
+          "path": "/tmp/maple-removal-sdxl-combined-paint-20261003/source.png",
+          "sha256": "2c2ba6964bb016c9c393cc970453c75fc6be0e1549369a7c2011f011e1e3f290"
+        },
+        "hole.png": {
+          "path": "/tmp/maple-removal-sdxl-combined-paint-20261003/hole.png",
+          "sha256": "b61caf6d29d198236288343fa7f61a7edcf84fa4f356655b7f68124413ace12b"
+        },
+        "prediction.png": {
+          "path": "/tmp/maple-removal-sdxl-combined-paint-20261003/prediction.png",
+          "sha256": "2e2eb7733ac8256d64beea281f06f21e66d6894c02851501392d303c3d9c6b2a"
+        },
+        "result.png": {
+          "path": "/tmp/maple-removal-sdxl-combined-paint-20261003/result.png",
+          "sha256": "2bcd5cc5c8f70c324ea23bd901cb2a85f87fdbb0d0e92b967e2cdec38aa95c4c"
+        }
+      },
+      "result_f32_sha256": "548a3d09d2cc6253512c1c3e67dd6eec600e04388d3534fdd2926ae599702388",
+      "prediction_f32_sha256": "9a74d38b6931aa98edd5de17484be84821735de0ce2096be985426821d9cf000",
+      "log": {
+        "path": "/tmp/maple-removal-sdxl-combined-paint-20261003.log",
+        "sha256": "9fde4cf15a916e62a530e06e786304007e19f1fa4467c5f8420feaea6336b197"
+      },
+      "visual_assessment": {
+        "release_passed": false,
+        "scope": "Original-size 1024x1536 diagnostic visual challenge, no hidden background truth, calibrated score, canon RAW or corpus acceptance.",
+        "observations": [
+          "Both unwanted foreground people/bags are covered by an explicit rectangle; protected left subject remains outside.",
+          "Selected people disappear, but unrelated frames, lamps and furniture replace the fruit-stall display; distorted objects and rectangular seams remain."
+        ]
+      },
+      "report_note": null
+    },
+    {
+      "case": "manual scene hint / combined Paint",
+      "model_revision": "115134f363124c53c7d878647567d04daf26e41e",
+      "model_manifest_sha256": "65326061ac821676b51fb6ca6162c87b06c5f5fad02a4571e5b3bc1ebd192df5",
+      "positive_prompt": "documentary photograph of a fruit and vegetable market stall, continuation of the same fruit display, wooden crates, dark green stall cloth, stone pavement, empty of people",
+      "negative_prompt": "person, people, human figure, silhouette",
+      "mask": {
+        "path": "/tmp/maple-removal-sdxl-combined-paint-mask-20261003.png",
+        "sha256": "4f84dc7398bc99915fda4c7ff180dc60ace6357d505e4133218ac549a8b3cc57"
+      },
+      "selected_pixels": 990000,
+      "verification_ms": 2457.641707966104,
+      "model_open_ms": 1618.5897919349372,
+      "inference_ms": 14642.994542140514,
+      "requested_steps": 20,
+      "actual_denoising_steps": 19,
+      "latent_extent_nchw": [
+        1,
+        4,
+        192,
+        128
+      ],
+      "seed": 3941,
+      "strength": 0.99,
+      "guidance": 8.0,
+      "attention_slicing": "auto",
+      "source_preprocessor_samples_exact": true,
+      "persisted_outside_mask_float_bits_changed": 0,
+      "persisted_outside_mask_u8_samples_changed": 0,
+      "decoded_and_saved_finite": true,
+      "memory": {
+        "process_peak_resident_bytes": 1052590080,
+        "max_observed_step_boundary_mps_allocated_bytes": 6957110528,
+        "max_observed_step_boundary_mps_driver_bytes": 18124652544,
+        "memory_scope": "Process RSS and sampled step-boundary MPS values are distinct, incomplete measures; do not sum or treat as total/peak GPU budget."
+      },
+      "artifacts": {
+        "report.json": {
+          "path": "/tmp/maple-removal-sdxl-scene-background-paint-20261003/report.json",
+          "sha256": "6b470e54c412644db7950eebcb67851c9efa517d6112c5dd30bf63d090678c61"
+        },
+        "source.png": {
+          "path": "/tmp/maple-removal-sdxl-scene-background-paint-20261003/source.png",
+          "sha256": "2c2ba6964bb016c9c393cc970453c75fc6be0e1549369a7c2011f011e1e3f290"
+        },
+        "hole.png": {
+          "path": "/tmp/maple-removal-sdxl-scene-background-paint-20261003/hole.png",
+          "sha256": "b61caf6d29d198236288343fa7f61a7edcf84fa4f356655b7f68124413ace12b"
+        },
+        "prediction.png": {
+          "path": "/tmp/maple-removal-sdxl-scene-background-paint-20261003/prediction.png",
+          "sha256": "c5e3948c9c12d73e6df1ff0159d886cdd503d39dba9c86927de4ace50c146f06"
+        },
+        "result.png": {
+          "path": "/tmp/maple-removal-sdxl-scene-background-paint-20261003/result.png",
+          "sha256": "8122e241ecab3d6a8c75d6e7a03503ecf7fc7b95b7c252654ae029503f05ceda"
+        }
+      },
+      "result_f32_sha256": "b46beed983b78e2d00bf75710f6dc6c5057f52b1a15005ed968ebec16f1922c8",
+      "prediction_f32_sha256": "52db0bd8ff265cb1e426a4eb3985c7c5ddd37d015ee8e2014f7b91de13269cdb",
+      "log": {
+        "path": "/tmp/maple-removal-sdxl-scene-background-paint-20261003.log",
+        "sha256": "4441176cda23aa1d804b3c17a97e75ae8db4da170396d486e538dfaf80e10c14"
+      },
+      "visual_assessment": {
+        "release_passed": false,
+        "scope": "Original-size 1024x1536 diagnostic visual challenge, no hidden background truth, calibrated score, canon RAW or corpus acceptance.",
+        "observations": [
+          "Selected foreground people disappear and a recognizable fruit display, wooden crates, cloth and pavement are generated.",
+          "Local scene content is substantially more plausible than the generic-prompt case in qualitative inspection.",
+          "Hard rectangular boundaries, color/texture changes and distorted signs/details remain; a small face-like background figure appears inside the selected rectangle.",
+          "Hand-written scene conditioning and one seed do not qualify the requested automatic flow or photographic corpus."
+        ]
+      },
+      "report_note": null
+    }
+  ],
+  "toolchain": {
+    "torch": "2.14.1",
+    "diffusers": "0.40.0",
+    "transformers": "5.18.0",
+    "accelerate": "1.15.0"
+  },
+  "host": {
+    "cpu": "Apple M5 Max",
+    "physical_memory_bytes": 137438953472,
+    "device": "PyTorch MPS",
+    "scope": "Shared active host, one point per condition. Different warm driver state and concurrent diagnostic activity; no p50/p95, strict performance comparison or supported lower-memory device qualification."
+  },
+  "executed_source_snapshots": {
+    "empty": {
+      "path": "/tmp/maple-removal-sdxl-executed-empty-probe-20261003.py",
+      "sha256": "6bc4eec3e9a87a3212b46a80510ca53caa1d1f8c3da7a4674db60e3e99eaf92d"
+    },
+    "generic_single_person": {
+      "path": "/tmp/maple-removal-sdxl-executed-generic-probe-20261003.py",
+      "sha256": "b273e45d49547e3c9ce5a429ffd4f11794e4d18f64617baea658c17e4377c8d9"
+    },
+    "model_records_before_formatter": {
+      "path": "/tmp/maple-removal-sdxl-executed-model-records-20261003.json",
+      "sha256": "65326061ac821676b51fb6ca6162c87b06c5f5fad02a4571e5b3bc1ebd192df5"
+    }
+  },
+  "checks": {
+    "tests": 3,
+    "failed": 0,
+    "skipped": 0,
+    "scope": "Corrupt real-file metadata refused before remaining weights, actual verified 19-file weights with changed license refused, partial native selection refused before model I/O or output publication. Existing native_context/save_result helpers retain prior tests; new model execution has four actual MPS cases.",
+    "ruff_format": "passed",
+    "ruff_check": "passed",
+    "source_file_budget": "passed",
+    "original_raw_files_unchanged": true,
+    "all_four_saved_outputs_known_samples_exact": true,
+    "incremental_headroom": {
+      "result": "passed",
+      "base": "0c49f045df06e44c630d38f4e1b39536c52445cb",
+      "scope": "New research source files against parent HEAD; existing whole-branch qualification unchanged."
+    }
+  },
+  "logs": {
+    "tests": {
+      "path": "/tmp/maple-removal-sdxl-native-tests-final-20261003.log",
+      "sha256": "cd8d9aab1267bf372a2eafc5527d13fe807ce507c3061ea793bfc115782896fe"
+    },
+    "format": {
+      "path": "/tmp/maple-removal-sdxl-native-format-20261003.log",
+      "sha256": "3bc53bf3e981a98a34a852e175bf9b77af841edea74fca595d9aedcbaf9a4938"
+    },
+    "lint": {
+      "path": "/tmp/maple-removal-sdxl-native-lint-20261003.log",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "file_budget": {
+      "path": "/tmp/maple-removal-sdxl-native-budget-20261003.log",
+      "sha256": "90b0b928cdd3fad543c7281614414e5a789d3bdbddcb9c5ec4011485ccf00f1c"
+    },
+    "dependencies": {
+      "path": "/tmp/maple-removal-diffusion-dependencies-20261003.log",
+      "sha256": "63fc609973b003c12fb0e328a9183eabc6a3c65d75a3bdb4bb6f6bb154dd30b8"
+    },
+    "download": {
+      "path": "/tmp/maple-removal-download-sdxl-20261003.log",
+      "sha256": "a28eceabaad8192811c04820ea37443449eabfb354bcecaf829a1e61f7664953"
+    },
+    "incremental_headroom": {
+      "path": "/tmp/maple-removal-sdxl-native-headroom-20261003.log",
+      "sha256": "e5ab2a25f8061db32ffdb922fed42f0e27b479832ba0cc573d056ef342acf495"
+    }
+  },
+  "source_sha256": {
+    "tools/removal/probe_sdxl_native.py": "2e2dd87e30d72bbd5020083a4ba8f758ab0820a6c92abfd98b7c4528c7c4377a",
+    "tools/removal/sdxl_native_probe_test.py": "7e2506fd3dcd4cb17f83753e4181b0613f1c670bbdd83d241a2383e754cfec44",
+    "tools/removal/sdxl-research-models.json": "65326061ac821676b51fb6ca6162c87b06c5f5fad02a4571e5b3bc1ebd192df5",
+    "tools/removal/probe_lama_refinement.py": "186c25ded8d3b55e501466eac122cfbe360e427a829a4f08af0e536a4e018925"
+  },
+  "decision": "Retain SDXL as a research candidate, not an accepted Mac generation recipe. Generic conditions fail scene/people consistency; manual scene hint improves structure but is outside the requested automatic flow and has visible defects. Native output dimensions and exact protected pixels alone do not qualify photographic detail, seam/noise/HDR, runtime or distribution.",
+  "next": [
+    "Evaluate object-removal-specific conditioning or model training, and automatic scene context; do not make the user write prompts as a substitute for Paint/Smart paint/Background people.",
+    "Account for overlapping partly visible people so multiple selected subjects do not leave cues that regenerate a person. Keep protected subjects exact.",
+    "Qualify canonical scene-linear RAW input/inverse, native detail/noise/seams/HDR and persistent shared patch rendering/export on any selected model.",
+    "Review license/provenance/terms/signing and native Rust/FFI/Web deployment before distributing checkpoints; existing shipping catalog remains four unchanged experimental pins.",
+    "Run labeled scene/subject-role corpus, physical lower-memory Mac and real editor concurrency/performance qualification, then remaining full Apple/Web and portable consumers."
+  ],
+  "references": [
+    "https://huggingface.co/diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
+    "https://huggingface.co/docs/diffusers/v0.40.0/en/optimization/mps",
+    "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/462165984030d82259a11f4367a4eed129e94a7b/LICENSE.md"
+  ],
+  "replay_commands": [
+    "python tools/removal/probe_sdxl_native.py --model <verified-local-model-root> --image <market-native-2048.png> --mask <person-hole.png> --crop 384 384 1024 1536 --output <fresh-output>",
+    "Same command with --prompt \"photograph of the empty background\"; then combined Paint mask; then recorded manual scene prompt."
+  ],
+  "full_goal_status": "ACTIVE; Mac prioritized. A measured research candidate, not a shipping adapter or completed feature/epic.",
+  "no_push_pr_merge": true
+}

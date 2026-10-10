@@ -85,6 +85,14 @@ pub mod mask_registry;
 pub mod native_detail;
 mod open_metadata;
 pub mod preview;
+mod removal_context;
+mod removal_edit;
+pub mod removal_proposal;
+mod removal_proxy;
+mod removal_saved;
+#[cfg(all(feature = "gpu", target_arch = "wasm32"))]
+mod removal_saved_gpu;
+pub mod removal_selection;
 /// Legacy 8-bit sRGB render surface — `MapleRender`, `render_bytes`,
 /// `render_bytes_sized`, plus the `as_shot_wb` helper shared with every
 /// other render family in this crate. Split out of this file for the

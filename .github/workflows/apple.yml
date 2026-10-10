@@ -94,6 +94,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test release archive platform detection
         run: python3 src/apple/ci_scripts/test_post_xcodebuild.py
+      - name: Test native removal xcframework input invalidation
+        run: python3 tools/test_xcframework_removal_inputs.py
+      - name: Verify shared removal calibration fixture copies
+        run: |
+          python3 tools/test_removal_fixture_copies.py
+          python3 tools/check_removal_fixture_copies.py
 
       # The package is swift-tools-version 6.1; the image's default Xcode can
       # lag the newest installed one, so select the highest deterministically.
@@ -228,6 +234,8 @@ jobs:
           swift --version
           echo "build=$(xcodebuild -version | awk '/Build version/ {print $3}')" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install matching LLVM symbol reader
+        run: rustup component add llvm-tools-preview
       - name: Cache cbindgen binary
         id: cbindgen-cache
         uses: actions/cache@v4
@@ -248,9 +256,11 @@ jobs:
       - name: Build real host archive
         working-directory: src/raw-pipeline
         # pano supplies maple_pano_stitch, referenced by the linked package
-        # even when no panorama test runs. Host ORT is dynamically loaded;
-        # this does not download iOS ORT or build any cross-target slice.
-        run: cargo build --locked --release -p raw-ffi --features gpu,pano
+        # even when no panorama test runs. removal supplies the native AI
+        # selection and reconstruction symbols exercised by MapleCore. Both
+        # host ORT features are dynamically loaded; this does not download iOS
+        # ORT or build any cross-target slice.
+        run: cargo build --locked --release -p raw-ffi --features gpu,pano,removal
       - name: Stage isolated Swift package and host framework
         run: |
           set -euo pipefail
@@ -271,10 +281,14 @@ jobs:
           # cbindgen leaves this iOS-only ORT declaration unguarded; match
           # build-xcframework.sh's macOS exclusion (M6 #1244).
           expected -= {'maple_pano_ort_selftest'}
-          # As in build-xcframework.sh, Apple nm can reject newer Rust std
-          # bitcode while still emitting native exports. Require every FFI
-          # symbol; the subsequent executable link validates the full archive.
-          symbols = subprocess.run(['xcrun', 'nm', '-arch', platform.machine(), '-gU', sys.argv[2]],
+          # Apple nm may lag the LLVM version that emitted Rust's archive.
+          # Use the matching reader shipped with this exact rustc toolchain.
+          sysroot = Path(subprocess.check_output(['rustc', '--print', 'sysroot'], text=True).strip())
+          host = subprocess.check_output(['rustc', '-vV'], text=True)
+          target = re.search(r'^host:\s*(\S+)$', host, re.MULTILINE).group(1)
+          llvm_nm = sysroot / 'lib' / 'rustlib' / target / 'bin' / 'llvm-nm'
+          arch = {'arm64': 'arm64', 'aarch64': 'arm64', 'x86_64': 'x86_64'}[platform.machine()]
+          symbols = subprocess.run([str(llvm_nm), f'--arch={arch}', '-gU', sys.argv[2]],
                                    capture_output=True, text=True)
           exported = set(re.findall(r'\b_(maple_[a-z0-9_]+)\b', symbols.stdout))
           missing = expected - exported
@@ -298,6 +312,12 @@ jobs:
           cp -R src/apple/MapleUITests/Fixtures/synthetic "$MAPLE_SWIFT_TEST_ROOT/MapleUITests/Fixtures/"
           mkdir -p "$MAPLE_SWIFT_TEST_ROOT/test-fixtures"
           cp -R test-fixtures/local-adjustments "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
+          cp -R test-fixtures/removal "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
+          # AutoProfileCanvasParityTests.fixtureDir walks six parents from
+          # the staged Swift package, so removal fixtures also live beside
+          # MAPLE_SWIFT_TEST_ROOT for its existing repo-root lookup.
+          mkdir -p "$MAPLE_SWIFT_TEST_ROOT/../test-fixtures"
+          cp -R test-fixtures/removal "$MAPLE_SWIFT_TEST_ROOT/../test-fixtures/"
           cp -R test-fixtures/workflow "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           cp -R test-fixtures/export-recipes "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           cp -R test-fixtures/file-operations "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"

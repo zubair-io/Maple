@@ -20,6 +20,60 @@ pub struct ColorLut {
     pub data: Vec<f32>,
 }
 
+/// Sample a borrowed RGB lattice with the identical tetrahedral evaluator
+/// used by `ColorLut`. Callers must provide n >= 2 and exactly n³ * 3 lanes.
+/// Native CPU preview borrows its immutable prepared residual without copying.
+pub fn sample_lut(n: usize, data: &[f32], rgb: [f32; 3]) -> [f32; 3] {
+    let node = |r: usize, g: usize, b: usize| {
+        let i = ((b * n + g) * n + r) * 3;
+        [data[i], data[i + 1], data[i + 2]]
+    };
+    let last = (n - 1) as f32;
+    let mut lo = [0usize; 3];
+    let mut f = [0f32; 3];
+    for c in 0..3 {
+        let p = rgb[c].clamp(0.0, 1.0) * last;
+        let l = p.floor().min(last - 1.0);
+        lo[c] = l as usize;
+        f[c] = p - l;
+    }
+
+    let fx = f[0];
+    let fy = f[1];
+    let fz = f[2];
+
+    let mut out = [0.0f32; 3];
+    let c000 = node(lo[0], lo[1], lo[2]);
+    let c100 = node(lo[0] + 1, lo[1], lo[2]);
+    let c010 = node(lo[0], lo[1] + 1, lo[2]);
+    let c110 = node(lo[0] + 1, lo[1] + 1, lo[2]);
+    let c001 = node(lo[0], lo[1], lo[2] + 1);
+    let c101 = node(lo[0] + 1, lo[1], lo[2] + 1);
+    let c011 = node(lo[0], lo[1] + 1, lo[2] + 1);
+    let c111 = node(lo[0] + 1, lo[1] + 1, lo[2] + 1);
+
+    for c in 0..3 {
+        out[c] = if fx >= fy {
+            if fy >= fz {
+                c000[c] * (1.0 - fx) + c100[c] * (fx - fy) + c110[c] * (fy - fz) + c111[c] * fz
+            } else if fx >= fz {
+                c000[c] * (1.0 - fx) + c100[c] * (fx - fz) + c101[c] * (fz - fy) + c111[c] * fy
+            } else {
+                c000[c] * (1.0 - fz) + c001[c] * (fz - fx) + c101[c] * (fx - fy) + c111[c] * fy
+            }
+        } else {
+            if fx >= fz {
+                c000[c] * (1.0 - fy) + c010[c] * (fy - fx) + c110[c] * (fx - fz) + c111[c] * fz
+            } else if fy >= fz {
+                c000[c] * (1.0 - fy) + c010[c] * (fy - fz) + c011[c] * (fz - fx) + c111[c] * fx
+            } else {
+                c000[c] * (1.0 - fz) + c001[c] * (fz - fy) + c011[c] * (fy - fx) + c111[c] * fx
+            }
+        };
+    }
+    out
+}
+
 impl ColorLut {
     /// Identity LUT of `size` nodes per axis (clamped to ≥2).
     pub fn identity(size: usize) -> Self {
@@ -41,8 +95,7 @@ impl ColorLut {
 
     #[cfg(test)]
     fn node(&self, r: usize, g: usize, b: usize) -> [f32; 3] {
-        let n = self.size;
-        let i = ((b * n + g) * n + r) * 3;
+        let i = ((b * self.size + g) * self.size + r) * 3;
         [self.data[i], self.data[i + 1], self.data[i + 2]]
     }
 
@@ -54,54 +107,7 @@ impl ColorLut {
     /// Borrowed grid lookup lets FFI callers reuse host-owned LUT storage.
     /// Requires `n >= 2` and `data.len() == n * n * n * 3`.
     pub fn sample_grid(n: usize, data: &[f32], rgb: [f32; 3]) -> [f32; 3] {
-        let node = |r: usize, g: usize, b: usize| {
-            let i = ((b * n + g) * n + r) * 3;
-            [data[i], data[i + 1], data[i + 2]]
-        };
-        let last = (n - 1) as f32;
-        let mut lo = [0usize; 3];
-        let mut f = [0f32; 3];
-        for c in 0..3 {
-            let p = rgb[c].clamp(0.0, 1.0) * last;
-            let l = p.floor().min(last - 1.0);
-            lo[c] = l as usize;
-            f[c] = p - l;
-        }
-
-        let fx = f[0];
-        let fy = f[1];
-        let fz = f[2];
-
-        let mut out = [0.0f32; 3];
-        let c000 = node(lo[0], lo[1], lo[2]);
-        let c100 = node(lo[0] + 1, lo[1], lo[2]);
-        let c010 = node(lo[0], lo[1] + 1, lo[2]);
-        let c110 = node(lo[0] + 1, lo[1] + 1, lo[2]);
-        let c001 = node(lo[0], lo[1], lo[2] + 1);
-        let c101 = node(lo[0] + 1, lo[1], lo[2] + 1);
-        let c011 = node(lo[0], lo[1] + 1, lo[2] + 1);
-        let c111 = node(lo[0] + 1, lo[1] + 1, lo[2] + 1);
-
-        for c in 0..3 {
-            out[c] = if fx >= fy {
-                if fy >= fz {
-                    c000[c] * (1.0 - fx) + c100[c] * (fx - fy) + c110[c] * (fy - fz) + c111[c] * fz
-                } else if fx >= fz {
-                    c000[c] * (1.0 - fx) + c100[c] * (fx - fz) + c101[c] * (fz - fy) + c111[c] * fy
-                } else {
-                    c000[c] * (1.0 - fz) + c001[c] * (fz - fx) + c101[c] * (fx - fy) + c111[c] * fy
-                }
-            } else {
-                if fx >= fz {
-                    c000[c] * (1.0 - fy) + c010[c] * (fy - fx) + c110[c] * (fx - fz) + c111[c] * fz
-                } else if fy >= fz {
-                    c000[c] * (1.0 - fy) + c010[c] * (fy - fz) + c011[c] * (fz - fx) + c111[c] * fx
-                } else {
-                    c000[c] * (1.0 - fz) + c001[c] * (fz - fy) + c011[c] * (fy - fx) + c111[c] * fx
-                }
-            };
-        }
-        out
+        sample_lut(n, data, rgb)
     }
 
     /// Apply in place to an interleaved RGB f32 buffer (DisplayEncodedSrgb, [0,1]).

@@ -2,7 +2,9 @@
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
   "entry": [
     "scripts/serve-production-e2e.ts",
+    "scripts/serve-removal-self-hosted-e2e.ts",
     "scripts/export-recipe-storage.entry.ts",
+    "e2e/removal-experimental/saved-export-oracle.mjs",
     "playwright.partial-white-balance.config.ts",
     "playwright.workflow.config.ts",
     "playwright.export-original-retry.config.ts",

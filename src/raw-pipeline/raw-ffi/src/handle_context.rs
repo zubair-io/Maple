@@ -12,11 +12,18 @@ use std::sync::{Arc, Mutex, PoisonError};
 pub(super) struct FrameCache(Mutex<Option<(RenderQuality, Arc<HighlightFrameContext>)>>);
 
 impl MapleRawHandleInner {
-    pub(super) fn new(raw: RawImage, model: AdjustmentModel) -> Self {
+    pub(super) fn new(
+        raw: RawImage,
+        model: AdjustmentModel,
+        original: raw_core::types::accepted_removal::ContentDigest,
+        saved: Option<raw_core::pipeline::ResolvedCalibrationRemovals>,
+    ) -> Self {
         Self {
             raw: Arc::new(raw),
             model,
             frame: FrameCache::default(),
+            original,
+            saved,
         }
     }
 
@@ -54,6 +61,22 @@ impl MapleRawHandleInner {
         quality: RenderQuality,
         wb_anchor: Option<(f32, f32)>,
     ) -> Result<(u32, u32, Vec<u16>)> {
+        if let Some(saved) = &self.saved {
+            let (width, height, rgba) = saved.render_scene_linear_tile_f32(
+                &self.raw,
+                &self.original,
+                &self.model,
+                rect,
+                quality,
+                wb_anchor,
+                1.0,
+            )?;
+            return Ok((
+                width,
+                height,
+                rgba.into_iter().map(pipeline::f32_to_f16_bits).collect(),
+            ));
+        }
         pipeline::reject_untileable_tile(&self.raw, &self.model, rect)?;
         match self.frame_context(quality)? {
             Some(context) => pipeline::render_scene_linear_tile_from_frame_context(
@@ -80,6 +103,17 @@ impl MapleRawHandleInner {
         wb_anchor: Option<(f32, f32)>,
         ae_gain: f32,
     ) -> Result<(u32, u32, Vec<f32>)> {
+        if let Some(saved) = &self.saved {
+            return saved.render_scene_linear_tile_f32(
+                &self.raw,
+                &self.original,
+                &self.model,
+                rect,
+                quality,
+                wb_anchor,
+                ae_gain,
+            );
+        }
         pipeline::reject_untileable_tile(&self.raw, &self.model, rect)?;
         match self.frame_context(quality)? {
             Some(context) => pipeline::render_scene_linear_tile_from_frame_context_f32(

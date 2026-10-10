@@ -5,10 +5,12 @@ import { computeBodyETag } from '../runtime/http-etag';
 import { primarySidecarDestination, preparePrimarySidecarWrite } from './xmp';
 import { serializeSidecarWrite } from './sidecar-write-order';
 import { isMissingSidecar, writeSidecarAtomic, writeSidecarCreateOnly } from './sidecar-io';
+import { removalRecords } from './removal-records.ts';
 
 export type ConditionalXmpResult =
   | { kind: 'ok'; data: string }
   | { kind: 'conflict' }
+  | { kind: 'removal-conflict' }
   | { kind: 'error'; error: string };
 
 export async function writeXmpIfUnchanged(
@@ -27,6 +29,9 @@ export async function writeXmpIfUnchanged(
       });
       const actualEtag = current === null ? null : computeBodyETag(current);
       if (actualEtag !== expectedEtag) return { kind: 'conflict' };
+      const before = current ? (removalRecords(current) ?? '[]') : '[]';
+      const after = removalRecords(xml) ?? '[]';
+      if (before !== after) return { kind: 'removal-conflict' };
       const prepared = await preparePrimarySidecarWrite(destination, xml);
       if (!prepared.ok) return { kind: 'error', error: prepared.error };
       if (expectedEtag === null) {

@@ -1,0 +1,351 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "scope": "Mac-first actual 39MP RAW export attribution; no product pipeline, fit policy, default profile, parity budget or inference model changed",
+  "baseRevision": "162283fbc85b5515e832b224402c93d2930f6c9f",
+  "sourceHashes": {
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/ReportedExportParityTests+Removal.swift": "4d51345160a0b4b8beace10ca5a8c7990c897c217156630a7da8560d67fa4799",
+    "src/raw-pipeline/raw-core/examples/removal-auto-fit-attribution.rs": "45c85b65676608a5308efd5f665d3fc0e85d08e56a15ab380b87e9b95e190361",
+    "src/raw-pipeline/raw-core/src/pipeline/render/auto_fit.rs": "635fe348768dbf36f149c959963d4ffaacc529fe0fb34e984099fb0c4e747bb2",
+    "src/raw-pipeline/raw-core/src/pipeline/render/mod.rs": "770ee1907b9f36781f4f97b8d5bd420365f043f241ab5655dd30683f7a3451bf",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/AutoProfileLUT.swift": "d752f168f094d790b13724c764ab9d4830bdb334c3a28335bda01f38702a4722",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/RenderActor+Export.swift": "4fe61df87a99e75cf6ecfaea27476ef1457ee34accd04eb12a3e2eb865206ba3"
+  },
+  "corpus": {
+    "source": "test-fixtures/raws/removal-photographic/portrait.dng",
+    "originalFixture": "test-fixtures/raws/test_0002.dng",
+    "dimensions": [7216, 5412],
+    "sourceSha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+    "xmpSha256": "eafcb3022d6de1c7cc8e6b7af2ed9301b86ae6b37f6b81af9fdd05b87b5b426d",
+    "acceptedRecords": 2,
+    "assets": [
+      {
+        "path": ".maple/inpaint/1d6aca14812faac0b00536844597eab605876a1f4fdd3d6d71224d160d509e4c.f16",
+        "bytes": 8388640,
+        "sha256": "611c3ee6822302971f2f8d68ac51e00996871c3bfdf0bec270bbcec8f9aaaab8"
+      },
+      {
+        "path": ".maple/inpaint/7fb1f2a498fad9d968b885a85cf0f3290e3d922a3ae17199e2afe14f8cb610fd.mask",
+        "bytes": 12466,
+        "sha256": "74db870cd3cec5c294eb09bd9f392e2aeca55094dde9b894b063313d604050ef"
+      },
+      {
+        "path": ".maple/inpaint/87511d6477bf8abc5207b285bd05a0cd2b2290db9251a6049462fbe2914e3499.mask",
+        "bytes": 13372,
+        "sha256": "45379926e18412e089f4cd9e993ab38edf51c3fcbe569b3355ab71fb94770bdf"
+      },
+      {
+        "path": ".maple/inpaint/df0240597788e7c61dec80f7862076fd6922ab34ce7595946200f9fa5e706394.f16",
+        "bytes": 8388640,
+        "sha256": "ab6eb02cbad921751fde29c7a37c2acc536083e1d20d42a39b30f344f6927f51"
+      }
+    ],
+    "controlManifest": {
+      "cubes": [
+        {
+          "blake3": "ed646264ca4675cc7ac4f866bc0c090d7237ea29f2da611a03330f8a919ee8f3",
+          "bytes": 431244,
+          "dimension": 33,
+          "fit": "proxy",
+          "path": "proxy-33.f32"
+        },
+        {
+          "blake3": "5e11bd0d19eb1af5a4ad0a5feda05d6a25cc30b9b46c3babbe815a991cb63e4a",
+          "bytes": 1411788,
+          "dimension": 49,
+          "fit": "proxy",
+          "path": "proxy-49.f32"
+        },
+        {
+          "blake3": "1b7225e694e258abd8d302c40a4d3c7b676195199b8e4d456dd4474fe9e24649",
+          "bytes": 3295500,
+          "dimension": 65,
+          "fit": "proxy",
+          "path": "proxy-65.f32"
+        },
+        {
+          "blake3": "7828ccfb7716e3b1f0eb94ddca13ee8919f90f3207024dc96b1459f067337083",
+          "bytes": 431244,
+          "dimension": 33,
+          "fit": "native",
+          "path": "native-33.f32"
+        },
+        {
+          "blake3": "d831afa48b0d8d9fe909ead506ef215627b4fc6e1772fe102233549b2ca5b477",
+          "bytes": 1411788,
+          "dimension": 49,
+          "fit": "native",
+          "path": "native-49.f32"
+        },
+        {
+          "blake3": "04b8999c2c7a66bcb7355a4d5b3dca3269793f0f6719d4c394d02bf4bd5b8f33",
+          "bytes": 3295500,
+          "dimension": 65,
+          "fit": "native",
+          "path": "native-65.f32"
+        }
+      ],
+      "encoding": "little-endian f32 RGB, red fastest",
+      "issue": 1472,
+      "limit": "Native fit is an uncached diagnostic control; production policy unchanged",
+      "quality": "amaze",
+      "sensorHeight": 5412,
+      "sensorWidth": 7216,
+      "sourceDigest": "220c6f28339dd600e1f7eea7ee9ee85be4ebee3e3ade7d74275c08d85f53b61c"
+    },
+    "controlManifestSha256": "57eaffa22459ee1e9ab762ed6aee1772afeb0c0066eca72e1bd7fd69ca04b20f"
+  },
+  "commands": [
+    "cargo run --release -p raw-core --example removal-auto-fit-attribution -- ../../test-fixtures/raws/removal-photographic/portrait.dng ../../test-fixtures/raws/removal-photographic/auto-fit",
+    "swift test --configuration release --filter ReportedExportParityTests/testPhotographicSavedRemovalExportDiagnostic"
+  ],
+  "execution": {
+    "result": "1 attribution test passed, 0 failures, 0 skips; does not assert or establish color parity",
+    "seconds": 39.41,
+    "log": "/tmp/maple-removal-mac-photo-fit-attribution-final-20261002.log",
+    "logSha256": "8821c27ac41c38636946cf613e6d3b10cc2e644bfb12df3ebb0b0a7557bd21ec",
+    "controlGeneratorLog": "/tmp/maple-removal-mac-auto-fit-control-20261002.log",
+    "controlGeneratorLogSha256": "736e5e47376a7b6bf3501d603a34b4e6252a4171bcbd1119e76d328535fccbb2",
+    "coverageList": "ReportedExportParityTests remains explicitly fixture-excluded from stock Mac CI; actual corpus executes locally",
+    "coverageCheck": "445 classes: 245 run, 200 excluded, no untriaged classes"
+  },
+  "method": [
+    "Every arm uses the same original RAW, actual accepted XMP and companions copied into a new temporary local library; original source and source XMP remain unchanged",
+    "Independent shared C renderer at AMaZE quality, native resolution, compared numerically with RenderActor export and actual MapleExporter PNG",
+    "Neutral and Auto both tested with accepted records disabled and enabled; source dimensions and saved history verified",
+    "Developed and delivered graphs read at f32 working precision into sRGB RGBA8, compared against independent RGB8 terminal pixels",
+    "Full-resolution Metal uses the same decoded scene, WB frame, retained Whites anchor, ISO/noise profile and separately fitted Auto artifacts; no viewport downsample",
+    "Native-fit controls are produced by the existing raw-core FitCap::Native diagnostic; they are uncached controls, not a shipping API or product fit-policy change",
+    "All 33/49/65 native control files verify byte length and content digest before Core Image use; production-size standalone 33 control exactly reproduces the measured native export error"
+  ],
+  "reports": [
+    {
+      "accepted": false,
+      "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+      "case": "photographic-removal-export",
+      "channelsOver1": 0,
+      "height": 5412,
+      "limit": "Attribution diagnostic; not a passing parity budget",
+      "maximumChannelError": 1,
+      "meanChannelError": 0.25007013547131035,
+      "profile": "neutral",
+      "stage": "developed",
+      "width": 7216
+    },
+    {
+      "accepted": false,
+      "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+      "case": "photographic-removal-export",
+      "channelsOver1": 0,
+      "height": 5412,
+      "limit": "Attribution diagnostic; not a passing parity budget",
+      "maximumChannelError": 1,
+      "meanChannelError": 0.25007013547131035,
+      "profile": "neutral",
+      "stage": "delivered",
+      "width": 7216
+    },
+    {
+      "accepted": true,
+      "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+      "case": "photographic-removal-export",
+      "channelsOver1": 0,
+      "height": 5412,
+      "limit": "Attribution diagnostic; not a passing parity budget",
+      "maximumChannelError": 1,
+      "meanChannelError": 0.25008143635533314,
+      "profile": "neutral",
+      "stage": "developed",
+      "width": 7216
+    },
+    {
+      "accepted": true,
+      "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+      "case": "photographic-removal-export",
+      "channelsOver1": 0,
+      "height": 5412,
+      "limit": "Attribution diagnostic; not a passing parity budget",
+      "maximumChannelError": 1,
+      "meanChannelError": 0.25008143635533314,
+      "profile": "neutral",
+      "stage": "delivered",
+      "width": 7216
+    },
+    {
+      "accepted": false,
+      "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+      "case": "photographic-removal-export",
+      "channelsOver1": 8360717,
+      "height": 5412,
+      "limit": "Attribution diagnostic; not a passing parity budget",
+      "maximumChannelError": 12,
+      "meanChannelError": 0.6081861879707792,
+      "profile": "auto",
+      "stage": "developed",
+      "width": 7216
+    },
+    {
+      "accepted": false,
+      "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+      "case": "photographic-removal-export",
+      "channelsOver1": 8360717,
+      "height": 5412,
+      "limit": "Attribution diagnostic; not a passing parity budget",
+      "maximumChannelError": 12,
+      "meanChannelError": 0.6081861879707792,
+      "profile": "auto",
+      "stage": "delivered",
+      "width": 7216
+    },
+    {
+      "accepted": true,
+      "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+      "case": "photographic-removal-export",
+      "channelsOver1": 8337915,
+      "height": 5412,
+      "limit": "Attribution diagnostic; not a passing parity budget",
+      "maximumChannelError": 12,
+      "meanChannelError": 0.6079282905306376,
+      "profile": "auto",
+      "stage": "developed",
+      "width": 7216
+    },
+    {
+      "accepted": true,
+      "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+      "case": "photographic-removal-export",
+      "channelsOver1": 8337915,
+      "height": 5412,
+      "limit": "Attribution diagnostic; not a passing parity budget",
+      "maximumChannelError": 12,
+      "meanChannelError": 0.6079282905306376,
+      "profile": "auto",
+      "stage": "delivered",
+      "width": 7216
+    },
+    {
+      "case": "photographic-removal-auto-cube",
+      "channelsOver1": 8337915,
+      "dimension": 33,
+      "fitOrigin": "standalone-proxy",
+      "limit": "Attribution diagnostic; production cube unchanged",
+      "maximumChannelError": 12,
+      "meanChannelError": 0.6079282905306376
+    },
+    {
+      "case": "photographic-removal-auto-cube",
+      "channelsOver1": 6841461,
+      "dimension": 49,
+      "fitOrigin": "standalone-proxy",
+      "limit": "Attribution diagnostic; production cube unchanged",
+      "maximumChannelError": 12,
+      "meanChannelError": 0.5544781135676706
+    },
+    {
+      "case": "photographic-removal-auto-cube",
+      "channelsOver1": 7355926,
+      "dimension": 65,
+      "fitOrigin": "standalone-proxy",
+      "limit": "Attribution diagnostic; production cube unchanged",
+      "maximumChannelError": 12,
+      "meanChannelError": 0.5666548843854695
+    },
+    {
+      "case": "photographic-removal-auto-cube",
+      "channelsOver1": 46169,
+      "dimension": 33,
+      "fitOrigin": "native-control",
+      "limit": "Uncached diagnostic native fit; production policy unchanged",
+      "maximumChannelError": 3,
+      "meanChannelError": 0.30508190853426376
+    },
+    {
+      "case": "photographic-removal-auto-cube",
+      "channelsOver1": 966365,
+      "dimension": 49,
+      "fitOrigin": "native-control",
+      "limit": "Uncached diagnostic native fit; production policy unchanged",
+      "maximumChannelError": 4,
+      "meanChannelError": 0.3075535330728736
+    },
+    {
+      "case": "photographic-removal-auto-cube",
+      "channelsOver1": 91,
+      "dimension": 65,
+      "fitOrigin": "native-control",
+      "limit": "Uncached diagnostic native fit; production policy unchanged",
+      "maximumChannelError": 2,
+      "meanChannelError": 0.2826351520859998
+    },
+    {
+      "case": "photographic-removal-full-metal",
+      "channelsOver1": 4752154,
+      "height": 5412,
+      "limit": "Attribution diagnostic; full-resolution readback is not a live-slider benchmark",
+      "maximumChannelError": 12,
+      "meanChannelError": 0.43763975881796713,
+      "width": 7216
+    }
+  ],
+  "fitNodeDifference": [
+    {
+      "dimension": 33,
+      "maximumDifference": 0.074198167771101,
+      "meanDifference": 0.0016718216846140568,
+      "maximumDifferenceIn8BitUnits": 18.920532781630754
+    },
+    {
+      "dimension": 49,
+      "maximumDifference": 0.074198167771101,
+      "meanDifference": 0.001677311866882953,
+      "maximumDifferenceIn8BitUnits": 18.920532781630754
+    },
+    {
+      "dimension": 65,
+      "maximumDifference": 0.074198167771101,
+      "meanDifference": 0.0016912176173728246,
+      "maximumDifferenceIn8BitUnits": 18.920532781630754
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity/auto-original.png",
+      "bytes": 52147627,
+      "sha256": "846def8a04076dd35420078d5ade8300bd0635f977c55e00173369a3c0387217"
+    },
+    {
+      "path": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity/auto-saved.png",
+      "bytes": 52103714,
+      "sha256": "e4a40b8526dca5e581df48ce734558e68debff409859dfc5aa6a806f41f30135"
+    },
+    {
+      "path": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity/neutral-original.png",
+      "bytes": 49924570,
+      "sha256": "e293f6f570890cc699c11ea0a1f962cbed0941fe8e91fe283611fcde055c3d85"
+    },
+    {
+      "path": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity/neutral-saved.png",
+      "bytes": 49876827,
+      "sha256": "8ec793c4235778452ec2e6a42dad2fb0a7116970cae3b85e45a61354040768a3"
+    }
+  ],
+  "findings": [
+    "Neutral agrees within 1/255 with zero channels over 1, both with and without accepted patches; PNG encoding adds no further difference",
+    "Auto reproduces 12/255 maximum and the previous mean 0.607928 on the saved photo; nearly the same error exists without any removals",
+    "Increasing only the standalone proxy cube from 33 to 49 or 65 leaves the 12/255 maximum unchanged",
+    "The full Metal path also reaches 12/255 (mean 0.437640); replacing only Core Image interpolation cannot solve the shared host fit mismatch",
+    "Using the native fit with the same 33 cube reduces maximum error from 12 to 3 and mean from 0.607928 to 0.305082; the 65 native control reaches max 2 with 91 channels over 1",
+    "Current core source explicitly separates standalone proxy fit origins from render-sized fit origins; the controls demonstrate fit-size mismatch is a major source of this photo difference, with interpolation/quantization residuals remaining"
+  ],
+  "remaining": [
+    "Implement consistent shared-Rust Auto artifact selection for the Mac full export and qualify its runtime cost, while preserving Auto as default and cached slider latency",
+    "Remove or bound the remaining interpolation/quantization difference using the real shared transform; do not paper over it with a larger cube or a raised budget",
+    "Qualify representative GPU/CPU/full/tile/export parity across RAWs and edits, beyond this one photographic fixture",
+    "Existing broad Neutral color failure, crowd/HDR/large-ROI quality, portability, model packaging and full hardware/performance qualification remain open"
+  ],
+  "interpretationCorrection": {
+    "followUpEvidence": "test-fixtures/qualification/removal-mac-auto-quality-1472.json",
+    "limitation": "Historical AMaZE-labeled FFI calls selected Preview before the quality parser fix; the initial fit-size attribution was confounded",
+    "followUp": "Fixed AMaZE FFI proxy cubes now match independent AMaZE controls exactly. Repeated photographic reports are unchanged; at matched AMaZE quality the native-size control still reduces max12 to3 at the same33 cube. Historical measurements retained below"
+  }
+}

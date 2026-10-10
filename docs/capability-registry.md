@@ -330,9 +330,9 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - render_bytes_gpu vs render_bytes on Metal (#2315)
 - Covers: `apple`
 - Accepted backends: `metal`
-- Expected cases: 19
+- Expected cases: 22
 - Corpus: `src/raw-pipeline/raw-wasm/src/gpu_render.rs`, `src/raw-pipeline/raw-wasm/src/gpu_render`, `src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng`
-- Record: satisfied — 19 of 19 executed, 0 failed, 0 skipped, on `metal`, pipeline v18, schema v5, commit `665e3f56b3351fdc7e0de96471427947b50297c3`, recorded 2026-10-10T04:00:18Z
+- Record: satisfied — 22 of 22 executed, 0 failed, 0 skipped, on `metal`, pipeline v18, schema v5, commit `b33c800540b80f7056bcde278a33f63710aa68cc`, recorded 2026-10-10T12:06:46Z
 
 ### `apple_canvas_golden`
 

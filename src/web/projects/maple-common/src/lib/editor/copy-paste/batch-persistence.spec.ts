@@ -23,6 +23,7 @@ import type { BatchOperation } from './batch-ledger';
 import { PersistentBatchRunner } from './persistent-batch-runner';
 import { BatchSyncAssetIO } from './batch-sync-asset-io.service';
 import { DiskBatchLedger, DiskDirectory } from './testing/batch-test-files';
+import { workflowXmpTestProvider } from '../../xmp/testing/workflow-xmp-test-provider';
 
 const image = Uint8Array.from(
   atob(
@@ -55,6 +56,7 @@ describe('persistent batch through real sidecar files', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         provideHostedWorkspace(),
+        workflowXmpTestProvider,
         {
           provide: FolderAccessService,
           useValue: {

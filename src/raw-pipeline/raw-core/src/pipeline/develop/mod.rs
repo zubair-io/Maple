@@ -45,7 +45,9 @@ use super::{
     RenderQuality,
 };
 
+pub(super) mod camera;
 mod geometry;
+mod removal;
 
 pub(super) use geometry::{
     crop_to_default, effective_quality_divisor, highlight_active_area, lateral_ca,
@@ -58,24 +60,17 @@ mod entries;
 pub use entries::{
     develop_scene_linear_from_raw_with_quality,
     develop_scene_linear_from_raw_with_quality_cancellable,
+    develop_scene_linear_from_raw_with_quality_cancellable_with_gain,
     develop_scene_linear_from_raw_with_quality_with_gain,
 };
 
-/// Same develop chain as [`develop_scene_linear_from_raw_with_quality_cancellable`],
-/// additionally returning the scalar gain the `auto_exposure` stage applied
-/// (1.0 when `model.auto_exposure` is `Off`, or when the anchor computation
-/// degenerates to a no-op — see `stages::auto_exposure::apply`). Ticket #1167:
-/// this is the export the tile-develop path threads back in as its `ae_gain`
-/// input, so a deep-zoom tile can reproduce the exact per-scene AE gain the
-/// full-image develop picked instead of omitting the stage. Kept as a
-/// separate entry (rather than changing the widely-called plain function's
-/// return type) to avoid touching the ~30 existing callers across raw-core,
-/// maple-cli, and the test suite that only want the `Image`.
-pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
+/// Shared develop chain that composites accepted removals before optical geometry.
+pub(super) fn develop_with_calibration_patches(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
     cancel: CancelToken<'_>,
+    calibration_patches: &[crate::types::InpaintPatch],
 ) -> Result<(crate::image::Image, f32)> {
     // Bail before any work if the host already cancelled (e.g. the decode
     // task was superseded before the worker thread even started).
@@ -268,6 +263,17 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     let (profile, profile_source) =
         stage("dcp::profile_for", || dcp::profile_for_with_source(raw))?;
     let whites_anchor_ev = dcp::scene_white_anchor(&camera_rgb, &profile)?;
+    if !calibration_patches.is_empty() {
+        drop(camera_rgb);
+        camera_rgb = removal::apply_calibration_patches(
+            raw,
+            model,
+            quality,
+            cancel,
+            calibration_patches,
+            &profile,
+        )?;
+    }
     // Camera-space user white balance (#1726): moves the temperature/tint
     // sliders upstream of DCP, in camera-native linear RGB, matching ACR —
     // bounded to what the sensor can physically report per channel (the

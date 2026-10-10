@@ -5,10 +5,15 @@ import { TestBed } from '@angular/core/testing';
 import { expect, it } from 'vitest';
 import { DiskDirectory } from '../editor/copy-paste/testing/batch-test-files';
 import { FolderAccessService } from '../folder-access/folder-access.service';
-import { fsAccessWriteFile } from '../folder-access/fs-access-backend';
+import {
+  fsAccessListEntries,
+  fsAccessReadFile,
+  fsAccessWriteFile,
+} from '../folder-access/fs-access-backend';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpStoreService } from './xmp-store.service';
+import { workflowXmpTestProvider } from './testing/workflow-xmp-test-provider';
 
 it('retains source languages and authors when ordinary hydration also caches typed metadata', async () => {
   const root = await fs.mkdtemp(join(tmpdir(), 'maple-metadata-store-'));
@@ -28,7 +33,17 @@ it('retains source languages and authors when ordinary hydration also caches typ
     </x:xmpmeta>`,
     );
     TestBed.configureTestingModule({
-      providers: [{ provide: FolderAccessService, useValue: { writeFile: fsAccessWriteFile } }],
+      providers: [
+        {
+          provide: FolderAccessService,
+          useValue: {
+            listEntries: fsAccessListEntries,
+            writeFile: fsAccessWriteFile,
+            readFile: fsAccessReadFile,
+          },
+        },
+        workflowXmpTestProvider,
+      ],
     });
     const parser = TestBed.inject(XmpParserService);
     const store = TestBed.inject(XmpStoreService);

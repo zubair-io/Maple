@@ -30,9 +30,9 @@ extension EditSession {
   }
 
   /// The WB delta anchor: the WB actually baked into the buffer. The
-  /// strip decode OMITS WB (#1883) → As-Shot develop → the frame's own
-  /// pair when present, else the legacy estimate. NOT 6500/0 (#1976):
-  /// post-#1894 that mislabel overcooled every settled render to cyan.
+  /// calibrated strip decode bakes As-Shot WB (#1883/#1976). Frame-less
+  /// RAWs use the shared core's absolute CAT16 fallback instead (#1472),
+  /// so their metadata estimate must not become a second WB transform.
   var wbDeltaAnchor: ImageEditPipeline.AsShotWB? {
     if let frame = wbSliderFrame, frame.isPresent {
       return ImageEditPipeline.AsShotWB(
@@ -43,8 +43,7 @@ extension EditSession {
     if cameraSupport?.resolution == .rawlerFallback {
       return ImageEditPipeline.AsShotWB(temperature: 6500.0, tint: 0.0)
     }
-    guard let cct = asShotCCT, let t = asShotTint else { return nil }
-    return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
+    return nil
   }
 
   // Forwarders onto `deepZoomState` — see that property's doc in

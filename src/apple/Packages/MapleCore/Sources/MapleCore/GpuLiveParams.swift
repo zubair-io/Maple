@@ -128,7 +128,8 @@ extension PipelineRenderer {
         (0.0, 0.0)
       }
 
-    let wb = model.liveWhiteBalance(in: wbFrame)
+    let wb = model.resolvedWhiteBalance(
+      temperature: asShotCCT ?? 6500, tint: asShotTint ?? 0, frame: wbFrame)
     p.temperature = Float(wb.temperature)
     p.tint = Float(wb.tint)
     p.decoded_temperature = Float(decodedAnchor.temperature)

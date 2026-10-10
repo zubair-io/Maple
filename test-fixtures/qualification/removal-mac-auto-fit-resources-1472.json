@@ -1,0 +1,188 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "baseRevision": "4b242a46b054b2cf2817bfdb5161c5d5d6d8d51b",
+  "scope": "Mac-first native/proxy Auto fit resource attribution before preview/export convergence; diagnostic evidence, no product policy change",
+  "sourceHashes": {
+    "src/raw-pipeline/raw-core/examples/removal-auto-fit-profile.rs": "5f976e73ef11522a5cc4aaef545ce1bff01e07694fd3be8bbc4ad46105f2f3ea",
+    "src/raw-pipeline/raw-core/src/pipeline/render/auto_fit.rs": "635fe348768dbf36f149c959963d4ffaacc529fe0fb34e984099fb0c4e747bb2",
+    "src/raw-pipeline/raw-core/src/stages/noise_reduction.rs": "b97667251f4369bd7543b1d626270ad19378dce5c224e711e94375deab2b9a25",
+    "src/raw-pipeline/raw-core/src/stages/nlm.rs": "aa94afde85d405414c24fe9729518e668d26c3e0ea6cc802c2c86580fb0e5909",
+    "src/raw-pipeline/raw-core/src/stages/nlm_shift.rs": "410228f23ed874af99eecc58abac7ca257ce71214afe80f05089d94eca1ab80a"
+  },
+  "binarySha256": "697e8bdb6167d28140d2157fc5429a2e0d31f0174bac77e64e613d4f19fe6c45",
+  "device": {
+    "model": "Mac17,6",
+    "cpu": "Apple M5 Max",
+    "ramBytes": 137438953472,
+    "macOS": "27.0",
+    "osBuild": "26A428"
+  },
+  "method": [
+    "Build the release measurement example from current source; each source/cap runs in a fresh process under /usr/bin/time -l.",
+    "Use the existing MAPLE_PROFILE stage diagnostic to attribute time; no new environment or runtime setting.",
+    "Both caps use unchanged shared default Auto and AMaZE; Native remains an uncached diagnostic control.",
+    "Decode timing excludes the initial RAW read. Fit timing covers existing extraction, pinned default develop, solver and artifact construction; output artifact hashing follows the fit timer.",
+    "Peak RSS covers the whole probe process, including RAW bytes/decode, fitting and hash verification; it excludes the editor, GPU upload and resident inference models.",
+    "Source pages were warmed by SHA verification. Decoded and fit artifact caches start empty in each process. This is not a disk-cold-open or device-percentile measurement."
+  ],
+  "commands": [
+    "cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-core --example removal-auto-fit-profile",
+    "MAPLE_PROFILE=1 /usr/bin/time -l src/raw-pipeline/target/release/examples/removal-auto-fit-profile ORIGINAL_RAW proxy",
+    "MAPLE_PROFILE=1 /usr/bin/time -l src/raw-pipeline/target/release/examples/removal-auto-fit-profile ORIGINAL_RAW native"
+  ],
+  "finalSourceRuns": [
+    {
+      "cap": "proxy",
+      "curveDigest": "36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7",
+      "decodeMs": 227.58066699999998,
+      "fitMs": 167.86541699999998,
+      "quality": "amaze",
+      "residualDigest": "84588ddc9bc47523eebca8f7abb85233e372ec6510a45d3345e5e960c7d10f30",
+      "sensorHeight": 5412,
+      "sensorWidth": 7216,
+      "sourceDigest": "220c6f28339dd600e1f7eea7ee9ee85be4ebee3e3ade7d74275c08d85f53b61c",
+      "source": "test-fixtures/raws/removal-photographic/portrait.dng",
+      "sourceSha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+      "peakRSSBytes": 952549376,
+      "log": "/tmp/maple-removal-native-fit-profile-portrait-proxy-final-20261002.log",
+      "logSha256": "02643d9a042366a7137f148b1b1cf60d6177980762a8b68d592e03bbb210b0c5"
+    },
+    {
+      "cap": "native",
+      "curveDigest": "36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7",
+      "decodeMs": 256.409083,
+      "fitMs": 2428.738167,
+      "quality": "amaze",
+      "residualDigest": "91b35f4f7d5f84ff0c9d7d997d477596a858b005c22211d3f8b3adda2950ec9d",
+      "sensorHeight": 5412,
+      "sensorWidth": 7216,
+      "sourceDigest": "220c6f28339dd600e1f7eea7ee9ee85be4ebee3e3ade7d74275c08d85f53b61c",
+      "source": "test-fixtures/raws/removal-photographic/portrait.dng",
+      "sourceSha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+      "peakRSSBytes": 2834759680,
+      "log": "/tmp/maple-removal-native-fit-profile-portrait-native-final-20261002.log",
+      "logSha256": "4b4e345cdd8fe9919e9404ad091df819aca53a0e8c7fbcad305d25b7576c9399",
+      "nrColorMs": 1710.0,
+      "nrColorFitFraction": 0.7040693077723598
+    },
+    {
+      "cap": "proxy",
+      "curveDigest": "36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7",
+      "decodeMs": 378.58599999999996,
+      "fitMs": 401.86575000000005,
+      "quality": "amaze",
+      "residualDigest": "9a1676071f6334cbd614f3bdb7dba19d048e5acb41902d5471dad9764efebecd",
+      "sensorHeight": 8192,
+      "sensorWidth": 12288,
+      "sourceDigest": "fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+      "source": "test-fixtures/raws/dji-mavic3pro-100mp.dng",
+      "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "peakRSSBytes": 2792194048,
+      "log": "/tmp/maple-removal-native-fit-profile-100mp-proxy-final-20261002.log",
+      "logSha256": "5f1ed514123eefa2b3b2e427ab6cb9b33429d33977a470517eb38637d78bb0cd"
+    },
+    {
+      "cap": "native",
+      "curveDigest": "36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7",
+      "decodeMs": 344.73970799999995,
+      "fitMs": 6923.909207999999,
+      "quality": "amaze",
+      "residualDigest": "c626d1700f6c546c62cb55b61d04343ee3cedf76001548ac2b8af48950baa049",
+      "sensorHeight": 8192,
+      "sensorWidth": 12288,
+      "sourceDigest": "fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+      "source": "test-fixtures/raws/dji-mavic3pro-100mp.dng",
+      "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "peakRSSBytes": 9186983936,
+      "log": "/tmp/maple-removal-native-fit-profile-100mp-native-final-20261002.log",
+      "logSha256": "5710eb44630676a4381d035281cf258515c87eeed91a9fcad6baaaff99bc8458",
+      "nrColorMs": 4800.0,
+      "nrColorFitFraction": 0.6932499915588148
+    }
+  ],
+  "preliminaryRuns": [
+    {
+      "cap": "proxy",
+      "curveDigest": "36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7",
+      "decodeMs": 231.01791699999998,
+      "fitMs": 168.48350000000002,
+      "quality": "amaze",
+      "residualDigest": "84588ddc9bc47523eebca8f7abb85233e372ec6510a45d3345e5e960c7d10f30",
+      "sensorHeight": 5412,
+      "sensorWidth": 7216,
+      "sourceDigest": "220c6f28339dd600e1f7eea7ee9ee85be4ebee3e3ade7d74275c08d85f53b61c",
+      "source": "test-fixtures/raws/removal-photographic/portrait.dng",
+      "sourceSha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+      "peakRSSBytes": 952975360,
+      "log": "/tmp/maple-removal-native-fit-profile-portrait-proxy-20261002.log",
+      "logSha256": "4a6044839e1f2ce4e2fd8761980251ef18a9a731d42a815b9283eaca48aa4d84"
+    },
+    {
+      "cap": "native",
+      "curveDigest": "36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7",
+      "decodeMs": 233.903583,
+      "fitMs": 2324.2015,
+      "quality": "amaze",
+      "residualDigest": "91b35f4f7d5f84ff0c9d7d997d477596a858b005c22211d3f8b3adda2950ec9d",
+      "sensorHeight": 5412,
+      "sensorWidth": 7216,
+      "sourceDigest": "220c6f28339dd600e1f7eea7ee9ee85be4ebee3e3ade7d74275c08d85f53b61c",
+      "source": "test-fixtures/raws/removal-photographic/portrait.dng",
+      "sourceSha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+      "peakRSSBytes": 2840313856,
+      "log": "/tmp/maple-removal-native-fit-profile-portrait-native-20261002.log",
+      "logSha256": "c4493661ec61209816af5b378fe12e244e3cdcc175dfb32e1d31c16e8fe4e5a3"
+    },
+    {
+      "cap": "proxy",
+      "curveDigest": "36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7",
+      "decodeMs": 327.877125,
+      "fitMs": 355.95775000000003,
+      "quality": "amaze",
+      "residualDigest": "9a1676071f6334cbd614f3bdb7dba19d048e5acb41902d5471dad9764efebecd",
+      "sensorHeight": 8192,
+      "sensorWidth": 12288,
+      "sourceDigest": "fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+      "source": "test-fixtures/raws/dji-mavic3pro-100mp.dng",
+      "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "peakRSSBytes": 2789343232,
+      "log": "/tmp/maple-removal-native-fit-profile-100mp-proxy-20261002.log",
+      "logSha256": "91f866eb51359bb8037f5ef3d7813a5338f2b104cd307f2bef2e9b6552af5d61"
+    },
+    {
+      "cap": "native",
+      "curveDigest": "36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7",
+      "decodeMs": 321.060166,
+      "fitMs": 6211.997334000001,
+      "quality": "amaze",
+      "residualDigest": "c626d1700f6c546c62cb55b61d04343ee3cedf76001548ac2b8af48950baa049",
+      "sensorHeight": 8192,
+      "sensorWidth": 12288,
+      "sourceDigest": "fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+      "source": "test-fixtures/raws/dji-mavic3pro-100mp.dng",
+      "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "peakRSSBytes": 9189507072,
+      "log": "/tmp/maple-removal-native-fit-profile-100mp-native-20261002.log",
+      "logSha256": "712ee82bed122cc18d379122985bdc9608bb2cfad40309b6dc5e9dd5be91195d"
+    }
+  ],
+  "verification": [
+    "Four source/curve/residual digest triples exactly reproduce the preliminary run.",
+    "Portrait proxy and native artifact hashes reproduce the previously committed matched-Auto controls in removal-mac-matched-auto-1472.json.",
+    "Both original RAW SHA256 and BLAKE3 identities remain unchanged; the probe never writes the original or sidecar."
+  ],
+  "findings": [
+    "The identity ProfileCurve is the same for proxy/native; residual LUT bytes differ for both RAWs, reproducing the fit-origin divergence.",
+    "Native fitting took2.324\u20132.429s for39MP and6.212\u20136.924s for100MP in these two point runs. It cannot be moved onto the interactive GPU actor while retaining the slider budget.",
+    "Whole-process native100MP peak RSS was9.187\u20139.190GB, before adding the editor or model residency. A background task alone would not establish low-memory qualification.",
+    "Default color denoising accounts for approximately70percent of native fit time. Bound that workspace before integrating canonical native fitting; preserve existing global NLM strip arithmetic and prove float/pixel parity."
+  ],
+  "nextAction": "Implement bounded NLM accumulation with original global strip seeds and per-pixel shift ordering; verify frozen float outputs and actual native fit/export evidence before integrating asynchronous native Auto artifacts. A labeled, consented RAW challenge corpus has been requested from the user for separate semantic-quality qualification.",
+  "limits": [
+    "Two scenes on one128GB Mac and two point trials per cap; no p95, fleet, disk-cold-open or live-frame claim.",
+    "These are fit artifacts, not a new preview/export parity result. Production fit origin/defaults, shaders, color arithmetic, schema and model flags remain unchanged.",
+    "The full release remains unqualified for production Auto convergence, preexisting Neutral ACR bias, photographic crowd/protected-subject/HDR/seam quality, lower-memory/resident-inference performance, signed model packaging and required rollout gates.",
+    "Mac first; other ports remain deferred within the original active goal."
+  ]
+}

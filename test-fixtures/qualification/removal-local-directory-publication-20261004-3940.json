@@ -1,0 +1,191 @@
+{
+  "issue": 3940,
+  "relatedIssues": [1472, 3936, 3944, 3984],
+  "recordedAt": "2026-10-04T05:26:05.627736+00:00",
+  "parentCommit": "277954d9270716334f457e788728e53bee69b205",
+  "testedBase": "505bf3740592a87a755fa6c0e311210784355446",
+  "releaseQualified": false,
+  "problem": "File contents and inpaint-directory fsync did not persist the parent directory entries created during first local publication/deep transfer. Valid content tests alone did not expose the missing syncs.",
+  "change": "Before returning prepared records, sync inpaint, Maple carrier, photo folder, and parents of destination directories created by this publication deepest-first. Repeated existing-carrier publication also syncs its carrier and photo folder; original and XMP CAS boundaries unchanged.",
+  "baseline": {
+    "storeSource": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/local-removal-assets-before-20261004.swift",
+      "sha256": "8bc1c9e7ac1528e60ada425b09028f6d7f3549a0037eef89388f1677f11fc4a3",
+      "bytes": 5289
+    },
+    "trace": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-directory-sync-baseline-trace-20261004.log",
+      "sha256": "d3e54adf09c2444fb11f20721d792cbd36f344f6617c1c21303c017b66061587",
+      "bytes": 1805
+    },
+    "actualContentTestPassed": true,
+    "directoryAuditPassed": false,
+    "auditFailure": "Missing bottom-up carrier/ancestor syncs at publication 0",
+    "successfulDirectoryReceiptCount": 5
+  },
+  "fixed": {
+    "trace": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-directory-sync-fixed-trace-20261004.log",
+      "sha256": "c23abf53e78c57c0b1758d760490a905ddae055df8653f3f01ff24fa42d0665b",
+      "bytes": 3236
+    },
+    "audit": {
+      "traceSHA256": "c23abf53e78c57c0b1758d760490a905ddae055df8653f3f01ff24fa42d0665b",
+      "test": "testFirstSaveAndDeepTransferRetainAllImmutableAssetsAndSidecarOrder",
+      "root": "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61",
+      "successfulDirectorySyncs": [
+        "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/.maple/inpaint",
+        "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/.maple",
+        "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61",
+        "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61",
+        "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new/nested/photos/.maple/inpaint",
+        "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new/nested/photos/.maple",
+        "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new/nested/photos",
+        "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new/nested",
+        "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new",
+        "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61",
+        "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new/nested/photos",
+        "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new/nested/photos/.maple/inpaint",
+        "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new/nested/photos/.maple",
+        "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new/nested/photos"
+      ],
+      "requiredPublicationSequences": [
+        [
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/.maple/inpaint",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/.maple",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61"
+        ],
+        [
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new/nested/photos/.maple/inpaint",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new/nested/photos/.maple",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new/nested/photos",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new/nested",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61"
+        ],
+        [
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new/nested/photos/.maple/inpaint",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new/nested/photos/.maple",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-directory-publication-D3D87541-EE63-4A45-94A2-2C74FC37CD61/new/nested/photos"
+        ]
+      ],
+      "sidecarFollowsCompanions": true,
+      "releaseQualified": false,
+      "scope": "Actual Darwin fsync calls and real local fixtures; not physical power-loss, iOS or SMB qualification"
+    },
+    "successfulDirectoryReceiptCount": 14
+  },
+  "instrumentation": {
+    "source": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/mac_directory_sync_audit.c",
+      "sha256": "450cf85a12696f85175d6f1791a308c15bd1bf9cd28378ff475a7027bcfc7cdf",
+      "bytes": 1253
+    },
+    "dylib": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-directory-sync-audit-20261004.dylib",
+      "sha256": "f9a9d33d92f8e5459a48365350b5846b087828bda8ea120d99a03342b50bc286",
+      "bytes": 33784
+    },
+    "method": "DYLD interposition confined to owned un-hardened XCTest child; original Darwin fsync executes, return value and errno preserved, only successful real directories observed. No mocked filesystem or replacement sidecar handlers.",
+    "runner": "/Applications/Xcode.app/Contents/Developer/usr/bin/xctest",
+    "selection": "MapleCoreTests.LocalRemovalDirectoryPublicationTests/testFirstSaveAndDeepTransferRetainAllImmutableAssetsAndSidecarOrder",
+    "scope": "Local first publication, fresh multi-level transfer, identical-asset reuse after a successful prior publication, confirmed XMP order; no simulated physical power cut."
+  },
+  "tests": {
+    "selectedRealFileXCTest": 50,
+    "failures": 0,
+    "skips": 0,
+    "traceVerifierTests": 6,
+    "verifiedInCIClassList": true,
+    "classes": [
+      "LocalRemovalAssetStoreTests",
+      "LocalRemovalDirectoryPublicationTests",
+      "RemovalHistoryTests",
+      "RemovalSnapshotTests",
+      "RemovalRenderRecoveryTests",
+      "LocalRemovalRelocateTests",
+      "LocalRelocationJournalTests",
+      "RemovalXMPRecordsTests",
+      "RemovalSidecarNamespaceTests"
+    ],
+    "verifierControls": [
+      "Actual baseline lacks parent syncs",
+      "Actual fixed order accepted",
+      "Missing interposition receipts rejected",
+      "Failed syscall receipt rejected",
+      "Reordered parent receipt rejected",
+      "Incomplete XCTest run rejected"
+    ]
+  },
+  "builds": {
+    "macOS": "BUILD SUCCEEDED",
+    "iPhone17ProArm64Simulator": "BUILD SUCCEEDED",
+    "nativeInputStamp": "8606c98b2a9898d7cc24e4513f57fbd2c9f1349b",
+    "nativeCoreMathChanged": false
+  },
+  "sourceSHA256": {
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/LocalRemovalAssetStore.swift": "369ddc3ebdb8eda850c95ca5825603123d1a6c82b1e07e170fb9fb035b25eb56",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/LocalRemovalDirectoryPublicationTests.swift": "614aa5f9df36b7247fd1db6e54ba33e0cb24f3eec87feb584dd952af2f75e6b1",
+    "tools/removal/mac_directory_sync_audit.c": "450cf85a12696f85175d6f1791a308c15bd1bf9cd28378ff475a7027bcfc7cdf",
+    "tools/removal/verify_mac_directory_sync.py": "6cb9f027c3ab496c998d6f337dcbfd031cd4055328ff501a4d84f3bb58dfe3ec",
+    "tools/removal/mac_directory_sync_test.py": "8936bf581a44eef755bcb51a7dc17b518396ab8d552b845f31591e2b1b8147be",
+    ".github/swift-regressions/run.txt": "65ce121eed47afb76a44787ae73a2cece7b649d02889ba512e34029149c26616",
+    "docs/xmp-canonical-format.md": "2387f6654f1e269be8fb88998ed3f7037cdfd0d2a1e06cac44ff8e91b8817707"
+  },
+  "logs": {
+    "mac-directory-sync-baseline-build-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-directory-sync-baseline-build-20261004.log",
+      "sha256": "859d4cc057abaf748435486c8395c53eb7441091671a1560cae9a46ad6ece6c2",
+      "bytes": 23406
+    },
+    "mac-directory-sync-baseline-trace-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-directory-sync-baseline-trace-20261004.log",
+      "sha256": "d3e54adf09c2444fb11f20721d792cbd36f344f6617c1c21303c017b66061587",
+      "bytes": 1805
+    },
+    "mac-directory-sync-fixed-trace-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-directory-sync-fixed-trace-20261004.log",
+      "sha256": "c23abf53e78c57c0b1758d760490a905ddae055df8653f3f01ff24fa42d0665b",
+      "bytes": 3236
+    },
+    "mac-directory-sync-regressions-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-directory-sync-regressions-20261004.log",
+      "sha256": "727048474e8c12b54654a6e074154e7710b89ec87f899a7d4634d948ae357eb8",
+      "bytes": 20609
+    },
+    "mac-directory-sync-journal-regressions-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-directory-sync-journal-regressions-20261004.log",
+      "sha256": "9fb44a6f2ebd1887c3158de22790286ab281b850056a05e3c54e2258068e12d9",
+      "bytes": 6124
+    },
+    "mac-directory-sync-verifier-tests-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-directory-sync-verifier-tests-20261004.log",
+      "sha256": "0a776a16a6832e05dfdd9638254c273b548499e309c68ebe12cfd875b6c60d80",
+      "bytes": 952
+    },
+    "mac-directory-sync-mac-build-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-directory-sync-mac-build-20261004.log",
+      "sha256": "e39278c40dfe838f2b797b22bcd60b3ac8678cd162394116be8d9a45b8c0438f",
+      "bytes": 508041
+    },
+    "mac-directory-sync-ios-build-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-directory-sync-ios-build-20261004.log",
+      "sha256": "044d75c2f470674891c4e9a1536fd26dece294f41f204a4790827bc0111f281d",
+      "bytes": 1192008
+    },
+    "mac-directory-sync-headroom-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-directory-sync-headroom-20261004.log",
+      "sha256": "e5ab2a25f8061db32ffdb922fed42f0e27b479832ba0cc573d056ef342acf495",
+      "bytes": 55
+    }
+  },
+  "remaining": [
+    "Physical APFS power-loss and security-scoped Mac/iOS-device qualification; this trace proves requested syscall order only.",
+    "Cancellation/crash reconciliation and recovery UI for the complete publication/transfer contract; a failed or concurrent ancestor creator and previously interrupted deep tree require separate qualification.",
+    "Local XMP rename acknowledgement/directory-sync failure recovery, existing restored immutable-file durability, and filesystem errors before/after visibility need complete boundary qualification.",
+    "Actual SMB/NAS and browser publication, package/backup/sync transport, photographic reconstruction,100MPperformance, all other epic issues and landing remain open."
+  ],
+  "goalStatus": "active",
+  "externalBlocker": null,
+  "noPushMergeOrOtherWorktreeMutation": true
+}

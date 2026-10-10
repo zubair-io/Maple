@@ -42,7 +42,9 @@
 //     (`encodeDevelopedRenderToJpeg`) rather than deferring — this path
 //     genuinely persists the edited preview on every browser today.
 
-import { Injectable, inject, DestroyRef } from '@angular/core';
+import { Injectable, Injector, DestroyRef, inject } from '@angular/core';
+import { HostedRawSidecarService } from './hosted-raw-sidecar.service';
+import { savedRemovalRecords } from '../removal/saved-removal-records';
 import { firstValueFrom } from 'rxjs';
 import type { AssetId } from '../models/asset';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
@@ -89,6 +91,7 @@ export class EditPreviewPersistService {
   private readonly xmpSerializer = inject(XmpSerializerService);
   private readonly sidecars = inject(XmpStoreService);
   private readonly destroyRef = inject(DestroyRef, { optional: true });
+  private readonly injector = inject(Injector);
 
   private isDestroyed = false;
   private readonly _timers = new Map<AssetId, ReturnType<typeof setTimeout>>();
@@ -254,7 +257,12 @@ export class EditPreviewPersistService {
       this.xmpSerializer.serialize(this.store.adjustmentFor(id)()) === xmp;
     // Full quality (not the fast-phase half-res Preview demosaic) — this
     // is a persisted cache artifact, not a live-render tick.
-    const img = await this.pipeline.decode(bytes, ext, xmp, PREVIEW_LONG_EDGE_PX, false);
+    const img =
+      hostedTarget && savedRemovalRecords(xmp)
+        ? await this.injector
+            .get(HostedRawSidecarService)
+            .render(bytes, ext, xmp, hostedTarget.folder, hostedTarget.location, false)
+        : await this.pipeline.decode(bytes, ext, xmp, PREVIEW_LONG_EDGE_PX, false);
     if (this.isDestroyed || !current()) return;
 
     if (this.store.backend === 'self-hosted') {

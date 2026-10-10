@@ -1,0 +1,421 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "baseRevision": "80a16ad0edeb23e6f020235eba821977c5aa53ee",
+  "scope": "Mac-first full RAW export through the shared f32 display terminal; native export checkpoint, full removal goal remains active",
+  "sourceHashes": {
+    ".github/swift-regressions/run.txt": "66d3c5b12cd21a0777f5e86ee171b3f5ece72671bc5ee38660e31eba1de15603",
+    "docs/apple.md": "e0e37820f8b52644d1ce2f0b9694a6ac961ed576e01c9e647344314c84f2b863",
+    "docs/pipeline.md": "b648d697a419fbabe26852ba4b39e457dc12877ba9ce33762a7175199f907a74",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+FilmExport.swift": "ea613d7f87d85b18a81955a45b7f087b5caa65896f5872e9569f0cc3db9badf9",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+RenderHelpers.swift": "c380e7713d83801940635dc7bf2ae2b8e63b84fbf13055c1e3e22c79e4502699",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/PipelineRenderer+FloatExport.swift": "14eab13f6663f134e7c226c43f6409e5ad1cff73d3ae2ac22ca5edc48c2acfdb",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/RenderActor+Export.swift": "b78b00a25dad7cac66c71cdea72a83dbac6ce79da1418a759410c9a3ae737514",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/RenderActor+FloatExport.swift": "513700c8b3fa530135bcff94ec88309e86b940728847f5c6ee9619621dd105c4",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeFloatExportTests.swift": "744adcb18cca33a3f5129eeddccac37c7c86a730b3235f5c1ecb5d8a08bdaf03",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/ReportedExportParityTests+Removal.swift": "ab790513d58620dedb341b241f45d8a071c66094080c9c84e2df0ca16abe5f41",
+    "src/raw-pipeline/raw-core/src/pipeline/mod.rs": "1d0a66eb6b48efb950013413742ee65861a83b616f9a39107717cc434f685980",
+    "src/raw-pipeline/raw-core/src/pipeline/render/mod.rs": "c1f1022664b7e9f98daf6c2805521d50a38054f4f7df8cc7e12177733a2b83ff",
+    "src/raw-pipeline/raw-core/src/pipeline/render/float_export.rs": "51156bc1cf4380b8f1ee969cee15e531ec98b401e03710493ebe97b0860395de",
+    "src/raw-pipeline/raw-core/src/pipeline/render/float_export_tests.rs": "bf5b4e2dcbbdde8ad17b11a9aa78864219360a2f51fca6aa1e58bc16cf114569",
+    "src/raw-pipeline/raw-ffi/src/lib.rs": "730afd46a1e1a2c1e6d48289c963ee0bb15e20c7fb182a8a5a3161bf681a791c",
+    "src/raw-pipeline/raw-ffi/src/display_f32.rs": "3881b398e58be560703bf0dfac91cbdbe8873581f4bb868b7a919bd06ea49a05",
+    "src/raw-pipeline/raw-ffi/src/display_f32_tests.rs": "3189bf7e0be832b36fd22ff730a4aa1026be2b569c67312f4772d5c1735a4da5"
+  },
+  "implementation": [
+    "Shared full display/view/Auto curve and residual/film chain, using native-size fit artifacts; existing float EXIF, manual perspective and crop before destination quantization.",
+    "C-FFI owns RGBA f32; read original bytes once for decode, source binding and embedded JPEG fit; verify saved companions beside original. Missing/corrupt/changed source refuses partial output.",
+    "Swift transfers output with Rust deallocation; full EditSession export snapshots live model, resolves film, applies shared geometry once and retains float precision through 16-bit TIFF encoding.",
+    "Fast/non-RAW exports and the interactive GPU chain retain their existing paths. No color arithmetic, WGSL, Auto default, cache version, parity budget, inference model or settings change."
+  ],
+  "validation": {
+    "core": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "comparisons": 72,
+      "scope": "sRGB/P3, RGB8/RGB16, EXIF orientation, crop/straighten and perspective; continuous float versus depth-specific quantization"
+    },
+    "ffi": {
+      "passed": 305,
+      "failed": 0,
+      "existingIgnored": 5,
+      "seconds": 176.05,
+      "newTests": 3
+    },
+    "appleLibrary": {
+      "releaseTargets": 4,
+      "declaredSymbols": 159,
+      "platformExclusions": "1 iOS-only, 2 Windows-only",
+      "inputHash": "0bb9e684802cf258af53a9c1577ce4ea9e4efab0",
+      "freshnessCheck": "build-xcframework.sh --check-only passed"
+    },
+    "macBuild": "xcodebuild macOS scheme Maple: BUILD SUCCEEDED",
+    "swift": {
+      "exportRecoveryPassed": 21,
+      "encodersAndOffloadPassed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "scope": "real committed RAW/XMP/companions, saved crop once, delivered PNG, film float precision, true 16-bit TIFF, saved error recovery, real 50MB Fuji export main-actor heartbeat; ordinary format encoders including HEIC"
+    },
+    "ciCoverage": {
+      "classes": 446,
+      "run": 246,
+      "excluded": 200,
+      "untriaged": 0,
+      "newClass": "NativeFloatExportTests in run.txt"
+    },
+    "photographic": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 55.981,
+      "productionComparisons": 8,
+      "maximumChannelError": 1,
+      "channelsOver1": 0,
+      "limit": "1/255 per channel against shared full export; Auto/Neutral times original/saved times developed/delivered PNG",
+      "stockCI": "class remains fixture-excluded; private accepted corpus ran locally",
+      "reports": [
+        {
+          "accepted": false,
+          "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+          "case": "photographic-removal-export",
+          "channelsOver1": 0,
+          "height": 5412,
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25007013547131035,
+          "profile": "neutral",
+          "stage": "developed",
+          "width": 7216
+        },
+        {
+          "accepted": false,
+          "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+          "case": "photographic-removal-export",
+          "channelsOver1": 0,
+          "height": 5412,
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25007013547131035,
+          "profile": "neutral",
+          "stage": "delivered",
+          "width": 7216
+        },
+        {
+          "accepted": true,
+          "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+          "case": "photographic-removal-export",
+          "channelsOver1": 0,
+          "height": 5412,
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25008143635533314,
+          "profile": "neutral",
+          "stage": "developed",
+          "width": 7216
+        },
+        {
+          "accepted": true,
+          "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+          "case": "photographic-removal-export",
+          "channelsOver1": 0,
+          "height": 5412,
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25008143635533314,
+          "profile": "neutral",
+          "stage": "delivered",
+          "width": 7216
+        },
+        {
+          "accepted": false,
+          "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+          "case": "photographic-removal-export",
+          "channelsOver1": 0,
+          "height": 5412,
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
+          "maximumChannelError": 1,
+          "meanChannelError": 0.2500657738763439,
+          "profile": "auto",
+          "stage": "developed",
+          "width": 7216
+        },
+        {
+          "accepted": false,
+          "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+          "case": "photographic-removal-export",
+          "channelsOver1": 0,
+          "height": 5412,
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
+          "maximumChannelError": 1,
+          "meanChannelError": 0.2500657738763439,
+          "profile": "auto",
+          "stage": "delivered",
+          "width": 7216
+        },
+        {
+          "accepted": true,
+          "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+          "case": "photographic-removal-export",
+          "channelsOver1": 0,
+          "height": 5412,
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25006096844001097,
+          "profile": "auto",
+          "stage": "developed",
+          "width": 7216
+        },
+        {
+          "accepted": true,
+          "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+          "case": "photographic-removal-export",
+          "channelsOver1": 0,
+          "height": 5412,
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25006096844001097,
+          "profile": "auto",
+          "stage": "delivered",
+          "width": 7216
+        },
+        {
+          "case": "photographic-removal-auto-cube",
+          "channelsOver1": 8337915,
+          "dimension": 33,
+          "fitOrigin": "standalone-proxy",
+          "limit": "Attribution diagnostic; production cube unchanged",
+          "maximumChannelError": 12,
+          "meanChannelError": 0.6079282905306376
+        },
+        {
+          "case": "photographic-removal-auto-cube",
+          "channelsOver1": 6841461,
+          "dimension": 49,
+          "fitOrigin": "standalone-proxy",
+          "limit": "Attribution diagnostic; production cube unchanged",
+          "maximumChannelError": 12,
+          "meanChannelError": 0.5544781135676706
+        },
+        {
+          "case": "photographic-removal-auto-cube",
+          "channelsOver1": 7355926,
+          "dimension": 65,
+          "fitOrigin": "standalone-proxy",
+          "limit": "Attribution diagnostic; production cube unchanged",
+          "maximumChannelError": 12,
+          "meanChannelError": 0.5666548843854695
+        },
+        {
+          "case": "photographic-removal-auto-cube",
+          "channelsOver1": 46169,
+          "dimension": 33,
+          "fitOrigin": "native-control",
+          "limit": "Uncached diagnostic native fit; production policy unchanged",
+          "maximumChannelError": 3,
+          "meanChannelError": 0.30508190853426376
+        },
+        {
+          "case": "photographic-removal-auto-cube",
+          "channelsOver1": 966365,
+          "dimension": 49,
+          "fitOrigin": "native-control",
+          "limit": "Uncached diagnostic native fit; production policy unchanged",
+          "maximumChannelError": 4,
+          "meanChannelError": 0.3075535330728736
+        },
+        {
+          "case": "photographic-removal-auto-cube",
+          "channelsOver1": 91,
+          "dimension": 65,
+          "fitOrigin": "native-control",
+          "limit": "Uncached diagnostic native fit; production policy unchanged",
+          "maximumChannelError": 2,
+          "meanChannelError": 0.2826351520859998
+        },
+        {
+          "case": "photographic-removal-full-metal",
+          "channelsOver1": 4752154,
+          "height": 5412,
+          "limit": "Attribution diagnostic; full-resolution readback is not a live-slider benchmark",
+          "maximumChannelError": 12,
+          "meanChannelError": 0.43763975881796713,
+          "width": 7216
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity/auto-original.png",
+          "bytes": 51593304,
+          "sha256": "8cdf3f39a9cdc763da256b46e85b4fc586b0b1a7ca233d9f1f230616668af0b7"
+        },
+        {
+          "path": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity/auto-saved.png",
+          "bytes": 51546524,
+          "sha256": "c95f865298a6472b602434af8fb711b6bff949ecde631bc7c09a1ed03a92dd51"
+        },
+        {
+          "path": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity/neutral-original.png",
+          "bytes": 49924570,
+          "sha256": "e293f6f570890cc699c11ea0a1f962cbed0941fe8e91fe283611fcde055c3d85"
+        },
+        {
+          "path": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity/neutral-saved.png",
+          "bytes": 49876827,
+          "sha256": "8ec793c4235778452ec2e6a42dad2fb0a7116970cae3b85e45a61354040768a3"
+        }
+      ]
+    },
+    "baseline": {
+      "executed": 40,
+      "failed": 1,
+      "skipped": 0,
+      "auto": "20/20 pass",
+      "neutral": "19/20 pass; existing test_0011 bias failure",
+      "failure": "mean 5.64, p95 19.56, max 34.81; bias R +.0378, G +.0315, B +.0312 versus .0113",
+      "detail": "0 matching cases; vacuous, not detail qualification",
+      "budgetsChanged": false
+    },
+    "formatAndBudget": "Rust skip_children format, Swift strict lint, coverage, source freshness and changed-file headroom pass; render/mod.rs 524 lines has existing soft warning only"
+  },
+  "corpus": {
+    "source": "test-fixtures/raws/removal-photographic/portrait.dng",
+    "originalFixture": "test-fixtures/raws/test_0002.dng",
+    "dimensions": [7216, 5412],
+    "sourceSha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+    "xmpSha256": "eafcb3022d6de1c7cc8e6b7af2ed9301b86ae6b37f6b81af9fdd05b87b5b426d",
+    "acceptedRecords": 2,
+    "assets": [
+      {
+        "path": ".maple/inpaint/1d6aca14812faac0b00536844597eab605876a1f4fdd3d6d71224d160d509e4c.f16",
+        "bytes": 8388640,
+        "sha256": "611c3ee6822302971f2f8d68ac51e00996871c3bfdf0bec270bbcec8f9aaaab8"
+      },
+      {
+        "path": ".maple/inpaint/7fb1f2a498fad9d968b885a85cf0f3290e3d922a3ae17199e2afe14f8cb610fd.mask",
+        "bytes": 12466,
+        "sha256": "74db870cd3cec5c294eb09bd9f392e2aeca55094dde9b894b063313d604050ef"
+      },
+      {
+        "path": ".maple/inpaint/87511d6477bf8abc5207b285bd05a0cd2b2290db9251a6049462fbe2914e3499.mask",
+        "bytes": 13372,
+        "sha256": "45379926e18412e089f4cd9e993ab38edf51c3fcbe569b3355ab71fb94770bdf"
+      },
+      {
+        "path": ".maple/inpaint/df0240597788e7c61dec80f7862076fd6922ab34ce7595946200f9fa5e706394.f16",
+        "bytes": 8388640,
+        "sha256": "ab6eb02cbad921751fde29c7a37c2acc536083e1d20d42a39b30f344f6927f51"
+      }
+    ],
+    "controlManifest": {
+      "cubes": [
+        {
+          "blake3": "ed646264ca4675cc7ac4f866bc0c090d7237ea29f2da611a03330f8a919ee8f3",
+          "bytes": 431244,
+          "dimension": 33,
+          "fit": "proxy",
+          "path": "proxy-33.f32"
+        },
+        {
+          "blake3": "5e11bd0d19eb1af5a4ad0a5feda05d6a25cc30b9b46c3babbe815a991cb63e4a",
+          "bytes": 1411788,
+          "dimension": 49,
+          "fit": "proxy",
+          "path": "proxy-49.f32"
+        },
+        {
+          "blake3": "1b7225e694e258abd8d302c40a4d3c7b676195199b8e4d456dd4474fe9e24649",
+          "bytes": 3295500,
+          "dimension": 65,
+          "fit": "proxy",
+          "path": "proxy-65.f32"
+        },
+        {
+          "blake3": "7828ccfb7716e3b1f0eb94ddca13ee8919f90f3207024dc96b1459f067337083",
+          "bytes": 431244,
+          "dimension": 33,
+          "fit": "native",
+          "path": "native-33.f32"
+        },
+        {
+          "blake3": "d831afa48b0d8d9fe909ead506ef215627b4fc6e1772fe102233549b2ca5b477",
+          "bytes": 1411788,
+          "dimension": 49,
+          "fit": "native",
+          "path": "native-49.f32"
+        },
+        {
+          "blake3": "04b8999c2c7a66bcb7355a4d5b3dca3269793f0f6719d4c394d02bf4bd5b8f33",
+          "bytes": 3295500,
+          "dimension": 65,
+          "fit": "native",
+          "path": "native-65.f32"
+        }
+      ],
+      "encoding": "little-endian f32 RGB, red fastest",
+      "issue": 1472,
+      "limit": "Native fit is an uncached diagnostic control; production policy unchanged",
+      "quality": "amaze",
+      "sensorHeight": 5412,
+      "sensorWidth": 7216,
+      "sourceDigest": "220c6f28339dd600e1f7eea7ee9ee85be4ebee3e3ade7d74275c08d85f53b61c"
+    },
+    "controlManifestSha256": "57eaffa22459ee1e9ab762ed6aee1772afeb0c0066eca72e1bd7fd69ca04b20f"
+  },
+  "logs": {
+    "core": {
+      "path": "/tmp/maple-removal-float-export-core-tests-final-20261002.log",
+      "bytes": 5215,
+      "sha256": "1f3a61ca382bb24607d44a2a7026156b6d29cf44dabb5970b4b565ecc40168e9"
+    },
+    "ffi": {
+      "path": "/tmp/maple-removal-float-export-ffi-full-20261002.log",
+      "bytes": 66946,
+      "sha256": "b2bd78c3fd47b8527eaab414d23bf3ffdf5ed5a2a59fae69ee38e2eefe2db99e"
+    },
+    "appleLibrary": {
+      "path": "/tmp/maple-removal-float-export-xcframework-20261002.log",
+      "bytes": 186486,
+      "sha256": "49b7ccfa3dd7f2b02e44ab1c9af5d2c7f72eea025efcee261d13693398047bf3"
+    },
+    "macBuild": {
+      "path": "/tmp/maple-removal-float-export-mac-build-20261002.log",
+      "bytes": 956541,
+      "sha256": "b84836345559262a97862dbfb41029ceb149b98df9cc22357908e597030551d6"
+    },
+    "swift": {
+      "path": "/tmp/maple-removal-float-export-swift-tests-final-20261002.log",
+      "bytes": 88873,
+      "sha256": "e729da06e620502aa1940948fbe0d59aba3a9c37adefe905969ddda327c6879f"
+    },
+    "encoderAndOffload": {
+      "path": "/tmp/maple-removal-float-export-encoders-offload-20261002.log",
+      "bytes": 14567,
+      "sha256": "b79b66c35eb1a0925e92f5be77457b44cbb03eb9f7d93a197089cbc95cc6eb00"
+    },
+    "photographic": {
+      "path": "/tmp/maple-removal-float-export-photo-final-20261002.log",
+      "bytes": 7029,
+      "sha256": "d67d9c9bfac742ae571459fa093dec676dae89c9e64932dd30704e31da66ff49"
+    },
+    "baseline": {
+      "path": "/tmp/maple-removal-float-export-color-baseline-20261002.log",
+      "bytes": 61234,
+      "sha256": "8b09d6cf594fc4b56efc9424e6d01b54977acfc9718592a1e35bd93b68b3c84b"
+    }
+  },
+  "failedSetup": {
+    "log": "/tmp/maple-removal-float-export-photo-20261002.log",
+    "sha256": "d1b5c7282bdc66838956cd1a2046bbd712c26291b44a9aeec8ae4c9d0925d819",
+    "result": "First photographic attempt failed before rendering: private corpus .maple folder absent. Restored XMP and four immutable companions from previously SHA-verified accepted package; final test and post-test hashes pass. Cause of fixture-copy loss is unestablished."
+  },
+  "limits": [
+    "One photographic 39MP source with two previously accepted native Paint/Smart records qualifies this export comparison; it does not qualify selection/reconstruction quality across the RAW corpus.",
+    "GPU full-resolution control still differs by up to 12/255 (4,752,154 channels over 1). Proxy cube controls also max 12; these seven controls are diagnostic, not passing parity gates.",
+    "The photographic command maximum RSS is 9,069,969,408 bytes across multiple CPU/GPU control arms and PNGs under concurrent baseline work; /usr/bin/time peak memory footprint 263,226,472 belongs to the parent. Neither is isolated export peak memory qualification.",
+    "Full 100MP float export memory/latency, physical gestures/scanout, cold open, hardware fleet, signed build/model distribution and photographic crowd/HDR/noise/seam quality remain unqualified.",
+    "Byte-backed remote saved removals still require companion transport to the staged original. Move/copy/SMB/cloud/backup/sync qualification remains open.",
+    "Existing Native UI automation diagnostic remains unstaged/unqualified. No PR pushed or merged; no model release-qualified flag enabled. Mac first, other ports deferred."
+  ]
+}

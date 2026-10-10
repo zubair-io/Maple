@@ -44,7 +44,6 @@ CloudflareSettingsFormTests host talks to a host service (keychain, FileProvider
 DecodeStripsDefringeTests slow render or decode workload that costs minutes on the runner
 DecodeStripsLocalAdjustmentsTests slow render or decode workload that costs minutes on the runner
 DecodeTargetTests slow render or decode workload that costs minutes on the runner
-DecodedCacheReplacementTests slow render or decode workload that costs minutes on the runner
 DeepZoomTileRenderingTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 DisplayEncodeZeroDimensionTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 DisplayedHistogramTests slow render or decode workload that costs minutes on the runner
@@ -107,6 +106,7 @@ MapleThumbCacheKeyTests slow render or decode workload that costs minutes on the
 MaskRasterRehydrationTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 MaskRemapRenderParityTests gpu needs a real Metal device
 MetalKernelParityTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
+NativeAutoProfilePhotographicTests fixture needs the gitignored 39MP RAW, accepted companions and a real Metal device (#1472)
 NativeDetailAEGainTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 NativeDetailExitForcesFreshRenderTests slow render or decode workload that costs minutes on the runner
 NativeDetailPerfTests slow render or decode workload that costs minutes on the runner
@@ -194,3 +194,14 @@ NativeExportMemoryTests slow Requires explicitly staged owned 100MP fixture; rec
 # Owned physical RAW + authenticated Samba restore qualification (#4139).
 RestoreCollisionParityTests fixture owned physical RAW plus authenticated disposable Samba qualification (#4139/#4142)
 SMBCopyOnlyRestoreControlTests fixture owned physical RAW plus authenticated disposable Samba backing-replacement control (#4173)
+# AI removal: local pinned model/runtime qualification remains required before release.
+NativeRemovalAuthoringJobTests fixture requires gitignored pinned ONNX/ORT qualification corpus (#3941 / #3984); exercised locally, absent in fixture-free CI which rejects skips
+NativeRemovalGenerationTests fixture requires gitignored pinned ONNX/ORT qualification corpus (#3941 / #3984); exercised locally, absent in fixture-free CI which rejects skips
+NativeRemovalReconstructorTests fixture requires gitignored pinned ONNX/ORT qualification corpus (#3941 / #3984); exercised locally, absent in fixture-free CI which rejects skips
+NativeRemovalSelectorTests fixture requires gitignored pinned ONNX/ORT qualification corpus (#3941 / #3984); exercised locally, absent in fixture-free CI which rejects skips
+PhotographicRemovalGroupTests fixture requires gitignored Bologna RAW and pinned ONNX/ORT corpus (#3941 / #3984); exercised locally, absent in fixture-free CI which rejects skips
+PhotographicRemovalOrientationTests fixture requires gitignored portrait RAW and pinned ONNX/ORT detector/runtime (#3941); exercised locally, absent in fixture-free CI which rejects skips
+PhotographicRemovalPaintTests fixture requires gitignored Bologna RAW and pinned ONNX/ORT corpus (#3984); exercised locally, absent in fixture-free CI which rejects skips
+PhotographicRemovalSmartPaintTests fixture requires gitignored Bologna RAW and pinned ONNX/ORT corpus (#3984 / #3941); exercised locally, absent in fixture-free CI which rejects skips
+LocalRemovalRecoveryProbeTests host requires the owned Darwin post-rename permission-revocation dylib and direct XCTest child (#3940); mandatory local trace audit rejects skipped probes
+SceneLinearHalfShadowMetalTests gpu requires real Metal half-texture readback; exercised locally with exhaustive signed shadows (#4211)

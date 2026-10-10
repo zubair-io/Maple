@@ -24,7 +24,7 @@
 /// values like 1.5 (read back as ~1.97). Spike 1.1 caught this on the
 /// Apple side; the same math lives here so the FFI handoff is correct.
 /// See `SceneLinearPipelineTests.swift` for the cross-check.
-pub(crate) fn f32_to_f16_bits(x: f32) -> u16 {
+pub fn f32_to_f16_bits(x: f32) -> u16 {
     let bits = x.to_bits();
     let sign: u16 = ((bits >> 16) & 0x8000) as u16;
     let stored_exp: i32 = ((bits >> 23) & 0xff) as i32;

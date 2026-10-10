@@ -1,0 +1,558 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T08:24:57.988726+00:00",
+  "parent_commit": "889495630859d085c49331d270a4e48bda51bfe7",
+  "releaseQualified": false,
+  "app_limit_changed": false,
+  "purpose": "Test whether local automatically observed background descriptions can replace hand-written scene hints while native SDXL generates the final pixels. Separate person-shaped selection with preserved occluded-human context from combined Paint coverage.",
+  "new_model_triage": {
+    "sources": [
+      {
+        "repository": "https://github.com/GuoCalix/FlashClear",
+        "revision": "9449e8b88f270a05e3bf3d642ec960b184015326",
+        "file": "README.md",
+        "localPath": "/tmp/maple-removal-new-model-triage-20261003/GuoCalix-FlashClear-README.md",
+        "bytes": 4494,
+        "sha256": "0f993dcc27dc715e94f97a55921e5b4e3fb141618e0e443f17827f6028615ef4"
+      },
+      {
+        "repository": "https://github.com/zjx0101/ObjectClear",
+        "revision": "c052d91ecd8772744a5ab97527441c813ab83009",
+        "file": "README.md",
+        "localPath": "/tmp/maple-removal-new-model-triage-20261003/zjx0101-ObjectClear-README.md",
+        "bytes": 10776,
+        "sha256": "aa889ba1dfa747ecc70d1adf3c1bf4d7dc3ac4216032605b9a16ddb9dee7feac"
+      },
+      {
+        "repository": "https://github.com/zjx0101/ObjectClear",
+        "revision": "c052d91ecd8772744a5ab97527441c813ab83009",
+        "file": "LICENSE",
+        "localPath": "/tmp/maple-removal-new-model-triage-20261003/zjx0101-ObjectClear-LICENSE",
+        "bytes": 1924,
+        "sha256": "73c84d2c2ebcdde03cb7fc853aaec0d4b3b280ee8b47f98a3d6c1931430d5aae"
+      },
+      {
+        "repository": "https://github.com/GuoCalix/TurboClear",
+        "revision": "4f5225a9e631deb5e139a8df0875fc066ac74036",
+        "file": "README.md",
+        "localPath": "/tmp/maple-removal-turboclear-source/README.md",
+        "bytes": 11182,
+        "sha256": "603c20dc3e42c86666c0fb45c82c2b4457c6775b1d6cf62f7552a42ba03eeab2"
+      },
+      {
+        "repository": "https://github.com/GuoCalix/TurboClear",
+        "revision": "4f5225a9e631deb5e139a8df0875fc066ac74036",
+        "file": "LICENSE",
+        "localPath": "/tmp/maple-removal-turboclear-source/LICENSE",
+        "bytes": 11340,
+        "sha256": "c6b5e22675667e5d5d600076c13d95f87994c6ddaad886d4d59eaeaea288b674"
+      },
+      {
+        "repository": "https://github.com/GuoCalix/TurboClear",
+        "revision": "4f5225a9e631deb5e139a8df0875fc066ac74036",
+        "file": "scripts/download_weights.py",
+        "localPath": "/tmp/maple-removal-turboclear-source/scripts/download_weights.py",
+        "bytes": 4983,
+        "sha256": "9b0e8475e257b68337cd32c255b77767c62ceb1cc5fdcbffaff4ca89c3ad8c58"
+      },
+      {
+        "repository": "https://github.com/GuoCalix/TurboClear",
+        "revision": "4f5225a9e631deb5e139a8df0875fc066ac74036",
+        "file": "inference/inference_turboclear.sh",
+        "localPath": "/tmp/maple-removal-turboclear-source/inference/inference_turboclear.sh",
+        "bytes": 2125,
+        "sha256": "512e1ce1427a6bdb64ba280f068eb5f2e9b1181ab6cbb99623bd5e474f857421"
+      },
+      {
+        "repository": "https://github.com/GuoCalix/TurboClear",
+        "revision": "4f5225a9e631deb5e139a8df0875fc066ac74036",
+        "file": "inference/validate_objectclear.py",
+        "localPath": "/tmp/maple-removal-turboclear-source/inference/validate_objectclear.py",
+        "bytes": 112471,
+        "sha256": "847a29a356d770948ccd7cb919048d447fdad4004a5e33abd4a9341008f2a00e"
+      },
+      {
+        "repository": "https://huggingface.co/JGuo666/TurboClear",
+        "revision": "1fb323071034a80028b7881c7fac3ea227c79410",
+        "file": "README.md",
+        "localPath": "/tmp/maple-removal-new-model-triage-20261003/JGuo666-TurboClear-MODEL-CARD.md",
+        "bytes": 975,
+        "sha256": "fd89396541a90ff97b32dfeab7e04b5ee78bbb2d2d06098517f9cf16e9cb4d40"
+      },
+      {
+        "repository": "https://huggingface.co/jixin0101/ObjectClear",
+        "revision": "c73af80888dbd519819d0a521b5c8d0f3cda6859",
+        "file": "README.md",
+        "localPath": "/tmp/maple-removal-new-model-triage-20261003/jixin0101-ObjectClear-MODEL-CARD.md",
+        "bytes": 340,
+        "sha256": "66f628f54b9411fbbf879e92835f9eaf8a32235c28b69543d0106445bfb6c878"
+      }
+    ],
+    "TurboClear": "Source Apache-2.0 and student card Apache-2.0 are not clearance for the separately required ObjectClear base. Official README retains third-party terms, explicitly supports only CUDA/bfloat16 in its launcher and defaults to resizing 512x512. ObjectClear code is S-Lab non-commercial; linked model card supplies no explicit commercial grant. Production dependency rights and a native Mac path are unproven; no weights downloaded or code executed.",
+    "FlashClear": "At the pinned official revision, the README checklist still has inference/test code and weights unreleased, and Testing is TBD. This limits this repository as a runnable candidate; no assertion of global absence from every source.",
+    "ObjectClear": "Pinned upstream LICENSE permits non-commercial use and requests contact for commercial permission. No authors contacted and no code/model executed. Whole goal remains active; these candidates are not a universal task blocker."
+  },
+  "models": {
+    "caption_records": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/caption-research-models.json",
+      "sha256": "8d5cee41f64be663f93e6e803616140fc9fd32e257612e5db17f101044def569"
+    },
+    "caption_repo": "mlx-community/Qwen2.5-VL-7B-Instruct-4bit",
+    "caption_revision": "fdcc572e8b05ba9daeaf71be8c9e4267c826ff9b",
+    "caption_payload_bytes": 5653492089,
+    "caption_declared_license": "Apache-2.0; conversion card links Qwen official model. Runtime mlx-vlm0.7.4 declares MIT. Production distribution/transitive provenance review remains incomplete.",
+    "native_inpainting_records": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/sdxl-research-models.json",
+      "sha256": "65326061ac821676b51fb6ca6162c87b06c5f5fad02a4571e5b3bc1ebd192df5"
+    },
+    "native_inpainting_repo": "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
+    "native_inpainting_revision": "115134f363124c53c7d878647567d04daf26e41e",
+    "shipping_pins_changed": false,
+    "production_distribution_qualified": false
+  },
+  "input": {
+    "source": {
+      "path": "/tmp/maple-removal-lama-native2048-input-20261003/market-native-2048.png",
+      "sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b"
+    },
+    "domain": "Public CC0 RAW-developed Auto SDR PNG, not a canonical scene-linear inference plate",
+    "license_manifest": {
+      "path": "/tmp/maple-removal-corpus/public-raws/sources.json",
+      "sha256": "0aa7d215b3e3e89fe342bd492440bf9332588116ce8c0155b4a5c973fc15d8bc"
+    },
+    "raw_verification": [
+      {
+        "path": "/tmp/maple-removal-corpus/public-raws/P1010153.RW2",
+        "sha256": "874b652b9d2605030aac18eab4a687903083ac4b8a73029a35f46c36b1f7ba82",
+        "unchanged": true
+      },
+      {
+        "path": "/tmp/maple-removal-corpus/public-raws/DSC06078.ARW",
+        "sha256": "ec04e3ac69d54e7300ba0ff582d10ade0fc3ad28f48507b4c35cacc115e4ee86",
+        "unchanged": true
+      }
+    ],
+    "native_crop_xywh": [
+      384,
+      384,
+      1024,
+      1536
+    ],
+    "caption_only_proxy_extent_wh": [
+      512,
+      768
+    ],
+    "selection_provenance": "Existing pinned MobileSAM woman mask and prior explicit Paint rectangle [600,560,750,1320]. No segmentation/main-subject accuracy claim."
+  },
+  "method": {
+    "selected_pixels_withheld": "Blacken exactly the selected samples before resizing the caption observation; all known native context samples are exact. Vision model never sees the selected original RGB values. Mask silhouette remains visible and is not a semantic privacy or shape-bias guarantee.",
+    "prompt": "One fixed scene-agnostic instruction yields a bounded background description. No hand-written scene hint. Output text is untrusted and must pass human/control-token/size guards; it is supplied as a structured Python argument, never interpolated into a shell command.",
+    "text_bounds": "Instruction requests at most40 words; acceptance ceiling50 words/768UTF8bytes and generation cap96tokens. Neither actual caption approaches the ceiling.",
+    "runtime": "SHA256/byte-size checks of every local payload and linked base card, strict registered mlx-vlm0.7.4 architecture, local_files_only=True and trust_remote_code=False. No model-repository Python source or remote inference.",
+    "native_pixels": "SDXL continues to use exact1024x1536 source/mask preprocessing and actual1x4x192x128 latent extents. Reduced caption image is not a replacement patch. Final coverage copies all unselected source samples exactly.",
+    "processes": "Captioning and native inpainting run in separate local processes. No application integration, same-process peak budget or end-to-end latency proof."
+  },
+  "cases": [
+    {
+      "case": "person",
+      "selected_pixels": 345996,
+      "native_crop_xywh": [
+        384,
+        384,
+        1024,
+        1536
+      ],
+      "caption": {
+        "model_repo": "mlx-community/Qwen2.5-VL-7B-Instruct-4bit",
+        "revision": "fdcc572e8b05ba9daeaf71be8c9e4267c826ff9b",
+        "raw_caption": "Fruit and vegetable market with wooden crates, green fabric, and yellow price tags.",
+        "positive_prompt": "documentary photograph of Fruit and vegetable market with wooden crates, green fabric, and yellow price tags., continuation of the existing surfaces",
+        "instruction": "The black region is missing image content. Describe only the visible background surfaces that should continue through it. Ignore people and objects carried by people. Do not describe the black region or readable signs, and do not invent new furnishings. Return only a concise noun phrase of at most 40 words describing the background setting, materials, and existing surfaces. Do not mention people, removal, masking, or instructions.",
+        "observation_extent_wh": [
+          512,
+          768
+        ],
+        "actual_prompt_tokens": 588,
+        "actual_generation_tokens": 18,
+        "temperature": 0.0,
+        "inference_ms": 2926.8270840402693,
+        "model_open_ms": 527.7182918507606,
+        "verification_ms": 1834.9574590101838,
+        "memory": {
+          "mlx_peak_allocated_bytes": 6472607980,
+          "mlx_active_allocated_bytes": 5641921554,
+          "mlx_cache_allocated_bytes": 60609542,
+          "process_peak_resident_bytes": 6058917888,
+          "memory_scope": "MLX allocations, cache and process RSS are distinct measures. Do not sum or claim a total device memory peak."
+        },
+        "toolchain": {
+          "mlx": "0.32.3",
+          "mlx-vlm": "0.7.4",
+          "transformers": "5.18.0",
+          "numpy": "2.4.6",
+          "pillow": "12.3.0"
+        },
+        "artifacts": {
+          "report.json": {
+            "path": "/tmp/maple-removal-caption-native-person-20261003/report.json",
+            "sha256": "0d8e09db3f9d1f22c992bd8b500d69e1b0ef3ea8d192148d022aa68e8c106664"
+          },
+          "masked-native-context.png": {
+            "path": "/tmp/maple-removal-caption-native-person-20261003/masked-native-context.png",
+            "sha256": "dfd1f0afcdf32299e880d2dea5a9a3b4a87bf859d9ddb79fb3e59ae29e301eb0"
+          },
+          "caption-proxy.png": {
+            "path": "/tmp/maple-removal-caption-native-person-20261003/caption-proxy.png",
+            "sha256": "d629cbcd7bb6445ac037c5ed5659800d7ebca9f9b62b2827671ea9947e47f293"
+          },
+          "caption.txt": {
+            "path": "/tmp/maple-removal-caption-native-person-20261003/caption.txt",
+            "sha256": "5b428b1dc24f14100152e59555895ae8330e083b96b65fc41204b3975651fc16"
+          },
+          "positive-prompt.txt": {
+            "path": "/tmp/maple-removal-caption-native-person-20261003/positive-prompt.txt",
+            "sha256": "dae2f08b9a3a22c37c72428ee11baa03e91dabdc0dcd50bd3058142988991f25"
+          }
+        }
+      },
+      "native_inpainting": {
+        "model_repo": "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
+        "revision": "115134f363124c53c7d878647567d04daf26e41e",
+        "positive_prompt": "documentary photograph of Fruit and vegetable market with wooden crates, green fabric, and yellow price tags., continuation of the existing surfaces",
+        "negative_prompt": "person, people, human figure, silhouette",
+        "seed": 3941,
+        "requested_steps": 20,
+        "actual_steps": 19,
+        "strength": 0.99,
+        "guidance": 8.0,
+        "inference_ms": 13876.90870813094,
+        "model_open_ms": 1394.27883294411,
+        "verification_ms": 2373.6542500555515,
+        "memory": {
+          "process_peak_resident_bytes": 979861504,
+          "max_observed_step_boundary_mps_allocated_bytes": 6957110528,
+          "max_observed_step_boundary_mps_driver_bytes": 18124652544,
+          "memory_scope": "Process RSS and sampled step-boundary MPS values are distinct, incomplete measures; do not sum or treat as total/peak GPU budget."
+        },
+        "toolchain": {
+          "torch": "2.14.1",
+          "diffusers": "0.40.0",
+          "transformers": "5.18.0",
+          "accelerate": "1.15.0"
+        },
+        "artifacts": {
+          "report.json": {
+            "path": "/tmp/maple-removal-caption-sdxl-native-person-20261003/report.json",
+            "sha256": "99b09589cd746ccec08f015e423d2fa4ff3724b0f86d99a3c184d085e0d0acbf"
+          },
+          "source.png": {
+            "path": "/tmp/maple-removal-caption-sdxl-native-person-20261003/source.png",
+            "sha256": "2c2ba6964bb016c9c393cc970453c75fc6be0e1549369a7c2011f011e1e3f290"
+          },
+          "hole.png": {
+            "path": "/tmp/maple-removal-caption-sdxl-native-person-20261003/hole.png",
+            "sha256": "69ba21109f380aee62af9ab4e11246d4f66b27325fefe4714c352a6fbb4ff93d"
+          },
+          "prediction.png": {
+            "path": "/tmp/maple-removal-caption-sdxl-native-person-20261003/prediction.png",
+            "sha256": "8c0071b1735ca779b041f6e547ba556a7beaa4ead1dc3fcaf4f5fc9f1c59b822"
+          },
+          "prediction.f32": {
+            "path": "/tmp/maple-removal-caption-sdxl-native-person-20261003/prediction.f32",
+            "sha256": "64970e07c95f82134db086e2a72c2290f117b056a46a229e73eb72141895b4ef"
+          },
+          "result.png": {
+            "path": "/tmp/maple-removal-caption-sdxl-native-person-20261003/result.png",
+            "sha256": "faa733d43424373c66d1cbecc90f8c3688cbc679fd1be70c2345d06ab195b8c2"
+          },
+          "result.f32": {
+            "path": "/tmp/maple-removal-caption-sdxl-native-person-20261003/result.f32",
+            "sha256": "3c3624cd6ccf407ef51728d05d6af465ab369e649c3e59e87441d8e7e2abe8e8"
+          },
+          "independent-checks.json": {
+            "path": "/tmp/maple-removal-caption-sdxl-native-person-20261003/independent-checks.json",
+            "sha256": "be78a78dbe218e41e705625e530ea44191efa064fc7461af5c39abec894bd34b"
+          }
+        }
+      },
+      "independent_checks": {
+        "native_source_crop_equal": true,
+        "caption_known_samples_exact": true,
+        "caption_selected_samples_nonzero": 0,
+        "outside_png_samples_changed": 0,
+        "outside_f32_bits_changed": 0,
+        "finite_result": true,
+        "latent_extent_exact": true
+      },
+      "visual_inspection": "Caption correctly names the produce market, but SDXL creates a replacement human anchored near the preserved adjacent vendor arm/bags. This fails the intended empty-background diagnostic. It does not prove the originally selected woman survived. Unselected vendor fragments remain by the exact coverage rule; their survival alone is not an inference failure. Reject current automatic single-person reconstruction.",
+      "photographic_acceptance": false
+    },
+    {
+      "case": "paint",
+      "selected_pixels": 990000,
+      "native_crop_xywh": [
+        384,
+        384,
+        1024,
+        1536
+      ],
+      "caption": {
+        "model_repo": "mlx-community/Qwen2.5-VL-7B-Instruct-4bit",
+        "revision": "fdcc572e8b05ba9daeaf71be8c9e4267c826ff9b",
+        "raw_caption": "Market stall with hanging yellow price tags, wooden crates, green table, tiled floor, and distant fruit displays.",
+        "positive_prompt": "documentary photograph of Market stall with hanging yellow price tags, wooden crates, green table, tiled floor, and distant fruit displays., continuation of the existing surfaces",
+        "instruction": "The black region is missing image content. Describe only the visible background surfaces that should continue through it. Ignore people and objects carried by people. Do not describe the black region or readable signs, and do not invent new furnishings. Return only a concise noun phrase of at most 40 words describing the background setting, materials, and existing surfaces. Do not mention people, removal, masking, or instructions.",
+        "observation_extent_wh": [
+          512,
+          768
+        ],
+        "actual_prompt_tokens": 588,
+        "actual_generation_tokens": 23,
+        "temperature": 0.0,
+        "inference_ms": 517.481709131971,
+        "model_open_ms": 460.97395895048976,
+        "verification_ms": 1854.5835418626666,
+        "memory": {
+          "mlx_peak_allocated_bytes": 6472608044,
+          "mlx_active_allocated_bytes": 5641921554,
+          "mlx_cache_allocated_bytes": 60609542,
+          "process_peak_resident_bytes": 6078758912,
+          "memory_scope": "MLX allocations, cache and process RSS are distinct measures. Do not sum or claim a total device memory peak."
+        },
+        "toolchain": {
+          "mlx": "0.32.3",
+          "mlx-vlm": "0.7.4",
+          "transformers": "5.18.0",
+          "numpy": "2.4.6",
+          "pillow": "12.3.0"
+        },
+        "artifacts": {
+          "report.json": {
+            "path": "/tmp/maple-removal-caption-native-paint-20261003/report.json",
+            "sha256": "dc2a6c40c0b6f878ac9d9e5bc30640e844971708c523786baa608f06fafdfdfc"
+          },
+          "masked-native-context.png": {
+            "path": "/tmp/maple-removal-caption-native-paint-20261003/masked-native-context.png",
+            "sha256": "97c89d2b01fa29324225e729f41e7da0ee1300c37f530f055d87a1b0288195bf"
+          },
+          "caption-proxy.png": {
+            "path": "/tmp/maple-removal-caption-native-paint-20261003/caption-proxy.png",
+            "sha256": "293b4e10ac3c6ba5448786cfc766d5409345feca27b2cd334e5db589c92ea7cf"
+          },
+          "caption.txt": {
+            "path": "/tmp/maple-removal-caption-native-paint-20261003/caption.txt",
+            "sha256": "e7ff81e7d46d4453bf10552d749b7b2c7ae8236507ef305b6d42b587cec012c2"
+          },
+          "positive-prompt.txt": {
+            "path": "/tmp/maple-removal-caption-native-paint-20261003/positive-prompt.txt",
+            "sha256": "e858609bf639b2ff94666cdef50707fa7d44010b8c6af2d5c2876f1861e01347"
+          }
+        }
+      },
+      "native_inpainting": {
+        "model_repo": "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
+        "revision": "115134f363124c53c7d878647567d04daf26e41e",
+        "positive_prompt": "documentary photograph of Market stall with hanging yellow price tags, wooden crates, green table, tiled floor, and distant fruit displays., continuation of the existing surfaces",
+        "negative_prompt": "person, people, human figure, silhouette",
+        "seed": 3941,
+        "requested_steps": 20,
+        "actual_steps": 19,
+        "strength": 0.99,
+        "guidance": 8.0,
+        "inference_ms": 14371.325332904235,
+        "model_open_ms": 1420.677791815251,
+        "verification_ms": 2385.389209026471,
+        "memory": {
+          "process_peak_resident_bytes": 995885056,
+          "max_observed_step_boundary_mps_allocated_bytes": 6957110528,
+          "max_observed_step_boundary_mps_driver_bytes": 18124652544,
+          "memory_scope": "Process RSS and sampled step-boundary MPS values are distinct, incomplete measures; do not sum or treat as total/peak GPU budget."
+        },
+        "toolchain": {
+          "torch": "2.14.1",
+          "diffusers": "0.40.0",
+          "transformers": "5.18.0",
+          "accelerate": "1.15.0"
+        },
+        "artifacts": {
+          "report.json": {
+            "path": "/tmp/maple-removal-caption-sdxl-native-paint-20261003/report.json",
+            "sha256": "7a33c77553e919b4f8c2236ceef42158fbee33867ccf65149f6f3ae6a21dcfca"
+          },
+          "source.png": {
+            "path": "/tmp/maple-removal-caption-sdxl-native-paint-20261003/source.png",
+            "sha256": "2c2ba6964bb016c9c393cc970453c75fc6be0e1549369a7c2011f011e1e3f290"
+          },
+          "hole.png": {
+            "path": "/tmp/maple-removal-caption-sdxl-native-paint-20261003/hole.png",
+            "sha256": "b61caf6d29d198236288343fa7f61a7edcf84fa4f356655b7f68124413ace12b"
+          },
+          "prediction.png": {
+            "path": "/tmp/maple-removal-caption-sdxl-native-paint-20261003/prediction.png",
+            "sha256": "5452a9b58bba6e51d95d6eb73c1785e7d931dcba8bad9cc9a89700bedf95ab07"
+          },
+          "prediction.f32": {
+            "path": "/tmp/maple-removal-caption-sdxl-native-paint-20261003/prediction.f32",
+            "sha256": "f157ebbdcee58dbaa69994c17ad25dfd22d83eed274d394e9d57465dfe4f906e"
+          },
+          "result.png": {
+            "path": "/tmp/maple-removal-caption-sdxl-native-paint-20261003/result.png",
+            "sha256": "2833787e5f34e03bda7d098459c95c092b440007f8b6d6b6d91613e986e7ddfa"
+          },
+          "result.f32": {
+            "path": "/tmp/maple-removal-caption-sdxl-native-paint-20261003/result.f32",
+            "sha256": "ab1969b77d0e2c258becdcd70a84dfb342d1aca982d7f161864356da63ed314e"
+          },
+          "independent-checks.json": {
+            "path": "/tmp/maple-removal-caption-sdxl-native-paint-20261003/independent-checks.json",
+            "sha256": "be78a78dbe218e41e705625e530ea44191efa064fc7461af5c39abec894bd34b"
+          }
+        }
+      },
+      "independent_checks": {
+        "native_source_crop_equal": true,
+        "caption_known_samples_exact": true,
+        "caption_selected_samples_nonzero": 0,
+        "outside_png_samples_changed": 0,
+        "outside_f32_bits_changed": 0,
+        "finite_result": true,
+        "latent_extent_exact": true
+      },
+      "visual_inspection": "The combined mask removes the selected overlapping people and automatically produces a fruit stall rather than the generic-prompt furniture. No hand-written scene description was used. Produce/crates and price tags are invented/distorted, hard rectangular seams and tone/detail shifts remain. This is useful conditioning evidence, not photographic or RAW acceptance.",
+      "photographic_acceptance": false
+    }
+  ],
+  "verification": {
+    "tests": {
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "log": {
+        "path": "/tmp/maple-removal-caption-tests-20261003.log",
+        "sha256": "c148c97a11ef3be638b9ce664b4bc821d35b98c60c585d0e1c911ff1ce25afca"
+      }
+    },
+    "format": {
+      "path": "/tmp/maple-removal-caption-format-20261003.log",
+      "sha256": "3bc53bf3e981a98a34a852e175bf9b77af841edea74fca595d9aedcbaf9a4938"
+    },
+    "lint": {
+      "path": "/tmp/maple-removal-caption-lint-20261003.log",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "source_budget": {
+      "path": "/tmp/maple-removal-caption-staged-budget-20261003.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "scope": "Staged new source files included; incremental headroom relative to parent HEAD."
+    },
+    "incremental_headroom": {
+      "path": "/tmp/maple-removal-caption-staged-headroom-20261003.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "scope": "Staged new source files included; incremental headroom relative to parent HEAD."
+    },
+    "scope": "Tests cover exact selected-sample withholding/input immutability, human/control/oversized-text refusal, real pinned model card corruption, and partial-ROI refusal before model I/O. Actual two caption runs and two native model runs provide inference evidence separately. A third native SDXL control holds the person-case text/seed/steps fixed and verifies exact original coverage after using the explicit Paint reconstruction mask.",
+    "performance_scope": "Fresh processes on shared M5 Max128GB; cold/warm compiler/cache and concurrent diagnostic I/O are not controlled. Timing observations are per phase, not p50/p95, fair ratios or serial workflow wall-clock. MLX/Metal/RSS figures are distinct and cannot be summed into a total peak."
+  },
+  "source_files": {
+    "tools/removal/probe_caption_context.py": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_caption_context.py",
+      "sha256": "eee7069b659cedf57562cbf4b06c4a116a9c7e84c57b6bf3f5d7794d2de95198"
+    },
+    "tools/removal/caption_context_probe_test.py": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/caption_context_probe_test.py",
+      "sha256": "8c7a6c20c3dd7d869dea3c011edba962fa61d736d68523ee233fa43cf32daa21"
+    },
+    "tools/removal/caption-research-models.json": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/caption-research-models.json",
+      "sha256": "8d5cee41f64be663f93e6e803616140fc9fd32e257612e5db17f101044def569"
+    },
+    "tools/removal/probe_sdxl_native.py": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_sdxl_native.py",
+      "sha256": "127f49b175d37936f9c1bb5400bac53a345c4be64a17b780c1cd9f0f4759bd34"
+    },
+    "tools/removal/native_probe_pixels.py": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/native_probe_pixels.py",
+      "sha256": "b7327a50ed73250d859b9ded4dc808427b112768ea9643f52620ff81a1071ebc"
+    }
+  },
+  "executed_caption_snapshots": {
+    "probe_caption_context.py": {
+      "path": "/tmp/maple-removal-caption-executed-20261003/probe_caption_context.py",
+      "sha256": "eee7069b659cedf57562cbf4b06c4a116a9c7e84c57b6bf3f5d7794d2de95198"
+    },
+    "caption-research-models.json": {
+      "path": "/tmp/maple-removal-caption-executed-20261003/caption-research-models.json",
+      "sha256": "8d5cee41f64be663f93e6e803616140fc9fd32e257612e5db17f101044def569"
+    },
+    "native_probe_pixels.py": {
+      "path": "/tmp/maple-removal-caption-executed-20261003/native_probe_pixels.py",
+      "sha256": "b7327a50ed73250d859b9ded4dc808427b112768ea9643f52620ff81a1071ebc"
+    }
+  },
+  "decision": "Automatic background observation removes the hand-written scene-description dependency in this Paint case, but does not solve photographic seams/details. A larger reconstruction mask suppresses replacement-human generation in the original person coverage in this control, while introducing severe geometry/seam errors. Reject shipping admission; no automatic helper-mask policy, model-cap/app-catalog/XMP/Keep changes. Next: stronger scene-preserving local reconstruction or structure conditioning; any candidate must pass canonical RAW/HDR and device/distribution gates.",
+  "still_unqualified": [
+    "Correct removal/subject preservation across a labeled crowd/overlap corpus",
+    "Native structural coherence, seam visibility, noise and photographic texture",
+    "Canonical RAW scene-linear encoding/inverse and accepted patch integration",
+    "Supported lower-memory Macs and browser/Apple runtime/deployment",
+    "Full license/distribution/model conversion provenance",
+    "Whole-epic persistence/render/export/recovery/performance gates"
+  ],
+  "primary_sources": [
+    "https://github.com/GuoCalix/TurboClear",
+    "https://huggingface.co/JGuo666/TurboClear",
+    "https://github.com/GuoCalix/FlashClear",
+    "https://github.com/zjx0101/ObjectClear/blob/main/LICENSE",
+    "https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct",
+    "https://huggingface.co/mlx-community/Qwen2.5-VL-7B-Instruct-4bit",
+    "https://github.com/Blaizzy/mlx-vlm"
+  ],
+  "conditioning_mask_control": {
+    "method": "One additional actual SDXL run holds the original person-case caption/seed/steps/native dimensions constant, but uses the prior explicit combined Paint rectangle as the reconstruction mask. Re-composite its raw native prediction only inside the original SAM person coverage.",
+    "inference_ms": 14257.587790954858,
+    "accepted_pixels": 345996,
+    "reconstruction_pixels": 990000,
+    "checks": {
+      "outside_png_samples_changed": 0,
+      "outside_f32_bits_changed": 0,
+      "finite_result": true,
+      "same_caption_as_person_case": true,
+      "all_latents_native": true
+    },
+    "artifacts": {
+      "report.json": {
+        "path": "/tmp/maple-removal-caption-sdxl-person-helper-mask-20261003/report.json",
+        "sha256": "0e505ade120151a27b16d29a2122b13c1875e03732f6108191337fd2e9d79c56"
+      },
+      "prediction.png": {
+        "path": "/tmp/maple-removal-caption-sdxl-person-helper-mask-20261003/prediction.png",
+        "sha256": "0f41d8957b3dc5de51fa18665e621034e132ec28c30cc5fc59d775f984601436"
+      },
+      "prediction.f32": {
+        "path": "/tmp/maple-removal-caption-sdxl-person-helper-mask-20261003/prediction.f32",
+        "sha256": "f0468e39bb0740a0368948b0d16fda50c19a1f492114ace3bea0b5b8fdfab74a"
+      },
+      "original-person-coverage.png": {
+        "path": "/tmp/maple-removal-caption-sdxl-person-helper-mask-20261003/original-person-coverage.png",
+        "sha256": "de0516011ca83fe5260fe33fbb2fbc434143dc6c702eee50e29f2871241a9b35"
+      },
+      "original-person-coverage.f32": {
+        "path": "/tmp/maple-removal-caption-sdxl-person-helper-mask-20261003/original-person-coverage.f32",
+        "sha256": "4fce5e7cd0bf1ee93521eb49fa6190bb3d196e7756f95c377a2d485de8b77697"
+      },
+      "original-person-coverage.json": {
+        "path": "/tmp/maple-removal-caption-sdxl-person-helper-mask-20261003/original-person-coverage.json",
+        "sha256": "601a9c5bc3eb92c466edbf52303139487232faffc3aa0ca78aec1e6c67ad63b2"
+      },
+      "original-coverage-independent-checks.json": {
+        "path": "/tmp/maple-removal-caption-sdxl-person-helper-mask-20261003/original-coverage-independent-checks.json",
+        "sha256": "32411315cff76e641a422745f132ed8911d2d588ace357522bc3a29cb31a910f"
+      }
+    },
+    "visual_inspection": "No replacement human appears in the selected coverage, while unselected vendor fragments remain exactly. Narrow fruit/crate columns now follow the person silhouette into the ground, with very obvious discontinuities and implausible floor geometry. Reject photographic acceptance.",
+    "causal_scope": "Changing the reconstruction mask also changes which vendor fragments/context samples the denoiser sees. This control does not isolate binary silhouette shape from overlapping-human context, and does not prove a generalized automatic helper-mask policy.",
+    "photographic_acceptance": false,
+    "automatic_mask_policy_implemented": false
+  }
+}

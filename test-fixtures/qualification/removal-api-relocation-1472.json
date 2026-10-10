@@ -1,0 +1,56 @@
+{
+  "epic": 1472,
+  "measured_at_utc": "2026-10-02T08:12:03.782965+00:00",
+  "base_commit": "9053b9a6656bb78c46cf8aac7fa770da29541bf8",
+  "native": "Actual API-built model-free raw-ffi dylib through disposable Bun IPC child; schemas, names, original digests and codecs/checksums validated by existing Rust functions.",
+  "digests_sha256": {
+    "src/api/native/libraw_ffi.dylib": "b9563f9b1126039471f8631f4696db8e1094bcb48b511a315318068330a9ef14",
+    "src/api/src/fs/relocate-removal.ts": "5f48f64cb5773e876f82826ea839d878c3dda9e0d58fbff2dbdd0225b2fbd4e0",
+    "src/api/src/ffi/raw_ffi-removal-assets.ts": "1eb15df82b0c4dbc47766dee6a2f4515ff51716ff452ae467f4abcc390841440",
+    "test-fixtures/removal/calibration/source.dng": "24450571460687ee53852658deec26946c4a7877fe111a6ba5bb059c116f2618"
+  },
+  "focused": {
+    "command": "cd src/api && bun test src/fs/relocate-removal.test.ts",
+    "passed": 17,
+    "failed": 0,
+    "skipped": 0,
+    "assertions": 135,
+    "log": "/tmp/maple-removal-relocation-durable-final.log"
+  },
+  "full_api": {
+    "command": "cd src/api && bun test --timeout 30000",
+    "passed": 5413,
+    "failed": 0,
+    "skipped": 8,
+    "assertions": 19659,
+    "files": 596,
+    "seconds": 84.49,
+    "log": "/tmp/maple-removal-relocation-api-durable-full.log"
+  },
+  "verified": [
+    "Move/copy publish unchanged XMP and immutable companions before identity repoint/source deletion.",
+    "Moved RAW recipe export matches committed RGB pixels without installed inference models.",
+    "Conflict sidecars preserve foreign XML bytes.",
+    "Disabled schema-5 assets survive movement and re-enable correctly.",
+    "Missing/corrupt/source-changed/future-schema/unsafe-destination failures retain source and previous destination.",
+    "Failed identity repoint restores replacement RAW/XMP occupants.",
+    "Source and destination edits detected after repoint preserve both copies and later XML.",
+    "Companion directory symlink rejected before writing outside destination.",
+    "Same-folder extension/case rename retains shared XMP and companions.",
+    "Real trash and restore primitives reproduce accepted pixels.",
+    "Native IPC protocol/exhaustiveness and existing relocation regressions pass."
+  ],
+  "checks": {
+    "typecheck": "passed",
+    "scoped_oxlint": "passed",
+    "prettier": "passed",
+    "file_budget": "zero hard violations; existing relocate.ts and relocate.test.ts have soft warnings below 570-line headroom"
+  },
+  "limitations": [
+    "Local synthetic interoperability qualification only; no photographic/model/100MP transfer performance qualification.",
+    "No injected machine/process-loss, abandoned-backup recovery or cross-process writer/relocator locking qualification; retained rollback files preserve previous-occupant recovery evidence if restoration fails.",
+    "Self Hosted authoring/remote companion transport and SMB/Windows qualification remain open.",
+    "No physical-device, full color/parity, current-main CI, release or full-epic completion claim."
+  ],
+  "release_qualified": false
+}

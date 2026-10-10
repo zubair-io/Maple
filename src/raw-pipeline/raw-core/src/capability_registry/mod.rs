@@ -449,7 +449,7 @@ impl EvidenceSource {
             // raw-wasm gpu_render parity cases; the Auto-fit regressions (#4171)
             // now run with the shared gpu_host in raw-core.
             EvidenceSource::GpuChainParityLavapipe => 19,
-            EvidenceSource::GpuChainParityMetal => 19,
+            EvidenceSource::GpuChainParityMetal => 22,
             EvidenceSource::AppleCanvasGolden => 1,
         }
     }

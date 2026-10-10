@@ -39,6 +39,8 @@ public sealed class MetadataBatchTests : IDisposable
         Assert.Null(second.Saved);
         Assert.NotNull(second.Error);
         SidecarStore.Update(first.Target.Path, doc => doc.Rating = 5);
+        Assert.Throws<InvalidDataException>(() => SidecarStore.Save(second.Target.Path, new()));
+        File.Delete(SidecarStore.SidecarPathFor(second.Target.Path));
         SidecarStore.Save(second.Target.Path, new());
         await batch.ApplyAsync(CancellationToken.None);
         Assert.Equal(5, SidecarStore.Load(first.Target.Path)!.Rating);

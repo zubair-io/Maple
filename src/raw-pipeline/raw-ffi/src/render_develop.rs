@@ -109,12 +109,24 @@ pub unsafe extern "C" fn maple_render_develop_jpeg_to_file(
                 return 7;
             }
         };
-        let (w, h, bytes) = match render_from_raw_with_quality_and_source(
+        let rendered = crate::removal_file::render_saved(
             &raw_img,
+            &raw_bytes,
             &model,
-            RenderQuality::Amaze,
+            raw_path.parent(),
             Some(RawInput::Path(raw_path)),
-        ) {
+            RenderQuality::Amaze,
+            None,
+        )
+        .unwrap_or_else(|| {
+            render_from_raw_with_quality_and_source(
+                &raw_img,
+                &model,
+                RenderQuality::Amaze,
+                Some(RawInput::Path(raw_path)),
+            )
+        });
+        let (w, h, bytes) = match rendered {
             Ok(t) => t,
             Err(e) => {
                 set_last_error(format!("render: {}", e));

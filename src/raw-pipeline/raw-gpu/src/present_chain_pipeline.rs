@@ -19,51 +19,9 @@ use std::cell::{Cell, RefCell};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-/// The manual-geometry homography the present shader warps by (#3410).
-///
-/// Three `vec4` rows of the DESTINATION → SOURCE matrix in the centred,
-/// half-extent-normalized `[-1, 1]` space `raw-core`'s
-/// `stages::perspective::matrix` defines; `rows[0][3]` is the active flag.
-/// `raw-gpu` does not depend on `raw-core` (the dependency runs the other way,
-/// through raw-core's optional `gpu` feature), so the matrix is *built* by the
-/// core and *carried* here as plain numbers — one implementation of the math,
-/// no second copy to keep in step.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PresentGeometry {
-    rows: [[f32; 4]; 3],
-}
-
-impl PresentGeometry {
-    /// No manual geometry: the present takes its untouched pre-#3410 load
-    /// paths, byte for byte.
-    pub const IDENTITY: Self = Self {
-        rows: [[0.0; 4]; 3],
-    };
-
-    /// Wrap a row-major destination → source homography. Callers pass
-    /// `raw_core::stages::perspective::Perspective::inverse_matrix`'s output.
-    pub fn from_inverse(m: [f32; 9]) -> Self {
-        Self {
-            rows: [
-                [m[0], m[1], m[2], 1.0],
-                [m[3], m[4], m[5], 0.0],
-                [m[6], m[7], m[8], 0.0],
-            ],
-        }
-    }
-
-    /// True when this actually warps — i.e. the shader will take the resample
-    /// arm rather than the direct load.
-    pub fn is_active(&self) -> bool {
-        self.rows[0][3] != 0.0
-    }
-}
-
-impl Default for PresentGeometry {
-    fn default() -> Self {
-        Self::IDENTITY
-    }
-}
+#[path = "present_geometry.rs"]
+mod geometry;
+pub use geometry::{PresentGeometry, QuantizedDisplayTail};
 
 /// `repr(C)` uniform for `present_chain.wgsl`: the surface width/height, the
 /// chain-buffer dims when they differ from the surface (#2587's half-res
@@ -81,6 +39,10 @@ pub(crate) struct PresentParams {
     /// `PresentGeometry::rows`. A `vec4` per row: the only 16-byte-aligned row
     /// shape a uniform block accepts without an implicit-stride surprise.
     pub geometry: [[f32; 4]; 3],
+    pub orientation: [[f32; 4]; 2],
+    pub crop: [[f32; 4]; 2],
+    pub crop_rotation: [f32; 4],
+    pub tail_dimensions: [u32; 4],
 }
 
 /// Pick the surface format: the first *non-sRGB* BGRA/RGBA 8-bit the surface
@@ -109,7 +71,14 @@ pub(crate) fn build_present_pipeline(
         .device
         .create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("present-chain"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("present_chain.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                concat!(
+                    include_str!("present_chain.wgsl"),
+                    "\n",
+                    include_str!("present_geometry.wgsl")
+                )
+                .into(),
+            ),
         });
     let bind_group_layout = ctx
         .device
@@ -202,19 +171,6 @@ pub(crate) struct PresentDispatch {
 /// [`PresentDispatchCache`] instead of calling this per tick; only the true
 /// one-shot host oracle ([`crate::present_chain::present_chain_to_offscreen`])
 /// calls it directly.
-pub(crate) fn build_present_dispatch(
-    ctx: &GpuContext,
-    bind_group_layout: &wgpu::BindGroupLayout,
-    chain_buf: &wgpu::Buffer,
-    dims: (u32, u32),
-    geometry: PresentGeometry,
-) -> PresentDispatch {
-    build_present_dispatch_scaled(ctx, bind_group_layout, chain_buf, dims, (0, 0), geometry)
-}
-
-/// [`build_present_dispatch`] with an explicit chain-buffer size differing
-/// from the surface (#2587 half-res fast pass). `src_dims = (0, 0)` is the
-/// 1:1 path — identical uniform bytes to the pre-#2587 build.
 pub(crate) fn build_present_dispatch_scaled(
     ctx: &GpuContext,
     bind_group_layout: &wgpu::BindGroupLayout,
@@ -257,7 +213,7 @@ pub(crate) fn build_present_dispatch_scaled(
 }
 
 /// The uniform bytes for one present.
-fn present_params(
+pub(crate) fn present_params(
     dims: (u32, u32),
     src_dims: (u32, u32),
     geometry: PresentGeometry,
@@ -268,12 +224,16 @@ fn present_params(
         src_width: src_dims.0,
         src_height: src_dims.1,
         geometry: geometry.rows,
+        orientation: geometry.tail.orientation_rows,
+        crop: geometry.tail.crop_rows,
+        crop_rotation: geometry.tail.crop_rotation,
+        tail_dimensions: geometry.tail.dimensions,
     }
 }
 
 /// Record the chain-present render pass into `encoder`: bind `bind_group`, draw
 /// the fullscreen triangle into `target`. Takes an ALREADY-BUILT bind group (see
-/// [`build_present_dispatch`] / [`PresentDispatchCache`]) — this function itself
+/// [`build_present_dispatch_scaled`] / [`PresentDispatchCache`]) — this function itself
 /// allocates NOTHING, so a caller driving it every render-loop tick with a
 /// cached bind group stays zero-alloc (#1930). Shared by the surface (Apple
 /// `CAMetalLayer`, web `OffscreenCanvas`) and offscreen entry points so the

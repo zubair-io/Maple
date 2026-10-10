@@ -1,0 +1,763 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recordedAt": "2026-10-04T05:03:21.250507+00:00",
+  "parentCommit": "5a0d77a07ecf536087fbd1cccc15f82589921723",
+  "testedBase": "51dc3443faa4c85d192eb95d5605d172edf60564",
+  "releaseQualified": false,
+  "appLimitChanged": false,
+  "purpose": "Native 2048 complete observed person intent on canonical pre-WB RAW floats, one joint inference, no source resampling. Research-only example, not editor authoring or XMP acceptance.",
+  "upstream": {
+    "revision": "786f5936b27fb3dacd2b1ad799e4de968ea697e7",
+    "trackedSourceClean": true,
+    "source": "/Users/riabuz/.cache/maple-removal-research/lama-source-20261004",
+    "archive": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/big-lama-20261004.zip",
+      "sha256": "f1b358ca24093b93a106183b98a3dea6e8ed09f3b43ea7251eb2c81e7b4575f6",
+      "bytes": 381428720
+    },
+    "checkpoint": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-weights-20261004/big-lama/models/best.ckpt",
+      "sha256": "fccb7adffd53ec0974ee5503c3731c2c2f1e7e07856fd9228cdcc0b46fd5d423",
+      "bytes": 410046389
+    },
+    "config": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-weights-20261004/big-lama/config.yaml",
+      "sha256": "4fdeed49926e13b101c4dd9e193acec9e58677dfdb4ba49dd6a3a8927964e2a7",
+      "bytes": 3947
+    },
+    "export": {
+      "file": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/lama-native2048-20261004/lama-native-2048.json",
+        "sha256": "53cf2a5e66c8747f0d24a917a6dce3a640b861ea9fb47426fcda6a2faa94f4ca",
+        "bytes": 1085
+      },
+      "report": {
+        "build_recipe": "maple-lama-standard-dft-v1",
+        "source_revision": "786f5936b27fb3dacd2b1ad799e4de968ea697e7",
+        "checkpoint_sha256": "fccb7adffd53ec0974ee5503c3731c2c2f1e7e07856fd9228cdcc0b46fd5d423",
+        "weights_archive_url": "https://huggingface.co/smartywu/big-lama/resolve/05cb2be7f8dbe6ca7c6e78f4fc827a4b2baaa4a9/big-lama.zip",
+        "weights_archive_sha256": "f1b358ca24093b93a106183b98a3dea6e8ed09f3b43ea7251eb2c81e7b4575f6",
+        "license_sha256": "4ceeeac5a802e86c413c22b16cce8e9a22027b0250c97e6f8ac97c14cf0542c0",
+        "config_sha256": "4fdeed49926e13b101c4dd9e193acec9e58677dfdb4ba49dd6a3a8927964e2a7",
+        "artifact": "lama-native-2048.onnx",
+        "artifact_sha256": "06c3a4fefd33e371c696ef00b0004bb8a16515d6d540f5bc2be50c219ca1c97b",
+        "native_size": 2048,
+        "fourier_units": 36,
+        "generator_tensors": 989,
+        "opset": 17,
+        "input": "float32 NCHW: masked RGB [0,1] then mask 1=remove, 0=known",
+        "output": "float32 NCHW RGB [0,1], known pixels copied by the shared plate compositor",
+        "release_qualified": false,
+        "toolchain": {
+          "torch": "2.14.1",
+          "onnx": "1.23.1"
+        }
+      }
+    }
+  },
+  "input": {
+    "raw": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/raws/_DSC7409.NEF",
+      "sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+      "bytes": 29019786
+    },
+    "originalUnchanged": true,
+    "source": {
+      "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+      "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+      "width": 6000,
+      "height": 4000
+    },
+    "matchedSelectionReport": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/sam2-mobile-matched-final-20261004/report.json",
+      "sha256": "aa6ab769bcecacfc5d61e61da51072bc77fa5a8f3d7e10f6f09487a7602318fd",
+      "bytes": 26942
+    },
+    "nativeKeptMaskReport": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/C70E2B3D-8072-4E66-82AD-0B6AD571FC00/report.json",
+      "sha256": "dc1a57e726f2a47f9c6758c5b06a0a730c9f59ff6c4510582cb3be5fe7a202a8",
+      "bytes": 13221
+    },
+    "intentArm": {
+      "personId": 4,
+      "arm": "refined",
+      "requestSHA256": "eecf18e0668eb1f0ea7d1f52986ef00c80dcf1ff37b205af121e0e6f58897cd6",
+      "scores": [0.9534125328063965, 0.968597948551178, 0.980414867401123, 0.9614831209182739],
+      "decodeSeconds": 0.027887042000656947,
+      "maskDigest": "blake3:e0b5d70643a7968ecf88e59fa15032de566b700f45da86d2b941323b791f8556",
+      "nativePixels": 1004445,
+      "visibleSamples": {
+        "include": [true, true, true],
+        "exclude": [false, false]
+      }
+    },
+    "intentBounds": [1600, 1546, 1154, 1669],
+    "nativeIntentPixels": 1004445,
+    "protectionId": 2,
+    "protectionDigest": "blake3:ae9e1e7313c6299f74ac6c901ea7eb1159ae1953d020223cf07175f822ac2e94",
+    "protocolLimit": "Person4 purple-coat observed samples are diagnostic annotations corrected after earlier output review, not independent silhouette ground truth, ownership or automatic-role proof."
+  },
+  "context": {
+    "directory": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-context-20261004",
+    "files": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-context-20261004/context.json",
+        "sha256": "2ceb4c3ad84cbb3e7d74df6014e2b07e38ce8849e75159469ceb1475ea74cd77",
+        "bytes": 814
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-context-20261004/input.f32",
+        "sha256": "a813f38951f385495c8bb1b9e5a15fab5c7128751a55a29a98d9af4761f32838",
+        "bytes": 50331648
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-context-20261004/input.png",
+        "sha256": "25a0d28ed9d0e88905a426b180c1b1b2c8cf64d262d309f1842b055f6108f8bd",
+        "bytes": 3627908
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-context-20261004/inputs.json",
+        "sha256": "8ca977d461da1ae68e4ca101394941bba7942ab06b3a5009feb138a4b918e8c8",
+        "bytes": 416
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-context-20261004/intent.mimf",
+        "sha256": "4e5da444ca0b5a28a7e35fd833a4c1226632e2f053471ff50e554ed0186b4c31",
+        "bytes": 241139
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-context-20261004/masks.f32",
+        "sha256": "c271b6b1bb5a6ad1fa65365b2f14f9bc89bb34a32412ccac4c9c86a05cbaf1e6",
+        "bytes": 33554432
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-context-20261004/preparation.json",
+        "sha256": "5cebfb5f6cf84eeca3e3894b448c2c72416653b7955a0aad93644ac265a4858e",
+        "bytes": 428
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-context-20261004/protected.mimf",
+        "sha256": "67fb0fb69b5618657f2a4e56b603f1e1727f7190d6bd5aa531812f29265378e1",
+        "bytes": 328376
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-context-20261004/scene.f32",
+        "sha256": "0335839c6494654aa0cb8693fa64faa6721913edd960054cbabed2bf022e8962",
+        "bytes": 50331648
+      }
+    ],
+    "preparation": {
+      "hole_pixels": 1045630,
+      "joined_tile_mismatch_channels": 0,
+      "mask_strategy": "Union of unchanged shared native mask preparation; one joint model inference, no independently reconstructed pieces",
+      "model_input_native_size": [2048, 2048],
+      "release_qualified": false,
+      "resampled": false,
+      "whole_frame_oracle": true,
+      "window": {
+        "height": 2048,
+        "width": 2048,
+        "x": 1152,
+        "y": 1357
+      }
+    },
+    "recipe": {
+      "plate": "LinearCalibrationV1",
+      "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+      "source_anchor": {
+        "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+        "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+        "width": 6000,
+        "height": 4000
+      },
+      "window": {
+        "x": 1152,
+        "y": 1357,
+        "width": 2048,
+        "height": 2048
+      },
+      "source_width": 6000,
+      "source_height": 4000,
+      "scene": "blake3:860beef4036fb31184519b0561909dae4a294562c59fc757730b94467624a67f",
+      "model_input": "blake3:e7d81710ed51185ecb1885af33b27696620d5ff89d27dbb8099255cd028ab843",
+      "encoding": {
+        "version": 1,
+        "low": -2.1188589178325308,
+        "span": 6.172533093516883
+      },
+      "release_qualified": false
+    }
+  },
+  "runtime": {
+    "file": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-runtime-final-20261004/report.json",
+      "sha256": "85ba69188af3cb33648d5f93bc30895a4154d21d8df75295667073215c40cf20",
+      "bytes": 1359
+    },
+    "report": {
+      "engine": "runtime",
+      "version": "1.23.2",
+      "artifactSHA256": "06c3a4fefd33e371c696ef00b0004bb8a16515d6d540f5bc2be50c219ca1c97b",
+      "contextFilesSHA256": {
+        "context.json": "2ceb4c3ad84cbb3e7d74df6014e2b07e38ce8849e75159469ceb1475ea74cd77",
+        "input.f32": "a813f38951f385495c8bb1b9e5a15fab5c7128751a55a29a98d9af4761f32838",
+        "input.png": "25a0d28ed9d0e88905a426b180c1b1b2c8cf64d262d309f1842b055f6108f8bd",
+        "inputs.json": "8ca977d461da1ae68e4ca101394941bba7942ab06b3a5009feb138a4b918e8c8",
+        "intent.mimf": "4e5da444ca0b5a28a7e35fd833a4c1226632e2f053471ff50e554ed0186b4c31",
+        "masks.f32": "c271b6b1bb5a6ad1fa65365b2f14f9bc89bb34a32412ccac4c9c86a05cbaf1e6",
+        "preparation.json": "5cebfb5f6cf84eeca3e3894b448c2c72416653b7955a0aad93644ac265a4858e",
+        "protected.mimf": "67fb0fb69b5618657f2a4e56b603f1e1727f7190d6bd5aa531812f29265378e1",
+        "scene.f32": "0335839c6494654aa0cb8693fa64faa6721913edd960054cbabed2bf022e8962"
+      },
+      "modelInputSHA256": "a544e8b656e76f144569f678e6d5abd3f0b435dfa114d6376e211d4867f186e2",
+      "resultSHA256": "e2ab7fb4690f19530de664d25ebed55a9c0a3eda8ae606f2ed503789d95e853f",
+      "nativeSize": 2048,
+      "seconds": 37.567088791998685,
+      "processPeakRSSBytes": 8238333952,
+      "memoryScope": "Separate Python research process with one model owner; not native app/device qualification",
+      "releaseQualified": false
+    }
+  },
+  "reference": {
+    "file": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-reference-20261004/report.json",
+      "sha256": "73f22fdad702ee510f68e3a5f6c2797bdac5399c6009ecc9e1f4d72f8ebc6ee4",
+      "bytes": 1362
+    },
+    "report": {
+      "engine": "reference",
+      "version": "2.14.1",
+      "artifactSHA256": "06c3a4fefd33e371c696ef00b0004bb8a16515d6d540f5bc2be50c219ca1c97b",
+      "contextFilesSHA256": {
+        "context.json": "2ceb4c3ad84cbb3e7d74df6014e2b07e38ce8849e75159469ceb1475ea74cd77",
+        "input.f32": "a813f38951f385495c8bb1b9e5a15fab5c7128751a55a29a98d9af4761f32838",
+        "input.png": "25a0d28ed9d0e88905a426b180c1b1b2c8cf64d262d309f1842b055f6108f8bd",
+        "inputs.json": "8ca977d461da1ae68e4ca101394941bba7942ab06b3a5009feb138a4b918e8c8",
+        "intent.mimf": "4e5da444ca0b5a28a7e35fd833a4c1226632e2f053471ff50e554ed0186b4c31",
+        "masks.f32": "c271b6b1bb5a6ad1fa65365b2f14f9bc89bb34a32412ccac4c9c86a05cbaf1e6",
+        "preparation.json": "5cebfb5f6cf84eeca3e3894b448c2c72416653b7955a0aad93644ac265a4858e",
+        "protected.mimf": "67fb0fb69b5618657f2a4e56b603f1e1727f7190d6bd5aa531812f29265378e1",
+        "scene.f32": "0335839c6494654aa0cb8693fa64faa6721913edd960054cbabed2bf022e8962"
+      },
+      "modelInputSHA256": "a544e8b656e76f144569f678e6d5abd3f0b435dfa114d6376e211d4867f186e2",
+      "resultSHA256": "7eea2509b0f6ca95e265529aa6e3cd8694c133a7c5f5b544f6a843f2d3a78322",
+      "nativeSize": 2048,
+      "seconds": 29.285170791001292,
+      "processPeakRSSBytes": 59630059520,
+      "memoryScope": "Separate Python research process with one model owner; not native app/device qualification",
+      "releaseQualified": false
+    }
+  },
+  "parity": {
+    "sameNativeTensorAndContextFiles": true,
+    "maxFloatError": 0.0003326982259750366,
+    "meanFloatError": 1.5035849401101586e-6,
+    "maxDiagnosticCodeError": 1,
+    "scope": "Native float upstream PyTorch vs pinned Python ORT1.23.2 CPU execution; not reconstruction ground truth or exact app dylib qualification."
+  },
+  "sharedRawBake": {
+    "file": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/report.json",
+      "sha256": "22d5949b722c0b7a507a48c8ec5d8d2140f2974e855d393e974f3f82cf0a67d2",
+      "bytes": 4412
+    },
+    "report": {
+      "as_shot_temperature": 4084.04931640625,
+      "as_shot_tint": 42.26961898803711,
+      "auto_profile_engaged": true,
+      "encoding": {
+        "low": -2.1188589178325308,
+        "span": 6.172533093516883,
+        "version": 1
+      },
+      "generation_masks": "blake3:391910a9e0986191f32bd85228d40b52ffbb3ced320d90635d9d1764a87e78ae",
+      "grades": [
+        {
+          "case": "neutral_ev-3_wb-1000",
+          "max_scene_float_error_identity": 2.7179718017578125e-5,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1334.7481249999998
+        },
+        {
+          "case": "auto_ev-3_wb-1000",
+          "max_scene_float_error_identity": 2.7179718017578125e-5,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1334.7481249999998
+        },
+        {
+          "case": "neutral_ev-3_wb+0",
+          "max_scene_float_error_identity": 1.52587890625e-5,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1303.884
+        },
+        {
+          "case": "auto_ev-3_wb+0",
+          "max_scene_float_error_identity": 1.52587890625e-5,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1303.884
+        },
+        {
+          "case": "neutral_ev-3_wb+1000",
+          "max_scene_float_error_identity": 1.8037855625152588e-5,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1312.926083
+        },
+        {
+          "case": "auto_ev-3_wb+1000",
+          "max_scene_float_error_identity": 1.8037855625152588e-5,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1312.926083
+        },
+        {
+          "case": "neutral_ev+0_wb-1000",
+          "max_scene_float_error_identity": 0.000217437744140625,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1292.031
+        },
+        {
+          "case": "auto_ev+0_wb-1000",
+          "max_scene_float_error_identity": 0.000217437744140625,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1292.031
+        },
+        {
+          "case": "neutral_ev+0_wb+0",
+          "max_scene_float_error_identity": 0.0001220703125,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1279.045916
+        },
+        {
+          "case": "auto_ev+0_wb+0",
+          "max_scene_float_error_identity": 0.0001220703125,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1279.045916
+        },
+        {
+          "case": "neutral_ev+0_wb+1000",
+          "max_scene_float_error_identity": 0.0001443028450012207,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1304.985333
+        },
+        {
+          "case": "auto_ev+0_wb+1000",
+          "max_scene_float_error_identity": 0.0001443028450012207,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1304.985333
+        },
+        {
+          "case": "neutral_ev+3_wb-1000",
+          "max_scene_float_error_identity": 0.001739501953125,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1327.1252499999998
+        },
+        {
+          "case": "auto_ev+3_wb-1000",
+          "max_scene_float_error_identity": 0.001739501953125,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1327.1252499999998
+        },
+        {
+          "case": "neutral_ev+3_wb+0",
+          "max_scene_float_error_identity": 0.0009765625,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1306.460458
+        },
+        {
+          "case": "auto_ev+3_wb+0",
+          "max_scene_float_error_identity": 0.0009765625,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1306.460458
+        },
+        {
+          "case": "neutral_ev+3_wb+1000",
+          "max_scene_float_error_identity": 0.0011544227600097656,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1291.696542
+        },
+        {
+          "case": "auto_ev+3_wb+1000",
+          "max_scene_float_error_identity": 0.0011544227600097656,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1291.696542
+        }
+      ],
+      "max_scene_float_error_identity": 0.001739501953125,
+      "model_result": "blake3:7894f84d9e473f38a08b4a462db636621f9b33873f67dcd40a038178e28efc21",
+      "native_context": {
+        "height": 2048,
+        "width": 2048,
+        "x": 1152,
+        "y": 1357
+      },
+      "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+      "outside_mask_max_error": 0,
+      "plate": "LinearCalibrationV1",
+      "profile_tier": "BundleConfident",
+      "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+      "release_qualified": false
+    }
+  },
+  "bakeFiles": [
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+0_wb+0-identity.png",
+      "sha256": "52ac5dfe9a651370386b4f56e48fb2e26e9b178f64becd490c312ff72cf7ac10",
+      "bytes": 6449540
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+0_wb+0-removal.png",
+      "sha256": "4aa3a5bddb08218c791e09890f37c9e91ec1fe12975ea826fd61e8f3e7d48ecb",
+      "bytes": 6514799
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+0_wb+0-truth.png",
+      "sha256": "b8f271d421d752cb1f3efb557dbac39d7153b888b1cc9102e3ac38d15a962953",
+      "bytes": 6449585
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+0_wb+1000-identity.png",
+      "sha256": "699f2f50c2d9611a3c3364ab50107b5f5ba66b6a2c70ef8a78bdfea91f6d0ca0",
+      "bytes": 6364846
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+0_wb+1000-removal.png",
+      "sha256": "4f7ba59b199feaaa2246099c914ebb763182808034336f6e3ef9c417cb3a4e54",
+      "bytes": 6466326
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+0_wb+1000-truth.png",
+      "sha256": "66e082044b53d2ff5dbd3047c33f012a0c833a47820c7d11b413f1ed23aab50b",
+      "bytes": 6364838
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+0_wb-1000-identity.png",
+      "sha256": "6dace8734844a09dd9d79a7668159fcc448a0165d1e28898f074736379273d5e",
+      "bytes": 6680240
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+0_wb-1000-removal.png",
+      "sha256": "295c76940708c603869a20d0e5a4acda8f1147eb4ea9130a516751b71b7ce259",
+      "bytes": 6782104
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+0_wb-1000-truth.png",
+      "sha256": "65180b7d08951a8f392ded5150360e53c4a3c538479eab732cbd79bfabb1239d",
+      "bytes": 6680251
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+3_wb+0-identity.png",
+      "sha256": "739d43c4248a1781154f90c1a1a9e1a4721136dd0312f09412e58235760b960c",
+      "bytes": 6788883
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+3_wb+0-removal.png",
+      "sha256": "35b42d8a693f3453c5c38eec284e152d38857617becca7509e708dfea2f126ad",
+      "bytes": 7073674
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+3_wb+0-truth.png",
+      "sha256": "f32283ca821bad93058cfa5a3aae5c2cfe74842287a2fc96c4990c258e29522f",
+      "bytes": 6788866
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+3_wb+1000-identity.png",
+      "sha256": "26b893a618d802830cf2018e045f6d8487ffec3fb8100e7603a8c8adb29e26f7",
+      "bytes": 6736244
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+3_wb+1000-removal.png",
+      "sha256": "bda046e563c9d899181b7b85575902e040c332e07c9588b363f87e7850f0f0ed",
+      "bytes": 7009338
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+3_wb+1000-truth.png",
+      "sha256": "0c7357e093768ab395c0756a3816b5fdd9dd9cd330ae43d60e46f1b3c55156db",
+      "bytes": 6736290
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+3_wb-1000-identity.png",
+      "sha256": "5fd28da547fde1b5447ebef4bbaf88c9b616907681726b71720cd7d293e5e50f",
+      "bytes": 6446702
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+3_wb-1000-removal.png",
+      "sha256": "e979f6b9b74e5d1ae627d01ae21e3d7f8a80f8319970c5b084a58a01deee98a7",
+      "bytes": 6802744
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev+3_wb-1000-truth.png",
+      "sha256": "1cf1680c11c1f1aad8583276ce2f535809d1195fff069b7ceb056886b0077bed",
+      "bytes": 6446789
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev-3_wb+0-identity.png",
+      "sha256": "af208d8f3f839be29e7d8b98b5dfa955aa68da0e00c8e4d0648ce006297e9820",
+      "bytes": 4235601
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev-3_wb+0-removal.png",
+      "sha256": "818f153780f09cd7729fe34a8afd0ac5c18df0d6945e8142474675acf2024f35",
+      "bytes": 4232890
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev-3_wb+0-truth.png",
+      "sha256": "b9bd6bd0df0407a5177c8d0f66a18f337ad934bc5e4a833a46cf31451d8db977",
+      "bytes": 4235612
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev-3_wb+1000-identity.png",
+      "sha256": "0212b4acd00644d254c85823a97a1a305c3c488be594845e1846face3d3edaae",
+      "bytes": 4198736
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev-3_wb+1000-removal.png",
+      "sha256": "abeeb883c21ead5849660f64056c7244bcc1c8cdc7d450772632138a71153358",
+      "bytes": 4207199
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev-3_wb+1000-truth.png",
+      "sha256": "c50dbab76d174e3dd801d0e3fce8949d481bbf0f823c90d5c3d2807f833560bd",
+      "bytes": 4198755
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev-3_wb-1000-identity.png",
+      "sha256": "1486e74c2d4ac0afeaf495d762fa441de778d134ba5c2499961c0222db653b10",
+      "bytes": 4411249
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev-3_wb-1000-removal.png",
+      "sha256": "ba05344e35e9906a03a7abdb9989c10df09b825c66798f2d35495cde17046d95",
+      "bytes": 4411255
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/auto_ev-3_wb-1000-truth.png",
+      "sha256": "7747b1b4b4a2f5d030bdf556008b4ba59894207587f7de9ee938bdc7b7b91e93",
+      "bytes": 4411189
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/coverage.png",
+      "sha256": "93143d42588ec1988a2a6579a02fe3a7c6c6622dad8f59f8fa2ee3d6d475d524",
+      "bytes": 25745
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+0_wb+0-identity.png",
+      "sha256": "442edf447e48ba19c8a677b430b32c3c73ece9d6172eff1061846048f7211540",
+      "bytes": 5154515
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+0_wb+0-removal.png",
+      "sha256": "638909b6ba30ae7c1a75f271c3433cc2a1127b35cc7e9b4fe89f97198a6c4fa6",
+      "bytes": 5129626
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+0_wb+0-truth.png",
+      "sha256": "0abc99d3cd68c59c1bb1f73ced2ef6f5bf75d2157382ddb7073ce7213e7a93ec",
+      "bytes": 5154501
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+0_wb+1000-identity.png",
+      "sha256": "dc6d921155f19777856fd48aaf2e7133f2d9112a4b043c9971b34d73a5759bb7",
+      "bytes": 5096858
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+0_wb+1000-removal.png",
+      "sha256": "360fc7fbb500ab6bd763ec8572bfbded16a4a997d50a5fa71b7639f12bea80e4",
+      "bytes": 5118737
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+0_wb+1000-truth.png",
+      "sha256": "ebb9a764823ffafb11cf7c2fab18778f32412db9a68237814ebd12fc4482778e",
+      "bytes": 5096843
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+0_wb-1000-identity.png",
+      "sha256": "b53256ca85becea714e1c18e58a016b2b278f87a7e6fc8c6a5920ab50d7cc206",
+      "bytes": 5502509
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+0_wb-1000-removal.png",
+      "sha256": "a11e895068e2376c81451c531a88901f7b66c36d141803bd3613abe9569de3a8",
+      "bytes": 5530477
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+0_wb-1000-truth.png",
+      "sha256": "325e860a2d49682086dded80567876b45273e2e691d34e9d9f7d42309ffcb0b2",
+      "bytes": 5502473
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+3_wb+0-identity.png",
+      "sha256": "8ee856bbe18bde44ffd99fde938825bd2d4adb313c19caf76a020fca9454b620",
+      "bytes": 6793711
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+3_wb+0-removal.png",
+      "sha256": "46563363d8c8773734c59d017aa1e53e58825bf8487f0c8f4d68d4f9edef322d",
+      "bytes": 7016038
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+3_wb+0-truth.png",
+      "sha256": "c49cccaa1d0441139c3ab130ae638781820f235a7a5f20fdccf49f8b342680a4",
+      "bytes": 6793672
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+3_wb+1000-identity.png",
+      "sha256": "902e939a7a630a3a0f646827758a6bd49f88df36a90eb565fe90095560fadefc",
+      "bytes": 6753472
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+3_wb+1000-removal.png",
+      "sha256": "8899052aea024d0b278b78478d828ca3e55c139b1af1ee293278eee0b9ace8a0",
+      "bytes": 6953419
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+3_wb+1000-truth.png",
+      "sha256": "23b1521b17364a923b6b986a930cdab5e70a56884cb96463bc554cb61a8c576b",
+      "bytes": 6753459
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+3_wb-1000-identity.png",
+      "sha256": "71614fdbaf713d3c3965d133d280f3ceb45e41f99baf667f2a02c8ebee18f6c1",
+      "bytes": 6561362
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+3_wb-1000-removal.png",
+      "sha256": "01cbd153555ad290ef93563985d1d17c5886f185b237c56dd0bfb8de67d06e59",
+      "bytes": 6811873
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev+3_wb-1000-truth.png",
+      "sha256": "27f3147773388ac2ff84624bfd12fe448953ce1554cecf8eb0bae0ac8c0f0764",
+      "bytes": 6561402
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev-3_wb+0-identity.png",
+      "sha256": "726ecf3304c40a624ff29ebe0fd0697abbc4f6a7be5537cd0f7209259d2c1f13",
+      "bytes": 2175899
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev-3_wb+0-removal.png",
+      "sha256": "78d6182b95f6743309154e687989ed747b5db9411415992d3f0b69d3b3e01557",
+      "bytes": 2169724
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev-3_wb+0-truth.png",
+      "sha256": "14e830179d18562750c1608ad796c4412fabafa58f8ec3d68b57abeebd90b6e0",
+      "bytes": 2175953
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev-3_wb+1000-identity.png",
+      "sha256": "c0024b2970715582bc2eb2a4cd0c57bfa37cd964ac0aa02684e5a478f49b7408",
+      "bytes": 2139225
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev-3_wb+1000-removal.png",
+      "sha256": "4cd33a3f6edf58690616cd834c3e03d50155adfa273fdb6c75e374ef61b58ea1",
+      "bytes": 2163123
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev-3_wb+1000-truth.png",
+      "sha256": "d0fee8522d4ff8cfdf434e5bd0a5c2426b7e6896138a50cb9bd58be1c208775f",
+      "bytes": 2139341
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev-3_wb-1000-identity.png",
+      "sha256": "1e342fa136d50040639faa2449cf772f0665a663c8de1662541a59f6afe89c1f",
+      "bytes": 2455079
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev-3_wb-1000-removal.png",
+      "sha256": "44f2f1d964b4079733c777f8febbc0a630e880e8b4833bf8b51b5cdbd5d8afc3",
+      "bytes": 2427487
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/neutral_ev-3_wb-1000-truth.png",
+      "sha256": "7bf0bc3addc5a70cbce7efd9c25c0f84bb54af1a4b95b1c9575b7daf11195d0c",
+      "bytes": 2455121
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/replacement.f16",
+      "sha256": "642c7e4bbc40c226273e86dd3827c3841e73b8e6f106d05ba271a0ed0636d60d",
+      "bytes": 33554464
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004/report.json",
+      "sha256": "22d5949b722c0b7a507a48c8ec5d8d2140f2974e855d393e974f3f82cf0a67d2",
+      "bytes": 4412
+    }
+  ],
+  "tests": {
+    "rustExamplePassed": 8,
+    "actualRawRefusalsPassed": 10,
+    "failures": 0,
+    "skips": 0,
+    "nativeBakeRefusals": [
+      "Changed source dimensions",
+      "Changed signed-log encoding recipe with otherwise retained tensors"
+    ],
+    "scope": "Actual required retained RAW and MIMF files, no synthetic hole fallback. Closed-form whole-mask expansion/coverage exact across mask partitions."
+  },
+  "observations": [
+    "Native2048 scene assembled from four bounded1024 contexts matches whole-frame canonical oracle in every f32 channel bit. Mask partitions only calculate union geometry; all selected pixels enter one joint2048 inference.",
+    "Whole selected person mask is 1154x1669, larger than production1024, with1045630 expanded hole pixels. No pixel resampling, 8-bit model input, independent model tiles, shipping pin or cap change.",
+    "All18 Auto/Neutral EV(-3,0,+3)/WB(-1000,0,+1000) research grades retain whole-frame known/protected f32 samples exactly. Identity fp16 round-trip max scene error0.001739501953125 at+3EV; no independent ACR pass is implied.",
+    "Visual photographic structure check fails: broad textile-like fill tracks the shopper silhouette, with retained rim/bag fragments and no plausible reconstructed market background. Source truth.png means original scene, not hidden-background ground truth. No numerical photographic acceptance score claimed.",
+    "Reject larger model admission on this observed challenge; replacing preview quantization/rectangle with exact RAW/person mask did not qualify fill quality.",
+    "ORT and reference were separate single-owner Python research processes on shared M5Max128GiB host, four CPU threads. Single runs are neither controlled latency distributions nor16/24/32GiB device proof.",
+    "No native UI runtime, saved XMP2048, GPU/live/tile/export,100MPperformance, browser or legal/signing qualification. Native library inputs unchanged; existing Mac build remains current."
+  ],
+  "decision": "Reject native2048 LaMa release admission; retain research and refuse oversized production contexts. #3941 remains In Progress; full goal active without external blocker.",
+  "sourceSHA256": {
+    "src/raw-pipeline/raw-core/examples/removal-scene-probe.rs": "2e692d4966d90ff364cfd8626c89a2eb926ba19bea60f840807004cc23256339",
+    "src/raw-pipeline/raw-core/examples/removal_scene/large.rs": "db323dc06ff72fdb8140824b1b0793161fcfced8c785dce2e15e813cee1f3cdd",
+    "src/raw-pipeline/raw-core/examples/removal_scene/large_masks.rs": "629d1345fec57c2da3ff26625402d71d8367caebd84a8d509d770388a100efcc",
+    "src/raw-pipeline/raw-core/examples/removal_scene/calibration.rs": "8b304f2854ef4841b356b2eef04e7c57cdd22f16c421322e3e21c296118581a3",
+    "src/raw-pipeline/raw-core/examples/removal_scene/encoding.rs": "5f4903b2b496150ca9aeb29629baede251b3403813c24681287f6e16e1e4089d",
+    "tools/removal/probe_lama_large_scene.py": "fb3ebbaba6cc74705fa4a18c04046b426d64616c3658ed49dbd37b5e64e21d64",
+    "tools/removal/lama_large_scene_test.py": "611db2d04063e030f8468cc80f2d6b85f48c4b77f86c119ee58b433bcfe2281f",
+    "tools/removal/export_lama_native.py": "8cac2884b6809012ce258ddf7c3e16eb894ca19036162d5b9d719003ac1d0ff4",
+    "tools/removal/lama_fft_onnx.py": "9e07cc491f93ba7cd112084b6daacd0f2e9dc8aaa5d0fd432c25fa9737a8ffb8"
+  },
+  "logs": {
+    "lama-native2048-export-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-native2048-export-20261004.log",
+      "sha256": "2c02e99822e8f02b4dfbf5d657c934b257e07cc29257c2b4ab2444963d133343",
+      "bytes": 3855
+    },
+    "lama-large-raw-final-build-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-final-build-20261004.log",
+      "sha256": "405284e7f813f63d5f79071c205f3dacc7222eebfea1cb47edbaa3ea752f0acb",
+      "bytes": 2507
+    },
+    "lama-large-raw-rust-tests-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-rust-tests-20261004.log",
+      "sha256": "16a3461b1ef581471a0573367559273628df3bf5a8eb0cfbdf4b553b78dd7368",
+      "bytes": 3590
+    },
+    "lama-large-raw-validation-final-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-validation-final-20261004.log",
+      "sha256": "fb366299c5905da41659d40fad58c2ce6df73b974b3389149f87c2fd1738e953",
+      "bytes": 1377
+    },
+    "lama-large-raw-person4-encode-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-encode-20261004.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "lama-large-raw-person4-runtime-final-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-runtime-final-20261004.log",
+      "sha256": "85ba69188af3cb33648d5f93bc30895a4154d21d8df75295667073215c40cf20",
+      "bytes": 1359
+    },
+    "lama-large-raw-person4-reference-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-reference-20261004.log",
+      "sha256": "19325a6ed15fb1eb830b65e4a86a72af743ee29ac80c6f865319b9049595568c",
+      "bytes": 1503
+    },
+    "lama-large-raw-person4-bake-final-20261004.log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-large-raw-person4-bake-final-20261004.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "noPushMergeOrOtherWorktreeMutation": true
+}

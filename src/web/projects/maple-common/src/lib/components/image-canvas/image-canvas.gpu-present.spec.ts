@@ -12,9 +12,13 @@ import { Injector, signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-import { ImageCanvasGpuPresent, wireScopeSampleEffect } from './image-canvas.gpu-present';
+import { ImageCanvasGpuPresent } from './image-canvas.gpu-present';
+import { wireScopeSampleEffect } from './image-canvas.gpu-effects';
 import type { GpuPresentHost } from './image-canvas.gpu-present';
-import type { OpenedLiveSession } from '../../raw-pipeline/raw-pipeline.service';
+import type {
+  RenderedLiveSession,
+  OpenedLiveSession,
+} from '../../raw-pipeline/raw-pipeline.service';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 import { type AdjustmentModel, defaultAdjustmentModel } from '../../models/adjustment-model';
 import { GpuFallbackNoticeService } from '../gpu-fallback-notice/gpu-fallback-notice.service';
@@ -111,6 +115,7 @@ function makeHost(
 
   const canvasSvc = {
     currentPixels: signal<DecodedImage | null>(null),
+    cropInputDimensions: signal<{ w: number; h: number } | null>(null),
     pan: signal({ x: 0, y: 0 }),
   } as unknown as GpuPresentHost['canvasSvc'];
 
@@ -126,6 +131,9 @@ function makeHost(
     state,
     canvasSvc,
     xmpSerializer,
+    savedRemovals: {
+      load: vi.fn(async () => null),
+    } as unknown as GpuPresentHost['savedRemovals'],
     gpuFallback,
     serializeForRender: () => '<x/>',
     captureRenderSerializer() {
@@ -140,6 +148,7 @@ function makeHost(
     currentLayout: () => ({ canvasW: 800, canvasH: 600, pan: { x: 0, y: 0 } }),
     viewportTargetLongEdge: () => 1440,
     recordNativeDims: vi.fn(),
+    recordPaintedDims: vi.fn(),
   };
 }
 
@@ -161,24 +170,39 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const present = new ImageCanvasGpuPresent(host);
     const render = vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
       colorSpace: 'srgb',
+      width: 31,
+      height: 19,
     });
     const params = new Float32Array(19);
     const auto = '<rdf:Description papp:Profile="Auto"/>';
     const neutral = '<rdf:Description papp:Profile="Neutral"/>';
 
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, undefined);
+    expect(render).toHaveBeenLastCalledWith(auto, undefined, {
+      manifest: '[]',
+      bytes: new Uint8Array(),
+    });
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, params);
+    expect(render).toHaveBeenLastCalledWith(auto, params, undefined);
+    expect(host.savedRemovals.load).toHaveBeenCalledTimes(1);
     await present.render(neutral, 1);
-    expect(render).toHaveBeenLastCalledWith(neutral, undefined);
+    expect(render).toHaveBeenLastCalledWith(neutral, undefined, {
+      manifest: '[]',
+      bytes: new Uint8Array(),
+    });
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, undefined);
+    expect(render).toHaveBeenLastCalledWith(auto, undefined, {
+      manifest: '[]',
+      bytes: new Uint8Array(),
+    });
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, params);
+    expect(render).toHaveBeenLastCalledWith(auto, params, undefined);
     present.teardown();
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, undefined);
+    expect(render).toHaveBeenLastCalledWith(auto, undefined, {
+      manifest: '[]',
+      bytes: new Uint8Array(),
+    });
   });
 
   it('uses full XMP when Auto is chosen while a Neutral render is pending', async () => {
@@ -186,10 +210,12 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const present = new ImageCanvasGpuPresent(host);
     const render = vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
       colorSpace: 'srgb',
+      width: 31,
+      height: 19,
     });
     const params = new Float32Array(19);
     await present.render('Auto', 1, params);
-    let resolveNeutral!: (value: { colorSpace: string }) => void;
+    let resolveNeutral!: (value: RenderedLiveSession) => void;
     render.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -197,13 +223,33 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
         }),
     );
     const pendingNeutral = present.render('Neutral', 1);
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(2));
     Object.assign(host, { renderGeneration: 2 });
     await present.render('Auto', 2, params);
-    expect(render).toHaveBeenLastCalledWith('Auto', undefined);
-    resolveNeutral({ colorSpace: 'srgb' });
+    expect(render).toHaveBeenLastCalledWith('Auto', undefined, {
+      manifest: '[]',
+      bytes: new Uint8Array(),
+    });
+    resolveNeutral({ colorSpace: 'srgb', width: 31, height: 19 });
     expect(await pendingNeutral).toBe(false);
     await present.render('Auto', 2, params);
-    expect(render).toHaveBeenLastCalledWith('Auto', params);
+    expect(render).toHaveBeenLastCalledWith('Auto', params, undefined);
+  });
+
+  it('transfers verified companions on a cold render and performs no companion read on scalar ticks', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
+    const present = new ImageCanvasGpuPresent(host);
+    const bundle = { manifest: '[{"name":"saved","length":1}]', bytes: new Uint8Array([7]) };
+    vi.mocked(host.savedRemovals.load).mockResolvedValue(bundle);
+    const render = vi
+      .mocked(host.pipeline.renderLiveSession)
+      .mockResolvedValue({ colorSpace: 'srgb', width: 31, height: 19 });
+    const params = new Float32Array(19);
+    await present.render('accepted recipe', 1, params);
+    expect(render).toHaveBeenLastCalledWith('accepted recipe', undefined, bundle);
+    await present.render('next exposure', 1, params);
+    expect(render).toHaveBeenLastCalledWith('next exposure', params, undefined);
+    expect(host.savedRemovals.load).toHaveBeenCalledTimes(1);
   });
 
   it('publishes actual Auto provenance only for current XMP replies', async () => {
@@ -211,6 +257,8 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const present = new ImageCanvasGpuPresent(host);
     const render = vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
       colorSpace: 'srgb',
+      width: 31,
+      height: 19,
       autoFit: true,
     });
     const params = new Float32Array(19);
@@ -219,7 +267,7 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const count = vi.mocked(host.state.seedLensProfile).mock.calls.length;
     await present.render('Auto', 1, params);
     expect(vi.mocked(host.state.seedLensProfile).mock.calls).toHaveLength(count);
-    render.mockResolvedValue({ colorSpace: 'srgb', autoFit: false });
+    render.mockResolvedValue({ colorSpace: 'srgb', width: 31, height: 19, autoFit: false });
     await present.render('Auto', 0);
     expect(vi.mocked(host.state.seedLensProfile).mock.calls).toHaveLength(count);
     await present.render('Auto', 1);
@@ -237,6 +285,22 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     expect(gpuPresent.active()).toBe(true);
     expect(spy).toHaveBeenCalledTimes(1);
     expect((host.pipeline.openLiveSession as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+  });
+
+  it('records the actual post-crop canvas dimensions after open and render', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
+    const present = new ImageCanvasGpuPresent(host);
+    vi.spyOn(ImageCanvasGpuPresent, 'testGpuPresent').mockResolvedValue(true);
+    await present.open('asset-1', new Uint8Array([0x44]), 'dng');
+    expect(host.recordPaintedDims).toHaveBeenLastCalledWith(800, 600);
+    vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
+      colorSpace: 'srgb',
+      width: 19,
+      height: 31,
+    });
+    await present.render('<cropped/>', 1);
+    expect(host.recordPaintedDims).toHaveBeenLastCalledWith(19, 31);
+    expect(host.recordNativeDims).toHaveBeenLastCalledWith(4000, 3000);
   });
 
   it('(b) failed GPU present test -> open() returns false and active stays false', async () => {

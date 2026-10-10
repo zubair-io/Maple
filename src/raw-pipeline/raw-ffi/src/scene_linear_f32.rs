@@ -20,7 +20,7 @@ use crate::model::{
 use raw_core::decode_cache::{decode_bytes_cached, CacheKey};
 
 #[path = "scene_linear_f32/file_decode.rs"]
-mod file_decode;
+pub(crate) mod file_decode;
 use raw_core::error::Error as CoreError;
 use raw_core::CancelToken;
 use std::ffi::{c_char, CStr};
@@ -97,17 +97,17 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_path(&model, raw_path);
-        let (w, h, f32_rgba, ae_gain, whites_anchor_ev, nr_sampling_scale) =
-            match raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32_cancellable_with_anchors(
+        let rendered = crate::removal_file::render_saved_scene_from_path(&raw_img, raw_path, &model, quality, None, token).unwrap_or_else(|| raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32_cancellable_with_anchors(
                 &raw_img, &model, quality, token,
-            ) {
-                Ok(t) => t,
-                Err(CoreError::Cancelled) => return RC_CANCELLED,
-                Err(e) => {
-                    set_last_error(format!("render: {}", e));
-                    return 8;
-                }
-            };
+            ));
+        let (w, h, f32_rgba, ae_gain, whites_anchor_ev, nr_sampling_scale) = match rendered {
+            Ok(t) => t,
+            Err(CoreError::Cancelled) => return RC_CANCELLED,
+            Err(e) => {
+                set_last_error(format!("render: {}", e));
+                return 8;
+            }
+        };
         write_scene_linear_buf_f32(
             out_ptr,
             w,
@@ -199,17 +199,17 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_bytes(&model, &input, &ext_owned);
-        let (w, h, f32_rgba, ae_gain, whites_anchor_ev, nr_sampling_scale) =
-            match raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32_cancellable_with_anchors(
+        let rendered = crate::removal_file::render_saved_scene(&raw_img, &input, &model, xmp_path_str.as_deref().and_then(|path| std::path::Path::new(path).parent()), quality, None, token).unwrap_or_else(|| raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32_cancellable_with_anchors(
                 &raw_img, &model, quality, token,
-            ) {
-                Ok(t) => t,
-                Err(CoreError::Cancelled) => return RC_CANCELLED,
-                Err(e) => {
-                    set_last_error(format!("render: {}", e));
-                    return 8;
-                }
-            };
+            ));
+        let (w, h, f32_rgba, ae_gain, whites_anchor_ev, nr_sampling_scale) = match rendered {
+            Ok(t) => t,
+            Err(CoreError::Cancelled) => return RC_CANCELLED,
+            Err(e) => {
+                set_last_error(format!("render: {}", e));
+                return 8;
+            }
+        };
         write_scene_linear_buf_f32(
             out_ptr,
             w,
@@ -295,12 +295,16 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_path(&model, raw_path);
-        let (w, h, f32_rgba, ae_gain, whites_anchor_ev, nr_sampling_scale) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_anchors(
+        let rendered = crate::removal_file::render_saved_scene_from_path(&raw_img, raw_path, &model, quality, Some(max_long_edge), token).unwrap_or_else(|| raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_anchors(
             &raw_img, &model, quality, max_long_edge, token,
-        ) {
+        ));
+        let (w, h, f32_rgba, ae_gain, whites_anchor_ev, nr_sampling_scale) = match rendered {
             Ok(t) => t,
             Err(CoreError::Cancelled) => return RC_CANCELLED,
-            Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
+            Err(e) => {
+                set_last_error(format!("render: {}", e));
+                return 8;
+            }
         };
         write_scene_linear_buf_f32(
             out_ptr,
@@ -398,12 +402,16 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_bytes(&model, &input, &ext_owned);
-        let (w, h, f32_rgba, ae_gain, whites_anchor_ev, nr_sampling_scale) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_anchors(
+        let rendered = crate::removal_file::render_saved_scene(&raw_img, &input, &model, xmp_path_str.as_deref().and_then(|path| std::path::Path::new(path).parent()), quality, Some(max_long_edge), token).unwrap_or_else(|| raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_anchors(
             &raw_img, &model, quality, max_long_edge, token,
-        ) {
+        ));
+        let (w, h, f32_rgba, ae_gain, whites_anchor_ev, nr_sampling_scale) = match rendered {
             Ok(t) => t,
             Err(CoreError::Cancelled) => return RC_CANCELLED,
-            Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
+            Err(e) => {
+                set_last_error(format!("render: {}", e));
+                return 8;
+            }
         };
         write_scene_linear_buf_f32(
             out_ptr,

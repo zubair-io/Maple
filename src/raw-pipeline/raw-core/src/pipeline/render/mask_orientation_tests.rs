@@ -239,9 +239,10 @@ fn assert_mask_follows_orientation(wanted: &str) {
             let (rw, rh, actual) = export(&rotated, &model, max_long_edge);
             assert_eq!((rw, rh), (w, h), "{kind} {orientation:?} dims");
             let (_, _, plain) = export(&upright, &unmasked, max_long_edge);
+            let engagement = max_code_delta(&expected, &plain);
             assert!(
-                max_code_delta(&expected, &plain) > 40,
-                "{kind}: the mask must visibly engage for this test to mean anything"
+                engagement > 40,
+                "{kind}: the mask must visibly engage for this test to mean anything (delta {engagement})"
             );
             let delta = max_code_delta(&expected, &actual);
             assert!(

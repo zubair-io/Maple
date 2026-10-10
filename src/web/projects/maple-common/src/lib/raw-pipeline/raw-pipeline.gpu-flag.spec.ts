@@ -176,7 +176,9 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
 
     const second = service.decode(new Uint8Array([0x44]), 'dng');
     await Promise.resolve();
-    const sentAfter = workerStub.postMessage.mock.calls[1][0] as DecodeRequest;
+    const sentAfter = workerStub.postMessage.mock.calls
+      .map(([request]) => request as DecodeRequest)
+      .filter((request) => request.type === 'decode')[1];
     expect(sentAfter.gpu).toBe(false);
     replyOnePixel(workerStub, sentAfter.id);
     await second;
@@ -343,7 +345,13 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
     expect(msg.type).toBe('render-session');
     expect(msg.xmp).toBe(xmp);
 
-    workerStub.reply({ id: msg.id, type: 'render-session-success', colorSpace: 'srgb' });
+    workerStub.reply({
+      id: msg.id,
+      type: 'render-session-success',
+      width: 31,
+      height: 19,
+      colorSpace: 'srgb',
+    });
     const result = await promise;
     expect(result.colorSpace).toBe('srgb');
     // #3397: the render reply never carries scope pixels — the sample arrives
@@ -391,6 +399,8 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
     workerStub.reply({
       id: renderMsg.id,
       type: 'render-session-success',
+      width: 31,
+      height: 19,
       colorSpace: 'srgb',
     });
     await renderPromise;

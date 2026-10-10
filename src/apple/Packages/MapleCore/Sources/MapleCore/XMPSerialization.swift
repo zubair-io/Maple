@@ -37,6 +37,8 @@ public struct XMPParser {
 
   public static func parse(_ xml: String) throws -> (AdjustmentModel, CullingState) {
     var m = AdjustmentModel()
+    m.temperatureSeen = false
+    m.tintSeen = false
     var c = CullingState()
     let parser = XMLParser(data: Data(xml.utf8))
     let delegate = _XMPParserDelegate(model: m, culling: c)
@@ -61,6 +63,9 @@ public struct XMPParser {
     // Repair spots (#3409) — same nested-element walker shape; see
     // `XMPSerialization+Retouch.swift`.
     m.retouchSpots = delegate.retouch.finish()
+    m.inpaintRemovals = try RemovalXMPRecords.read(Data(xml.utf8)).map {
+      try RemovalRecords(json: $0)
+    }
     // WB scale versioning (#1780/#1875/#1893/#1894), resolved at
     // document level: an explicit `papp:WbScaleVersion` stamp wins;
     // otherwise a document carrying the Maple `papp:` namespace AND an
@@ -450,6 +455,7 @@ public struct XMPSerializer {
     let attrs =
       _buildAttrs(model: model, culling: culling, omitWhiteBalance: omitWhiteBalance)
       + _ratingAndLabelAttrs(culling: culling, passthrough: passthrough)
+      + _removalAttrs(model)
       + _passthroughAttrs(passthrough)
     let keywordsBlock = _buildKeywordsBlock(culling: culling)
     // Point tone curves (#365) — the second nested child block. Children

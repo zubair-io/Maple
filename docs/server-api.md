@@ -190,6 +190,42 @@ checks coordinate only writers inside the API process. The worker child process
 (for example batch-sync jobs) and external filesystem writers do not participate
 and can still race a conditional save.
 
+## Removal authoring transport (#3984)
+
+These bearer-authenticated endpoints address a RAW through `?path=<absolute path>`
+under the registered library roots. Inference remains in the browser. They publish
+durable edit companions, not preview-cache entries.
+
+| Method | Path                                                      | Body / result                                                                                  |
+| ------ | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| GET    | `/api/removal/xmp`                                        | `{ revision, xml }`; revision is SHA-256 of the exact sidecar bytes, or `missing`              |
+| POST   | `/api/removal/xmp`                                        | JSON `{ expectedRevision, expectedRecords, xml }`; returns the confirmed revision and document |
+| PUT    | `/api/removal/companion?name=<digest>.mask\|<digest>.f16` | Binary bytes; validates and publishes create-only, returning `{ name }`                        |
+| GET    | `/api/removal/companion?name=<digest>.mask\|<digest>.f16` | Verified binary bytes; missing companions return 404                                           |
+
+Companion names are confined to `.maple/inpaint/` beside the addressed RAW.
+Rust checks digests, codecs and record schemas in disposable native children.
+Publication closes and syncs the staged file, creates the immutable destination
+with a hard link, verifies it, and syncs its directory. Identical uploads are
+idempotent; corrupt occupants remain intact. Directory/file symlinks are rejected.
+
+The XMP commit holds the existing source/sidecar mutation lease. It checks the
+whole-document revision, exact prior owned removal records, original identity,
+and every new companion before publishing and confirming the new document.
+Stale revisions return 409; invalid records or assets return 422. Clear may
+recover an edit with missing old assets, but still verifies the original. An
+exact committed document can confirm a lost-acknowledgement retry; a later edit
+cannot be overwritten by that retry. GET responses use `private, no-store`.
+Mutation requires a POSIX lease on macOS/Linux; other server hosts return 503.
+
+Ordinary `/api/xmp` full-document writes hold the same sidecar mutation lease
+and reject changes to the owned removal list with 409. They can preserve that
+list while saving metadata or develop settings; introducing, replacing or
+clearing accepted removals requires the confirmed commit above. Self Hosted Web
+uses these endpoints for authoring, confirmed history, and saved-preview/export
+companion reads without a browser filesystem handle. Broader photographic,
+device and transport qualification remains under #3984 / #1472.
+
 ## Search
 
 Every filter parameter below is shared by `/api/search`, `/api/search/facets`, `/api/search/buckets`, and `/api/map/clusters`, declared once in `routes/search/query-schema.ts`.

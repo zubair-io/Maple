@@ -88,6 +88,8 @@ export interface WebLiveSessionInstance {
   readonly width: number;
   readonly height: number;
   /** Native oriented dims — what a full-res render would produce (#1080). */
+  readonly cropInputWidth?: number;
+  readonly cropInputHeight?: number;
   readonly fullWidth: number;
   readonly fullHeight: number;
   readonly asShotTemperature: number;
@@ -106,6 +108,17 @@ export interface WebLiveSessionInstance {
   free(): void;
 }
 export interface WebLiveSessionCtor {
+  open_with_saved_removals?(
+    raw: Uint8Array,
+    ext: string,
+    xmp: string,
+    canvas: OffscreenCanvas,
+    maxLongEdge: number | undefined,
+    targetColorSpace: string | undefined,
+    manifest: string,
+    companions: Uint8Array,
+  ): Promise<WebLiveSessionInstance>;
+
   open(
     raw: Uint8Array,
     ext: string,
@@ -136,7 +149,7 @@ export interface WebLiveSessionCtor {
 // the scopes render their pseudo fallback, i.e. exactly today's flag-on behaviour.
 
 /** The transferred editor `OffscreenCanvas` for the open session — the readback source. */
-export let liveCanvas: OffscreenCanvas | null = null;
+let liveCanvas: OffscreenCanvas | null = null;
 
 /** Long-edge cap for the scope readback. Scopes are ~100–250px wide; a 512px long
  *  edge oversamples them comfortably while keeping the readback + transfer trivial. */

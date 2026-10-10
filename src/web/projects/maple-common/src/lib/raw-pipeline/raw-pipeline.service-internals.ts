@@ -24,6 +24,8 @@ import type { MaskRangeSeed } from './raw-pipeline.sample-range.types';
  * achieved canvas colour-space tag the browser configured.
  */
 export interface OpenedLiveSession {
+  cropInputWidth?: number;
+  cropInputHeight?: number;
   width: number;
   height: number;
   /**
@@ -65,6 +67,10 @@ export interface OpenedLiveSession {
  * colour-space tag. The scope readback left this reply in #3397 — see below.
  */
 export interface RenderedLiveSession {
+  cropInputWidth?: number;
+  cropInputHeight?: number;
+  width: number;
+  height: number;
   colorSpace: string;
   /** See `RenderSessionSuccess.lensProfile` (#3479). */
   lensProfile?: LensProfileResolution;
@@ -76,6 +82,11 @@ export interface RenderedLiveSession {
 
 /** Discriminated union of all pending worker-request handler entries. */
 export type PendingHandler =
+  | {
+      kind: 'removal-authoring';
+      resolve: (value: import('./raw-pipeline.removal.types').RemovalAuthoringValue) => void;
+      reject: (error: Error) => void;
+    }
   | {
       kind: 'guided-geometry';
       resolve: (correction: import('./raw-pipeline.guided-geometry').GuidedCorrection) => void;

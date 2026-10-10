@@ -95,6 +95,7 @@ namespace Maple.WinUI.ViewModels
             var before = Adjustments;
             _redoStack.Add(Adjustments.Clone());
             Adjustments = _undoStack[^1];
+            Adjustments.InpaintRemovals = before.InpaintRemovals;
             _undoStack.RemoveAt(_undoStack.Count - 1);
             _undoBaseline = Adjustments.Clone();
             AfterModelReplaced(before);
@@ -112,6 +113,7 @@ namespace Maple.WinUI.ViewModels
             var before = Adjustments;
             _undoStack.Add(Adjustments.Clone());
             Adjustments = _redoStack[^1];
+            Adjustments.InpaintRemovals = before.InpaintRemovals;
             _redoStack.RemoveAt(_redoStack.Count - 1);
             _undoBaseline = Adjustments.Clone();
             AfterModelReplaced(before);
@@ -126,6 +128,7 @@ namespace Maple.WinUI.ViewModels
             _undoStack.Add(Adjustments.Clone());
             _redoStack.Clear();
             Adjustments = DefaultAdjustments();
+            Adjustments.InpaintRemovals = before.InpaintRemovals;
             _undoBaseline = Adjustments.Clone();
             AfterModelReplaced(before);
         }
@@ -141,6 +144,7 @@ namespace Maple.WinUI.ViewModels
             _undoStack.Add(Adjustments.Clone());
             _redoStack.Clear();
             Adjustments = _originalModel.Clone();
+            Adjustments.InpaintRemovals = before.InpaintRemovals;
             _undoBaseline = Adjustments.Clone();
             AfterModelReplaced(before);
         }

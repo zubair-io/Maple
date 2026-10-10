@@ -19,7 +19,27 @@ export class ImageCanvasService {
   /** Native, display-oriented image dimensions for geometry consumers such as
    * crop. Kept beside zoom/pan because the live renderer is the authoritative
    * producer; asset metadata may still be hydrating when its first frame lands. */
+  /** Actual buffer used to round the current crop, reported by Rust. */
+  readonly cropInputDimensions = signal<{ w: number; h: number } | null>(null);
+
   readonly nativeDimensions = signal<{ w: number; h: number } | null>(null);
+
+  /** The very layout object used by CPU draw and GPU CSS presentation.
+   * Overlay reads do not estimate framing from a reduced bitmap's size. */
+  readonly displayLayout = signal<{
+    canvasW: number;
+    canvasH: number;
+    pan: { x: number; y: number };
+  } | null>(null, {
+    equal: (a, b) =>
+      a === b ||
+      (!!a &&
+        !!b &&
+        a.canvasW === b.canvasW &&
+        a.canvasH === b.canvasH &&
+        a.pan.x === b.pan.x &&
+        a.pan.y === b.pan.y),
+  });
 
   /** Current decoded image pixels — set by ImageCanvasComponent on decode. */
   readonly currentPixels = signal<DecodedImage | null>(null);

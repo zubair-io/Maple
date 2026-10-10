@@ -1,0 +1,431 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T07:54:02.091242+00:00",
+  "parent_commit": "bb28c79c189124bf408b76577164a4e19f46f31e",
+  "releaseQualified": false,
+  "app_limit_changed": false,
+  "purpose": "Evaluate learned object-removal task conditioning on native pixels after automatic SDXL generated replacement humans or incorrect structures. This is local SDR research, not a Maple adapter or accepted RAW patch.",
+  "model": {
+    "repository": "JunhaoZhuang/PowerPaint-v2-1",
+    "revision": "5ae2be3ac38b162df209b7ad5de036d339081e33",
+    "source_repository": "https://github.com/open-mmlab/PowerPaint",
+    "source_revision": "5b4c3d52291709fcec2a1870d987da693fd3549c",
+    "research_records": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/powerpaint-research-models.json",
+      "sha256": "5f4b4578bc5c21423907674eef41458db59623635b8ec256382602b1b47455fb"
+    },
+    "verified_payload_files": 15,
+    "payload_bytes": 8303728512,
+    "verified_upstream_source_files": 14,
+    "weights_loading": "SHA256/byte-size checks precede imports and readers. BrushNet safetensors plus explicit weights_only=True/mmap=True torch state dictionaries; all learned keys load strictly. No Gradio controller, shared URL, photo upload or network inference.",
+    "license": {
+      "code_declared": "MIT; adapted diffusion files retain Apache headers",
+      "model_card_declared": "Apache-2.0",
+      "base_model_cards_declared": "CreativeML OpenRAIL-M",
+      "verified_base_cards": [
+        {
+          "repo": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+          "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14",
+          "remoteFile": "README.md",
+          "path": "MODEL-CARD-SD15.md",
+          "bytes": 14461,
+          "sha256": "2079161f9df7524bd9eca5e53ff5911271b8551e0f868b7b5a92b84776df28a3"
+        },
+        {
+          "repo": "SG161222/Realistic_Vision_V6.0_B1_noVAE",
+          "revision": "9a857a696b9aabbf509073e0aa55ec8200b6ef7d",
+          "remoteFile": "README.md",
+          "path": "MODEL-CARD-REALISTIC-VISION.md",
+          "bytes": 4231,
+          "sha256": "a51ba5985056d91937a6f5f2ea2dda16766369279ed03d8723f3f8707a7cbdf0"
+        }
+      ],
+      "production_license_review_complete": false,
+      "scope": "Declared cards are license evidence, not complete production clearance. Base weights, linked code, distribution, operator/user terms and full transitive provenance remain unqualified."
+    }
+  },
+  "input": {
+    "source": {
+      "path": "/tmp/maple-removal-lama-native2048-input-20261003/market-native-2048.png",
+      "sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b"
+    },
+    "native_crop_xywh": [
+      384,
+      384,
+      1024,
+      1536
+    ],
+    "native_extent_hw": [
+      1536,
+      1024
+    ],
+    "source_resampled": false,
+    "domain": "Public CC0 RAW-developed Auto SDR PNG; not a canonical scene-linear RAW inference plate",
+    "license_manifest": {
+      "path": "/tmp/maple-removal-corpus/public-raws/sources.json",
+      "sha256": "0aa7d215b3e3e89fe342bd492440bf9332588116ce8c0155b4a5c973fc15d8bc"
+    },
+    "raw_verification": [
+      {
+        "path": "/tmp/maple-removal-corpus/public-raws/P1010153.RW2",
+        "sha256": "874b652b9d2605030aac18eab4a687903083ac4b8a73029a35f46c36b1f7ba82",
+        "unchanged": true
+      },
+      {
+        "path": "/tmp/maple-removal-corpus/public-raws/DSC06078.ARW",
+        "sha256": "ec04e3ac69d54e7300ba0ff582d10ade0fc3ad28f48507b4c35cacc115e4ee86",
+        "unchanged": true
+      }
+    ],
+    "selection_provenance": "Same existing pinned MobileSAM woman mask as prior experiments, and explicit Paint rectangle [600,560,750,1320] covering overlapping people/bags. No people classification or segmentation accuracy qualification."
+  },
+  "method": {
+    "task_conditioning": "Verified upstream v2 add_task returns P_ctxt positive and P_obj negative; ordinary UNet text is the controller's fixed empty scene blur. No hand-written scene description or people negative text. Same A/B task prompts make fitting-degree blending equivalent.",
+    "controller_differences": [
+      "Bypass demo short-side 640 resize and keep all source/mask samples at native dimensions.",
+      "Local MPS instead of CUDA, CPU generator for initial noise plus global torch seed for upstream VAE latent sampling.",
+      "float32 rather than default float16 after an aborted latent-validity check; no quantization of trained weights in completed runs.",
+      "Build BrushNet architecture from the included Realistic Vision UNet rather than downloading an otherwise overwritten SD1.5 bootstrap. Complete trained BrushNet loads with strict keys.",
+      "Use explicit restricted state dictionaries, preserving concrete task-token Parameter references; only meta modules replace Parameter objects.",
+      "Restore the fixed CLIP position buffer omitted by the newer base checkpoint; every supplied buffer must equal the configured arange.",
+      "No CPU offload, IP adapter or unused safety/ControlNet/depth/pose components in this private network-behavior diagnostic.",
+      "Composite the final prediction only inside binary coverage; upstream raw prediction may change context."
+    ],
+    "runtime_precision": "float32 MPS; tiny scheduler solver independently executes on MPS under Torch 2.14.1, no CPU fallback flag.",
+    "latent_extent_nchw": [
+      1,
+      4,
+      192,
+      128
+    ],
+    "seed": 3941,
+    "denoising_steps": 30,
+    "guidance_scale": 12.0,
+    "brushnet_scale": 1.0
+  },
+  "cases": [
+    {
+      "case": "person",
+      "selected_pixels": 345996,
+      "mask": {
+        "path": "/tmp/maple-removal-guided-native-person-mask-20261003/person-hole.png",
+        "sha256": "923f14de4500e1053f16d6d48fa93e9ccc5d28dbcfc93d3c00828063c68e9666"
+      },
+      "inference_ms": 243254.46095806547,
+      "model_open_ms": 1319.8881251737475,
+      "verification_ms": 2888.1713750306517,
+      "seed": 3941,
+      "requested_steps": 30,
+      "actual_denoising_steps": 30,
+      "guidance": 12.0,
+      "numeric_dtype": "float32",
+      "attention_slicing": "auto",
+      "task_positive": " P_ctxt",
+      "task_negative": " P_obj",
+      "user_prompt": "",
+      "decoded_before_clamp": [
+        {
+          "shape": [
+            1,
+            3,
+            1536,
+            1024
+          ],
+          "finite": true,
+          "minimum": -0.8918223977088928,
+          "maximum": 0.9604007005691528
+        }
+      ],
+      "checks": {
+        "native_crop_equal": true,
+        "outside_png_samples_changed": 0,
+        "outside_f32_bits_changed": 0,
+        "finite_result": true,
+        "all_latents_native": true
+      },
+      "memory": {
+        "process_peak_resident_bytes": 1928888320,
+        "max_observed_step_boundary_mps_allocated_bytes": 8430363136,
+        "max_observed_step_boundary_mps_driver_bytes": 60971335680,
+        "memory_scope": "Process RSS and sampled step-boundary MPS values are distinct, incomplete measures; do not sum or treat as total/peak GPU budget."
+      },
+      "toolchain": {
+        "torch": "2.14.1",
+        "diffusers": "0.27.0",
+        "transformers": "4.28.0",
+        "accelerate": "0.29.3"
+      },
+      "artifacts": {
+        "report.json": {
+          "path": "/tmp/maple-removal-powerpaint-native-person-20261003/report.json",
+          "sha256": "699a3720c9348ebba2d9997821a94e6ba0733001fad5b4e87c360943f7d8912e"
+        },
+        "source.png": {
+          "path": "/tmp/maple-removal-powerpaint-native-person-20261003/source.png",
+          "sha256": "2c2ba6964bb016c9c393cc970453c75fc6be0e1549369a7c2011f011e1e3f290"
+        },
+        "conditioning.png": {
+          "path": "/tmp/maple-removal-powerpaint-native-person-20261003/conditioning.png",
+          "sha256": "3a608877bbe801853f0aa3c17be90bef122329c6c7e81a4016d4b8610a17d60c"
+        },
+        "hole.png": {
+          "path": "/tmp/maple-removal-powerpaint-native-person-20261003/hole.png",
+          "sha256": "74773342ff6fe91e93b25baf7a5ab3a2f07633503d285ca1eee627cd1fa0e674"
+        },
+        "prediction.png": {
+          "path": "/tmp/maple-removal-powerpaint-native-person-20261003/prediction.png",
+          "sha256": "c93f0114ed950aefa4d1f687dcd06bc5f5e963e1b4630e7a382a5dee170b98fb"
+        },
+        "prediction.f32": {
+          "path": "/tmp/maple-removal-powerpaint-native-person-20261003/prediction.f32",
+          "sha256": "9a81000975ec22b02a2eeb6bc6b8112a718292bc58fb112a6eeb263b1e5ec56f"
+        },
+        "result.png": {
+          "path": "/tmp/maple-removal-powerpaint-native-person-20261003/result.png",
+          "sha256": "cc33b14a77330f6e6c6997462772e1f5c767bd5125f841571115914b43eef7c7"
+        },
+        "result.f32": {
+          "path": "/tmp/maple-removal-powerpaint-native-person-20261003/result.f32",
+          "sha256": "80655f20e6762a411580dc808577acb790dfc5ffe277836ee77c606e9d3f2563"
+        },
+        "independent-checks.json": {
+          "path": "/tmp/maple-removal-powerpaint-native-person-20261003/independent-checks.json",
+          "sha256": "513e2f93902f802bd2df3ccf73724eeacc758a0311aed14ff99de87980486f38"
+        }
+      },
+      "visual_inspection": "Selected woman is gone without a scene-specific prompt. The fill has implausible shelves/crates, smeared produce and visible boundaries. Adjacent vendor arm/legs/bags lie outside this mask and remain; their survival is not evidence that model inference failed to erase selected samples. Reject photographic acceptance.",
+      "photographic_acceptance": false
+    },
+    {
+      "case": "paint",
+      "selected_pixels": 990000,
+      "mask": {
+        "path": "/tmp/maple-removal-sdxl-combined-paint-mask-20261003.png",
+        "sha256": "4f84dc7398bc99915fda4c7ff180dc60ace6357d505e4133218ac549a8b3cc57"
+      },
+      "inference_ms": 235999.2902080994,
+      "model_open_ms": 1393.5918328352273,
+      "verification_ms": 2916.048916988075,
+      "seed": 3941,
+      "requested_steps": 30,
+      "actual_denoising_steps": 30,
+      "guidance": 12.0,
+      "numeric_dtype": "float32",
+      "attention_slicing": "auto",
+      "task_positive": " P_ctxt",
+      "task_negative": " P_obj",
+      "user_prompt": "",
+      "decoded_before_clamp": [
+        {
+          "shape": [
+            1,
+            3,
+            1536,
+            1024
+          ],
+          "finite": true,
+          "minimum": -0.8503648638725281,
+          "maximum": 0.9616404175758362
+        }
+      ],
+      "checks": {
+        "native_crop_equal": true,
+        "outside_png_samples_changed": 0,
+        "outside_f32_bits_changed": 0,
+        "finite_result": true,
+        "all_latents_native": true
+      },
+      "memory": {
+        "process_peak_resident_bytes": 1900888064,
+        "max_observed_step_boundary_mps_allocated_bytes": 8435999232,
+        "max_observed_step_boundary_mps_driver_bytes": 60367355904,
+        "memory_scope": "Process RSS and sampled step-boundary MPS values are distinct, incomplete measures; do not sum or treat as total/peak GPU budget."
+      },
+      "toolchain": {
+        "torch": "2.14.1",
+        "diffusers": "0.27.0",
+        "transformers": "4.28.0",
+        "accelerate": "0.29.3"
+      },
+      "artifacts": {
+        "report.json": {
+          "path": "/tmp/maple-removal-powerpaint-native-paint-20261003/report.json",
+          "sha256": "bd782d165c95e9d634d17835e9f9ba5c1972917e23ac22fe1f0b4a3cabe5784a"
+        },
+        "source.png": {
+          "path": "/tmp/maple-removal-powerpaint-native-paint-20261003/source.png",
+          "sha256": "2c2ba6964bb016c9c393cc970453c75fc6be0e1549369a7c2011f011e1e3f290"
+        },
+        "conditioning.png": {
+          "path": "/tmp/maple-removal-powerpaint-native-paint-20261003/conditioning.png",
+          "sha256": "519ba3a6b9ff6b638710f58b8a5bb9d80aa225f63a1a4a671294d5375723a699"
+        },
+        "hole.png": {
+          "path": "/tmp/maple-removal-powerpaint-native-paint-20261003/hole.png",
+          "sha256": "b61caf6d29d198236288343fa7f61a7edcf84fa4f356655b7f68124413ace12b"
+        },
+        "prediction.png": {
+          "path": "/tmp/maple-removal-powerpaint-native-paint-20261003/prediction.png",
+          "sha256": "4d2a4467fbeed2a49c09876e56d8944be57741b6de612557796c8f61ad80f03a"
+        },
+        "prediction.f32": {
+          "path": "/tmp/maple-removal-powerpaint-native-paint-20261003/prediction.f32",
+          "sha256": "f9eb8d7398f259ad32ab636f9688f574df7a705c010225e12340bece448a16a2"
+        },
+        "result.png": {
+          "path": "/tmp/maple-removal-powerpaint-native-paint-20261003/result.png",
+          "sha256": "2521a2154bcadc5bb9fd8238d062fec14c48eae6e6d270e1771cfc1e5438e1b2"
+        },
+        "result.f32": {
+          "path": "/tmp/maple-removal-powerpaint-native-paint-20261003/result.f32",
+          "sha256": "957579ab9063a8344cdc81f4fe94fa42619e99b52078472001725ed7b1fb2ef5"
+        },
+        "independent-checks.json": {
+          "path": "/tmp/maple-removal-powerpaint-native-paint-20261003/independent-checks.json",
+          "sha256": "513e2f93902f802bd2df3ccf73724eeacc758a0311aed14ff99de87980486f38"
+        }
+      },
+      "visual_inspection": "Overlapping selected people are gone, but the model invents many repeated tables/stools, cups and an interior floor instead of continuing the produce stall. Hard rectangular boundaries and tone/texture changes remain. Reject photographic acceptance.",
+      "photographic_acceptance": false
+    }
+  ],
+  "aborted_setup_attempts": [
+    {
+      "cause": "Reused LaMa module initially imported unavailable exporter-only dependencies. Extracted unchanged native pixel helpers shared by three real diagnostics.",
+      "accepted_output": false
+    },
+    {
+      "cause": "Old Transformers expects fixed position_ids absent in the newer base checkpoint; added verified fixed arange buffer, not a learned weight fallback.",
+      "accepted_output": false
+    },
+    {
+      "cause": "assign=True replaced registered trained token Parameters while upstream external_embeddings retained old CPU references. Corrected concrete loads to copy values, and actual checkpoint/reference regression passes.",
+      "log": {
+        "path": "/tmp/maple-removal-powerpaint-native-person-failed-token-load-20261003.log",
+        "sha256": "f809ebc8b27558d53e5b145617498974db401d80f5cd697e9feb7bbf5079d480"
+      },
+      "accepted_output": false
+    },
+    {
+      "cause": "The native fp16 callback refused an unexpected extent or non-finite latent. Its combined predicate did not record which branch failed; the exact root operation was not isolated; completed runs use full precision. The then-current positive task prefix also differed from upstream, detected by the new prompt regression and fixed before completed cases.",
+      "log": {
+        "path": "/tmp/maple-removal-powerpaint-native-person-failed-fp16-20261003.log",
+        "sha256": "4cdd76e3771b414c346696947019b1ffd8dc00215847ffabf210a014ac5d608d"
+      },
+      "accepted_output": false
+    },
+    {
+      "cause": "Torch 2.6.0 MPS lacks scheduler linalg_solve_ex; restarted unchanged float32 method under 2.14.1 after actual MPS 2x2 solver succeeds.",
+      "log": {
+        "path": "/tmp/maple-removal-powerpaint-native-person-failed-old-mps-solver-20261003.log",
+        "sha256": "de4335c609b92b4a69ffbd9ab65a884995274bacd64dbae7e065bc35e28d2c97"
+      },
+      "accepted_output": false
+    }
+  ],
+  "verification": {
+    "powerpaint_tests": {
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "log": {
+        "path": "/tmp/maple-removal-powerpaint-tests-final2-20261003.log",
+        "sha256": "c7ce64afb8853f610387908a124fecfc49572f47f1635ae35668c4ef0150b302"
+      }
+    },
+    "existing_lama_pixel_tests": {
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "log": {
+        "path": "/tmp/maple-removal-native-helper-lama-tests-final-20261003.log",
+        "sha256": "1084d38f755921736569025e86db005d2dbe9b68acae252af67080f81dab813f"
+      }
+    },
+    "existing_sdxl_tests": {
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": {
+        "path": "/tmp/maple-removal-native-helper-sdxl-tests-20261003.log",
+        "sha256": "c2183bac2d044650413b63c399041f13acbce4f461fb4a2a572e1b8a1bb58fdb"
+      }
+    },
+    "helper_extraction": "digest, native_context and save_result have unchanged AST against parent commit. Native pixel budget is shared, with the same value. Historical qualification source hashes describe their original commits; no rerun of historical model inference is claimed.",
+    "format": {
+      "path": "/tmp/maple-removal-powerpaint-format-final-20261003.log",
+      "sha256": "f114d83b30c5c657ee43a847a45bafccaea255d82673feb87c26d252c61e29c1"
+    },
+    "lint": {
+      "path": "/tmp/maple-removal-powerpaint-lint-final-20261003.log",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "source_budget": {
+      "path": "/tmp/maple-removal-powerpaint-budget-final-20261003.log",
+      "sha256": "90b0b928cdd3fad543c7281614414e5a789d3bdbddcb9c5ec4011485ccf00f1c"
+    },
+    "incremental_headroom": {
+      "path": "/tmp/maple-removal-powerpaint-headroom-final-20261003.log",
+      "sha256": "e5ab2a25f8061db32ffdb922fed42f0e27b479832ba0cc573d056ef342acf495"
+    },
+    "independent_saved_pixels": "Read persisted PNG/f32 independently: exact native source crop, finite result, zero changed outside bits/codes, 30 actual native latent frames in each run.",
+    "performance_scope": "Two fresh-process single-seed observations on shared M5 Max 128 GB. CPU regression checks and diagnostic I/O overlapped first run; no controlled p50/p95, fair speed ratio, lower-memory Mac, idle-device or sustained performance qualification. Sampled MPS driver values exceed 60 GB and are not a total peak measurement."
+  },
+  "executed_source_snapshots": {
+    "probe_powerpaint_native.py": {
+      "path": "/tmp/maple-removal-powerpaint-executed-20261003/probe_powerpaint_native.py",
+      "sha256": "d07b5331f64189fa4e7322df5dab23ba3abfd91c994bf6f1b7d5bf907480324f"
+    },
+    "native_probe_pixels.py": {
+      "path": "/tmp/maple-removal-powerpaint-executed-20261003/native_probe_pixels.py",
+      "sha256": "b7327a50ed73250d859b9ded4dc808427b112768ea9643f52620ff81a1071ebc"
+    },
+    "powerpaint-research-models.json": {
+      "path": "/tmp/maple-removal-powerpaint-executed-20261003/powerpaint-research-models.json",
+      "sha256": "5f4b4578bc5c21423907674eef41458db59623635b8ec256382602b1b47455fb"
+    }
+  },
+  "source_files": {
+    "tools/removal/probe_powerpaint_native.py": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_powerpaint_native.py",
+      "sha256": "d07b5331f64189fa4e7322df5dab23ba3abfd91c994bf6f1b7d5bf907480324f"
+    },
+    "tools/removal/powerpaint_native_probe_test.py": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/powerpaint_native_probe_test.py",
+      "sha256": "9b31b5174a0fe646ade86e67ec14d6697a061152977dba35a0a8a98c9e186e1b"
+    },
+    "tools/removal/powerpaint-research-models.json": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/powerpaint-research-models.json",
+      "sha256": "5f4b4578bc5c21423907674eef41458db59623635b8ec256382602b1b47455fb"
+    },
+    "tools/removal/native_probe_pixels.py": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/native_probe_pixels.py",
+      "sha256": "b7327a50ed73250d859b9ded4dc808427b112768ea9643f52620ff81a1071ebc"
+    },
+    "tools/removal/probe_lama_refinement.py": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_lama_refinement.py",
+      "sha256": "f9d5e630ea7688a2700778aac34e12c8cb2e6c4899144f269706c3f50c43ce65"
+    },
+    "tools/removal/probe_sdxl_native.py": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_sdxl_native.py",
+      "sha256": "127f49b175d37936f9c1bb5400bac53a345c4be64a17b780c1cd9f0f4759bd34"
+    }
+  },
+  "decision": "Reject native PowerPaint admission. Learned removal conditioning suppresses selected humans, but structure/texture and boundaries are unacceptable; full-precision latency and sampled driver allocation do not establish an acceptable Mac tier. App native crop cap and all four experimental shipping pins remain unchanged.",
+  "still_unqualified": [
+    "Photographic background reconstruction, seams, fine detail and noise",
+    "Crowd/overlap/main-subject/shadow/reflection corpus and budgets",
+    "Canonical scene-linear RAW plate, anchor inverse, HDR and saved patch integration",
+    "Supported lower-memory Macs, browser/Apple runtime and device fleet",
+    "Portable model packaging, signing, full license provenance and distribution",
+    "Accepted edit/export/recovery and full-epic performance gates"
+  ],
+  "primary_sources": [
+    "https://github.com/open-mmlab/PowerPaint",
+    "https://huggingface.co/JunhaoZhuang/PowerPaint-v2-1",
+    "https://arxiv.org/abs/2312.03594",
+    "https://huggingface.co/SG161222/Realistic_Vision_V6.0_B1_noVAE",
+    "https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5"
+  ]
+}

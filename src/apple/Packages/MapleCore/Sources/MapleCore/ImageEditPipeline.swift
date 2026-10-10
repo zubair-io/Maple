@@ -1112,7 +1112,8 @@ public actor ImageEditPipeline {
     noiseProfile: [Float]? = nil,
     iso: UInt32 = 0,
     readbackCacheAnchor: CIImage? = nil,
-    targetPrimaries: CanvasColorSpace = .srgb
+    targetPrimaries: CanvasColorSpace = .srgb,
+    nativeAutoProfile: NativeAutoProfile? = nil
   ) -> CIImage? {
     let extent = scaled.extent
     let w = Int(extent.width.rounded())
@@ -1175,13 +1176,13 @@ public actor ImageEditPipeline {
       let outputBytes: Data
       do {
         outputBytes = try mapleStage("fused chain+encode") {
-          try PipelineRenderer.applyChainAndEncodeDisplayTarget(
+          try PipelineRenderer.applyChainAndEncodeDisplayTargetWithAuto(
             inputBytes: inputBytes, width: w, height: h, params: params,
             targetPrimaries: targetPrimaries.wireValue,
             noiseProfile: noiseProfile,
             // #3338: the mask stack has to ride every render call — raw-core
             // applies it inside the scene-linear chain.
-            localAdjustments: model.localAdjustments
+            localAdjustments: model.localAdjustments, nativeAutoProfile: nativeAutoProfile
           )
         }
       } catch {
@@ -1528,7 +1529,7 @@ public actor ImageEditPipeline {
   /// decode actually baked — #1976) — so this CPU tick path agrees with
   /// both the GPU live chain and a fresh full develop of the same model.
   /// `nil` keeps the legacy asShot-anchored generic delta bit-for-bit.
-  nonisolated public func processSceneLinear(
+  nonisolated func processSceneLinearResolved(
     decoded: CIImage,
     model: AdjustmentModel,
     targetSize: CGSize? = nil,
@@ -1551,8 +1552,9 @@ public actor ImageEditPipeline {
     // "sRGB-baked lattice pins the encode to sRGB regardless of canvas"
     // rule already applied to the Auto Profile cube below, extended to
     // the second sRGB-baked lattice in this pipeline.
-    targetPrimariesOverride: CanvasColorSpace? = nil
-  ) -> CIImage {
+    targetPrimariesOverride: CanvasColorSpace? = nil,
+    nativeAutoProfile: NativeAutoProfile?
+  ) -> CIImage? {
     let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
     let renderNrSamplingScale = NoiseSamplingScale.reduced(
       nrSamplingScale, from: decoded.extent.size, to: scaled.extent.size)
@@ -1623,7 +1625,7 @@ public actor ImageEditPipeline {
     // — it applies AFTER the encode either way, fused or not, so
     // applying it here to `fusedEncoded` matches
     // `applyAutoCubeIfEncoded`'s success branch exactly.
-    if !Self.fusedChainEncodeDisabled {
+    if nativeAutoProfile != nil || !Self.fusedChainEncodeDisabled {
       let extent = scaled.extent
       let w = Int(extent.width.rounded())
       let h = Int(extent.height.rounded())
@@ -1638,7 +1640,7 @@ public actor ImageEditPipeline {
           )
           return sceneLinearChainCache.get(key) == nil
         }()
-        if wouldMissChainCache,
+        if nativeAutoProfile != nil || wouldMissChainCache,
           let fusedEncoded = applyChainAndEncodeViaFusedFFI(
             scaled, model: model,
             decodedTemperature: decodedTemp, decodedTint: decodedTint,
@@ -1657,13 +1659,20 @@ public actor ImageEditPipeline {
             // follow-up); only a Neutral-profile, no-film render
             // honors the user's canvas setting.
             targetPrimaries: targetPrimariesOverride
-              ?? (profileLUT != nil ? .srgb : CanvasColorSpace.current)
+              ?? (nativeAutoProfile?.artifacts != nil || profileLUT != nil
+                ? .srgb : CanvasColorSpace.current),
+            nativeAutoProfile: nativeAutoProfile
           )
         {
-          return AutoProfileLUT.apply(profileLUT, to: fusedEncoded)
+          return nativeAutoProfile != nil
+            ? fusedEncoded : AutoProfileLUT.apply(profileLUT, to: fusedEncoded)
         }
       }
     }
+
+    // A prepared native tail cannot fall through to a cube-less legacy frame
+    // and then be persisted as settled. Let the native caller report failure.
+    if nativeAutoProfile != nil { return nil }
 
     // #1959/#2042 — the input-readback cache is gated to BOUNDED
     // (non-nil `targetSize`) renders: slider drag ticks always carry a

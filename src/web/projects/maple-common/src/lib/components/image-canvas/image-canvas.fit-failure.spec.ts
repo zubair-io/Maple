@@ -29,7 +29,7 @@ for (const route of ['CPU', 'GPU', 'cold CPU'] as const) {
         renderGeneration: 1,
         loading: signal(false),
         imageBitmap: signal<ImageBitmap | null>(null),
-        canvasSvc: { currentPixels: signal(null) },
+        canvasSvc: { currentPixels: signal(null), cropInputDimensions: signal(null) },
         lastRenderedXmp: null,
         fastTargetPx: () => 512,
         serializeForRender: () => '<xmp/>',
@@ -55,7 +55,8 @@ for (const route of ['CPU', 'GPU', 'cold CPU'] as const) {
           seedLensProfile: (id: AssetId, profile: null, autoFit?: boolean, revision?: number) =>
             capabilities.seed(id, false, true, undefined, profile, autoFit, revision),
         },
-        pipeline: { decode: () => failed, renderLiveSession: () => failed },
+        pipeline: { decode: () => failed, renderLiveSession: vi.fn(() => failed) },
+        savedRemovals: { load: async () => null },
         filmSync: { cpuLutBytesForCurrent: () => undefined },
       };
       vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -80,9 +81,14 @@ for (const route of ['CPU', 'GPU', 'cold CPU'] as const) {
             : new ImageCanvasGpuPresent(host as unknown as GpuPresentHost).render('<xmp/>', 1);
       return { capabilities, model, host, reject, resolve, run };
     }
+    async function waitForRenderStart(h: ReturnType<typeof harness>): Promise<void> {
+      if (route === 'GPU')
+        await vi.waitFor(() => expect(h.host.pipeline.renderLiveSession).toHaveBeenCalledOnce());
+    }
     it('settles a current pending Auto render failure as unavailable', async () => {
       const h = harness();
       const pending = h.run();
+      await waitForRenderStart(h);
       h.reject(new Error('actual rejected renderer request'));
       await pending;
       expect(h.capabilities.for(ASSET).autoFit).toBe(false);
@@ -91,6 +97,7 @@ for (const route of ['CPU', 'GPU', 'cold CPU'] as const) {
       it(`does not publish an old failure after a newer ${newer}`, async () => {
         const h = harness();
         const pending = h.run();
+        await waitForRenderStart(h);
         if (newer === 'revision' || newer === 'completed revision')
           h.capabilities.resetAutoFit(ASSET);
         if (newer === 'completed revision')
@@ -117,6 +124,7 @@ for (const route of ['CPU', 'GPU', 'cold CPU'] as const) {
       it(`retains a completed same-revision outcome ${achieved} arriving during failure`, async () => {
         const h = harness();
         const pending = h.run();
+        await waitForRenderStart(h);
         h.capabilities.seed(
           ASSET,
           false,
@@ -169,6 +177,7 @@ for (const route of ['CPU', 'GPU', 'cold CPU'] as const) {
         h.capabilities.autoFitRevisionFor(ASSET),
       );
       const pending = h.run();
+      await waitForRenderStart(h);
       h.reject(new Error('scalar render failed'));
       await pending;
       expect(h.capabilities.for(ASSET).autoFit).toBe(true);

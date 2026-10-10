@@ -17,6 +17,7 @@ struct IPhoneControlBar: View {
 
   var body: some View {
     VStack(spacing: 0) {
+      EditorSidecarStatus(session: state.session)
       // One measured content tree stays mounted during rotation. Short tools
       // keep their intrinsic height; only a tall selected tool scrolls. Group
       // tabs and tool pills stay pinned outside this bounded region.
@@ -160,6 +161,10 @@ struct IPhoneControlBar: View {
       // list, not a scalar, so this is its whole control surface — the same
       // swap Mask and Geometry make.
       RetouchPanel(state: state)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 7)
+    } else if state.armedTool == .remove {
+      RemovalPanel(state: state)
         .padding(.horizontal, 24)
         .padding(.vertical, 7)
     } else {

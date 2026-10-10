@@ -139,7 +139,10 @@ fn parses_fix_vignette_radial_alongside_warp_in_list_order() {
             3,
             &vignette_radial_params([0.2, 0.0, 0.0, 0.0, 0.0], 0.5, 0.5),
         ),
-        opcode_entry(1, &warp_params(&[[1.0, -0.05, 0.0, 0.0, 0.0, 0.0]], 0.5, 0.5)),
+        opcode_entry(
+            1,
+            &warp_params(&[[1.0, -0.05, 0.0, 0.0, 0.0, 0.0]], 0.5, 0.5),
+        ),
     ]);
     let list = parse_opcode_list(&b).expect("parses");
     assert_eq!(list.skipped_unknown, 0);

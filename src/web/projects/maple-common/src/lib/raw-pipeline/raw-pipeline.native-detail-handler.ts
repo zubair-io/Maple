@@ -10,6 +10,7 @@ interface Patch {
   free(): void;
 }
 interface Session {
+  prepare_saved_removals?(xmp: string, manifest: string, bytes: Uint8Array): string;
   render_tile(
     xmp: string | undefined,
     rect: Uint32Array,
@@ -28,7 +29,12 @@ interface DetailWorkerDependencies {
 
 /** One retained mosaic. Dependencies keep worker lifetime tests browser-free. */
 export class NativeDetailWorker {
-  private current: { sourceId: string; session: Session } | null = null;
+  private current: {
+    sourceId: string;
+    session: Session;
+    companions?: NonNullable<NativeDetailRequest['removals']>;
+    preparedXmp?: string;
+  } | null = null;
   private epoch = 0;
 
   constructor(private readonly deps: DetailWorkerDependencies) {}
@@ -37,6 +43,28 @@ export class NativeDetailWorker {
     this.epoch++;
     this.current?.session.free();
     this.current = null;
+  }
+
+  /** CPU authoring reuses the mosaic already retained for native detail.
+   * A gesture cannot quietly reopen a released or different source. */
+  async withRemovalSession<T>(
+    sourceId: string,
+    ext: string,
+    bytes: ArrayBuffer | undefined,
+    action: (session: Session) => T,
+  ): Promise<T> {
+    const generation = this.epoch;
+    await this.deps.ready();
+    if (generation !== this.epoch) throw new NativeDetailSupersededError();
+    if (this.current?.sourceId !== sourceId) {
+      if (!bytes) throw new Error('Removal RAW session changed; reopen the tool');
+      this.close();
+      this.current = { sourceId, session: this.deps.open(new Uint8Array(bytes), ext) };
+    }
+    // Synchronous use stays inside the owner: another queued image open must
+    // not free this WASM object between returning it and calling into it.
+    this.current.preparedXmp = undefined;
+    return action(this.current.session);
   }
 
   async render(req: NativeDetailRequest): Promise<void> {
@@ -51,6 +79,24 @@ export class NativeDetailWorker {
           sourceId: req.sourceId,
           session: this.deps.open(new Uint8Array(req.bytes), req.ext),
         };
+      }
+      if (req.removals === null) {
+        this.current.companions = undefined;
+        this.current.preparedXmp = undefined;
+      } else if (req.removals) {
+        this.current.companions = req.removals;
+        this.current.preparedXmp = undefined;
+      }
+      if (req.xmp && this.current.companions && this.current.preparedXmp !== req.xmp) {
+        const prepare = this.current.session.prepare_saved_removals;
+        if (!prepare) throw new Error('Saved native-detail preparation is unavailable');
+        prepare.call(
+          this.current.session,
+          req.xmp,
+          this.current.companions.manifest,
+          new Uint8Array(this.current.companions.companions),
+        );
+        this.current.preparedXmp = req.xmp;
       }
       const r = req.rect;
       const patch = this.current.session.render_tile(
@@ -98,3 +144,10 @@ const worker = new NativeDetailWorker({
 export const closeNativeDetail = (): void => worker.close();
 export const handleNativeDetail = (request: NativeDetailRequest): Promise<void> =>
   worker.render(request);
+
+export const withNativeRemovalSession = <T>(
+  sourceId: string,
+  ext: string,
+  bytes: ArrayBuffer | undefined,
+  action: (session: Session) => T,
+): Promise<T> => worker.withRemovalSession(sourceId, ext, bytes, action);

@@ -108,7 +108,9 @@ public actor RenderedPreviewCache {
   // bump the single-sourced `PIPELINE_OUTPUT_VERSION` (invalidating this
   // cache and the Web thumb cache together); host-side render-semantics
   // fixes like v8 bump this Apple-local integer instead.
-  private let viewTransformVersion: UInt32 = 8
+  // v9 (#1472): Mac's settled canvas uses full-export native Auto artifacts,
+  // rather than a viewport proxy. Old proxy-colored frames must be re-derived.
+  private let viewTransformVersion: UInt32 = 9
 
   // MARK: - Configure
 

@@ -107,14 +107,13 @@ extension EditSession {
     targetSize: CGSize?,
     gen: UInt64?,
     decodeGeneration: UInt64,
+    quality: PipelineRenderer.Quality,
     appliedCrop: Crop,
     noiseProfile: [Float]? = nil,
     iso: UInt32 = 0,
     whitesAnchorEv: Float = .nan,
     nrSamplingScale: Float = 1
   ) async -> Bool {
-    let fitRevision = autoFitRevision
-    let fitAssetID = asset.id
     guard GpuLiveFlag.isEnabled, let driver = gpuLiveDriver else {
       editSessionLogger.notice("GPU-TRACE reject flag-or-driver gen=\(gen ?? 0)")
       return false
@@ -245,19 +244,11 @@ extension EditSession {
       }
     }
 
-    let achievedAutoFit: Bool?
-    // Cloud RAWs need the same fit as local files. The session stages
-    // their bytes once for the path-only FFI (#3357).
     if resolvedIsRaw, m.profile == .auto,
-      let url = try? await renderActor.rawRenderSource.url(for: asset)
+      !(await prepareGpuAutoProfile(
+        driver: driver, model: m, decodeGeneration: decodeGeneration, quality: quality, gen: gen))
     {
-      let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
-      let accessing = scope.startAccessingSecurityScopedResource()
-      defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-      achievedAutoFit = await driver.fitAutoProfileIfNeeded(
-        rawPath: url.path, model: m, quality: .preview)
-    } else {
-      achievedAutoFit = false
+      return true  // Superseded work must not start a CPU fallback.
     }
 
     // Film look (epic #2683, Task 10): resolve + push BEFORE this present,
@@ -291,15 +282,17 @@ extension EditSession {
     // anchors at the frame's own as-shot pair (`wbDeltaAnchor` — the
     // WB the strip-XMP decode actually baked) and the FFI derives the
     // matrix with the frame's own calibration — matching the CPU tick
-    // chain and a fresh full develop. Frame-less RAW keeps the legacy
-    // pre-decode as-shot anchor; non-RAW keeps the D65 baseline
-    // (#1734).
+    // chain and a fresh full develop. Frame-less RAW uses the absolute
+    // CAT16 sentinel (#1472); non-RAW keeps the D65 baseline (#1734).
     let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
     let anchor = wbDeltaAnchor
+    let submission = editSessionSignposter.beginInterval(
+      "GpuDriverAwait", id: editSessionSignposter.makeSignpostID(),
+      "generation \(gen ?? 0, privacy: .public)")
     let didPresent = await driver.present(
       model: m,
-      asShotCCT: resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500.0,
-      asShotTint: resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0.0,
+      asShotCCT: resolvedIsRaw ? anchor?.temperature : 6500.0,
+      asShotTint: resolvedIsRaw ? anchor?.tint : 0.0,
       wbFrame: liveWbFrame,
       scopeEnabled: scopeEnabled,
       scopeLayer: scopeLayerIndex
@@ -307,6 +300,7 @@ extension EditSession {
       presentErr = error
       self?.renderError = error
     }
+    editSessionSignposter.endInterval("GpuDriverAwait", submission)
     // Only overwrite on an actual new sample — mirrors the driver's own
     // "one-off readback miss leaves the previous sample in place"
     // contract one layer up. Gated on `scopeEnabled` too, so turning the
@@ -402,12 +396,9 @@ extension EditSession {
     // pixels. Do not wake histograms or claim that a stale frame is ready.
     guard didPresent, !Task.isCancelled else { return true }
     if let gen, gen != (await renderActor.currentGeneration()) { return true }
-    if let achievedAutoFit {
-      publishAutoFit(
-        achievedAutoFit, assetID: fitAssetID, profile: m.profile, revision: fitRevision)
-    }
     editSessionLogger.notice("GPU-TRACE present OK gen=\(gen ?? 0)")
     lastPublishedRenderGeneration = gen
+    editSessionSignposter.emitEvent("GpuPublished", "generation \(gen ?? 0, privacy: .public)")
     if !gpuFramePresented { gpuFramePresented = true }
     histogramState.framePresented()
     editSessionSignposter.emitEvent("GPU frame submitted")

@@ -14,8 +14,8 @@ import Foundation
 
 public enum AdjustmentGroupMerge {
   /// Copy whole generated groups, including neutral values and both curve
-  /// families. Unsupported fields remain the target's own values. Swift
-  /// does not model the Rust-only temperature/tint presence flags.
+  /// families. Unsupported fields remain the target's own values. WB component
+  /// authorship travels alongside its transferred values.
   public static func merged(
     _ target: AdjustmentModel,
     applying source: AdjustmentModel,
@@ -28,6 +28,9 @@ public enum AdjustmentGroupMerge {
       }
     }
     if groups.contains(.whiteBalance) {
+      merged.partialWhiteBalance = source.partialWhiteBalance
+      merged.temperatureSeen = source.temperatureSeen
+      merged.tintSeen = source.tintSeen
       merged.whiteBalancePreset = source.wbSource == .manual ? .custom : source.whiteBalancePreset
       merged.wbSampleX = 0
       merged.wbSampleY = 0
@@ -55,7 +58,7 @@ public enum AdjustmentGroupMerge {
     case "wb_scale_version":
       merged.wbScaleVersion = source.wbScaleVersion
     default:
-      break  // e.g. temperature_seen / tint_seen — no Swift property.
+      break  // WB presence is restored after numerical writes above.
     }
   }
 

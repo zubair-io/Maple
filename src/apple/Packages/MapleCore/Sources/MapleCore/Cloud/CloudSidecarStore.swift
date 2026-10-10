@@ -221,6 +221,8 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
       cachedPassthrough = .empty
     }
     let existing: Data? = absent ? nil : bytes
+    var savedModel = model
+    savedModel.inpaintRemovals = try RemovalXMPRecords.ordinaryWriteRecords(existing)
     if let existing {
       let currentXML = String(decoding: existing, as: UTF8.self)
       _ = try XMPParser.parse(data: existing)
@@ -229,7 +231,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
       cachedPassthrough = XMPParser.parsePassthrough(data: existing)
     }
     let xml = XMPSerializer.serialize(
-      model: model, culling: culling, metadata: cachedMetadata, passthrough: cachedPassthrough)
+      model: savedModel, culling: culling, metadata: cachedMetadata, passthrough: cachedPassthrough)
     var req = URLRequest(url: try sidecarURL)
     req.httpMethod =
       variantId == WorkflowContract.primaryVariantID && assetID.hasPrefix("fs:") ? "POST" : "PUT"
@@ -240,6 +242,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     // Path writes return their preserved XMP; catalog writes acknowledge in JSON.
     let published = String(data: data, encoding: .utf8)
     try renderSidecar.write(published?.hasPrefix("<") == true ? published! : xml)
+    if cached?.0 == model, cached?.1 == culling { cached = (savedModel, culling) }
   }
 
   private func writePending() async {

@@ -28,13 +28,18 @@ extension EditSession {
   /// True when an undo entry exists OR the open transaction has already
   /// moved the model (it will become one at the next boundary).
   public var canUndo: Bool {
-    guard !workflow.isBusy else { return false }
+    guard !workflow.isBusy, !isSavingRemoval else { return false }
     if !transactions.undoStack.isEmpty { return true }
     guard let pending = transactions.pending else { return false }
     return pending.before != model
   }
 
-  public var canRedo: Bool { !workflow.isBusy && !transactions.redoStack.isEmpty }
+  public var canRedo: Bool {
+    !workflow.isBusy && !isSavingRemoval && !transactions.redoStack.isEmpty
+  }
+
+  /// Monotonic edit identity, including edit → undo back to the same model.
+  public var editRevision: UInt64 { transactions.nextID }
 
   /// Open a transaction before a user gesture or discrete edit. Closes
   /// any transaction still open (recording it if it changed anything) so
@@ -43,7 +48,7 @@ extension EditSession {
   public func beginEdit(
     kind: EditTransaction.Kind = .adjustment, description: String = "Adjustment"
   ) {
-    guard !workflow.isBusy else { return }
+    guard !workflow.isBusy, !isSavingRemoval else { return }
     endEdit()
     transactions.nextID &+= 1
     transactions.pending = PendingEdit(
@@ -54,7 +59,7 @@ extension EditSession {
   /// Close the open transaction. A no-op transaction (model unchanged)
   /// records nothing; anything else becomes exactly one undo entry.
   public func endEdit() {
-    guard !workflow.isBusy else { return }
+    guard !workflow.isBusy, !isSavingRemoval else { return }
     guard let pending = transactions.pending else { return }
     transactions.pending = nil
     guard
@@ -76,15 +81,21 @@ extension EditSession {
   }
 
   public func undo() {
-    guard !workflow.isBusy else { return }
+    guard !workflow.isBusy, !isSavingRemoval else { return }
     endEdit()
-    if let tx = transactions.undoStack.last, tx.checkpoint != nil {
+    guard let tx = transactions.undoStack.last else { return }
+    if tx.checkpoint != nil {
       workflow.beginReplay(session: self, transaction: tx, undo: true)
       return
     }
-    guard let tx = transactions.undoStack.popLast() else { return }
+    if tx.before.inpaintRemovals != tx.after.inpaintRemovals {
+      startRemovalHistory(target: tx.before, transition: .undo(tx))
+      return
+    }
+    transactions.undoStack.removeLast()
     transactions.redoStack.append(tx)
     trim(&transactions.redoStack)
+    transactions.nextID &+= 1
     model = rebindingBrushRasters(live: model, restored: tx.before)
     scheduleSemanticSidecarCommit(
       model: tx.before, culling: culling, action: "undo", label: "Undo \(tx.description)")
@@ -93,15 +104,21 @@ extension EditSession {
   }
 
   public func redo() {
-    guard !workflow.isBusy else { return }
+    guard !workflow.isBusy, !isSavingRemoval else { return }
     endEdit()
-    if let tx = transactions.redoStack.last, tx.checkpoint != nil {
+    guard let tx = transactions.redoStack.last else { return }
+    if tx.checkpoint != nil {
       workflow.beginReplay(session: self, transaction: tx, undo: false)
       return
     }
-    guard let tx = transactions.redoStack.popLast() else { return }
+    if tx.before.inpaintRemovals != tx.after.inpaintRemovals {
+      startRemovalHistory(target: tx.after, transition: .redo(tx))
+      return
+    }
+    transactions.redoStack.removeLast()
     transactions.undoStack.append(tx)
     trim(&transactions.undoStack)
+    transactions.nextID &+= 1
     model = rebindingBrushRasters(live: model, restored: tx.after)
     scheduleSemanticSidecarCommit(
       model: tx.after, culling: culling, action: "redo", label: "Redo \(tx.description)")
@@ -110,23 +127,23 @@ extension EditSession {
   }
 
   public func resetToOriginal() {
-    guard !workflow.isBusy else { return }
+    guard !workflow.isBusy, !isSavingRemoval else { return }
     activeBrushStroke = nil
-    beginEdit(kind: .reset, description: "Reset to original")
-    model = rebindingBrushRasters(live: model, restored: originalModel)
-    endEdit()
+    commitModelSnapshot(
+      rebindingBrushRasters(live: model, restored: originalModel),
+      kind: .reset, description: "Reset to original")
   }
 
   /// The recorded transactions, oldest first. Test / diagnostics seam.
   public var undoHistory: [EditTransaction] { transactions.undoStack }
 
-  private func record(_ tx: EditTransaction) {
+  func record(_ tx: EditTransaction) {
     transactions.undoStack.append(tx)
     trim(&transactions.undoStack)
     lastCommittedTransaction = tx
   }
 
-  private func trim(_ stack: inout [EditTransaction]) {
+  func trim(_ stack: inout [EditTransaction]) {
     if stack.count > Self.undoStackCap {
       stack.removeFirst(stack.count - Self.undoStackCap)
     }

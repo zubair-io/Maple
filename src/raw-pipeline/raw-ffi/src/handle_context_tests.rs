@@ -45,7 +45,8 @@ fn handle(auto_ca: bool) -> OwnedHandle {
         },
         ..Default::default()
     };
-    let inner = Box::new(MapleRawHandleInner::new(raw, model));
+    let original = raw_core::types::accepted_removal::ContentDigest::for_bytes(&[]);
+    let inner = Box::new(MapleRawHandleInner::new(raw, model, original, None));
     OwnedHandle(Box::into_raw(Box::new(MapleRawHandle {
         inner: Box::into_raw(inner).cast(),
     })))

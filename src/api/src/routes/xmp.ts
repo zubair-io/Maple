@@ -37,7 +37,8 @@ import { callNative } from 'maple';
 import { parseSidecarWorkflow, PRIMARY_VARIANT_ID } from '../generated/workflow.generated.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
 import * as fs from 'node:fs/promises';
-import { xmpSidecarPath, writeXmpAtomic, deleteXmpSidecar } from '../fs/xmp.ts';
+import { xmpSidecarPath, deleteXmpSidecar } from '../fs/xmp.ts';
+import { writeRemovalAwareXmp } from '../fs/removal-authoring.ts';
 import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
 import { publishSidecarChange } from './xmp-change';
 import { serializeSidecarWrite } from '../fs/sidecar-write-order';
@@ -172,6 +173,8 @@ export const xmpPathRoutes = new Elysia()
         const conditional = await writeXmpIfUnchanged(rawPath, xmlContent, match);
         if (conditional.kind === 'conflict')
           return status(412, { error: 'XMP changed; reload before saving.' });
+        if (conditional.kind === 'removal-conflict')
+          return status(409, { error: 'Removal history changed; use a confirmed removal commit.' });
         if (conditional.kind === 'error') return status(500, { error: conditional.error });
         await publishSidecarChange(rawPath, true);
         set.headers['Content-Type'] = 'application/xml';
@@ -179,11 +182,9 @@ export const xmpPathRoutes = new Elysia()
         set.headers['X-Maple-Xmp-Preconditions'] = 'content-etag-v1';
         return conditional.data;
       }
-      const outcome = await writeXmpAtomic(rawPath, xmlContent);
+      const outcome = await writeRemovalAwareXmp(rawPath, xmlContent);
       if (!outcome.ok) {
-        // Includes failed durable writes and unsupported workflow metadata;
-        // either failure leaves the existing sidecar untouched.
-        set.status = 500;
+        set.status = 'status' in outcome ? outcome.status : 500;
         return { error: outcome.error };
       }
       await publishSidecarChange(rawPath, true);

@@ -541,3 +541,5 @@ mod tests;
 
 #[path = "image_orientation.rs"]
 mod orientation;
+#[path = "image/display_geometry.rs"]
+mod display_geometry;

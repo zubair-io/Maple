@@ -177,6 +177,8 @@ extension EditSession {
     wbSeedTemperature = nil
     wbSeedTint = nil
     renderedPreview = nil
+    // A cleared branch canvas cannot claim the prior branch's settled Auto frame.
+    nativeAutoFrameID = nil
     previewIsFullRender = false
     previewIsThumbnailSeed = false
     gpuFramePresented = false

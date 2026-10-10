@@ -81,7 +81,8 @@ public enum InvalidationScope: String, Equatable, Sendable {
       autoLateralCa: m.autoLateralCa,
       captureSharpeningAmount: m.captureSharpeningAmount,
       captureSharpeningSigma: m.captureSharpeningSigma,
-      retouchSpots: m.retouchSpots)
+      retouchSpots: m.retouchSpots,
+      inpaintRemovals: m.inpaintRemovals)
   }
 
   private struct DecodeInputs: Equatable {
@@ -106,6 +107,8 @@ public enum InvalidationScope: String, Equatable, Sendable {
     /// DCP colorimetry and before the chroma pre-filter, so placing or
     /// moving one re-develops rather than re-running the per-tick chain.
     let retouchSpots: [RetouchSpot]
+    /// Accepted calibration patches change the retained decode product.
+    let inpaintRemovals: RemovalRecords?
   }
 }
 
@@ -220,6 +223,8 @@ public enum SidecarDiff {
     where defaults[key] != value {
       out[key] = value
     }
+    // Accepted removal records are emitted separately from scalar attributes.
+    for (key, value) in XMPSerializer._removalAttrs(model) { out[key] = value }
     let curves = XMPSerializer._buildToneCurvesBlock(model: model, indent: "")
     if !curves.isEmpty {
       out["toneCurves"] = curves

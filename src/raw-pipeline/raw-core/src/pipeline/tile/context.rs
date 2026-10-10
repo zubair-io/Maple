@@ -137,6 +137,7 @@ pub(crate) fn render_scene_linear_tile_from_frame_context_cancellable_f32(
         context.quality(),
         decoded_wb_anchor,
         ae_gain,
+        &[],
         Some(context),
         cancel,
     )

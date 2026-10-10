@@ -1,0 +1,920 @@
+{
+  "issue": 3941,
+  "recordedAt": "2026-10-04T01:53:49.221624+00:00",
+  "releaseQualified": false,
+  "decision": "Do not switch person segmentation to mask token 0 on this evidence. Actual token-0 masks preserve the same duplicate/partial-instance protection interactions; complete-person identity must be handled separately.",
+  "scope": "Actual pinned MobileSAM box-prompt outputs on a retained production RAW proxy/tensor, all four tokens through shared Rust source-coordinate/native asset mapping. This is an input/protocol diagnosis, not independent ownership labels, complete silhouette closure, fill-quality or performance qualification.",
+  "upstreamProtocol": {
+    "revision": "f706ad9c4eb7f219c00d9050e46328518ffb65d2",
+    "decoderURL": "https://github.com/ChaoningZhang/MobileSAM/blob/f706ad9c4eb7f219c00d9050e46328518ffb65d2/mobile_sam/modeling/mask_decoder.py",
+    "singleObjectToken": 0,
+    "ambiguityTokens": [1, 2, 3],
+    "decoderSource": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mobile-sam-source/mobile_sam/modeling/mask_decoder.py",
+      "bytes": 6615,
+      "sha256": "6a2455e990515c67a061187c92c236b879b189f21ef6ebfce1627cae9a6b2f93"
+    },
+    "onnxSource": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mobile-sam-source/mobile_sam/utils/onnx.py",
+      "bytes": 5812,
+      "sha256": "b4410ac1dc9a7bb3a09827520fa08454f9b397608775e2fe4ebfb7c8dbb02666"
+    },
+    "predictorSource": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mobile-sam-source/mobile_sam/predictor.py",
+      "bytes": 11680,
+      "sha256": "6dafa1d20430f6c4e0d37c53bfa80a8241619abb4264d26ca30d843991b760ff"
+    },
+    "note": "Upstream MaskDecoder.forward separates token0 from tokens1..3. The all-output ONNX wrapper uses predict_masks and does not make that choice. Its optional return_single_mask reweights by prompt-token count; Maple exports all four and validates/ranks valid outputs in shared Rust. A box-only query is two corner tokens; no upstream single-mask ONNX parity or policy improvement is claimed."
+  },
+  "probe": {
+    "nativeReportSHA256": "85ebd81386c7640fecb6c686a8b239f6bc5123d524f0a777c0797102bbec3ea3",
+    "rawSHA256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+    "sharedProbeSHA256": "124fd14e10083a5b363c1b759ed977b6c590a89021481f895c414ad7ade35e9c",
+    "selectionInput": {
+      "contentSize": [1024, 683],
+      "encoderDigest": "blake3:c8e250333ea3666a6c9d05305018122c2fc1c7dbe15dfc808c756a7afaad60f9",
+      "encoderDomain": "RGB float32 LE 0..255",
+      "encoderShape": [1, 3, 1024, 1024],
+      "proxyDigest": "blake3:f14887558e3e0bd5f54984c3ba43a8307c073b9d6199299b8a40263db7a35bff",
+      "proxySize": [1024, 683]
+    },
+    "onnxruntime": "1.23.2",
+    "artifacts": {
+      "encoder": "e12aec77d292b119aaa8add4e23a21114d3ff4fac44a1abfb8ca2a391f03bf2b",
+      "decoder": "878e0ba9952d4d35c78d8cbd3ee57cdc3691fda0deb39d2cf1f0c8004f2f38e7"
+    },
+    "cases": [
+      {
+        "person": {
+          "bounds": [2359.513427734375, 1323.6661376953125, 3390.616943359375, 3324.008544921875],
+          "id": 1,
+          "keep": true,
+          "role": "Likely subject",
+          "score": 0.9287084937095642
+        },
+        "productionReplayedExactly": true,
+        "rankedChoice": 1,
+        "candidates": [
+          {
+            "token": 0,
+            "score": 0.9703431129455566,
+            "proxyPixels": 24605,
+            "nativePixels": 844184,
+            "maskDigest": "blake3:0b7ad5d382f8a440d97bae90064c042f1190cd835edff97535c0a7912832c2e7",
+            "commonWithRetained": 818015
+          },
+          {
+            "token": 1,
+            "score": 0.9775227308273315,
+            "proxyPixels": 23882,
+            "nativePixels": 819377,
+            "maskDigest": "blake3:ce4fb987bd5fa8cb7922e77dcd96e5f364f4ac0286fa92e59261af16feae1860",
+            "commonWithRetained": 819377
+          },
+          {
+            "token": 2,
+            "score": 0.9754481315612793,
+            "proxyPixels": 24744,
+            "nativePixels": 849025,
+            "maskDigest": "blake3:08b8a7bd295f786bf9875f702002e113563bfea629f02dfa54f5c4f78b7d71ba",
+            "commonWithRetained": 814537
+          },
+          {
+            "token": 3,
+            "score": 0.9506322145462036,
+            "proxyPixels": 25161,
+            "nativePixels": 863235,
+            "maskDigest": "blake3:245bec530f9656afd3e27f3d291228730f5c7fb9620cf87ea63ee45fe9bebe0b",
+            "commonWithRetained": 819341
+          }
+        ]
+      },
+      {
+        "person": {
+          "bounds": [339.34326171875, 1225.926025390625, 1357.124267578125, 3987.10498046875],
+          "id": 2,
+          "keep": true,
+          "role": "Likely subject",
+          "score": 0.9195449352264404
+        },
+        "productionReplayedExactly": true,
+        "rankedChoice": 2,
+        "candidates": [
+          {
+            "token": 0,
+            "score": 0.9916378259658813,
+            "proxyPixels": 50656,
+            "nativePixels": 1738359,
+            "maskDigest": "blake3:187521dcb245d4ffe6cca0dd49c407de4abb51688311b85ebc2016b1d711c987",
+            "commonWithRetained": 1731860
+          },
+          {
+            "token": 1,
+            "score": 0.9232580661773682,
+            "proxyPixels": 47854,
+            "nativePixels": 1642303,
+            "maskDigest": "blake3:6e2adcdffec4f1dd7f7873889e4c03f35d1026317c55fd815e223132c01b14b1",
+            "commonWithRetained": 1642201
+          },
+          {
+            "token": 2,
+            "score": 1.00205397605896,
+            "proxyPixels": 50468,
+            "nativePixels": 1731932,
+            "maskDigest": "blake3:ae9e1e7313c6299f74ac6c901ea7eb1159ae1953d020223cf07175f822ac2e94",
+            "commonWithRetained": 1731932
+          },
+          {
+            "token": 3,
+            "score": 0.999241828918457,
+            "proxyPixels": 50732,
+            "nativePixels": 1740982,
+            "maskDigest": "blake3:4b7694629c30e26a4e9a13dad2301f52965abf1f0f85f54ac91507304e0347c0",
+            "commonWithRetained": 1731896
+          }
+        ]
+      },
+      {
+        "person": {
+          "bounds": [0, 1425.0997314453125, 599.3267211914062, 3993.12841796875],
+          "id": 3,
+          "keep": true,
+          "role": "Likely subject",
+          "score": 0.8833829164505005
+        },
+        "productionReplayedExactly": true,
+        "rankedChoice": 3,
+        "candidates": [
+          {
+            "token": 0,
+            "score": 0.9488052129745483,
+            "proxyPixels": 28965,
+            "nativePixels": 993720,
+            "maskDigest": "blake3:1c8f9d0b7189b1f9e258226c70d4ab030c315cc3fda8602e8f6296260e5164c6",
+            "commonWithRetained": 993720
+          },
+          {
+            "token": 1,
+            "score": 0.8627921342849731,
+            "proxyPixels": 23032,
+            "nativePixels": 789951,
+            "maskDigest": "blake3:073603098685353e1b5bf8c0e0b6c6e8009821dbad58b8be4ff5e0f0bf7b3eb2",
+            "commonWithRetained": 789711
+          },
+          {
+            "token": 2,
+            "score": 0.976832389831543,
+            "proxyPixels": 28159,
+            "nativePixels": 965950,
+            "maskDigest": "blake3:e46293d08408df7f8ade957658766b21075e3fae1b3a0f87bfce186222c0c92c",
+            "commonWithRetained": 965823
+          },
+          {
+            "token": 3,
+            "score": 0.9859211444854736,
+            "proxyPixels": 29254,
+            "nativePixels": 1003603,
+            "maskDigest": "blake3:f38593ad68b4168595039f88693a32dbc735c7dc5538178343f7677423b9bb58",
+            "commonWithRetained": 1003603
+          }
+        ]
+      },
+      {
+        "person": {
+          "bounds": [1577.129638671875, 1541.351318359375, 2511.241455078125, 3280.099365234375],
+          "id": 4,
+          "keep": true,
+          "role": "Likely subject",
+          "score": 0.8707513809204102
+        },
+        "productionReplayedExactly": true,
+        "rankedChoice": 2,
+        "candidates": [
+          {
+            "token": 0,
+            "score": 0.9628030061721802,
+            "proxyPixels": 29265,
+            "nativePixels": 1004263,
+            "maskDigest": "blake3:c5f55da1a438b807ec8004454303466ba6430f236e7e0a3a50a566c992cb065b",
+            "commonWithRetained": 995241
+          },
+          {
+            "token": 1,
+            "score": 0.8956854939460754,
+            "proxyPixels": 25268,
+            "nativePixels": 867013,
+            "maskDigest": "blake3:688c6b956c80057741928070e870721ee05f1db3103faca377f51208b7be16c0",
+            "commonWithRetained": 839026
+          },
+          {
+            "token": 2,
+            "score": 0.9841040372848511,
+            "proxyPixels": 29028,
+            "nativePixels": 996106,
+            "maskDigest": "blake3:d4b121857a699517fe27a8ecf00539a67d271f9f06a70db483eedb5a4b232b5d",
+            "commonWithRetained": 996106
+          },
+          {
+            "token": 3,
+            "score": 0.976237416267395,
+            "proxyPixels": 29548,
+            "nativePixels": 1014012,
+            "maskDigest": "blake3:26fccc42ec997b57270abdfc25d8184e559d8d96dc85fc74548f8dc11f6f98da",
+            "commonWithRetained": 995944
+          }
+        ]
+      },
+      {
+        "person": {
+          "bounds": [1160.5152587890625, 1554.8511962890625, 1595.103271484375, 3027.515869140625],
+          "id": 5,
+          "keep": true,
+          "role": "Uncertain",
+          "score": 0.8665207624435425
+        },
+        "productionReplayedExactly": true,
+        "rankedChoice": 3,
+        "candidates": [
+          {
+            "token": 0,
+            "score": 0.8325636982917786,
+            "proxyPixels": 6790,
+            "nativePixels": 233069,
+            "maskDigest": "blake3:a7e623f6d36188adb926ad236d64fe9a1dce5f2d81c7098fc935e8c9de7beb1d",
+            "commonWithRetained": 228249
+          },
+          {
+            "token": 1,
+            "score": 0.8785713315010071,
+            "proxyPixels": 6107,
+            "nativePixels": 209524,
+            "maskDigest": "blake3:6d7f2b0df24566242e046a1b56be593899d58dee9663f86c51d733ac86f0fc3f",
+            "commonWithRetained": 207316
+          },
+          {
+            "token": 2,
+            "score": 0.8990274667739868,
+            "proxyPixels": 7030,
+            "nativePixels": 241270,
+            "maskDigest": "blake3:27207be4291bbeb5aa9e3f4e2d6f262b8edf2bae4a463ebd795257ef12bbb91a",
+            "commonWithRetained": 234677
+          },
+          {
+            "token": 3,
+            "score": 0.9178264141082764,
+            "proxyPixels": 8991,
+            "nativePixels": 308581,
+            "maskDigest": "blake3:da774e2563252cfdcbd2bb21e5abc52cb7675c72a6323b9d558b3999dafff94c",
+            "commonWithRetained": 308581
+          }
+        ]
+      },
+      {
+        "person": {
+          "bounds": [3288.872802734375, 1539.19384765625, 3601.3701171875, 1981.574951171875],
+          "id": 6,
+          "keep": false,
+          "role": "Suggested background",
+          "score": 0.8565353155136108
+        },
+        "productionReplayedExactly": true,
+        "rankedChoice": 3,
+        "candidates": [
+          {
+            "token": 0,
+            "score": 0.8425265550613403,
+            "proxyPixels": 2687,
+            "nativePixels": 92278,
+            "maskDigest": "blake3:0e2af1a2a71547bebb39c5cf72c7ed5df10527b3030e5071aa527cab55c603c2",
+            "commonWithRetained": 92242
+          },
+          {
+            "token": 1,
+            "score": 0.8912568092346191,
+            "proxyPixels": 2305,
+            "nativePixels": 79172,
+            "maskDigest": "blake3:33f4815d0444269017120401dcae09f0f643cfd88bd6b31654f82fd0ed8dbdc1",
+            "commonWithRetained": 78584
+          },
+          {
+            "token": 2,
+            "score": 0.9148139953613281,
+            "proxyPixels": 2670,
+            "nativePixels": 91678,
+            "maskDigest": "blake3:967cfdd84d4cad51a79869377062ce25b5b88b01c46ce5ae4c23e58327803b01",
+            "commonWithRetained": 91612
+          },
+          {
+            "token": 3,
+            "score": 0.9345818758010864,
+            "proxyPixels": 2781,
+            "nativePixels": 95543,
+            "maskDigest": "blake3:23c084e284e769ea6167398e96d301115c734bce19dc95a1c5c6484108e488e0",
+            "commonWithRetained": 95543
+          }
+        ]
+      },
+      {
+        "person": {
+          "bounds": [2341.3017578125, 1464.407958984375, 2587.671630859375, 1749.7353515625],
+          "id": 7,
+          "keep": true,
+          "role": "Uncertain",
+          "score": 0.7860373854637146
+        },
+        "productionReplayedExactly": true,
+        "rankedChoice": 3,
+        "candidates": [
+          {
+            "token": 0,
+            "score": 0.9433998465538025,
+            "proxyPixels": 1114,
+            "nativePixels": 38264,
+            "maskDigest": "blake3:a249b97025e6f9e97ddf58a67a747c6e89d93d3617a077ceb19fcf58286f5abb",
+            "commonWithRetained": 38162
+          },
+          {
+            "token": 1,
+            "score": 0.9446531534194946,
+            "proxyPixels": 1067,
+            "nativePixels": 36620,
+            "maskDigest": "blake3:e30fd17c708e5886694374f1d182c8e7c3e57cd264b7cd03d803b0ada0104eb8",
+            "commonWithRetained": 36620
+          },
+          {
+            "token": 2,
+            "score": 0.9627035856246948,
+            "proxyPixels": 1082,
+            "nativePixels": 37148,
+            "maskDigest": "blake3:c0fea2af6997072e5c55afa65ee42dcfde341a7a0c581374e151805d8cdfb2d2",
+            "commonWithRetained": 37118
+          },
+          {
+            "token": 3,
+            "score": 0.9629141092300415,
+            "proxyPixels": 1138,
+            "nativePixels": 39105,
+            "maskDigest": "blake3:b0b9e06d0c2c1c660f12c581d38addc4023483a001cdb5f44f34f3627a95b8d0",
+            "commonWithRetained": 39105
+          }
+        ]
+      },
+      {
+        "person": {
+          "bounds": [2592.306884765625, 1435.8916015625, 2753.84423828125, 1623.7664794921875],
+          "id": 8,
+          "keep": true,
+          "role": "Uncertain",
+          "score": 0.7073631286621094
+        },
+        "productionReplayedExactly": true,
+        "rankedChoice": 2,
+        "candidates": [
+          {
+            "token": 0,
+            "score": 0.91758131980896,
+            "proxyPixels": 577,
+            "nativePixels": 19871,
+            "maskDigest": "blake3:ca75411d357e60b5096e8cc72971843466891c08799a76b32311643f2ea89e5a",
+            "commonWithRetained": 19367
+          },
+          {
+            "token": 1,
+            "score": 0.9386820197105408,
+            "proxyPixels": 548,
+            "nativePixels": 18833,
+            "maskDigest": "blake3:8dbb7fd3d109e79360323f0e9d67c8f5a082d2c4bfc2905cd4c2b9e3846b100e",
+            "commonWithRetained": 18833
+          },
+          {
+            "token": 2,
+            "score": 0.9563965797424316,
+            "proxyPixels": 563,
+            "nativePixels": 19367,
+            "maskDigest": "blake3:b470b8a37604a4ec829f911fac39e51504660dff43de1a571ed39b7964f0e228",
+            "commonWithRetained": 19367
+          },
+          {
+            "token": 3,
+            "score": 0.9546376466751099,
+            "proxyPixels": 594,
+            "nativePixels": 20459,
+            "maskDigest": "blake3:587d9f1cb84a873c1a55886e6f5f4a02be38a79f904a808a4ca145aef4b7c59b",
+            "commonWithRetained": 19367
+          }
+        ]
+      },
+      {
+        "person": {
+          "bounds": [3084.809326171875, 1574.0076904296875, 3344.427001953125, 1814.454833984375],
+          "id": 9,
+          "keep": true,
+          "role": "Uncertain",
+          "score": 0.6653210520744324
+        },
+        "productionReplayedExactly": true,
+        "rankedChoice": 2,
+        "candidates": [
+          {
+            "token": 0,
+            "score": 0.907235860824585,
+            "proxyPixels": 1295,
+            "nativePixels": 44479,
+            "maskDigest": "blake3:16016d2c054883ef5f100bcd94252d598ae626c6cdb80c7094db8aaef351e499",
+            "commonWithRetained": 44479
+          },
+          {
+            "token": 1,
+            "score": 0.9386059045791626,
+            "proxyPixels": 1216,
+            "nativePixels": 41795,
+            "maskDigest": "blake3:05dad4125d88edd42c352c96c5642bcae0ca36bb72a8c61025b75beb56eaf97d",
+            "commonWithRetained": 41795
+          },
+          {
+            "token": 2,
+            "score": 0.9430896043777466,
+            "proxyPixels": 1319,
+            "nativePixels": 45319,
+            "maskDigest": "blake3:397d0faa781207ca8a3a6a83bd6d3cc4214754203a0f6f81659a0081c16a55ed",
+            "commonWithRetained": 45319
+          },
+          {
+            "token": 3,
+            "score": 0.9289159774780273,
+            "proxyPixels": 1377,
+            "nativePixels": 47341,
+            "maskDigest": "blake3:9141e620bae99821f5b7fb89ce2d7af39f87b49df6a52237be534ce5b5e6e62b",
+            "commonWithRetained": 45175
+          }
+        ]
+      },
+      {
+        "person": {
+          "bounds": [56.44190216064453, 1054.5150146484375, 496.8452453613281, 1494.7808837890625],
+          "id": 10,
+          "keep": true,
+          "role": "Uncertain",
+          "score": 0.6495658755302429
+        },
+        "productionReplayedExactly": true,
+        "rankedChoice": 1,
+        "candidates": [
+          {
+            "token": 0,
+            "score": 0.9301765561103821,
+            "proxyPixels": 3074,
+            "nativePixels": 105458,
+            "maskDigest": "blake3:c2f0f274feec4d1025ed87edd48afdd6ccace3d707e3179100213aae62038072",
+            "commonWithRetained": 105194
+          },
+          {
+            "token": 1,
+            "score": 0.9722800850868225,
+            "proxyPixels": 3069,
+            "nativePixels": 105302,
+            "maskDigest": "blake3:5abc90346f125269dd3dea4f3dc1cf9879ae871bd70894fcdad8d1c882e09ea3",
+            "commonWithRetained": 105302
+          },
+          {
+            "token": 2,
+            "score": 0.9530675411224365,
+            "proxyPixels": 3141,
+            "nativePixels": 107756,
+            "maskDigest": "blake3:bc67133c8b7d28235b642b7f85596c9e2145a062c3016e04b5d3730b34c07a14",
+            "commonWithRetained": 105266
+          },
+          {
+            "token": 3,
+            "score": 0.9240946769714355,
+            "proxyPixels": 3753,
+            "nativePixels": 128796,
+            "maskDigest": "blake3:53978ef42803f7acec9ab0f37404a832a0746fca38e41cc203e515f87b1e9ab4",
+            "commonWithRetained": 103940
+          }
+        ]
+      },
+      {
+        "person": {
+          "bounds": [3065.0849609375, 1576.8009033203125, 3340.959228515625, 1976.159423828125],
+          "id": 11,
+          "keep": true,
+          "role": "Uncertain",
+          "score": 0.5773168802261353
+        },
+        "productionReplayedExactly": true,
+        "rankedChoice": 3,
+        "candidates": [
+          {
+            "token": 0,
+            "score": 0.9003392457962036,
+            "proxyPixels": 2410,
+            "nativePixels": 82752,
+            "maskDigest": "blake3:73907e22c9542bf3bc1a28993806eebf7282210accce45e7ef9d5dbcb91ea529",
+            "commonWithRetained": 82752
+          },
+          {
+            "token": 1,
+            "score": 0.886477530002594,
+            "proxyPixels": 1904,
+            "nativePixels": 65377,
+            "maskDigest": "blake3:4c1895988e6e1e88ac87b69d5fc88d2137dc625e6cad7dcdcd7e321f0b2aa0e0",
+            "commonWithRetained": 65059
+          },
+          {
+            "token": 2,
+            "score": 0.9444828033447266,
+            "proxyPixels": 2277,
+            "nativePixels": 78136,
+            "maskDigest": "blake3:30361df69482e1869eaed83e1f6c40379c31a556bc1a6224d76b365503b45813",
+            "commonWithRetained": 78136
+          },
+          {
+            "token": 3,
+            "score": 0.9693843126296997,
+            "proxyPixels": 2435,
+            "nativePixels": 83616,
+            "maskDigest": "blake3:99f7f3b2baabcbf63ee9e89f97759b93080ab936474a6067cba24b9939809136",
+            "commonWithRetained": 83616
+          }
+        ]
+      },
+      {
+        "person": {
+          "bounds": [1481.85205078125, 1500.13232421875, 1755.7445068359375, 1897.8040771484375],
+          "id": 12,
+          "keep": true,
+          "role": "Uncertain",
+          "score": 0.5460658073425293
+        },
+        "productionReplayedExactly": true,
+        "rankedChoice": 3,
+        "candidates": [
+          {
+            "token": 0,
+            "score": 0.8064905405044556,
+            "proxyPixels": 1061,
+            "nativePixels": 36429,
+            "maskDigest": "blake3:212a4f0f1e3e2203c8a94bd8fbc3e767ce538252b834d9311fa22b74321e8c03",
+            "commonWithRetained": 33776
+          },
+          {
+            "token": 1,
+            "score": 0.8624414205551147,
+            "proxyPixels": 1048,
+            "nativePixels": 35985,
+            "maskDigest": "blake3:77702f695a9f25541403b6ebe22d0e27738830eeafd136414a82e5321d55135b",
+            "commonWithRetained": 33266
+          },
+          {
+            "token": 2,
+            "score": 0.8327668905258179,
+            "proxyPixels": 1063,
+            "nativePixels": 36459,
+            "maskDigest": "blake3:92c4aabfb857bee336cc50212b0e4f73ff364e4ea3ae6f26ad54d57d1217ecf2",
+            "commonWithRetained": 36045
+          },
+          {
+            "token": 3,
+            "score": 0.8716851472854614,
+            "proxyPixels": 1678,
+            "nativePixels": 57550,
+            "maskDigest": "blake3:7fb1713474b5ccdc7a57e877f8c7136b7307b08817d65f8d0a5131c1118eebfc",
+            "commonWithRetained": 57550
+          }
+        ]
+      },
+      {
+        "person": {
+          "bounds": [1173.6534423828125, 1556.6324462890625, 1601.958251953125, 2224.6474609375],
+          "id": 13,
+          "keep": true,
+          "role": "Uncertain",
+          "score": 0.5421658754348755
+        },
+        "productionReplayedExactly": true,
+        "rankedChoice": 3,
+        "candidates": [
+          {
+            "token": 0,
+            "score": 0.9217793345451355,
+            "proxyPixels": 4472,
+            "nativePixels": 153439,
+            "maskDigest": "blake3:6982cfa56af90b4d47d88aefec89857b2d079267873f340cf1d68b42f48339a9",
+            "commonWithRetained": 152713
+          },
+          {
+            "token": 1,
+            "score": 0.9294224381446838,
+            "proxyPixels": 3261,
+            "nativePixels": 111812,
+            "maskDigest": "blake3:fc8fdc9af763b4288e3dfadc9795ff1df30646e791882afab1493f0405e9bfcb",
+            "commonWithRetained": 111404
+          },
+          {
+            "token": 2,
+            "score": 0.9542731046676636,
+            "proxyPixels": 4442,
+            "nativePixels": 152389,
+            "maskDigest": "blake3:4ea0b9f861c02cf007a63b5bc793f1576b6f2359bc2639b8da1781ce6e12d6cc",
+            "commonWithRetained": 152245
+          },
+          {
+            "token": 3,
+            "score": 0.9567288160324097,
+            "proxyPixels": 4498,
+            "nativePixels": 154298,
+            "maskDigest": "blake3:71c1a481776c48a2259a69e53e32b4c33e0d0db918c5b471217e8e4b37f78ab2",
+            "commonWithRetained": 154298
+          }
+        ]
+      },
+      {
+        "person": {
+          "bounds": [2065.99609375, 1449.9412841796875, 2279.99853515625, 1568.121337890625],
+          "id": 14,
+          "keep": true,
+          "role": "Uncertain",
+          "score": 0.5396462082862854
+        },
+        "productionReplayedExactly": true,
+        "rankedChoice": 2,
+        "candidates": [
+          {
+            "token": 0,
+            "score": 0.9345734119415283,
+            "proxyPixels": 520,
+            "nativePixels": 17948,
+            "maskDigest": "blake3:5e29536d0b399b58073d78db625875fc9c0b6b30469b90907956becd1946ed4e",
+            "commonWithRetained": 17876
+          },
+          {
+            "token": 1,
+            "score": 0.9561319947242737,
+            "proxyPixels": 500,
+            "nativePixels": 17240,
+            "maskDigest": "blake3:4d51781b0b0831dc2270f369749eae7671bfc48cfcc19e88a179f9430817617d",
+            "commonWithRetained": 17240
+          },
+          {
+            "token": 2,
+            "score": 0.9619194269180298,
+            "proxyPixels": 524,
+            "nativePixels": 18069,
+            "maskDigest": "blake3:5f6bce717f658c6df74fb623757143975baac282d3aa5b0c5e97401353cc0f7e",
+            "commonWithRetained": 18069
+          },
+          {
+            "token": 3,
+            "score": 0.9552798271179199,
+            "proxyPixels": 568,
+            "nativePixels": 19593,
+            "maskDigest": "blake3:df42c0b73a04727160df8e0c98998e4c25be98235724af53a9ce8beb9880b3a5",
+            "commonWithRetained": 18069
+          }
+        ]
+      },
+      {
+        "person": {
+          "bounds": [2.9002726078033447, 1072.8819580078125, 537.4979858398438, 3974.838134765625],
+          "id": 15,
+          "keep": true,
+          "role": "Uncertain",
+          "score": 0.510317862033844
+        },
+        "productionReplayedExactly": true,
+        "rankedChoice": 2,
+        "candidates": [
+          {
+            "token": 0,
+            "score": 0.9903780817985535,
+            "proxyPixels": 32066,
+            "nativePixels": 1100093,
+            "maskDigest": "blake3:5559539dabee8a01fa309fe49141ed476625a068c43f1eee88051783918b291f",
+            "commonWithRetained": 1091388
+          },
+          {
+            "token": 1,
+            "score": 0.8876662254333496,
+            "proxyPixels": 30800,
+            "nativePixels": 1056622,
+            "maskDigest": "blake3:31fd892841e68235cf8e7ddd4dc59f5978b31bd963a58193747272b7283bad60",
+            "commonWithRetained": 1056622
+          },
+          {
+            "token": 2,
+            "score": 1.0045064687728882,
+            "proxyPixels": 31815,
+            "nativePixels": 1091490,
+            "maskDigest": "blake3:5aa6065c9a4abf8268594bb91f6faa721a219d3470765c831139f98987ea0581",
+            "commonWithRetained": 1091490
+          },
+          {
+            "token": 3,
+            "score": 1.0032869577407837,
+            "proxyPixels": 32315,
+            "nativePixels": 1108642,
+            "maskDigest": "blake3:3df2ad9070d52ef038ce6f5f4e39840282e68725fc287dda430619a2017cb11b",
+            "commonWithRetained": 1091490
+          }
+        ]
+      }
+    ],
+    "overlapPairs": {
+      "production": [
+        {
+          "first": 1,
+          "second": 8,
+          "commonPixels": 9364
+        },
+        {
+          "first": 3,
+          "second": 15,
+          "commonPixels": 986794
+        },
+        {
+          "first": 5,
+          "second": 13,
+          "commonPixels": 148132
+        },
+        {
+          "first": 9,
+          "second": 11,
+          "commonPixels": 44941
+        },
+        {
+          "first": 10,
+          "second": 15,
+          "commonPixels": 101568
+        }
+      ],
+      "whole_object_token": [
+        {
+          "first": 1,
+          "second": 8,
+          "commonPixels": 13531
+        },
+        {
+          "first": 3,
+          "second": 15,
+          "commonPixels": 988871
+        },
+        {
+          "first": 5,
+          "second": 13,
+          "commonPixels": 150942
+        },
+        {
+          "first": 9,
+          "second": 11,
+          "commonPixels": 43957
+        },
+        {
+          "first": 10,
+          "second": 15,
+          "commonPixels": 102444
+        }
+      ]
+    },
+    "releaseQualified": false,
+    "scope": "Exact retained production tensor, actual box prompts and all four SAM tokens through the shared native boundary. Token 0 comparison is diagnostic; no ownership, complete-silhouette or photographic fill qualification."
+  },
+  "probeReport": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/person-candidate-boxes-20261004/report.json",
+    "bytes": 25023,
+    "sha256": "312287083add9486315d8a901ca231fcbeab3da09c7edf23a62848f02dddf1bb"
+  },
+  "tool": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_person_candidates.py",
+    "bytes": 9623,
+    "sha256": "1de7cb57140c5d0e3bbb4ba8a7346d1f994999e862333607d1c1fe01f3191cb9"
+  },
+  "sharedExample": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal-selection-probe.rs",
+    "bytes": 2452,
+    "sha256": "96b28cbe5ef8eb149df424e45da73c385429eb4de3024f6d55414394df03ab80"
+  },
+  "inputNativeReport": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/8F05C957-1FFD-4D26-96C5-5F5BEA474EA1/report.json",
+    "bytes": 13220,
+    "sha256": "85ebd81386c7640fecb6c686a8b239f6bc5123d524f0a777c0797102bbec3ea3"
+  },
+  "visualReview": {
+    "comparison": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-candidate-boxes-20261004/candidate-comparison.png",
+      "bytes": 277487,
+      "sha256": "edc28a5d041172bf9a34166e53e3c3f37e64c4c67bd4c62f56aa645b2a45c321"
+    },
+    "detectorBoxes": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-candidate-boxes-20261004/detector-boxes.png",
+      "bytes": 2230560,
+      "sha256": "02edd34c852b9652fe353ce393ec7264e6e1d4809096788cd616f5c3e52016c7"
+    },
+    "observations": [
+      "All15 production native MIMF assets replay byte-exact with the exact retained encoder input and ORT1.23.2 CPU. The score ranking picks tokens1..3 for every instance.",
+      "Token0 retains overlap of body instances3/15 and head10/wholeperson15. Changing output token does not resolve that person identity conflict.",
+      "At the recorded source proxy, boxes3,10,15 visibly refer to body, hat and whole framing of the same left-edge wearer; masks3 and15 overlap extensively while head10 is largely covered by15. These are diagnostic visual observations, not a separately labeled closure corpus.",
+      "Boxes1 and8 visibly refer to different people: foreground green-jacket shopper and the small head behind their shoulder. Both policies yield intersecting masks. Pixel containment/overlap alone is insufficient for automatic same-person grouping.",
+      "Whole token0 for instance5 excludes much of its carried white bag; blindly adopting it is not established to improve complete removal."
+    ]
+  },
+  "actualNativeGroup": {
+    "test": "PhotographicRemovalGroupTests/testSeparatedInstanceChoicesUseActualModelAndOneDurableKeep",
+    "passed": 1,
+    "skipped": 0,
+    "seconds": 98.488,
+    "originalUnchanged": true,
+    "reviewDigest": "blake3:56d7c48751a53faeb5fb5637e81d385f7921aa458e62a1388f3c8b8b2cc62985",
+    "reopenedDigest": "blake3:56d7c48751a53faeb5fb5637e81d385f7921aa458e62a1388f3c8b8b2cc62985",
+    "undoSteps": 1,
+    "selected": [6, 10],
+    "protectionReview": [
+      {
+        "detail": "Some selected pixels of Person 10 are protected by Person 15.",
+        "fullyProtected": false,
+        "keptPeople": [15],
+        "manual": false,
+        "person": 10
+      }
+    ],
+    "selectionInput": {
+      "contentSize": [1024, 683],
+      "encoderDigest": "blake3:c8e250333ea3666a6c9d05305018122c2fc1c7dbe15dfc808c756a7afaad60f9",
+      "encoderDomain": "RGB float32 LE 0..255",
+      "encoderShape": [1, 3, 1024, 1024],
+      "proxyDigest": "blake3:f14887558e3e0bd5f54984c3ba43a8307c073b9d6199299b8a40263db7a35bff",
+      "proxySize": [1024, 683]
+    },
+    "log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-candidate-native-group-20261004.log",
+      "bytes": 22768,
+      "sha256": "f3d639f8990a82a93bc983fe801cf83cf50d8b21e2ffb39983b87a5ab075db02"
+    },
+    "note": "Production role policy still initially selects Person6. The unchanged explicit6+10 group pauses for keeper15 before partial removal, saves two records/four companions in one undo step and reopens byte-exact. It does not establish full-person photographic removal."
+  },
+  "refusals": {
+    "cases": [
+      {
+        "case": "encoder-digest",
+        "exitCode": 1,
+        "expectedReason": "selection input identity mismatch",
+        "outputCreated": false,
+        "stderrSHA256": "6760f54e0a0a49136832c04ddad57a177cdca020bae2c28168e1985cf698c6f3"
+      },
+      {
+        "case": "proxy-digest",
+        "exitCode": 1,
+        "expectedReason": "selection input identity mismatch",
+        "outputCreated": false,
+        "stderrSHA256": "6760f54e0a0a49136832c04ddad57a177cdca020bae2c28168e1985cf698c6f3"
+      },
+      {
+        "case": "source-identity",
+        "exitCode": 1,
+        "expectedReason": "RAW differs from retained production source",
+        "outputCreated": false,
+        "stderrSHA256": "467c467621437d55a798cf408b01bec7f3c9cce5fadc4103699c74a1be4328a1"
+      }
+    ],
+    "scope": "Actual refusal of changed retained input identities before creating diagnostic output. Originals and production model state untouched."
+  },
+  "mainUpdate": {
+    "oldHead": "1cc60f8401b8f881fc975dd4e9773759a4fd0e45",
+    "newHead": "d2bf8c6e3d201fdcf27c5e5e0a170401c1548aca",
+    "base": "eceb8576e6bf7304a5b5e50538aa1c6f8d2e20a9",
+    "preservedCommits": 132,
+    "identicalStablePatches": 132,
+    "audit": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-candidate-main-rebase-audit-20261004.json",
+      "bytes": 63730,
+      "sha256": "ca2bac605cef5144e41c418843e58c04e79d0cfb9b9c997455a727da6d6586c7"
+    },
+    "changes": [
+      "135313a2b: normalize Windows transfer thumbnail lookup paths",
+      "eceb8576e: ignore missing Windows transfer lookup paths"
+    ],
+    "macBuild": "BUILD SUCCEEDED",
+    "macBuildLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-candidate-main-mac-build-20261004.log",
+      "bytes": 798658,
+      "sha256": "cd7bf9866354cec5b3de33b451bbd2b6cb710dfb101788cf47c99a53b53ce26a"
+    },
+    "macApp": "/Users/riabuz/.cache/maple-removal-research/mac-main-update-20261003/Build/Products/Debug/Maple.app",
+    "nativeInputHash": "d28f86a39ec9f2dfd28ba5c94f854fc06312ab08",
+    "nativeCheck": "build-xcframework.sh --check-only passed; new main commits change only Windows shell files",
+    "windowsTransferTests": {
+      "passed": 25,
+      "skipped": 1,
+      "failed": 0,
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-candidate-main-dotnet-20261004.log",
+        "bytes": 2588,
+        "sha256": "eca46082a0d3535125d5d92cd5a956511e2b4e067880b0a04049b3672b86c314"
+      },
+      "limitation": "Cross-platform service tests; changed WinUI ViewModel shell and local preview smoke require Windows runtime. The camera-metadata test skipped without its native baseline/fixture."
+    },
+    "push": false,
+    "merge": false
+  },
+  "next": "Develop source-bound complete-person identity/partial detection qualification with distinct occluding people as negative controls. Keep kept-person protection explicit; do not merge masks solely because one covers another. Continue Mac-first photographic filling, complete authoring/render/export/recovery and supported-device validation before the later Web/portable-consumer gates."
+}

@@ -165,7 +165,7 @@ describe('relocateFile — sidecar follow', () => {
     expect(await read('src/IMG_1.xmp')).toBe('still-edits');
   });
 
-  test('a sidecar copy failure is logged and left in place — never blocks or reverts the primary', async () => {
+  test('an unreadable sidecar stops relocation before publishing or deleting the primary', async () => {
     await write('src/IMG_1.dng', 'pixels');
     const sidecarAbs = await write('src/IMG_1.xmp', 'edits');
     // Make the sidecar unreadable so its copy step throws — simulate a
@@ -178,13 +178,10 @@ describe('relocateFile — sidecar follow', () => {
         mode: 'move',
         collision: 'auto-suffix',
       });
-      expect(outcome.kind).toBe('relocated');
-      if (outcome.kind !== 'relocated') return;
-      expect(outcome.sidecarPaths).toEqual([]);
-      // Primary still relocated successfully.
-      expect(await exists('dst/IMG_1.dng')).toBe(true);
-      expect(await exists('src/IMG_1.dng')).toBe(false);
-      // Sidecar left in place at its ORIGINAL location, untouched.
+      // #1472: unreadable XML cannot prove the absence of accepted assets.
+      expect(outcome.kind).toBe('error');
+      expect(await exists('dst/IMG_1.dng')).toBe(false);
+      expect(await exists('src/IMG_1.dng')).toBe(true);
       expect(await exists('src/IMG_1.xmp')).toBe(true);
     } finally {
       await fs.chmod(sidecarAbs, 0o644).catch(() => {});

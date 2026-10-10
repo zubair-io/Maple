@@ -12,7 +12,9 @@ RenderSchedulingBackpressureTests
 RenderRequestIdentityTests
 RenderActivityTests
 NativeDetailCancellationTests
+NativeAutoProfilePreparationTests
 DecodedCacheAutosaveTests
+DecodedCacheReplacementTests
 RenderedPreviewCacheWriteTests
 RawRenderSourceTests
 EditSessionNativeSizeSeedTests
@@ -223,6 +225,7 @@ RevealInFileManagerSelectionTests
 RevealTargetTests
 SavedFolderStoreTests
 SceneLinearChainF32BandingTests
+SceneLinearHalfShadowTransportTests
 SearchAssetAddressTests
 SearchCursorPaginationTests
 SearchParamsTests
@@ -380,3 +383,38 @@ RestoreSafetyTests
 
 # SMB restore is copy-only: trashed files are marked, never deleted or renamed (#4139/#4173).
 SMBCopyOnlyRestoreTests
+# AI removal (#1472 / #3955): real committed RAW/XMP/companions and native FFI.
+LocalRelocationJournalTests
+LocalRemovalAssetStoreTests
+LocalRemovalDirectoryPublicationTests
+LocalRemovalRestoredPublicationTests
+LocalRemovalCommitRecoveryTests
+RemovalWorkflowRetryTests
+LocalRemovalRelocateTests
+NativeDetailRemovalTests
+NativeSavedRemovalSessionTests
+RemovalCalibrationContextTests
+RemovalExportSnapshotTests
+RemovalGenerationBridgeTests
+RemovalMaskCombineTests
+RemovalModelStateTests
+RemovalSceneHandoffTests
+RemovalSidecarNamespaceTests
+RemovalSmartBridgeTests
+RemovalXMPRecordsTests
+RemovalHistoryTests
+RemovalGroupTests
+RemovalSnapshotTests
+RemovalSessionTests
+MacRemovalModelStoreTests
+RemovalProxyTensorTests
+
+RemovalPeopleBridgeTests
+
+RemovalPersonRefinementTests
+RemovalSavedControlsTests
+RemovalRenderRecoveryTests
+NativeFloatExportTests
+
+SMBRemovalPublicationTests # #3984: retained removal records through real SMB model publication
+NativeRemovalPaintGroupsTests

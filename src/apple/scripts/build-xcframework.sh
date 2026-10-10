@@ -53,19 +53,19 @@ NATIVE_DIR="$(dirname "$SCRIPT_DIR")"
 # Walk up from NATIVE_DIR to find src/raw-pipeline (works whether invoked from
 # within the repo or from the repo root).
 _find_raw_pipeline() {
-    local dir
-    for dir in \
-        "$NATIVE_DIR/../raw-pipeline" \
-        "$NATIVE_DIR/../../raw-pipeline" \
-        "$NATIVE_DIR/../../../raw-pipeline" \
-        "$NATIVE_DIR/../../../../raw-pipeline"; do
-        if [[ -f "$dir/Cargo.toml" ]]; then
-            echo "$(cd "$dir" && pwd)"
-            return 0
-        fi
-    done
-    echo "ERROR: cannot find src/raw-pipeline relative to $NATIVE_DIR" >&2
-    exit 1
+	local dir
+	for dir in \
+		"$NATIVE_DIR/../raw-pipeline" \
+		"$NATIVE_DIR/../../raw-pipeline" \
+		"$NATIVE_DIR/../../../raw-pipeline" \
+		"$NATIVE_DIR/../../../../raw-pipeline"; do
+		if [[ -f "$dir/Cargo.toml" ]]; then
+			echo "$(cd "$dir" && pwd)"
+			return 0
+		fi
+	done
+	echo "ERROR: cannot find src/raw-pipeline relative to $NATIVE_DIR" >&2
+	exit 1
 }
 RAW_PIPELINE_DIR="$(_find_raw_pipeline)"
 RAW_FFI_DIR="$RAW_PIPELINE_DIR/raw-ffi"
@@ -75,25 +75,30 @@ HEADERS_DIR="$NATIVE_DIR/Packages/MapleCore/Sources/MapleCore/include"
 # Flags are combinable in any order (see the usage header) — scan them all
 # rather than testing only "$1", which silently ignored e.g.
 # `--debug --check-only` (Copilot review, #2375).
-ARG_DEBUG=0; ARG_FORCE=0; ARG_CHECK_ONLY=0
+ARG_DEBUG=0
+ARG_FORCE=0
+ARG_CHECK_ONLY=0
 for arg in "$@"; do
-    case "$arg" in
-        --debug) ARG_DEBUG=1 ;;
-        --release) ;;
-        --force) ARG_FORCE=1 ;;
-        --check-only) ARG_CHECK_ONLY=1 ;;
-        *) echo "build-xcframework.sh: unknown flag '$arg' (see usage header)" >&2; exit 2 ;;
-    esac
+	case "$arg" in
+	--debug) ARG_DEBUG=1 ;;
+	--release) ;;
+	--force) ARG_FORCE=1 ;;
+	--check-only) ARG_CHECK_ONLY=1 ;;
+	*)
+		echo "build-xcframework.sh: unknown flag '$arg' (see usage header)" >&2
+		exit 2
+		;;
+	esac
 done
 
 PROFILE="release"
 CARGO_PROFILE_FLAG="--release"
 if [[ "$ARG_DEBUG" == "1" ]]; then
-    PROFILE="debug"
-    CARGO_PROFILE_FLAG=""
-    echo "WARNING: building debug xcframework — maple_pano_stitch runs ~16× slower" >&2
-    echo "         in debug than release on CPU-heavy SIMD/ONNX workloads." >&2
-    echo "         Use this only for fast-compile iteration where pano perf doesn't matter." >&2
+	PROFILE="debug"
+	CARGO_PROFILE_FLAG=""
+	echo "WARNING: building debug xcframework — maple_pano_stitch runs ~16× slower" >&2
+	echo "         in debug than release on CPU-heavy SIMD/ONNX workloads." >&2
+	echo "         Use this only for fast-compile iteration where pano perf doesn't matter." >&2
 fi
 
 # ---------------------------------------------------------------------------
@@ -132,7 +137,7 @@ EXPECTED_SLICE_DIRS=(ios-arm64 ios-arm64-simulator macos-arm64_x86_64)
 
 # Stable content hash over the inputs that affect the build:
 #   - every .rs, .wgsl, and .bin under raw-core/src, raw-ffi/src,
-#     maple-pano/src, and raw-gpu/src (the .bin blobs are include_bytes!-
+#     maple-pano/src, maple-removal/src, and raw-gpu/src (the .bin blobs are include_bytes!-
 #     embedded LUT / profile-bundle build inputs — #1946)
 #   - Cargo.lock (exact dependency versions)
 #   - the workspace + raw-core + raw-ffi Cargo.toml files
@@ -143,38 +148,40 @@ EXPECTED_SLICE_DIRS=(ios-arm64 ios-arm64-simulator macos-arm64_x86_64)
 # renames/additions/deletions all register, independent of locale or
 # filesystem ordering.
 compute_input_hash() {
-    {
-        # raw-core, raw-ffi, (since M3 #1235) maple-pano, and raw-gpu — raw-ffi's
-        # GPU live/present FFI delegates into raw-gpu (the wgpu/WGSL chain), so a
-        # raw-gpu change MUST trigger a rebuild. Omitting it (the bug #1513
-        # exposed) let a raw-gpu-only edit hash-skip and ship a stale xcframework.
-        # Includes `*.wgsl` shaders: raw-gpu `include_str!`s them into the compiled
-        # library (the kernels run from those strings), so a shader-only edit also
-        # changes the lib and must not hash-skip.
-        # Includes `*.bin` blobs (#1946): the baked LUT / profile-bundle files are
-        # `include_bytes!`-embedded into the compiled libraries and are therefore
-        # real build inputs — `view/agx_lut.bin` (the AgX cube LUT) and
-        # `color/profiles/profiles.bin` (the DCP bundle). A LUT- or
-        # profile-only regeneration touches no `.rs`/`.wgsl`
-        # file, so without hashing these a stale xcframework would ship — the same
-        # bug class #1513 fixed for `.wgsl`, never extended to the `.bin` files.
-        find "$RAW_PIPELINE_DIR/raw-core/src" \
-             "$RAW_PIPELINE_DIR/raw-ffi/src" \
-             "$RAW_PIPELINE_DIR/maple-pano/src" \
-             "$RAW_PIPELINE_DIR/raw-gpu/src" \
-            -type f \( -name '*.rs' -o -name '*.wgsl' -o -name '*.bin' \) -print0 2>/dev/null | sort -z | xargs -0 shasum
-        for f in \
-            "$RAW_PIPELINE_DIR/Cargo.lock" \
-            "$RAW_PIPELINE_DIR/Cargo.toml" \
-            "$RAW_PIPELINE_DIR/raw-core/Cargo.toml" \
-            "$RAW_PIPELINE_DIR/raw-ffi/Cargo.toml" \
-            "$RAW_PIPELINE_DIR/maple-pano/Cargo.toml" \
-            "$RAW_PIPELINE_DIR/raw-gpu/Cargo.toml" \
-            "$RAW_FFI_DIR/cbindgen.toml" \
-            "$SCRIPT_DIR/fetch-ort-ios.sh"; do
-            [[ -f "$f" ]] && shasum "$f"
-        done
-    } | shasum | awk '{print $1}'
+	{
+		# raw-core, raw-ffi, (since M3 #1235) maple-pano, and raw-gpu — raw-ffi's
+		# GPU live/present FFI delegates into raw-gpu (the wgpu/WGSL chain), so a
+		# raw-gpu change MUST trigger a rebuild. Omitting it (the bug #1513
+		# exposed) let a raw-gpu-only edit hash-skip and ship a stale xcframework.
+		# Includes `*.wgsl` shaders: raw-gpu `include_str!`s them into the compiled
+		# library (the kernels run from those strings), so a shader-only edit also
+		# changes the lib and must not hash-skip.
+		# Includes `*.bin` blobs (#1946): the baked LUT / profile-bundle files are
+		# `include_bytes!`-embedded into the compiled libraries and are therefore
+		# real build inputs — `view/agx_lut.bin` (the AgX cube LUT) and
+		# `color/profiles/profiles.bin` (the DCP bundle). A LUT- or
+		# profile-only regeneration touches no `.rs`/`.wgsl`
+		# file, so without hashing these a stale xcframework would ship — the same
+		# bug class #1513 fixed for `.wgsl`, never extended to the `.bin` files.
+		find "$RAW_PIPELINE_DIR/raw-core/src" \
+			"$RAW_PIPELINE_DIR/raw-ffi/src" \
+			"$RAW_PIPELINE_DIR/maple-pano/src" \
+			"$RAW_PIPELINE_DIR/maple-removal/src" \
+			"$RAW_PIPELINE_DIR/raw-gpu/src" \
+			-type f \( -name '*.rs' -o -name '*.wgsl' -o -name '*.bin' \) -print0 2>/dev/null | sort -z | xargs -0 shasum
+		for f in \
+			"$RAW_PIPELINE_DIR/Cargo.lock" \
+			"$RAW_PIPELINE_DIR/Cargo.toml" \
+			"$RAW_PIPELINE_DIR/raw-core/Cargo.toml" \
+			"$RAW_PIPELINE_DIR/raw-ffi/Cargo.toml" \
+			"$RAW_PIPELINE_DIR/maple-pano/Cargo.toml" \
+			"$RAW_PIPELINE_DIR/maple-removal/Cargo.toml" \
+			"$RAW_PIPELINE_DIR/raw-gpu/Cargo.toml" \
+			"$RAW_FFI_DIR/cbindgen.toml" \
+			"$SCRIPT_DIR/fetch-ort-ios.sh"; do
+			[[ -f "$f" ]] && shasum "$f"
+		done
+	} | shasum | awk '{print $1}'
 }
 INPUT_HASH="$(compute_input_hash)"
 
@@ -187,16 +194,16 @@ INPUT_HASH="$(compute_input_hash)"
 # copy at HEADERS_DIR, since that's the actual file `import RawPipeline`
 # resolves against for SwiftPM (see docs/apple.md).
 all_slices_present() {
-    [[ -d "$XCFW_OUT_PROBE" ]] || return 1
-    [[ -f "$HEADERS_DIR/RawPipeline.h" ]] || return 1
-    [[ -f "$HEADERS_DIR/module.modulemap" ]] || return 1
-    local d
-    for d in "${EXPECTED_SLICE_DIRS[@]}"; do
-        [[ -f "$XCFW_OUT_PROBE/$d/$LIB_NAME" ]] || return 1
-        [[ -f "$XCFW_OUT_PROBE/$d/Headers/RawPipeline.h" ]] || return 1
-        [[ -f "$XCFW_OUT_PROBE/$d/Headers/module.modulemap" ]] || return 1
-    done
-    return 0
+	[[ -d "$XCFW_OUT_PROBE" ]] || return 1
+	[[ -f "$HEADERS_DIR/RawPipeline.h" ]] || return 1
+	[[ -f "$HEADERS_DIR/module.modulemap" ]] || return 1
+	local d
+	for d in "${EXPECTED_SLICE_DIRS[@]}"; do
+		[[ -f "$XCFW_OUT_PROBE/$d/$LIB_NAME" ]] || return 1
+		[[ -f "$XCFW_OUT_PROBE/$d/Headers/RawPipeline.h" ]] || return 1
+		[[ -f "$XCFW_OUT_PROBE/$d/Headers/module.modulemap" ]] || return 1
+	done
+	return 0
 }
 
 # --check-only (#2375): answer the staleness question and exit — no build,
@@ -205,28 +212,28 @@ all_slices_present() {
 # xcframework fails the build with this message instead of an opaque
 # "value of type '...' has no member '...'" Swift compiler error.
 if [[ "$ARG_CHECK_ONLY" == "1" ]]; then
-    if [[ -f "$STAMP" ]]; then
-        stamped_hash="$(tr -d '[:space:]' < "$STAMP" 2>/dev/null)"
-    else
-        stamped_hash=""
-    fi
-    if [[ "$stamped_hash" == "$INPUT_HASH" ]] && all_slices_present; then
-        echo "==> RawPipeline.xcframework is up to date (hash $INPUT_HASH)."
-        exit 0
-    fi
-    {
-        echo ""
-        echo "ERROR: RawPipeline.xcframework is stale or incomplete."
-        echo "       raw-core/raw-ffi/raw-gpu/maple-pano sources have changed since the"
-        echo "       last successful build (or a slice is missing), so MapleCore would"
-        echo "       fail to compile against the checked-in header with a confusing"
-        echo "       \"value of type '...' has no member '...'\" error."
-        echo ""
-        echo "       Fix: run ./src/apple/scripts/build-xcframework.sh (add --debug for a"
-        echo "       faster iteration build), then build again."
-        echo ""
-    } >&2
-    exit 1
+	if [[ -f "$STAMP" ]]; then
+		stamped_hash="$(tr -d '[:space:]' <"$STAMP" 2>/dev/null)"
+	else
+		stamped_hash=""
+	fi
+	if [[ "$stamped_hash" == "$INPUT_HASH" ]] && all_slices_present; then
+		echo "==> RawPipeline.xcframework is up to date (hash $INPUT_HASH)."
+		exit 0
+	fi
+	{
+		echo ""
+		echo "ERROR: RawPipeline.xcframework is stale or incomplete."
+		echo "       raw-core/raw-ffi/raw-gpu/maple-pano/maple-removal sources have changed since the"
+		echo "       last successful build (or a slice is missing), so MapleCore would"
+		echo "       fail to compile against the checked-in header with a confusing"
+		echo "       \"value of type '...' has no member '...'\" error."
+		echo ""
+		echo "       Fix: run ./src/apple/scripts/build-xcframework.sh (add --debug for a"
+		echo "       faster iteration build), then build again."
+		echo ""
+	} >&2
+	exit 1
 fi
 
 # ---------------------------------------------------------------------------
@@ -254,6 +261,7 @@ echo "    frameworks: $FRAMEWORKS_DIR"
 echo "    profile:    $PROFILE"
 echo "    GPU:        ON (--features gpu, offline + vendored — always-gpu since #1064)"
 echo "    PANO-iOS:   ON (--features pano-ios for iOS slices; static ORT — M6 #1244)"
+echo "    REMOVAL:    ON (--features removal/removal-ios for native AI authoring)"
 
 # ---------------------------------------------------------------------------
 # 0a-pano. Provision the ONNX Runtime iOS static xcframework (M6 #1244).
@@ -273,17 +281,17 @@ echo "    PANO-iOS:   ON (--features pano-ios for iOS slices; static ORT — M6 
 ORT_IOS_XCFW_BASE="${HOME}/.cache/maple-pano/ort-ios/onnxruntime-c-1.22.0/onnxruntime.xcframework"
 
 fetch_ort_ios_if_needed() {
-    local fetch_script="$SCRIPT_DIR/fetch-ort-ios.sh"
-    if [[ ! -x "$fetch_script" ]]; then
-        echo "ERROR: fetch-ort-ios.sh not found at $fetch_script" >&2
-        exit 1
-    fi
-    if [[ ! -f "${ORT_IOS_XCFW_BASE}/ios-arm64/onnxruntime.framework/onnxruntime" ]]; then
-        echo "==> ORT iOS static lib not cached — fetching..."
-        "$fetch_script"
-    else
-        echo "==> ORT iOS static lib cached at $ORT_IOS_XCFW_BASE"
-    fi
+	local fetch_script="$SCRIPT_DIR/fetch-ort-ios.sh"
+	if [[ ! -x "$fetch_script" ]]; then
+		echo "ERROR: fetch-ort-ios.sh not found at $fetch_script" >&2
+		exit 1
+	fi
+	if [[ ! -f "${ORT_IOS_XCFW_BASE}/ios-arm64/onnxruntime.framework/onnxruntime" ]]; then
+		echo "==> ORT iOS static lib not cached — fetching..."
+		"$fetch_script"
+	else
+		echo "==> ORT iOS static lib cached at $ORT_IOS_XCFW_BASE"
+	fi
 }
 
 fetch_ort_ios_if_needed
@@ -295,28 +303,28 @@ fetch_ort_ios_if_needed
 #     the GPU banner so `--check-only` can use them without the ORT/tool
 #     setup below).
 # ---------------------------------------------------------------------------
-if [[ "${FORCE_XCFRAMEWORK_REBUILD:-}" != "1" && "$ARG_FORCE" != "1" && \
-      -f "$STAMP" ]]; then
-    stamped_hash="$(tr -d '[:space:]' < "$STAMP" 2>/dev/null)"
-    if [[ "$stamped_hash" == "$INPUT_HASH" ]] && all_slices_present; then
-        echo "==> No raw-pipeline input changes since last build (hash $INPUT_HASH) — skipping."
-        exit 0
-    fi
-    if [[ "$stamped_hash" != "$INPUT_HASH" ]]; then
-        echo "    input hash changed (was ${stamped_hash:-<none>}, now $INPUT_HASH) — rebuilding."
-    else
-        echo "    xcframework missing one or more expected slices — rebuilding."
-    fi
+if [[ "${FORCE_XCFRAMEWORK_REBUILD:-}" != "1" && "$ARG_FORCE" != "1" &&
+	-f "$STAMP" ]]; then
+	stamped_hash="$(tr -d '[:space:]' <"$STAMP" 2>/dev/null)"
+	if [[ "$stamped_hash" == "$INPUT_HASH" ]] && all_slices_present; then
+		echo "==> No raw-pipeline input changes since last build (hash $INPUT_HASH) — skipping."
+		exit 0
+	fi
+	if [[ "$stamped_hash" != "$INPUT_HASH" ]]; then
+		echo "    input hash changed (was ${stamped_hash:-<none>}, now $INPUT_HASH) — rebuilding."
+	else
+		echo "    xcframework missing one or more expected slices — rebuilding."
+	fi
 fi
 
 # ---------------------------------------------------------------------------
 # 0. Validate tools
 # ---------------------------------------------------------------------------
 for tool in cargo cbindgen xcodebuild; do
-    if ! command -v "$tool" &>/dev/null; then
-        echo "ERROR: $tool not found — install it first."
-        exit 1
-    fi
+	if ! command -v "$tool" &>/dev/null; then
+		echo "ERROR: $tool not found — install it first."
+		exit 1
+	fi
 done
 
 # ---------------------------------------------------------------------------
@@ -333,39 +341,39 @@ done
 ORT_SYS_PATCHED_SHA256="82aa6ecb6f147b2af1c0759b90a31a0c0b100f6c6666cd0dff5df5502acfe8fe"
 ORT_SYS_BUILD_RS="$RAW_PIPELINE_DIR/vendor/ort-sys/build.rs"
 if [[ -f "$ORT_SYS_BUILD_RS" ]]; then
-    actual_sha="$(shasum -a 256 "$ORT_SYS_BUILD_RS" | awk '{print $1}')"
-    if [[ "$actual_sha" != "$ORT_SYS_PATCHED_SHA256" ]]; then
-        echo "" >&2
-        echo "ERROR: vendor/ort-sys/build.rs does not have the expected iOS patch." >&2
-        echo "       Found SHA:    $actual_sha" >&2
-        echo "       Expected SHA: $ORT_SYS_PATCHED_SHA256" >&2
-        echo "" >&2
-        echo "       This likely means 'cargo vendor' was re-run and reverted the patch." >&2
-        echo "       Re-apply it:" >&2
-        echo "         src/raw-pipeline/scripts/re-apply-patches.sh" >&2
-        echo "       Then commit vendor/ort-sys/build.rs + vendor/ort-sys/.cargo-checksum.json." >&2
-        echo "" >&2
-        echo "       See src/raw-pipeline/patches/ort-sys-ios-no-clang-rt.patch for details." >&2
-        exit 1
-    fi
-    echo "==> ort-sys iOS patch verified (SHA $ORT_SYS_PATCHED_SHA256)"
+	actual_sha="$(shasum -a 256 "$ORT_SYS_BUILD_RS" | awk '{print $1}')"
+	if [[ "$actual_sha" != "$ORT_SYS_PATCHED_SHA256" ]]; then
+		echo "" >&2
+		echo "ERROR: vendor/ort-sys/build.rs does not have the expected iOS patch." >&2
+		echo "       Found SHA:    $actual_sha" >&2
+		echo "       Expected SHA: $ORT_SYS_PATCHED_SHA256" >&2
+		echo "" >&2
+		echo "       This likely means 'cargo vendor' was re-run and reverted the patch." >&2
+		echo "       Re-apply it:" >&2
+		echo "         src/raw-pipeline/scripts/re-apply-patches.sh" >&2
+		echo "       Then commit vendor/ort-sys/build.rs + vendor/ort-sys/.cargo-checksum.json." >&2
+		echo "" >&2
+		echo "       See src/raw-pipeline/patches/ort-sys-ios-no-clang-rt.patch for details." >&2
+		exit 1
+	fi
+	echo "==> ort-sys iOS patch verified (SHA $ORT_SYS_PATCHED_SHA256)"
 fi
 
 # ---------------------------------------------------------------------------
 # 1. Ensure required Rust targets are installed
 # ---------------------------------------------------------------------------
 TARGETS=(
-    "aarch64-apple-ios"
-    "aarch64-apple-ios-sim"
-    "aarch64-apple-darwin"   # aarch64-apple-macos
-    "x86_64-apple-darwin"    # x86_64-apple-macos
+	"aarch64-apple-ios"
+	"aarch64-apple-ios-sim"
+	"aarch64-apple-darwin" # aarch64-apple-macos
+	"x86_64-apple-darwin"  # x86_64-apple-macos
 )
 
 for target in "${TARGETS[@]}"; do
-    if ! rustup target list --installed | grep -q "^${target}$"; then
-        echo "==> Installing Rust target: $target"
-        rustup target add "$target"
-    fi
+	if ! rustup target list --installed | grep -q "^${target}$"; then
+		echo "==> Installing Rust target: $target"
+		rustup target add "$target"
+	fi
 done
 
 # ---------------------------------------------------------------------------
@@ -374,121 +382,126 @@ done
 CARGO_TARGET_DIR="$RAW_PIPELINE_DIR/target"
 
 build_target() {
-    local triple="$1"
-    echo "==> cargo build [$triple]"
-    (
-        cd "$RAW_PIPELINE_DIR"
-        # Set IPHONEOS_DEPLOYMENT_TARGET / MACOSX_DEPLOYMENT_TARGET so the
-        # linker's minimum OS version matches the Xcode project (iOS 17,
-        # macOS 14). Without this, blake3's NEON assembly triggers a
-        # "___chkstk_darwin / built for newer iOS" linker error because the
-        # Rust target's default minimum (iOS 10 / macOS 10.7) is too old.
-        case "$triple" in
-            *-apple-ios)
-                export IPHONEOS_DEPLOYMENT_TARGET=17.0 ;;
-            *-apple-ios-sim)
-                export IPHONEOS_DEPLOYMENT_TARGET=17.0 ;;
-            *-apple-darwin)
-                export MACOSX_DEPLOYMENT_TARGET=14.0 ;;
-        esac
-        # Build raw-ffi against the vendored crate sources under
-        # src/raw-pipeline/vendor/ (committed by `cargo vendor`), with the network
-        # forbidden. This keeps the Xcode Cloud build hermetic: it removes the
-        # intermittent crates.io DNS failures ("Could not resolve host:
-        # static.crates.io") and fails loudly if the vendor dir is ever stale,
-        # instead of silently falling back to the network.
-        #
-        # The source replacement is passed inline (not via a committed
-        # .cargo/config.toml) so it applies ONLY to this Apple raw-ffi build. A
-        # repo-level config.toml would also be inherited by the WASM build, which
-        # uses `-Z build-std` — that rebuilds std from source and needs std's
-        # *own* dependency versions, which aren't (and shouldn't be) in our vendor
-        # dir. Scoping it here keeps the web/wasm and API builds resolving from
-        # crates.io as before. The directory is absolute so it resolves regardless
-        # of cargo's --config path semantics.
-        #
-        # `--features gpu` is unconditional since #1064 (the Apple build is
-        # always-gpu): it links wgpu/naga/metal into every slice and compiles the
-        # `maple_gpu_*` FFI the always-compiled Swift GPU live path links against.
-        # wgpu's full dep tree IS vendored (#996), so the gpu build cross-compiles
-        # + links into every slice (incl. aarch64-apple-ios — the #1 risk) with no
-        # crates.io round-trip and no DNS flake.
-        #
-        # Pano features (M6 #1244 — split by target):
-        #
-        # macOS slices (`--features gpu,pano`): pulls `maple-pano` with `ml`
-        # (ALIKED + LightGlue via ort `load-dynamic`). The onnxruntime dylib is
-        # loaded at runtime; it is NOT embedded in the xcframework.
-        #
-        # iOS + iOS-sim slices (`--features gpu,pano-ios`): pulls `maple-pano`
-        # with `ml-static` (ort WITHOUT `load-dynamic`). `ORT_LIB_LOCATION`
-        # points at the official iOS static xcframework (cached by fetch-ort-ios.sh
-        # at ~/.cache/maple-pano/ort-ios/). ort-sys sees `libonnxruntime.a` (or the
-        # framework binary named `onnxruntime`) in that dir and emits
-        # `cargo:rustc-link-lib=static=onnxruntime`. The iOS sandbox blocks dlopen
-        # of arbitrary paths — static linking is the only correct path.
-        #
-        # The framework binary inside Apple's pod is named `onnxruntime` (no lib
-        # prefix, no .a extension) and is a Mach-O fat archive (0xcafebabe) even
-        # for single-arch slices. We use `lipo -thin arm64` to extract a plain ar
-        # archive named exactly `libonnxruntime.a` (the name ort-sys probes for)
-        # into a per-target subdirectory of .ort-ios-thin/$PROFILE/$triple/.
-        local PANO_FEATURES="pano"
-        case "$triple" in
-            *-apple-ios|*-apple-ios-sim)
-                PANO_FEATURES="pano-ios"
-                # ort-sys's build.rs searches for `libonnxruntime.a` in ORT_LIB_LOCATION.
-                # Apple's xcframework pod names the binary `onnxruntime` (no lib prefix, no
-                # .a extension) and wraps it in a Mach-O fat archive (magic 0xcafebabe) even
-                # when there is only one architecture. Rust's linker rejects a fat archive
-                # as "Unsupported archive identifier" — it expects a plain ar archive (!<arch>).
-                #
-                # Fix: `lipo -thin arm64` extracts the arm64 slice as a clean ar archive.
-                # We write it to the PROFILE-scoped cache dir alongside the build outputs to
-                # avoid contaminating the shared ORT cache. The extracted .a is stable across
-                # build runs (content-addressed by ORT version + profile), so we skip the lipo
-                # step if the file already exists.
-                # Each target gets its own subdirectory so the file is always
-                # named exactly `libonnxruntime.a` — that is the name ort-sys's
-                # build.rs probes for via `platform_format_lib("onnxruntime")`.
-                # Sharing a flat dir and using per-target name suffixes (e.g.
-                # libonnxruntime-ios-arm64.a) caused ort-sys to emit no link
-                # directive and the build to fail with undefined symbols.
-                ORT_THIN_DIR="$CARGO_TARGET_DIR/.ort-ios-thin/$PROFILE/$triple"
-                mkdir -p "$ORT_THIN_DIR"
-                ORT_THIN_LIB="$ORT_THIN_DIR/libonnxruntime.a"
-                case "$triple" in
-                    *-apple-ios)
-                        ORT_FAT_LIB="${ORT_IOS_XCFW_BASE}/ios-arm64/onnxruntime.framework/onnxruntime"
-                        ;;
-                    *-apple-ios-sim)
-                        ORT_FAT_LIB="${ORT_IOS_XCFW_BASE}/ios-arm64_x86_64-simulator/onnxruntime.framework/onnxruntime"
-                        ;;
-                esac
-                if [[ ! -f "$ORT_THIN_LIB" ]]; then
-                    echo "    lipo -thin arm64 → $ORT_THIN_LIB"
-                    lipo -thin arm64 "$ORT_FAT_LIB" -output "$ORT_THIN_LIB"
-                else
-                    echo "    ORT arm64 slice already extracted: $ORT_THIN_LIB"
-                fi
-                # ort-sys's build.rs calls `add_search_dir` on ORT_LIB_LOCATION, then checks
-                # if `libonnxruntime.a` exists there to emit `cargo:rustc-link-lib=static=onnxruntime`.
-                export ORT_LIB_LOCATION="$ORT_THIN_DIR"
-                echo "    ORT_LIB_LOCATION=$ORT_LIB_LOCATION (static arm64 ar archive, M6 #1244)"
-                ;;
-        esac
-        CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build --offline $CARGO_PROFILE_FLAG \
-            --config 'source.crates-io.replace-with="vendored-sources"' \
-            --config "source.vendored-sources.directory=\"$RAW_PIPELINE_DIR/vendor\"" \
-            --target "$triple" \
-            --package raw-ffi \
-            --features "gpu,$PANO_FEATURES" \
-            2>&1
-    )
+	local triple="$1"
+	echo "==> cargo build [$triple]"
+	(
+		cd "$RAW_PIPELINE_DIR"
+		# Set IPHONEOS_DEPLOYMENT_TARGET / MACOSX_DEPLOYMENT_TARGET so the
+		# linker's minimum OS version matches the Xcode project (iOS 17,
+		# macOS 14). Without this, blake3's NEON assembly triggers a
+		# "___chkstk_darwin / built for newer iOS" linker error because the
+		# Rust target's default minimum (iOS 10 / macOS 10.7) is too old.
+		case "$triple" in
+		*-apple-ios)
+			export IPHONEOS_DEPLOYMENT_TARGET=17.0
+			;;
+		*-apple-ios-sim)
+			export IPHONEOS_DEPLOYMENT_TARGET=17.0
+			;;
+		*-apple-darwin)
+			export MACOSX_DEPLOYMENT_TARGET=14.0
+			;;
+		esac
+		# Build raw-ffi against the vendored crate sources under
+		# src/raw-pipeline/vendor/ (committed by `cargo vendor`), with the network
+		# forbidden. This keeps the Xcode Cloud build hermetic: it removes the
+		# intermittent crates.io DNS failures ("Could not resolve host:
+		# static.crates.io") and fails loudly if the vendor dir is ever stale,
+		# instead of silently falling back to the network.
+		#
+		# The source replacement is passed inline (not via a committed
+		# .cargo/config.toml) so it applies ONLY to this Apple raw-ffi build. A
+		# repo-level config.toml would also be inherited by the WASM build, which
+		# uses `-Z build-std` — that rebuilds std from source and needs std's
+		# *own* dependency versions, which aren't (and shouldn't be) in our vendor
+		# dir. Scoping it here keeps the web/wasm and API builds resolving from
+		# crates.io as before. The directory is absolute so it resolves regardless
+		# of cargo's --config path semantics.
+		#
+		# `--features gpu` is unconditional since #1064 (the Apple build is
+		# always-gpu): it links wgpu/naga/metal into every slice and compiles the
+		# `maple_gpu_*` FFI the always-compiled Swift GPU live path links against.
+		# wgpu's full dep tree IS vendored (#996), so the gpu build cross-compiles
+		# + links into every slice (incl. aarch64-apple-ios — the #1 risk) with no
+		# crates.io round-trip and no DNS flake.
+		#
+		# Pano features (M6 #1244 — split by target):
+		#
+		# macOS slices (`--features gpu,pano`): pulls `maple-pano` with `ml`
+		# (ALIKED + LightGlue via ort `load-dynamic`). The onnxruntime dylib is
+		# loaded at runtime; it is NOT embedded in the xcframework.
+		#
+		# iOS + iOS-sim slices (`--features gpu,pano-ios`): pulls `maple-pano`
+		# with `ml-static` (ort WITHOUT `load-dynamic`). `ORT_LIB_LOCATION`
+		# points at the official iOS static xcframework (cached by fetch-ort-ios.sh
+		# at ~/.cache/maple-pano/ort-ios/). ort-sys sees `libonnxruntime.a` (or the
+		# framework binary named `onnxruntime`) in that dir and emits
+		# `cargo:rustc-link-lib=static=onnxruntime`. The iOS sandbox blocks dlopen
+		# of arbitrary paths — static linking is the only correct path.
+		#
+		# The framework binary inside Apple's pod is named `onnxruntime` (no lib
+		# prefix, no .a extension) and is a Mach-O fat archive (0xcafebabe) even
+		# for single-arch slices. We use `lipo -thin arm64` to extract a plain ar
+		# archive named exactly `libonnxruntime.a` (the name ort-sys probes for)
+		# into a per-target subdirectory of .ort-ios-thin/$PROFILE/$triple/.
+		local PANO_FEATURES="pano"
+		local REMOVAL_FEATURES="removal"
+		case "$triple" in
+		*-apple-ios | *-apple-ios-sim)
+			PANO_FEATURES="pano-ios"
+			REMOVAL_FEATURES="removal-ios"
+			# ort-sys's build.rs searches for `libonnxruntime.a` in ORT_LIB_LOCATION.
+			# Apple's xcframework pod names the binary `onnxruntime` (no lib prefix, no
+			# .a extension) and wraps it in a Mach-O fat archive (magic 0xcafebabe) even
+			# when there is only one architecture. Rust's linker rejects a fat archive
+			# as "Unsupported archive identifier" — it expects a plain ar archive (!<arch>).
+			#
+			# Fix: `lipo -thin arm64` extracts the arm64 slice as a clean ar archive.
+			# We write it to the PROFILE-scoped cache dir alongside the build outputs to
+			# avoid contaminating the shared ORT cache. The extracted .a is stable across
+			# build runs (content-addressed by ORT version + profile), so we skip the lipo
+			# step if the file already exists.
+			# Each target gets its own subdirectory so the file is always
+			# named exactly `libonnxruntime.a` — that is the name ort-sys's
+			# build.rs probes for via `platform_format_lib("onnxruntime")`.
+			# Sharing a flat dir and using per-target name suffixes (e.g.
+			# libonnxruntime-ios-arm64.a) caused ort-sys to emit no link
+			# directive and the build to fail with undefined symbols.
+			ORT_THIN_DIR="$CARGO_TARGET_DIR/.ort-ios-thin/$PROFILE/$triple"
+			mkdir -p "$ORT_THIN_DIR"
+			ORT_THIN_LIB="$ORT_THIN_DIR/libonnxruntime.a"
+			case "$triple" in
+			*-apple-ios)
+				ORT_FAT_LIB="${ORT_IOS_XCFW_BASE}/ios-arm64/onnxruntime.framework/onnxruntime"
+				;;
+			*-apple-ios-sim)
+				ORT_FAT_LIB="${ORT_IOS_XCFW_BASE}/ios-arm64_x86_64-simulator/onnxruntime.framework/onnxruntime"
+				;;
+			esac
+			if [[ ! -f "$ORT_THIN_LIB" ]]; then
+				echo "    lipo -thin arm64 → $ORT_THIN_LIB"
+				lipo -thin arm64 "$ORT_FAT_LIB" -output "$ORT_THIN_LIB"
+			else
+				echo "    ORT arm64 slice already extracted: $ORT_THIN_LIB"
+			fi
+			# ort-sys's build.rs calls `add_search_dir` on ORT_LIB_LOCATION, then checks
+			# if `libonnxruntime.a` exists there to emit `cargo:rustc-link-lib=static=onnxruntime`.
+			export ORT_LIB_LOCATION="$ORT_THIN_DIR"
+			echo "    ORT_LIB_LOCATION=$ORT_LIB_LOCATION (static arm64 ar archive, M6 #1244)"
+			;;
+		esac
+		CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build --offline $CARGO_PROFILE_FLAG \
+			--config 'source.crates-io.replace-with="vendored-sources"' \
+			--config "source.vendored-sources.directory=\"$RAW_PIPELINE_DIR/vendor\"" \
+			--target "$triple" \
+			--package raw-ffi \
+			--features "gpu,$PANO_FEATURES,$REMOVAL_FEATURES" \
+			2>&1
+	)
 }
 
 for triple in "${TARGETS[@]}"; do
-    build_target "$triple"
+	build_target "$triple"
 done
 
 # ---------------------------------------------------------------------------
@@ -525,7 +538,7 @@ echo "==> cbindgen — generating RawPipeline.h"
 CBINDGEN_CARGO_DIR="$RAW_FFI_DIR/.cargo"
 CBINDGEN_CARGO_CFG="$CBINDGEN_CARGO_DIR/config.toml"
 mkdir -p "$CBINDGEN_CARGO_DIR"
-cat > "$CBINDGEN_CARGO_CFG" <<CBINDGEN_CFG
+cat >"$CBINDGEN_CARGO_CFG" <<CBINDGEN_CFG
 [source.crates-io]
 replace-with = "vendored-sources"
 [source.vendored-sources]
@@ -538,20 +551,20 @@ CBINDGEN_CFG
 trap 'rm -rf "$CBINDGEN_CARGO_DIR"' EXIT
 
 (
-    cd "$RAW_FFI_DIR"
-    # Since #1064 the header declares the GPU FFI surface (`maple_gpu_*`,
-    # src/gpu.rs + src/gpu_live.rs) UNCONDITIONALLY — cbindgen.toml no longer maps
-    # `feature = gpu` to `#if defined(MAPLE_GPU)`. The two Apple-only present
-    # entries stay wrapped in `#if defined(__APPLE__)` (their Rust cfg), which the
-    # Clang importer always satisfies on Apple slices. Because the default build
-    # links raw-ffi `--features gpu` (above), the libs contain every declared
-    # `maple_gpu_*` symbol, so the symbol guard below passes.
-    cbindgen \
-        --config cbindgen.toml \
-        --lang C \
-        --output "$INCLUDE_DIR/RawPipeline.h" \
-        --crate raw-ffi \
-        2>&1
+	cd "$RAW_FFI_DIR"
+	# Since #1064 the header declares the GPU FFI surface (`maple_gpu_*`,
+	# src/gpu.rs + src/gpu_live.rs) UNCONDITIONALLY — cbindgen.toml no longer maps
+	# `feature = gpu` to `#if defined(MAPLE_GPU)`. The two Apple-only present
+	# entries stay wrapped in `#if defined(__APPLE__)` (their Rust cfg), which the
+	# Clang importer always satisfies on Apple slices. Because the default build
+	# links raw-ffi `--features gpu` (above), the libs contain every declared
+	# `maple_gpu_*` symbol, so the symbol guard below passes.
+	cbindgen \
+		--config cbindgen.toml \
+		--lang C \
+		--output "$INCLUDE_DIR/RawPipeline.h" \
+		--crate raw-ffi \
+		2>&1
 )
 
 # Remove the transient .cargo/ immediately so the cleanup trap is a no-op
@@ -563,7 +576,7 @@ trap - EXIT
 # Emit a modulemap so Swift can `import RawPipeline`. Without it, SwiftPM /
 # xcodebuild treat the xcframework as a plain static library and the
 # `import RawPipeline` line in MapleCore fails.
-cat > "$INCLUDE_DIR/module.modulemap" <<'EOM'
+cat >"$INCLUDE_DIR/module.modulemap" <<'EOM'
 module RawPipeline {
     header "RawPipeline.h"
     export *
@@ -572,7 +585,7 @@ EOM
 
 # Also copy header + modulemap where Swift can find it directly in
 # Packages/MapleCore/Sources/MapleCore/include/
-cp "$INCLUDE_DIR/RawPipeline.h"    "$HEADERS_DIR/RawPipeline.h"
+cp "$INCLUDE_DIR/RawPipeline.h" "$HEADERS_DIR/RawPipeline.h"
 cp "$INCLUDE_DIR/module.modulemap" "$HEADERS_DIR/module.modulemap"
 
 # ---------------------------------------------------------------------------
@@ -611,9 +624,9 @@ cp "$ios_sim_lib" "$STAGING/ios-arm64-sim/$LIB_NAME"
 # macOS universal
 mkdir -p "$STAGING/macos-universal"
 lipo -create \
-    "$macos_arm64_lib" \
-    "$macos_x86_lib" \
-    -output "$STAGING/macos-universal/$LIB_NAME"
+	"$macos_arm64_lib" \
+	"$macos_x86_lib" \
+	-output "$STAGING/macos-universal/$LIB_NAME"
 
 # ---------------------------------------------------------------------------
 # 5. xcodebuild -create-xcframework
@@ -623,13 +636,13 @@ rm -rf "$XCFW_OUT"
 
 echo "==> xcodebuild -create-xcframework"
 xcodebuild -create-xcframework \
-    -library "$STAGING/ios-arm64/$LIB_NAME" \
-    -headers "$INCLUDE_DIR" \
-    -library "$STAGING/ios-arm64-sim/$LIB_NAME" \
-    -headers "$INCLUDE_DIR" \
-    -library "$STAGING/macos-universal/$LIB_NAME" \
-    -headers "$INCLUDE_DIR" \
-    -output "$XCFW_OUT"
+	-library "$STAGING/ios-arm64/$LIB_NAME" \
+	-headers "$INCLUDE_DIR" \
+	-library "$STAGING/ios-arm64-sim/$LIB_NAME" \
+	-headers "$INCLUDE_DIR" \
+	-library "$STAGING/macos-universal/$LIB_NAME" \
+	-headers "$INCLUDE_DIR" \
+	-output "$XCFW_OUT"
 
 # ---------------------------------------------------------------------------
 # 6. Cleanup staging dir
@@ -667,7 +680,7 @@ echo "==> symbol guard — verifying header symbols are present in every slice"
 # the symbol is NOT present in the macOS slice. We maintain an explicit list here;
 # macOS slice checks skip these. iOS/iOS-sim slices MUST have them.
 IOS_ONLY_SYMBOLS=(
-    maple_pano_ort_selftest   # ORT static-link smoke test (M6 #1244, pano-ios only)
+	maple_pano_ort_selftest # ORT static-link smoke test (M6 #1244, pano-ios only)
 )
 
 # EXCEPTION — Windows-only symbols (#2678): `maple_gpu_present_chain_winui` is
@@ -680,8 +693,8 @@ IOS_ONLY_SYMBOLS=(
 # IOS_ONLY_SYMBOLS (present on SOME Apple slices), a Windows-only symbol must
 # be ABSENT from EVERY Apple slice — macOS and iOS alike.
 WINDOWS_ONLY_SYMBOLS=(
-    maple_gpu_present_chain_winui          # WinUI3 swapchain present (#2678, Windows-only)
-    maple_gpu_present_chain_winui_scaled   # WinUI3 scaled present variant (#2678, Windows-only)
+	maple_gpu_present_chain_winui        # WinUI3 swapchain present (#2678, Windows-only)
+	maple_gpu_present_chain_winui_scaled # WinUI3 scaled present variant (#2678, Windows-only)
 )
 
 # EXCEPTION — API-only symbols (#4462): every `maple_search_*` entry is compiled
@@ -692,53 +705,53 @@ WINDOWS_ONLY_SYMBOLS=(
 # ABSENT from every Apple slice. Matched by prefix so a new search entry needs no
 # edit here.
 is_api_only_symbol() {
-    [[ "$1" == maple_search_* ]]
+	[[ "$1" == maple_search_* ]]
 }
 
 # (No `mapfile` — the Xcode/CLI shebang resolves to macOS's bash 3.2, which
 # lacks it. Read line-by-line into the array the portable way.)
 EXPECTED_SYMBOLS=()
 while IFS= read -r sym; do
-    [[ -n "$sym" ]] && EXPECTED_SYMBOLS+=("$sym")
+	[[ -n "$sym" ]] && EXPECTED_SYMBOLS+=("$sym")
 done < <(
-    grep -vE '^[[:space:]]*\*' "$INCLUDE_DIR/RawPipeline.h" \
-        | grep -oE '\bmaple_[a-z0-9_]+\(' \
-        | sed 's/(//' \
-        | sort -u
+	grep -vE '^[[:space:]]*\*' "$INCLUDE_DIR/RawPipeline.h" |
+		grep -oE '\bmaple_[a-z0-9_]+\(' |
+		sed 's/(//' |
+		sort -u
 )
 
 if [[ "${#EXPECTED_SYMBOLS[@]}" -eq 0 ]]; then
-    echo "ERROR: symbol guard derived zero maple_* symbols from the generated header" >&2
-    echo "       ($INCLUDE_DIR/RawPipeline.h) — header parse failed or header is empty." >&2
-    echo "       Refusing to bless a possibly-empty xcframework." >&2
-    exit 1
+	echo "ERROR: symbol guard derived zero maple_* symbols from the generated header" >&2
+	echo "       ($INCLUDE_DIR/RawPipeline.h) — header parse failed or header is empty." >&2
+	echo "       Refusing to bless a possibly-empty xcframework." >&2
+	exit 1
 fi
 API_ONLY_COUNT=0
 for sym in "${EXPECTED_SYMBOLS[@]}"; do
-    if is_api_only_symbol "$sym"; then
-        API_ONLY_COUNT=$((API_ONLY_COUNT + 1))
-    fi
+	if is_api_only_symbol "$sym"; then
+		API_ONLY_COUNT=$((API_ONLY_COUNT + 1))
+	fi
 done
 echo "    expecting ${#EXPECTED_SYMBOLS[@]} exported maple_* symbols (${#IOS_ONLY_SYMBOLS[@]} iOS-only, ${#WINDOWS_ONLY_SYMBOLS[@]} windows-only, $API_ONLY_COUNT API-only)"
 
 # Helper: returns 0 (true) if $1 is in the IOS_ONLY_SYMBOLS list.
 is_ios_only_symbol() {
-    local sym="$1"
-    local s
-    for s in "${IOS_ONLY_SYMBOLS[@]}"; do
-        [[ "$s" == "$sym" ]] && return 0
-    done
-    return 1
+	local sym="$1"
+	local s
+	for s in "${IOS_ONLY_SYMBOLS[@]}"; do
+		[[ "$s" == "$sym" ]] && return 0
+	done
+	return 1
 }
 
 # Helper: returns 0 (true) if $1 is in the WINDOWS_ONLY_SYMBOLS list.
 is_windows_only_symbol() {
-    local sym="$1"
-    local s
-    for s in "${WINDOWS_ONLY_SYMBOLS[@]}"; do
-        [[ "$s" == "$sym" ]] && return 0
-    done
-    return 1
+	local sym="$1"
+	local s
+	for s in "${WINDOWS_ONLY_SYMBOLS[@]}"; do
+		[[ "$s" == "$sym" ]] && return 0
+	done
+	return 1
 }
 
 # REGRESSION GUARD (#2678): any header symbol named `maple_*_winui` that is
@@ -748,90 +761,98 @@ is_windows_only_symbol() {
 # reintroduce the exact build break this ticket fixed. Fail loudly and name
 # the fix instead of letting the guard mis-classify it.
 for sym in "${EXPECTED_SYMBOLS[@]}"; do
-    if [[ "$sym" == *_winui ]] && ! is_windows_only_symbol "$sym"; then
-        echo "ERROR: header declares '$sym' (looks Windows-only by name) but it is" >&2
-        echo "       not listed in WINDOWS_ONLY_SYMBOLS in this script." >&2
-        echo "       Add it to WINDOWS_ONLY_SYMBOLS (see #2678) if it is genuinely" >&2
-        echo "       #[cfg(target_os = \"windows\")]-gated and absent from every Apple" >&2
-        echo "       slice — otherwise the symbol guard will fail below." >&2
-        exit 1
-    fi
+	if [[ "$sym" == *_winui ]] && ! is_windows_only_symbol "$sym"; then
+		echo "ERROR: header declares '$sym' (looks Windows-only by name) but it is" >&2
+		echo "       not listed in WINDOWS_ONLY_SYMBOLS in this script." >&2
+		echo "       Add it to WINDOWS_ONLY_SYMBOLS (see #2678) if it is genuinely" >&2
+		echo "       #[cfg(target_os = \"windows\")]-gated and absent from every Apple" >&2
+		echo "       slice — otherwise the symbol guard will fail below." >&2
+		exit 1
+	fi
 done
 
 guard_failed=0
+has_expected_symbol() {
+	# `present` is the intersection of the expected ABI and this slice's nm
+	# output, so exact-line matching scans only a few hundred names rather
+	# than the archive's full symbol table.
+	[[ $'\n'"$present"$'\n' == *$'\n'"$1"$'\n'* ]]
+}
 while IFS= read -r slice_lib; do
-    slice_dir="$(basename "$(dirname "$slice_lib")")"
-    # Determine whether this slice is an iOS slice (arm64 device or simulator).
-    # macOS slices are named `macos-*`; iOS slices are `ios-*`.
-    is_ios_slice=0
-    if [[ "$slice_dir" == ios-* ]]; then
-        is_ios_slice=1
-    fi
-    # `nm -gU` lists external (-g), defined-only (-U) symbols. On a lipo'd
-    # fat archive (the macOS slice) nm lists them per-arch; a symbol defined
-    # in any arch satisfies the per-symbol check below. The Apple ABI
-    # prefixes C symbols with a leading underscore, so we match `_<name>`.
-    #
-    # `|| true` on the whole pipeline is load-bearing under `set -euo
-    # pipefail`: `nm` exits non-zero (and prints to stderr) when an archive
-    # member is a Rust LLVM-bitcode object it can't fully parse
-    # ("Unknown attribute kind …"). That non-zero status would otherwise
-    # propagate through `pipefail` to this command-substitution assignment
-    # and `set -e` would abort the guard before it checked a single symbol —
-    # a silent false failure with no per-slice output. The defined symbols
-    # `nm` *does* emit still land on stdout, so masking the exit status is
-    # safe: if `nm` genuinely produced nothing (broken/empty lib), `defined`
-    # is empty and every symbol flags as missing below — a loud, correct
-    # failure, not a false pass.
-    defined="$(nm -gU "$slice_lib" 2>/dev/null | awk '{print $NF}' || true)"
-    for sym in "${EXPECTED_SYMBOLS[@]}"; do
-        # iOS-only symbols: required in iOS slices, must NOT be in macOS slices.
-        if is_ios_only_symbol "$sym"; then
-            if [[ "$is_ios_slice" -eq 1 ]]; then
-                # iOS slice MUST have the symbol.
-                if ! grep -qxF "_$sym" <<<"$defined"; then
-                    echo "ERROR: iOS slice $slice_dir: missing iOS-only symbol $sym" >&2
-                    guard_failed=1
-                fi
-            else
-                # macOS slice must NOT have it (would indicate a mis-build).
-                if grep -qxF "_$sym" <<<"$defined"; then
-                    echo "ERROR: macOS slice $slice_dir: found iOS-only symbol $sym (should be absent)" >&2
-                    guard_failed=1
-                fi
-            fi
-        elif is_api_only_symbol "$sym"; then
-            if grep -qxF "_$sym" <<<"$defined"; then
-                echo "ERROR: Apple slice $slice_dir: found API-only symbol $sym (should be absent)" >&2
-                guard_failed=1
-            fi
-        elif is_windows_only_symbol "$sym"; then
-            # Windows-only symbols: never expected on ANY Apple slice (macOS
-            # or iOS) — the "must be present" check is skipped entirely, and
-            # we defensively flag it as an error if it somehow IS present,
-            # which would indicate a mis-build leaking Windows code into an
-            # Apple slice.
-            if grep -qxF "_$sym" <<<"$defined"; then
-                echo "ERROR: Apple slice $slice_dir: found windows-only symbol $sym (should be absent)" >&2
-                guard_failed=1
-            fi
-        else
-            # All-slice symbol: must be present in every slice.
-            if ! grep -qxF "_$sym" <<<"$defined"; then
-                echo "ERROR: stale/incomplete slice $slice_dir: missing symbol $sym" >&2
-                guard_failed=1
-            fi
-        fi
-    done
+	slice_dir="$(basename "$(dirname "$slice_lib")")"
+	# Determine whether this slice is an iOS slice (arm64 device or simulator).
+	# macOS slices are named `macos-*`; iOS slices are `ios-*`.
+	is_ios_slice=0
+	if [[ "$slice_dir" == ios-* ]]; then
+		is_ios_slice=1
+	fi
+	# `nm -gU` lists external (-g), defined-only (-U) symbols. On a lipo'd
+	# fat archive (the macOS slice) nm lists them per-arch; a symbol defined
+	# in any arch satisfies the per-symbol check below. The Apple ABI
+	# prefixes C symbols with a leading underscore, so we match `_<name>`.
+	#
+	# `|| true` on the whole pipeline is load-bearing under `set -euo
+	# pipefail`: `nm` exits non-zero (and prints to stderr) when an archive
+	# member is a Rust LLVM-bitcode object it can't fully parse
+	# ("Unknown attribute kind …"). That non-zero status would otherwise
+	# propagate through `pipefail` to this command-substitution assignment
+	# and `set -e` would abort the guard before it checked a single symbol —
+	# a silent false failure with no per-slice output. The defined symbols
+	# `nm` *does* emit still land on stdout, so masking the exit status is
+	# safe: if `nm` genuinely produced nothing (broken/empty lib), `defined`
+	# is empty and every symbol flags as missing below — a loud, correct
+	# failure, not a false pass.
+	defined="$(nm -gU "$slice_lib" 2>/dev/null | awk '{print $NF}' || true)"
+	present="$(awk 'NR == FNR { found[$1] = 1; next } ("_" $1) in found { print $1 }' \
+		<(printf '%s\n' "$defined") <(printf '%s\n' "${EXPECTED_SYMBOLS[@]}"))"
+	for sym in "${EXPECTED_SYMBOLS[@]}"; do
+		# iOS-only symbols: required in iOS slices, must NOT be in macOS slices.
+		if is_ios_only_symbol "$sym"; then
+			if [[ "$is_ios_slice" -eq 1 ]]; then
+				# iOS slice MUST have the symbol.
+				if ! has_expected_symbol "$sym"; then
+					echo "ERROR: iOS slice $slice_dir: missing iOS-only symbol $sym" >&2
+					guard_failed=1
+				fi
+			else
+				# macOS slice must NOT have it (would indicate a mis-build).
+				if has_expected_symbol "$sym"; then
+					echo "ERROR: macOS slice $slice_dir: found iOS-only symbol $sym (should be absent)" >&2
+					guard_failed=1
+				fi
+			fi
+		elif is_api_only_symbol "$sym"; then
+			if has_expected_symbol "$sym"; then
+				echo "ERROR: Apple slice $slice_dir: found API-only symbol $sym (should be absent)" >&2
+				guard_failed=1
+			fi
+		elif is_windows_only_symbol "$sym"; then
+			# Windows-only symbols: never expected on ANY Apple slice (macOS
+			# or iOS) — the "must be present" check is skipped entirely, and
+			# we defensively flag it as an error if it somehow IS present,
+			# which would indicate a mis-build leaking Windows code into an
+			# Apple slice.
+			if has_expected_symbol "$sym"; then
+				echo "ERROR: Apple slice $slice_dir: found windows-only symbol $sym (should be absent)" >&2
+				guard_failed=1
+			fi
+		else
+			# All-slice symbol: must be present in every slice.
+			if ! has_expected_symbol "$sym"; then
+				echo "ERROR: stale/incomplete slice $slice_dir: missing symbol $sym" >&2
+				guard_failed=1
+			fi
+		fi
+	done
 done < <(find "$XCFW_OUT" -name "$LIB_NAME")
 
 if [[ "$guard_failed" -ne 0 ]]; then
-    echo "" >&2
-    echo "ERROR: the xcframework is out of sync with the generated headers." >&2
-    echo "       One or more slices are missing FFI symbols the header exports." >&2
-    echo "       Rerun the build with --force (or FORCE_XCFRAMEWORK_REBUILD=1) to" >&2
-    echo "       rebuild every slice from the current sources." >&2
-    exit 1
+	echo "" >&2
+	echo "ERROR: the xcframework is out of sync with the generated headers." >&2
+	echo "       One or more slices are missing FFI symbols the header exports." >&2
+	echo "       Rerun the build with --force (or FORCE_XCFRAMEWORK_REBUILD=1) to" >&2
+	echo "       rebuild every slice from the current sources." >&2
+	exit 1
 fi
 echo "    OK — all ${#EXPECTED_SYMBOLS[@]} symbols verified across all slices (${#IOS_ONLY_SYMBOLS[@]} iOS-only, ${#WINDOWS_ONLY_SYMBOLS[@]} windows-only, $API_ONLY_COUNT API-only and absent from every slice)"
 
@@ -839,7 +860,7 @@ echo "    OK — all ${#EXPECTED_SYMBOLS[@]} symbols verified across all slices 
 # input content hash (NOT a bare touch) so the next run can compare content,
 # and we write it only now — after a successful build AND a passing symbol
 # guard — so a failed/partial build never blesses itself.
-printf '%s\n' "$INPUT_HASH" > "$STAMP"
+printf '%s\n' "$INPUT_HASH" >"$STAMP"
 
 echo ""
 echo "==> Done."

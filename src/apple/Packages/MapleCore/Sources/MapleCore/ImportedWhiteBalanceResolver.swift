@@ -29,6 +29,8 @@ enum ImportedWhiteBalanceResolver {
     resolved.wbScaleVersion = 5
     var intent = imported
     intent.resolvedTarget = target
+    resolved.temperatureSeen = model.temperatureSeen
+    resolved.tintSeen = model.tintSeen
     resolved.partialWhiteBalance = intent
     return resolved
   }

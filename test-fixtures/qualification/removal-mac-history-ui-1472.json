@@ -1,0 +1,194 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "baseRevision": "c889f2f56affae233c02a39d7a1c1c29554cb6f5",
+  "scope": "Mac saved-removal controls and durable history through the real editor; no photographic-quality or performance claim",
+  "sourceHashes": {
+    "src/apple/MapleUITests/RemovalHistoryUITests.swift": "7e7a1e86bea58c4b36cfc8d55261c26c9eef3d6818faecf605e48a59ffef64bb",
+    "src/apple/MapleUITests/Helpers/StagedFixture.swift": "6fe1d372ddaebe75eb952ca2ed216cf68d093366c253d63d6324b8cc325465ca"
+  },
+  "changes": [
+    "Use the normal folder picker to grant staged RAW/XMP write access before opening the editor.",
+    "Exercise saved enable/disable, replace/cancel, delete, keyboard undo/redo and process reopen on the GPU path.",
+    "Exercise Reset all and keyboard undo/redo on the CPU path.",
+    "Compare original RAW and both immutable mask/patch companion files byte-for-byte after each complete workflow; stop on the first assertion failure."
+  ],
+  "isolation": {
+    "bundleID": "app.justmaple.removalhistoryqa1472",
+    "appPath": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-removal-history-ui1472-m9mgy7hw/Maple History QA.app",
+    "packaging": "Fresh built Debug app copy, unique QA bundle ID, URL/document/extension registrations removed, ad hoc signed; production distribution signing unqualified",
+    "binaryHashes": {
+      "Maple": "e70af3b4dddf12b5e24eb98cc88ddadbe509b38be09b1aa77806c1643d517105",
+      "__preview.dylib": "88d8e75b07b8f344677a3c2d747e622ff992cad655d28ecf60442af5b1d2dda6",
+      "Maple.debug.dylib": "6aca947bed70894aa21e27cfd1813f4b812cc068f14011e3321a58765427009e"
+    },
+    "xctestrun": "/Users/riabuz/Library/Developer/Xcode/DerivedData/Maple-bcxcszgchtnsezbioxxblbrryuue/Build/Products/MapleRemovalHistoryQA_mac.xctestrun",
+    "installedAppUntouched": "The original /Applications/Maple.app process (PID62140) remained running before and after the isolated tests."
+  },
+  "finalRun": {
+    "build": "xcodebuild build-for-testing -project src/apple/Maple.xcodeproj -scheme Maple -destination platform=macOS -only-testing:MapleUITests/RemovalHistoryUITests",
+    "buildResult": "TEST BUILD SUCCEEDED",
+    "command": "xcodebuild test-without-building -xctestrun <isolated run> -destination platform=macOS -parallel-testing-enabled NO -only-testing:MapleUITests/RemovalHistoryUITests",
+    "result": "TEST EXECUTE SUCCEEDED",
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 156.696,
+    "cpuResetSeconds": 44.437,
+    "gpuSavedControlsSeconds": 112.259,
+    "device": "MacBook Pro / Apple M5 Max / macOS27.0 (26A428)",
+    "warnings": [
+      "[Internal] Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Utility quality-of-service class. Investigate ways to avoid priority inversions",
+      "[Internal] Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Utility quality-of-service class. Investigate ways to avoid priority inversions"
+    ],
+    "log": "/tmp/maple-removal-history-ui-20261002x.log",
+    "logSha256": "58c6afe1775d597454c9b8167759acea82df4ab00d76655d056bbd8babf58ddf",
+    "resultBundle": "/tmp/maple-removal-history-ui-20261002x.xcresult",
+    "summarySha256": "b763d4534ee76d2a36e99f1686e6d2485b448c39cc0e63f505ea9fcd273531b1"
+  },
+  "preliminaryRuns": [
+    {
+      "run": "20261002v",
+      "result": "One saved-controls test passed; reset test failed before editor navigation with input-synthesis timeout. This mixed run is not a green suite."
+    },
+    {
+      "run": "20261002w",
+      "result": "Reset-only rerun passed in48.386s, before adding exact companion-byte assertions."
+    }
+  ],
+  "assertions": [
+    "Ready CPU/GPU render paths are observed in the actual editor.",
+    "Reset, Undo and Redo persist absence/presence of accepted removal to real XMP.",
+    "Disable/Enable and Delete/Undo/Redo retain the stable accepted record ID.",
+    "Replacement loads the saved mask; both replacement cancellations keep XMP byte-identical.",
+    "A cold process reopen displays the enabled saved removal without choosing an inference-model folder.",
+    "Original RAW and companion filenames/bytes remain unchanged; no sidecar-save error is displayed."
+  ],
+  "savedSidecars": [
+    {
+      "test": "RemovalHistoryUITests/testResetUndoRedoPersistTheAcceptedRemovalFromEditorControls()",
+      "count": 1,
+      "wireId": null,
+      "activeWire": null,
+      "schema": 4,
+      "effectiveActive": true
+    },
+    {
+      "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+      "count": 1,
+      "wireId": "blake3:a8cc95aa771fd932e1205f1e81ff10b376c8a8168011b052b91d80ca91a3d21b",
+      "activeWire": true,
+      "schema": 5,
+      "effectiveActive": true
+    }
+  ],
+  "attachments": [
+    {
+      "test": "RemovalHistoryUITests/testResetUndoRedoPersistTheAcceptedRemovalFromEditorControls()",
+      "name": "Actual saved XMP",
+      "path": "/tmp/maple-removal-history-ui-20261002x-attachments/395B7190-1BF5-4B64-8604-F5E0737E66AB.txt",
+      "sha256": "f8bb8835312acc1201afd55ad2bd6214ab88f4555aff272a555e4710e34533e3"
+    },
+    {
+      "test": "RemovalHistoryUITests/testResetUndoRedoPersistTheAcceptedRemovalFromEditorControls()",
+      "name": "Removal history accessibility tree",
+      "path": "/tmp/maple-removal-history-ui-20261002x-attachments/13E32C1B-B888-4573-8906-12A67920895B.txt",
+      "sha256": "42b9e861debfa8fa8133308cc217bd286c86d25b563549f7900859285d8ae395"
+    },
+    {
+      "test": "RemovalHistoryUITests/testResetUndoRedoPersistTheAcceptedRemovalFromEditorControls()",
+      "name": "Saved removal restored by keyboard undo",
+      "path": "/tmp/maple-removal-history-ui-20261002x-attachments/E64AE44E-B755-47AE-B44E-9164E6137BD5.png",
+      "sha256": "d2b7c0b3809d2f98df1f9542e180eec1c573a41933993b69977c30e5fa87402f"
+    },
+    {
+      "test": "RemovalHistoryUITests/testResetUndoRedoPersistTheAcceptedRemovalFromEditorControls()",
+      "name": "Saved removal before reset",
+      "path": "/tmp/maple-removal-history-ui-20261002x-attachments/7FAD3FBD-D771-4EDE-85EB-FC186D80B6A3.png",
+      "sha256": "0574ead13e7e9f6df9db5007c58e57f310c16d62817afb0e110b26a0f47010b4"
+    },
+    {
+      "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+      "name": "Saved removal final state",
+      "path": "/tmp/maple-removal-history-ui-20261002x-attachments/1673D927-D095-4E62-B6FE-ED707B99428F.png",
+      "sha256": "4793110988c936c8589f9f735061a50e410fb005a9f2c82aec5513f8734c1f78"
+    },
+    {
+      "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+      "name": "Actual saved XMP",
+      "path": "/tmp/maple-removal-history-ui-20261002x-attachments/EB44D3CC-757F-40F5-BC60-FDEB29271EEC.txt",
+      "sha256": "be2b454cf9b16c9a1cf92c19b84368a67c17a66e37aba10e8db3c9e383560bc6"
+    },
+    {
+      "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+      "name": "Saved removal accessibility tree",
+      "path": "/tmp/maple-removal-history-ui-20261002x-attachments/40FE6750-EBD0-4C00-9AE0-211B185CE297.txt",
+      "sha256": "37d58472b6f0a7a000818d5c123ae20bf6d8dd6ebfa2a28f9aafed469afe1712"
+    },
+    {
+      "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+      "name": "Saved removal reopened without inference",
+      "path": "/tmp/maple-removal-history-ui-20261002x-attachments/730DB727-1450-4481-B50D-F6315EB7E6D7.png",
+      "sha256": "cd32e8c1d26199b67fcb2167398f3667ef029edfffd7c3900b5a699922ab56f2"
+    },
+    {
+      "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+      "name": "Removal controls before saved expansion",
+      "path": "/tmp/maple-removal-history-ui-20261002x-attachments/8D127D07-9436-4912-90E3-0B3ADF08D7DD.png",
+      "sha256": "7d87636b968b0eb5df39f701d4c05cae5f4caea707b86eba372a93254372083b"
+    },
+    {
+      "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+      "name": "Removal controls before saved expansion",
+      "path": "/tmp/maple-removal-history-ui-20261002x-attachments/5F339D86-DB6E-4582-BA56-2C5F2ED37043.txt",
+      "sha256": "273ccf242399f76b6b61e67f8c40cab5aa2cc8b5254ff22a4773e71e1e240c00"
+    },
+    {
+      "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+      "name": "Saved removal enabled",
+      "path": "/tmp/maple-removal-history-ui-20261002x-attachments/9DF99AD1-8FB2-41F6-AEE8-CAD296DE1735.png",
+      "sha256": "e21f195f4c4f8b5074273369c8559ca5d79fc98f460f15b2b0d38d79f08076e9"
+    },
+    {
+      "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+      "name": "Removal controls before saved expansion",
+      "path": "/tmp/maple-removal-history-ui-20261002x-attachments/AD966DD3-15B2-40C5-9353-F0A2C9ECF256.png",
+      "sha256": "a9da75225959bfff25cc95ef7485e668deaa3dba46abf6f45d6293f6660fad15"
+    },
+    {
+      "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+      "name": "Removal controls before saved expansion",
+      "path": "/tmp/maple-removal-history-ui-20261002x-attachments/0E842C59-E70B-45F3-8928-940E2868618D.txt",
+      "sha256": "2b5f8e0f53fba96dbc2d5dcda3c7f179fa60de8ff133848c0986f98eac6307ad"
+    }
+  ],
+  "calibrationFixtureHashes": {
+    "test-fixtures/removal/calibration/mask.mimf": "227416ea26ec9956771ecbec1923f0111ac322fc94416d6d140d73451f62a05b",
+    "test-fixtures/removal/calibration/patch.f16": "60b485914633a2cf3673b123e1df95cc6fa4a323a2907c7a9371ff4d6df99e27",
+    "test-fixtures/removal/calibration/preview-4-q90.jpg": "f0d8edaf0437d858f521e9e0bf369cd3ae739491d69498467832405423af1b70",
+    "test-fixtures/removal/calibration/preview-4.json": "3c2835cf073eca30e2bdfdbe0a841079f4e6cb0b518f33268509c4e4c7cdcb7c",
+    "test-fixtures/removal/calibration/preview-4.rgb": "7b435c9d9d78981dfddfa25de8aadc2f126d7942c3026fe145666f6fd17fffaf",
+    "test-fixtures/removal/calibration/preview-64-q90.jpg": "aad8f8b53ae5cc1d81b607997b89ed8693b24c6e04c7144c22333f2c3c368065",
+    "test-fixtures/removal/calibration/preview-64.json": "a54e7c37de4cc58cdae144fa6cb984a30995f6d8a30780c9d741332d1ac7347f",
+    "test-fixtures/removal/calibration/preview-64.rgb": "96748afe66ddd37479439eec46038bc427c9d727a6a310deedb79c2c537c75a6",
+    "test-fixtures/removal/calibration/prior.xmp": "a17dfaa72ef5c056c351e507afa9b01ca765af76994621542eef6aa6cec3ccbe",
+    "test-fixtures/removal/calibration/records.txt": "9c516b85a250626d5263dcd1201a83b4cdd14726947d801dc300006c46b58f3d",
+    "test-fixtures/removal/calibration/request.txt": "20567342cee48c6b70aba882fba0008e67a3f2f78ddf67cde7c17d1688e5b09f",
+    "test-fixtures/removal/calibration/saved.xmp": "fa466f58b17c1a7d073ffb751e300e3b9eebac4bba453d3e12d9ff02caa6e20a",
+    "test-fixtures/removal/calibration/source.dng": "24450571460687ee53852658deec26946c4a7877fe111a6ba5bb059c116f2618"
+  },
+  "checks": {
+    "swiftFormat": "strict lint passed",
+    "fileBudget": "0 hard violations, 0 warnings",
+    "headroom": "no growth above570lines",
+    "ciCoverage": "446classes;247run;199excluded;0untriaged",
+    "nativeFreshness": "d8522b89c91864561f45039893b4f05835f13947; check-only passed",
+    "calibrationIntegrity": "All13committed fixtures unchanged after final tests"
+  },
+  "limits": [
+    "The fixture is a tiny calibration RAW with preaccepted companions; this does not establish AI reconstruction, Smart paint or background-person classification quality.",
+    "The final tests pass after an initial input-synthesis timeout. XCTest display and QoS warnings remain; broad host-automation reliability is not claimed.",
+    "Ad hoc isolated Debug packaging is not production signing, model packaging, PhotoKit/source portability or distribution qualification.",
+    "Production Auto preview/export fit consistency, the preexisting Neutral ACR bias gate, photographic corpus quality, lower-memory/live-frame performance and final rollout remain open. The full goal stays active; ports are deferred by Mac-first steering."
+  ]
+}

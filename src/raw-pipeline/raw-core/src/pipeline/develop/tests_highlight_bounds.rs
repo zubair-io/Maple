@@ -3,6 +3,7 @@
 use super::*;
 use crate::image::{CfaPattern, CropRect, RawImage};
 use crate::pipeline::pano::opcodes::ActiveAreaRect;
+use crate::stages::highlight_recovery;
 use crate::test_support::synth_dng::SyntheticGreyDng;
 use crate::xmp::{AutoExposureMode, HighlightRecoveryMode, Profile};
 

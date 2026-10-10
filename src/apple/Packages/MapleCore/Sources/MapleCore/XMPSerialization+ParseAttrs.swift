@@ -171,8 +171,14 @@ extension _XMPParserDelegate {
     case "crs:WhiteBalance":
       model.whiteBalancePreset = WhiteBalancePreset(rawValue: value) ?? .custom
       if let (t, ti) = model.whiteBalancePreset.pair {
+        let temperatureSeen = model.temperatureSeen
+        let tintSeen = model.tintSeen
         model.temperature = t
         model.tint = ti
+        // A name-only illuminant resolves a pair without authoring numeric
+        // attributes, matching raw-core. Explicit attributes still win below.
+        model.temperatureSeen = temperatureSeen
+        model.tintSeen = tintSeen
         model.wbSource = .preset
       }
     case "papp:HighlightRecoveryMode":

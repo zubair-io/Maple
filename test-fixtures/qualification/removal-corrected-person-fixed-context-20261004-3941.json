@@ -1,0 +1,230 @@
+{
+  "issues": [
+    3941,
+    1472,
+    4211
+  ],
+  "releaseQualified": false,
+  "testedParent": "246f983cff41e5bb6ad37502983c56d034d25cc0",
+  "sourceFiles": [
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal-scene-probe.rs",
+      "sha256": "980a3e21b2c2e205c837ddc0dc4c429b879de69fcda0773641ec7513ff3d7fbf",
+      "bytes": 18262
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/large.rs",
+      "sha256": "1a25667c6c5d29627aab1c7926834c866a0767779fe35584e0c6c34eee577a70",
+      "bytes": 9876
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/large_masks.rs",
+      "sha256": "bd81be54596df9ed776f808b0c5c94cab7e0389686760de6cf6cc6d64e4c80d0",
+      "bytes": 9138
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/lama_large_scene_test.py",
+      "sha256": "553f355db4590076ed6443a324d14bce749b2c151a703bf0a4ee1ff3f50e0d69",
+      "bytes": 6308
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/verify_large_photo_bake.py",
+      "sha256": "d448daad5174e6ea27d0ef2e9d90deb56417461c8a0967ed34c03b295fc5a623",
+      "bytes": 5163
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/large_photo_bake_verifier_test.py",
+      "sha256": "e5e4075667ba9515f768c64201f02229c726a339562f479e19010e6f1c9f7a3b",
+      "bytes": 4409
+    }
+  ],
+  "sharedProbe": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/target/release/examples/removal-scene-probe",
+    "sha256": "0e0537904119b61a2e1b8950704bb156e32ab5dd96429912eb8aa976184d0a55",
+    "bytes": 15208960
+  },
+  "change": "Research-only reference-context mode retains exact native RAW geometry, source scene, encoded image and recipe while changing intent; requires all intent and expansion fit. An independent native2048 grade verifier binds source/context/model/masks and checks every known/protected display channel in all18 renders. Shipping model/context policies unchanged.",
+  "source": {
+    "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+    "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+    "width": 6000,
+    "height": 4000
+  },
+  "intent": "blake3:b2f981bba16f9ce59f94e391cc4054ca047c2bce60817aa77772b4915acf935b",
+  "protected": "blake3:ae9e1e7313c6299f74ac6c901ea7eb1159ae1953d020223cf07175f822ac2e94",
+  "context": {
+    "recipe": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-fixed-context-20261004/context.json",
+      "sha256": "661e7b04bd7ef3cf2419c4a5f4fc80e49997c582acaae15cbb0de72956132431",
+      "bytes": 813
+    },
+    "preparation": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-fixed-context-20261004/preparation.json",
+      "sha256": "ba961647d4486a30b740e94da8edfd3277718149670f039ec87e5e213ff5fba5",
+      "bytes": 550
+    },
+    "priorRecipe": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person4-boundary-smart-context-20261004/context.json",
+      "sha256": "661e7b04bd7ef3cf2419c4a5f4fc80e49997c582acaae15cbb0de72956132431",
+      "bytes": 813
+    },
+    "sceneAndEncodedImageByteIdentical": true,
+    "window": {
+      "x": 944,
+      "y": 1348,
+      "width": 2048,
+      "height": 2048
+    },
+    "holePixels": 1235654,
+    "sixTargetSamplesInHole": true,
+    "neighborSampleInHole": false,
+    "resampled": false
+  },
+  "runs": {
+    "runtime": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-native2048-runtime-20261004/report.json",
+      "sha256": "36f75113a9b56a01c0499e6a7530110e7bb3d18f60a20311ff92b281723e06a8",
+      "bytes": 1358
+    },
+    "upstream": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-native2048-reference-20261004/report.json",
+      "sha256": "13507d722cf6c42cdab76bdea2ffa99bf0da9316f62b22651efd15ef0f02c27a",
+      "bytes": 1361
+    },
+    "modelComparison": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-native2048-model-comparison-20261004.json",
+      "sha256": "90fbc4fe74cd1b3dd09a91b0dba862c54a4f4505a81e50ba62e250a1408a7b05",
+      "bytes": 1322
+    },
+    "timingScope": "Separate Python process model timings/RSS; shared host workloads, including context controls and baking, overlap. Not controlled Mac app or supported-device budgets."
+  },
+  "preservation": {
+    "runtimeBake": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-native2048-bake-20261004/report.json",
+      "sha256": "1c1e603b62f35c15b73798b7c14787314a37c23d3cde43f99c81ee573b507908",
+      "bytes": 4447
+    },
+    "referenceBake": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-native2048-reference-bake-20261004/report.json",
+      "sha256": "8f3eae1e2d6c3ffe146a209be3228f0a5778f42feed15b72a40173986945308e",
+      "bytes": 4423
+    },
+    "runtimeIndependent18Grades": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-independent-grade-verification-20261004.json",
+      "sha256": "0a6531ca336ef440dde767f7dab42ad37995d99a6f13a48855ffba63f6cd8298",
+      "bytes": 10605
+    },
+    "referenceIndependent18Grades": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-reference-independent-grade-verification-20261004.json",
+      "sha256": "a370843b2dc9e38cee7cc6361f8a56fb90f70461a953aa308b2016d70be17ca5",
+      "bytes": 10605
+    },
+    "priorIndependent18Grades": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/uncorrected-person4-independent-grade-verification-20261004.json",
+      "sha256": "d42e19c0006738606061b4ae66cb6606b36cf2dc6ce3c06832054fdfc95e5a3b",
+      "bytes": 10605
+    },
+    "allKnownAndProtectedChannelsExact": true,
+    "originalUnchanged": true
+  },
+  "pairedRender": {
+    "report": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-native2048-paired-grade-comparison-20261004.json",
+      "sha256": "33065f2f37df091a1b744637279337e01bb82e70d70aaf448beb3b2f37f0e651",
+      "bytes": 6288
+    },
+    "maxDisplayDifferenceU8": 31,
+    "knownChannelsChanged": 0,
+    "admission": "fails"
+  },
+  "visualDecision": {
+    "image": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-native2048-bake-20261004/auto_ev+0_wb+0-removal.png",
+      "sha256": "a7a5401a972d8b2f9464dccd0ec53aea6a0457c5d465c2305c53da60aec5d3d6",
+      "bytes": 6616331
+    },
+    "admission": "rejected",
+    "observations": "Neighbor face retained, but generated region contains repeated fabric-like texture and a dark bag-shaped residual; not useful large-object removal. Visual diagnosis is photographic quality only, not ACR color-correctness evidence."
+  },
+  "discoveredPrerequisite": {
+    "issue": 4211,
+    "file": "src/raw-pipeline/raw-core/src/pipeline/fp16.rs",
+    "testedCodecAtParentSHA256": "cf2a6dd4156e1ad7539305d6207e996d2738b41b8f752a06cc529bd552a49420",
+    "failure": "Current subnormal encode shifts32x too far. Real paired generated scene values straddle the minimum normal half range, amplifying small model differences into visible output differences. No float/GPU/color-stage change has been made in this research checkpoint.",
+    "preFixRegressionLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-subnormal-baseline-regressions-20261004.log",
+      "sha256": "ba6661c79e74a58e97e3285491edbc045beb078471d1e03a6f8b01deb3cb4a96",
+      "bytes": 7020
+    },
+    "baseline": {
+      "passed": 3,
+      "failed": 3
+    },
+    "dependenciesVerified": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/fp16-subnormal-dependency3941-20261004.json",
+        "sha256": "a48ac2a6faa00fbef6d0db28d211d37a8d0a98d3c8ab32544557574726b3961f",
+        "bytes": 9940
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/fp16-subnormal-dependency3955-20261004.json",
+        "sha256": "4c9ff8bff8debe826267b507fd3bec73a979017a73e9acb3325e406332402884",
+        "bytes": 9940
+      }
+    ]
+  },
+  "validation": {
+    "rustProbeTests": {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person-context-tests-final-20261004.log",
+        "sha256": "38afc9615d7fd81a3ab61895e5822b1972d5ee83aa6a00b867e5f258f2fe6b58",
+        "bytes": 3723
+      },
+      "passed": 9
+    },
+    "actualContextControls": {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-context-refusal-controls-20261004.log",
+        "sha256": "eafe7734f2a1a322b3aa489c90cca689da24c15f3180aed3bedfe4958cd2b88a",
+        "bytes": 1885
+      },
+      "passed": 13
+    },
+    "actualImageVerifierControls": {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/large-photo-verifier-controls-20261004.log",
+        "sha256": "398554683f3cf773fd2c9e70d4c92e2d4a73378a0266f8640e4a742decfbf3b1",
+        "bytes": 1092
+      },
+      "passed": 8
+    },
+    "clippy": {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person-scene-probe-clippy-20261004.log",
+        "sha256": "d1f1d2058bb487daaeed4bbc5070add6cd128d447101eba43c926a4f31afd8b0",
+        "bytes": 85643
+      },
+      "exampleDiagnostics": 0,
+      "inheritedLibraryWarnings": 171
+    }
+  },
+  "disqualifiedRuns": [
+    {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person-context-tests-20261004.log",
+        "sha256": "5d34b1c32c1b4df0459a3fadbd891bf5db16c5d7cfad8f6ae656adb8013e60c6",
+        "bytes": 4228
+      },
+      "reason": "Initial example compilation failed due to moved encoding serialization. Borrowed fields fixed before nine tests and actual probe build/execution."
+    },
+    {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-native2048-runtime-20261004.log",
+        "sha256": "899a3e79f21e2a3075b47d56ac561c48b11ab057deed8c2a4b486d9029316510",
+        "bytes": 614
+      },
+      "reason": "Pinned-runtime check rejected the wrong research overlay before model execution/output. Final run uses verified ORT1.23.2."
+    }
+  ],
+  "remaining": "Correct and qualify shared binary16 transport; continue useful semantic photographic reconstruction with complete masks and supported-device budgets; Mac authoring/recovery/portability/performance/color gates and Web parity remain open. Epic scope unchanged."
+}

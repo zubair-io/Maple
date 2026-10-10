@@ -29,16 +29,9 @@ public final class EditSession {
   var autoFitRevision: UInt64 = 0
   public internal(set) var hasLoadedSidecar = false
 
-  /// Byte-download progress for a remote (cloud) asset open (#822). Set by
-  /// the caller (`prepareCloudSession`) when the asset's bytes arrive over
-  /// HTTP, so the editor can show a determinate download bar while the
-  /// fetch is in flight. `nil` for local / PhotoKit assets — their bytes
-  /// are on disk or in Photos, so there's nothing to track and the editor
-  /// skips the bar. The progress-reporting bytes provider drives the same
-  /// instance; see `prepareCloudSession`.
+  /// Remote-original download progress, shared with `prepareCloudSession`.
+  /// Local/PhotoKit assets have no byte-download progress.
   @ObservationIgnored public let downloadProgress: DownloadProgress?
-
-  // MARK: Model
 
   public var model: AdjustmentModel {
     didSet {
@@ -48,6 +41,12 @@ public final class EditSession {
       }
       if model.profile != oldValue.profile { resetAutoFitStatus() }
       guard !isHydratingInitialState else { return }
+      guard permitsModelChange(from: oldValue) else {
+        isHydratingInitialState = true
+        model = oldValue
+        isHydratingInitialState = false
+        return
+      }
       // Slider → render wire. If this log doesn't fire on a slider
       // drag, the @Bindable write never landed on `session.model` (the
       // binding path is broken). If it fires but the image doesn't
@@ -90,15 +89,8 @@ public final class EditSession {
   /// Snapshot at session open — used by before/after toggle.
   public internal(set) var originalModel: AdjustmentModel
 
-  /// As-shot white balance read from the RAW file's metadata via
-  /// `CIRAWFilter`. `nil` when the file is not a recognized RAW or when
-  /// metadata is unreadable. Populated by `loadSidecar()` on session open;
-  /// used by:
-  ///   • `ImageEditPipeline.process(...)` — passed as the `neutral` input
-  ///     to `CITemperatureAndTint` so the Temperature slider behaves like
-  ///     Lightroom's (slider = scene white point, default = as-shot).
-  ///   • DetailPanel's Info tab — surfaced to the user as read-only
-  ///     metadata.
+  /// Camera white balance from the RAW metadata; nil before hydration or
+  /// when unavailable. It anchors pipeline and inspector As-Shot values.
   public internal(set) var asShotCCT: Double?
   public internal(set) var asShotTint: Double?
 
@@ -335,6 +327,9 @@ public final class EditSession {
   /// `undo`, `redo`, `resetToOriginal`, `undoStackCap`) lives in
   /// `EditSession+UndoRedo.swift`. Internal rather than private so that
   /// sibling file can reach them.
+  public internal(set) var isSavingRemoval = false
+  @ObservationIgnored var removalCommitTask: Task<Void, Error>?
+  @ObservationIgnored var isApplyingRemovalCommit = false
   @ObservationIgnored var transactions = EditTransactionRing()
   /// The most recently recorded, undone, or redone transaction.
   public internal(set) var lastCommittedTransaction: EditTransaction?
@@ -370,6 +365,8 @@ public final class EditSession {
   ///
   /// `internal` so the test suite can poke the actor's cache state
   /// and scheduler directly via `await session.renderActor.…`.
+  @ObservationIgnored let nativeAutoProfile = NativeAutoProfileState()
+  @ObservationIgnored var nativeAutoFrameID: UUID?
   @ObservationIgnored let renderActor: RenderActor
   /// File-backed sidecar store. `nil` for sourceless assets (PhotoKit, self-
   /// hosted API) where sidecar persistence goes through the source's

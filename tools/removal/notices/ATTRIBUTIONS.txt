@@ -1,0 +1,29 @@
+Maple offline testing model bundle — modified model exports (#1472 / #3941).
+
+These ONNX artifacts are Maple conversions, not upstream ONNX releases.
+LaMa: source advimman/lama; learned generator tensors from big-lama;
+complex Fourier operations replaced with portable standard ONNX DFT.
+MobileSAM: fixed photographic encoder input; dynamic prompt decoder; all
+four upstream candidates retained. RT-DETRv2: deployed R18 graph and
+postprocessor exported with upstream evaluation input conventions.
+See the exact source revisions, checkpoint/artifact hashes and toolchains
+in the accompanying export records. No new model training is performed.
+
+Preserved source attributions relevant to this review:
+LaMa: Copyright [2021] Samsung Research.
+FFC: original implementation https://github.com/pkumivision/FFC
+MobileSAM SAM decoder/common/prompt/transformer/ONNX code:
+Copyright (c) Meta Platforms, Inc. and affiliates.
+TinyViT: Copyright (c) 2022 Microsoft; adapted from LeViT and Swin Transformer.
+LayerNorm2d in MobileSAM common.py: from Detectron2, itself from ConvNeXt
+https://github.com/facebookresearch/ConvNeXt/blob/d1fa8f6fef0a165b27399986cc2bdacc92777e40/models/convnext.py
+
+Included transitive license copies document this review's identified
+components; they are not a conclusion that the review is exhaustive.
+The official ONNX Runtime archive's LICENSE, ThirdPartyNotices.txt,
+Privacy.md, version and source commit are carried verbatim separately.
+The Mac installer snapshots bundle.json and provenance documents into app
+storage with a local byte receipt, and checks them again on restore. These
+documents do not replace hard-pinned inference verification. Weight redistribution,
+complete transitive scope, signing, photographic and hardware qualification
+remain open. This local bundle is not approved for public distribution.

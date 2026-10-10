@@ -17,8 +17,8 @@ import os
 // `internal` (default) so the render / hydration / deep-zoom extensions in
 // sibling files in this module can share the same Logger instance.
 let editSessionLogger = Logger(
-    subsystem: "app.justmaple.aperture",
-    category: "EditSession"
+  subsystem: "app.justmaple.aperture",
+  category: "EditSession"
 )
 
 // Signposter for the render pipeline. Surfaced in Instruments (Points of
@@ -32,18 +32,18 @@ let editSessionLogger = Logger(
 // To view: Xcode → Open Developer Tool → Instruments → Points of Interest,
 // or Profile the app and filter by subsystem.
 let editSessionSignposter = OSSignposter(
-    subsystem: "app.justmaple.aperture",
-    category: "EditSession"
+  subsystem: "app.justmaple.aperture",
+  category: .pointsOfInterest
 )
 
 // MARK: - RenderPhase
 
 /// Two-phase rendering per spec § 02 / § 05.
 public enum RenderPhase: Sendable, Equatable {
-    /// Fast preview at reduced resolution (≤ 50ms target).
-    case fast
-    /// Full-resolution final render (≤ 300ms target).
-    case refine
+  /// Fast preview at reduced resolution (≤ 50ms target).
+  case fast
+  /// Full-resolution final render (≤ 300ms target).
+  case refine
 }
 
 // MARK: - RenderError
@@ -51,13 +51,12 @@ public enum RenderPhase: Sendable, Equatable {
 /// Errors surfaced by `EditSession.decodeAndRender(targetSize:phase:gen:)`
 /// and `EditSession.renderForExport()`.
 public enum RenderError: Error, LocalizedError, Sendable {
-    case pipelineFailed
+  case pipelineFailed
 
-    public var errorDescription: String? {
-        switch self {
-        case .pipelineFailed:
-            return "Failed to render preview."
-        }
+  public var errorDescription: String? {
+    switch self {
+    case .pipelineFailed:
+      return "Failed to render preview."
     }
+  }
 }
-

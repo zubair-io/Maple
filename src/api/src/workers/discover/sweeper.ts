@@ -27,6 +27,7 @@ import {
 } from './rename-reconcile.ts';
 import { FOLDER_HIDDEN_MARKER, reconcileFolderHidden } from './folder-hidden.ts';
 import type { CleanupHidden } from './folder-hidden.ts';
+import { recoverDirectoryRemovals } from './removal-recovery.ts';
 
 const log = child('discover');
 
@@ -52,9 +53,9 @@ export async function visitDirectory(
   deps: ReconcileDeps,
 ): Promise<void> {
   const { folderId } = deps;
+  const readDir = deps.readDir ?? ((p: string) => fs.readdir(p, { withFileTypes: true }));
   let entries: Dirent[];
   try {
-    const readDir = deps.readDir ?? ((p: string) => fs.readdir(p, { withFileTypes: true }));
     entries = await readDir(dir.dir_path);
   } catch {
     // Vanished/unreadable dir: drop it from the frontier and move on.
@@ -62,7 +63,19 @@ export async function visitDirectory(
     return;
   }
 
+  const recovery = await recoverDirectoryRemovals(dir.dir_path, root, entries);
+  if (recovery.relist) {
+    try {
+      entries = await readDir(dir.dir_path);
+    } catch {
+      // A share can vanish after recovery. Retain the verified files, emit no
+      // catalogue changes from an old listing, and retry on the next sweep.
+      await frontier.completeDir(dir._id);
+      return;
+    }
+  }
   const { subdirs, filesOnDisk, hasHiddenMarker } = partitionEntries(entries, dir.dir_path);
+  for (const name of recovery.blocked) filesOnDisk.delete(name);
   // Effective folder-hidden state: own `.hidden` marker, or inherited from an
   // ancestor via the frontier flag. Reconciled after the created/removed
   // events below so a file discovered in a marked dir is hidden in the same
@@ -82,6 +95,7 @@ export async function visitDirectory(
     dir.dir_path,
     folderId,
     filesOnDisk,
+    recovery.blocked,
   );
 
   // Rename reconciliation (#2655): pair up missing/new candidates that share
@@ -161,9 +175,12 @@ async function loadDirectoryCandidates(
   dirPath: string,
   folderId: ObjectId,
   filesOnDisk: ReadonlyMap<string, string>,
+  blocked: ReadonlySet<string>,
 ): Promise<{ newCandidates: NewFileCandidate[]; missingCandidates: MissingFileCandidate[] }> {
   const rel = toPosixRelDir(path.relative(root, dirPath));
-  const recorded = await listRecordedInDirectory(folderId, rel);
+  const recorded = (await listRecordedInDirectory(folderId, rel)).filter(
+    (asset) => !blocked.has(asset.fileinfo.filename),
+  );
   const recordedNames = new Set(recorded.map((a) => a.fileinfo.filename));
 
   const newCandidates: NewFileCandidate[] = [];

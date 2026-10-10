@@ -10,6 +10,13 @@ const IDB_DB_NAME = 'maple-fallback-cache';
 const IDB_STORE = 'blobs';
 const IDB_VERSION = 1;
 
+function isRemovalCompanionPath(path: string): boolean {
+  const segments = pathSegments(path);
+  return segments.some(
+    (segment, index) => segment === '.maple' && segments[index + 1] === 'inpaint',
+  );
+}
+
 function isMapleCachePath(path: string): boolean {
   return pathSegments(path).includes('.maple');
 }
@@ -41,7 +48,7 @@ function openBlobDb(): Promise<IDBDatabase> {
 }
 
 /** Store blob data under a composite key: `<folderLabel>/<path>`. */
-export async function fallbackWriteBlob(
+async function fallbackWriteBlob(
   folderLabel: string,
   path: string,
   data: Uint8Array,
@@ -54,10 +61,7 @@ export async function fallbackWriteBlob(
 }
 
 /** Retrieve blob data stored for `<folderLabel>/<path>`. */
-export async function fallbackReadBlob(
-  folderLabel: string,
-  path: string,
-): Promise<Uint8Array | null> {
+async function fallbackReadBlob(folderLabel: string, path: string): Promise<Uint8Array | null> {
   const db = await openBlobDb();
   const key = `${folderLabel}/${path}`;
   const tx = db.transaction(IDB_STORE, 'readonly');
@@ -153,7 +157,7 @@ export async function fallbackReadFile(
   const filename = pathSegments(path).at(-1);
 
   // For .maple/ paths, check IndexedDB first (written by us this session).
-  if (isMapleCachePath(path)) {
+  if (isMapleCachePath(path) && !isRemovalCompanionPath(path)) {
     const cached = await fallbackReadBlob(folder.name, path);
     if (cached) return cached;
     throw new DOMException(`fallback: file not found in IDB: ${path}`, 'NotFoundError');
@@ -169,7 +173,7 @@ export async function fallbackFileMetadata(
   folder: MapleFolderHandle,
   path: string,
 ): Promise<FileMetadata> {
-  if (isMapleCachePath(path)) {
+  if (isMapleCachePath(path) && !isRemovalCompanionPath(path)) {
     throw new Error('fallback: cached file metadata unavailable');
   }
   const filename = pathSegments(path).at(-1);
@@ -185,6 +189,9 @@ export async function fallbackWriteFile(
   path: string,
   data: Uint8Array,
 ): Promise<void> {
+  if (isRemovalCompanionPath(path)) {
+    throw new Error('Saving durable removal companions requires filesystem write access.');
+  }
   // Write to IndexedDB; we can't touch the real FS.
   await fallbackWriteBlob(folder.name, path, data);
 }

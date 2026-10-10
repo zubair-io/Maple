@@ -144,6 +144,15 @@ namespace Maple.WinUI.Services.Xmp
         public static void Save(string rawPath, XmpSidecarDocument doc)
         {
             var sidecarPath = SidecarPathFor(rawPath);
+            // Windows has no removal authoring boundary (#1472). Ordinary
+            // develop/culling saves cannot introduce, clear or replace the
+            // currently stored stack, including an unsupported future one.
+            string? priorXml;
+            try { priorXml = File.ReadAllText(sidecarPath, Encoding.UTF8); }
+            catch (FileNotFoundException) { priorXml = null; }
+            var prior = priorXml == null ? null : XmpParser.Parse(priorXml)
+                ?? throw new InvalidDataException("Cannot parse the existing XMP. Repair it before saving.");
+            RequireSameRemovals(prior?.Adjustments.InpaintRemovals, doc.Adjustments.InpaintRemovals);
             var xml = XmpWriter.Serialize(doc);
             lock (WriteGate) SaveText(sidecarPath, xml);
         }
@@ -161,6 +170,12 @@ namespace Maple.WinUI.Services.Xmp
                 TryDelete(tempPath);
                 throw;
             }
+        }
+
+        internal static void RequireSameRemovals(string? stored, string? requested)
+        {
+            if ((stored ?? "[]") != (requested ?? "[]"))
+                throw new InvalidDataException("Saved removal history changed. Reopen the photo before saving edits.");
         }
 
         private static void TryDelete(string path)

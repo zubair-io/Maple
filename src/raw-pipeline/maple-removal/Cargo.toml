@@ -1,0 +1,31 @@
+[package]
+name = "maple-removal"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = []
+ml = ["dep:ort", "ort/load-dynamic", "maple-ort/ml"]
+ml-static = ["dep:ort", "ort/std", "maple-ort/ml-static"]
+
+[dependencies]
+maple-ort = { path = "../maple-ort" }
+raw-core = { path = "../raw-core" }
+ort = { workspace = true, optional = true }
+sha2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+image.workspace = true
+
+[[example]]
+name = "native-removal-probe"
+required-features = ["ml"]
+
+[[example]]
+name = "native-reconstruction-probe"
+required-features = ["ml"]

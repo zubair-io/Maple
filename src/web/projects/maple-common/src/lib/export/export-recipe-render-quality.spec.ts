@@ -6,6 +6,9 @@ import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { provideHostedWorkspace } from '../workspace/hosted-workspace.providers';
 import { provideRouter } from '@angular/router';
 import { DEFAULT_EXPORT_RECIPE } from '../generated/export-recipe.generated';
+
+const emptyPhotoXmp =
+  '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description/></rdf:RDF></x:xmpmeta>';
 describe('browser recipe quality transport (#4197)', () => {
   for (const format of ['avif'])
     for (const quality of [null, 55])
@@ -25,7 +28,7 @@ describe('browser recipe quality transport (#4197)', () => {
             id: 'owned',
             filename: source.name,
             path: null,
-            xmp: '',
+            xmp: emptyPhotoXmp,
             filmLook: '',
             capturedAt: null,
             index: 0,
@@ -61,7 +64,7 @@ it('rejects imported numeric WebP quality before reading or rendering the source
         id: 'owned',
         filename: 'owned.jpg',
         path: null,
-        xmp: '',
+        xmp: emptyPhotoXmp,
         filmLook: '',
         capturedAt: null,
         index: 0,

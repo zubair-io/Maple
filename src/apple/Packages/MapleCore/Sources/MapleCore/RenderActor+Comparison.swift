@@ -60,7 +60,7 @@ extension RenderActor {
             guard frame.isPresent else { return nil }
             return ImageEditPipeline.AsShotWB(
               temperature: Double(frame.sceneCCT), tint: Double(frame.asShotTint))
-          } ?? asShot
+          }
         processed = pipeline.processSceneLinear(
           decoded: decoded, model: model, targetSize: boundedTarget,
           asShot: anchor, decodedAtModel: model, profileLUT: profileLUT,

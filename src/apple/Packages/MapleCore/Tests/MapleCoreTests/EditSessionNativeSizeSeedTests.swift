@@ -16,6 +16,45 @@ import XCTest
 
 final class EditSessionNativeSizeSeedTests: XCTestCase {
   @MainActor
+  func testLocalAndByteBackedCanvasSizeFromMetadata() async throws {
+    let url = try XCTUnwrap(
+      Bundle.module.url(
+        forResource: "source", withExtension: "dng", subdirectory: "removal/calibration"))
+    let bytes = try Data(contentsOf: url)
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let raw = directory.appendingPathComponent("photo.dng")
+    try bytes.write(to: raw)
+    let local = EditSession(asset: AssetRef(url: raw))
+    await local.seedNativeImageSizeFromMetadataAsync(local.asset)
+    XCTAssertEqual(local.nativeImageSize, CGSize(width: 16, height: 8))
+    actor Source {
+      var count = 0
+      func read(_ bytes: Data) -> Data {
+        count += 1
+        return bytes
+      }
+    }
+    let source = Source()
+    let asset = AssetRef(
+      displayName: "remote.dng", hintExtension: "dng",
+      bytesProvider: {
+        await source.read(bytes)
+      })
+    let remote = EditSession(asset: asset)
+    async let first: Void = remote.seedNativeImageSizeFromMetadataAsync(asset)
+    async let second: Void = remote.seedNativeImageSizeFromMetadataAsync(asset)
+    _ = await (first, second)
+    XCTAssertEqual(remote.nativeImageSize, CGSize(width: 16, height: 8))
+    let reads = await source.count
+    XCTAssertEqual(reads, 1)
+    XCTAssertEqual(try Data(contentsOf: raw), bytes)
+    XCTAssertNil(RawDimensions.read(from: Data("bad RAW".utf8), hint: "dng"))
+    XCTAssertNil(RawDimensions.read(from: directory.appendingPathComponent("missing.dng")))
+  }
+
+  @MainActor
   func testSeedsNativeImageSizeFromBytesProvider() async {
     let w = 320
     let h = 200

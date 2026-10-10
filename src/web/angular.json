@@ -75,6 +75,11 @@
                 "glob": "*.mlut",
                 "input": "../../resources/film-luts",
                 "output": "/film-luts"
+              },
+              {
+                "glob": "ort-wasm-simd-threaded.{mjs,wasm}",
+                "input": "node_modules/onnxruntime-web/dist",
+                "output": "/assets/removal-runtime"
               }
             ],
             "styles": ["projects/maple-syrup/src/styles.scss"],
@@ -204,6 +209,11 @@
                 "glob": "*.mlut",
                 "input": "../../resources/film-luts",
                 "output": "/film-luts"
+              },
+              {
+                "glob": "ort-wasm-simd-threaded.{mjs,wasm}",
+                "input": "node_modules/onnxruntime-web/dist",
+                "output": "/assets/removal-runtime"
               }
             ],
             "styles": [

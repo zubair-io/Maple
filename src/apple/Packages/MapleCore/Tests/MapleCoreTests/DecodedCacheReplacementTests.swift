@@ -47,7 +47,7 @@ final class DecodedCacheReplacementTests: XCTestCase {
     await oldGate.waitForEntry()
     let next = Task {
       await renderer.sharedDecode(
-        asset: asset, target: CGSize(width: 64, height: 64), profile: .auto
+        asset: asset, target: CGSize(width: 64, height: 64), profile: .auto, quality: .amaze
       ) { image, _ in
         await newGate.hold()
         return image
@@ -68,6 +68,7 @@ final class DecodedCacheReplacementTests: XCTestCase {
     XCTAssertNotNil(nextResult)
     let after = await renderer.snapshot(forAsset: asset)
     XCTAssertEqual(after.profile, .auto)
+    XCTAssertEqual(after.quality, .amaze)
   }
 
   func testCancelledDecodeCannotClearSameAssetReplacement() async throws {
@@ -88,7 +89,7 @@ final class DecodedCacheReplacementTests: XCTestCase {
     let oldFlag = await renderer.decodeCancelFlag
     let next = Task {
       await renderer.sharedDecode(
-        asset: asset, target: CGSize(width: 64, height: 64), profile: .auto
+        asset: asset, target: CGSize(width: 64, height: 64), profile: .auto, quality: .amaze
       ) { image, _ in
         await normalizeGate.hold()
         return image

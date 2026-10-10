@@ -24,7 +24,9 @@
  *      `moveSidecarsAlongside` (`fs/trash.ts`) uses — reused here via
  *      `sidecarRenameTarget`. Best-effort: a sidecar that fails to copy is
  *      logged and left at its original location; it never blocks or
- *      reverts the primary relocate.
+ *      reverts the primary relocate for ordinary readable metadata. Accepted
+ *      removal sidecars and companions use the strict verified path (#1472);
+ *      unreadable metadata cannot prove the absence of edits and stops first.
  *   5. Identity repoint: the optional `onVerified` hook runs here, between
  *      the verified copy and the delete-of-original — asset-aware callers
  *      (`library/relocate-asset.ts`) use it to repoint the asset's `fileinfo`
@@ -52,8 +54,12 @@ import { filesIdentical } from '../backup/fs-util.ts';
 import { child as childLogger } from '../log.ts';
 import { sidecarRenameTarget, companionRenameTarget } from './sidecar-rename.ts';
 import { classifySameFile, performCaseOnlyRename } from './relocate-case-only-rename.ts';
+import { relocateRemoval } from './relocate-removal.ts';
+import { pickFreePath } from './pick-free-path.ts';
+import { recoverRemovalRelocation, assertRemovalRecovered } from './removal-relocation-journal.ts';
+import { removalRelocationLease } from './removal-relocation-lease.ts';
 
-export { sidecarRenameTarget };
+export { sidecarRenameTarget, pickFreePath };
 
 const log = childLogger('fs/relocate');
 
@@ -127,46 +133,6 @@ export type RelocateOutcome =
 // ---------------------------------------------------------------------------
 // Collision resolution
 // ---------------------------------------------------------------------------
-
-/** Append `.N.<ext>` until the path is free. Bounded to 1000 attempts.
- *
- * Pass `caller` so the warn log identifies which code path triggered the
- * collision (e.g. `'moveToTrash'`, `'moveToDuplicates'`, `'migration:primary'`).
- * A collision means the destination already held a file with that name — the
- * returned suffixed path is what actually ends up on disk and in the DB, which
- * is how `_MG_4226.1.ARW`-style names are created.
- *
- * Throws after exhausting all candidates rather than returning the last
- * (occupied) one — the prior behaviour would have let the subsequent
- * `fs.rename` overwrite an existing file, causing data loss.
- *
- * Extensionless-input edge case: `path.extname("/x/foo")` returns `""`, and
- * `basePath.slice(0, -0)` is `""` — naively building `${stem}.${n}${ext}`
- * would produce `.1` (a root-level dotfile), losing the basename entirely.
- * Guard the slice on a non-empty ext so an extensionless input simply gets
- * the suffix appended (`/x/foo` → `/x/foo.1`). */
-export async function pickFreePath(basePath: string, caller?: string): Promise<string> {
-  try {
-    await fs.stat(basePath);
-  } catch {
-    return basePath; // path is free — no collision, no log
-  }
-  const ext = path.extname(basePath);
-  const stem = ext ? basePath.slice(0, -ext.length) : basePath;
-  for (let n = 1; n <= 1000; n++) {
-    const cand = `${stem}.${n}${ext}`;
-    try {
-      await fs.stat(cand);
-    } catch {
-      log.warn(
-        { caller: caller ?? 'unknown', collision: basePath, chosen: cand },
-        'pickFreePath: destination occupied — suffixed path chosen (this creates a .N. filename)',
-      );
-      return cand;
-    }
-  }
-  throw new Error(`pickFreePath: collision — exceeded 1000 candidate paths for ${basePath}`);
-}
 
 async function pathExists(p: string): Promise<boolean> {
   try {
@@ -425,10 +391,15 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
           'relocate: case-only rename target is the same file as the source on a case-insensitive filesystem — copy is not meaningful',
       };
     }
-    return performCaseOnlyRename(req);
+    return withRelocationLease(req, req.destAbsPath, () => performCaseOnlyRename(req));
   }
 
   // 1. Resolve the destination per the caller's collision policy.
+  try {
+    await recoverRemovalRelocation(req.destAbsPath);
+  } catch (error) {
+    return { kind: 'error', error: String(error) };
+  }
   const resolution = await resolveDestination(req);
   if (resolution.kind === 'skip') {
     return { kind: 'skipped', reason: 'collision' };
@@ -436,6 +407,50 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
   const { finalDest } = resolution;
 
   await fs.mkdir(path.dirname(finalDest), { recursive: true });
+  return withRelocationLease(req, finalDest, () => relocateResolved(req, finalDest));
+}
+
+async function withRelocationLease(
+  req: RelocateRequest,
+  target: string,
+  operation: () => Promise<RelocateOutcome>,
+): Promise<RelocateOutcome> {
+  try {
+    await recoverRemovalRelocation(req.sourceAbsPath);
+    await recoverRemovalRelocation(target);
+    if (process.platform !== 'darwin' && process.platform !== 'linux') return await operation();
+    const lease = await removalRelocationLease(req.sourceAbsPath, target);
+    try {
+      await assertRemovalRecovered(req.sourceAbsPath);
+      await assertRemovalRecovered(target);
+      return await operation();
+    } finally {
+      await lease.release();
+    }
+  } catch (error) {
+    return { kind: 'error', error: String(error) };
+  }
+}
+
+async function relocateResolved(req: RelocateRequest, finalDest: string): Promise<RelocateOutcome> {
+  try {
+    if (req.collision !== 'replace') {
+      const appeared = await fs.lstat(finalDest).catch((error: unknown) => {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
+          return null;
+        throw error;
+      });
+      if (appeared)
+        return {
+          kind: 'error',
+          error: 'Destination appeared during relocation; retry collision resolution',
+        };
+    }
+    const removal = await relocateRemoval(req, finalDest);
+    if (removal) return removal;
+  } catch (error) {
+    return { kind: 'error', error: String(error) };
+  }
 
   const createdPaths: string[] = [];
   let repointed = false;

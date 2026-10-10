@@ -3,8 +3,8 @@
 //
 // macOS owns a real Trash the user already knows how to look in, so a
 // filesystem-source delete goes straight to `FileManager.trashItem` — one
-// syscall, recoverable from Finder, no copy-verify-delete needed because the
-// OS is the one doing the moving. iOS/iPadOS has no OS trash for a
+// syscall for an ordinary photo. Accepted AI removals instead travel as one
+// verified recovery folder so Finder cannot separate RAW/XMP/companions (#3944). iOS/iPadOS has no OS trash for a
 // security-scoped folder, so it falls back to `.maple/trash/<rel>` under the
 // library root via the SAME relocate primitive every other move here uses.
 
@@ -27,6 +27,10 @@ extension LocalFileOperations {
     /// this module owns.
     static func trashToOSTrash(_ primaryURL: URL) async throws -> RelocateOutcome {
       let fm = FileManager.default
+      let source = try LocalRemovalRelocation.open(rawURL: primaryURL)
+      if let records = source.records, !(try RemovalBridge.assetNames(records: records)).isEmpty {
+        return try await trashAcceptedRemoval(source, raw: primaryURL)
+      }
       var trashedPrimary: NSURL?
       try fm.trashItem(at: primaryURL, resultingItemURL: &trashedPrimary)
 

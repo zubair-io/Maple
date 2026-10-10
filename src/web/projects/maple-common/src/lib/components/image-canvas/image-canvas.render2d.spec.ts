@@ -74,7 +74,10 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
     >(async () => decoded);
     const host = {
       state: { autoFitRevisionFor: () => 0, seedLensProfile: vi.fn() },
-      canvasSvc: { currentPixels: signal<DecodedImage | null>(null) },
+      canvasSvc: {
+        cropInputDimensions: signal(null),
+        currentPixels: signal<DecodedImage | null>(null),
+      },
       pipeline: { decode },
       filmSync: { cpuLutBytesForCurrent: () => cpuLutBytes },
       nativeDetail: { recordBase: vi.fn() },
@@ -287,8 +290,9 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
         crop: { ...defaultAdjustmentModel().crop, left: 0.2 },
       };
       const { host, decode } = harness(undefined);
+      const serializer = new XmpSerializerService();
       const serialize = (value: typeof opened, crop: boolean) =>
-        JSON.stringify(renderModelForCrop(value, crop));
+        serializer.serialize(renderModelForCrop(value, crop));
       Object.assign(host.state, {
         adjustmentFor: () => () => opened,
         updateAssetDimensions: vi.fn(),
@@ -366,7 +370,8 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
         seedLensProfile: vi.fn(),
         adjustmentFor: () => () => model,
       },
-      serializeForRender: () => `<rdf:Description papp:LensProfile="${reference}"/>`,
+      serializeForRender: () =>
+        `<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:LensProfile="${reference}"/>`,
       fastTargetPx: () => 512,
       markColdOpenDone: vi.fn(),
       hasProvisionalPreview: () => false,

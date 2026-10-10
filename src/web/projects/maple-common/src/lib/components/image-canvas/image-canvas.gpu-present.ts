@@ -29,8 +29,8 @@ import { hasCalibratedWhiteBalance } from '../../state/camera-support';
 // a FRESH GPU canvas element (a new asset = a new session at possibly new dims); the
 // previous element is removed.
 
-import { effect, signal, untracked } from '@angular/core';
-import type { ElementRef, Injector, WritableSignal } from '@angular/core';
+import { signal } from '@angular/core';
+import type { ElementRef, WritableSignal } from '@angular/core';
 import type {
   RawPipelineService,
   OpenedLiveSession,
@@ -39,13 +39,16 @@ import type {
 import type { LibraryStateService } from '../../state/library-state.service';
 import type { ImageCanvasService } from './image-canvas.service';
 import type { XmpSerializerService } from '../../xmp/xmp-serializer.service';
+import { publishGpuDimensions } from './image-canvas.gpu-dimensions';
+import { loadGpuSessionRemovals } from './image-canvas.gpu-removals';
+import type { SavedRemovalRenderService } from '../../removal/saved-removal-render.service';
 import type { AssetId } from '../../models/asset';
 import { type AdjustmentModel, isDefaultAdjustment } from '../../models/adjustment-model';
 import type {
   GpuFallbackNoticeService,
   GpuFallbackReason,
 } from '../gpu-fallback-notice/gpu-fallback-notice.service';
-import { coldOpen2d, decodeSupportFrom, type Render2dHost } from './image-canvas.render2d';
+import { decodeSupportFrom, type Render2dHost } from './image-canvas.render2d';
 
 /**
  * The slice of `ImageCanvasComponent` the GPU present path reaches back into. Defined
@@ -62,6 +65,7 @@ export interface GpuPresentHost {
   readonly state: LibraryStateService;
   readonly canvasSvc: ImageCanvasService;
   readonly xmpSerializer: XmpSerializerService;
+  readonly savedRemovals: SavedRemovalRenderService;
   /** Where a fallback to the 2D path is reported (#2415) so the UI can
    *  surface a notice instead of only the console warning below. */
   readonly gpuFallback: GpuFallbackNoticeService;
@@ -101,6 +105,7 @@ export interface GpuPresentHost {
    * `width`/`height` are no longer the native dims.
    */
   recordNativeDims(w: number, h: number): void;
+  recordPaintedDims(w: number, h: number): void;
 }
 
 /**
@@ -222,7 +227,13 @@ export class ImageCanvasGpuPresent {
       // a serialized default instead could perturb that WB path.
       const openModel = this.host.state.adjustmentFor(assetId)();
       const serializeOpened = this.host.captureRenderSerializer();
-      const openXmp = isDefaultAdjustment(openModel) ? undefined : serializeOpened(openModel);
+      const { xmp: openXmp, saved } = await loadGpuSessionRemovals(
+        assetId,
+        openModel,
+        serializeOpened,
+        this.host.savedRemovals,
+      );
+      if (assetId !== this.host.currentAssetId || this.canvasEl !== canvasEl) return true;
       // Develop fit to the viewport (#1080): pass the wrap's long edge in real
       // pixels so the session never develops (or sizes a surface at) full sensor
       // res. The session pins this target for its lifetime; CSS scales the
@@ -233,6 +244,7 @@ export class ImageCanvasGpuPresent {
         ext,
         openXmp,
         this.host.viewportTargetLongEdge(),
+        saved,
       );
 
       // Stale guard: a fast asset switch may have moved on (or torn this down)
@@ -313,6 +325,12 @@ export class ImageCanvasGpuPresent {
     const nativeH = info.nativeHeight ?? info.height;
     this.host.state.updateAssetDimensions(assetId, nativeW, nativeH);
     this.host.recordNativeDims(nativeW, nativeH);
+    publishGpuDimensions(
+      this.host.canvasSvc,
+      info,
+      (width, height) => this.host.recordPaintedDims(width, height),
+      () => this.applyView(),
+    );
     this.host.state.seedAsShotWhiteBalance(
       assetId,
       info.asShotTemperature,
@@ -363,12 +381,28 @@ export class ImageCanvasGpuPresent {
     // even while the Neutral request is still queued in the worker (#2441).
     if (!fastParams) this.scalarPrefixRevision = undefined;
     try {
-      const rendered = await this.host.pipeline.renderLiveSession(xmp, fastParams);
+      // Only a cold prefix change reads companions. Scalar ticks keep their
+      // existing flat-params path with no file I/O or additional WASM call.
+      const saved =
+        !fastParams && this.host.currentAssetId
+          ? ((await this.host.savedRemovals.load(this.host.currentAssetId, xmp)) ?? {
+              manifest: '[]',
+              bytes: new Uint8Array(),
+            })
+          : undefined;
+      if (generation !== this.host.renderGeneration) return false;
+      const rendered = await this.host.pipeline.renderLiveSession(xmp, fastParams, saved);
       // Stale guard (same intent as the 2D path's generation check): a newer edit
       // bumped the generation while this render was in flight — drop its result so
       // a stale scope readback can't overwrite a fresher frame's.
       if (generation !== this.host.renderGeneration) return false;
       this.publishRenderedStatus(rendered, fastParams, params, fitAsset, fitRevision);
+      publishGpuDimensions(
+        this.host.canvasSvc,
+        rendered,
+        (width, height) => this.host.recordPaintedDims(width, height),
+        () => this.applyView(),
+      );
       // Scopes are no longer fed from this reply (#3397): the readback now
       // arrives as a `scope-sample` broadcast, mirrored into `currentPixels`
       // by the component's scope effect.
@@ -464,76 +498,4 @@ export class ImageCanvasGpuPresent {
 export interface GpuKillSwitchHost extends Render2dHost {
   readonly currentBytes: Uint8Array | null;
   readonly currentExt: string;
-}
-
-/**
- * Reacts to the operator kill switch (`GpuLiveRenderGate`, via
- * `gpuPresent.enabled`) flipping off while a GPU live session is presenting
- * the currently open image (#2340). The gate is otherwise read per render
- * request — a flip lands on the next decode / session open on its own — but
- * an already-open session keeps presenting until now, which defeats the one
- * case the switch exists for: getting off a wedged or corrupting GPU path
- * without waiting on the user to reload.
- *
- * Tears the session down and reopens the SAME bytes/ext through `coldOpen2d`
- * — the identical 2D cold-open route `ImageCanvasRawOpen.load` already falls
- * back to when a GPU session fails to open, so there is exactly one 2D
- * reopen path, not two. No-ops whenever the guard fails: gate on, no session
- * active, or (a fast asset switch raced the flip) the retained bytes no
- * longer belong to the focused asset.
- *
- * Registered once per component lifetime; inert until a session is
- * genuinely active, so it is safe to wire up before any asset has opened.
- * `injector` ties the effect's cleanup to the caller's lifecycle (component
- * destroy) — callers don't need to hold onto the returned handle unless they
- * want to unregister early.
- */
-export function wireGpuKillSwitchEffect(
-  host: GpuKillSwitchHost,
-  gpuPresent: ImageCanvasGpuPresent,
-  injector: Injector,
-): () => void {
-  const ref = effect(
-    () => {
-      const killSwitchOff = !gpuPresent.enabled;
-      if (!killSwitchOff || !gpuPresent.active()) return;
-      untracked(() => {
-        gpuPresent.teardown();
-        const assetId = host.currentAssetId;
-        const asset = host.state.focusedAsset();
-        if (!assetId || !asset || asset.id !== assetId || !host.currentBytes) return;
-        void coldOpen2d(host, assetId, asset.filename, host.currentExt, host.currentBytes);
-      });
-    },
-    { injector },
-  );
-  return () => ref.destroy();
-}
-
-/**
- * Mirror the worker's out-of-band scope samples into `currentPixels` (#3397).
- *
- * The readback used to ride `render-session-success`, which put its
- * synchronous GPU→CPU sync inside the reply the editor's latest-wins scheduler
- * waits on. It now arrives as a separate `scope-sample` broadcast, so this is
- * the only thing that still needs doing on the main thread: publish it.
- *
- * No generation guard, unlike the render path: the worker already skips any
- * sample a queued render superseded, so whatever arrives describes the newest
- * presented frame. Only non-null samples are written, so a one-off readback
- * miss leaves the previous (correct-enough) scope data rather than blanking
- * the scopes to their pseudo fallback mid-edit.
- *
- * `injector` ties cleanup to the component lifecycle, same as
- * `wireGpuKillSwitchEffect`.
- */
-export function wireScopeSampleEffect(host: GpuPresentHost, injector: Injector): () => void {
-  const ref = effect(
-    () => {
-      const sample = host.pipeline.scopeSample();
-      if (sample) host.canvasSvc.currentPixels.set(sample);
-    },
-    { injector },
-  );
-  return () => ref.destroy();
 }

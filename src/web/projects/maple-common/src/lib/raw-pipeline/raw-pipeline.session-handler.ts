@@ -42,6 +42,9 @@ function liveSessionCtor(): WebLiveSessionCtor | null {
 
 /** The single open session, or null. Only one image is live at a time. */
 let liveSession: WebLiveSessionInstance | null = null;
+let normalSavedBundle: OpenSessionRequest['savedRemovals'];
+let normalSavedDirty = false;
+const emptyCompanions = new Uint8Array();
 
 // Re-entrancy gate (the wasm-bindgen `&mut self` borrow hazard): `render` holds the
 // session's mutable borrow for its whole Promise (across awaits), so a second
@@ -51,6 +54,24 @@ let liveSession: WebLiveSessionInstance | null = null;
 // the next chains after it. (#846's generation counter drops stale RESULTS on the
 // main thread — necessary but not sufficient; this prevents the re-entrant CALL.)
 let sessionChain: Promise<unknown> = Promise.resolve();
+
+/** Removal reads share the render queue: never enter an async mutable WASM
+ * borrow while a render/open/close owns it. No extra decoded mosaic on WebGPU. */
+export function withLiveRemovalSession<T>(
+  action: (session: import('./raw-pipeline.removal.types').RemovalRawSession) => T,
+  mutatesSaved = false,
+): Promise<{ value: T } | null> {
+  return enqueueSessionOp(async () => {
+    if (!liveSession) return null;
+    if (mutatesSaved) normalSavedDirty = true;
+    return {
+      value: action(
+        liveSession as WebLiveSessionInstance &
+          import('./raw-pipeline.removal.types').RemovalRawSession,
+      ),
+    };
+  });
+}
 function enqueueSessionOp<T>(op: () => Promise<T>): Promise<T> {
   const next = sessionChain.then(op, op);
   sessionChain = next.catch(() => undefined);
@@ -136,6 +157,8 @@ function postOpenSessionSuccess(req: OpenSessionRequest, session: WebLiveSession
   const response: WorkerResponse = {
     id: req.id,
     type: 'open-session-success',
+    cropInputWidth: session.cropInputWidth,
+    cropInputHeight: session.cropInputHeight,
     width: session.width,
     height: session.height,
     // Native oriented dims (#1080): the session is viewport-sized, so the
@@ -170,6 +193,8 @@ async function openSessionOp(req: OpenSessionRequest): Promise<void> {
     // Tear down any prior session before opening a new one (asset switch).
     liveSession?.free();
     liveSession = null;
+    normalSavedBundle = undefined;
+    normalSavedDirty = false;
     setLiveCanvas(null);
 
     const bytes = new Uint8Array(req.bytes);
@@ -179,20 +204,31 @@ async function openSessionOp(req: OpenSessionRequest): Promise<void> {
     // never recorded as `liveSession`, and never reported to the caller).
     const sessionOpenStartMark = `maple:session-open:${req.id}:start`;
     markStart(sessionOpenStartMark);
-    const session = await ctor.open(
-      bytes,
-      req.ext,
-      req.xmp ?? null,
-      req.canvas,
-      // Viewport target (#1080): the develop + canvas are fit to it, so the
-      // session never configures an over-texture-cap (full-sensor-res) surface.
-      req.maxLongEdge,
-      // Requested canvas colour space (#3191) — `undefined` preserves the
-      // WASM-side `'display-p3'` default.
-      req.targetColorSpace,
-    );
+    const saved = req.savedRemovals;
+    if (saved && (!req.xmp || !ctor.open_with_saved_removals))
+      throw new Error('Saved removal rendering requires its sidecar and the current WASM bundle');
+    const session = saved
+      ? await ctor.open_with_saved_removals!(
+          bytes,
+          req.ext,
+          req.xmp!,
+          req.canvas,
+          req.maxLongEdge,
+          req.targetColorSpace,
+          saved.manifest,
+          new Uint8Array(saved.bytes),
+        )
+      : await ctor.open(
+          bytes,
+          req.ext,
+          req.xmp ?? null,
+          req.canvas,
+          req.maxLongEdge,
+          req.targetColorSpace,
+        );
     markEnd(sessionOpenStartMark, `maple:session-open:${req.id}:end`, 'maple:session-open');
     liveSession = session;
+    normalSavedBundle = saved;
     // Retain the canvas (the readback source) — `open()` did not neuter the JS ref.
     // `open` already presented the first frame, so a snapshot here reflects it.
     setLiveCanvas(req.canvas);
@@ -244,6 +280,10 @@ function postRenderSessionSuccess(
   const response: WorkerResponse = {
     id: req.id,
     type: 'render-session-success',
+    cropInputWidth: session.cropInputWidth,
+    cropInputHeight: session.cropInputHeight,
+    width: session.width,
+    height: session.height,
     colorSpace,
     // #3479: a scalar-params tick never re-develops, so only an XMP render
     // can have changed which imported profile the prefix consumed.
@@ -261,6 +301,19 @@ async function renderSessionOp(req: RenderSessionRequest): Promise<void> {
     return;
   }
   try {
+    if (req.savedRemovals || normalSavedDirty) {
+      if (!req.xmp) throw new Error('Saved canvas preparation requires the current sidecar');
+      const bundle = req.savedRemovals ?? normalSavedBundle;
+      const session = liveSession as WebLiveSessionInstance &
+        import('./raw-pipeline.removal.types').RemovalRawSession;
+      session.prepare_saved_removals(
+        req.xmp,
+        bundle?.manifest ?? '[]',
+        bundle ? new Uint8Array(bundle.bytes) : emptyCompanions,
+      );
+      normalSavedBundle = bundle;
+      normalSavedDirty = false;
+    }
     // #1123: markStart/markEnd — see openSessionOp; a throw here must never
     // fall through to the outer `catch` and report a successful render as a
     // `session-error` (the frame is already presented to the canvas by then).
@@ -328,6 +381,8 @@ export function handleCloseSession(): void {
   void enqueueSessionOp(async () => {
     liveSession?.free();
     liveSession = null;
+    normalSavedBundle = undefined;
+    normalSavedDirty = false;
     // Drop the readback source too (its control was transferred to the worker; the
     // element is owned by the now-closed session). A re-open installs a fresh one.
     setLiveCanvas(null);

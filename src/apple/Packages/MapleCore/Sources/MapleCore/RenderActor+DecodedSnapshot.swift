@@ -20,6 +20,8 @@ extension RenderActor {
     /// Auto-exposure mode the cached buffer was developed for (#1387),
     /// `nil` for non-RAW / seeded buffers — mirrors `profile` above.
     public let autoExposure: AutoExposureMode?
+    /// Actual cached demosaic quality, including a retained higher-quality decode.
+    public let quality: PipelineRenderer.Quality?
     /// Per-camera noise profile from the RAW decode (PR #1709 review fix 4).
     /// `nil` when the DNG carries no NoiseLevelFunction tag or the buffer
     /// was seeded from a display-encoded preview.

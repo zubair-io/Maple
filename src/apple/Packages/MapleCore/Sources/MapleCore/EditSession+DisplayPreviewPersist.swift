@@ -20,11 +20,13 @@ import Foundation
 extension EditSession {
   func scheduleDisplayPreviewPersist(_ rendered: CIImage) {
     guard workflow.selectedVariantId == WorkflowContract.primaryVariantID else { return }
+    guard hasSettledCPUAutoProfile else { return }
     previewPersistence.schedule(rendered)
   }
 
   func flushDisplayPreviewPersist(expectedModel: AdjustmentModel? = nil) async {
     guard await cancelAndJoinDisplayPreviewPersist(expectedModel: expectedModel) else { return }
+    guard hasSettledAutoProfile else { return }
     let capturedModel = model
     await previewPersistence.persistPending { self.model == capturedModel }
   }
@@ -63,16 +65,25 @@ extension EditSession {
     // Cache variants use the sidecar mtime: commit the final transaction
     // before capturing pixels and their cache revision.
     await flushPendingSidecarWrite()
+    await nativeAutoProfile.awaitPreparation()
     _ = await latestRenderSchedule?.value
     await renderActor.awaitCurrentRenderIfInFlight()
     guard model == exitModel else { return }
+    // The preparation callback queues a refresh asynchronously. Exit can join
+    // preparation before that callback reaches the render scheduler, so ensure
+    // the final frame actually owns the ready tail before capturing it.
+    if nativeAutoProfile.ready != nil, !hasSettledAutoProfile {
+      let gen = await renderActor.currentGeneration()
+      await decodeAndRender(targetSize: fastTargetSize, phase: .fast, gen: gen)
+      guard model == exitModel else { return }
+    }
     // Cancellation alone cannot stop an encode/write already in progress.
     // Drain it before the current GPU frame can become the final sink write.
     guard await cancelAndJoinDisplayPreviewPersist(expectedModel: exitModel) else { return }
     // CPU render publishes enqueue a thumbnail write. Await a final write here
     // as well, so the reload signal below always follows the final pixels.
-    if workflow.selectedVariantId == WorkflowContract.primaryVariantID,
-      !gpuFramePresented, previewIsFullRender, !isFullQualityDecoding,
+    if workflow.selectedVariantId == WorkflowContract.primaryVariantID, hasSettledCPUAutoProfile, !gpuFramePresented || gpuPresentFailed, previewIsFullRender,
+      !isFullQualityDecoding,
       let url = asset.primaryURL, let image = renderedPreview
     {
       await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: url)

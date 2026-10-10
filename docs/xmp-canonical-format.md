@@ -76,7 +76,7 @@ Conditional declarations follow in a fixed order when the payload needs them: `d
 
 `crs:` is Adobe's Camera Raw schema — Maple uses Adobe's own key wherever Adobe has an equivalent control, so a Maple sidecar opens sensibly in Lightroom and vice versa. `papp:` is Maple's own namespace, used for controls Adobe has no equivalent for (capture sharpening, deep denoise, film looks) or where reusing Adobe's key would corrupt interop (`papp:Brightness` rather than `crs:Brightness`, which is Adobe's process-version-2010 control with different semantics and a default of +50).
 
-**The `papp:` prefix, not the URI, is what parsers key on.** All four readers match qualified attribute names byte-wise (`papp:Profile`) rather than resolving namespace URIs, which is why the Apple writer could be moved onto the canonical URI without stranding a single sidecar already on disk. The older Apple URI `http://ns.justmaple.app/1.0/` is still accepted by the readers that resolve URIs at all (`PAPP_NAMESPACES` in `xmp-dom-utils.ts`, `PappNsLegacy` in `XmpSidecarDocument.cs`), along with an even older `maple:` binding at `https://maple.app/ns/1.0/`. Writers always emit the canonical URI.
+**For scalar sliders, the `papp:` prefix is what parsers key on.** All four readers match qualified attribute names byte-wise (`papp:Profile`) rather than resolving namespace URIs, which is why the Apple writer could be moved onto the canonical URI without stranding a single sidecar already on disk. The older Apple URI `http://ns.justmaple.app/1.0/` is still accepted by the readers that resolve URIs at all (`PAPP_NAMESPACES` in `xmp-dom-utils.ts`, `PappNsLegacy` in `XmpSidecarDocument.cs`), along with an even older `maple:` binding at `https://maple.app/ns/1.0/`. Writers always emit the canonical URI.
 
 ### Attribute ordering on `rdf:Description`
 
@@ -119,7 +119,7 @@ Every field other than the always-emitted attributes above is written **only whe
 - The comparison is between _serialized wire forms_, not raw floats. Gating on the raw value would emit `="0"` for a slider sitting at 0.004, churning otherwise-identical sidecars on every save.
 - The write-omit sentinel is sourced from the generated model defaults, not hand-typed. Hand-typed sentinels had previously drifted from the real defaults for `crs:Sharpness` and `crs:SharpenRadius`, which silently dropped a user's "Sharpen Amount = 0" on save and restored 40 on the next load.
 
-**Known divergence:** the Apple writer emits the core numeric block (`crs:Exposure2012` through `crs:ColorNoiseReduction`, plus `crs:WhiteBalance="Custom"` and the WB pair) unconditionally, where the Web and Windows writers omit them at default. The byte-parity golden therefore sets every unconditionally-emitted field to a non-default value, so both writers produce the same attribute set for it.
+**Known divergence:** the Apple writer emits the core numeric block (`crs:Exposure2012` through `crs:ColorNoiseReduction`) and the WB preset label unconditionally, where the Web and Windows writers omit them at default. Apple preserves each imported WB component's presence: an absent pair stays absent, while an explicit default-valued component stays explicit. The byte-parity golden sets every unconditionally-emitted numeric field to a non-default value, so both writers produce the same attribute set for it.
 
 ## The field table
 
@@ -217,7 +217,126 @@ The seven `crs:Perspective*` keys (#3410) are Adobe's own, read and written **un
 
 Band suffixes are `Red`, `Orange`, `Yellow`, `Green`, `Aqua`, `Blue`, `Purple`, `Magenta` for all four eight-band groups. Crop, culling, metadata, the point tone curves and local adjustments have their own sections below.
 
-One `papp:` key is read by `raw-core` alone and is unmodelled everywhere else, so it survives a Swift/TypeScript/C# read-modify-write through passthrough rather than through the model: `papp:InpaintRemovals` (an array of baked-removal records — region, patch content hash, model id, bake grade; the patch pixels live out of band in `.maple/inpaint/`; `raw-core/src/types/inpaint.rs`). It uses a _tolerant_ reader: an element this build does not recognise is skipped so a sidecar from a newer build still opens, while a recognised shape with a corrupt field fails loudly. Local adjustments used to be the second member of this pair (`papp:LocalAdjustments`, a compact-JSON attribute); #358 moved it onto a canonical, nested-element wire form — see "Local adjustments" below.
+The structured `papp:InpaintRemovals` key is validated by `raw-core`. Swift carries its exact validated JSON as immutable `AdjustmentModel.inpaintRemovals` state. Web carries the exact ordered JSON in its adjustment model and validates accepted assets through Rust; C# carries its exact JSON in `AdjustmentState.InpaintRemovals`, including stripped decode snapshots and ordinary saves; its RDF ownership reader canonicalizes a unique attribute or direct scalar property while Rust validates schemas and assets. The array contains baked-removal records (region, patch content hash, model id and bake grade); pixels live out of band in `.maple/inpaint/` (`raw-core/src/types/inpaint.rs`). It uses a _tolerant_ reader for unknown element kinds, while a recognized removal with corrupt fields or an unsupported explicit schema version fails loudly. The reader accepts legacy schema `2` (including records with no schema stamp) and accepted-edit schema `3` and linear-calibration schemas `4` and `5`; other explicit versions fail. Schema 3 adds the immutable original and fixed decode-anchor digests, source dimensions, intent-mask digest, native patch/context windows, exact model/recipe digests and ordered preceding context dependencies. Schema 3 retains its post-DCP composition semantics and omits a plate field. Schema 4 requires `accepted.plate="linear-calibration-v1"`: signed linear Rec.2020 calibration pixels return to camera RGB before lens correction and user WB/DCP. A missing, different or unknown plate fails; changing only the schema to 3 cannot reinterpret a schema-4 asset. Preparing a new record defaults to the legacy plate for compatibility, so calibration authoring must explicitly request its plate. Every content identity is a lowercase `blake3:` digest. Both companions must pass checksum and native-geometry validation; selected intent pixels require opaque replacement coverage. Changing a context dependency marks the later edit for review while retaining its accepted pixels. Shared preparation preserves unknown element kinds when appending a record. Regions must be finite, non-empty and inside the normalized source frame. Bake-grade values must be finite, and patch/model identities must be non-empty. The shared encoder returns an error rather than writing invalid metadata. This reader/codec foundation is not an editor authoring flow; completion is tracked by #1472. Local adjustments used to be the second member of this pair (`papp:LocalAdjustments`, a compact-JSON attribute); #358 moved it onto a canonical, nested-element wire form — see "Local adjustments" below.
+
+### Saved removal identities and controls
+
+Schema `5` adds required top-level `id` and `active` fields to the schema-4
+linear-calibration record. The id is a lowercase `blake3:` operation identity,
+separate from mask, patch and baked recipe digests; ids must be unique within the
+ordered stack. `active` must be a boolean. A schema-5 record requires accepted
+metadata and the explicit `linear-calibration-v1` plate. Schema 2/3/4 records
+carrying either control field fail rather than ignoring disabled intent. Older
+readers that reject schema 5 must not rewrite these edits.
+
+Read-only listing does not migrate legacy records. The first explicit saved-row
+edit upgrades supported schema-4 records together, assigning stable ids before
+changing array order. Legacy schema-2/3 records remain unchanged; deletion is
+available, but current calibration controls cannot toggle or regenerate them.
+Unknown element kinds retain their JSON values and array positions. Baked recipe
+fingerprints exclude operation id/enable state, preserving schema-3/4 dependency
+identities across this explicit upgrade.
+
+Disabling keeps both verified companions and all recipe metadata, while excluding
+that patch from composition and new generation context. Deleting removes the
+record but retains immutable assets for history and shared references. Replace
+loads the saved intent mask for refinement and generates against active earlier
+patches only. Keep replaces that operation at its original position and preserves
+its id; later patches keep their pixels and provenance. Changed intersecting
+preceding context produces **Needs review** until the photographer explicitly
+replaces the later result. Identical restored dependencies clear review without
+inference. Every accepted toggle, deletion or replacement is one confirmed editor
+history action; temporary strokes have their own undo/redo.
+
+### Removal publication and confirmed saving
+
+The local Apple and browser-folder persistence boundaries (#3940) publish and
+verify companions before changing XMP. They recheck the original's digest and
+the expected removal-stack text at the commit boundary. A missing or corrupt
+prior companion, replaced original, or stale stack refuses the save. Publication
+may leave unreferenced immutable blobs after cancellation or a failed commit;
+those bytes must not be treated as a saved edit or deleted as cache entries.
+
+Apple local removal Keep, undo/redo and whole-model reset (#3984) adopt the new
+model and move history only after this confirmed boundary succeeds. A failed save
+retains the current model and both history stacks for retry. Explicit clearing
+omits the attribute, restoring the default absent representation; ordinary saves
+continue to preserve existing empty arrays. Clearing also verifies the current
+stack against the original, so an empty target cannot bypass source identity.
+Closing the editor joins any in-flight removal commit before flushing scalar
+writes.
+
+Apple authoring also captures a digest of the complete flushed XMP, including
+culling and foreign XML. Keep compares it under the writer lock as well as the
+ordered removal stack. A rejected save queues no older scalar snapshot, and a
+retry cannot pair externally changed XML with the old in-memory model: close
+and reopen the photo to hydrate those external edits. Rewriting identical bytes
+does not invalidate the proposal.
+
+Apple writers use a persistent advisory `.photo.xmp.lock` file, synchronize new
+assets and the accepted sidecar, and publish through atomic filesystem operations.
+Local companion publication also syncs `.maple/inpaint`, `.maple`, the photo
+folder and any destination ancestors created during that publication, deepest
+first, before returning prepared records. Existing carrier directories are synced
+on repeated publication as well. Reused immutable files are verified and synced
+through the same open handle. Confirmed local Keep, redo and workflow restore
+sync every target companion and its carrier again under the sidecar writer lock,
+before publishing XMP; a valid restored checksum cannot stand in for durability.
+Clearing an empty target does not create or require companion directories.
+A file or directory sync failure prevents confirmation;
+actual local syscall ordering does not prove physical power-loss or NAS durability.
+An already-published workflow restore with the identical command UUID is retried
+without adding another history entry. When it carries removal records, the local
+writer verifies and syncs its companions, then rereads and syncs the exact existing
+XMP inode and photo folder before acknowledging it. Restored matching XML alone
+does not establish durability; missing companions or different XML refuse confirmation.
+If local Keep, undo or redo replaces XMP but loses directory access before
+confirmation, the writer retains the exact attempted model, removal transition,
+complete XML and prior revision in memory. Retrying that same command verifies
+the original and target companions again, syncs the existing XMP and photo folder,
+and only then acknowledges the model and history. Matching removal records alone
+cannot authorize changed external XML. Ordinary model/workflow writes refuse to
+overwrite this uncertain checkpoint; a failure before replacement leaves the exact
+prior XML and permits ordinary saving. This retry identity belongs to the open
+writer and does not establish recovery after process death or remote storage loss.
+The shared core and Apple resolve owned removal attributes and direct scalar
+property elements on RDF descriptions by namespace URI, including renamed
+prefixes and the legacy Maple URI. Duplicate owned fields and nested XML
+payloads fail closed. Apple refuses to rewrite fields outside the primary
+description rather than duplicating or dropping them. Ordinary saves preserve
+that stack under canonical `papp:InpaintRemovals`; confirmation compares its
+exact text under the write lock. Malformed owned records and a foreign namespace
+claiming the canonical spelling refuse the write and preserve the sidecar.
+The Swift parser resolves ownership before modeling the field and validates
+recognized payloads through Rust. Only owned primary attributes/properties leave
+the passthrough bucket; foreign child bytes and namespace aliases remain opaque.
+Both Swift serializers emit the modeled stack once. Old Codable snapshots without
+this optional field decode normally; malformed incoming records fail. Stripped
+live models retain the stack, so changed accepted pixels invalidate decoded cache
+identity and survive immutable export parameters. Ordinary local/SMB/cloud/PhotoKit
+saves use the current stored stack rather than a stale incoming model. Only the
+local verified compare-and-swap publication route authors accepted edits; its
+cached model updates after the durable write. Source-level local, SMB and PhotoKit
+model writes use those same store boundaries. Presets/group transfer never copy
+these source-bound assets. Apple authoring/history and remote companion transport
+remain tracked under #3984/#3955/#1472.
+Browser folder writes coordinate through Web Locks, close each companion before
+committing XMP, and verify the reopened bytes. Web Keep captures the complete
+flushed XMP revision; a changed revision refuses the candidate until the photo
+is reopened. Keep, global editor undo/redo and whole-model reset adopt the
+accepted stack and move history only after confirmation. A failed save retains
+the model and history for retry; navigation cannot attach an older commit to
+the new photo’s ring. Explicit Web clearing writes an empty array. Clearing
+still verifies the current stack against the original, and retained companions
+permit redo without inference. Ordinary local writes reread passthrough XMP
+and use its current accepted stack, so an old scalar snapshot cannot erase or
+restore accepted removals. The exact JSON also participates in decoded-image
+identity; presets and adjustment-group transfers never copy source-bound assets.
+These locks coordinate cooperating writers: browser Web Locks cannot acquire
+Apple's filesystem advisory lock, and the File System Access API exposes no
+atomic compare-and-swap against another application. Cross-application conflict
+handling, server/SMB publication, portable packages and editor integration remain
+part of #3940 and #1472; these storage APIs do not enable authoring on their own.
 
 ## Enum fields and parse strictness
 
@@ -264,7 +383,7 @@ AUTO now writes its corrected #2247 estimate, `crs:WhiteBalance="Auto"`, `papp:W
 
 Windows models the name and all four provenance attributes too (`XmpWhiteBalance.cs`, consumed on read rather than passthrough), so a sidecar sampled on Web or Apple no longer re-saves its stale `Sampled` label and sample point after a Windows edit of the pair. A Temp/Tint slider write there clears them to Manual/Custom; AUTO stamps `Auto` with the same `AUTO_WB_ALGORITHM_VERSION`, generated into `WhiteBalancePresets.g.cs` alongside the preset vocabulary and pairs. Windows' own eyedropper (`Services/WhiteBalanceSampler.cs`, through `maple_sample_white_balance_oriented`) writes `Sampled` with the point and the sampler's version, and its picker writes the six illuminant pairs as `Preset`, Custom as Manual and As Shot as AsShot — the same choices and provenance as the other two editors.
 
-`raw-core` tracks whether each component was _explicitly present_ (`temperature_seen` / `tint_seen`). An absent `crs:Temperature` means "as shot" — the develop chain substitutes the camera's own value — which is materially different from an explicit `6500`, which since camera-space white balance means "Custom WB dialed to D65". This is why the Web writer skips the pair entirely for an As-Shot model (emitting the display seed would demote a real as-shot render into a float-rounded explicit target), and why the Apple decode path has an internal `omitWhiteBalance` mode that persisted saves can never reach.
+`raw-core` tracks whether each component was _explicitly present_ (`temperature_seen` / `tint_seen`). An absent component uses the camera's own value; neither component present with the numerical defaults means As Shot. This is materially different from an explicit `6500` / `0`, which means "Custom WB dialed to D65". The Web writer skips the pair entirely for an As-Shot model. Apple tracks each component in `AdjustmentModel.temperatureSeen` / `tintSeen` (#1472), preserving imported omissions through unrelated edits, sidecar saves and full export snapshots. A numerical assignment authors that component. Legacy JSON snapshots missing these keys retain their historical explicit-pair meaning. Name-only illuminants resolve their generated pair without inventing numerical attributes. The Apple decode path also has an internal `omitWhiteBalance` mode that persisted saves can never reach; it strips live WB for the cached As-Shot decode independently of the stored model's authorship.
 
 ### WB slider-scale versioning
 

@@ -37,6 +37,12 @@ public final class EditorCommandRouter {
     else {
       return false
     }
+    if state.session.isSavingRemoval {
+      switch command {
+      case .undo, .redo, .resetGroup, .nudge, .nudgeRelease, .group: return false
+      default: break
+      }
+    }
     switch command {
     case .nudge, .nudgeRelease: break
     default: finishNudge()

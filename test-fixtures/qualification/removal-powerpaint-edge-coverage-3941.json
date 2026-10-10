@@ -1,0 +1,4273 @@
+{
+  "version": 1,
+  "issue": 3941,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T20:52:29.398173+00:00",
+  "releaseQualified": false,
+  "previous_native_float_evidence": {
+    "path": "test-fixtures/qualification/removal-powerpaint-native-float-3941.json",
+    "sha256": "54b20da938d10306d84e978b3994e3437f49d481eb1d564137e426212ac51d4e"
+  },
+  "source_snapshot": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coverage-executed-20261003/sources.json",
+    "sha256": "ac4e91a761cf32c769a7ec9a27d95278bc16f1a46e54386f3e82a2e0ef53e9f5",
+    "report": {
+      "files": [
+        {
+          "path": "tools/removal/probe_powerpaint_native.py",
+          "snapshot": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coverage-executed-20261003/probe_powerpaint_native.py",
+          "sha256": "b131ded05742765449893f61b3a621cb2f4172d7f4bee4a88c4fec80359604a4"
+        },
+        {
+          "path": "tools/removal/powerpaint_native_pixels.py",
+          "snapshot": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coverage-executed-20261003/powerpaint_native_pixels.py",
+          "sha256": "5781551eadbd6a6e41ad61eb945fa49d327090697a993989976068e06859cee3"
+        },
+        {
+          "path": "tools/removal/native_orientation.py",
+          "snapshot": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coverage-executed-20261003/native_orientation.py",
+          "sha256": "fd0d7d039b8b91ac9cd64b04093878d94d51843549f63f494bf92cb7ee8471c6"
+        },
+        {
+          "path": "tools/removal/native_probe_pixels.py",
+          "snapshot": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coverage-executed-20261003/native_probe_pixels.py",
+          "sha256": "2a4373a57cbfcd2e345976e792aba1c3201fb418a9382c8fb624716bb59de170"
+        },
+        {
+          "path": "tools/removal/derive_edge_intent.py",
+          "snapshot": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coverage-executed-20261003/derive_edge_intent.py",
+          "sha256": "5b39996f11da77ce954c358627f65a7e62751abc713ae27b883e664632ad7cdf"
+        },
+        {
+          "path": "tools/removal/probe_powerpaint_oriented.py",
+          "snapshot": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coverage-executed-20261003/probe_powerpaint_oriented.py",
+          "sha256": "6b17e375f286a78251ae5841d970b9539ad0b684b79100fc435e4aa2b61a185f"
+        },
+        {
+          "path": "tools/removal/prepare_photo_case.py",
+          "snapshot": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coverage-executed-20261003/prepare_photo_case.py",
+          "sha256": "851dc4d3647e998730989b519f238a8b090b57c9472ec2b41f953bd9dc91dd8b"
+        },
+        {
+          "path": "tools/removal/verify_photo_bake.py",
+          "snapshot": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coverage-executed-20261003/verify_photo_bake.py",
+          "sha256": "383c9bb398734e3e8f51da2a348fc807ef8a42ce7832b612edc47fd975868a03"
+        },
+        {
+          "path": "tools/removal/photo-research-cases.json",
+          "snapshot": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coverage-executed-20261003/photo-research-cases.json",
+          "sha256": "fff39d84fec304c06db52c2227f960603d1e30e1903cb73b761143bc67052a7b"
+        },
+        {
+          "path": "src/raw-pipeline/target/release/examples/removal-scene-probe",
+          "snapshot": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coverage-executed-20261003/removal-scene-probe",
+          "sha256": "b73b7195f6bdd32cd28e83fe081c7e3fce3a839d337f87e6eb0d325296b311b7"
+        },
+        {
+          "path": "src/raw-pipeline/target/release/examples/removal-orientation-probe",
+          "snapshot": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coverage-executed-20261003/removal-orientation-probe",
+          "sha256": "4a7e9c6a50fa6b244c2fff22654d8ff38082ae3c9c840aef635a50525fabe045"
+        }
+      ],
+      "notes": [
+        "Coast started before the PowerPaint orientation wrapper was hardened for non-square restores and reformatted. It uses native1024 square inputs; its original wrapper source bytes were not captured. Current wrapper snapshot applies to subsequent Night run.",
+        "Native model and shared orientation helpers did not change during Coast inference.",
+        "Control A/B were executed before two additional photographic-contrast cases were appended to the manifest. Preparation reports preserve actual executed manifest digest."
+      ]
+    }
+  },
+  "machine": {
+    "chip": "Apple M5 Max",
+    "physical_memory_bytes": 137438953472,
+    "scope": "Uncontrolled shared machine; individual sampled runs, not supported-device/p50/p95 qualification. CPU grading ran concurrently with Night diffusion."
+  },
+  "durable_masks": [
+    {
+      "path": "test-fixtures/qualification/removal-powerpaint-edge-coverage-3941/accepted-hole-8.png",
+      "sha256": "baf75848d898a3a9e078f3ec1c5dafbb8f3961b4b74b374f153c83d558f2089b",
+      "bytes": 3538
+    },
+    {
+      "path": "test-fixtures/qualification/removal-powerpaint-edge-coverage-3941/coast-protected.png",
+      "sha256": "4dcb45ff575589d29a65069d66176f698dfd7f1c8baaca9b1e320335f97d8fcc",
+      "bytes": 2196
+    },
+    {
+      "path": "test-fixtures/qualification/removal-powerpaint-edge-coverage-3941/expanded-intent-16.png",
+      "sha256": "d813e38f68dbc1b063aa12cd8ad4d2d60c0cc93cd9c52d94bbcc2f7677df42ac",
+      "bytes": 3636
+    },
+    {
+      "path": "test-fixtures/qualification/removal-powerpaint-edge-coverage-3941/night-protected.png",
+      "sha256": "7e51085061eb6d5b70dc02b1b1da2d2d06357fd6573b7fa94b50266599b212d6",
+      "bytes": 3167
+    }
+  ],
+  "research_cases_manifest_current_sha256": "fff39d84fec304c06db52c2227f960603d1e30e1903cb73b761143bc67052a7b",
+  "experiments": [
+    {
+      "id": "accepted-generation-hole8",
+      "preparation": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/bologna-accepted-hole-8-hard-20261003/preparation.json",
+        "sha256": "b7ec6d4176becad02f4e9906ac1e43e8ae535779d9fa5c79497219aa1c7d26b0",
+        "report": {
+          "case": {
+            "id": "bologna-person-accepted-hole-8-hard",
+            "raw": "bologna",
+            "window_xywh": [
+              2850,
+              1300,
+              1024,
+              1024
+            ],
+            "hole_radius": 0,
+            "fringe_radius": 0,
+            "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+            "expected_model_input_blake3": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+            "annotation": "Controlled acceptance of the previous native radius8 reconstruction hole as an opaque selection. The actual prior model run, generation conditioning, source pixels and kept-person protection remain unchanged; this isolates accepted coverage versus the earlier intent/fringe4 bake.",
+            "annotation_scope": "Research coverage control, not independent instance closure/ownership truth or a shipping expansion policy.",
+            "orientation": 1,
+            "intent_mask_sha256": "baf75848d898a3a9e078f3ec1c5dafbb8f3961b4b74b374f153c83d558f2089b",
+            "protected_mask_sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a",
+            "model_encoding": "photographic-contrast",
+            "selection_provenance": {
+              "parent_case": "bologna-person-current-contrast-hole-8",
+              "intent_mask": {
+                "path": "test-fixtures/qualification/removal-powerpaint-edge-coverage-3941/accepted-hole-8.png",
+                "sha256": "baf75848d898a3a9e078f3ec1c5dafbb8f3961b4b74b374f153c83d558f2089b"
+              },
+              "protected_mask": {
+                "path": "test-fixtures/qualification/removal-powerpaint-native-float-3941/protected.png",
+                "sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a"
+              },
+              "parent_generation_masks": {
+                "path": "/Users/riabuz/.cache/maple-removal-research/bologna-person-current-contrast-8-r1-20261003/masks.f32",
+                "sha256": "1e9d2db047829583fafd910e1f38e5c537e3d04a15bb9caa641de2b16577bd1e"
+              },
+              "held_inference": "test-fixtures/qualification/removal-powerpaint-native-float-3941.json; radius8 actual run"
+            }
+          },
+          "manifest_sha256": "1cc5a1e36aff9016d176241512ab490d459d07f5e173202182f4005538ebb02e",
+          "RAW_sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+          "scene_probe_sha256": "b73b7195f6bdd32cd28e83fe081c7e3fce3a839d337f87e6eb0d325296b311b7",
+          "context": {
+            "plate": "LinearCalibrationV1",
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "source_anchor": {
+              "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+              "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+              "width": 6000,
+              "height": 4000
+            },
+            "window": {
+              "x": 2850,
+              "y": 1300,
+              "width": 1024,
+              "height": 1024
+            },
+            "source_width": 6000,
+            "source_height": 4000,
+            "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+            "model_input": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+            "encoding": {
+              "method": "signed-log-photographic-contrast-v1",
+              "low": -1.6838237074610694,
+              "high": 3.577129211400544
+            },
+            "release_qualified": false
+          },
+          "hole_pixels": 101058,
+          "coverage_pixels": 101058,
+          "protected_pixels": 302216,
+          "orientation": {
+            "height": 1024,
+            "input_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+            "inverse": false,
+            "orientation": 1,
+            "output_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+            "raw_identity": {
+              "decoded_orientation": "Normal",
+              "decoder_verified": true,
+              "original_blake3": "2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718"
+            },
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "releaseQualified": false
+        }
+      },
+      "actual_inference": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-person-contrast-8-20261003/report.json",
+        "sha256": "3f9f218e8fb15d2f912f500e831a9be3823ff850045ae27e5abc4a099b05c5ce",
+        "report": {
+          "model_repo": "JunhaoZhuang/PowerPaint-v2-1",
+          "model_revision": "5ae2be3ac38b162df209b7ad5de036d339081e33",
+          "source_revision": "5b4c3d52291709fcec2a1870d987da693fd3549c",
+          "model_manifest_sha256": "5f4b4578bc5c21423907674eef41458db59623635b8ec256382602b1b47455fb",
+          "model_files_bytes": 8303728512,
+          "source_sha256": "59ef68653d8b78aa2068d80cbdc3e137ac76b76a8990b001c8b475db3820a807",
+          "float_input_sha256": "3377775e02ae1f64efaf0bcb416534c822dee94e5aed9f17b0c0961fbef5c5dd",
+          "model_input_quantized_to_u8": false,
+          "float_layout": "NCHW little-endian f32, native encoded model-RGB",
+          "mask_sha256": "baf75848d898a3a9e078f3ec1c5dafbb8f3961b4b74b374f153c83d558f2089b",
+          "crop_xywh": [
+            0,
+            0,
+            1024,
+            1024
+          ],
+          "native_extent_hw": [
+            1024,
+            1024
+          ],
+          "source_resampled": false,
+          "preprocessor_samples_equal": true,
+          "selected_pixels": 101058,
+          "task_positive": " P_ctxt",
+          "task_negative": " P_obj",
+          "user_prompt": "",
+          "seed": 3941,
+          "requested_steps": 30,
+          "actual_steps": 30,
+          "guidance": 12.0,
+          "attention_slicing": "auto",
+          "numeric_dtype": "float32",
+          "verification_ms": 8024.854625000444,
+          "model_open_ms": 6213.778833000106,
+          "inference_ms": 144219.6979169994,
+          "steps": [
+            {
+              "index": 0,
+              "timestep": 961.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 12754.82058399939,
+              "mps_allocated_bytes": 8418107904,
+              "mps_driver_bytes": 35872555008
+            },
+            {
+              "index": 1,
+              "timestep": 929.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 18054.745374999584,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 2,
+              "timestep": 897.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 23033.29354199923,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 3,
+              "timestep": 865.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 27773.09033399979,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 4,
+              "timestep": 833.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 32412.290833999577,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 5,
+              "timestep": 801.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 36916.42145900005,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 6,
+              "timestep": 769.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 41394.07045899952,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 7,
+              "timestep": 737.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 45901.43224999974,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 8,
+              "timestep": 705.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 50386.24449999952,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 9,
+              "timestep": 673.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 54818.06937500005,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 10,
+              "timestep": 641.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 59254.92991699957,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 11,
+              "timestep": 609.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 63669.02391699932,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 12,
+              "timestep": 577.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 68051.87124999975,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 13,
+              "timestep": 545.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 72432.16799999936,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 14,
+              "timestep": 513.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 76835.68908399958,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 15,
+              "timestep": 481.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 81206.08208399972,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 16,
+              "timestep": 449.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 85557.5437919997,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 17,
+              "timestep": 417.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 89958.86870899994,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 18,
+              "timestep": 385.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 94311.76154199966,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 19,
+              "timestep": 353.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 98689.00679199942,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 20,
+              "timestep": 321.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 103089.07587499925,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 21,
+              "timestep": 289.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 107445.88916699923,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 22,
+              "timestep": 257.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 111828.33245899928,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 23,
+              "timestep": 225.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 116206.73766699928,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 24,
+              "timestep": 193.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 120562.1962919995,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 25,
+              "timestep": 161.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 124913.78754199922,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 26,
+              "timestep": 129.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 129293.32062499998,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 27,
+              "timestep": 97.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 133656.14591699978,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 28,
+              "timestep": 65.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 138011.80479199957,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            },
+            {
+              "index": 29,
+              "timestep": 33.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 142383.38604199997,
+              "mps_allocated_bytes": 8418370048,
+              "mps_driver_bytes": 35805446144
+            }
+          ],
+          "encoded": [
+            {
+              "shape": [
+                2,
+                3,
+                1024,
+                1024
+              ],
+              "samples_equal": true,
+              "sha256": "469139eb2cb458ac10277422500ab14602426ff012a9b8f87c9a458b309eedc1"
+            }
+          ],
+          "decoded": [
+            {
+              "shape": [
+                1,
+                3,
+                1024,
+                1024
+              ],
+              "finite": true,
+              "minimum": -0.8693689107894897,
+              "maximum": 0.8603489995002747,
+              "normalized_sha256": "bc80434045e72dba91ca60d36f9bf26503e4fe6563b8aa2332b5cdddfbbc8c8f",
+              "model_sha256": "29ca1cba863b1b1475e1c6802bea82064a02c7e6a2f78e8e13f9b95f43bc9fbf",
+              "out_of_model_range_samples": 0,
+              "clamped": false
+            }
+          ],
+          "postprocessor_clamps_model_output": true,
+          "raw_bake_input": "raw-candidate-nchw.f32; strict range validation required",
+          "raw_candidate": {
+            "sha256": "c24715f6589808a7a027532ec4ca06a353cb91e7ea1544f1e6449f01b09a3f21",
+            "generation_out_of_model_range_samples": 0,
+            "outside_float_bits_changed": 0,
+            "clamped": false,
+            "scope": "Unclamped decoder samples inside generation hole; exact source elsewhere. Canonical RAW inverse must independently validate this file."
+          },
+          "process_peak_resident_bytes": 1935441920,
+          "max_observed_step_boundary_mps_allocated_bytes": 8418370048,
+          "max_observed_step_boundary_mps_driver_bytes": 35872555008,
+          "memory_scope": "Process RSS and sampled step-boundary MPS values are distinct, incomplete measures; do not sum or treat as total/peak GPU budget.",
+          "toolchain": {
+            "torch": "2.14.1",
+            "diffusers": "0.27.0",
+            "transformers": "4.28.0",
+            "accelerate": "0.29.3"
+          },
+          "result": {
+            "sha256": "fbb89ec08a517ed52ef7e3fd52423bb1103b4a7b97bf3047c0a93fb337278bfa",
+            "outside_float_bits_changed": 0,
+            "outside_u8_samples_changed": 0
+          },
+          "prediction_sha256": "a0c7bb0173f3ea19bd0dbef74b89779d910472d073e67323735fc2e02c302c42",
+          "releaseQualified": false,
+          "qualification": "Single seed, native local MPS model-RGB diagnostic. Float transport evidence alone does not qualify canonical RAW inversion, photographic quality, corpus, deployed adapter, device or distribution."
+        }
+      },
+      "held_prior_inference": true,
+      "orientation_transport": null,
+      "coverage_control": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/accepted-8-held-input-checks.json",
+        "sha256": "ca06aca2cd86074837aff0f3e6918ddbd606d81338dcda904da527e23b805449",
+        "report": {
+          "scene_input_context_protection_bytes_equal": true,
+          "actual_inference_hole_equal": true,
+          "accepted_coverage_equals_original_generation_hole": true,
+          "previous_coverage_pixels": 95336,
+          "new_coverage_pixels": 101058,
+          "changed_coverage_samples": 10505
+        }
+      },
+      "unclamped_canonical_candidate": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-person-contrast-8-20261003/raw-candidate-nchw.f32",
+        "sha256": "c24715f6589808a7a027532ec4ca06a353cb91e7ea1544f1e6449f01b09a3f21"
+      },
+      "raw_bake": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-accepted-hole-8-hard-bake-20261003/report.json",
+        "sha256": "153dcb0a379501e33b2c8538a6f3047cf057dc806639be6008d33687a242dc58",
+        "report": {
+          "as_shot_temperature": 4084.04931640625,
+          "as_shot_tint": 42.26961898803711,
+          "auto_profile_engaged": true,
+          "encoding": {
+            "high": 3.577129211400544,
+            "low": -1.6838237074610694,
+            "method": "signed-log-photographic-contrast-v1"
+          },
+          "generation_masks": "blake3:fa7214afb375aacb0f1c6b83cb1c4c3793244f7a09e8c3b10c73260d89cf0dc7",
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "max_scene_float_error_identity": 5.288422107696533e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2011.933709
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "max_scene_float_error_identity": 5.288422107696533e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2011.933709
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "max_scene_float_error_identity": 3.0428171157836914e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1809.769375
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "max_scene_float_error_identity": 3.0428171157836914e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1809.769375
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "max_scene_float_error_identity": 2.3286789655685425e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1925.587791
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "max_scene_float_error_identity": 2.3286789655685425e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1925.587791
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.00042307376861572266,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1914.324666
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.00042307376861572266,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1914.324666
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0002434253692626953,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1871.878833
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0002434253692626953,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1871.878833
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "max_scene_float_error_identity": 0.0001862943172454834,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1963.2687500000002
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "max_scene_float_error_identity": 0.0001862943172454834,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1963.2687500000002
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0033845901489257812,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1887.797916
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0033845901489257812,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1887.797916
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0019474029541015625,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1972.405041
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0019474029541015625,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1972.405041
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0014903545379638672,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1812.9724170000002
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0014903545379638672,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1812.9724170000002
+            }
+          ],
+          "max_scene_float_error_identity": 0.0033845901489257812,
+          "model_result": "blake3:c41682ae90b626d04cad9996638bab753aba2e3ea020d8dc8ca4a50b5f4a13b2",
+          "native_context": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2850,
+            "y": 1300
+          },
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "outside_mask_max_error": 0,
+          "plate": "LinearCalibrationV1",
+          "profile_tier": "BundleConfident",
+          "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+          "release_qualified": false
+        }
+      },
+      "independent_grade_checks": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-accepted8-grade-checks.json",
+        "sha256": "195ac7932d755008a8bcd5581a6ec79cc95404a98a23b66b2125182f940d7df5",
+        "report": {
+          "bake_report_sha256": "153dcb0a379501e33b2c8538a6f3047cf057dc806639be6008d33687a242dc58",
+          "protected_sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a",
+          "coverage_sha256": "ba5045aca5c0db0a9869bc50cdab4772fef48010314b7f2c0ffb706160183a7b",
+          "protected_pixels": 302216,
+          "coverage_pixels": 101058,
+          "native_extent_hw": [
+            1024,
+            1024
+          ],
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev-3_wb-1000-truth.png": "43b0762d4d3414f85199dc5df2ae447b032b3da1f168c41c31fbc0933b6db6b3",
+                "neutral_ev-3_wb-1000-identity.png": "b01e14d53b1cf67d092eba0a5ca4bf9f89183ba45107470973ff14148ee2a74a",
+                "neutral_ev-3_wb-1000-removal.png": "4972665625ce786cdab50d49cdffc8d55f5a6e284f66c35d16be5150d9fa1cad"
+              }
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev-3_wb-1000-truth.png": "36c316f486cdc53508c8b436d77686eb332e36058097484cd9c9760d9d4a8cfc",
+                "auto_ev-3_wb-1000-identity.png": "4d657b83c1f0809d6db3a8f75262c83a312f5826129eb50aa7a1e57a12b6224c",
+                "auto_ev-3_wb-1000-removal.png": "4d6df1926907276814eb30fead6eab22d4f911e7125fc9de02fe83b6458bd2c7"
+              }
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev-3_wb+0-truth.png": "0861e005a819775ce7b7690a1c37caefd058c82987fdc82e23330d115a9d2bdd",
+                "neutral_ev-3_wb+0-identity.png": "5cf61063e0a0662d77d0ec55b0485c9c4bf1cb55b60b4f1f22a486de81de97bc",
+                "neutral_ev-3_wb+0-removal.png": "f534c1e358b06b9de628dec3634e42bda9b1a22b9613e310a87cd63cf8f378e4"
+              }
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev-3_wb+0-truth.png": "cc333164c7d5ef901e60527968ff8b9be937be84ce26b25e3546988acb695f19",
+                "auto_ev-3_wb+0-identity.png": "e9bb98eabee2449b9ba1eb2e06c6d92e6c0195e053660afba1586ecfe2589535",
+                "auto_ev-3_wb+0-removal.png": "e20f2d9b12b0974e6bfd8649dd9768890854f73c4f2ddb5a0ce38a760527a164"
+              }
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev-3_wb+1000-truth.png": "5f95e95ed1f5b1e2fa5160443cd0619576271b21d3ee2caed5d565591aeaf617",
+                "neutral_ev-3_wb+1000-identity.png": "df54765087a65b7f95e1555a86e4be33c19f24e7cd8d578ab142d18d48bf4690",
+                "neutral_ev-3_wb+1000-removal.png": "b105c319d9c4377f17b8284c94520a74360d3b4e6210366939ca9571a1efc029"
+              }
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev-3_wb+1000-truth.png": "4b4624d3ad3931d74a3a1b0f7bfe44a6b066811412ac7849c8ebf4ad80be1660",
+                "auto_ev-3_wb+1000-identity.png": "6a3623f8e08f0a56d0bf8c576e5a76b57f95a602ec6961b299d26a0c7b536a89",
+                "auto_ev-3_wb+1000-removal.png": "f28da37e0eede951a4f461efc7941e2bce71f432afba42a5ca8ee9efd7bc5629"
+              }
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+0_wb-1000-truth.png": "226c8d2a657d49664defd1ae3d9dc3c4c307ab89ec12319b6b611e337dcdf05d",
+                "neutral_ev+0_wb-1000-identity.png": "ee957a19313a9137273d4971aa6d221064b2ebedcb821eb7ce54b660e975f20a",
+                "neutral_ev+0_wb-1000-removal.png": "4c2cc7d492a37f162ca1519067d0c805de0d24290fede05ad603b5491858236c"
+              }
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+0_wb-1000-truth.png": "2d07d1a9c92b8e87dd6ad2c5200cb7c4d98cacf4c360ce3f513bcc9d66b44d69",
+                "auto_ev+0_wb-1000-identity.png": "47175294c1560ad7d9d69a0773600136572d5557441e6d23e1ee941ebba0a635",
+                "auto_ev+0_wb-1000-removal.png": "837d571c3d30534cd4ecccd355be681bd841dccf93e95db8d21522d7a431b2a0"
+              }
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+0_wb+0-truth.png": "fb8567a7ee45a3c054bfa4d55b387ab6ad7a0a8bf3b2c06d991c01ba9622a3a1",
+                "neutral_ev+0_wb+0-identity.png": "0898e40d6ea86dc9840a380525494d44fca1f87ef71724f6dfefc0b18640120c",
+                "neutral_ev+0_wb+0-removal.png": "640475d32e46cd402d30539654a63b09049477d9da6f1000e639059b7f5b9cd6"
+              }
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+0_wb+0-truth.png": "1aa485f881be5c989f116624b19c03fc34f07a05877b9c5ecb52a3db3d83274b",
+                "auto_ev+0_wb+0-identity.png": "cf5986f9987437b3df6bf8e44dc272e9b93c0097c123bf6407d809aae1519db9",
+                "auto_ev+0_wb+0-removal.png": "2f0cf51e468b2b03f9861f96cc55985c5e92c9bbe92a8ea59125f36cd02fb649"
+              }
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+0_wb+1000-truth.png": "c17c2c90ef1dc42591857431864eed76a97a0cc6ad775a9850a999d34c75e59e",
+                "neutral_ev+0_wb+1000-identity.png": "00caaac3b8058f048f4333e3ba71fd25af8e2c8f1bd9765a4dd071694db81527",
+                "neutral_ev+0_wb+1000-removal.png": "40c9b9c72d226cc9f0692b1112aa4fe9d78fee676643511cc5e976c3584c03dc"
+              }
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+0_wb+1000-truth.png": "0c01ec66cce40ded26d53984111183d55f6d6fcbb66865789e4cd5a17809591e",
+                "auto_ev+0_wb+1000-identity.png": "a820a8d0e180cf837d8c497bd1094c450b269dbfc08d5f9cceb37f18e3f625c6",
+                "auto_ev+0_wb+1000-removal.png": "709acd692651e5c94bd17e625ed303a2cbd37e206af927f17a8c7f9595169391"
+              }
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+3_wb-1000-truth.png": "f27cf2f825690382ed917b8fe8b994d507187c4101f4cdbf34cea4cd429d02c8",
+                "neutral_ev+3_wb-1000-identity.png": "35a3ab670d5b3f927e79fa6962b135fbb2e8eb4cddfd130a9ca308b0fbe6070b",
+                "neutral_ev+3_wb-1000-removal.png": "f906b075a903c041dfe32845fe6a21f5bbfb9e536d506deb694bede24f32d170"
+              }
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+3_wb-1000-truth.png": "1777f0b7839d8cb212e7f8d1d37b858f02e303a84cfca9a73d34d52f22e1376a",
+                "auto_ev+3_wb-1000-identity.png": "206393e0ee6f08ff2a9bfc3b7b2912535edde8078e9375e368df5f66c69e0c77",
+                "auto_ev+3_wb-1000-removal.png": "c7b4b3b1db6a0aafbd94d3ee81ed061e28223446685e748f4707196c0a343ed3"
+              }
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+3_wb+0-truth.png": "8ac1a2b15f9369b02f4381996f7241c85899ca479d6f6341aad356c737cf0e17",
+                "neutral_ev+3_wb+0-identity.png": "4a6cc5021a15f2349603c67da9b56159f76b1a3f863abdc5817c82400b024743",
+                "neutral_ev+3_wb+0-removal.png": "4cc764f4bdbb9c925f4f034394c2e1d889d158e0ae23c14d3ed94ac5f6d01b72"
+              }
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+3_wb+0-truth.png": "501768dc32a0b70e5336a0f8cb93d56fe699ee6d6b7489933af26d6c642eeca0",
+                "auto_ev+3_wb+0-identity.png": "aa76c17e0066095aa898d241ef67fa46ee44322c120f993bd709defbcbeb9757",
+                "auto_ev+3_wb+0-removal.png": "10778db55ddbeb5ed1d5b46a6cb24b315d4a054a4db852e6c0b18e51d64011ce"
+              }
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+3_wb+1000-truth.png": "da3021a7f02f3406fd429bb65d224f9212bc984cc33350ef4fc05a7ff78b43a3",
+                "neutral_ev+3_wb+1000-identity.png": "3129a7574662fc814dae7428ed6f463035c284c7184babc74f5be906ca59a5f7",
+                "neutral_ev+3_wb+1000-removal.png": "a8c09356e58308b9c7da50d7acda6e6d10a4c16d9c9af3b6d72e5ce17d81fb6b"
+              }
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+3_wb+1000-truth.png": "4744f272ad66ab592e7064e6b32aa56ad65c8173e81336e0e78fa3f5cadb5c04",
+                "auto_ev+3_wb+1000-identity.png": "9ca6843a08f56d6ccf72dbdafb81fa5ca0653a2a92f9563d900fed6c6ab759e1",
+                "auto_ev+3_wb+1000-removal.png": "03177f250d7e0f95c0da9c4e853cb2bd4813a8c4a1d2ac84ed729f8694cec3b7"
+              }
+            }
+          ],
+          "releaseQualified": false,
+          "scope": "Independent known/protected native display sample equality for these 18 grade images only; Rust report independently records full-frame f32 equality. No ACR or photographic/performance/cross-platform claim."
+        }
+      },
+      "original_sha256_after": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+      "original_unchanged": true,
+      "visual_inspection": {
+        "reviewer": "Codex visual review of actual native outputs",
+        "finding": "Accepting the entire held inference hole makes the head/coat outline less conspicuous than the original intent/fringe4 bake. Faint residual structure remains; no independent hidden-background truth or release acceptance.",
+        "scope": "Qualitative observations only; no ACR/color parity, hidden-background truth, corpus or release-quality proof."
+      }
+    },
+    {
+      "id": "expanded-intent16",
+      "preparation": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/bologna-expanded16-20261003/preparation.json",
+        "sha256": "551e368f5e0685df3e792f8cfe272e55f88c3e917b9df366022d0226bbd8d874",
+        "report": {
+          "case": {
+            "id": "bologna-person-expanded-16-contrast-hole-8",
+            "raw": "bologna",
+            "window_xywh": [
+              2850,
+              1300,
+              1024,
+              1024
+            ],
+            "hole_radius": 8,
+            "fringe_radius": 4,
+            "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+            "expected_model_input_blake3": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+            "annotation": "Research accepted intent expands the refined target16 native pixels using the shared Rust Euclidean generator, clipped against the exact same kept-person protection. Generation expands this derived intent8 more pixels and coverage uses exterior fringe4. A fresh actual model run is required.",
+            "annotation_scope": "Controlled mask-expansion sensitivity, not independent object ownership/closure truth or shipping native thresholds. Both accepted coverage and inference hole change relative to the original case; conclusions must not attribute differences to only one factor.",
+            "orientation": 1,
+            "intent_mask_sha256": "d813e38f68dbc1b063aa12cd8ad4d2d60c0cc93cd9c52d94bbcc2f7677df42ac",
+            "protected_mask_sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a",
+            "model_encoding": "photographic-contrast",
+            "selection_provenance": {
+              "parent_case": "bologna-person-current-contrast-hole-8",
+              "intent_mask": {
+                "path": "test-fixtures/qualification/removal-powerpaint-edge-coverage-3941/expanded-intent-16.png",
+                "sha256": "d813e38f68dbc1b063aa12cd8ad4d2d60c0cc93cd9c52d94bbcc2f7677df42ac"
+              },
+              "protected_mask": {
+                "path": "test-fixtures/qualification/removal-powerpaint-native-float-3941/protected.png",
+                "sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a"
+              },
+              "derivation": {
+                "path": "/Users/riabuz/.cache/maple-removal-research/bologna-edge16-derivation-20261003/derivation.json",
+                "sha256": "9fbbce373b4e3f5fdc511b516668e7aa38eb50f7657a4b094a154d9beae38c60"
+              }
+            }
+          },
+          "manifest_sha256": "7a3b50d0426b4f5a75034d5a07b7e6a687489e3c047b0956d9e292ca1818bfd8",
+          "RAW_sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+          "scene_probe_sha256": "b73b7195f6bdd32cd28e83fe081c7e3fce3a839d337f87e6eb0d325296b311b7",
+          "context": {
+            "plate": "LinearCalibrationV1",
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "source_anchor": {
+              "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+              "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+              "width": 6000,
+              "height": 4000
+            },
+            "window": {
+              "x": 2850,
+              "y": 1300,
+              "width": 1024,
+              "height": 1024
+            },
+            "source_width": 6000,
+            "source_height": 4000,
+            "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+            "model_input": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+            "encoding": {
+              "method": "signed-log-photographic-contrast-v1",
+              "low": -1.6838237074610694,
+              "high": 3.577129211400544
+            },
+            "release_qualified": false
+          },
+          "hole_pixels": 121138,
+          "coverage_pixels": 115714,
+          "protected_pixels": 302216,
+          "orientation": {
+            "height": 1024,
+            "input_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+            "inverse": false,
+            "orientation": 1,
+            "output_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+            "raw_identity": {
+              "decoded_orientation": "Normal",
+              "decoder_verified": true,
+              "original_blake3": "2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718"
+            },
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "releaseQualified": false
+        }
+      },
+      "actual_inference": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-expanded16-20261003/report.json",
+        "sha256": "1111bdf9d20acb05c4d4050c48b736feca4907afdaaebe639be700c4ea96bbe6",
+        "report": {
+          "model_repo": "JunhaoZhuang/PowerPaint-v2-1",
+          "model_revision": "5ae2be3ac38b162df209b7ad5de036d339081e33",
+          "source_revision": "5b4c3d52291709fcec2a1870d987da693fd3549c",
+          "model_manifest_sha256": "5f4b4578bc5c21423907674eef41458db59623635b8ec256382602b1b47455fb",
+          "model_files_bytes": 8303728512,
+          "source_sha256": "59ef68653d8b78aa2068d80cbdc3e137ac76b76a8990b001c8b475db3820a807",
+          "float_input_sha256": "3377775e02ae1f64efaf0bcb416534c822dee94e5aed9f17b0c0961fbef5c5dd",
+          "model_input_quantized_to_u8": false,
+          "float_layout": "NCHW little-endian f32, native encoded model-RGB",
+          "mask_sha256": "2ce494fb9e0909abbcb1f849c73776acbeca9b4d043eb2d63bb8f1b04fbb1458",
+          "crop_xywh": [
+            0,
+            0,
+            1024,
+            1024
+          ],
+          "native_extent_hw": [
+            1024,
+            1024
+          ],
+          "source_resampled": false,
+          "preprocessor_samples_equal": true,
+          "selected_pixels": 121138,
+          "task_positive": " P_ctxt",
+          "task_negative": " P_obj",
+          "user_prompt": "",
+          "seed": 3941,
+          "requested_steps": 30,
+          "actual_steps": 30,
+          "guidance": 12.0,
+          "attention_slicing": "auto",
+          "numeric_dtype": "float32",
+          "verification_ms": 3294.3560000003345,
+          "model_open_ms": 1634.7755000006146,
+          "inference_ms": 146805.0602080002,
+          "steps": [
+            {
+              "index": 0,
+              "timestep": 961.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 5659.765333000905,
+              "mps_allocated_bytes": 8416469504,
+              "mps_driver_bytes": 36174544896
+            },
+            {
+              "index": 1,
+              "timestep": 929.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 10753.324208000777,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 2,
+              "timestep": 897.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 15757.381790999716,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 3,
+              "timestep": 865.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 20734.139625001262,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 4,
+              "timestep": 833.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 25844.123416000002,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 5,
+              "timestep": 801.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 30924.768000000768,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 6,
+              "timestep": 769.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 36108.210500000496,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 7,
+              "timestep": 737.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 41523.72020800067,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 8,
+              "timestep": 705.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 46659.63937500055,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 9,
+              "timestep": 673.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 51684.87645800087,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 10,
+              "timestep": 641.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 56534.89791600077,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 11,
+              "timestep": 609.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 61202.733791000355,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 12,
+              "timestep": 577.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 65759.46162500077,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 13,
+              "timestep": 545.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 70193.35054099975,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 14,
+              "timestep": 513.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 74499.52729100005,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 15,
+              "timestep": 481.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 78816.05333300104,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 16,
+              "timestep": 449.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 83136.88150000053,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 17,
+              "timestep": 417.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 87926.25383300037,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 18,
+              "timestep": 385.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 92951.7630829996,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 19,
+              "timestep": 353.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 97972.42195800027,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 20,
+              "timestep": 321.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 102938.09045800117,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 21,
+              "timestep": 289.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 107918.3911250002,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 22,
+              "timestep": 257.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 112918.2057500002,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 23,
+              "timestep": 225.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 117929.03683300028,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 24,
+              "timestep": 193.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 122877.38075000016,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 25,
+              "timestep": 161.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 127771.92450000075,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 26,
+              "timestep": 129.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 132260.59854100095,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 27,
+              "timestep": 97.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 136686.07391600017,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 28,
+              "timestep": 65.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 141139.05516600062,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            },
+            {
+              "index": 29,
+              "timestep": 33.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 145585.78308300092,
+              "mps_allocated_bytes": 8416731648,
+              "mps_driver_bytes": 36107436032
+            }
+          ],
+          "encoded": [
+            {
+              "shape": [
+                2,
+                3,
+                1024,
+                1024
+              ],
+              "samples_equal": true,
+              "sha256": "0c4b7b77cba5e863054e9d33c0d527af21001d878bc68a8ea081cf714e286399"
+            }
+          ],
+          "decoded": [
+            {
+              "shape": [
+                1,
+                3,
+                1024,
+                1024
+              ],
+              "finite": true,
+              "minimum": -0.8615840673446655,
+              "maximum": 0.8437230587005615,
+              "normalized_sha256": "c803e022cff98000f825f434efea020c89fd08dd0b22bd43db148e030358b804",
+              "model_sha256": "385332d8c36ba51fdc5ab1f37d165f04255cc5777473e3a89e5b8429bf9aefdd",
+              "out_of_model_range_samples": 0,
+              "clamped": false
+            }
+          ],
+          "postprocessor_clamps_model_output": true,
+          "raw_bake_input": "raw-candidate-nchw.f32; strict range validation required",
+          "raw_candidate": {
+            "sha256": "e142ba17583f948d326542b31f78bc15c0a5ec78975ee9393fd6424e71676823",
+            "generation_out_of_model_range_samples": 0,
+            "outside_float_bits_changed": 0,
+            "clamped": false,
+            "scope": "Unclamped decoder samples inside generation hole; exact source elsewhere. Canonical RAW inverse must independently validate this file."
+          },
+          "process_peak_resident_bytes": 1928921088,
+          "max_observed_step_boundary_mps_allocated_bytes": 8416731648,
+          "max_observed_step_boundary_mps_driver_bytes": 36174544896,
+          "memory_scope": "Process RSS and sampled step-boundary MPS values are distinct, incomplete measures; do not sum or treat as total/peak GPU budget.",
+          "toolchain": {
+            "torch": "2.14.1",
+            "diffusers": "0.27.0",
+            "transformers": "4.28.0",
+            "accelerate": "0.29.3"
+          },
+          "result": {
+            "sha256": "f07498fe2733abe5ad1a3d9b824395bb5a5128f68874469a6ff8c8f269c43772",
+            "outside_float_bits_changed": 0,
+            "outside_u8_samples_changed": 0
+          },
+          "prediction_sha256": "19487e77e3f18e5d781b59d345e46f842c507fc9911a2b1cc2c416e037c42620",
+          "releaseQualified": false,
+          "qualification": "Single seed, native local MPS model-RGB diagnostic. Float transport evidence alone does not qualify canonical RAW inversion, photographic quality, corpus, deployed adapter, device or distribution."
+        }
+      },
+      "held_prior_inference": false,
+      "orientation_transport": null,
+      "coverage_control": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/expanded16-mask-checks.json",
+        "sha256": "fddf7539b3f47694ee9836e5cd18fd8ea2e9c56c96d03116d5a86184905bcb53",
+        "report": {
+          "old_intent_pixels": 90553,
+          "expanded_intent_pixels": 111365,
+          "old_intent_retained": true,
+          "kept_people_overlap_pixels": 0,
+          "generation_pixels": 121138,
+          "coverage_pixels": 115714,
+          "opaque_over_expanded_intent": true,
+          "source_input_context_protection_bytes_equal": true
+        }
+      },
+      "unclamped_canonical_candidate": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-expanded16-20261003/raw-candidate-nchw.f32",
+        "sha256": "e142ba17583f948d326542b31f78bc15c0a5ec78975ee9393fd6424e71676823"
+      },
+      "raw_bake": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-expanded16-bake-20261003/report.json",
+        "sha256": "ba54b2267b350316aa88414da9c4849ab6c4e7cfccb73d4de7644dea1e12032c",
+        "report": {
+          "as_shot_temperature": 4084.04931640625,
+          "as_shot_tint": 42.26961898803711,
+          "auto_profile_engaged": true,
+          "encoding": {
+            "high": 3.577129211400544,
+            "low": -1.6838237074610694,
+            "method": "signed-log-photographic-contrast-v1"
+          },
+          "generation_masks": "blake3:083b197d425f21d1526d8cf6a88e0bc144b9a51f893d91ed804cfb20d2a781a7",
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "max_scene_float_error_identity": 5.402415990829468e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1275.049041
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "max_scene_float_error_identity": 5.402415990829468e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1275.049041
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "max_scene_float_error_identity": 3.0428171157836914e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1392.115875
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "max_scene_float_error_identity": 3.0428171157836914e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1392.115875
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "max_scene_float_error_identity": 2.3286789655685425e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1456.1359579999998
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "max_scene_float_error_identity": 2.3286789655685425e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1456.1359579999998
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0004321932792663574,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1381.278
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0004321932792663574,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1381.278
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0002434253692626953,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1366.12875
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0002434253692626953,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1366.12875
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "max_scene_float_error_identity": 0.0001862943172454834,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1380.0939159999998
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "max_scene_float_error_identity": 0.0001862943172454834,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1380.0939159999998
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0034575462341308594,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1420.905833
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0034575462341308594,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1420.905833
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0019474029541015625,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1427.216584
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0019474029541015625,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1427.216584
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0014903545379638672,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1473.2277080000001
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0014903545379638672,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1473.2277080000001
+            }
+          ],
+          "max_scene_float_error_identity": 0.0034575462341308594,
+          "model_result": "blake3:f7cd63d1d23308ffa6ec44b9da5b6dc4d602fae8a8cc6b01e4dfe11791ca061f",
+          "native_context": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2850,
+            "y": 1300
+          },
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "outside_mask_max_error": 0,
+          "plate": "LinearCalibrationV1",
+          "profile_tier": "BundleConfident",
+          "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+          "release_qualified": false
+        }
+      },
+      "independent_grade_checks": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-expanded16-grade-checks.json",
+        "sha256": "385a8f0bd59cfb73805ed57290968c9c7de2d63faa04af2f7cf563cbf1a28975",
+        "report": {
+          "bake_report_sha256": "ba54b2267b350316aa88414da9c4849ab6c4e7cfccb73d4de7644dea1e12032c",
+          "protected_sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a",
+          "coverage_sha256": "94711a78592ff87b5291eec369eb45cd4d557784c42d06e2294c5909938f0e19",
+          "protected_pixels": 302216,
+          "coverage_pixels": 115714,
+          "native_extent_hw": [
+            1024,
+            1024
+          ],
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev-3_wb-1000-truth.png": "43b0762d4d3414f85199dc5df2ae447b032b3da1f168c41c31fbc0933b6db6b3",
+                "neutral_ev-3_wb-1000-identity.png": "d1f91d4d591f42655f6821bcd9e4323f137cf798221841028a0504bad774ab0e",
+                "neutral_ev-3_wb-1000-removal.png": "a65f7a53270245d2831fc1154d37c3e52d66d4136dc21a840a269ef25b990485"
+              }
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev-3_wb-1000-truth.png": "36c316f486cdc53508c8b436d77686eb332e36058097484cd9c9760d9d4a8cfc",
+                "auto_ev-3_wb-1000-identity.png": "04d1d6394d3aacf7e7780e426c79e9628396616907f54b87e12546b5a0723374",
+                "auto_ev-3_wb-1000-removal.png": "b5391b86dfa9808e1791200e1ccc93cc676b8be1cec85a406b174f59a672b99c"
+              }
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev-3_wb+0-truth.png": "0861e005a819775ce7b7690a1c37caefd058c82987fdc82e23330d115a9d2bdd",
+                "neutral_ev-3_wb+0-identity.png": "725a6a64b186fb86f0cee076ef30687961657a0d45b735a31842f747d5854127",
+                "neutral_ev-3_wb+0-removal.png": "2633a38b2631e46fa65ab43b1f078141607c176b1846309d3843790a66d48998"
+              }
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev-3_wb+0-truth.png": "cc333164c7d5ef901e60527968ff8b9be937be84ce26b25e3546988acb695f19",
+                "auto_ev-3_wb+0-identity.png": "6e0b4e554a0993084b1d903e6a9661548e0c225f090eab70bb226f1c3f2b8c24",
+                "auto_ev-3_wb+0-removal.png": "9639061d241f7f1f924a1d2917826693b35873d3b8991d7ce5e3d82849bf8acd"
+              }
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev-3_wb+1000-truth.png": "5f95e95ed1f5b1e2fa5160443cd0619576271b21d3ee2caed5d565591aeaf617",
+                "neutral_ev-3_wb+1000-identity.png": "c99aea63c212b39ad65e9111e2a1a7648885fb90611b221576a65b06ff686ed6",
+                "neutral_ev-3_wb+1000-removal.png": "0a977e6e9ac8a8cf29db57abc2b0368bc739e538ce911261e0c4041f86f85a91"
+              }
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev-3_wb+1000-truth.png": "4b4624d3ad3931d74a3a1b0f7bfe44a6b066811412ac7849c8ebf4ad80be1660",
+                "auto_ev-3_wb+1000-identity.png": "88d399bbe8ca78df0a0a01a4621d21791dc0b8cb4a1af4f69e5fe00371dda177",
+                "auto_ev-3_wb+1000-removal.png": "59407be51a018f1f8cad295570815c370183a75ee5b6e580b23dbef99d8754fb"
+              }
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+0_wb-1000-truth.png": "226c8d2a657d49664defd1ae3d9dc3c4c307ab89ec12319b6b611e337dcdf05d",
+                "neutral_ev+0_wb-1000-identity.png": "b20d347805a9ecd3cf64100170f20faad2a1b1f2fb65264e97968308923ebc0d",
+                "neutral_ev+0_wb-1000-removal.png": "c26e3fd5c1a273a8e3cdc3f8561abcc93ded84be4d042de02bc5e6acf0025a11"
+              }
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+0_wb-1000-truth.png": "2d07d1a9c92b8e87dd6ad2c5200cb7c4d98cacf4c360ce3f513bcc9d66b44d69",
+                "auto_ev+0_wb-1000-identity.png": "52953cd9f543b6ba1794925b9324a24c13e8829e70e0b1d0932ade31defd3753",
+                "auto_ev+0_wb-1000-removal.png": "244b4e408de331b0d4c5191b0ca3ed59af5418edd9f1b4737521a69c878bb814"
+              }
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+0_wb+0-truth.png": "fb8567a7ee45a3c054bfa4d55b387ab6ad7a0a8bf3b2c06d991c01ba9622a3a1",
+                "neutral_ev+0_wb+0-identity.png": "56274b84516b590bb793156aad31da8b3d7ed68cb32dba1fcf44836cca792bf7",
+                "neutral_ev+0_wb+0-removal.png": "83a45e33bbf85f46ab3b50d5bd36f36f7f30763e39e2774c0fd94d5d411ca691"
+              }
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+0_wb+0-truth.png": "1aa485f881be5c989f116624b19c03fc34f07a05877b9c5ecb52a3db3d83274b",
+                "auto_ev+0_wb+0-identity.png": "36b0f280e763bc49f5c2964fec2f53761c2301fc57585ca259204a92ce0711f0",
+                "auto_ev+0_wb+0-removal.png": "ab12ddd8b1685e1514a792e98b26b3cabb706353c4d69d8a3be760a37569701c"
+              }
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+0_wb+1000-truth.png": "c17c2c90ef1dc42591857431864eed76a97a0cc6ad775a9850a999d34c75e59e",
+                "neutral_ev+0_wb+1000-identity.png": "d194f3d1e0e61dbb25242aff8bb313ad9d172eff1caa8bced6e9e47fa12f5528",
+                "neutral_ev+0_wb+1000-removal.png": "18bdbdf361efc85a41039efd3f9eb61dc7f6d03f74cd4e7fb529610471b662c3"
+              }
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+0_wb+1000-truth.png": "0c01ec66cce40ded26d53984111183d55f6d6fcbb66865789e4cd5a17809591e",
+                "auto_ev+0_wb+1000-identity.png": "48a3d1f9ecfcd4680a651e3525633e537a2415b0ee6d957bbf305f3f4251c24a",
+                "auto_ev+0_wb+1000-removal.png": "283d59562e6e78d2ef6e460da37ca699dd646b5ae655069729accef98bfebe66"
+              }
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+3_wb-1000-truth.png": "f27cf2f825690382ed917b8fe8b994d507187c4101f4cdbf34cea4cd429d02c8",
+                "neutral_ev+3_wb-1000-identity.png": "b66c02a2646c10ac96bc66af76b07c0718407e1c47e88e9291bc798e7f19acfa",
+                "neutral_ev+3_wb-1000-removal.png": "edf1f44da5f52a9b4ae8fe55e2281b1826ad231ca01bff5a84370400acd139ce"
+              }
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+3_wb-1000-truth.png": "1777f0b7839d8cb212e7f8d1d37b858f02e303a84cfca9a73d34d52f22e1376a",
+                "auto_ev+3_wb-1000-identity.png": "19b2fd32ff9cdd3d31841824fdedc36434d255b92bd81c01d0321e8848f655e1",
+                "auto_ev+3_wb-1000-removal.png": "6ddca4d8ae13eb29c5127b218e028ebb348f3362f1cecb2560d56ee75d416e83"
+              }
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+3_wb+0-truth.png": "8ac1a2b15f9369b02f4381996f7241c85899ca479d6f6341aad356c737cf0e17",
+                "neutral_ev+3_wb+0-identity.png": "f590370e353288d179a21317087ae9eb86b851c0715c8332a9ab7752bbe96dd4",
+                "neutral_ev+3_wb+0-removal.png": "1d4d32b0762baa79a901932a7a3574ddbfa126c5fccc7030d0ea3ee4917556f4"
+              }
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+3_wb+0-truth.png": "501768dc32a0b70e5336a0f8cb93d56fe699ee6d6b7489933af26d6c642eeca0",
+                "auto_ev+3_wb+0-identity.png": "71916c3ec7652e819fb18811d6c04d0bbd5952e5a2c82a3c43a6154fbf8b2c1e",
+                "auto_ev+3_wb+0-removal.png": "ac46f30481e3dc56e39253148ff5b5c1aee8e5d385fcef144e22ca9f9e840cc9"
+              }
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+3_wb+1000-truth.png": "da3021a7f02f3406fd429bb65d224f9212bc984cc33350ef4fc05a7ff78b43a3",
+                "neutral_ev+3_wb+1000-identity.png": "c646109e884498cb2fb2f5ccbf648a49942d68acb8afa5e386da432e2b58f72f",
+                "neutral_ev+3_wb+1000-removal.png": "ef17390473cead5a798b64f6ed777bc400b1bf5a60983ee21cfba7aace6e6fad"
+              }
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+3_wb+1000-truth.png": "4744f272ad66ab592e7064e6b32aa56ad65c8173e81336e0e78fa3f5cadb5c04",
+                "auto_ev+3_wb+1000-identity.png": "d96b6c24e1d48cb9cc44ac7a399454b2811f85b22bf233a067688a9f20df2c03",
+                "auto_ev+3_wb+1000-removal.png": "3bdd5bdf46fa21c1e6e93e5e968a9bda96bf3692587de606ed83e214cfc93ba8"
+              }
+            }
+          ],
+          "releaseQualified": false,
+          "scope": "Independent known/protected native display sample equality for these 18 grade images only; Rust report independently records full-frame f32 equality. No ACR or photographic/performance/cross-platform claim."
+        }
+      },
+      "original_sha256_after": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+      "original_unchanged": true,
+      "visual_inspection": {
+        "reviewer": "Codex visual review of actual native outputs",
+        "finding": "Target face/coat/bag removed, with substantially reduced target-shaped outline. Generated vertical wall/door-like structures remain unverified; adjacent ambiguous unselected hand is retained. Both inference hole and accepted coverage change, so this is not a one-factor comparison.",
+        "scope": "Qualitative observations only; no ACR/color parity, hidden-background truth, corpus or release-quality proof."
+      }
+    },
+    {
+      "id": "coast-small-object",
+      "preparation": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/coast-head-contrast-prepared-20261003/preparation.json",
+        "sha256": "2cd6495b03b9de17063c7a80ab99db76c50242c831e3e88cd02ebbe8c8a2d413",
+        "report": {
+          "case": {
+            "id": "coast-head-photographic-contrast",
+            "raw": "coast",
+            "window_xywh": [
+              1900,
+              1800,
+              1024,
+              1024
+            ],
+            "intent_rects_xywh": [
+              [
+                440,
+                437,
+                65,
+                44
+              ]
+            ],
+            "protected_rects_xywh": [
+              [
+                0,
+                481,
+                1024,
+                543
+              ]
+            ],
+            "hole_radius": 8,
+            "fringe_radius": 4,
+            "expected_scene_blake3": "blake3:50f65b33b413746281b59cb89be7dd221d6e06328c7fd7b99a8d60d283fd2f43",
+            "expected_model_input_blake3": "blake3:f7ac7b659be89b25c02b088fe4a6168faf82f01480475e419aa8a71a4c2c914c",
+            "annotation": "Small partially occluded head above cabin railing; explicit Paint rectangle and protected wood below.",
+            "annotation_scope": "Manual research Paint/protection control, not background-role, Smart paint, silhouette closure, hidden-content ground truth or shipping mask policy.",
+            "orientation": 1,
+            "model_encoding": "photographic-contrast"
+          },
+          "manifest_sha256": "fff39d84fec304c06db52c2227f960603d1e30e1903cb73b761143bc67052a7b",
+          "RAW_sha256": "ec04e3ac69d54e7300ba0ff582d10ade0fc3ad28f48507b4c35cacc115e4ee86",
+          "scene_probe_sha256": "b73b7195f6bdd32cd28e83fe081c7e3fce3a839d337f87e6eb0d325296b311b7",
+          "context": {
+            "plate": "LinearCalibrationV1",
+            "original": "blake3:3bd41714b1b37007f7f3bda5382fe726980449c7b226e8f25cf26ec5fc20da21",
+            "source_anchor": {
+              "original": "blake3:3bd41714b1b37007f7f3bda5382fe726980449c7b226e8f25cf26ec5fc20da21",
+              "decode": "blake3:0b32b9f8b0b603e43621c78df9d4cf193a13425568e912a7401caf1eebaea8c4",
+              "width": 6000,
+              "height": 4000
+            },
+            "window": {
+              "x": 1900,
+              "y": 1800,
+              "width": 1024,
+              "height": 1024
+            },
+            "source_width": 6000,
+            "source_height": 4000,
+            "scene": "blake3:50f65b33b413746281b59cb89be7dd221d6e06328c7fd7b99a8d60d283fd2f43",
+            "model_input": "blake3:f7ac7b659be89b25c02b088fe4a6168faf82f01480475e419aa8a71a4c2c914c",
+            "encoding": {
+              "method": "signed-log-photographic-contrast-v1",
+              "low": -0.881373587019543,
+              "high": 2.4230224863876186
+            },
+            "release_qualified": false
+          },
+          "hole_pixels": 4166,
+          "coverage_pixels": 3335,
+          "protected_pixels": 556032,
+          "orientation": {
+            "height": 1024,
+            "input_blake3": "2027e87d76938a66e595ee1ee6a9671da0e496a14b7385b641940bf82ccb57dc",
+            "inverse": false,
+            "orientation": 1,
+            "output_blake3": "2027e87d76938a66e595ee1ee6a9671da0e496a14b7385b641940bf82ccb57dc",
+            "raw_identity": {
+              "decoded_orientation": "Normal",
+              "decoder_verified": true,
+              "original_blake3": "3bd41714b1b37007f7f3bda5382fe726980449c7b226e8f25cf26ec5fc20da21"
+            },
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "releaseQualified": false
+        }
+      },
+      "actual_inference": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coast-contrast-20261003/generated/report.json",
+        "sha256": "25b7ebc5c9555e6eaa383d96d60522315603df5f12ac54c4e0ae61b51ed40db0",
+        "report": {
+          "model_repo": "JunhaoZhuang/PowerPaint-v2-1",
+          "model_revision": "5ae2be3ac38b162df209b7ad5de036d339081e33",
+          "source_revision": "5b4c3d52291709fcec2a1870d987da693fd3549c",
+          "model_manifest_sha256": "5f4b4578bc5c21423907674eef41458db59623635b8ec256382602b1b47455fb",
+          "model_files_bytes": 8303728512,
+          "source_sha256": "50bf48ae086fdda08d8b37133303b46667b74f2424cebdab8ac68418b1f5b0f8",
+          "float_input_sha256": "eff68f12f696d28fb891e593cbff059b59fc9300b7b95d7733f580230f54ff95",
+          "model_input_quantized_to_u8": false,
+          "float_layout": "NCHW little-endian f32, native encoded model-RGB",
+          "mask_sha256": "e4c42b3019edceea6f0dd4c3561eb67399a85accbc539e3c60854e60078bbc4a",
+          "crop_xywh": [
+            0,
+            0,
+            1024,
+            1024
+          ],
+          "native_extent_hw": [
+            1024,
+            1024
+          ],
+          "source_resampled": false,
+          "preprocessor_samples_equal": true,
+          "selected_pixels": 4166,
+          "task_positive": " P_ctxt",
+          "task_negative": " P_obj",
+          "user_prompt": "",
+          "seed": 3941,
+          "requested_steps": 30,
+          "actual_steps": 30,
+          "guidance": 12.0,
+          "attention_slicing": "auto",
+          "numeric_dtype": "float32",
+          "verification_ms": 3261.239249999562,
+          "model_open_ms": 1756.1452919999283,
+          "inference_ms": 135489.76774999936,
+          "steps": [
+            {
+              "index": 0,
+              "timestep": 961.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 5880.772791999334,
+              "mps_allocated_bytes": 8411619840,
+              "mps_driver_bytes": 35906109440
+            },
+            {
+              "index": 1,
+              "timestep": 929.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 10090.801791999183,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35987898368
+            },
+            {
+              "index": 2,
+              "timestep": 897.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 14396.019791998697,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 3,
+              "timestep": 865.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 18589.213041999756,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 4,
+              "timestep": 833.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 22778.453541999625,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 5,
+              "timestep": 801.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 27002.474249999068,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 6,
+              "timestep": 769.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 31185.830458000055,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 7,
+              "timestep": 737.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 35463.96462499979,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 8,
+              "timestep": 705.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 39744.95087499963,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 9,
+              "timestep": 673.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 44000.01783299922,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 10,
+              "timestep": 641.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 48368.82854199939,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 11,
+              "timestep": 609.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 52697.07629199911,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 12,
+              "timestep": 577.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 57060.30079199991,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 13,
+              "timestep": 545.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 61498.92354199983,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 14,
+              "timestep": 513.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 65825.93445800012,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 15,
+              "timestep": 481.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 70332.36483299879,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 16,
+              "timestep": 449.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 74787.72933300024,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 17,
+              "timestep": 417.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 79150.23541699884,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 18,
+              "timestep": 385.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 83585.79724999981,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 19,
+              "timestep": 353.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 87950.76591699944,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 20,
+              "timestep": 321.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 92566.55645799947,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 21,
+              "timestep": 289.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 97050.75049999868,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 22,
+              "timestep": 257.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 101663.6078749998,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 23,
+              "timestep": 225.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 106347.86062499916,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 24,
+              "timestep": 193.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 110934.91766700026,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 25,
+              "timestep": 161.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 115663.0914999987,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 26,
+              "timestep": 129.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 120324.33070799925,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 27,
+              "timestep": 97.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 124953.89170799899,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 28,
+              "timestep": 65.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 129618.95212499985,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 29,
+              "timestep": 33.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 134257.71541699942,
+              "mps_allocated_bytes": 8411881984,
+              "mps_driver_bytes": 35839000576
+            }
+          ],
+          "encoded": [
+            {
+              "shape": [
+                2,
+                3,
+                1024,
+                1024
+              ],
+              "samples_equal": true,
+              "sha256": "00c4368491069429de964ca0b1b9f6d70001f49bacdc5fd81272b964d1ef5d1a"
+            }
+          ],
+          "decoded": [
+            {
+              "shape": [
+                1,
+                3,
+                1024,
+                1024
+              ],
+              "finite": true,
+              "minimum": -0.6975840926170349,
+              "maximum": 0.7776944637298584,
+              "normalized_sha256": "0f42e16040c8fc421ef73e5d73d4dbb1cdc19a535ab3c7881f533aab6379fafa",
+              "model_sha256": "b03fdac107f8818be89b706b7e11e728b1a40f821cede06d28e990622014fdd1",
+              "out_of_model_range_samples": 0,
+              "clamped": false
+            }
+          ],
+          "postprocessor_clamps_model_output": true,
+          "raw_bake_input": "raw-candidate-nchw.f32; strict range validation required",
+          "raw_candidate": {
+            "sha256": "e0812e6a8c7fc87163c63431e9b70d89b10566660677a505999172b0410555af",
+            "generation_out_of_model_range_samples": 0,
+            "outside_float_bits_changed": 0,
+            "clamped": false,
+            "scope": "Unclamped decoder samples inside generation hole; exact source elsewhere. Canonical RAW inverse must independently validate this file."
+          },
+          "process_peak_resident_bytes": 1952284672,
+          "max_observed_step_boundary_mps_allocated_bytes": 8411881984,
+          "max_observed_step_boundary_mps_driver_bytes": 35987898368,
+          "memory_scope": "Process RSS and sampled step-boundary MPS values are distinct, incomplete measures; do not sum or treat as total/peak GPU budget.",
+          "toolchain": {
+            "torch": "2.14.1",
+            "diffusers": "0.27.0",
+            "transformers": "4.28.0",
+            "accelerate": "0.29.3"
+          },
+          "result": {
+            "sha256": "c22b0ebc4531393bab3ac39d6c8624efb805f8b526d71f135681d200431ff290",
+            "outside_float_bits_changed": 0,
+            "outside_u8_samples_changed": 0
+          },
+          "prediction_sha256": "88511450483381f9a39f0e0c6fb62b8af125832709526f44bb5247c5177c844d",
+          "releaseQualified": false,
+          "qualification": "Single seed, native local MPS model-RGB diagnostic. Float transport evidence alone does not qualify canonical RAW inversion, photographic quality, corpus, deployed adapter, device or distribution."
+        }
+      },
+      "held_prior_inference": false,
+      "orientation_transport": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coast-contrast-20261003/report.json",
+        "sha256": "db789826bb54a25fc08ff9cc4da5603886f1c18c8ce66a126c87447f9a48a814",
+        "report": {
+          "orientation": 1,
+          "orientation_metadata": {
+            "height": 1024,
+            "input_blake3": "2027e87d76938a66e595ee1ee6a9671da0e496a14b7385b641940bf82ccb57dc",
+            "inverse": false,
+            "orientation": 1,
+            "output_blake3": "2027e87d76938a66e595ee1ee6a9671da0e496a14b7385b641940bf82ccb57dc",
+            "raw_identity": {
+              "decoded_orientation": "Normal",
+              "decoder_verified": true,
+              "original_blake3": "3bd41714b1b37007f7f3bda5382fe726980449c7b226e8f25cf26ec5fc20da21"
+            },
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "preparation_sha256": "2cd6495b03b9de17063c7a80ab99db76c50242c831e3e88cd02ebbe8c8a2d413",
+          "context": {
+            "plate": "LinearCalibrationV1",
+            "original": "blake3:3bd41714b1b37007f7f3bda5382fe726980449c7b226e8f25cf26ec5fc20da21",
+            "source_anchor": {
+              "original": "blake3:3bd41714b1b37007f7f3bda5382fe726980449c7b226e8f25cf26ec5fc20da21",
+              "decode": "blake3:0b32b9f8b0b603e43621c78df9d4cf193a13425568e912a7401caf1eebaea8c4",
+              "width": 6000,
+              "height": 4000
+            },
+            "window": {
+              "x": 1900,
+              "y": 1800,
+              "width": 1024,
+              "height": 1024
+            },
+            "source_width": 6000,
+            "source_height": 4000,
+            "scene": "blake3:50f65b33b413746281b59cb89be7dd221d6e06328c7fd7b99a8d60d283fd2f43",
+            "model_input": "blake3:f7ac7b659be89b25c02b088fe4a6168faf82f01480475e419aa8a71a4c2c914c",
+            "encoding": {
+              "method": "signed-log-photographic-contrast-v1",
+              "low": -0.881373587019543,
+              "high": 2.4230224863876186
+            },
+            "release_qualified": false
+          },
+          "context_sha256": "036a7fcc71d05163b091eb59fde90fcc07d5a903221a29b1dbc336ae8d28e2e0",
+          "canonical_input_sha256": "eff68f12f696d28fb891e593cbff059b59fc9300b7b95d7733f580230f54ff95",
+          "canonical_mask_sha256": "e4c42b3019edceea6f0dd4c3561eb67399a85accbc539e3c60854e60078bbc4a",
+          "canonical_generation_planes_sha256": "30c500fb7e2e61a009f443df41f531595a1e1faabb7a1bf7833f67f51476438f",
+          "shared_orientation_probe_sha256": "4a7e9c6a50fa6b244c2fff22654d8ff38082ae3c9c840aef635a50525fabe045",
+          "canonical_extent_hw": [
+            1024,
+            1024
+          ],
+          "upright_extent_hw": [
+            1024,
+            1024
+          ],
+          "source": {
+            "forward": {
+              "height": 1024,
+              "input_blake3": "2027e87d76938a66e595ee1ee6a9671da0e496a14b7385b641940bf82ccb57dc",
+              "inverse": false,
+              "orientation": 1,
+              "output_blake3": "2027e87d76938a66e595ee1ee6a9671da0e496a14b7385b641940bf82ccb57dc",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "2027e87d76938a66e595ee1ee6a9671da0e496a14b7385b641940bf82ccb57dc",
+              "inverse": true,
+              "orientation": 1,
+              "output_blake3": "2027e87d76938a66e595ee1ee6a9671da0e496a14b7385b641940bf82ccb57dc",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "roundtrip_bits_exact": true
+          },
+          "mask": {
+            "forward": {
+              "height": 1024,
+              "input_blake3": "3cd026884c6d520019f46864f2884469113a6b05361172985f21933abb57740d",
+              "inverse": false,
+              "orientation": 1,
+              "output_blake3": "3cd026884c6d520019f46864f2884469113a6b05361172985f21933abb57740d",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "3cd026884c6d520019f46864f2884469113a6b05361172985f21933abb57740d",
+              "inverse": true,
+              "orientation": 1,
+              "output_blake3": "3cd026884c6d520019f46864f2884469113a6b05361172985f21933abb57740d",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "roundtrip_bits_exact": true
+          },
+          "source_resampled": false,
+          "model_input_quantized_to_u8": false,
+          "releaseQualified": false,
+          "outputs": {
+            "decoder-model": {
+              "inverse": {
+                "height": 1024,
+                "input_blake3": "e3f8f6abd81dbec2e7639ea8b68adb27aed8f49d81302f8969e6b9e8ca06cdc1",
+                "inverse": true,
+                "orientation": 1,
+                "output_blake3": "e3f8f6abd81dbec2e7639ea8b68adb27aed8f49d81302f8969e6b9e8ca06cdc1",
+                "raw_identity": null,
+                "releaseQualified": false,
+                "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+                "width": 1024
+              },
+              "replay_bits_exact": true,
+              "canonical_sha256": "b03fdac107f8818be89b706b7e11e728b1a40f821cede06d28e990622014fdd1",
+              "clamped": false,
+              "out_of_model_range_samples": 0
+            },
+            "raw-candidate": {
+              "inverse": {
+                "height": 1024,
+                "input_blake3": "15ed58073bf417ffc24c5d0bda742cfc32d031fd73a4e9175b634872d0f10edb",
+                "inverse": true,
+                "orientation": 1,
+                "output_blake3": "15ed58073bf417ffc24c5d0bda742cfc32d031fd73a4e9175b634872d0f10edb",
+                "raw_identity": null,
+                "releaseQualified": false,
+                "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+                "width": 1024
+              },
+              "replay_bits_exact": true,
+              "canonical_sha256": "e0812e6a8c7fc87163c63431e9b70d89b10566660677a505999172b0410555af",
+              "clamped": false,
+              "out_of_model_range_samples": 0
+            }
+          },
+          "model_report_sha256": "25b7ebc5c9555e6eaa383d96d60522315603df5f12ac54c4e0ae61b51ed40db0",
+          "outside_float_bits_changed": 0,
+          "scope": "Actual native upright PowerPaint float inference and exact canonical inverse. Independent RAW range validation, grading, photographic quality and deployed Mac adapter qualification remain required."
+        }
+      },
+      "coverage_control": null,
+      "unclamped_canonical_candidate": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coast-contrast-20261003/raw-candidate-nchw.f32",
+        "sha256": "e0812e6a8c7fc87163c63431e9b70d89b10566660677a505999172b0410555af"
+      },
+      "raw_bake": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coast-contrast-bake-20261003/report.json",
+        "sha256": "b6f8408c490331f9da66f5efad38aa65c55af7010d20ea4bca2b0d2dcabaaee4",
+        "report": {
+          "as_shot_temperature": 5632.66943359375,
+          "as_shot_tint": 30.135766983032227,
+          "auto_profile_engaged": true,
+          "encoding": {
+            "high": 2.423022486387618,
+            "low": -0.881373587019543,
+            "method": "signed-log-photographic-contrast-v1"
+          },
+          "generation_masks": "blake3:908c78f961c396fb0a456a40bf47e9afc8f3540ec3f04b6a75b278f58cc7b55e",
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "max_scene_float_error_identity": 1.2051314115524292e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1403.409833
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "max_scene_float_error_identity": 1.2051314115524292e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1403.409833
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.3686716556549072e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1408.486833
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.3686716556549072e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1408.486833
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.492723822593689e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1504.319792
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.492723822593689e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1504.319792
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "max_scene_float_error_identity": 9.641051292419434e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1635.288458
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "max_scene_float_error_identity": 9.641051292419434e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1635.288458
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.00010949373245239258,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1966.470792
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.00010949373245239258,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1966.470792
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "max_scene_float_error_identity": 0.00011941790580749512,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 3906.3269590000004
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "max_scene_float_error_identity": 0.00011941790580749512,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 3906.3269590000004
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0007712841033935547,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 3734.9695829999996
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0007712841033935547,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 3734.9695829999996
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0008759498596191406,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 3885.4091670000003
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0008759498596191406,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 3885.4091670000003
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0009553432464599609,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 4239.165959
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0009553432464599609,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 4239.165959
+            }
+          ],
+          "max_scene_float_error_identity": 0.0009553432464599609,
+          "model_result": "blake3:88e1ea94cfd0bce545fc997ef5699582a9311ed40df0c40a1713602a8a9e95d0",
+          "native_context": {
+            "height": 1024,
+            "width": 1024,
+            "x": 1900,
+            "y": 1800
+          },
+          "original": "blake3:3bd41714b1b37007f7f3bda5382fe726980449c7b226e8f25cf26ec5fc20da21",
+          "outside_mask_max_error": 0,
+          "plate": "LinearCalibrationV1",
+          "profile_tier": "BundleConfident",
+          "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+          "release_qualified": false
+        }
+      },
+      "independent_grade_checks": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-coast-grade-checks-20261003.json",
+        "sha256": "3458e3010be021b8a32e716f70fbd67020ce3fc2d7ce89039664948fb83c0ac8",
+        "report": {
+          "bake_report_sha256": "b6f8408c490331f9da66f5efad38aa65c55af7010d20ea4bca2b0d2dcabaaee4",
+          "protected_sha256": "4dcb45ff575589d29a65069d66176f698dfd7f1c8baaca9b1e320335f97d8fcc",
+          "coverage_sha256": "cb956f530717329981e455380720b8f290ef233f685576313e12fa9d8a39de38",
+          "protected_pixels": 556032,
+          "coverage_pixels": 3335,
+          "native_extent_hw": [
+            1024,
+            1024
+          ],
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev-3_wb-1000-truth.png": "1fccc532ac23608f493afd48a2536c66bac308a7d263e590d22950c98d833e00",
+                "neutral_ev-3_wb-1000-identity.png": "030c55d87977e602127391fa0e36988d21a967cbc4fdae68560c4a5a38d51230",
+                "neutral_ev-3_wb-1000-removal.png": "a30a895b69b33791c17a0d365ca4d04e6b0ffa13352c59cf5e47bd6da20c1f78"
+              }
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev-3_wb-1000-truth.png": "9453450fa7de8f7397115dc5c8df0450c6eabffe20a43b8ef06551685cb79bd4",
+                "auto_ev-3_wb-1000-identity.png": "56a9825a9d571ab19c22e1b39ff35c45636ed13e26c04b5bc5cfe9baa604fcb9",
+                "auto_ev-3_wb-1000-removal.png": "bf54ffb2f8685e2f94e5284fc76b8203c592f301c480a666e34e1b946fdc1030"
+              }
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev-3_wb+0-truth.png": "c6ee61b7cd241b0b38735566bd3c420ed9480cf8dc47bf8f06aeb22d0fe92e2a",
+                "neutral_ev-3_wb+0-identity.png": "ebf6bbb080656f3720f8e628a666791aab656ab09ee9dc255904e4af470a6abc",
+                "neutral_ev-3_wb+0-removal.png": "883344bc8649a71a642c8825303a0d0205d17ceae073bd6865d4a2ba764bc96c"
+              }
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev-3_wb+0-truth.png": "bbf063c8104196b817c889dc8ab515dc6f0aa5a32939c5cb57aa511812106878",
+                "auto_ev-3_wb+0-identity.png": "07ee63b77526fdd78bf840b4686140eb27e200dd0e7c5fd29c0b6ce13177a0a7",
+                "auto_ev-3_wb+0-removal.png": "bc2ec109a69bc8ef1a3f606760f452d7e582d04c889cc205a8a7f0e1fbabbfac"
+              }
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev-3_wb+1000-truth.png": "714dbd75f697801f44b3b773b83c53ad91f6d136662f74176b7c1e66851aef9e",
+                "neutral_ev-3_wb+1000-identity.png": "a27c8c9ea70b77a78591fb8cfa3346865c9892dcce4c7517a8dca364b5a94e25",
+                "neutral_ev-3_wb+1000-removal.png": "0bc7d1c8ac04e9abd4a57343decca40016c375183698f785f42242e02d703f78"
+              }
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev-3_wb+1000-truth.png": "57210bde6c9e115191e6c791efbe07ea9d55302a1698b6fe006b8142cfea6255",
+                "auto_ev-3_wb+1000-identity.png": "6fe48dfd6ffa20e3daa3a69101ba6de956896bcb4a557a73726e19f6dd26e69a",
+                "auto_ev-3_wb+1000-removal.png": "46f66b8b3e9bedd362e932f837140f96415b1757a3c15b1e55e1938c447852d3"
+              }
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+0_wb-1000-truth.png": "2f3c9dcf49acb2a60c717bc5763aaa3daf34c704738d27d1256ddefcbccf42aa",
+                "neutral_ev+0_wb-1000-identity.png": "8a75049a323774e464eed5628bfe93fe914b028dd90011ea0eac935c20d28cb8",
+                "neutral_ev+0_wb-1000-removal.png": "3bc88892f27e52e5fe83b02da606969cd745ce0c13e313d0b6fea4ba89b5b637"
+              }
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+0_wb-1000-truth.png": "574c022c35c0ebff442116b16f154c26b0bc6bf3f16c2c3b73d0859a7b95735f",
+                "auto_ev+0_wb-1000-identity.png": "0ad32ae28e06c7a5d48d263f83108761454d83e8c47a5a22d819998271fff59b",
+                "auto_ev+0_wb-1000-removal.png": "75cc508867c05752c3896d580954c60ed103e463d4c0e9751279f83178bf148a"
+              }
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+0_wb+0-truth.png": "be1c65854b19034cdad32c8ec79dfdd3b81eb8f656df792ed11cbc854bd932cb",
+                "neutral_ev+0_wb+0-identity.png": "c0e5a03c4b2a17518d41a80d3cde4a1a670d6437efc240899d64926fbbaaab27",
+                "neutral_ev+0_wb+0-removal.png": "a254cf64a28711b19b54ff2f13f8935505b6867e4bf5dc966cda0e2f0e2bb30b"
+              }
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+0_wb+0-truth.png": "d632d1a315af55b9db077362a53a92197c9b96581a5a4b617b33fefc6d5d73e1",
+                "auto_ev+0_wb+0-identity.png": "043899a43482591db3d7e140ad425f19d0eb57a753b0dfe6ce23326e16fa8f30",
+                "auto_ev+0_wb+0-removal.png": "9a6cffc2d38f9c1def74c58904916a06148c0675cb127f89f15b586227b9de5f"
+              }
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+0_wb+1000-truth.png": "e24923b13a3ba41837cd4eff906b93d1a962eed52738728fb2f3f431509e8406",
+                "neutral_ev+0_wb+1000-identity.png": "9b2605d436ad43753eaf21663962e4fea2866344e2d20d478ee28bf83b8780c5",
+                "neutral_ev+0_wb+1000-removal.png": "0c31fdb859e5a0a0ff1bcfe0fbe2c84de638b2f8b48565cfda6e0ad773a72bc4"
+              }
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+0_wb+1000-truth.png": "ea008866b29272a5d54e40c5e108b5d81e88e6dd10dac0d8e7855499723377c5",
+                "auto_ev+0_wb+1000-identity.png": "574f5c478f582098b87ac023c18d96478d777bc74d08d397b055479328dde709",
+                "auto_ev+0_wb+1000-removal.png": "fe0e168577a04850bc85ed2fa803791f171c8ec81a629671e370a4f205984b0d"
+              }
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+3_wb-1000-truth.png": "a037fd86a46962f2a5ad08faf4f1aefdf66001bc401779edb0192699fb681b80",
+                "neutral_ev+3_wb-1000-identity.png": "353e5d662e548fac81e1c4a6b5470ee45bdfb5032d448fe43791794f633d130b",
+                "neutral_ev+3_wb-1000-removal.png": "5b00167598275e8714fccf7109e789e8c2836652f7ebb9d56be6d5da1765831d"
+              }
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+3_wb-1000-truth.png": "6f6016a32ba900fe8d1d0d0b0e11d465faeabc9ddc761f75c133f368912fdd90",
+                "auto_ev+3_wb-1000-identity.png": "3ae304081662b52011a792d0be8d9feea349e6f0ebfa165ef352c47d0405f530",
+                "auto_ev+3_wb-1000-removal.png": "2d86e859bf22e4c4dfb2b23e93f0973789eedff03018d3b10bdd3a15851a6b01"
+              }
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+3_wb+0-truth.png": "40f43b597e2dc3aa2fca1e3ef31dcfceaea6a4ea294952e77f08a2a96b68da89",
+                "neutral_ev+3_wb+0-identity.png": "01edc9191b1186ac491e3967087d0206790a4a102bfbc79cea1045ccc5013380",
+                "neutral_ev+3_wb+0-removal.png": "88d08b024db1d465bdf7b6d8be6ce5469061d92fcfcebfde916e93350f577c86"
+              }
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+3_wb+0-truth.png": "e6fe854f77bc1beffefdeaad6e401f20a44728246612820e1aa14b5e7aa07c9c",
+                "auto_ev+3_wb+0-identity.png": "1e399b9cc381e6781d293788f25063c392da1fb8be879239d73af41b2021eca3",
+                "auto_ev+3_wb+0-removal.png": "6d2cd4c52abc30311dd2c3c651fa5f5a350d7798d396c125d4ebf7d48d36602a"
+              }
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+3_wb+1000-truth.png": "e41f04e7cca2b90279a723812ed5a36e29a7c79cad571896dd0d9d9cad8a2da8",
+                "neutral_ev+3_wb+1000-identity.png": "c05e9d4e6d641dae9a4b6261d21be720b0432f301bcb732f98ef01828bd6ad5a",
+                "neutral_ev+3_wb+1000-removal.png": "3fd0bb5b125da3903d30e6b66297b165cddab6a0be62ad6fb3deabfe3d449459"
+              }
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+3_wb+1000-truth.png": "a59c3e5fdb790eb683f411b9f7a16bd4f5952a11053376623338a73ad8bc2fb9",
+                "auto_ev+3_wb+1000-identity.png": "2ad9c937a4bb17e9f8109ee47365a77a618c65aeb5e8a6a460d6cfd5ffd90ef7",
+                "auto_ev+3_wb+1000-removal.png": "6df7404540d5ff0097dd1eef168b07c3c17e1c97d7112e43cb39fc63a73aedce"
+              }
+            }
+          ],
+          "releaseQualified": false,
+          "scope": "Independent known/protected native display sample equality for these 18 grade images only; Rust report independently records full-frame f32 equality. No ACR or photographic/performance/cross-platform claim."
+        }
+      },
+      "original_sha256_after": "ec04e3ac69d54e7300ba0ff582d10ade0fc3ad28f48507b4c35cacc115e4ee86",
+      "original_unchanged": true,
+      "visual_inspection": {
+        "reviewer": "Codex visual review of actual native outputs",
+        "finding": "Visible head above railing removed. Ocean/sky continuity appears plausible at native view, but local texture/noise and boundary quality have no numerical photographic acceptance evidence.",
+        "scope": "Qualitative observations only; no ACR/color parity, hidden-background truth, corpus or release-quality proof."
+      }
+    },
+    {
+      "id": "night-poster-exif8",
+      "preparation": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/night-poster-contrast-prepared-20261003/preparation.json",
+        "sha256": "d8ebdf4f0a5eee9542b261b2c2a3138abc23587b3711cb5fd7a67431d728dd6f",
+        "report": {
+          "case": {
+            "id": "night-tiger-poster-photographic-contrast",
+            "raw": "night-tiger",
+            "orientation": 8,
+            "window_xywh": [
+              2800,
+              1650,
+              1024,
+              1024
+            ],
+            "intent_rects_xywh": [
+              [
+                261,
+                267,
+                267,
+                143
+              ]
+            ],
+            "protected_rects_xywh": [
+              [
+                0,
+                435,
+                1024,
+                589
+              ],
+              [
+                610,
+                0,
+                414,
+                435
+              ]
+            ],
+            "hole_radius": 8,
+            "fringe_radius": 4,
+            "expected_scene_blake3": "blake3:a3b247c266eb5106c64096c99f9f2b6026bced854d95f0477b9fe5e072d33781",
+            "expected_model_input_blake3": "blake3:b76280514e3c4deb42b200c475e28d778d50f8857f49c22bae2f483ce43de55b",
+            "annotation": "Complete left wall portrait poster. Canonical rectangle is the exact EXIF8 inverse of upright pixel-edge rectangle [267,496,143,267]. Adjacent posters and upper scene protected.",
+            "annotation_scope": "Manual research Paint rectangle; no automatic silhouette, semantic role, text reconstruction, person model release, hidden-content ground truth or shipping mask policy claim.",
+            "model_encoding": "photographic-contrast"
+          },
+          "manifest_sha256": "fff39d84fec304c06db52c2227f960603d1e30e1903cb73b761143bc67052a7b",
+          "RAW_sha256": "8cc49f506d3ebde3f3c87862e23497c639c806a54765bf8cb8a7fcaf664e10e5",
+          "scene_probe_sha256": "b73b7195f6bdd32cd28e83fe081c7e3fce3a839d337f87e6eb0d325296b311b7",
+          "context": {
+            "plate": "LinearCalibrationV1",
+            "original": "blake3:45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2",
+            "source_anchor": {
+              "original": "blake3:45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2",
+              "decode": "blake3:f021d621d9593e428bc59f5d0861b719c7458d05c95a08c02ed85e8b3a24da2d",
+              "width": 4288,
+              "height": 2848
+            },
+            "window": {
+              "x": 2800,
+              "y": 1650,
+              "width": 1024,
+              "height": 1024
+            },
+            "source_width": 4288,
+            "source_height": 2848,
+            "scene": "blake3:a3b247c266eb5106c64096c99f9f2b6026bced854d95f0477b9fe5e072d33781",
+            "model_input": "blake3:b76280514e3c4deb42b200c475e28d778d50f8857f49c22bae2f483ce43de55b",
+            "encoding": {
+              "method": "signed-log-photographic-contrast-v1",
+              "low": -0.881373587019543,
+              "high": 2.41594892831346
+            },
+            "release_qualified": false
+          },
+          "hole_pixels": 44905,
+          "coverage_pixels": 40673,
+          "protected_pixels": 783226,
+          "orientation": {
+            "height": 1024,
+            "input_blake3": "0fd74f5b2fb5387df4e9c5f9ac0475f52b075f785760b59cb7320ca51b472577",
+            "inverse": false,
+            "orientation": 8,
+            "output_blake3": "b772be8b5f59b9417f4c37f6939af7448afe03f920641f268579b04b7c92b7e3",
+            "raw_identity": {
+              "decoded_orientation": "Rotate270",
+              "decoder_verified": true,
+              "original_blake3": "45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2"
+            },
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "releaseQualified": false
+        }
+      },
+      "actual_inference": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-night-contrast-20261003/generated/report.json",
+        "sha256": "f0e9b0571e209690465c4ba895be7750fe5dd661f5e60566bfcee2becb249d87",
+        "report": {
+          "model_repo": "JunhaoZhuang/PowerPaint-v2-1",
+          "model_revision": "5ae2be3ac38b162df209b7ad5de036d339081e33",
+          "source_revision": "5b4c3d52291709fcec2a1870d987da693fd3549c",
+          "model_manifest_sha256": "5f4b4578bc5c21423907674eef41458db59623635b8ec256382602b1b47455fb",
+          "model_files_bytes": 8303728512,
+          "source_sha256": "1a9b0e78fcf7e8f0826a5ecb68934a12364eed23fffe19d2b417d987d0513f2d",
+          "float_input_sha256": "f5e072da79069551525634ba4533415d29cc71006caf98945cd8ac4928bb1c39",
+          "model_input_quantized_to_u8": false,
+          "float_layout": "NCHW little-endian f32, native encoded model-RGB",
+          "mask_sha256": "aa3238ada8a476de6269ec1b57485418c0c935bb1c7601ff94125d0507f651d5",
+          "crop_xywh": [
+            0,
+            0,
+            1024,
+            1024
+          ],
+          "native_extent_hw": [
+            1024,
+            1024
+          ],
+          "source_resampled": false,
+          "preprocessor_samples_equal": true,
+          "selected_pixels": 44905,
+          "task_positive": " P_ctxt",
+          "task_negative": " P_obj",
+          "user_prompt": "",
+          "seed": 3941,
+          "requested_steps": 30,
+          "actual_steps": 30,
+          "guidance": 12.0,
+          "attention_slicing": "auto",
+          "numeric_dtype": "float32",
+          "verification_ms": 4628.684416999022,
+          "model_open_ms": 2192.600249998577,
+          "inference_ms": 149272.20283399947,
+          "steps": [
+            {
+              "index": 0,
+              "timestep": 961.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 6353.142374999152,
+              "mps_allocated_bytes": 8412668416,
+              "mps_driver_bytes": 35839000576
+            },
+            {
+              "index": 1,
+              "timestep": 929.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 11251.647291999689,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35920789504
+            },
+            {
+              "index": 2,
+              "timestep": 897.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 16146.931416998996,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 3,
+              "timestep": 865.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 21063.01537499894,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 4,
+              "timestep": 833.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 25926.179874999434,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 5,
+              "timestep": 801.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 30813.68987499991,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 6,
+              "timestep": 769.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 35763.69045899992,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 7,
+              "timestep": 737.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 40683.659209000325,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 8,
+              "timestep": 705.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 45483.351667000534,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 9,
+              "timestep": 673.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 50325.81199999913,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 10,
+              "timestep": 641.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 55105.77320899938,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 11,
+              "timestep": 609.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 59947.9324999993,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 12,
+              "timestep": 577.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 64814.63212500057,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 13,
+              "timestep": 545.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 69720.13933400012,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 14,
+              "timestep": 513.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 74595.83495900006,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 15,
+              "timestep": 481.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 79503.92520899914,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 16,
+              "timestep": 449.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 84412.83254200061,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 17,
+              "timestep": 417.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 89311.80266699994,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 18,
+              "timestep": 385.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 94259.46454199948,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 19,
+              "timestep": 353.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 99152.67754200067,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 20,
+              "timestep": 321.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 104040.25316700063,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 21,
+              "timestep": 289.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 108882.45116699909,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 22,
+              "timestep": 257.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 113761.50345899987,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 23,
+              "timestep": 225.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 118676.64470899945,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 24,
+              "timestep": 193.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 123491.22166699999,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 25,
+              "timestep": 161.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 128372.05125000037,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 26,
+              "timestep": 129.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 133247.42291700022,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 27,
+              "timestep": 97.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 138161.75162499893,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 28,
+              "timestep": 65.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 143028.99191699908,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            },
+            {
+              "index": 29,
+              "timestep": 33.0,
+              "shape": [
+                1,
+                4,
+                128,
+                128
+              ],
+              "elapsed_ms": 147970.17975000018,
+              "mps_allocated_bytes": 8412930560,
+              "mps_driver_bytes": 35771891712
+            }
+          ],
+          "encoded": [
+            {
+              "shape": [
+                2,
+                3,
+                1024,
+                1024
+              ],
+              "samples_equal": true,
+              "sha256": "27806feb906d3cd7b5a4b60480b613cb9a8f1014de622494e3f96fe044dff8a4"
+            }
+          ],
+          "decoded": [
+            {
+              "shape": [
+                1,
+                3,
+                1024,
+                1024
+              ],
+              "finite": true,
+              "minimum": -1.0007823705673218,
+              "maximum": 0.1761423647403717,
+              "normalized_sha256": "cbecae06f7185bc8cc60f52a44dc13be736b9d41f20d7b17d6304c4d51b5ce4b",
+              "model_sha256": "eb1cf2f7611d1dc8044ae3ee6d38028b77a78f6b803d4a882c4499a72a83b8cf",
+              "out_of_model_range_samples": 1,
+              "clamped": false
+            }
+          ],
+          "postprocessor_clamps_model_output": true,
+          "raw_bake_input": "raw-candidate-nchw.f32; strict range validation required",
+          "raw_candidate": {
+            "sha256": "6f07e9447cd2d5217ae765cd6fef753e13f251751c4f97c3f8a1025c939612ac",
+            "generation_out_of_model_range_samples": 0,
+            "outside_float_bits_changed": 0,
+            "clamped": false,
+            "scope": "Unclamped decoder samples inside generation hole; exact source elsewhere. Canonical RAW inverse must independently validate this file."
+          },
+          "process_peak_resident_bytes": 1956610048,
+          "max_observed_step_boundary_mps_allocated_bytes": 8412930560,
+          "max_observed_step_boundary_mps_driver_bytes": 35920789504,
+          "memory_scope": "Process RSS and sampled step-boundary MPS values are distinct, incomplete measures; do not sum or treat as total/peak GPU budget.",
+          "toolchain": {
+            "torch": "2.14.1",
+            "diffusers": "0.27.0",
+            "transformers": "4.28.0",
+            "accelerate": "0.29.3"
+          },
+          "result": {
+            "sha256": "b9ab81a30940b9121a56f114000b5a84e6124aa0e2994501403582462693f44d",
+            "outside_float_bits_changed": 0,
+            "outside_u8_samples_changed": 0
+          },
+          "prediction_sha256": "5f737dcdb9f064ee7120833ea8c6202dfd253720d0db55967905a6df79712058",
+          "releaseQualified": false,
+          "qualification": "Single seed, native local MPS model-RGB diagnostic. Float transport evidence alone does not qualify canonical RAW inversion, photographic quality, corpus, deployed adapter, device or distribution."
+        }
+      },
+      "held_prior_inference": false,
+      "orientation_transport": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-night-contrast-20261003/report.json",
+        "sha256": "8a834c619e082faa61da45a41374a5d3b7439603d3662ee6792e7c3598757c78",
+        "report": {
+          "orientation": 8,
+          "orientation_metadata": {
+            "height": 1024,
+            "input_blake3": "0fd74f5b2fb5387df4e9c5f9ac0475f52b075f785760b59cb7320ca51b472577",
+            "inverse": false,
+            "orientation": 8,
+            "output_blake3": "b772be8b5f59b9417f4c37f6939af7448afe03f920641f268579b04b7c92b7e3",
+            "raw_identity": {
+              "decoded_orientation": "Rotate270",
+              "decoder_verified": true,
+              "original_blake3": "45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2"
+            },
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "preparation_sha256": "d8ebdf4f0a5eee9542b261b2c2a3138abc23587b3711cb5fd7a67431d728dd6f",
+          "context": {
+            "plate": "LinearCalibrationV1",
+            "original": "blake3:45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2",
+            "source_anchor": {
+              "original": "blake3:45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2",
+              "decode": "blake3:f021d621d9593e428bc59f5d0861b719c7458d05c95a08c02ed85e8b3a24da2d",
+              "width": 4288,
+              "height": 2848
+            },
+            "window": {
+              "x": 2800,
+              "y": 1650,
+              "width": 1024,
+              "height": 1024
+            },
+            "source_width": 4288,
+            "source_height": 2848,
+            "scene": "blake3:a3b247c266eb5106c64096c99f9f2b6026bced854d95f0477b9fe5e072d33781",
+            "model_input": "blake3:b76280514e3c4deb42b200c475e28d778d50f8857f49c22bae2f483ce43de55b",
+            "encoding": {
+              "method": "signed-log-photographic-contrast-v1",
+              "low": -0.881373587019543,
+              "high": 2.41594892831346
+            },
+            "release_qualified": false
+          },
+          "context_sha256": "a21f20840a4fb7572aceca28ed05082f75d537e3d0ae60f60d44094e2de41ca9",
+          "canonical_input_sha256": "85fd4bab4705858f4980b3e37ed9205e4696feef9df06028637f3855a9e55e17",
+          "canonical_mask_sha256": "569ce6c87230ca274f65a8ffcd3280f18ce7df6e5369abb4955b95712ea53ca5",
+          "canonical_generation_planes_sha256": "a2b43ca7b5f09921c9328355c4301d260ab9f9591853bf8c83d2eeaf3aa326ce",
+          "shared_orientation_probe_sha256": "4a7e9c6a50fa6b244c2fff22654d8ff38082ae3c9c840aef635a50525fabe045",
+          "canonical_extent_hw": [
+            1024,
+            1024
+          ],
+          "upright_extent_hw": [
+            1024,
+            1024
+          ],
+          "source": {
+            "forward": {
+              "height": 1024,
+              "input_blake3": "0fd74f5b2fb5387df4e9c5f9ac0475f52b075f785760b59cb7320ca51b472577",
+              "inverse": false,
+              "orientation": 8,
+              "output_blake3": "b772be8b5f59b9417f4c37f6939af7448afe03f920641f268579b04b7c92b7e3",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "b772be8b5f59b9417f4c37f6939af7448afe03f920641f268579b04b7c92b7e3",
+              "inverse": true,
+              "orientation": 8,
+              "output_blake3": "0fd74f5b2fb5387df4e9c5f9ac0475f52b075f785760b59cb7320ca51b472577",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "roundtrip_bits_exact": true
+          },
+          "mask": {
+            "forward": {
+              "height": 1024,
+              "input_blake3": "6b30c3241dee45aff3a5e11c531629a401653300f905b055b9be7f5f59047d03",
+              "inverse": false,
+              "orientation": 8,
+              "output_blake3": "955ba12a5d93bb9bc05bf415fb92715d325efc2ec6ff53e25fc4ccaeca88e173",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "955ba12a5d93bb9bc05bf415fb92715d325efc2ec6ff53e25fc4ccaeca88e173",
+              "inverse": true,
+              "orientation": 8,
+              "output_blake3": "6b30c3241dee45aff3a5e11c531629a401653300f905b055b9be7f5f59047d03",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "roundtrip_bits_exact": true
+          },
+          "source_resampled": false,
+          "model_input_quantized_to_u8": false,
+          "releaseQualified": false,
+          "outputs": {
+            "decoder-model": {
+              "inverse": {
+                "height": 1024,
+                "input_blake3": "c6490731187d623a983a7bf293c2dfce687d36f4be5be953442379be3a761b8c",
+                "inverse": true,
+                "orientation": 8,
+                "output_blake3": "4a644fc114b1b503d637d11499d68ee19fa2b988080ed7c76f90d85e23d3f967",
+                "raw_identity": null,
+                "releaseQualified": false,
+                "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+                "width": 1024
+              },
+              "replay_bits_exact": true,
+              "canonical_sha256": "7dd313d1cee38c13e9ec1d367d0d08d12838f5bf573a30908f439c1ec6fd8b58",
+              "clamped": false,
+              "out_of_model_range_samples": 1
+            },
+            "raw-candidate": {
+              "inverse": {
+                "height": 1024,
+                "input_blake3": "5ffa405e74b1bf74882b4b5377daf0be2ec4654024b5310e010f461204a2c540",
+                "inverse": true,
+                "orientation": 8,
+                "output_blake3": "b9344b6991e2cd6067f0a832b7c4801c329262268c0e726a58fe69616e73da5a",
+                "raw_identity": null,
+                "releaseQualified": false,
+                "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+                "width": 1024
+              },
+              "replay_bits_exact": true,
+              "canonical_sha256": "34a1541a86a25beb3217903ee19e878f1887f69137478fde4efd1b1fa4d786f6",
+              "clamped": false,
+              "out_of_model_range_samples": 0
+            }
+          },
+          "model_report_sha256": "f0e9b0571e209690465c4ba895be7750fe5dd661f5e60566bfcee2becb249d87",
+          "outside_float_bits_changed": 0,
+          "scope": "Actual native upright PowerPaint float inference and exact canonical inverse. Independent RAW range validation, grading, photographic quality and deployed Mac adapter qualification remain required."
+        }
+      },
+      "coverage_control": null,
+      "unclamped_canonical_candidate": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-night-contrast-20261003/raw-candidate-nchw.f32",
+        "sha256": "34a1541a86a25beb3217903ee19e878f1887f69137478fde4efd1b1fa4d786f6"
+      },
+      "raw_bake": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-night-contrast-bake-20261003/report.json",
+        "sha256": "1624c1b526992b8445f67dbd0f03f10d19c9b01d6f813559e57f2b950b50fbbb",
+        "report": {
+          "as_shot_temperature": 5980.7216796875,
+          "as_shot_tint": -8.010068893432617,
+          "auto_profile_engaged": true,
+          "encoding": {
+            "high": 2.41594892831346,
+            "low": -0.881373587019543,
+            "method": "signed-log-photographic-contrast-v1"
+          },
+          "generation_masks": "blake3:dca7e3834b38cc3204bc518354efac24b17454aaaaf77aef0d1fe54409494b07",
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "max_scene_float_error_identity": 8.692382834851742e-06,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 834.3474170000001
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "max_scene_float_error_identity": 8.692382834851742e-06,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 834.3474170000001
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "max_scene_float_error_identity": 7.556052878499031e-06,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 800.355625
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "max_scene_float_error_identity": 7.556052878499031e-06,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 800.355625
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "max_scene_float_error_identity": 6.779941031709313e-06,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 830.935333
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "max_scene_float_error_identity": 6.779941031709313e-06,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 830.935333
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "max_scene_float_error_identity": 6.953906267881393e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 816.6117499999999
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "max_scene_float_error_identity": 6.953906267881393e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 816.6117499999999
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "max_scene_float_error_identity": 6.044842302799225e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 853.653542
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "max_scene_float_error_identity": 6.044842302799225e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 853.653542
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "max_scene_float_error_identity": 5.423952825367451e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 796.116375
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "max_scene_float_error_identity": 5.423952825367451e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 796.116375
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0005563125014305115,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 804.148209
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0005563125014305115,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 804.148209
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.000483587384223938,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 879.959708
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.000483587384223938,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 879.959708
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.00043391622602939606,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 950.2531250000001
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.00043391622602939606,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 950.2531250000001
+            }
+          ],
+          "max_scene_float_error_identity": 0.0005563125014305115,
+          "model_result": "blake3:5f4a995f378044d5fffd65e59a910f670a1e487a40a6c7d393fff164e865ad87",
+          "native_context": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2800,
+            "y": 1650
+          },
+          "original": "blake3:45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2",
+          "outside_mask_max_error": 0,
+          "plate": "LinearCalibrationV1",
+          "profile_tier": "BundleConfident",
+          "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+          "release_qualified": false
+        }
+      },
+      "independent_grade_checks": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-night-grade-checks-20261003.json",
+        "sha256": "81fe33b45bccdfd307562582432c1df549537f5976c54dcef7d6be6cf1f2b9dc",
+        "report": {
+          "bake_report_sha256": "1624c1b526992b8445f67dbd0f03f10d19c9b01d6f813559e57f2b950b50fbbb",
+          "protected_sha256": "7e51085061eb6d5b70dc02b1b1da2d2d06357fd6573b7fa94b50266599b212d6",
+          "coverage_sha256": "90e7a844fb4b94392afe21ac784f3192f7fb2ba32ce0e8d4e7a7679edf6d50b4",
+          "protected_pixels": 783226,
+          "coverage_pixels": 40673,
+          "native_extent_hw": [
+            1024,
+            1024
+          ],
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev-3_wb-1000-truth.png": "9c2a4b1c624a554e1c712e8b698f24cdb6368135681478a3a94848ce5c557ab7",
+                "neutral_ev-3_wb-1000-identity.png": "5fbf3c1f40f14731209d8e963867f5a79dbcd4c31b15559f6ff0807801d208f2",
+                "neutral_ev-3_wb-1000-removal.png": "3116a097ec99b9bd596b1518aed0f9d761db70579f2f734a3920a283ee424f6b"
+              }
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev-3_wb-1000-truth.png": "59a81c52eb16dd337d3fd1ed4de2592ac1184533b3b87e3de1c1ff30ed3e5c6a",
+                "auto_ev-3_wb-1000-identity.png": "d469348d3de8d6c4012b997be5028a043743494927f5560b142871245234f34b",
+                "auto_ev-3_wb-1000-removal.png": "887e03df90d2d3ab0cfbe38449f4765118cbeecfa45c60389462b75f3bb55c9e"
+              }
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev-3_wb+0-truth.png": "d0efff8d794a2f6f9b7514c0900490a9e81d94dcd0097e786a5261226f7202d5",
+                "neutral_ev-3_wb+0-identity.png": "7607ed7323cf5c72f52d794b6cfc76aeba575b512fcb02e6ab40b7d8717b9614",
+                "neutral_ev-3_wb+0-removal.png": "2a44a7fbbda3f98a6ee7b85833da44185afc3ffaef4c3042a89c69ca4b5076e0"
+              }
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev-3_wb+0-truth.png": "8c611c3bb81da5f0f480020d33b95a2ef0b2a3848e3260264f80da3456d7b1a4",
+                "auto_ev-3_wb+0-identity.png": "f95ec1718c38d21da41ae3ca5453b49b405b0f6c5558848e23bb559d378d7388",
+                "auto_ev-3_wb+0-removal.png": "5c7cf764ba15ac5e8f26e5233c94db30520fd42906fb225b39d92ce54b437348"
+              }
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev-3_wb+1000-truth.png": "c873e2782721599457d0222fcd58231d6fdb5a1eeb97db7a183762e66cd1160e",
+                "neutral_ev-3_wb+1000-identity.png": "639c064d2f70f7f40eea0d23fc6d18f09b297936905124718adcb9a3c8218d97",
+                "neutral_ev-3_wb+1000-removal.png": "0901aaa3da6be715d97da0ad6c1143078efceff5faa3f573646b6b73b7e2ec67"
+              }
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev-3_wb+1000-truth.png": "c33458fafcd5d04cdd8d817e353952943eaae54484aa99437d19224b6bc2a06f",
+                "auto_ev-3_wb+1000-identity.png": "0e48fbb6d9620c11c7cf2600ba378cc91be48bddb2969625aebec7fa2969b13e",
+                "auto_ev-3_wb+1000-removal.png": "42f7d0a27b2547b0a11b006d981a819f24f990b566a24d83a3aa56511278b799"
+              }
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+0_wb-1000-truth.png": "74f1e9fb9fe4c12b414d5aac2b049171696f43c7ed95cc29132aadfd2159f2cd",
+                "neutral_ev+0_wb-1000-identity.png": "f8c2b0ee3c88ccde551e26d8feab472b2e70434f0c667a83e27d9af4d3e234a2",
+                "neutral_ev+0_wb-1000-removal.png": "484c8567a9aaaff99ce5bd014f0d1078a43163eebb6b8bfbf1a9fdfda2fe6c90"
+              }
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+0_wb-1000-truth.png": "088c36d1de7c3bb55bc76bd7f269ff7d701ed6cbcc2c6ca17ddbb324d6975f25",
+                "auto_ev+0_wb-1000-identity.png": "8885334db2eb23467ae5c6a99356360ba612d7616538b554712814d040d28f53",
+                "auto_ev+0_wb-1000-removal.png": "3bc11ef14322f85fffe2de98ab568fbe291471f89ed22eb2db8563b474e0a182"
+              }
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+0_wb+0-truth.png": "f3ecbd16078cff74250cd16b9db1aa51585e091e5411f5eaf7a52a199ec15327",
+                "neutral_ev+0_wb+0-identity.png": "8d702cccea56bd3a0a5de93e0263876bf7e0e553fd941b37ecff962ba666eaa2",
+                "neutral_ev+0_wb+0-removal.png": "715ec07c8f3ec5c939d75d6168cd38761714819cd4f521b14806a62cbaf43b87"
+              }
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+0_wb+0-truth.png": "3d793a7e20a1cdf02b1118211b4f3f530e093a7c6e3867afb03d3e3f17329b67",
+                "auto_ev+0_wb+0-identity.png": "10200f3b445bac528d4ad1b4fb0a1910de26813cc6a392beebb3dbde1598fe63",
+                "auto_ev+0_wb+0-removal.png": "8098fe3ab9abf776a425613a69ee4c8ff529bbc79bc0aeea161bcc1169b1e533"
+              }
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+0_wb+1000-truth.png": "071ab083833784a2be2d9e2c1f6476057338b0792b1faa30f018d657ec64e702",
+                "neutral_ev+0_wb+1000-identity.png": "cd9110736fdf72cfae4fb7d3697496a5baedaea2580900dead92d3a58b31a7f6",
+                "neutral_ev+0_wb+1000-removal.png": "42f674b5b8f678e96a95a3c3f7b894dbe73a3e6f122a043bd69030f01e08dc01"
+              }
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+0_wb+1000-truth.png": "a7cb422ced58d3f41261a48958f04c245038aa235896d876eeb6fd3814f89da1",
+                "auto_ev+0_wb+1000-identity.png": "2d73ac359f76516bb5eadce27e1fcfb518ab4b487a33759ed1bdc660d401812f",
+                "auto_ev+0_wb+1000-removal.png": "909424d3089e9a1383060cc531d91edb9fb4680765117c96949b203680fdddae"
+              }
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+3_wb-1000-truth.png": "5cb26518a65f6d70374c56eb9020f4eaf9b5093d02329d7a51a78ce7a6086a56",
+                "neutral_ev+3_wb-1000-identity.png": "29317d12836b2f0be1aaddd406a757be5fad5d9f7f6070a9b38350484e46b45b",
+                "neutral_ev+3_wb-1000-removal.png": "f4c6c7bf7314044459badc05f4162b17950588d41712a0923bd87fc301234bd1"
+              }
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+3_wb-1000-truth.png": "0a313a17e4ac81f23daf533b1acbf1f6d31e279f93ef21c2ac338745f2459dfa",
+                "auto_ev+3_wb-1000-identity.png": "d43c3b93b3b11f01a0b3daeb8a4ed4c898972e9a69a520a36253dfad2e52e306",
+                "auto_ev+3_wb-1000-removal.png": "3eeba23bec7b513615b52f02ad6c382105328fd67244a2f62196c3c2f61ec574"
+              }
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+3_wb+0-truth.png": "a6f4350d893230166fb9bdf4b15efd6cad206361dd6c3a5649d4fcda1dc9a38e",
+                "neutral_ev+3_wb+0-identity.png": "23e1b614f60967dec3172faf4f51f4bcb969295c4cd4c07b1ccd4dd12b02fa23",
+                "neutral_ev+3_wb+0-removal.png": "857c521812299c70383b7d765fa690942ed72e0c9f066ac37c09b60a7afbf631"
+              }
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+3_wb+0-truth.png": "2429dcda787cd4b7c3afd34529389a085767e24e2ca4eaa051a1d519b2eb0b11",
+                "auto_ev+3_wb+0-identity.png": "d6f9a0dbe30409b1c20dbe1b5bb1adc09dfc2e37e23df014be6487113e5bbb3a",
+                "auto_ev+3_wb+0-removal.png": "073365f6e20f35e28c38f09cd5bb4f27f4e3c2c5c69d8202abad9f7c07d48b8b"
+              }
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "neutral_ev+3_wb+1000-truth.png": "3009abf3c940d38ac5f404f07bdc39d676fc56db6980fb47619b6e58965caaec",
+                "neutral_ev+3_wb+1000-identity.png": "63d837c348bb9f50b913c9dd7a220fc044e135c2c774b82dc8254bc747fa57f2",
+                "neutral_ev+3_wb+1000-removal.png": "98e024c94cab322f011558381122e154cde56b317c36518cff33e73d8e7b59da"
+              }
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "outside_u8_samples_changed": 0,
+              "protected_u8_samples_changed": 0,
+              "identity_outside_u8_samples_changed": 0,
+              "file_sha256": {
+                "auto_ev+3_wb+1000-truth.png": "191e72a5bb8edd3f16227ac3a456c5c42bd4cd24895d6d17deac4152e41f75bb",
+                "auto_ev+3_wb+1000-identity.png": "e6bb0eba7aef82d66750925fde9d7dbdbd03613e482d20a8886bcc093624e875",
+                "auto_ev+3_wb+1000-removal.png": "14d0b47b717a7522bc36ff78e9fd42cfe2c012b2321fd5c147788e330dcaa1fe"
+              }
+            }
+          ],
+          "releaseQualified": false,
+          "scope": "Independent known/protected native display sample equality for these 18 grade images only; Rust report independently records full-frame f32 equality. No ACR or photographic/performance/cross-platform claim."
+        }
+      },
+      "original_sha256_after": "8cc49f506d3ebde3f3c87862e23497c639c806a54765bf8cb8a7fcaf664e10e5",
+      "original_unchanged": true,
+      "visual_inspection": {
+        "reviewer": "Codex visual review of actual native outputs",
+        "finding": "Selected portrait replaced with a blank wall-like patch. Adjacent posters remain exact. The fill still shows tone/texture and rectangular boundary differences, especially at +3EV. No photographic acceptance claim.",
+        "scope": "Qualitative observations only; no ACR/color parity, hidden-background truth, corpus or release-quality proof."
+      }
+    }
+  ],
+  "validation_summary": {
+    "actual_fresh_model_runs": 3,
+    "held_existing_model_run_controls": 1,
+    "native_raw_grade_comparisons": 72,
+    "full_frame_f32_outside_accepted_coverage_error": 0,
+    "known_and_protected_native_display_samples_changed": 0,
+    "source_and_mask_resampled": false,
+    "model_input_u8_quantization": false,
+    "unclamped_decoder_evidence_preserved": true,
+    "orientation_tests": "Eight tests passed: existing shared-core EXIF tests plus PowerPaint canonical inverse/provenance tests. All eight tags use non-square independent fixtures; invalid output/known pixels refuse. No model mocks or inference qualification implied.",
+    "float_tests": "Seven actual float/upstream tests passed without skips in the pinned local runtime."
+  },
+  "decision": {
+    "model_admitted": false,
+    "shipping_mask_policy_changed": false,
+    "shipping_encoding_changed": false,
+    "mac_model_adapter_changed": false,
+    "conclusion": "Accepted coverage materially affects residual silhouettes. Expanded selection improves this specific person case, and native Paint/EXIF8 can traverse the same strict RAW inverse. These observations justify coverage calibration and practical Mac inference work; they do not qualify PowerPaint or fixed native mask radii for release.",
+    "remaining": [
+      "Independent instance/ownership/closure and subject-role corpus, including shadows/reflections/overlap.",
+      "Photographic semantic, structural, edge, texture/noise and color acceptance on a broader corpus.",
+      "Practical supported-device runtime, memory, distribution/licensing/signing, cancellation and native Mac adapter.",
+      "Complete Apple/Web shared parity, portable assets/export/recovery, and all epic1472 requirements."
+    ]
+  }
+}

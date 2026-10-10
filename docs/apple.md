@@ -38,6 +38,16 @@ Build provenance keys (`MapleBuildGitSHA`, `MapleBuildDate`, and optional `Maple
 
 The app's entitlements (`Maple/Maple.entitlements`) request the sandbox, the App Group `group.app.justmaple.aperture`, app-scope bookmarks, user-selected read/write, network client, the `…aperture.shared` keychain group, extended virtual addressing and increased memory limit (100 MP RAWs), and `com.apple.security.cs.disable-library-validation` — needed because panorama stitching `dlopen`s a Microsoft-signed ONNX Runtime dylib.
 
+The Maple target's **Stamp build provenance** phase declares
+`$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)` as an input (#4183). Xcode therefore
+finishes processing the app plist before the phase writes `MapleBuildGitSHA`,
+`MapleBuildDate` and the optional `MapleEarlyFeatures` value, then signs the app.
+The phase's position in the build-phase list alone does not establish this order.
+The existing CI commit/tag and explicit early-feature overrides retain their
+precedence; local Debug builds leave the early-feature key absent for the runtime
+default. Qualification checks clean and incremental Mac/simulator builds, final
+plist contents and deep signature verification.
+
 ## Local packages
 
 ### MapleCore
@@ -180,6 +190,8 @@ MAPLE_PERF=1 swift test -c release --skip-build -Xswiftc -enable-testing \
 
 Build the release xcframework first and finish other builds before recording timing. These measurements start at model input and end at observed acknowledged submission: a 1 ms polling task adds observation latency and can miss publications if it is delayed. They exclude SwiftUI gesture dispatch and compositor scanout. Pair them with Instruments on the normal app: Time Profiler for CPU and actor work, SwiftUI for body invalidations, Metal System Trace for execution/drawable/vsync delays, and File Activity for deferred sidecar writes. `GpuPresentRequest`, `GpuPresentExecution`, and `GpuFrameReadback` Points of Interest separate a caller's wait from native execution and one-shot preview readback.
 
+The editor's render signposts also use the `PointsOfInterest` category so a standard Time Profiler capture includes them. `RenderAdmission` spans the forwarding task and actor admission, with the admitted generation on its end event. `FastCallback` spans that generation's whole callback, including the snapshot wait; `fast` and `refine` delimit the downstream render body. `GpuDriverAwait` carries the generation across the driver await, and `GpuPublished` identifies the actual confirmed publication. `NativeAutoPrepare` covers the serialized native worker's fit, not its preceding queue wait. The opt-in workflow harness labels each input arm with `BenchmarkDrag`. Match generations and interval identities; subtracting unrelated request/execution percentiles does not measure queue latency. These are submission acknowledgments, not display scanout.
+
 `MAPLE_GPU_HUD=1` measures host submission, not input-to-visible latency. `MAPLE_GPU_DEBUG=1` replaces the editor with a GPU proof screen; leave it unset for an editor audit. `MAPLE_GPU_LIVE=0` is a separate CPU fallback experiment. `MAPLE_PROFILE=1` enables existing stage timing; unset it to disable (the check is presence-based). Record hardware, thermal state, refresh rate, viewport pixels, profile, fixture, cache state and failed/missed-frame counts with each result. The package benchmark's correctness assertions do not certify a universal 16 ms display budget.
 
 ## Sources
@@ -208,9 +220,32 @@ Every cloud client holds absolute server paths (`SearchAsset.abs_path`, the `fs:
 
 Cloud folder refs (`fs:<absolute path>`) use `GET`/`POST /api/xmp?path=…`; catalog refs retain `GET`/`PUT /api/assets/:id/xmp`. A failed sidecar read records `sidecarError` and leaves the existing edit model intact instead of replacing it with defaults (#3357).
 
-Normal export snapshots the live model before its full-quality decode, resolves the Auto Profile cube at that decode quality, and applies the saved crop and straighten angle before encoding. The crop applies even while the crop tool is open. The full RAW film render already crops in Rust and must not be cropped again. CPU and GPU Auto Profile fitting share a session-owned staged RAW file for byte-backed sources, so Cloud receives the same camera-preview fit as a local file (#3357).
+Full RAW export snapshots the live model and calls `maple_render_file_display_f32` through `RenderActor`. The shared Rust full-resolution display chain applies verified accepted removals, the native-size Auto curve and residual, optional film, requested primaries, EXIF orientation, manual geometry and crop. The display-encoded RGBA remains f32 until the destination encoder; TIFF retains 16-bit delivery precision. Swift transfers the owned output to CoreImage with a matching Rust deallocator. It does not resample Auto into a host cube or crop this full result again. Fast and non-RAW exports retain the bounded preview graph and apply their crop in the session, including while the crop tool is open. The full entry binds decode and embedded-preview fitting to the same original bytes and resolves saved companions beside the actual original; unavailable companions fail rather than producing an original-only export. Byte-backed sources reuse the session's staged RAW file; companion transport still needs a complete local bundle at that staged source. CPU and GPU live Auto fitting retain their existing staged-source and cached proxy paths (#3357).
 
 Serialization lives in the `XMPSerialization+*.swift` family, with `XMPPassthrough` preserving unknown XML byte-for-byte. The schema and canonical byte form are in [xmp-canonical-format](xmp-canonical-format.md).
+
+## Experimental Remove model bundle
+
+The Mac Remove tool imports all four generated experimental ONNX pins and the current architecture's pinned runtime into versioned Application Support through a single **Import model** action. It verifies the complete set on import and restoration; the original import folder can then be removed. Paint, Auto Mask and People remain experimental: successful installation does not qualify model quality or device performance.
+
+The Mac editor enters removal in Paint mode; it does not run People detection when the AI editor opens or when the photo is reopened. The focused editor shows Paint, Auto Mask and People in a right-side mode rail, with mode controls in a flyout. Choosing **People** starts detection and opens a scrollable multiselect list that preselects shared Rust background suggestions while keeping subjects and uncertain detections. Checkbox changes are temporary; **Remove** applies the current choices before reconstruction, with no separate detection or Apply action. **Refine** also prepares pending choices before painting. Kept-person masks are subtracted from removal intent; manual protection painting is not exposed in the current UI. **⌘Z** and **⇧⌘Z** undo and redo selection gestures while removal selection history is available. **Keep** remains the only durable acceptance action. The current experimental mask expands the reconstruction hole by 8 native pixels with a 4-pixel exterior feather; these are exploration defaults, not release-qualified values. A connected selection and its expansion must fit within a 2048 × 2048 native source context (#3984 / #3941 / #3943). The first Mac round uses the accepted lab's 512 × 512 LaMa prediction: raw-core makes a photographic AgX/sRGB guide, area-reduces the native context for inference, then upsamples the guide and uses RGB-guided PatchMatch to copy native scene-linear source pixels into the hole. The accepted fp16 patch and undo/redo path remain non-destructive.
+
+In Paint, separated selected areas can use separate native reconstruction contexts and are saved together by one **Keep** action and one undo step. The shared planner keeps every connected painted area intact and validates all contexts before starting model work. A connected area plus its expansion that exceeds the model context still needs refinement; saved-removal replacement also requires one context. Smart paint retains its complete object selection, and the People list retains its reviewed per-person masks.
+
+The 2026-10-06 lab comparison found RGB-guided native-source texture transfer the most promising tested refinement for LaMa, with quality varying by image and model; the shared-latent diffusion alternative performed poorly. The Mac path uses the matching pinned 512 × 512 LaMa graph with a bounded Rust implementation of RGB-guided PatchMatch, while a native context up to 2048 × 2048 supplies donor pixels. This is an adaptation, not a byte-for-byte port of the SDR-only Python diagnostic: Maple derives its guide from the developed RAW using a neutral AgX/sRGB transform, and writes transferred native scene-linear pixels through the accepted-removal patch path. It has not passed blind photographic review or been release-qualified; railing structure and other difficult backgrounds can still fail. Keep the standalone lab harness and its results as the quality reference; do not treat the larger context as proof of high-resolution quality (#3941).
+
+The Mac person detector uses the retained RAW EXIF orientation to present upright pixels to the model, then maps every proposed box back to native source coordinates. Selection proxies, SAM masks and saved edit assets retain the original RAW axes; display orientation does not change their identity.
+
+`tools/removal/mac_model_bundle.py` creates an offline testing folder from existing export outputs and the official runtime archive. It uses `removal-models.generated.json` and compiles the actual `PanoProvisionManifest.swift` with a small manifest printer, so the builder does not duplicate model or runtime pins. It requires Python 3.11+ and Xcode tools on the target Mac architecture:
+
+```bash
+python3 tools/removal/mac_model_bundle.py \
+  --exports /path/to/removal-probe-root \
+  --ort-archive /path/to/official-onnxruntime-mac.tgz \
+  --output /path/to/new-offline-folder
+```
+
+The output contains the five importable inference files, exact export records, upstream/transitive notices, official runtime notices and a SHA-256 inventory. The builder rejects incomplete or altered inputs, unsafe archive links and an existing output path; it publishes only after the whole staging folder verifies. Choose this folder using **Remove → Import model**. The editor shows a single import action rather than the individual pinned model-file listing. The Mac installer also retains the opaque `bundle.json` and every regular file in `provenance/` as a bounded, checksummed snapshot in app storage. Restore verifies both the local receipt index and all retained document bytes; missing or altered documents require explicit re-import. Documents never override the hard inference pins, and imports of a plain five-file model folder remain supported. The engineering review is recorded in `tools/removal/model-distribution-review.json`; checkpoint redistribution terms and full transitive scope remain open. No downloads, package signing, notarization or public-distribution approval are implied, and all release-qualified flags remain false (#1472 / #3941).
 
 ## File Provider and Quick Look
 

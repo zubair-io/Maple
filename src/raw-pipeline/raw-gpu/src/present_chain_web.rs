@@ -16,11 +16,11 @@
 //! its bind-group layout, and the chosen format — all created/configured/retagged
 //! ONCE in [`WebPresentSurface::create`]. [`WebPresentSurface::present`] then does
 //! only `get_current_texture` → [`encode_present_pass`] → `present` per frame: it
-//! recompiles NO pipeline and reconfigures NO swapchain. (The naive
+//! recompiles NO pipeline; a changed crop extent alone reconfigures the swapchain. (The naive
 //! "create-surface-and-pipeline-per-frame" shape would recompile `present_chain.wgsl`
 //! and reconfigure the canvas context every slider tick — see the persistence
-//! invariant in [`crate::live_session`].) The held surface is bound to ONE set of
-//! image dims; the caller asserts dims are stable across the session.
+//! invariant in [`crate::live_session`].) The resident image and the presented
+//! extent have independent dimensions.
 //!
 //! ## The device is the session's, not a fresh one
 //!
@@ -33,13 +33,13 @@
 //! variant stores no borrowed handle (`handle_source = None`), so the `Surface` is
 //! `'static`-storable.
 //!
-//! ## Surface dims == image dims (parity invariant)
+//! ## Source and output geometry (#3982)
 //!
-//! `present_chain.wgsl`'s FS recovers each pixel's `(x, y)` from the fragment
-//! position and indexes the f32 buffer `i = y*width + x`, so the surface MUST be
-//! configured at the image's exact dims or the Bayer dither cell + the buffer index
-//! desync. [`WebPresentSurface::create`] sizes the surface to the image dims; the
-//! caller sizes the `OffscreenCanvas` to match (the present never rescales).
+//! The chain stays in sensor framing. The shared quantized display tail maps
+//! the surface through crop, display-framed perspective, and EXIF to that
+//! buffer, preserving source-coordinate grain and dither. Output dimensions
+//! come from the shared crop rounding. An authored crop may resize the surface;
+//! sliders with unchanged output dimensions reuse its configuration and pipeline.
 //!
 //! ## Colour-space (requested per session, #3191)
 //!
@@ -80,13 +80,15 @@ pub struct WebPresentSurface {
     /// The WebGPU surface over the canvas. `'static` — the `OffscreenCanvas`
     /// variant stores no borrowed handle (wgpu copies the canvas internally).
     surface: wgpu::Surface<'static>,
+    canvas: OffscreenCanvas,
+    configuration: wgpu::SurfaceConfiguration,
     /// The chain-present pipeline (`present_chain.wgsl`) compiled for `format`.
     /// Built once; reused every present (the `GpuContext` compute pipelines persist
     /// in their `OnceCell`s, and so does this one here).
     pipeline: wgpu::RenderPipeline,
     /// The pipeline's bind-group layout (params uniform @0 + f32 chain buffer @1).
     bind_group_layout: wgpu::BindGroupLayout,
-    /// Image (= surface) dims. Pinned; the present asserts the session matches.
+    /// Post-geometry surface dimensions; the sensor upload stays on the session.
     width: u32,
     height: u32,
     /// The colour-space tag the browser reported after the one-time retag to
@@ -161,19 +163,17 @@ impl WebPresentSurface {
 
         // The f32 chain buffer is bound in the present pass, so the surface MUST be
         // configured with the context's DEVICE (same device the buffer lives on).
-        surface.configure(
-            &ctx.device,
-            &wgpu::SurfaceConfiguration {
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format,
-                width,
-                height,
-                present_mode: wgpu::PresentMode::Fifo,
-                desired_maximum_frame_latency: 2,
-                alpha_mode: caps.alpha_modes[0],
-                view_formats: vec![],
-            },
-        );
+        let configuration = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width,
+            height,
+            present_mode: wgpu::PresentMode::Fifo,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: caps.alpha_modes[0],
+            view_formats: vec![],
+        };
+        surface.configure(&ctx.device, &configuration);
 
         // One-time retag to `target_color_space` (gated; see module docs).
         // `get_context("webgpu")` hands back the SAME singleton context wgpu
@@ -193,6 +193,8 @@ impl WebPresentSurface {
 
         Ok(Self {
             surface,
+            canvas: canvas.clone(),
+            configuration,
             pipeline,
             bind_group_layout,
             width,
@@ -200,6 +202,34 @@ impl WebPresentSurface {
             color_space,
             present_cache: PresentDispatchCache::new(),
         })
+    }
+
+    /// Reconfigure only when an authored crop changes output dimensions. The
+    /// pipeline and RAW chain stay resident; hot sliders take the no-op branch.
+    pub fn resize(&mut self, ctx: &GpuContext, width: u32, height: u32) -> Result<(), String> {
+        if (width, height) == (self.width, self.height) {
+            return Ok(());
+        }
+        let max = ctx.device.limits().max_texture_dimension_2d;
+        if width == 0 || height == 0 || width > max || height > max {
+            return Err("WebPresentSurface: invalid cropped output dimensions".into());
+        }
+        self.canvas.set_width(width);
+        self.canvas.set_height(height);
+        self.configuration.width = width;
+        self.configuration.height = height;
+        self.surface.configure(&ctx.device, &self.configuration);
+        self.color_space = match self.canvas.get_context("webgpu") {
+            Ok(Some(obj)) => crate::present_web_colorspace::retag_color_space_context(
+                &JsValue::from(obj),
+                &self.color_space,
+            ),
+            _ => "unknown".to_string(),
+        };
+        self.width = width;
+        self.height = height;
+        self.present_cache.invalidate();
+        Ok(())
     }
 
     /// The achieved canvas colour-space tag from the one-time retag.
@@ -210,7 +240,7 @@ impl WebPresentSurface {
     /// Present the live chain's resident f32 buffer (`session`'s ping-pong index
     /// `final_idx`, left by [`LiveSession::render_chain_to_f32_async`]) to the held
     /// surface — the dithered/quantized 8-bit display surface, NO CPU readback,
-    /// recompiling NOTHING. Asserts `session` dims == the surface dims.
+    /// recompiling NOTHING. Validates the geometry output against the surface.
     pub fn present(
         &self,
         ctx: &GpuContext,
@@ -219,10 +249,11 @@ impl WebPresentSurface {
         geometry: crate::PresentGeometry,
     ) -> Result<(), String> {
         let dims = session.dims();
-        if dims != (self.width, self.height) {
+        let expected = geometry.surface_dimensions(dims);
+        if expected != (self.width, self.height) {
             return Err(format!(
-                "WebPresentSurface::present: session {}x{} != surface {}x{}",
-                dims.0, dims.1, self.width, self.height
+                "WebPresentSurface::present: output {expected:?} != surface {}x{}",
+                self.width, self.height
             ));
         }
         let chain_buf = session.ping_pong_buffer(final_idx);
@@ -235,7 +266,7 @@ impl WebPresentSurface {
             &self.bind_group_layout,
             chain_buf,
             (session.identity(), final_idx),
-            ((self.width, self.height), (0, 0)),
+            ((self.width, self.height), dims),
             geometry,
         );
         let frame = self

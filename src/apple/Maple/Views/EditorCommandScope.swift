@@ -97,6 +97,16 @@ struct EditorCommandScope: ViewModifier {
       router?.finishNudge()
       return .ignored
     }
+    #if os(macOS)
+      // The focused removal brush owns arrow keys while its editor is open.
+      // Let them reach RemovalPointerSurface instead of treating Down/Up as
+      // tool-group changes or Left/Right as filmstrip navigation.
+      if state.armedTool == .remove,
+        [.leftArrow, .rightArrow, .upArrow, .downArrow].contains(press.key)
+      {
+        return .ignored
+      }
+    #endif
     // A focused knot owns its arrow event before the ancestor scope (#4384).
     // Modifier-based pan and commands still fall through to the normal routes.
     let knotKey = [.leftArrow, .rightArrow, .upArrow, .downArrow].contains(press.key)

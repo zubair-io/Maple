@@ -55,6 +55,7 @@ pub struct GpuContext {
     /// no generated color matrices (the WB matrix is a per-pass uniform). Built
     /// on first use via [`GpuContext::white_balance_pipeline`].
     pub(crate) white_balance_pipeline: OnceCell<wgpu::ComputePipeline>,
+    pub(crate) inpaint_composite_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled scene-tone-controls compute pipeline
     /// (`scene_tone_controls.wgsl`). A P2 scene-linear stage (#990); five
     /// luma-coupled tone steps, no Oklab, so no generated color matrices. Built
@@ -402,6 +403,7 @@ impl GpuContext {
             exposure_pipeline: OnceCell::new(),
             vibrance_pipeline: OnceCell::new(),
             white_balance_pipeline: OnceCell::new(),
+            inpaint_composite_pipeline: OnceCell::new(),
             scene_tone_controls_pipeline: OnceCell::new(),
             vignette_pipeline: OnceCell::new(),
             local_adjustments_pipeline: OnceCell::new(),

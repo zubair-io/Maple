@@ -27,10 +27,12 @@ use crate::{
 /// keep this file under the size budget; re-exported so `pipeline::{…}` and the
 /// FFI keep resolving `fit_profile_curve_from_raw` / `fit_auto_profile_from_raw`.
 mod auto_fit;
+mod auto_fit_native;
 pub use auto_fit::{
     cached_auto_profile_fit, fit_auto_profile_from_raw, fit_auto_profile_from_raw_at_cap,
     fit_profile_curve_from_raw, FitCap,
 };
+pub use auto_fit_native::fit_native_auto_profile_cancellable;
 
 // Sized display render + `native_render_dims` (#1101) — size-budget split.
 mod sized;
@@ -50,6 +52,10 @@ pub use detail::{
 
 // Export render — the display chain at a caller-chosen depth / primaries (#943).
 mod export;
+mod float_export;
+pub use float_export::render_export_f32;
+pub(super) mod removal;
+mod removal_scene_linear;
 pub use export::{
     decode_raster_base, render_export_from_raw, render_export_from_raw_with_film,
     render_export_raster, render_export_raster_cancellable, validate_raster_adjustments,
@@ -178,20 +184,58 @@ fn render_display_from_raw(
     film_lut: Option<&film::FilmLut>,
 ) -> Result<(u32, u32, Vec<u8>)> {
     render_from_raw_with_auto_fit(raw, model, quality, raw_source, max_long_edge, film_lut)
-        .map(|(w, h, bytes, _)| (w, h, bytes))
+        .map(|(w, h, pixels, _)| (w, h, pixels))
 }
 
 /// Display render with the actual Auto tail outcome (#4096). `None` means
 /// Auto was not selected; `Some(false)` means no usable fit was applied.
 /// Retains the existing render's result, without a second fit or source probe.
-pub fn render_from_raw_with_auto_fit(
+/// Actual oriented crop-input extent, measured from the developed display
+/// buffer rather than estimated from sensor dimensions (#3941).
+pub struct DisplayRender {
+    pub pixels: (u32, u32, Vec<u8>),
+    pub crop_input_size: [u32; 2],
+    pub auto_fit: Option<bool>,
+}
+
+impl DisplayRender {
+    pub fn from_quantized(
+        bytes: Vec<u8>,
+        width: u32,
+        height: u32,
+        orientation: crate::image::ExifOrientation,
+        model: &AdjustmentModel,
+        auto_fit: Option<bool>,
+    ) -> Self {
+        let crop_input_size = if orientation.swaps_wh() {
+            [height, width]
+        } else {
+            [width, height]
+        };
+        let pixels = finish::apply_geometry(
+            bytes,
+            width,
+            height,
+            orientation,
+            &crate::stages::perspective::Perspective::from_model(model),
+            &model.crop,
+        );
+        Self {
+            pixels,
+            crop_input_size,
+            auto_fit,
+        }
+    }
+}
+
+pub fn render_display_with_geometry(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
     raw_source: Option<RawInput<'_>>,
     max_long_edge: Option<u32>,
     film_lut: Option<&film::FilmLut>,
-) -> Result<(u32, u32, Vec<u8>, Option<bool>)> {
+) -> Result<DisplayRender> {
     let (mut scene, context) = render_display_scene_with_context(
         raw,
         model,
@@ -207,15 +251,21 @@ pub fn render_from_raw_with_auto_fit(
     });
     let auto_fit = (model.profile == Profile::Auto)
         .then_some(context.profile_curve.is_some() || context.profile_lut.is_some());
-    let (w, h, bytes) = finish::apply_geometry(
-        bytes,
-        w,
-        h,
-        raw.orientation,
-        &crate::stages::perspective::Perspective::from_model(model),
-        &model.crop,
-    );
-    Ok((w, h, bytes, auto_fit))
+    Ok(DisplayRender::from_quantized(bytes, w, h, raw.orientation, model, auto_fit))
+}
+
+/// Display render plus the actual Auto tail outcome (#4096).
+pub fn render_from_raw_with_auto_fit(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    raw_source: Option<RawInput<'_>>,
+    max_long_edge: Option<u32>,
+    film_lut: Option<&film::FilmLut>,
+) -> Result<(u32, u32, Vec<u8>, Option<bool>)> {
+    let rendered = render_display_with_geometry(raw, model, quality, raw_source, max_long_edge, film_lut)?;
+    let (w, h, bytes) = rendered.pixels;
+    Ok((w, h, bytes, rendered.auto_fit))
 }
 
 /// Shared body of every display-referred render: develop (full-res or
@@ -260,7 +310,7 @@ fn render_display_scene_with_context(
     target: encode::TargetPrimaries,
     film_lut: Option<&film::FilmLut>,
 ) -> Result<(Image, DetailContext)> {
-    render_display_scene_with_context_cancellable(
+    render_display_scene_with_removals(
         raw,
         model,
         quality,
@@ -269,11 +319,11 @@ fn render_display_scene_with_context(
         target,
         film_lut,
         crate::CancelToken::never(),
+        None,
     )
 }
 
-#[allow(clippy::too_many_arguments)]
-fn render_display_scene_with_context_cancellable(
+fn render_display_scene_with_removals(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
@@ -282,10 +332,11 @@ fn render_display_scene_with_context_cancellable(
     target: encode::TargetPrimaries,
     film_lut: Option<&film::FilmLut>,
     cancel: crate::CancelToken<'_>,
+    removals: Option<(
+        &super::ResolvedCalibrationRemovals,
+        &crate::types::accepted_removal::ContentDigest,
+    )>,
 ) -> Result<(Image, DetailContext)> {
-    if cancel.is_cancelled() {
-        return Err(crate::error::Error::Cancelled);
-    }
     // Section 0 (Auto Profile root-cause fix): when Profile=Auto and we
     // will actually fit a curve, force AutoExposureMode::Off so the fitted
     // curve owns the entire scene→JPEG brightness relationship. Otherwise
@@ -369,22 +420,32 @@ fn render_display_scene_with_context_cancellable(
     } else {
         model
     };
-    let (mut scene, ae_gain) = match max_long_edge {
-        // Sized: early-downsample develop — post-demosaic stages run on the
-        // viewport-sized buffer. `None` keeps the unsized entry byte-for-byte.
-        Some(mle) => develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
+    let (mut scene, ae_gain) = if let Some((stack, original)) = removals {
+        stack.develop_with_gain(
             raw,
+            original,
             active_model,
             quality,
-            mle,
+            max_long_edge,
             cancel,
-        )?,
-        None => develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
-            raw,
-            active_model,
-            quality,
-            cancel,
-        )?,
+        )?
+    } else {
+        match max_long_edge {
+            // Sized: early-downsample develop — post-demosaic stages run on the
+            // viewport-sized buffer. `None` keeps the unsized entry byte-for-byte.
+            Some(mle) => develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
+                raw,
+                active_model,
+                quality,
+                mle,
+                cancel,
+            )?,
+            None => {
+                develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
+                    raw, active_model, quality, cancel,
+                )?
+            }
+        }
     };
 
     if cancel.is_cancelled() {

@@ -200,7 +200,7 @@ public struct PipelineRenderer: Sendable {
   /// minutes. `full` uses bilinear demosaic (legacy value, preserved for ABI
   /// compatibility). `amaze` uses the AMaZE demosaic for highest quality on
   /// Bayer images — this is the export/refine path (#940).
-  public enum Quality: Int32 {
+  public enum Quality: Int32, Sendable {
     case full = 0
     case preview = 1
     case amaze = 2
@@ -1360,21 +1360,17 @@ extension PipelineRenderer {
     whitesAnchorEv: Float = .nan,
     nrSamplingScale: Float = 1
   ) -> MapleAdjustmentParams {
-    // Diagnostic for the magenta-cast investigation: log every value the
-    // Apple shell hands to the Rust slider chain. If temperature or tint
-    // drift away from defaults (6500 / 0) we know the WB step in the
-    // chain runs non-identity, which is what shifts the post-D65 image
-    // into a colour cast.
+    // Log the model and decode anchor for WB delta diagnostics.
     pipelineLog.notice(
       "makeParams MODEL: temp=\(model.temperature, format: .fixed(precision: 0)) tint=\(model.tint, format: .fixed(precision: 1)) exposure=\(model.exposure, format: .fixed(precision: 2)) contrast=\(model.contrast, format: .fixed(precision: 0)) highlights=\(model.highlights, format: .fixed(precision: 0)) shadows=\(model.shadows, format: .fixed(precision: 0)) whites=\(model.whites, format: .fixed(precision: 0)) blacks=\(model.blacks, format: .fixed(precision: 0)) vib=\(model.vibrance, format: .fixed(precision: 0)) sat=\(model.saturation, format: .fixed(precision: 0)) clarity=\(model.clarity, format: .fixed(precision: 0)) texture=\(model.texture, format: .fixed(precision: 0)) dehaze=\(model.dehaze, format: .fixed(precision: 0)) nr_lum=\(model.nrLuminance, format: .fixed(precision: 0)) | dec_temp=\(decodedTemperature, format: .fixed(precision: 0)) dec_tint=\(decodedTint, format: .fixed(precision: 1)) skip_agx=\(skipAgX)"
     )
     // Per-statement assignment (not a single ~18-arg initializer call):
     // the Swift expression-type-checker hit its complexity ceiling on
-    // the literal-init form during xcodebuild after #515 grew the
-    // struct to 18 fields. See #565.
+    // the literal-init form after #515 grew the struct to 18 fields. See #565.
     var params = MapleAdjustmentParams()
     params.whites_anchor_ev = whitesAnchorEv
-    let wb = model.liveWhiteBalance(in: wbFrame)
+    let wb = model.resolvedWhiteBalance(
+      temperature: decodedTemperature, tint: decodedTint, frame: wbFrame)
     params.temperature = Float(wb.temperature)
     params.tint = Float(wb.tint)
     params.nr_sampling_scale = nrSamplingScale
@@ -1853,74 +1849,6 @@ extension PipelineRenderer {
     return output
   }
 
-  /// P3-aware sibling of `applyChainAndEncodeDisplay` (#3190), via
-  /// `maple_apply_chain_and_encode_display_target_f32`. Identical
-  /// contract, plus `targetPrimaries` selecting the ENCODE stage's target
-  /// primaries — independent of `params.target_primaries`, which the
-  /// caller must keep at `0` (sRGB) so the chain stage never runs its own
-  /// inline conversion (see the Rust entry's module doc for why reusing
-  /// `params.target_primaries` for both would double-convert).
-  public static func applyChainAndEncodeDisplayTarget(
-    inputBytes: Data,
-    width: Int,
-    height: Int,
-    params: MapleAdjustmentParams,
-    targetPrimaries: UInt32,
-    noiseProfile: [Float]? = nil,
-    localAdjustments: [LocalAdjustment] = []
-  ) throws -> Data {
-    guard width > 0, height > 0 else {
-      throw PipelineError.renderFailed(
-        code: 2,
-        message: "applyChainAndEncodeDisplayTarget: zero dimension width=\(width) height=\(height)"
-      )
-    }
-    // Same rejection as `encodeDisplay` — do not let an invalid Swift-side
-    // caller value fall through to Rust's defensive sRGB coercion
-    // (Copilot review on #3239).
-    guard
-      targetPrimaries == CanvasColorSpace.srgb.wireValue
-        || targetPrimaries == CanvasColorSpace.displayP3.wireValue
-    else {
-      throw PipelineError.renderFailed(
-        code: 2,
-        message: "applyChainAndEncodeDisplayTarget: unsupported targetPrimaries=\(targetPrimaries)"
-      )
-    }
-    let lanes = width * height * 4
-    let expectedBytes = lanes * MemoryLayout<Float>.size
-    guard inputBytes.count == expectedBytes else {
-      throw PipelineError.renderFailed(
-        code: 9,
-        message:
-          "applyChainAndEncodeDisplayTarget: input \(inputBytes.count) bytes != expected \(expectedBytes)"
-      )
-    }
-    var output = Data(count: expectedBytes)
-    let rc: Int32 = try withChainPointers(
-      params, noiseProfile: noiseProfile, localAdjustments: localAdjustments
-    ) { bound in
-      var p = bound
-      return try output.withUnsafeMutableBytes { outBuf -> Int32 in
-        let outPtr = outBuf.bindMemory(to: Float.self).baseAddress!
-        return inputBytes.withUnsafeBytes { inBuf -> Int32 in
-          let inPtr = inBuf.bindMemory(to: Float.self).baseAddress!
-          return maple_apply_chain_and_encode_display_target_f32(
-            inPtr, UInt32(width), UInt32(height),
-            &p,
-            targetPrimaries,
-            outPtr
-          )
-        }
-      }
-    }
-    guard rc == 0 else {
-      let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
-      throw PipelineError.renderFailed(code: Int(rc), message: msg)
-    }
-    return output
-  }
-
   // `applyChainAndEncodeDisplayScoped` lives in `PipelineRenderer+Scoped.swift`
   // (file-size budget, #3251).
 }
@@ -1949,7 +1877,7 @@ extension PipelineRenderer {
 public final class MapleRawHandle: @unchecked Sendable {
   /// Pointer to the C-side `MapleRawHandle` struct. Not introspected
   /// from Swift; use the FFI entries to operate on it.
-  fileprivate let pointer: UnsafeMutablePointer<RawPipeline.MapleRawHandle>
+  let pointer: UnsafeMutablePointer<RawPipeline.MapleRawHandle>
 
   fileprivate init(pointer: UnsafeMutablePointer<RawPipeline.MapleRawHandle>) {
     self.pointer = pointer

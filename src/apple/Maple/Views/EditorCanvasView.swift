@@ -49,6 +49,9 @@ struct EditorCanvasView: View {
           if state.armedTool == .heal {
             RetouchOverlay(state: state)
           }
+          if state.armedTool == .remove {
+            RemovalOverlay(state: state)
+          }
           if state.whiteBalancePicker.isArmed {
             WhiteBalancePickOverlay(state: state)
               .id(ObjectIdentifier(state.session))
@@ -88,6 +91,7 @@ struct EditorCanvasView: View {
       // Render-path badge and zoom % have moved to PillHeader — the
       // bottom-trailing GPU/CPU overlay is no longer rendered here.
     }
+    .allowsHitTesting(!state.session.isSavingRemoval)
   }
 
 }

@@ -124,3 +124,25 @@ pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
         chunk[2] = b2;
     }
 }
+
+/// Apply already-fitted display-sRGB artifacts to an RGBA buffer in place.
+/// Alpha stays unchanged. Borrowed residual data must have size >= 2 and
+/// size³ * 3 lanes. Native CPU preview uses this without a composed cube or
+/// an additional full-image allocation; the existing RGB evaluator owns math.
+pub fn apply_prepared_rgba(
+    pixels: &mut [f32],
+    curve: Option<&ProfileCurve>,
+    residual: Option<(usize, &[f32])>,
+) {
+    use rayon::prelude::*;
+    pixels.par_chunks_exact_mut(4).for_each(|pixel| {
+        let mut rgb = [pixel[0], pixel[1], pixel[2]];
+        if let Some(curve) = curve {
+            apply_curve(&mut rgb, curve);
+        }
+        if let Some((size, data)) = residual {
+            rgb = super::lut::sample_lut(size, data, rgb);
+        }
+        pixel[..3].copy_from_slice(&rgb);
+    });
+}

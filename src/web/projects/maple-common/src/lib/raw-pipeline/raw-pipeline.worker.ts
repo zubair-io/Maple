@@ -1,5 +1,4 @@
-import { cameraSupportFromJson } from '../state/camera-support';
-import { lensProfileFromJson } from '../lens/lens-profile.metadata';
+import { takeRenderFrame } from './raw-pipeline.render-frame';
 /// <reference lib="webworker" />
 
 import {
@@ -40,6 +39,7 @@ import { handleExport } from './raw-pipeline.export-handler';
 import { handleSampleWb } from './raw-pipeline.sample-wb-handler';
 import { handleSampleRange } from './raw-pipeline.sample-range-handler';
 import { handleGuidedGeometry } from './raw-pipeline.guided-geometry-handler';
+import { handleRemovalAuthoring } from './raw-pipeline.removal-handler';
 import {
   handleRegisterBrushRaster,
   handleRegisterMaskRaster,
@@ -111,6 +111,9 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   if (await tryHandleLensProfileChoiceRequest(req)) return;
   if ('xmp' in req) await restoreLensProfile(req.xmp ?? null);
   switch (req.type) {
+    case 'removal-authoring':
+      await handleRemovalAuthoring(req);
+      return;
     case 'native-detail':
       await handleNativeDetail(req);
       return;
@@ -311,37 +314,9 @@ function decodeViaCpuRoute(bytes: Uint8Array, req: DecodeRequest): LegacyDecodeR
 // shape and the same `decode-success`/`decode-error` reply, differing only in which WASM entry
 // produced the result and which request fields they read to call it.
 function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult): void {
-  const width = result.width;
-  const height = result.height;
-  const nativeWidth = result.full_width;
-  const nativeHeight = result.full_height;
-  const asShotTemperature = result.as_shot_temperature;
-  const asShotTint = result.as_shot_tint;
-  const hasLensCorrections = result.has_lens_corrections; // #3182
-  const lensCorrectionCaInert = result.lens_correction_ca_inert;
-  const cameraSupport = cameraSupportFromJson(result.camera_support_json);
-  const lensProfile = lensProfileFromJson(result.lens_profile_json); // #3479
-  const autoFit = result.auto_fit;
-  const rgb = result.take_rgb();
-  result.free();
-  const buffer = new Uint8Array(rgb).buffer;
-  const response: WorkerResponse = {
-    id: req.id,
-    type: 'decode-success',
-    width,
-    height,
-    nativeWidth,
-    nativeHeight,
-    rgb: buffer,
-    asShotTemperature,
-    asShotTint,
-    hasLensCorrections,
-    lensCorrectionCaInert,
-    cameraSupport,
-    lensProfile,
-    autoFit,
-  };
-  (self as unknown as Worker).postMessage(response, [buffer]);
+  const frame = takeRenderFrame(result);
+  const response: WorkerResponse = { id: req.id, type: 'decode-success', ...frame };
+  (self as unknown as Worker).postMessage(response, [frame.rgb]);
 }
 
 // Surfaces the full stack (useful for a panic-hook trap) — `worker-log` forwarding carries it on.

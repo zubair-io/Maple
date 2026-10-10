@@ -23,6 +23,7 @@ import { foldersTrashRoutes } from './folders-trash.ts';
 import { foldersFileOpsRoutes } from './folders-file-ops.ts';
 import { assetsRoutes } from './assets.ts';
 import { xmpPathRoutes } from './xmp.ts';
+import { removalRoutes } from './removal.ts';
 import { previewPathRoutes } from './preview.ts';
 import { fsRoutes } from './fs.ts';
 import { searchRoutes } from './search.ts';
@@ -95,6 +96,7 @@ export const authedApi = new Elysia({ name: 'authedApi' })
   .use(assetsListRoutes)
   .use(assetsRoutes)
   .use(xmpPathRoutes)
+  .use(removalRoutes)
   .use(previewPathRoutes)
   .use(batchMetadataRoutes)
   .use(fsRoutes)

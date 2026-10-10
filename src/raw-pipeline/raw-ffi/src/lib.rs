@@ -51,6 +51,12 @@ mod auto_profile_compose;
 mod auto_profile_lut_apply;
 mod auto_tone;
 mod buffers;
+mod display_f32;
+#[cfg(test)]
+mod display_f32_tests;
+pub use display_f32::{
+    maple_free_display_buffer_f32, maple_render_file_display_f32, MapleDisplayBufferF32,
+};
 mod camera_support;
 mod cancel;
 mod white_balance_sample;
@@ -92,6 +98,10 @@ mod gpu_live;
 #[cfg(feature = "gpu")]
 mod gpu_auto_profile;
 mod handle;
+#[cfg(feature = "gpu")]
+mod native_auto_profile;
+mod raw_dimensions;
+pub use raw_dimensions::{maple_raw_dimensions_bytes, maple_raw_dimensions_file};
 mod id;
 // Brush dab-series rasterization (#360): `maple_brush_rasterize` stamps a
 // dab series into the caller's R8 buffer — the bytes the host then registers
@@ -119,12 +129,30 @@ mod raster_pipeline;
 // answering a small JSON request ("metadata", "stats", or both) about an
 // encoded image, over `raw_core::raster_analyze`.
 mod raster_analyze;
+mod removal_assets;
+mod removal_composite;
+mod removal_context;
+mod removal_file;
+#[cfg(test)]
+mod removal_file_tests;
+mod removal_generation;
+mod removal_geometry;
+#[cfg(any(feature = "removal", feature = "removal-ios"))]
+mod removal_inference;
+mod removal_people_masks;
+mod removal_prepare;
+mod removal_saved;
+mod removal_selection;
+#[cfg(any(feature = "removal", feature = "removal-ios"))]
+mod removal_selection_inference;
+mod removal_smart;
 mod render;
 mod render_develop;
 // Film-look sibling of `maple_render_file` (epic #2683, Task 8) — split out
 // of `render` per the 600-LOC file-size budget; `render::maple_render_file`
 // delegates its shared body here with `film_lut: None`.
 mod render_film;
+mod render_histogram;
 mod scene_linear;
 mod scene_linear_chain;
 // The C-visible vectorscope statistics block (#3272) — `MapleScopeStats` +
@@ -140,6 +168,7 @@ mod scope_stats;
 // chain + display-encode in one call over one buffer, no intervening
 // Swift-side CIImage wrap/readback. Split out of `scene_linear_chain`
 // (rather than added to it) per the 600-LOC file-size budget.
+mod native_auto_chain;
 mod scene_linear_chain_fused;
 // Curves-aware sibling of the fused entry (#2576): same chain + encode, plus
 // the user point tone curves the scalars-only params ABI cannot carry.
@@ -205,6 +234,58 @@ pub use workflow::{
 // integration tests the same way `maple_last_error` is below.
 pub use brush::maple_brush_rasterize;
 pub use mask_registry::{maple_mask_raster_register, maple_mask_raster_release};
+pub use removal_assets::{
+    maple_removal_asset_names_buf, maple_removal_asset_verify, maple_removal_source_verify,
+};
+pub use removal_composite::maple_removal_composite_window_f32;
+pub use removal_context::{
+    maple_removal_calibration_context_f32, maple_removal_calibration_source_buf,
+};
+pub use removal_generation::maple_removal_generation_masks_f32;
+mod removal_edit;
+pub use removal_edit::{
+    maple_removal_saved_edit_buf, maple_removal_saved_list_buf, maple_removal_saved_prefix_buf,
+};
+mod removal_proposal;
+pub use removal_geometry::maple_removal_map_points_buf;
+#[cfg(any(feature = "removal", feature = "removal-ios"))]
+pub use removal_inference::{
+    maple_removal_inference_cancel, maple_removal_inference_free, maple_removal_inference_new,
+    maple_removal_reconstruct_f32, maple_removal_reconstructor_close,
+    maple_removal_reconstructor_digest_buf, maple_removal_reconstructor_open,
+    MapleRemovalInference, MapleRemovalReconstructor,
+};
+pub use removal_people_masks::maple_removal_people_mask_suggestions_buf;
+pub use removal_prepare::{maple_removal_content_digest, maple_removal_prepare_buf};
+pub use removal_proposal::{
+    maple_removal_generation_close, maple_removal_generation_finish_buf,
+    maple_removal_generation_inputs_f32, maple_removal_generation_open,
+    maple_removal_generation_plan_buf, maple_removal_generation_request_buf,
+    maple_removal_paint_intents_buf, MapleRemovalGeneration,
+};
+pub use removal_saved::{
+    maple_removal_saved_close, maple_removal_saved_context_f32, maple_removal_saved_detail,
+    maple_removal_saved_export, maple_removal_saved_free_buffer, maple_removal_saved_open,
+    maple_removal_saved_preview, maple_removal_saved_review_buf,
+    maple_removal_saved_selection_proxy, MapleRemovalBuffer, MapleSavedRemovals,
+};
+pub use removal_selection::{
+    maple_removal_combine_masks_buf, maple_removal_mask_decode_buf,
+    maple_removal_refine_selection_buf, maple_removal_selection_buf,
+};
+#[cfg(any(feature = "removal", feature = "removal-ios"))]
+pub use removal_selection_inference::{
+    maple_removal_detector_close, maple_removal_detector_detect,
+    maple_removal_detector_detect_oriented, maple_removal_detector_open,
+    maple_removal_detector_operation_new, maple_removal_embedding_free,
+    maple_removal_selector_close, maple_removal_selector_encode, maple_removal_selector_open,
+    maple_removal_selector_operation_new, maple_removal_selector_refine, MapleRemovalDetector,
+    MapleRemovalEmbedding, MapleRemovalSelector,
+};
+pub use removal_smart::{
+    maple_removal_people_suggestions_buf, maple_removal_smart_mask_buf,
+    maple_removal_smart_prompts_buf, maple_removal_smart_strokes_buf,
+};
 pub use scene_linear_chain::MapleAdjustmentParams;
 // #3272: cbindgen needs visibility on the struct; ungated (the CPU fused
 // entry writes through it even without the `gpu` feature).
@@ -247,6 +328,8 @@ pub use raster_v2::{
 // under `src/` rather than scattering them in a `tests/` integration
 // directory (the FFI entries they exercise are crate-private through
 // `#[no_mangle]`, not `pub`, so integration-test access is awkward).
+#[cfg(test)]
+mod auto_profile_quality_tests;
 #[cfg(test)]
 #[path = "auto_tone_tests.rs"]
 mod auto_tone_tests;

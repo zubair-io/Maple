@@ -121,14 +121,17 @@ public final class GpuLiveDriver {
   private var lastPresentedKey: (generation: UInt64, width: Int, height: Int)?
 
   /// The RAW path + decode quality for the Auto Profile fit (set on open).
-  private var autoProfileFit: Task<Bool, Never>?
+  var autoProfileFitDone = false
+  var autoProfileFitOutcome: Bool?
+  var autoProfileFitTask: Task<Bool, Never>?
+  var nativeAutoProfileID: UUID?
 
   /// The current film-look lattice (epic #2683, Task 10), if any — pushed by
   /// `EditSession` via `setFilmLut`/`clearFilmLut` whenever
   /// `model.filmLook` resolves through `FilmLutStore`. Remembered here
   /// (not just forwarded to the current `GpuLiveSession`) because `open`
   /// REPLACES the session on every dims change (viewport ⇄ full-res, a
-  /// crop edit, a baked-field re-decode) — unlike `autoProfileFit`,
+  /// crop edit, a baked-field re-decode) — unlike `autoProfileFitDone`,
   /// which re-fits per open, the film lattice doesn't need re-decoding,
   /// just re-applying to the fresh session so a look survives a resize.
   private var filmLut: (data: [Float], size: Int, key: UInt32)?
@@ -294,7 +297,10 @@ public final class GpuLiveDriver {
     self.session = s
     self.sessionDims = (width, height)
     self.uploadedIdentity = identity
-    self.autoProfileFit = nil
+    self.autoProfileFitDone = false
+    self.autoProfileFitOutcome = nil
+    self.autoProfileFitTask = nil
+    self.nativeAutoProfileID = nil
     self.inputShape = inputShape
     if let filmLut {
       await s.setFilmLut(data: filmLut.data, size: filmLut.size, key: filmLut.key)
@@ -310,35 +316,27 @@ public final class GpuLiveDriver {
     inFlightCancel?.requestCancel()
     let old = session
     let preparation = sessionPreparation
+    let fit = autoProfileFitTask
     guard old != nil || preparation != nil else { return }
     preparation?.cancel()
+    fit?.cancel()
     sessionPreparation = nil
     session = nil
     sessionDims = nil
     uploadedIdentity = nil
-    autoProfileFit = nil
+    autoProfileFitDone = false
+    autoProfileFitOutcome = nil
+    autoProfileFitTask = nil
+    nativeAutoProfileID = nil
     let previous = sessionTeardown
     sessionTeardown = Task {
       if let previous { await previous.value }
+      if let fit { _ = await fit.value }
       if let old { await old.close() }
       if let preparation, let prepared = try? await preparation.value {
         await prepared.close()
       }
     }
-  }
-
-  /// Reuse the actual fit outcome for this opened GPU session (#4096).
-  @discardableResult
-  public func fitAutoProfileIfNeeded(
-    rawPath: String, model: AdjustmentModel, quality: PipelineRenderer.Quality
-  ) async -> Bool? {
-    guard let s = session, model.profile == .auto else { return nil }
-    let revision = sessionRevision
-    let fit = autoProfileFit ?? Task { await s.fitAutoProfile(rawPath: rawPath, quality: quality) }
-    autoProfileFit = fit
-    let achieved = await fit.value
-    guard revision == sessionRevision else { return nil }
-    return achieved
   }
 
   /// Present `model` to the registered layer via the GPU chain. SUPERSEDES

@@ -309,6 +309,8 @@ pub use full_chain::{
 pub use grain::{apply_grain, GrainOptions, GrainPass};
 pub use hsl::{apply_hsl, HslPass};
 pub use image::GpuImage;
+pub mod inpaint_composite;
+pub use inpaint_composite::InpaintCompositePass;
 pub use live_chain::{
     build_live_chain, build_live_split, chain_signature, dehaze_is_active, scene_tone_is_noop,
     view_tail_pass_count, VIEW_TAIL_PASS_COUNT,
@@ -356,7 +358,7 @@ pub use present_chain::present_chain_to_offscreen;
 #[cfg(target_vendor = "apple")]
 pub use present_chain::{present_chain_to_surface, PersistentPresentSurface};
 /// Manual geometry for the present shader (#3410) — see [`PresentGeometry`].
-pub use present_chain_pipeline::PresentGeometry;
+pub use present_chain_pipeline::{PresentGeometry, QuantizedDisplayTail};
 // Windows chain-output present (#2561): the SwapChainPanel twin of the Apple
 // surface entry above.
 #[cfg(all(target_os = "windows", not(target_arch = "wasm32")))]

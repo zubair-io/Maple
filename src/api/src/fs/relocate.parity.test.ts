@@ -139,7 +139,8 @@ async function writeCase(root: string, rel: string, content: string): Promise<vo
 
 /** Every regular file under `root`, as POSIX-relative paths with content —
  * exhaustive, so a case's `expected.tree` must list EVERY surviving file,
- * not just the ones it cares about. Skips directories and any leaked
+ * not just the ones it cares about. Like the Apple sibling, excludes only
+ * empty persistent XMP/relocation lock files (#3944/#1472). Skips directories and any leaked
  * `.tmp.` publish artifact (a leaked temp is its own bug, but a distinct one
  * from what this harness targets, and Windows' own crash-safety tests
  * already assert temp cleanup directly). */
@@ -152,8 +153,15 @@ async function readTree(root: string): Promise<CorpusFile[]> {
       if (entry.isDirectory()) {
         await walk(abs);
       } else if (entry.isFile() && !entry.name.includes('.tmp.')) {
+        const content = await fs.readFile(abs, 'utf8');
+        if (
+          entry.name.startsWith('.') &&
+          (entry.name.endsWith('.xmp.lock') || entry.name.endsWith('.relocation.lock')) &&
+          content.length === 0
+        )
+          continue;
         const rel = path.relative(root, abs).split(path.sep).join('/');
-        out.push({ path: rel, content: await fs.readFile(abs, 'utf8') });
+        out.push({ path: rel, content });
       }
     }
   }

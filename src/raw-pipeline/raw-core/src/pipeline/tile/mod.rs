@@ -25,6 +25,7 @@
 //! * [`overlap`] — the per-render pad calculator.
 //! * [`develop`] — the develop chain run on the padded crop.
 
+mod camera;
 mod context;
 mod develop;
 mod guards;
@@ -37,6 +38,8 @@ pub use context::{
 mod overlap;
 mod prefix;
 mod region;
+mod removal;
+pub(in crate::pipeline) use removal::{render_removal_camera_context, render_saved_tile};
 
 #[cfg(test)]
 mod tests;
@@ -205,13 +208,14 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
 /// [`develop_scene_linear_from_padded_mosaic`] — `1.0` (every wrapper below
 /// except the explicit `_and_ae_gain_` one) is a bit-identical no-op, exactly
 /// reproducing this chain's pre-#1167 output.
-fn develop_tile_oriented_f32(
+pub(in crate::pipeline) fn develop_tile_oriented_f32(
     raw: &RawImage,
     model: &AdjustmentModel,
     rect: TileRect,
     quality: RenderQuality,
     decoded_wb_anchor: Option<(f32, f32)>,
     ae_gain: f32,
+    patches: &[crate::types::InpaintPatch],
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>)> {
     develop_tile_with_frame(
@@ -221,6 +225,7 @@ fn develop_tile_oriented_f32(
         quality,
         decoded_wb_anchor,
         ae_gain,
+        patches,
         None,
         cancel,
     )
@@ -234,6 +239,7 @@ fn develop_tile_with_frame(
     quality: RenderQuality,
     decoded_wb_anchor: Option<(f32, f32)>,
     ae_gain: f32,
+    patches: &[crate::types::InpaintPatch],
     frame: Option<&HighlightFrameContext>,
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>)> {
@@ -338,6 +344,7 @@ fn develop_tile_with_frame(
             active_area,
             tile_origin: (rx / divisor, ry / divisor),
             highlight_frame,
+            patches,
         },
         cancel,
     )?;
@@ -418,6 +425,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
         quality,
         decoded_wb_anchor,
         1.0,
+        &[],
         crate::CancelToken::never(),
     )?;
     // Parallel (#1089 item 8), same rationale as the full-frame packs in
@@ -447,6 +455,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality_f32(
         quality,
         None,
         1.0,
+        &[],
         crate::CancelToken::never(),
     )
 }
@@ -470,6 +479,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32(
         quality,
         decoded_wb_anchor,
         1.0,
+        &[],
         crate::CancelToken::never(),
     )
 }
@@ -500,6 +510,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_
         quality,
         decoded_wb_anchor,
         ae_gain,
+        &[],
         crate::CancelToken::never(),
     )
 }
@@ -522,6 +533,7 @@ pub fn render_scene_linear_tile_cancellable_f32(
         quality,
         decoded_wb_anchor,
         ae_gain,
+        &[],
         cancel,
     )
 }
