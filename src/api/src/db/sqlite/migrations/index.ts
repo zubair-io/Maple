@@ -44,9 +44,9 @@ import { assetsLiveMonthMigration } from './0019-assets-live-month.ts';
 import { assetsUnlistedMigration } from './0020-assets-unlisted.ts';
 import { workerStatusMemoryMigration } from './0021-worker-status-memory.ts';
 import { assetVectorsMigration } from './0022-asset-vectors.ts';
-import { assetVectorsSearchSyncMigration } from './0023-asset-vectors-search-sync.ts';
 import { generatedSearchesFirstPageMigration } from './0023-generated-searches-first-page.ts';
 import { locationSearchTriggersMigration } from './0024-location-search-triggers.ts';
+import { assetVectorsPollIndexMigration } from './0025-asset-vectors-poll-index.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -71,7 +71,7 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   assetsUnlistedMigration,
   workerStatusMemoryMigration,
   assetVectorsMigration,
-  assetVectorsSearchSyncMigration,
   generatedSearchesFirstPageMigration,
   locationSearchTriggersMigration,
+  assetVectorsPollIndexMigration,
 ];
