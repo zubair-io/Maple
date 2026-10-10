@@ -145,16 +145,21 @@ fn live_chain_threads_mask_orientation_into_fused_and_spatial_layers() {
         ChainRunner::new(&ctx, &image).run_blocking(&refs)
     };
     let view_only = super::bench::bench_inputs(vec![]);
-    for layers in [vec![cases[0].1.clone()], vec![cases[0].1.clone(), spatial]] {
-        let cpu_local =
-            oriented_reference(&input, w, h, &layers, &rasters, ExifOrientation::Rotate90);
-        let mut inputs = super::bench::bench_inputs(layers_to_flat(&layers));
-        inputs.mask_orientation = 6;
-        let diff = max_abs_diff(&render(&cpu_local, &view_only), &render(&input, &inputs));
-        assert!(
-            diff < 1e-4,
-            "{} layer(s): max |diff| {diff:e}",
-            layers.len()
-        );
+    for tag in [3u16, 6] {
+        for layers in [
+            vec![cases[0].1.clone()],
+            vec![cases[0].1.clone(), spatial.clone()],
+        ] {
+            let orientation = ExifOrientation::from_u16(tag);
+            let cpu_local = oriented_reference(&input, w, h, &layers, &rasters, orientation);
+            let mut inputs = super::bench::bench_inputs(layers_to_flat(&layers));
+            inputs.mask_orientation = u32::from(tag);
+            let diff = max_abs_diff(&render(&cpu_local, &view_only), &render(&input, &inputs));
+            assert!(
+                diff < 1e-4,
+                "tag {tag}, {} layer(s): max |diff| {diff:e}",
+                layers.len()
+            );
+        }
     }
 }

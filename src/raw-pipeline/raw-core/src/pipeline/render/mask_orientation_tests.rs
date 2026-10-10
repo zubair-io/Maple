@@ -199,6 +199,8 @@ fn assert_mask_follows_orientation(wanted: &str) {
         ExifOrientation::Rotate180,
         ExifOrientation::Transverse,
         ExifOrientation::HorizontalFlip,
+        ExifOrientation::VerticalFlip,
+        ExifOrientation::Transpose,
     ] {
         let rotated = sensor_raw(orientation);
         let upright = upright_twin(&rotated);
