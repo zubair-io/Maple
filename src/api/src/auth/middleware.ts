@@ -27,9 +27,9 @@ export const requireAuth = new Elysia({ name: 'requireAuth' }).derive(
     const m = /^Bearer (.+)$/.exec(h);
     if (!m) {
       set.status = 401;
-      // Log WHY a request was rejected (#1296): no Authorization bearer at all
-      // — usually a not-signed-in client or a dropped header.
-      log.warn(
+      // Missing bearer is normal when a client is not signed in; log at debug
+      // rather than warn so anonymous traffic doesn't flood server logs (#1296).
+      log.debug(
         { reason: 'missing bearer', method: request.method, path: reqPath(request) },
         'rejected',
       );

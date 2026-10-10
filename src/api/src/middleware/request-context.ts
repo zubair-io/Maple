@@ -376,9 +376,16 @@ export const requestContext = new Elysia({ name: 'requestContext' })
       };
     }
 
-    // Pass the raw error to pino so its serializer preserves the stack +
-    // any structured fields (e.g. a driver's own error codes).
-    log.error({ err: error }, 'request error');
+    // 5xx errors represent unexpected server faults (e.g. database down, crashes).
+    // 4xx errors represent client rejections (unauthenticated, bad input, not found)
+    // and should not be logged as server errors or spam alerts.
+    if (status >= 500) {
+      // Pass the raw error to pino so its serializer preserves the stack +
+      // any structured fields (e.g. a driver's own error codes).
+      log.error({ err: error }, 'request error');
+    } else {
+      log.debug({ err: error, status }, 'request client error');
+    }
 
     const envelope: ErrorEnvelope = {
       error: message,
