@@ -47,11 +47,15 @@ struct RemovalExitButton: View {
         Button {
           state.arm(tool: returnTool == .remove ? .exposure : returnTool)
         } label: {
-          Label("Exit AI editor", systemImage: "xmark")
-            .font(.callout.weight(.medium))
-            .padding(.horizontal, 14)
-            .frame(minHeight: 44)
-            .background(MapleTokens.surface.opacity(0.96), in: Capsule())
+          Label {
+            Text("Exit AI editor")
+          } icon: {
+            MuiIcon(name: "close", size: .sm, color: ProTokens.text)
+          }
+          .font(.callout.weight(.medium))
+          .padding(.horizontal, 14)
+          .frame(minHeight: 44)
+          .background(MapleTokens.surface.opacity(0.96), in: Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("removal-exit-editor")
@@ -91,9 +95,10 @@ private struct RemovalModeRail: View {
                   Circle().stroke(selected ? ProTokens.accent : ProTokens.border, lineWidth: 0.5)
                 }
                 .frame(width: 36, height: 36)
-              Image(systemName: mode.symbol)
-                .font(.system(size: 15, weight: .regular))
-                .foregroundStyle(selected ? ProTokens.accent : ProTokens.text)
+              MuiIcon(
+                name: mode.icon,
+                size: .sm,
+                color: selected ? ProTokens.accent : ProTokens.text)
             }
             Text(mode.shortLabel)
               .font(.system(size: 9, weight: selected ? .semibold : .regular))
@@ -136,11 +141,11 @@ extension RemovalSession.Mode {
     }
   }
 
-  fileprivate var symbol: String {
+  fileprivate var icon: String {
     switch self {
-    case .paint: "paintbrush.pointed"
-    case .smart: "viewfinder"
-    case .people: "person.2"
+    case .paint: "brush"
+    case .smart: "center_focus_strong"
+    case .people: "group"
     }
   }
 }
