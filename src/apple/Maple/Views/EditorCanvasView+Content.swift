@@ -30,7 +30,8 @@ extension EditorCanvasView {
   }
 
   /// True once real pixels for this asset are actually painted — the GPU
-  /// layer has presented a frame, or the CPU path has a rendered preview.
+  /// layer has presented a frame, the GPU leaf's CPU backdrop holds a
+  /// completed full render (#4496), or the CPU path has a rendered preview.
   /// Distinct from `canvasIsReady`, which only says the leaf is MOUNTED
   /// (the GPU leaf mounts before it has anything to show). The cold-open
   /// loading bar and the zoom-to-open thumbnail seed (#1489) both key off
@@ -39,7 +40,8 @@ extension EditorCanvasView {
     EditSession.canvasHasFrame(
       gpuActive: useGpuCanvas,
       gpuFramePresented: state.session.gpuFramePresented,
-      hasRenderedPreview: state.session.renderedPreview != nil
+      hasRenderedPreview: state.session.renderedPreview != nil,
+      renderedPreviewIsFullRender: state.session.renderedPreviewIsFullRender
     )
   }
 
