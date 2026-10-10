@@ -1,7 +1,8 @@
 /// <reference lib="webworker" />
 import init, { render_filename_template } from '../raw-pipeline/pkg/raw_wasm';
+import { RAW_WASM_URL } from '../raw-pipeline/wasm-asset-url';
 // Naming needs no render buffers or Rayon pool. Keep this small instance off the UI thread.
-const ready = init({ module_or_path: '/pkg/raw_wasm_bg.wasm' });
+const ready = init({ module_or_path: RAW_WASM_URL });
 addEventListener(
   'message',
   async (
