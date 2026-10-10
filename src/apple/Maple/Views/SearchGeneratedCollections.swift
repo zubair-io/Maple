@@ -2,9 +2,10 @@
 //
 // The library's daily generated searches ("Spooky Nights", "Seven Summers of
 // Lake George") as a horizontal row of cover cards above Recents. A card's
-// cover is the card's stored `cover_asset_id`, resolved by
-// `GeneratedSearchCollectionsViewModel` with one asset lookup so it renders
-// without any collection's search running. Tapping a card hands the host the card; the host opens the
+// cover is the first photo of the card's filtered snapshot page
+// (`GeneratedSearchCollectionsViewModel.covers`): stored ids behind the live
+// hidden-people and screenshot filters, so no search runs and nothing hidden
+// shows. An empty page leaves the placeholder tile. Tapping a card hands the host the card; the host opens the
 // collection's own results (`SearchViewModel.showCollection`).
 
 #if os(iOS)
@@ -78,12 +79,9 @@
 
     @ViewBuilder
     private func cover(for card: GeneratedSearchCard) -> some View {
-      if let cover = model.cover(for: card), let provider {
+      if let asset = model.covers[card.id], let provider {
         PhotoThumbnailCell(
-          item: PhotoGridItem(
-            id: cover.id,
-            displayName: cover.filename,
-            thumbnailSource: .cloud(absPath: cover.absPath, host: host)),
+          item: PhotoGridItem(cloud: asset, host: host, style: .phone),
           provider: provider,
           displayMode: .fill,
           onTap: { _ in onTap(card) }

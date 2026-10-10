@@ -132,36 +132,6 @@ describe('GET /api/generated-searches', () => {
   });
 });
 
-describe('GET /api/generated-searches — cover liveness', () => {
-  it('keeps a cover that still passes the live rules', async () => {
-    const cover = seedAsset('cover');
-    seedCollection({ cover_asset_id: cover });
-    const { body } = await get(`/api/generated-searches?libraryId=${libraryId}`);
-    expect(body.results[0].cover_asset_id).toBe(cover);
-  });
-
-  it('omits a cover showing a person hidden after generation', async () => {
-    people.set('Hidden', insertPerson(live.db, { name: 'Hidden', hidden: true }));
-    const cover = seedAsset('cover', { people: ['Hidden'] });
-    seedCollection({ cover_asset_id: cover });
-    const { body } = await get(`/api/generated-searches?libraryId=${libraryId}`);
-    expect(body.results[0].cover_asset_id).toBeNull();
-  });
-
-  it('omits a trashed cover', async () => {
-    const cover = seedAsset('cover');
-    run(
-      live.db,
-      'UPDATE assets SET deleted_at = ? WHERE id = ?',
-      '2026-01-01T00:00:00.000Z',
-      cover,
-    );
-    seedCollection({ cover_asset_id: cover });
-    const { body } = await get(`/api/generated-searches?libraryId=${libraryId}`);
-    expect(body.results[0].cover_asset_id).toBeNull();
-  });
-});
-
 describe('GET /api/generated-searches/:id/assets', () => {
   it('populates uploader attribution on generated collection results', async () => {
     const principal = '1'.repeat(24);

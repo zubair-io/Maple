@@ -85,6 +85,8 @@ public final class SearchViewModel {
   /// lands. Pagination waits: offsets only mean something against the live
   /// order.
   private var isRefreshingCollection = false
+  private var isFetchingLiveFirstPage = false
+  private var pendingLiveFirstPage: (() async -> GeneratedSearchAssetPage?)?
 
   /// In-memory result cache so re-issuing an identical query (clear-then-
   /// reapply, popover round-trips, toggling a sort back) serves from memory
@@ -173,6 +175,7 @@ public final class SearchViewModel {
     debounceTask?.cancel()
     collectionPager = nil
     isRefreshingCollection = false
+    pendingLiveFirstPage = nil
     generation &+= 1
     let g = generation
     page = 0
@@ -278,16 +281,26 @@ public final class SearchViewModel {
     facets = nil
 
     isRefreshingCollection = liveFirstPage != nil
-    guard let liveFirstPage else { return }
+    pendingLiveFirstPage = liveFirstPage
+    guard liveFirstPage != nil else { return }
+    Task { [weak self] in await self?.applyLiveFirstPage() }
+  }
+
+  /// Swap the snapshot for the live first page. The guard on pagination stays
+  /// up until a live page actually arrives; a failure leaves the snapshot in
+  /// place for `loadMore()` to retry.
+  private func applyLiveFirstPage() async {
+    guard let load = pendingLiveFirstPage, !isFetchingLiveFirstPage else { return }
     let g = generation
-    Task { [weak self] in
-      let live = await liveFirstPage()
-      guard let self, g == self.generation else { return }
-      self.isRefreshingCollection = false
-      guard let live else { return }
-      self.results = live.results
-      self.total = live.total
-    }
+    isFetchingLiveFirstPage = true
+    let live = await load()
+    guard g == generation else { return }
+    isFetchingLiveFirstPage = false
+    guard let live else { return }
+    results = live.results
+    total = live.total
+    pendingLiveFirstPage = nil
+    isRefreshingCollection = false
   }
 
   /// Populate the filter panel's option lists WITHOUT running a result
@@ -335,7 +348,11 @@ public final class SearchViewModel {
   /// Fetch the next page and append. No-ops when a load is already in
   /// flight or there's nothing more to fetch.
   public func loadMore() async {
-    guard canLoadMore, !isLoading, !isLoadingMore, !isRefreshingCollection else { return }
+    guard canLoadMore, !isLoading, !isLoadingMore else { return }
+    if isRefreshingCollection {
+      await applyLiveFirstPage()
+      return
+    }
     let g = generation
     isLoadingMore = true
     // A fresh submit resets this flag; an older completion must never clear

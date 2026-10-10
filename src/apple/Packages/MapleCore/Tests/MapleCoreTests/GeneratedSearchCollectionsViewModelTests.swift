@@ -28,17 +28,14 @@ final class GeneratedSearchCollectionsViewModelTests: XCTestCase {
     XCTAssertEqual(stub.lastAssetsLimit, "30")
   }
 
-  func test_load_resolvesCoverFromStoredCoverAssetID_butFilteredPagePhotoWins() async {
+  func test_cover_isTheFirstPhotoOfTheSnapshotPage() async {
     let stub = CollectionsStub()
     let vm = makeVM(stub)
 
     await vm.load()
 
-    XCTAssertEqual(
-      vm.coverRefs["gs1"],
-      GeneratedSearchCover(id: "cov1", absPath: "/p/cover.dng", filename: "cover.dng"))
-    XCTAssertEqual(stub.coverRequests, 1)
-    XCTAssertEqual(vm.cover(for: vm.collections[0])?.absPath, "/p/a.dng")
+    XCTAssertEqual(vm.covers["gs1"]?.abs_path, "/p/a.dng")
+    XCTAssertEqual(stub.coverRequests, 0, "no direct asset lookup may feed a cover")
   }
 
   func test_prefetchAsksForTheSnapshot_andTheLiveReloadDoesNot() async {
@@ -50,19 +47,9 @@ final class GeneratedSearchCollectionsViewModelTests: XCTestCase {
     XCTAssertTrue(snapshot.isSnapshot)
     XCTAssertEqual(stub.snapshotFlags, [true])
 
-    let live = await vm.liveFirstPage(of: "gs1", replacing: snapshot)
+    let live = await vm.liveFirstPage(of: "gs1")
     XCTAssertEqual(live?.isSnapshot, false)
     XCTAssertEqual(stub.snapshotFlags, [true, false])
-  }
-
-  func test_cover_fallsBackToFirstPageWhenCardHasNoCoverAssetID() async {
-    let stub = CollectionsStub(coverAssetID: nil)
-    let vm = makeVM(stub)
-
-    await vm.load()
-
-    XCTAssertEqual(vm.cover(for: vm.collections[0])?.absPath, "/p/a.dng")
-    XCTAssertEqual(stub.coverRequests, 0)
   }
 
   func test_firstPage_fetchesWhenNotLoaded() async {

@@ -94,6 +94,38 @@ final class SearchViewModelCollectionTests: XCTestCase {
     XCTAssertEqual(vm.results.map(\.id), ["live1", "live2", "tail"])
   }
 
+  func test_showCollection_failedLiveReloadKeepsSnapshotAndRetriesOnLoadMore() async throws {
+    let vm = makeVM()
+    var requestedOffsets: [Int] = []
+    var attempts = 0
+    vm.showCollection(
+      params: SearchParams(libraryID: "lib-test"),
+      firstPage: GeneratedSearchAssetPage(
+        results: [Self.makeAsset(id: "snap")], total: 2, isSnapshot: true),
+      nextPage: { offset, _ in
+        requestedOffsets.append(offset)
+        return GeneratedSearchAssetPage(results: [Self.makeAsset(id: "tail")], total: 3)
+      },
+      liveFirstPage: {
+        attempts += 1
+        return attempts == 1
+          ? nil
+          : GeneratedSearchAssetPage(
+            results: [Self.makeAsset(id: "live1"), Self.makeAsset(id: "live2")], total: 3)
+      })
+    try await Task.sleep(for: .milliseconds(50))
+
+    XCTAssertEqual(attempts, 1)
+    XCTAssertEqual(vm.results.map(\.id), ["snap"], "a failed reload leaves the snapshot up")
+    await vm.loadMore()
+    XCTAssertEqual(requestedOffsets, [], "the retry replaces the page; it does not paginate")
+    XCTAssertEqual(vm.results.map(\.id), ["live1", "live2"])
+
+    await vm.loadMore()
+    XCTAssertEqual(requestedOffsets, [2])
+    XCTAssertEqual(vm.results.map(\.id), ["live1", "live2", "tail"])
+  }
+
   func test_showCollection_loadMorePagesThroughTheCollection() async {
     let vm = makeVM()
     var requestedOffsets: [Int] = []
