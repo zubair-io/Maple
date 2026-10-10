@@ -90,7 +90,10 @@ export async function preparePrimarySidecarWrite(
     });
     return { ok: true, data: await prepareWorkflowWrite(existing, xmlContent) };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -120,7 +123,10 @@ export async function writeXmpAtomic(
       return result.ok ? { ok: true, data: prepared.data } : { ok: false, error: result.error };
     }),
   ).catch(
-    (error): OpResult<string> => ({ ok: false, error: `XMP write failed: ${String(error)}` }),
+    (error): OpResult<string> => ({
+      ok: false,
+      error: `XMP write failed: ${String(error)}`,
+    }),
   );
 }
 
@@ -316,7 +322,7 @@ export async function writeXmpWithPrecondition(
   if (!allowed.ok) return { kind: 'error', error: allowed.error };
   const sidecar = allowed.data;
   return withSidecarMutationLease(rawAbsPath, () =>
-    serializeSidecarWrite(sidecar, async () => {
+    serializeSidecarWrite<XmpWriteOutcome>(sidecar, async (): Promise<XmpWriteOutcome> => {
       const writeConflictCopy = async (): Promise<XmpWriteOutcome> => {
         const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName);
         const written = await writeSidecarAtomic(
@@ -350,14 +356,20 @@ export async function writeXmpWithPrecondition(
 
       const prepared = await preparePrimarySidecarWrite(sidecar, xmlContent);
       if (!prepared.ok)
-        return { kind: 'error', error: prepared.error ?? 'Workflow validation failed' };
+        return {
+          kind: 'error',
+          error: prepared.error ?? 'Workflow validation failed',
+        };
       const result = await writeSidecarAtomic(sidecar, prepared.data, 'XMP write failed');
       return result.ok
         ? { kind: 'ok', mtime: result.mtime }
         : { kind: 'error', error: result.error };
     }),
   ).catch(
-    (error): XmpWriteOutcome => ({ kind: 'error', error: `XMP write failed: ${String(error)}` }),
+    (error): XmpWriteOutcome => ({
+      kind: 'error',
+      error: `XMP write failed: ${String(error)}`,
+    }),
   );
 }
 
@@ -371,5 +383,10 @@ export async function deleteXmpSidecar(rawAbsPath: string): Promise<OpResult> {
   const destination = allowed.data;
   return withSidecarMutationLease(rawAbsPath, () =>
     serializeSidecarWrite(destination, () => deleteSidecar(destination, 'XMP delete failed')),
-  ).catch((error): OpResult => ({ ok: false, error: `XMP write failed: ${String(error)}` }));
+  ).catch(
+    (error): OpResult => ({
+      ok: false,
+      error: `XMP write failed: ${String(error)}`,
+    }),
+  );
 }
