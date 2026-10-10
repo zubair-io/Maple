@@ -148,7 +148,7 @@ fn live_chain_threads_mask_orientation_into_fused_and_spatial_layers() {
         ChainRunner::new(&ctx, &image).run_blocking(&refs)
     };
     let view_only = super::bench::bench_inputs(vec![]);
-    for tag in [3u16, 6] {
+    for tag in 1..=8u16 {
         for layers in [
             vec![cases[0].1.clone()],
             vec![cases[0].1.clone(), spatial.clone()],
