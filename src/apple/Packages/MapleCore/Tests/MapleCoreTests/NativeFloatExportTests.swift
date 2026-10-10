@@ -89,15 +89,24 @@ final class NativeFloatExportTests: XCTestCase {
     CIContext(options: [.workingFormat: CIFormat.RGBAf]).render(
       image, toBitmap: &rgba, rowBytes: reference.width * 16, bounds: image.extent,
       format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.extendedSRGB)!)
-    XCTAssertTrue(
-      rgba.enumerated().contains { i, v in
-        i % 4 != 3 && abs(v * 255 - (v * 255).rounded()) > 0.05
-      }, "Native film output must not be promoted from RGB8")
+    var hasFractionalRGB = false
+    for pixelStart in stride(from: 0, to: rgba.count, by: 4) {
+      for channel in 0..<3 {
+        let scaled = rgba[pixelStart + channel] * 255
+        if abs(scaled - scaled.rounded()) > 0.05 {
+          hasFractionalRGB = true
+          break
+        }
+      }
+      if hasFractionalRGB { break }
+    }
+    XCTAssertTrue(hasFractionalRGB, "Native film output must not be promoted from RGB8")
     let tiff = try await MapleExporter.encodeOffMainActor(image, options: .init(format: .tiff16))
     let source = try XCTUnwrap(CGImageSourceCreateWithData(tiff as CFData, nil))
     let delivered = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
     XCTAssertEqual(delivered.bitsPerComponent, 16)
-    XCTAssertEqual([delivered.width, delivered.height], [reference.width, reference.height])
+    XCTAssertEqual(delivered.width, reference.width)
+    XCTAssertEqual(delivered.height, reference.height)
     XCTAssertEqual(try Data(contentsOf: raw), original)
   }
 
