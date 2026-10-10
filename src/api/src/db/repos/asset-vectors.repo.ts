@@ -24,7 +24,7 @@ export function upsertAssetVectorStatement(
 ): SqlStatement {
   const claimHeld = claimedBy
     ? `WHERE EXISTS (SELECT 1 FROM stage_claim_leases
-                      WHERE asset_id = ? AND stage = '${EMBED_STAGE}' AND claim_token = ?)`
+                      WHERE asset_id = ? AND stage = '${EMBED_STAGE}' AND claim_token = ? AND next_attempt_at IS NOT NULL)`
     : 'WHERE true';
   return {
     sql: `INSERT INTO asset_vectors (maple_id, version, model, endpoint, dims, vector, embedded_at)
