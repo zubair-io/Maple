@@ -50,10 +50,11 @@ public final class GeneratedSearchCollectionsViewModel {
   /// collection id. They arrive without waiting on any collection's search.
   public private(set) var coverRefs: [String: GeneratedSearchCover] = [:]
 
-  /// The card's cover: the stored cover asset once resolved, else the first
-  /// photo of its page for a card that carries no `cover_asset_id`.
+  /// The card's cover: the first photo of its page, which the server filtered
+  /// live, else the stored cover asset while no page photo is available. The
+  /// direct asset lookup applies no visibility rules, so it never outranks the page.
   public func cover(for card: GeneratedSearchCard) -> GeneratedSearchCover? {
-    coverRefs[card.id] ?? firstPages[card.id]?.results.first.map(GeneratedSearchCover.init)
+    firstPages[card.id]?.results.first.map(GeneratedSearchCover.init) ?? coverRefs[card.id]
   }
 
   public let libraryID: String

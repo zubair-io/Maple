@@ -311,15 +311,28 @@ describe('GET /api/generated-searches/:id/assets — stored first page', () => {
     expect(body.results).toHaveLength(1);
   });
 
-  it('keeps pages past the first on the live path', async () => {
-    const stored = seedAsset('stored', { capturedAt: '2018-08-01T12:00:00.000Z' });
-    seedAsset('live', { capturedAt: '2018-08-02T12:00:00.000Z' });
-    const id = seedCollection({ result_count: 2, first_page_ids: [stored] });
+  it('continues after the stored head without repeating it or missing newer assets', async () => {
+    const storedIds = Array.from({ length: 3 }, (_, i) =>
+      seedAsset(`s${i}`, { capturedAt: `2018-08-0${i + 1}T12:00:00.000Z` }),
+    );
+    const id = seedCollection({ result_count: 3, first_page_ids: storedIds });
+    const fresh = seedAsset('fresh', { capturedAt: '2018-08-25T12:00:00.000Z' });
 
-    const { body } = await get(`/api/generated-searches/${id}/assets?limit=1&offset=1`);
-    expect(body.total).toBe(2);
-    expect(body.results).toHaveLength(1);
-    expect(body.results[0]._id).toBe(stored);
+    const { body } = await get(`/api/generated-searches/${id}/assets?limit=10&offset=3`);
+    const ids = body.results.map((r: { _id: string }) => r._id);
+    expect(ids).toEqual([fresh]);
+  });
+
+  it('pages the tail past the head in live order', async () => {
+    const stored = seedAsset('stored', { capturedAt: '2018-08-01T12:00:00.000Z' });
+    const newer = seedAsset('newer', { capturedAt: '2018-08-20T12:00:00.000Z' });
+    const mid = seedAsset('mid', { capturedAt: '2018-08-10T12:00:00.000Z' });
+    const id = seedCollection({ result_count: 3, first_page_ids: [stored] });
+
+    const first = await get(`/api/generated-searches/${id}/assets?limit=1&offset=1`);
+    const second = await get(`/api/generated-searches/${id}/assets?limit=1&offset=2`);
+    expect(first.body.results.map((r: { _id: string }) => r._id)).toEqual([newer]);
+    expect(second.body.results.map((r: { _id: string }) => r._id)).toEqual([mid]);
   });
 
   it('goes live when the request wants more rows than were stored', async () => {
