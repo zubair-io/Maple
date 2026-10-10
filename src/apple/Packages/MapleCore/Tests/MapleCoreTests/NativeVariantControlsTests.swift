@@ -50,6 +50,10 @@ final class NativeVariantControlsTests: EditorTestCase {
       XCTAssertNil(session.workflow.errorText)
       XCTAssertEqual(session.model.exposure, 0)
       XCTAssertTrue(session.undoHistory.isEmpty)
+      // #4496 — a variant switch publishes a stored/cached preview at most,
+      // never a completed render of the newly selected model.
+      XCTAssertFalse(session.previewIsFullRender)
+      XCTAssertFalse(session.renderedPreviewIsFullRender)
       await session.workflow.selectVariant(id, session: session)
       XCTAssertNil(session.workflow.errorText)
       XCTAssertEqual(session.model.exposure, 2)

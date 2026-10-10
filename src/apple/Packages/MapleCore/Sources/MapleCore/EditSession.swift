@@ -158,9 +158,11 @@ public final class EditSession {
   /// persisting a seed or a mixed-provenance composite bakes a tone seam
   /// into `RenderedPreviewCache` + the browse thumbnail that then reappears
   /// on every cold open until a full render overwrites it (#1881).
-  /// `@ObservationIgnored` — cache-provenance bookkeeping, not view state;
-  /// only the paired `renderedPreview` write should drive UI updates.
-  @ObservationIgnored var previewIsFullRender: Bool = false
+  /// Observed since #4496: `renderedPreviewIsFullRender` feeds the canvas
+  /// readiness predicate, and `releaseTransientMemory` lowers this flag
+  /// without touching `renderedPreview`, so the view must see the flag
+  /// itself change.
+  var previewIsFullRender: Bool = false
 
   /// True only while `renderedPreview` holds the browse-grid-thumbnail seed
   /// (#2040) and nothing richer has landed yet. `ensureRenderStarted`'s

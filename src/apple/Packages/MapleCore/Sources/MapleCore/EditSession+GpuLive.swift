@@ -443,7 +443,12 @@ extension EditSession {
   /// and a bytes-backed PhotoKit asset renders its first frames on the CPU
   /// path by design (the large-sensor gate declines a not-yet-seeded
   /// `nativeImageSize`), so those pixels really are on glass. Seeds still
-  /// do not count — `renderedPreviewIsFullRender` is false for them.
+  /// do not count — `renderedPreviewIsFullRender` is false for them. A
+  /// render developed off the embedded-preview decode while the full
+  /// decode is still in flight DOES count, on purpose: it is a complete
+  /// display-resolution frame the backdrop shows, and the cold-open
+  /// loading bar stays up on `isResolvingFirstFrame` regardless — the
+  /// `!isFullQualityDecoding` term belongs only to the persist gate.
   public nonisolated static func canvasHasFrame(
     gpuActive: Bool,
     gpuFramePresented: Bool,
