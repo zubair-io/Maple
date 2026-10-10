@@ -111,6 +111,7 @@ extension EditSession {
 
   public func resetToOriginal() {
     guard !workflow.isBusy else { return }
+    activeBrushStroke = nil
     beginEdit(kind: .reset, description: "Reset to original")
     model = rebindingBrushRasters(live: model, restored: originalModel)
     endEdit()

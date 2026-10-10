@@ -238,34 +238,88 @@ extension EditSession {
 
   /// Open the one undo entry a stroke records. Unlike `setMaskDragActive`
   /// this does NOT hide the overlay tint — the stroke must stay visible
-  /// while it grows.
+  /// while it grows. Pre-populates the incremental accumulator (#4416).
   public func beginBrushStroke() {
     beginEdit(kind: .mask, description: "Brush stroke")
+    guard let maskId = selectedMaskId,
+      let index = model.localAdjustments.firstIndex(where: { $0.id == maskId }),
+      case .brush(let existing, let digest, _) = model.localAdjustments[index].mask
+    else {
+      activeBrushStroke = nil
+      return
+    }
+    let size = nativeImageSize
+    let dims = BrushRaster.rasterDims(imageWidth: Int(size.width), imageHeight: Int(size.height))
+    var buffer = [Float](repeating: 0, count: dims.width * dims.height)
+    for dab in existing {
+      BrushRaster.stampDab(dab, into: &buffer, width: dims.width, height: dims.height)
+    }
+    activeBrushStroke = ActiveBrushStroke(
+      maskId: maskId,
+      width: dims.width,
+      height: dims.height,
+      accumulator: buffer,
+      currentDigest: digest
+    )
   }
 
   /// Close the stroke's undo entry. A stroke that landed no dabs records
-  /// nothing (`endEdit` drops no-op transactions).
+  /// nothing (`endEdit` drops no-op transactions). Clears the incremental accumulator (#4416).
   public func endBrushStroke() {
+    activeBrushStroke = nil
     endEdit()
   }
 
   /// Append `dabs` to the selected brush layer and re-register its raster:
-  /// the new id registers BEFORE the old one releases, so a render can
+  /// stamps incrementally into the stroke's float accumulator (#4416) so a long
+  /// stroke does not re-rasterize its whole history on every pointer event.
+  /// The new id registers BEFORE the old one releases, so a render can
   /// never observe the digest id-less mid-swap. A failed rasterize or
   /// registration keeps the previous stroke rather than corrupting it. The
   /// caller owns the transaction (`beginBrushStroke`/`endBrushStroke`).
   public func appendBrushDabs(_ dabs: [BrushDab]) {
-    guard let index = model.localAdjustments.firstIndex(where: { $0.id == selectedMaskId }),
-      case .brush(let existing, _, let rasterId) = model.localAdjustments[index].mask,
+    guard let maskId = selectedMaskId,
+      let index = model.localAdjustments.firstIndex(where: { $0.id == maskId }),
+      case .brush(let existing, let currentDigest, let rasterId) = model.localAdjustments[index]
+        .mask,
       !dabs.isEmpty
     else { return }
+    let size = nativeImageSize
+    let dims = BrushRaster.rasterDims(
+      imageWidth: Int(size.width), imageHeight: Int(size.height))
+
+    var stroke = activeBrushStroke
+    if stroke == nil || stroke?.maskId != maskId || stroke?.width != dims.width
+      || stroke?.height != dims.height
+    {
+      var buffer = [Float](repeating: 0, count: dims.width * dims.height)
+      for dab in existing {
+        BrushRaster.stampDab(dab, into: &buffer, width: dims.width, height: dims.height)
+      }
+      stroke = ActiveBrushStroke(
+        maskId: maskId,
+        width: dims.width,
+        height: dims.height,
+        accumulator: buffer,
+        currentDigest: currentDigest
+      )
+    }
+
+    for dab in dabs {
+      BrushRaster.stampDab(dab, into: &stroke!.accumulator, width: dims.width, height: dims.height)
+    }
     let next = existing + dabs
-    let digest = BrushRaster.digest(next)
-    guard let (w, h, bytes) = sourceBrushRaster(dabs: next),
-      let id = MaskRasterRegistry.register(digest: digest, width: w, height: h, bytes: bytes)
+    let nextDigest = BrushRaster.appendedDigest(from: stroke!.currentDigest, added: dabs)
+    stroke!.currentDigest = nextDigest
+    activeBrushStroke = stroke
+
+    let bytes = BrushRaster.bytes(from: stroke!.accumulator)
+    guard
+      let id = MaskRasterRegistry.register(
+        digest: nextDigest, width: dims.width, height: dims.height, bytes: bytes)
     else { return }
     if rasterId != 0 { MaskRasterRegistry.release(rasterId) }
-    model.localAdjustments[index].mask = .brush(dabs: next, digest: digest, rasterId: id)
+    model.localAdjustments[index].mask = .brush(dabs: next, digest: nextDigest, rasterId: id)
   }
 
   public func deleteMask(id: UUID) {
@@ -273,7 +327,10 @@ extension EditSession {
     Set(layer.mask.registeredRasterIds).forEach(MaskRasterRegistry.release)
     model.localAdjustments.removeAll { $0.id == id }
     disabledMaskIds.remove(id)
-    if selectedMaskId == id { selectedMaskId = nil }
+    if selectedMaskId == id {
+      selectedMaskId = nil
+      activeBrushStroke = nil
+    }
   }
 
   /// Disabled = present-but-inert: the panel keeps the row (so the user can

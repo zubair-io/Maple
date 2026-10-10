@@ -48,10 +48,7 @@ import { removeAt } from '../../editor/list-selection';
 import { defaultRangeRefinement, withRangeField, type RangeFieldId } from './mask-range';
 import { sampleMaskRangeInto, seededLayer } from './mask-range-sample';
 import { MaskBrushSession } from './mask-brush-session';
-
-/** Structural equality for one layer — the model is plain data. */
-const isSameLayer = (a: LocalAdjustment, b: LocalAdjustment): boolean =>
-  JSON.stringify(a) === JSON.stringify(b);
+import { isSameLayer } from './mask-equality';
 
 @Injectable({ providedIn: 'root' })
 export class MaskSessionService {
