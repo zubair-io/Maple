@@ -7,20 +7,24 @@ test('the search child reads changes and counts from the index alone', async () 
   using handle = createBlankTestDatabase('file');
   await runMigrations(
     handle.migrationDb,
-    ALL_MIGRATIONS.filter((migration) => migration.id < '0023-asset-vectors-search-sync'),
+    ALL_MIGRATIONS.filter((migration) => migration.id < '0025-asset-vectors-poll-index'),
   );
 
   const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
   const plans = [
     `SELECT maple_id, embedded_at FROM asset_vectors
-      WHERE embedded_at > '2026-10-10' AND dims = 1024 ORDER BY embedded_at, maple_id`,
-    `SELECT COUNT(*) FROM asset_vectors WHERE dims = 1024`,
+      WHERE embedded_at > '2026-10-10' AND dims = 1024 AND model = 'bge-m3'
+      ORDER BY embedded_at, maple_id`,
+    `SELECT COUNT(*) FROM asset_vectors WHERE dims = 1024 AND model = 'bge-m3'`,
   ].map((sql) =>
     (handle.db.query(`EXPLAIN QUERY PLAN ${sql}`).all() as Array<{ detail: string }>)
       .map((row) => row.detail)
       .join(' | '),
   );
 
-  expect(result.applied).toEqual(['0023-asset-vectors-search-sync']);
-  for (const plan of plans) expect(plan).toContain('COVERING INDEX asset_vectors_search_sync');
+  expect(result.applied).toEqual(['0025-asset-vectors-poll-index']);
+  for (const plan of plans) {
+    expect(plan).toContain('COVERING INDEX asset_vectors_poll');
+    expect(plan).not.toContain('TEMP B-TREE');
+  }
 });

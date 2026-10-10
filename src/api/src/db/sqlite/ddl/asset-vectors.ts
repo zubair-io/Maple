@@ -30,12 +30,12 @@ CREATE INDEX asset_vectors_embedder ON asset_vectors (model, endpoint);
 `;
 
 /**
- * The search child (#4463) follows `asset_vectors` by `embedded_at` and counts and lists its ids
- * often. `vector` sits before `embedded_at` in the row, so without this index each of those reads
- * walks every 4 KB blob's overflow pages; with it they never touch the table.
+ * The search child (#4463) follows one model's rows of `asset_vectors` by `embedded_at` and counts
+ * and lists their ids often. `vector` sits before `embedded_at` in the row, so without this index
+ * each of those reads walks every 4 KB blob's overflow pages; with it they never touch the table.
  */
-export const ASSET_VECTORS_SEARCH_SYNC_INDEX_DDL = `
-CREATE INDEX asset_vectors_search_sync ON asset_vectors (embedded_at, maple_id, dims);
+export const ASSET_VECTORS_POLL_INDEX_DDL = `
+CREATE INDEX asset_vectors_poll ON asset_vectors (model, embedded_at, maple_id, dims);
 `;
 
 // A read-only window onto stage claims: the runner rejects handler statements that name stage_state.
