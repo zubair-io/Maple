@@ -105,18 +105,14 @@ fn present_chains() -> Vec<(&'static str, Vec<&'static str>)> {
     let render_src = include_str!("mod.rs");
     let export_src = include_str!("export.rs");
     let synthetic_src = include_str!("synthetic.rs");
-    // The geometry carrier keeps quantization in the shared leaf, so inspect
-    // that leaf after proving the public pixel-only wrapper delegates to it.
-    assert!(
-        slice_fn(render_src, "render_display_from_raw").contains("render_display_with_geometry(")
-    );
-
-    // #4096 keeps the existing entry point as a wrapper around the terminal
-    // that also reports achieved Auto fit. Check that delegation before
-    // following the actual pixel stages; the wrapper itself never quantizes.
+    // #4096 keeps the pixel-only entry point as a wrapper around the terminal
+    // that also reports achieved Auto fit. Check both delegation layers before
+    // following the actual pixel stages; neither wrapper quantizes itself.
     assert!(
         slice_fn(render_src, "render_display_from_raw").contains("render_from_raw_with_auto_fit(")
     );
+    assert!(slice_fn(render_src, "render_from_raw_with_auto_fit")
+        .contains("render_display_with_geometry("));
 
     // A depth terminal's own stages, appended to the shared colour chain, is
     // the sequence a render of that depth really runs.

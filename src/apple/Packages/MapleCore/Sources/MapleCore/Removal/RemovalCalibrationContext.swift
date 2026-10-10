@@ -1,4 +1,4 @@
-// Bounded canonical calibration experiment (#3955); no authoring UI is enabled.
+// Bounded canonical source context for experimental removal authoring (#3955).
 import Foundation
 import RawPipeline
 
@@ -45,9 +45,9 @@ extension RemovalBridge {
     handle: MapleRawHandle, x: UInt32, y: UInt32, width: UInt32, height: UInt32,
     cancel: CancelFlag? = nil
   ) throws -> [Float] {
-    // Reject before allocating; the shared core validates source bounds and
-    // supported mosaics. The 1024 cap matches this experiment's model context.
-    guard width > 0, height > 0, width <= 1024, height <= 1024 else {
+    // The model sees a resampled 1024² plate, while reconstruction needs the
+    // full native context for guided texture transfer. Reject before allocating.
+    guard width > 0, height > 0, width <= 2048, height <= 2048 else {
       throw RemovalError.invalid("Invalid removal calibration context extent")
     }
     let count = Int(width) * Int(height) * 3

@@ -1,6 +1,9 @@
 //! Thin native proposal preparation shared with the browser worker (#3941).
-use crate::error::{catch_panic_rc, set_last_error};
-use raw_core::pipeline::PreparedRemovalGeneration;
+use crate::{
+    cancel::{token_from_ptr, MapleCancelFlag},
+    error::{catch_panic_rc, set_last_error},
+};
+use raw_core::{cancel::CancelToken, pipeline::PreparedRemovalGeneration};
 use std::ffi::{c_char, c_void, CStr};
 
 #[repr(C)]
@@ -179,7 +182,7 @@ pub unsafe extern "C" fn maple_removal_generation_close(owner: *mut MapleRemoval
     }
 }
 
-/// kind=0 is 3×1024² CHW photographic RGB; kind=1 is 1024² binary hole.
+/// kind=0 is 3×1024² CHW sRGB model guide; kind=1 is 1024² binary hole.
 /// length/cap count f32 elements. 0 success, 1 null length, 5 invalid, 100 probe.
 /// # Safety
 /// owner stays live; length writable, output aligned/writable for cap f32s;
@@ -232,15 +235,18 @@ pub unsafe extern "C" fn maple_removal_generation_request_buf(
 }
 
 /// Validated native .f16 companion; no persistence. Invalid output cannot become
-/// an accepted edit. Returns 0 success, 1 null length, 5 invalid, 100 size probe.
+/// an accepted edit. Returns 0 success, 1 null length, 5 invalid, 20 cancelled,
+/// 100 size probe.
 /// # Safety
-/// owner stays live; generated is aligned/readable for len f32s. length writable;
-/// output writable for cap bytes, disjoint from inputs/owner. No concurrent close.
+/// owner stays live; generated is aligned/readable for len f32s; cancel is null
+/// or a live MapleCancelFlag. length writable; output writable for cap bytes,
+/// disjoint from inputs/owner. No concurrent close or cancel-flag free.
 #[no_mangle]
 pub unsafe extern "C" fn maple_removal_generation_finish_buf(
     owner: *const MapleRemovalGeneration,
     generated: *const f32,
     len: usize,
+    cancel: *const MapleCancelFlag,
     output: *mut u8,
     cap: usize,
     length: *mut usize,
@@ -250,9 +256,17 @@ pub unsafe extern "C" fn maple_removal_generation_finish_buf(
             return 1;
         }
         *length = 0;
-        let result = prepared(owner).and_then(|value| value.finish(values(generated, len)?));
+        let flag = token_from_ptr(cancel);
+        let token = flag.as_ref().map_or_else(CancelToken::never, |flag| {
+            CancelToken::new(unsafe { flag.as_ref() })
+        });
+        let result = prepared(owner).and_then(|value| value.finish(values(generated, len)?, token));
         match result {
             Ok(value) => write(&value, output, cap, length),
+            Err(error) if error == "guided removal: cancelled" => {
+                set_last_error(error);
+                20
+            }
             Err(e) => failed(e),
         }
     })

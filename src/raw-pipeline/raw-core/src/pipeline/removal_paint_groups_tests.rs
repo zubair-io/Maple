@@ -74,7 +74,7 @@ fn distant_painted_areas_preserve_every_native_pixel_on_a_100mp_source() {
         let plan: crate::stages::removal_generation::GenerationMaskRequest =
             serde_json::from_str(&plan_removal_generation(&anchor, &group, 8, 4.0).unwrap())
                 .unwrap();
-        assert_eq!([plan.window.width, plan.window.height], [1024, 1024]);
+        assert_eq!([plan.window.width, plan.window.height], [2048, 2048]);
     }
 }
 
@@ -101,17 +101,17 @@ fn nearby_disconnected_paint_is_kept_in_one_context_and_order_is_stable() {
 
 #[test]
 fn a_diagonally_connected_large_area_refuses_the_whole_operation() {
-    let points: Vec<_> = std::iter::once([1500, 0])
-        .chain((1..1100).map(|n| [n, n]))
+    let points: Vec<_> = std::iter::once([2500, 0])
+        .chain((1..2100).map(|n| [n, n]))
         .collect();
-    let bytes = intent([2000, 2000], [1, 0, 1500, 1100], &points);
-    let error = paint_generation_intents(&source(2000, 2000), &bytes, 8, 4.0).unwrap_err();
+    let bytes = intent([3000, 3000], [1, 0, 2500, 2100], &points);
+    let error = paint_generation_intents(&source(3000, 3000), &bytes, 8, 4.0).unwrap_err();
     assert!(error.contains("one connected painted area"), "{error}");
 }
 
 #[test]
 fn clipped_source_edges_fit_but_a_component_expansion_is_never_truncated() {
-    let points: Vec<_> = (0..1016).map(|x| [x, 10]).chain([[2999, 10]]).collect();
+    let points: Vec<_> = (0..2040).map(|x| [x, 10]).chain([[2999, 10]]).collect();
     let bytes = intent([3000, 100], [0, 10, 3000, 1], &points);
     assert_eq!(
         paint_generation_intents(&source(3000, 100), &bytes, 8, 4.0)
@@ -119,7 +119,7 @@ fn clipped_source_edges_fit_but_a_component_expansion_is_never_truncated() {
             .len(),
         2
     );
-    let points: Vec<_> = (0..1017).map(|x| [x, 10]).chain([[2999, 10]]).collect();
+    let points: Vec<_> = (0..2041).map(|x| [x, 10]).chain([[2999, 10]]).collect();
     let too_big = intent([3000, 100], [0, 10, 3000, 1], &points);
     assert!(paint_generation_intents(&source(3000, 100), &too_big, 8, 4.0).is_err());
 }

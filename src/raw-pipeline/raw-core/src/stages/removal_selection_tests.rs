@@ -89,15 +89,15 @@ fn detected_mask_refinement_erases_to_empty_and_rejects_corrupt_inputs() {
 #[test]
 fn refinement_trims_erased_extent_before_native_generation_on_100mp_source() {
     use crate::types::accepted_removal::{ContentDigest, SourceAnchor};
-    let mut pixels = vec![0; 1800 * 3];
-    pixels[1800] = 255;
-    pixels[3599] = 255;
+    let mut pixels = vec![0; 2500 * 3];
+    pixels[2500] = 255;
+    pixels[2500 + 2499] = 255;
     let base = crate::pipeline::removal_mask_to_bytes(&RemovalMask {
         source_width: 10000,
         source_height: 10000,
         x: 100,
         y: 100,
-        width: 1800,
+        width: 2500,
         height: 3,
         pixels,
     })
@@ -111,7 +111,7 @@ fn refinement_trims_erased_extent_before_native_generation_on_100mp_source() {
     .unwrap();
     assert!(crate::pipeline::plan_removal_generation(&source, &base, 8, 4.0).is_err());
     let request = serde_json::json!({"schema":1,"strokes":[
-        stroke(&[[0.18995,0.01015]],0.0001,true)
+        stroke(&[[0.25995,0.01015]],0.0001,true)
     ]})
     .to_string();
     let refined = refine_json(&base, &[], &request).unwrap();
@@ -127,7 +127,7 @@ fn refinement_trims_erased_extent_before_native_generation_on_100mp_source() {
     let protected = crate::pipeline::removal_mask_to_bytes(&RemovalMask {
         source_width: 10000,
         source_height: 10000,
-        x: 1899,
+        x: 2599,
         y: 101,
         width: 1,
         height: 1,

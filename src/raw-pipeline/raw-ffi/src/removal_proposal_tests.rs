@@ -129,15 +129,15 @@ fn proposal_c_owner_matches_core_and_failure_leaves_output_untouched() {
     let source = SourceAnchor {
         original: ContentDigest::for_bytes(b"RAW"),
         decode: ContentDigest::for_bytes(b"plate"),
-        width: 7,
-        height: 5,
+        width: 64,
+        height: 64,
     };
     let source_json = serde_json::to_string(&source).unwrap();
     let mask = pipeline::removal_mask_to_bytes(&RemovalMask {
-        source_width: 7,
-        source_height: 5,
-        x: 2,
-        y: 2,
+        source_width: 64,
+        source_height: 64,
+        x: 31,
+        y: 31,
         width: 1,
         height: 1,
         pixels: vec![255],
@@ -145,7 +145,7 @@ fn proposal_c_owner_matches_core_and_failure_leaves_output_untouched() {
     .unwrap();
     let plan = pipeline::plan_removal_generation(&source_json, &mask, 2, 1.0).unwrap();
     let request = serde_json::json!({"schema":1,"source":source,"masks":serde_json::from_str::<serde_json::Value>(&plan).unwrap(),"model":ContentDigest::for_bytes(b"weights"),"model_version":"C fixture"}).to_string();
-    let scene = vec![0.18; 7 * 5 * 3];
+    let scene = vec![0.18; 64 * 64 * 3];
     let core =
         pipeline::PreparedRemovalGeneration::prepare(&request, "[]", &scene, &mask, &[]).unwrap();
     let mut owner = std::ptr::null_mut();
@@ -221,13 +221,33 @@ fn proposal_c_owner_matches_core_and_failure_leaves_output_untouched() {
             0
         );
         assert_eq!(metadata, core.request().as_bytes());
-        let expected = core.finish(core.rgb()).unwrap();
+        let expected = core
+            .finish(core.rgb(), raw_core::cancel::CancelToken::never())
+            .unwrap();
         let mut patch = vec![42; expected.len()];
+        let cancelled = crate::cancel::maple_cancel_flag_new();
+        crate::cancel::maple_cancel_flag_set(cancelled);
         assert_eq!(
             maple_removal_generation_finish_buf(
                 owner,
                 core.rgb().as_ptr(),
                 core.rgb().len(),
+                cancelled,
+                patch.as_mut_ptr(),
+                patch.len(),
+                &mut length
+            ),
+            20
+        );
+        assert_eq!(length, 0);
+        assert!(patch.iter().all(|value| *value == 42));
+        crate::cancel::maple_cancel_flag_free(cancelled);
+        assert_eq!(
+            maple_removal_generation_finish_buf(
+                owner,
+                core.rgb().as_ptr(),
+                core.rgb().len(),
+                std::ptr::null(),
                 patch.as_mut_ptr(),
                 patch.len() - 1,
                 &mut length
@@ -240,6 +260,7 @@ fn proposal_c_owner_matches_core_and_failure_leaves_output_untouched() {
                 owner,
                 core.rgb().as_ptr(),
                 core.rgb().len(),
+                std::ptr::null(),
                 patch.as_mut_ptr(),
                 patch.len(),
                 &mut length
@@ -252,6 +273,7 @@ fn proposal_c_owner_matches_core_and_failure_leaves_output_untouched() {
                 owner,
                 core.rgb().as_ptr(),
                 100,
+                std::ptr::null(),
                 patch.as_mut_ptr(),
                 patch.len(),
                 &mut length

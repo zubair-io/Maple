@@ -130,6 +130,9 @@ function makeHost(
     state,
     canvasSvc,
     xmpSerializer,
+    savedRemovals: {
+      load: vi.fn(async () => null),
+    } as unknown as GpuPresentHost['savedRemovals'],
     gpuFallback,
     serializeForRender: () => '<x/>',
     captureRenderSerializer() {
@@ -253,6 +256,8 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const present = new ImageCanvasGpuPresent(host);
     const render = vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
       colorSpace: 'srgb',
+      width: 31,
+      height: 19,
       autoFit: true,
     });
     const params = new Float32Array(19);
@@ -261,7 +266,7 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const count = vi.mocked(host.state.seedLensProfile).mock.calls.length;
     await present.render('Auto', 1, params);
     expect(vi.mocked(host.state.seedLensProfile).mock.calls).toHaveLength(count);
-    render.mockResolvedValue({ colorSpace: 'srgb', autoFit: false });
+    render.mockResolvedValue({ colorSpace: 'srgb', width: 31, height: 19, autoFit: false });
     await present.render('Auto', 0);
     expect(vi.mocked(host.state.seedLensProfile).mock.calls).toHaveLength(count);
     await present.render('Auto', 1);

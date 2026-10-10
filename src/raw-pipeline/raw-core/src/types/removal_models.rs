@@ -4,8 +4,8 @@
 
 /// Concrete authoring defaults shared by the Apple and Web experiments.
 pub const REMOVAL_PERSON_MIN_SCORE: f32 = 0.5;
-pub const REMOVAL_HOLE_RADIUS: u32 = 1;
-pub const REMOVAL_FRINGE_RADIUS: f32 = 1.0;
+pub const REMOVAL_HOLE_RADIUS: u32 = 8;
+pub const REMOVAL_FRINGE_RADIUS: f32 = 4.0;
 
 #[derive(Clone, Copy, serde::Serialize)]
 pub struct ExperimentalRemovalModelPin {

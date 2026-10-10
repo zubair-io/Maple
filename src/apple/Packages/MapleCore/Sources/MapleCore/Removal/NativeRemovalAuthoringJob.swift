@@ -52,7 +52,8 @@ public actor NativeRemovalAuthoringJob {
         request: String(decoding: JSONSerialization.data(withJSONObject: request), as: UTF8.self),
         prior: prior, scene: scene, intent: intent, protected: protected)
       try Task.checkCancellation()
-      let proposal = try generation.reconstruct(using: model, operation: operation)
+      let proposal = try generation.reconstruct(
+        using: model, operation: operation, cancel: contextCancellation)
       try Task.checkCancellation()
       return proposal
     } onCancel: {

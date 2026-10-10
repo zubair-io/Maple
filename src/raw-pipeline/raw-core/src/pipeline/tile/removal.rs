@@ -27,9 +27,9 @@ pub(in crate::pipeline) fn render_removal_camera_context(
             h: raw.height,
         });
     window.validate(crop.w, crop.h).map_err(Error::Pipeline)?;
-    if window.width > 1024 || window.height > 1024 {
+    if window.width > 2048 || window.height > 2048 {
         return Err(Error::Pipeline(
-            "removal calibration context exceeds the native probe budget".into(),
+            "removal calibration context exceeds the 2048-pixel native context limit".into(),
         ));
     }
     let model = anchor_model();
@@ -70,7 +70,14 @@ pub(in crate::pipeline) fn render_removal_camera_context(
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
-        camera::prepare(&mosaic, raw, &model, RenderQuality::Amaze, active_area, (rx, ry))?
+        camera::prepare(
+            &mosaic,
+            raw,
+            &model,
+            RenderQuality::Amaze,
+            active_area,
+            (rx, ry),
+        )?
     };
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);

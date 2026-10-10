@@ -21,8 +21,8 @@ impl RemovalReconstructor {
         &self.digest
     }
 
-    /// Prepared photographic CHW RGB and binary generation hole, native 1024².
-    /// Returns model-domain CHW RGB; raw-core owns inverse encoding and blend.
+    /// Prepared 1024² sRGB CHW guide and binary generation hole. Returns the
+    /// model's coarse display guide; raw-core transfers native scene donors.
     pub fn generate(
         &mut self,
         rgb: &[f32],

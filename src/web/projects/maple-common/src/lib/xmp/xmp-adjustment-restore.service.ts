@@ -160,11 +160,13 @@ export class XmpAdjustmentRestoreService {
     try {
       const loaded = await firstValueFrom(this.serverPersistence.readSidecar(absPath, variantId));
       if (loaded === null) return null;
-      const snapshot = variantId === PRIMARY_VARIANT_ID && savedRemovalRecords(loaded)
-        ? await import('../removal/removal-server-io.service').then(({ RemovalServerIoService }) =>
-            firstValueFrom(this.injector.get(RemovalServerIoService).snapshot(absPath)),
-          )
-        : undefined;
+      const snapshot =
+        variantId === PRIMARY_VARIANT_ID && savedRemovalRecords(loaded)
+          ? await import('../removal/removal-server-io.service').then(
+              ({ RemovalServerIoService }) =>
+                firstValueFrom(this.injector.get(RemovalServerIoService).snapshot(absPath)),
+            )
+          : undefined;
       const xml = snapshot?.xml ?? loaded;
       if (snapshot)
         await this.injector.get(SidecarStore).rememberConfirmed(absPath, xml, snapshot.revision);

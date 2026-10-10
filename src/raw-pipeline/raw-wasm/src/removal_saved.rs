@@ -83,6 +83,7 @@ pub(crate) fn preview(
     let raw_core::pipeline::DisplayRender {
         pixels: (w, h, rgb),
         crop_input_size,
+        auto_fit,
     } = stack
         .render_display_with_geometry(
             raw,
@@ -108,6 +109,7 @@ pub(crate) fn preview(
         raw.lens_correction_ca_inert(),
         support,
         crate::lens_profile::metadata(raw, &model),
+        auto_fit,
     )
     .with_crop_input(crop_input_size))
 }

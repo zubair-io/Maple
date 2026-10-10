@@ -50,8 +50,9 @@ pub fn render_removal_calibration_plate(raw: &RawImage, cancel: CancelToken<'_>)
 
 /// Bounded native context in un-oriented DefaultCrop coordinates, using the
 /// same linear calibration as the whole-frame qualification plate. Bayer,
-/// X-Trans and LinearRaw use bounded camera inputs. Probe cap is 1024×1024,
-/// not a shipping model/context policy. No full-resolution RGB plate is allocated.
+/// X-Trans and LinearRaw use bounded camera inputs. Native context is capped at
+/// 2048 pixels per axis; the model input remains a separate 1024² resample.
+/// No full-resolution RGB plate is allocated.
 pub fn render_removal_calibration_context(
     raw: &RawImage,
     window: crate::types::accepted_removal::NativeWindow,

@@ -19,12 +19,12 @@ public enum RemovalError: Error, LocalizedError {
           "Smart paint could not follow all of your strokes. Your selection is unchanged. Try another stroke or use Refine with Paint."
       }
       if message == "removal generation: selection and expansion exceed native context"
+        || message == "removal generation: selection and expansion exceed 2048 native pixels"
         || message
           == "removal generation: one connected painted area and its expansion exceed native context; refine that area before removing"
       {
-        let side = ExperimentalRemovalModels.lama.nativeSide
         return
-          "This object is too large for the current removal model. The selection and edge expansion must fit inside \(side) × \(side) source pixels. Select a smaller object."
+          "This object is too large for the current removal model. The selection and edge expansion must fit inside a 2048 × 2048 native source context. Select a smaller object."
       }
       return message
     case .missingCompanion(let name): return "Removal asset is missing: \(name)"

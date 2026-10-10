@@ -131,8 +131,10 @@ fn replacements_receive_the_same_lens_gain_and_warp_as_sensor_pixels() {
             );
             for (index, (a, b)) in actual.pixels.iter().zip(&expected.pixels).enumerate() {
                 for c in 0..3 {
-                    assert!((a[c] - b[c]).abs() <= 3e-6 * (1.0 + b[c].abs()),
-                        "replacement bypassed or doubled optics: strength {strength}, index {index}, {a:?} != {b:?}");
+                    assert!(
+                        (a[c] - b[c]).abs() <= 3e-6 * (1.0 + b[c].abs()),
+                        "replacement bypassed or doubled optics: strength {strength}, index {index}, {a:?} != {b:?}"
+                    );
                 }
             }
         }

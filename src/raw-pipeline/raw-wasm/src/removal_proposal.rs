@@ -43,6 +43,8 @@ impl RemovalGeneration {
         self.inner.hole().into()
     }
     pub fn finish(&self, generated: &[f32]) -> Result<Vec<u8>, JsError> {
-        self.inner.finish(generated).map_err(|e| JsError::new(&e))
+        self.inner
+            .finish(generated, raw_core::cancel::CancelToken::never())
+            .map_err(|e| JsError::new(&e))
     }
 }

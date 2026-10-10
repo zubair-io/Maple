@@ -239,7 +239,10 @@ final class GpuSessionReplacementTests: XCTestCase {
     let barrier = TeardownBarrier()
     // Hold an already running fit's completion, like synchronous native work
     // that cancellation cannot interrupt. Replacement must join its return.
-    driver.autoProfileFitTask = Task { await barrier.wait() }
+    driver.autoProfileFitTask = Task {
+      await barrier.wait()
+      return false
+    }
     let readbacks = ReadbackRecorder()
     let started = expectation(description: "replacement requested")
     let next = GpuUploadIdentity(decodeGeneration: 2, crop: .identity)

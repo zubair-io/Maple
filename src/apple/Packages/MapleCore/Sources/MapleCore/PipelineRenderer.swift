@@ -200,7 +200,7 @@ public struct PipelineRenderer: Sendable {
   /// minutes. `full` uses bilinear demosaic (legacy value, preserved for ABI
   /// compatibility). `amaze` uses the AMaZE demosaic for highest quality on
   /// Bayer images — this is the export/refine path (#940).
-  public enum Quality: Int32 {
+  public enum Quality: Int32, Sendable {
     case full = 0
     case preview = 1
     case amaze = 2

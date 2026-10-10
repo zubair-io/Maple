@@ -48,7 +48,8 @@ final class PhotographicRemovalPaintTests: XCTestCase {
       await removal.paint([[0.1, 0.8], [0.5, 0.8]], cropInputSize: [6000, 4000])
       await removal.remove()
       XCTAssertEqual(removal.phase, .ready, removal.message)
-      XCTAssertTrue(removal.message.contains("one connected painted area"), removal.message)
+      XCTAssertTrue(
+        removal.message.contains("too large for the current removal model"), removal.message)
       XCTAssertTrue(removal.proposals.isEmpty)
       XCTAssertNil(removal.job, "Every Paint context must preflight before opening inference")
       XCTAssertFalse(FileManager.default.fileExists(atPath: sidecar.path))

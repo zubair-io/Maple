@@ -41,16 +41,12 @@ struct CanvasZoomCommands: Commands {
         .disabled(router == nil)
     }
     CommandGroup(replacing: .undoRedo) {
-      Button("Undo") { history(redo: false) }
+      Button(removalCanUndo ? "Undo Selection" : "Undo") { history(redo: false) }
         .keyboardShortcut("z", modifiers: .command)
-        .disabled(
-          textTarget.hasFocus
-            ? !(textTarget.undoManager?.canUndo ?? false) : !(router?.state.canUndo ?? false))
-      Button("Redo") { history(redo: true) }
+        .disabled(textTarget.hasFocus ? !(textTarget.undoManager?.canUndo ?? false) : !canUndo)
+      Button(removalCanRedo ? "Redo Selection" : "Redo") { history(redo: true) }
         .keyboardShortcut("z", modifiers: [.command, .shift])
-        .disabled(
-          textTarget.hasFocus
-            ? !(textTarget.undoManager?.canRedo ?? false) : !(router?.state.canRedo ?? false))
+        .disabled(textTarget.hasFocus ? !(textTarget.undoManager?.canRedo ?? false) : !canRedo)
     }
   }
 
@@ -59,9 +55,29 @@ struct CanvasZoomCommands: Commands {
     if textTarget.hasFocus {
       if redo { textTarget.undoManager?.redo() } else { textTarget.undoManager?.undo() }
     } else {
+      if let router, router.state.armedTool == .remove {
+        let removal = router.state.removal
+        if redo ? removal.canRedoSelection : removal.canUndoSelection {
+          Task {
+            if redo { await removal.redoSelection() } else { await removal.undoSelection() }
+          }
+          return
+        }
+      }
       run(redo ? .redo : .undo) {}
     }
   }
+
+  private var removalCanUndo: Bool {
+    router?.state.armedTool == .remove && router?.state.removal.canUndoSelection == true
+  }
+
+  private var removalCanRedo: Bool {
+    router?.state.armedTool == .remove && router?.state.removal.canRedoSelection == true
+  }
+
+  private var canUndo: Bool { removalCanUndo || (router?.state.canUndo ?? false) }
+  private var canRedo: Bool { removalCanRedo || (router?.state.canRedo ?? false) }
 
   private func run(_ command: EditorCommandRouter.Command, fallback: () -> Void) {
     if let router {

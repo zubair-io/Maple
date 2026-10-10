@@ -99,8 +99,8 @@ public actor RenderActor {
   /// stripped model itself and compare by value (`==`): a hash would be a
   /// collision risk for zero benefit on a single in-memory comparison.
   ///
-  /// Missing sidecars use the stripped default model, matching the decode
-  /// prefix. `nil` means no cached buffer identity has been captured.
+  /// `nil` = "no sidecar on disk at decode time" (the FFI used
+  /// `AdjustmentModel::default()`, which is already in the stripped state).
   /// The rendered-preview DISK cache (`RenderedPreviewCache`) and the
   /// deep-zoom tile cache KEEP sidecar-mtime — they depend on the FULL
   /// model and are cross-session; only this in-memory cache changes.
@@ -118,7 +118,7 @@ public actor RenderActor {
   /// hot path allocation-free (CLAUDE.md § Performance invariants) while
   /// the baked model remains the authoritative key — mtime can only make
   /// us do MORE work (parse on a same-baked save), never serve a stale
-  /// buffer. `nil` here means no sidecar mtime was observed.
+  /// buffer. `nil` mirrors `decodedBakedModel == nil` (no sidecar).
   var decodedSidecarMtime: Date?
   var decodedSidecarURL: URL?
 
@@ -175,6 +175,9 @@ public actor RenderActor {
   /// seeded buffer.
   var decodedAutoExposure: AutoExposureMode?
 
+  /// Demosaic quality of the cached pixels; nil for display seeds and non-RAW.
+  var decodedQuality: PipelineRenderer.Quality?
+
   /// Whether the cached `decodedImage` is a FULL-resolution decode
   /// (sufficient for the refine pass / a deep-zoom crop) or a
   /// downsampled fast-phase decode (#785). The fast phase accepts any
@@ -207,10 +210,13 @@ public actor RenderActor {
     Task<
       (
         CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Float, Float, Bool, Bool, Bool,
-        RawCameraSupport?
+        RawCameraSupport?,
+        PipelineRenderer.Quality?
       )?,
       Never
     >?
+  /// Includes normalization and cache publication, so single-flight joins get matching metadata.
+  var decodePublicationTask: Task<CIImage?, Never>?
   var decodeTaskAssetID: AssetRef.ID?
   var decodeTaskSidecarURL: URL?
   /// Cancel flag bound to the in-flight `decodeTask` (#951). Created when a
@@ -524,6 +530,9 @@ public actor RenderActor {
     // reads valid memory after we drop our reference.
     decodeCancelFlag?.requestCancel()
     decodeCancelFlag = nil
+    decodeTask = nil
+    decodePublicationTask = nil
+    decodeTaskAssetID = nil
   }
 
   // MARK: - Test hooks

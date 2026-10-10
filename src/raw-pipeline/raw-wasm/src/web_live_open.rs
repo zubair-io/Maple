@@ -190,6 +190,7 @@ impl WebLiveSession {
             as_shot_tint,
             camera_support_json: camera_support.map(|support| support.to_json()),
             lens_profile_json,
+            auto_fit: std::cell::Cell::new(None),
             // No look loaded on open — the editor uploads one on selection via
             // `set_film_lut` (Task 9). Matches the render entries' `film_lut:
             // None` no-op contract.

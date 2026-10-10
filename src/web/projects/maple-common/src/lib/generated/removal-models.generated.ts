@@ -52,8 +52,8 @@ export const EXPERIMENTAL_REMOVAL_MODELS = [
 export type RemovalModelId = (typeof EXPERIMENTAL_REMOVAL_MODELS)[number]['id'];
 export const REMOVAL_AUTHORING_DEFAULTS = {
   personMinScore: 0.5,
-  holeRadius: 1,
-  fringeRadius: 1,
+  holeRadius: 8,
+  fringeRadius: 4,
 } as const;
 export const REMOVAL_PERSON_ROLES = {
   subject: 'Likely subject',

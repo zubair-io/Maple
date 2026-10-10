@@ -47,6 +47,8 @@ mod removal_geometry;
 pub use removal_geometry::{map_removal_display_points, RemovalGeometry};
 mod removal_encoding;
 pub use removal_encoding::RemovalModelEncoding;
+mod removal_guided_transfer;
+pub use removal_guided_transfer::guided_native_texture_transfer;
 mod removal_mask_store;
 pub use removal_assets::{removal_asset_names, verify_removal_asset, verify_removal_source};
 mod removal_selection_proxy;

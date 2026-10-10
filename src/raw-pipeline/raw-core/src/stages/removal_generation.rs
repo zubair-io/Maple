@@ -42,11 +42,11 @@ pub fn prepare(
     intent.validate()?;
     let window = request.window;
     window.validate(intent.source_width, intent.source_height)?;
-    // Concrete pinned native-1024 generator boundary. Larger selections must
-    // use a separately qualified strategy, not be silently downsampled.
+    // The model remains fixed at 1024²; native contexts can be 2048² so the
+    // authoring path can preserve source detail for guided native transfer.
     if request.schema != 1
-        || window.width > 1024
-        || window.height > 1024
+        || window.width > 2048
+        || window.height > 2048
         || !request.fringe_radius.is_finite()
         || request.fringe_radius < 0.0
         || f64::from(request.fringe_radius) > f64::from(request.hole_radius)

@@ -2,13 +2,11 @@ use super::*;
 use crate::{
     color::{
         hsm::{HsmEncoding, HsmTable},
-        illuminant::Illuminant,
         matrices::M_PRO_TO_XYZ_D50,
     },
     image::{CropRect, ExifOrientation},
     stages::wb_camera,
     types::DemosaicChoice,
-    xmp::LensProfileEnable,
 };
 use std::sync::atomic::AtomicBool;
 

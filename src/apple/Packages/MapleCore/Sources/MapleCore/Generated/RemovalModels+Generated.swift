@@ -15,8 +15,8 @@ public struct ExperimentalRemovalModelPin: Sendable {
 
 public enum ExperimentalRemovalModels {
   public static let personMinScore: Float = 0.5
-  public static let holeRadius: UInt32 = 1
-  public static let fringeRadius: Float = 1
+  public static let holeRadius: UInt32 = 8
+  public static let fringeRadius: Float = 4
   public static let lama = ExperimentalRemovalModelPin(
     id: "lama",
     file: "lama-native-1024.onnx",

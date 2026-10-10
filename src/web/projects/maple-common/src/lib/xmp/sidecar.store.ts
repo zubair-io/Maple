@@ -131,7 +131,11 @@ export class SidecarStore {
           throw new Error('Self Hosted sidecar persistence is not configured');
         if (this.workflow.hasPending(path, variantId)) {
           const flushed = await firstValueFrom(this.workflow.flush(path, variantId));
-          if (flushed !== null && variantId === PRIMARY_VARIANT_ID && this.removalRevisions.has(path))
+          if (
+            flushed !== null &&
+            variantId === PRIMARY_VARIANT_ID &&
+            this.removalRevisions.has(path)
+          )
             this.removalRevisions.set(path, await removalSidecarRevision(flushed));
         }
         const owned = this._docs()
@@ -155,7 +159,9 @@ export class SidecarStore {
           this.removalRevisions.set(path, await confirmedSidecarRevision(output, saved));
           await this._ingest(path, output, true);
         } else {
-          const published = await firstValueFrom(this.serverPersistence.writeSidecar(path, xml, variantId));
+          const published = await firstValueFrom(
+            this.serverPersistence.writeSidecar(path, xml, variantId),
+          );
           await this._ingest(path, published, true, variantId);
         }
       }
@@ -224,7 +230,11 @@ export class SidecarStore {
       try {
         if (this.workflow.hasPending(path, variantId)) {
           const flushed = await firstValueFrom(this.workflow.flush(path, variantId));
-          if (flushed !== null && variantId === PRIMARY_VARIANT_ID && this.removalRevisions.has(path))
+          if (
+            flushed !== null &&
+            variantId === PRIMARY_VARIANT_ID &&
+            this.removalRevisions.has(path)
+          )
             this.removalRevisions.set(path, await removalSidecarRevision(flushed));
         }
         const output = await publish();

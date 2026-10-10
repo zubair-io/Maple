@@ -64,7 +64,7 @@ struct RemovalOverlay: View {
           {
             #if os(macOS)
               RemovalPointerSurface(
-                focusOwner: removal, imageFrame: frame,
+                imageFrame: frame,
                 inputEnabled: removal.phase == .ready,
                 brushDiameter: CGFloat(removal.radius) * 2 * min(frame.width, frame.height),
                 color: NSColor(MuiTokens.primary), cursor: brushCursor,

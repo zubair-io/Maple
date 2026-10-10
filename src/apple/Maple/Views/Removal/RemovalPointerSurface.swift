@@ -3,11 +3,10 @@
   import SwiftUI
 
   /// The macOS removal brush owns a real pointer surface above the canvas.
-  /// #3984: keyboard/assistive painting is preserved research; its live UI
-  /// qualification is incomplete. See the draft preservation checkpoint.
+  /// #3984: keyboard gestures use the same source-framed stroke pipeline as
+  /// pointer input. Automated Mac tests cover selection undo/redo; VoiceOver
+  /// qualification remains open under #1472.
   struct RemovalPointerSurface: NSViewRepresentable {
-    static let focusNotification = Notification.Name("app.justmaple.removal.focusBrush")
-    let focusOwner: AnyObject
     let imageFrame: CGRect
     let inputEnabled: Bool
     let brushDiameter: CGFloat
@@ -21,12 +20,6 @@
     func makeNSView(context: Context) -> PointerView {
       let view = PointerView()
       updateNSView(view, context: context)
-      view.focusObserver = NotificationCenter.default.addObserver(
-        forName: Self.focusNotification, object: focusOwner, queue: .main
-      ) { [weak view] _ in
-        guard let view, view.inputEnabled else { return }
-        view.window?.makeFirstResponder(view)
-      }
       return view
     }
 
@@ -42,10 +35,7 @@
       view.inputEnabled = inputEnabled
       view.needsDisplay = true
       view.updateAccessiblePosition()
-    }
-
-    static func dismantleNSView(_ view: PointerView, coordinator: ()) {
-      if let observer = view.focusObserver { NotificationCenter.default.removeObserver(observer) }
+      view.window?.invalidateCursorRects(for: view)
     }
 
     final class PointerView: NSView {
@@ -53,7 +43,6 @@
       var onEnded: (() -> Void)?
       var onCancelled: (() -> Void)?
       var onCursorChanged: ((CGPoint) -> Void)?
-      var focusObserver: NSObjectProtocol?
       var imageFrame = CGRect.zero
       var brushDiameter: CGFloat = 0
       var color = NSColor.controlAccentColor
@@ -66,6 +55,14 @@
       }
       private enum Stroke { case none, mouse, keyboard }
       private var stroke = Stroke.none
+      private static let hiddenPointer: NSCursor = {
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.clear.setFill()
+        NSBezierPath(rect: NSRect(origin: .zero, size: NSSize(width: 1, height: 1))).fill()
+        image.unlockFocus()
+        return NSCursor(image: image, hotSpot: .zero)
+      }()
 
       override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -92,6 +89,22 @@
       override var isFlipped: Bool { true }
       override var acceptsFirstResponder: Bool { true }
       override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+      override func updateTrackingAreas() {
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(
+          NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self, userInfo: nil))
+        super.updateTrackingAreas()
+      }
+
+      override func resetCursorRects() {
+        guard inputEnabled else { return }
+        let brushArea = bounds.intersection(imageFrame)
+        if !brushArea.isEmpty { addCursorRect(brushArea, cursor: Self.hiddenPointer) }
+      }
 
       override func becomeFirstResponder() -> Bool {
         needsDisplay = true
@@ -200,23 +213,41 @@
       }
 
       override func draw(_ dirtyRect: NSRect) {
-        guard inputEnabled, window?.firstResponder === self, let point = keyboardLocation else {
-          return
-        }
-        color.setStroke()
+        guard inputEnabled,
+          let point = cursor ?? (window?.firstResponder === self ? keyboardLocation : nil),
+          imageFrame.contains(point)
+        else { return }
         let circle = NSBezierPath(
           ovalIn: CGRect(
             x: point.x - brushDiameter / 2, y: point.y - brushDiameter / 2,
             width: brushDiameter, height: brushDiameter))
+        NSColor.black.withAlphaComponent(0.8).setStroke()
+        circle.lineWidth = 3.5
+        circle.stroke()
+        color.setStroke()
         circle.lineWidth = 1.5
         circle.stroke()
-        let cross = NSBezierPath()
-        cross.move(to: CGPoint(x: point.x - 5, y: point.y))
-        cross.line(to: CGPoint(x: point.x + 5, y: point.y))
-        cross.move(to: CGPoint(x: point.x, y: point.y - 5))
-        cross.line(to: CGPoint(x: point.x, y: point.y + 5))
-        cross.lineWidth = 1.5
-        cross.stroke()
+      }
+
+      override func mouseEntered(with event: NSEvent) { updatePointer(event) }
+
+      override func mouseMoved(with event: NSEvent) { updatePointer(event) }
+
+      override func mouseExited(with event: NSEvent) {
+        guard stroke == .none, window?.firstResponder !== self else { return }
+        cursor = nil
+        needsDisplay = true
+      }
+
+      private func updatePointer(_ event: NSEvent) {
+        guard inputEnabled else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        if imageFrame.contains(point) {
+          position(point)
+        } else {
+          cursor = nil
+          needsDisplay = true
+        }
       }
 
       override func mouseDown(with event: NSEvent) {

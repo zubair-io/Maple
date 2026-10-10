@@ -43,8 +43,8 @@ public final class NativeRemovalGeneration: @unchecked Sendable {
   ) throws -> NativeRemovalGeneration {
     try requireCString(request)
     try requireCString(prior)
-    guard scene.count <= 3 * 1024 * 1024 else {
-      throw RemovalError.invalid("Removal generation context exceeds native model extent")
+    guard scene.count <= 3 * 2048 * 2048 else {
+      throw RemovalError.invalid("Removal generation context exceeds 2048 pixels per axis")
     }
     var pointer: UnsafeMutablePointer<MapleRemovalGeneration>?
     let rc = request.withCString { request in
@@ -88,14 +88,24 @@ public final class NativeRemovalGeneration: @unchecked Sendable {
     )
   }
 
-  public func finish(generated: [Float]) throws -> NativeRemovalProposal {
-    let patch = try withExtendedLifetime(self) {
-      try generated.withUnsafeBufferPointer { generated in
-        try RemovalBridge.buffer { output, capacity, length in
-          maple_removal_generation_finish_buf(
-            pointer, generated.baseAddress, UInt(generated.count), output, capacity, length)
+  public func finish(generated: [Float], cancel: CancelFlag? = nil) throws -> NativeRemovalProposal
+  {
+    let patch: Data
+    do {
+      patch = try withExtendedLifetime((self, cancel)) {
+        try generated.withUnsafeBufferPointer { generated in
+          try RemovalBridge.buffer { output, capacity, length in
+            maple_removal_generation_finish_buf(
+              pointer, generated.baseAddress, UInt(generated.count), cancel?.pointer,
+              output, capacity, length)
+          }
         }
       }
+    } catch {
+      if maple_last_error().map({ String(cString: $0) }) == "guided removal: cancelled" {
+        throw PipelineError.cancelled
+      }
+      throw error
     }
     let metadata = try withExtendedLifetime(self) {
       try RemovalBridge.buffer { output, capacity, length in
@@ -109,7 +119,8 @@ public final class NativeRemovalGeneration: @unchecked Sendable {
 
   public func reconstruct(
     using model: NativeRemovalReconstructor,
-    operation: NativeRemovalInferenceOperation
+    operation: NativeRemovalInferenceOperation,
+    cancel: CancelFlag? = nil
   ) throws -> NativeRemovalProposal {
     let metadata = try withExtendedLifetime(self) {
       try RemovalBridge.buffer { output, capacity, length in
@@ -122,7 +133,8 @@ public final class NativeRemovalGeneration: @unchecked Sendable {
     }
     let input = try inputs()
     return try finish(
-      generated: model.generate(rgb: input.rgb, hole: input.hole, operation: operation))
+      generated: model.generate(rgb: input.rgb, hole: input.hole, operation: operation),
+      cancel: cancel)
   }
 
   private static func requireCString(_ value: String) throws {

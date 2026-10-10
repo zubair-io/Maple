@@ -5,28 +5,30 @@ import UniformTypeIdentifiers
 
 struct RemovalPanel: View {
   @Bindable var state: EditorState
+  var showsModePicker = true
   @State private var selectingModels = false
   @State private var importError = ""
   @State private var showingSavedRemovals = false
-  @State private var showingLocalModels = false
   private var removal: RemovalSession { state.removal }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("AI object removal · Local experiment")
-        .font(.caption.weight(.semibold))
+      Text(showsModePicker ? "AI object removal" : removal.mode.panelTitle)
+        .font(.headline.weight(.semibold))
       if removal.phase != .ready && removal.phase != .selecting { statusMessage }
-      MuiSegmentedToggle(
-        options: RemovalSession.Mode.allCases.map {
-          MuiSegmentedOption(value: $0.rawValue, label: $0.label)
-        },
-        value: Binding(
-          get: { removal.mode.rawValue },
-          set: {
-            if let mode = RemovalSession.Mode(rawValue: $0) {
-              Task { await removal.setMode(mode) }
-            }
-          }), disabled: removal.phase != .ready || removal.replacingRemovalID != nil)
+      if showsModePicker {
+        MuiSegmentedToggle(
+          options: RemovalSession.Mode.allCases.map {
+            MuiSegmentedOption(value: $0.rawValue, label: $0.label)
+          },
+          value: Binding(
+            get: { removal.mode.rawValue },
+            set: {
+              if let mode = RemovalSession.Mode(rawValue: $0) {
+                Task { await removal.setMode(mode) }
+              }
+            }), disabled: removal.phase != .ready || removal.replacingRemovalID != nil)
+      }
       savedControls
       if removal.phase == .review {
         reviewControls
@@ -60,20 +62,16 @@ struct RemovalPanel: View {
       if removal.phase == .failed || removal.phase == .closed {
         MuiButton(label: "Retry loading photo", size: .sm) { Task { await state.retryRendering() } }
       }
-      MuiCollapsible(label: "Local AI models", open: $showingLocalModels) {
-        VStack(alignment: .leading, spacing: 8) {
-          Text(
-            "Import the pinned model files listed below. On Mac, include runtime.dylib; verified files are copied into app storage and reused after reopening. Photographic quality and device performance are not release-qualified."
-          )
-          .font(.caption).foregroundStyle(ProTokens.textMuted)
-          ForEach(ExperimentalRemovalModels.all, id: \.id) { pin in
-            Text(pin.file).font(.caption).textSelection(.enabled)
-          }
-          if let name = removal.modelFolderName { Text("Selected: \(name)").font(.caption) }
+      if removal.modelFolderName == nil || showsModePicker {
+        HStack {
+          Text(removal.modelFolderName == nil ? "Local model required" : "LaMa model ready")
+            .font(.caption).foregroundStyle(ProTokens.textMuted)
+          Spacer(minLength: 4)
           MuiButton(
-            label: "Import model folder", size: .sm,
-            disabled: removal.busy || removal.phase == .review
-          ) { selectingModels = true }
+            label: "Import model", size: .sm, disabled: removal.busy || removal.phase == .review
+          ) {
+            selectingModels = true
+          }
         }
       }
     }
@@ -90,12 +88,10 @@ struct RemovalPanel: View {
       case .failure(let error): importError = error.localizedDescription
       }
     }
-    .task { await removal.open() }
     .onChange(of: state.session.model) { _, _ in
       guard removal.active, !state.session.isSavingRemoval else { return }
       Task { await removal.open() }
     }
-    .onDisappear { removal.close() }
   }
 
   @ViewBuilder
@@ -261,47 +257,30 @@ struct RemovalPanel: View {
         value: Binding(
           get: { removal.radius * 100 }, set: { removal.radius = $0 / 100 }),
         range: 0.2...20, step: 0.2, unit: "%", disabled: removal.busy)
-      #if os(macOS)
-        MuiButton(
-          label: "Focus brush", size: .sm,
-          disabled: removal.phase != .ready || !removal.canPaint
-        ) {
-          NotificationCenter.default.post(
-            name: RemovalPointerSurface.focusNotification, object: removal)
-        }.accessibilityIdentifier("removal-focus-brush")
-        Text("Arrows move · Space starts/finishes a stroke · Return paints · Esc cancels")
-          .font(.caption).foregroundStyle(ProTokens.textMuted)
-      #endif
-      HStack {
-        MuiButton(label: "Undo selection", size: .sm, disabled: !removal.canUndoSelection) {
-          Task { await removal.undoSelection() }
-        }
-        MuiButton(label: "Redo selection", size: .sm, disabled: !removal.canRedoSelection) {
-          Task { await removal.redoSelection() }
-        }
-      }
+      Text("⌘Z Undo · ⇧⌘Z Redo")
+        .font(.caption).foregroundStyle(ProTokens.textMuted)
     }
     MuiButton(
-      label: "Keep selected area", size: .sm,
-      disabled: removal.busy || removal.selection.isEmpty
-    ) { removal.protectSelection() }
-    HStack {
-      MuiButton(
-        label: "Clear selection", size: .sm,
-        disabled: removal.busy
-          || (removal.mode == .people
-            ? removal.people.allSatisfy(\.keep) : removal.selection.isEmpty)
-      ) {
-        if removal.mode == .people {
-          removal.clearSelectedPeople()
-        } else {
-          removal.clearSelection()
-        }
+      label: "Clear selection", size: .sm,
+      disabled: removal.busy
+        || (removal.mode == .people
+          ? removal.people.allSatisfy(\.keep) : removal.selection.isEmpty)
+    ) {
+      if removal.mode == .people {
+        removal.clearSelectedPeople()
+      } else {
+        removal.clearSelection()
       }
-      MuiButton(
-        label: "Clear protection", size: .sm,
-        disabled: removal.busy || removal.protection.isEmpty
-      ) { removal.clearProtection() }
+    }
+  }
+}
+
+extension RemovalSession.Mode {
+  fileprivate var panelTitle: String {
+    switch self {
+    case .paint: "Paint"
+    case .smart: "Auto Mask"
+    case .people: "People"
     }
   }
 }

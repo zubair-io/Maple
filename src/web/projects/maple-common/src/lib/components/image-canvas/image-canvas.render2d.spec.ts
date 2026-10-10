@@ -290,8 +290,9 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
         crop: { ...defaultAdjustmentModel().crop, left: 0.2 },
       };
       const { host, decode } = harness(undefined);
+      const serializer = new XmpSerializerService();
       const serialize = (value: typeof opened, crop: boolean) =>
-        JSON.stringify(renderModelForCrop(value, crop));
+        serializer.serialize(renderModelForCrop(value, crop));
       Object.assign(host.state, {
         adjustmentFor: () => () => opened,
         updateAssetDimensions: vi.fn(),

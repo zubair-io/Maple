@@ -187,6 +187,9 @@ public final class RemovalSession {
     redoGestures = []
     people = []
     personChoicesNeedApply = false
+    // A fresh editor entry starts in Paint. People detection begins only
+    // after the user explicitly chooses People, never as a tab-open side effect.
+    mode = .paint
     message = ""
     active = false
     phase = .closed

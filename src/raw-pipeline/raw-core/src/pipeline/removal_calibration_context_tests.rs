@@ -75,35 +75,54 @@ fn bounded_context_refuses_invalid_windows_and_inconsistent_linear_data() {
         Err(Error::Cancelled)
     ));
     let mut large = source();
-    large.width = 2048;
-    large.height = 2048;
+    large.width = 4096;
+    large.height = 4096;
     large.crop_rect = None;
     assert!(render_removal_calibration_context(
         &large,
         NativeWindow {
             x: 0,
             y: 0,
-            width: 1025,
+            width: 2049,
             height: 1024
         },
         CancelToken::never()
     )
     .unwrap_err()
     .to_string()
-    .contains("probe budget"));
+    .contains("exceeds the 2048-pixel native context limit"));
+
+    let mut supported = source();
+    supported.width = 2048;
+    supported.height = 2048;
+    supported.crop_rect = None;
+    supported.raw_data = vec![1000; (supported.width * supported.height) as usize];
+    let context = render_removal_calibration_context(
+        &supported,
+        NativeWindow {
+            x: 0,
+            y: 0,
+            width: 1025,
+            height: 1,
+        },
+        CancelToken::never(),
+    )
+    .expect("native source contexts may be wider than the fixed model input");
+    assert_eq!((context.width, context.height), (1025, 1));
+
     assert!(render_removal_calibration_context(
         &large,
         NativeWindow {
             x: 0,
             y: 0,
-            width: 1025,
-            height: 1
+            width: 1024,
+            height: 2049
         },
         CancelToken::never()
     )
     .unwrap_err()
     .to_string()
-    .contains("probe budget"));
+    .contains("exceeds the 2048-pixel native context limit"));
     raw.cfa = crate::CfaPattern::LinearRgb;
     assert!(
         render_removal_calibration_context(&raw, valid, CancelToken::never())

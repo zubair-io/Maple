@@ -42,15 +42,15 @@
 //!   remain unbounded, including the kernel’s negative lobes (#3633).
 
 mod cubic;
-mod warp;
 mod point_map;
+mod warp;
 
 pub use crate::pipeline::pano::opcodes::WarpRectilinearOpcode;
+pub(crate) use point_map::WarpPointMap;
 pub use warp::{
     apply_warp_rectilinear, apply_warp_rectilinear_windowed, warp_rectilinear_reach_px,
 };
 pub(crate) use warp::{blend_warp_toward_identity, warp_source};
-pub(crate) use point_map::WarpPointMap;
 
 use rayon::prelude::*;
 

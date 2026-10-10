@@ -139,7 +139,7 @@ export async function coldOpen2d(
         ? undefined
         : serializedOpenXmp;
     const decoded =
-        openXmp && savedRemovalRecords(openXmp) && host.savedRemovals
+      openXmp && savedRemovalRecords(openXmp) && host.savedRemovals
         ? await host.savedRemovals.render(assetId, bytes, ext, openXmp, sizing.maxLongEdge, true)
         : await host.pipeline.decode(bytes, ext, openXmp, sizing.maxLongEdge, true);
     if (!ownsRequest()) return;

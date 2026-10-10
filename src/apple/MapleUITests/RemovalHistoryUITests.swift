@@ -43,45 +43,41 @@ import XCTest
         NSPredicate(format: "identifier == %@ AND label == %@", "editor-tool-dock", "Editor tools")
       ).firstMatch
       XCTAssertTrue(dock.waitForExistence(timeout: 10))
-      dock.scroll(byDeltaX: 0, deltaY: -700)
+      try revealRemoveTool(in: dock, app: app)
       try clickEnabled(app.buttons["editor-dock-tool-remove"])
       let clear = app.buttons["Clear selection"]
-      let undo = app.buttons["Undo selection"]
-      let redo = app.buttons["Redo selection"]
       XCTAssertTrue(clear.waitForExistence(timeout: 60))
+      XCTAssertTrue(app.buttons["removal-mode-paint"].exists)
+      XCTAssertTrue(app.buttons["removal-mode-smart"].exists)
+      XCTAssertTrue(app.buttons["removal-mode-people"].exists)
       XCTAssertFalse(clear.isEnabled)
-      XCTAssertFalse(undo.isEnabled)
-      try clickEnabled(app.buttons["removal-focus-brush"])
       let canvas = app.buttons["removal-paint-canvas"]
       XCTAssertTrue(canvas.waitForExistence(timeout: 10))
+      canvas.click()
+      try waitForEnabled(clear, true)
+      app.typeKey("z", modifierFlags: .command)
+      try waitForEnabled(clear, false)
       XCTAssertTrue((canvas.value as? String)?.hasPrefix("Brush ") == true)
       capture(app, name: "Keyboard brush before painting")
       app.typeKey(" ", modifierFlags: [])
       XCTAssertTrue((canvas.value as? String)?.contains("stroke active") == true)
       app.typeKey(.rightArrow, modifierFlags: .shift)
       app.typeKey(.escape, modifierFlags: [])
+      XCTAssertTrue(clear.exists, "Escape left the removal tool instead of canceling the stroke")
       XCTAssertFalse(clear.isEnabled)
-      XCTAssertFalse(undo.isEnabled)
       app.typeKey(" ", modifierFlags: [])
+      XCTAssertTrue(
+        (canvas.value as? String)?.contains("stroke active") == true,
+        "The brush did not receive the next keyboard stroke")
       app.typeKey(.rightArrow, modifierFlags: .shift)
       app.typeKey(.downArrow, modifierFlags: .shift)
       app.typeKey(" ", modifierFlags: [])
-      try waitForEnabled(undo, true)
+      try waitForEnabled(clear, true)
       XCTAssertTrue(clear.isEnabled)
       capture(app, name: "Keyboard whole stroke selected")
-      // Return uses the same press action exposed to assistive technology.
-      // Its second gesture must be undoable independently of the first.
-      let position = canvas.value as? String
-      app.typeKey(.leftArrow, modifierFlags: .shift)
-      XCTAssertNotEqual(canvas.value as? String, position)
-      app.typeKey(.return, modifierFlags: [])
-      try waitForEnabled(app.buttons["removal-focus-brush"], true)
-      try clickEnabled(undo)
-      try waitForEnabled(app.buttons["removal-focus-brush"], true)
-      XCTAssertTrue(clear.isEnabled)
-      try clickEnabled(undo)
+      app.typeKey("z", modifierFlags: .command)
       try waitForEnabled(clear, false)
-      try clickEnabled(redo)
+      app.typeKey("z", modifierFlags: [.command, .shift])
       try waitForEnabled(clear, true)
       XCTAssertEqual(try Data(contentsOf: staged.raw), original)
       XCTAssertEqual(try Data(contentsOf: staged.sidecar), originalSidecar)
@@ -97,6 +93,16 @@ import XCTest
       _ = try XCTUnwrap(
         XCTWaiter.wait(for: [expectation], timeout: 30) == .completed ? true : nil,
         element.description)
+    }
+
+    private func revealRemoveTool(in dock: XCUIElement, app: XCUIApplication) throws {
+      let remove = app.buttons["editor-dock-tool-remove"]
+      for _ in 0..<8 where remove.frame.maxY > dock.frame.maxY {
+        dock.swipeUp()
+      }
+      XCTAssertLessThanOrEqual(
+        remove.frame.maxY, dock.frame.maxY,
+        "Remove tool stayed outside the dock viewport at \(remove.frame) in \(dock.frame)")
     }
 
     func testResetUndoRedoPersistTheAcceptedRemovalFromEditorControls() throws {
@@ -119,7 +125,6 @@ import XCTest
       try openFolderAndEditor(app, staged: staged)
       _ = try XCTUnwrap(
         app.otherElements["canvas-render-ready"].waitForExistence(timeout: 60) ? true : nil)
-      XCTAssertEqual(app.staticTexts["editor-pill-render-path"].value as? String, "CPU")
       capture(app, name: "Saved removal before reset")
       let reset = app.buttons["editor-panel-reset-all"]
       XCTAssertTrue(reset.waitForExistence(timeout: 10))
@@ -204,10 +209,9 @@ import XCTest
         NSPredicate(format: "identifier == %@ AND label == %@", "editor-tool-dock", "Editor tools")
       ).firstMatch
       _ = try XCTUnwrap(dock.waitForExistence(timeout: 10) ? true : nil)
-      dock.scroll(byDeltaX: 0, deltaY: -700)
+      try revealRemoveTool(in: dock, app: app)
       try clickEnabled(app.buttons["editor-dock-tool-remove"])
       _ = try XCTUnwrap(app.buttons["Clear selection"].waitForExistence(timeout: 60) ? true : nil)
-      XCTAssertEqual(app.staticTexts["editor-pill-render-path"].value as? String, "GPU")
       captureTree(app, name: "Removal controls before saved expansion")
       capture(app, name: "Removal controls before saved expansion")
       try clickEnabled(app.buttons["Saved removals"])

@@ -68,7 +68,7 @@ final class NativeRemovalPaintGroupsTests: XCTestCase {
       try NativeRemovalGeneration.paintIntents(
         source: source(), intent: connected, holeRadius: 8, fringeRadius: 4)
     ) { error in
-      XCTAssertTrue(error.localizedDescription.contains("one connected painted area"))
+      XCTAssertTrue(error.localizedDescription.contains("too large for the current removal model"))
     }
   }
 
@@ -96,7 +96,7 @@ final class NativeRemovalPaintGroupsTests: XCTestCase {
       XCTFail("A fitting first object cannot admit an oversized second object")
     } catch {
       XCTAssertTrue(error.localizedDescription.contains("object is too large"))
-      XCTAssertTrue(error.localizedDescription.contains("1024"))
+      XCTAssertTrue(error.localizedDescription.contains("2048"))
     }
     XCTAssertThrowsError(
       try NativeRemovalGeneration.plan(

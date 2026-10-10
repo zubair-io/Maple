@@ -22,9 +22,11 @@ final class NativeRemovalGenerationTests: XCTestCase {
       width: 16, height: 8,
       request:
         "{\"schema\":1,\"strokes\":[{\"subtract\":false,\"radius\":0.06,\"points\":[[0.5,0.5]]}]}")
+    // This synthetic RAW is only 16×8. The production 8px expansion consumes
+    // its entire model proxy, so use a 1px buffer here to leave known context
+    // for the portable proposal/reopen contract tested below.
     let plan = try NativeRemovalGeneration.plan(
-      source: anchor, intent: mask, holeRadius: 1,
-      fringeRadius: 1)
+      source: anchor, intent: mask, holeRadius: 1, fringeRadius: 1)
     let request: [String: Any] = [
       "schema": 1,
       "source": try JSONSerialization.jsonObject(with: Data(anchor.utf8)),

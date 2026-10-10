@@ -77,7 +77,7 @@ final class RemovalCalibrationContextTests: XCTestCase {
   func testInvalidGeometryAndCancellationCannotPublishPixels() throws {
     let raw = try handle()
     for (x, width, height): (UInt32, UInt32, UInt32) in [
-      (0, 0, 1), (0, 1, 0), (0, 1025, 1), (.max, 1, 1), (15, 2, 1),
+      (0, 0, 1), (0, 1, 0), (0, 2049, 1), (.max, 1, 1), (15, 2, 1),
     ] {
       XCTAssertThrowsError(
         try RemovalBridge.calibrationContext(handle: raw, x: x, y: 0, width: width, height: height))

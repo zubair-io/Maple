@@ -35,7 +35,7 @@ public actor NativeSavedRemovalSession {
   ) throws -> [Float] {
     try Task.checkCancellation()
     try Self.requireCString(xmp)
-    guard let owner, width > 0, height > 0, width <= 1024, height <= 1024 else {
+    guard let owner, width > 0, height > 0, width <= 2048, height <= 2048 else {
       throw RemovalError.invalid("Saved removal context is unprepared or has invalid extent")
     }
     let count = Int(width) * Int(height) * 3

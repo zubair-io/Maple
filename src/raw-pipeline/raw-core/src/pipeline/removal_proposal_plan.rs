@@ -1,4 +1,4 @@
-//! Concrete native-1024 authoring plan (#3941 / #3943). No source resizing.
+//! Native-source authoring plan with a 2048-pixel context ceiling (#3941 / #3943).
 use crate::stages::removal_generation::GenerationMaskRequest;
 use crate::types::accepted_removal::{NativeWindow, SourceAnchor};
 
@@ -13,9 +13,9 @@ pub(super) fn context_axis(
         .saturating_add(length)
         .saturating_add(radius)
         .min(source);
-    let size = source.min(1024);
+    let size = source.min(2048);
     if high - low > size {
-        return Err("removal generation: selection and expansion exceed native context".into());
+        return Err("removal generation: selection and expansion exceed 2048 native pixels".into());
     }
     let centered = (low + (high - low) / 2).saturating_sub(size / 2);
     Ok((

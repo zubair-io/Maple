@@ -122,7 +122,8 @@ public final class GpuLiveDriver {
 
   /// The RAW path + decode quality for the Auto Profile fit (set on open).
   var autoProfileFitDone = false
-  var autoProfileFitTask: Task<Void, Never>?
+  var autoProfileFitOutcome: Bool?
+  var autoProfileFitTask: Task<Bool, Never>?
   var nativeAutoProfileID: UUID?
 
   /// The current film-look lattice (epic #2683, Task 10), if any — pushed by
@@ -297,6 +298,7 @@ public final class GpuLiveDriver {
     self.sessionDims = (width, height)
     self.uploadedIdentity = identity
     self.autoProfileFitDone = false
+    self.autoProfileFitOutcome = nil
     self.autoProfileFitTask = nil
     self.nativeAutoProfileID = nil
     self.inputShape = inputShape
@@ -323,12 +325,13 @@ public final class GpuLiveDriver {
     sessionDims = nil
     uploadedIdentity = nil
     autoProfileFitDone = false
+    autoProfileFitOutcome = nil
     autoProfileFitTask = nil
     nativeAutoProfileID = nil
     let previous = sessionTeardown
     sessionTeardown = Task {
       if let previous { await previous.value }
-      if let fit { await fit.value }
+      if let fit { _ = await fit.value }
       if let old { await old.close() }
       if let preparation, let prepared = try? await preparation.value {
         await prepared.close()

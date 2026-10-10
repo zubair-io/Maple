@@ -265,7 +265,8 @@ extension EditSession {
           applyCrop ? CropImageStage.apply(crop, to: cached, nativeSize: cropNativeSize) : cached
         if await presentViaGpuLive(
           decoded: gpuCached, targetSize: gpuTarget, gen: gen,
-          decodeGeneration: snapshot.decodeGeneration, appliedCrop: appliedCrop,
+          decodeGeneration: snapshot.decodeGeneration, quality: snapshot.quality ?? .preview,
+          appliedCrop: appliedCrop,
           noiseProfile: cachedNoiseProfile, iso: cachedISO, whitesAnchorEv: snapshot.whitesAnchorEv,
           nrSamplingScale: snapshot.nrSamplingScale
         ) {
@@ -401,7 +402,8 @@ extension EditSession {
         let (freshISO, freshWbFrame) = (freshSnapshot.iso, freshSnapshot.wbFrame)
         if await presentViaGpuLive(
           decoded: gpuDecoded, targetSize: gpuTarget, gen: gen,
-          decodeGeneration: freshSnapshot.decodeGeneration, appliedCrop: appliedCrop,
+          decodeGeneration: freshSnapshot.decodeGeneration,
+          quality: freshSnapshot.quality ?? .preview, appliedCrop: appliedCrop,
           noiseProfile: freshNoiseProfile, iso: freshISO,
           whitesAnchorEv: freshSnapshot.whitesAnchorEv,
           nrSamplingScale: freshSnapshot.nrSamplingScale
