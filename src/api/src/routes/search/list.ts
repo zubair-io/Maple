@@ -43,6 +43,7 @@ import { SORT_OPTIONS } from './sort.ts';
 import { cursorFromDoc, encodeCursor } from './cursor.ts';
 import { libraryMaps } from './libraries.ts';
 import { meiliPage, usesPlaceText } from './list-meili.ts';
+import { inProcessPage } from './list-in-process.ts';
 import { resolvePaging } from './list-paging.ts';
 import { getCachedTotal } from './total-cache.ts';
 
@@ -116,24 +117,28 @@ export const listRoute = new Elysia().get(
       };
     }
 
-    // Phase 7: Meilisearch first when a placeQuery is present and the sidecar
-    // is configured; `null` means miss/not-configured/failed, and we fall
-    // through to the database's own full-text path (the source of truth).
-    const meili = await meiliPage({
-      where,
-      resolved,
-      libraryId: query.libraryId,
-      skip: paging.skip,
-      limit,
-    });
-    if (meili) {
+    // A placeQuery is ranked by the in-process engine when Settings → AI selects it, else by
+    // Meilisearch when the sidecar is configured; `null` from either means not selected,
+    // not configured or failed, and we fall through to the next, ending at the database's own
+    // full-text path (the source of truth).
+    const ranked =
+      (await inProcessPage({ where, resolved, skip: paging.skip, limit })) ??
+      (await meiliPage({
+        where,
+        resolved,
+        libraryId: query.libraryId,
+        skip: paging.skip,
+        limit,
+      }));
+    if (ranked) {
       return {
-        total: meili.total,
+        total: ranked.total,
         page,
         limit,
-        results: meili.results,
+        results: ranked.results,
         cursorPaging: false,
         nextCursor: null,
+        ...(ranked.rankedBy ? { rankedBy: ranked.rankedBy } : {}),
         ...withDates,
       };
     }

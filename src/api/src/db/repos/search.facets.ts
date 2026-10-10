@@ -108,6 +108,8 @@ export interface FacetOptions {
    * served but not cached.
    */
   ranking?: () => Promise<ExternalRanking | null>;
+  /** Which engine `ranking` asks, so switching engines never serves the other's cached answer. */
+  rankedBy?: string;
 }
 
 /**
@@ -333,7 +335,7 @@ export async function searchFacets(
   const wanted = options.ranking ? 'external' : 'database';
   const answer = await cachedFacets(
     db,
-    [where, topMatches, wanted],
+    [where, topMatches, wanted, options.rankedBy ?? null],
     () => computeFacets(db, where, options),
     Date.now(),
     (computed) => computed.ranking === wanted,

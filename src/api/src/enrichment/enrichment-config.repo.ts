@@ -283,6 +283,8 @@ export interface EnrichmentConfig {
   /** Ollama embedding model of the `embed` stage. `null`/missing → the semantic-search model
    * (`meilisearch_embedder_model`). */
   embedder_model?: string | null;
+  /** Which engine answers text searches (#4463). `null`/missing → `meilisearch`. */
+  search_engine?: 'meilisearch' | 'in-process' | null;
   /** Per-service-key request budget for the external asset-search endpoint.
    * DB-backed so operators can tune it at runtime from Settings → Workers. */
   service_search_rate_limit_per_minute?: number | null;
@@ -444,6 +446,7 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
   copyMeilisearchSemanticFields(set, remapped);
   if (remapped.embedder_url !== undefined) set['config.embedder_url'] = remapped.embedder_url;
   if (remapped.embedder_model !== undefined) set['config.embedder_model'] = remapped.embedder_model;
+  if (remapped.search_engine !== undefined) set['config.search_engine'] = remapped.search_engine;
   if (remapped.service_search_rate_limit_per_minute !== undefined) {
     set['config.service_search_rate_limit_per_minute'] =
       remapped.service_search_rate_limit_per_minute;

@@ -189,6 +189,25 @@ export async function searchByIds(
 }
 
 /**
+ * Which of `mapleIds` survive every filter of `where` but its text, in the order given — the
+ * in-process engine's candidates (#4463) narrowed before they are counted and paged.
+ */
+export async function mapleIdsMatching(
+  where: SearchWhere,
+  mapleIds: readonly string[],
+  dbOverride?: SqliteDb,
+): Promise<string[]> {
+  if (mapleIds.length === 0) return [];
+  const statement = mapleIdPageSql({ ...where, match: { kind: 'none' } }, mapleIds);
+  const rows = await assetsDb(dbOverride).read<{ maple_id: string | null }>(
+    statement.sql,
+    statement.params,
+  );
+  const surviving = new Set(rows.map((row) => row.maple_id));
+  return mapleIds.filter((id) => surviving.has(id));
+}
+
+/**
  * Fills a set of chosen `assets` rows out into documents.
  *
  * Three statements, all keyed on the ids the first query already decided on,
