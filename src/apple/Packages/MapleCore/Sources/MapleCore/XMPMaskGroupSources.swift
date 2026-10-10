@@ -135,14 +135,35 @@ enum XMPMaskGroupSources {
   }
 
   /// Whether a brush container the walker dropped (kept verbatim) holds a key.
+  /// Whether `source` is a `BrushCorrections` element in either papp
+  /// namespace, under `namespaces` plus its own declarations.
+  static func isBrushContainer(_ source: String, namespaces: [String: String]) -> Bool {
+    guard source.hasPrefix("<") else { return false }
+    let name = source.dropFirst().prefix { !$0.isWhitespace && $0 != ">" && $0 != "/" }
+    let parts = name.split(separator: ":", maxSplits: 1).map(String.init)
+    guard parts.count == 2, parts[1] == "BrushCorrections" else { return false }
+    let scoped = scope(namespaces, attributes: rootAttributes(source))
+    guard let uri = scoped[parts[0]] else { return false }
+    return pappNamespaces.contains(uri)
+  }
+
+  /// Whether a brush container kept verbatim holds a key: one the walker
+  /// dropped (by ordinal among literal `papp:BrushCorrections`), or one under
+  /// an aliased prefix, which the walker never models.
   static func hasVerbatimBrushKeys(_ xml: String, dropped: [Int]) -> Bool {
-    guard !dropped.isEmpty else { return false }
+    guard xml.contains("BrushCorrections") else { return false }
     let namespaces = SourceNamespaces.atFirstDescription(xml)
-    let brushes = XMPChildElementScanner.descriptionChildren(in: xml)
-      .filter { $0.qName == LocalAdjustmentXMP.brushContainer }
-    return dropped.contains { ordinal in
-      ordinal < brushes.count
-        && !layerOrderKeys(brushes[ordinal].source, namespaces: namespaces).isEmpty
+    let children = XMPChildElementScanner.descriptionChildren(in: xml)
+    let literal = children.filter { $0.qName == LocalAdjustmentXMP.brushContainer }
+    let droppedSources: [String] = dropped.filter { $0 < literal.count }.map {
+      literal[$0].source
+    }
+    let aliasedSources: [String] = children.filter {
+      $0.qName != LocalAdjustmentXMP.brushContainer
+        && isBrushContainer($0.source, namespaces: namespaces)
+    }.map(\.source)
+    return (droppedSources + aliasedSources).contains {
+      !layerOrderKeys($0, namespaces: namespaces).isEmpty
     }
   }
 
