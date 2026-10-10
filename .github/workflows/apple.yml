@@ -234,6 +234,8 @@ jobs:
           swift --version
           echo "build=$(xcodebuild -version | awk '/Build version/ {print $3}')" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install matching LLVM symbol reader
+        run: rustup component add llvm-tools-preview
       - name: Cache cbindgen binary
         id: cbindgen-cache
         uses: actions/cache@v4
@@ -277,10 +279,14 @@ jobs:
           # cbindgen leaves this iOS-only ORT declaration unguarded; match
           # build-xcframework.sh's macOS exclusion (M6 #1244).
           expected -= {'maple_pano_ort_selftest'}
-          # As in build-xcframework.sh, Apple nm can reject newer Rust std
-          # bitcode while still emitting native exports. Require every FFI
-          # symbol; the subsequent executable link validates the full archive.
-          symbols = subprocess.run(['xcrun', 'nm', '-arch', platform.machine(), '-gU', sys.argv[2]],
+          # Apple nm may lag the LLVM version that emitted Rust's archive.
+          # Use the matching reader shipped with this exact rustc toolchain.
+          sysroot = Path(subprocess.check_output(['rustc', '--print', 'sysroot'], text=True).strip())
+          host = subprocess.check_output(['rustc', '-vV'], text=True)
+          target = re.search(r'^host:\s*(\S+)$', host, re.MULTILINE).group(1)
+          llvm_nm = sysroot / 'lib' / 'rustlib' / target / 'bin' / 'llvm-nm'
+          arch = {'arm64': 'arm64', 'aarch64': 'arm64', 'x86_64': 'x86_64'}[platform.machine()]
+          symbols = subprocess.run([str(llvm_nm), f'--arch={arch}', '-gU', sys.argv[2]],
                                    capture_output=True, text=True)
           exported = set(re.findall(r'\b_(maple_[a-z0-9_]+)\b', symbols.stdout))
           missing = expected - exported
