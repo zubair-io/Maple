@@ -8,6 +8,7 @@
 //! `café` find each other.
 
 use crate::error::{Result, SearchError};
+use crate::score_floor::ScoreFloor;
 use crate::terms::TextQuery;
 use crate::vectors::ScoredId;
 use std::path::{Path, PathBuf};
@@ -16,18 +17,21 @@ use tantivy::collector::{DocSetCollector, TopDocs};
 use tantivy::directory::MmapDirectory;
 use tantivy::query::{BooleanQuery, Occur, PhraseQuery, Query, TermQuery};
 use tantivy::schema::{
-    Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST, STORED, STRING,
+    Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, FAST, STORED, STRING,
 };
 use tantivy::tokenizer::{
     AsciiFoldingFilter, Language, LowerCaser, RemoveLongFilter, SimpleTokenizer, Stemmer,
     TextAnalyzer,
 };
-use tantivy::{
-    doc, DocAddress, Index, IndexReader, IndexWriter, ReloadPolicy, Searcher, TantivyDocument, Term,
-};
+use tantivy::{doc, DocAddress, Index, IndexReader, IndexWriter, ReloadPolicy, Searcher, Term};
 
 const TOKENIZER: &str = "maple_en_folded";
 const MAX_TOKEN_BYTES: usize = 40;
+/// BM25 sums can differ in the last bits between Tantivy's pruned top-k pass
+/// and a full scoring pass, so the boundary is lowered by this relative margin
+/// to be sure every hit tied with it is collected; the final sort and cut use
+/// the full pass's scores alone.
+const BOUNDARY_TOLERANCE: f32 = 1e-5;
 const WRITER_MEMORY_BYTES: usize = 256 * 1024 * 1024;
 
 pub struct TextIndex {
@@ -179,19 +183,25 @@ impl TextIndex {
             }))
             .chain(self.excluded_clauses(excluded, Occur::MustNot))
             .collect();
+        let query = BooleanQuery::new(clauses);
         let searcher = self.reader.searcher();
-        let top = searcher.search(
-            &BooleanQuery::new(clauses),
-            &TopDocs::with_limit(limit).order_by_score(),
-        )?;
-        top.into_iter()
-            .map(|(score, address)| {
-                Ok(ScoredId {
-                    id: self.stored_id(&searcher, address)?,
-                    score,
-                })
-            })
-            .collect()
+        let top = searcher.search(&query, &TopDocs::with_limit(limit).order_by_score())?;
+        let hits = match top.get(limit - 1) {
+            Some(&(boundary, _)) => searcher.search(
+                &query,
+                &ScoreFloor(boundary - boundary.abs() * BOUNDARY_TOLERANCE),
+            )?,
+            None => top,
+        };
+        let ids = self.ids_of(&searcher, hits.iter().map(|&(_, address)| address))?;
+        let mut scored: Vec<ScoredId> = hits
+            .into_iter()
+            .zip(ids)
+            .map(|((score, _), id)| ScoredId { id, score })
+            .collect();
+        scored.sort_by(|a, b| b.score.total_cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
+        scored.truncate(limit);
+        Ok(scored)
     }
 
     /// Every id whose text contains any of the `excluded` terms or phrases,
@@ -203,12 +213,22 @@ impl TextIndex {
         }
         let searcher = self.reader.searcher();
         let docs = searcher.search(&BooleanQuery::new(exclusions), &DocSetCollector)?;
+        self.ids_of(&searcher, docs)
+    }
+
+    /// The ids of `addresses`, in order, from the id fast field.
+    fn ids_of(
+        &self,
+        searcher: &Searcher,
+        addresses: impl IntoIterator<Item = DocAddress>,
+    ) -> Result<Vec<String>> {
         let columns = searcher
             .segment_readers()
             .iter()
             .map(|segment| segment.fast_fields().str("id"))
             .collect::<tantivy::Result<Vec<_>>>()?;
-        docs.into_iter()
+        addresses
+            .into_iter()
             .map(|address| {
                 let mut id = String::new();
                 let found = columns[address.segment_ord as usize]
@@ -252,15 +272,6 @@ impl TextIndex {
             ))),
             _ => Some(Box::new(PhraseQuery::new(terms))),
         }
-    }
-
-    fn stored_id(&self, searcher: &Searcher, address: DocAddress) -> Result<String> {
-        let document: TantivyDocument = searcher.doc(address)?;
-        document
-            .get_first(self.id)
-            .and_then(|value| value.as_str())
-            .map(str::to_owned)
-            .ok_or_else(|| self.error(format!("document {address:?} has no stored id")))
     }
 
     fn error(&self, message: String) -> SearchError {
