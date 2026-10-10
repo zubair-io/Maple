@@ -43,8 +43,14 @@ async function facetRanking(query: SearchQuery, where: SearchWhere): Promise<Fac
   if ((await selectedSearchEngine()) !== 'in-process') return { ranking: meili };
   const inProcess = inProcessFacetRanking(query, where);
   if (!inProcess) return { ranking: meili };
-  const ranking = async (): Promise<ExternalRanking | null> =>
-    (await inProcess()) ?? (meili ? await meili() : null);
+  const fallback = async (): Promise<ExternalRanking | null> => {
+    const answer = meili ? await meili() : null;
+    return answer && { ...answer, rankedBy: 'meilisearch' };
+  };
+  const ranking = async (): Promise<ExternalRanking | null> => {
+    const answer = await inProcess();
+    return answer ? { ...answer, rankedBy: 'in-process' } : fallback();
+  };
   return { ranking, rankedBy: 'in-process' };
 }
 

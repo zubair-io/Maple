@@ -95,6 +95,8 @@ export const FACET_TOP_MATCHES = 2_000;
 export interface ExternalRanking {
   mapleIds: readonly string[];
   total: number;
+  /** Which engine produced these ids, when the caller distinguishes several. */
+  rankedBy?: string;
 }
 
 /** How a text search's facets choose the matches they describe. */
@@ -108,7 +110,10 @@ export interface FacetOptions {
    * served but not cached.
    */
   ranking?: () => Promise<ExternalRanking | null>;
-  /** Which engine `ranking` asks, so switching engines never serves the other's cached answer. */
+  /**
+   * The engine the caller selected. An answer is cached only when that engine is the one that
+   * ranked it, so a fallback ranking never stands in for the selected engine's after it recovers.
+   */
   rankedBy?: string;
 }
 
@@ -206,6 +211,7 @@ interface FacetAnswer {
   rows: Record<FacetName, SqlRow[]>;
   scope: FacetScope;
   ranking: 'external' | 'database';
+  rankedBy?: string;
 }
 
 /**
@@ -292,6 +298,7 @@ async function externallyRankedRows(
       ? { kind: 'top', limit: ranking.mapleIds.length, of: ranking.total }
       : { kind: 'all' },
     ranking: 'external',
+    rankedBy: ranking.rankedBy,
   };
 }
 
@@ -338,7 +345,7 @@ export async function searchFacets(
     [where, topMatches, wanted, options.rankedBy ?? null],
     () => computeFacets(db, where, options),
     Date.now(),
-    (computed) => computed.ranking === wanted,
+    (computed) => computed.ranking === wanted && computed.rankedBy === options.rankedBy,
   );
   return answer.facets;
 }
@@ -348,8 +355,8 @@ async function computeFacets(
   db: SqliteDb,
   where: SearchWhere,
   options: FacetOptions,
-): Promise<{ facets: SearchFacets; ranking: FacetAnswer['ranking'] }> {
-  const { rows, scope, ranking } = await facetRows(db, where, options);
+): Promise<{ facets: SearchFacets } & Pick<FacetAnswer, 'ranking' | 'rankedBy'>> {
+  const { rows, scope, ranking, rankedBy } = await facetRows(db, where, options);
   const as = <T>(name: FacetName): T[] => rows[name] as unknown as T[];
 
   const screenshot = as<{ bucket: number; count: number }>('is_screenshot');
@@ -383,5 +390,5 @@ async function computeFacets(
       .map((row) => ({ id: row.id, count: row.count })),
     scope,
   };
-  return { facets, ranking };
+  return { facets, ranking, rankedBy };
 }
