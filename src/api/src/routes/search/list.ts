@@ -26,24 +26,16 @@
  */
 
 import { Elysia } from 'elysia';
-import { buildSearchWhere, searchPage } from '../../db/repos/search.repo.ts';
-import { personIdsToDrop } from '../../people/people.repo.ts';
-import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
+import { searchPage } from '../../db/repos/search.repo.ts';
 import { projectAssets } from './project.ts';
-import {
-  clampInt,
-  extractDatesFromQuery,
-  peopleNames,
-  SEARCH_SCOPES,
-  SearchQueryT,
-  type SearchQuery,
-} from './query.ts';
+import { clampInt, SEARCH_SCOPES, SearchQueryT, type SearchQuery } from './query.ts';
 import { appliedDateFilter } from './date-provenance.ts';
 import { SORT_OPTIONS } from './sort.ts';
 import { cursorFromDoc, encodeCursor } from './cursor.ts';
 import { libraryMaps } from './libraries.ts';
 import { meiliPage, usesPlaceText } from './list-meili.ts';
 import { inProcessPage } from './list-in-process.ts';
+import { resolveRankedScope } from './scope.ts';
 import { resolvePaging } from './list-paging.ts';
 import { getCachedTotal } from './total-cache.ts';
 
@@ -57,23 +49,15 @@ export const listRoute = new Elysia().get(
     // One `now` for both calls: the extraction and its provenance must not
     // disagree across a midnight boundary.
     const now = new Date();
-    const resolved = extractDatesFromQuery(query as SearchQuery, now);
+    const scope = await resolveRankedScope(query as SearchQuery, now);
+    if ('error' in scope) {
+      set.status = 400;
+      return { error: scope.error };
+    }
+    const { resolved, where, childQuery } = scope;
     // What the client shows so an inferred window is never invisible (#2956).
     const dateFilter = appliedDateFilter(resolved, query as SearchQuery, now);
     const withDates = dateFilter === undefined ? {} : { dateFilter };
-    // Excluded people (#2894) drop unconditionally; hidden people only when
-    // the request opted in (see `personIdsToDrop`).
-    const dropIds = await personIdsToDrop(resolved.excludeHiddenPeople);
-    // The `people` param carries display names; the face clause needs the
-    // person ids faces are tagged with. Resolution is async, so it happens
-    // here and `buildSearchWhere` stays pure (same contract as `dropIds`).
-    const peopleIds = await personIdsForNames(peopleNames(resolved.people));
-    const whereOrError = buildSearchWhere(resolved, dropIds, peopleIds);
-    if ('error' in whereOrError) {
-      set.status = 400;
-      return { error: whereOrError.error };
-    }
-    const where = whereOrError;
 
     // 10_000 mirrors `limit`'s ceiling below in spirit — a sane cap rather
     // than `Number.MAX_SAFE_INTEGER`, which let `skip = page * limit` blow up
@@ -122,7 +106,7 @@ export const listRoute = new Elysia().get(
     // not configured or failed, and we fall through to the next, ending at the database's own
     // full-text path (the source of truth).
     const ranked =
-      (await inProcessPage({ where, resolved, skip: paging.skip, limit })) ??
+      (await inProcessPage({ where, childQuery, skip: paging.skip, limit })) ??
       (await meiliPage({
         where,
         resolved,

@@ -29,10 +29,34 @@ beforeEach(async () => {
   live = await createLiveTestDatabase();
   const libraryId = insertFolder(live.db, { slug: 'in-process', path: '/lib' });
   const assets: Array<[string, Parameters<typeof seedSearchAsset>[2]]> = [
-    ['dunes', { rating: 5, cameraMake: 'Canon', searchBlob: 'sand dunes' }],
-    ['harbour', { rating: 1, cameraMake: 'Canon', searchBlob: 'greyson harbour' }],
+    [
+      'dunes',
+      {
+        rating: 5,
+        cameraMake: 'Canon',
+        searchBlob: 'sand dunes',
+        capturedAt: '2023-05-01T12:00:00.000Z',
+      },
+    ],
+    [
+      'harbour',
+      {
+        rating: 1,
+        cameraMake: 'Canon',
+        searchBlob: 'greyson harbour',
+        capturedAt: '2023-08-01T12:00:00.000Z',
+      },
+    ],
     ['hidden', { rating: 5, hidden: true, cameraMake: 'Canon', searchBlob: 'greyson hidden' }],
-    ['meadow', { rating: 5, cameraMake: 'SONY', searchBlob: 'quiet meadow' }],
+    [
+      'meadow',
+      {
+        rating: 5,
+        cameraMake: 'SONY',
+        searchBlob: 'quiet meadow',
+        capturedAt: '2024-06-01T12:00:00.000Z',
+      },
+    ],
     ['trashed', { rating: 5, deletedAt: '2026-01-01T00:00:00.000Z', searchBlob: 'greyson' }],
   ];
   for (const [mapleId, seed] of assets) {
@@ -150,6 +174,20 @@ describe('GET /api/search/facets with the in-process engine', () => {
       ['Canon', 2],
       ['SONY', 1],
     ]);
+  });
+
+  it('applies a natural-language date window to the candidates, as the list does', async () => {
+    const engine = fakeInProcessSearch(RANKED);
+    setInProcessSearchForTests(engine);
+
+    const facetBody = await facets('placeQuery=greyson%20in%202023');
+    const listBody = await list('placeQuery=greyson%20in%202023');
+
+    expect(engine.queries.map((query) => query.query)).toEqual(['greyson in', 'greyson in']);
+    expect(facetBody.total).toBe(2);
+    expect(facetBody.cameras.map((row) => [row.make, row.count])).toEqual([['Canon', 2]]);
+    expect(filenames(listBody)).toEqual(['dunes.dng', 'harbour.dng']);
+    expect(listBody.total).toBe(2);
   });
 
   it('never caches the Meilisearch stand-in for the in-process ranking', async () => {

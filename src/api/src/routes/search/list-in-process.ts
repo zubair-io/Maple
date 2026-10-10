@@ -16,15 +16,23 @@
 import { mapleIdsMatching, searchByMapleIds } from '../../db/repos/search.repo.ts';
 import { inProcessRanking } from '../../search/search-engine-selection.ts';
 import { libraryMaps } from './libraries.ts';
-import { usesPlaceText, type MeiliPage, type MeiliPageInput } from './list-meili.ts';
+import type { MeiliPage } from './list-meili.ts';
+import type { SearchWhere } from '../../db/repos/search.where.ts';
 import { projectAssets } from './project.ts';
 
-export async function inProcessPage(
-  input: Omit<MeiliPageInput, 'libraryId'>,
-): Promise<MeiliPage | null> {
-  const { where, resolved, skip, limit } = input;
-  if (!usesPlaceText(resolved)) return null;
-  const hits = await inProcessRanking(resolved.placeQuery!.trim());
+export interface InProcessPageInput {
+  /** Every filter of the date-resolved request (see `resolveRankedScope`). */
+  where: SearchWhere;
+  /** The residual free text the child ranks; null when there is none. */
+  childQuery: string | null;
+  skip: number;
+  limit: number;
+}
+
+export async function inProcessPage(input: InProcessPageInput): Promise<MeiliPage | null> {
+  const { where, childQuery, skip, limit } = input;
+  if (childQuery === null) return null;
+  const hits = await inProcessRanking(childQuery);
   if (!hits) return null;
   const ranked = await mapleIdsMatching(
     where,
