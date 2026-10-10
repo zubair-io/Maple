@@ -43,8 +43,6 @@ extension EditSession {
     if cameraSupport?.resolution == .rawlerFallback {
       return ImageEditPipeline.AsShotWB(temperature: 6500.0, tint: 0.0)
     }
-    guard let cct = asShotCCT, let t = asShotTint else { return nil }
-    return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
     return nil
   }
 

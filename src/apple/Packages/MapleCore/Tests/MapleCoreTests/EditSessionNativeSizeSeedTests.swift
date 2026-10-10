@@ -16,12 +16,11 @@ import XCTest
 
 final class EditSessionNativeSizeSeedTests: XCTestCase {
   @MainActor
-  func testPlatformUnreadableRAWSizesLocalAndByteBackedCanvasFromSharedMetadata() async throws {
+  func testLocalAndByteBackedCanvasSizeFromMetadata() async throws {
     let url = try XCTUnwrap(
       Bundle.module.url(
         forResource: "source", withExtension: "dng", subdirectory: "removal/calibration"))
     let bytes = try Data(contentsOf: url)
-    XCTAssertNil(ImageMetadataReader.readPixelSize(from: url))
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }

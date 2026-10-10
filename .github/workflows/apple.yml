@@ -312,6 +312,12 @@ jobs:
           cp -R src/apple/MapleUITests/Fixtures/synthetic "$MAPLE_SWIFT_TEST_ROOT/MapleUITests/Fixtures/"
           mkdir -p "$MAPLE_SWIFT_TEST_ROOT/test-fixtures"
           cp -R test-fixtures/local-adjustments "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
+          cp -R test-fixtures/removal "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
+          # AutoProfileCanvasParityTests.fixtureDir walks six parents from
+          # the staged Swift package, so removal fixtures also live beside
+          # MAPLE_SWIFT_TEST_ROOT for its existing repo-root lookup.
+          mkdir -p "$MAPLE_SWIFT_TEST_ROOT/../test-fixtures"
+          cp -R test-fixtures/removal "$MAPLE_SWIFT_TEST_ROOT/../test-fixtures/"
           cp -R test-fixtures/workflow "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           cp -R test-fixtures/export-recipes "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           cp -R test-fixtures/file-operations "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
