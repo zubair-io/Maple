@@ -26,6 +26,8 @@
  */
 
 import type { XmpMetadataInput } from './metadata-input.ts';
+import { adobeLabelColor } from './color-label.ts';
+import { parseXmpMetadata } from './metadata-parser.ts';
 
 // ---------------------------------------------------------------------------
 // Encode helpers (copied from xmp-metadata.ts — pure math, no browser deps)
@@ -152,6 +154,21 @@ const NS_MAP: Record<string, string> = {
 // Attribute builder
 // ---------------------------------------------------------------------------
 
+const TEXT_ATTRS = [
+  ['dateTimeOriginal', 'exif:DateTimeOriginal'],
+  ['timeZone', 'papp:TimeZone'],
+  ['sublocation', 'Iptc4xmpCore:Location'],
+  ['city', 'photoshop:City'],
+  ['state', 'photoshop:State'],
+  ['country', 'photoshop:Country'],
+  ['countryCode', 'Iptc4xmpCore:CountryCode'],
+  ['headline', 'photoshop:Headline'],
+  ['instructions', 'photoshop:Instructions'],
+  ['creatorJobTitle', 'photoshop:AuthorsPosition'],
+  ['credit', 'photoshop:Credit'],
+  ['source', 'photoshop:Source'],
+] as const satisfies readonly (readonly [keyof XmpMetadataInput, string])[];
+
 function buildMetadataAttrParts(m: XmpMetadataInput): string[] {
   const parts: string[] = [];
   const push = (key: string, value: string) => parts.push(`${key}="${escapeAttr(value)}"`);
@@ -163,21 +180,20 @@ function buildMetadataAttrParts(m: XmpMetadataInput): string[] {
     push('exif:GPSAltitude', alt.value);
     push('exif:GPSAltitudeRef', alt.ref);
   }
-  if (m.dateTimeOriginal) push('exif:DateTimeOriginal', m.dateTimeOriginal);
-  if (m.timeZone) push('papp:TimeZone', m.timeZone);
-  if (m.sublocation) push('Iptc4xmpCore:Location', m.sublocation);
-  if (m.city) push('photoshop:City', m.city);
-  if (m.state) push('photoshop:State', m.state);
-  if (m.country) push('photoshop:Country', m.country);
-  if (m.countryCode) push('Iptc4xmpCore:CountryCode', m.countryCode);
-  if (m.headline) push('photoshop:Headline', m.headline);
-  if (m.instructions) push('photoshop:Instructions', m.instructions);
-  if (m.creatorJobTitle) push('photoshop:AuthorsPosition', m.creatorJobTitle);
-  if (m.credit) push('photoshop:Credit', m.credit);
-  if (m.source) push('photoshop:Source', m.source);
+  for (const [field, key] of TEXT_ATTRS) {
+    const value = m[field];
+    if (value) push(key, value);
+  }
   if (m.copyrightStatus === 'copyrighted') push('xmpRights:Marked', 'True');
   else if (m.copyrightStatus === 'public-domain') push('xmpRights:Marked', 'False');
-  // Culling. Rating is rounded and must land in the readable 1–5 range — a value
+  parts.push(...buildCullingAttrParts(m));
+  return parts;
+}
+
+function buildCullingAttrParts(m: XmpMetadataInput): string[] {
+  const parts: string[] = [];
+  const push = (key: string, value: string) => parts.push(`${key}="${escapeAttr(value)}"`);
+  // Rating is rounded and must land in the readable 1–5 range — a value
   // outside 0–5 (e.g. from a non-route caller; the batch route already 422s
   // these) is ignored rather than written as an attr the 1–5 parser can't read
   // back. 0 means cleared, so it emits nothing.
@@ -331,6 +347,8 @@ function applyMerge(xml: string, meta: XmpMetadataInput): string {
     if (field in meta) touchedTags.add(tag);
   }
 
+  if (contradictsAuthoredAdobeLabel(xml, meta)) touchedAttrKeys.add('xmp:Label');
+
   // 1. Remove ONLY the touched managed attribute keys from rdf:Description.
   let result = xml;
   for (const key of touchedAttrKeys) {
@@ -388,6 +406,18 @@ function applyMerge(xml: string, meta: XmpMetadataInput): string {
   }
 
   return result;
+}
+
+/**
+ * `xmp:Label` belongs to the author (#4403, docs/xmp-canonical-format.md § Culling fields):
+ * it is dropped only when this edit changes the colour label and the authored word is one
+ * of Adobe's six colours, which would otherwise contradict the new `papp:ColorLabel`.
+ */
+function contradictsAuthoredAdobeLabel(xml: string, meta: XmpMetadataInput): boolean {
+  if (!('colorLabel' in meta)) return false;
+  const authoredWord = /\sxmp:Label="([^"]*)"/.exec(xml)?.[1];
+  if (authoredWord === undefined || adobeLabelColor(authoredWord) === undefined) return false;
+  return (meta.colorLabel || null) !== (parseXmpMetadata(xml).colorLabel ?? null);
 }
 
 /** Find the position of the closing `>` of the `<rdf:Description …>` opening tag. */
