@@ -1,0 +1,4 @@
+# Source/model SHA-256 checksums in removal qualification manifests, not credentials.
+e94d71ba9daa76262bb2527c72deb6401a66cf27:test-fixtures/qualification/removal-person-joint-instance-20261004-3941.json:generic-api-key:18
+e94d71ba9daa76262bb2527c72deb6401a66cf27:test-fixtures/qualification/removal-person-joint-instance-20261004-3941.json:generic-api-key:28
+cd52957b048c0903da9858090d9b181c074d7b56:test-fixtures/qualification/removal-server-authoring-3984.json:generic-api-key:12
