@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { AuthService, AuthUser } from './auth.service';
+import { expectRequestAfterWebLock } from './auth-test-helpers';
 
 describe('AuthService.refresh', () => {
   let auth: AuthService;
@@ -22,17 +23,41 @@ describe('AuthService.refresh', () => {
 
   it('on success stores the access token and reports `refreshed`', async () => {
     const p = auth.refresh();
-    ctrl.expectOne('/api/auth/refresh').flush({ access_token: 'AT1' });
+    (await expectRequestAfterWebLock(ctrl, '/api/auth/refresh')).flush({ access_token: 'AT1' });
     expect(await p).toBe('refreshed');
     expect(auth.bearer).toBe('AT1');
+  });
+
+  it('waits for a refresh scheduled through the Web Locks API', async () => {
+    const originalLocks = Object.getOwnPropertyDescriptor(navigator, 'locks');
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: (_name: string, callback: () => Promise<unknown>) =>
+          Promise.resolve().then(callback),
+      },
+    });
+
+    try {
+      const refresh = auth.refresh();
+      (await expectRequestAfterWebLock(ctrl, '/api/auth/refresh')).flush({
+        access_token: 'LOCKED',
+      });
+      expect(await refresh).toBe('refreshed');
+      expect(auth.bearer).toBe('LOCKED');
+    } finally {
+      if (originalLocks) Object.defineProperty(navigator, 'locks', originalLocks);
+      else Reflect.deleteProperty(navigator, 'locks');
+    }
   });
 
   it('treats a 401 as a genuine rejection and clears the session', async () => {
     auth.user.set(signedInUser);
     const p = auth.refresh();
-    ctrl
-      .expectOne('/api/auth/refresh')
-      .flush({ error: 'no refresh token' }, { status: 401, statusText: 'Unauth' });
+    (await expectRequestAfterWebLock(ctrl, '/api/auth/refresh')).flush(
+      { error: 'no refresh token' },
+      { status: 401, statusText: 'Unauth' },
+    );
     expect(await p).toBe('rejected');
     expect(auth.user()).toBeNull();
     expect(auth.bearer).toBeNull();
@@ -40,7 +65,10 @@ describe('AuthService.refresh', () => {
 
   it('stops background renewals after rejection until a new sign-in', async () => {
     const hydration = auth.refresh();
-    ctrl.expectOne('/api/auth/refresh').flush({}, { status: 401, statusText: 'Unauthorized' });
+    (await expectRequestAfterWebLock(ctrl, '/api/auth/refresh')).flush(
+      {},
+      { status: 401, statusText: 'Unauthorized' },
+    );
     expect(await hydration).toBe('rejected');
     for (let i = 0; i < 12; i++) expect(await auth.refresh()).toBe('rejected');
     ctrl.expectNone('/api/auth/refresh');
@@ -49,7 +77,7 @@ describe('AuthService.refresh', () => {
     ctrl.expectOne('/api/auth/dev-login').flush({ access_token: 'LOGIN', user: signedInUser });
     await login;
     const renewal = auth.refresh();
-    ctrl.expectOne('/api/auth/refresh').flush({ access_token: 'NEW' });
+    (await expectRequestAfterWebLock(ctrl, '/api/auth/refresh')).flush({ access_token: 'NEW' });
     expect(await renewal).toBe('refreshed');
     expect(auth.bearer).toBe('NEW');
   });
@@ -57,9 +85,10 @@ describe('AuthService.refresh', () => {
   it('treats a 5xx as transient and PRESERVES the session', async () => {
     auth.user.set(signedInUser);
     const p = auth.refresh();
-    ctrl
-      .expectOne('/api/auth/refresh')
-      .flush({ error: 'boom' }, { status: 503, statusText: 'Unavailable' });
+    (await expectRequestAfterWebLock(ctrl, '/api/auth/refresh')).flush(
+      { error: 'boom' },
+      { status: 503, statusText: 'Unavailable' },
+    );
     expect(await p).toBe('transient');
     expect(auth.user()).toEqual(signedInUser); // still signed in
   });
@@ -67,7 +96,7 @@ describe('AuthService.refresh', () => {
   it('treats a network error (status 0) as transient and PRESERVES the session', async () => {
     auth.user.set(signedInUser);
     const p = auth.refresh();
-    ctrl.expectOne('/api/auth/refresh').error(new ProgressEvent('error'));
+    (await expectRequestAfterWebLock(ctrl, '/api/auth/refresh')).error(new ProgressEvent('error'));
     expect(await p).toBe('transient');
     expect(auth.user()).toEqual(signedInUser);
   });
@@ -75,9 +104,10 @@ describe('AuthService.refresh', () => {
   it('treats a 429 rate-limit as transient and PRESERVES the session', async () => {
     auth.user.set(signedInUser);
     const p = auth.refresh();
-    ctrl
-      .expectOne('/api/auth/refresh')
-      .flush({ error: 'rate limited' }, { status: 429, statusText: 'Too Many' });
+    (await expectRequestAfterWebLock(ctrl, '/api/auth/refresh')).flush(
+      { error: 'rate limited' },
+      { status: 429, statusText: 'Too Many' },
+    );
     expect(await p).toBe('transient');
     expect(auth.user()).toEqual(signedInUser);
   });
@@ -86,7 +116,7 @@ describe('AuthService.refresh', () => {
     const a = auth.refresh();
     const b = auth.refresh();
     // Only one HTTP request is issued despite two callers.
-    ctrl.expectOne('/api/auth/refresh').flush({ access_token: 'AT2' });
+    (await expectRequestAfterWebLock(ctrl, '/api/auth/refresh')).flush({ access_token: 'AT2' });
     expect(await a).toBe('refreshed');
     expect(await b).toBe('refreshed');
   });
