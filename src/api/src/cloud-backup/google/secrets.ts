@@ -23,8 +23,7 @@ export async function seal(value: unknown, binding: string): Promise<string> {
 
 export async function unseal<T>(value: string, binding: string): Promise<T> {
   const bytes = Buffer.from(value, 'base64url');
-  if (bytes.length < 29)
-    throw new GoogleConnectionError(RECOVERY_ERROR.credentialsUnavailable);
+  if (bytes.length < 29) throw new GoogleConnectionError(RECOVERY_ERROR.credentialsUnavailable);
   try {
     const cipher = createDecipheriv('aes-256-gcm', await key(), bytes.subarray(0, 12));
     cipher.setAAD(Buffer.from(binding));

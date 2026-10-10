@@ -67,8 +67,7 @@ async function verifyScopes(
       'Content-Type': 'application/x-www-form-urlencoded',
     },
   });
-  if (!metadata.ok)
-    throw new GoogleConnectionError(RECOVERY_ERROR.tokenVerificationFailed);
+  if (!metadata.ok) throw new GoogleConnectionError(RECOVERY_ERROR.tokenVerificationFailed);
   const info = (await metadata.json()) as {
     aud?: string;
     azp?: string;
@@ -356,9 +355,7 @@ export async function googleAccessToken(
 function renewTokens(connection: Connection, transport: GoogleFetch) {
   if (connection.config.clientMode === 'maple') {
     if (!connection.config.relayGrant)
-      throw new GoogleReconnectRequired(
-        RECOVERY_ERROR.mapleAuthorizationUnavailable,
-      );
+      throw new GoogleReconnectRequired(RECOVERY_ERROR.mapleAuthorizationUnavailable);
     return managedTokens(
       'refresh',
       {

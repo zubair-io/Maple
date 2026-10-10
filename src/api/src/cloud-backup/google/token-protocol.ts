@@ -36,9 +36,7 @@ function parseTokens(body: Record<string, unknown>) {
     body.expires_in <= 0 ||
     body.token_type !== 'Bearer'
   )
-    throw new GoogleConnectionError(
-      RECOVERY_ERROR.unusableAccessToken,
-    );
+    throw new GoogleConnectionError(RECOVERY_ERROR.unusableAccessToken);
   return {
     accessToken: body.access_token as string,
     expiresIn: body.expires_in,

@@ -48,9 +48,6 @@ export async function managedTokens(
     );
   });
   const tokens = await tokenResponse(response, true);
-  if (!tokens.relayGrant)
-    throw new GoogleConnectionError(
-      RECOVERY_ERROR.renewableGrantUnavailable,
-    );
+  if (!tokens.relayGrant) throw new GoogleConnectionError(RECOVERY_ERROR.renewableGrantUnavailable);
   return tokens;
 }

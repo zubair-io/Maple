@@ -83,14 +83,20 @@ test('working Google Drive clears stale authorization errors but keeps unrelated
   for (const [ordinal, error] of GOOGLE_CONNECTION_RECOVERY_ERROR_MESSAGES.entries()) {
     const staleAssetId = insertAsset(live.db);
     const entry = await repo.ensureEntry(destination.id, staleAssetId, 0, `stale-${ordinal}.dng`);
-    await repo.db.write(
-      'UPDATE backup_entries SET last_error=?,attempts=4,retry_at=? WHERE id=?',
-      [error, Date.now() + 60_000, entry.id],
-    );
+    await repo.db.write('UPDATE backup_entries SET last_error=?,attempts=4,retry_at=? WHERE id=?', [
+      error,
+      Date.now() + 60_000,
+      entry.id,
+    ]);
     staleEntries.push(entry);
   }
   const integrityAssetId = insertAsset(live.db);
-  const integrityEntry = await repo.ensureEntry(destination.id, integrityAssetId, 0, 'integrity.dng');
+  const integrityEntry = await repo.ensureEntry(
+    destination.id,
+    integrityAssetId,
+    0,
+    'integrity.dng',
+  );
   await repo.db.write('UPDATE backup_entries SET last_error=? WHERE id=?', [
     'Google object failed identity or integrity validation.',
     integrityEntry.id,
@@ -117,7 +123,13 @@ test('working Google Drive clears stale authorization errors but keeps unrelated
   const leaseUntil = Date.now() + 120_000;
   await repo.db.write(
     'UPDATE backup_entries SET last_error=?,lease_owner=?,lease_until=?,retry_at=? WHERE id=?',
-    [GOOGLE_CONNECTION_RECOVERY_ERROR_MESSAGES[0], 'active-worker', leaseUntil, leaseUntil, leasedEntry.id],
+    [
+      GOOGLE_CONNECTION_RECOVERY_ERROR_MESSAGES[0],
+      'active-worker',
+      leaseUntil,
+      leaseUntil,
+      leasedEntry.id,
+    ],
   );
   await repo.clearResolvedGoogleConnectionErrors(destination.id);
   expect((await repo.entries(destination.id, leasedAssetId))[0]).toMatchObject({
