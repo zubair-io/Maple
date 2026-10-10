@@ -189,8 +189,9 @@ fn retained_mask_carriers_refresh_without_reallocating_same_shape() {
         None,
         0,
         0.0,
-        1,
+        6,
     );
+    assert_eq!(inputs.mask_orientation, 6);
     let identities = (
         inputs.local_adjustments.as_ptr(),
         inputs.mask_rasters.as_ptr(),
@@ -214,6 +215,10 @@ fn retained_mask_carriers_refresh_without_reallocating_same_shape() {
         crate::types::layers_to_flat(&edited.local_adjustments)
     );
     assert_eq!(inputs.mask_rasters[0].data, vec![0.75, 0.5]);
+    assert_eq!(
+        inputs.mask_orientation, 6,
+        "same image keeps its orientation"
+    );
     update_chain_inputs(&AdjustmentModel::default(), &mut inputs);
     assert!(inputs.local_adjustments.is_empty());
     assert!(inputs.mask_rasters.is_empty());

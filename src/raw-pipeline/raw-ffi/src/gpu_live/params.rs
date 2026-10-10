@@ -390,6 +390,7 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         // Defringe (#3411) — resolved through raw-core's own predicate by
         // `model::gpu_defringe_inputs`, so the GPU-live gate can never
         // disagree with the CPU chain about whether the stage is engaged.
+        // Apple and Windows upload an already EXIF-oriented decode.
         mask_orientation: 1,
         defringe: crate::model::gpu_defringe_inputs(p),
         contrast: p.contrast,

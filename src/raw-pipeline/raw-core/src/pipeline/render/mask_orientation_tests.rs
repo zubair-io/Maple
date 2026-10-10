@@ -12,7 +12,8 @@ use super::*;
 use crate::image::{apply_orientation, CfaPattern, ExifOrientation};
 use crate::test_support::synth_dng::SyntheticGreyDng;
 use crate::types::{
-    BitmapRecipe, BrushDab, Crop, LocalAdjustment, Mask, MaskRaster, PartialAdjustments, Point2,
+    BitmapRecipe, BrushDab, Crop, LocalAdjustment, Mask, MaskCombine, MaskComponent, MaskGroup,
+    MaskRaster, PartialAdjustments, Point2,
 };
 use crate::view::encode::TargetPrimaries;
 use crate::xmp::{AutoExposureMode, HighlightRecoveryMode};
@@ -99,7 +100,36 @@ fn mask_cases() -> Vec<(&'static str, AdjustmentModel)> {
         mask_rasters: rasters,
         ..base.clone()
     };
+    let group = Mask::Group(MaskGroup {
+        components: vec![
+            MaskComponent::new(
+                Mask::Radial {
+                    center: Point2::new(0.3, 0.3),
+                    radii: Point2::new(0.35, 0.25),
+                    angle: 0.4,
+                    feather: 0.5,
+                    invert: false,
+                },
+                MaskCombine::Add,
+                false,
+            )
+            .unwrap(),
+            MaskComponent::new(
+                Mask::Linear {
+                    start: Point2::new(0.1, 0.2),
+                    end: Point2::new(0.6, 0.5),
+                    feather: 0.4,
+                },
+                MaskCombine::Subtract,
+                false,
+            )
+            .unwrap(),
+        ],
+        opacity: 1.0,
+        invert: false,
+    });
     vec![
+        ("group", with(group, Vec::new())),
         (
             "linear",
             with(
@@ -241,4 +271,9 @@ fn bitmap_mask_lands_in_the_upright_frame_on_a_rotated_cropped_raw() {
 #[test]
 fn brush_mask_lands_in_the_upright_frame_on_a_rotated_cropped_raw() {
     assert_mask_follows_orientation("brush");
+}
+
+#[test]
+fn group_mask_lands_in_the_upright_frame_on_a_rotated_cropped_raw() {
+    assert_mask_follows_orientation("group");
 }
