@@ -5,7 +5,9 @@
 //! Text is analysed like the API's FTS5 table (`unicode61`, diacritics
 //! removed, porter stemming): split on non-alphanumerics, lowercased,
 //! ASCII-folded and stemmed, at index and query time alike, so `cafe` and
-//! `café` find each other.
+//! `café` find each other. Like `unicode61` there is no token length limit
+//! (the stock `en_stem` drops tokens over 40 bytes), so long filenames and
+//! OCR identifiers stay findable.
 
 use crate::error::{Result, SearchError};
 use crate::score_floor::ScoreFloor;
@@ -20,13 +22,11 @@ use tantivy::schema::{
     Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, FAST, STORED, STRING,
 };
 use tantivy::tokenizer::{
-    AsciiFoldingFilter, Language, LowerCaser, RemoveLongFilter, SimpleTokenizer, Stemmer,
-    TextAnalyzer,
+    AsciiFoldingFilter, Language, LowerCaser, SimpleTokenizer, Stemmer, TextAnalyzer,
 };
 use tantivy::{doc, DocAddress, Index, IndexReader, IndexWriter, ReloadPolicy, Searcher, Term};
 
 const TOKENIZER: &str = "maple_en_folded";
-const MAX_TOKEN_BYTES: usize = 40;
 /// BM25 sums can differ in the last bits between Tantivy's pruned top-k pass
 /// and a full scoring pass, so the boundary is lowered by this relative margin
 /// to be sure every hit tied with it is collected; the final sort and cut use
@@ -59,7 +59,6 @@ fn schema() -> Schema {
 
 fn analyzer() -> TextAnalyzer {
     TextAnalyzer::builder(SimpleTokenizer::default())
-        .filter(RemoveLongFilter::limit(MAX_TOKEN_BYTES))
         .filter(LowerCaser)
         .filter(AsciiFoldingFilter)
         .filter(Stemmer::new(Language::English))
