@@ -59,6 +59,17 @@ export async function countSkippedVectors(model: string, dbOverride?: SqliteDb):
   return rows[0]?.n ?? 0;
 }
 
+/**
+ * Walks the primary key: the model and dimension tests carry a unary `+` so the planner cannot pick
+ * the poll index for them, whose two `model` ranges would need every page re-sorted. Measured by
+ * the 0025 migration test, which holds the plan to a key scan with no temporary B-tree.
+ */
+export const SEARCH_VECTOR_PAGE_SQL = `
+  SELECT maple_id, vector, embedded_at FROM asset_vectors
+   WHERE maple_id > ? AND +dims = ${SEARCH_VECTOR_DIMS} AND +model IN (?, ?)
+   ORDER BY maple_id
+   LIMIT ?`;
+
 /** The next `limit` vectors after `cursor` in `maple_id` order; `null` starts from the top. */
 export async function searchVectorsAfter(
   model: string,
@@ -66,13 +77,11 @@ export async function searchVectorsAfter(
   limit: number,
   dbOverride?: SqliteDb,
 ): Promise<StoredVectorRow[]> {
-  return sqliteDb(dbOverride).read<StoredVectorRow>(
-    `SELECT maple_id, vector, embedded_at FROM asset_vectors
-      WHERE ${SEARCHABLE} AND maple_id > ?
-      ORDER BY maple_id
-      LIMIT ?`,
-    [...modelSpellings(model), cursor ?? '', limit],
-  );
+  return sqliteDb(dbOverride).read<StoredVectorRow>(SEARCH_VECTOR_PAGE_SQL, [
+    cursor ?? '',
+    ...modelSpellings(model),
+    limit,
+  ]);
 }
 
 /** Ids and stamps of vectors written after `since`, oldest first, resuming after `after`. */

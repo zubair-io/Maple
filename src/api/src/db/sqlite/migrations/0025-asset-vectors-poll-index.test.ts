@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { runMigrations } from '../migrate.ts';
 import { ALL_MIGRATIONS } from './index.ts';
 import { createBlankTestDatabase } from '../test-sqlite.test-helpers.ts';
+import { SEARCH_VECTOR_PAGE_SQL } from '../../repos/asset-vectors.search.ts';
 
 test('the search child reads changes and counts from the index alone', async () => {
   using handle = createBlankTestDatabase('file');
@@ -26,4 +27,20 @@ test('the search child reads changes and counts from the index alone', async () 
   for (const plan of plans) expect(plan).toContain('COVERING INDEX asset_vectors_poll');
   // Both spellings of the model are ranges on the index; only the window's rows are sorted.
   expect(plans[0]).toContain('(model=? AND embedded_at>?)');
+});
+
+test('the boot load pages through the primary key with no sort', async () => {
+  using handle = createBlankTestDatabase('file');
+  await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+
+  const plan = (
+    handle.db
+      .query(`EXPLAIN QUERY PLAN ${SEARCH_VECTOR_PAGE_SQL}`)
+      .all('', 'bge-m3', 'bge-m3:latest', 2000) as Array<{ detail: string }>
+  )
+    .map((row) => row.detail)
+    .join(' | ');
+
+  expect(plan).toContain('sqlite_autoindex_asset_vectors_1 (maple_id>?)');
+  expect(plan).not.toContain('TEMP B-TREE');
 });
