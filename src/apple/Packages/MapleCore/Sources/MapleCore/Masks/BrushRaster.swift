@@ -71,6 +71,27 @@ public enum BrushRaster {
     return w >= h ? (long, short(h, w)) : (short(w, h), long)
   }
 
+  /// Initial FNV-1a offset basis for 64-bit hashing.
+  public static let fnvOffsetBasis: UInt64 = 0xcbf2_9ce4_8422_2325
+  public static let fnvPrime: UInt64 = 0x0000_0100_0000_01b3
+
+  /// Mix a single dab's fields into an ongoing FNV-1a hash.
+  public static func mixDab(into hash: inout UInt64, dab: BrushDab) {
+    func mix(_ value: UInt64) {
+      for shift in stride(from: 0, to: 64, by: 8) {
+        hash ^= (value >> shift) & 0xff
+        hash = hash &* fnvPrime
+      }
+    }
+    mix(UInt64(Float(dab.center.x).bitPattern))
+    mix(UInt64(Float(dab.center.y).bitPattern))
+    mix(UInt64(Float(dab.radius).bitPattern))
+    mix(UInt64(Float(dab.feather).bitPattern))
+    mix(UInt64(Float(dab.weight).bitPattern))
+    hash ^= dab.erase ? 1 : 0
+    hash = hash &* fnvPrime
+  }
+
   /// The 16-lowercase-hex digest naming a brush raster — FNV-1a over the
   /// dab payload (each dab's five `Float` bit patterns plus one erase
   /// byte), the same shape (not the same value: the payload serialization
@@ -78,23 +99,88 @@ public enum BrushRaster {
   /// strokes, so a re-parse finds the already-registered raster instead of
   /// re-registering.
   public static func digest(_ dabs: [BrushDab]) -> String {
-    var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-    func mix(_ value: UInt64) {
-      for shift in stride(from: 0, to: 64, by: 8) {
-        hash ^= (value >> shift) & 0xff
-        hash = hash &* 0x0000_0100_0000_01b3
-      }
-    }
+    var hash = fnvOffsetBasis
     for dab in dabs {
-      mix(UInt64(Float(dab.center.x).bitPattern))
-      mix(UInt64(Float(dab.center.y).bitPattern))
-      mix(UInt64(Float(dab.radius).bitPattern))
-      mix(UInt64(Float(dab.feather).bitPattern))
-      mix(UInt64(Float(dab.weight).bitPattern))
-      hash ^= dab.erase ? 1 : 0
-      hash = hash &* 0x0000_0100_0000_01b3
+      mixDab(into: &hash, dab: dab)
     }
     return String(format: "%016llx", hash)
+  }
+
+  /// Incrementally append `added` dabs to an existing 16-hex digest,
+  /// matching `digest(previous + added)` bit-for-bit.
+  public static func appendedDigest(from previousDigest: String, added: [BrushDab]) -> String {
+    guard let base = UInt64(previousDigest, radix: 16) else {
+      return digest(added)
+    }
+    var hash = base
+    for dab in added {
+      mixDab(into: &hash, dab: dab)
+    }
+    return String(format: "%016llx", hash)
+  }
+
+  @inline(__always)
+  private static func smoothstep(_ t: Float) -> Float {
+    let x = min(1.0, max(0.0, t))
+    return x * x * (3.0 - 2.0 * x)
+  }
+
+  /// Stamp a single dab into a row-major Float accumulator buffer, matching
+  /// raw-core's `stamp_dab` exactly.
+  public static func stampDab(_ dab: BrushDab, into acc: inout [Float], width: Int, height: Int) {
+    let w = Float(width)
+    let h = Float(height)
+    let rPx = Float(dab.radius) * w
+    guard dab.center.x.isFinite, dab.center.y.isFinite, dab.radius.isFinite,
+      dab.feather.isFinite, dab.weight.isFinite,
+      rPx > 0, dab.weight > 0
+    else { return }
+    let cx = Float(dab.center.x) * max(0.0, w - 1.0)
+    let cy = Float(dab.center.y) * max(0.0, h - 1.0)
+    let feather = min(1.0, max(0.0, Float(dab.feather)))
+    let weight = min(1.0, max(0.0, Float(dab.weight)))
+    let x0 = Int(min(w - 1.0, max(0.0, (cx - rPx).rounded(.down))))
+    let x1 = Int(min(w - 1.0, max(0.0, (cx + rPx).rounded(.up))))
+    let y0 = Int(min(h - 1.0, max(0.0, (cy - rPx).rounded(.down))))
+    let y1 = Int(min(h - 1.0, max(0.0, (cy + rPx).rounded(.up))))
+    let eps: Float = Float.ulpOfOne
+    for y in y0...y1 {
+      let dy = Float(y) - cy
+      let rowOffset = y * width
+      for x in x0...x1 {
+        let dx = Float(x) - cx
+        let d = hypot(dx, dy) / rPx
+        let profile: Float
+        if feather <= eps {
+          profile = d <= 1.0 ? 1.0 : 0.0
+        } else {
+          profile = 1.0 - smoothstep((d - (1.0 - feather)) / feather)
+        }
+        let v = profile * weight
+        if v <= 0.0 { continue }
+        let idx = rowOffset + x
+        if dab.erase {
+          acc[idx] *= (1.0 - v)
+        } else {
+          acc[idx] += (1.0 - acc[idx]) * v
+        }
+      }
+    }
+  }
+
+  /// Convert a row-major Float accumulator to UInt8 bytes (clamped and rounded to [0, 255]),
+  /// matching raw-core's `rasterize_brush` byte output.
+  public static func bytes(from acc: [Float]) -> [UInt8] {
+    var out = [UInt8](repeating: 0, count: acc.count)
+    out.withUnsafeMutableBufferPointer { outBuf in
+      acc.withUnsafeBufferPointer { accBuf in
+        for i in 0..<accBuf.count {
+          let v = min(1.0, max(0.0, accBuf[i]))
+          outBuf[i] = UInt8((v * 255.0).rounded())
+        }
+      }
+    }
+    return out
   }
 
   /// Stamp `dabs` onto a `width × height` R8 grid through

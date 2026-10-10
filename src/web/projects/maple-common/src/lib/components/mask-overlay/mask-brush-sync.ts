@@ -35,11 +35,21 @@ export interface BrushSyncIo {
   adopted: () => void;
 }
 
+interface StrokeSlot {
+  inFlightKey: string;
+  queued?: {
+    key: string;
+    upload: BrushRasterUpload;
+  };
+}
+
 export class BrushRasterSync {
   /** `digest@WxH` registrations live in the worker, each mapped to its id. */
   private readonly registered = new Map<string, number>();
   /** Registrations with an upload in flight — a second pass must not double-send. */
   private readonly pending = new Set<string>();
+  /** Active in-flight upload and coalesced follow-up per stroke slot (#4416). */
+  private readonly strokeSlots = new Map<number, StrokeSlot>();
   /** Registrations the latest pass wanted; a late upload outside it is garbage. */
   private wanted = new Set<string>();
   /** Bumped by `reset`; an upload sent before it is superseded. */
@@ -54,6 +64,7 @@ export class BrushRasterSync {
   reset(): void {
     this.registered.clear();
     this.pending.clear();
+    this.strokeSlots.clear();
     this.epoch++;
   }
 
@@ -61,7 +72,7 @@ export class BrushRasterSync {
    *  effect skips the pipeline entirely then (not even the generation
    *  read), so non-brush sessions never subscribe to worker retires. */
   get isIdle(): boolean {
-    return this.registered.size === 0 && this.pending.size === 0;
+    return this.registered.size === 0 && this.pending.size === 0 && this.strokeSlots.size === 0;
   }
 
   sync(layers: readonly LocalAdjustment[]): void {
@@ -87,35 +98,78 @@ export class BrushRasterSync {
       // a differently shaped photo is a different registration.
       const key = `${digest}@${width}x${height}`;
       wanted.add(key);
-      if (this.registered.has(key) || this.pending.has(key)) return;
-      this.pending.add(key);
-      const epoch = this.epoch;
-      this.io.register({ digest, width, height, dabs: flattenBrushDabs(dabs) }).then(
-        (rasterId) => {
-          if (epoch !== this.epoch) {
-            this.io.release(rasterId);
-            return;
-          }
-          this.pending.delete(key);
-          if (!this.wanted.has(key)) {
-            this.io.release(rasterId);
-            return;
-          }
-          const prev = this.registered.get(key);
-          this.registered.set(key, rasterId);
-          if (prev !== undefined && prev !== rasterId) this.io.release(prev);
-          this.io.adopted();
-        },
-        () => {
-          if (epoch === this.epoch) this.pending.delete(key);
-        },
-      );
+      if (this.registered.has(key)) return;
+
+      const slot = this.strokeSlots.get(index);
+      if (slot) {
+        if (slot.inFlightKey === key) {
+          slot.queued = undefined;
+        } else {
+          // Coalesce web uploads to at most one in flight per stroke (#4416).
+          slot.queued = {
+            key,
+            upload: { digest, width, height, dabs: flattenBrushDabs(dabs) },
+          };
+        }
+        return;
+      }
+
+      if (this.pending.has(key)) return;
+      this.dispatchUpload(index, key, { digest, width, height, dabs: flattenBrushDabs(dabs) });
     });
+
+    for (const [idx, slot] of this.strokeSlots) {
+      if (idx >= layers.length || layers[idx].mask.kind !== 'brush') {
+        slot.queued = undefined;
+      }
+    }
+
     this.wanted = wanted;
     for (const [key, rasterId] of this.registered) {
       if (wanted.has(key)) continue;
       this.registered.delete(key);
       this.io.release(rasterId);
     }
+  }
+
+  private dispatchUpload(index: number, key: string, upload: BrushRasterUpload): void {
+    this.pending.add(key);
+    this.strokeSlots.set(index, { inFlightKey: key });
+    const epoch = this.epoch;
+
+    const onComplete = () => {
+      this.pending.delete(key);
+      const slot = this.strokeSlots.get(index);
+      if (slot?.inFlightKey === key) {
+        const queued = slot.queued;
+        this.strokeSlots.delete(index);
+        if (queued && epoch === this.epoch && this.wanted.has(queued.key)) {
+          this.dispatchUpload(index, queued.key, queued.upload);
+        }
+      }
+    };
+
+    this.io.register(upload).then(
+      (rasterId) => {
+        if (epoch !== this.epoch) {
+          this.io.release(rasterId);
+          onComplete();
+          return;
+        }
+        if (!this.wanted.has(key)) {
+          this.io.release(rasterId);
+          onComplete();
+          return;
+        }
+        const prev = this.registered.get(key);
+        this.registered.set(key, rasterId);
+        if (prev !== undefined && prev !== rasterId) this.io.release(prev);
+        this.io.adopted();
+        onComplete();
+      },
+      () => {
+        onComplete();
+      },
+    );
   }
 }

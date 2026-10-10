@@ -430,7 +430,12 @@ public final class EditSession {
 
   /// The mask panel's selection — the highlighted row, whose sliders show, and the scope HUD's target.
   public var selectedMaskId: UUID? {
-    didSet { if selectedMaskId != oldValue { selectedMaskComponentIndex = 0 } }
+    didSet {
+      if selectedMaskId != oldValue {
+        selectedMaskComponentIndex = 0
+        activeBrushStroke = nil
+      }
+    }
   }
   var maskComponentSelection = 0
   public internal(set) var selectedMaskComponentIndex: Int {
@@ -452,6 +457,18 @@ public final class EditSession {
   /// Current brush tip (#360) — tool state, not layer state: every dab the
   /// overlay stamps copies these values in.
   public var brushTip: BrushTip = .default
+
+  struct ActiveBrushStroke {
+    var maskId: UUID
+    var width: Int
+    var height: Int
+    var accumulator: [Float]
+    var currentDigest: String
+  }
+
+  /// Incremental accumulator kept alive between `beginBrushStroke` and
+  /// `endBrushStroke` (#4416) so a drag does not re-rasterize the entire dab series.
+  @ObservationIgnored var activeBrushStroke: ActiveBrushStroke?
 
   /// Latest scope sample (#3277); published by the GPU present or `EditSession+ScopeCpu.swift`.
   public var scopeSample: ScopeSample?

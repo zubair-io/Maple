@@ -172,15 +172,49 @@ describe('BrushRasterSync', () => {
     // The drag appends a dab before the first upload completes.
     layers[0] = brushLayer([...first, dab(0.2)]);
     sync.sync(layers);
-    expect(io.uploads).toHaveLength(2);
+    // Coalescing: at most one in flight per stroke (#4416). Second upload is queued.
+    expect(io.uploads).toHaveLength(1);
     io.resolveOldest(3);
     await flush();
+    // First upload settles and is released; queued second upload is now dispatched.
     expect(io.released).toEqual([3]);
+    expect(io.uploads).toHaveLength(2);
     io.resolveOldest(4);
     await flush();
     sync.sync(layers);
     expect(io.released).toEqual([3]);
     expect(io.uploads).toHaveLength(2);
+  });
+
+  it('coalesces multiple intermediate stroke updates while an upload is in flight (#4416)', async () => {
+    const layers = [brushLayer([dab(0.1)])];
+    const io = makeIo(layers);
+    const sync = new BrushRasterSync(io);
+    sync.sync(layers);
+    expect(io.uploads).toHaveLength(1);
+
+    // Rapid pointer moves while upload 1 is still in flight:
+    layers[0] = brushLayer([dab(0.1), dab(0.2)]);
+    sync.sync(layers);
+    layers[0] = brushLayer([dab(0.1), dab(0.2), dab(0.3)]);
+    sync.sync(layers);
+    layers[0] = brushLayer([dab(0.1), dab(0.2), dab(0.3), dab(0.4)]);
+    sync.sync(layers);
+
+    // Intermediate states are coalesced without triggering intermediate uploads:
+    expect(io.uploads).toHaveLength(1);
+
+    // Once in-flight upload finishes, only the latest coalesced state is dispatched:
+    io.resolveOldest(10);
+    await flush();
+    expect(io.released).toEqual([10]);
+    expect(io.uploads).toHaveLength(2);
+    expect(io.uploads[1].dabs).toHaveLength(4 * 6); // 4 dabs * 6 f32s
+
+    io.resolveOldest(11);
+    await flush();
+    expect(io.adoptions).toBe(1);
+    expect(io.released).toEqual([10]);
   });
 
   it('keeps an upload whose layer moved index mid-flight', async () => {
