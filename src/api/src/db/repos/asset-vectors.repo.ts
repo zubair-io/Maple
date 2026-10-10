@@ -13,17 +13,17 @@ export interface AssetVectorRecord {
 }
 
 /**
- * With `claimedBy`, the write lands only while that asset's `embed` row still holds a claim. A
- * re-arm clears the claim, so a vector computed from text that has since changed is dropped
- * instead of overwriting the row the next run will fill.
+ * With `claimedBy`, the write lands only while that asset's `embed` row still holds exactly this
+ * lease. A re-arm clears the claim and a re-claim stamps a new one, so a vector computed from
+ * text that has since changed is dropped instead of overwriting the row the next run will fill.
  */
 export function upsertAssetVectorStatement(
   record: AssetVectorRecord,
-  claimedBy?: { assetId: string },
+  claimedBy?: { assetId: string; lease: string },
 ): SqlStatement {
   const claimHeld = claimedBy
     ? `WHERE EXISTS (SELECT 1 FROM stage_claim_leases
-                      WHERE asset_id = ? AND stage = '${EMBED_STAGE}' AND next_attempt_at IS NOT NULL)`
+                      WHERE asset_id = ? AND stage = '${EMBED_STAGE}' AND next_attempt_at = ?)`
     : 'WHERE true';
   return {
     sql: `INSERT INTO asset_vectors (maple_id, version, model, dims, vector, embedded_at)
@@ -38,7 +38,7 @@ export function upsertAssetVectorStatement(
       record.vector.length,
       encodeVector(record.vector),
       record.embeddedAt.toISOString(),
-      ...(claimedBy ? [claimedBy.assetId] : []),
+      ...(claimedBy ? [claimedBy.assetId, claimedBy.lease] : []),
     ],
   };
 }

@@ -126,6 +126,8 @@ export interface StageContext {
   log: Logger;
   /** Canceled when the runner is shutting down. */
   signal: AbortSignal;
+  /** The lease this attempt's claim stamped; a handler fences its own writes on it. */
+  lease?: string;
 }
 
 export type StageDep = string | { name: string; minVersion: number };

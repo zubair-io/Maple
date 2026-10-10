@@ -15,7 +15,8 @@ import embedStage, {
 import { WorkerConfigRepo } from '../../db/repos/worker-config.repo.ts';
 import { seedClaimableAsset, stageRow } from '../../db/repos/stage-runtime.test-helpers.ts';
 
-const fakeCtx = { log: console as never, signal: new AbortController().signal };
+const LEASE = '2026-10-09T00:10:00.000Z';
+const fakeCtx = { log: console as never, signal: new AbortController().signal, lease: LEASE };
 
 function fakeDoc(overrides: Record<string, unknown> = {}): ImageDoc {
   return {
@@ -52,7 +53,7 @@ describe('embedHandler', () => {
     using live = await createLiveTestDatabase();
     const recorded = recordingEmbedder();
     const assetId = seedClaimableAsset(live.db, {
-      stages: { embed: { nextAttemptAt: '2026-10-09T00:10:00.000Z' } },
+      stages: { embed: { nextAttemptAt: LEASE } },
     });
 
     const result = await embedHandler(fakeDoc({ _id: new ObjectId(assetId) }), fakeCtx);
