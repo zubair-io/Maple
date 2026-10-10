@@ -1,7 +1,6 @@
 import { promises as fs, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import * as workerThreads from 'node:worker_threads';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
@@ -30,6 +29,7 @@ import { ImageCanvasService } from '../components/image-canvas/image-canvas.serv
 import type { RemovalInferenceClient } from './removal-inference-client';
 import type { RemovalProposal } from './removal-inference.types';
 import { identityProposal } from './testing/identity-proposal';
+import { installTestWebLocks } from './testing/web-locks';
 
 const fixtureRoot = resolve(process.cwd(), '../../test-fixtures/removal/basic');
 const raw = new Uint8Array(readFileSync(join(fixtureRoot, 'source.dng')));
@@ -47,10 +47,7 @@ describe('editor removal lifecycle with actual retained RAW and filesystem XMP',
         resolve(process.cwd(), 'projects/maple-common/src/lib/raw-pipeline/pkg/raw_wasm_bg.wasm'),
       ),
     });
-    Object.defineProperty(navigator, 'locks', {
-      configurable: true,
-      value: Reflect.get(workerThreads, 'locks'),
-    });
+    installTestWebLocks();
   });
   beforeEach(async () => {
     root = await fs.mkdtemp(join(tmpdir(), 'maple-removal-editor-'));

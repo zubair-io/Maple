@@ -1,7 +1,6 @@
 import { promises as fs, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import * as workerThreads from 'node:worker_threads';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
@@ -35,6 +34,7 @@ import { savedRemovalRecords } from '../removal/saved-removal-records';
 import { EditorStateService } from './editor-state.service';
 import { WorkflowXmpService } from '../xmp/workflow-xmp.service';
 import type { SidecarWorkflow, WorkflowHistoryEntry } from '../generated/workflow.generated';
+import { installTestWebLocks } from '../removal/testing/web-locks';
 
 const fixtures = resolve(process.cwd(), '../../test-fixtures/removal/calibration');
 const bytes = (name: string) => new Uint8Array(readFileSync(join(fixtures, name)));
@@ -63,10 +63,7 @@ describe('confirmed Web removal history with real XMP and companions', () => {
         resolve(process.cwd(), 'projects/maple-common/src/lib/raw-pipeline/pkg/raw_wasm_bg.wasm'),
       ),
     });
-    Object.defineProperty(navigator, 'locks', {
-      configurable: true,
-      value: Reflect.get(workerThreads, 'locks'),
-    });
+    installTestWebLocks();
   });
   beforeEach(async () => {
     TestBed.resetTestingModule();

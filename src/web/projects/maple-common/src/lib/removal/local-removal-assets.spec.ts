@@ -1,7 +1,6 @@
 import { promises as fs, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import * as workerThreads from 'node:worker_threads';
 import { computed } from '@angular/core';
 import { LibraryStateService } from '../state/library-state.service';
 import { SavedRemovalRenderService } from './saved-removal-render.service';
@@ -32,6 +31,7 @@ import { XmpStoreService } from '../xmp/xmp-store.service';
 import { XmpParserService } from '../xmp/xmp-parser.service';
 import { SidecarSaveStateService } from '../xmp/sidecar-save-state.service';
 import { LocalRemovalAssets } from './local-removal-assets';
+import { installTestWebLocks } from './testing/web-locks';
 
 const fixtureRoot = resolve(process.cwd(), '../../test-fixtures/removal/basic');
 const fixture = (name: string) => new Uint8Array(readFileSync(join(fixtureRoot, name)));
@@ -62,11 +62,8 @@ describe('durable browser removal through actual WASM and filesystem files', () 
         resolve(process.cwd(), 'projects/maple-common/src/lib/raw-pipeline/pkg/raw_wasm_bg.wasm'),
       ),
     });
-    // Node's real LockManager implements the Web Locks coordination protocol.
-    Object.defineProperty(navigator, 'locks', {
-      configurable: true,
-      value: Reflect.get(workerThreads, 'locks'),
-    });
+    // Use Node's native LockManager or Bun's serial test fallback.
+    installTestWebLocks();
   });
   beforeEach(async () => {
     TestBed.resetTestingModule();
