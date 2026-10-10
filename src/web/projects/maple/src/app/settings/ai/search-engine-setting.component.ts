@@ -28,6 +28,11 @@ function stillLoading(view: SearchEngineView | null): boolean {
   return view?.engine === 'in-process' && !(view.status.phase === 'ready' && view.status.textReady);
 }
 
+/** The stored model names the engine counts as its own, e.g. `bge-m3 or bge-m3:latest`. */
+function modelIdentity(status: SearchEngineView['status']): string {
+  return status.matchedModels?.join(' or ') ?? status.model ?? 'bge-m3';
+}
+
 /** One line on how far the in-process engine has loaded; null while Meilisearch is selected. */
 export function engineStatusLine(view: SearchEngineView | null): string | null {
   if (!view || view.engine !== 'in-process') return null;
@@ -39,7 +44,7 @@ export function engineStatusLine(view: SearchEngineView | null): string | null {
         status.textReady
           ? `Ready — ${vectors} photos indexed`
           : `Ready — ${vectors} photos; keyword index still building`,
-        status.model ? ` with ${status.model}` : '',
+        status.model ? ` with vectors tagged ${modelIdentity(status)}` : '',
         status.skippedVectors
           ? `; ${status.skippedVectors.toLocaleString()} vectors from other models skipped`
           : '',
@@ -48,7 +53,7 @@ export function engineStatusLine(view: SearchEngineView | null): string | null {
     case 'incompatible-embedder':
       return `Not usable: ${status.error ?? 'the embedding model is not bge-m3'}. Searches use Meilisearch.`;
     case 'empty':
-      return `No ${status.model ?? 'bge-m3'} search vectors yet — resume the embed stage on Settings → Workers. Searches use Meilisearch until then.`;
+      return `No search vectors tagged ${modelIdentity(status)} yet — resume the embed stage on Settings → Workers. Searches use Meilisearch until then.`;
     case 'failed':
       return `Could not start: ${status.error ?? 'unknown error'}. Searches use Meilisearch until it does.`;
     case 'stopped':

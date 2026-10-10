@@ -102,11 +102,12 @@ describe('Search engine setting', () => {
           vectors: 4,
           textReady: true,
           model: 'bge-m3',
+          matchedModels: ['bge-m3', 'bge-m3:latest'],
           skippedVectors: 1200,
         }),
       ),
     ).toBe(
-      `Ready — 4 photos indexed with bge-m3; ${(1200).toLocaleString()} vectors from other models skipped.`,
+      `Ready — 4 photos indexed with vectors tagged bge-m3 or bge-m3:latest; ${(1200).toLocaleString()} vectors from other models skipped.`,
     );
     expect(engineStatusLine(view('in-process', { phase: 'ready', vectors: 2 }))).toContain(
       'keyword index still building',
@@ -116,9 +117,15 @@ describe('Search engine setting', () => {
         view('in-process', { phase: 'incompatible-embedder', error: 'the embed stage uses "x"' }),
       ),
     ).toBe('Not usable: the embed stage uses "x". Searches use Meilisearch.');
-    expect(engineStatusLine(view('in-process', { phase: 'empty', model: 'bge-m3' }))).toContain(
-      'No bge-m3 search vectors yet',
-    );
+    expect(
+      engineStatusLine(
+        view('in-process', {
+          phase: 'empty',
+          model: 'bge-m3',
+          matchedModels: ['bge-m3', 'bge-m3:latest'],
+        }),
+      ),
+    ).toContain('No search vectors tagged bge-m3 or bge-m3:latest yet');
     expect(engineStatusLine(view('in-process', { phase: 'failed', error: 'no ORT' }))).toContain(
       'Could not start: no ORT',
     );

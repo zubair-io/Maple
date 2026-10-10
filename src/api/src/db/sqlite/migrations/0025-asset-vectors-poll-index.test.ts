@@ -13,9 +13,9 @@ test('the search child reads changes and counts from the index alone', async () 
   const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
   const plans = [
     `SELECT maple_id, embedded_at FROM asset_vectors
-      WHERE embedded_at > '2026-10-10' AND dims = 1024 AND model = 'bge-m3'
+      WHERE embedded_at > '2026-10-10' AND dims = 1024 AND model IN ('bge-m3', 'bge-m3:latest')
       ORDER BY embedded_at, maple_id`,
-    `SELECT COUNT(*) FROM asset_vectors WHERE dims = 1024 AND model = 'bge-m3'`,
+    `SELECT COUNT(*) FROM asset_vectors WHERE dims = 1024 AND model IN ('bge-m3', 'bge-m3:latest')`,
   ].map((sql) =>
     (handle.db.query(`EXPLAIN QUERY PLAN ${sql}`).all() as Array<{ detail: string }>)
       .map((row) => row.detail)
@@ -23,8 +23,7 @@ test('the search child reads changes and counts from the index alone', async () 
   );
 
   expect(result.applied).toEqual(['0025-asset-vectors-poll-index']);
-  for (const plan of plans) {
-    expect(plan).toContain('COVERING INDEX asset_vectors_poll');
-    expect(plan).not.toContain('TEMP B-TREE');
-  }
+  for (const plan of plans) expect(plan).toContain('COVERING INDEX asset_vectors_poll');
+  // Both spellings of the model are ranges on the index; only the window's rows are sorted.
+  expect(plans[0]).toContain('(model=? AND embedded_at>?)');
 });

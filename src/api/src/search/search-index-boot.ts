@@ -15,7 +15,11 @@ import {
   type SearchEngineOps,
 } from './search-index-sync.ts';
 import type { SearchChildState } from './search-protocol.ts';
-import { countSkippedVectors } from '../db/repos/asset-vectors.search.ts';
+import {
+  countSkippedVectors,
+  modelSpellings,
+  normalisedModel,
+} from '../db/repos/asset-vectors.search.ts';
 
 /** The template shape the text is rendered with, then this layout's own revision. */
 export const SEARCH_INDEX_VERSION = `${EMBEDDER_TEMPLATE_SHAPE_VERSION}.1`;
@@ -57,7 +61,7 @@ const QUERY_EMBEDDER_MODEL = 'bge-m3';
 
 /** Whether an Ollama model name (`bge-m3`, `bge-m3:latest`, `library/bge-m3:567m`) is bge-m3. */
 export function matchesQueryEmbedder(model: string): boolean {
-  const name = model.trim().toLowerCase().split(':')[0]!.split('/').pop();
+  const name = normalisedModel(model).toLowerCase().split('/').pop()!.split(':')[0];
   return name === QUERY_EMBEDDER_MODEL;
 }
 
@@ -70,6 +74,7 @@ export function incompatibleEmbedderState(model: string): SearchChildState | nul
     texts: 0,
     textReady: false,
     model,
+    matchedModels: modelSpellings(model),
     error: `the embed stage uses "${model}", but in-process search embeds queries with ${QUERY_EMBEDDER_MODEL}; choose ${QUERY_EMBEDDER_MODEL} as the embedding model on Settings → AI`,
   };
 }
@@ -90,6 +95,7 @@ export async function readyState(
     ...counts,
     textReady,
     model,
+    matchedModels: modelSpellings(model),
     skippedVectors: await countSkippedVectors(model),
   };
 }

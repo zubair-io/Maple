@@ -50,6 +50,8 @@ export interface SearchChildState {
   textReady: boolean;
   /** The embedding model whose vectors were loaded — the `embed` stage's, from Settings → AI. */
   model?: string;
+  /** The `asset_vectors.model` values that count as that model (`bge-m3`, `bge-m3:latest`). */
+  matchedModels?: string[];
   /** Rows of `asset_vectors` left out because another model (or dimension) wrote them. */
   skippedVectors?: number;
   error?: string;

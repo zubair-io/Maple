@@ -82,6 +82,29 @@ describe('the configured embedding model', () => {
   });
 });
 
+describe("Ollama's implicit :latest tag", () => {
+  test.each([
+    ['bge-m3:latest', 'bge-m3'],
+    ['bge-m3', 'bge-m3:latest'],
+  ])('rows tagged %s load and follow for the setting %s', async (stored, setting) => {
+    live.db.run(`UPDATE asset_vectors SET model = ?`, [stored]);
+    const engine = new RecordingEngine();
+    const held = await loadAllVectors(engine, setting);
+    const follower = new VectorFollower(engine, held, '2026-10-10T11:00:00.000Z', setting);
+    storeVector(live.db, 'harbour', 8, '2026-10-10T12:00:00.000Z', stored);
+    await follower.poll();
+
+    expect(Object.fromEntries(engine.vectors)).toEqual({ harbour: 8, kitchen: 1 });
+    expect(await countSkippedVectors(setting)).toBe(0);
+  });
+
+  test('another tag of the same name is still another model', async () => {
+    live.db.run(`UPDATE asset_vectors SET model = 'bge-m3:567m'`);
+    expect([...(await loadAllVectors(new RecordingEngine(), 'bge-m3'))]).toEqual([]);
+    expect(await countSkippedVectors('bge-m3:latest')).toBe(2);
+  });
+});
+
 describe('VectorFollower', () => {
   async function bootedFollower(since: string, now: () => number = () => 0) {
     const engine = new RecordingEngine();
