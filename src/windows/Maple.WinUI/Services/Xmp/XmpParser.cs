@@ -385,7 +385,10 @@ namespace Maple.WinUI.Services.Xmp
                     continue;
                 }
                 if (XmpLayerOrder.IsBrushContainer(child))
+                {
+                    doc.Adjustments.LocalAdjustments.AddRange(XmpBrushCorrections.Parse(child));
                     doc.VerbatimLayerOrders.AddRange(XmpLayerOrder.Keys(XmpLayerOrder.ContainerItems(child)));
+                }
                 doc.PassthroughNodes.Add(child.ToString(SaveOptions.DisableFormatting));
                 doc.ChildOrder.Add(ChildSlot.ForPassthrough(doc.PassthroughNodes.Count - 1));
             }
@@ -468,7 +471,8 @@ namespace Maple.WinUI.Services.Xmp
                 .Count(a => !a.IsNamespaceDeclaration && CanonicalName(a) is { } n &&
                             n != "rdf:about" && ConsumedAttributes.Contains(n));
             var children = desc.Elements().Count(c =>
-                ToneCurveTagFor(c) is not null || XmpLocalAdjustments.ContainerTagFor(c) is not null || XmpRetouch.IsContainer(c));
+                ToneCurveTagFor(c) is not null || XmpLocalAdjustments.ContainerTagFor(c) is not null ||
+                XmpLayerOrder.IsBrushContainer(c) || XmpRetouch.IsContainer(c));
             return attrs + children;
         }
 
