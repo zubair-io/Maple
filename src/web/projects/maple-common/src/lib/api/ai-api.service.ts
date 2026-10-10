@@ -35,6 +35,19 @@ export interface AiConnectionsResponse {
   }>;
 }
 
+export type SearchEngineName = 'meilisearch' | 'in-process';
+export interface SearchEngineView {
+  engine: SearchEngineName;
+  status: {
+    phase: 'stopped' | 'starting' | 'loading' | 'ready' | 'failed';
+    vectors: number;
+    texts: number;
+    textReady: boolean;
+    restarts: number;
+    error?: string;
+  };
+}
+
 @Injectable({ providedIn: 'root' })
 export class AiApiService {
   private readonly http = inject(HttpClient);
@@ -49,6 +62,12 @@ export class AiApiService {
     },
   ): Observable<AiConnectionsResponse> {
     return this.http.put<AiConnectionsResponse>(`${this.baseUrl}/ai/connections/`, config);
+  }
+  getSearchEngine(): Observable<SearchEngineView> {
+    return this.http.get<SearchEngineView>(`${this.baseUrl}/ai/search-engine/`);
+  }
+  setSearchEngine(engine: SearchEngineName): Observable<SearchEngineView> {
+    return this.http.put<SearchEngineView>(`${this.baseUrl}/ai/search-engine/`, { engine });
   }
   probeConnection(
     connection: AiConnection,

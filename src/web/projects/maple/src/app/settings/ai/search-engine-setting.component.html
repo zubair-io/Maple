@@ -1,0 +1,22 @@
+<section aria-labelledby="search-engine-title">
+  <h2 id="search-engine-title">Search engine</h2>
+  <p>
+    In-process ranks searches on this server from the search vectors above and a keyword index,
+    without Meilisearch; it falls back to Meilisearch whenever it is not ready.
+  </p>
+  @if (view()) {
+    <mui-segmented-toggle
+      [options]="options"
+      [value]="selected()"
+      (valueChange)="select($event)"
+      ariaLabel="Search engine"
+      [disabled]="saving()"
+    />
+  }
+  @if (statusLine(); as line) {
+    <p role="status">{{ line }}</p>
+  }
+  @if (error()) {
+    <p role="alert" class="set-banner-error-record">{{ error() }}</p>
+  }
+</section>
