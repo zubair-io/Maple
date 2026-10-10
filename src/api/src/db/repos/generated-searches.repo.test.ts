@@ -38,6 +38,7 @@ function input(overrides: Partial<GeneratedSearchInput> = {}): GeneratedSearchIn
     query: { placeQuery: 'brooklyn', month: '8' },
     result_count: 42,
     cover_asset_id: newObjectIdHex(),
+    first_page_ids: [newObjectIdHex()],
     ...overrides,
   };
 }
@@ -56,6 +57,7 @@ describe('saveGeneratedSearches', () => {
     expect(doc?.attempts).toBe(1);
     expect(doc?.result_count).toBe(42);
     expect(doc?.cover_asset_id).toBe(stored.cover_asset_id);
+    expect(doc?.first_page_ids).toEqual(stored.first_page_ids);
     expect(doc?.query).toEqual({ placeQuery: 'brooklyn', month: '8' });
     expect(doc?._id.toHexString()).toHaveLength(24);
   });

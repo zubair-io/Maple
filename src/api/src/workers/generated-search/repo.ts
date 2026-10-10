@@ -46,6 +46,8 @@ export interface GeneratedSearchInput {
   query: GeneratedQuery;
   result_count: number;
   cover_asset_id: string | null;
+  /** Ordered ids of the grid's first page; null on rows from before #4446. */
+  first_page_ids: string[] | null;
 }
 
 export interface GeneratedSearchDoc extends GeneratedSearchInput {

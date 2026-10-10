@@ -63,6 +63,7 @@ async function seedCollection(libraryId: string, theme: string, generatedAt: str
       query: { placeQuery: theme },
       result_count: 12,
       cover_asset_id: null,
+      first_page_ids: null,
     },
   ]);
 }

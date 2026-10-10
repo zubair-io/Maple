@@ -126,6 +126,10 @@ CREATE TABLE generated_searches (
 );
 `;
 
+export const GENERATED_SEARCHES_FIRST_PAGE_DDL = `
+ALTER TABLE generated_searches ADD COLUMN first_page_ids TEXT CHECK (first_page_ids IS NULL OR json_valid(first_page_ids));
+`;
+
 export const GENERATED_SEARCHES_INDEX_DDL = `
 -- Latest day for a library, then that day's rows: one index serves both.
 CREATE INDEX generated_searches_day ON generated_searches (library_id, generated_for DESC);

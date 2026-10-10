@@ -78,6 +78,7 @@ function makeDeps(opts: StubOptions): LoopDeps & { titlePrompts: string[] } {
         count,
         captions: count > 0 ? [`a caption for ${theme}`] : [],
         coverAssetId: count > 0 ? `cover-${theme}` : null,
+        firstPageIds: count > 0 ? [`cover-${theme}`] : [],
       };
     },
   };

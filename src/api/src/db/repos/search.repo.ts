@@ -55,7 +55,7 @@ export type { SearchWhere } from './search.where.ts';
 
 export { searchFacets } from './search.facets.ts';
 
-export { searchByMapleIds, searchCount, searchPage } from './search.page.ts';
+export { searchByIds, searchByMapleIds, searchCount, searchPage } from './search.page.ts';
 
 export { searchBuckets } from './search.buckets.ts';
 

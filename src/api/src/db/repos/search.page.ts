@@ -32,6 +32,7 @@ import { locationsByAssetIdsSql } from './assets.sql.ts';
 import {
   countSql,
   descriptionsByAssetIdsSql,
+  idPageSql,
   mapleIdPageSql,
   pageSql,
   phassetLinksByAssetIdsSql,
@@ -165,6 +166,25 @@ export async function searchByMapleIds(
   const ordered = mapleIds
     .map((id) => byMapleId.get(id))
     .filter((row): row is PageRow & { maple_id: string | null } => row !== undefined);
+  return hydrate(db, ordered);
+}
+
+/**
+ * The assets behind a stored list of ids, in the stored order, keeping only
+ * those that still pass `where`'s live filters. Ids with no surviving row drop
+ * out.
+ */
+export async function searchByIds(
+  where: SearchWhere,
+  ids: readonly string[],
+  dbOverride?: SqliteDb,
+): Promise<Array<AssetDoc & { _id: ObjectId }>> {
+  if (ids.length === 0) return [];
+  const db = assetsDb(dbOverride);
+  const statement = idPageSql(where, ids);
+  const rows = await db.read<PageRow>(statement.sql, statement.params);
+  const byId = new Map(rows.map((row) => [row.id, row] as const));
+  const ordered = ids.map((id) => byId.get(id)).filter((row): row is PageRow => row !== undefined);
   return hydrate(db, ordered);
 }
 

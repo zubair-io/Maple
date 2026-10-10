@@ -22,7 +22,7 @@ test('adds the memory column to an existing worker_status row', async () => {
   ).map((c) => c.name);
   const row = handle.db.query(`SELECT memory FROM worker_status`).get() as { memory: unknown };
 
-  expect(result.applied).toEqual(['0021-worker-status-memory']);
+  expect(result.applied).toContain('0021-worker-status-memory');
   expect(columns).toContain('memory');
   expect(row.memory).toBeNull();
   expect(() =>

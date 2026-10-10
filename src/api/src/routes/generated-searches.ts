@@ -4,7 +4,8 @@
  *
  * Endpoints:
  *   GET /api/generated-searches                — the day's collections
- *   GET /api/generated-searches/:id/assets     — run one and return results
+ *   GET /api/generated-searches/:id/assets     — the collection's photos: the stored
+ *                                                first page, else a live search
  *
  * Both consumers (the Apple widget, the Maple TV shelf) call the second, so
  * query semantics live in exactly one place and cannot drift between
@@ -32,6 +33,7 @@ import { personIdsToDrop } from '../db/repos/people.visibility.ts';
 import { personIdsForNames } from '../db/repos/people.search-filter.ts';
 import { meiliPage } from './search/list-meili.ts';
 import { projectAssets } from './search/project.ts';
+import { canServeStoredPage, storedPage } from './generated-searches.stored-page.ts';
 
 /** Wire shape for a collection card. The stored `query` rides along so a
  * client can deep-link into `/search` with the same filters. */
@@ -93,6 +95,13 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
       // `total` is already returned by both legs below, so a caller pages
       // until it has that many rows.
       const offset = clampInt(query.offset, 0, 100_000, 0);
+
+      // The worker stores the first page it measured, so the grid a card opens
+      // costs a primary-key lookup rather than a re-run of its broad query. The
+      // live filters above still gate every stored id.
+      if (canServeStoredPage(doc, offset, limit)) {
+        return storedPage(doc, where, limit);
+      }
 
       const meili = await meiliPage({
         where,
