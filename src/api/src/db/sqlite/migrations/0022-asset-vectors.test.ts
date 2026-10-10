@@ -12,7 +12,10 @@ test('creates the vector table and seeds an embed row for every existing asset',
   const first = insertAsset(handle.db);
   const second = insertAsset(handle.db);
 
-  const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+  const result = await runMigrations(
+    handle.migrationDb,
+    ALL_MIGRATIONS.filter((migration) => migration.id <= '0022-asset-vectors'),
+  );
   const seeded = handle.db
     .query(`SELECT asset_id, version FROM stage_state WHERE stage = 'embed' ORDER BY asset_id`)
     .all() as Array<{ asset_id: string; version: number }>;
