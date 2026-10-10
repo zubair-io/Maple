@@ -122,7 +122,7 @@ export function insertPhassetLink(
   );
 }
 
-/** Seeds one `stage_state` row, the way asset creation does (#3748). */
+/** Seeds one `stage_state` row, the way asset creation does (#3748); replaces a row a trigger already made. */
 export function insertStageState(
   db: Database,
   assetId: string,
@@ -143,7 +143,11 @@ export function insertStageState(
     `INSERT INTO stage_state
        (asset_id, stage, version, attempts, dead, processed_at, last_error, failed_at,
         next_attempt_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (asset_id, stage) DO UPDATE SET
+       version = excluded.version, attempts = excluded.attempts, dead = excluded.dead,
+       processed_at = excluded.processed_at, last_error = excluded.last_error,
+       failed_at = excluded.failed_at, next_attempt_at = excluded.next_attempt_at`,
     assetId,
     stage,
     overrides.version ?? 0,

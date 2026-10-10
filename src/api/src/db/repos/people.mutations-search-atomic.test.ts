@@ -29,11 +29,16 @@ const mutations: Array<{
   run: (fixture: Fixture) => Promise<unknown>;
   initialHidden?: boolean;
   initialExcluded?: boolean;
-  merges?: boolean;
+  /** A merge re-arms only the assets whose faces moved; the survivor's own text is unchanged. */
+  rearms?: 'both' | 'otherAsset';
 }> = [
   { name: 'rename', run: (f) => renamePerson(f.subject, 'Renamed', f.db) },
-  { name: 'collision merge', run: (f) => renamePerson(f.subject, 'Beta', f.db), merges: true },
-  { name: 'explicit merge', run: (f) => mergePeopleInto(f.subject, [f.other], f.db), merges: true },
+  { name: 'collision merge', run: (f) => renamePerson(f.subject, 'Beta', f.db), rearms: 'both' },
+  {
+    name: 'explicit merge',
+    run: (f) => mergePeopleInto(f.subject, [f.other], f.db),
+    rearms: 'otherAsset',
+  },
   { name: 'hide person', run: (f) => hidePerson(f.subject, f.db) },
   { name: 'unhide person', run: (f) => unhidePerson(f.subject, f.db), initialHidden: true },
   { name: 'exclude person', run: (f) => excludePerson(f.subject, f.db) },
@@ -124,10 +129,15 @@ describe.each(mutations)('$name commits with its local search work', (mutation) 
     db.exec('DROP TRIGGER reject_search_INSERT; DROP TRIGGER reject_search_UPDATE');
     await mutation.run(fixture);
     expect(state(db).people).not.toEqual(before.people);
-    for (const assetId of mutation.merges ? [asset, otherAsset] : [asset]) {
-      expectSearchStagesRearmed(db, assetId);
-    }
+    const rearmed = {
+      both: [asset, otherAsset],
+      otherAsset: [otherAsset],
+      none: [asset],
+    }[mutation.rearms ?? 'none'];
+    rearmed.forEach((assetId) => expectSearchStagesRearmed(db, assetId));
     expect(stageRow(db, unrelated, MEILI_STAGE)?.version).toBe(6);
-    if (!mutation.merges) expect(stageRow(db, otherAsset, MEILI_STAGE)?.version).toBe(6);
+    if (!rearmed.includes(otherAsset)) {
+      expect(stageRow(db, otherAsset, MEILI_STAGE)?.version).toBe(6);
+    }
   });
 });
