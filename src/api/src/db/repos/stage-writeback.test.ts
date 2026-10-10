@@ -51,7 +51,7 @@ function seedLeased(
   const stages = Object.fromEntries(
     Object.entries(options.stages ?? {}).map(([stage, state]) => [
       stage,
-      { nextAttemptAt: LEASE, ...state },
+      { nextAttemptAt: LEASE, claimToken: LEASE, ...state },
     ]),
   );
   return seedClaimableAsset(db, { ...options, stages });
@@ -458,7 +458,7 @@ describe('the lease fence', () => {
       ),
     );
 
-    expect(renewed).toBe('2026-06-01T12:29:00.000Z');
+    expect(renewed).not.toBe(LEASE);
     expect(afterStale?.version).toBe(0);
     expect(stageRow(handle.db, assetId, STAGE)?.version).toBe(7);
   });

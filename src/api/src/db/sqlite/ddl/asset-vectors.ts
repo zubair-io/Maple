@@ -32,7 +32,7 @@ CREATE INDEX asset_vectors_embedder ON asset_vectors (model, endpoint);
 // A read-only window onto stage claims: the runner rejects handler statements that name stage_state.
 export const STAGE_CLAIM_LEASES_VIEW_DDL = `
 CREATE VIEW stage_claim_leases AS
-  SELECT asset_id, stage, next_attempt_at FROM stage_state;
+  SELECT asset_id, stage, next_attempt_at, claim_token FROM stage_state;
 `;
 
 export const ASSET_VECTORS_TRIGGER_DDL = `
@@ -48,13 +48,13 @@ BEGIN
   DELETE FROM asset_vectors WHERE maple_id = OLD.maple_id;
   UPDATE stage_state
      SET version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0,
-         next_attempt_at = NULL
+         next_attempt_at = NULL, claim_token = NULL
    WHERE asset_id = NEW.id AND stage = 'embed';
 END;
 `;
 
 const RESET_SET = `version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0,
-         next_attempt_at = NULL`;
+         next_attempt_at = NULL, claim_token = NULL`;
 
 function rearmAssetStages(assetIdExpr: string): string {
   return ['meili', 'embed']
@@ -112,4 +112,8 @@ WHEN OLD.name IS NOT NEW.name OR OLD.merged_into IS NOT NEW.merged_into
 BEGIN
   ${rearmPersonAssetStages('NEW.id')}
 END;
+`;
+
+export const STAGE_CLAIM_TOKEN_DDL = `
+ALTER TABLE stage_state ADD COLUMN claim_token TEXT;
 `;

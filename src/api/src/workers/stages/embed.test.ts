@@ -7,11 +7,10 @@ import { insertPerson } from '../../db/repos/people.test-helpers.ts';
 import { EMBEDDER_TEMPLATE_SHAPE_VERSION } from '../../enrichment/meilisearch-embedder-template.ts';
 import { decodeVector, l2Normalize } from '../../enrichment/ollama-embed-client.ts';
 import { forgetEmbedderTarget } from '../embed/embedder-target.ts';
-import embedStage, {
-  embedHandler,
-  rearmForEmbedderTarget,
-  setEmbedBatchForTests,
-} from './embed.ts';
+import embedStage, { embedHandler, setEmbedBatchForTests } from './embed.ts';
+import { rearmForEmbedderTarget, sweepEmbedderChange } from '../embed/embedder-rearm.ts';
+import { saveEnrichmentConfig } from '../../enrichment/enrichment-config.repo.ts';
+import { upsertAssetVectorStatement } from '../../db/repos/asset-vectors.repo.ts';
 import { WorkerConfigRepo } from '../../db/repos/worker-config.repo.ts';
 import { seedClaimableAsset, stageRow } from '../../db/repos/stage-runtime.test-helpers.ts';
 
@@ -53,7 +52,7 @@ describe('embedHandler', () => {
     using live = await createLiveTestDatabase();
     const recorded = recordingEmbedder();
     const assetId = seedClaimableAsset(live.db, {
-      stages: { embed: { nextAttemptAt: LEASE } },
+      stages: { embed: { claimToken: LEASE } },
     });
 
     const result = await embedHandler(fakeDoc({ _id: new ObjectId(assetId) }), fakeCtx);
@@ -150,5 +149,38 @@ describe('rearmForEmbedderTarget', () => {
 
     await rearmForEmbedderTarget({ ...target, model: 'other-model' });
     expect(stageRow(live.db, dead, 'embed')?.dead).toBe(0);
+  });
+});
+
+describe('sweepEmbedderChange', () => {
+  it('re-arms completed rows on the next interval even while the stage is busy', async () => {
+    using live = await createLiveTestDatabase();
+    const assetId = seedClaimableAsset(live.db, { stages: { embed: { version: 8 } } });
+    live.db.run(`UPDATE assets SET maple_id = 'm1' WHERE id = ?`, [assetId]);
+    await live.handle.transaction([
+      upsertAssetVectorStatement({
+        mapleId: 'm1',
+        version: 8,
+        model: 'old-model',
+        endpoint: 'http://localhost:11434',
+        vector: Float32Array.of(1),
+        embeddedAt: new Date(),
+      }),
+    ]);
+    await saveEnrichmentConfig({ embedder_model: 'new-model' });
+    forgetEmbedderTarget();
+    const start = 1_800_000_000_000;
+
+    await sweepEmbedderChange(5, false, start);
+    expect(stageRow(live.db, assetId, 'embed')?.version).toBe(0);
+
+    live.db.run(`UPDATE stage_state SET version = 8 WHERE asset_id = ? AND stage = 'embed'`, [
+      assetId,
+    ]);
+    await sweepEmbedderChange(5, false, start + 30_000);
+    expect(stageRow(live.db, assetId, 'embed')?.version).toBe(8);
+
+    await sweepEmbedderChange(5, false, start + 61_000);
+    expect(stageRow(live.db, assetId, 'embed')?.version).toBe(0);
   });
 });

@@ -136,18 +136,21 @@ export function insertStageState(
     failedAt?: string | null;
     /** The retry gate and the claim lease share this column. */
     nextAttemptAt?: string | null;
+    /** The fence every claimed-row writeback matches on. */
+    claimToken?: string | null;
   } = {},
 ): void {
   run(
     db,
     `INSERT INTO stage_state
        (asset_id, stage, version, attempts, dead, processed_at, last_error, failed_at,
-        next_attempt_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        next_attempt_at, claim_token)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (asset_id, stage) DO UPDATE SET
        version = excluded.version, attempts = excluded.attempts, dead = excluded.dead,
        processed_at = excluded.processed_at, last_error = excluded.last_error,
-       failed_at = excluded.failed_at, next_attempt_at = excluded.next_attempt_at`,
+       failed_at = excluded.failed_at, next_attempt_at = excluded.next_attempt_at,
+       claim_token = excluded.claim_token`,
     assetId,
     stage,
     overrides.version ?? 0,
@@ -157,6 +160,7 @@ export function insertStageState(
     overrides.lastError ?? null,
     overrides.failedAt ?? null,
     overrides.nextAttemptAt ?? null,
+    overrides.claimToken ?? null,
   );
 }
 
