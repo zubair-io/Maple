@@ -344,6 +344,20 @@ export class BackupRepository {
     const destination = await this.destination(id);
     if (destination) await this.rearmLibrary(destination.libraryId);
   }
+  async clearResolvedGoogleConnectionErrors(id: string): Promise<void> {
+    await this.db.write(
+      `UPDATE backup_entries SET retry_at=0,attempts=0,last_error=NULL
+      WHERE destination_id=? AND last_error IS NOT NULL AND (
+        lower(last_error) LIKE '%reconnect google drive%'
+        OR lower(last_error) LIKE '%authorization expired%'
+        OR lower(last_error) LIKE '%maple authorization changed%'
+        OR lower(last_error) LIKE '%google token renewal%'
+      )`,
+      [id],
+    );
+    const destination = await this.destination(id);
+    if (destination) await this.rearmLibrary(destination.libraryId);
+  }
   async catalog(id: string): Promise<{ entries: BackupManifest[]; purges: PurgeRecord[] }> {
     const entries = await this.entries(id);
     const purges = await this.purges(id);

@@ -40,6 +40,7 @@ async function fixture() {
         id,
       ]);
     },
+    connectionRestored: async (id) => f.repo.clearResolvedGoogleConnectionErrors(id),
     attachRoot: async (id, root, account, generation) => {
       const result = await f.repo.db.write(
         'UPDATE backup_destinations SET root_id=?,account_id=? WHERE id=? AND generation=?',
