@@ -172,12 +172,14 @@ public actor GeneratedSearchClient {
   public func assets(
     collectionID: String,
     limit: Int = 100,
-    offset: Int = 0
+    offset: Int = 0,
+    snapshot: Bool = false
   ) async throws -> GeneratedSearchAssetPage {
-    let items = [
-      URLQueryItem(name: "limit", value: String(limit)),
-      URLQueryItem(name: "offset", value: String(offset)),
-    ]
+    let items =
+      [
+        URLQueryItem(name: "limit", value: String(limit)),
+        URLQueryItem(name: "offset", value: String(offset)),
+      ] + (snapshot ? [URLQueryItem(name: "snapshot", value: "1")] : [])
     let path = "/api/generated-searches/\(collectionID)/assets"
     let (data, resp) = try await httpClient.data(
       for: URLRequest(url: makeURL(path: path, query: items))

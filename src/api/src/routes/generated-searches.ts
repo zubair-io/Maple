@@ -104,10 +104,10 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
       const offset = clampInt(query.offset, 0, 100_000, 0);
 
       // The stored first page is a preview, never page 1 of a paginated
-      // sequence: it answers only an offset-0 request that asks for at least
-      // the whole page, and every other request is fully live. The live
-      // filters above still gate every stored id.
-      if (canServeStoredPage(doc, offset, limit)) {
+      // sequence: only an explicit `snapshot=1` at offset 0 gets it, and
+      // every other request is fully live. The live filters above still gate
+      // every stored id.
+      if (canServeStoredPage(doc, offset, query.snapshot)) {
         return storedPage(doc, where);
       }
 
@@ -137,5 +137,11 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
         results: await projectAssets(docs, libs, idToSlug),
       };
     },
-    { query: t.Object({ limit: t.Optional(t.String()), offset: t.Optional(t.String()) }) },
+    {
+      query: t.Object({
+        limit: t.Optional(t.String()),
+        offset: t.Optional(t.String()),
+        snapshot: t.Optional(t.String()),
+      }),
+    },
   );

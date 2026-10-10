@@ -274,7 +274,7 @@ describe('GET /api/generated-searches/:id/assets — stored first page', () => {
       first_page_ids: [older, newer],
     });
 
-    const { status, body } = await get(`/api/generated-searches/${id}/assets?limit=30`);
+    const { status, body } = await get(`/api/generated-searches/${id}/assets?limit=30&snapshot=1`);
     expect(status).toBe(200);
     expect(body.total).toBe(2);
     expect(body.results.map((r: { _id: string }) => r._id)).toEqual([older, newer]);
@@ -298,7 +298,7 @@ describe('GET /api/generated-searches/:id/assets — stored first page', () => {
       first_page_ids: [kept, trashed, hidden, faced],
     });
 
-    const { body } = await get(`/api/generated-searches/${id}/assets?limit=30`);
+    const { body } = await get(`/api/generated-searches/${id}/assets?limit=30&snapshot=1`);
     expect(body.results.map((r: { _id: string }) => r._id)).toEqual([kept]);
     expect(body.total).toBe(4);
   });
@@ -307,7 +307,7 @@ describe('GET /api/generated-searches/:id/assets — stored first page', () => {
     seedAsset('a');
     const id = seedCollection({ result_count: 1, first_page_ids: null });
 
-    const { body } = await get(`/api/generated-searches/${id}/assets?limit=30`);
+    const { body } = await get(`/api/generated-searches/${id}/assets?limit=30&snapshot=1`);
     expect(body.results).toHaveLength(1);
   });
 
@@ -327,27 +327,35 @@ describe('GET /api/generated-searches/:id/assets — stored first page', () => {
     const stored = seedAsset('stored');
     const id = seedCollection({ result_count: 7, first_page_ids: [stored] });
 
-    const { body } = await get(`/api/generated-searches/${id}/assets`);
+    const { body } = await get(`/api/generated-searches/${id}/assets?snapshot=1`);
     expect(body.snapshot).toBe(true);
     expect(body.total).toBe(7);
     expect(body.results.map((r: { _id: string }) => r._id)).toEqual([stored]);
   });
 
-  it('goes fully live when a smaller limit than the stored page is requested', async () => {
+  it('is live without the snapshot flag, including the TV/widget limit=100 request', async () => {
     const ids = [
       seedAsset('s0', { capturedAt: '2018-08-01T12:00:00.000Z' }),
       seedAsset('s1', { capturedAt: '2018-08-02T12:00:00.000Z' }),
-      seedAsset('s2', { capturedAt: '2018-08-03T12:00:00.000Z' }),
     ];
     const fresh = seedAsset('fresh', { capturedAt: '2018-08-25T12:00:00.000Z' });
-    const id = seedCollection({ result_count: 3, first_page_ids: ids });
+    const id = seedCollection({ result_count: 2, first_page_ids: ids });
 
-    const first = await get(`/api/generated-searches/${id}/assets?limit=2&offset=0`);
-    const next = await get(`/api/generated-searches/${id}/assets?limit=2&offset=2`);
-    expect(first.body.snapshot).toBeUndefined();
-    expect(first.body.total).toBe(4);
-    expect(first.body.results.map((r: { _id: string }) => r._id)).toEqual([fresh, ids[2]]);
-    expect(next.body.results.map((r: { _id: string }) => r._id)).toEqual([ids[1], ids[0]]);
+    for (const qs of ['', '?limit=100', '?limit=100&offset=0', '?limit=1']) {
+      const { body } = await get(`/api/generated-searches/${id}/assets${qs}`);
+      expect(body.snapshot).toBeUndefined();
+      expect(body.total).toBe(3);
+      expect(body.results[0]._id).toBe(fresh);
+    }
+  });
+
+  it('ignores snapshot=1 past offset 0', async () => {
+    const stored = seedAsset('stored');
+    const id = seedCollection({ result_count: 1, first_page_ids: [stored] });
+
+    const { body } = await get(`/api/generated-searches/${id}/assets?snapshot=1&offset=1`);
+    expect(body.snapshot).toBeUndefined();
+    expect(body.results).toEqual([]);
   });
 });
 

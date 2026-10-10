@@ -111,7 +111,8 @@ public final class GeneratedSearchCollectionsViewModel {
         group.addTask { [client] in
           .page(
             collection.id,
-            try? await client.assets(collectionID: collection.id, limit: Self.firstPageSize))
+            try? await client.assets(
+              collectionID: collection.id, limit: Self.firstPageSize, snapshot: true))
         }
       }
       for await fetched in group {
@@ -142,18 +143,14 @@ public final class GeneratedSearchCollectionsViewModel {
       ?? GeneratedSearchAssetPage(results: [], total: 0)
   }
 
-  /// A live first page to replace a snapshot with. The server answers a
-  /// first-page request from its stored preview only when the limit covers the
-  /// whole stored page, so asking for one row fewer than the snapshot holds
-  /// always runs the real query. A response that is still a snapshot is
-  /// discarded: it would swap the preview for itself.
+  /// The live first page that replaces a snapshot once the collection is
+  /// open. Only a snapshot needs replacing; the request omits the snapshot
+  /// flag, so it is always the real query.
   public func liveFirstPage(
     of collectionID: String, replacing snapshot: GeneratedSearchAssetPage
   ) async -> GeneratedSearchAssetPage? {
-    guard snapshot.isSnapshot, snapshot.results.count > 1 else { return nil }
-    let live = try? await client.assets(
-      collectionID: collectionID, limit: snapshot.results.count - 1)
-    return live.flatMap { $0.isSnapshot ? nil : $0 }
+    guard snapshot.isSnapshot else { return nil }
+    return try? await client.assets(collectionID: collectionID, limit: Self.firstPageSize)
   }
 
   /// The next page of a collection after `offset` rows, through the same
