@@ -18,6 +18,7 @@ import {
 } from '@maple-common';
 import type { AiConnection, AiConnectionsResponse } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
+import { SearchEngineSettingComponent } from './search-engine-setting.component';
 
 @Component({
   selector: 'maple-ai-settings',
@@ -29,6 +30,7 @@ import { SettingsShellComponent } from '../settings-shell.component';
     MuiCheckboxComponent,
     MuiSettingsRowComponent,
     MuiSelectComponent,
+    SearchEngineSettingComponent,
   ],
   templateUrl: './ai-settings.component.html',
   styleUrl: './ai-settings.component.scss',

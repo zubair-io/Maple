@@ -328,7 +328,7 @@ export function totalRss(rows: readonly ProcessMemoryRow[] | undefined): number 
   return (rows ?? []).reduce((acc, row) => acc + row.rss, 0);
 }
 
-const MEMORY_PROCESS_ORDER: readonly string[] = ['api', 'worker', 'ffi-decode', 'face'];
+const MEMORY_PROCESS_ORDER: readonly string[] = ['api', 'worker', 'ffi-decode', 'face', 'search'];
 
 export interface MemoryProcessGroup {
   process: string;
@@ -337,7 +337,7 @@ export interface MemoryProcessGroup {
 }
 
 /** Rows folded per process type in the fixed api → worker → ffi-decode →
- * face order; a type the page does not know about lands after those, in
+ * face → search order; a type the page does not know about lands after those, in
  * first-seen order, so a new child process still shows up. */
 export function groupMemoryByProcess(
   rows: readonly ProcessMemoryRow[] | undefined,

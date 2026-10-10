@@ -57,7 +57,7 @@ export interface StageStatus {
  * process sampled on the request, then the worker and its native children as
  * the worker last persisted them. Byte counts from `process.memoryUsage()`. */
 export interface ProcessMemoryRow {
-  /** `api`, `worker`, `ffi-decode` or `face`. */
+  /** `api`, `worker`, `ffi-decode`, `face` or `search`. */
   process: string;
   pid: number;
   /** Which tier spawned it — both the API and the worker run `ffi-decode`
