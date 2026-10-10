@@ -24,6 +24,7 @@ import {
   probeFailureStatus,
   normalizeConnections,
 } from '../enrichment/ai-connections-normalize.ts';
+import { rearmForEmbedderTarget } from '../workers/embed/embedder-rearm.ts';
 import { resetDescribeDeps } from '../workers/stages/describe.ts';
 import { resetVideoDescribeDeps } from '../workers/stages/video-describe.ts';
 
@@ -115,6 +116,7 @@ export const aiConnectionRoutes = new Elysia({ prefix: '/connections' })
         embedderModel: resolved.meilisearch_embedder_model,
         semanticRatio: resolved.meilisearch_semantic_ratio,
       });
+      await rearmForEmbedderTarget({ url: resolved.embedder_url, model: resolved.embedder_model });
       resetDescribeDeps();
       resetVideoDescribeDeps();
       return { ...publicAiConnections(config), embedder: await embedderView() };

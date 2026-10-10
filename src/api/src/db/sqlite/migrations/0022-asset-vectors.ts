@@ -2,6 +2,7 @@ import {
   ASSET_VECTORS_INDEX_DDL,
   ASSET_VECTORS_TABLE_DDL,
   STAGE_CLAIM_LEASES_VIEW_DDL,
+  STAGE_CLAIM_TOKEN_DDL,
   ASSET_VECTORS_TRIGGER_DDL,
   SEARCH_TEXT_TRIGGER_DDL,
 } from '../ddl/asset-vectors.ts';
@@ -14,6 +15,7 @@ import type { Migration } from '../migrate.ts';
 export const assetVectorsMigration: Migration = {
   id: '0022-asset-vectors',
   async up(db): Promise<void> {
+    await db.exec(STAGE_CLAIM_TOKEN_DDL);
     await db.exec(ASSET_VECTORS_TABLE_DDL);
     await db.exec(ASSET_VECTORS_INDEX_DDL);
     await db.exec(STAGE_CLAIM_LEASES_VIEW_DDL);

@@ -15,7 +15,7 @@ export interface AssetVectorRecord {
 
 /**
  * With `claimedBy`, the write lands only while that asset's `embed` row still holds exactly this
- * lease. A re-arm clears the claim and a re-claim stamps a new one, so a vector computed from
+ * claim token. A re-arm clears the claim and a re-claim stamps a new one, so a vector computed from
  * text that has since changed is dropped instead of overwriting the row the next run will fill.
  */
 export function upsertAssetVectorStatement(
@@ -24,7 +24,7 @@ export function upsertAssetVectorStatement(
 ): SqlStatement {
   const claimHeld = claimedBy
     ? `WHERE EXISTS (SELECT 1 FROM stage_claim_leases
-                      WHERE asset_id = ? AND stage = '${EMBED_STAGE}' AND next_attempt_at = ?)`
+                      WHERE asset_id = ? AND stage = '${EMBED_STAGE}' AND claim_token = ?)`
     : 'WHERE true';
   return {
     sql: `INSERT INTO asset_vectors (maple_id, version, model, endpoint, dims, vector, embedded_at)
@@ -59,7 +59,7 @@ export async function rearmEmbedForEmbedderChange(
   const result = await assetsDb(dbOverride).write(
     `UPDATE stage_state
         SET version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0,
-            next_attempt_at = NULL
+            next_attempt_at = NULL, claim_token = NULL
       WHERE stage = ?
         AND ((version > 0 AND asset_id IN (
               SELECT a.id FROM asset_vectors v JOIN assets a ON a.maple_id = v.maple_id

@@ -123,7 +123,7 @@ export function residualClauses(residualSql?: string): string[] {
  * getting there.
  */
 const LEASE_FENCE = `
-     AND next_attempt_at = ?`;
+     AND claim_token = ?`;
 
 /**
  * The candidate scan. Parameters, in order: `stage`, `targetVersion`, `now`,
@@ -199,7 +199,7 @@ export function stageClaimSql(dependencyCount: number, residualSql?: string): st
     ...residualClauses(residualSql),
   ];
   return `UPDATE stage_state
-     SET attempts = attempts + 1, next_attempt_at = ?
+     SET attempts = attempts + 1, next_attempt_at = ?, claim_token = ?
    WHERE asset_id = ? AND stage = ?
      AND ${clauses.join('\n     AND ')}`;
 }
@@ -222,7 +222,7 @@ export function stageClaimSql(dependencyCount: number, residualSql?: string): st
  */
 export const STAGE_RENEW_LEASE_SQL = `
   UPDATE stage_state
-     SET next_attempt_at = ?
+     SET next_attempt_at = ?, claim_token = ?
    WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
 
 /**
@@ -242,7 +242,7 @@ export const STAGE_RENEW_LEASE_SQL = `
 export const STAGE_SUCCESS_SQL = `
   UPDATE stage_state
      SET version = ?, attempts = 0, last_error = ?, processed_at = ?,
-         dead = 0, failed_at = NULL, next_attempt_at = NULL
+         dead = 0, failed_at = NULL, next_attempt_at = NULL, claim_token = NULL
    WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
 
 /**
@@ -264,7 +264,7 @@ export const STAGE_INVALIDATE_SQL = `
   SELECT id, ?, 0, 0, NULL, NULL, 0 FROM assets WHERE id = ?
   ON CONFLICT (asset_id, stage) DO UPDATE SET
     version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0,
-    next_attempt_at = NULL`;
+    next_attempt_at = NULL, claim_token = NULL`;
 
 /**
  * A stage recorded as handled by something other than its own poll loop.
@@ -292,7 +292,7 @@ export const STAGE_OFF_CLAIM_SUCCESS_SQL = `
   ON CONFLICT (asset_id, stage) DO UPDATE SET
     version = excluded.version, attempts = 0, last_error = excluded.last_error,
     processed_at = excluded.processed_at, dead = 0,
-    failed_at = NULL, next_attempt_at = NULL`;
+    failed_at = NULL, next_attempt_at = NULL, claim_token = NULL`;
 
 /**
  * The claiming stage's own row after a `rearm`: left below target with its
@@ -304,7 +304,7 @@ export const STAGE_OFF_CLAIM_SUCCESS_SQL = `
  */
 export const STAGE_REARM_SELF_SQL = `
   UPDATE stage_state
-     SET last_error = ?, dead = ?, next_attempt_at = NULL
+     SET last_error = ?, dead = ?, next_attempt_at = NULL, claim_token = NULL
    WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
 
 /**
@@ -319,7 +319,7 @@ export const STAGE_REARM_SELF_SQL = `
  */
 export const STAGE_DAMAGED_SQL = `
   UPDATE stage_state
-     SET attempts = 1, last_error = ?, dead = 1, next_attempt_at = NULL
+     SET attempts = 1, last_error = ?, dead = 1, next_attempt_at = NULL, claim_token = NULL
    WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
 
 /**
@@ -332,7 +332,7 @@ export const STAGE_DAMAGED_SQL = `
  */
 export const STAGE_FAILURE_SQL = `
   UPDATE stage_state
-     SET last_error = ?, dead = ?, failed_at = ?, next_attempt_at = ?
+     SET last_error = ?, dead = ?, failed_at = ?, next_attempt_at = ?, claim_token = NULL
    WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
 
 /**
@@ -350,7 +350,7 @@ export const STAGE_FAILURE_SQL = `
  */
 export const STAGE_CLAIM_ROLLBACK_SQL = `
   UPDATE stage_state
-     SET attempts = MAX(attempts - 1, 0), next_attempt_at = NULL
+     SET attempts = MAX(attempts - 1, 0), next_attempt_at = NULL, claim_token = NULL
    WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
 
 /**
@@ -378,7 +378,7 @@ export const STAGE_CLAIM_ROLLBACK_SQL = `
  */
 export const STAGE_PARK_EXHAUSTED_SQL = `
   UPDATE stage_state
-     SET dead = 1, last_error = ?, next_attempt_at = NULL
+     SET dead = 1, last_error = ?, next_attempt_at = NULL, claim_token = NULL
    WHERE asset_id = ? AND stage = ?
      AND attempts >= ? AND dead = 0 AND version < ?`;
 

@@ -46,10 +46,10 @@ const REARM_INSERT = `
 
 const REARM_WITH_PROCESSED_AT = `${REARM_INSERT}
     version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0,
-    next_attempt_at = NULL`;
+    next_attempt_at = NULL, claim_token = NULL`;
 
 const REARM_KEEPING_PROCESSED_AT = `${REARM_INSERT}
-    version = 0, attempts = 0, last_error = NULL, dead = 0, next_attempt_at = NULL`;
+    version = 0, attempts = 0, last_error = NULL, dead = 0, next_attempt_at = NULL, claim_token = NULL`;
 
 /** Re-arm every stage that indexes an asset's searchable text: `meili` and `embed`. */
 export function searchRearmStatements(assetId: string): SqlStatement[] {
@@ -122,7 +122,7 @@ export function stageRearmBatchStatement(
       SELECT a.id, ?, 0, 0, NULL, NULL, 0 FROM assets a WHERE a.id IN (${list})${also}
       ON CONFLICT (asset_id, stage) DO UPDATE SET
         version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0,
-    next_attempt_at = NULL`,
+    next_attempt_at = NULL, claim_token = NULL`,
     params: [stage, ...assetIds, ...(guard?.params ?? [])],
   };
 }

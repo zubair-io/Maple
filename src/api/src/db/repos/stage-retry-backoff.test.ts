@@ -72,7 +72,7 @@ async function tick(
       assetId: row.asset_id,
       stage: STAGE,
       targetVersion: TARGET_VERSION,
-      lease: row.next_attempt_at,
+      lease: row.claim_token,
     };
     try {
       const value = options.handler();

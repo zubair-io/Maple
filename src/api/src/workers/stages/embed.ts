@@ -9,7 +9,8 @@
  *
  * Re-embedding is driven two ways. Bumping `EMBEDDER_TEMPLATE_SHAPE_VERSION` raises this stage's
  * target version, which re-queues every asset. Changing the embedding model leaves versions
- * alone, so `onProgress` sweeps for vectors written by another model whenever the stage idles.
+ * alone, so `onProgress` sweeps for vectors written by another model or endpoint once a minute,
+ * busy or idle (and the AI settings save runs the same check).
  * Stages that change template text (describe, transcribe, geocode, ...) re-arm `embed` through
  * `invalidates`.
  *
@@ -30,23 +31,18 @@ import {
   embedTexts,
   type OllamaEmbedTarget,
 } from '../../enrichment/ollama-embed-client.ts';
-import { EMBED_STAGE } from '../../db/repos/assets.stage-rearm.ts';
-import {
-  rearmEmbedForEmbedderChange,
-  upsertAssetVectorStatement,
-} from '../../db/repos/asset-vectors.repo.ts';
-import { WorkerConfigRepo } from '../../db/repos/worker-config.repo.ts';
+import { upsertAssetVectorStatement } from '../../db/repos/asset-vectors.repo.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { classifyMediaType } from '../../indexer/media-types.ts';
 import type { AssetFaceDoc, Place, TranscriptDoc } from '../../db/schema.ts';
 import { createBatcher } from '../embed/batcher.ts';
 import { currentEmbedderTarget } from '../embed/embedder-target.ts';
+import { sweepEmbedderChange } from '../embed/embedder-rearm.ts';
 import { loadNamedPeople, peopleNamesForFaces } from './meili.ts';
 
 const EMBED_STAGE_VERSION = EMBEDDER_TEMPLATE_SHAPE_VERSION;
 
 const BATCH_LINGER_MS = 25;
-const MODEL_DRIFT_SWEEP_INTERVAL_MS = 60_000;
 
 interface EmbeddableImage {
   maple_id?: string;
@@ -134,22 +130,6 @@ export async function embedHandler(image: ImageDoc, ctx: StageContext): Promise<
   };
 }
 
-const sweep: { lastAt: number } = { lastAt: 0 };
-
-export async function rearmForEmbedderTarget(target: OllamaEmbedTarget): Promise<void> {
-  const fingerprint = `${target.model} @ ${target.url}`;
-  const repo = new WorkerConfigRepo();
-  const targetChanged = (await repo.load(EMBED_STAGE))?.ai_model !== fingerprint;
-  await rearmEmbedForEmbedderChange(target, { includeDead: targetChanged });
-  if (targetChanged) await repo.patch(EMBED_STAGE, { ai_model: fingerprint });
-}
-
-async function rearmAfterModelChange(_processedThisTick: number, idle: boolean): Promise<void> {
-  if (!idle || Date.now() - sweep.lastAt < MODEL_DRIFT_SWEEP_INTERVAL_MS) return;
-  sweep.lastAt = Date.now();
-  await rearmForEmbedderTarget(await currentEmbedderTarget());
-}
-
 // Staged per CLAUDE.md principle 6: nothing reads asset_vectors until #4463 lands the search cut-over.
 const embedStage = defineStage({
   name: 'embed',
@@ -163,7 +143,7 @@ const embedStage = defineStage({
     pausedOnFirstBoot: true,
   },
   handler: embedHandler,
-  onProgress: rearmAfterModelChange,
+  onProgress: sweepEmbedderChange,
 });
 
 export default embedStage;

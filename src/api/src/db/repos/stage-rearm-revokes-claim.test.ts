@@ -22,7 +22,13 @@ async function claim(
   );
   const row = claimed.find((candidate) => candidate.asset_id === assetId);
   if (row === undefined) throw new Error(`${stage} was not claimed for ${assetId}`);
-  return { assetId, stage, targetVersion: TARGET_VERSION, lease: row.next_attempt_at! };
+  return {
+    assetId,
+    stage,
+    targetVersion: TARGET_VERSION,
+    lease: row.claim_token,
+    expiry: row.next_attempt_at,
+  };
 }
 
 describe('re-arming a stage while an attempt is in flight', () => {
@@ -121,6 +127,25 @@ describe('re-arming a stage while an attempt is in flight', () => {
       expect(handle.db.query(`SELECT COUNT(*) AS n FROM asset_vectors`).get()).toEqual({ n: 1 });
     },
   );
+
+  test('two claimers with identical clocks get the same expiry but different tokens, and only the live one writes', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const assetId = seedClaimableAsset(handle.db, { stages: { embed: {} } });
+    handle.db.run(`UPDATE assets SET maple_id = 'm1' WHERE id = ?`, [assetId]);
+    const now = new Date('2026-10-09T00:00:00.000Z');
+    const first = await claim(db, 'embed', assetId, now);
+    await db.transaction(searchRearmStatements(assetId));
+    const second = await claim(db, 'embed', assetId, now);
+
+    expect(second.expiry).toBe(first.expiry);
+    expect(second.lease).not.toBe(first.lease);
+
+    await db.transaction(stageSuccessStatements(first));
+    expect(stageRow(handle.db, assetId, 'embed')?.version).toBe(0);
+    await db.transaction(stageSuccessStatements(second));
+    expect(stageRow(handle.db, assetId, 'embed')?.version).toBe(TARGET_VERSION);
+  });
 
   test('three claims in one millisecond all carry different leases', async () => {
     using handle = await createTestDatabase();

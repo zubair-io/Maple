@@ -56,7 +56,7 @@ describe('claimStageBatch — the lease across a long handler', () => {
             assetId,
             stage: STAGE,
             targetVersion: 2,
-            lease: first.claimed[0]?.next_attempt_at ?? '',
+            lease: first.claimed[0]?.claim_token ?? '',
           },
           attemptNo: 1,
           maxAttempts: 3,
@@ -89,7 +89,7 @@ describe('claimStageBatch — the lease across a long handler', () => {
     const claimed = await claimStageBatch(request({ now: T0, leaseMs: LEASE_MS }), db);
     // The handler heartbeats at t+14, a minute before the lease would lapse.
     const renewed = await renewStageLease(
-      { assetId, stage: STAGE, lease: claimed.claimed[0]?.next_attempt_at ?? '' },
+      { assetId, stage: STAGE, lease: claimed.claimed[0]?.claim_token ?? '' },
       { now: at(14), leaseMs: LEASE_MS },
       db,
     );
@@ -109,7 +109,8 @@ describe('claimStageBatch — the lease across a long handler', () => {
 
     // Renewal is what stops fencing from making a legitimately slow stage
     // strictly worse off: without it `transcribe` could never record a success.
-    expect(renewed).toBe(at(29).toISOString());
+    expect(renewed).toEqual(expect.any(String));
+    expect(renewed).not.toBe(claimed.claimed[0]?.claim_token);
     expect(contender.claimed).toEqual([]);
     expect(stageRow(handle.db, assetId, STAGE)).toMatchObject({
       version: 2,
@@ -126,7 +127,7 @@ describe('claimStageBatch — the lease across a long handler', () => {
     const first = await claimStageBatch(request({ now: T0, leaseMs: LEASE_MS }), db);
     const second = await claimStageBatch(request({ now: at(16), leaseMs: LEASE_MS }), db);
     const renewed = await renewStageLease(
-      { assetId, stage: STAGE, lease: first.claimed[0]?.next_attempt_at ?? '' },
+      { assetId, stage: STAGE, lease: first.claimed[0]?.claim_token ?? '' },
       { now: at(17), leaseMs: LEASE_MS },
       db,
     );

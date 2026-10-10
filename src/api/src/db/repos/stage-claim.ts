@@ -73,22 +73,6 @@ import {
  */
 const CLAIM_LEASE_MS = 15 * 60_000;
 
-const leaseClock = { lastMs: 0 };
-
-const SAME_BURST_MS = 1000;
-
-/**
- * A lease expiry for `expiryMs`, pushed past the last lease this process issued when the two fall
- * within one burst. Leases are millisecond timestamps, so a re-arm followed by an immediate
- * re-claim would otherwise carry the same string and the lease fence could not tell the old
- * attempt from the new one. The result is still a real expiry time, at most a burst later.
- */
-function distinctLease(expiryMs: number): string {
-  const collides = expiryMs <= leaseClock.lastMs && leaseClock.lastMs - expiryMs < SAME_BURST_MS;
-  leaseClock.lastMs = collides ? leaseClock.lastMs + 1 : expiryMs;
-  return new Date(leaseClock.lastMs).toISOString();
-}
-
 /** One `dependsOn` entry, normalised. Mirrors `resolveStageDeps`' output. */
 export interface ResolvedStageDep {
   name: string;
@@ -131,6 +115,8 @@ export interface StageStateRow {
 export interface ClaimedStageRow extends StageStateRow {
   /** Already incremented by this claim — the attempt about to be made. */
   attempts: number;
+  /** The unguessable token this claim stamped; every writeback is fenced on it. */
+  claim_token: string;
   /**
    * The lease this claim stamped, never null. Every writeback for the attempt
    * is fenced on it, so the runner carries it from here into
@@ -217,10 +203,12 @@ function claimParams(
   request: StageClaimRequest,
   row: StageStateRow,
   leaseUntil: string,
+  claimToken: string,
   nowIso: string,
 ): Array<string | number> {
   return [
     leaseUntil,
+    claimToken,
     row.asset_id,
     request.stage,
     request.targetVersion,
@@ -297,13 +285,13 @@ function parkExhaustedStatements(
  * Push a held claim's lease further out, for a handler that legitimately runs
  * longer than one lease.
  *
- * Returns the new lease when the claim is still this caller's, and `null` when
+ * Returns the new claim token when the claim is still this caller's, and `null` when
  * it is not — the row was re-claimed while the handler ran, and the work in
  * progress should be abandoned rather than written, because every writeback
  * for it is fenced on a lease that no longer exists.
  *
- * `lease` is the string the claim handed back in `next_attempt_at`, and the
- * return value replaces it for the next renewal and for the writeback.
+ * `lease` is the token the claim handed back in `claim_token`, and the return value replaces it
+ * for the next renewal and for the writeback.
  */
 export async function renewStageLease(
   target: { assetId: string; stage: string; lease: string },
@@ -311,14 +299,16 @@ export async function renewStageLease(
   dbOverride?: SqliteDb,
 ): Promise<string | null> {
   const now = options.now ?? new Date();
-  const renewed = distinctLease(now.getTime() + (options.leaseMs ?? CLAIM_LEASE_MS));
+  const renewed = new Date(now.getTime() + (options.leaseMs ?? CLAIM_LEASE_MS)).toISOString();
+  const renewedToken = crypto.randomUUID();
   const result = await assetsDb(dbOverride).write(STAGE_RENEW_LEASE_SQL, [
     renewed,
+    renewedToken,
     target.assetId,
     target.stage,
     target.lease,
   ]);
-  if (result.changes > 0) return renewed;
+  if (result.changes > 0) return renewedToken;
   log.warn(
     { stage: target.stage, assetId: target.assetId },
     `${target.stage}: lease lost while the handler was still running`,
@@ -369,28 +359,31 @@ export async function claimStageBatch(
   if (candidates.length === 0) return { claimed: [], crashExhausted: [], contended: 0 };
 
   const { claimable, exhausted } = partitionCandidates(candidates, request.maxAttempts);
-  const leaseUntil = distinctLease(now.getTime() + (request.leaseMs ?? CLAIM_LEASE_MS));
+  const leaseUntil = new Date(now.getTime() + (request.leaseMs ?? CLAIM_LEASE_MS)).toISOString();
+  const tokens = claimable.map(() => crypto.randomUUID());
   const parkStatements = exhausted.flatMap((row) => parkExhaustedStatements(request, row, nowIso));
   const claimSql = stageClaimSql(request.dependsOn.length, request.residual?.sql);
   const results = await db.transaction([
     ...parkStatements,
     ...claimable.map(
-      (row): SqlStatement => ({
+      (row, index): SqlStatement => ({
         sql: claimSql,
-        params: claimParams(request, row, leaseUntil, nowIso),
+        params: claimParams(request, row, leaseUntil, tokens[index]!, nowIso),
       }),
     ),
   ]);
 
   const claimed = claimable
+    .map((row, index) => ({ row, token: tokens[index]!, index }))
     // The claim statements start after the crash-exhaustion parks in the batch.
-    .filter((_, index) => (results[parkStatements.length + index]?.changes ?? 0) > 0)
+    .filter(({ index }) => (results[parkStatements.length + index]?.changes ?? 0) > 0)
     // The row as the claim left it: the attempt is spent and the lease is on.
     .map(
-      (row): ClaimedStageRow => ({
+      ({ row, token }): ClaimedStageRow => ({
         ...row,
         attempts: row.attempts + 1,
         next_attempt_at: leaseUntil,
+        claim_token: token,
       }),
     );
   const contended = claimable.length - claimed.length;

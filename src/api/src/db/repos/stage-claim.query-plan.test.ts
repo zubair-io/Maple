@@ -218,6 +218,7 @@ describe('a media-narrowed claim', () => {
       handle.db,
       stageClaimSql(0, AV_RESIDUAL),
       NOW,
+      'token',
       'a'.repeat(24),
       'transcribe',
       1,
@@ -285,7 +286,7 @@ describe('the claim and its bookkeeping', () => {
   test('taking one candidate is a primary-key seek', async () => {
     using handle = await createTestDatabase();
 
-    const detail = plan(handle.db, stageClaimSql(0), NOW, 'a'.repeat(24), 'thumb', 2, NOW);
+    const detail = plan(handle.db, stageClaimSql(0), NOW, 'token', 'a'.repeat(24), 'thumb', 2, NOW);
 
     // `WITHOUT ROWID` means the row lives in the primary-key B-tree itself, so
     // this is one descent with no separate index lookup.
@@ -303,6 +304,7 @@ describe('the claim and its bookkeeping', () => {
         `EXISTS (SELECT 1 FROM assets WHERE id = stage_state.asset_id AND media_kind IN (?, ?))`,
       ),
       NOW,
+      'token',
       'a'.repeat(24),
       'transcribe',
       2,
