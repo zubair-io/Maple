@@ -5,11 +5,6 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { authInterceptor } from './auth.interceptor';
 import { AuthService } from './auth.service';
 
-// Interceptor tests cover a single tab; cross-tab broadcasts have separate
-// browser coverage and must not cross-contaminate parallel Node test workers.
-beforeEach(() => vi.stubGlobal('BroadcastChannel', undefined));
-afterEach(() => vi.unstubAllGlobals());
-
 describe('authInterceptor', () => {
   let http: HttpClient;
   let ctrl: HttpTestingController;

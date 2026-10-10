@@ -4,12 +4,6 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { AuthService, AuthUser } from './auth.service';
 
-// These unit tests exercise one injected tab at a time. Node's global
-// BroadcastChannel can otherwise leak sign-out messages between concurrently
-// running spec files and make one TestBed's refresh look rejected.
-beforeEach(() => vi.stubGlobal('BroadcastChannel', undefined));
-afterEach(() => vi.unstubAllGlobals());
-
 describe('AuthService.refresh', () => {
   let auth: AuthService;
   let ctrl: HttpTestingController;
