@@ -28,6 +28,12 @@ export const ASSET_VECTORS_INDEX_DDL = `
 CREATE INDEX asset_vectors_model ON asset_vectors (model);
 `;
 
+// A read-only window onto stage claims: the runner rejects handler statements that name stage_state.
+export const STAGE_CLAIM_LEASES_VIEW_DDL = `
+CREATE VIEW stage_claim_leases AS
+  SELECT asset_id, stage, next_attempt_at FROM stage_state;
+`;
+
 export const ASSET_VECTORS_TRIGGER_DDL = `
 CREATE TRIGGER asset_vectors_asset_deleted AFTER DELETE ON assets
 WHEN OLD.maple_id IS NOT NULL
@@ -40,7 +46,8 @@ WHEN OLD.maple_id IS NOT NULL AND OLD.maple_id IS NOT NEW.maple_id
 BEGIN
   DELETE FROM asset_vectors WHERE maple_id = OLD.maple_id;
   UPDATE stage_state
-     SET version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0
+     SET version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0,
+         next_attempt_at = NULL
    WHERE asset_id = NEW.id AND stage = 'embed';
 END;
 `;

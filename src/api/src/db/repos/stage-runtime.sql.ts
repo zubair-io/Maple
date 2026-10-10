@@ -263,7 +263,8 @@ export const STAGE_INVALIDATE_SQL = `
   INSERT INTO stage_state (asset_id, stage, version, attempts, last_error, processed_at, dead)
   SELECT id, ?, 0, 0, NULL, NULL, 0 FROM assets WHERE id = ?
   ON CONFLICT (asset_id, stage) DO UPDATE SET
-    version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0`;
+    version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0,
+    next_attempt_at = NULL`;
 
 /**
  * A stage recorded as handled by something other than its own poll loop.

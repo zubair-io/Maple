@@ -1,6 +1,7 @@
 import {
   ASSET_VECTORS_INDEX_DDL,
   ASSET_VECTORS_TABLE_DDL,
+  STAGE_CLAIM_LEASES_VIEW_DDL,
   ASSET_VECTORS_TRIGGER_DDL,
 } from '../ddl/asset-vectors.ts';
 import type { Migration } from '../migrate.ts';
@@ -14,6 +15,7 @@ export const assetVectorsMigration: Migration = {
   async up(db): Promise<void> {
     await db.exec(ASSET_VECTORS_TABLE_DDL);
     await db.exec(ASSET_VECTORS_INDEX_DDL);
+    await db.exec(STAGE_CLAIM_LEASES_VIEW_DDL);
     await db.exec(ASSET_VECTORS_TRIGGER_DDL);
     await db.exec(`INSERT INTO stage_state(asset_id,stage)
       SELECT id,'embed' FROM assets WHERE true
