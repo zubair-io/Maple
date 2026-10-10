@@ -49,6 +49,7 @@ impl ResolvedCalibrationRemovals {
             decoded_wb_anchor,
             ae_gain,
             patches,
+            crate::CancelToken::never(),
         )
     }
 

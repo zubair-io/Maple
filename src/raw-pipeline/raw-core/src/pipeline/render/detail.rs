@@ -2,10 +2,7 @@
 //! The patch consumes the base render's AE and Auto artifacts, never fits
 //! a tone curve or measures exposure from a viewport's histogram.
 
-use super::{
-    display_prefix, finish, render_display_scene_with_context_cancellable,
-    render_display_scene_with_removals, RawInput,
-};
+use super::{display_prefix, finish, render_display_scene_with_removals, RawInput};
 use crate::{
     error::{Error, Result},
     film::FilmLut,
@@ -61,7 +58,7 @@ pub fn render_detail_base_cancellable(
             "native detail requires verified removal companions".into(),
         ));
     }
-    let (mut scene, context) = render_display_scene_with_context_cancellable(
+    let (mut scene, context) = render_display_scene_with_removals(
         raw,
         model,
         options.quality,
@@ -70,6 +67,7 @@ pub fn render_detail_base_cancellable(
         encode::TargetPrimaries::Srgb,
         options.film_lut,
         cancel,
+        None,
     )?;
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
@@ -243,6 +241,11 @@ fn render_detail_tile_with_patches(
 ) -> Result<(u32, u32, Vec<u8>)> {
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
+    }
+    if patches.is_none() && !context.model.inpaint_removals.is_empty() {
+        return Err(Error::Pipeline(
+            "saved native detail requires verified removal companions".into(),
+        ));
     }
     if !crate::stages::perspective::Perspective::from_model(&context.model).is_identity() {
         return Err(Error::Pipeline(

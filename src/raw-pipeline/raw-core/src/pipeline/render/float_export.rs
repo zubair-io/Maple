@@ -45,6 +45,7 @@ impl ResolvedCalibrationRemovals {
             None,
             target,
             film,
+            crate::CancelToken::never(),
             Some((self, original)),
         )?;
         Ok(finish(scene, raw.orientation, model))

@@ -81,6 +81,7 @@ impl ResolvedCalibrationRemovals {
             max_long_edge,
             TargetPrimaries::Srgb,
             film_lut,
+            crate::CancelToken::never(),
             Some((self, original)),
         )?;
         let crop_input_size = if raw.orientation.swaps_wh() {
@@ -124,6 +125,7 @@ impl ResolvedCalibrationRemovals {
             max_long_edge,
             target,
             film_lut,
+            crate::CancelToken::never(),
             Some((self, original)),
         )?;
         Ok(match depth {

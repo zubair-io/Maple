@@ -25,9 +25,9 @@ use crate::{
     error::Result,
     image::RawImage,
     stages::{
-        chroma_prefilter, clarity, defringe, highlight_recovery_oklab, hsl, noise_reduction,
-        saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance, wb_camera,
-        white_balance,
+        chroma_prefilter, clarity, defringe, highlight_recovery, highlight_recovery_oklab, hsl,
+        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
+        wb_camera, white_balance,
     },
     xmp::AdjustmentModel,
 };

@@ -25,6 +25,7 @@
 //! * [`overlap`] — the per-render pad calculator.
 //! * [`develop`] — the develop chain run on the padded crop.
 
+mod camera;
 mod context;
 mod develop;
 mod guards;
@@ -37,6 +38,8 @@ pub use context::{
 mod overlap;
 mod prefix;
 mod region;
+mod removal;
+pub(in crate::pipeline) use removal::render_removal_camera_context;
 
 #[cfg(test)]
 mod tests;

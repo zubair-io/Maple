@@ -137,6 +137,8 @@ pub(super) fn develop_with_calibration_patches(
     cancel: CancelToken<'_>,
     patches: &[crate::types::InpaintPatch],
 ) -> Result<(crate::image::Image, f32)> {
+    let (frame_w, frame_h) = crate::pipeline::native_render_dims(raw);
+    let model = &*crate::types::with_brush_rasters(model, frame_w, frame_h);
     let (camera, skip_pre_gain, crop_divisor) =
         camera::prepare_unwarped(raw, model, quality, max_long_edge, cancel)?;
     let mut camera_rgb = camera::finish_geometry(raw, model, camera, crop_divisor)?;

@@ -45,6 +45,7 @@ use super::{
     RenderQuality,
 };
 
+pub(super) mod camera;
 mod geometry;
 
 pub(super) use geometry::{
@@ -58,6 +59,7 @@ mod entries;
 pub use entries::{
     develop_scene_linear_from_raw_with_quality,
     develop_scene_linear_from_raw_with_quality_cancellable,
+    develop_scene_linear_from_raw_with_quality_cancellable_with_gain,
     develop_scene_linear_from_raw_with_quality_with_gain,
 };
 
@@ -71,11 +73,12 @@ pub use entries::{
 /// separate entry (rather than changing the widely-called plain function's
 /// return type) to avoid touching the ~30 existing callers across raw-core,
 /// maple-cli, and the test suite that only want the `Image`.
-pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
+pub(super) fn develop_with_calibration_patches(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
     cancel: CancelToken<'_>,
+    calibration_patches: &[crate::types::InpaintPatch],
 ) -> Result<(crate::image::Image, f32)> {
     // Bail before any work if the host already cancelled (e.g. the decode
     // task was superseded before the worker thread even started).
