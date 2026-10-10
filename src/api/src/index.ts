@@ -102,6 +102,8 @@ import { getApnsPushTrigger } from './apns/push-trigger.ts';
 import { startEventLoopLagMonitor, stopEventLoopLagMonitor } from './runtime/diag-eventloop.ts';
 import { startMemoryTelemetry, stopMemoryTelemetry } from './runtime/memory-telemetry.ts';
 import { startWorkerSupervisor, stopWorkerSupervisor } from './runtime/worker-supervisor.ts';
+import { startSelectedSearchEngine } from './search/search-engine-selection.ts';
+import { stopSearchChildPool } from './search/search-pool.ts';
 import { SERVER_PORT } from './runtime/server-port.ts';
 import { TLS_ENABLED, listenOptions } from './runtime/tls-config.ts';
 
@@ -386,6 +388,7 @@ async function start(): Promise<void> {
     startWorkerSupervisor(import.meta.url);
 
     await initializeHttpSearch();
+    await startSelectedSearchEngine();
 
     try {
       // OpenTelemetry → SigNoz. The backend ships its own logs + traces over
@@ -481,6 +484,7 @@ async function shutdown(signal: string): Promise<void> {
   // before exiting. Best-effort — worker may already be dead or not yet spawned.
   try {
     stopWorkerSupervisor();
+    stopSearchChildPool();
   } catch (e) {
     log.warn({ err: e }, 'error stopping worker process');
   }

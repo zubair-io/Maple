@@ -1,7 +1,10 @@
 /**
  * `POST /api/search/assets` — the service-API search surface.
  *
- * Meilisearch answers first (hybrid, then lexical) and is untouched by the
+ * When Settings → AI selects the in-process engine, a hybrid request asks it
+ * first (`service-asset-search-in-process.ts`) and falls through when it
+ * cannot answer. Otherwise Meilisearch answers first (hybrid, then lexical)
+ * and is untouched by the
  * SQLite cutover (#3787): it is a separate service, and only the database
  * half of this route moved. What moved is the fallback that runs when the
  * sidecar is absent, unconfigured or failing — `serviceLexicalSearch` in
@@ -32,6 +35,7 @@ import {
   resetServiceSearchRateLimitsForTests,
 } from '../enrichment/service-search-rate-limit.ts';
 import { child as childLogger } from '../log.ts';
+import { inProcessServiceSearch } from './service-asset-search-in-process.ts';
 
 const log = childLogger('service-search');
 const DEFAULT_LIMIT = 20;
@@ -337,6 +341,11 @@ async function executeSearch(
   startedAt: number,
 ) {
   const context = searchContext(request);
+  const inProcess =
+    context.modeRequested === 'hybrid'
+      ? await inProcessServiceSearch(context, context.query, context.limit)
+      : null;
+  if (inProcess) return finishSearch(identity, startedAt, 'hybrid', 'hybrid', null, inProcess);
   const meili = meilisearchClient();
   let fallbackReason: FallbackReason | null = null;
   let fallbackDetails: MeilisearchFailureDetails | null = null;

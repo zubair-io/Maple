@@ -1,4 +1,5 @@
 import { aiConnectionRoutes } from './ai-connections.ts';
+import { aiSearchEngineRoutes } from './ai-search-engine.ts';
 /**
  * /api/ai/* — operator-facing routes for managing AI providers, model listings,
  * and mapping providers/models to workers.
@@ -169,6 +170,7 @@ async function updateWorkerAssignments(
 export const aiRoutes = new Elysia({ prefix: '/api/ai' })
   .use(requireAuth)
   .use(aiConnectionRoutes)
+  .use(aiSearchEngineRoutes)
 
   // GET /api/ai/config — Return configured AI providers status & worker assignments
   .get('/config', async () => {

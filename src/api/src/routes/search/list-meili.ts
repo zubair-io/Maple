@@ -39,6 +39,8 @@ const searchLog = childLogger('search');
 export interface MeiliPage {
   total: number;
   results: SearchResult[];
+  /** Set only by the in-process engine: how many of this page's results its vector leg found. */
+  rankedBy?: { engine: 'in-process'; semanticHits: number };
 }
 
 export interface MeiliPageInput {

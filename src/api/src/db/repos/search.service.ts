@@ -108,6 +108,28 @@ function exactFilenameSql(scope: Bound): string {
      LIMIT ?`;
 }
 
+/**
+ * Which of `mapleIds` are live and inside `scope`, in the order given — the in-process engine's
+ * candidates (#4463) under the same scope clauses as the lexical passes.
+ */
+export async function serviceScopedMapleIds(
+  scope: ServiceSearchScope,
+  mapleIds: readonly string[],
+  dbOverride?: SqliteDb,
+): Promise<string[]> {
+  if (mapleIds.length === 0) return [];
+  const bound = scopeClauses(scope);
+  const rows = await assetsDb(dbOverride).read<{ maple_id: string }>(
+    `SELECT assets.maple_id AS maple_id
+       FROM assets
+      WHERE ${QUALIFIED_LIVE_PREDICATE}
+        AND assets.maple_id IN (${placeholders(mapleIds.length)})${bound.sql}`,
+    [...mapleIds, ...bound.params],
+  );
+  const surviving = new Set(rows.map((row) => row.maple_id));
+  return mapleIds.filter((id) => surviving.has(id));
+}
+
 /** What the route needs back: content ids, and which of them matched exactly. */
 export interface ServiceSearchHits {
   ids: string[];
