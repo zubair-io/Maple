@@ -86,7 +86,50 @@ namespace Maple.WinUI.Services.Xmp
                 });
                 return assigned;
             });
-            return layers.Zip(keys, (layer, key) => (layer, (double?)key)).ToArray();
+            var written = Representable(keys, verbatim) ? keys : Respaced(keys, verbatim);
+            return layers.Zip(written, (layer, key) => (layer, (double?)key)).ToArray();
+        }
+
+        private static double Written(double key) => double.Parse(Format(key), CultureInfo.InvariantCulture);
+
+        /// <summary>
+        /// Repeated midpoints can halve a gap below the six-decimal codec, so
+        /// the written keys must still order the layers and verbatim corrections
+        /// exactly as the unrounded ones do.
+        /// </summary>
+        private static bool Representable(IReadOnlyList<double> keys, IReadOnlyList<double> verbatim)
+        {
+            var written = keys.Select(Written).ToArray();
+            return written.Zip(written.Skip(1)).All(pair => pair.First < pair.Second)
+                && keys.Zip(written).All(pair => verbatim.All(key =>
+                    Math.Sign(pair.Second - key) != 0 && Math.Sign(pair.Second - key) == Math.Sign(pair.First - key)));
+        }
+
+        /// <summary>Evenly re-spaced keys for each run of layers between the same two verbatim corrections.</summary>
+        private static IReadOnlyList<double> Respaced(IReadOnlyList<double> keys, IReadOnlyList<double> verbatim)
+        {
+            var sorted = verbatim.OrderBy(key => key).ToArray();
+            return keys.Select((key, index) => (index, gap: verbatim.Count(other => other < key)))
+                .GroupBy(entry => entry.gap)
+                .SelectMany(group =>
+                {
+                    var members = group.ToArray();
+                    var top = members.Max(member => keys[member.index]);
+                    double? low = group.Key > 0 ? sorted[group.Key - 1] : null;
+                    var above = sorted.Skip(group.Key).Where(key => key > top).ToArray();
+                    double? high = above.Length > 0 ? above[0] : null;
+                    var count = members.Length;
+                    return members.Select((member, rank) => (member.index, key: (low, high) switch
+                    {
+                        ({ } below, { } over) => below + (over - below) * (rank + 1) / (count + 1),
+                        (null, { } over) => over - count + rank,
+                        ({ } below, null) => Math.Floor(below) + 1 + rank,
+                        _ => (double)rank,
+                    }));
+                })
+                .OrderBy(entry => entry.index)
+                .Select(entry => entry.key)
+                .ToArray();
         }
 
         /// <summary>

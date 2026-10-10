@@ -409,6 +409,57 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
+        public void LayersAppendedPastTheCodecPrecisionAreRespaced()
+        {
+            var linear = CanonicalOrderBlock[..(CanonicalOrderBlock.IndexOf("</crs:GradientBasedCorrections>", StringComparison.Ordinal)
+                + "</crs:GradientBasedCorrections>".Length)].Replace("papp:LayerOrder=\"1\"", "papp:LayerOrder=\"0\"");
+            var doc = Load(XmpLocalAdjustmentsTests.Sidecar(string.Join("\n", linear, BrushV2Block)));
+            Assert.Equal(new[] { Linear(0.4) with { XmpLayerOrder = 0 } }, doc.Adjustments.LocalAdjustments);
+            doc.Adjustments.LocalAdjustments.AddRange(Enumerable.Repeat(Linear(0.1), 25));
+
+            var first = Save(doc);
+            var gradient = XDocument.Parse(first).Descendants(Crs + "GradientBasedCorrections").Single();
+            var expected = Enumerable.Range(-25, 26).Select(key => key.ToString(CultureInfo.InvariantCulture)).ToArray();
+            Assert.Equal(expected, gradient.Descendants(Rdf + "Description")
+                .Select(correction => correction.Attribute(Papp + "LayerOrder")?.Value).ToArray());
+
+            var reopened = Assert.IsType<XmpSidecarDocument>(SidecarStore.Load(Raw));
+            Assert.Equal(new[] { 0.4 }.Concat(Enumerable.Repeat(0.1, 25)),
+                reopened.Adjustments.LocalAdjustments.Select(layer => layer.Adjustments.Exposure!.Value));
+            Assert.Equal(Enumerable.Range(-25, 26).Select(key => (double?)key),
+                reopened.Adjustments.LocalAdjustments.Select(layer => layer.XmpLayerOrder));
+            Assert.Equal(first, Save(reopened));
+        }
+
+        [Fact]
+        public void AVerbatimKeyUnderAnAliasedPrefixIsReadByNamespace()
+        {
+            var aliased = Correction(1, 0.3, BitmapLeaf)
+                .Replace("crs:CorrectionActive=\"True\"",
+                    "crs:CorrectionActive=\"True\" papp:MaskGroupVersion=\"1\" papp:MaskGroupOpacity=\"1\" papp:MaskGroupInverted=\"False\"")
+                .Replace("<rdf:li><rdf:Description", $"<rdf:li xmlns:maple=\"{XmpSchema.PappNs}\"><rdf:Description")
+                .Replace(" papp:LayerOrder=", " maple:LayerOrder=");
+            var doc = Load(XmpLocalAdjustmentsTests.Sidecar(string.Join("\n",
+                Container("crs:GradientBasedCorrections", Correction(0, 0.4, LinearLeaf)),
+                Container("crs:CircularGradientBasedCorrections", Correction(2, 0.2, RadialLeaf)),
+                Container("crs:MaskGroupBasedCorrections", aliased))));
+            Assert.Equal(new[] { Linear(0.4) with { XmpLayerOrder = 0 }, Radial(0.2) with { XmpLayerOrder = 2 } },
+                doc.Adjustments.LocalAdjustments);
+            doc.Adjustments.LocalAdjustments.Insert(1, Linear(0.6));
+
+            var first = Save(doc);
+            Assert.Contains("maple:LayerOrder=\"1\"", first);
+            Assert.Equal(new[]
+            {
+                ("GradientBasedCorrections", "0.4"),
+                ("GradientBasedCorrections", "0.6"),
+                ("MaskGroupBasedCorrections", "0.3"),
+                ("CircularGradientBasedCorrections", "0.2"),
+            }, StackByKey(first));
+            Assert.Contains("papp:LayerOrder=\"0.5\"", first);
+        }
+
+        [Fact]
         public void AStackAlreadyInContainerOrderWritesNoKeys()
         {
             var doc = new XmpSidecarDocument();
