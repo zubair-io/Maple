@@ -33,10 +33,10 @@ enum LocalAdjustmentOrder {
   /// A key that is not a finite decimal number reads as absent, the same
   /// tolerance every other attribute on this read path gets.
   static func parseKey(_ attributes: [String: String]) -> Double? {
-    attributes[LocalMaskWire.layerOrderAttribute].flatMap(parseKey)
+    attributes[LocalMaskWire.layerOrderAttribute].flatMap { parseKey(text: $0) }
   }
 
-  private static func parseKey(_ raw: String) -> Double? {
+  static func parseKey(text raw: String) -> Double? {
     let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     // Decimal grammar only: `Double` alone also takes hex floats and "nan".
     guard !text.isEmpty, text.allSatisfy({ "0123456789+-.eE".contains($0) }),
@@ -69,31 +69,19 @@ enum LocalAdjustmentOrder {
 /// modeled layers are keyed around them, keeping every existing key stable
 /// so a read key held in memory stays valid across saves.
 extension LocalAdjustmentOrder {
-  private static let keyPattern = try! NSRegularExpression(
-    pattern: NSRegularExpression.escapedPattern(for: LocalMaskWire.layerOrderAttribute)
-      + "\\s*=\\s*([\"'])([^\"']*)\\1")
-
-  private static func keys(in text: String) -> [Double] {
-    keyPattern.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap {
-      Range($0.range(at: 2), in: text).flatMap { parseKey(String(text[$0])) }
-    }
-  }
-
   private static func isBrushContainer(_ node: String) -> Bool {
     let tag = "<" + LocalAdjustmentXMP.brushContainer
     guard node.hasPrefix(tag), let next = node.dropFirst(tag.count).first else { return false }
     return next.isWhitespace || next == ">" || next == "/"
   }
 
-  private static func templateTexts(_ templates: [XMPMaskGroupTemplate]) -> [String] {
-    templates.flatMap(\.parts).compactMap {
-      guard case .text(let text) = $0 else { return nil }
-      return text
+  /// Verbatim brush nodes are re-emitted under the canonical prefixes, so
+  /// they are read in that scope.
+  private static func verbatimKeys(_ passthrough: XMPPassthrough) -> [Double] {
+    let brushKeys = passthrough.unknownNodes.filter(isBrushContainer).flatMap {
+      XMPMaskGroupSources.layerOrderKeys($0, namespaces: XMPMaskGroupNamespaces.owned)
     }
-  }
-
-  static func hasVerbatimKeys(_ templates: [XMPMaskGroupTemplate]) -> Bool {
-    templateTexts(templates).contains { !keys(in: $0).isEmpty }
+    return passthrough.maskGroups.flatMap(\.layerOrders) + brushKeys
   }
 
   /// The keys each modeled layer is written with. With no keyed verbatim
@@ -103,9 +91,7 @@ extension LocalAdjustmentOrder {
   static func keyed(_ layers: [LocalAdjustment], around passthrough: XMPPassthrough)
     -> [KeyedLocalAdjustment]
   {
-    let verbatim =
-      (templateTexts(passthrough.maskGroups)
-      + passthrough.unknownNodes.filter(isBrushContainer)).flatMap { keys(in: $0) }
+    let verbatim = verbatimKeys(passthrough)
     guard !verbatim.isEmpty else { return keyed(layers) }
     let readKeys = layers.map(\.xmpLayerOrder)
     let kept = keptIndices(readKeys)
@@ -124,7 +110,40 @@ extension LocalAdjustmentOrder {
       case (let lower?, let upper?): assigned.append((lower + upper) / 2)
       }
     }
-    return zip(layers, assigned).map { (layer: $0, key: $1) }
+    let written = writable(assigned, around: verbatim) ? assigned : respaced(assigned, verbatim)
+    return zip(layers, written).map { (layer: $0, key: $1) }
+  }
+
+  /// Whether the six-decimal wire form keeps the keys strictly increasing
+  /// and on the same side of every verbatim key.
+  private static func writable(_ keys: [Double], around verbatim: [Double]) -> Bool {
+    let written: [Double] = keys.map { Double(XMPSerializer.fmtMaskCoordinate($0)) ?? .nan }
+    let increasing = zip(written, written.dropFirst()).allSatisfy { $0 < $1 }
+    let sided = zip(keys, written).allSatisfy { key, wire in
+      verbatim.allSatisfy { v in wire != v && (wire < v) == (key < v) }
+    }
+    return increasing && sided
+  }
+
+  /// Spreads the layers evenly across each gap between verbatim keys,
+  /// keeping every layer in the gap it was already in.
+  private static func respaced(_ keys: [Double], _ verbatim: [Double]) -> [Double] {
+    let sortedVerbatim = verbatim.sorted()
+    let gaps: [Int] = keys.map { key in sortedVerbatim.filter { $0 < key }.count }
+    return keys.indices.map { index -> Double in
+      let gap = gaps[index]
+      let members: [Int] = keys.indices.filter { gaps[$0] == gap }
+      let count = Double(members.count)
+      let position = Double(members.firstIndex(of: index) ?? 0)
+      let low: Double? = gap > 0 ? sortedVerbatim[gap - 1] : nil
+      let high: Double? = sortedVerbatim.first { v in low.map { v > $0 } ?? true }
+      switch (low, high) {
+      case (let low?, let high?): return low + (high - low) * (position + 1) / (count + 1)
+      case (nil, let high?): return high - count + position
+      case (let low?, nil): return low.rounded(.down) + 1 + position
+      case (nil, nil): return position
+      }
+    }
   }
 
   /// A longest strictly increasing subsequence of the read keys. Ties pick

@@ -8,6 +8,9 @@ public struct XMPMaskGroupTemplate: Sendable, Equatable {
     case append
   }
   public var parts: [Part]
+  /// `papp:LayerOrder` keys of the corrections kept verbatim in `parts`,
+  /// resolved by namespace URI (#4427).
+  public var layerOrders: [Double] = []
 }
 
 enum XMPMaskGroupSources {
@@ -58,13 +61,17 @@ enum XMPMaskGroupSources {
         matches(rootChildren[0], "rdf:Seq", inherited: groupNamespaces)
       else {
         opaque = true
-        collection.templates.append(XMPMaskGroupTemplate(parts: [.text(group.source)]))
+        collection.templates.append(
+          XMPMaskGroupTemplate(
+            parts: [.text(group.source)],
+            layerOrders: layerOrderKeys(group.source, namespaces: namespaces)))
         continue
       }
       let sequence = rootChildren[0]
       let items = children(sequence.source, "Seq")
       let bytes = Array(group.source.utf8)
       var parts: [XMPMaskGroupTemplate.Part] = []
+      var layerOrders: [Double] = []
       var cursor = 0
       let sequenceNamespaces = scope(groupNamespaces, attributes: rootAttributes(sequence.source))
       // Container/sequence metadata stays in the original wrapper.
@@ -79,6 +86,7 @@ enum XMPMaskGroupSources {
           let entry = layer(item.source, namespaces: sequenceNamespaces)
         else {
           opaque = true
+          layerOrders += layerOrderKeys(item.source, namespaces: sequenceNamespaces)
           continue
         }
         parts.append(.text(String(decoding: bytes[cursor..<range.lowerBound], as: UTF8.self)))
@@ -101,7 +109,7 @@ enum XMPMaskGroupSources {
         parts.append(.text(String(decoding: bytes[cursor...], as: UTF8.self)))
         opaque = true
       }
-      collection.templates.append(XMPMaskGroupTemplate(parts: parts))
+      collection.templates.append(XMPMaskGroupTemplate(parts: parts, layerOrders: layerOrders))
     }
     if opaque {
       for index in collection.layers.indices { collection.layers[index].xmpGroupSlot = index }
@@ -109,6 +117,33 @@ enum XMPMaskGroupSources {
       collection.templates = []
     }
     return collection
+  }
+
+  static let pappNamespaces: Set<String> = [
+    XMPCanonical.pappNamespaceURI, "http://ns.justmaple.app/1.0/",
+  ]
+
+  /// The `papp:LayerOrder` keys on the correction descriptions inside
+  /// `source`, matched by namespace URI under the inherited scope, so an
+  /// aliased prefix still reads (#4427).
+  static func layerOrderKeys(_ source: String, namespaces: [String: String]) -> [Double] {
+    let delegate = LayerOrderKeys(namespaces: namespaces)
+    let parser = XMLParser(data: Data(explicitNamespaces(source, namespaces: namespaces).utf8))
+    parser.delegate = delegate
+    _ = parser.parse()
+    return delegate.keys
+  }
+
+  /// Whether a brush container the walker dropped (kept verbatim) holds a key.
+  static func hasVerbatimBrushKeys(_ xml: String, dropped: [Int]) -> Bool {
+    guard !dropped.isEmpty else { return false }
+    let namespaces = SourceNamespaces.atFirstDescription(xml)
+    let brushes = XMPChildElementScanner.descriptionChildren(in: xml)
+      .filter { $0.qName == LocalAdjustmentXMP.brushContainer }
+    return dropped.contains { ordinal in
+      ordinal < brushes.count
+        && !layerOrderKeys(brushes[ordinal].source, namespaces: namespaces).isEmpty
+    }
   }
 
   private static func layer(_ source: String, namespaces: [String: String]) -> KeyedLocalAdjustment?
@@ -243,6 +278,32 @@ enum XMPMaskGroupSources {
     ) {
       attributes = attributeDict
       parser.abortParsing()
+    }
+  }
+  private final class LayerOrderKeys: NSObject, XMLParserDelegate {
+    private var scopes: [[String: String]]
+    private(set) var keys: [Double] = []
+    init(namespaces: [String: String]) { scopes = [namespaces] }
+    func parser(
+      _ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
+      qualifiedName qName: String?, attributes attributeDict: [String: String]
+    ) {
+      let current = scope(scopes.last ?? [:], attributes: attributeDict)
+      scopes.append(current)
+      guard local(qName ?? elementName, "Description") else { return }
+      for (name, value) in attributeDict.sorted(by: { $0.key < $1.key }) {
+        let parts = name.split(separator: ":", maxSplits: 1).map(String.init)
+        guard parts.count == 2, parts[1] == "LayerOrder", let uri = current[parts[0]],
+          pappNamespaces.contains(uri), let key = LocalAdjustmentOrder.parseKey(text: value)
+        else { continue }
+        keys.append(key)
+      }
+    }
+    func parser(
+      _ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?,
+      qualifiedName qName: String?
+    ) {
+      scopes.removeLast()
     }
   }
   private final class SourceNamespaces: NSObject, XMLParserDelegate {

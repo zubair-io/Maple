@@ -279,9 +279,10 @@ struct LocalAdjustmentWalker {
   private var finished: [KeyedLocalAdjustment] = []
   private var containerStart = 0
   private var containerDropped = false
-  private var containerKeyed = false
-  /// A keyed correction sits in a brush container kept verbatim (#4427).
-  private(set) var verbatimKeyed = false
+  private var brushContainers = 0
+  /// Ordinals of the brush containers kept verbatim, whose keys the caller
+  /// reads by namespace (#4427).
+  private(set) var droppedBrushContainers: [Int] = []
 
   mutating func start(_ qual: String, attributes: [String: String]) -> Bool {
     guard let kind = container else {
@@ -289,7 +290,6 @@ struct LocalAdjustmentWalker {
       if container != nil { depth = 1 }
       containerStart = finished.count
       containerDropped = false
-      containerKeyed = false
       return container != nil
     }
     depth += 1
@@ -324,7 +324,6 @@ struct LocalAdjustmentWalker {
     if depth == 6 { inMasksSeq = false }
     if depth == 5 { inMasks = false }
     if depth == 4, let cur = current {
-      containerKeyed = containerKeyed || LocalAdjustmentOrder.parseKey(cur.attributes) != nil
       let mask =
         kind == .group
         ? (cur.invalidGroup
@@ -350,8 +349,9 @@ struct LocalAdjustmentWalker {
       // container verbatim (`isModeledBrushContainer`).
       if kind == .brush, containerDropped {
         finished.removeSubrange(containerStart...)
-        verbatimKeyed = verbatimKeyed || containerKeyed
+        droppedBrushContainers.append(brushContainers)
       }
+      if kind == .brush { brushContainers += 1 }
       container = nil
     }
     depth -= 1
