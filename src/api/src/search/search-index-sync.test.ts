@@ -14,6 +14,7 @@ import {
   VectorFollower,
 } from './search-index-sync.ts';
 import { RecordingEngine, storeVector } from './search.test-helpers.ts';
+import { countSkippedVectors } from '../db/repos/asset-vectors.search.ts';
 
 let live: LiveTestDatabase;
 let libraryId: string;
@@ -40,7 +41,7 @@ afterEach(() => live.close());
 describe('boot', () => {
   test('loads every vector in one call and renders the embedder template as text', async () => {
     const engine = new RecordingEngine();
-    const held = await loadAllVectors(engine);
+    const held = await loadAllVectors(engine, 'bge-m3');
     await rebuildText(engine, [...held]);
 
     expect([...held].sort()).toEqual(['harbour', 'kitchen']);
@@ -56,16 +57,37 @@ describe('boot', () => {
        VALUES ('tiny', 8, 'other', 'http://gpu', 2, x'0000803f00000000', '2026-10-10T10:00:00.000Z')`,
     );
     const engine = new RecordingEngine();
-    expect([...(await loadAllVectors(engine))].sort()).toEqual(['harbour', 'kitchen']);
+    expect([...(await loadAllVectors(engine, 'bge-m3'))].sort()).toEqual(['harbour', 'kitchen']);
+  });
+});
+
+describe('the configured embedding model', () => {
+  test('loads and follows only its vectors, whatever endpoint wrote them', async () => {
+    seedSearchAsset(live.db, libraryId, { filename: 'lantern.dng', mapleId: 'lantern' });
+    storeVector(live.db, 'lantern', 2, '2026-10-10T10:00:02.000Z', 'nomic-embed-text');
+    live.db.run(`UPDATE asset_vectors SET endpoint = 'fastembed' WHERE maple_id = 'kitchen'`);
+    const engine = new RecordingEngine();
+    const held = await loadAllVectors(engine, 'bge-m3');
+    const follower = new VectorFollower(engine, held, '2026-10-10T11:00:00.000Z', 'bge-m3');
+
+    expect([...held].sort()).toEqual(['harbour', 'kitchen']);
+    expect(await countSkippedVectors('bge-m3')).toBe(1);
+
+    storeVector(live.db, 'lantern', 5, '2026-10-10T12:00:00.000Z', 'bge-m3');
+    storeVector(live.db, 'harbour', 6, '2026-10-10T12:00:01.000Z', 'nomic-embed-text');
+    await follower.poll();
+
+    expect(Object.fromEntries(engine.vectors)).toEqual({ kitchen: 1, lantern: 5 });
+    expect(await countSkippedVectors('bge-m3')).toBe(1);
   });
 });
 
 describe('VectorFollower', () => {
   async function bootedFollower(since: string, now: () => number = () => 0) {
     const engine = new RecordingEngine();
-    const held = await loadAllVectors(engine);
+    const held = await loadAllVectors(engine, 'bge-m3');
     await rebuildText(engine, [...held]);
-    return { engine, follower: new VectorFollower(engine, held, since, now) };
+    return { engine, follower: new VectorFollower(engine, held, since, 'bge-m3', now) };
   }
 
   test('picks up a re-embedded asset with its new text, once', async () => {

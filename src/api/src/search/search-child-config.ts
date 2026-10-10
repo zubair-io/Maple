@@ -1,7 +1,6 @@
 import { availableParallelism } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { sqliteDatabasePath } from '../db/sqlite/database-path.ts';
-import { defaultModelDir } from '../enrichment/face-models.ts';
 import type { SearchChildConfig } from './search-protocol.ts';
 
 const MAX_QUERY_THREADS = 8;
@@ -33,11 +32,26 @@ function queryThreads(): number {
   return Math.max(1, Math.min(MAX_QUERY_THREADS, Math.floor(availableParallelism() / 2)));
 }
 
-/** Everything the child needs to open: the index beside the library database, the model cache
- * beside the face models. */
+/** `.maple/` beside the library database — the data volume in the production container. */
+function dataDir(): string {
+  return join(dirname(resolve(sqliteDatabasePath())), '.maple');
+}
+
+/**
+ * Where bge-m3 (~2.2 GB) is downloaded on first use: beside the database, so it survives a
+ * container rebuild, unless `MAPLE_MODEL_DIR` (which the face and whisper models honour) names
+ * a model directory.
+ */
+export function searchModelCacheDir(): string {
+  const override = process.env.MAPLE_MODEL_DIR;
+  return override ? join(override, 'fastembed') : join(dataDir(), 'models', 'fastembed');
+}
+
+/** Everything the child needs to open: the keyword index and the model cache beside the
+ * library database. */
 export function searchChildConfig(): SearchChildConfig {
   const dbPath = sqliteDatabasePath();
-  const root = join(dirname(resolve(dbPath)), '.maple', 'search');
+  const root = join(dataDir(), 'search');
   const ortDylibPath = bundledOrtDylibPath();
   return {
     dbPath,
@@ -45,7 +59,7 @@ export function searchChildConfig(): SearchChildConfig {
     engine: {
       index_dir: join(root, 'text'),
       embedder: {
-        model_cache_dir: join(defaultModelDir(), 'fastembed'),
+        model_cache_dir: searchModelCacheDir(),
         ...(ortDylibPath ? { ort_dylib_path: ortDylibPath } : {}),
         intra_threads: queryThreads(),
       },

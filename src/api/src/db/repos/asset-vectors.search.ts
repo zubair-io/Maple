@@ -2,8 +2,10 @@
  * The reads the search child (#4463) keeps its engine current with: every vector once at boot,
  * then whatever the `embed` stage wrote since, then the full id list when the counts disagree.
  *
- * Only vectors of the engine's dimension are read. A model of another size cannot be compared
- * with the bge-m3 query vector at all, so its rows are left out rather than failing the load.
+ * Only vectors of the engine's dimension written by the configured embedding model are read. The
+ * query vector comes from bge-m3, so a row from any other model would rank by a meaningless
+ * cosine; those rows are left out and counted instead (Settings → AI shows how many). The endpoint
+ * is not compared: the 2026-10-09 audit found Ollama's and fastembed's bge-m3 vectors identical.
  */
 
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
@@ -22,31 +24,44 @@ export interface VectorChangeRow {
   embedded_at: string;
 }
 
-export async function countSearchVectors(dbOverride?: SqliteDb): Promise<number> {
+const SEARCHABLE = `dims = ${SEARCH_VECTOR_DIMS} AND model = ?`;
+
+export async function countSearchVectors(model: string, dbOverride?: SqliteDb): Promise<number> {
   const rows = await sqliteDb(dbOverride).read<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM asset_vectors WHERE dims = ?`,
-    [SEARCH_VECTOR_DIMS],
+    `SELECT COUNT(*) AS n FROM asset_vectors WHERE ${SEARCHABLE}`,
+    [model],
+  );
+  return rows[0]?.n ?? 0;
+}
+
+/** Vectors the engine will not load: another model's, or another dimension's. */
+export async function countSkippedVectors(model: string, dbOverride?: SqliteDb): Promise<number> {
+  const rows = await sqliteDb(dbOverride).read<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM asset_vectors WHERE NOT (${SEARCHABLE})`,
+    [model],
   );
   return rows[0]?.n ?? 0;
 }
 
 /** The next `limit` vectors after `cursor` in `maple_id` order; `null` starts from the top. */
 export async function searchVectorsAfter(
+  model: string,
   cursor: string | null,
   limit: number,
   dbOverride?: SqliteDb,
 ): Promise<StoredVectorRow[]> {
   return sqliteDb(dbOverride).read<StoredVectorRow>(
     `SELECT maple_id, vector, embedded_at FROM asset_vectors
-      WHERE dims = ? AND maple_id > ?
+      WHERE ${SEARCHABLE} AND maple_id > ?
       ORDER BY maple_id
       LIMIT ?`,
-    [SEARCH_VECTOR_DIMS, cursor ?? '', limit],
+    [model, cursor ?? '', limit],
   );
 }
 
 /** Ids and stamps of vectors written after `since`, oldest first, resuming after `after`. */
 export async function searchVectorChangesSince(
+  model: string,
   since: string,
   after: VectorChangeRow | null,
   limit: number,
@@ -55,29 +70,30 @@ export async function searchVectorChangesSince(
   const resume = after ?? { embedded_at: since, maple_id: '' };
   return sqliteDb(dbOverride).read<VectorChangeRow>(
     `SELECT maple_id, embedded_at FROM asset_vectors
-      WHERE embedded_at > ? AND dims = ? AND (embedded_at, maple_id) > (?, ?)
+      WHERE embedded_at > ? AND ${SEARCHABLE} AND (embedded_at, maple_id) > (?, ?)
       ORDER BY embedded_at, maple_id
       LIMIT ?`,
-    [since, SEARCH_VECTOR_DIMS, resume.embedded_at, resume.maple_id, limit],
+    [since, model, resume.embedded_at, resume.maple_id, limit],
   );
 }
 
 export async function searchVectorsFor(
+  model: string,
   mapleIds: readonly string[],
   dbOverride?: SqliteDb,
 ): Promise<StoredVectorRow[]> {
   if (mapleIds.length === 0) return [];
   return sqliteDb(dbOverride).read<StoredVectorRow>(
     `SELECT maple_id, vector, embedded_at FROM asset_vectors
-      WHERE dims = ? AND maple_id IN (${placeholders(mapleIds.length)})`,
-    [SEARCH_VECTOR_DIMS, ...mapleIds],
+      WHERE ${SEARCHABLE} AND maple_id IN (${placeholders(mapleIds.length)})`,
+    [model, ...mapleIds],
   );
 }
 
-export async function allSearchVectorIds(dbOverride?: SqliteDb): Promise<string[]> {
+export async function allSearchVectorIds(model: string, dbOverride?: SqliteDb): Promise<string[]> {
   const rows = await sqliteDb(dbOverride).read<{ maple_id: string }>(
-    `SELECT maple_id FROM asset_vectors WHERE dims = ?`,
-    [SEARCH_VECTOR_DIMS],
+    `SELECT maple_id FROM asset_vectors WHERE ${SEARCHABLE}`,
+    [model],
   );
   return rows.map((row) => row.maple_id);
 }

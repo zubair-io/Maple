@@ -56,9 +56,9 @@ function chunks<T>(items: readonly T[], size: number): T[][] {
   );
 }
 
-async function* vectorPages(): AsyncGenerator<StoredVectorRow[]> {
+async function* vectorPages(model: string): AsyncGenerator<StoredVectorRow[]> {
   for (let cursor: string | null = null; ; ) {
-    const rows = await searchVectorsAfter(cursor, LOAD_BATCH);
+    const rows = await searchVectorsAfter(model, cursor, LOAD_BATCH);
     if (rows.length === 0) return;
     yield rows;
     cursor = rows[rows.length - 1]!.maple_id;
@@ -70,12 +70,12 @@ async function* vectorPages(): AsyncGenerator<StoredVectorRow[]> {
  * (335k rows is 1.4 GB, so collecting pages and concatenating would double it); rows written after
  * the count are upserted one by one instead of growing the buffer.
  */
-export async function loadAllVectors(engine: SearchEngineOps): Promise<Set<string>> {
-  const capacity = await countSearchVectors();
+export async function loadAllVectors(engine: SearchEngineOps, model: string): Promise<Set<string>> {
+  const capacity = await countSearchVectors(model);
   const buffer = new Uint8Array(capacity * ROW_BYTES);
   const ids: string[] = [];
   const overflow: StoredVectorRow[] = [];
-  for await (const rows of vectorPages()) {
+  for await (const rows of vectorPages(model)) {
     for (const row of rows) {
       if (ids.length < capacity) {
         buffer.set(row.vector, ids.length * ROW_BYTES);
@@ -109,6 +109,7 @@ export class VectorFollower {
     private readonly engine: SearchEngineOps,
     private readonly held: Set<string>,
     since: string,
+    private readonly model: string,
     private readonly now: () => number = Date.now,
   ) {
     this.watermark = since;
@@ -137,6 +138,7 @@ export class VectorFollower {
     let touched = 0;
     for (;;) {
       const page: VectorChangeRow[] = await searchVectorChangesSince(
+        this.model,
         this.watermark,
         after,
         CHANGE_BATCH,
@@ -152,7 +154,10 @@ export class VectorFollower {
 
   private async upsert(ids: readonly string[]): Promise<void> {
     for (const chunk of chunks(ids, TEXT_BATCH)) {
-      const [rows, texts] = await Promise.all([searchVectorsFor(chunk), searchTextsFor(chunk)]);
+      const [rows, texts] = await Promise.all([
+        searchVectorsFor(this.model, chunk),
+        searchTextsFor(chunk),
+      ]);
       for (const row of rows) {
         this.engine.upsert(row.maple_id, floats(row.vector), texts.get(row.maple_id) ?? null);
         this.held.add(row.maple_id);
@@ -162,9 +167,9 @@ export class VectorFollower {
 
   private async reconcileIfDrifted(): Promise<number> {
     if (this.now() - this.lastReconcileAt < RECONCILE_INTERVAL_MS) return 0;
-    if ((await countSearchVectors()) === this.held.size) return 0;
+    if ((await countSearchVectors(this.model)) === this.held.size) return 0;
     this.lastReconcileAt = this.now();
-    const stored = new Set(await allSearchVectorIds());
+    const stored = new Set(await allSearchVectorIds(this.model));
     const gone = [...this.held].filter((id) => !stored.has(id));
     const missing = [...stored].filter((id) => !this.held.has(id));
     for (const id of gone) {
