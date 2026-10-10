@@ -913,25 +913,25 @@
       "description": "render_bytes_gpu vs render_bytes on Metal (#2315)",
       "covers": ["apple"],
       "accepted_backends": ["metal"],
-      "expected_cases": 19,
+      "expected_cases": 22,
       "corpus": [
         "src/raw-pipeline/raw-wasm/src/gpu_render.rs",
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:5b8de61aa594b13da619d6d92d67addcd2357902826df4479b61b5b1eaab5a1c",
+      "corpus_hash": "blake3:ba8960d4d317ea892490efc3084d287860cf2ed030856b0ac9dccc8b483d657a",
       "status": "satisfied",
       "record": {
         "backend": "metal",
         "pipeline_version": 18,
         "schema_version": 5,
-        "corpus_hash": "blake3:5b8de61aa594b13da619d6d92d67addcd2357902826df4479b61b5b1eaab5a1c",
-        "expected_cases": 19,
-        "executed_cases": 19,
+        "corpus_hash": "blake3:ba8960d4d317ea892490efc3084d287860cf2ed030856b0ac9dccc8b483d657a",
+        "expected_cases": 22,
+        "executed_cases": 22,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "665e3f56b3351fdc7e0de96471427947b50297c3",
-        "recorded_at": "2026-10-10T04:00:18Z",
+        "git_sha": "9d6c73d40da0d5f22151446213de2a7527310170",
+        "recorded_at": "2026-10-10T10:08:50Z",
         "command": "bash -c cd\\ src/raw-pipeline\\ \\&\\&\\ MAPLE_REQUIRE_GPU=1\\ cargo\\ test\\ -p\\ raw-wasm\\ --features\\ gpu\\ gpu_render"
       }
     },
