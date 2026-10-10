@@ -28,6 +28,7 @@ public partial class EditSessionViewModel
     {
         if (_disposed || IsDecoding) return;
         _decodedPhoto = null;
+        _decodedImage = null;
         EnsureDecoded();
     }
 

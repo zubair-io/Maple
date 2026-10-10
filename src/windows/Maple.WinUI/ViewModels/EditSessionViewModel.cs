@@ -100,6 +100,7 @@ namespace Maple.WinUI.ViewModels
         /// <summary>The photo the scene-linear decode has run (or is running)
         /// for — decode is lazy and only starts on Edit entry.</summary>
         private PhotoItem? _decodedPhoto;
+        private DecodedImage? _decodedImage;
 
         [ObservableProperty]
         private PhotoItem? _selectedPhoto;
@@ -180,6 +181,7 @@ namespace Maple.WinUI.ViewModels
             else
             {
                 _photoOpenVersion++;
+                _decodedImage = null;
                 AdjustmentsReady = false;
                 HasSidecarLoadError = false;
                 IsDecoding = false;
@@ -206,6 +208,7 @@ namespace Maple.WinUI.ViewModels
             _asShotTint = 0;
             _sidecarDirty = false;
             _decodedPhoto = null;
+            _decodedImage = null;
             Interlocked.Increment(ref _decodeGeneration);
             CancelActiveDecode();
             // Never let a stale image produce frames for the new photo; the
@@ -296,7 +299,6 @@ namespace Maple.WinUI.ViewModels
             if (!preserveCurrentBase)
             {
                 Renderer.SetImage(null);
-                ReleaseBrushRasters();
             }
 
             IsDecoding = true;
@@ -318,7 +320,6 @@ namespace Maple.WinUI.ViewModels
                     if (generation != _decodeGeneration)
                         return;
                     RegisterBrushRastersAndPublish(generation, photo, decoded, model);
-                    ScheduleAmazeUpgrade(generation, photo, model, decoded);
                 }
                 catch (Exception ex)
                 {
@@ -474,7 +475,9 @@ namespace Maple.WinUI.ViewModels
                     if (!ReferenceEquals(photo, SelectedPhoto)) return;
                     if (_sidecarDirty || _localMetadataWrites.Contains(photo.FilePath)) return;
                     var before = Adjustments;
+                    ReleaseBrushRasters();
                     Adjustments = doc.Adjustments;
+                    RehydrateCurrentBrushRasters(Adjustments);
                     photo.Rating = doc.Rating ?? 0;
                     photo.FlagStatus = doc.Flag ?? "none";
                     photo.ColorLabel = doc.ColorLabel;
