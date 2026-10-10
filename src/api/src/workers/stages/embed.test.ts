@@ -52,7 +52,7 @@ describe('embedHandler', () => {
     using live = await createLiveTestDatabase();
     const recorded = recordingEmbedder();
     const assetId = seedClaimableAsset(live.db, {
-      stages: { embed: { claimToken: LEASE } },
+      stages: { embed: { claimToken: LEASE, nextAttemptAt: LEASE } },
     });
 
     const result = await embedHandler(fakeDoc({ _id: new ObjectId(assetId) }), fakeCtx);

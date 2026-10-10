@@ -123,7 +123,7 @@ export function residualClauses(residualSql?: string): string[] {
  * getting there.
  */
 const LEASE_FENCE = `
-     AND claim_token = ?`;
+     AND claim_token = ? AND next_attempt_at IS NOT NULL`;
 
 /**
  * The candidate scan. Parameters, in order: `stage`, `targetVersion`, `now`,

@@ -175,3 +175,24 @@ describe('re-arming a stage while an attempt is in flight', () => {
     });
   });
 });
+
+describe('resets that only clear the time lease still revoke a claim', () => {
+  test('a cloud-backup dirty trigger firing mid-claim keeps the row re-armed', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const assetId = seedClaimableAsset(handle.db, { stages: { 'cloud-backup': {} } });
+    const oldClaim = await claim(db, 'cloud-backup', assetId);
+
+    handle.db.run(`UPDATE assets SET mtime = mtime + 1, size = size + 1 WHERE id = ?`, [assetId]);
+    expect(stageRow(handle.db, assetId, 'cloud-backup')?.next_attempt_at).toBeNull();
+    await db.transaction(stageSuccessStatements(oldClaim));
+
+    expect(stageRow(handle.db, assetId, 'cloud-backup')).toMatchObject({
+      version: 0,
+      next_attempt_at: null,
+    });
+    const newClaim = await claim(db, 'cloud-backup', assetId);
+    await db.transaction(stageSuccessStatements(newClaim));
+    expect(stageRow(handle.db, assetId, 'cloud-backup')?.version).toBe(TARGET_VERSION);
+  });
+});
