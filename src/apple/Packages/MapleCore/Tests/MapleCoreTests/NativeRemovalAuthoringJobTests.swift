@@ -51,13 +51,11 @@ final class NativeRemovalAuthoringJobTests: XCTestCase {
   @MainActor
   func testNativePeopleGroupUsesSequentialActualModelJobsAndOneKeep() async throws {
     #if os(macOS)
-      let root = (0..<7).reduce(URL(fileURLWithPath: #filePath)) { value, _ in
-        value.deletingLastPathComponent()
-      }.appendingPathComponent("test-fixtures/raws/removal-inference")
+      let root = RemovalModelTestDirectory.current(filePath: #filePath)
       guard
         FileManager.default.fileExists(atPath: root.appendingPathComponent("runtime.dylib").path),
         FileManager.default.fileExists(
-          atPath: root.appendingPathComponent("lama-native-1024.onnx").path)
+          atPath: root.appendingPathComponent("lama-native-512.onnx").path)
       else { throw XCTSkip("Install the native authoring qualification corpus (#3984)") }
       let fixture = try XCTUnwrap(
         Bundle.module.url(
@@ -139,14 +137,11 @@ final class NativeRemovalAuthoringJobTests: XCTestCase {
   @MainActor
   func testEditorPaintReviewCancelKeepAndReopenUseActualLocalModel() async throws {
     #if os(macOS)
-      let root = (0..<7).reduce(URL(fileURLWithPath: #filePath)) { value, _ in
-        value.deletingLastPathComponent()
-      }
-      .appendingPathComponent("test-fixtures/raws/removal-inference")
+      let root = RemovalModelTestDirectory.current(filePath: #filePath)
       guard
         FileManager.default.fileExists(atPath: root.appendingPathComponent("runtime.dylib").path),
         FileManager.default.fileExists(
-          atPath: root.appendingPathComponent("lama-native-1024.onnx").path)
+          atPath: root.appendingPathComponent("lama-native-512.onnx").path)
       else { throw XCTSkip("Install the native authoring qualification corpus (#3984)") }
       let fixture = try XCTUnwrap(
         Bundle.module.url(
@@ -217,13 +212,11 @@ final class NativeRemovalAuthoringJobTests: XCTestCase {
   @MainActor
   func testActualGenerationReviewKeepReopenAndCancellationDoNotModifyOriginal() async throws {
     #if os(macOS)
-      let root = (0..<7).reduce(URL(fileURLWithPath: #filePath)) { value, _ in
-        value.deletingLastPathComponent()
-      }.appendingPathComponent("test-fixtures/raws/removal-inference")
+      let root = RemovalModelTestDirectory.current(filePath: #filePath)
       guard
         FileManager.default.fileExists(atPath: root.appendingPathComponent("runtime.dylib").path),
         FileManager.default.fileExists(
-          atPath: root.appendingPathComponent("lama-native-1024.onnx").path)
+          atPath: root.appendingPathComponent("lama-native-512.onnx").path)
       else {
         throw XCTSkip("Native model corpus must be installed for authoring qualification (#3984)")
       }

@@ -9,7 +9,7 @@ import { installProductionFolderPicker } from '../support/production-folder-pick
 
 const fixture = resolve(__dirname, '../../../../test-fixtures/removal/basic/source.dng');
 const modelRoot = process.env.MAPLE_REMOVAL_MODEL_DIR ?? '/tmp/maple-removal-models';
-const lama = join(modelRoot, 'lama/native-build/lama-native-1024.onnx');
+const lama = join(modelRoot, 'lama/native-build/lama-native-512.onnx');
 
 test('Paint, inspect, cancel, Keep and reopen use actual local RAW removal assets', async ({
   page,
@@ -78,7 +78,7 @@ test('Paint, inspect, cancel, Keep and reopen use actual local RAW removal asset
     await expect(panel.getByLabel('Import local removal models')).toBeEnabled();
     await panel.getByLabel('Import local removal models').setInputFiles(lama);
     await expect(
-      panel.getByText('lama-native-1024.onnx · Installed', { exact: false }),
+      panel.getByText('lama-native-512.onnx · Installed', { exact: false }),
     ).toBeVisible();
     await expect(panel.getByRole('slider', { name: 'Brush size' })).toBeEnabled();
     await panel.getByRole('slider', { name: 'Brush size' }).press('ArrowRight');
@@ -173,15 +173,15 @@ test('Paint, inspect, cancel, Keep and reopen use actual local RAW removal asset
     expect(await readFile(join(root, 'photo.xmp'), 'utf8')).toContain('&quot;schema&quot;:5');
     await page.screenshot({ path: testInfo.outputPath('saved-replacement.png') });
     await panel
-      .getByRole('button', { name: 'Remove model lama-native-1024.onnx', exact: true })
+      .getByRole('button', { name: 'Remove model lama-native-512.onnx', exact: true })
       .click();
     await expect(
-      panel.getByText('lama-native-1024.onnx · Required', { exact: false }),
+      panel.getByText('lama-native-512.onnx · Required', { exact: false }),
     ).toBeVisible();
     await exportSaved('schema5-replacement-without-model');
     await panel.getByLabel('Import local removal models').setInputFiles(lama);
     await expect(
-      panel.getByText('lama-native-1024.onnx · Installed', { exact: false }),
+      panel.getByText('lama-native-512.onnx · Installed', { exact: false }),
     ).toBeVisible();
     await expect(panel.getByRole('slider', { name: 'Brush size' })).toBeEnabled();
     await undoToAccepted();
@@ -225,10 +225,10 @@ test('Paint, inspect, cancel, Keep and reopen use actual local RAW removal asset
     }
     await panel.getByText('Local AI models', { exact: true }).click();
     await panel
-      .getByRole('button', { name: 'Remove model lama-native-1024.onnx', exact: true })
+      .getByRole('button', { name: 'Remove model lama-native-512.onnx', exact: true })
       .click();
     await expect(
-      panel.getByText('lama-native-1024.onnx · Required', { exact: false }),
+      panel.getByText('lama-native-512.onnx · Required', { exact: false }),
     ).toBeVisible();
     await exportSaved('photo');
     expect(await readFile(join(root, 'photo.dng'))).toEqual(original);

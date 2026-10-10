@@ -8,7 +8,7 @@ import { savedPng } from '../removal-experimental/saved-export-oracle';
 const fixture = resolve(__dirname, '../../../../test-fixtures/removal/basic/source.dng');
 const model = join(
   process.env.MAPLE_REMOVAL_MODEL_DIR ?? '/tmp/maple-removal-models',
-  'lama/native-build/lama-native-1024.onnx',
+  'lama/native-build/lama-native-512.onnx',
 );
 
 test('Paint Keep, history, metadata, export and cold reopen use server companions without a folder handle', async ({
@@ -47,7 +47,7 @@ test('Paint Keep, history, metadata, export and cold reopen use server companion
     await expect(panel.getByLabel('Import local removal models')).toBeEnabled();
     await panel.getByLabel('Import local removal models').setInputFiles(model);
     await expect(
-      panel.getByText('lama-native-1024.onnx · Installed', { exact: false }),
+      panel.getByText('lama-native-512.onnx · Installed', { exact: false }),
     ).toBeVisible();
     await expect(panel.getByRole('slider', { name: 'Brush size' })).toBeEnabled();
     await panel.getByRole('slider', { name: 'Brush size' }).press('ArrowRight');

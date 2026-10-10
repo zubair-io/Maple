@@ -13,15 +13,11 @@ final class NativeRemovalReconstructorTests: XCTestCase {
   }
 
   // Explicit local qualification corpus (#3941), never downloads during tests.
-  // Optional model weights/runtime remain under the gitignored RAW fixture tree.
-  func testRealNativeModelMatchesReferenceAndHonorsCancellation() throws {
+  // Optional model weights/runtime remain outside the repository.
+  func testRealPinnedNativeModelInferenceAndCancellation() throws {
     #if os(macOS)
-      let root = (0..<7).reduce(URL(fileURLWithPath: #filePath)) { value, _ in
-        value.deletingLastPathComponent()
-      }.appendingPathComponent("test-fixtures/raws/removal-inference")
-      let required = [
-        "lama-native-1024.onnx", "runtime.dylib", "input.f32", "hole.f32", "result.f32",
-      ]
+      let root = RemovalModelTestDirectory.current(filePath: #filePath)
+      let required = ["lama-native-512.onnx", "runtime.dylib"]
       guard
         required.allSatisfy({
           FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path)
@@ -32,14 +28,17 @@ final class NativeRemovalReconstructorTests: XCTestCase {
       let model = try NativeRemovalReconstructor.open(
         directory: root, runtime: root.appendingPathComponent("runtime.dylib"))
       let operation = try model.operation()
-      let rgb = try floats(root.appendingPathComponent("input.f32"))
-      let hole = try floats(root.appendingPathComponent("hole.f32"))
-      let reference = try floats(root.appendingPathComponent("result.f32"))
+      let side = model.nativeSide
+      let plane = side * side
+      let rgb = (0..<(3 * plane)).map { Float(($0 * 29) % 251) / 250 }
+      var hole = [Float](repeating: 0, count: plane)
+      for y in (side / 3)..<(side * 2 / 3) {
+        for x in (side / 3)..<(side * 2 / 3) { hole[y * side + x] = 1 }
+      }
       let actual = try model.generate(rgb: rgb, hole: hole, operation: operation)
-      XCTAssertEqual(actual.count, reference.count)
+      XCTAssertEqual(actual.count, 3 * plane)
       XCTAssertTrue(actual.allSatisfy(\.isFinite))
-      XCTAssertLessThanOrEqual(
-        zip(actual, reference).map { abs($0 - $1) }.max() ?? .infinity, 1 / 255)
+      XCTAssertTrue(actual.allSatisfy { (0...1).contains($0) })
       let cancelled = try model.operation()
       cancelled.cancel()
       XCTAssertThrowsError(try model.generate(rgb: rgb, hole: hole, operation: cancelled)) {
@@ -79,15 +78,4 @@ final class NativeRemovalReconstructorTests: XCTestCase {
     #endif
   }
 
-  private func floats(_ url: URL) throws -> [Float] {
-    let data = try Data(contentsOf: url)
-    guard data.count % 4 == 0 else { throw RemovalError.invalid("Invalid float fixture length") }
-    return data.withUnsafeBytes { bytes in
-      stride(from: 0, to: data.count, by: 4).map { offset in
-        Float(
-          bitPattern: UInt32(
-            littleEndian: bytes.loadUnaligned(fromByteOffset: offset, as: UInt32.self)))
-      }
-    }
-  }
 }

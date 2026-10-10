@@ -31,7 +31,7 @@ pub(super) unsafe fn utf8<'a>(value: *const c_char) -> Result<&'a str, String> {
     CStr::from_ptr(value).to_str().map_err(|e| e.to_string())
 }
 
-/// Load the checksummed native 1024 LaMa graph from an explicit directory.
+/// Load the checksummed native 512 LaMa graph from an explicit directory.
 /// runtime is an explicit dylib path on macOS, and ignored on static iOS.
 /// No download is performed. Codes: 0 success, 1 null, 5 load failure, 99 panic.
 /// # Safety
@@ -209,8 +209,8 @@ pub unsafe extern "C" fn maple_removal_inference_free(operation: *mut MapleRemov
     }
 }
 
-/// Generate CHW model-domain RGB. Inputs: 3*1024² float RGB in [0,1] and
-/// 1024² binary hole (1=remove). The shared core owns inverse encoding/blend.
+/// Generate CHW model-domain RGB. Inputs: 3*512² float RGB in [0,1] and
+/// 512² binary hole (1=remove). The shared core owns inverse encoding/blend.
 /// The output is written only after a successful, uncancelled inference.
 /// Codes: 0 success, 1 null, 5 invalid/inference failure, 20 cancelled,
 /// 99 panic, 100 capacity probe. out_len counts f32s. Capacity probes perform
@@ -252,8 +252,10 @@ pub unsafe extern "C" fn maple_removal_reconstruct_f32(
         if rgb.is_null() || hole.is_null() {
             return 1;
         }
-        let count = 3 * 1024 * 1024;
-        if rgb_len != count || hole_len != 1024 * 1024 || cap > isize::MAX as usize / 4 {
+        let side =
+            raw_core::types::removal_models::EXPERIMENTAL_REMOVAL_MODELS[0].native_side as usize;
+        let count = 3 * side * side;
+        if rgb_len != count || hole_len != side * side || cap > isize::MAX as usize / 4 {
             set_last_error("removal inference tensor size mismatch".into());
             return 5;
         }

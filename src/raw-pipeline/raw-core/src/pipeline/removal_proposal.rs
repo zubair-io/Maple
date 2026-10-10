@@ -2,6 +2,7 @@
 //! This runs on explicit authoring actions, never the slider chain. Model/photo
 //! qualification remains a separate release gate; no model runs inside raw-core.
 use crate::stages::removal_generation::{self, GenerationMaskRequest};
+use crate::types::removal_models::EXPERIMENTAL_REMOVAL_MODELS;
 use crate::{
     image::{ColorSpace, Image},
     types::{
@@ -12,7 +13,7 @@ use crate::{
 };
 use serde::Deserialize;
 
-const SIDE: usize = 1024;
+const SIDE: usize = EXPERIMENTAL_REMOVAL_MODELS[0].native_side as usize;
 const PLANE: usize = SIDE * SIDE;
 
 #[derive(Deserialize)]
@@ -105,7 +106,7 @@ impl PreparedRemovalGeneration {
         }
         let recipe = serde_json::to_vec(&serde_json::json!({
             "schema":1,"plate":"linear-calibration-v1",
-            "model_guide":"agx-neutral-srgb-v1","model_input_resize":"area-native-to-1024-v1",
+            "model_guide":"agx-neutral-srgb-v1","model_input_resize":"area-native-to-512-v1",
             "native_transfer":"rgb-guided-patchmatch-v1","masks":request.masks,
             "protection":ContentDigest::for_bytes(protected),"model":request.model,
         }))

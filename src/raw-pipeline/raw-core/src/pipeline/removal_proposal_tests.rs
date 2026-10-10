@@ -163,8 +163,8 @@ fn expanded_native_context_downscales_for_model_then_bakes_native_patch() {
     let scene = vec![0.18; 2048 * 2048 * 3];
     let prepared = PreparedRemovalGeneration::prepare(&request, "[]", &scene, &mask, &[]).unwrap();
 
-    assert_eq!(prepared.rgb().len(), 3 * 1024 * 1024);
-    assert_eq!(prepared.hole().len(), 1024 * 1024);
+    assert_eq!(prepared.rgb().len(), 3 * 512 * 512);
+    assert_eq!(prepared.hole().len(), 512 * 512);
     let coarse_hole_pixels = prepared.hole().iter().filter(|value| **value > 0.0).count();
     assert!((1..100).contains(&coarse_hole_pixels));
     let patch = super::super::patch_from_bytes(

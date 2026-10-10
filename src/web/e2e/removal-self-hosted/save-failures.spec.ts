@@ -9,7 +9,7 @@ import { savedPng } from '../removal-experimental/saved-export-oracle';
 const fixture = resolve(__dirname, '../../../../test-fixtures/removal/basic/source.dng');
 const model = join(
   process.env.MAPLE_REMOVAL_MODEL_DIR ?? '/tmp/maple-removal-models',
-  'lama/native-build/lama-native-1024.onnx',
+  'lama/native-build/lama-native-512.onnx',
 );
 const connectionError = 'Cannot reach the Maple server. Check your connection and retry.';
 const staleError = 'XMP changed since this removal edit opened; reload before saving';
@@ -78,9 +78,7 @@ async function review(page: Page, info: TestInfo) {
   await panel.getByText('Local AI models', { exact: true }).click();
   await expect(panel.getByLabel('Import local removal models')).toBeEnabled();
   await panel.getByLabel('Import local removal models').setInputFiles(model);
-  await expect(
-    panel.getByText('lama-native-1024.onnx · Installed', { exact: false }),
-  ).toBeVisible();
+  await expect(panel.getByText('lama-native-512.onnx · Installed', { exact: false })).toBeVisible();
   const radius = panel.getByRole('slider', { name: 'Brush size', exact: true });
   await expect(radius).toBeEnabled();
   await radius.press('ArrowRight');

@@ -11,6 +11,7 @@ public struct NativeRemovalProposal: Sendable {
 /// Immutable shared preparation. Call off main; the editor must still guard its
 /// image and selection revision before inspecting or publishing this proposal.
 public final class NativeRemovalGeneration: @unchecked Sendable {
+  private static let modelSide = Int(ExperimentalRemovalModels.lama.nativeSide)
   private let pointer: UnsafeMutablePointer<MapleRemovalGeneration>
   private let intent: Data
 
@@ -83,8 +84,8 @@ public final class NativeRemovalGeneration: @unchecked Sendable {
       return output
     }
     return (
-      try values(kind: 0, count: 3 * 1024 * 1024),
-      try values(kind: 1, count: 1024 * 1024)
+      try values(kind: 0, count: 3 * Self.modelSide * Self.modelSide),
+      try values(kind: 1, count: Self.modelSide * Self.modelSide)
     )
   }
 

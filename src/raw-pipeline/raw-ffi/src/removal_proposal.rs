@@ -182,7 +182,7 @@ pub unsafe extern "C" fn maple_removal_generation_close(owner: *mut MapleRemoval
     }
 }
 
-/// kind=0 is 3×1024² CHW sRGB model guide; kind=1 is 1024² binary hole.
+/// kind=0 is 3×512² CHW sRGB model guide; kind=1 is 512² binary hole.
 /// length/cap count f32 elements. 0 success, 1 null length, 5 invalid, 100 probe.
 /// # Safety
 /// owner stays live; length writable, output aligned/writable for cap f32s;

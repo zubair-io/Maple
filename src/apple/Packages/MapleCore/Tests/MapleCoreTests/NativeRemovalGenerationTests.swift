@@ -45,8 +45,8 @@ final class NativeRemovalGenerationTests: XCTestCase {
   func testSharedPreparationProducesPortableSceneAssetsAndRefusesMalformedOutput() async throws {
     let (generation, source, handle) = try await preparation()
     let input = try generation.inputs()
-    XCTAssertEqual(input.rgb.count, 3 * 1024 * 1024)
-    XCTAssertEqual(input.hole.count, 1024 * 1024)
+    XCTAssertEqual(input.rgb.count, 3 * 512 * 512)
+    XCTAssertEqual(input.hole.count, 512 * 512)
     XCTAssertTrue(input.rgb.allSatisfy { (0...1).contains($0) })
     let proposal = try generation.finish(generated: input.rgb)
     let records = try RemovalBridge.prepare(
@@ -84,13 +84,10 @@ final class NativeRemovalGenerationTests: XCTestCase {
   func testActualNativeReconstructionReturnsVerifiedCompanionsAndReopensWithoutModel() async throws
   {
     #if os(macOS)
-      let root = (0..<7).reduce(URL(fileURLWithPath: #filePath)) { value, _ in
-        value.deletingLastPathComponent()
-      }
-      .appendingPathComponent("test-fixtures/raws/removal-inference")
+      let root = RemovalModelTestDirectory.current(filePath: #filePath)
       guard
         FileManager.default.fileExists(
-          atPath: root.appendingPathComponent("lama-native-1024.onnx").path),
+          atPath: root.appendingPathComponent("lama-native-512.onnx").path),
         FileManager.default.fileExists(atPath: root.appendingPathComponent("runtime.dylib").path)
       else { throw XCTSkip("Local native removal model corpus is not installed (#3941)") }
       let model = try NativeRemovalReconstructor.open(
@@ -99,7 +96,7 @@ final class NativeRemovalGenerationTests: XCTestCase {
         model.modelDigest,
         try RemovalBridge.digest(
           Data(
-            contentsOf: root.appendingPathComponent("lama-native-1024.onnx"), options: .mappedIfSafe
+            contentsOf: root.appendingPathComponent("lama-native-512.onnx"), options: .mappedIfSafe
           )))
       let wrongModel = try await preparation()
       XCTAssertThrowsError(try wrongModel.0.reconstruct(using: model, operation: model.operation()))

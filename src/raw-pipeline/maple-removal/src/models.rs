@@ -5,6 +5,9 @@ use ort::{session::Session, tensor::TensorElementType, value::ValueType};
 use sha2::{Digest, Sha256};
 use std::{fs::File, io::Read, path::Path};
 
+const LAMA_SIDE: i64 =
+    raw_core::types::removal_models::EXPERIMENTAL_REMOVAL_MODELS[0].native_side as i64;
+
 pub(crate) enum Model {
     Lama,
     Encoder,
@@ -67,7 +70,11 @@ pub(crate) fn load_verified(
     let float = TensorElementType::Float32;
     let int = TensorElementType::Int64;
     let inputs: Vec<(&str, TensorElementType, &[i64])> = match model {
-        Model::Lama => vec![("masked_image_and_mask", float, &[1, 4, 1024, 1024])],
+        Model::Lama => vec![(
+            "masked_image_and_mask",
+            float,
+            &[1, 4, LAMA_SIDE, LAMA_SIDE],
+        )],
         Model::Encoder => vec![("image", float, &[1, 3, 1024, 1024])],
         Model::Decoder => vec![
             ("image_embeddings", float, &[1, 256, 64, 64]),
@@ -83,7 +90,7 @@ pub(crate) fn load_verified(
         ],
     };
     let outputs: Vec<(&str, TensorElementType, &[i64])> = match model {
-        Model::Lama => vec![("generated_rgb", float, &[1, 3, 1024, 1024])],
+        Model::Lama => vec![("generated_rgb", float, &[1, 3, LAMA_SIDE, LAMA_SIDE])],
         Model::Encoder => vec![("image_embeddings", float, &[1, 256, 64, 64])],
         Model::Decoder => vec![
             ("masks", float, &[-1, -1, -1, -1]),

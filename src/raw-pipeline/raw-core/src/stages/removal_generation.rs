@@ -42,7 +42,7 @@ pub fn prepare(
     intent.validate()?;
     let window = request.window;
     window.validate(intent.source_width, intent.source_height)?;
-    // The model remains fixed at 1024²; native contexts can be 2048² so the
+    // The LaMa model uses its pinned 512² input; native contexts can be 2048² so the
     // authoring path can preserve source detail for guided native transfer.
     if request.schema != 1
         || window.width > 2048

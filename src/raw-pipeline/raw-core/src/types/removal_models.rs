@@ -24,14 +24,14 @@ pub struct ExperimentalRemovalModelPin {
 pub const EXPERIMENTAL_REMOVAL_MODELS: [ExperimentalRemovalModelPin; 4] = [
     ExperimentalRemovalModelPin {
         id: "lama",
-        file: "lama-native-1024.onnx",
-        probe_path: "lama/native-build/lama-native-1024.onnx",
+        file: "lama-native-512.onnx",
+        probe_path: "lama/native-build/lama-native-512.onnx",
         size: 204794328,
-        sha256: "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+        sha256: "570ad6b6b73bdeda0d1851969a1cc85fc2de79907a5c9326d3f3f09f48802858",
         source_revision: "786f5936b27fb3dacd2b1ad799e4de968ea697e7",
         checkpoint_sha256: "fccb7adffd53ec0974ee5503c3731c2c2f1e7e07856fd9228cdcc0b46fd5d423",
         license: "Apache-2.0",
-        native_side: 1024,
+        native_side: 512,
         release_qualified: false,
     },
     ExperimentalRemovalModelPin {

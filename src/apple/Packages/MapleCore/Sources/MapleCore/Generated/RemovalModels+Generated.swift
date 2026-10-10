@@ -19,13 +19,13 @@ public enum ExperimentalRemovalModels {
   public static let fringeRadius: Float = 4
   public static let lama = ExperimentalRemovalModelPin(
     id: "lama",
-    file: "lama-native-1024.onnx",
-    probePath: "lama/native-build/lama-native-1024.onnx",
-    sha256: "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+    file: "lama-native-512.onnx",
+    probePath: "lama/native-build/lama-native-512.onnx",
+    sha256: "570ad6b6b73bdeda0d1851969a1cc85fc2de79907a5c9326d3f3f09f48802858",
     sourceRevision: "786f5936b27fb3dacd2b1ad799e4de968ea697e7",
     checkpointSha256: "fccb7adffd53ec0974ee5503c3731c2c2f1e7e07856fd9228cdcc0b46fd5d423",
     license: "Apache-2.0",
-    size: 204_794_328, nativeSide: 1_024, releaseQualified: false
+    size: 204_794_328, nativeSide: 512, releaseQualified: false
   )
   public static let encoder = ExperimentalRemovalModelPin(
     id: "encoder",

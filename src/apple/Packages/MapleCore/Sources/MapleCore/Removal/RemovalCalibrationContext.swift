@@ -45,7 +45,7 @@ extension RemovalBridge {
     handle: MapleRawHandle, x: UInt32, y: UInt32, width: UInt32, height: UInt32,
     cancel: CancelFlag? = nil
   ) throws -> [Float] {
-    // The model sees a resampled 1024² plate, while reconstruction needs the
+    // LaMa sees a resampled 512² plate, while reconstruction needs the
     // full native context for guided texture transfer. Reject before allocating.
     guard width > 0, height > 0, width <= 2048, height <= 2048 else {
       throw RemovalError.invalid("Invalid removal calibration context extent")

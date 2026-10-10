@@ -7,6 +7,7 @@ import RawPipeline
 public final class NativeRemovalReconstructor: @unchecked Sendable {
   fileprivate let pointer: UnsafeMutablePointer<MapleRemovalReconstructor>
   public let modelDigest: String
+  public let nativeSide = Int(ExperimentalRemovalModels.lama.nativeSide)
   /// Shares the browser's exact artifact version without a hand-copied pin.
   public let modelVersion = ExperimentalRemovalModels.lama.sha256
 
@@ -59,13 +60,13 @@ public final class NativeRemovalReconstructor: @unchecked Sendable {
     return NativeRemovalInferenceOperation(owner: self, pointer: operation)
   }
 
-  /// Native 1024² CHW photographic RGB [0,1] and shared binary generation hole.
+  /// Pinned model-side CHW photographic RGB [0,1] and shared binary generation hole.
   /// This produces a proposal; it does not persist edits. The editor must guard
   /// its generation/revision before publishing a result or accepting a patch.
   public func generate(
     rgb: [Float], hole: [Float], operation: NativeRemovalInferenceOperation
   ) throws -> [Float] {
-    let plane = 1024 * 1024
+    let plane = nativeSide * nativeSide
     guard operation.owner === self, rgb.count == 3 * plane, hole.count == plane else {
       throw RemovalError.invalid("Removal inference input or owner mismatch")
     }
