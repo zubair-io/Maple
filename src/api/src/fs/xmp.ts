@@ -103,6 +103,16 @@ export async function primarySidecarDestination(
     : { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
 }
 
+async function publishPrimarySidecar(
+  destination: string,
+  xmlContent: string,
+): Promise<OpResult<string>> {
+  const prepared = await preparePrimarySidecarWrite(destination, xmlContent);
+  if (!prepared.ok) return prepared;
+  const result = await writeSidecarAtomic(destination, prepared.data, 'XMP write failed');
+  return result.ok ? { ok: true, data: prepared.data } : { ok: false, error: result.error };
+}
+
 /** Atomic primary-sidecar publication with workflow preservation and a root jail. */
 export async function writeXmpAtomic(
   rawAbsPath: string,
@@ -111,11 +121,32 @@ export async function writeXmpAtomic(
   const allowed = await primarySidecarDestination(rawAbsPath);
   if (!allowed.ok) return allowed;
   const destination = allowed.data;
+  return serializeSidecarWrite(destination, () => publishPrimarySidecar(destination, xmlContent));
+}
+
+/** Read-merge-write of the primary sidecar inside the same per-sidecar barrier as
+ * `writeXmpAtomic`, so a save cannot land between the read and the write (#4402).
+ * A missing sidecar reaches `merge` as the empty string. */
+export async function updateXmpAtomic(
+  rawAbsPath: string,
+  merge: (existingXml: string) => string,
+): Promise<OpResult<string>> {
+  const allowed = await primarySidecarDestination(rawAbsPath);
+  if (!allowed.ok) return allowed;
+  const destination = allowed.data;
   return serializeSidecarWrite(destination, async () => {
-    const prepared = await preparePrimarySidecarWrite(destination, xmlContent);
-    if (!prepared.ok) return prepared;
-    const result = await writeSidecarAtomic(destination, prepared.data, 'XMP write failed');
-    return result.ok ? { ok: true, data: prepared.data } : { ok: false, error: result.error };
+    const existing = await fs.readFile(destination, 'utf8').then(
+      (xml): OpResult<string> => ({ ok: true, data: xml }),
+      (error: unknown): OpResult<string> =>
+        isMissingSidecar(error)
+          ? { ok: true, data: '' }
+          : {
+              ok: false,
+              error: `XMP read failed: ${error instanceof Error ? error.message : String(error)}`,
+            },
+    );
+    if (!existing.ok) return existing;
+    return publishPrimarySidecar(destination, merge(existing.data ?? ''));
   });
 }
 
