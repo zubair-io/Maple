@@ -15,6 +15,7 @@ import {
   type LayerOrderOf,
 } from './xmp-local-adjustment-order';
 import type { AdjustmentModel } from '../models/adjustment-model';
+import { maskCoord } from './xmp-local-adjustments-brush';
 
 /** Keys of the correction descriptions in a container Maple re-emits verbatim. */
 export const verbatimLayerOrders = (container: Element): number[] =>
@@ -75,6 +76,40 @@ function between(lower: number | undefined, upper: number | undefined): number {
   return upper === undefined ? Math.floor(lower) + 1 : (lower + upper) / 2;
 }
 
+const written = (key: number): number => Number(maskCoord(key));
+
+/** Whether the six-decimal wire form keeps the planned order against itself and every verbatim key. */
+function survivesFormatting(keys: readonly number[], verbatim: readonly number[]): boolean {
+  const wire = keys.map(written);
+  return (
+    wire.every((key, index) => index === 0 || wire[index - 1] < key) &&
+    keys.every((key, index) =>
+      verbatim.every((v) => Math.sign(wire[index] - v) === Math.sign(key - v) && wire[index] !== v),
+    )
+  );
+}
+
+function spacedKey(
+  low: number | undefined,
+  high: number | undefined,
+  j: number,
+  c: number,
+): number {
+  if (low !== undefined && high !== undefined) return low + ((high - low) * (j + 1)) / (c + 1);
+  if (high !== undefined) return high - c + j;
+  return Math.floor(low ?? -1) + 1 + j;
+}
+
+/** Spread the keys sharing a gap between two verbatim keys evenly across that gap. */
+function respaced(keys: readonly number[], verbatim: readonly number[]): number[] {
+  const bounds = [...verbatim].sort((a, b) => a - b);
+  const gaps = keys.map((key) => bounds.filter((v) => v < key).length);
+  return gaps.map((gap, index) => {
+    const members = gaps.flatMap((other, at) => (other === gap ? [at] : []));
+    return spacedKey(bounds[gap - 1], bounds[gap], members.indexOf(index), members.length);
+  });
+}
+
 /**
  * The key each modeled layer is written with. With no keyed verbatim
  * correction this is the plain model-index rule; otherwise kept layers keep
@@ -98,8 +133,7 @@ export function planLayerOrder(
     const bounds = [...later, ...above];
     return [...keys, between(lower, bounds.length ? Math.min(...bounds) : undefined)];
   }, []);
-  const positions = new Map(
-    layers.map((layer, index) => [layer, assigned[index]] as const).reverse(),
-  );
+  const final = survivesFormatting(assigned, verbatim) ? assigned : respaced(assigned, verbatim);
+  const positions = new Map(layers.map((layer, index) => [layer, final[index]] as const).reverse());
   return (layer) => positions.get(layer);
 }

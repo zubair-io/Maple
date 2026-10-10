@@ -430,4 +430,32 @@ describe('XMP local adjustments — cross-container layer order (#4427)', () => 
     const orderOf = planLayerOrder([above, below], [1]);
     expect([orderOf(above), orderOf(below)]).toEqual([-1, 0]);
   });
+
+  it('re-spaces keys the six-decimal codec would collapse (25 layers appended on top)', () => {
+    const keyedLinear = CANONICAL_ORDER_BLOCK.split('\n      <crs:CircularGradient')[0].replace(
+      'papp:LayerOrder="1"',
+      'papp:LayerOrder="0"',
+    );
+    const source = sidecar(`${keyedLinear}\n${BRUSH_V2_BLOCK}`);
+    const appended = Array.from({ length: 25 }, () => linear(0.1));
+    const { resaved: first } = reopenAndResave(source, (layers) => [...layers, ...appended]);
+    const expected = Array.from({ length: 26 }, (_, index) => String(index - 25));
+    expect(writtenKeys(first)).toEqual([...expected, '1']);
+
+    const { reopened, resaved } = reopenAndResave(first);
+    expect(withoutReadOrder(reopened)).toEqual([linear(0.4), ...appended]);
+    expect(resaved).toBe(first);
+  });
+
+  it('reads a verbatim key whose papp namespace is bound to another prefix', () => {
+    const aliased = TEMPLATE_SOURCE.replace(
+      'papp:LayerOrder="1">',
+      'xmlns:maple="http://ns.justmaple.app/photo/1.0/" maple:LayerOrder="1">',
+    );
+    expect(aliased).not.toBe(TEMPLATE_SOURCE);
+    const { resaved } = reopenAndResave(aliased, (layers) => [linear(0.1), ...layers]);
+    expect(writtenKeys(resaved)).toEqual(['-1', '0', '2']);
+    expect(resaved).toContain('maple:LayerOrder="1"');
+    expect(reopenAndResave(resaved).resaved).toBe(resaved);
+  });
 });
