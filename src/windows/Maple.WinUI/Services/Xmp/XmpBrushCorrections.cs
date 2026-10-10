@@ -46,7 +46,10 @@ namespace Maple.WinUI.Services.Xmp
                 var digest = Attr(leaf, Papp + "BrushDigest");
                 if (digest == null || digest.Length != 16 || digest.Any(c => !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))))
                     digest = Digest(dabs);
-                result.Add(new LocalAdjustment(new BrushMask(dabs, digest), a, XmpLocalAdjustments.ParseRange(description)));
+                result.Add(new LocalAdjustment(new BrushMask(dabs, digest), a, XmpLocalAdjustments.ParseRange(description))
+                {
+                    XmpLayerOrder = XmpLayerOrder.Read(description),
+                });
             }
             return result;
         }
