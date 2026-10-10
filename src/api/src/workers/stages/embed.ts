@@ -36,7 +36,7 @@ import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { classifyMediaType } from '../../indexer/media-types.ts';
 import type { AssetFaceDoc, Place, TranscriptDoc } from '../../db/schema.ts';
 import { createBatcher } from '../embed/batcher.ts';
-import { currentEmbedderTarget } from '../embed/embedder-target.ts';
+import { currentEmbedderTarget, freshEmbedderTarget } from '../embed/embedder-target.ts';
 import { sweepEmbedderChange } from '../embed/embedder-rearm.ts';
 import { loadNamedPeople, peopleNamesForFaces } from './meili.ts';
 
@@ -70,6 +70,10 @@ let embedBatchImpl: EmbedBatchFn = (target, inputs) => embedTexts(target, inputs
 async function embedBatch(texts: readonly string[]): Promise<readonly EmbeddedText[]> {
   const target = await currentEmbedderTarget();
   const vectors = await embedBatchImpl(target, texts);
+  const latest = await freshEmbedderTarget();
+  if (latest.model !== target.model || latest.url !== target.url) {
+    throw new Error('embed: the embedder changed while a batch was in flight; retrying');
+  }
   return vectors.map((vector) => ({ vector, model: target.model, endpoint: target.url }));
 }
 

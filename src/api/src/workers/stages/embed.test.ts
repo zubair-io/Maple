@@ -184,3 +184,37 @@ describe('sweepEmbedderChange', () => {
     expect(stageRow(live.db, assetId, 'embed')?.version).toBe(0);
   });
 });
+
+describe('a changed embedder target', () => {
+  it('is picked up by the next handler call after a settings save', async () => {
+    using _live = await createLiveTestDatabase();
+    const targets: string[] = [];
+    setEmbedBatchForTests(async (target, inputs) => {
+      targets.push(target.model);
+      return inputs.map(() => l2Normalize([1, 2, 2]));
+    });
+    await embedHandler(fakeDoc(), fakeCtx);
+
+    await saveEnrichmentConfig({ embedder_model: 'new-model' });
+    forgetEmbedderTarget();
+    await embedHandler(fakeDoc(), fakeCtx);
+
+    expect(targets).toEqual(['bge-m3', 'new-model']);
+  });
+
+  it('rejects a batch whose embedder changed while it was in flight, then embeds with the new one', async () => {
+    using _live = await createLiveTestDatabase();
+    const targets: string[] = [];
+    setEmbedBatchForTests(async (target, inputs) => {
+      targets.push(target.model);
+      if (targets.length === 1) await saveEnrichmentConfig({ embedder_model: 'new-model' });
+      return inputs.map(() => l2Normalize([1, 2, 2]));
+    });
+
+    await expect(embedHandler(fakeDoc(), fakeCtx)).rejects.toThrow('embedder changed');
+    const retried = await embedHandler(fakeDoc(), fakeCtx);
+
+    expect(targets).toEqual(['bge-m3', 'new-model']);
+    expect('patch' in retried).toBe(true);
+  });
+});

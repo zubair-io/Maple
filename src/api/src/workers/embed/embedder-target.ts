@@ -26,6 +26,13 @@ export async function currentEmbedderTarget(): Promise<OllamaEmbedTarget> {
   return target;
 }
 
+/** Re-reads the settings now, bypassing and replacing the cache. */
+export async function freshEmbedderTarget(): Promise<OllamaEmbedTarget> {
+  const target = await loadTarget();
+  Object.assign(cache, { target, loadedAt: Date.now() });
+  return target;
+}
+
 export function forgetEmbedderTarget(): void {
   Object.assign(cache, { target: null, loadedAt: 0 });
 }
