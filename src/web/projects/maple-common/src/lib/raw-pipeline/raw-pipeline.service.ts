@@ -572,7 +572,17 @@ export class RawPipelineService implements OnDestroy {
       return Promise.reject(new Error('RawPipelineService: worker unavailable'));
     }
     const register = (id: number, handler: PendingHandler) => this.pending.set(id, handler);
-    return dispatchExport(worker, this.nextId++, register, bytes, ext, options, xmp, filmLut, saved);
+    return dispatchExport(
+      worker,
+      this.nextId++,
+      register,
+      bytes,
+      ext,
+      options,
+      xmp,
+      filmLut,
+      saved,
+    );
   }
 
   ngOnDestroy(): void {

@@ -143,13 +143,13 @@ export class XmpParserService {
       if (!Array.isArray(list)) throw new Error('Invalid saved removal record list.');
       model.inpaintRemovals = list.length ? records : undefined;
     }
-      return {
-        model,
-        passthrough: {
-          ...passthrough,
-          authoredCulling: authoredCullingOf(desc),
-        },
-        metadata: parseMetadataBlock(desc),
+    return {
+      model,
+      passthrough: {
+        ...passthrough,
+        authoredCulling: authoredCullingOf(desc),
+      },
+      metadata: parseMetadataBlock(desc),
     };
   }
 

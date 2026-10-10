@@ -189,6 +189,7 @@ existing unconditional write behaviour. The write barrier is in-memory, so these
 checks coordinate only writers inside the API process. The worker child process
 (for example batch-sync jobs) and external filesystem writers do not participate
 and can still race a conditional save.
+
 ## Removal authoring transport (#3984)
 
 These bearer-authenticated endpoints address a RAW through `?path=<absolute path>`
