@@ -158,6 +158,49 @@ describe('requestContext: error envelope shape', () => {
     expect(body.code).toBe('unauthorized');
     expect(typeof body.requestId).toBe('string');
   });
+
+  test('4xx client errors (401 missing bearer) log at debug, not error', async () => {
+    let errorCalled = false;
+    let debugCalled = false;
+    const logModule = await import('../src/log.ts');
+    const origChild = logModule.child;
+    const spy = (await import('bun:test'))
+      .spyOn(logModule, 'child')
+      .mockImplementation((component: string) => {
+        const real = origChild(component);
+        const originalChildMethod = real.child.bind(real);
+        return Object.assign(real, {
+          child: (bindings: any) => {
+            const childReal = originalChildMethod(bindings);
+            return Object.assign(childReal, {
+              error: (...args: any[]) => {
+                errorCalled = true;
+                return (childReal.error as any)(...args);
+              },
+              debug: (...args: any[]) => {
+                debugCalled = true;
+                return (childReal.debug as any)(...args);
+              },
+            });
+          },
+        });
+      });
+
+    try {
+      const app = appWith((a) =>
+        a.get('/unauthed', ({ set }: { set: { status: number } }) => {
+          set.status = 401;
+          throw new Error('missing bearer');
+        }),
+      );
+      const res = await app.handle(new Request('http://localhost/unauthed'));
+      expect(res.status).toBe(401);
+      expect(errorCalled).toBe(false);
+      expect(debugCalled).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe('requestContext: uncaught error → internal envelope', () => {
