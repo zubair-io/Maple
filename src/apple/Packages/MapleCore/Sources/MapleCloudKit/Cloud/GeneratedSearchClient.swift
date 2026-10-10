@@ -97,6 +97,7 @@ struct GeneratedSearchListResponse: Codable, Sendable {
 struct GeneratedSearchAssetsResponse: Codable, Sendable {
   let total: Int
   let results: [SearchAsset]
+  let snapshot: Bool?
 }
 
 /// One page of a collection's photos. `total` is the size of the whole
@@ -104,10 +105,15 @@ struct GeneratedSearchAssetsResponse: Codable, Sendable {
 public struct GeneratedSearchAssetPage: Sendable {
   public let results: [SearchAsset]
   public let total: Int
+  /// True when the server answered from the worker's stored preview rather
+  /// than a live query. A preview is not page 1 of a paginated sequence: its
+  /// rows and total are only consistent with themselves.
+  public let isSnapshot: Bool
 
-  public init(results: [SearchAsset], total: Int) {
+  public init(results: [SearchAsset], total: Int, isSnapshot: Bool = false) {
     self.results = results
     self.total = total
+    self.isSnapshot = isSnapshot
   }
 }
 
@@ -178,7 +184,8 @@ public actor GeneratedSearchClient {
     )
     try Self.checkOK(resp, data: data)
     let decoded = try JSONDecoder().decode(GeneratedSearchAssetsResponse.self, from: data)
-    return GeneratedSearchAssetPage(results: decoded.results, total: decoded.total)
+    return GeneratedSearchAssetPage(
+      results: decoded.results, total: decoded.total, isSnapshot: decoded.snapshot ?? false)
   }
 
   /// `GET /api/assets/<id>` for a card's `cover_asset_id` — one primary-key

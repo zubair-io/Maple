@@ -142,6 +142,20 @@ public final class GeneratedSearchCollectionsViewModel {
       ?? GeneratedSearchAssetPage(results: [], total: 0)
   }
 
+  /// A live first page to replace a snapshot with. The server answers a
+  /// first-page request from its stored preview only when the limit covers the
+  /// whole stored page, so asking for one row fewer than the snapshot holds
+  /// always runs the real query. A response that is still a snapshot is
+  /// discarded: it would swap the preview for itself.
+  public func liveFirstPage(
+    of collectionID: String, replacing snapshot: GeneratedSearchAssetPage
+  ) async -> GeneratedSearchAssetPage? {
+    guard snapshot.isSnapshot, snapshot.results.count > 1 else { return nil }
+    let live = try? await client.assets(
+      collectionID: collectionID, limit: snapshot.results.count - 1)
+    return live.flatMap { $0.isSnapshot ? nil : $0 }
+  }
+
   /// The next page of a collection after `offset` rows, through the same
   /// endpoint as the first so the order (newest first) stays consistent.
   public func page(

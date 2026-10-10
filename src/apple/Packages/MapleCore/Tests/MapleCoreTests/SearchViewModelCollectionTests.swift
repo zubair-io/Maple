@@ -61,6 +61,39 @@ final class SearchViewModelCollectionTests: XCTestCase {
     XCTAssertEqual(counter.count, 0, "the cached page must not re-run the search")
   }
 
+  func test_showCollection_replacesSnapshotWithLivePageThenPaginatesFromIt() async throws {
+    let vm = makeVM()
+    var requestedOffsets: [Int] = []
+    vm.showCollection(
+      params: SearchParams(libraryID: "lib-test"),
+      firstPage: GeneratedSearchAssetPage(
+        results: [Self.makeAsset(id: "snap")], total: 2, isSnapshot: true),
+      nextPage: { offset, _ in
+        requestedOffsets.append(offset)
+        return GeneratedSearchAssetPage(results: [Self.makeAsset(id: "tail")], total: 3)
+      },
+      liveFirstPage: {
+        try? await Task.sleep(for: .milliseconds(50))
+        return GeneratedSearchAssetPage(
+          results: [Self.makeAsset(id: "live1"), Self.makeAsset(id: "live2")], total: 3)
+      })
+
+    XCTAssertEqual(vm.results.map(\.id), ["snap"], "the snapshot paints first")
+    await vm.loadMore()
+    XCTAssertEqual(requestedOffsets, [], "no pagination while the live page is in flight")
+
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while vm.results.map(\.id) != ["live1", "live2"], ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    XCTAssertEqual(vm.results.map(\.id), ["live1", "live2"])
+    XCTAssertEqual(vm.total, 3)
+
+    await vm.loadMore()
+    XCTAssertEqual(requestedOffsets, [2])
+    XCTAssertEqual(vm.results.map(\.id), ["live1", "live2", "tail"])
+  }
+
   func test_showCollection_loadMorePagesThroughTheCollection() async {
     let vm = makeVM()
     var requestedOffsets: [Int] = []
