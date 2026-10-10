@@ -60,7 +60,8 @@ struct EditorHistogramChip: View {
       hasOnscreenFrame: EditSession.canvasHasFrame(
         gpuActive: gpuActive,
         gpuFramePresented: session.gpuFramePresented,
-        hasRenderedPreview: session.renderedPreview != nil
+        hasRenderedPreview: session.renderedPreview != nil,
+        renderedPreviewIsFullRender: session.renderedPreviewIsFullRender
       )
     )
   }

@@ -437,12 +437,21 @@ extension EditSession {
   /// `renderedPreview` (GPU path) nor a hardcoded constant drives readiness. Pure
   /// (all inputs explicit) so it is unit-testable without env/flags, and
   /// `nonisolated` so it's callable off the MainActor. See #1069.
+  ///
+  /// On the GPU leaf a completed CPU full render ALSO counts (#4496): the
+  /// leaf's CPU backdrop paints `renderedPreview` until the first present,
+  /// and a bytes-backed PhotoKit asset renders its first frames on the CPU
+  /// path by design (the large-sensor gate declines a not-yet-seeded
+  /// `nativeImageSize`), so those pixels really are on glass. Seeds still
+  /// do not count — `renderedPreviewIsFullRender` is false for them.
   public nonisolated static func canvasHasFrame(
     gpuActive: Bool,
     gpuFramePresented: Bool,
-    hasRenderedPreview: Bool
+    hasRenderedPreview: Bool,
+    renderedPreviewIsFullRender: Bool
   ) -> Bool {
-    gpuActive ? gpuFramePresented : hasRenderedPreview
+    let cpuFrameOnGlass = hasRenderedPreview && renderedPreviewIsFullRender
+    return gpuActive ? (gpuFramePresented || cpuFrameOnGlass) : hasRenderedPreview
   }
 
   /// Whether the cold-open loading indicator should be visible: while the

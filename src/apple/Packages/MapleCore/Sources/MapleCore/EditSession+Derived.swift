@@ -12,6 +12,15 @@ import Foundation
 
 @MainActor
 extension EditSession {
+  /// True while `renderedPreview` is a completed full-canvas render rather
+  /// than a cold-open seed — the canvas-ready predicate reads this to let a
+  /// CPU-published frame retire the seed thumbnail on the GPU leaf (#4496).
+  /// Every writer flips the flag together with `renderedPreview`, so the
+  /// observed image drives the view update.
+  public var renderedPreviewIsFullRender: Bool {
+    renderedPreview != nil && previewIsFullRender
+  }
+
   /// The crop rect the render path should apply right now: identity while
   /// the crop tool is armed (show the full frame under the overlay),
   /// otherwise the model's crop. Mirrors the web `renderModelForCrop`.
