@@ -227,6 +227,7 @@ extension EditSession {
     do {
       let image: CIImage
       let achievedAutoFit: Bool
+      let nativeAutoProfileID: UUID?
       let isRaw = asset.isRaw
       let assetID = asset.id
       if let cached, cacheFresh {
@@ -287,10 +288,13 @@ extension EditSession {
         // for THIS (interactive canvas) path — `EditSession+
         // FilmExport.swift`'s non-RAW export path is untouched, still
         // tracked under #2713.
-        let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
-        achievedAutoFit = profileLUT != nil
+        let autoTail = await autoProfileLUTForCPURender(
+          asset: asset, model: m, quality: snapshot.quality ?? .preview,
+          decodeGeneration: snapshot.decodeGeneration)
+        let profileLUT = autoTail.filter
+        achievedAutoFit = profileLUT != nil || autoTail.native != nil
         MemoryProbe.sample(
-          "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
+          "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(achievedAutoFit)")
         // The fit is a multi-second suspension on a cold image, and the
         // detached render below doesn't inherit cancellation — bail here
         // so a slider tick that cancelled mid-fit can't spawn a stale
@@ -304,7 +308,7 @@ extension EditSession {
         // bytes it would misinterpret as sRGB-gamma.
         let filmActive = filmLattice != nil && m.filmStrength > 0
         image = try await renderActor.renderCPUPreview {
-          let processed = mapleStage(filterStageName) { () -> CIImage in
+          let processed = try mapleStage(filterStageName) { () -> CIImage in
             if !isRaw {
               return pipeline.processSceneLinearNonRaw(
                 decoded: cached, model: m, targetSize: processTarget,
@@ -312,21 +316,24 @@ extension EditSession {
                 targetPrimariesOverride: filmActive ? .srgb : nil
               )
             }
-            return pipeline.processSceneLinear(
+            return try pipeline.processSceneLinearWithAuto(
               decoded: cached, model: m, targetSize: processTarget,
               asShot: asShot, decodedAtModel: cachedDecodedAtModel,
               profileLUT: profileLUT,
+              nativeAutoProfile: autoTail.native,
               assetID: assetID,
               noiseProfile: cachedNoiseProfile,
               iso: cachedISO,
               wbFrame: cachedWbFrame, whitesAnchorEv: snapshot.whitesAnchorEv,
               nrSamplingScale: snapshot.nrSamplingScale,
-              targetPrimariesOverride: filmActive ? .srgb : nil
+              targetPrimariesOverride: filmActive || autoTail.native?.artifacts != nil
+                ? .srgb : nil
             )
           }
           return FilmLookCube.apply(
             to: processed, lattice: filmLattice, strengthPct: m.filmStrength)
         }
+        nativeAutoProfileID = autoTail.native?.id
       } else {
         // Both phases decode to their bounded display target so the
         // full-res bitmap is never allocated (#785 fast phase, #1637
@@ -421,10 +428,13 @@ extension EditSession {
         // FFI chain's display-encoded output rather than inside the
         // FFI struct itself, closing the gap for this (interactive
         // canvas) path.
-        let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
-        achievedAutoFit = profileLUT != nil
+        let autoTail = await autoProfileLUTForCPURender(
+          asset: asset, model: m, quality: freshSnapshot.quality ?? .preview,
+          decodeGeneration: freshSnapshot.decodeGeneration)
+        let profileLUT = autoTail.filter
+        achievedAutoFit = profileLUT != nil || autoTail.native != nil
         MemoryProbe.sample(
-          "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
+          "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(achievedAutoFit)")
         // Same bail as the cached branch: the fit suspension may have
         // outlived this generation, and the detached render below
         // doesn't inherit cancellation.
@@ -435,7 +445,7 @@ extension EditSession {
         // above — `FilmLookCube` assumes sRGB-encoded input.
         let filmActive = filmLattice != nil && m.filmStrength > 0
         let processed = try await renderActor.renderCPUPreview {
-          let developed = mapleStage(filterStageName) { () -> CIImage in
+          let developed = try mapleStage(filterStageName) { () -> CIImage in
             if !isRaw {
               return pipeline.processSceneLinearNonRaw(
                 decoded: decoded, model: m, targetSize: processTarget,
@@ -443,22 +453,25 @@ extension EditSession {
                 targetPrimariesOverride: filmActive ? .srgb : nil
               )
             }
-            return pipeline.processSceneLinear(
+            return try pipeline.processSceneLinearWithAuto(
               decoded: decoded, model: m, targetSize: processTarget,
               asShot: freshAsShot, decodedAtModel: freshDecodedAtModel,
               profileLUT: profileLUT,
+              nativeAutoProfile: autoTail.native,
               assetID: assetID,
               noiseProfile: freshNoiseProfile,
               iso: freshISO,
               wbFrame: freshWbFrame, whitesAnchorEv: freshSnapshot.whitesAnchorEv,
               nrSamplingScale: freshSnapshot.nrSamplingScale,
-              targetPrimariesOverride: filmActive ? .srgb : nil
+              targetPrimariesOverride: filmActive || autoTail.native?.artifacts != nil
+                ? .srgb : nil
             )
           }
           return FilmLookCube.apply(
             to: developed, lattice: filmLattice, strengthPct: m.filmStrength)
         }
         image = processed
+        nativeAutoProfileID = autoTail.native?.id
       }
 
       // Crop + straighten (#638) — final geometry op on the developed
@@ -484,6 +497,7 @@ extension EditSession {
         }
       }
       publishAutoFit(achievedAutoFit, assetID: asset.id, profile: m.profile, revision: fitRevision)
+      self.nativeAutoFrameID = nativeAutoProfileID
       renderedPreview = displayImage
       lastPublishedRenderGeneration = gen
       previewIsFullRender = true

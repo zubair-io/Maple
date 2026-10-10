@@ -121,7 +121,8 @@ final class NativeAutoProfilePhotographicTests: XCTestCase {
       "blake3:36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7")
     XCTAssertEqual(
       try digest(try XCTUnwrap(artifacts.lutData)),
-      "blake3:91b35f4f7d5f84ff0c9d7d997d477596a858b005c22211d3f8b3adda2950ec9d")
+      // Main now defaults to Auto 2.0 (#1740); this is its AMaZE Render(None) LUT.
+      "blake3:fba080fb7cfac464a51bd7e40466665ec90ba8eb8511cb8e6b9d9a59b5b06e30")
     let setting = UserDefaults.standard.object(forKey: CanvasColorSpace.defaultsKey)
     UserDefaults.standard.set(CanvasColorSpace.srgb.rawValue, forKey: CanvasColorSpace.defaultsKey)
     defer { UserDefaults.standard.set(setting, forKey: CanvasColorSpace.defaultsKey) }
