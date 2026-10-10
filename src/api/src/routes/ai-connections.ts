@@ -16,6 +16,16 @@ import {
 import { loadWorkerConfigSafe } from '../db/repos/worker-config.repo.ts';
 import { loadGeneratedSearchConfig } from '../workers/generated-search/config.repo.ts';
 import { listProviderModels, handleAiTestConnection } from '../enrichment/ai-providers.service.ts';
+import { embedderSettingsView } from '../enrichment/embedder-settings.ts';
+import {
+  embedderSaveOutcome,
+  normalizeAssignments,
+  probeApiKey,
+  probeFailureStatus,
+  normalizeConnections,
+} from '../enrichment/ai-connections-normalize.ts';
+import { forgetEmbedderTarget } from '../workers/embed/embedder-target.ts';
+import { rearmForEmbedderTarget } from '../workers/embed/embedder-rearm.ts';
 import { resetDescribeDeps } from '../workers/stages/describe.ts';
 import { resetVideoDescribeDeps } from '../workers/stages/video-describe.ts';
 
@@ -32,6 +42,11 @@ const Connection = t.Object({
   concurrency: t.Integer({ minimum: 1, maximum: 100 }),
   api_key: t.Optional(t.Union([t.String(), t.Null()])),
 });
+const EmbedderBody = t.Object({
+  url: t.Union([t.String({ maxLength: 2048 }), t.Null()]),
+  model: t.Union([t.String({ maxLength: 200 }), t.Null()]),
+});
+
 const Config = t.Object({
   connections: t.Array(Connection, { maxItems: 32 }),
   assignments: t.Record(
@@ -42,7 +57,13 @@ const Config = t.Object({
       connection_models: t.Optional(t.Record(t.String(), t.String({ maxLength: 200 }))),
     }),
   ),
+  embedder: t.Optional(EmbedderBody),
 });
+
+async function embedderView() {
+  const saved = await loadEnrichmentConfig();
+  return embedderSettingsView(saved, resolveEnrichmentConfig(saved));
+}
 
 async function loadConfig() {
   const saved = await loadEnrichmentConfig();
@@ -60,48 +81,32 @@ async function loadConfig() {
 
 export const aiConnectionRoutes = new Elysia({ prefix: '/connections' })
   .use(requireAuth)
-  .get('/', async () => publicAiConnections(await loadConfig()), {
-    beforeHandle: requireOwnerBeforeHandle,
-  })
+  .get(
+    '/',
+    async () => ({
+      ...publicAiConnections(await loadConfig()),
+      embedder: await embedderView(),
+    }),
+    { beforeHandle: requireOwnerBeforeHandle },
+  )
   .put(
     '/',
     async ({ body, set }) => {
       const current = await loadConfig();
-      const connections = body.connections.map((c) => ({
-        ...c,
-        name: c.name.trim(),
-        url: c.url.trim().replace(/\/+$/, ''),
-        api_key:
-          c.api_key === undefined
-            ? current.connections.find((old) => old.id === c.id && old.provider === c.provider)
-                ?.api_key
-            : c.api_key?.trim() || null,
-      }));
-      const assignments = Object.fromEntries(
-        Object.entries(body.assignments as Record<string, AiAssignment>).map(([id, a]) => [
-          id,
-          {
-            ...a,
-            model: a.model.trim(),
-            ...(a.connection_models
-              ? {
-                  connection_models: Object.fromEntries(
-                    a.connection_ids.map((key) => [key, (a.connection_models![key] ?? '').trim()]),
-                  ),
-                }
-              : {}),
-          },
-        ]),
-      );
+      const connections = normalizeConnections(body.connections, current.connections);
+      const assignments = normalizeAssignments(body.assignments as Record<string, AiAssignment>);
       const config = { connections, assignments };
+      const embedder = embedderSaveOutcome(body.embedder);
       const error =
-        validateAiConnections(config) ?? (await validateAssignedModels(config, current));
+        ('error' in embedder ? embedder.error : null) ??
+        validateAiConnections(config) ??
+        (await validateAssignedModels(config, current));
       if (error) {
         set.status = 400;
         return { error };
       }
       // One document update: credentials, connections and every assignment change together.
-      await saveEnrichmentConfig({ ai_connections: config });
+      await saveEnrichmentConfig({ ai_connections: config, ...embedder });
       const resolved = resolveEnrichmentConfig(await loadEnrichmentConfig());
       reconfigureMeilisearch({
         url: resolved.meilisearch_url,
@@ -112,9 +117,11 @@ export const aiConnectionRoutes = new Elysia({ prefix: '/connections' })
         embedderModel: resolved.meilisearch_embedder_model,
         semanticRatio: resolved.meilisearch_semantic_ratio,
       });
+      forgetEmbedderTarget();
+      await rearmForEmbedderTarget({ url: resolved.embedder_url, model: resolved.embedder_model });
       resetDescribeDeps();
       resetVideoDescribeDeps();
-      return publicAiConnections(config);
+      return { ...publicAiConnections(config), embedder: await embedderView() };
     },
     { body: Config, beforeHandle: requireOwnerBeforeHandle },
   )
@@ -122,15 +129,11 @@ export const aiConnectionRoutes = new Elysia({ prefix: '/connections' })
     '/probe',
     async ({ body, set }) => {
       const current = await loadConfig();
-      const c = body.connection;
-      const apiKey =
-        c.api_key === undefined
-          ? current.connections.find((old) => old.id === c.id && old.provider === c.provider)
-              ?.api_key
-          : c.api_key;
+      const { connection: c } = body;
+      const apiKey = probeApiKey(c, current.connections);
       if (body.models) return listProviderModels(c.provider, { url: c.url, apiKey });
       const result = await handleAiTestConnection(c.provider, c.url, apiKey);
-      if (!result.ok) set.status = result.status ?? 400;
+      set.status = probeFailureStatus(result);
       return result;
     },
     {

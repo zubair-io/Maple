@@ -1,5 +1,6 @@
 import { selfContainedXml } from './xmp-foreign-xml';
 import { collectMaskGroups, sharesMaskGroupContext } from './xmp-mask-group-passthrough';
+import { orderLocalAdjustments, verbatimLayerOrders } from './xmp-verbatim-layer-order';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { PassthroughBucket } from './xmp.types';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
@@ -163,6 +164,17 @@ function retouchSpotsFrom(description: Element): RetouchSpot[] {
   return areas.length > 0 ? areas : legacy;
 }
 
+/** Layer-order keys of a brush container kept verbatim because it could not be modeled. */
+const verbatimBrushLayerOrders = (description: Element): number[] =>
+  Array.from(description.children)
+    .filter(
+      (child) =>
+        !localAdjustmentContainerKind(child) &&
+        !isManagedChild(child) &&
+        managedXmpName(child) === 'papp:BrushCorrections',
+    )
+    .flatMap(verbatimLayerOrders);
+
 /**
  * Capture fields Maple does not model and hydrate Maple-owned point curves.
  * The parser intentionally delegates the whole child classification here so
@@ -221,7 +233,9 @@ export function collectXmpPassthrough(
     unknownNodes.push(selfContainedXml(child));
   }
 
-  const maskGroups = collectMaskGroups(description, model);
+  const { verbatim: groupKeys, ...maskGroups } = collectMaskGroups(description, model);
+  const verbatimLayerOrderKeys = [...verbatimBrushLayerOrders(description), ...groupKeys];
+  orderLocalAdjustments(model, verbatimLayerOrderKeys);
 
   for (const attr of unknownAttributes) {
     const colon = attr.name.indexOf(':');
@@ -239,6 +253,7 @@ export function collectXmpPassthrough(
     unknownAttributes,
     unknownNodes,
     ...maskGroups,
+    ...(verbatimLayerOrderKeys.length ? { verbatimLayerOrders: verbatimLayerOrderKeys } : {}),
     ...preservedStructure(description, document),
   };
 }

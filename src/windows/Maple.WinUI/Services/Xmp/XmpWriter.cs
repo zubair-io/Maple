@@ -205,9 +205,10 @@ namespace Maple.WinUI.Services.Xmp
         /// </summary>
         private static string BuildChildren(XmpSidecarDocument doc)
         {
+            var layerOrders = XmpLayerOrder.Assign(doc.Adjustments.LocalAdjustments, doc.VerbatimLayerOrders);
             var modeledBlocks = XmpSchema.ToneCurveElements
                 .Select(e => (e.Tag, Block: ToneCurveBlock(e.Tag, e.Curve(doc.Adjustments))))
-                .Concat(XmpMaskGroupTemplate.Blocks(doc, ChildIndent))
+                .Concat(XmpMaskGroupTemplate.Blocks(doc, layerOrders, ChildIndent))
                 .ToList();
             modeledBlocks.Add((XmpRetouch.Tag, doc.Adjustments.Retouch.Xml is { } repairs ? ChildIndent + repairs : null));
             var blocksByTag = modeledBlocks.ToDictionary(b => b.Tag, b => b.Block);

@@ -104,6 +104,10 @@ export interface ResolvedEnrichmentConfig {
   meilisearch_embedder_url: string;
   meilisearch_embedder_model: string;
   meilisearch_semantic_ratio: number;
+  /** Endpoint and model the `embed` stage computes vectors with: the saved override, else the
+   * semantic-search values. */
+  embedder_url: string;
+  embedder_model: string;
   service_search_rate_limit_per_minute: number;
   /** Where each field came from. The UI renders this so the operator knows
    * whether they're seeing a saved value or an env-var fallback. */
@@ -136,6 +140,8 @@ export interface ResolvedEnrichmentConfig {
     meilisearch_embedder_url: 'db' | 'env' | 'default';
     meilisearch_embedder_model: 'db' | 'default';
     meilisearch_semantic_ratio: 'db' | 'default';
+    embedder_url: 'db' | 'semantic-search';
+    embedder_model: 'db' | 'semantic-search';
     service_search_rate_limit_per_minute: 'db' | 'default';
   };
 }
@@ -434,10 +440,14 @@ export function resolveEnrichmentConfig(
     faceMinDetectionSizeSource = 'db';
   }
 
+  const semantic = assignedAi(db?.ai_connections, 'semantic-search');
+  const semanticEmbedderUrl = semantic?.primary.url ?? meilisearchEmbedderUrl.value;
+  const semanticEmbedderModel = semantic?.model ?? meilisearchEmbedderModel.value;
+  const savedEmbedderOverrideUrl = db?.embedder_url?.trim();
+  const savedEmbedderOverrideModel = db?.embedder_model?.trim();
   const serviceSearchRateLimit = resolveServiceSearchRateLimit(db);
   const meilisearchTaskTimeout = resolveMeilisearchTaskTimeout(db);
 
-  const semantic = assignedAi(db?.ai_connections, 'semantic-search');
   return {
     ai_connections: db?.ai_connections,
     nominatim_url: url,
@@ -465,9 +475,11 @@ export function resolveEnrichmentConfig(
     meilisearch_api_key: meilisearchApiKey.value,
     meilisearch_task_timeout_seconds: meilisearchTaskTimeout.value,
     meilisearch_semantic_enabled: meilisearchSemanticEnabled.value,
-    meilisearch_embedder_url: semantic?.primary.url ?? meilisearchEmbedderUrl.value,
-    meilisearch_embedder_model: semantic?.model ?? meilisearchEmbedderModel.value,
+    meilisearch_embedder_url: semanticEmbedderUrl,
+    meilisearch_embedder_model: semanticEmbedderModel,
     meilisearch_semantic_ratio: meilisearchSemanticRatio.value,
+    embedder_url: savedEmbedderOverrideUrl || semanticEmbedderUrl,
+    embedder_model: savedEmbedderOverrideModel || semanticEmbedderModel,
     service_search_rate_limit_per_minute: serviceSearchRateLimit.value,
     source: {
       nominatim_url: urlSource,
@@ -498,6 +510,8 @@ export function resolveEnrichmentConfig(
       meilisearch_embedder_url: meilisearchEmbedderUrl.source,
       meilisearch_embedder_model: meilisearchEmbedderModel.source,
       meilisearch_semantic_ratio: meilisearchSemanticRatio.source,
+      embedder_url: savedEmbedderOverrideUrl ? 'db' : 'semantic-search',
+      embedder_model: savedEmbedderOverrideModel ? 'db' : 'semantic-search',
       service_search_rate_limit_per_minute: serviceSearchRateLimit.source,
     },
   };

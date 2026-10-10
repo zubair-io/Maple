@@ -9,7 +9,7 @@
 //                       subsequent writes can reproduce unknown content verbatim.
 // - flushAll()          cancels all pending timers (call on beforeunload).
 
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, DestroyRef } from '@angular/core';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { XmpCulling, PassthroughBucket, XmpMetadata } from './xmp.types';
 import type { AssetId } from '../models/asset';
@@ -43,7 +43,18 @@ export class XmpStoreService {
   private readonly parser = inject(XmpParserService);
   private readonly hostedWriter = inject(HostedWorkflowWriterService);
   private readonly variants = inject(WorkflowVariantStoreService);
+  private readonly destroyRef = inject(DestroyRef, { optional: true });
   private readonly latestModels = new WeakMap<MapleFolderHandle, Map<AssetId, AdjustmentModel>>();
+
+  constructor() {
+    this.destroyRef?.onDestroy(() => this.cancelPending());
+  }
+
+  /** Cancel all pending debounce timers without starting new writes. */
+  cancelPending(): void {
+    for (const pending of this._pendingWrites.values()) clearTimeout(pending.timeout);
+    this._pendingWrites.clear();
+  }
   private readonly bindings = new Map<AssetId, HostedSidecarBinding>();
   private readonly retryWrites = new Map<
     AssetId,

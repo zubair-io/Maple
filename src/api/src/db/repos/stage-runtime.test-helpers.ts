@@ -25,6 +25,7 @@ export interface StageRow {
   dead: number;
   failed_at: string | null;
   next_attempt_at: string | null;
+  claim_token: string | null;
 }
 
 export function stageRow(db: Database, assetId: string, stage: string): StageRow | null {

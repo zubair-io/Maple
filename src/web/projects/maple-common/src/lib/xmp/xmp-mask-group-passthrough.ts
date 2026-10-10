@@ -11,6 +11,8 @@ import {
   localCorrectionBlock,
   parseLocalCorrection,
 } from './xmp-local-adjustments';
+import { layerOrderOf, type LayerOrderOf } from './xmp-local-adjustment-order';
+import { verbatimLayerOrders } from './xmp-verbatim-layer-order';
 
 const childrenNamed = (element: Element, name: string): Element[] =>
   Array.from(element.children).filter((child) => managedXmpName(child) === name);
@@ -73,7 +75,7 @@ function groupClone(group: Element): Element {
 function collectGroup(
   group: Element,
   layers: LocalAdjustment[],
-): { template: MaskGroupTemplate; opaque: boolean } {
+): { template: MaskGroupTemplate; opaque: boolean; keys: number[] } {
   const clone = groupClone(group);
   const seqs = childrenNamed(clone, 'rdf:Seq');
   const seq = seqs.length === 1 ? seqs[0] : undefined;
@@ -91,10 +93,8 @@ function collectGroup(
       layers.push(layer);
     } else opaque = true;
   }
-  return {
-    template: { parts: seq ? templateParts(clone, slots, seq) : [clone.outerHTML] },
-    opaque,
-  };
+  const parts = seq ? templateParts(clone, slots, seq) : [clone.outerHTML];
+  return { template: { parts }, opaque, keys: verbatimLayerOrders(clone) };
 }
 
 /** Moving a group must retain its RDF subject and inherited XML context. */
@@ -124,7 +124,7 @@ const hasForeignWrapperData = (element: Element, managedChild: Element | undefin
 export function collectMaskGroups(
   primary: Element,
   model: Partial<AdjustmentModel>,
-): Pick<PassthroughBucket, 'maskGroups'> {
+): Pick<PassthroughBucket, 'maskGroups'> & { verbatim: number[] } {
   const descriptions = primary.parentElement
     ? childrenNamed(primary.parentElement, 'rdf:Description')
     : [primary];
@@ -145,7 +145,11 @@ export function collectMaskGroups(
       layer.xmpGroupSlot = index;
     });
   if (groups.length) model.localAdjustments = [...(model.localAdjustments ?? []), ...layers];
-  return opaque ? { maskGroups: { templates: collected.map((group) => group.template) } } : {};
+  if (!opaque) return { verbatim: [] };
+  return {
+    maskGroups: { templates: collected.map((group) => group.template) },
+    verbatim: collected.flatMap(({ keys }) => keys),
+  };
 }
 
 const isGroup = (layer: LocalAdjustment): boolean =>
@@ -153,8 +157,8 @@ const isGroup = (layer: LocalAdjustment): boolean =>
 
 /** New canonical entries need their own namespaces: a foreign container may
  * legitimately rebind the conventional rdf/crs/papp prefixes. */
-function scopedCorrection(layer: LocalAdjustment): string {
-  return localCorrectionBlock(layer, '').replace(
+function scopedCorrection(layer: LocalAdjustment, order: number | undefined): string {
+  return localCorrectionBlock(layer, '', order).replace(
     '<rdf:li>',
     '<rdf:li xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"' +
       ' xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"' +
@@ -168,18 +172,19 @@ export function localAdjustmentBlocksWithPassthrough(
   model: Partial<AdjustmentModel>,
   indent: string,
   preserved: PassthroughBucket['maskGroups'],
+  orderOf: LayerOrderOf = layerOrderOf(model.localAdjustments ?? []),
 ): string {
-  if (!preserved) return localAdjustmentBlocks(model, indent);
+  if (!preserved) return localAdjustmentBlocks(model, indent, orderOf);
   const layers = model.localAdjustments ?? [];
   const groupLayers = layers.filter(isGroup);
   const groups = new Map(
     groupLayers
       .filter((layer) => layer.xmpGroupSlot !== undefined)
-      .map((layer) => [layer.xmpGroupSlot, scopedCorrection(layer)]),
+      .map((layer) => [layer.xmpGroupSlot, scopedCorrection(layer, orderOf(layer))]),
   );
   const appended = groupLayers
     .filter((layer) => layer.xmpGroupSlot === undefined)
-    .map(scopedCorrection)
+    .map((layer) => scopedCorrection(layer, orderOf(layer)))
     .join('');
   const lastAppend = preserved.templates
     .map((template) => template.parts.includes(null))
@@ -199,6 +204,7 @@ export function localAdjustmentBlocksWithPassthrough(
     localAdjustmentBlocks(
       { localAdjustments: [...layers.filter((layer) => !isGroup(layer)), ...newGroups] },
       indent,
+      orderOf,
     ),
     ...blocks,
   ]

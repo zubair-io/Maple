@@ -28,6 +28,9 @@ import type { SqlStatement } from '../sqlite/protocol.ts';
 /** The search-index stage: re-armed whenever an asset's indexed text changes. */
 export const MEILI_STAGE = 'meili';
 
+/** The vector stage: re-armed together with `meili` because both read the same searchable text. */
+export const EMBED_STAGE = 'embed';
+
 /**
  * The path-keyed raster caches. A relocate invalidates both, because their
  * cache key is derived from the file's path — see `docs/caching.md`. The
@@ -42,17 +45,18 @@ const REARM_INSERT = `
   ON CONFLICT (asset_id, stage) DO UPDATE SET`;
 
 const REARM_WITH_PROCESSED_AT = `${REARM_INSERT}
-    version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0`;
+    version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0,
+    next_attempt_at = NULL, claim_token = NULL`;
 
 const REARM_KEEPING_PROCESSED_AT = `${REARM_INSERT}
-    version = 0, attempts = 0, last_error = NULL, dead = 0`;
+    version = 0, attempts = 0, last_error = NULL, dead = 0, next_attempt_at = NULL, claim_token = NULL`;
 
-/**
- * Re-arm `meili` for one asset: version back to zero, retry bookkeeping and
- * `processed_at` cleared, dead-letter flag lifted.
- */
-export function meiliRearmStatement(assetId: string): SqlStatement {
-  return { sql: REARM_WITH_PROCESSED_AT, params: [MEILI_STAGE, assetId] };
+/** Re-arm every stage that indexes an asset's searchable text: `meili` and `embed`. */
+export function searchRearmStatements(assetId: string): SqlStatement[] {
+  return [MEILI_STAGE, EMBED_STAGE].map((stage) => ({
+    sql: REARM_WITH_PROCESSED_AT,
+    params: [stage, assetId],
+  }));
 }
 
 /**
@@ -117,7 +121,8 @@ export function stageRearmBatchStatement(
       INSERT INTO stage_state (asset_id, stage, version, attempts, last_error, processed_at, dead)
       SELECT a.id, ?, 0, 0, NULL, NULL, 0 FROM assets a WHERE a.id IN (${list})${also}
       ON CONFLICT (asset_id, stage) DO UPDATE SET
-        version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0`,
+        version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0,
+    next_attempt_at = NULL, claim_token = NULL`,
     params: [stage, ...assetIds, ...(guard?.params ?? [])],
   };
 }

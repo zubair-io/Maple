@@ -13,7 +13,10 @@ test('adds the memory column to an existing worker_status row', async () => {
     `INSERT INTO worker_status (id, statuses, updated_at) VALUES ('singleton', '{}', 0)`,
   );
 
-  const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+  const result = await runMigrations(
+    handle.migrationDb,
+    ALL_MIGRATIONS.filter((migration) => migration.id <= '0021-worker-status-memory'),
+  );
   const columns = (
     handle.db.query(`PRAGMA table_info(worker_status)`).all() as Array<{ name: string }>
   ).map((c) => c.name);

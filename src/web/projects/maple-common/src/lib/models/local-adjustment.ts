@@ -215,6 +215,10 @@ export interface LocalAdjustment {
   /** Host-only slot in an imported mixed AI group; never written to XMP or
    * interpreted by Rust. Keeps foreign pins in place when neighbors are deleted. */
   xmpGroupSlot?: number;
+  /** Host-only `papp:LayerOrder` this layer was read with (#4427), kept only when
+   * the sidecar has keyed corrections Maple re-emits verbatim, so saving keeps
+   * this layer on the same side of each of them. Never interpreted by Rust. */
+  xmpLayerOrder?: number;
   xmpMetadata?: LocalXmpMetadata;
   mask: LocalMask;
   adjustments: PartialAdjustments;

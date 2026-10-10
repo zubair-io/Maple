@@ -165,6 +165,12 @@ mod wb_frame_flat;
 // `--features gpu,pano` for macOS and `--features gpu,pano-ios` for iOS.
 #[cfg(any(feature = "pano", feature = "pano-ios"))]
 mod pano;
+// #4462: in-process hybrid search C-FFI. API-only — see the `search` feature
+// in Cargo.toml; no Apple slice or Windows DLL is built with it.
+#[cfg(feature = "search")]
+mod search;
+#[cfg(feature = "search")]
+pub use search::MapleSearchHandle;
 
 // The Windows WinUI 3 present path (#2561) lives in `gpu_live::present_winui`
 // (`maple_gpu_present_chain_winui`), the DX12 twin of the Apple

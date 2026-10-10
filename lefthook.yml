@@ -100,6 +100,9 @@ pre-commit:
     # --- shfmt for shell scripts under src/scripts/, tools/, src/apple/scripts/. ---
     shfmt:
       glob: '*.{sh,bash}'
+      exclude:
+        - '**/vendor/**'
+        - '**/third_party/**'
       run: |
         if command -v shfmt >/dev/null 2>&1; then
           shfmt -d {staged_files}

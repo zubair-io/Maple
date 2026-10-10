@@ -65,6 +65,7 @@ import {
   interpolateDabs,
   mapDabsToCrop,
   rasterizeBrushDabs,
+  stampBrushDabs,
 } from './mask-brush';
 
 /** Grab radius for the handles, in CSS px — matches the crop overlay. */
@@ -178,6 +179,13 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
   /** One reusable raster buffer for the tint — re-sized only when the
    *  footprint aspect changes, so a drag frame allocates nothing. */
   private tintBuffer: ImageData | null = null;
+  private readonly brushTintCache: BrushTintCache = {
+    width: 0,
+    height: 0,
+    acc: new Float32Array(0),
+    stampedCount: 0,
+    mappingKey: '',
+  };
 
   constructor() {
     // Mask editing is fit-zoom-only (M3): the footprint maps 1:1 onto the
@@ -196,7 +204,7 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
       const map = this.map();
       const canvas = this.tintCanvas()?.nativeElement;
       if (!canvas) return;
-      this.tintBuffer = drawWeightTint(canvas, mask, map, this.tintBuffer);
+      this.tintBuffer = drawWeightTint(canvas, mask, map, this.tintBuffer, this.brushTintCache);
     });
   }
 
@@ -327,17 +335,31 @@ function tintRasterSize(fp: Footprint): { width: number; height: number } {
     : { width: Math.max(1, Math.round(TINT_LONG_EDGE * aspect)), height: TINT_LONG_EDGE };
 }
 
+interface BrushTintCache {
+  width: number;
+  height: number;
+  acc: Float32Array;
+  stampedCount: number;
+  mappingKey: string;
+}
+
 /** Fill `image` with the tint: each raster pixel is a crop-normalized point,
  *  mapped to full-frame coordinates through the crop map and evaluated with
  *  the same math the render pipeline runs. A brush layer stamps its dab
  *  series instead — per-pixel evaluation would re-stamp the stroke per query
  *  point, so the weight comes from the rasterizer both here and in the
  *  render. */
-function fillTint(image: ImageData, mask: LocalMask, map: MaskCanvasMap): void {
+function fillTint(
+  image: ImageData,
+  mask: LocalMask,
+  map: MaskCanvasMap,
+  brushCache?: BrushTintCache | null,
+): void {
   if (mask.kind === 'brush') {
-    fillBrushTint(image, mask.dabs, map);
+    fillBrushTint(image, mask.dabs, map, brushCache);
     return;
   }
+  if (brushCache) brushCache.stampedCount = 0;
   const { width, height, data } = image;
   for (let j = 0; j < height; j++) {
     const v = (j + 0.5) / height;
@@ -354,24 +376,53 @@ function fillTint(image: ImageData, mask: LocalMask, map: MaskCanvasMap): void {
 }
 
 /** Tint a brush layer: map the dab series into crop space and stamp it at
- *  tint resolution. The radius is a fraction of the FULL-frame width while
- *  the grid spans the crop, so radii scale by the full/crop width ratio —
- *  the crop's x-axis length measured in full-frame pixels, since a straighten
- *  rotation mixes the non-isotropic normalized axes. */
-function fillBrushTint(image: ImageData, dabs: readonly BrushDab[], map: MaskCanvasMap): void {
-  const { data } = image;
+ *  tint resolution. Stamped incrementally (#4416) into `cache.acc` so a growing
+ *  stroke does not re-rasterize its whole history on every pointermove. */
+function fillBrushTint(
+  image: ImageData,
+  dabs: readonly BrushDab[],
+  map: MaskCanvasMap,
+  cache?: BrushTintCache | null,
+): void {
+  const { data, width, height } = image;
   const cropWidth = Math.hypot(map.cropToFull.a, map.cropToFull.b / map.imageAspect);
-  const grid = rasterizeBrushDabs(
-    mapDabsToCrop(dabs, map.fullToCrop, cropWidth > 1e-9 ? 1 / cropWidth : 1),
-    image.width,
-    image.height,
-  );
-  for (let i = 0; i < grid.length; i++) {
+  const radiusScale = cropWidth > 1e-9 ? 1 / cropWidth : 1;
+  const mappingKey = `${map.fullToCrop.a},${map.fullToCrop.b},${map.fullToCrop.c},${map.fullToCrop.d},${map.fullToCrop.tx},${map.fullToCrop.ty},${map.imageAspect}`;
+
+  let acc: Float32Array;
+  if (
+    cache &&
+    cache.width === width &&
+    cache.height === height &&
+    cache.mappingKey === mappingKey &&
+    cache.stampedCount <= dabs.length
+  ) {
+    acc = cache.acc;
+    if (cache.stampedCount < dabs.length) {
+      const newDabs = dabs.slice(cache.stampedCount);
+      const mapped = mapDabsToCrop(newDabs, map.fullToCrop, radiusScale);
+      stampBrushDabs(acc, mapped, width, height);
+      cache.stampedCount = dabs.length;
+    }
+  } else {
+    acc = new Float32Array(width * height);
+    const mapped = mapDabsToCrop(dabs, map.fullToCrop, radiusScale);
+    stampBrushDabs(acc, mapped, width, height);
+    if (cache) {
+      cache.width = width;
+      cache.height = height;
+      cache.acc = acc;
+      cache.mappingKey = mappingKey;
+      cache.stampedCount = dabs.length;
+    }
+  }
+
+  for (let i = 0; i < acc.length; i++) {
     const base = i * 4;
     data[base] = TINT_RGB[0];
     data[base + 1] = TINT_RGB[1];
     data[base + 2] = TINT_RGB[2];
-    data[base + 3] = Math.round((grid[i] / 255) * TINT_PEAK_ALPHA * 255);
+    data[base + 3] = Math.round(Math.min(1, Math.max(0, acc[i])) * TINT_PEAK_ALPHA * 255);
   }
 }
 
@@ -386,6 +437,7 @@ function drawWeightTint(
   mask: LocalMask | null,
   map: MaskCanvasMap,
   buffer: ImageData | null = null,
+  brushCache?: BrushTintCache | null,
 ): ImageData | null {
   const { width, height } = tintRasterSize(map.footprint);
   if (canvas.width !== width) canvas.width = width;
@@ -394,13 +446,14 @@ function drawWeightTint(
   if (!ctx) return buffer;
   if (!mask) {
     ctx.clearRect(0, 0, width, height);
+    if (brushCache) brushCache.stampedCount = 0;
     return buffer;
   }
   const image =
     buffer && buffer.width === width && buffer.height === height
       ? buffer
       : ctx.createImageData(width, height);
-  fillTint(image, mask, map);
+  fillTint(image, mask, map, brushCache);
   ctx.putImageData(image, 0, 0);
   return image;
 }

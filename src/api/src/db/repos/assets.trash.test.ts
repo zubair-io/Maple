@@ -71,7 +71,7 @@ function seedTwoLocationAsset(db: Database): { assetId: string; libraryId: strin
   const assetId = insertAsset(db);
   insertLocation(db, { assetId, libraryId, ordinal: 0, path: 'photos', filename: 'IMG_1.dng' });
   insertLocation(db, { assetId, libraryId, ordinal: 1, path: 'backup', filename: 'IMG_1.dng' });
-  for (const stage of ['meili', 'thumb', 'preview']) {
+  for (const stage of ['meili', 'embed', 'thumb', 'preview']) {
     insertStageState(db, assetId, stage, {
       version: 7,
       attempts: 3,
@@ -308,6 +308,7 @@ describe('restoreFromTrash', () => {
     });
     expect(locations(db, assetId)[0]).toMatchObject({ path: 'photos', filename: 'IMG_1.dng' });
     expect(stageState(db, assetId, 'meili')?.version).toBe(0);
+    expect(stageState(db, assetId, 'embed')?.version).toBe(0);
     expect(stageState(db, assetId, 'thumb')?.version).toBe(0);
   });
 

@@ -109,12 +109,16 @@ Scoping matters: the WASM build (`raw-wasm/build.sh`) uses `-Z build-std`, which
 ```bash
 cd src/raw-pipeline
 cargo vendor vendor          # regenerates vendor/ from Cargo.lock
+scripts/re-apply-patches.sh
+scripts/stub-api-only-vendor.py   # see below
 git add vendor Cargo.lock
 # Guard against a partial tree — fails loudly if any vendored file is ignored.
 git status --ignored --short vendor | grep -q '^!!' \
   && { echo 'DROPPED FILES — fix vendor/.gitignore'; exit 1; } \
   || echo 'vendor tree complete'
 ```
+
+`scripts/stub-api-only-vendor.py` (#4462) reduces every package reachable _only_ through the API-only `maple-search` crate (fastembed, Tantivy and their tree — about 330 MB, mostly Windows import libraries) to a manifest-only stub: its `Cargo.toml`, empty target files, a `MAPLE-API-ONLY-STUB` marker and a checksum file carrying just the lockfile's package checksum. The Apple build never compiles those packages, but its offline resolution reads every manifest in `Cargo.lock`, so they must exist. The API build that does compile them resolves from crates.io, not `vendor/`.
 
 Commit the `Cargo.lock` change and the regenerated `vendor/` together. Verify before pushing:
 

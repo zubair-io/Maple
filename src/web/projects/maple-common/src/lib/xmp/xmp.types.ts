@@ -78,6 +78,8 @@ export interface PassthroughBucket {
   authoredCulling?: AuthoredCulling;
   /** Opaque AI correction XML with replaceable slots for Maple-owned layers. */
   maskGroups?: { templates: MaskGroupTemplate[] };
+  /** `papp:LayerOrder` keys of corrections kept verbatim (#4427); absent when there are none. */
+  verbatimLayerOrders?: number[];
   /** Namespace declarations needed by passthrough attributes/nodes. */
   unknownNamespaces?: Array<{ prefix: string; uri: string }>;
   /** Attributes on rdf:Description that are not in Maple's known set. */

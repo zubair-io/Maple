@@ -49,6 +49,15 @@ fixtures = ["raw-core/fixtures"]
 #
 # All transitive deps (ort, ort-sys, sha2, toml and their tree) are
 # vendored under `vendor/` — the offline xcframework build is hermetic.
+# #4462 (epic #4460): in-process hybrid search C-FFI (`src/search.rs`) over
+# `maple-search` — fastembed query embedding, exact vector scan, Tantivy BM25,
+# RRF. API-ONLY: only `src/api/scripts/build-raw-ffi.sh` (the Self Hosted
+# bun:ffi dylib) enables it. The Apple xcframework, the Windows DLL, the npm
+# platform packages and WASM never do, so none of them carry the
+# fastembed/Tantivy tree or need an ONNX Runtime for it. The
+# `maple_search_*` declarations sit behind `#if defined(MAPLE_SEARCH)` in the
+# generated header (cbindgen.toml) and have no Swift or C# mirror.
+search = ["dep:maple-search"]
 pano = ["dep:maple-pano", "maple-pano/ml"]
 pano-ios = ["dep:maple-pano", "maple-pano/ml-static"]
 
@@ -74,6 +83,8 @@ raw-gpu = { path = "../raw-gpu", optional = true }
 # means `load-dynamic` wins — but in practice the build script never
 # activates both simultaneously).
 maple-pano = { path = "../maple-pano", optional = true }
+# In-process hybrid search (#4462). Gated by the API-only `search` feature.
+maple-search = { path = "../maple-search", optional = true }
 rawler.workspace = true
 image.workspace = true
 thiserror.workspace = true

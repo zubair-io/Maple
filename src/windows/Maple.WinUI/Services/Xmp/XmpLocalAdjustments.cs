@@ -19,6 +19,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Xml.Linq;
+using Maple.WinUI.Generated;
 using Maple.WinUI.Models;
 
 namespace Maple.WinUI.Services.Xmp
@@ -202,7 +203,10 @@ namespace Maple.WinUI.Services.Xmp
                 var value = Finite(description, slider.Key);
                 return value is null ? acc : slider.With(acc, amount == 1 ? value.Value : value.Value * amount);
             });
-            return new LocalAdjustment(mask, adjustments, ParseRange(description));
+            return new LocalAdjustment(mask, adjustments, ParseRange(description))
+            {
+                XmpLayerOrder = XmpLayerOrder.Read(description),
+            };
         }
 
         private static ColorRangeRefinement? ParseRange(XElement description)
@@ -259,14 +263,17 @@ namespace Maple.WinUI.Services.Xmp
         private static double DegreesToRadians(double degrees) => degrees * Math.PI / 180;
         private static double RadiansToDegrees(double radians) => radians * 180 / Math.PI;
 
+        /// <summary>Six decimals, half away from zero, never "-0": mask coordinates and layer-order keys.</summary>
+        internal static string FormatCoordinate(double v)
+        {
+            var rounded = Math.Round(v, 6, MidpointRounding.AwayFromZero);
+            return rounded == 0 ? "0" : rounded.ToString("0.######", CultureInfo.InvariantCulture);
+        }
+
         private static IEnumerable<string> MaskLines(LocalMask mask, string indent)
         {
             var n = (Func<double, string>)XmpSchema.FormatNumber;
-            static string Coord(double v)
-            {
-                var rounded = Math.Round(v, 6, MidpointRounding.AwayFromZero);
-                return rounded == 0 ? "0" : rounded.ToString("0.######", CultureInfo.InvariantCulture);
-            }
+            var Coord = (Func<double, string>)FormatCoordinate;
             switch (mask)
             {
                 case LinearMask l:
@@ -298,18 +305,23 @@ namespace Maple.WinUI.Services.Xmp
             }
         }
 
-        private static string ContainerBlock(string tag, IReadOnlyList<LocalAdjustment> layers, string indent)
+        private static string ContainerBlock(
+            string tag, IReadOnlyList<(LocalAdjustment Layer, double? Order)> keyed, string indent)
         {
             string Step(int n) => indent + new string(' ', n);
             var (i1, i2, i3, i4, i5, i6) = (Step(2), Step(4), Step(6), Step(8), Step(10), Step(12));
-            var layerLines = layers.SelectMany(layer =>
+            var layerLines = keyed.SelectMany(entry =>
             {
+                var (layer, order) = entry;
                 var attrs = new[]
                     {
                         $"{i4}crs:What=\"Correction\"",
                         $"{i4}crs:CorrectionAmount=\"1\"",
                         $"{i4}crs:CorrectionActive=\"True\"",
                     }
+                    .Concat(order is { } key
+                        ? new[] { $"{i4}{LocalMaskWire.LAYER_ORDER_ATTRIBUTE}=\"{XmpLayerOrder.Format(key)}\"" }
+                        : Array.Empty<string>())
                     .Concat(Sliders
                         // Only fields actually set are written; a non-finite
                         // value is not representable in XMP and is skipped.
@@ -343,10 +355,11 @@ namespace Maple.WinUI.Services.Xmp
         /// One container's block for the layers of its kind, or null when
         /// there are none — "identity is silence", like the tone curves.
         /// </summary>
-        public static string? Block(string tag, IReadOnlyList<LocalAdjustment> layers, string indent)
+        public static string? Block(string tag, IReadOnlyList<(LocalAdjustment Layer, double? Order)> keyed, string indent)
         {
-            if (tag == GroupContainer) return GroupBlock(layers, indent);
-            var ofKind = layers.Where(l => tag == LinearContainer ? l.Mask is LinearMask : l.Mask is RadialMask).ToList();
+            if (tag == GroupContainer) return GroupBlock(keyed, indent);
+            var ofKind = keyed.Where(entry => tag == LinearContainer
+                ? entry.Layer.Mask is LinearMask : entry.Layer.Mask is RadialMask).ToList();
             return ofKind.Count == 0 ? null : ContainerBlock(tag, ofKind, indent);
         }
 
@@ -360,9 +373,12 @@ namespace Maple.WinUI.Services.Xmp
         /// so an interleaved stack round-trips as two contiguous runs (all
         /// linear, then all radial). Empty when there are no layers.
         /// </summary>
-        public static string Serialize(IReadOnlyList<LocalAdjustment> layers, string indent) =>
-            string.Join("\n", ContainerTags
-                .Select(tag => Block(tag, layers, indent))
+        public static string Serialize(IReadOnlyList<LocalAdjustment> layers, string indent)
+        {
+            var keyed = XmpLayerOrder.Assign(layers, Array.Empty<double>());
+            return string.Join("\n", ContainerTags
+                .Select(tag => Block(tag, keyed, indent))
                 .Where(block => block is not null));
+        }
     }
 }

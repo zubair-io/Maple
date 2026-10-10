@@ -40,7 +40,7 @@ import type { SqlStatement } from '../sqlite/protocol.ts';
 import { composeSearchBlob } from '../../enrichment/search-blob.ts';
 import type { Enrichment, Place } from '../schema.ts';
 import { SEARCH_BLOB_INPUTS_SQL } from './assets.sql.ts';
-import { meiliRearmStatement } from './assets.stage-rearm.ts';
+import { searchRearmStatements } from './assets.stage-rearm.ts';
 import { sqliteDb, updateOutcome, type SqliteDb, type UpdateOutcome } from './db-handle.ts';
 
 /** The sources the synthesised search blob is rebuilt from. */
@@ -159,7 +159,7 @@ async function applyOverride(
   const inputs = rows[0];
   if (!inputs) return updateOutcome(0);
   const { statement, blob } = write(inputs);
-  await db.transaction([statement, searchBlobStatement(hex, blob), meiliRearmStatement(hex)]);
+  await db.transaction([statement, searchBlobStatement(hex, blob), ...searchRearmStatements(hex)]);
   return updateOutcome(1);
 }
 

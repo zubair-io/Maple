@@ -34,7 +34,6 @@ import { prepareClusteringPassOffThread } from './people.cluster-pool.ts';
 import type { PreparedClusteringPass } from '../../people/cluster-load.ts';
 import { loadMergeDismissals, suggestionStatement } from './people.merge-suggestions.ts';
 import { suggestedMergesJson } from './people.rows.ts';
-import { MEILI_STAGE, stageRearmBatchStatement } from './assets.stage-rearm.ts';
 import {
   bestCoverFacesSql,
   INSERT_CLUSTER_PERSON_SQL,
@@ -192,10 +191,6 @@ async function writeAssignments(db: SqliteDb, assignments: readonly Assignment[]
           params: [assignment.personHex, assignment.assetId, assignment.faceIndex],
         },
       ]),
-      stageRearmBatchStatement(
-        [...new Set(slice.map((assignment) => assignment.assetId))],
-        MEILI_STAGE,
-      ),
     ]);
   }
 }

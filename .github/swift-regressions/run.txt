@@ -26,6 +26,7 @@ GpuSessionReplacementTests
 LocalAdjustmentXMPTests
 LocalAdjustmentBrushTests
 LocalAdjustmentBrushSessionTests
+LocalAdjustmentOrderTests
 MaskCoordinatePrecisionTests
 #
 # Editor state (#3460): pure `EditorState` / `EditSession` logic on

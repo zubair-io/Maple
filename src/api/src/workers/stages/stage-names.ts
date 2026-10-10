@@ -20,6 +20,7 @@ export const ALL_STAGE_NAMES = [
   'video-describe',
   'cloud-backup',
   'person-segmentation',
+  'embed',
 ] as const;
 
 export type StageName = (typeof ALL_STAGE_NAMES)[number];

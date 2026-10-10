@@ -277,6 +277,12 @@ export interface EnrichmentConfig {
   meilisearch_embedder_model?: string | null;
   /** Hybrid vector/keyword blend in [0, 1]. */
   meilisearch_semantic_ratio?: number | null;
+  /** Ollama endpoint the `embed` stage computes document vectors on. `null`/missing →
+   * the semantic-search endpoint (`meilisearch_embedder_url`). */
+  embedder_url?: string | null;
+  /** Ollama embedding model of the `embed` stage. `null`/missing → the semantic-search model
+   * (`meilisearch_embedder_model`). */
+  embedder_model?: string | null;
   /** Per-service-key request budget for the external asset-search endpoint.
    * DB-backed so operators can tune it at runtime from Settings → Workers. */
   service_search_rate_limit_per_minute?: number | null;
@@ -436,6 +442,8 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
     set['config.meilisearch_task_timeout_seconds'] = remapped.meilisearch_task_timeout_seconds;
   }
   copyMeilisearchSemanticFields(set, remapped);
+  if (remapped.embedder_url !== undefined) set['config.embedder_url'] = remapped.embedder_url;
+  if (remapped.embedder_model !== undefined) set['config.embedder_model'] = remapped.embedder_model;
   if (remapped.service_search_rate_limit_per_minute !== undefined) {
     set['config.service_search_rate_limit_per_minute'] =
       remapped.service_search_rate_limit_per_minute;

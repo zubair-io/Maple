@@ -1,0 +1,2 @@
+Manifest-only stub: reachable only through the API-only maple-search crate,
+which the Apple offline build never compiles. See scripts/stub-api-only-vendor.py.

@@ -34,11 +34,10 @@ import type {
   MaskComponent,
   MaskPoint,
   PartialAdjustments,
-  RangeRefinement,
   RadialMask,
   BitmapMask,
 } from '../models/local-adjustment';
-import { MASK_GROUP_VERSION } from '../generated/local-mask-wire.generated';
+import { LAYER_ORDER_ATTRIBUTE, MASK_GROUP_VERSION } from '../generated/local-mask-wire.generated';
 import {
   componentMetadata,
   localMetadata,
@@ -68,16 +67,16 @@ import {
   maskCoord,
   parseBrushLeaf,
 } from './xmp-local-adjustments-brush';
-
-export type LocalAdjustmentContainerKind = 'linear' | 'radial' | 'brush' | 'group';
-
-/** Container element per mask kind, in canonical emit order. */
-const CONTAINERS: ReadonlyArray<{ tag: string; kind: LocalAdjustmentContainerKind }> = [
-  { tag: 'crs:GradientBasedCorrections', kind: 'linear' },
-  { tag: 'crs:CircularGradientBasedCorrections', kind: 'radial' },
-  { tag: 'papp:BrushCorrections', kind: 'brush' },
-  { tag: 'crs:MaskGroupBasedCorrections', kind: 'group' },
-];
+import {
+  CONTAINERS,
+  containerKindOf,
+  layerOrderLines,
+  layerOrderOf,
+  withReadLayerOrder,
+  type LayerOrderOf,
+  type LocalAdjustmentContainerKind,
+} from './xmp-local-adjustment-order';
+import { RANGE_KEYS, parseRange, rangeLines } from './xmp-local-range';
 
 const MASKS_ELEMENT = 'crs:CorrectionMasks';
 
@@ -87,10 +86,6 @@ const MASK_WHAT: Readonly<Record<LocalAdjustmentContainerKind, string>> = {
   brush: MASK_WHAT_PAINT,
   group: 'Mask/Image',
 };
-
-/** Which container a mask rides: bitmap and everywhere share the group container. */
-const containerKindOf = (mask: LocalMask): LocalAdjustmentContainerKind =>
-  mask.kind === 'linear' || mask.kind === 'radial' || mask.kind === 'brush' ? mask.kind : 'group';
 
 /**
  * Slider attribute → model field, in canonical emit order. Every field has a
@@ -136,21 +131,11 @@ const FRACTION_SCALED: ReadonlySet<keyof PartialAdjustments> = new Set([
   'defringe',
 ]);
 
-/** Canonical order and raw-core's defaults for missing Color range attributes. */
-const RANGE_KEYS: ReadonlyArray<readonly [string, Exclude<keyof RangeRefinement, 'kind'>, number]> =
-  [
-    ['papp:RangeHue', 'hueDeg', 55],
-    ['papp:RangeHueWidth', 'hueHalfWidthDeg', 25],
-    ['papp:RangeChromaMin', 'chromaMin', 0.02],
-    ['papp:RangeLMin', 'lMin', 0.15],
-    ['papp:RangeLMax', 'lMax', 0.95],
-    ['papp:RangeFeather', 'feather', 0.3],
-  ];
-
 const CORRECTION_ATTRIBUTES = new Set([
   'crs:What',
   'crs:CorrectionAmount',
   'crs:CorrectionActive',
+  LAYER_ORDER_ATTRIBUTE,
   ...SLIDER_KEYS.map(([key]) => key),
   ...RANGE_KEYS.map(([key]) => key),
   'papp:RangeKind',
@@ -181,17 +166,6 @@ export function localAdjustmentContainerKind(
 // only the leaf semantics below are this container's own.
 
 const point = (x: number, y: number): MaskPoint => ({ x, y });
-
-function parseRange(description: Element): RangeRefinement | undefined {
-  if (attrOf(description, ['papp:RangeKind']) !== 'Color') return undefined;
-  const values = RANGE_KEYS.map(([key, field, fallback]) => {
-    const value = attrOf(description, [key]) === null ? fallback : finiteAttr(description, key);
-    return [field, value] as const;
-  });
-  // A corrupt range is absent; a missing numeric attribute uses raw-core's default.
-  if (values.some(([, value]) => value === undefined)) return undefined;
-  return { kind: 'color', ...Object.fromEntries(values) } as RangeRefinement;
-}
 
 function parseLinearLeaf(leaf: Element): LeafMask | undefined {
   const zx = finiteAttr(leaf, 'crs:ZeroX');
@@ -364,12 +338,10 @@ export function parseLocalCorrection(
     kind === 'group'
       ? localMetadata(description, CORRECTION_ATTRIBUTES, new Set([MASKS_ELEMENT]))
       : undefined;
-  return {
-    mask,
-    adjustments,
-    ...(range ? { range } : {}),
-    ...(xmpMetadata ? { xmpMetadata } : {}),
-  };
+  return withReadLayerOrder(
+    { mask, adjustments, ...(range ? { range } : {}), ...(xmpMetadata ? { xmpMetadata } : {}) },
+    description,
+  );
 }
 
 /**
@@ -387,14 +359,6 @@ export function parseLocalAdjustmentsContainer(
 }
 
 // ── Serialize ──────────────────────────────────────────────────────────────
-
-function rangeLines(range: RangeRefinement | undefined, indent: string): string[] {
-  if (!range || RANGE_KEYS.some(([, field]) => !Number.isFinite(range[field]))) return [];
-  return [
-    `${indent}papp:RangeKind="Color"`,
-    ...RANGE_KEYS.map(([key, field]) => `${indent}${key}="${numericSerializer(range[field])}"`),
-  ];
-}
 
 function componentLines(component: MaskComponent, indent: string): string[] {
   const subtract = component.combine !== 'add';
@@ -488,12 +452,17 @@ function radialLines(mask: RadialMask, indent: string, modern: boolean): string[
 }
 
 /** One correction, shared by canonical emission and opaque group slot replacement. */
-export function localCorrectionBlock(layer: LocalAdjustment, indent: string): string {
+export function localCorrectionBlock(
+  layer: LocalAdjustment,
+  indent: string,
+  order?: number,
+): string {
   const [i1, i2, i3, i4] = [2, 4, 6, 8].map((n) => indent + ' '.repeat(n));
   const attrs = [
     `${i2}crs:What="Correction"`,
     `${i2}crs:CorrectionAmount="1"`,
     `${i2}crs:CorrectionActive="True"`,
+    ...layerOrderLines(order, i2),
     ...SLIDER_KEYS.flatMap(([key, field]) => {
       const v = layer.adjustments[field];
       // Only fields actually set are written; a non-finite value is not
@@ -531,9 +500,14 @@ export function localCorrectionBlock(layer: LocalAdjustment, indent: string): st
   ].join('\n');
 }
 
-function containerBlock(tag: string, layers: readonly LocalAdjustment[], indent: string): string {
+function containerBlock(
+  tag: string,
+  layers: readonly LocalAdjustment[],
+  indent: string,
+  orderOf: LayerOrderOf,
+): string {
   const [i1, i2] = [2, 4].map((n) => indent + ' '.repeat(n));
-  const layerLines = layers.map((layer) => localCorrectionBlock(layer, i2));
+  const layerLines = layers.map((layer) => localCorrectionBlock(layer, i2, orderOf(layer)));
   return [
     `${indent}<${tag}>`,
     `${i1}<rdf:Seq>`,
@@ -552,17 +526,20 @@ function containerBlock(tag: string, layers: readonly LocalAdjustment[], indent:
  * `local-adjustments-bitmap.spec.ts` (bitmap + everywhere) and
  * `local-adjustments-brush.spec.ts` (brush) pin that.
  *
- * Adobe keeps each mask kind in its own array, so an interleaved model
- * stack round-trips as up to four contiguous runs (all linear, then all
- * radial, then all brush, then all bitmap/everywhere). Returns the empty
- * string when there are no layers, so an unedited model adds nothing to the
- * document.
+ * Adobe keeps each mask kind in its own array, so the wire form is up to four
+ * contiguous runs (linear, radial, brush, bitmap/everywhere/group); an
+ * interleaved stack carries `papp:LayerOrder` keys (#4427, `orderOf`). Returns
+ * the empty string when there are no layers.
  */
-export function localAdjustmentBlocks(model: Partial<AdjustmentModel>, indent: string): string {
+export function localAdjustmentBlocks(
+  model: Partial<AdjustmentModel>,
+  indent: string,
+  orderOf: LayerOrderOf = layerOrderOf(model.localAdjustments ?? []),
+): string {
   const layers = model.localAdjustments ?? [];
   return CONTAINERS.map(({ tag, kind }) => {
     const ofKind = layers.filter((l) => containerKindOf(l.mask) === kind);
-    return ofKind.length === 0 ? '' : containerBlock(tag, ofKind, indent);
+    return ofKind.length === 0 ? '' : containerBlock(tag, ofKind, indent, orderOf);
   })
     .filter((b) => b.length > 0)
     .join('\n');

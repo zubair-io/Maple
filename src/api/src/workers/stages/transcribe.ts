@@ -110,7 +110,7 @@ async function transcribeMedia(
     // it.
     return {
       patch: [transcriptStatement(image._id.toHexString(), transcript)],
-      invalidates: ['meili'],
+      invalidates: ['meili', 'embed'],
     };
   } finally {
     await unlink(wavPath).catch(() => {});

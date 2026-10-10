@@ -66,6 +66,7 @@ function seedAsset(db: Parameters<typeof insertAsset>[0]): string {
   insertLocation(db, { assetId, libraryId, filename: 'a.dng' });
   insertDetail(db, assetId, { description: 'a boat', ocrText: 'SEA' });
   insertStageState(db, assetId, 'meili', { version: 5, attempts: 2, dead: true });
+  insertStageState(db, assetId, 'embed', { version: 5, attempts: 2, dead: true });
   return assetId;
 }
 
@@ -204,6 +205,7 @@ describe('setDescriptionOverride', () => {
     ).toEqual({ description: 'a red kayak' });
     expect(searchBlob(db, assetId)).toBe('a brooklyn kayak new red sea spring york');
     expect(stageState(db, assetId, 'meili')?.version).toBe(0);
+    expect(stageState(db, assetId, 'embed')).toMatchObject({ version: 0, attempts: 0, dead: 0 });
   });
 
   test('creates the detail row when the asset has never been enriched', async () => {

@@ -21,6 +21,11 @@ NATIVE_OUT="$API_DIR/native"
 
 mkdir -p "$NATIVE_OUT"
 
+# `search` (#4462) compiles the API-only `maple_search_*` symbols (fastembed +
+# Tantivy, raw-ffi/src/search.rs). This script is the only build that enables
+# it — the Apple, Windows, npm and WASM builds of raw-ffi never do.
+FEATURES="search"
+
 # ---------------------------------------------------------------------------
 # Platform detection
 # ---------------------------------------------------------------------------
@@ -55,7 +60,7 @@ case "$PLATFORM" in
     esac
 
     echo "Building libraw_ffi.dylib for $TARGET..."
-    (cd "$RAW_PIPELINE_DIR" && cargo build --release -p raw-ffi --target "$TARGET")
+    (cd "$RAW_PIPELINE_DIR" && cargo build --release -p raw-ffi --features "$FEATURES" --target "$TARGET")
 
     SRC="$RAW_PIPELINE_DIR/target/$TARGET/release/libraw_ffi.dylib"
     DEST="$NATIVE_OUT/libraw_ffi.dylib"
@@ -79,16 +84,16 @@ case "$PLATFORM" in
     #      COPY-s into /app/native/.
     #
     # Alternatively, build natively on a Linux box:
-    #   cargo build --release -p raw-ffi --target x86_64-unknown-linux-gnu
+    #   cargo build --release -p raw-ffi --features search --target x86_64-unknown-linux-gnu
 
     TARGET="x86_64-unknown-linux-gnu"
 
     if command -v cross &>/dev/null; then
       echo "Building libraw_ffi.so for $TARGET using cross..."
-      (cd "$RAW_PIPELINE_DIR" && cross build --release -p raw-ffi --target "$TARGET")
+      (cd "$RAW_PIPELINE_DIR" && cross build --release -p raw-ffi --features "$FEATURES" --target "$TARGET")
     else
       echo "Building libraw_ffi.so for $TARGET using cargo (assumes native Linux)..."
-      (cd "$RAW_PIPELINE_DIR" && cargo build --release -p raw-ffi --target "$TARGET")
+      (cd "$RAW_PIPELINE_DIR" && cargo build --release -p raw-ffi --features "$FEATURES" --target "$TARGET")
     fi
 
     SRC="$RAW_PIPELINE_DIR/target/$TARGET/release/libraw_ffi.so"

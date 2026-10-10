@@ -116,6 +116,14 @@ export const STAGE_META: Record<string, StageMeta> = {
     description:
       'Segments people and skin in preview images to produce subject and skin masks for the web editor. Starts paused — resume to enable.',
   },
+  embed: {
+    id: 'embed',
+    group: 'Index',
+    icon: 'search',
+    enrichment: null,
+    description:
+      'Embeds each asset’s caption, people, place, transcript and OCR text on the embedding model chosen in Settings → AI and stores the vector for semantic search. Starts paused — confirm the embedder there, then resume here.',
+  },
   meili: {
     id: 'meili',
     group: 'Index',

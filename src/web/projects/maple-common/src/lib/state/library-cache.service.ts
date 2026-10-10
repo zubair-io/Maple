@@ -2,7 +2,7 @@
 // All on-demand reads funnel through here so callers can `await` without
 // re-implementing dedup, eviction, or backend branching.
 
-import { Injectable, inject, signal, effect, untracked } from '@angular/core';
+import { Injectable, inject, signal, effect, untracked, DestroyRef } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { Asset, AssetId } from '../models/asset';
 import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
@@ -17,7 +17,7 @@ import { LibrarySelection } from './library-selection.service';
 import { LIBRARY_SOURCE, type LibrarySource } from '../addressing/library-source';
 import { parseAddress } from '../addressing/maple-address';
 import { BlobUrlChannel } from './blob-url-channel';
-import { LruCache, ThumbLruCache } from './lru-cache';
+import { LruCache } from './lru-cache';
 import { ThumbFailMemory } from './library-cache.thumb-fail';
 import { HostedPreviewResolver } from './hosted-preview-resolver.service';
 import { isM2Asset, readAssetBytes } from './library-cache.byte-source';
@@ -36,10 +36,12 @@ export class LibraryCache {
   private readonly cache = inject(MapleCacheService);
   private readonly pipeline = inject(RawPipelineService);
   private readonly hostedPreview = inject(HostedPreviewResolver);
+  private readonly destroyRef = inject(DestroyRef, { optional: true });
 
   private _lastSelectedSourceId = this.selection.selectedSourceId();
 
   constructor() {
+    this.destroyRef?.onDestroy(() => this.clearAll());
     effect(() => {
       const current = this.selection.selectedSourceId();
       if (current !== this._lastSelectedSourceId) {
@@ -208,7 +210,7 @@ export class LibraryCache {
     // (unbounded, previously revoked only on sign-out). Clear it here too so a
     // folder switch reclaims that memory instead of letting it accumulate for
     // the whole session.
-    this.fsBrowse.clearThumbCache();
+    this.fsBrowse?.clearThumbCache?.();
 
     // Reset the thumbnail load queue (leave _inflightThumbLoads alone so it settles naturally)
     this._clearQueue();

@@ -276,9 +276,13 @@ struct LocalAdjustmentWalker {
   private var inMasks = false
   private var inMasksSeq = false
   private var current: InProgress?
-  private var finished: [LocalAdjustment] = []
+  private var finished: [KeyedLocalAdjustment] = []
   private var containerStart = 0
   private var containerDropped = false
+  private var brushContainers = 0
+  /// Ordinals of the brush containers kept verbatim, whose keys the caller
+  /// reads by namespace (#4427).
+  private(set) var droppedBrushContainers: [Int] = []
 
   mutating func start(_ qual: String, attributes: [String: String]) -> Bool {
     guard let kind = container else {
@@ -327,11 +331,14 @@ struct LocalAdjustmentWalker {
         : cur.mask
       if cur.active, let mask {
         finished.append(
-          LocalAdjustment(
-            mask: mask, range: cur.range, adjustments: cur.adjustments,
-            xmpMetadata: kind == .group
-              ? LocalAdjustmentXMP.metadata(
-                cur.attributes, owned: LocalAdjustmentXMP.correctionKeys) : nil))
+          (
+            LocalAdjustment(
+              mask: mask, range: cur.range, adjustments: cur.adjustments,
+              xmpMetadata: kind == .group
+                ? LocalAdjustmentXMP.metadata(
+                  cur.attributes, owned: LocalAdjustmentXMP.correctionKeys) : nil),
+            LocalAdjustmentOrder.parseKey(cur.attributes)
+          ))
       } else {
         containerDropped = true
       }
@@ -340,13 +347,19 @@ struct LocalAdjustmentWalker {
     if depth == 1 {
       // Brush is all-or-nothing: the passthrough keeps a partly unreadable
       // container verbatim (`isModeledBrushContainer`).
-      if kind == .brush, containerDropped { finished.removeSubrange(containerStart...) }
+      if kind == .brush, containerDropped {
+        finished.removeSubrange(containerStart...)
+        droppedBrushContainers.append(brushContainers)
+      }
+      if kind == .brush { brushContainers += 1 }
       container = nil
     }
     depth -= 1
   }
 
-  func finish() -> [LocalAdjustment] { finished }
+  /// Layers in document order, each with its `papp:LayerOrder` key; the
+  /// caller restores model order after merging in the group layers.
+  func finish() -> [KeyedLocalAdjustment] { finished }
 }
 
 // MARK: - Serializer
@@ -358,87 +371,71 @@ extension XMPSerializer {
   /// `localAdjustmentBlocks` for the same layers — `LocalAdjustmentXMPTests`
   /// pins that against the shared literal.
   ///
-  /// Adobe keeps each correction kind in its own array, so an interleaved
-  /// model stack round-trips as contiguous per-kind runs (all linear, then
-  /// all radial, then all brush, then all group). Returns the empty string
-  /// when there are no layers, so an unedited model adds nothing to the
-  /// document.
+  /// Adobe keeps each correction kind in its own array (all linear, then
+  /// all radial, then all brush, then all group); an interleaved stack
+  /// carries `papp:LayerOrder` so it reloads in model order (#4427).
+  /// Returns the empty string when there are no layers, so an unedited
+  /// model adds nothing to the document.
   static func _buildLocalAdjustmentsBlock(model: AdjustmentModel, indent: String) -> String {
-    let kinds: [(tag: String, isKind: (LocalMask) -> Bool)] = [
-      (
-        LocalAdjustmentXMP.linearContainer,
-        {
-          if case .linear = $0 { return true }
-          return false
-        }
-      ),
-      (
-        LocalAdjustmentXMP.radialContainer,
-        {
-          if case .radial = $0 { return true }
-          return false
-        }
-      ),
-      (
-        LocalAdjustmentXMP.brushContainer,
-        {
-          if case .brush = $0 { return true }
-          return false
-        }
-      ),
-      (
-        LocalAdjustmentXMP.groupContainer,
-        {
-          switch $0 {
-          case .bitmap, .everywhere, .group: return true
-          case .linear, .radial, .brush: return false
-          }
-        }
-      ),
-    ]
-    return kinds.compactMap { kind -> String? in
-      let layers = model.localAdjustments.filter { kind.isKind($0.mask) }
-      return layers.isEmpty ? nil : _localAdjustmentContainer(kind.tag, layers, indent: indent)
+    _buildLocalAdjustmentsBlock(
+      LocalAdjustmentOrder.keyed(model.localAdjustments), indent: indent)
+  }
+
+  static func _buildLocalAdjustmentsBlock(
+    _ layers: [KeyedLocalAdjustment], indent: String
+  ) -> String {
+    LocalAdjustmentXMP.containers.enumerated().compactMap { rank, tag -> String? in
+      let members = layers.filter { LocalAdjustmentOrder.containerRank($0.layer.mask) == rank }
+      return members.isEmpty ? nil : _localAdjustmentContainer(tag, members, indent: indent)
     }
     .joined(separator: "\n")
   }
 
   private static func _localAdjustmentContainer(
-    _ tag: String, _ layers: [LocalAdjustment], indent: String
+    _ tag: String, _ layers: [KeyedLocalAdjustment], indent: String
   ) -> String {
     let step = { (n: Int) in indent + String(repeating: " ", count: n) }
     let (i1, i2) = (step(2), step(4))
-    let layerLines = layers.flatMap { _localAdjustmentCorrection($0, indent: i2) }
+    let layerLines = layers.flatMap {
+      _localAdjustmentCorrection($0.layer, indent: i2, order: $0.key)
+    }
     return
       (["\(indent)<\(tag)>", "\(i1)<rdf:Seq>"] + layerLines
       + ["\(i1)</rdf:Seq>", "\(indent)</\(tag)>"]).joined(separator: "\n")
   }
 
-  static func _localAdjustmentCorrection(_ layer: LocalAdjustment, indent: String) -> [String] {
+  static func _localAdjustmentCorrection(
+    _ layer: LocalAdjustment, indent: String, order: Double? = nil
+  ) -> [String] {
     let step = { (n: Int) in indent + String(repeating: " ", count: n) }
     let (i2, i3, i4, i5, i6) = (indent, step(2), step(4), step(6), step(8))
-    let attrs =
-      [
-        "\(i4)crs:What=\"Correction\"",
-        "\(i4)crs:CorrectionAmount=\"1\"",
-        "\(i4)crs:CorrectionActive=\"True\"",
-      ]
-      + LocalAdjustmentXMP.sliders.compactMap { slider -> String? in
-        // Only fields actually set are written; a non-finite value is
-        // not representable in XMP and is skipped like every slider.
-        guard let value = slider.get(layer.adjustments), value.isFinite else { return nil }
-        // The fraction-scaled keys ride Adobe's ±1 scale: the
-        // canonical 2-decimal precision would quantise Maple's ±100
-        // slider to whole units, so they get four (#3280 review,
-        // extended to the six spatial controls by #3407) — mirrors
-        // raw-core's `fmt4`.
-        let text =
-          LocalAdjustmentXMP.fractionScaledKeys.contains(slider.key)
-          ? LocalAdjustmentXMP.fmtNum4(value) : fmtNum(value)
-        return "\(i4)\(slider.key)=\"\(text)\""
-      } + _localAdjustmentRangeLines(layer.range, indent: i4)
+    let bookkeeping: [String] = [
+      "\(i4)crs:What=\"Correction\"",
+      "\(i4)crs:CorrectionAmount=\"1\"",
+      "\(i4)crs:CorrectionActive=\"True\"",
+    ]
+    let orderLines: [String] =
+      order.map { ["\(i4)\(LocalMaskWire.layerOrderAttribute)=\"\(fmtMaskCoordinate($0))\""] }
+      ?? []
+    let sliderLines: [String] = LocalAdjustmentXMP.sliders.compactMap { slider -> String? in
+      // Only fields actually set are written; a non-finite value is
+      // not representable in XMP and is skipped like every slider.
+      guard let value = slider.get(layer.adjustments), value.isFinite else { return nil }
+      // The fraction-scaled keys ride Adobe's ±1 scale: the
+      // canonical 2-decimal precision would quantise Maple's ±100
+      // slider to whole units, so they get four (#3280 review,
+      // extended to the six spatial controls by #3407) — mirrors
+      // raw-core's `fmt4`.
+      let text =
+        LocalAdjustmentXMP.fractionScaledKeys.contains(slider.key)
+        ? LocalAdjustmentXMP.fmtNum4(value) : fmtNum(value)
+      return "\(i4)\(slider.key)=\"\(text)\""
+    }
+    let trailing: [String] =
+      _localAdjustmentRangeLines(layer.range, indent: i4)
       + _maskGroupAttributes(layer.mask, indent: i4)
       + _localMetadataAttributes(layer.xmpMetadata, indent: i4)
+    let attrs = bookkeeping + orderLines + sliderLines + trailing
     let opening = [
       "\(i2)<rdf:li>",
       "\(i3)<rdf:Description",

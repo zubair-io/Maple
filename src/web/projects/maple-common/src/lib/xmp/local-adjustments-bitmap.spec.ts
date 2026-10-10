@@ -223,7 +223,7 @@ describe('XMP local adjustments — bitmap + everywhere masks (#3300)', () => {
     expect(block.match(/crs:What="Mask\/Image"/g)).toHaveLength(2);
 
     const { model } = parser.parseAdjustmentModel(sidecar(block));
-    expect(model.localAdjustments).toEqual([linear, radial, EVERYWHERE_LAYER, BITMAP_LAYER]);
+    expect(model.localAdjustments).toEqual([EVERYWHERE_LAYER, radial, BITMAP_LAYER, linear]);
   });
 
   it('escapes the free-text recipe fields exactly as raw-core does and reads them back', () => {

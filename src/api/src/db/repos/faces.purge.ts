@@ -169,6 +169,10 @@ export async function purgeSubthresholdFaces(
   // `faces` is the only table named, so the bare column names the DELETE needs
   // are unambiguous — the qualified spelling above is what `faces.` buys, and
   // SQLite resolves it to the same table either way.
-  const result = await db.write(`DELETE FROM faces WHERE ${predicate}`, bounds);
-  return { facesRemoved: result.changes, assetsUpdated: affected[0]?.n ?? 0 };
+  const removable = await db.read<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM faces WHERE ${predicate}`,
+    bounds,
+  );
+  await db.write(`DELETE FROM faces WHERE ${predicate}`, bounds);
+  return { facesRemoved: removable[0]?.n ?? 0, assetsUpdated: affected[0]?.n ?? 0 };
 }

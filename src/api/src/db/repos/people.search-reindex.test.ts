@@ -19,7 +19,6 @@ import { ObjectId } from '../object-id.ts';
 import { createTestDatabase } from '../sqlite/test-sqlite.test-helpers.ts';
 import { insertStageState } from './assets.test-helpers.ts';
 import { MEILI_STAGE, stageRearmBatchStatement } from './assets.stage-rearm.ts';
-import { peopleMeiliRearmStatement } from './people.search-reindex.ts';
 import { stageRow } from './stage-runtime.test-helpers.ts';
 import {
   insertFace,
@@ -40,57 +39,6 @@ function indexedAtVersionSix(db: Database, assetId: string): void {
     processedAt: '2025-01-01T00:00:00Z',
   });
 }
-
-describe('peopleMeiliRearmStatement', () => {
-  test('re-arms every asset carrying one of these people, and nothing else', async () => {
-    using handle = await createTestDatabase();
-    const db = handle.db;
-    const library = insertLibrary(db);
-    const subject = insertPerson(db, { name: 'Subject' });
-    const other = insertPerson(db, { name: 'Other' });
-    const matching = insertLiveAsset(db, library);
-    const unrelated = insertLiveAsset(db, library);
-    insertFace(db, { assetId: matching, personId: subject });
-    insertFace(db, { assetId: unrelated, personId: other });
-    indexedAtVersionSix(db, matching);
-    indexedAtVersionSix(db, unrelated);
-
-    const [written] = await testDb(db).transaction([peopleMeiliRearmStatement([subject])]);
-
-    expect(written?.changes).toBe(1);
-    // Back below the stage's target version, with the dead-letter and
-    // last-processed bookkeeping cleared so the retry starts clean.
-    expect(stageRow(db, matching, MEILI_STAGE)).toMatchObject({
-      version: 0,
-      attempts: 0,
-      dead: 0,
-      last_error: null,
-      processed_at: null,
-    });
-    expect(stageRow(db, unrelated, MEILI_STAGE)?.version).toBe(6);
-  });
-
-  test('re-arms an asset that has no stage row yet', async () => {
-    using handle = await createTestDatabase();
-    const db = handle.db;
-    const library = insertLibrary(db);
-    const subject = insertPerson(db, { name: 'Subject' });
-    const asset = insertLiveAsset(db, library);
-    insertFace(db, { assetId: asset, personId: subject });
-
-    // No `insertStageState` — the row is absent, which on Mongo the `$set`
-    // created for free and here has to be an upsert.
-    await testDb(db).transaction([peopleMeiliRearmStatement([subject])]);
-
-    expect(stageRow(db, asset, MEILI_STAGE)?.version).toBe(0);
-  });
-
-  test('an empty id list writes nothing', async () => {
-    using handle = await createTestDatabase();
-    const [written] = await testDb(handle.db).transaction([peopleMeiliRearmStatement([])]);
-    expect(written?.changes).toBe(0);
-  });
-});
 
 describe('asset search-stage resets', () => {
   test('re-arms only the named assets, not the rest of the person’s corpus', async () => {

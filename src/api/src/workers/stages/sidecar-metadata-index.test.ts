@@ -256,7 +256,9 @@ describe('sidecarMetadataIndexHandler — downstream re-arms', () => {
       library,
       makeXmp('exif:GPSLatitude="48,31.4360N" exif:GPSLongitude="2,21.0480E"'),
     );
-    expect(invalidatesOf(await sidecarMetadataIndexHandler(image, fakeCtx))).toContain('geocode');
+    const invalidates = invalidatesOf(await sidecarMetadataIndexHandler(image, fakeCtx));
+    expect(invalidates).toContain('geocode');
+    expect(invalidates).not.toContain('embed');
   });
 
   test('leaves geocode alone when the coordinates are unchanged', async () => {

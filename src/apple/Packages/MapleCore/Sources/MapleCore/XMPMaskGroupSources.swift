@@ -8,11 +8,15 @@ public struct XMPMaskGroupTemplate: Sendable, Equatable {
     case append
   }
   public var parts: [Part]
+  /// `papp:LayerOrder` keys of the corrections kept verbatim in `parts`,
+  /// resolved by namespace URI (#4427).
+  public var layerOrders: [Double] = []
 }
 
 enum XMPMaskGroupSources {
   struct Collection {
     var layers: [LocalAdjustment] = []
+    var keys: [Double?] = []
     var templates: [XMPMaskGroupTemplate] = []
     var groupSources: Set<String> = []
     var unownedGroupSources: [String: String] = [:]
@@ -57,13 +61,17 @@ enum XMPMaskGroupSources {
         matches(rootChildren[0], "rdf:Seq", inherited: groupNamespaces)
       else {
         opaque = true
-        collection.templates.append(XMPMaskGroupTemplate(parts: [.text(group.source)]))
+        collection.templates.append(
+          XMPMaskGroupTemplate(
+            parts: [.text(group.source)],
+            layerOrders: layerOrderKeys(group.source, namespaces: namespaces)))
         continue
       }
       let sequence = rootChildren[0]
       let items = children(sequence.source, "Seq")
       let bytes = Array(group.source.utf8)
       var parts: [XMPMaskGroupTemplate.Part] = []
+      var layerOrders: [Double] = []
       var cursor = 0
       let sequenceNamespaces = scope(groupNamespaces, attributes: rootAttributes(sequence.source))
       // Container/sequence metadata stays in the original wrapper.
@@ -75,14 +83,16 @@ enum XMPMaskGroupSources {
         let upper = sequence.byteRange.lowerBound + item.byteRange.upperBound
         let range = lower..<upper
         guard matches(item, "rdf:li", inherited: sequenceNamespaces),
-          let layer = layer(item.source, namespaces: sequenceNamespaces)
+          let entry = layer(item.source, namespaces: sequenceNamespaces)
         else {
           opaque = true
+          layerOrders += layerOrderKeys(item.source, namespaces: sequenceNamespaces)
           continue
         }
         parts.append(.text(String(decoding: bytes[cursor..<range.lowerBound], as: UTF8.self)))
         parts.append(.layer(collection.layers.count))
-        collection.layers.append(layer)
+        collection.layers.append(entry.layer)
+        collection.keys.append(entry.key)
         cursor = range.upperBound
       }
       // The append slot sits before the sequence's closing tag. A
@@ -99,7 +109,7 @@ enum XMPMaskGroupSources {
         parts.append(.text(String(decoding: bytes[cursor...], as: UTF8.self)))
         opaque = true
       }
-      collection.templates.append(XMPMaskGroupTemplate(parts: parts))
+      collection.templates.append(XMPMaskGroupTemplate(parts: parts, layerOrders: layerOrders))
     }
     if opaque {
       for index in collection.layers.indices { collection.layers[index].xmpGroupSlot = index }
@@ -109,7 +119,56 @@ enum XMPMaskGroupSources {
     return collection
   }
 
-  private static func layer(_ source: String, namespaces: [String: String]) -> LocalAdjustment? {
+  static let pappNamespaces: Set<String> = [
+    XMPCanonical.pappNamespaceURI, "http://ns.justmaple.app/1.0/",
+  ]
+
+  /// The `papp:LayerOrder` keys on the correction descriptions inside
+  /// `source`, matched by namespace URI under the inherited scope, so an
+  /// aliased prefix still reads (#4427).
+  static func layerOrderKeys(_ source: String, namespaces: [String: String]) -> [Double] {
+    let delegate = LayerOrderKeys(namespaces: namespaces)
+    let parser = XMLParser(data: Data(explicitNamespaces(source, namespaces: namespaces).utf8))
+    parser.delegate = delegate
+    _ = parser.parse()
+    return delegate.keys
+  }
+
+  /// Whether a brush container the walker dropped (kept verbatim) holds a key.
+  /// Whether `source` is a `BrushCorrections` element in either papp
+  /// namespace, under `namespaces` plus its own declarations.
+  static func isBrushContainer(_ source: String, namespaces: [String: String]) -> Bool {
+    guard source.hasPrefix("<") else { return false }
+    let name = source.dropFirst().prefix { !$0.isWhitespace && $0 != ">" && $0 != "/" }
+    let parts = name.split(separator: ":", maxSplits: 1).map(String.init)
+    guard parts.count == 2, parts[1] == "BrushCorrections" else { return false }
+    let scoped = scope(namespaces, attributes: rootAttributes(source))
+    guard let uri = scoped[parts[0]] else { return false }
+    return pappNamespaces.contains(uri)
+  }
+
+  /// Whether a brush container kept verbatim holds a key: one the walker
+  /// dropped (by ordinal among literal `papp:BrushCorrections`), or one under
+  /// an aliased prefix, which the walker never models.
+  static func hasVerbatimBrushKeys(_ xml: String, dropped: [Int]) -> Bool {
+    guard xml.contains("BrushCorrections") else { return false }
+    let namespaces = SourceNamespaces.atFirstDescription(xml)
+    let children = XMPChildElementScanner.descriptionChildren(in: xml)
+    let literal = children.filter { $0.qName == LocalAdjustmentXMP.brushContainer }
+    let droppedSources: [String] = dropped.filter { $0 < literal.count }.map {
+      literal[$0].source
+    }
+    let aliasedSources: [String] = children.filter {
+      $0.qName != LocalAdjustmentXMP.brushContainer
+        && isBrushContainer($0.source, namespaces: namespaces)
+    }.map(\.source)
+    return (droppedSources + aliasedSources).contains {
+      !layerOrderKeys($0, namespaces: namespaces).isEmpty
+    }
+  }
+
+  private static func layer(_ source: String, namespaces: [String: String]) -> KeyedLocalAdjustment?
+  {
     let itemNamespaces = scope(namespaces, attributes: rootAttributes(source))
     let descriptions = children(source, "li")
     guard descriptions.count == 1,
@@ -161,7 +220,7 @@ enum XMPMaskGroupSources {
     guard LocalAdjustmentXMP.bool(attributes["crs:CorrectionActive"]) != false,
       let mask = LocalAdjustmentXMP.parseGroup(attributes, components: components)
     else { return nil }
-    return LocalAdjustment(
+    let layer = LocalAdjustment(
       mask: mask, range: range,
       adjustments: LocalAdjustmentXMP.parseAdjustments(attributes),
       xmpMetadata: metadata(
@@ -170,6 +229,7 @@ enum XMPMaskGroupSources {
           !matches($0, LocalAdjustmentXMP.masksElement, inherited: descriptionNamespaces)
         }.map(\.source),
         namespaces: descriptionNamespaces))
+    return (layer, LocalAdjustmentOrder.parseKey(attributes))
   }
 
   private static func metadata(
@@ -241,6 +301,32 @@ enum XMPMaskGroupSources {
       parser.abortParsing()
     }
   }
+  private final class LayerOrderKeys: NSObject, XMLParserDelegate {
+    private var scopes: [[String: String]]
+    private(set) var keys: [Double] = []
+    init(namespaces: [String: String]) { scopes = [namespaces] }
+    func parser(
+      _ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
+      qualifiedName qName: String?, attributes attributeDict: [String: String]
+    ) {
+      let current = scope(scopes.last ?? [:], attributes: attributeDict)
+      scopes.append(current)
+      guard local(qName ?? elementName, "Description") else { return }
+      for (name, value) in attributeDict.sorted(by: { $0.key < $1.key }) {
+        let parts = name.split(separator: ":", maxSplits: 1).map(String.init)
+        guard parts.count == 2, parts[1] == "LayerOrder", let uri = current[parts[0]],
+          pappNamespaces.contains(uri), let key = LocalAdjustmentOrder.parseKey(text: value)
+        else { continue }
+        keys.append(key)
+      }
+    }
+    func parser(
+      _ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?,
+      qualifiedName qName: String?
+    ) {
+      scopes.removeLast()
+    }
+  }
   private final class SourceNamespaces: NSObject, XMLParserDelegate {
     var namespaces: [String: String] = [:]
     static func atFirstDescription(_ xml: String) -> [String: String] {
@@ -262,19 +348,18 @@ enum XMPMaskGroupSources {
 
 extension XMPSerializer {
   static func _buildLocalAdjustmentsBlockWithPassthrough(
-    model: AdjustmentModel, indent: String,
+    _ keyed: [KeyedLocalAdjustment], indent: String,
     templates: [XMPMaskGroupTemplate]
   ) -> String {
-    guard !templates.isEmpty else {
-      return _buildLocalAdjustmentsBlock(model: model, indent: indent)
-    }
-    let groups = model.localAdjustments.filter { XMPMaskGroupSources.isGroup($0.mask) }
+    guard !templates.isEmpty else { return _buildLocalAdjustmentsBlock(keyed, indent: indent) }
+    let groups = keyed.filter { XMPMaskGroupSources.isGroup($0.layer.mask) }
     let owned = Dictionary(
-      groups.compactMap { layer -> (Int, String)? in
-        guard let slot = layer.xmpGroupSlot else { return nil }
-        return (slot, _scopedLocalCorrection(layer))
+      groups.compactMap { entry -> (Int, String)? in
+        guard let slot = entry.layer.xmpGroupSlot else { return nil }
+        return (slot, _scopedLocalCorrection(entry))
       }, uniquingKeysWith: { first, _ in first })
-    let appended = groups.filter { $0.xmpGroupSlot == nil }.map(_scopedLocalCorrection).joined()
+    let appended = groups.filter { $0.layer.xmpGroupSlot == nil }.map(_scopedLocalCorrection)
+      .joined()
     let lastAppend = templates.lastIndex { $0.parts.contains(.append) }
     let blocks = templates.enumerated().map { index, template in
       indent
@@ -286,15 +371,15 @@ extension XMPSerializer {
           }
         }.joined()
     }
-    var canonical = model
-    canonical.localAdjustments =
-      model.localAdjustments.filter { !XMPMaskGroupSources.isGroup($0.mask) }
-      + (lastAppend == nil ? groups.filter { $0.xmpGroupSlot == nil } : [])
-    return ([_buildLocalAdjustmentsBlock(model: canonical, indent: indent)] + blocks)
+    let canonical =
+      keyed.filter { !XMPMaskGroupSources.isGroup($0.layer.mask) }
+      + (lastAppend == nil ? groups.filter { $0.layer.xmpGroupSlot == nil } : [])
+    return ([_buildLocalAdjustmentsBlock(canonical, indent: indent)] + blocks)
       .filter { !$0.isEmpty }.joined(separator: "\n")
   }
-  private static func _scopedLocalCorrection(_ layer: LocalAdjustment) -> String {
-    let source = _localAdjustmentCorrection(layer, indent: "").joined(separator: "\n")
+  private static func _scopedLocalCorrection(_ entry: KeyedLocalAdjustment) -> String {
+    let source = _localAdjustmentCorrection(entry.layer, indent: "", order: entry.key)
+      .joined(separator: "\n")
     guard let opening = source.range(of: "<rdf:li>") else { return source }
     var scoped = source
     scoped.replaceSubrange(

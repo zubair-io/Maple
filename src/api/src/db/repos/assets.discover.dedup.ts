@@ -25,7 +25,7 @@ import type { ObjectId } from '../object-id.ts';
 import { newObjectIdHex } from '../object-id.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
 import type { LocationKey } from './assets.discover.ts';
-import { meiliRearmStatement } from './assets.stage-rearm.ts';
+import { searchRearmStatements } from './assets.stage-rearm.ts';
 import { seedStageRowStatements } from './stage-state.repo.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toHex, toObjectId } from './values.ts';
@@ -158,7 +158,7 @@ export async function appendOrRefreshLocation(
 ): Promise<'append' | 'refresh'> {
   const db = sqliteDb(dbOverride);
   const id = toHex(existing.id);
-  const revive = typeof existing.deletedAt === 'string' ? [meiliRearmStatement(id)] : [];
+  const revive = typeof existing.deletedAt === 'string' ? searchRearmStatements(id) : [];
   const known = existing.locations.some(
     (l) =>
       l.library_id.equals(entry.library_id) &&

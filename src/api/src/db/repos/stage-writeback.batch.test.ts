@@ -33,7 +33,9 @@ function attempt(assetId: string): StageAttempt {
 
 /** One claimable asset whose stage row already carries {@link LEASE}. */
 function seedLeased(db: Parameters<typeof seedClaimableAsset>[0]): string {
-  return seedClaimableAsset(db, { stages: { [STAGE]: { nextAttemptAt: LEASE } } });
+  return seedClaimableAsset(db, {
+    stages: { [STAGE]: { nextAttemptAt: LEASE, claimToken: LEASE } },
+  });
 }
 
 describe('committing a tick', () => {

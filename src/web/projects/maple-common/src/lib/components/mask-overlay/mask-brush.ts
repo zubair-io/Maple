@@ -75,6 +75,18 @@ const isFiniteDab = (d: BrushDab): boolean =>
  * circular in pixel space. The spec pins the shared vectors both
  * implementations must reproduce.
  */
+export function stampBrushDabs(
+  acc: Float32Array,
+  dabs: readonly BrushDab[],
+  width: number,
+  height: number,
+): void {
+  const w = Math.max(0, Math.trunc(width));
+  const h = Math.max(0, Math.trunc(height));
+  if (w === 0 || h === 0) return;
+  for (const dab of dabs) stampDab(acc, dab, w, h);
+}
+
 export function rasterizeBrushDabs(
   dabs: readonly BrushDab[],
   width: number,
@@ -84,7 +96,7 @@ export function rasterizeBrushDabs(
   const h = Math.max(0, Math.trunc(height));
   if (w === 0 || h === 0) return new Uint8ClampedArray(0);
   const acc = new Float32Array(w * h);
-  for (const dab of dabs) stampDab(acc, dab, w, h);
+  stampBrushDabs(acc, dabs, w, h);
   return Uint8ClampedArray.from(acc, (v) => Math.round(Math.min(1, Math.max(0, v)) * 255));
 }
 

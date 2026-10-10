@@ -19,7 +19,7 @@ import {
 // every component from `inject(LibraryStateService)` to selectors). Park that
 // migration for a follow-up greenfield ticket.
 //
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal, DestroyRef } from '@angular/core';
 import { Asset, AssetId, Flag, ColorLabel } from '../models/asset';
 import { SidebarEntry, GridFolderItem } from '../models/folder';
 import {
@@ -171,6 +171,11 @@ export class LibraryStore {
   // ── Current folder handle ─────────────────────────────────────────────────
   /** The folder the user most recently opened via openFolder(). */
   readonly currentFolder = signal<MapleFolderHandle | null>(null);
+  private readonly destroyRef = inject(DestroyRef, { optional: true });
+
+  constructor() {
+    this.destroyRef?.onDestroy(() => this.currentFolder.set(null));
+  }
 
   // ── Adjustment models (per-asset develop settings) ────────────────────────
   readonly adjustmentModels = signal<Map<AssetId, AdjustmentModel>>(new Map());
@@ -503,10 +508,8 @@ export class LibraryStore {
     const walk = (entries: SidebarEntry[]): string | null => {
       for (const e of entries) {
         if (e.absPath === absPath) return e.id;
-        if (e.children) {
-          const hit = walk(e.children);
-          if (hit) return hit;
-        }
+        const hit = e.children ? walk(e.children) : null;
+        if (hit) return hit;
       }
       return null;
     };
@@ -530,10 +533,8 @@ export class LibraryStore {
             // Not a MapleAddress — skip.
           }
         }
-        if (e.children) {
-          const hit = walk(e.children);
-          if (hit) return hit;
-        }
+        const hit = e.children ? walk(e.children) : null;
+        if (hit) return hit;
       }
       return null;
     };

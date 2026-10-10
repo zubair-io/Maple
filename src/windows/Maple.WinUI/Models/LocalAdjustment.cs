@@ -105,6 +105,8 @@ namespace Maple.WinUI.Models
     {
         /// <summary>Stable position among imported and opaque group corrections.</summary>
         public int? XmpGroupSlot { get; init; }
+        /// <summary>Imported `papp:LayerOrder`; host-only, never sent to the render core.</summary>
+        public double? XmpLayerOrder { get; init; }
         /// <summary>Imported correction metadata; never sent to the render core.</summary>
         public string? XmpSource { get; init; }
     }

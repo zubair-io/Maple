@@ -18,6 +18,7 @@ import {
   flattenBrushDabs,
   interpolateDabs,
   rasterizeBrushDabs,
+  stampBrushDabs,
 } from './mask-brush';
 
 const dab = (
@@ -110,6 +111,24 @@ describe('rasterizeBrushDabs', () => {
       51,
     );
     expect(Array.from(bytes).every((b) => b === 0)).toBe(true);
+  });
+
+  it('stamping incrementally produces the exact same raster as full series (#4416)', () => {
+    const dabs = [
+      dab(0.3, 0.4, 0.1, 0.5, 0.6, false),
+      dab(0.35, 0.42, 0.1, 0.5, 0.7, false),
+      dab(0.4, 0.45, 0.08, 0.2, 0.5, true),
+      dab(0.45, 0.5, 0.12, 0.8, 0.8, false),
+    ];
+    const acc = new Float32Array(101 * 101);
+    for (const d of dabs) {
+      stampBrushDabs(acc, [d], 101, 101);
+    }
+    const incrementalBytes = Uint8ClampedArray.from(acc, (v) =>
+      Math.round(Math.min(1, Math.max(0, v)) * 255),
+    );
+    const fullBytes = rasterizeBrushDabs(dabs, 101, 101);
+    expect(incrementalBytes).toEqual(fullBytes);
   });
 });
 

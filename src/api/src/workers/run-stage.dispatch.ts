@@ -219,10 +219,10 @@ async function runClaimedAsset(tick: TickContext, row: ClaimedStageRow): Promise
     assetId: row.asset_id,
     stage: tick.stage.name,
     targetVersion: tick.stage.targetVersion,
-    lease: row.next_attempt_at,
+    lease: row.claim_token,
   };
   try {
-    const result = await tick.stage.handler(doc, tick.ctx);
+    const result = await tick.stage.handler(doc, { ...tick.ctx, lease: row.claim_token });
     await tick.batch.record(
       stageResultStatements(
         {
