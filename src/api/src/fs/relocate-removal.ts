@@ -9,6 +9,7 @@ import { removalRecords } from './removal-records.ts';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { child as childLogger } from '../log.ts';
 import { createRemovalJournal } from './removal-relocation-journal.ts';
+import { pickFreePath } from './pick-free-path.ts';
 import type { RelocateOutcome, RelocateRequest } from './relocate.ts';
 
 const log = childLogger('fs/removal-relocate');
@@ -172,7 +173,6 @@ async function relocateUnderLease(
       const candidate =
         sidecarRenameTarget(req.sourceAbsPath, target, path) ??
         join(dirname(target), path.split('/').at(-1)!);
-      const { pickFreePath } = await import('./relocate.ts');
       companionPaths.push(await pickFreePath(candidate, 'relocate:companion'));
     }
     const staleSidecars = (await listPairedSidecars(target)).filter(
