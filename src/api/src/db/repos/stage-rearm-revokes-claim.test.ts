@@ -7,6 +7,7 @@ import { stageSuccessStatements } from './stage-writeback.ts';
 import { createTestDatabase, testSqliteDb } from '../sqlite/test-sqlite.test-helpers.ts';
 
 const TARGET_VERSION = 8;
+const ENDPOINT = 'http://gpu:11434';
 const embeddedAt = new Date('2026-10-09T00:00:00.000Z');
 
 async function claim(
@@ -37,7 +38,14 @@ describe('re-arming a stage while an attempt is in flight', () => {
       stageSuccessStatements(oldClaim, {
         extra: [
           upsertAssetVectorStatement(
-            { mapleId: 'm1', version: 8, model: 'bge-m3', vector: Float32Array.of(1), embeddedAt },
+            {
+              mapleId: 'm1',
+              version: 8,
+              model: 'bge-m3',
+              endpoint: ENDPOINT,
+              vector: Float32Array.of(1),
+              embeddedAt,
+            },
             { assetId, lease: oldClaim.lease },
           ),
         ],
@@ -55,7 +63,14 @@ describe('re-arming a stage while an attempt is in flight', () => {
       stageSuccessStatements(newClaim, {
         extra: [
           upsertAssetVectorStatement(
-            { mapleId: 'm1', version: 8, model: 'bge-m3', vector: Float32Array.of(0), embeddedAt },
+            {
+              mapleId: 'm1',
+              version: 8,
+              model: 'bge-m3',
+              endpoint: ENDPOINT,
+              vector: Float32Array.of(0),
+              embeddedAt,
+            },
             { assetId, lease: newClaim.lease },
           ),
         ],
@@ -91,6 +106,7 @@ describe('re-arming a stage while an attempt is in flight', () => {
             mapleId: 'm1',
             version: 8,
             model: 'bge-m3',
+            endpoint: ENDPOINT,
             vector: Float32Array.of(value),
             embeddedAt,
           },

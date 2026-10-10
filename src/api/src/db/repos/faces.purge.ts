@@ -32,6 +32,7 @@
  */
 
 import { peopleDb, type SqliteDb } from './db-handle.ts';
+import { assignedFacesSearchRearmStatements } from './people.search-reindex.ts';
 
 /**
  * Faces small enough to be candidates, whatever their assignment or visibility.
@@ -169,6 +170,9 @@ export async function purgeSubthresholdFaces(
   // `faces` is the only table named, so the bare column names the DELETE needs
   // are unambiguous — the qualified spelling above is what `faces.` buys, and
   // SQLite resolves it to the same table either way.
-  const result = await db.write(`DELETE FROM faces WHERE ${predicate}`, bounds);
-  return { facesRemoved: result.changes, assetsUpdated: affected[0]?.n ?? 0 };
+  const results = await db.transaction([
+    ...assignedFacesSearchRearmStatements(predicate, bounds),
+    { sql: `DELETE FROM faces WHERE ${predicate}`, params: bounds },
+  ]);
+  return { facesRemoved: results.at(-1)?.changes ?? 0, assetsUpdated: affected[0]?.n ?? 0 };
 }

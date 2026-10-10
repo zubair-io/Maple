@@ -8,6 +8,7 @@ export interface AssetVectorRecord {
   mapleId: string;
   version: number;
   model: string;
+  endpoint: string;
   vector: Float32Array;
   embeddedAt: Date;
 }
@@ -26,15 +27,16 @@ export function upsertAssetVectorStatement(
                       WHERE asset_id = ? AND stage = '${EMBED_STAGE}' AND next_attempt_at = ?)`
     : 'WHERE true';
   return {
-    sql: `INSERT INTO asset_vectors (maple_id, version, model, dims, vector, embedded_at)
-          SELECT ?, ?, ?, ?, ?, ? ${claimHeld}
+    sql: `INSERT INTO asset_vectors (maple_id, version, model, endpoint, dims, vector, embedded_at)
+          SELECT ?, ?, ?, ?, ?, ?, ? ${claimHeld}
           ON CONFLICT (maple_id) DO UPDATE SET
-            version = excluded.version, model = excluded.model, dims = excluded.dims,
+            version = excluded.version, model = excluded.model, endpoint = excluded.endpoint, dims = excluded.dims,
             vector = excluded.vector, embedded_at = excluded.embedded_at`,
     params: [
       record.mapleId,
       record.version,
       record.model,
+      record.endpoint,
       record.vector.length,
       encodeVector(record.vector),
       record.embeddedAt.toISOString(),
@@ -44,13 +46,13 @@ export function upsertAssetVectorStatement(
 }
 
 /**
- * Re-arms `embed` for every asset whose stored vector came from a different model, so a model
- * change re-embeds the library. With `includeDead`, assets that exhausted their retries are
+ * Re-arms `embed` for every asset whose stored vector came from a different model or endpoint, so a
+ * model or endpoint change re-embeds the library. With `includeDead`, assets that exhausted their retries are
  * re-armed too, because they failed under the previous endpoint or model and have no vector to
  * compare. Returns how many assets were re-armed.
  */
-export async function rearmEmbedForModelChange(
-  currentModel: string,
+export async function rearmEmbedForEmbedderChange(
+  current: { model: string; url: string },
   options: { includeDead: boolean },
   dbOverride?: SqliteDb,
 ): Promise<number> {
@@ -61,9 +63,9 @@ export async function rearmEmbedForModelChange(
       WHERE stage = ?
         AND ((version > 0 AND asset_id IN (
               SELECT a.id FROM asset_vectors v JOIN assets a ON a.maple_id = v.maple_id
-               WHERE v.model <> ?))
+               WHERE v.model <> ? OR v.endpoint <> ?))
              OR (? = 1 AND dead = 1))`,
-    [EMBED_STAGE, currentModel, options.includeDead ? 1 : 0],
+    [EMBED_STAGE, current.model, current.url, options.includeDead ? 1 : 0],
   );
   return result.changes;
 }

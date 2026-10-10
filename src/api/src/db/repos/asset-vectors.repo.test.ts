@@ -1,15 +1,16 @@
 import { describe, expect, test } from 'bun:test';
-import { rearmEmbedForModelChange, upsertAssetVectorStatement } from './asset-vectors.repo.ts';
+import { rearmEmbedForEmbedderChange, upsertAssetVectorStatement } from './asset-vectors.repo.ts';
 import { seedClaimableAsset, stageRow } from './stage-runtime.test-helpers.ts';
 import { createTestDatabase, testSqliteDb } from '../sqlite/test-sqlite.test-helpers.ts';
 
+const ENDPOINT = 'http://gpu:11434';
 const embeddedAt = new Date('2026-10-09T00:00:00.000Z');
 
 describe('upsertAssetVectorStatement', () => {
   test('replaces the vector of an already embedded asset', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const record = { mapleId: 'm1', version: 8, model: 'bge-m3', embeddedAt };
+    const record = { mapleId: 'm1', version: 8, model: 'bge-m3', endpoint: ENDPOINT, embeddedAt };
 
     await db.transaction([
       upsertAssetVectorStatement({ ...record, vector: Float32Array.of(1, 0) }),
@@ -29,7 +30,7 @@ describe('upsertAssetVectorStatement', () => {
   });
 });
 
-describe('rearmEmbedForModelChange', () => {
+describe('rearmEmbedForEmbedderChange', () => {
   test('re-queues only assets embedded by a different model', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
@@ -45,13 +46,18 @@ describe('rearmEmbedForModelChange', () => {
           mapleId,
           version: 8,
           model,
+          endpoint: ENDPOINT,
           vector: Float32Array.of(1),
           embeddedAt,
         }),
       ]);
     }
 
-    const changed = await rearmEmbedForModelChange('bge-m3', { includeDead: false }, db);
+    const changed = await rearmEmbedForEmbedderChange(
+      { model: 'bge-m3', url: ENDPOINT },
+      { includeDead: false },
+      db,
+    );
 
     expect(changed).toBe(1);
     expect(stageRow(handle.db, stale, 'embed')?.version).toBe(0);
@@ -59,7 +65,37 @@ describe('rearmEmbedForModelChange', () => {
   });
 });
 
-describe('rearmEmbedForModelChange with dead rows', () => {
+describe('rearmEmbedForEmbedderChange across endpoints', () => {
+  test('re-queues completed rows when the same model is served from a new URL', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const assetIds = [] as string[];
+    for (const mapleId of ['m1', 'm2']) {
+      const assetId = seedClaimableAsset(handle.db, { stages: { embed: { version: 8 } } });
+      handle.db.run(`UPDATE assets SET maple_id = ? WHERE id = ?`, [mapleId, assetId]);
+      await db.transaction([
+        upsertAssetVectorStatement({
+          mapleId,
+          version: 8,
+          model: 'bge-m3',
+          endpoint: ENDPOINT,
+          vector: Float32Array.of(1),
+          embeddedAt,
+        }),
+      ]);
+      assetIds.push(assetId);
+    }
+
+    const sameTarget = { model: 'bge-m3', url: ENDPOINT };
+    expect(await rearmEmbedForEmbedderChange(sameTarget, { includeDead: false }, db)).toBe(0);
+
+    const moved = { model: 'bge-m3', url: 'http://other-gpu:11434' };
+    expect(await rearmEmbedForEmbedderChange(moved, { includeDead: false }, db)).toBe(2);
+    assetIds.forEach((id) => expect(stageRow(handle.db, id, 'embed')?.version).toBe(0));
+  });
+});
+
+describe('rearmEmbedForEmbedderChange with dead rows', () => {
   async function deadAsset(handle: Awaited<ReturnType<typeof createTestDatabase>>) {
     return seedClaimableAsset(handle.db, {
       stages: { embed: { version: 0, attempts: 3, dead: true } },
@@ -71,10 +107,22 @@ describe('rearmEmbedForModelChange with dead rows', () => {
     const db = testSqliteDb(handle.db);
     const dead = await deadAsset(handle);
 
-    expect(await rearmEmbedForModelChange('bge-m3', { includeDead: false }, db)).toBe(0);
+    expect(
+      await rearmEmbedForEmbedderChange(
+        { model: 'bge-m3', url: ENDPOINT },
+        { includeDead: false },
+        db,
+      ),
+    ).toBe(0);
     expect(stageRow(handle.db, dead, 'embed')?.dead).toBe(1);
 
-    expect(await rearmEmbedForModelChange('bge-m3', { includeDead: true }, db)).toBe(1);
+    expect(
+      await rearmEmbedForEmbedderChange(
+        { model: 'bge-m3', url: ENDPOINT },
+        { includeDead: true },
+        db,
+      ),
+    ).toBe(1);
     expect(stageRow(handle.db, dead, 'embed')).toMatchObject({ version: 0, attempts: 0, dead: 0 });
   });
 });
@@ -92,6 +140,7 @@ describe('asset_vectors upkeep triggers', () => {
         mapleId,
         version: 8,
         model: 'bge-m3',
+        endpoint: ENDPOINT,
         vector: Float32Array.of(1),
         embeddedAt,
       }),

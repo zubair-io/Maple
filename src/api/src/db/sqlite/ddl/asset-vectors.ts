@@ -9,8 +9,8 @@
  * takes its vector with it, and an asset whose `maple_id` changes (a dedup merge promoting the
  * survivor) loses the stale vector and is re-armed for `embed`.
  *
- * `version` is the embedder template shape the text was rendered with and `model` the embedding
- * model, so a vector can be recognised as stale after either changes. `vector` is `dims`
+ * `version` is the embedder template shape the text was rendered with, and `model` with `endpoint`
+ * identify the embedding space, so a vector can be recognised as stale after either changes. `vector` is `dims`
  * little-endian f32 values.
  */
 export const ASSET_VECTORS_TABLE_DDL = `
@@ -18,6 +18,7 @@ CREATE TABLE asset_vectors (
   maple_id    TEXT PRIMARY KEY,
   version     INTEGER NOT NULL,
   model       TEXT NOT NULL,
+  endpoint    TEXT NOT NULL,
   dims        INTEGER NOT NULL CHECK (dims > 0),
   vector      BLOB NOT NULL CHECK (length(vector) = dims * 4),
   embedded_at TEXT NOT NULL
@@ -25,7 +26,7 @@ CREATE TABLE asset_vectors (
 `;
 
 export const ASSET_VECTORS_INDEX_DDL = `
-CREATE INDEX asset_vectors_model ON asset_vectors (model);
+CREATE INDEX asset_vectors_embedder ON asset_vectors (model, endpoint);
 `;
 
 // A read-only window onto stage claims: the runner rejects handler statements that name stage_state.
