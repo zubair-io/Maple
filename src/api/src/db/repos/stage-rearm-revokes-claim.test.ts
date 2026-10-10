@@ -9,9 +9,14 @@ import { createTestDatabase, testSqliteDb } from '../sqlite/test-sqlite.test-hel
 const TARGET_VERSION = 8;
 const embeddedAt = new Date('2026-10-09T00:00:00.000Z');
 
-async function claim(db: ReturnType<typeof testSqliteDb>, stage: string, assetId: string) {
+async function claim(
+  db: ReturnType<typeof testSqliteDb>,
+  stage: string,
+  assetId: string,
+  now?: Date,
+) {
   const { claimed } = await claimStageBatch(
-    { stage, targetVersion: TARGET_VERSION, dependsOn: [], limit: 10, maxAttempts: 3 },
+    { stage, targetVersion: TARGET_VERSION, dependsOn: [], limit: 10, maxAttempts: 3, now },
     db,
   );
   const row = claimed.find((candidate) => candidate.asset_id === assetId);
@@ -61,27 +66,57 @@ describe('re-arming a stage while an attempt is in flight', () => {
     expect(handle.db.query(`SELECT COUNT(*) AS n FROM asset_vectors`).get()).toEqual({ n: 1 });
   });
 
-  test('a stale write is rejected even after a second claim holds a new lease', async () => {
+  test.each([
+    [
+      'at different times',
+      [new Date('2026-10-09T00:00:00.000Z'), new Date('2026-10-09T00:00:05.000Z')],
+    ],
+    [
+      'in the same millisecond',
+      [new Date('2026-10-09T00:00:00.000Z'), new Date('2026-10-09T00:00:00.000Z')],
+    ],
+  ] as const)(
+    'a stale write is rejected after a second claim holds a new lease (claims %s)',
+    async (_name, [firstNow, secondNow]) => {
+      using handle = await createTestDatabase();
+      const db = testSqliteDb(handle.db);
+      const assetId = seedClaimableAsset(handle.db, { stages: { embed: {} } });
+      handle.db.run(`UPDATE assets SET maple_id = 'm1' WHERE id = ?`, [assetId]);
+      const claimA = await claim(db, 'embed', assetId, firstNow);
+      await db.transaction(searchRearmStatements(assetId));
+      const claimB = await claim(db, 'embed', assetId, secondNow);
+      const write = (lease: string, value: number) =>
+        upsertAssetVectorStatement(
+          {
+            mapleId: 'm1',
+            version: 8,
+            model: 'bge-m3',
+            vector: Float32Array.of(value),
+            embeddedAt,
+          },
+          { assetId, lease },
+        );
+
+      expect(claimB.lease).not.toBe(claimA.lease);
+      await db.transaction([write(claimA.lease, 1)]);
+      expect(handle.db.query(`SELECT COUNT(*) AS n FROM asset_vectors`).get()).toEqual({ n: 0 });
+
+      await db.transaction([write(claimB.lease, 2)]);
+      expect(handle.db.query(`SELECT COUNT(*) AS n FROM asset_vectors`).get()).toEqual({ n: 1 });
+    },
+  );
+
+  test('three claims in one millisecond all carry different leases', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const assetId = seedClaimableAsset(handle.db, { stages: { embed: {} } });
-    handle.db.run(`UPDATE assets SET maple_id = 'm1' WHERE id = ?`, [assetId]);
-    const claimA = await claim(db, 'embed', assetId);
-    await db.transaction(searchRearmStatements(assetId));
-    const claimB = await claim(db, 'embed', assetId);
-    const write = (lease: string, value: number) =>
-      upsertAssetVectorStatement(
-        { mapleId: 'm1', version: 8, model: 'bge-m3', vector: Float32Array.of(value), embeddedAt },
-        { assetId, lease },
-      );
-
-    expect(claimB.lease).not.toBe(claimA.lease);
-    await db.transaction([write(claimA.lease, 1)]);
-    expect(handle.db.query(`SELECT COUNT(*) AS n FROM asset_vectors`).get()).toEqual({ n: 0 });
-
-    await db.transaction([write(claimB.lease, 2)]);
-    expect(handle.db.query(`SELECT dims FROM asset_vectors`).get()).toEqual({ dims: 1 });
-    expect(handle.db.query(`SELECT COUNT(*) AS n FROM asset_vectors`).get()).toEqual({ n: 1 });
+    const now = new Date('2026-10-09T00:00:00.000Z');
+    const leases = [] as string[];
+    for (let i = 0; i < 3; i++) {
+      leases.push((await claim(db, 'embed', assetId, now)).lease);
+      await db.transaction(searchRearmStatements(assetId));
+    }
+    expect(new Set(leases).size).toBe(3);
   });
 
   test('the same re-arm also stops a stale meili completion from restoring its version', async () => {

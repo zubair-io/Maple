@@ -73,6 +73,22 @@ import {
  */
 const CLAIM_LEASE_MS = 15 * 60_000;
 
+const leaseClock = { lastMs: 0 };
+
+const SAME_BURST_MS = 1000;
+
+/**
+ * A lease expiry for `expiryMs`, pushed past the last lease this process issued when the two fall
+ * within one burst. Leases are millisecond timestamps, so a re-arm followed by an immediate
+ * re-claim would otherwise carry the same string and the lease fence could not tell the old
+ * attempt from the new one. The result is still a real expiry time, at most a burst later.
+ */
+function distinctLease(expiryMs: number): string {
+  const collides = expiryMs <= leaseClock.lastMs && leaseClock.lastMs - expiryMs < SAME_BURST_MS;
+  leaseClock.lastMs = collides ? leaseClock.lastMs + 1 : expiryMs;
+  return new Date(leaseClock.lastMs).toISOString();
+}
+
 /** One `dependsOn` entry, normalised. Mirrors `resolveStageDeps`' output. */
 export interface ResolvedStageDep {
   name: string;
@@ -295,7 +311,7 @@ export async function renewStageLease(
   dbOverride?: SqliteDb,
 ): Promise<string | null> {
   const now = options.now ?? new Date();
-  const renewed = new Date(now.getTime() + (options.leaseMs ?? CLAIM_LEASE_MS)).toISOString();
+  const renewed = distinctLease(now.getTime() + (options.leaseMs ?? CLAIM_LEASE_MS));
   const result = await assetsDb(dbOverride).write(STAGE_RENEW_LEASE_SQL, [
     renewed,
     target.assetId,
@@ -353,7 +369,7 @@ export async function claimStageBatch(
   if (candidates.length === 0) return { claimed: [], crashExhausted: [], contended: 0 };
 
   const { claimable, exhausted } = partitionCandidates(candidates, request.maxAttempts);
-  const leaseUntil = new Date(now.getTime() + (request.leaseMs ?? CLAIM_LEASE_MS)).toISOString();
+  const leaseUntil = distinctLease(now.getTime() + (request.leaseMs ?? CLAIM_LEASE_MS));
   const parkStatements = exhausted.flatMap((row) => parkExhaustedStatements(request, row, nowIso));
   const claimSql = stageClaimSql(request.dependsOn.length, request.residual?.sql);
   const results = await db.transaction([
