@@ -93,6 +93,26 @@ final class EditSessionTests: XCTestCase {
     XCTAssertFalse(session.renderedPreviewIsFullRender)
   }
 
+  // #4496 (Codex review) — an iOS background eviction frees buffers but
+  // leaves the completed CPU frame on glass. The persist gate must close
+  // (#1881) while the canvas readiness keeps the seed thumbnail retired,
+  // because `representOnForeground` schedules nothing without a GPU frame.
+  func testRenderedPreviewIsFullRender_survivesTransientMemoryEviction() async throws {
+    let assetURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent("evicted-\(UUID().uuidString).dng")
+    let session = await EditSession(asset: AssetRef(url: assetURL))
+    session.renderedPreview = CIImage(color: .gray)
+    session.previewIsFullRender = true
+
+    await session.releaseTransientMemory()
+
+    XCTAssertFalse(session.previewIsFullRender, "persist gates stay shut after an eviction")
+    XCTAssertTrue(session.renderedPreviewIsFullRender, "the frame is still on glass")
+
+    session.previewIsFullRender = true
+    XCTAssertTrue(session.previewIsFullRender, "the next publish clears the eviction")
+  }
+
   func testLoadingIndicator_visibleWhileResolvingFirstFrame() {
     // Stays visible even once a (preview) frame is on screen — the whole
     // point of #1201: don't hide just because the sub-second preview landed.
