@@ -38,30 +38,6 @@ import Foundation
 extension EditSession {
   // MARK: - Unified decode + render
 
-  /// Auto Profile (#812) — resolve (and cache) the per-image display-space
-  /// CIColorCube for a CPU-path render. In `decodeAndRender`, call only from
-  /// the CPU-fallback branches (after `presentViaGpuLive` has declined the
-  /// frame): the fit is a cold JPEG-extract + develop the first time per
-  /// image (seconds + a multi-GB develop transient on a 100MP RAW), and
-  /// when the GPU live present handles the frame it does its own fit —
-  /// computing this before attempting the present burns that cost on a
-  /// result the GPU path never uses (#2034). `AutoProfileLUT` caches the
-  /// baked cube keyed on URL+mtime+quality so slider ticks reuse it. Nil
-  /// for non-RAW, `Profile::Neutral`, or fit failure. The editor decode
-  /// path develops at `.preview` (RenderActor's sharedDecode +
-  /// decodeSceneLinear* default to `.preview`), so the curve is fit at
-  /// `.preview` to match the displayed buffer (#844).
-  func autoProfileLUTForCPURender(asset: AssetRef, model m: AdjustmentModel) async
-    -> CIFilter?
-  {
-    guard asset.isRaw, m.profile == .auto else { return nil }
-    guard let url = try? await renderActor.rawRenderSource.url(for: asset) else { return nil }
-    let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
-    let accessing = scope.startAccessingSecurityScopedResource()
-    defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-    return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile, quality: .preview)
-  }
-
   func decodeAndRender(targetSize: CGSize?, phase: RenderPhase, gen: UInt64? = nil) async {
     if let error = partialWhiteBalanceImportError, model.partialWhiteBalance != nil {
       settleAutoFitFailure(assetID: asset.id, profile: model.profile, revision: autoFitRevision)
