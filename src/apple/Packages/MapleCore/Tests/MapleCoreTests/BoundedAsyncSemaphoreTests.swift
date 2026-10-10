@@ -294,22 +294,32 @@ final class BoundedAsyncSemaphoreTests: XCTestCase {
     let semaphore = BoundedAsyncSemaphore(value: 1)
     try await semaphore.acquire()
 
-    // Test cancellation racing with an incoming producer registration
+    // #4475: the producer is only created after `cancel()` returns, so the
+    // cancellation provably precedes the enqueue it races against. Creating
+    // the producer first let both tasks finish before `cancel()` ran, and a
+    // `true` result from an observer that completed uncancelled is correct.
     for _ in 0..<50 {
       let observerTask = Task {
-        await semaphore.waitForQueue(atLeast: 1, timeout: .seconds(2))
+        await semaphore.waitForQueue(atLeast: 1, timeout: .seconds(60))
       }
+      while await semaphore.queueObserverCount == 0 {
+        await Task.yield()
+      }
+      observerTask.cancel()
       let producerTask = Task {
         try? await semaphore.acquire()
       }
-      observerTask.cancel()
       let observed = await observerTask.value
       XCTAssertFalse(
         observed,
         "waitForQueue must return false when observer task is cancelled"
       )
+      let observerCount = await semaphore.queueObserverCount
+      XCTAssertEqual(observerCount, 0, "a cancelled observer must not stay registered")
       producerTask.cancel()
       _ = await producerTask.result
+      let queued = await semaphore.queuedCount
+      XCTAssertEqual(queued, 0)
     }
 
     await semaphore.release()
