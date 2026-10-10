@@ -149,7 +149,7 @@ export interface WebLiveSessionCtor {
 // the scopes render their pseudo fallback, i.e. exactly today's flag-on behaviour.
 
 /** The transferred editor `OffscreenCanvas` for the open session — the readback source. */
-export let liveCanvas: OffscreenCanvas | null = null;
+let liveCanvas: OffscreenCanvas | null = null;
 
 /** Long-edge cap for the scope readback. Scopes are ~100–250px wide; a 512px long
  *  edge oversamples them comfortably while keeping the readback + transfer trivial. */

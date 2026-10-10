@@ -354,7 +354,6 @@ export class RawPipelineService implements OnDestroy {
     );
   }
 
-  // fallow-ignore-next-line unused-class-member
   closeLiveSession(): void {
     if (!this.worker) return;
     closeLiveSessionRequest(this.worker, this.nextId++);

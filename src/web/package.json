@@ -33,6 +33,8 @@
     "format:check": "bash scripts/format.sh --check",
     "test": "ng test",
     "e2e": "playwright test",
+    "e2e:removal": "playwright test --config=playwright.removal.config.ts",
+    "e2e:removal:self-hosted": "playwright test --config=playwright.removal-self-hosted.config.ts",
     "e2e:auto-fit": "playwright test --config playwright.auto-fit.config.ts",
     "e2e:cold-profile": "playwright test --config playwright.cold-profile.config.ts",
     "e2e:production": "playwright test --config playwright.production.config.ts",

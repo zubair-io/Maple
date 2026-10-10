@@ -48,7 +48,7 @@ function openBlobDb(): Promise<IDBDatabase> {
 }
 
 /** Store blob data under a composite key: `<folderLabel>/<path>`. */
-export async function fallbackWriteBlob(
+async function fallbackWriteBlob(
   folderLabel: string,
   path: string,
   data: Uint8Array,
@@ -61,10 +61,7 @@ export async function fallbackWriteBlob(
 }
 
 /** Retrieve blob data stored for `<folderLabel>/<path>`. */
-export async function fallbackReadBlob(
-  folderLabel: string,
-  path: string,
-): Promise<Uint8Array | null> {
+async function fallbackReadBlob(folderLabel: string, path: string): Promise<Uint8Array | null> {
   const db = await openBlobDb();
   const key = `${folderLabel}/${path}`;
   const tx = db.transaction(IDB_STORE, 'readonly');

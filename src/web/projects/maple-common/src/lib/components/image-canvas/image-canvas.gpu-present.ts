@@ -39,7 +39,6 @@ import type {
 import type { LibraryStateService } from '../../state/library-state.service';
 import type { ImageCanvasService } from './image-canvas.service';
 import type { XmpSerializerService } from '../../xmp/xmp-serializer.service';
-import { probeGpuPresent } from './image-canvas.gpu-probe';
 import { publishGpuDimensions } from './image-canvas.gpu-dimensions';
 import { loadGpuSessionRemovals } from './image-canvas.gpu-removals';
 import type { SavedRemovalRenderService } from '../../removal/saved-removal-render.service';

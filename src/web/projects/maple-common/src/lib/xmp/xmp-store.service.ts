@@ -77,7 +77,6 @@ export class XmpStoreService {
     }
   >();
   // Browser workflow gate calls this through a nested handler; product controls follow #2437.
-  // fallow-ignore-next-line unused-class-member
   async writeWorkflow(
     assetId: AssetId,
     folder: MapleFolderHandle,
