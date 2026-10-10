@@ -52,3 +52,64 @@ BEGIN
    WHERE asset_id = NEW.id AND stage = 'embed';
 END;
 `;
+
+const RESET_SET = `version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0,
+         next_attempt_at = NULL`;
+
+function rearmAssetStages(assetIdExpr: string): string {
+  return ['meili', 'embed']
+    .map(
+      (
+        stage,
+      ) => `INSERT INTO stage_state (asset_id, stage, version, attempts, last_error, processed_at, dead)
+  SELECT id, '${stage}', 0, 0, NULL, NULL, 0 FROM assets WHERE id = ${assetIdExpr}
+  ON CONFLICT (asset_id, stage) DO UPDATE SET ${RESET_SET};`,
+    )
+    .join('\n  ');
+}
+
+function rearmPersonAssetStages(personIdExpr: string): string {
+  return ['meili', 'embed']
+    .map(
+      (
+        stage,
+      ) => `INSERT INTO stage_state (asset_id, stage, version, attempts, last_error, processed_at, dead)
+  SELECT DISTINCT asset_id, '${stage}', 0, 0, NULL, NULL, 0 FROM faces WHERE person_id = ${personIdExpr}
+  ON CONFLICT (asset_id, stage) DO UPDATE SET ${RESET_SET};`,
+    )
+    .join('\n  ');
+}
+
+/**
+ * The searchable text names the people on an asset, so every change to which person a face
+ * belongs to, or to a person's indexable identity, re-queues `meili` and `embed` for the affected
+ * assets. Triggers cover every writer (face detect, clustering, assign, hide, merge, purge,
+ * rename, visibility) instead of each path remembering to. Unrelated columns (a face's bbox, a
+ * person's cover) re-queue nothing.
+ */
+export const SEARCH_TEXT_TRIGGER_DDL = `
+CREATE TRIGGER faces_search_inserted AFTER INSERT ON faces
+WHEN NEW.person_id IS NOT NULL
+BEGIN
+  ${rearmAssetStages('NEW.asset_id')}
+END;
+
+CREATE TRIGGER faces_search_deleted AFTER DELETE ON faces
+WHEN OLD.person_id IS NOT NULL
+BEGIN
+  ${rearmAssetStages('OLD.asset_id')}
+END;
+
+CREATE TRIGGER faces_search_reassigned AFTER UPDATE OF person_id ON faces
+WHEN OLD.person_id IS NOT NEW.person_id
+BEGIN
+  ${rearmAssetStages('NEW.asset_id')}
+END;
+
+CREATE TRIGGER people_search_changed AFTER UPDATE OF name, merged_into, hidden, excluded ON people
+WHEN OLD.name IS NOT NEW.name OR OLD.merged_into IS NOT NEW.merged_into
+  OR OLD.hidden IS NOT NEW.hidden OR OLD.excluded IS NOT NEW.excluded
+BEGIN
+  ${rearmPersonAssetStages('NEW.id')}
+END;
+`;
