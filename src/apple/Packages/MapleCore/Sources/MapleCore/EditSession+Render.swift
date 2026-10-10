@@ -481,10 +481,12 @@ extension EditSession {
         }
       }
       publishAutoFit(achievedAutoFit, assetID: asset.id, profile: m.profile, revision: fitRevision)
-      renderedPreview = displayImage
-      lastPublishedRenderGeneration = gen
+      // Provenance flags before the image, so the observed publish never
+      // reads as a seed between the two writes (#4496 review).
       previewIsFullRender = true
       previewIsThumbnailSeed = false  // #2040: a real render always supersedes the thumbnail seed
+      renderedPreview = displayImage
+      lastPublishedRenderGeneration = gen
       renderError = nil
       // #3277: this publish is the CPU-path branch (the GPU-live present
       // above already `return`ed before reaching here when it handled the

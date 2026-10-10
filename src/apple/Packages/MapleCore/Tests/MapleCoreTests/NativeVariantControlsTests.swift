@@ -46,12 +46,18 @@ final class NativeVariantControlsTests: EditorTestCase {
       XCTAssertEqual(try Fixture.record(selected).variantName, "Night")
       try await Fixture.fullFlow(session, path: selected)
       XCTAssertEqual(try Fixture.xml(primary), input)
+      // #4496 — stand in for a completed render of the Night variant, then
+      // switch: the switch must drop that frame's readiness along with the
+      // frame, never carry a full-render flag across to the primary.
+      let nightFrame = CIImage(color: .green)
+      session.renderedPreview = nightFrame
+      session.previewIsFullRender = true
+      XCTAssertTrue(session.renderedPreviewIsFullRender)
       await session.workflow.selectVariant(WorkflowContract.primaryVariantID, session: session)
       XCTAssertNil(session.workflow.errorText)
       XCTAssertEqual(session.model.exposure, 0)
       XCTAssertTrue(session.undoHistory.isEmpty)
-      // #4496 — a variant switch publishes a stored/cached preview at most,
-      // never a completed render of the newly selected model.
+      XCTAssertFalse(session.renderedPreview === nightFrame, "the old variant's frame is dropped")
       XCTAssertFalse(session.previewIsFullRender)
       XCTAssertFalse(session.renderedPreviewIsFullRender)
       await session.workflow.selectVariant(id, session: session)
