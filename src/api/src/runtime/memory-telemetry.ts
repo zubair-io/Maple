@@ -20,7 +20,7 @@ export type ProcessOwner = 'api' | 'worker';
 
 /** One process's latest sample, as the status payload and the IPC report carry it. */
 export interface ProcessMemoryRow extends ProcessMemorySample {
-  /** Which process: `api`, `worker`, `ffi-decode`, `face`. */
+  /** Which process: `api`, `worker`, `ffi-decode`, `face`, `search`. */
   process: string;
   pid: number;
   /** Set by the status assembler; a child's own IPC report does not know it. */
@@ -57,7 +57,7 @@ export const RSS_WARN_BYTES = 4 * 1024 * 1024 * 1024;
 export const RSS_WARN_COOLDOWN_MS = 10 * 60_000;
 
 export interface MemoryTelemetryOptions {
-  /** Which process this is — `api`, `worker`, `ffi-decode`, `face`. */
+  /** Which process this is — `api`, `worker`, `ffi-decode`, `face`, `search`. */
   process: string;
   intervalMs?: number;
   rssWarnBytes?: number;

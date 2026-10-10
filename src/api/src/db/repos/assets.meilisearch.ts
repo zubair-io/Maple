@@ -176,6 +176,20 @@ export async function loadMeiliAssetsByIds(
   return withRelations(db, rows);
 }
 
+/** The same shape keyed by content id — the search child rendering text for the vectors it holds. */
+export async function loadMeiliAssetsByMapleIds(
+  mapleIds: readonly string[],
+  dbOverride?: SqliteDb,
+): Promise<MeiliAssetBatch> {
+  if (mapleIds.length === 0) return EMPTY_BATCH;
+  const db = sqliteDb(dbOverride);
+  const rows = await db.read<MeiliAssetRow>(
+    `SELECT ${ASSET_COLUMNS} ${ASSET_FROM} WHERE a.maple_id IN (${placeholders(mapleIds.length)})`,
+    [...mapleIds],
+  );
+  return withRelations(db, rows);
+}
+
 /** How many indexable assets remain after `cursor`. */
 export async function countMeiliAssetsAfter(
   cursor: string | null,

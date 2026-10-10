@@ -68,6 +68,10 @@
         // databases under os.tmpdir() and removes them afterwards.
         "src/db/sqlite/boot-schema.ts",
         "src/db/sqlite/boot-schema.test.ts",
+        // #4463: the search child's rebuildable index cache beside the database, never library files.
+        "src/search/search-index-boot.ts",
+        "src/search/search-index-boot.test.ts",
+        "src/search/search.child.test.ts",
         "src/workers/worker-main.migration.test.ts",
         "src/audio/extract-audio.ts",
         "src/audio/extract-audio.test.ts",
