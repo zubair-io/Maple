@@ -74,6 +74,7 @@ describe('embedHandler', () => {
       maple_id: 'maple-abc-123',
       version: EMBEDDER_TEMPLATE_SHAPE_VERSION,
       model: 'bge-m3',
+      endpoint: 'http://localhost:11434',
       dims: 3,
     });
     const stored = decodeVector(row.vector);

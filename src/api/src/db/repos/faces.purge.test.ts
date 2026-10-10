@@ -138,6 +138,45 @@ describe('auditSubthresholdFaces', () => {
   });
 });
 
+describe('purgeSubthresholdFaces search re-arm', () => {
+  const stageVersions = (raw: Database, assetId: string) =>
+    raw
+      .query(
+        `SELECT stage, version FROM stage_state
+          WHERE asset_id = ? AND stage IN ('meili', 'embed') ORDER BY stage`,
+      )
+      .all(assetId);
+
+  async function seededPurge(includeAssigned: boolean) {
+    return await withFaces(
+      (personId) => [{ w: 0.05, h: 0.05, personId }],
+      async (db, raw, assetId) => {
+        raw.run(
+          `INSERT INTO stage_state (asset_id, stage, version) VALUES (?, 'meili', 6), (?, 'embed', 8)
+           ON CONFLICT (asset_id, stage) DO UPDATE SET version = excluded.version`,
+          [assetId, assetId],
+        );
+        await purgeSubthresholdFaces(THRESHOLD, includeAssigned, db);
+        return stageVersions(raw, assetId);
+      },
+    );
+  }
+
+  test('removing an assigned face re-queues the asset for meili and embed', async () => {
+    expect(await seededPurge(true)).toEqual([
+      { stage: 'embed', version: 0 },
+      { stage: 'meili', version: 0 },
+    ]);
+  });
+
+  test('leaves the stages alone when no assigned face is removed', async () => {
+    expect(await seededPurge(false)).toEqual([
+      { stage: 'embed', version: 8 },
+      { stage: 'meili', version: 6 },
+    ]);
+  });
+});
+
 describe('purgeSubthresholdFaces', () => {
   test('takes the visible unassigned faces and nothing else', async () => {
     await withFaces(

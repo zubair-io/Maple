@@ -32,7 +32,7 @@ import {
 } from '../../enrichment/ollama-embed-client.ts';
 import { EMBED_STAGE } from '../../db/repos/assets.stage-rearm.ts';
 import {
-  rearmEmbedForModelChange,
+  rearmEmbedForEmbedderChange,
   upsertAssetVectorStatement,
 } from '../../db/repos/asset-vectors.repo.ts';
 import { WorkerConfigRepo } from '../../db/repos/worker-config.repo.ts';
@@ -61,6 +61,7 @@ interface EmbeddableImage {
 interface EmbeddedText {
   vector: Float32Array;
   model: string;
+  endpoint: string;
 }
 
 type EmbedBatchFn = (
@@ -73,7 +74,7 @@ let embedBatchImpl: EmbedBatchFn = (target, inputs) => embedTexts(target, inputs
 async function embedBatch(texts: readonly string[]): Promise<readonly EmbeddedText[]> {
   const target = await currentEmbedderTarget();
   const vectors = await embedBatchImpl(target, texts);
-  return vectors.map((vector) => ({ vector, model: target.model }));
+  return vectors.map((vector) => ({ vector, model: target.model, endpoint: target.url }));
 }
 
 const batcher = createBatcher(embedBatch, {
@@ -114,12 +115,19 @@ export async function embedHandler(image: ImageDoc, ctx: StageContext): Promise<
   const faces = embeddable.faces ?? null;
   const people = peopleNamesForFaces(faces, await loadNamedPeople([faces]));
   const text = renderEmbedderDocument(embedderDocument(embeddable, primary.filename, people));
-  const { vector, model } = await batcher.submit(text);
+  const { vector, model, endpoint } = await batcher.submit(text);
 
   return {
     patch: [
       upsertAssetVectorStatement(
-        { mapleId, version: EMBED_STAGE_VERSION, model, vector, embeddedAt: new Date() },
+        {
+          mapleId,
+          version: EMBED_STAGE_VERSION,
+          model,
+          endpoint,
+          vector,
+          embeddedAt: new Date(),
+        },
         { assetId: image._id.toHexString(), lease: ctx.lease },
       ),
     ],
@@ -132,7 +140,7 @@ export async function rearmForEmbedderTarget(target: OllamaEmbedTarget): Promise
   const fingerprint = `${target.model} @ ${target.url}`;
   const repo = new WorkerConfigRepo();
   const targetChanged = (await repo.load(EMBED_STAGE))?.ai_model !== fingerprint;
-  await rearmEmbedForModelChange(target.model, { includeDead: targetChanged });
+  await rearmEmbedForEmbedderChange(target, { includeDead: targetChanged });
   if (targetChanged) await repo.patch(EMBED_STAGE, { ai_model: fingerprint });
 }
 

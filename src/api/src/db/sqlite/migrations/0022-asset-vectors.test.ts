@@ -22,7 +22,15 @@ test('creates the vector table and seeds an embed row for every existing asset',
 
   expect(result.applied).toEqual(['0022-asset-vectors']);
   expect(seeded).toEqual([first, second].sort().map((asset_id) => ({ asset_id, version: 0 })));
-  expect(columns).toEqual(['maple_id', 'version', 'model', 'dims', 'vector', 'embedded_at']);
+  expect(columns).toEqual([
+    'maple_id',
+    'version',
+    'model',
+    'endpoint',
+    'dims',
+    'vector',
+    'embedded_at',
+  ]);
 });
 
 test('refuses a vector whose length disagrees with its dimensions', async () => {
@@ -31,12 +39,12 @@ test('refuses a vector whose length disagrees with its dimensions', async () => 
 
   expect(() =>
     handle.db.run(
-      `INSERT INTO asset_vectors (maple_id, version, model, dims, vector, embedded_at)
-       VALUES ('abc', 8, 'bge-m3', 2, x'00000000', '2026-10-09T00:00:00Z')`,
+      `INSERT INTO asset_vectors (maple_id, version, model, endpoint, dims, vector, embedded_at)
+       VALUES ('abc', 8, 'bge-m3', 'http://gpu', 2, x'00000000', '2026-10-09T00:00:00Z')`,
     ),
   ).toThrow();
   handle.db.run(
-    `INSERT INTO asset_vectors (maple_id, version, model, dims, vector, embedded_at)
-     VALUES ('abc', 8, 'bge-m3', 1, x'0000803f', '2026-10-09T00:00:00Z')`,
+    `INSERT INTO asset_vectors (maple_id, version, model, endpoint, dims, vector, embedded_at)
+     VALUES ('abc', 8, 'bge-m3', 'http://gpu', 1, x'0000803f', '2026-10-09T00:00:00Z')`,
   );
 });
