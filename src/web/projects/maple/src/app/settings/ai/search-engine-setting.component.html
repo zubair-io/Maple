@@ -2,7 +2,8 @@
   <h2 id="search-engine-title">Search engine</h2>
   <p>
     In-process ranks searches on this server from the search vectors above and a keyword index,
-    without Meilisearch; it falls back to Meilisearch whenever it is not ready.
+    without Meilisearch; it falls back to Meilisearch whenever it is not ready. First use downloads
+    ~2.2 GB to {{ view()?.modelCacheDir ?? 'the data directory' }}.
   </p>
   @if (view()) {
     <mui-segmented-toggle

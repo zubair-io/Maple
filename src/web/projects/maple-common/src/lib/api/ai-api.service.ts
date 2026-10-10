@@ -44,8 +44,11 @@ export interface SearchEngineView {
     texts: number;
     textReady: boolean;
     restarts: number;
+    model?: string;
+    skippedVectors?: number;
     error?: string;
   };
+  modelCacheDir: string;
 }
 
 @Injectable({ providedIn: 'root' })

@@ -35,9 +35,16 @@ export function engineStatusLine(view: SearchEngineView | null): string | null {
   const vectors = status.vectors.toLocaleString();
   switch (status.phase) {
     case 'ready':
-      return status.textReady
-        ? `Ready — ${vectors} photos indexed.`
-        : `Ready — ${vectors} photos; keyword index still building.`;
+      return [
+        status.textReady
+          ? `Ready — ${vectors} photos indexed`
+          : `Ready — ${vectors} photos; keyword index still building`,
+        status.model ? ` with ${status.model}` : '',
+        status.skippedVectors
+          ? `; ${status.skippedVectors.toLocaleString()} vectors from other models skipped`
+          : '',
+        '.',
+      ].join('');
     case 'failed':
       return `Could not start: ${status.error ?? 'unknown error'}. Searches use Meilisearch until it does.`;
     case 'stopped':

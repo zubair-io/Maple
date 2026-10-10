@@ -21,6 +21,7 @@ function view(
       restarts: 0,
       ...status,
     },
+    modelCacheDir: '/data/.maple/models/fastembed',
   };
 }
 
@@ -57,6 +58,9 @@ describe('Search engine setting', () => {
     expect(group).not.toBeNull();
     expect(segment('Meilisearch').getAttribute('aria-checked')).toBe('true');
     expect(fixture.nativeElement.textContent).toContain('falls back to Meilisearch');
+    expect(fixture.nativeElement.textContent).toContain(
+      'First use downloads ~2.2 GB to /data/.maple/models/fastembed',
+    );
     expect(fixture.nativeElement.querySelector('[role="status"]')).toBeNull();
   });
 
@@ -91,6 +95,19 @@ describe('Search engine setting', () => {
     expect(
       engineStatusLine(view('in-process', { phase: 'ready', vectors: 335112, textReady: true })),
     ).toBe(`Ready — ${(335112).toLocaleString()} photos indexed.`);
+    expect(
+      engineStatusLine(
+        view('in-process', {
+          phase: 'ready',
+          vectors: 4,
+          textReady: true,
+          model: 'bge-m3',
+          skippedVectors: 1200,
+        }),
+      ),
+    ).toBe(
+      `Ready — 4 photos indexed with bge-m3; ${(1200).toLocaleString()} vectors from other models skipped.`,
+    );
     expect(engineStatusLine(view('in-process', { phase: 'ready', vectors: 2 }))).toContain(
       'keyword index still building',
     );
