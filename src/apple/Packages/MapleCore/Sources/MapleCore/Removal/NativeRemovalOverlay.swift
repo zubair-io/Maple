@@ -25,9 +25,11 @@ extension NativeRemovalEditorEngine {
     guard aspect.isFinite, aspect > 0 else { throw RemovalError.invalid("Invalid overlay aspect") }
     let width = aspect >= 1 ? 256 : max(1, Int((256 * aspect).rounded()))
     let height = aspect >= 1 ? max(1, Int((256 / aspect).rounded())) : 256
-    let points = (0..<height).flatMap { y in
-      (0..<width).map { x in
-        [(Double(x) + 0.5) / Double(width), (Double(y) + 0.5) / Double(height)]
+    let points: [[Double]] = (0..<height).flatMap { y -> [[Double]] in
+      let normalizedY = (Double(y) + 0.5) / Double(height)
+      return (0..<width).map { x -> [Double] in
+        let normalizedX = (Double(x) + 0.5) / Double(width)
+        return [normalizedX, normalizedY]
       }
     }
     let mapped = try map(points, context: context, cropInputSize: cropInputSize)

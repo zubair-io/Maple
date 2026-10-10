@@ -235,15 +235,15 @@ final class PhotographicRemovalSmartPaintTests: XCTestCase {
       XCTAssertEqual(removal.selection, intent)
       XCTAssertEqual(removal.protection, protection)
       await removal.remove()
-      XCTAssertEqual(removal.phase, .ready, removal.message)
-      XCTAssertTrue(removal.message.contains("object is too large"), removal.message)
-      XCTAssertNil(removal.job)
-      XCTAssertTrue(removal.proposals.isEmpty)
+      XCTAssertEqual(removal.phase, .review, removal.message)
+      XCTAssertNotNil(removal.preview)
       XCTAssertTrue(session.undoHistory.isEmpty)
       XCTAssertNil(session.model.inpaintRemovals)
       XCTAssertFalse(
         FileManager.default.fileExists(
           atPath: raw.deletingPathExtension().appendingPathExtension("xmp").path))
+      removal.cancel()
+      XCTAssertEqual(removal.phase, .ready)
       XCTAssertEqual(try Data(contentsOf: raw), original)
       let evidence = repository.appendingPathComponent(
         "test-fixtures/raws/removal-photographic/boundary-runs/\(UUID().uuidString)")
@@ -337,7 +337,7 @@ final class PhotographicRemovalSmartPaintTests: XCTestCase {
       await removal.remove()
       XCTAssertEqual(removal.phase, .ready, removal.message)
       XCTAssertTrue(removal.message.contains("object is too large"), removal.message)
-      XCTAssertTrue(removal.message.contains("1024"), removal.message)
+      XCTAssertTrue(removal.message.contains("2048 × 2048"), removal.message)
       let largeRefusedBeforeInference =
         removal.phase == .ready && removal.job == nil && removal.proposals.isEmpty
       XCTAssertNil(removal.job)

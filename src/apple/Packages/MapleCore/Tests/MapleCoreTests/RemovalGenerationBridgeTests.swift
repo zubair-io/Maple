@@ -11,7 +11,7 @@ final class RemovalGenerationBridgeTests: XCTestCase {
     let intent = try RemovalBridge.selection(
       width: 4096, height: 4096,
       request:
-        "{\"schema\":1,\"strokes\":[{\"points\":[[0.5,0.5]],\"radius\":0.2,\"subtract\":false}]}")
+        "{\"schema\":1,\"strokes\":[{\"points\":[[0.5,0.5]],\"radius\":0.3,\"subtract\":false}]}")
     let original = intent
     XCTAssertThrowsError(
       try NativeRemovalGeneration.plan(
@@ -19,9 +19,8 @@ final class RemovalGenerationBridgeTests: XCTestCase {
         fringeRadius: ExperimentalRemovalModels.fringeRadius)
     ) { error in
       XCTAssertTrue(error.localizedDescription.contains("object is too large"))
-      XCTAssertTrue(
-        error.localizedDescription.contains("\(ExperimentalRemovalModels.lama.nativeSide)"))
-      XCTAssertTrue(error.localizedDescription.contains("source pixels"))
+      XCTAssertTrue(error.localizedDescription.contains("2048 × 2048"))
+      XCTAssertTrue(error.localizedDescription.contains("native source context"))
     }
     XCTAssertEqual(intent, original)
   }

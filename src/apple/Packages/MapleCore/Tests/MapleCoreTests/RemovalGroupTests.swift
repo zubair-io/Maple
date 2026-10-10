@@ -170,8 +170,10 @@ final class RemovalGroupTests: XCTestCase {
       let object = try XCTUnwrap(
         JSONSerialization.jsonObject(with: Data(plan.utf8)) as? [String: Any])
       let window = try XCTUnwrap(object["window"] as? [String: Int])
-      XCTAssertLessThanOrEqual(try XCTUnwrap(window["width"]), 1024)
-      XCTAssertLessThanOrEqual(try XCTUnwrap(window["height"]), 1024)
+      XCTAssertLessThanOrEqual(
+        try XCTUnwrap(window["width"]), 2048)
+      XCTAssertLessThanOrEqual(
+        try XCTUnwrap(window["height"]), 2048)
     }
     let union = try RemovalBridge.combineMasks(masks[0], masks[1])
     XCTAssertThrowsError(
