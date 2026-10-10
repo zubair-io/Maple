@@ -112,11 +112,47 @@ export async function writeXmpAtomic(
   if (!allowed.ok) return allowed;
   const destination = allowed.data;
   return serializeSidecarWrite(destination, async () => {
-    const prepared = await preparePrimarySidecarWrite(destination, xmlContent);
-    if (!prepared.ok) return prepared;
-    const result = await writeSidecarAtomic(destination, prepared.data, 'XMP write failed');
-    return result.ok ? { ok: true, data: prepared.data } : { ok: false, error: result.error };
+    return publishXmpAtDestination(destination, xmlContent);
   });
+}
+
+/** Update a sidecar while holding the same barrier used by every XMP writer. */
+export async function updateXmpAtomic(
+  rawAbsPath: string,
+  update: (existingXml: string) => string | Promise<string>,
+): Promise<OpResult<string>> {
+  const allowed = await primarySidecarDestination(rawAbsPath);
+  if (!allowed.ok) return allowed;
+  const destination = allowed.data;
+  return serializeSidecarWrite(destination, async () => {
+    let existingXml = '';
+    try {
+      existingXml = await fs.readFile(destination, 'utf8');
+    } catch (error: unknown) {
+      if (!isMissingSidecar(error)) {
+        return {
+          ok: false,
+          error: `XMP read failed: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    }
+
+    try {
+      return await publishXmpAtDestination(destination, await update(existingXml));
+    } catch (error: unknown) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+}
+
+async function publishXmpAtDestination(
+  destination: string,
+  xmlContent: string,
+): Promise<OpResult<string>> {
+  const prepared = await preparePrimarySidecarWrite(destination, xmlContent);
+  if (!prepared.ok) return prepared;
+  const result = await writeSidecarAtomic(destination, prepared.data, 'XMP write failed');
+  return result.ok ? { ok: true, data: prepared.data } : { ok: false, error: result.error };
 }
 
 /**
