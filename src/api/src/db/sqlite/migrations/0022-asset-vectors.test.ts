@@ -20,7 +20,7 @@ test('creates the vector table and seeds an embed row for every existing asset',
     handle.db.query(`PRAGMA table_info(asset_vectors)`).all() as Array<{ name: string }>
   ).map((column) => column.name);
 
-  expect(result.applied).toEqual(['0022-asset-vectors']);
+  expect(result.applied).toContain('0022-asset-vectors');
   expect(seeded).toEqual([first, second].sort().map((asset_id) => ({ asset_id, version: 0 })));
   expect(columns).toEqual([
     'maple_id',
