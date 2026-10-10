@@ -8,7 +8,9 @@
  *
  * One query in flight: a query already uses every thread the embedder and the vector scan are
  * given, so a second concurrent one would only slow both. Waiting queries keep their place and
- * give up at {@link QUERY_TIMEOUT_MS} from when they arrived.
+ * give up at {@link QUERY_TIMEOUT_MS} from when they arrived. An in-flight query that outlives
+ * that deadline means a wedged native call that would hold the queue forever, so the child is
+ * killed and restarted exactly as if it had crashed, and everything waiting falls back at once.
  */
 
 import { child as childLogger } from '../log.ts';
@@ -188,6 +190,10 @@ export class SearchChildPool implements InProcessSearch {
   }
 
   private expire(job: Job): void {
+    if (job === this.current) {
+      this.onDeath(this.worker, `a query did not answer within ${QUERY_TIMEOUT_MS} ms`);
+      return;
+    }
     const queued = this.waiting.indexOf(job);
     if (queued >= 0) this.waiting.splice(queued, 1);
     this.settle(job, null);

@@ -4,6 +4,7 @@ import type { SearchEngineOps } from './search-index-sync.ts';
 import type { ChildProcessWorker } from '../runtime/child-process-worker.ts';
 import { SearchChildPool, type InProcessSearch, type SearchEngineStatus } from './search-pool.ts';
 import type {
+  QueryRequest,
   SearchChildConfig,
   SearchChildRequest,
   SearchChildResponse,
@@ -114,7 +115,7 @@ export interface FakeChild {
   terminated: boolean;
   reply(message: SearchChildResponse): void;
   crash(): void;
-  queries(): SearchChildRequest[];
+  queries(): QueryRequest[];
 }
 
 function fakeChild(): { fake: FakeChild; worker: ChildProcessWorker } {
@@ -127,7 +128,7 @@ function fakeChild(): { fake: FakeChild; worker: ChildProcessWorker } {
     terminated: false,
     reply: (message) => listeners.message({ data: message }),
     crash: () => listeners.error({ message: 'search child died — signal=SIGSEGV' }),
-    queries: () => fake.sent.filter((message) => message.type === 'query'),
+    queries: () => fake.sent.filter((message): message is QueryRequest => message.type === 'query'),
   };
   const worker = {
     postMessage: (message: unknown) => fake.sent.push(message as SearchChildRequest),
