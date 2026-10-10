@@ -6,7 +6,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 
 ## Build
 
-- Pipeline output version: 17
+- Pipeline output version: 18
 - Sidecar schema version: 5
 - Capabilities: 14 (0 released, 0 integrated, 14 core)
 
@@ -260,7 +260,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 41
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_adjustments.rs`, `src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs`, `src/raw-pipeline/raw-core/tests/grey_adjustments_wb.rs`, `src/raw-pipeline/raw-core/tests/whites_anchor_develop.rs`
-- Record: satisfied — 41 of 41 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v17, schema v5, commit `771ac58629738f07cdf1c23cca8959a97724b9d5`, recorded 2026-10-08T10:35:32Z
+- Record: satisfied — 41 of 41 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v18, schema v5, commit `665e3f56b3351fdc7e0de96471427947b50297c3`, recorded 2026-10-10T03:59:49Z
 
 ### `synthetic_grey`
 
@@ -269,7 +269,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 6
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_invariants.rs`
-- Record: satisfied — 6 of 6 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v17, schema v5, commit `771ac58629738f07cdf1c23cca8959a97724b9d5`, recorded 2026-10-08T10:35:35Z
+- Record: satisfied — 6 of 6 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v18, schema v5, commit `665e3f56b3351fdc7e0de96471427947b50297c3`, recorded 2026-10-10T03:59:39Z
 
 ### `grey_dcp`
 
@@ -278,7 +278,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 5
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_dcp_phase1.rs`
-- Record: satisfied — 5 of 5 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v17, schema v5, commit `771ac58629738f07cdf1c23cca8959a97724b9d5`, recorded 2026-10-08T10:35:34Z
+- Record: satisfied — 5 of 5 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v18, schema v5, commit `665e3f56b3351fdc7e0de96471427947b50297c3`, recorded 2026-10-10T03:59:52Z
 
 ### `color_chart`
 
@@ -287,7 +287,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 7
 - Corpus: `src/raw-pipeline/raw-core/tests/color_chart_invariants.rs`
-- Record: satisfied — 7 of 7 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v17, schema v5, commit `771ac58629738f07cdf1c23cca8959a97724b9d5`, recorded 2026-10-08T10:35:25Z
+- Record: satisfied — 7 of 7 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v18, schema v5, commit `665e3f56b3351fdc7e0de96471427947b50297c3`, recorded 2026-10-10T03:59:41Z
 
 ### `color_harness`
 
@@ -305,7 +305,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `xctest-macos`
 - Expected cases: 12
 - Corpus: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarContractSupport.swift`, `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractCloudTests.swift`, `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractFilesystemTests.swift`, `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractPhotoKitTests.swift`, `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractSMBTests.swift`
-- Record: satisfied — 12 of 12 executed, 0 failed, 0 skipped, on `xctest-macos`, pipeline v17, schema v5, commit `771ac58629738f07cdf1c23cca8959a97724b9d5`, recorded 2026-10-08T10:36:07Z
+- Record: satisfied — 12 of 12 executed, 0 failed, 0 skipped, on `xctest-macos`, pipeline v18, schema v5, commit `665e3f56b3351fdc7e0de96471427947b50297c3`, recorded 2026-10-10T04:05:15Z
 
 ### `sidecar_contract_api`
 
@@ -314,7 +314,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `bun`
 - Expected cases: 3
 - Corpus: `src/api/src/routes/xmp.sidecar-contract.test.ts`
-- Record: satisfied — 3 of 3 executed, 0 failed, 0 skipped, on `bun`, pipeline v17, schema v5, commit `771ac58629738f07cdf1c23cca8959a97724b9d5`, recorded 2026-10-08T10:35:36Z
+- Record: satisfied — 3 of 3 executed, 0 failed, 0 skipped, on `bun`, pipeline v18, schema v5, commit `665e3f56b3351fdc7e0de96471427947b50297c3`, recorded 2026-10-10T04:00:18Z
 
 ### `gpu_chain_parity_lavapipe`
 
@@ -332,7 +332,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `metal`
 - Expected cases: 19
 - Corpus: `src/raw-pipeline/raw-wasm/src/gpu_render.rs`, `src/raw-pipeline/raw-wasm/src/gpu_render`, `src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng`
-- Record: satisfied — 19 of 19 executed, 0 failed, 0 skipped, on `metal`, pipeline v17, schema v5, commit `771ac58629738f07cdf1c23cca8959a97724b9d5`, recorded 2026-10-08T10:36:17Z
+- Record: satisfied — 19 of 19 executed, 0 failed, 0 skipped, on `metal`, pipeline v18, schema v5, commit `665e3f56b3351fdc7e0de96471427947b50297c3`, recorded 2026-10-10T04:00:18Z
 
 ### `apple_canvas_golden`
 
