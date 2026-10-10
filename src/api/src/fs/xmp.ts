@@ -163,13 +163,14 @@ export async function writeXmpAtomic(
 
 /** Read-merge-write of the primary sidecar inside the same per-sidecar barrier as
  * `writeXmpAtomic`, so a save cannot land between the read and the write (#4402).
- * A missing sidecar reaches `merge` as the empty string. */
+ * A missing sidecar reaches `merge` as the empty string. A merge that leaves the
+ * published bytes identical skips the write and reports `unchanged` (#4468). */
 export async function updateXmpAtomic(
   rawAbsPath: string,
   merge: (existingXml: string) => string,
   signal?: AbortSignal,
   admissionScope?: string,
-): Promise<OpResult<string>> {
+): Promise<OpResult<'written' | 'unchanged'>> {
   try {
     return await serializeSidecarWrite(
       xmpSidecarPath(rawAbsPath),
@@ -184,8 +185,20 @@ export async function updateXmpAtomic(
                   error: `XMP read failed: ${error instanceof Error ? error.message : String(error)}`,
                 },
         );
-        if (!existing.ok) return existing;
-        return publishPrimarySidecar(destination, merge(existing.data ?? ''), signal);
+        if (!existing.ok) return { ok: false, error: existing.error };
+        const current = existing.data ?? '';
+        signal?.throwIfAborted();
+        const prepared = await preparePrimarySidecarWrite(destination, merge(current), signal);
+        if (!prepared.ok) return prepared;
+        if (prepared.data === current) return { ok: true, data: 'unchanged' };
+        signal?.throwIfAborted();
+        const result = await writeSidecarAtomic(
+          destination,
+          prepared.data,
+          'XMP write failed',
+          signal,
+        );
+        return result.ok ? { ok: true, data: 'written' } : { ok: false, error: result.error };
       },
       {
         admissionScope,
