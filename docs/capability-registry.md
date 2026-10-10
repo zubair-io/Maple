@@ -332,7 +332,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `metal`
 - Expected cases: 22
 - Corpus: `src/raw-pipeline/raw-wasm/src/gpu_render.rs`, `src/raw-pipeline/raw-wasm/src/gpu_render`, `src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng`
-- Record: satisfied — 22 of 22 executed, 0 failed, 0 skipped, on `metal`, pipeline v18, schema v5, commit `9d6c73d40da0d5f22151446213de2a7527310170`, recorded 2026-10-10T10:08:50Z
+- Record: satisfied — 22 of 22 executed, 0 failed, 0 skipped, on `metal`, pipeline v18, schema v5, commit `b33c800540b80f7056bcde278a33f63710aa68cc`, recorded 2026-10-10T12:06:46Z
 
 ### `apple_canvas_golden`
 

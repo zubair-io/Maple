@@ -919,19 +919,19 @@
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:ba8960d4d317ea892490efc3084d287860cf2ed030856b0ac9dccc8b483d657a",
+      "corpus_hash": "blake3:bba9791e814f62729ad999aad67078c945cdb68be78decc99c1aa9a69760abfe",
       "status": "satisfied",
       "record": {
         "backend": "metal",
         "pipeline_version": 18,
         "schema_version": 5,
-        "corpus_hash": "blake3:ba8960d4d317ea892490efc3084d287860cf2ed030856b0ac9dccc8b483d657a",
+        "corpus_hash": "blake3:bba9791e814f62729ad999aad67078c945cdb68be78decc99c1aa9a69760abfe",
         "expected_cases": 22,
         "executed_cases": 22,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "9d6c73d40da0d5f22151446213de2a7527310170",
-        "recorded_at": "2026-10-10T10:08:50Z",
+        "git_sha": "b33c800540b80f7056bcde278a33f63710aa68cc",
+        "recorded_at": "2026-10-10T12:06:46Z",
         "command": "bash -c cd\\ src/raw-pipeline\\ \\&\\&\\ MAPLE_REQUIRE_GPU=1\\ cargo\\ test\\ -p\\ raw-wasm\\ --features\\ gpu\\ gpu_render"
       }
     },
