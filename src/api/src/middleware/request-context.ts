@@ -384,7 +384,7 @@ export const requestContext = new Elysia({ name: 'requestContext' })
       // any structured fields (e.g. a driver's own error codes).
       log.error({ err: error }, 'request error');
     } else {
-      log.debug({ err: error, status }, 'request client error');
+      log.info({ status, error: message }, 'request error');
     }
 
     const envelope: ErrorEnvelope = {

@@ -18,8 +18,9 @@
  * environment regardless of whether the DB fixtures are available.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, spyOn } from 'bun:test';
 import { Elysia } from 'elysia';
+import * as logModule from '../src/log.ts';
 import { requestContext, errorEnvelope } from '../src/middleware/request-context.ts';
 
 // Helper: mount a tiny Elysia app behind the requestContext plugin.
@@ -159,32 +160,31 @@ describe('requestContext: error envelope shape', () => {
     expect(typeof body.requestId).toBe('string');
   });
 
-  test('4xx client errors (401 missing bearer) log at debug, not error', async () => {
+  test('4xx client errors (401 missing bearer) log at info, not error', async () => {
     let errorCalled = false;
-    let debugCalled = false;
-    const logModule = await import('../src/log.ts');
+    let infoCalled = false;
     const origChild = logModule.child;
-    const spy = (await import('bun:test'))
-      .spyOn(logModule, 'child')
-      .mockImplementation((component: string) => {
-        const real = origChild(component);
-        const originalChildMethod = real.child.bind(real);
-        return Object.assign(real, {
-          child: (bindings: any) => {
-            const childReal = originalChildMethod(bindings);
-            return Object.assign(childReal, {
-              error: (...args: any[]) => {
-                errorCalled = true;
-                return (childReal.error as any)(...args);
-              },
-              debug: (...args: any[]) => {
-                debugCalled = true;
-                return (childReal.debug as any)(...args);
-              },
-            });
-          },
-        });
+    const spy = spyOn(logModule, 'child').mockImplementation((component: string) => {
+      const real = origChild(component);
+      const originalChildMethod = real.child.bind(real);
+      return Object.assign(real, {
+        child: (...bindingsArgs: Parameters<typeof originalChildMethod>) => {
+          const childReal = originalChildMethod(...bindingsArgs);
+          const origError = childReal.error.bind(childReal);
+          const origInfo = childReal.info.bind(childReal);
+          return Object.assign(childReal, {
+            error: (...args: Parameters<typeof origError>) => {
+              errorCalled = true;
+              return origError(...args);
+            },
+            info: (...args: Parameters<typeof origInfo>) => {
+              infoCalled = true;
+              return origInfo(...args);
+            },
+          });
+        },
       });
+    });
 
     try {
       const app = appWith((a) =>
@@ -196,7 +196,48 @@ describe('requestContext: error envelope shape', () => {
       const res = await app.handle(new Request('http://localhost/unauthed'));
       expect(res.status).toBe(401);
       expect(errorCalled).toBe(false);
-      expect(debugCalled).toBe(true);
+      expect(infoCalled).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test('5xx server errors log at error, not info', async () => {
+    let errorCalled = false;
+    let infoCalled = false;
+    const origChild = logModule.child;
+    const spy = spyOn(logModule, 'child').mockImplementation((component: string) => {
+      const real = origChild(component);
+      const originalChildMethod = real.child.bind(real);
+      return Object.assign(real, {
+        child: (...bindingsArgs: Parameters<typeof originalChildMethod>) => {
+          const childReal = originalChildMethod(...bindingsArgs);
+          const origError = childReal.error.bind(childReal);
+          const origInfo = childReal.info.bind(childReal);
+          return Object.assign(childReal, {
+            error: (...args: Parameters<typeof origError>) => {
+              errorCalled = true;
+              return origError(...args);
+            },
+            info: (...args: Parameters<typeof origInfo>) => {
+              infoCalled = true;
+              return origInfo(...args);
+            },
+          });
+        },
+      });
+    });
+
+    try {
+      const app = appWith((a) =>
+        a.get('/internal-boom', () => {
+          throw new Error('something crashed');
+        }),
+      );
+      const res = await app.handle(new Request('http://localhost/internal-boom'));
+      expect(res.status).toBe(500);
+      expect(errorCalled).toBe(true);
+      expect(infoCalled).toBe(false);
     } finally {
       spy.mockRestore();
     }
