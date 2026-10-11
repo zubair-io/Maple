@@ -29,15 +29,18 @@
 
     /// `axisBehavior` first appears in the iOS 27.1 SDK. `#available` only
     /// guards execution, so it cannot keep an older SDK from failing to
-    /// compile the symbol; the compiler check is the SDK gate. Xcode 27.0
-    /// ships Swift 6.4.0 and Xcode's point releases bump the patch (26.0 was
-    /// 6.2.0, 26.1 was 6.2.1), so `>= 6.4.1` selects Xcode 27.1 and later.
-    /// Older toolchains build the same items without the vertical hint.
+    /// compile the symbol, and the compiler version cannot tell the SDKs
+    /// apart either (Xcode 27.0 and 27.1 both report swiftlang-6.4.0). The
+    /// gate is therefore the SDK itself: `Maple.xcodeproj` defines
+    /// `MAPLE_SDK_TOOLBAR_AXIS_BEHAVIOR` for the app target and withholds it
+    /// under `[sdk=iphoneos26*]` / `[sdk=iphoneos27.0*]` (and the simulator
+    /// twins), so every newer SDK takes the vertical hint and the older ones
+    /// build the same items without it.
     @ToolbarContentBuilder
     private func railItem<Content: View>(
       @ViewBuilder _ content: () -> Content
     ) -> some ToolbarContent {
-      #if compiler(>=6.4.1)
+      #if MAPLE_SDK_TOOLBAR_AXIS_BEHAVIOR
         if #available(iOS 27.1, *) {
           ToolbarItem(placement: .topBarTrailing, content: content)
             .axisBehavior(.verticalPreferred)
