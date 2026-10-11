@@ -1343,6 +1343,11 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) MAPLE_SDK_TOOLBAR_AXIS_BEHAVIOR";
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphoneos26*]" = "$(inherited)";
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphoneos27.0*]" = "$(inherited)";
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphonesimulator26*]" = "$(inherited)";
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphonesimulator27.0*]" = "$(inherited)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.10;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -1422,6 +1427,11 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) MAPLE_SDK_TOOLBAR_AXIS_BEHAVIOR";
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphoneos26*]" = "$(inherited)";
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphoneos27.0*]" = "$(inherited)";
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphonesimulator26*]" = "$(inherited)";
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphonesimulator27.0*]" = "$(inherited)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.10;
 				TARGETED_DEVICE_FAMILY = "1,2";
