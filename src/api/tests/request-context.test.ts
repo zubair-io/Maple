@@ -12,6 +12,8 @@
  *   - The DB-unavailable carve-out keeps its 503 + `tip` semantic, and
  *     distinguishes an unusable database from a statement that was wrong
  *     with `tip` at the top level (the existing operator UI reads it there).
+ *   - 4xx client errors (401, 404, etc.) log at info level with status and error, not error level.
+ *   - 5xx server errors log at error level with err and status.
  *
  * No MongoDB required — every case mounts a tiny Elysia app from
  * `requestContext` + an inline route, so this file runs in every CI
@@ -36,6 +38,42 @@ function appWith(builder: (a: AnyApp) => AnyApp): AnyApp {
   return builder(new Elysia().use(requestContext));
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
+
+interface LogCapture {
+  errorCalls: Array<{ bindings: Record<string, unknown>; args: unknown[] }>;
+  infoCalls: Array<{ bindings: Record<string, unknown>; args: unknown[] }>;
+  restore: () => void;
+}
+
+function captureRequestLogLevels(): LogCapture {
+  const errorCalls: Array<{ bindings: Record<string, unknown>; args: unknown[] }> = [];
+  const infoCalls: Array<{ bindings: Record<string, unknown>; args: unknown[] }> = [];
+  const origChild = logModule.child;
+  const spy = spyOn(logModule, 'child').mockImplementation((component: string) => {
+    const real = origChild(component);
+    const originalChildMethod = real.child.bind(real);
+    return Object.assign(real, {
+      child: (...bindingsArgs: Parameters<typeof originalChildMethod>) => {
+        const bindings = (bindingsArgs[0] ?? {}) as Record<string, unknown>;
+        const childReal = originalChildMethod(...bindingsArgs);
+        return Object.assign(childReal, {
+          error: (...args: unknown[]) => {
+            errorCalls.push({ bindings, args });
+          },
+          info: (...args: unknown[]) => {
+            infoCalls.push({ bindings, args });
+          },
+        });
+      },
+    });
+  });
+
+  return {
+    errorCalls,
+    infoCalls,
+    restore: () => spy.mockRestore(),
+  };
+}
 
 describe('requestContext: request-id header', () => {
   test('generates X-Request-Id on success when client omits it', async () => {
@@ -160,32 +198,8 @@ describe('requestContext: error envelope shape', () => {
     expect(typeof body.requestId).toBe('string');
   });
 
-  test('4xx client errors (401 missing bearer) log at info, not error', async () => {
-    let errorCalled = false;
-    let infoCalled = false;
-    const origChild = logModule.child;
-    const spy = spyOn(logModule, 'child').mockImplementation((component: string) => {
-      const real = origChild(component);
-      const originalChildMethod = real.child.bind(real);
-      return Object.assign(real, {
-        child: (...bindingsArgs: Parameters<typeof originalChildMethod>) => {
-          const childReal = originalChildMethod(...bindingsArgs);
-          const origError = childReal.error.bind(childReal);
-          const origInfo = childReal.info.bind(childReal);
-          return Object.assign(childReal, {
-            error: (...args: Parameters<typeof origError>) => {
-              errorCalled = true;
-              return origError(...args);
-            },
-            info: (...args: Parameters<typeof origInfo>) => {
-              infoCalled = true;
-              return origInfo(...args);
-            },
-          });
-        },
-      });
-    });
-
+  test('4xx client errors (401 missing bearer) log at info with payload, not error', async () => {
+    const capture = captureRequestLogLevels();
     try {
       const app = appWith((a) =>
         a.get('/unauthed', ({ set }: { set: { status: number } }) => {
@@ -195,39 +209,32 @@ describe('requestContext: error envelope shape', () => {
       );
       const res = await app.handle(new Request('http://localhost/unauthed'));
       expect(res.status).toBe(401);
-      expect(errorCalled).toBe(false);
-      expect(infoCalled).toBe(true);
+      expect(capture.errorCalls.length).toBe(0);
+      expect(capture.infoCalls.length).toBe(1);
+      expect(capture.infoCalls[0].args[0]).toEqual({ status: 401, error: 'missing bearer' });
+      expect(capture.infoCalls[0].args[1]).toBe('request error');
     } finally {
-      spy.mockRestore();
+      capture.restore();
     }
   });
 
-  test('5xx server errors log at error, not info', async () => {
-    let errorCalled = false;
-    let infoCalled = false;
-    const origChild = logModule.child;
-    const spy = spyOn(logModule, 'child').mockImplementation((component: string) => {
-      const real = origChild(component);
-      const originalChildMethod = real.child.bind(real);
-      return Object.assign(real, {
-        child: (...bindingsArgs: Parameters<typeof originalChildMethod>) => {
-          const childReal = originalChildMethod(...bindingsArgs);
-          const origError = childReal.error.bind(childReal);
-          const origInfo = childReal.info.bind(childReal);
-          return Object.assign(childReal, {
-            error: (...args: Parameters<typeof origError>) => {
-              errorCalled = true;
-              return origError(...args);
-            },
-            info: (...args: Parameters<typeof origInfo>) => {
-              infoCalled = true;
-              return origInfo(...args);
-            },
-          });
-        },
-      });
-    });
+  test('404 NOT_FOUND path logs at info, not error', async () => {
+    const capture = captureRequestLogLevels();
+    try {
+      const app = appWith((a) => a.get('/exists', () => ({ ok: true })));
+      const res = await app.handle(new Request('http://localhost/not-a-real-route'));
+      expect(res.status).toBe(404);
+      expect(capture.errorCalls.length).toBe(0);
+      expect(capture.infoCalls.length).toBe(1);
+      expect((capture.infoCalls[0].args[0] as { status: number }).status).toBe(404);
+      expect(capture.infoCalls[0].args[1]).toBe('request error');
+    } finally {
+      capture.restore();
+    }
+  });
 
+  test('5xx server errors log at error with err and status, not info', async () => {
+    const capture = captureRequestLogLevels();
     try {
       const app = appWith((a) =>
         a.get('/internal-boom', () => {
@@ -236,10 +243,14 @@ describe('requestContext: error envelope shape', () => {
       );
       const res = await app.handle(new Request('http://localhost/internal-boom'));
       expect(res.status).toBe(500);
-      expect(errorCalled).toBe(true);
-      expect(infoCalled).toBe(false);
+      expect(capture.infoCalls.length).toBe(0);
+      expect(capture.errorCalls.length).toBe(1);
+      const payload = capture.errorCalls[0].args[0] as { status: number; err: Error };
+      expect(payload.status).toBe(500);
+      expect(payload.err.message).toBe('something crashed');
+      expect(capture.errorCalls[0].args[1]).toBe('request error');
     } finally {
-      spy.mockRestore();
+      capture.restore();
     }
   });
 });

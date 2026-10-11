@@ -382,7 +382,7 @@ export const requestContext = new Elysia({ name: 'requestContext' })
     if (status >= 500) {
       // Pass the raw error to pino so its serializer preserves the stack +
       // any structured fields (e.g. a driver's own error codes).
-      log.error({ err: error }, 'request error');
+      log.error({ err: error, status }, 'request error');
     } else {
       log.info({ status, error: message }, 'request error');
     }
