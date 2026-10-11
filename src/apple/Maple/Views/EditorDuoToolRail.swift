@@ -22,25 +22,31 @@
         ForEach(ToolGroup.allCases, id: \.self) { group in groupButton(group) }
       }
       if showsSpecialTools {
-        ForEach(visibleTools, id: \.self) { tool in
-          if #available(iOS 27.1, *) {
-            ToolbarItem(placement: .topBarTrailing) {
-              toolButton(tool)
-            }
-            .axisBehavior(.verticalPreferred)
-          } else {
-            ToolbarItem(placement: .topBarTrailing) {
-              toolButton(tool)
-            }
-          }
-        }
+        ForEach(visibleTools, id: \.self) { tool in railItem { toolButton(tool) } }
+        railItem { moreMenu }
+      }
+    }
+
+    /// `axisBehavior` first appears in the iOS 27.1 SDK. `#available` only
+    /// guards execution, so it cannot keep an older SDK from failing to
+    /// compile the symbol; the compiler check is the SDK gate. Xcode 27.0
+    /// ships Swift 6.4.0 and Xcode's point releases bump the patch (26.0 was
+    /// 6.2.0, 26.1 was 6.2.1), so `>= 6.4.1` selects Xcode 27.1 and later.
+    /// Older toolchains build the same items without the vertical hint.
+    @ToolbarContentBuilder
+    private func railItem<Content: View>(
+      @ViewBuilder _ content: () -> Content
+    ) -> some ToolbarContent {
+      #if compiler(>=6.4.1)
         if #available(iOS 27.1, *) {
-          ToolbarItem(placement: .topBarTrailing) { moreMenu }
+          ToolbarItem(placement: .topBarTrailing, content: content)
             .axisBehavior(.verticalPreferred)
         } else {
-          ToolbarItem(placement: .topBarTrailing) { moreMenu }
+          ToolbarItem(placement: .topBarTrailing, content: content)
         }
-      }
+      #else
+        ToolbarItem(placement: .topBarTrailing, content: content)
+      #endif
     }
 
     private func groupButton(_ group: ToolGroup) -> some View {
