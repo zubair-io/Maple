@@ -131,7 +131,10 @@ test('legacy checkpoints are safely discarded and restarted in the current backu
   });
   expect(object.sha256).toBe(content.sha256);
   expect(store.files.get(object.locator)!.parents[0]).not.toBe(root);
-  expect(checkpoint?.state).toMatchObject({ parentId: expect.any(String), replace: false });
+  expect(checkpoint?.state).toMatchObject({
+    parentId: expect.any(String),
+    replace: false,
+  });
 });
 test('immutable key content mismatch never overwrites existing Google bytes', async () => {
   const store = googleStore();
@@ -281,7 +284,7 @@ test('cleanup of a corrupt reservation cannot delete another owned backup object
         session: null,
       },
     }),
-  ).rejects.toThrow('changed upload reservation');
+  ).rejects.toThrow('database object mapping does not match the backup marker');
   expect(store.files.has(object.locator)).toBe(true);
   expect(store.requests.some((request) => request.method === 'DELETE')).toBe(false);
 });
@@ -306,7 +309,10 @@ test('exact inspection queries a bounded public key hash and never enumerates un
       id: `unrelated-${index}`,
       parents: [root],
       properties: { mapleKeyHash: logicalKeyHash(otherKey) },
-      description: JSON.stringify({ ...JSON.parse(file.description), key: otherKey }),
+      description: JSON.stringify({
+        ...JSON.parse(file.description),
+        key: otherKey,
+      }),
     });
   }
   const beforeSearch = store.requests.length;
@@ -351,6 +357,34 @@ test('portable root listings and direct downloads do not depend on the searchabl
   expect(await provider.inspect(object.key, undefined, object.locator)).toBeNull();
 });
 
+test('database-mapped mirror files recover from missing Drive markers and repair changed bytes', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const key = `mirror/${'a'.repeat(24)}/2026/photo.jpg`;
+  const original = source(new Uint8Array([1, 2, 3]));
+  const object = await provider.mirrorFile(key, '2026/photo.jpg', original, {
+    saveCheckpoint: async () => {},
+  });
+  const file = store.files.get(object.locator)!;
+  expect(JSON.parse(file.description).key).toBe(key);
+  expect(file.properties?.mapleKeyHash).toBe(logicalKeyHash(key));
+
+  // A legacy marker that was edited or truncated has no bearing on the DB mapping.
+  file.description = '{}';
+  expect(await provider.inspect(key, undefined, object.locator, object)).toEqual(object);
+
+  file.bytes = new Uint8Array([9, 9, 9]);
+  file.size = '3';
+  file.sha256Checksum = sha(file.bytes);
+  const repaired = await provider.mirrorFile(key, '2026/photo.jpg', original, {
+    expected: object,
+    saveCheckpoint: async () => {},
+  });
+  expect(repaired.locator).toBe(object.locator);
+  expect(repaired.sha256).toBe(original.sha256);
+  expect(store.files.get(object.locator)!.bytes).toEqual(new Uint8Array([1, 2, 3]));
+});
+
 test('cached photo folders are checked before reading them after a user moves one outside the root', async () => {
   const store = googleStore();
   const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
@@ -379,7 +413,10 @@ test('exact search rejects inconsistent public metadata and duplicates across re
   });
   const file = store.files.get(object.locator)!;
   const original = file.description;
-  file.description = JSON.stringify({ ...JSON.parse(original), key: 'blobs/wrong-key' });
+  file.description = JSON.stringify({
+    ...JSON.parse(original),
+    key: 'blobs/wrong-key',
+  });
   await expect(provider.inspect(object.key)).rejects.toThrow('search index');
   file.description = original;
   const paged: GoogleFetch = async (raw, init) => {
@@ -390,7 +427,12 @@ test('exact search rejects inconsistent public metadata and duplicates across re
     ) {
       expect(url.searchParams.get('q')).toContain(`value='${logicalKeyHash(object.key)}'`);
       return Response.json({
-        files: [{ ...file, id: url.searchParams.has('pageToken') ? 'duplicate-id' : file.id }],
+        files: [
+          {
+            ...file,
+            id: url.searchParams.has('pageToken') ? 'duplicate-id' : file.id,
+          },
+        ],
         ...(url.searchParams.has('pageToken') ? {} : { nextPageToken: 'second-page' }),
       });
     }

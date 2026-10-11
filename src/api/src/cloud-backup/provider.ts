@@ -25,13 +25,19 @@ export interface PublishSource {
 export interface BackupProvider {
   probe(signal?: AbortSignal): Promise<void>;
   list(prefix: string, signal?: AbortSignal): AsyncIterable<BackupObject>;
-  inspect(key: string, signal?: AbortSignal, locator?: string): Promise<BackupObject | null>;
+  inspect(
+    key: string,
+    signal?: AbortSignal,
+    locator?: string,
+    expected?: BackupObject,
+  ): Promise<BackupObject | null>;
   publish(
     key: string,
     source: PublishSource,
     options: {
       signal?: AbortSignal;
       checkpoint?: UploadCheckpoint | null;
+      expected?: BackupObject | null;
       saveCheckpoint: (checkpoint: UploadCheckpoint) => Promise<void>;
     },
   ): Promise<BackupObject>;
@@ -43,6 +49,7 @@ export interface BackupProvider {
     options: {
       signal?: AbortSignal;
       checkpoint?: UploadCheckpoint | null;
+      expected?: BackupObject | null;
       saveCheckpoint: (checkpoint: UploadCheckpoint) => Promise<void>;
     },
   ): Promise<BackupObject>;

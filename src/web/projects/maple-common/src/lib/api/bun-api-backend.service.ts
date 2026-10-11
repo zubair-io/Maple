@@ -271,23 +271,9 @@ export interface ApiVision {
   setting: string | null;
   activity: string | null;
   time_of_day:
-    | 'morning'
-    | 'midday'
-    | 'afternoon'
-    | 'golden hour'
-    | 'evening'
-    | 'night'
-    | 'unknown'
-    | null;
+    'morning' | 'midday' | 'afternoon' | 'golden hour' | 'evening' | 'night' | 'unknown' | null;
   lighting:
-    | 'natural'
-    | 'artificial'
-    | 'mixed'
-    | 'low-light'
-    | 'backlit'
-    | 'flash'
-    | 'unknown'
-    | null;
+    'natural' | 'artificial' | 'mixed' | 'low-light' | 'backlit' | 'flash' | 'unknown' | null;
   weather: 'clear' | 'cloudy' | 'rainy' | 'snowy' | 'foggy' | 'indoor' | 'unknown' | null;
   mood: string;
   colors: string[];
@@ -372,6 +358,23 @@ export interface ApiAssetDetail {
   hidden_reason?: 'manual' | 'nudity' | 'nudity-burst' | 'folder' | null;
   hidden_ack?: boolean;
   enrichment: ApiEnrichment;
+  /** Per-destination mirror state, projected from Maple's SQLite backup tables. */
+  mirrors?: ApiAssetMirrorState[];
+}
+
+export interface ApiAssetMirrorState {
+  destinationId: string;
+  destinationName: string;
+  provider: 'folder' | 'google-drive';
+  enabled: boolean;
+  path: string;
+  state: 'active' | 'trash' | 'purged';
+  status: 'synced' | 'pending' | 'error' | 'paused' | 'trash' | 'purged';
+  sequence: number;
+  verifiedSequence: number;
+  attempts: number;
+  retryAt: number;
+  lastError: string | null;
 }
 
 /** `ApiAssetDetail` plus the `slug:relPath` address `GET /api/photos/hidden`
@@ -876,18 +879,17 @@ export class BunApiBackendService {
           },
         )
         .pipe(
-          map(
-            (r): ApiRenameOutcome =>
-              r.skipped
-                ? { kind: 'skipped', reason: r.reason ?? 'skipped' }
-                : {
-                    kind: 'renamed',
-                    newAbsPath: r.new_abs_path ?? '',
-                    newPath: r.new_path ?? '',
-                    newFilename: r.new_filename ?? newFilename,
-                    renamedOnCollision: r.renamed_on_collision ?? false,
-                    extensionChanged: r.extension_changed ?? false,
-                  },
+          map((r): ApiRenameOutcome =>
+            r.skipped
+              ? { kind: 'skipped', reason: r.reason ?? 'skipped' }
+              : {
+                  kind: 'renamed',
+                  newAbsPath: r.new_abs_path ?? '',
+                  newPath: r.new_path ?? '',
+                  newFilename: r.new_filename ?? newFilename,
+                  renamedOnCollision: r.renamed_on_collision ?? false,
+                  extensionChanged: r.extension_changed ?? false,
+                },
           ),
         ),
     );
@@ -929,17 +931,16 @@ export class BunApiBackendService {
           },
         )
         .pipe(
-          map(
-            (r): ApiRelocateOutcome =>
-              r.skipped
-                ? { kind: 'skipped', reason: r.reason ?? 'skipped' }
-                : {
-                    kind: 'relocated',
-                    newAbsPath: r.new_abs_path ?? '',
-                    newPath: r.new_path ?? '',
-                    newFilename: r.new_filename ?? destinationFilename ?? '',
-                    renamedOnCollision: r.renamed_on_collision ?? false,
-                  },
+          map((r): ApiRelocateOutcome =>
+            r.skipped
+              ? { kind: 'skipped', reason: r.reason ?? 'skipped' }
+              : {
+                  kind: 'relocated',
+                  newAbsPath: r.new_abs_path ?? '',
+                  newPath: r.new_path ?? '',
+                  newFilename: r.new_filename ?? destinationFilename ?? '',
+                  renamedOnCollision: r.renamed_on_collision ?? false,
+                },
           ),
         ),
     );
