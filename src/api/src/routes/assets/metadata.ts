@@ -32,6 +32,7 @@ import {
 import { loadLibraryIdToSlug, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { mapWithConcurrency } from '../../imports/capture-time.ts';
 import { resolveAssetInfoOrRespond, resolveAssetLocationOrRespond } from './_shared.ts';
+import { backupEngine } from '../../cloud-backup/runtime.ts';
 
 /**
  * Resolve an absolute server path to the registered library that contains it.
@@ -91,6 +92,11 @@ async function withSidecarStat<T extends { abs_path: string }>(
   }
 }
 
+async function withBackupMirrors<T extends { id: string }>(dto: T) {
+  const mirrors = await backupEngine.repo.mirrorsForAssets([dto.id]);
+  return { ...dto, mirrors: mirrors.get(dto.id) ?? [] };
+}
+
 export const metadataRoutes = new Elysia()
   // Single asset metadata by `slug:relPath` address.
   //
@@ -131,7 +137,7 @@ export const metadataRoutes = new Elysia()
       set.status = 404;
       return { error: 'Asset not indexed' };
     }
-    return withSidecarStat(dto);
+    return withSidecarStat(await withBackupMirrors(dto));
   })
 
   // Single asset detail by absolute server path.
@@ -163,7 +169,9 @@ export const metadataRoutes = new Elysia()
       set.status = 404;
       return { error: 'Asset not indexed' };
     }
-    return withSidecarStat(hit.address ? { ...dto, address: hit.address } : dto);
+    return withSidecarStat(
+      await withBackupMirrors(hit.address ? { ...dto, address: hit.address } : dto),
+    );
   })
 
   // Bulk asset metadata (#2995). The File Provider's change-feed
@@ -189,9 +197,12 @@ export const metadataRoutes = new Elysia()
       return { error: 'Invalid asset id in ids' };
     }
     const dtos = await findDetailsByIds(parsed as ObjectId[]);
+    const mirrors = await backupEngine.repo.mirrorsForAssets(dtos.map((dto) => dto.id));
     // Bounded: a 500-id page is 500 stats; keep the fd pressure flat.
     return {
-      assets: await mapWithConcurrency(dtos, SIDECAR_STAT_CONCURRENCY, withSidecarStat),
+      assets: await mapWithConcurrency(dtos, SIDECAR_STAT_CONCURRENCY, (dto) =>
+        withSidecarStat({ ...dto, mirrors: mirrors.get(dto.id) ?? [] }),
+      ),
     };
   })
 
@@ -208,7 +219,7 @@ export const metadataRoutes = new Elysia()
       set.status = 404;
       return { error: 'Asset not found' };
     }
-    return withSidecarStat(dto);
+    return withSidecarStat(await withBackupMirrors(dto));
   })
 
   // Stream raw bytes

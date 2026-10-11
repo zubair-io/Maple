@@ -103,7 +103,7 @@ async function removeStaleEntryObject(
   if (!mirrorKey && !legacyKey) return;
   const owner = await repo.objectOwner(destination.id, expected.key);
   if (owner?.entryId !== entry.id || !sameObjectIdentity(owner.object, expected)) return;
-  const current = await provider.inspect(expected.key, signal, expected.locator);
+  const current = await provider.inspect(expected.key, signal, expected.locator, expected);
   if (!sameObjectIdentity(current, expected)) return;
   const stillOwned = await repo.objectOwner(destination.id, expected.key);
   if (stillOwned?.entryId !== entry.id || !sameObjectIdentity(stillOwned.object, expected)) return;
@@ -123,6 +123,7 @@ export class BackupEngine {
     const rows = await this.repo.db.read<{ id: string }>(
       `SELECT e.id FROM backup_entries e JOIN backup_destinations d ON d.id=e.destination_id
       WHERE e.id=? AND e.sequence=? AND e.verified_sequence=e.sequence AND e.state!='purged'
+      AND e.last_error IS NULL
       AND d.id=? AND d.enabled=1 AND d.generation=? AND d.root_id IS ? AND d.account_id IS ?
       AND NOT EXISTS (SELECT 1 FROM backup_lifecycle l WHERE l.asset_id=e.asset_id
         AND ((l.phase='prepared' AND l.library_id=d.library_id) OR l.kind='purge'))`,
@@ -146,7 +147,12 @@ export class BackupEngine {
     signal?: AbortSignal,
   ): Promise<BackupObject> {
     const saved = await this.repo.object(destination.id, key);
-    const existing = await provider.inspect(key, signal, saved.object?.locator);
+    const existing = await provider.inspect(
+      key,
+      signal,
+      saved.object?.locator,
+      saved.object ?? undefined,
+    );
     if (existing) {
       if (existing.size !== source.size || existing.sha256 !== source.sha256)
         throw new Error('Backup immutable object integrity mismatch');
@@ -159,7 +165,7 @@ export class BackupEngine {
       key,
       source,
       saved.checkpoint,
-      (options) => provider.publish(key, source, options),
+      (options) => provider.publish(key, source, { ...options, expected: saved.object }),
       'Backup transfer',
       signal,
     );
@@ -180,7 +186,11 @@ export class BackupEngine {
       key,
       source,
       saved.checkpoint,
-      (options) => provider.mirrorFile(key, relativePath, source, options),
+      (options) =>
+        provider.mirrorFile(key, relativePath, source, {
+          ...options,
+          expected: saved.object ?? undefined,
+        }),
       'Backup mirror',
       signal,
     );
@@ -326,7 +336,7 @@ export class BackupEngine {
       location.relative_path,
     );
     if (signal?.aborted) return false;
-    if (initial.verified_sequence === initial.sequence)
+    if (initial.verified_sequence === initial.sequence && initial.last_error === null)
       return this.verifiedCurrent(initial, destination);
     const owner = crypto.randomUUID();
     if (initial.state === 'purged' || !(await repo.claim(initial, owner))) return false;

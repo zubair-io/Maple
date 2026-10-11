@@ -46,7 +46,11 @@ function selected(entries: BackupManifest[], request: RecoveryRequest): BackupMa
 }
 function recoveryFiles(entries: BackupManifest[]) {
   const files = entries.flatMap((entry) =>
-    entry.files.map((file) => ({ ...file, entryId: entry.entryId, libraryId: entry.libraryId })),
+    entry.files.map((file) => ({
+      ...file,
+      entryId: entry.entryId,
+      libraryId: entry.libraryId,
+    })),
   );
   const names = new Set<string>();
   for (const file of files) {
@@ -71,7 +75,12 @@ async function recoveryGaps(
   for (const file of files) {
     signal?.throwIfAborted();
     try {
-      const actual = await provider.inspect(file.object.key, signal, file.object.locator);
+      const actual = await provider.inspect(
+        file.object.key,
+        signal,
+        file.object.locator,
+        file.object,
+      );
       if (!actual) gaps.push(`${file.path}: backup object is missing or outside the backup root`);
       else if (
         actual.key !== file.object.key ||
@@ -148,7 +157,7 @@ async function verifyOwnedFile(
 }
 async function writeRecoveryChunk(handle: RecoveryFileHandle, chunk: Uint8Array): Promise<void> {
   // FileHandle.write may write a partial buffer.
-  for (let offset = 0; offset < chunk.length; ) {
+  for (let offset = 0; offset < chunk.length;) {
     const written = await handle.write(chunk, offset, chunk.length - offset);
     if (!written.bytesWritten) throw new Error('Recovery disk write made no progress');
     offset += written.bytesWritten;
@@ -398,11 +407,18 @@ export async function recoverBackup(
     const folderId = await indexRecovery(provider, journal, cancellation);
     return {
       kind: 'done' as const,
-      result: { files: progress.files, targetPath: root, libraryId: folderId.toHexString() },
+      result: {
+        files: progress.files,
+        targetPath: root,
+        libraryId: folderId.toHexString(),
+      },
     };
   } catch (error) {
     if (cancellation.controller.signal.reason instanceof RecoveryCancelled)
-      return { kind: 'cancelled' as const, result: { files: progress.files, targetPath: root } };
+      return {
+        kind: 'cancelled' as const,
+        result: { files: progress.files, targetPath: root },
+      };
     throw error;
   } finally {
     cancellation.stop();
