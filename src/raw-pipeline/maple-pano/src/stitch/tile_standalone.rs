@@ -11,15 +11,11 @@
 
 use std::path::PathBuf;
 
-use crate::features::{AlikedDetector, DetectorOptions, LinearRgbFrame};
-use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{DescriptorTopKProvider, LoopClosureCheck, LoopClosureGate, MatchGraph};
 use crate::ingest::{ingest_file_proxy, FrameMeta, FramePriors};
-use crate::matching::{LightGlueMatcher, MatcherOptions};
-use crate::models::ModelDir;
-use crate::stitch::interleave_planar;
 use crate::strategy::StrategyReport;
 
+use super::engine::extract_features;
 use super::tile_stitch::{tile_tail, TileEarlyState};
 use super::types::{StitchError, StitchOptions, TileStitchOutcome};
 
@@ -99,52 +95,12 @@ pub fn stitch_tile(
         return Err(StitchError::Cancelled);
     }
 
-    let models = ModelDir::resolve(opts.models_dir.as_deref())
-        .map_err(|e| StitchError::MlUnavailable(e.to_string()))?;
-    let mut detector = AlikedDetector::load(
-        &models,
-        DetectorOptions {
-            use_coreml: opts.use_coreml,
-            ..DetectorOptions::default()
-        },
-    )
-    .map_err(|e| StitchError::MlUnavailable(format!("ALIKED load failed: {e}")))?;
-    let mut matcher = LightGlueMatcher::load(
-        &models,
-        MatcherOptions {
-            use_coreml: opts.use_coreml,
-            ..MatcherOptions::default()
-        },
-    )
-    .map_err(|e| StitchError::MlUnavailable(format!("LightGlue load failed: {e}")))?;
-
-    let mut feature_sets = Vec::with_capacity(metas.len());
-    // Proxy was already computed in stage 0; re-use it directly (same as
-    // `stitch::stitch`'s stage 1 — see #3090/#3197 note on stage 0 above).
+    let (feature_sets, mut pair_matcher) =
+        extract_features(&metas, opts, &mut progress, &is_cancelled)?;
     let proxy_dims: Vec<(u32, u32)> = metas
         .iter()
         .map(|m| (m.proxy.width(), m.proxy.height()))
         .collect();
-
-    for (i, meta) in metas.iter().enumerate() {
-        if is_cancelled() {
-            return Err(StitchError::Cancelled);
-        }
-        let rgb = interleave_planar(&meta.proxy);
-        let lin =
-            LinearRgbFrame::new(meta.proxy.width(), meta.proxy.height(), rgb).map_err(|e| {
-                StitchError::Feature {
-                    frame_idx: i,
-                    cause: e.to_string(),
-                }
-            })?;
-        let fs = detector.detect(&lin).map_err(|e| StitchError::Feature {
-            frame_idx: i,
-            cause: format!("detect: {e}"),
-        })?;
-        feature_sets.push(fs);
-        progress(1, (i + 1) as f32 / metas.len() as f32);
-    }
     let features_s = t1.elapsed().as_secs_f64();
 
     // Build proxy-resolution camera seeds with unit focal (1.0). The tile
@@ -187,8 +143,8 @@ pub fn stitch_tile(
         &proxy_images,
         planar_gate.as_ref(),
         Some(&descriptor_topk),
-        |a, b| match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
-            Ok(ml_matches) => ml_matches_to_correspondences(&ml_matches, DEFAULT_MIN_SCORE),
+        |a, b| match pair_matcher.match_pair(&feature_sets[a], &feature_sets[b]) {
+            Ok(corrs) => corrs,
             Err(e) => {
                 match_failures.push(format!("pair ({a},{b}): {e}"));
                 Vec::new()

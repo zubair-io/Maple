@@ -245,6 +245,7 @@ fn stitch_set(
         seam_strategy: args.seam_strategy.to_strategy(),
         seam_constraints: seam_constraints::load(args.seam_constraints.as_deref())?,
         grid: args.grid_layout(),
+        feature_engine: args.features_engine.to_engine(),
     };
 
     let progress = |stage: u32, _frac: f32| {

@@ -118,6 +118,12 @@ pub struct StitchArgs {
     /// Treat diagonal grid cells as neighbours too.
     #[arg(long, requires = "grid")]
     pub(super) grid_diagonals: bool,
+    /// Feature detector/matcher (#4523). `ml`: ALIKED + LightGlue (needs
+    /// ONNX Runtime + models; `pano` builds). `classical`: Harris +
+    /// gradient-histogram descriptors, no ONNX (`pano-classical` builds).
+    /// Defaults to `ml` when built in.
+    #[arg(long, value_enum, default_value_t = FeaturesEngineArg::default())]
+    pub(super) features_engine: FeaturesEngineArg,
 }
 
 impl StitchArgs {
@@ -158,6 +164,29 @@ impl GridOrderArg {
         match self {
             GridOrderArg::Raster => GridOrder::Raster,
             GridOrderArg::Serpentine => GridOrder::Serpentine,
+        }
+    }
+}
+
+/// CLI surface for [`maple_pano::stitch::FeatureEngine`] (#4523).
+#[derive(Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+pub(super) enum FeaturesEngineArg {
+    #[cfg(feature = "pano")]
+    #[default]
+    Ml,
+    #[cfg(feature = "pano-classical")]
+    #[cfg_attr(not(feature = "pano"), default)]
+    Classical,
+}
+
+impl FeaturesEngineArg {
+    pub(super) fn to_engine(self) -> maple_pano::stitch::FeatureEngine {
+        use maple_pano::stitch::FeatureEngine;
+        match self {
+            #[cfg(feature = "pano")]
+            FeaturesEngineArg::Ml => FeatureEngine::Ml,
+            #[cfg(feature = "pano-classical")]
+            FeaturesEngineArg::Classical => FeatureEngine::Classical,
         }
     }
 }
