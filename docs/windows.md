@@ -12,12 +12,12 @@ Batch metadata keeps a native multiline `TextBox` for one-keyword-per-line entry
 
 Heal/Clone actions use `MuiButton` with 44-DIP minimum heights. Its spot list retains native `ListView` virtualization and selection semantics, with Maple-red selection indicators and system high-contrast resources. Numeric repair fields retain `NumberBox` for bounded numeric entry and range automation; the shared single-line text input is not an equivalent numeric control.
 
-| Artifact            | Built from                                           | Role                                                                                                 |
-| ------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `Maple.WinUI.exe`   | `src/windows/Maple.WinUI/Maple.WinUI.csproj`         | The app. WinUI 3, .NET 8, `win-x64` / `win-arm64`.                                                   |
-| `raw_ffi.dll`       | `cargo build --release -p raw-ffi --features gpu`    | The Rust core behind the C ABI. Copied next to the exe by the csproj when present; not committed.    |
+| Artifact            | Built from                                                          | Role                                                                                                 |
+| ------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `Maple.WinUI.exe`   | `src/windows/Maple.WinUI/Maple.WinUI.csproj`                        | The app. WinUI 3, .NET 8, `win-x64` / `win-arm64`.                                                   |
+| `raw_ffi.dll`       | `cargo build --release -p raw-ffi --features gpu`                   | The Rust core behind the C ABI. Copied next to the exe by the csproj when present; not committed.    |
 | `maple-cli.exe`     | `cargo build --release -p maple-cli --features pano,pano-classical` | Subprocess used for panorama stitching (and as the reference renderer in the qualification harness). |
-| `maple-windows.exe` | `cargo build --manifest-path src/windows/Cargo.toml` | Rust host binary — diagnostics/scaffolding, see below.                                               |
+| `maple-windows.exe` | `cargo build --manifest-path src/windows/Cargo.toml`                | Rust host binary — diagnostics/scaffolding, see below.                                               |
 
 The csproj declares `WindowsPackageType=None` and `WindowsAppSDKSelfContained=true`, targets `net8.0-windows10.0.19041.0` with a minimum of Windows 10 1809, and is PerMonitorV2 DPI-aware (`app.manifest`). Because there is no package identity, anything that normally needs it is done the unpackaged way: settings go to a JSON file rather than `ApplicationData`, protocol and file-type registration write `HKCU\Software\Classes`, and the cloud folder registers through the Win32 Cloud Files API instead of the WinRT sync-root manager.
 
