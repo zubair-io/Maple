@@ -96,6 +96,14 @@ pub struct StitchArgs {
     /// re-baselines the budgets with it as the default.
     #[arg(long, value_enum, default_value_t = SeamStrategyArg::Voronoi)]
     pub(super) seam_strategy: SeamStrategyArg,
+    /// User seam constraints (#4520; single-set mode, needs
+    /// `--seam-strategy graph-cut`): a JSON array of `include` / `exclude`
+    /// rectangles in output-canvas pixels, each naming a frame by its index
+    /// in the sorted input list. An include keeps that frame's content (one
+    /// instance of a moving subject); an exclude keeps it out (a passer-by).
+    /// Contradictory constraints fail the stitch with the conflict location.
+    #[arg(long, conflicts_with = "manifest")]
+    pub(super) seam_constraints: Option<PathBuf>,
 }
 
 /// CLI surface for [`maple_pano::ba::RetentionPolicy`].

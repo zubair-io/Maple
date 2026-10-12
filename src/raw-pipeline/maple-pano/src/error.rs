@@ -47,6 +47,9 @@ pub enum PanoError {
         #[source]
         source: raw_core::Error,
     },
+
+    #[error("seam constraints: {0}")]
+    SeamConstraint(#[from] crate::seam::SeamConstraintError),
 }
 
 impl PanoError {

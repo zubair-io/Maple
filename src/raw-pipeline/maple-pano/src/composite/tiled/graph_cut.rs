@@ -31,7 +31,7 @@ use crate::canvas::CanvasSpec;
 use crate::error::PanoError;
 use crate::ingest::{ingest_file, PlanarImage, ValidityMask};
 use crate::local_align::LocalCorrection;
-use crate::seam::{self, SeamMasks};
+use crate::seam::{self, SeamConstraint, SeamMasks};
 use crate::warp::warp_to_canvas_strip;
 
 use super::super::CompositeReport;
@@ -50,6 +50,7 @@ pub(super) fn composite_tiled_graph_cut(
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
+    seam_constraints: &[SeamConstraint],
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
     if paths.len() != cameras.len() || paths.len() != gains.len() {
         return Err(PanoError::InvalidOptions(format!(
@@ -72,7 +73,14 @@ pub(super) fn composite_tiled_graph_cut(
         ));
     }
 
-    let seam = seam::masks::build_from_paths(paths, cameras, gains, local_corrections, canvas)?;
+    let seam = seam::masks::build_from_paths(
+        paths,
+        cameras,
+        gains,
+        local_corrections,
+        canvas,
+        seam_constraints,
+    )?;
 
     let (out_r, out_g, out_b, out_weight, overlap) = run_tiles(
         cameras,
@@ -114,6 +122,7 @@ pub(super) fn composite_tiled_frames_graph_cut(
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
+    seam_constraints: &[SeamConstraint],
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
     if frames.len() != cameras.len() || frames.len() != gains.len() {
         return Err(PanoError::InvalidOptions(format!(
@@ -136,7 +145,14 @@ pub(super) fn composite_tiled_frames_graph_cut(
         ));
     }
 
-    let seam = seam::masks::build_from_frames(frames, cameras, gains, local_corrections, canvas);
+    let seam = seam::masks::build_from_frames(
+        frames,
+        cameras,
+        gains,
+        local_corrections,
+        canvas,
+        seam_constraints,
+    )?;
 
     let (out_r, out_g, out_b, out_weight, overlap) = run_tiles(
         cameras,

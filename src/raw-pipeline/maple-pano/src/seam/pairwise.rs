@@ -183,6 +183,21 @@ fn edge_cost(fields: &CostFields, p: usize, q: usize) -> i64 {
 /// canvas). Returns an all-`false` (defaults to `a`) partition when
 /// there's no overlap — nothing to cut.
 pub fn cut(a: &PlanarImage, b: &PlanarImage) -> Vec<bool> {
+    cut_pinned(a, b, |_| Pin::Free)
+}
+
+/// Where a user seam constraint (#4520) pins an overlap pixel for one cut.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pin {
+    Free,
+    A,
+    B,
+}
+
+/// [`cut`] with `pin(canvas_index)` wiring constrained overlap pixels to
+/// their terminal at [`INF_CAP`]; a pin replaces the validity-border
+/// anchoring at that pixel so the two never fight over one node.
+pub fn cut_pinned(a: &PlanarImage, b: &PlanarImage, pin: impl Fn(usize) -> Pin) -> Vec<bool> {
     assert_eq!(
         (a.width(), a.height()),
         (b.width(), b.height()),
@@ -259,11 +274,17 @@ pub fn cut(a: &PlanarImage, b: &PlanarImage) -> Vec<bool> {
                 near_a_only |= va && !vb;
                 near_b_only |= vb && !va;
             }
-            if near_a_only {
-                g.add_terminal(nid, INF_CAP, 0);
-            }
-            if near_b_only {
-                g.add_terminal(nid, 0, INF_CAP);
+            match pin(canvas_idx(x, y)) {
+                Pin::A => g.add_terminal(nid, INF_CAP, 0),
+                Pin::B => g.add_terminal(nid, 0, INF_CAP),
+                Pin::Free => {
+                    if near_a_only {
+                        g.add_terminal(nid, INF_CAP, 0);
+                    }
+                    if near_b_only {
+                        g.add_terminal(nid, 0, INF_CAP);
+                    }
+                }
             }
 
             // Right / down neighbour edges (4-connected, each pair visited once).

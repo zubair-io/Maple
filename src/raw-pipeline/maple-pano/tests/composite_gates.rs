@@ -312,6 +312,7 @@ fn tiling_equals_real_composite() {
             canvas,
             tile_rows,
             SeamStrategy::Voronoi,
+            &[],
         )
         .expect("tiled composite");
 

@@ -144,7 +144,8 @@ pub fn composite(
             // here (unlike the memory-bounded tiled path), so the label
             // solve runs directly on them — no downsampled seam canvas
             // needed for this entry point.
-            let labels = seam::labels::compute_labels(&layers);
+            let labels =
+                seam::labels::compute_labels(&layers, &seam::constraints::SeamPins::none());
             let mut masks = seam::labels::labels_to_masks(&labels, layers.len());
             seam::labels::feather_masks(
                 &mut masks,
@@ -369,6 +370,7 @@ mod tests {
                 &canvas,
                 strip_rows,
                 SeamStrategy::Voronoi,
+                &[],
             )
             .expect("composite_tiled_frames");
 
