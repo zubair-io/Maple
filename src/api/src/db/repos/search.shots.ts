@@ -12,7 +12,11 @@
  * and a Live Photo's still and its motion clip share both but not a media kind, so they stay apart.
  */
 
-/** What the rule reads from a window row: capture time, media kind and a live entry's filename. */
+/**
+ * What the rule reads from a window row: capture time, media kind and the filename of the asset's
+ * first live location. The name belongs to the asset, not to whichever location a scoped request
+ * reached it through: an asset is one tile however many folders hold its bytes.
+ */
 export interface ShotFields {
   captured_at: string | null;
   media_kind: string;
@@ -22,15 +26,20 @@ export interface ShotFields {
 const COPY_MARKERS = /(\s*\(\d+\))+$/;
 
 /**
- * An export suffix decorates a frame number: a hyphen and a letter right after the stem's digits
- * (`_MG_5652-ultra-8`, `IMG_1234-Edit`). A hyphen followed by a digit is left alone — it is how
- * date-style names separate their fields (`2017-05-21 17.50.35`) and how some cameras number
- * frames within one second (`…35-1`) — and so is a hyphen after a word, since a descriptive name
- * (`wedding-kiss-01`) is the photographer's, not an export's.
+ * An export suffix decorates a camera's frame name: the whole stem is a short camera prefix and a
+ * frame number (`_MG_5652`, `IMG_1234`, `DSCF0042`, `20170521_175035`), then a hyphen, a letter, and
+ * nothing that looks like another frame number (`-ultra-8`, `-Edit`). Anything else is left alone:
+ * a hyphen followed by a digit separates a date's fields (`2017-05-21 17.50.35`) or numbers frames
+ * within one second (`…35-1`), and a name that is not a bare frame name — `wedding-kiss-01`,
+ * `holiday2024-beach`, `2024-wedding-IMG_1234` — is the photographer's own, so two such names are
+ * two shots.
  */
-const EXPORT_SUFFIX = /(\d)-[a-z].*$/;
+const EXPORT_SUFFIX = /^(_?[a-z]{0,4}_?\d[\d_]*)-[a-z](?:(?!\d{3}).)*$/;
 
-/** `captured_at` is an ISO-8601 UTC string; a shot is matched to the second it was taken in. */
+/**
+ * `captured_at` is written by `toISOString()` (`indexer/exif.ts`), so its first 19 characters are
+ * the second a shot was taken in. A shorter value carries no second and never matches another.
+ */
 const CAPTURE_SECOND_LENGTH = 'YYYY-MM-DDTHH:MM:SS'.length;
 
 /**
@@ -46,6 +55,7 @@ export function shotStem(filename: string): string {
 /** The shot a row belongs to, or null when the row lacks what the rule needs and stands alone. */
 export function shotKey(row: ShotFields): string | null {
   if (row.captured_at === null || row.filename === null) return null;
+  if (row.captured_at.length < CAPTURE_SECOND_LENGTH) return null;
   const stem = shotStem(row.filename);
   const second = row.captured_at.slice(0, CAPTURE_SECOND_LENGTH);
   return stem.length > 0 ? `${second}\u0000${row.media_kind}\u0000${stem}` : null;
