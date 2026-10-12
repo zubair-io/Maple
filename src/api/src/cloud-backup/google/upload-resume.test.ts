@@ -54,3 +54,37 @@ test('an immutable re-upload resumes its own checkpoint when the database still 
   expect(resumed.sha256).toBe(content.sha256);
   expect(objectCount(store)).toBe(1);
 });
+
+test('a mirror re-upload resumes its committed replacement instead of orphaning it beside a vanished mapping', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const key = `mirror/${'a'.repeat(24)}/2026/photo.jpg`;
+  const content = source(new Uint8Array([1, 2, 3]));
+  const vanished = await provider.mirrorFile(key, '2026/photo.jpg', content, {
+    saveCheckpoint: async () => {},
+  });
+  store.files.delete(vanished.locator);
+
+  let checkpoint: UploadCheckpoint | null = null;
+  store.loseFinal();
+  await expect(
+    provider.mirrorFile(key, '2026/photo.jpg', content, {
+      expected: vanished,
+      saveCheckpoint: async (value) => {
+        checkpoint = value;
+      },
+    }),
+  ).rejects.toThrow('request failed');
+  expect(checkpoint).not.toBeNull();
+  expect(objectCount(store)).toBe(1);
+
+  const resumed = await provider.mirrorFile(key, '2026/photo.jpg', content, {
+    checkpoint,
+    expected: vanished,
+    saveCheckpoint: async () => {},
+  });
+  expect(resumed.locator).not.toBe(vanished.locator);
+  expect(resumed.sha256).toBe(content.sha256);
+  expect(objectCount(store)).toBe(1);
+  expect((await provider.inspect(key))?.locator).toBe(resumed.locator);
+});

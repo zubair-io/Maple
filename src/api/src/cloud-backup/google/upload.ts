@@ -192,13 +192,24 @@ async function savedCheckpoint(ctx: UploadContext): Promise<GoogleCheckpoint | n
     throw new Error('Upload checkpoint content changed.');
   return state;
 }
+function checkpointObject(state: GoogleCheckpoint): BackupObject {
+  return { key: state.key, locator: state.fileId, size: state.size, sha256: state.sha256 };
+}
 // An in-flight checkpoint names the file this upload is writing. A database
 // mapping left behind by an object that has since vanished from Drive must not
 // veto resuming it, or every retry rejects the completed replacement.
 function mappedObject(state: GoogleCheckpoint | null, expected?: BackupObject | null) {
-  return state
-    ? { key: state.key, locator: state.fileId, size: state.size, sha256: state.sha256 }
-    : (expected ?? undefined);
+  return state ? checkpointObject(state) : (expected ?? undefined);
+}
+// A mirror checkpoint that reserved a different file than the database maps
+// may already have committed (final response lost). That file is the live
+// replacement at this path; reserving again would orphan it beside the mapped
+// one, and the exact-path discovery would then refuse the duplicate forever.
+function committedCheckpoint(ctx: UploadContext, state: GoogleCheckpoint) {
+  return ctx.provider.inspect(ctx.key, ctx.options.signal, {
+    locator: state.fileId,
+    expected: checkpointObject(state),
+  });
 }
 async function startSession(
   ctx: UploadContext,
@@ -469,18 +480,25 @@ export async function publishGoogleMirrorFile(
   if (target.name !== relativePath.split('/').at(-1))
     throw new Error('Invalid Google mirror path.');
   const ctx = { provider, key, source, options, replace: true };
-  let saved = await mirrorCheckpoint(ctx, target);
+  const checkpoint = await mirrorCheckpoint(ctx, target);
   // A checkpoint may outlive the DB mapping it was created from (for
-  // example, after another worker completed a replacement). The DB locator
-  // wins: discard the stale resumable session and rebuild the mirror state
-  // against the mapped object instead of passing contradictory identities to
-  // inspect(). The abandoned Google session expires without mutating files.
-  if (saved && options.expected && saved.fileId !== options.expected.locator) saved = null;
-  const expected = mappedObject(saved, options.expected);
-  const existing = await provider.inspect(key, options.signal, {
-    locator: saved?.fileId ?? expected?.locator,
-    expected,
-  });
+  // example, after another worker completed a replacement). Unless its file
+  // already committed, the DB locator wins: discard the stale resumable
+  // session and rebuild the mirror state against the mapped object instead of
+  // passing contradictory identities to inspect(). The abandoned Google
+  // session expires without mutating files.
+  const divergent = Boolean(
+    checkpoint && options.expected && checkpoint.fileId !== options.expected.locator,
+  );
+  const committed = divergent ? await committedCheckpoint(ctx, checkpoint!) : null;
+  const saved = divergent ? null : checkpoint;
+  const expected = committed ?? mappedObject(saved, options.expected);
+  const existing =
+    committed ??
+    (await provider.inspect(key, options.signal, {
+      locator: saved?.fileId ?? expected?.locator,
+      expected,
+    }));
   if (matchesSource(existing, source)) return existing;
   const state = await mirrorState(ctx, target, saved, existing);
   return uploadMirror(ctx, state);
