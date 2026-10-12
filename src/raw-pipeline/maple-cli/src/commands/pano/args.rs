@@ -62,10 +62,11 @@ pub struct StitchArgs {
     /// outcome either way.
     #[arg(long, value_enum, default_value_t = RetentionArg::Keep)]
     pub(super) retention: RetentionArg,
-    /// Stage-F local alignment (#1218). `mesh` (default): a bounded
-    /// bilinear mesh absorbs the parallax floor before gating and
-    /// compositing. `off`: the geometric chain ends at the BA rotations
-    /// (pure #1213 geometry).
+    /// Stage-F local alignment (#1218, #4577). `mesh` (default): a
+    /// bounded bilinear mesh per frame absorbs parallax before compositing
+    /// — the camera-drift floor on rotation stitches, terrain relief on
+    /// tile stitches. `off`: the geometric chain ends at the global solve
+    /// (BA rotations or tile similarity placement).
     #[arg(long, value_enum, default_value_t = LocalAlignArg::Mesh)]
     pub(super) local_align: LocalAlignArg,
     /// Alignment strategy (spec §8, #1226).
