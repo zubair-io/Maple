@@ -9,7 +9,7 @@
 
 import type { PanoMatcher, ResolvedPanoConfig } from './pano-config.repo.ts';
 
-export const PANO_CLI_BUILD_COMMAND =
+const PANO_CLI_BUILD_COMMAND =
   'cargo build --release --bin maple-cli --features pano,pano-classical';
 
 export type PanoEnginePlan =

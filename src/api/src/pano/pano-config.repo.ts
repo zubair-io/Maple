@@ -25,7 +25,7 @@ import { child as childLogger } from '../log.ts';
 
 const DOC_ID = 'pano';
 
-export const PANO_MATCHERS = ['classical', 'ml'] as const;
+const PANO_MATCHERS = ['classical', 'ml'] as const;
 export type PanoMatcher = (typeof PANO_MATCHERS)[number];
 const log = childLogger('pano:config-repo');
 
