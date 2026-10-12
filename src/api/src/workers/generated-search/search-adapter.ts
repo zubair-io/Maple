@@ -70,12 +70,15 @@ async function rankedOutcome(
   text: string,
 ): Promise<SearchOutcome> {
   const window = await requestWindow({ where, text, need: FIRST_PAGE_SIZE });
-  return windowOutcome(window.rows);
+  return windowOutcome(where, window.rows);
 }
 
-async function windowOutcome(rows: readonly WindowRow[]): Promise<SearchOutcome> {
+async function windowOutcome(
+  where: SearchWhere,
+  rows: readonly WindowRow[],
+): Promise<SearchOutcome> {
   const firstPageIds = rows.slice(0, FIRST_PAGE_SIZE).map((row) => row.id);
-  const sampled = await windowDocs(rows.slice(0, CAPTION_SAMPLE));
+  const sampled = await windowDocs(where, rows.slice(0, CAPTION_SAMPLE));
   return {
     count: rows.length,
     captions: captionsOf(sampled as ReadonlyArray<{ description?: string | null }>),

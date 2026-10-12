@@ -152,14 +152,21 @@ export interface WindowPage {
   rankedBy?: { engine: 'in-process'; semanticHits: number };
 }
 
-/** One page of a window: its rows hydrated and projected, `total` the window's size. */
+/**
+ * One page of a window: its rows hydrated under `where` and projected. `total` is the window's
+ * size less the page's rows that no longer pass `where` — an asset deleted or hidden since the
+ * window was ranked — so a total never promises a row the page could not serve (#4545).
+ */
 export async function windowPage(
   window: EngineWindow,
-  page: { skip: number; limit: number; timing?: PhaseTimer },
+  page: { where: SearchWhere; skip: number; limit: number; timing?: PhaseTimer },
 ): Promise<WindowPage> {
   const rows = window.rows.slice(page.skip, page.skip + page.limit);
   const hydrate = async () => {
-    const [docs, { libs, idToSlug }] = await Promise.all([windowDocs(rows), libraryMaps()]);
+    const [docs, { libs, idToSlug }] = await Promise.all([
+      windowDocs(page.where, rows),
+      libraryMaps(),
+    ]);
     return projectAssets(docs, libs, idToSlug);
   };
   const results = page.timing ? await page.timing.time('rows', hydrate) : await hydrate();
@@ -173,7 +180,7 @@ export async function windowPage(
         }
       : undefined;
   return {
-    total: window.rows.length,
+    total: window.rows.length - (rows.length - results.length),
     more: window.more,
     capped: window.capped,
     results,

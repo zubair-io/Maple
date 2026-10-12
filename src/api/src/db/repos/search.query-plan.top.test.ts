@@ -21,7 +21,7 @@ import type { Database } from 'bun:sqlite';
 import { createTestDatabase } from '../sqlite/test-sqlite.test-helpers.ts';
 import { ftsWindowSql, mapleIdRowsSql } from './search.ranked.ts';
 import { assetFacetRowsSql, sideFacetRowsSql } from './search.facets.top.ts';
-import type { BoundStatement } from './search.sql.ts';
+import { windowColumnsSql, type BoundStatement } from './search.sql.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
 import { seedSearchLibrary } from './search.test-helpers.ts';
 import type { SearchQuery } from '../../routes/search/query-schema.ts';
@@ -134,5 +134,31 @@ describe("another engine's ranked ids become rows by key", () => {
         expect(plan.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
       });
     });
+  }
+});
+
+describe("a window's page is re-read under its filters by key (#4545)", () => {
+  for (const statistics of ['analyzed', 'none'] as const) {
+    for (const q of QUERIES) {
+      test(`${JSON.stringify(q)}${statistics === 'none' ? ' without statistics' : ''}`, async () => {
+        await withDb((db) => {
+          const plan = planOf(
+            db,
+            windowColumnsSql(translate(q), [
+              '0123456789abcdef01234567',
+              '89abcdef0123456789abcdef',
+            ]),
+          );
+          expect(plan[0]).toMatch(/^SCAN page VIRTUAL TABLE/);
+          // One equality probe per id: the primary key, or an index whose other
+          // columns the filters pin to single values.
+          expect(plan[1]).toMatch(
+            /^SEARCH assets USING (COVERING )?INDEX \S+ \((\w+=\? AND )*id=\?( AND \w+=\?)*\)$/,
+          );
+          expect(plan.some((line) => line.includes('assets_fts'))).toBe(false);
+          expect(plan.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
+        }, statistics);
+      });
+    }
   }
 });

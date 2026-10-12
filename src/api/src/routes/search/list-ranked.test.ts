@@ -14,12 +14,14 @@ import { seedSearchAsset } from '../../db/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
   insertFolder,
+  run,
   type LiveTestDatabase,
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
+import { buildSearchWhere } from '../../db/repos/search.where.ts';
 import { setInProcessSearchForTests } from '../../search/search-pool.ts';
 import { fakeInProcessSearch } from '../../search/search.test-helpers.ts';
 import { RANKED_WINDOW_BASE, RANKED_WINDOW_MAX } from '../../db/repos/search.ranked.ts';
-import { windowNeed } from './ranked-window.ts';
+import { requestWindow, windowNeed, windowPage } from './ranked-window.ts';
 
 let live: LiveTestDatabase;
 let libraryId: string;
@@ -274,5 +276,27 @@ describe('cached facets and buckets follow the engine that answers', () => {
     expect(await totals()).toEqual({ facets: RANKED_WINDOW_BASE, buckets: RANKED_WINDOW_BASE });
     setInProcessSearchForTests(honouringK(ranked.slice(0, 5)));
     expect(await totals()).toEqual({ facets: 5, buckets: 5 });
+  });
+});
+
+describe('a window row deleted between ranking and hydration (#4545)', () => {
+  it('is neither served nor counted in the total', async () => {
+    setInProcessSearchForTests(honouringK(ranked.slice(0, 5)));
+    const built = buildSearchWhere({ placeQuery: 'greyson' });
+    if ('error' in built) throw new Error(built.error);
+    const window = await requestWindow({ where: built, text: 'greyson', need: 10 });
+    run(
+      live.db,
+      `UPDATE assets SET deleted_at = '2026-10-12T00:00:00Z' WHERE maple_id = ?`,
+      ranked[1]!,
+    );
+
+    const page = await windowPage(window, { where: built, skip: 0, limit: 10 });
+
+    expect(window.rows).toHaveLength(5);
+    expect(page.results.map((row) => row.filename)).toEqual(
+      [0, 2, 3, 4].map((index) => `${ranked[index]!}.dng`),
+    );
+    expect(page.total).toBe(page.results.length);
   });
 });

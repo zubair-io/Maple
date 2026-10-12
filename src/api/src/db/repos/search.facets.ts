@@ -102,7 +102,8 @@ export interface FacetOptions {
  * ranked window of one with text. `top` — only the engine's first `limit`
  * results of its `of` estimated matches. Clients that do not read the field
  * see the shape they always did; one that does should label the buckets
- * "in the 2,000 most relevant of 98,635 results".
+ * "in the 5,000 most relevant of 98,635 results" — 5,000 being the window cap,
+ * `RANKED_WINDOW_MAX`.
  */
 export type FacetScope = { kind: 'all' } | { kind: 'top'; limit: number; of: number };
 

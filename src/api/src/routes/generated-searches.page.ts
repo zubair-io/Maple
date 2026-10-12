@@ -53,7 +53,7 @@ async function rankedCollectionPage(
   text: string,
 ): Promise<CollectionPage> {
   const { doc, where, offset, limit } = input;
-  const page = { skip: offset, limit };
+  const page = { where, skip: offset, limit };
   const request = { where, text, need: offset + limit };
   const window = await requestWindow(request, 'collection');
   return window ? withoutRankedBy(await windowPage(window, page)) : pendingPage(doc, where, page);

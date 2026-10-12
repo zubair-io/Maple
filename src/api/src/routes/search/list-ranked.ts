@@ -28,5 +28,5 @@ export async function rankedListPage(input: RankedListInput): Promise<WindowPage
   const window = await timing.time('engine', () =>
     requestWindow({ where, text: childQuery, need: skip + limit }),
   );
-  return windowPage(window, { skip, limit, timing });
+  return windowPage(window, { where, skip, limit, timing });
 }

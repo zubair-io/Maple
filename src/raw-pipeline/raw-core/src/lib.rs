@@ -132,6 +132,9 @@ pub mod batch_transfer;
 /// Vectorscope statistics (#3272): the CPU producer/parity oracle for the GPU
 /// scope pass — see `raw-gpu/src/scope.rs` and `scope_vectorscope.wgsl`.
 pub mod scope;
+
+/// The ranked search window's ladder (#4514), emitted to the API and Apple by `tools/codegen.sh`.
+pub mod ranked_window;
 pub mod types;
 pub use types::{
     AdjustmentModel, FieldKind, FieldSpec, HighlightRecoveryMode, LocalAdjustment, Mask,
