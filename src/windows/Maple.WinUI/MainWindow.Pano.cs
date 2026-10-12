@@ -74,7 +74,7 @@ namespace Maple.WinUI
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 Header = "Local alignment",
             };
-            alignCombo.Items.Add("Mesh — local warp refinement");
+            alignCombo.Items.Add("Mesh — absorb parallax (rotation and drone survey)");
             alignCombo.Items.Add("Off — global alignment only");
             alignCombo.SelectedIndex = 0;
             panel.Children.Add(alignCombo);

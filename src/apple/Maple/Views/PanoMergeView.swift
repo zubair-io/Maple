@@ -468,8 +468,8 @@ extension PanoOptions.LocalAlign {
   }
   var helpText: String {
     switch self {
-    case .mesh: return "Corrects residual lens-roll and perspective drift after global solving."
-    case .off: return "Skip the mesh pass. Faster; suitable when lens distortion is negligible."
+    case .mesh: return "Absorbs parallax at seams after global solving — subject depth in rotation panoramas, terrain relief in drone surveys."
+    case .off: return "Skip the mesh pass. Global alignment only; seams show more where depth varies."
     }
   }
 }
