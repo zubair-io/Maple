@@ -15,9 +15,11 @@ namespace Maple.WinUI
     /// <summary>
     /// Panorama stitching UI (#2583) — a one-off, user-selected action over
     /// the grid multi-selection, run through the maple-cli subprocess (the
-    /// Self-Hosted API's route). The scene-linear 16-bit master PNG lands
-    /// beside the frames for interop; the display output is converted to a
-    /// grid-native JPEG, which the library watcher (#2585) picks up live.
+    /// Self-Hosted API's route). The classical matcher needs no download;
+    /// the opt-in ML matcher provisions its models on first use (#4556).
+    /// The scene-linear 16-bit master PNG lands beside the frames for
+    /// interop; the display output is converted to a grid-native JPEG,
+    /// which the library watcher (#2585) picks up live.
     /// </summary>
     public sealed partial class MainWindow
     {
@@ -50,14 +52,17 @@ namespace Maple.WinUI
                 return;
             }
 
-            var provisioner = new PanoProvisioner(AppSettings.Load());
-            // ~180 MB of hash verification — never on the UI thread.
-            var state = await provisioner.CheckAsync();
+            var settings = AppSettings.Load();
+            var provisioner = new PanoProvisioner(settings);
+            var engine = PanoFeatureEngines.FromSetting(settings.PanoUseMlMatcher);
+            // The ML check is ~180 MB of hash verification — never on the UI thread.
+            var state = await provisioner.CheckAsync(engine);
             var panel = new StackPanel { Spacing = 10, Width = 380 };
             panel.Children.Add(new MuiText
             {
-                Text = $"{frames.Count} frames, stitched in filename order. This runs "
-                     + "the full ML alignment pipeline and can take several minutes.",
+                Text = $"{frames.Count} frames, stitched in filename order with the "
+                     + (engine == PanoFeatureEngine.Ml ? "ML" : "classical")
+                     + " matcher. This can take several minutes.",
                 Variant = MuiTextVariant.Body,
             });
             var retentionCombo = new ComboBox
@@ -94,7 +99,7 @@ namespace Maple.WinUI
                 ColorRole = MuiTextColorRole.Muted,
             };
             panel.Children.Add(provisionText);
-            if (!state.IsProvisioned)
+            if (state.NeedsDownload)
             {
                 panel.Children.Add(new MuiText
                 {
@@ -111,7 +116,7 @@ namespace Maple.WinUI
             {
                 Title = "Stitch Panorama",
                 Content = panel,
-                PrimaryButtonText = state.IsProvisioned ? "Stitch" : "Download & Stitch",
+                PrimaryButtonText = state.NeedsDownload ? "Download & Stitch" : "Stitch",
                 CloseButtonText = "Cancel",
                 DefaultButton = ContentDialogButton.Primary,
                 XamlRoot = (this.Content as FrameworkElement)?.XamlRoot,
@@ -127,11 +132,11 @@ namespace Maple.WinUI
                 2 => "tile",
                 _ => "auto",
             };
-            await RunPanoAsync(provisioner, state.IsProvisioned, frames, retention, localAlign, strategy);
+            await RunPanoAsync(provisioner, state, frames, retention, localAlign, strategy);
         }
 
         private async Task RunPanoAsync(
-            PanoProvisioner provisioner, bool provisioned,
+            PanoProvisioner provisioner, PanoProvisionState state,
             System.Collections.Generic.List<string> frames,
             string retention, string localAlign, string strategy)
         {
@@ -166,13 +171,13 @@ namespace Maple.WinUI
 
             try
             {
-                if (!provisioned)
+                if (state.NeedsDownload)
                     await Task.Run(() => provisioner.ProvisionAsync(Status, cts.Token), cts.Token);
 
                 Status($"Stitching {frames.Count} frames…");
                 var result = await Task.Run(() => PanoService.StitchAsync(
                     provisioner, frames, outPath, displayTemp,
-                    retention, localAlign, strategy, Status, cts.Token), cts.Token);
+                    retention, localAlign, strategy, state.Engine, Status, cts.Token), cts.Token);
 
                 if (result.Ok)
                 {
