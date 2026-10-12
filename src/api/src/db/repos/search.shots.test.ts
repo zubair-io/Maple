@@ -28,6 +28,7 @@ describe('copies of one shot', () => {
     ['20170521_175035.mp4', '20170521_175035(1).mp4'],
     ['IMG_1234 (1).HEIC', 'img_1234.heic'],
     ['IMG_1234-Edit(1).jpg', 'IMG_1234.CR3'],
+    ['IMG_1234(1)-Edit.jpg', 'IMG_1234.CR3'],
   ]) {
     test(`${a} and ${b} are one shot`, () => {
       expect(sameShot(a!, b!)).toBe(true);
