@@ -25,7 +25,7 @@ export async function inProcessServiceSearch(
   limit: number,
 ): Promise<ServiceSearchResult | null> {
   const window = await requestWindow(
-    { where: serviceSearchWhere(scope), text: query, need: limit, enough: limit },
+    { where: serviceSearchWhere(scope), text: query, need: limit, enough: limit + 1 },
     'collection',
   );
   if (!window) return null;
@@ -34,7 +34,7 @@ export async function inProcessServiceSearch(
     ids: ids.slice(0, limit),
     estimatedTotal: Math.min(ids.length, limit),
     scores: Object.fromEntries(window.scores ?? []),
-    more: window.more || ids.length > limit,
+    more: ids.length > limit,
     capped: window.capped,
   };
 }
