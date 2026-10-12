@@ -294,6 +294,26 @@ async function resolveAssetPaths(
   return { resolvedIds, indexedCount };
 }
 
+async function planStitch() {
+  const cfg = resolvePanoConfig(await loadPanoConfig());
+  if (!isPanoProvisioned(cfg)) {
+    return {
+      refusal: {
+        error: 'pano_not_provisioned',
+        message:
+          'Panorama stitching is not configured. Go to Settings > Pano to set the ' +
+          'maple-cli path and enable the feature.',
+      },
+    };
+  }
+  const mapleCli = cfg.maple_cli_path!;
+  const capabilities = await probePanoCli(mapleCli);
+  const plan = planPanoEngine(cfg, capabilities.featuresEngine);
+  return plan.kind === 'refuse'
+    ? { refusal: { error: plan.error, message: plan.message } }
+    : { cfg: { ...cfg, maple_cli_path: mapleCli }, capabilities, plan };
+}
+
 // ── route group ───────────────────────────────────────────────────────────────
 
 export const panoRoutes = new Elysia({ prefix: '/api/pano' })
@@ -302,24 +322,13 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
   .post(
     '/stitch',
     async ({ body, set }) => {
-      // 1. Check provisioning.
-      const dbCfg = await loadPanoConfig();
-      const cfg = resolvePanoConfig(dbCfg);
-      if (!isPanoProvisioned(cfg)) {
+      // 1. Check provisioning and pick the matcher.
+      const stitchPlan = await planStitch();
+      if ('refusal' in stitchPlan) {
         set.status = 409;
-        return {
-          error: 'pano_not_provisioned',
-          message:
-            'Panorama stitching is not configured. Go to Settings > Pano to set the ' +
-            'maple-cli path and enable the feature.',
-        };
+        return stitchPlan.refusal;
       }
-      const capabilities = await probePanoCli(cfg.maple_cli_path!);
-      const plan = planPanoEngine(cfg, capabilities.featuresEngine);
-      if (plan.kind === 'refuse') {
-        set.status = 409;
-        return { error: plan.error, message: plan.message };
-      }
+      const { cfg, capabilities, plan } = stitchPlan;
 
       // 2. Reject if a pano_stitch job is already running OR queued.
       // Checking only 'running' lets close-together requests enqueue multiple
@@ -432,7 +441,7 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
           localAlign: body.options.localAlign,
           strategy: body.options.strategy ?? null,
           strategySupported: capabilities.strategy,
-          mapleCli: cfg.maple_cli_path!,
+          mapleCli: cfg.maple_cli_path,
           featuresEngine: plan.featuresEngine,
           modelsDir: cfg.models_dir,
           ortDylibPath: cfg.ort_dylib_path,
