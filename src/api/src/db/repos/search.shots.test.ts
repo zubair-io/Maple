@@ -29,6 +29,8 @@ describe('copies of one shot', () => {
     ['IMG_1234 (1).HEIC', 'img_1234.heic'],
     ['IMG_1234-Edit(1).jpg', 'IMG_1234.CR3'],
     ['IMG_1234(1)-Edit.jpg', 'IMG_1234.CR3'],
+    ['_MG_6735.CR2', '_MG_6735-79e6cd.jpg'],
+    ['_MG_6735.CR2', '_MG_6735-79E6CD(1).jpg'],
   ]) {
     test(`${a} and ${b} are one shot`, () => {
       expect(sameShot(a!, b!)).toBe(true);
@@ -43,6 +45,9 @@ describe('different shots', () => {
     ['20180707_133040_093.jpg', '20180707_133040_095.jpg'],
     ['IMG_1234.HEIC', 'IMG_1234.MOV'],
     ['wedding-kiss-01.jpg', 'wedding-kiss-02.jpg'],
+    ['wedding-kiss-79e6cd.jpg', 'wedding-kiss-80f7de.jpg'],
+    ['IMG_1234-123456.jpg', 'IMG_1234.CR2'],
+    ['IMG_1234-12ab.jpg', 'IMG_1234.CR2'],
     ['sunset-beach.jpg', 'sunset-city.jpg'],
     ['holiday2024-beach.jpg', 'holiday2024-city.jpg'],
     ['2024-wedding-IMG_1234.jpg', '2024-wedding-IMG_1235.jpg'],

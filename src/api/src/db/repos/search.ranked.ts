@@ -101,21 +101,33 @@ export const RANKED_WINDOW_MAX = 5_000;
 const WIDENING_FACTOR = 4;
 
 /**
- * The first depth on the widening ladder that reaches `need` rows. Requests whose pages share a
- * ladder step share a window, which is what the facet and bucket caches key on.
+ * The rows a ladder step serves: three quarters of its depth (75, 300, 1,200, 3,750). The last
+ * quarter is headroom for the hits a step drops — copies of a shot already in it (#4557) and
+ * hits the filters reject — so a step whose ranking holds a few of them still fills its pages
+ * without ranking again. Every widening re-runs the engine's whole query (on production about
+ * 50 ms in the in-process child), so a step that had to hold its full depth in shots widened
+ * almost every search with a single copy in its first 100 hits.
+ */
+export function stepQuota(depth: number): number {
+  return Math.floor((depth * 3) / 4);
+}
+
+/**
+ * The first depth on the widening ladder whose quota reaches `need` rows. Requests whose pages
+ * share a ladder step share a window, which is what the facet and bucket caches key on.
  */
 export function windowDepthFor(need: number): number {
   const climb = (depth: number): number =>
-    depth >= need || depth >= RANKED_WINDOW_MAX
+    stepQuota(depth) >= need || depth >= RANKED_WINDOW_MAX
       ? Math.min(depth, RANKED_WINDOW_MAX)
       : climb(depth * WIDENING_FACTOR);
   return climb(RANKED_WINDOW_BASE);
 }
 
 /**
- * The window a request reaching `need` rows is served from. It is filled to the ladder step that
- * reaches `need`: a full window with fewer survivors than that step is widened up the ladder until
- * it has them, the engine runs out of hits, or the cap is reached. So every page's `skip` indexes
+ * The window a request reaching `need` rows is served from. It is filled to the quota of the
+ * ladder step that reaches `need`: a full window with fewer survivors than that quota is widened
+ * up the ladder until it has them, the engine runs out of hits, or the cap is reached. So every page's `skip` indexes
  * a prefix earlier pages served in full, and the window depends only on the query and its step —
  * which is what lets the facet and bucket caches share it across the pages of a step. Each pass
  * keeps one row per shot (#4557), so the survivors counted here, `total` and every page count
@@ -128,7 +140,7 @@ export async function rankWindow(
   enough?: number,
 ): Promise<RankedWindow | null> {
   const target = windowDepthFor(need);
-  const sufficient = enough ?? target;
+  const sufficient = enough ?? stepQuota(target);
   const widen = async (
     depth: number,
     previous: { pass: WindowPass; depth: number } | null,

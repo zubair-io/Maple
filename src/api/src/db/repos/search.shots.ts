@@ -29,14 +29,17 @@ const COPY_MARKERS = /(\s*\(\d+\))+$/;
 
 /**
  * An export suffix decorates a camera's frame name: the whole stem is a short camera prefix and a
- * frame number (`_MG_5652`, `IMG_1234`, `DSCF0042`, `20170521_175035`), then a hyphen, a letter, and
- * nothing that looks like another frame number (`-ultra-8`, `-Edit`). Anything else is left alone:
- * a hyphen followed by a digit separates a date's fields (`2017-05-21 17.50.35`) or numbers frames
- * within one second (`…35-1`), and a name that is not a bare frame name — `wedding-kiss-01`,
+ * frame number (`_MG_5652`, `IMG_1234`, `DSCF0042`, `20170521_175035`), then a hyphen and either
+ * a letter followed by nothing that looks like another frame number (`-ultra-8`, `-Edit`) or a hex
+ * hash of six or more characters with at least one letter in it (`-79e6cd`), which is how some
+ * export tools tag their output. Anything else is left alone: a hyphen and digits alone separate
+ * a date's fields (`2017-05-21 17.50.35`) or number frames within one second (`…35-1`), and a
+ * name that is not a bare frame name — `wedding-kiss-01`,
  * `holiday2024-beach`, `2024-wedding-IMG_1234` — is the photographer's own, so two such names are
  * two shots.
  */
-const EXPORT_SUFFIX = /^(_?[a-z]{0,4}_?\d[\d_]*)(?:\s*\(\d+\))*-[a-z](?:(?!\d{3}).)*$/;
+const EXPORT_SUFFIX =
+  /^(_?[a-z]{0,4}_?\d[\d_]*)(?:\s*\(\d+\))*-(?:[a-z](?:(?!\d{3}).)*|(?=[\da-f]*[a-f])[\da-f]{6,})$/;
 
 /**
  * `captured_at` is written by `toISOString()` (`indexer/exif.ts`), so its first 19 characters are

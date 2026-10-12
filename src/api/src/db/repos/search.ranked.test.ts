@@ -21,6 +21,8 @@ import {
   RANKED_WINDOW_BASE,
   RANKED_WINDOW_MAX,
   rankWindow,
+  stepQuota,
+  windowDepthFor,
   type WindowPass,
   type WindowRanker,
 } from './search.ranked.ts';
@@ -190,6 +192,21 @@ function syntheticRanker(
 }
 
 describe('the window policy', () => {
+  test('serves three quarters of each ladder step, keeping a quarter as headroom', () => {
+    expect([100, 400, 1_600, RANKED_WINDOW_MAX].map(stepQuota)).toEqual([75, 300, 1_200, 3_750]);
+    expect([1, 30, 75, 76, 300, 301, 1_200, 1_201, 5_000].map(windowDepthFor)).toEqual([
+      100,
+      100,
+      100,
+      400,
+      400,
+      1_600,
+      1_600,
+      RANKED_WINDOW_MAX,
+      RANKED_WINDOW_MAX,
+    ]);
+  });
+
   test('starts at the base depth and reports more when the engine filled it', async () => {
     const { ranker, depths } = syntheticRanker(10_000, 1);
     const window = (await rankWindow(ranker, 30))!;
@@ -215,7 +232,7 @@ describe('the window policy', () => {
 
   test('widens up the ladder until a full window fills the page', async () => {
     const { ranker, depths } = syntheticRanker(10_000, 10);
-    const window = (await rankWindow(ranker, 100))!;
+    const window = (await rankWindow(ranker, 75))!;
     expect(depths).toEqual([100, 400, 1_600]);
     expect(window.rows).toHaveLength(160);
     expect(window.more).toBe(true);
@@ -223,7 +240,7 @@ describe('the window policy', () => {
 
   test('never goes past the cap, and says it stopped there with matches left', async () => {
     const { ranker, depths } = syntheticRanker(1_000_000, 1_000);
-    const window = (await rankWindow(ranker, 100))!;
+    const window = (await rankWindow(ranker, 75))!;
     expect(depths).toEqual([100, 400, 1_600, RANKED_WINDOW_MAX]);
     expect(window.rows).toHaveLength(5);
     expect(window).toMatchObject({ more: false, capped: true });
@@ -353,6 +370,29 @@ describe('one row per shot (#4557)', () => {
     expect(window.rows.map((row) => row.id)).toEqual([best]);
   });
 
+  test('a step whose copies stay inside its headroom ranks once (#4557 latency)', async () => {
+    const depths: number[] = [];
+    const ranker: WindowRanker = async (depth) => {
+      depths.push(depth);
+      const rows = Array.from({ length: depth }, (_, index) => ({
+        r: index,
+        id: `id${index}`,
+        maple_id: `m${index}`,
+        owner_id: null,
+        captured_at: '2024-01-01T00:00:00.000Z',
+        media_kind: 'image',
+        filename: index % 9 === 1 ? `IMG_${index - 1}.JPG` : `IMG_${index}.CR2`,
+      }));
+      return { rows, considered: depth };
+    };
+
+    const window = (await rankWindow(ranker, 60))!;
+
+    expect(depths).toEqual([RANKED_WINDOW_BASE]);
+    expect(window.rows).toHaveLength(89);
+    expect(window.more).toBe(true);
+  });
+
   test('widens when collapsed copies leave a full window short of the page', async () => {
     const depths: number[] = [];
     const ranker: WindowRanker = async (depth) => {
@@ -369,7 +409,7 @@ describe('one row per shot (#4557)', () => {
       return { rows, considered: depth };
     };
 
-    const window = (await rankWindow(ranker, 100))!;
+    const window = (await rankWindow(ranker, 75))!;
 
     expect(depths).toEqual([100, 400]);
     expect(window.rows).toHaveLength(200);
