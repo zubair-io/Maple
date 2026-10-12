@@ -22,7 +22,7 @@ import type { FusedSearchHit } from './search-engine-ffi.ts';
 import { RANKED_WINDOW_MAX } from '../db/repos/search.ranked.ts';
 
 /** The API pool's own deadline plus a second for the two IPC hops. */
-export const REMOTE_TIMEOUT_MS = QUERY_TIMEOUT_MS + 1_000;
+const REMOTE_TIMEOUT_MS = QUERY_TIMEOUT_MS + 1_000;
 
 interface SearchRankRequest {
   type: 'search-rank';

@@ -44,6 +44,7 @@ import {
 } from './search.sql.ts';
 import type { SearchWhere } from './search.where.ts';
 import { assetsDb, bulkLane, type SqliteDb } from './db-handle.ts';
+import { inGivenOrder } from './search.ranked.ts';
 
 /** The narrow `assets` projection a search result is built from. */
 interface PageRow {
@@ -201,10 +202,7 @@ async function rowsByMapleId(
   if (mapleIds.length === 0) return [];
   const statement = mapleIdPageSql({ ...where, match: { kind: 'none' } }, mapleIds);
   const rows = await db.read<MapleIdRow>(statement.sql, statement.params);
-  const byMapleId = new Map(rows.map((row) => [row.maple_id, row] as const));
-  return mapleIds
-    .map((id) => byMapleId.get(id))
-    .filter((row): row is MapleIdRow => row !== undefined);
+  return inGivenOrder(mapleIds, rows, (row) => row.maple_id);
 }
 
 /**
@@ -243,11 +241,7 @@ export async function windowDocs(
     lane.read<PageRow>(pageColumnsByIdsSql(ids.length), ids),
     sideTables(lane, ids, page.map(ownerKey)),
   ]);
-  const byId = new Map(columns.map((row) => [row.id, row] as const));
-  return ids.flatMap((id) => {
-    const row = byId.get(id);
-    return row === undefined ? [] : [toSearchDoc(row, sides)];
-  });
+  return inGivenOrder(ids, columns, (row) => row.id).map((row) => toSearchDoc(row, sides));
 }
 
 interface SideTables {

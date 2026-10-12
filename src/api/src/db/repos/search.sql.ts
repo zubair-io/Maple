@@ -225,7 +225,7 @@ export function pageSql(
  * `MATERIALIZED` is what makes the scores computed once: inlined, `ranked`
  * would be planned twice and the inverted index scanned for each.
  */
-export function rankedPageSql(
+function rankedPageSql(
   where: SearchWhere,
   limit: number,
   offset: number,

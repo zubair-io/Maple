@@ -381,7 +381,6 @@ export class SqlitePool {
   }
 
   /** Per-worker depth and liveness, for the tests and for an operator. */
-  // fallow-ignore-next-line unused-class-member -- called by pool.test.ts, pool.resilience.test.ts and pool.concurrency.test.ts, always on a pool that arrived through `await`, which the analysis does not unwrap back to this class
   stats(): SqlitePoolStats {
     const writer = this.writer.stats();
     const readers = this.readers.map((reader) => reader.stats());
