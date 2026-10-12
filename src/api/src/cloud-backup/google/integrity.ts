@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { BackupObject } from '../provider.ts';
 import type { GoogleDriveProvider } from './provider.ts';
 import { DRIVE_API } from './client.ts';
-import { backupObject } from './object.ts';
+import { backupObject, ObjectIdentityError } from './object.ts';
 
 export async function verifiedGoogleObject(
   provider: GoogleDriveProvider,
@@ -54,5 +54,5 @@ export async function verifiedGoogleObject(
 }
 function assertExpectedIdentity(actual: BackupObject, expected: BackupObject): void {
   if (actual.size !== expected.size || actual.sha256 !== expected.sha256)
-    throw new Error('Google upload read-back checksum mismatch.');
+    throw new ObjectIdentityError('Google upload read-back checksum mismatch.');
 }

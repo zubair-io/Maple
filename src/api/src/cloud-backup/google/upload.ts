@@ -2,7 +2,7 @@ import type { BackupObject, PublishSource, UploadCheckpoint } from '../provider.
 import { isDriveStatus, logicalKeyHash } from './client.ts';
 import type { GoogleDriveProvider } from './provider.ts';
 import { verifiedGoogleObject } from './integrity.ts';
-import { assertObjectIdentity } from './object.ts';
+import { assertObjectIdentity, ObjectIdentityError } from './object.ts';
 
 const CHUNK = 8 * 1024 * 1024;
 interface GoogleCheckpoint {
@@ -483,7 +483,7 @@ async function removeDisplacedCopy(ctx: UploadContext, copy: BackupObject): Prom
   try {
     await ctx.provider.remove(copy, ctx.options.signal);
   } catch (error) {
-    if (!(error instanceof Error && error.message.startsWith('Refusing removal'))) throw error;
+    if (!(error instanceof ObjectIdentityError)) throw error;
   }
 }
 async function mirrorCandidates(

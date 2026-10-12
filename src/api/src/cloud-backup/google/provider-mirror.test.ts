@@ -300,3 +300,31 @@ test('a displaced copy is still removed when the replacement committed before th
   expect(store.files.has(mapped.locator)).toBe(false);
   expect((await provider.inspect(key))?.locator).toBe(restored.locator);
 });
+
+test('a displaced copy whose bytes changed after inspection is left alone while the replacement publishes', async () => {
+  const store = googleStore();
+  let displacedId: string | null = null;
+  const transport: GoogleFetch = async (raw, init) => {
+    const response = await store.transport(raw, init);
+    const headers = new Headers(init?.headers);
+    if (displacedId && headers.has('content-range'))
+      Object.assign(store.files.get(displacedId)!, { sha256Checksum: '0'.repeat(64) });
+    return response;
+  };
+  const provider = new GoogleDriveProvider(root, async () => 'token', transport);
+  const key = `mirror/${'j'.repeat(24)}/2026/photo.jpg`;
+  const content = source(new Uint8Array([1, 2, 3]));
+  const mapped = await provider.mirrorFile(key, '2026/photo.jpg', content, {
+    saveCheckpoint: async () => {},
+  });
+  Object.assign(store.files.get(mapped.locator)!, { name: 'renamed.jpg' });
+  displacedId = mapped.locator;
+
+  const restored = await provider.mirrorFile(key, '2026/photo.jpg', content, {
+    expected: mapped,
+    saveCheckpoint: async () => {},
+  });
+  expect(restored.locator).not.toBe(mapped.locator);
+  expect(store.files.get(restored.locator)!.name).toBe('photo.jpg');
+  expect(store.files.has(mapped.locator)).toBe(true);
+});
