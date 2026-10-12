@@ -29,6 +29,62 @@ impl Default for ClassicalMatchOptions {
     }
 }
 
+/// Rows of the first set scored together; bounds the transient similarity
+/// block to `ROW_BLOCK × |b|` instead of a full `|a| × |b|` matrix.
+const ROW_BLOCK: usize = 64;
+
+/// A first-set keypoint's nearest second-set descriptor (`j`, `best`) and
+/// its spatially distinct runner-up similarity.
+struct RowBest {
+    i: usize,
+    j: usize,
+    best: f32,
+    second: f32,
+}
+
+/// Forward nearest neighbours for `rows`, plus this block's best row per
+/// second-set column (for the mutual check). Ties keep the lowest index.
+fn match_block(
+    a: &FeatureSet,
+    b: &FeatureSet,
+    rows: &[usize],
+    distinct_sq: f32,
+) -> (Vec<RowBest>, Vec<(f32, usize)>) {
+    let initial = vec![(f32::NEG_INFINITY, usize::MAX); b.len()];
+    rows.iter().fold(
+        (Vec::with_capacity(rows.len()), initial),
+        |(mut found, mut columns), &i| {
+            let da = a.descriptor(i);
+            let sims: Vec<f32> = (0..b.len())
+                .map(|j| da.iter().zip(b.descriptor(j)).map(|(x, y)| x * y).sum())
+                .collect();
+            sims.iter().enumerate().for_each(|(j, &v)| {
+                if v > columns[j].0 {
+                    columns[j] = (v, i);
+                }
+            });
+            let best = sims
+                .iter()
+                .enumerate()
+                .fold(None, |acc: Option<(usize, f32)>, (j, &v)| match acc {
+                    Some((_, bv)) if bv >= v => acc,
+                    _ => Some((j, v)),
+                });
+            if let Some((j, best)) = best {
+                let kb = b.keypoints[j];
+                let second = sims
+                    .iter()
+                    .zip(&b.keypoints)
+                    .filter(|(_, o)| (o.x - kb.x).powi(2) + (o.y - kb.y).powi(2) >= distinct_sq)
+                    .map(|(&v, _)| v)
+                    .fold(-1.0_f32, f32::max);
+                found.push(RowBest { i, j, best, second });
+            }
+            (found, columns)
+        },
+    )
+}
+
 /// Distance between two unit descriptors from their dot product.
 fn unit_distance(dot: f32) -> f32 {
     (2.0 - 2.0 * dot).max(0.0).sqrt()
@@ -44,47 +100,30 @@ pub fn match_classical(
     if a.is_empty() || b.is_empty() || a.descriptor_dim != b.descriptor_dim {
         return Vec::new();
     }
-    let nb = b.len();
-    let similarity: Vec<f32> = (0..a.len())
-        .into_par_iter()
-        .flat_map_iter(|i| {
-            let da = a.descriptor(i);
-            (0..nb).map(move |j| da.iter().zip(b.descriptor(j)).map(|(x, y)| x * y).sum())
-        })
-        .collect();
-    let argmax = |values: &mut dyn Iterator<Item = (usize, f32)>| {
-        values.fold(None, |best: Option<(usize, f32)>, (k, v)| match best {
-            Some((_, bv)) if bv >= v => best,
-            _ => Some((k, v)),
-        })
-    };
-    let backward: Vec<usize> = (0..nb)
-        .into_par_iter()
-        .map(|j| {
-            argmax(&mut (0..a.len()).map(|i| (i, similarity[i * nb + j])))
-                .map_or(usize::MAX, |(i, _)| i)
-        })
-        .collect();
     let distinct_sq = opts.distinct_px * opts.distinct_px;
-    let mut matches: Vec<(usize, MlMatch)> = (0..a.len())
-        .into_par_iter()
-        .filter_map(|i| {
-            let row = &similarity[i * nb..(i + 1) * nb];
-            let (j, best) = argmax(&mut row.iter().copied().enumerate())?;
-            if backward[j] != i {
-                return None;
-            }
-            let kb = b.keypoints[j];
-            let second = argmax(&mut row.iter().copied().enumerate().filter(|&(k, _)| {
-                let o = b.keypoints[k];
-                (o.x - kb.x).powi(2) + (o.y - kb.y).powi(2) >= distinct_sq
-            }))
-            .map_or(-1.0, |(_, v)| v);
-            let (d1, d2) = (unit_distance(best), unit_distance(second));
-            (d1 < opts.ratio * d2).then(|| {
-                let ka = a.keypoints[i];
+    let blocks: Vec<(Vec<RowBest>, Vec<(f32, usize)>)> = (0..a.len())
+        .collect::<Vec<_>>()
+        .par_chunks(ROW_BLOCK)
+        .map(|rows| match_block(a, b, rows, distinct_sq))
+        .collect();
+    let column_best = blocks.iter().fold(
+        vec![(f32::NEG_INFINITY, usize::MAX); b.len()],
+        |acc, (_, block)| {
+            acc.into_iter()
+                .zip(block)
+                .map(|(cur, &cand)| if cand.0 > cur.0 { cand } else { cur })
+                .collect()
+        },
+    );
+    let mut matches: Vec<(usize, MlMatch)> = blocks
+        .into_iter()
+        .flat_map(|(rows, _)| rows)
+        .filter_map(|r| {
+            let (d1, d2) = (unit_distance(r.best), unit_distance(r.second));
+            (column_best[r.j].1 == r.i && d1 < opts.ratio * d2).then(|| {
+                let (ka, kb) = (a.keypoints[r.i], b.keypoints[r.j]);
                 (
-                    i,
+                    r.i,
                     MlMatch {
                         x0: ka.x,
                         y0: ka.y,
