@@ -51,6 +51,7 @@ test('server phases are parsed from Server-Timing and summarised per engine', ()
     total: 80,
   });
   expect(parseServerTiming(null)).toEqual({});
+  expect(parseServerTiming('rows;dur=1..2, total;dur=9')).toEqual({ total: 9 });
 
   const run = (phases: Record<string, number>) => ({
     ms: 100,

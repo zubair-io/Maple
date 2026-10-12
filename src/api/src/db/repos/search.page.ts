@@ -192,7 +192,10 @@ export async function windowDocs(
     lane.read<PageRow>(pageColumnsByIdsSql(ids.length), ids),
     sideTables(lane, ids, page.map(ownerKey)),
   ]);
-  return inGivenOrder(ids, columns, (row) => row.id).map((row) => toSearchDoc(row, sides));
+  const ownerIds = new Map(page.map((row) => [row.id, row.owner_id] as const));
+  return inGivenOrder(ids, columns, (row) => row.id).map((row) =>
+    toSearchDoc({ ...row, owner_id: ownerIds.get(row.id) ?? null }, sides),
+  );
 }
 
 interface SideTables {
@@ -228,8 +231,15 @@ function toSearchDoc(row: PageRow, sides: SideTables): SearchDoc {
   };
 }
 
+/** The raw `owner_id`: `users.id` is that same string, and a corrupt one simply misses (#4511). */
 function ownerKey(row: { owner_id: string | null }): string | null {
-  return row.owner_id ? new ObjectId(row.owner_id).toHexString() : null;
+  return row.owner_id || null;
+}
+
+/** A corrupt `owner_id` stays the raw string rather than failing the whole page (#4511). */
+function ownerIdOf(raw: string | null): ObjectId | string | null {
+  if (raw === null) return null;
+  return ObjectId.isValid(raw) ? new ObjectId(raw) : raw;
 }
 
 /**
@@ -262,7 +272,7 @@ function toAssetDoc(
     exif: json<AssetExif>(row.exif),
     place: json<Place>(row.place),
     description: captions.get(row.id) ?? null,
-    owner_id: row.owner_id ? new ObjectId(row.owner_id) : null,
+    owner_id: ownerIdOf(row.owner_id),
     phasset_links: linkRows.map((link) => ({
       device_id: link.device_id,
       phasset_local_id: link.phasset_local_id,

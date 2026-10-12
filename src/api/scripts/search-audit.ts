@@ -70,7 +70,8 @@ export function parseServerTiming(header: string | null): Record<string, number>
     .split(',')
     .map((entry) => /^\s*([^;\s]+)\s*;(?:.*;)?\s*dur=([\d.]+)/.exec(entry))
     .filter((match): match is RegExpExecArray => match !== null)
-    .map((match) => [match[1]!, Number(match[2])] as const);
+    .map((match) => [match[1]!, Number(match[2])] as const)
+    .filter(([, ms]) => Number.isFinite(ms));
   return Object.fromEntries(pairs);
 }
 
