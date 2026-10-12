@@ -45,13 +45,12 @@ function inProcessRanker(where: SearchWhere, query: string): WindowRanker {
       ranked.map((hit) => hit.id),
     );
     const alive = new Set(survivors.map((row) => row.maple_id));
+    const surviving = ranked.filter((hit) => alive.has(hit.id));
     return {
       rows: survivors,
       considered: ranked.length,
-      semantic: new Set(ranked.filter((hit) => hit.vectorRank !== null).map((hit) => hit.id)),
-      scores: new Map(
-        ranked.filter((hit) => alive.has(hit.id)).map((hit) => [hit.id, hit.score] as const),
-      ),
+      semantic: new Set(surviving.filter((hit) => hit.vectorRank !== null).map((hit) => hit.id)),
+      scores: new Map(surviving.map((hit) => [hit.id, hit.score] as const)),
     };
   };
 }
