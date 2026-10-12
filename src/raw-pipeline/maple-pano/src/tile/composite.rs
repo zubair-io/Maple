@@ -124,6 +124,7 @@ pub struct TileCompositeReport {
 /// `pub(crate)`, not `pub`: `TileFrameCache` itself is crate-internal,
 /// so this can't be called from outside the crate either — the only
 /// caller is `stitch::tile_stitch`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn composite_tile(
     cache: &TileFrameCache,
     full_dims: &[(u32, u32)],
