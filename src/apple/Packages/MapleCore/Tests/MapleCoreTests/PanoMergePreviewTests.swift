@@ -130,7 +130,7 @@ final class PanoMergePreviewTests: XCTestCase {
         XCTAssertEqual(result.alignmentOutcome, .reused)
     }
 
-    func testCreatePanoramaCancelsAnInFlightPreview() async {
+    func testCreatePanoramaWaitsForTheInFlightPreviewAlignment() async {
         let stitcher = RecordingStitcher()
         stitcher.holdPreviews = true
         let session = PanoMergeSession(stitcher: stitcher, previewDebounce: .milliseconds(20))
@@ -139,12 +139,57 @@ final class PanoMergePreviewTests: XCTestCase {
         await waitUntil { stitcher.previewCalls.count == 1 }
 
         session.start(assets: assets)
-        await waitUntil { stitcher.cancelledPreviews == 1 }
+        guard case .finishingAlignment = session.state else {
+            return XCTFail("Create during a matching preview should wait for it, got \(session.state)")
+        }
+        XCTAssertTrue(session.isRunning)
+        try? await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(stitcher.cancelledPreviews, 0, "the matching preview must not be thrown away")
+        XCTAssertTrue(stitcher.stitchAlignments.isEmpty, "the stitch must not start before the alignment lands")
+
+        stitcher.holdPreviews = false
         await waitUntil { if case .done = session.state { true } else { false } }
 
-        XCTAssertEqual(stitcher.stitchAlignments, [nil])
+        XCTAssertEqual(stitcher.previewCalls.count, 1)
+        XCTAssertEqual(stitcher.stitchAlignments, [RecordingStitcher.alignment(for: .default)])
+        guard case .done(let result) = session.state else { return }
+        XCTAssertEqual(result.alignmentOutcome, .reused)
+    }
+
+    func testCreatePanoramaCancelsAPendingRePreviewAfterAGeometryChange() async {
+        let stitcher = RecordingStitcher()
+        let session = PanoMergeSession(stitcher: stitcher, previewDebounce: .seconds(5))
+        let assets = makeAssets(3)
+        session.preview(assets: assets)
+        await waitUntil { if case .ready = session.previewState { true } else { false } }
+
+        session.options.strategy = .tile
+        session.start(assets: assets)
+        await waitUntil { if case .done = session.state { true } else { false } }
+
+        XCTAssertEqual(stitcher.previewCalls.count, 1, "the pending re-preview must not run")
+        XCTAssertEqual(stitcher.stitchAlignments, [RecordingStitcher.alignment(for: .default)])
         guard case .idle = session.previewState else {
-            return XCTFail("expected the cancelled preview to leave idle, got \(session.previewState)")
+            return XCTFail("expected the pending re-preview to be dropped, got \(session.previewState)")
+        }
+    }
+
+    func testCancelWhileFinishingAlignmentStopsBothAndNeverStitches() async {
+        let stitcher = RecordingStitcher()
+        stitcher.holdPreviews = true
+        let session = PanoMergeSession(stitcher: stitcher, previewDebounce: .milliseconds(20))
+        let assets = makeAssets(3)
+        session.preview(assets: assets)
+        await waitUntil { stitcher.previewCalls.count == 1 }
+        session.start(assets: assets)
+
+        session.cancel()
+        await waitUntil { stitcher.cancelledPreviews == 1 }
+        try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertTrue(stitcher.stitchAlignments.isEmpty)
+        guard case .idle = session.state else {
+            return XCTFail("expected idle after cancel, got \(session.state)")
         }
     }
 
@@ -179,8 +224,9 @@ final class PanoMergePreviewTests: XCTestCase {
 
 // MARK: - RecordingStitcher
 
-/// Instant stitcher that records what the session offers it. With
-/// `holdPreviews`, a preview suspends until its task is cancelled.
+/// Instant stitcher that records what the session offers it. A preview
+/// started while `holdPreviews` is set suspends until it is cleared or the
+/// preview's task is cancelled.
 private final class RecordingStitcher: PanoStitching, @unchecked Sendable {
     struct PreviewCall {
         let options: PanoOptions
@@ -212,7 +258,10 @@ private final class RecordingStitcher: PanoStitching, @unchecked Sendable {
         }
         if hold {
             do {
-                try await Task.sleep(for: .seconds(60))
+                while await MainActor.run(body: { holdPreviews }) {
+                    try await Task.sleep(for: .milliseconds(5))
+                }
+                try Task.checkCancellation()
             } catch {
                 await MainActor.run { cancelledPreviews += 1 }
                 throw CancellationError()

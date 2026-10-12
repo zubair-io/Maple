@@ -48,6 +48,9 @@ public final class PanoMergeSession {
 
     public enum RunState: Sendable {
         case idle
+        /// Create Panorama was pressed while a preview was matching; the
+        /// stitch starts from that preview's alignment once it lands.
+        case finishingAlignment
         case running(stage: PanoStage, stageFraction: Double, overallFraction: Double)
         case done(result: PanoResult)
         case error(StitchError)
@@ -77,8 +80,10 @@ public final class PanoMergeSession {
     /// True while a stitch is in-flight. Derived from `state` so views don't
     /// need a switch to drive a spinner.
     public var isRunning: Bool {
-        if case .running = state { return true }
-        return false
+        switch state {
+        case .running, .finishingAlignment: return true
+        case .idle, .done, .error: return false
+        }
     }
 
     public var isPreviewing: Bool {
@@ -107,6 +112,8 @@ public final class PanoMergeSession {
     private var previewGeneration: UInt64 = 0
     private var previewTask: Task<Void, Never>?
     private var previewAssets: [AssetRef] = []
+    /// Geometry option the in-flight preview run solves for.
+    private var previewRunStrategy: PanoOptions.Strategy?
 
     public init(stitcher: any PanoStitching, previewDebounce: Duration = .milliseconds(600)) {
         self.stitcher = stitcher
@@ -142,6 +149,7 @@ public final class PanoMergeSession {
             }
             guard let self, self.previewGeneration == gen else { return }
             let capturedOptions = self.options
+            self.previewRunStrategy = capturedOptions.strategy
             self.previewState = .running(stage: .decoding, overallFraction: 0)
             do {
                 let preview = try await capturedStitcher.preview(
@@ -167,6 +175,14 @@ public final class PanoMergeSession {
         }
     }
 
+    /// The running preview whose alignment Create Panorama should wait for:
+    /// one already matching for the current geometry. A pending (debounced)
+    /// re-preview has nothing in flight worth keeping.
+    private var previewWorthAwaiting: Task<Void, Never>? {
+        guard case .running = previewState, previewRunStrategy == options.strategy else { return nil }
+        return previewTask
+    }
+
     private func cancelPreview() {
         previewGeneration &+= 1
         previewTask?.cancel()
@@ -177,8 +193,10 @@ public final class PanoMergeSession {
     // MARK: - Stitch API
 
     /// Start the full stitch with the given ordered asset list, offering the
-    /// preview's alignment. An in-flight preview is cancelled; a finished
-    /// preview stays visible.
+    /// preview's alignment. A preview already matching for the current
+    /// geometry is waited for (`.finishingAlignment`) so its matching is not
+    /// thrown away; a pending re-preview is cancelled. A finished preview
+    /// stays visible.
     ///
     /// If a run is already in-flight it is cancelled first (the cancelled run's
     /// state will NOT overwrite the new run's state — the generation counter
@@ -186,24 +204,33 @@ public final class PanoMergeSession {
     public func start(assets: [AssetRef]) {
         guard assets.count >= 2 else { return }
 
-        if isPreviewing { cancelPreview() }
-        stitcher.cancel()
+        let awaitedPreview = previewWorthAwaiting
+        if awaitedPreview == nil {
+            if isPreviewing { cancelPreview() }
+            stitcher.cancel()
+        }
 
         runGeneration &+= 1
         let gen = runGeneration
         let capturedStitcher = stitcher
         let capturedOptions = options
-        let capturedAlignment = alignment
         let weights = PanoProgressWeights.stitch(localAlign: capturedOptions.localAlign)
 
-        state = .running(stage: .decoding, stageFraction: 0.0, overallFraction: 0.0)
+        state = awaitedPreview == nil
+            ? .running(stage: .decoding, stageFraction: 0.0, overallFraction: 0.0)
+            : .finishingAlignment
 
         Task {
+            if let awaitedPreview {
+                await awaitedPreview.value
+                guard runGeneration == gen else { return }
+                state = .running(stage: .decoding, stageFraction: 0.0, overallFraction: 0.0)
+            }
             do {
                 let result = try await capturedStitcher.stitch(
                     assets: assets,
                     options: capturedOptions,
-                    alignment: capturedAlignment,
+                    alignment: alignment,
                     progress: { stage, stageFraction in
                         guard self.runGeneration == gen else { return }
                         self.state = .running(
