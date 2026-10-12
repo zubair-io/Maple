@@ -20,6 +20,10 @@ import {
 } from './search-pool.ts';
 import type { FusedSearchHit } from './search-engine-ffi.ts';
 import { RANKED_WINDOW_MAX } from '../db/repos/search.ranked.ts';
+import { MAX_TEXT_QUERY_LENGTH } from '../db/repos/search.where.ts';
+import { child as childLogger } from '../log.ts';
+
+const log = childLogger('remote-search');
 
 /** The API pool's own deadline plus a second for the two IPC hops. */
 const REMOTE_TIMEOUT_MS = QUERY_TIMEOUT_MS + 1_000;
@@ -100,7 +104,9 @@ export function installRemoteInProcessSearch(): void {
 
 /**
  * The API's side: answer a worker's `search-rank` request from this process's child. Returns
- * whether the message was one, so the supervisor can ignore everything else.
+ * whether the message was one, so the supervisor can ignore everything else. The depth is clamped
+ * to a window's cap and a query longer than a search accepts is answered null without reaching
+ * the child, whatever the worker sent.
  */
 export function answerRemoteSearch(
   worker: { postMessage(message: SearchRankReply): void },
@@ -116,6 +122,13 @@ export function answerRemoteSearch(
       // The worker died between asking and the answer; its respawn asks again.
     }
   };
-  void (engine?.search(message.query, k) ?? Promise.resolve(null)).then(reply, () => reply(null));
+  const search =
+    message.query.length > MAX_TEXT_QUERY_LENGTH
+      ? null
+      : (engine?.search(message.query, k) ?? null);
+  void (search ?? Promise.resolve(null)).then(reply, (err: unknown) => {
+    log.warn({ err: err instanceof Error ? err.message : String(err) }, 'remote search failed');
+    reply(null);
+  });
   return true;
 }

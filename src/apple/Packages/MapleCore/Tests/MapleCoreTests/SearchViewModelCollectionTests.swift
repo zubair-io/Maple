@@ -278,6 +278,53 @@ final class SearchViewModelCollectionTests: XCTestCase {
     XCTAssertNil(vm.loadError)
   }
 
+  func test_loadMore_refetchesFacetsForTheWidenedWindow() async throws {
+    let server = URL(string: "https://stub.test")!
+    let cfg = URLSessionConfiguration.ephemeral
+    cfg.protocolClasses = [StubURLProtocol.self]
+    StubURLProtocol.reset()
+    let facetURLs = LockedURLs()
+    StubURLProtocol.responder = { request in
+      let url = request.url!
+      if url.path == "/api/search/facets" {
+        facetURLs.append(url)
+        return .http(
+          status: 200,
+          body: Data(
+            #"{"total":1,"cameras":[],"lenses":[],"extensions":[],"scene_types":[],"activities":[],"subjects":[],"is_screenshot":{"true":0,"false":1,"unknown":0},"people":[],"places":[]}"#
+              .utf8))
+      }
+      let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+      let page = items.first { $0.name == "page" }?.value ?? "0"
+      let body =
+        page == "0"
+        ? #"{"results":[{"id":"fs:/p/a.dng","folder_id":"lib","abs_path":"/p/a.dng","filename":"a.dng"}],"total":1,"more":true,"page":0,"limit":1}"#
+        : #"{"results":[{"id":"fs:/p/b.dng","folder_id":"lib","abs_path":"/p/b.dng","filename":"b.dng"}],"total":2,"more":false,"page":1,"limit":1}"#
+      return .http(status: 200, body: Data(body.utf8))
+    }
+    let client = CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(
+        server: server, urlSession: URLSession(configuration: cfg)))
+    let vm = SearchViewModel(server: server, libraryID: "lib-test", searchClient: client, limit: 1)
+    vm.params.placeQuery = "city streets"
+
+    await vm.submit()
+    XCTAssertTrue(vm.canLoadMore, "a full window's total is not the end")
+    await vm.loadMore()
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while facetURLs.count < 2, ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+
+    let pages = facetURLs.all.map { url in
+      URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+        .first { $0.name == "page" }?.value
+    }
+    XCTAssertEqual(pages, ["0", "1"], "facets follow the list into its widened window")
+    XCTAssertEqual(vm.total, 2)
+  }
+
   func test_submit_leavesCollectionMode() async {
     let vm = makeVM()
     var pagerCalls = 0
@@ -418,4 +465,14 @@ final class SlowFacetsURLProtocol: URLProtocol {
     client?.urlProtocol(self, didLoad: Data(json.utf8))
     client?.urlProtocolDidFinishLoading(self)
   }
+}
+
+/// URLs recorded from the URL-loading thread, read from the test.
+final class LockedURLs: @unchecked Sendable {
+  private let lock = NSLock()
+  private var urls: [URL] = []
+
+  func append(_ url: URL) { lock.withLock { urls.append(url) } }
+  var all: [URL] { lock.withLock { urls } }
+  var count: Int { all.count }
 }

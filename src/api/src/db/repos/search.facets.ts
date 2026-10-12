@@ -27,7 +27,13 @@
 import { facetStatements, type BoundStatement, type FacetName } from './search.facets.sql.ts';
 import { facetRowsOf } from './search.facets.top.ts';
 import type { SearchWhere } from './search.where.ts';
-import { ftsRanker, rankWindow, RANKED_WINDOW_BASE, type RankedAsset } from './search.ranked.ts';
+import {
+  ftsRanker,
+  rankWindow,
+  RANKED_WINDOW_BASE,
+  windowDepthFor,
+  type RankedAsset,
+} from './search.ranked.ts';
 import { cachedFacets } from './search.facets.cache.ts';
 import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
 import type { SqlRow } from '../sqlite/protocol.ts';
@@ -234,7 +240,11 @@ export async function searchFacets(
   // was down is served to whoever was waiting on it, never to the next 30 s of requests.
   const answer = await cachedFacets(
     db,
-    [where, options.need ?? RANKED_WINDOW_BASE, options.window ? 'request' : 'database'],
+    [
+      where,
+      windowDepthFor(options.need ?? RANKED_WINDOW_BASE),
+      options.window ? 'request' : 'database',
+    ],
     () => computeFacets(db, where, options),
     Date.now(),
     (computed) => computed.preferred,

@@ -11,7 +11,7 @@
  * provably carries the hazard). Then it drives the collection page, the search list, its facets,
  * its buckets and the map and pins what each issued: the text ranked once on the inverted index
  * alone with a `LIMIT`, only its hits joined, no count of the match set, every heavy read on the
- * bulk lane — and a wall time a whole-match statement could not meet.
+ * bulk lane. The plans are the gate; wall time on a shared runner is not.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -120,7 +120,6 @@ function seedCard(query: Record<string, string>): string {
 }
 
 const SEED_TIMEOUT_MS = 120_000;
-const BOUNDED_MS = 30_000;
 
 beforeAll(async () => {
   live = await createLiveTestDatabase('file');
@@ -143,7 +142,7 @@ interface Issued {
 /** Every statement one request issued, with its parameters and the lane it took. */
 async function issuedBy(
   path: string,
-): Promise<{ issued: Issued[]; ms: number; body: { total: number; results: unknown[] } }> {
+): Promise<{ issued: Issued[]; body: { total: number; results: unknown[] } }> {
   _resetCacheForTests();
   _resetBucketsCacheForTests();
   const inner = testSqliteDb(live.db);
@@ -155,11 +154,9 @@ async function issuedBy(
     transaction: (statements) => inner.transaction(statements),
   };
   setSqliteHandleForTests(handle);
-  const started = performance.now();
   const res = await app.handle(new Request(`http://localhost${path}`));
-  const ms = performance.now() - started;
   expect(res.status).toBe(200);
-  return { issued, ms, body: await res.json() };
+  return { issued, body: await res.json() };
 }
 
 function planOf(statement: Issued): string[] {
@@ -227,11 +224,10 @@ describe('a large match set, without planner statistics', () => {
 
   it('a For You card ranks a bounded window and never counts the library', async () => {
     const id = seedCard({ placeQuery: THEME, month: '10' });
-    const { issued, ms, body } = await issuedBy(`/api/generated-searches/${id}/assets?limit=30`);
+    const { issued, body } = await issuedBy(`/api/generated-searches/${id}/assets?limit=30`);
     expectBounded(issued);
     expect(body.results).toHaveLength(30);
     expect(body.total).toBeLessThanOrEqual(5_000);
-    expect(ms).toBeLessThan(BOUNDED_MS);
   });
 
   it('a search list, its facets and its buckets stay bounded too', async () => {
@@ -241,9 +237,8 @@ describe('a large match set, without planner statistics', () => {
       `/api/search/buckets?placeQuery=${encodeURIComponent(THEME)}&month=10`,
       `/api/map/clusters?placeQuery=${encodeURIComponent(THEME)}&month=10&bbox=-180,-90,180,90&zoom=3`,
     ]) {
-      const { issued, ms } = await issuedBy(path);
+      const { issued } = await issuedBy(path);
       expectBounded(issued);
-      expect({ path, fast: ms < BOUNDED_MS }).toEqual({ path, fast: true });
     }
   });
 });

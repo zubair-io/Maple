@@ -55,7 +55,9 @@ afterEach(() => {
   live.close();
 });
 
-async function list(query: string): Promise<{ total: number; more: boolean; results: unknown[] }> {
+async function list(
+  query: string,
+): Promise<{ total: number; more: boolean; results: unknown[]; rankedBy?: unknown }> {
   const res = await new Elysia().use(listRoute).handle(new Request(`http://localhost/?${query}`));
   expect(res.status).toBe(200);
   return res.json();
@@ -81,17 +83,39 @@ describe('the in-process window', () => {
     expect(first).toMatchObject({ total: RANKED_WINDOW_BASE, more: true });
     expect(third).toMatchObject({ total: 250, more: false });
     expect(third.results).toHaveLength(50);
-    expect(engine.queries.map((q) => q.k)).toEqual([RANKED_WINDOW_BASE, 300]);
+    expect(engine.queries.map((q) => q.k)).toEqual([RANKED_WINDOW_BASE, 400]);
   });
 
-  it('widens once when a filter leaves a full window short', async () => {
+  it('widens when a filter leaves a full window short', async () => {
     const engine = honouringK(ranked);
     setInProcessSearchForTests(engine);
 
     const body = await list('placeQuery=greyson&rating=5&limit=100');
 
-    expect(engine.queries.map((q) => q.k)).toEqual([RANKED_WINDOW_BASE, 300]);
+    expect(engine.queries.map((q) => q.k)).toEqual([RANKED_WINDOW_BASE, 400]);
     expect(body).toMatchObject({ total: 125, more: false });
+  });
+});
+
+describe('an in-process window the filters leave empty', () => {
+  it('asks the database too when the child returned fewer hits than asked', async () => {
+    setInProcessSearchForTests(honouringK(['gone1', 'gone2', 'gone3']));
+
+    const body = await list('placeQuery=greyson&rating=5&limit=10');
+
+    expect(body.total).toBeGreaterThan(0);
+    expect(body.rankedBy).toBeUndefined();
+  });
+
+  it('stands when the child ranked as deep as the cap and nothing survived', async () => {
+    const nowhere = Array.from({ length: RANKED_WINDOW_MAX }, (_, index) => `gone${index}`);
+    const engine = honouringK(nowhere);
+    setInProcessSearchForTests(engine);
+
+    const body = await list('placeQuery=greyson&limit=10');
+
+    expect(body).toMatchObject({ total: 0, more: false, capped: true });
+    expect(engine.queries.map((query) => query.k)).toEqual([100, 400, 1_600, RANKED_WINDOW_MAX]);
   });
 });
 
@@ -132,7 +156,37 @@ describe('paging a window through a tie wider than the window', () => {
 
     expect(new Set(served).size).toBe(served.length);
     expect(served).toEqual(picked);
-    expect(pages.map((body) => body.more)).toEqual([true, true, false, false]);
+    expect(pages.map((body) => body.more)).toEqual([false, false, false, false]);
+  });
+});
+
+describe('paging a selective filter whose survivors sit deep in the ranking (#4514)', () => {
+  it('serves every surviving match exactly once, page by page, however far each page widens', async () => {
+    setInProcessSearchForTests(fakeInProcessSearch(null));
+    const picked: string[] = [];
+    for (let index = 0; index < 330; index++) {
+      const mapleId = `deep${String(index).padStart(3, '0')}`;
+      const survives = index < 5 || (index >= 150 && index % 3 === 0);
+      seedSearchAsset(live.db, libraryId, {
+        mapleId,
+        filename: `${mapleId}.dng`,
+        rating: survives ? 4 : 2,
+        searchBlob: 'lighthouse',
+      });
+      if (survives) picked.push(`${mapleId}.dng`);
+    }
+
+    const pages = [];
+    for (const page of [0, 1, 2, 3, 4]) {
+      pages.push(await list(`placeQuery=lighthouse&rating=4&limit=20&page=${page}`));
+    }
+    const served = pages.flatMap((body) =>
+      (body.results as Array<{ filename: string }>).map((row) => row.filename),
+    );
+
+    expect(pages[0]!.results).toHaveLength(20);
+    expect(new Set(served).size).toBe(served.length);
+    expect(served).toEqual(picked);
   });
 });
 
@@ -175,7 +229,7 @@ describe('facets and buckets of a page describe the window its list counts', () 
 
     expect(new Set(Object.values(shallow)).size).toBe(1);
     expect(new Set(Object.values(deep)).size).toBe(1);
-    expect(deep.list).toBeGreaterThan(shallow.list);
+    expect(shallow.list).toBe(125);
   });
 });
 
@@ -187,5 +241,23 @@ describe('windowNeed', () => {
     expect(windowNeed({ page: 'abc', limit: 'abc' })).toBe(100);
     expect(windowNeed({ limit: '9999' })).toBe(500);
     expect(windowNeed({ page: '10000', limit: '500' })).toBe(RANKED_WINDOW_MAX);
+  });
+});
+
+describe('the free text a search accepts', () => {
+  it('rejects a placeQuery over 1,000 characters with a 400, before any engine sees it', async () => {
+    const engine = fakeInProcessSearch(ranked);
+    setInProcessSearchForTests(engine);
+    const app = new Elysia().use(listRoute).use(facetsRoute).use(bucketsRoute);
+
+    for (const path of ['/', '/facets', '/buckets']) {
+      const res = await app.handle(
+        new Request(`http://localhost${path}?placeQuery=${'a'.repeat(1_001)}`),
+      );
+      expect({ path, status: res.status }).toEqual({ path, status: 400 });
+    }
+    const atLimit = await list(`placeQuery=${'a'.repeat(1_000)}`);
+    expect(atLimit.results).toBeDefined();
+    expect(engine.queries.every((query) => query.query.length <= 1_000)).toBe(true);
   });
 });

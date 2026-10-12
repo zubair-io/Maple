@@ -73,7 +73,8 @@ function withoutRankedBy(page: {
 
 /**
  * The stored preview while the engine loads, paged like any collection. `total` is the preview's
- * row count on every page, and `more` stays true so a client asks again once the engine is up.
+ * row count on every page; `more` stays true while a page is inside the preview, so a client asks
+ * again once the engine is up, and is false past its end, so nothing pages on into empty results.
  */
 async function pendingPage(
   doc: GeneratedSearchDoc,
@@ -88,7 +89,7 @@ async function pendingPage(
   return {
     total: preview.length,
     results: preview.slice(page.skip, page.skip + page.limit),
-    more: true,
+    more: page.skip < preview.length,
     snapshot: true,
     pending: true,
   };

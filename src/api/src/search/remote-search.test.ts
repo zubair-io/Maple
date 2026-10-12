@@ -97,6 +97,15 @@ describe('the remote search bridge', () => {
     expect(engine.queries[0]!.k).toBe(RANKED_WINDOW_MAX);
   });
 
+  it('answers null to a query longer than a search accepts, without asking the child', async () => {
+    const engine = fakeInProcessSearch(['a']);
+    setInProcessSearchForTests(engine);
+    const { bridge } = joined();
+
+    expect(await bridge.search('x'.repeat(1_001), 30)).toBeNull();
+    expect(engine.queries).toEqual([]);
+  });
+
   it('ignores messages that are not search requests', () => {
     const posted: unknown[] = [];
     expect(answerRemoteSearch({ postMessage: (m) => posted.push(m) }, { type: 'memory' })).toBe(

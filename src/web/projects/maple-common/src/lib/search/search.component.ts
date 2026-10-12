@@ -310,20 +310,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
       this.facetsInFlight?.unsubscribe();
       this.facetsTimer = setTimeout(() => {
         this.facetsTimer = null;
-        const {
-          page: _page,
-          limit: _limit,
-          cursor: _cursor,
-          sort: _sort,
-          ...facetParams
-        } = this.buildParams({ page: 0 });
-        this.facetsInFlight = this.searchService.facets(facetParams).subscribe({
-          next: (f2) => this.facets.set(f2),
-          error: () => {
-            // Keep the last good facets — an aggregation hiccup shouldn't
-            // blank the pickers.
-          },
-        });
+        this.loadFacets(0);
       }, 400);
     });
 
@@ -358,6 +345,19 @@ export class SearchComponent implements OnInit, AfterViewInit {
    * arrives after the route is already mounted. */
   focusSearchBar(): void {
     this.searchBar?.focus();
+  }
+
+  /** Facets for the list's window as of `page` (#4514) — the same window its `total` counts. */
+  private loadFacets(page: number): void {
+    this.facetsInFlight?.unsubscribe();
+    const { cursor: _cursor, sort: _sort, ...facetParams } = this.buildParams({ page });
+    this.facetsInFlight = this.searchService.facets(facetParams).subscribe({
+      next: (f2) => this.facets.set(f2),
+      error: () => {
+        // Keep the last good facets — an aggregation hiccup shouldn't
+        // blank the pickers.
+      },
+    });
   }
 
   private buildParams(paging: { page?: number; cursor?: string }): SearchParams {
@@ -507,6 +507,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
     this.loadMoreSub = this.searchService.search(params).subscribe({
       next: (res) => {
         const merged = [...this.results(), ...res.results];
+        const widened = this.hasText() && res.results.length > 0 && res.total !== this.total();
         this.results.set(merged);
         this.nextCursor.set(res.nextCursor ?? null);
         this.total.set(seekExhausted(res) || res.results.length === 0 ? merged.length : res.total);
@@ -515,6 +516,8 @@ export class SearchComponent implements OnInit, AfterViewInit {
         // `page` is the skip-mode fallback counter — a seek request leaves
         // it alone rather than adopting the server's echoed `page: 0`.
         if (cursor === null) this.page.set(nextPage);
+        // A deeper page widened the ranked window: refresh the facets to describe it.
+        if (widened) this.loadFacets(nextPage);
         this.isLoadingMore.set(false);
         this.queueThumbs(res.results);
       },

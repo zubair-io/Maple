@@ -153,10 +153,13 @@ public actor CloudSearchClient {
   }
 
   /// `GET /api/search/facets?...` — counts/ranges scoped to the same
-  /// filter set (page/limit/sort omitted). Drives the filter panel's
-  /// option lists.
-  public func facets(_ params: SearchParams) async throws -> SearchFacets {
-    let url = makeURL(path: "/api/search/facets", query: params.facetQueryItems())
+  /// filter set, for the list's window as of `page` and `limit` (#4514).
+  /// Drives the filter panel's option lists.
+  public func facets(
+    _ params: SearchParams, page: Int? = nil, limit: Int? = nil
+  ) async throws -> SearchFacets {
+    let url = makeURL(
+      path: "/api/search/facets", query: params.facetQueryItems(page: page, limit: limit))
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
     try Self.checkOK(resp, data: data)
     do {

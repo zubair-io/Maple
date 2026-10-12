@@ -17,8 +17,8 @@
  *
  * The survivors are the window. `total` is their count and paging slices them, so the total and
  * every page agree by construction. When a full window leaves the request short, it is ranked
- * once more, as much deeper as the survival rate says it needs, up to {@link RANKED_WINDOW_MAX};
- * the window is never replaced by an exact count. `more` says the engine had hits left beyond the
+ * again four times deeper, up to {@link RANKED_WINDOW_MAX}, until the page is filled; the window
+ * is never replaced by an exact count. `more` says the engine had hits left beyond the
  * window, so asking for a deeper page widens it; `capped` says it had hits left past the cap, which
  * no page reaches. A free-text `total` is therefore never more than {@link RANKED_WINDOW_MAX}.
  */
@@ -75,25 +75,48 @@ export const RANKED_WINDOW_BASE = 100;
  */
 export const RANKED_WINDOW_MAX = 5_000;
 
-const WIDENING_MARGIN = 1.5;
+/** How much deeper each widening asks: 100, 400, 1,600, then the cap. */
+const WIDENING_FACTOR = 4;
 
-/** The window a request reaching `need` rows is served from. */
+/**
+ * The first depth on the widening ladder that reaches `need` rows. Requests whose pages share a
+ * ladder step share a window, which is what the facet and bucket caches key on.
+ */
+export function windowDepthFor(need: number): number {
+  const climb = (depth: number): number =>
+    depth >= need || depth >= RANKED_WINDOW_MAX
+      ? Math.min(depth, RANKED_WINDOW_MAX)
+      : climb(depth * WIDENING_FACTOR);
+  return climb(RANKED_WINDOW_BASE);
+}
+
+/**
+ * The window a request reaching `need` rows is served from. It is filled to the ladder step that
+ * reaches `need`: a full window with fewer survivors than that step is widened up the ladder until
+ * it has them, the engine runs out of hits, or the cap is reached. So every page's `skip` indexes
+ * a prefix earlier pages served in full, and the window depends only on the query and its step —
+ * which is what lets the facet and bucket caches share it across the pages of a step.
+ */
 export async function rankWindow(ranker: WindowRanker, need: number): Promise<RankedWindow | null> {
-  const depth = Math.min(RANKED_WINDOW_MAX, Math.max(need, RANKED_WINDOW_BASE));
-  const first = await ranker(depth);
-  if (first === null) return null;
-  const full = first.considered >= depth;
-  if (first.rows.length >= need || !full || depth >= RANKED_WINDOW_MAX) {
-    return windowOf(first, full, depth);
-  }
-  const survival = Math.max(first.rows.length, 1) / first.considered;
-  const widened = Math.min(
-    RANKED_WINDOW_MAX,
-    Math.max(depth * 2, Math.ceil((need / survival) * WIDENING_MARGIN)),
-  );
-  const second = (await ranker(widened)) ?? first;
-  const deeper = second === first ? depth : widened;
-  return windowOf(second, second.considered >= deeper, deeper);
+  const target = windowDepthFor(need);
+  const widen = async (
+    depth: number,
+    previous: { pass: WindowPass; depth: number } | null,
+  ): Promise<RankedWindow | null> => {
+    const pass = await ranker(depth);
+    if (pass === null) {
+      return (
+        previous &&
+        windowOf(previous.pass, previous.pass.considered >= previous.depth, previous.depth)
+      );
+    }
+    const full = pass.considered >= depth;
+    if (pass.rows.length >= target || !full || depth >= RANKED_WINDOW_MAX) {
+      return windowOf(pass, full, depth);
+    }
+    return widen(Math.min(RANKED_WINDOW_MAX, depth * WIDENING_FACTOR), { pass, depth });
+  };
+  return widen(target, null);
 }
 
 function windowOf(pass: WindowPass, full: boolean, depth: number): RankedWindow {
