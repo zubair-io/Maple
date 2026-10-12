@@ -1063,16 +1063,7 @@ export class BunApiBackendService {
     /** Minimum face size (normalised [0,1) on the 640-px detection frame).
      * `null` clears back to the built-in default (0.06). */
     face_min_detection_size?: number | null;
-    // ── Search index (Phase 7) ────────────────────────────────────
-    /** Meilisearch sidecar URL. `null`/empty clears back to env / disabled. */
-    meilisearch_url?: string | null;
-    /** Meilisearch API key (write-only secret). Non-empty string sets it;
-     * `null` clears back to env; omitted/empty leaves the saved key alone. */
-    meilisearch_api_key?: string | null;
-    meilisearch_task_timeout_seconds?: number | null;
-    meilisearch_semantic_enabled?: boolean | null;
-    meilisearch_embedder_model?: string | null;
-    meilisearch_semantic_ratio?: number | null;
+    // ── Search index ──────────────────────────────────────────────
     service_search_rate_limit_per_minute?: number | null;
   }): Observable<EnrichmentConfigResponse> {
     return this.http.put<EnrichmentConfigResponse>(`${this.base}/enrichment/config`, body);
@@ -1083,17 +1074,6 @@ export class BunApiBackendService {
   testNominatim(url: string): Observable<EnrichmentTestResponse> {
     return this.http.post<EnrichmentTestResponse>(`${this.base}/enrichment/test`, {
       nominatim_url: url,
-    });
-  }
-
-  /** Health-check an arbitrary Meilisearch URL without saving. Pass
-   * `apiKey` to probe with a freshly-typed (not-yet-saved) key; omit it to
-   * let the server fall back to the saved key / `MAPLE_MEILISEARCH_API_KEY`
-   * env var. The key is write-only — never echoed back. */
-  testMeilisearch(url: string, apiKey?: string | null): Observable<EnrichmentTestResponse> {
-    return this.http.post<EnrichmentTestResponse>(`${this.base}/enrichment/test-meili`, {
-      meilisearch_url: url,
-      ...(apiKey ? { api_key: apiKey } : {}),
     });
   }
 
@@ -1448,22 +1428,6 @@ export interface EnrichmentConfigResponse {
    * (default 0.06). Detections whose shorter bbox side is below this value
    * (normalised [0,1) on the 640-px frame) are dropped before persisting. */
   face_min_detection_size: number;
-  /** Meilisearch sidecar URL (DB → env → null). `null` disables the sidecar;
-   * search then falls back to the server's own full-text search. */
-  meilisearch_url: string | null;
-  /** Whether a Meilisearch API key is configured (DB or env). The key itself
-   * is a secret and is never sent on the wire — only this boolean. */
-  meilisearch_api_key_set: boolean;
-  /** Maximum wait for one asynchronous Meilisearch indexing task. */
-  meilisearch_task_timeout_seconds?: number;
-  /** DB-backed master switch for Maple-owned hybrid semantic search. */
-  meilisearch_semantic_enabled: boolean;
-  /** Ollama URL that Meilisearch uses to embed documents and queries. */
-  meilisearch_embedder_url: string;
-  /** Ollama embedding model used for documents and queries. */
-  meilisearch_embedder_model: string;
-  /** Hybrid vector/keyword blend in [0, 1]. */
-  meilisearch_semantic_ratio: number;
   /** Per-service-key request budget for POST /api/search/assets. */
   service_search_rate_limit_per_minute?: number;
   /** Set when face worker is enabled but the model files are missing — UI
@@ -1498,13 +1462,6 @@ export interface EnrichmentConfigResponse {
     face_recognizer_url: 'db' | 'env' | 'unset';
     face_recognizer_sha256: 'db' | 'env' | 'unset';
     face_min_detection_size: 'db' | 'default';
-    meilisearch_url: 'db' | 'env' | 'unset';
-    meilisearch_api_key: 'db' | 'env' | 'unset';
-    meilisearch_task_timeout_seconds?: 'db' | 'default';
-    meilisearch_semantic_enabled: 'db' | 'default';
-    meilisearch_embedder_url: 'db' | 'env' | 'default';
-    meilisearch_embedder_model: 'db' | 'default';
-    meilisearch_semantic_ratio: 'db' | 'default';
     service_search_rate_limit_per_minute?: 'db' | 'default';
   };
 }
@@ -1514,15 +1471,6 @@ export interface EnrichmentTestResponse {
   url?: string;
   error?: string;
   status?: number | null;
-  semanticReady?: boolean;
-  semantic?: {
-    embedderName: string;
-    model: string;
-    meilisearchReachable: boolean;
-    embedderConfigured: boolean;
-    embedderReachable: boolean;
-    error: string | null;
-  };
 }
 
 export interface EnrichmentTestDescribeResponse {

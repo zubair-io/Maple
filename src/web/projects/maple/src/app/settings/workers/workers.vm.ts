@@ -60,14 +60,6 @@ export interface EnrichmentForm {
   face_recognizer_sha256: string;
   /** Minimum face size as a string for the input element (normalised [0,1)). */
   face_min_detection_size: string;
-  // Meili (search index)
-  meilisearch_url: string;
-  // Write-only: always starts blank (the saved key is never echoed). A
-  // blank value on save means "leave the saved key unchanged".
-  meilisearch_api_key: string;
-  meilisearch_task_timeout_seconds: string;
-  meilisearch_semantic_enabled: boolean;
-  meilisearch_semantic_ratio: string;
   service_search_rate_limit_per_minute: string;
 }
 
@@ -99,9 +91,8 @@ export function blankRuntime(stage: StageStatus): RuntimeForm {
   };
 }
 
-/** Face slice of the seed. Grouped like the Meilisearch slice below so
- * `blankEnrichment` stays a readable assembly of per-domain groups rather
- * than one long fallback chain. */
+/** Face slice of the seed, so `blankEnrichment` stays a readable assembly of
+ * per-domain groups rather than one long fallback chain. */
 function blankFace(ec: EnrichmentConfigResponse | null) {
   // `text` keeps the null-coalescing in one place: a per-field `?? ''`
   // chain reads fine but scores as one branch each, and this block is all
@@ -117,13 +108,6 @@ function blankFace(ec: EnrichmentConfigResponse | null) {
   };
 }
 
-function blankMeilisearchSemantic(ec: EnrichmentConfigResponse | null) {
-  return {
-    meilisearch_semantic_enabled: ec?.meilisearch_semantic_enabled ?? false,
-    meilisearch_semantic_ratio: String(ec?.meilisearch_semantic_ratio ?? 0.5),
-  };
-}
-
 /** Seed the worker controls; AI assignments live on the AI page. */
 export function blankEnrichment(ec: EnrichmentConfigResponse | null): EnrichmentForm {
   return {
@@ -131,33 +115,13 @@ export function blankEnrichment(ec: EnrichmentConfigResponse | null): Enrichment
     nominatim_url: ec?.nominatim_url ?? '',
     nominatim_rate_limit_per_sec: String(ec?.nominatim_rate_limit_per_sec ?? 10),
     ...blankFace(ec),
-    meilisearch_url: ec?.meilisearch_url ?? '',
-    // Never seeded from the response — the key is write-only.
-    meilisearch_api_key: '',
-    meilisearch_task_timeout_seconds: String(ec?.meilisearch_task_timeout_seconds ?? 600),
-    ...blankMeilisearchSemantic(ec),
     service_search_rate_limit_per_minute: String(ec?.service_search_rate_limit_per_minute ?? 60),
   };
 }
 
-export function meilisearchFormToPatch(form: EnrichmentForm) {
-  const key = form.meilisearch_api_key.trim();
-  const taskTimeout = Number(form.meilisearch_task_timeout_seconds.trim());
-  const semanticRatioText = form.meilisearch_semantic_ratio.trim();
-  const semanticRatio = semanticRatioText === '' ? Number.NaN : Number(semanticRatioText);
+export function searchFormToPatch(form: EnrichmentForm) {
   const serviceRate = Number(form.service_search_rate_limit_per_minute.trim());
   return {
-    meilisearch_url: form.meilisearch_url.trim() || null,
-    ...(key.length > 0 ? { meilisearch_api_key: key } : {}),
-    meilisearch_task_timeout_seconds:
-      Number.isInteger(taskTimeout) && taskTimeout >= 30 && taskTimeout <= 3600
-        ? taskTimeout
-        : null,
-    meilisearch_semantic_enabled: form.meilisearch_semantic_enabled,
-    meilisearch_semantic_ratio:
-      Number.isFinite(semanticRatio) && semanticRatio >= 0 && semanticRatio <= 1
-        ? semanticRatio
-        : null,
     service_search_rate_limit_per_minute:
       Number.isInteger(serviceRate) && serviceRate > 0 ? serviceRate : null,
   };
@@ -290,9 +254,8 @@ export function pendingTitle(s: StageStatus): string {
   return `${ready} ready · ${blocked} blocked on an upstream stage · ${total} pending total`;
 }
 
-/** Why a stage paused ITSELF — `meili` does this when Meilisearch's address
- * policy rejects the embedding server (#3315), so the row must say so or the
- * operator's first move is to resume it straight back into the same failure.
+/** Why a stage paused ITSELF, so the row can say so or the operator's first
+ * move is to resume it straight back into the same failure.
  * Null for an operator pause (no reason recorded) and for a running stage:
  * the server clears the reason on every resume, and a stale reason on a row
  * that is no longer paused would be misleading. */

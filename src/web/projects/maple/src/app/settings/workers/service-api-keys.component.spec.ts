@@ -53,7 +53,7 @@ describe('ServiceApiKeysComponent', () => {
     await setup({ listServiceApiKeys: () => of([key()]) });
     fixture.detectChanges();
 
-    expect(element().textContent).toContain('cannot access Meilisearch directly');
+    expect(element().textContent).toContain('cannot change photos or use other Maple APIs');
     expect(element().textContent).toContain('/api/search/assets');
     expect(element().textContent).toContain('maple_sk_0123456789abcdef…');
     expect(element().textContent).toContain('Active');

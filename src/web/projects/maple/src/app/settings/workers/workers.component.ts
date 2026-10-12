@@ -59,7 +59,6 @@ import { CanvasColorSpaceSettingsComponent } from './canvas-color-space-settings
 import { FacePurgePanelComponent } from './face-purge-panel.component';
 import { ServiceApiKeysComponent } from './service-api-keys.component';
 import { AiWorkerSummaryComponent } from '../ai/ai-worker-summary.component';
-import { MeilisearchEmbedderDriftComponent } from './meilisearch-embedder-drift.component';
 import {
   groupStagesByPipeline,
   summarizeStages,
@@ -76,7 +75,7 @@ import {
   memoryDetailTitle,
   totalRss,
   runtimeFormToPatch,
-  meilisearchFormToPatch,
+  searchFormToPatch,
   blankRuntime,
   blankEnrichment,
   errorMessage,
@@ -111,7 +110,6 @@ import {
     FacePurgePanelComponent,
     ServiceApiKeysComponent,
     AiWorkerSummaryComponent,
-    MeilisearchEmbedderDriftComponent,
   ],
   templateUrl: './workers.component.html',
   styleUrl: './workers.component.scss',
@@ -321,15 +319,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
         return;
       }
       this.enrichmentApi.testNominatim(url).subscribe(observer);
-    } else if (meta.enrichment === 'meili') {
-      const url = form.meilisearch_url.trim();
-      if (url.length === 0) {
-        finishErr(new Error('Enter a URL to test.'));
-        return;
-      }
-      this.enrichmentApi
-        .testMeilisearch(url, form.meilisearch_api_key.trim() || null)
-        .subscribe(observer);
     }
   }
 
@@ -455,8 +444,8 @@ export class WorkersComponent implements OnInit, OnDestroy {
       // is owned by the face-detect row, so it is deliberately not sent here.
       body.face_recognizer_url = form.face_recognizer_url.trim() || null;
       body.face_recognizer_sha256 = form.face_recognizer_sha256.trim() || null;
-    } else if (kind === 'meili') {
-      Object.assign(body, meilisearchFormToPatch(form));
+    } else if (kind === 'search') {
+      Object.assign(body, searchFormToPatch(form));
     }
     this.enrichmentApi.saveEnrichmentConfig(body).subscribe({
       next: (cfg) => {

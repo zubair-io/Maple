@@ -7,7 +7,7 @@
 //
 // `masked` (MW1, ticket #3020): renders the native control as
 // `type="password"` instead of `type="text"`. Added migrating the Settings
-// surfaces off hand-rolled markup — the legacy Meilisearch API-key field used
+// surfaces off hand-rolled markup — a legacy API-key field used
 // a real `<input type="password">` so the secret isn't shown in plaintext on
 // screen, and mui-input had no way to preserve that. Orthogonal to `variant`
 // (masking a search/numeric field is nonsensical but not this component's
