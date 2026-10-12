@@ -361,7 +361,7 @@ fn gate_translation_grid_planar_check_keeps_true_closures_and_rejects_false_ones
     );
     let near = reason(NEAR_FALSE_PLANAR);
     let VerifyFailure::LoopClosurePlacementUnconfirmed {
-        best_corner_error_px: Some(err_px),
+        best_placement_error_px: Some(err_px),
     } = near
     else {
         panic!("near false edge rejected for the wrong reason: {near:?}");
@@ -395,7 +395,7 @@ fn gate_translation_grid_planar_check_keeps_true_closures_and_rejects_false_ones
     assert!(graph.is_connected());
     eprintln!(
         "gate(grid, tile): {} neighbours kept, {} true loop closures admitted, {rejected} \
-         rejected; far false edge {far}; near false edge corner error {err_px:.2} px",
+         rejected; far false edge {far}; near false edge placement error {err_px:.2} px",
         neighbours.len(),
         closures.len(),
     );
