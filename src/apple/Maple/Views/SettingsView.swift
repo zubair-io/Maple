@@ -93,14 +93,6 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     }
   }
 
-  var isVisible: Bool {
-    switch self {
-    case .pano:
-      return FeatureFlags.isPanoramaEnabled
-    default:
-      return true
-    }
-  }
 }
 
 struct SettingsView: View {
@@ -128,11 +120,9 @@ struct SettingsView: View {
   private var selectedTab: SettingsTab {
     get {
       #if os(macOS)
-        let tab = navigation.selectedTab
-        return (tab == .pano && !FeatureFlags.isPanoramaEnabled) ? .general : tab
+        navigation.selectedTab
       #else
-        let tab = localSelectedTab
-        return (tab == .pano && !FeatureFlags.isPanoramaEnabled) ? .general : tab
+        localSelectedTab
       #endif
     }
     nonmutating set {
@@ -165,9 +155,8 @@ struct SettingsView: View {
     #endif
     .onAppear {
       if let tab = initialTab {
-        let effectiveTab = (tab == .pano && !FeatureFlags.isPanoramaEnabled) ? .general : tab
-        selectedTab = effectiveTab
-        pushedTab = effectiveTab
+        selectedTab = tab
+        pushedTab = tab
       }
     }
   }
@@ -242,7 +231,7 @@ struct SettingsView: View {
   }
 
   private func visibleTabs(in section: SettingsSection) -> [SettingsTab] {
-    SettingsTab.allCases.filter { $0.section == section && $0.isVisible }
+    SettingsTab.allCases.filter { $0.section == section }
   }
 
   @ViewBuilder
@@ -284,11 +273,7 @@ struct SettingsView: View {
     case .selfHosted:
       SelfHostedSettingsTab(sessionFor: sessionFor)
     case .pano:
-      if FeatureFlags.isPanoramaEnabled {
-        PanoSettingsView()
-      } else {
-        GeneralSettingsTab()
-      }
+      PanoSettingsView()
     case .observability:
       ObservabilitySettingsTab()
     case .sources:

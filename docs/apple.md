@@ -34,7 +34,7 @@ Only two schemes are committed under `Maple.xcodeproj/xcshareddata/xcschemes/`: 
 
 The app target sets `GENERATE_INFOPLIST_FILE = YES` **and** `INFOPLIST_FILE = Maple-Info.plist` — Xcode merges the two. The synthesized half comes from `INFOPLIST_KEY_*` build settings: display name "Maple", photography app category, camera / photo-library / local-network usage strings, `NSBonjourServices = _smb._tcp`, the three bundled font files (`Lato-Regular`, `Lato-Bold`, `Merriweather-Bold`, registered at runtime from `MapleApp.init`), and the supported orientations. `Maple-Info.plist` carries only the keys Xcode's synthesizer refuses to allowlist: the `maple://` URL scheme (`CFBundleURLTypes`), `NSAppTransportSecurity` → `NSAllowsLocalNetworking` (self-hosted servers on the LAN speak plain HTTP), the `CFBundleDocumentTypes` claims that put Maple in Finder's "Open With" (`public.camera-raw-image` plus JPEG/PNG/HEIC/HEIF/TIFF, both role `Viewer` / rank `Alternate`), and `LSSupportsOpeningDocumentsInPlace`. The four extension targets each own a hand-written `Info.plist` with `GENERATE_INFOPLIST_FILE = NO`.
 
-Build provenance keys (`MapleBuildGitSHA`, `MapleBuildDate`, and optional `MapleEarlyFeatures`) are stamped directly into the generated `Info.plist` at build time by the "Stamp build provenance" Run Script phase. To prevent race conditions with Xcode's `ProcessInfoPlistFile` during parallel or incremental builds, the phase declares `$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)` as an input path in its `inputPaths` array, guaranteeing that Xcode finishes generating the plist before stamping begins (#4183).
+Build provenance keys (`MapleBuildGitSHA` and `MapleBuildDate`) are stamped directly into the generated `Info.plist` at build time by the "Stamp build provenance" Run Script phase. To prevent race conditions with Xcode's `ProcessInfoPlistFile` during parallel or incremental builds, the phase declares `$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)` as an input path in its `inputPaths` array, guaranteeing that Xcode finishes generating the plist before stamping begins (#4183).
 
 The app's entitlements (`Maple/Maple.entitlements`) request the sandbox, the App Group `group.app.justmaple.aperture`, app-scope bookmarks, user-selected read/write, network client, the `…aperture.shared` keychain group, extended virtual addressing and increased memory limit (100 MP RAWs), and `com.apple.security.cs.disable-library-validation` — needed because panorama stitching `dlopen`s a Microsoft-signed ONNX Runtime dylib.
 
@@ -154,9 +154,8 @@ The wgpu live path is always compiled and on by default; `GpuLiveFlag` turns it 
 
 Cloud browsing, Timeline, Map, Search, backup, Files/Finder integration,
 Observability, and the Generated Search widget are available in every build.
-Their former Cloud rollout overrides are no longer read. Panorama stitching
-retains its separate `FeatureFlags.isPanoramaEnabled` gate and existing
-Panorama/early-feature overrides (#3893).
+Panorama stitching is also available in every build (#4567). The former
+Cloud and Panorama/early-feature rollout overrides are no longer read.
 
 | Variable                                            | Effect                                                                                    |
 | --------------------------------------------------- | ----------------------------------------------------------------------------------------- |

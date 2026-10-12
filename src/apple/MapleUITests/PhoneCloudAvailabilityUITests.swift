@@ -14,9 +14,7 @@ import XCTest
     func testCloudSearchAndSettingsIgnoreLegacyDisabledFlags() {
       let app = XCUIApplication()
       app.launchEnvironment["MAPLE_ENABLE_CLOUD"] = "0"
-      app.launchEnvironment["MAPLE_EARLY_FEATURES"] = "0"
-      app.launchEnvironment["MAPLE_ENABLE_PANO"] = "0"
-      app.launchArguments = ["-MapleEnableCloud", "0", "-MapleEarlyFeatures", "0"]
+      app.launchArguments = ["-MapleEnableCloud", "0"]
       app.launch()
       defer { app.terminate() }
 
