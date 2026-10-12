@@ -16,7 +16,7 @@ import {
 import { recordReadWaves } from '../sqlite/read-waves.test-helpers.ts';
 import { seedSearchAsset } from './search.test-helpers.ts';
 import { buildSearchWhere } from './search.where.ts';
-import { searchByIds, searchPage, windowDocs } from './search.page.ts';
+import { searchByIds, searchPage, windowDocs, windowSurvivors } from './search.page.ts';
 import { projectAssets } from '../../routes/search/project.ts';
 import { mapleIdWindow } from './search.ranked.ts';
 
@@ -88,6 +88,20 @@ describe('search page round trips', () => {
 
     expect(window.map((row) => row.maple_id)).toEqual(['one', 'two', 'three', 'four']);
     expect(docs.map((doc) => doc.fileinfo?.[0]?.filename)).toEqual(['one.dng', 'three.dng']);
+  });
+
+  it("drops a window row that stops passing the request's other filters after ranking (#4545)", async () => {
+    const handle = testSqliteDb(database.db);
+    const rated = where({ rating: '5' });
+    const window = await mapleIdWindow(rated, ['one', 'three', 'four'], handle);
+    run(database.db, `UPDATE assets SET rating = 1 WHERE maple_id = 'three'`);
+
+    const survivors = await windowSurvivors(rated, window, handle);
+    const docs = await windowDocs(rated, window, handle);
+
+    expect(window.map((row) => row.maple_id)).toEqual(['one', 'three', 'four']);
+    expect(survivors.map((row) => row.maple_id)).toEqual(['one', 'four']);
+    expect(docs.map((doc) => doc.fileinfo?.[0]?.filename)).toEqual(['one.dng', 'four.dng']);
   });
 
   it('answers an empty page without hydrating', async () => {

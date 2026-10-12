@@ -138,7 +138,8 @@ describe('GET /api/search with the in-process engine', () => {
       .map((entry) => entry.split(';')[0]);
     expect(phases).toEqual(['scope', 'engine', 'rows', 'total']);
     expect(((await res.json()) as { total: number }).total).toBe(3);
-    expect(recorded.waves.map((wave) => wave.length)).toEqual([2, 1, 4]);
+    // The third wave reads the window's survivors (#4545) beside the page and its side tables.
+    expect(recorded.waves.map((wave) => wave.length)).toEqual([2, 1, 5]);
   });
 
   it('names the phases of the database path in Server-Timing (#4503)', async () => {
