@@ -79,6 +79,7 @@ mod focal_bootstrap;
 mod frame_cache;
 mod graph_build;
 mod io;
+mod photometry;
 mod rotation_composite;
 mod seam_gate;
 mod tile_standalone;
@@ -96,7 +97,6 @@ use crate::ba::{self, BaOptions};
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, ProjectionMode};
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
-use crate::gain::{solve_photometry_streaming, GainOptions, LensFalloff, LensGroups};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{DescriptorTopKProvider, LoopClosureCheck, LoopClosureGate};
 use crate::ingest::{ingest_file_proxy, FrameMeta};
@@ -111,6 +111,7 @@ use crate::twoview::PixelCorrespondence;
 use degenerate::reject_degenerate_canvas;
 use frame_cache::refine_edges_lru;
 use graph_build::{build_stitch_graph, ground_footprints, validate_grid};
+use photometry::solve_kept_photometry;
 use tile_stitch::{run_tile_branch, TileBranchInput};
 
 /// Strategy selection request (mirrors `maple_pano::strategy::StrategyRequest`
@@ -469,19 +470,7 @@ pub fn stitch(
     let canvas =
         auto_canvas(&kept_cams, &canvas_opts).map_err(|e| StitchError::Composite(e.to_string()))?;
 
-    let lenses = LensGroups::from_metas(kept_meta.iter().map(|(inp_idx, _, _)| &metas[*inp_idx]));
-    let solved =
-        solve_photometry_streaming(&kept_paths, &kept_cams, &lenses, &GainOptions::default())
-            .map_err(|e| StitchError::Composite(e.to_string()))?;
-    let photometry = solved.frames;
-    let falloff = solved
-        .falloff
-        .into_iter()
-        .map(|g| LensFalloff {
-            frames: g.frames.iter().map(|&k| kept_meta[k].0).collect(),
-            ..g
-        })
-        .collect();
+    let (photometry, falloff) = solve_kept_photometry(&kept_paths, &kept_cams, &metas, &kept_meta)?;
 
     let kept_inputs: Vec<usize> = kept_meta.iter().map(|(i, _, _)| *i).collect();
     let seam_constraints = seam_gate::for_kept_frames(&opts.seam_constraints, &kept_inputs)?;
