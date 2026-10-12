@@ -469,16 +469,25 @@ export async function publishGoogleObject(
   return uploadChunks(ctx, ready.state, ready.next);
 }
 
-async function atMirrorTarget(
+type Placement = 'placed' | 'displaced' | 'gone';
+async function mirrorPlacement(
   ctx: UploadContext,
   object: BackupObject,
   target: { parentId: string; name: string },
-): Promise<boolean> {
-  const file = await ctx.provider.client.metadata(object.locator, ctx.options.signal);
-  return file.name === target.name && file.parents?.[0] === target.parentId;
+): Promise<Placement> {
+  try {
+    const file = await ctx.provider.client.metadata(object.locator, ctx.options.signal);
+    return file.name === target.name && file.parents?.[0] === target.parentId
+      ? 'placed'
+      : 'displaced';
+  } catch (error) {
+    if (isDriveStatus(error, 404)) return 'gone';
+    throw error;
+  }
 }
-// A displaced copy whose bytes changed after inspection is no longer Maple's
-// to delete; everything else (network, auth) surfaces so the retry converges.
+// A displaced copy that changed or was trashed after inspection is no longer
+// Maple's to delete; everything else (network, auth) surfaces so the retry
+// converges.
 async function removeDisplacedCopy(ctx: UploadContext, copy: BackupObject): Promise<void> {
   try {
     await ctx.provider.remove(copy, ctx.options.signal);
@@ -486,16 +495,26 @@ async function removeDisplacedCopy(ctx: UploadContext, copy: BackupObject): Prom
     if (!(error instanceof ObjectIdentityError)) throw error;
   }
 }
+// Candidates are Maple's own locators only (the database mapping and the
+// checkpoint Maple reserved), never arbitrary files found at the path, so a
+// second candidate at the target is a copy Maple created and may retire.
 async function mirrorCandidates(
   ctx: UploadContext,
   target: { parentId: string; name: string },
   candidates: BackupObject[],
 ): Promise<{ existing: BackupObject | null; displaced: BackupObject[] }> {
-  const placed: BackupObject[] = [];
-  for (const candidate of candidates)
-    if (await atMirrorTarget(ctx, candidate, target)) placed.push(candidate);
-  const existing = placed[0] ?? null;
-  return { existing, displaced: candidates.filter((candidate) => candidate !== existing) };
+  const present: Array<{ candidate: BackupObject; placement: Placement }> = [];
+  for (const candidate of candidates) {
+    const placement = await mirrorPlacement(ctx, candidate, target);
+    if (placement !== 'gone') present.push({ candidate, placement });
+  }
+  const existing = present.find((entry) => entry.placement === 'placed')?.candidate ?? null;
+  return {
+    existing,
+    displaced: present
+      .filter((entry) => entry.candidate !== existing)
+      .map((entry) => entry.candidate),
+  };
 }
 export async function publishGoogleMirrorFile(
   provider: GoogleDriveProvider,

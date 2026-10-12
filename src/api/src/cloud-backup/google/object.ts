@@ -1,6 +1,7 @@
 import type { BackupObject } from '../provider.ts';
 import { isOwnedMyDriveFile, type DriveFile } from './client.ts';
 
+export class ObjectIdentityError extends Error {}
 interface ObjectMarker {
   mapleBackupObject: 1;
   rootId: string;
@@ -93,9 +94,10 @@ function validateExpectedPortableMapping(
     throw invalidObject('database object mapping does not match the backup marker');
 }
 function invalidObject(reason: string): Error {
-  return new Error(`Google object failed identity or integrity validation: ${reason}.`);
+  return new ObjectIdentityError(
+    `Google object failed identity or integrity validation: ${reason}.`,
+  );
 }
-export class ObjectIdentityError extends Error {}
 export function assertObjectIdentity(
   actual: BackupObject,
   expected: BackupObject,
