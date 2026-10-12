@@ -373,6 +373,8 @@ final class SearchViewModelCollectionTests: XCTestCase {
     XCTAssertEqual(pages, ["0", "2"], "page 1 shares page 0's window step; page 2 starts the next")
     XCTAssertEqual(SearchViewModel.windowStep(reaching: 100), 100)
     XCTAssertEqual(SearchViewModel.windowStep(reaching: 150), 400)
+    XCTAssertEqual(SearchViewModel.windowStep(reaching: 1_600), 1_600)
+    XCTAssertEqual(SearchViewModel.windowStep(reaching: 1_601), 5_000)
     XCTAssertEqual(SearchViewModel.windowStep(reaching: 9_000), 5_000)
   }
 

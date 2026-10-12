@@ -30,6 +30,11 @@ import { collapseShots, type ShotFields } from './search.shots.ts';
 import { statement, type BoundStatement } from './search.sql.ts';
 import { monthNarrowing, searchWhereSql, type SearchWhere } from './search.where.ts';
 import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
+import {
+  RANKED_WINDOW_BASE,
+  RANKED_WINDOW_MAX,
+  RANKED_WINDOW_WIDENING_FACTOR as WIDENING_FACTOR,
+} from '../../generated/ranked-window.generated.ts';
 
 /** One asset by its `assets.rowid` and `assets.id` — what a facet groups. */
 export interface RankedAsset {
@@ -90,17 +95,11 @@ const LIVE_FILENAME_SQL = `(SELECT l.filename FROM asset_locations l
               WHERE l.asset_id = assets.id AND l.deleted_at IS NULL AND l.missing_since IS NULL
               ORDER BY l.ordinal LIMIT 1)`;
 
-/** The depth a window starts at, and the in-process engine's candidate count. */
-export const RANKED_WINDOW_BASE = 100;
-
 /**
- * The deepest a window goes. Ranking costs about the same at any depth — every match is scored
- * either way — but each hit in the window is a keyed probe, so this caps the join at 5,000 probes.
+ * The ladder — start depth, cap, widening factor — is `raw_core::ranked_window`, generated here and
+ * into the Apple client by `tools/codegen.sh`, so the two cannot step differently (#4545).
  */
-export const RANKED_WINDOW_MAX = 5_000;
-
-/** How much deeper each widening asks: 100, 400, 1,600, then the cap. */
-const WIDENING_FACTOR = 4;
+export { RANKED_WINDOW_BASE, RANKED_WINDOW_MAX };
 
 /** The ladder step after `depth`: four times deeper, up to the cap. */
 export function nextWindowDepth(depth: number): number {
