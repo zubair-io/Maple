@@ -90,6 +90,7 @@ export function createTestProvider(): ProviderFixture {
       key: string,
       signal?: AbortSignal,
       locatorOrOptions?: string | BackupInspectOptions,
+      _heartbeat?: (candidate: BackupObject) => Promise<void>,
     ) {
       check(signal);
       const row = objects.get(key);

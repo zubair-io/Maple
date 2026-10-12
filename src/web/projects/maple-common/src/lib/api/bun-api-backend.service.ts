@@ -271,9 +271,23 @@ export interface ApiVision {
   setting: string | null;
   activity: string | null;
   time_of_day:
-    'morning' | 'midday' | 'afternoon' | 'golden hour' | 'evening' | 'night' | 'unknown' | null;
+    | 'morning'
+    | 'midday'
+    | 'afternoon'
+    | 'golden hour'
+    | 'evening'
+    | 'night'
+    | 'unknown'
+    | null;
   lighting:
-    'natural' | 'artificial' | 'mixed' | 'low-light' | 'backlit' | 'flash' | 'unknown' | null;
+    | 'natural'
+    | 'artificial'
+    | 'mixed'
+    | 'low-light'
+    | 'backlit'
+    | 'flash'
+    | 'unknown'
+    | null;
   weather: 'clear' | 'cloudy' | 'rainy' | 'snowy' | 'foggy' | 'indoor' | 'unknown' | null;
   mood: string;
   colors: string[];
@@ -879,17 +893,18 @@ export class BunApiBackendService {
           },
         )
         .pipe(
-          map((r): ApiRenameOutcome =>
-            r.skipped
-              ? { kind: 'skipped', reason: r.reason ?? 'skipped' }
-              : {
-                  kind: 'renamed',
-                  newAbsPath: r.new_abs_path ?? '',
-                  newPath: r.new_path ?? '',
-                  newFilename: r.new_filename ?? newFilename,
-                  renamedOnCollision: r.renamed_on_collision ?? false,
-                  extensionChanged: r.extension_changed ?? false,
-                },
+          map(
+            (r): ApiRenameOutcome =>
+              r.skipped
+                ? { kind: 'skipped', reason: r.reason ?? 'skipped' }
+                : {
+                    kind: 'renamed',
+                    newAbsPath: r.new_abs_path ?? '',
+                    newPath: r.new_path ?? '',
+                    newFilename: r.new_filename ?? newFilename,
+                    renamedOnCollision: r.renamed_on_collision ?? false,
+                    extensionChanged: r.extension_changed ?? false,
+                  },
           ),
         ),
     );
@@ -931,16 +946,17 @@ export class BunApiBackendService {
           },
         )
         .pipe(
-          map((r): ApiRelocateOutcome =>
-            r.skipped
-              ? { kind: 'skipped', reason: r.reason ?? 'skipped' }
-              : {
-                  kind: 'relocated',
-                  newAbsPath: r.new_abs_path ?? '',
-                  newPath: r.new_path ?? '',
-                  newFilename: r.new_filename ?? destinationFilename ?? '',
-                  renamedOnCollision: r.renamed_on_collision ?? false,
-                },
+          map(
+            (r): ApiRelocateOutcome =>
+              r.skipped
+                ? { kind: 'skipped', reason: r.reason ?? 'skipped' }
+                : {
+                    kind: 'relocated',
+                    newAbsPath: r.new_abs_path ?? '',
+                    newPath: r.new_path ?? '',
+                    newFilename: r.new_filename ?? destinationFilename ?? '',
+                    renamedOnCollision: r.renamed_on_collision ?? false,
+                  },
           ),
         ),
     );

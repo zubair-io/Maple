@@ -155,7 +155,7 @@ async function verifyOwnedFile(
 }
 async function writeRecoveryChunk(handle: RecoveryFileHandle, chunk: Uint8Array): Promise<void> {
   // FileHandle.write may write a partial buffer.
-  for (let offset = 0; offset < chunk.length;) {
+  for (let offset = 0; offset < chunk.length; ) {
     const written = await handle.write(chunk, offset, chunk.length - offset);
     if (!written.bytesWritten) throw new Error('Recovery disk write made no progress');
     offset += written.bytesWritten;
