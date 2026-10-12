@@ -47,8 +47,10 @@ const app = new Elysia().use(panoRoutes);
 
 let live: LiveTestDatabase;
 
-/** Absolute path of the fake maple-cli shell script. */
+/** Absolute path of the fake maple-cli shell script (accepts --features-engine). */
 let fakeCli = '';
+/** A fake pre-#4523 maple-cli: ML-only, its help lists no --features-engine. */
+let legacyCli = '';
 let tmpDir = '';
 let folderId: string;
 
@@ -66,6 +68,7 @@ beforeAll(async () => {
     `#!/bin/sh
 # Fake maple-cli for pano route tests.
 # Parses --out <path> and writes a tiny PNG there; prints progress to stderr.
+case " $* " in *" --help "*) echo "      --features-engine <FEATURES_ENGINE>"; exit 0;; esac
 OUT=""
 while [ $# -gt 0 ]; do
   if [ "$1" = "--out" ]; then
@@ -86,6 +89,12 @@ exit 0
 `,
   );
   await fs.chmod(fakeCli, 0o755);
+  legacyCli = path.join(tmpDir, 'legacy-maple-cli');
+  await fs.writeFile(
+    legacyCli,
+    `#!/bin/sh\necho "Usage: maple-cli pano stitch [OPTIONS]"\nexit 0\n`,
+  );
+  await fs.chmod(legacyCli, 0o755);
 });
 
 afterAll(async () => {
@@ -266,6 +275,22 @@ describe('POST /api/pano/stitch (provisioning)', () => {
 // ── matcher selection (#4555) ─────────────────────────────────────────────────
 
 describe('POST /api/pano/stitch (matcher)', () => {
+  const LEGACY_ENV = ['MAPLE_PANO_MODELS', 'ORT_DYLIB_PATH'] as const;
+  const savedEnv = new Map<string, string | undefined>();
+  beforeEach(() => {
+    for (const name of LEGACY_ENV) {
+      savedEnv.set(name, process.env[name]);
+      delete process.env[name];
+    }
+  });
+  afterEach(() => {
+    for (const name of LEGACY_ENV) {
+      const value = savedEnv.get(name);
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+
   async function stitchPayload(): Promise<Record<string, unknown>> {
     const res = await postJson('/api/pano/stitch', STITCH_BODY());
     expect(res.status).toBe(201);
@@ -315,6 +340,55 @@ describe('POST /api/pano/stitch (matcher)', () => {
     });
     const payload = await stitchPayload();
     expect(payload.featuresEngine).toBe('ml');
+    expect(payload.modelsDir).toBe(tmpDir);
+    expect(payload.ortDylibPath).toBe(ortDylib);
+  });
+
+  it('keeps an ML setup provisioned only through the legacy environment variables working', async () => {
+    const ortDylib = path.join(tmpDir, 'libonnxruntime.so');
+    process.env.MAPLE_PANO_MODELS = tmpDir;
+    process.env.ORT_DYLIB_PATH = ortDylib;
+    const cfg = (await (
+      await putJson('/api/pano/config', { maple_cli_path: fakeCli, enabled: true, matcher: 'ml' })
+    ).json()) as { source: { models_dir: string; ort_dylib_path: string } };
+    expect(cfg.source.models_dir).toBe('env');
+    expect(cfg.source.ort_dylib_path).toBe('env');
+    const payload = await stitchPayload();
+    expect(payload.featuresEngine).toBe('ml');
+    expect(payload.modelsDir).toBe(tmpDir);
+    expect(payload.ortDylibPath).toBe(ortDylib);
+  });
+
+  it('reports whether the configured binary accepts --features-engine', async () => {
+    const current = (await (
+      await putJson('/api/pano/config', { maple_cli_path: fakeCli, enabled: true })
+    ).json()) as { features_engine_supported: boolean };
+    expect(current.features_engine_supported).toBe(true);
+    const legacy = (await (
+      await putJson('/api/pano/config', { maple_cli_path: legacyCli })
+    ).json()) as { features_engine_supported: boolean };
+    expect(legacy.features_engine_supported).toBe(false);
+  });
+
+  it('refuses a pre-classical binary without ML paths with a rebuild instruction (409 pano_cli_outdated)', async () => {
+    await putJson('/api/pano/config', { maple_cli_path: legacyCli, enabled: true });
+    const res = await postJson('/api/pano/stitch', STITCH_BODY());
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe('pano_cli_outdated');
+    expect(body.message).toContain('--features pano,pano-classical');
+  });
+
+  it('runs a pre-classical binary as ML, without the flag it lacks, when ML paths are set', async () => {
+    const ortDylib = path.join(tmpDir, 'libonnxruntime.so');
+    await putJson('/api/pano/config', {
+      maple_cli_path: legacyCli,
+      enabled: true,
+      models_dir: tmpDir,
+      ort_dylib_path: ortDylib,
+    });
+    const payload = await stitchPayload();
+    expect(payload.featuresEngine).toBeNull();
     expect(payload.modelsDir).toBe(tmpDir);
     expect(payload.ortDylibPath).toBe(ortDylib);
   });

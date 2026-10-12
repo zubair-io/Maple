@@ -73,7 +73,7 @@ export interface PanoJobView {
   updated_at: string;
 }
 
-export type ConfigSource = 'db' | 'unset' | 'default';
+export type ConfigSource = 'db' | 'env' | 'unset' | 'default';
 
 export interface PanoConfig {
   maple_cli_path: string | null;
@@ -83,6 +83,9 @@ export interface PanoConfig {
   matcher: PanoMatcher;
   /** Whether the binary supports --strategy (probed at request time). */
   strategy_supported: boolean;
+  /** Whether the binary accepts --features-engine; one without it predates the
+   *  classical matcher and can only stitch with ML. */
+  features_engine_supported: boolean;
   source: {
     maple_cli_path: ConfigSource;
     models_dir: ConfigSource;
@@ -107,6 +110,11 @@ export interface PanoNotProvisionedError {
 
 export interface PanoMlNotProvisionedError {
   error: 'pano_ml_not_provisioned';
+  message: string;
+}
+
+export interface PanoCliOutdatedError {
+  error: 'pano_cli_outdated';
   message: string;
 }
 

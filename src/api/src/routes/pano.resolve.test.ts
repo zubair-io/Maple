@@ -55,6 +55,7 @@ beforeAll(async () => {
     `#!/bin/sh
 # Fake maple-cli for pano resolve route tests.
 # Parses --out <path> and writes a tiny PNG there; prints progress to stderr.
+case " $* " in *" --help "*) echo "      --features-engine <FEATURES_ENGINE>"; exit 0;; esac
 OUT=""
 while [ $# -gt 0 ]; do
   if [ "$1" = "--out" ]; then
