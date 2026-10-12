@@ -170,6 +170,9 @@ export interface WindowPage {
  *
  * The survivors are read beside the page as ranked, in one wave (#4503). Only when a row at or
  * before the page died in between does the page differ, and only then is it hydrated again.
+ * `total` comes from the survivor read alone: the two reads are not one snapshot, and counting
+ * from one keeps the total page-independent. A row that dies in the instant between them is
+ * missing from this page but still counted, as any write racing a request would be.
  */
 export async function windowPage(
   window: EngineWindow,
@@ -186,9 +189,7 @@ export async function windowPage(
     const unchanged =
       rows.length === ranked.length && rows.every((row, index) => row === ranked[index]);
     const docs = unchanged ? rankedDocs : await windowDocs(page.where, rows);
-    // A row that died after the survivors were read is missing from `docs`; uncount it too.
-    const total = survivors.length - (rows.length - docs.length);
-    return { total, rows, results: projectAssets(docs, libs, idToSlug) };
+    return { total: survivors.length, rows, results: projectAssets(docs, libs, idToSlug) };
   };
   const { total, rows, results } = page.timing
     ? await page.timing.time('rows', hydrate)
