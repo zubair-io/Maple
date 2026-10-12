@@ -228,4 +228,21 @@ describe('discover producer — unchanged re-discover is a no-op (#4507)', () =>
     expect(assetRow(library.db, id)!.sha1_head).toBe(hashed.sha1_head);
     expect(changesFor(library.db, file).map((row) => row.kind)).toEqual(['create']);
   });
+
+  it('concurrent first discovers of one file journal a single change', async () => {
+    // Both events can miss the content lookup; the loser of the insert race
+    // then finds the winner already holding this exact location, which is a
+    // no-op and must not publish a second time.
+    using library = await createDiscoverLibrary('discover-race-pub-');
+    const file = path.join(library.root, 'raced.jpg');
+    await writeFile(file, Buffer.alloc(80 * 1024, 0x61));
+
+    await Promise.all([
+      handleEvent({ kind: 'created', absPath: file }, library.folderId, library.root),
+      handleEvent({ kind: 'created', absPath: file }, library.folderId, library.root),
+    ]);
+
+    expect(allAssets(library.db)).toHaveLength(1);
+    expect(changesFor(library.db, file).map((row) => row.kind)).toEqual(['create']);
+  });
 });
