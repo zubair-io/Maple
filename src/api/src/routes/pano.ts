@@ -314,6 +314,63 @@ async function planStitch() {
     : { cfg: { ...cfg, maple_cli_path: mapleCli }, capabilities, plan };
 }
 
+type StitchInputs =
+  | { uniqueIds: string[]; indexedCount: number }
+  | { status: number; rejection: { error: string; message: string } };
+
+const PATH_FAILURE_DEFAULTS: Record<number, { error: string; message: string }> = {
+  400: { error: 'invalid_path', message: 'Invalid path.' },
+  500: { error: 'index_failed', message: 'Index failed.' },
+};
+
+async function resolvePathInputs(
+  assetPaths: string[] | undefined,
+): Promise<
+  { resolvedIds: string[]; indexedCount: number } | Extract<StitchInputs, { rejection: unknown }>
+> {
+  if (!assetPaths || assetPaths.length === 0) return { resolvedIds: [], indexedCount: 0 };
+  try {
+    return await resolveAssetPaths(assetPaths);
+  } catch (err) {
+    const e = err as { status?: number; code?: string; message?: string };
+    const fallback = e.status === undefined ? undefined : PATH_FAILURE_DEFAULTS[e.status];
+    if (!fallback) throw err;
+    return {
+      status: e.status!,
+      rejection: { error: e.code ?? fallback.error, message: e.message ?? fallback.message },
+    };
+  }
+}
+
+async function resolveStitchInputs(body: {
+  assetIds?: string[];
+  assetPaths?: string[];
+}): Promise<StitchInputs> {
+  const fromPaths = await resolvePathInputs(body.assetPaths);
+  if ('rejection' in fromPaths) return fromPaths;
+  const assetIds = body.assetIds ?? [];
+  const invalidId = assetIds.find((id) => !ObjectId.isValid(id));
+  if (invalidId !== undefined) {
+    return {
+      status: 422,
+      rejection: { error: 'invalid_asset_id', message: `Invalid asset id: ${invalidId}` },
+    };
+  }
+  // A path and an id can resolve to the same deduplicated asset (identical
+  // content shares one id); the stitcher must not receive one input twice.
+  const uniqueIds = [...new Set([...fromPaths.resolvedIds, ...assetIds])];
+  return uniqueIds.length < 2
+    ? {
+        status: 422,
+        rejection: {
+          error: 'insufficient_assets',
+          message:
+            'At least 2 valid images (via assetPaths or assetIds) are required to create a panorama.',
+        },
+      }
+    : { uniqueIds, indexedCount: fromPaths.indexedCount };
+}
+
 // ── route group ───────────────────────────────────────────────────────────────
 
 export const panoRoutes = new Elysia({ prefix: '/api/pano' })
@@ -377,54 +434,12 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
       //    mixed selection (some path-only, some id-only assets) stitch all of
       //    them instead of dropping one set or failing when neither set alone
       //    has 2 entries.
-      const resolvedIds: string[] = [];
-      let indexedCount = 0;
-
-      if (body.assetPaths && body.assetPaths.length > 0) {
-        let resolved: Awaited<ReturnType<typeof resolveAssetPaths>>;
-        try {
-          resolved = await resolveAssetPaths(body.assetPaths);
-        } catch (err) {
-          const e = err as { status?: number; code?: string; message?: string };
-          if (e.status === 400) {
-            set.status = 400;
-            return { error: e.code ?? 'invalid_path', message: e.message ?? 'Invalid path.' };
-          }
-          if (e.status === 500) {
-            set.status = 500;
-            return { error: e.code ?? 'index_failed', message: e.message ?? 'Index failed.' };
-          }
-          throw err;
-        }
-        resolvedIds.push(...resolved.resolvedIds);
-        indexedCount = resolved.indexedCount;
+      const inputs = await resolveStitchInputs(body);
+      if ('rejection' in inputs) {
+        set.status = inputs.status;
+        return inputs.rejection;
       }
-
-      if (body.assetIds && body.assetIds.length > 0) {
-        // Validate each id-only reference is a well-formed ObjectId.
-        for (const id of body.assetIds) {
-          if (!ObjectId.isValid(id)) {
-            set.status = 422;
-            return { error: 'invalid_asset_id', message: `Invalid asset id: ${id}` };
-          }
-        }
-        resolvedIds.push(...body.assetIds);
-      }
-
-      // Dedup while preserving order: a path and an id can resolve to the same
-      // deduplicated asset (two files with identical content share one asset
-      // id), and the stitcher must not receive the same input twice.
-      const uniqueIds = [...new Set(resolvedIds)];
-
-      // Need ≥ 2 distinct inputs for a stitch.
-      if (uniqueIds.length < 2) {
-        set.status = 422;
-        return {
-          error: 'insufficient_assets',
-          message:
-            'At least 2 valid images (via assetPaths or assetIds) are required to create a panorama.',
-        };
-      }
+      const { uniqueIds, indexedCount } = inputs;
 
       // 4. Build temp output dir for this job (will be cleaned up by the handler
       //    after importing the result).
