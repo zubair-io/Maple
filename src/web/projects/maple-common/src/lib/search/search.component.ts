@@ -65,6 +65,7 @@ import { SearchTagPickerComponent, TagPick } from './search-tag-picker.component
 import { PhotoResultsSectionComponent } from './photo-results-section.component';
 import { RecentQueriesComponent } from './recent-queries.component';
 import { pushRecent, readRecents, writeRecents } from './search-types';
+import { appendPage } from './search-paging';
 import {
   ActiveFilterChip,
   EMPTY_FILTERS,
@@ -506,18 +507,16 @@ export class SearchComponent implements OnInit, AfterViewInit {
     this.loadMoreSub?.unsubscribe();
     this.loadMoreSub = this.searchService.search(params).subscribe({
       next: (res) => {
-        const merged = [...this.results(), ...res.results];
-        const widened = this.hasText() && res.results.length > 0 && res.total !== this.total();
-        this.results.set(merged);
-        this.nextCursor.set(res.nextCursor ?? null);
-        this.total.set(seekExhausted(res) || res.results.length === 0 ? merged.length : res.total);
-        this.more.set(res.results.length > 0 && (res.more ?? false));
-        this.capped.set(res.capped ?? false);
+        const next = appendPage(this.results(), this.total(), res, this.hasText());
+        this.results.set(next.results);
+        this.nextCursor.set(next.nextCursor);
+        this.total.set(next.total);
+        this.more.set(next.more);
+        this.capped.set(next.capped);
         // `page` is the skip-mode fallback counter — a seek request leaves
         // it alone rather than adopting the server's echoed `page: 0`.
         if (cursor === null) this.page.set(nextPage);
-        // A deeper page widened the ranked window: refresh the facets to describe it.
-        if (widened) this.loadFacets(nextPage);
+        if (next.widened) this.loadFacets(nextPage);
         this.isLoadingMore.set(false);
         this.queueThumbs(res.results);
       },
