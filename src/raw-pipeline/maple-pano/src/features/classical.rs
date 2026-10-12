@@ -9,7 +9,7 @@
 //! LinearRgbFrame ─ log luma ─ Gaussian pyramid (octaves × levels)
 //!   ─ scale-normalised Harris (AC−B²)/(A+C+ε) + curvature gate
 //!   ─ scale-space NMS + sub-texel peak ─ `max_keypoints`, grid-spread
-//!   ─ dominant orientation ─ 4×4×8 gradient histogram (128-D, unit norm)
+//!   ─ dominant orientation ─ 4×4×8 gradient histogram (128-D, RootSIFT)
 //! ```
 //!
 //! Matching is mutual nearest neighbour plus a ratio test
