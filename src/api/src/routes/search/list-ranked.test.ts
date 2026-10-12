@@ -23,11 +23,12 @@ import { fakeInProcessSearch } from '../../search/search.test-helpers.ts';
 import { RANKED_WINDOW_BASE } from '../../db/repos/search.ranked.ts';
 
 let live: LiveTestDatabase;
+let libraryId: string;
 const ranked: string[] = [];
 
 beforeEach(async () => {
   live = await createLiveTestDatabase();
-  const libraryId = insertFolder(live.db, { slug: 'window', path: '/lib' });
+  libraryId = insertFolder(live.db, { slug: 'window', path: '/lib' });
   ranked.length = 0;
   for (let rank = 1; rank <= 250; rank++) {
     const mapleId = `photo${String(rank).padStart(3, '0')}`;
@@ -99,5 +100,35 @@ describe('the database window while the child is down', () => {
 
     expect(body).toMatchObject({ total: RANKED_WINDOW_BASE, more: true });
     expect(body.results).toHaveLength(50);
+  });
+});
+
+describe('paging a window through a tie wider than the window', () => {
+  it('serves every match exactly once while the window widens under it', async () => {
+    setInProcessSearchForTests(fakeInProcessSearch(null));
+    const picked: string[] = [];
+    for (let index = 0; index < 330; index++) {
+      const mapleId = `tie${String(index).padStart(3, '0')}`;
+      seedSearchAsset(live.db, libraryId, {
+        mapleId,
+        filename: `${mapleId}.dng`,
+        rating: index % 2 === 0 ? 5 : 1,
+        searchBlob: 'harbour',
+        capturedAt: `20${10 + (index % 13)}-0${(index % 9) + 1}-15T12:00:00.000Z`,
+      });
+      if (index % 2 === 0) picked.push(`${mapleId}.dng`);
+    }
+
+    const pages = [];
+    for (const page of [0, 1, 2, 3]) {
+      pages.push(await list(`placeQuery=harbour&rating=5&limit=50&page=${page}`));
+    }
+    const served = pages.flatMap((body) =>
+      (body.results as Array<{ filename: string }>).map((row) => row.filename),
+    );
+
+    expect(new Set(served).size).toBe(served.length);
+    expect(served).toEqual(picked);
+    expect(pages.map((body) => body.more)).toEqual([true, true, false, false]);
   });
 });

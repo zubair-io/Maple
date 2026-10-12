@@ -396,7 +396,7 @@ export function serviceTextSearchSql(scope: string): string {
     SELECT assets_fts.rowid AS sr, ${FTS_RANK_SQL}
       FROM assets_fts
      WHERE assets_fts MATCH ?
-     ORDER BY ${FTS_RANK_ORDER}
+     ORDER BY ${FTS_RANK_ORDER}, assets_fts.rowid
      LIMIT ?)
   SELECT assets.maple_id AS maple_id
     FROM hit
@@ -404,6 +404,6 @@ export function serviceTextSearchSql(scope: string): string {
     CROSS JOIN assets ON assets.id = asset_search.asset_id
    WHERE ${QUALIFIED_LIVE_PREDICATE}
      AND assets.maple_id IS NOT NULL AND assets.maple_id <> ''${scope}
-   ORDER BY hit.rank ASC
+   ORDER BY hit.rank ASC, hit.sr ASC
    LIMIT ?`;
 }

@@ -68,13 +68,13 @@ function expectedWindow(db: Database, where: SearchWhere, depth: number): number
   if (where.match.kind !== 'match') return [];
   const hits = db
     .query(
-      `SELECT rowid FROM assets_fts WHERE assets_fts MATCH ? ORDER BY bm25(assets_fts) LIMIT ?`,
+      `SELECT rowid FROM assets_fts WHERE assets_fts MATCH ? ORDER BY bm25(assets_fts), rowid LIMIT ?`,
     )
     .all(where.match.expression, depth) as Array<{ rowid: number }>;
   const survivors = statement(
     `assets.rowid AS r, ${FTS_RANK_SQL}`,
     where,
-    `ORDER BY ${FTS_RANK_ORDER}, assets.captured_at DESC, assets.id`,
+    `ORDER BY ${FTS_RANK_ORDER}, asset_search.rowid`,
     { sql: 'asset_search.rowid IN (SELECT value FROM json_each(?))', params: [] },
     [JSON.stringify(hits.map((hit) => hit.rowid))],
   );

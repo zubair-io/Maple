@@ -144,7 +144,7 @@ function expectBounded(statements: readonly string[]): void {
   for (const sql of fullText) {
     expect(sql.startsWith('bulk: ')).toBe(true);
     expect(sql).toContain('WITH hit AS MATERIALIZED');
-    expect(sql).toMatch(/ORDER BY rank ASC\s+LIMIT \?\)/);
+    expect(sql).toMatch(/ORDER BY rank ASC, assets_fts\.rowid\s+LIMIT \?\)/);
   }
   expect(statements.filter((sql) => /COUNT\(\*\)\s+AS n\s+FROM assets_fts/.test(sql))).toEqual([]);
   expect(statements.filter((sql) => sql.includes('WITH ranked AS'))).toEqual([]);
