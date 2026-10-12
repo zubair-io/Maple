@@ -363,3 +363,81 @@ fn guard_maps_a_panic_to_decode_panicked() {
     .expect_err("inner Err passes through untouched");
     assert!(matches!(passthrough, Error::Pipeline(m) if m == "inner"));
 }
+
+/// #4582: pano_01's sun-facing frames blow the sky around the sun. Inside
+/// the blown sky (the top tenth of the frame, above the horizon, where every
+/// green site of a 15×15 sensor window saturated) no pixel may leave the
+/// decode magenta: green well below both red and blue. The opcode warp is left
+/// out so output pixels stay registered to the sensor sites of the mask.
+#[test]
+#[cfg_attr(
+    not(feature = "fixtures"),
+    ignore = "needs test-fixtures/raws (fixtures feature)"
+)]
+fn blown_sky_is_not_magenta() {
+    const HALF: usize = 7;
+    for name in ["PANO0003.DNG", "PANO0004.DNG", "PANO0021.DNG"] {
+        let bytes = std::fs::read(crate::test_support::fixtures::require_raw(&format!(
+            "pano_01/{name}"
+        )))
+        .expect("read frame");
+        let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
+        let (scene, _) = develop_scene_linear_for_pano(&raw, None).expect("develop");
+        let crop = raw.crop_rect.expect("DJI frames carry a DefaultCrop");
+        let sensor_w = raw.width as usize;
+        assert!(matches!(raw.cfa, crate::image::CfaPattern::Rggb));
+        let integral = green_saturation_integral(&raw);
+        let stride = sensor_w + 1;
+        let window_saturated = |sx: usize, sy: usize| {
+            let (x0, y0, x1, y1) = (sx - HALF, sy - HALF, sx + HALF + 1, sy + HALF + 1);
+            let n = integral[y1 * stride + x1] + integral[y0 * stride + x0]
+                - integral[y0 * stride + x1]
+                - integral[y1 * stride + x0];
+            n as usize >= (2 * HALF + 1) * (2 * HALF + 1) / 2
+        };
+        let w = scene.width as usize;
+        let sky_rows = scene.height as usize / 10;
+        let interior = |i: usize| {
+            let (x, y) = (i % w + crop.x as usize, i / w + crop.y as usize);
+            i / w < sky_rows
+                && x >= HALF
+                && y >= HALF
+                && x + HALF < sensor_w
+                && y + HALF < raw.height as usize
+                && window_saturated(x, y)
+        };
+        let (blown, magenta) = scene
+            .pixels
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| interior(*i))
+            .fold((0usize, 0usize), |(n, m), (_, p)| {
+                (n + 1, m + usize::from(p[1] < 0.9 * p[0].min(p[2])))
+            });
+        eprintln!("[pano tests] {name}: {magenta} magenta of {blown} blown-sky px");
+        assert!(
+            blown > 10_000,
+            "{name}: expected a blown sky, got {blown} px"
+        );
+        assert!(
+            magenta * 1_000 < blown,
+            "{name}: {magenta} of {blown} blown-sky px are magenta"
+        );
+    }
+}
+
+/// Summed-area table of saturated RGGB green sites, `(width + 1) × (height + 1)`.
+fn green_saturation_integral(raw: &crate::image::RawImage) -> Vec<u32> {
+    let (w, h) = (raw.width as usize, raw.height as usize);
+    let stride = w + 1;
+    let mut table = vec![0u32; stride * (h + 1)];
+    for y in 0..h {
+        let mut run = 0u32;
+        for x in 0..w {
+            let green = (x + y) % 2 == 1;
+            run += u32::from(green && u32::from(raw.raw_data[y * w + x]) >= raw.white_level);
+            table[(y + 1) * stride + x + 1] = table[y * stride + x + 1] + run;
+        }
+    }
+    table
+}
