@@ -98,8 +98,8 @@ fn assign_owners(
     cw: usize,
     tile_n: usize,
     k: usize,
-    overlap_count: &mut Vec<Vec<usize>>,
-    overlap_rows: &mut Vec<Vec<std::collections::BTreeSet<usize>>>,
+    overlap_count: &mut [Vec<usize>],
+    overlap_rows: &mut [Vec<std::collections::BTreeSet<usize>>],
 ) -> Vec<u16> {
     let mut owner = vec![u16::MAX; tile_n];
     for i in 0..tile_n {
@@ -135,8 +135,8 @@ fn assign_owners(
 /// Compute the min-overlap-width summary from accumulated pairwise data.
 fn min_overlap_width(
     k: usize,
-    overlap_count: &Vec<Vec<usize>>,
-    overlap_rows: &Vec<Vec<std::collections::BTreeSet<usize>>>,
+    overlap_count: &[Vec<usize>],
+    overlap_rows: &[Vec<std::collections::BTreeSet<usize>>],
 ) -> usize {
     let mut min_overlap = usize::MAX;
     for a in 0..k {

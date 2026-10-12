@@ -5,7 +5,6 @@
 
 use maple_pano::blend::blend_multiband;
 use maple_pano::camera::Camera;
-use maple_pano::canvas::{auto_canvas, CanvasOptions};
 use maple_pano::composite::{composite, composite_tiled_frames, CompositeOptions};
 use maple_pano::gain::GainMode;
 use maple_pano::ingest::{PlanarImage, ValidityMask};
