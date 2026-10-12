@@ -75,7 +75,7 @@ function withoutRankedBy(page: {
 }
 
 /** The stored preview while the engine loads: its rows, and a total that ends paging there. */
-export async function pendingPage(
+async function pendingPage(
   doc: GeneratedSearchDoc,
   offset: number,
   where: SearchWhere,

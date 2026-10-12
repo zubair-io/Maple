@@ -43,7 +43,11 @@
     // #3797 — the reader-pool sizing and degradation benchmark. Same shape as
     // the block above: an entry point run by hand, so nothing imports it. On
     // its own line for the same reason those are.
-    "scripts/sqlite-bench/reader-pool.ts"
+    "scripts/sqlite-bench/reader-pool.ts",
+
+    // #4514 — the For You load reproduction and the caption library it runs on.
+    "scripts/sqlite-bench/caption-library.ts",
+    "scripts/sqlite-bench/generated-search-load.ts"
   ],
   // #4035 deliberately stages the Rust-generated workflow contract; API
   // persistence consumers land under #2437. Like the Web mirror, this output

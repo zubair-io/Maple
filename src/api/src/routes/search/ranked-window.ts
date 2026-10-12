@@ -26,7 +26,7 @@ export interface EngineWindow extends RankedWindow {
 }
 
 /** The child's top `depth` hits, filtered by `where`. */
-export function inProcessRanker(where: SearchWhere, query: string): WindowRanker {
+function inProcessRanker(where: SearchWhere, query: string): WindowRanker {
   return async (depth) => {
     const hits = await inProcessRanking(query, depth);
     if (!hits) return null;

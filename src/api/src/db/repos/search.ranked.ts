@@ -162,10 +162,20 @@ export async function mapleIdWindow(
   if (mapleIds.length === 0) return [];
   const ids = mapleIdRowsSql(where, mapleIds);
   const rows = await readBulk<WindowRow>(assetsDb(dbOverride), ids.sql, ids.params);
-  const byMapleId = new Map(rows.map((row) => [row.maple_id, row] as const));
-  return mapleIds
-    .map((id) => byMapleId.get(id))
-    .filter((row): row is WindowRow => row !== undefined);
+  return inGivenOrder(mapleIds, rows, (row) => row.maple_id);
+}
+
+/** `rows` in the order of `keys`, by the key each row carries; keys with no row drop out. */
+export function inGivenOrder<T>(
+  keys: readonly string[],
+  rows: readonly T[],
+  keyOf: (row: T) => string | null,
+): T[] {
+  const byKey = new Map(rows.map((row) => [keyOf(row), row] as const));
+  return keys.flatMap((key) => {
+    const row = byKey.get(key);
+    return row === undefined ? [] : [row];
+  });
 }
 
 /**
