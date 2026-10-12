@@ -281,6 +281,9 @@ public struct SearchResponse: Codable, Sendable {
   /// had hits left past it (#4514): a deeper page widens the window. Optional
   /// so responses from a server predating the field still decode.
   public let more: Bool?
+  /// True when the ranked window stopped at the server's 5,000-hit cap with
+  /// matches left (#4514); `more` is false then, so paging ends at `total`.
+  public let capped: Bool?
 
   /// True when a seek-paginated result set has been walked to its end.
   ///
@@ -299,7 +302,8 @@ public struct SearchResponse: Codable, Sendable {
     cursorPaging: Bool? = nil,
     nextCursor: String? = nil,
     dateFilter: AppliedDateFilter? = nil,
-    more: Bool? = nil
+    more: Bool? = nil,
+    capped: Bool? = nil
   ) {
     self.total = total
     self.page = page
@@ -309,6 +313,7 @@ public struct SearchResponse: Codable, Sendable {
     self.nextCursor = nextCursor
     self.dateFilter = dateFilter
     self.more = more
+    self.capped = capped
   }
 }
 

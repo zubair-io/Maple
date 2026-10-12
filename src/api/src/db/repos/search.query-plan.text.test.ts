@@ -13,6 +13,13 @@
  * `0:M1` is SQLite reporting a MATCH-driven scan of the inverted index. The
  * bad plan reports `0:=M1` — a MATCH plus a rowid equality — which is the
  * per-row probe, and no text statement may contain it.
+ *
+ * Production found a second bad form (#4514): `assets_live_month` as the outer
+ * loop and a plain `SCAN … 0:M1` nested inside it, the whole MATCH re-run once
+ * per asset — over five minutes for one count. It needs a month, a library and
+ * dropped people, and no planner statistics, so every statement here is
+ * checked with and without them, on that query shape too: the inverted index
+ * must be the first table read and read once, with no `assets` read before it.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -21,7 +28,7 @@ import { createTestDatabase } from '../sqlite/test-sqlite.test-helpers.ts';
 import { facetStatements } from './search.facets.sql.ts';
 import { countSql, pageSql, type BoundStatement } from './search.sql.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
-import { seedSearchLibrary } from './search.test-helpers.ts';
+import { seedSearchLibrary, type SeededLibrary } from './search.test-helpers.ts';
 import type { SearchQuery } from '../../routes/search/query-schema.ts';
 
 function planOf(db: Database, statement: BoundStatement): string[] {
@@ -31,8 +38,10 @@ function planOf(db: Database, statement: BoundStatement): string[] {
   return rows.map((row) => row.detail);
 }
 
-function translate(q: SearchQuery): SearchWhere {
-  const built = buildSearchWhere(q);
+function translate(q: SearchQuery, library?: SeededLibrary): SearchWhere {
+  const scoped = library ? { ...q, libraryId: library.libraryId } : q;
+  const dropped = library ? [...library.people.values()].slice(0, 1) : [];
+  const built = buildSearchWhere(scoped, dropped);
   if ('error' in built) throw new Error(built.error);
   return built;
 }
@@ -51,16 +60,27 @@ function textStatements(where: SearchWhere): Array<[string, BoundStatement]> {
 
 const TEXT_QUERIES: SearchQuery[] = [
   { placeQuery: 'scenic orange and red autumn foliage', month: '10' },
+  { placeQuery: 'scenic orange and red autumn foliage', month: '10', isScreenshot: 'false' },
   { placeQuery: 'harbour', month: '6', hidden: 'all' },
   { placeQuery: 'harbour', month: '6', hidden: 'only' },
   { placeQuery: 'harbour', month: '6', rating: '3' },
   { placeQuery: 'harbour' },
 ];
 
-async function withDb<T>(body: (db: Database) => T): Promise<T> {
+async function withDb<T>(
+  body: (db: Database, library: SeededLibrary) => T,
+  statistics?: 'analyzed' | 'none',
+): Promise<T> {
   using handle = await createTestDatabase();
-  seedSearchLibrary(handle.db);
-  return body(handle.db);
+  const library = seedSearchLibrary(handle.db);
+  if (statistics !== undefined) handle.db.exec('ANALYZE');
+  if (statistics === 'none') handle.db.exec('DELETE FROM sqlite_stat1');
+  return body(handle.db, library);
+}
+
+/** Reads of a table or index, in plan order — what can be an outer loop. */
+function reads(plan: readonly string[]): string[] {
+  return plan.filter((line) => /^(SCAN|SEARCH) /.test(line) && line !== 'SCAN CONSTANT ROW');
 }
 
 describe('a text search scans the inverted index once, first', () => {
@@ -83,6 +103,33 @@ describe('a text search scans the inverted index once, first', () => {
         }
       });
     });
+  }
+});
+
+describe('no asset read is an outer loop around the inverted index (#4514)', () => {
+  for (const statistics of ['analyzed', 'none'] as const) {
+    for (const q of TEXT_QUERIES) {
+      test(`${JSON.stringify(q)}, library-scoped with dropped people, ${statistics}`, async () => {
+        await withDb((db, library) => {
+          for (const [name, statement] of textStatements(translate(q, library))) {
+            const plan = planOf(db, statement);
+            const tableReads = reads(plan);
+            expect({ name, first: tableReads[0] }).toEqual({
+              name,
+              first: 'SCAN assets_fts VIRTUAL TABLE INDEX 0:M1',
+            });
+            expect({ name, scans: plan.filter((line) => line.includes('assets_fts')) }).toEqual({
+              name,
+              scans: ['SCAN assets_fts VIRTUAL TABLE INDEX 0:M1'],
+            });
+            expect({ name, probes: plan.filter((line) => line.includes('0:=')) }).toEqual({
+              name,
+              probes: [],
+            });
+          }
+        }, statistics);
+      });
+    }
   }
 });
 

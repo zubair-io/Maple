@@ -5,13 +5,13 @@
  * library, and their count ran for minutes per request once the planner put the inverted index
  * inside a per-asset loop. Three cards together held every reader and every other read timed out.
  *
- * This seeds 120k assets whose captions all match the incident's "busy city streets" theme, in a
- * file with no planner statistics — the condition under which the old count's plan nests the
- * full-text scan per asset (asserted below, so the fixture provably carries the hazard). Then it
- * drives the collection page, the search list, its facets and its buckets and pins what each
- * issued: the text ranked once on the inverted index alone with a `LIMIT`, only its hits joined,
- * no count of the match set, every heavy read on the bulk lane — and a wall time a whole-match
- * statement could not meet.
+ * This seeds 120k assets whose captions all match the incident's "busy city streets" theme, with
+ * a hidden person on some of them, in a file with no planner statistics — the condition under
+ * which the old count's plan nests the full-text scan per asset (asserted below, so the fixture
+ * provably carries the hazard). Then it drives the collection page, the search list, its facets,
+ * its buckets and the map and pins what each issued: the text ranked once on the inverted index
+ * alone with a `LIMIT`, only its hits joined, no count of the match set, every heavy read on the
+ * bulk lane — and a wall time a whole-match statement could not meet.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -43,14 +43,17 @@ import { setSqliteHandleForTests } from '../db/sqlite/index.ts';
 import type { SqliteDb } from '../db/repos/db-handle.ts';
 import type { SqlParams } from '../db/sqlite/protocol.ts';
 import { buildSearchWhere, type SearchWhere } from '../db/repos/search.where.ts';
-import { countSql } from '../db/repos/search.sql.ts';
+import { countSql, pageSql, type BoundStatement } from '../db/repos/search.sql.ts';
+import { facetStatements } from '../db/repos/search.facets.sql.ts';
+import { mapRoutes } from './map/index.ts';
 import { generatedSearchesRoutes } from './generated-searches.ts';
 import { searchRoutes, _resetBucketsCacheForTests, _resetCacheForTests } from './search/index.ts';
 import { resetSearchEngineSelectionForTests } from '../search/search-engine-selection.ts';
 
 const ASSETS = 120_000;
+const HIDDEN_PERSON = 'a'.repeat(24);
 const THEME = 'busy city streets, tall buildings, and urban cityscapes';
-const app = new Elysia().use(generatedSearchesRoutes).use(searchRoutes);
+const app = new Elysia().use(generatedSearchesRoutes).use(searchRoutes).use(mapRoutes);
 
 let live: LiveTestDatabase;
 let libraryId: string;
@@ -81,6 +84,17 @@ function seedLargeLibrary(): void {
     SELECT id, 'photo of a busy city street with tall buildings w' || (rowid % 997)
                || ' v' || (rowid % 89) || ' u' || (rowid % 13)
       FROM assets`);
+  db.run(
+    `INSERT INTO people (id, name, name_key, created_at, updated_at, hidden)
+     VALUES (?, 'Hidden', 'hidden', '2024-01-01', '2024-01-01', 1)`,
+    [HIDDEN_PERSON],
+  );
+  db.run(
+    `INSERT INTO faces (asset_id, face_index, person_id, confidence,
+                        bbox_x, bbox_y, bbox_w, bbox_h, embedding_version)
+     SELECT id, 0, ?, 0.9, 0.1, 0.1, 0.1, 0.1, 1 FROM assets WHERE rowid % 50 = 0`,
+    [HIDDEN_PERSON],
+  );
   db.exec(LIVE_LOCATION_COUNT_RECOMPUTE_SQL);
   db.exec(FACET_STATE_RECOMPUTE_SQL);
   db.exec(ASSETS_FTS_REBUILD_SQL);
@@ -155,12 +169,6 @@ function planOf(statement: Issued): string[] {
   ).map((row) => row.detail);
 }
 
-function translate(query: Record<string, string>): SearchWhere {
-  const built = buildSearchWhere(query);
-  if ('error' in built) throw new Error(built.error);
-  return built;
-}
-
 /**
  * The primary gate is the plan, not the clock: the text is ranked once, alone, with a `LIMIT`, on
  * the bulk lane — the full-text scan is the first table read and the only one, never nested under
@@ -186,16 +194,35 @@ function expectBounded(issued: readonly Issued[]): void {
 }
 
 describe('a large match set, without planner statistics', () => {
-  it("carries the incident's hazard: the old count nests the full-text scan per asset", () => {
-    const statement = countSql(translate({ libraryId, placeQuery: THEME, month: '10' }));
-    const plan = (
-      live.db
-        .query(`EXPLAIN QUERY PLAN ${statement.sql}`)
-        .all(...(statement.params as never[])) as Array<{ detail: string }>
-    ).map((row) => row.detail);
-    const firstRead = plan.find((line) => /^(SCAN|SEARCH) /.test(line));
-    expect(firstRead).not.toContain('assets_fts');
-    expect(plan.some((line) => line.startsWith('SCAN assets_fts'))).toBe(true);
+  it('no combined text statement can nest the full-text scan under an asset loop', () => {
+    // Production's plan for the October card's count led with `assets_live_month` and re-ran
+    // the whole MATCH once per asset (#4514). No request issues these combined statements for
+    // text any more, but the shape is pinned for any caller that does: the inverted index is
+    // the outermost read of every one, with the month, the library and the hidden people that
+    // drove that plan all present.
+    const where = buildSearchWhere(
+      { libraryId, placeQuery: THEME, month: '10', isScreenshot: 'false' },
+      [HIDDEN_PERSON],
+    ) as SearchWhere;
+    const statements: Array<[string, BoundStatement]> = [
+      ['count', countSql(where)],
+      ['page', pageSql(where, 'captured_desc', 30, 0)],
+      ...Object.entries(facetStatements(where)),
+    ];
+    const before = countSql(where).sql.replaceAll('CROSS JOIN', 'JOIN');
+    const hazard = planOf({ sql: before, params: countSql(where).params, bulk: false }).find(
+      (line) => /^(SCAN|SEARCH) /.test(line),
+    );
+    expect(hazard).toStartWith('SEARCH assets USING INDEX assets_live_month');
+    for (const [name, statement] of statements) {
+      const reads = planOf({ sql: statement.sql, params: statement.params, bulk: false }).filter(
+        (line) => /^(SCAN|SEARCH) /.test(line) && line !== 'SCAN CONSTANT ROW',
+      );
+      expect({ name, first: reads[0] }).toEqual({
+        name,
+        first: 'SCAN assets_fts VIRTUAL TABLE INDEX 0:M1',
+      });
+    }
   });
 
   it('a For You card ranks a bounded window and never counts the library', async () => {
@@ -210,8 +237,9 @@ describe('a large match set, without planner statistics', () => {
   it('a search list, its facets and its buckets stay bounded too', async () => {
     for (const path of [
       `/api/search?placeQuery=${encodeURIComponent(THEME)}&month=10&excludeHiddenPeople=true`,
-      `/api/search/facets?placeQuery=${encodeURIComponent(THEME)}&month=10`,
-      `/api/search/buckets?placeQuery=${encodeURIComponent(THEME)}`,
+      `/api/search/facets?placeQuery=${encodeURIComponent(THEME)}&month=10&excludeHiddenPeople=true`,
+      `/api/search/buckets?placeQuery=${encodeURIComponent(THEME)}&month=10`,
+      `/api/map/clusters?placeQuery=${encodeURIComponent(THEME)}&month=10&bbox=-180,-90,180,90&zoom=3`,
     ]) {
       const { issued, ms } = await issuedBy(path);
       expectBounded(issued);

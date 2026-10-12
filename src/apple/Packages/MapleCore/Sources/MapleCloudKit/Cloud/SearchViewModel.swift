@@ -26,6 +26,9 @@ public final class SearchViewModel {
   /// The server ranked a window of a free-text query and had hits left past
   /// it (#4514): `total` is the window, and a deeper page widens it.
   public private(set) var moreBeyondTotal: Bool = false
+  /// The server stopped the ranked window at its 5,000-hit cap with matches
+  /// left (#4514): `total` is every row it will serve, but not every match.
+  public private(set) var cappedAtTotal: Bool = false
   public private(set) var isLoading: Bool = false
   public private(set) var isLoadingMore: Bool = false
   public private(set) var loadError: Error?
@@ -51,6 +54,7 @@ public final class SearchViewModel {
       facets = nil
       total = 0
       moreBeyondTotal = false
+      cappedAtTotal = false
       page = 0
       nextCursor = nil
       appliedDates = nil
@@ -123,6 +127,10 @@ public final class SearchViewModel {
 
   /// True while more pages remain for the current result set.
   public var canLoadMore: Bool { results.count < total || moreBeyondTotal }
+
+  /// True when `total` is a lower bound on the matches — the window can
+  /// widen, or it stopped at the server's cap — so a count reads "N+".
+  public var totalIsLowerBound: Bool { moreBeyondTotal || cappedAtTotal }
 
   /// True when any structured filter is set (drives the "filters" dot).
   public var hasActiveFilters: Bool { params.hasActiveFilters }
@@ -203,6 +211,7 @@ public final class SearchViewModel {
       appliedDates = cachedPage.dateFilter
       total = cachedPage.seekExhausted ? cachedPage.results.count : cachedPage.total
       moreBeyondTotal = cachedPage.more ?? false
+      cappedAtTotal = cachedPage.capped ?? false
       facets = cachedFacets
       return
     }
@@ -232,6 +241,7 @@ public final class SearchViewModel {
       // deep page-based SKIP pagination.
       total = resp.seekExhausted ? resp.results.count : resp.total
       moreBeyondTotal = resp.more ?? false
+      cappedAtTotal = resp.capped ?? false
       // Results publish before facets: the facet aggregation is the slower
       // request and only feeds the filter panel, so it must not hold the grid.
       isLoading = false
@@ -252,6 +262,7 @@ public final class SearchViewModel {
       results = []
       total = 0
       moreBeyondTotal = false
+      cappedAtTotal = false
       // Keep the last good facets (mirrors the web client): an aggregation
       // hiccup shouldn't blank the People / Places pickers, and nothing is
       // scheduled to refill them — `loadFacetsIfNeeded()` treats non-nil
@@ -278,6 +289,7 @@ public final class SearchViewModel {
     results = firstPage.results
     total = firstPage.total
     moreBeyondTotal = firstPage.more
+    cappedAtTotal = false
     page = 0
     nextCursor = nil
     appliedDates = nil
@@ -309,6 +321,7 @@ public final class SearchViewModel {
     results = live.results
     total = live.total
     moreBeyondTotal = live.more
+    cappedAtTotal = false
     // Still the stored preview: the server's engine is loading (#4514). Keep
     // the live page pending so the next `loadMore()` asks again.
     guard !live.isPending else { return }
@@ -405,6 +418,7 @@ public final class SearchViewModel {
       nextCursor = cached.nextCursor
       total = cached.seekExhausted ? results.count : cached.total
       moreBeyondTotal = !cached.results.isEmpty && (cached.more ?? false)
+      cappedAtTotal = cached.capped ?? false
       return
     }
 
@@ -417,6 +431,7 @@ public final class SearchViewModel {
       nextCursor = resp.nextCursor
       total = resp.seekExhausted ? results.count : resp.total
       moreBeyondTotal = !resp.results.isEmpty && (resp.more ?? false)
+      cappedAtTotal = resp.capped ?? false
     } catch {
       if Self.isCancellation(error) { return }
       guard g == generation else { return }
@@ -461,6 +476,7 @@ public final class SearchViewModel {
     results = []
     total = 0
     moreBeyondTotal = false
+    cappedAtTotal = false
     page = 0
     nextCursor = nil
     appliedDates = nil

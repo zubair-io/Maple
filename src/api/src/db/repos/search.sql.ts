@@ -65,6 +65,15 @@ export interface BoundStatement {
  * the rowid wrapped it is not a constraint the virtual table can be handed, so
  * the inverted index is scanned once, first.
  *
+ * The `+` alone was not enough (#4514). Without planner statistics, a month,
+ * a library and dropped people led production's planner to put
+ * `assets_live_month` outermost and a plain scan of the inverted index inside
+ * it — the whole `MATCH` re-run per asset, over five minutes for one count.
+ * `CROSS JOIN` takes the order out of the planner's hands: SQLite never moves a
+ * table across one, so the inverted index is the outer loop whatever the
+ * statistics say. No request issues these combined statements for free text
+ * any more (see `search.ranked.ts`); this keeps any caller that does safe.
+ *
  * A text query no row can satisfy also leads with `assets`: there is no
  * expression to hand `MATCH`, the `WHERE` is the constant `0`, and joining an
  * inverted index to prove that is work for nothing.
@@ -72,8 +81,8 @@ export interface BoundStatement {
 export function fromClause(where: SearchWhere): string {
   if (where.match.kind !== 'match') return 'FROM assets';
   return `FROM assets_fts
-      JOIN asset_search ON asset_search.rowid = +assets_fts.rowid
-      JOIN assets ON assets.id = asset_search.asset_id`;
+      CROSS JOIN asset_search ON asset_search.rowid = +assets_fts.rowid
+      CROSS JOIN assets ON assets.id = asset_search.asset_id`;
 }
 
 /**

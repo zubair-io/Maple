@@ -47,7 +47,9 @@
 
     // #4514 — the For You load reproduction and the caption library it runs on.
     "scripts/sqlite-bench/caption-library.ts",
-    "scripts/sqlite-bench/generated-search-load.ts"
+    "scripts/sqlite-bench/generated-search-load.ts",
+    // #4510 — the worker-tier stand-in `remote-search.test.ts` spawns as a real child.
+    "src/search/__fixtures__/remote-search-child.ts"
   ],
   // #4035 deliberately stages the Rust-generated workflow contract; API
   // persistence consumers land under #2437. Like the Web mirror, this output

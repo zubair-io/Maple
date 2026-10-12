@@ -14,6 +14,9 @@ import type { Database } from 'bun:sqlite';
 import { createTestDatabase, testSqliteDb } from '../sqlite/test-sqlite.test-helpers.ts';
 import { serviceLexicalSearch, type ServiceSearchScope } from './search.service.ts';
 import { seedSearchLibrary, type SeededLibrary } from './search.test-helpers.ts';
+import { RANKED_WINDOW_MAX } from './search.ranked.ts';
+import type { SqliteDb } from './db-handle.ts';
+import type { SqlParams } from '../sqlite/protocol.ts';
 
 const OPEN: ServiceSearchScope = {
   includeHidden: false,
@@ -56,6 +59,39 @@ async function seeded(): Promise<{
 }
 
 describe('serviceLexicalSearch', () => {
+  test('ranks the text alone, at most RANKED_WINDOW_MAX hits deep, on the bulk lane (#4514)', async () => {
+    const { handle } = await seeded();
+    using h = handle;
+    const inner = testSqliteDb(h.db);
+    const issued: Array<{ sql: string; params: SqlParams | undefined; bulk: boolean }> = [];
+    const recording: SqliteDb & { readBulk: SqliteDb['read'] } = {
+      read: (sql, params) => (issued.push({ sql, params, bulk: false }), inner.read(sql, params)),
+      readBulk: (sql, params) => (
+        issued.push({ sql, params, bulk: true }),
+        inner.read(sql, params)
+      ),
+      write: (sql, params) => inner.write(sql, params),
+      transaction: (statements) => inner.transaction(statements),
+    };
+
+    await serviceLexicalSearch(OPEN, 'harbour', 30, recording);
+
+    const ranked = issued.filter((statement) => statement.sql.includes('assets_fts'));
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]!.bulk).toBe(true);
+    expect(ranked[0]!.sql).toMatch(/ORDER BY rank ASC, assets_fts\.rowid\s+LIMIT \?\)/);
+    expect((ranked[0]!.params as unknown[])[1]).toBe(RANKED_WINDOW_MAX);
+    const plan = (
+      h.db
+        .query(`EXPLAIN QUERY PLAN ${ranked[0]!.sql}`)
+        .all(...((ranked[0]!.params ?? []) as never[])) as Array<{ detail: string }>
+    ).map((row) => row.detail);
+    expect(plan.find((line) => /^(SCAN|SEARCH) /.test(line))).toBe(
+      'SCAN assets_fts VIRTUAL TABLE INDEX 0:M1',
+    );
+    expect(plan.filter((line) => line.includes('0:='))).toEqual([]);
+  });
+
   test('an exact filename match leads, and is flagged as exact', async () => {
     const { handle } = await seeded();
     using h = handle;

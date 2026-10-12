@@ -22,7 +22,8 @@ import {
 } from '../../search/search-engine-selection.ts';
 import { setInProcessSearchForTests } from '../../search/search-pool.ts';
 import { fakeInProcessSearch } from '../../search/search.test-helpers.ts';
-import { RANKED_WINDOW_BASE } from '../../db/repos/search.ranked.ts';
+import { RANKED_WINDOW_BASE, RANKED_WINDOW_MAX } from '../../db/repos/search.ranked.ts';
+import { windowNeed } from './ranked-window.ts';
 
 let live: LiveTestDatabase;
 let libraryId: string;
@@ -175,5 +176,16 @@ describe('facets and buckets of a page describe the window its list counts', () 
     expect(new Set(Object.values(shallow)).size).toBe(1);
     expect(new Set(Object.values(deep)).size).toBe(1);
     expect(deep.list).toBeGreaterThan(shallow.list);
+  });
+});
+
+describe('windowNeed', () => {
+  it('is the rows a page reaches, clamped as the list clamps page and limit', () => {
+    expect(windowNeed({})).toBe(100);
+    expect(windowNeed({ page: '2', limit: '50' })).toBe(150);
+    expect(windowNeed({ page: '-3', limit: '0' })).toBe(1);
+    expect(windowNeed({ page: 'abc', limit: 'abc' })).toBe(100);
+    expect(windowNeed({ limit: '9999' })).toBe(500);
+    expect(windowNeed({ page: '10000', limit: '500' })).toBe(RANKED_WINDOW_MAX);
   });
 });

@@ -273,6 +273,8 @@ final class SearchViewModelCollectionTests: XCTestCase {
 
     XCTAssertEqual(vm.results.map(\.id), ["fs:/p/a.dng"])
     XCTAssertFalse(vm.canLoadMore, "a window stopped at the server's cap ends paging")
+    XCTAssertTrue(vm.cappedAtTotal)
+    XCTAssertTrue(vm.totalIsLowerBound, "the count reads N+, not an exact total")
     XCTAssertNil(vm.loadError)
   }
 
