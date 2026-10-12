@@ -37,9 +37,6 @@ services:
       # The library database, on the maple_data volume below. Nothing else in
       # this file matters as much as keeping those two in agreement.
       MAPLE_SQLITE_PATH: /app/data/maple.sqlite
-      # Configure semantic search at runtime under Settings → Workers → meili.
-      MAPLE_MEILISEARCH_URL: ${MAPLE_MEILISEARCH_URL:-}
-      MAPLE_MEILISEARCH_API_KEY: ${MAPLE_MEILISEARCH_API_KEY:-}
       # Mount your photo library here (also set MAPLE_ROOTS):
       # MAPLE_ROOTS: /photos
     volumes:

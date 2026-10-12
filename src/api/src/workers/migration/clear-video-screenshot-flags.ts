@@ -71,7 +71,7 @@ export const clearVideoScreenshotFlags: Migration = {
   title: 'Clear video screenshot flags',
   description:
     'Clears is_screenshot on videos that were wrongly classified as screenshots, and re-queues ' +
-    'them through describe and meili so their scene description and search entry are rebuilt. ' +
+    'them through describe so their scene description and search entry are rebuilt. ' +
     'Videos could pick up the flag from the filename heuristic or from the vision model reading ' +
     'a poster frame as a UI, which dropped them out of the Photos filter. One-time; idempotent ' +
     'per video.',

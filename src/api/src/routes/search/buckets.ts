@@ -139,9 +139,7 @@ async function histogram(
   if (scope.childQuery === null) return { result: await searchBuckets(scope.where), keep: true };
   const window = await requestWindow({
     where: scope.where,
-    resolved: scope.resolved,
     text: scope.childQuery,
-    libraryId: query.libraryId,
     need,
   });
   return { result: await windowBuckets(window.rows), keep: window.preferred };
@@ -166,7 +164,7 @@ export const bucketsRoute = new Elysia().get(
     // a 30s TTL keeps repeat loads from the same client cheap and is
     // tight enough that newly-indexed photos surface within a minute.
     const need = windowNeed(query as SearchQuery);
-    const engine = await firstEngine(extractDatesFromQuery(query as SearchQuery));
+    const engine = firstEngine();
     const cacheKey = `${makeBucketsCacheKey(query as SearchQuery)}#${windowDepthFor(need)}#${engine}`;
     const cached = bucketsCache.get(cacheKey);
     const nowMs = Date.now();

@@ -11,8 +11,7 @@
  * A query with free text is measured as its ranked window (#4514): the
  * in-process engine ranks the text — reached through the API process, which
  * owns the child (#4510, `search/remote-search.ts`) — and SQL filters its hits;
- * Meilisearch when it is configured instead; the database's inverted index when
- * neither answers. The count is the window's size, never a count of every
+ * the database's inverted index when the child does not answer. The count is the window's size, never a count of every
  * match: a caption-style theme matches most of a library, and counting that
  * took minutes per statement on production. A query without free text is a
  * structured filter, counted on the indexes that serve it.
@@ -70,7 +69,7 @@ async function rankedOutcome(
   libraryId: string | undefined,
   text: string,
 ): Promise<SearchOutcome> {
-  const window = await requestWindow({ where, resolved, text, libraryId, need: FIRST_PAGE_SIZE });
+  const window = await requestWindow({ where, text, need: FIRST_PAGE_SIZE });
   return windowOutcome(window.rows);
 }
 

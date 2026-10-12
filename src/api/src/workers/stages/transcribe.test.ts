@@ -90,8 +90,8 @@ describe('transcribe stage', () => {
 
     // The re-arm is declared, not written: the runner commits it in the same
     // transaction as this stage's success row, where the Mongo handler wrote
-    // five `stages.meili.*` keys itself and could crash between them.
-    expect(result.invalidates).toEqual(['meili', 'embed']);
+    // five `stages.search-blob.*` keys itself and could crash between them.
+    expect(result.invalidates).toEqual(['search-blob', 'embed']);
     expect(result.patch).toHaveLength(1);
     expect(result.patch[0]!.sql).toContain('INSERT INTO asset_detail');
     expect(result.patch[0]!.params[1]).toBe(doc._id.toHexString());

@@ -12,23 +12,14 @@ import {
   resolveEnrichmentConfig,
   type ResolvedEnrichmentConfig,
 } from '../enrichment/enrichment-config.resolve.ts';
-import { meilisearchClient, reconfigureMeilisearch } from '../enrichment/meilisearch-client.ts';
 import { child as childLogger } from '../log.ts';
-import {
-  advanceKnownVectorCoverage,
-  advancePendingVectorCoverage,
-  confirmedFingerprint,
-} from '../enrichment/meilisearch-vector-coverage.ts';
 
 const log = childLogger('workers:enrichment-config');
 const DEFAULT_REFRESH_MS = 2_000;
-const READINESS_RETRY_MS = 30_000;
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 let refreshInFlight = false;
 let appliedFingerprint: string | null = null;
-let lastReadinessAttemptAt = 0;
-let readyVectorFingerprint: string | null = null;
 
 export function workerEnrichmentFingerprint(config: ResolvedEnrichmentConfig): string {
   return JSON.stringify({
@@ -42,66 +33,19 @@ export function workerEnrichmentFingerprint(config: ResolvedEnrichmentConfig): s
     openaiApiKey: config.openai_api_key,
     anthropicApiKey: config.anthropic_api_key,
     geminiApiKey: config.gemini_api_key,
-    meiliUrl: config.meilisearch_url,
-    meiliApiKey: config.meilisearch_api_key,
-    meiliTaskTimeoutSeconds: config.meilisearch_task_timeout_seconds,
-    semanticEnabled: config.meilisearch_semantic_enabled,
-    embedderUrl: config.meilisearch_embedder_url,
-    embedderModel: config.meilisearch_embedder_model,
-    semanticRatio: config.meilisearch_semantic_ratio,
   });
-}
-
-function applyMeilisearchConfig(config: ResolvedEnrichmentConfig): void {
-  reconfigureMeilisearch({
-    url: config.meilisearch_url,
-    apiKey: config.meilisearch_api_key,
-    taskTimeoutMs: config.meilisearch_task_timeout_seconds * 1000,
-    semanticEnabled: config.meilisearch_semantic_enabled,
-    embedderUrl: config.meilisearch_embedder_url,
-    embedderModel: config.meilisearch_embedder_model,
-    semanticRatio: config.meilisearch_semantic_ratio,
-  });
-}
-
-async function ensureMeilisearchReady(): Promise<boolean> {
-  const meili = meilisearchClient();
-  if (!meili.isConfigured()) return true;
-  if (!(await meili.health())) return false;
-  await meili.ensureIndex();
-  const fingerprint = confirmedFingerprint(meili);
-  if (fingerprint === null) return true;
-  if (fingerprint !== readyVectorFingerprint) {
-    await advanceKnownVectorCoverage(fingerprint);
-    readyVectorFingerprint = fingerprint;
-  }
-  await advancePendingVectorCoverage(fingerprint);
-  return true;
 }
 
 export async function refreshWorkerEnrichmentConfig(force = false): Promise<boolean> {
   const resolved = resolveEnrichmentConfig(await loadEnrichmentConfig());
   const fingerprint = workerEnrichmentFingerprint(resolved);
   const changed = force || fingerprint !== appliedFingerprint;
-  const readinessDue = Date.now() - lastReadinessAttemptAt >= READINESS_RETRY_MS;
-  if (!changed && !readinessDue) return false;
+  if (!changed) return false;
 
-  if (changed) {
-    applyMeilisearchConfig(resolved);
-    await applyDescribeConfig(resolved);
-    appliedFingerprint = fingerprint;
-    log.info('worker enrichment configuration refreshed');
-  }
-
-  lastReadinessAttemptAt = Date.now();
-  try {
-    if (!(await ensureMeilisearchReady())) {
-      log.warn('Meilisearch remains unreachable; worker will retry readiness');
-    }
-  } catch (error) {
-    log.warn({ err: error }, 'Meilisearch readiness refresh failed; worker will retry');
-  }
-  return changed;
+  await applyDescribeConfig(resolved);
+  appliedFingerprint = fingerprint;
+  log.info('worker enrichment configuration refreshed');
+  return true;
 }
 
 export function startWorkerEnrichmentConfigRefresh(intervalMs = DEFAULT_REFRESH_MS): void {

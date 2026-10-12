@@ -75,7 +75,7 @@ export interface ComposeSearchBlobInput {
   visionTags?: string[] | null;
   /** Named people appearing in the asset (e.g. ["Greyson", "Maya"]).
    * Resolved from `faces[].person_id` by the caller — the blob can't
-   * `$lookup` person names, so the meili stage passes them explicitly.
+   * `$lookup` person names, so the search-blob stage passes them explicitly.
    * Auto-generated `Person N` clusters are excluded upstream. */
   people?: string[] | null;
   /** Whole-clip summary from the `video-describe` stage (#2158). `null`
@@ -122,7 +122,7 @@ export function composeSearchBlob(input: ComposeSearchBlobInput): string {
   for (const t of input.visionTags ?? []) add(t);
 
   // Named people — each name tokenised so "Greyson Smith" matches either
-  // word. The meili stage filters out auto-generated `Person N` names
+  // word. The search-blob stage filters out auto-generated `Person N` names
   // before passing them in.
   for (const p of input.people ?? []) add(p);
 

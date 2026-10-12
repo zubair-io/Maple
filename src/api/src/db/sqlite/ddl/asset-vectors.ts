@@ -66,7 +66,7 @@ const RESET_SET = `version = 0, attempts = 0, last_error = NULL, processed_at = 
          next_attempt_at = NULL, claim_token = NULL`;
 
 function rearmAssetStages(assetIdExpr: string): string {
-  return ['meili', 'embed']
+  return ['search-blob', 'embed']
     .map(
       (
         stage,
@@ -78,7 +78,7 @@ function rearmAssetStages(assetIdExpr: string): string {
 }
 
 function rearmPersonAssetStages(personIdExpr: string): string {
-  return ['meili', 'embed']
+  return ['search-blob', 'embed']
     .map(
       (
         stage,
@@ -91,8 +91,8 @@ function rearmPersonAssetStages(personIdExpr: string): string {
 
 /**
  * The searchable text names the people on an asset, so every change to which person a face
- * belongs to, or to a person's indexable identity, re-queues `meili` and `embed` for the affected
- * assets. Triggers cover every writer (face detect, clustering, assign, hide, merge, purge,
+ * belongs to, or to a person's indexable identity, re-queues `search-blob` and `embed` for the
+ * affected assets. Triggers cover every writer (face detect, clustering, assign, hide, merge, purge,
  * rename, visibility) instead of each path remembering to. Unrelated columns (a face's bbox, a
  * person's cover) re-queue nothing.
  */

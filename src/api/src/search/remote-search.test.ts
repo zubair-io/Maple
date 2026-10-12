@@ -12,11 +12,7 @@ import {
   setRemoteInProcessSearch,
 } from './search-pool.ts';
 import { fakeInProcessSearch } from './search.test-helpers.ts';
-import {
-  inProcessRanking,
-  resetSearchEngineSelectionForTests,
-  saveSearchEngine,
-} from './search-engine-selection.ts';
+import { inProcessRanking } from './search-ranking.ts';
 import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { RANKED_WINDOW_MAX } from '../db/repos/search.ranked.ts';
 import { ChildProcessWorker, childScriptPath } from '../runtime/child-process-worker.ts';
@@ -25,7 +21,6 @@ import type { FusedSearchHit } from './search-engine-ffi.ts';
 afterEach(() => {
   setInProcessSearchForTests(null);
   setRemoteInProcessSearch(null);
-  resetSearchEngineSelectionForTests();
 });
 
 /** A worker-side bridge whose requests the API side answers from its installed engine. */
@@ -114,9 +109,8 @@ describe('the remote search bridge', () => {
     expect(posted).toEqual([]);
   });
 
-  it("ranks a worker's search through the API's child when in-process is selected", async () => {
+  it("ranks a worker's search through the API's child ", async () => {
     using _live = await createLiveTestDatabase();
-    await saveSearchEngine('in-process');
     const api = fakeInProcessSearch(['remote-hit']);
     const bridge = remoteInProcessSearch((request) =>
       answerRemoteSearch({ postMessage: (reply) => bridge.receive(reply) }, request, api),

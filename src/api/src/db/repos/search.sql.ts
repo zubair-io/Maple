@@ -124,10 +124,10 @@ export function statement(
 
 /**
  * How many live assets match — the `total` on every search response, the facet
- * total, and the Meili branch's live count.
+ * total, and a ranked branch's live count.
  *
  * Counts exactly the `FROM` and `WHERE` the page query uses. That identity is
- * not a tidiness argument: the Meilisearch branch once post-filtered a single
+ * not a tidiness argument: a ranked branch once post-filtered a single
  * page and reported a count from a different predicate, which showed the user a
  * large number beside an empty grid. Sharing one composition makes the two
  * unable to disagree, and the tests hold every filter combination to it.
@@ -367,7 +367,7 @@ export function phassetLinksByAssetIdsSql(count: number): string {
  * rather than the `/api/search` query string.
  *
  * It answers with `maple_id` rather than an asset id, because that is the
- * identifier the Meilisearch index it stands in for is keyed on. Assets with no
+ * identifier the search engine's index is keyed on. Assets with no
  * `maple_id` are dropped here rather than in the caller.
  *
  * The text is ranked on the inverted index alone and only its best `depth` hits

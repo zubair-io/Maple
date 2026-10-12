@@ -13,7 +13,6 @@ import { auditVideoGeoBackfill } from './audit-video-geo-backfill.ts';
 import { applyVideoGeoBackfill } from './apply-video-geo-backfill.ts';
 import { rearmVideoPosters } from './rearm-video-posters.ts';
 import { redrivePreviewMissingDescribe } from './redrive-preview-missing-describe.ts';
-import { backfillMeilisearchVectors } from './backfill-meilisearch-vectors.ts';
 import { clearVideoScreenshotFlags } from './clear-video-screenshot-flags.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
@@ -26,7 +25,6 @@ export const MIGRATIONS: readonly Migration[] = [
   applyVideoGeoBackfill,
   rearmVideoPosters,
   redrivePreviewMissingDescribe,
-  backfillMeilisearchVectors,
   clearVideoScreenshotFlags,
 ];
 
@@ -34,4 +32,4 @@ export function getMigration(id: string): Migration | undefined {
   return MIGRATIONS.find((m) => m.id === id);
 }
 
-export type { Migration, MigrationBatchResult } from './types.ts';
+export type { Migration } from './types.ts';

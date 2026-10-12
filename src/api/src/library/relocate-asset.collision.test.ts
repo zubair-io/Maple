@@ -69,7 +69,7 @@ function seedDirtyStages(db: Database, assetId: string): void {
     dead: true,
   });
   insertStageState(db, assetId, 'preview', { version: 3, processedAt });
-  insertStageState(db, assetId, 'meili', { version: 5, attempts: 1, processedAt });
+  insertStageState(db, assetId, 'embed', { version: 5, attempts: 1, processedAt });
 }
 
 interface Entry {

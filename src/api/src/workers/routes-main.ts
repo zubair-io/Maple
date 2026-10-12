@@ -209,7 +209,7 @@ export function workerRoutes() {
         try {
           await requestStatusCounts();
           // One DB read for all per-migration state, indexed by id below. The
-          // `remaining` / `failedPermanently` counts are the worker's persisted
+          // `remaining` counts are the worker's persisted
           // values (#3491): most `countRemaining()` filters are full-collection
           // scans, so they are never run on the request path. Null until the
           // worker has counted a migration for the first time.
@@ -226,11 +226,6 @@ export function workerRoutes() {
               errors: state.errors,
               remaining: state.remaining ?? null,
               remaining_at: state.remaining_at ?? null,
-              // Only migrations that implement `countFailedPermanently` (a
-              // migration-specific dead-letter queue) surface the field at all.
-              ...(m.countFailedPermanently
-                ? { failedPermanently: state.failed_permanently ?? null }
-                : {}),
               last_error: state.last_error,
               started_at: state.started_at,
               finished_at: state.finished_at,

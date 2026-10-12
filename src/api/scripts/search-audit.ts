@@ -1,48 +1,36 @@
 #!/usr/bin/env bun
 /**
- * Search audit replay (#4463): runs every query of a file through `GET /api/search` once with the
- * in-process engine selected and once with Meilisearch, through a running server's own settings
- * API, and prints per-query latency and how much the two top-30 lists share.
+ * Search audit replay (#4463): runs every query of a file through `GET /api/search` against a
+ * running server and prints per-query latency, whether the in-process engine answered, and how
+ * many of the returned results its vector leg found.
  *
  *   bun scripts/search-audit.ts --base-url http://localhost:3000 --dev-login
  *   bun scripts/search-audit.ts --base-url https://maple.example --token <owner access token> \
  *     [--queries tests/fixtures/search-audit/queries.txt] [--top 30] [--out audit.json]
  *
- * Switches the server's `search_engine` setting and puts the original back when it finishes, so
- * point it only at a server you mean to switch. Waits for the in-process engine to finish loading
- * before timing it, and marks any in-process answer the server served from Meilisearch instead.
- * When the server reports a `Server-Timing` header (#4503), the median of each phase is printed
- * beside the client-side latency, so the time spent outside the engine has a name.
+ * Waits for the in-process engine to finish loading before timing it, and marks any answer the
+ * server served from the database full-text path instead. When the server reports a
+ * `Server-Timing` header (#4503), the median of each phase is printed beside the client-side
+ * latency, so the time spent outside the engine has a name.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
-type Engine = 'in-process' | 'meilisearch';
-
 interface EngineStatus {
-  engine: Engine;
   status: { phase: string; vectors: number; texts: number; textReady: boolean; error?: string };
 }
 
 export interface QueryRun {
+  query: string;
   ms: number;
-  ids: string[];
   servedInProcess: boolean;
   semanticHits: number | null;
   /** Server-side milliseconds per phase, from `Server-Timing`; empty when the server sends none. */
   phases: Record<string, number>;
 }
 
-export interface QueryComparison {
-  query: string;
-  inProcess: QueryRun;
-  meilisearch: QueryRun;
-  overlap: number;
-}
-
-const ENGINES: readonly Engine[] = ['in-process', 'meilisearch'];
 const READY_POLL_MS = 2_000;
 const DEFAULT_QUERIES = resolve(import.meta.dir, '../tests/fixtures/search-audit/queries.txt');
 
@@ -51,11 +39,6 @@ export function readQueries(text: string): string[] {
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.startsWith('#'));
-}
-
-export function overlapCount(a: readonly string[], b: readonly string[]): number {
-  const other = new Set(b);
-  return a.filter((id) => other.has(id)).length;
 }
 
 export function percentile(values: readonly number[], p: number): number {
@@ -75,39 +58,25 @@ export function parseServerTiming(header: string | null): Record<string, number>
   return Object.fromEntries(pairs);
 }
 
-/** One line per engine: the median of every phase its server reported, in first-seen order. */
-function phaseLines(label: string, runs: readonly QueryRun[]): string[] {
+/** The median of every phase the server reported, in first-seen order. */
+function phaseLines(runs: readonly QueryRun[]): string[] {
   const names = [...new Set(runs.flatMap((run) => Object.keys(run.phases)))];
   if (names.length === 0) return [];
   const medians = names.map((name) => {
     const values = runs.flatMap((run) => (name in run.phases ? [run.phases[name]!] : []));
     return `${name} ${percentile(values, 50).toFixed(1)}`;
   });
-  return [`${label.padEnd(12)} server phases (median ms): ${medians.join('  ')}`];
+  return [`server phases (median ms): ${medians.join('  ')}`];
 }
 
-export function summaryLines(rows: readonly QueryComparison[], top: number): string[] {
-  const line = (label: string, runs: QueryRun[]) => {
-    const ms = runs.map((run) => run.ms);
-    return `${label.padEnd(12)} median ${percentile(ms, 50).toFixed(0)} ms  p95 ${percentile(ms, 95).toFixed(0)} ms  max ${Math.max(...ms, 0).toFixed(0)} ms`;
-  };
-  const inProcess = rows.map((row) => row.inProcess);
-  const fellBack = inProcess.filter((run) => !run.servedInProcess).length;
-  const withSemantic = inProcess.filter((run) => (run.semanticHits ?? 0) > 0).length;
-  const meanOverlap = rows.reduce((sum, row) => sum + row.overlap, 0) / Math.max(rows.length, 1);
+export function summaryLines(runs: readonly QueryRun[]): string[] {
+  const ms = runs.map((run) => run.ms);
+  const fellBack = runs.filter((run) => !run.servedInProcess).length;
+  const withSemantic = runs.filter((run) => (run.semanticHits ?? 0) > 0).length;
   return [
-    line('in-process', inProcess),
-    line(
-      'meilisearch',
-      rows.map((row) => row.meilisearch),
-    ),
-    `mean top-${top} overlap ${meanOverlap.toFixed(1)} / ${top}`,
-    `in-process answered ${rows.length - fellBack} / ${rows.length}; semantic hits on ${withSemantic} / ${rows.length}`,
-    ...phaseLines('in-process', inProcess),
-    ...phaseLines(
-      'meilisearch',
-      rows.map((row) => row.meilisearch),
-    ),
+    `median ${percentile(ms, 50).toFixed(0)} ms  p95 ${percentile(ms, 95).toFixed(0)} ms  max ${Math.max(...ms, 0).toFixed(0)} ms`,
+    `in-process answered ${runs.length - fellBack} / ${runs.length}; semantic hits on ${withSemantic} / ${runs.length}`,
+    ...phaseLines(runs),
   ];
 }
 
@@ -159,23 +128,17 @@ function client(baseUrl: string, token: string) {
     (await (await respond(path, init)).json()) as T;
   return {
     engine: () => call<EngineStatus>('/api/ai/search-engine/'),
-    select: (engine: Engine) =>
-      call<EngineStatus>('/api/ai/search-engine/', {
-        method: 'PUT',
-        body: JSON.stringify({ engine }),
-      }),
     search: async (query: string, top: number): Promise<QueryRun> => {
       const started = performance.now();
       const response = await respond(
         `/api/search?placeQuery=${encodeURIComponent(query)}&limit=${top}`,
       );
       const body = (await response.json()) as {
-        results: Array<{ id: string }>;
         rankedBy?: { engine: string; semanticHits: number };
       };
       return {
+        query,
         ms: performance.now() - started,
-        ids: body.results.map((result) => result.id),
         servedInProcess: body.rankedBy?.engine === 'in-process',
         semanticHits: body.rankedBy?.semanticHits ?? null,
         phases: parseServerTiming(response.headers.get('server-timing')),
@@ -210,32 +173,18 @@ async function main(): Promise<void> {
   const opts = options();
   const queries = readQueries(readFileSync(opts.queries, 'utf-8'));
   const api = client(opts.baseUrl, await accessToken(opts.baseUrl, opts.token, opts.devLogin));
-  const original = (await api.engine()).engine;
-  const runs = new Map<Engine, QueryRun[]>();
-  try {
-    for (const engine of ENGINES) {
-      await api.select(engine);
-      if (engine === 'in-process') await waitUntilReady(api, opts.readyTimeoutMs);
-      runs.set(engine, await runAll(api, queries, opts.top));
-    }
-  } finally {
-    await api.select(original);
-  }
-  const rows: QueryComparison[] = queries.map((query, index) => {
-    const inProcess = runs.get('in-process')![index]!;
-    const meilisearch = runs.get('meilisearch')![index]!;
-    return { query, inProcess, meilisearch, overlap: overlapCount(inProcess.ids, meilisearch.ids) };
-  });
-  console.log(`\n${'query'.padEnd(64)} in-proc   meili  overlap  semantic`);
-  for (const row of rows) {
-    const marker = row.inProcess.servedInProcess ? ' ' : '*';
+  await waitUntilReady(api, opts.readyTimeoutMs);
+  const runs = await runAll(api, queries, opts.top);
+  console.log(`\n${'query'.padEnd(64)}    ms  semantic`);
+  for (const run of runs) {
+    const marker = run.servedInProcess ? ' ' : '*';
     console.log(
-      `${row.query.slice(0, 63).padEnd(64)}${row.inProcess.ms.toFixed(0).padStart(6)}${marker}${row.meilisearch.ms.toFixed(0).padStart(7)}${String(row.overlap).padStart(8)}${String(row.inProcess.semanticHits ?? '-').padStart(10)}`,
+      `${run.query.slice(0, 63).padEnd(64)}${run.ms.toFixed(0).padStart(6)}${marker}${String(run.semanticHits ?? '-').padStart(8)}`,
     );
   }
-  console.log(`\n* answered by the Meilisearch path while in-process was selected\n`);
-  for (const line of summaryLines(rows, opts.top)) console.log(line);
-  if (opts.out) writeFileSync(opts.out, JSON.stringify({ top: opts.top, rows }, null, 2));
+  console.log(`\n* answered by the database full-text path\n`);
+  for (const line of summaryLines(runs)) console.log(line);
+  if (opts.out) writeFileSync(opts.out, JSON.stringify({ top: opts.top, runs }, null, 2));
 }
 
 if (import.meta.main) await main();

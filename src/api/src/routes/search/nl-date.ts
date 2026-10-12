@@ -14,7 +14,7 @@
  * That last hazard is not hypothetical, and it is why a bare season word
  * and every holiday name no longer parse at all. `winter` matched, became a Dec–Feb
  * window, and was stripped — leaving the query with NO search text, so
- * `usesPlaceText()` went false, Meilisearch was never queried, and search
+ * the residual text went empty, the engine was never queried, and search
  * silently became "everything captured last winter, newest first" with no
  * relevance ranking (#2952). Those words describe how a photo LOOKS and
  * belong to the text query, where semantic search can answer them across
@@ -130,7 +130,7 @@ export function parseNlDateRange(text: string, now: Date = new Date()): NlDateRa
     // A bare season word describes how a photo LOOKS, and belongs to the text
     // query so semantic search can answer it across every year. Consuming it
     // here removed it from the query entirely: `winter` alone left NO search
-    // text, so `usesPlaceText()` went false, Meilisearch was never called, and
+    // text, so the residual text went empty, the engine was never called, and
     // the route degraded to "everything captured last winter, newest first"
     // with no relevance ranking (#2952). Temporal intent still wins when the
     // user actually states it — `last winter`, `this summer`, `winter 2024`.

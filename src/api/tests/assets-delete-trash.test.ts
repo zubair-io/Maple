@@ -15,7 +15,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { signAccessToken } from '../src/auth/tokens.ts';
 import { newObjectIdHex } from '../src/db/object-id.ts';
-import { setMeilisearchClientForTests } from '../src/enrichment/meilisearch-client.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
@@ -23,8 +22,6 @@ import {
 import { withTestEnv } from '../src/test-support/env.test-helpers.ts';
 import {
   assetRow,
-  capturingMeili,
-  failingMeili,
   primaryAbsPath,
   registerLibrary,
   seedRouteAsset,
@@ -88,14 +85,7 @@ describe('DELETE /api/assets/:id (trash + permanent purge)', () => {
 
   afterAll(async () => {
     live.close();
-    setMeilisearchClientForTests(null);
     await fs.rm(ROOT, { recursive: true, force: true });
-  });
-
-  beforeEach(() => {
-    // Reset the meili mock before every test so calls don't leak across
-    // cases. Individual tests reinstall a capturing mock when needed.
-    setMeilisearchClientForTests(null);
   });
 
   test('moves RAW + sidecar to trash; sets deleted_at + original_path', async () => {
@@ -138,45 +128,6 @@ describe('DELETE /api/assets/:id (trash + permanent purge)', () => {
 
     await expect(fs.stat(trashRaw)).rejects.toThrow();
     expect(assetRow(live.db, assetId)).toBeNull();
-  });
-
-  test('soft-delete tombstones the asset in Meilisearch when maple_id is present', async () => {
-    const meili = capturingMeili();
-    setMeilisearchClientForTests(meili);
-    const { app } = await import('../src/index.ts');
-    const mapleId = 'deadbeefdeadbeef';
-    const { assetId } = await makeAsset('IMG_meili1.ARW', Buffer.from('raw'), { mapleId });
-
-    const res = await app.handle(del(assetId));
-    expect(res.status).toBe(204);
-    expect(meili.tombstones).toEqual([mapleId]);
-    expect(meili.upserts).toEqual([]);
-  });
-
-  test('soft-delete skips Meilisearch when maple_id is absent (legacy row)', async () => {
-    const meili = capturingMeili();
-    setMeilisearchClientForTests(meili);
-    const { app } = await import('../src/index.ts');
-    const { assetId } = await makeAsset('IMG_meili2.ARW', Buffer.from('raw'));
-
-    const res = await app.handle(del(assetId));
-    expect(res.status).toBe(204);
-    expect(meili.tombstones).toEqual([]);
-  });
-
-  test('soft-delete 204s even when Meilisearch throws', async () => {
-    setMeilisearchClientForTests(failingMeili(['tombstone']));
-    const { app } = await import('../src/index.ts');
-    const { assetId, absPath } = await makeAsset('IMG_meili3.ARW', Buffer.from('raw'), {
-      mapleId: 'abc123',
-    });
-
-    const res = await app.handle(del(assetId));
-    expect(res.status).toBe(204);
-    // Catalog state still flipped despite the Meilisearch failure.
-    const row = assetRow(live.db, assetId);
-    expect(row!.deleted_at).toBeTruthy();
-    expect(row!.original_path).toBe(absPath);
   });
 
   test('404 on unknown asset id', async () => {

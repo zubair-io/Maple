@@ -12,18 +12,18 @@ function noLiveLowerOrdinal(row: 'NEW' | 'OLD'): string {
 // Stage rows are dense, so a location change only ever updates the rows that exist.
 function rearmExistingAssetStages(assetIdExpr: string): string {
   return `UPDATE stage_state SET ${RESET_SET}
-   WHERE asset_id = ${assetIdExpr} AND stage IN ('meili', 'embed');`;
+   WHERE asset_id = ${assetIdExpr} AND stage = 'embed';`;
 }
 
 function rearmExistingUntrashedAssetStages(assetIdExpr: string): string {
   return `UPDATE stage_state SET ${RESET_SET}
-   WHERE asset_id = ${assetIdExpr} AND stage IN ('meili', 'embed')
+   WHERE asset_id = ${assetIdExpr} AND stage = 'embed'
      AND (SELECT deleted_at FROM assets WHERE id = ${assetIdExpr}) IS NULL;`;
 }
 
 /**
  * The searchable filename is the primary location's: the lowest-ordinal live one. These triggers
- * re-queue `meili` and `embed` whenever that can change: a location becoming or ceasing to be the
+ * re-queue `embed` whenever that can change: a location becoming or ceasing to be the
  * live primary, a rename of the primary, a lower-ordinal live location arriving, a live location moving between
  * assets or being renumbered (a dedup merge), or the primary being deleted. Changes to higher-ordinal copies re-queue nothing.
  */

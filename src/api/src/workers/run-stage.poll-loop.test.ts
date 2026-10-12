@@ -179,9 +179,9 @@ describe('a handler that classifies the bytes up front', () => {
 
   it('refuses a { damaged } result from a stage that does not tag', async () => {
     using live = await createLiveTestDatabase();
-    const assetId = seedAsset(live.db, 'meili');
+    const assetId = seedAsset(live.db, 'search-blob');
     const stage = defineStage({
-      name: 'meili',
+      name: 'search-blob',
       targetVersion: 1,
       dependsOn: [],
       defaults: {
@@ -199,7 +199,9 @@ describe('a handler that classifies the bytes up front', () => {
     await runOnce(stage, CONFIG(1, 2));
 
     expect(damagedTag(live.db, assetId).damaged_since).toBeNull();
-    expect(stageRow(live.db, assetId, 'meili').last_error).toMatch(/not a damage-tagging stage/);
+    expect(stageRow(live.db, assetId, 'search-blob').last_error).toMatch(
+      /not a damage-tagging stage/,
+    );
   });
 });
 

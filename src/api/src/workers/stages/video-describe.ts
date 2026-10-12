@@ -280,9 +280,9 @@ export async function videoDescribeHandler(
   return {
     patch: videoDescriptionStatements(image._id.toHexString(), description, meta),
     // search_blob folds in the summary + scene text (enrichment/search-blob.ts) —
-    // re-arm meili in the same atomic write so a fresh video description is
-    // searchable without waiting for an unrelated meili re-run.
-    invalidates: ['meili'],
+    // re-arm search-blob in the same atomic write so a fresh video description is
+    // searchable without waiting for an unrelated search-blob re-run.
+    invalidates: ['search-blob'],
   };
 }
 

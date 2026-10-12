@@ -26,7 +26,6 @@
     // against one generated library. Same reason as the blocks above.
     "scripts/sqlite-bench/stage-backlog-counts.ts",
     "src/people/clustering-quality-harness.ts",
-    "tools/export-search-corpus.ts",
     "src/runtime/__fixtures__/stderr-crash-child.ts",
     "src/runtime/__fixtures__/stderr-crash-harness.ts",
     "src/__fixtures__/otel-crash-child.ts",

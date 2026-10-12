@@ -1,4 +1,3 @@
-import { reconfigureMeilisearch } from '../enrichment/meilisearch-client.ts';
 import { validateAssignedModels } from '../enrichment/ai-model-validation.ts';
 import { Elysia, t } from 'elysia';
 import { requireAuth, requireOwnerBeforeHandle } from '../auth/middleware.ts';
@@ -108,15 +107,6 @@ export const aiConnectionRoutes = new Elysia({ prefix: '/connections' })
       // One document update: credentials, connections and every assignment change together.
       await saveEnrichmentConfig({ ai_connections: config, ...embedder });
       const resolved = resolveEnrichmentConfig(await loadEnrichmentConfig());
-      reconfigureMeilisearch({
-        url: resolved.meilisearch_url,
-        apiKey: resolved.meilisearch_api_key,
-        taskTimeoutMs: resolved.meilisearch_task_timeout_seconds * 1000,
-        semanticEnabled: resolved.meilisearch_semantic_enabled,
-        embedderUrl: resolved.meilisearch_embedder_url,
-        embedderModel: resolved.meilisearch_embedder_model,
-        semanticRatio: resolved.meilisearch_semantic_ratio,
-      });
       forgetEmbedderTarget();
       await rearmForEmbedderTarget({ url: resolved.embedder_url, model: resolved.embedder_model });
       resetDescribeDeps();

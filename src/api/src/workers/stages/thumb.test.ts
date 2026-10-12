@@ -90,7 +90,7 @@ function makeDoc(
         processed_at: null,
         dead: false,
       },
-      meili: {
+      'search-blob': {
         version: 0,
         attempts: 0,
         last_error: null,

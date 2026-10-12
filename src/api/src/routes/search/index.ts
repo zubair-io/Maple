@@ -20,7 +20,7 @@
  *   - `project.ts` — wire-shape projection (`AssetDoc` → `SearchResult`)
  *   - `libraries.ts`   — the library root + slug maps the projection needs
  *   - `list.ts`    — `GET /`
- *   - `list-meili.ts`  — the Meilisearch branch + its database fallback
+ *   - `list-in-process.ts` — the in-process engine's ranked page; the database full-text path is the fallback
  *   - `list-paging.ts` — skip-vs-seek mode resolution for `GET /`
  *   - `cursor.ts`  — the seek cursor's shape and validation (#2129)
  *   - `total-cache.ts` — 30s `total` count cache for `GET /`
@@ -35,8 +35,6 @@ import { bucketsRoute } from './buckets.ts';
 
 export { _resetBucketsCacheForTests } from './buckets.ts';
 export { _resetCacheForTests } from './total-cache.ts';
-export type { SearchQuery } from './query.ts';
-export type { SearchResult, SearchResultPHLink } from './project.ts';
 
 export const searchRoutes = new Elysia({ prefix: '/api/search' })
   .use(listRoute)

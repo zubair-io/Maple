@@ -5,7 +5,7 @@
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { EMBEDDER_TEMPLATE_SHAPE_VERSION } from '../enrichment/meilisearch-embedder-template.ts';
+import { EMBEDDER_TEMPLATE_SHAPE_VERSION } from '../enrichment/embedder-document.ts';
 import {
   CHANGE_OVERLAP_MS,
   isoBefore,

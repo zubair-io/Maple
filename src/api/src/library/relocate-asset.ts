@@ -8,7 +8,7 @@
  *
  * Resolves the asset's current primary `fileinfo` entry, computes the
  * destination absolute path, and wires the DB repoint (path/filename +
- * thumb/preview stage-version reset + meili re-arm, mirroring the shape
+ * thumb/preview stage-version reset + embed re-arm, mirroring the shape
  * `workers/migration/move-backup-asset.ts` already uses) as the
  * primitive's `onVerified` hook — so the write lands strictly BETWEEN the
  * verified copy and the delete-of-original. That ordering is the

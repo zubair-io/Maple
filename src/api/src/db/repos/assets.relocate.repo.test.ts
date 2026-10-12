@@ -132,7 +132,7 @@ describe('repointAssetLocation', () => {
       `UPDATE asset_locations SET missing_reason = 'enoent' WHERE asset_id = ?`,
       assetId,
     );
-    for (const stage of ['meili', 'embed', 'thumb', 'preview']) {
+    for (const stage of ['search-blob', 'embed', 'thumb', 'preview']) {
       run(
         handle.db,
         `INSERT INTO stage_state (asset_id, stage, version, attempts, last_error, processed_at, dead)
@@ -249,15 +249,15 @@ describe('repointAssetLocation', () => {
       },
     ]);
 
-    // meili clears processed_at; the two cache stages keep theirs.
-    expect(stageRow(handle, assetId, 'meili')).toEqual({
+    // The embed re-arm clears processed_at; the two cache stages keep theirs.
+    expect(stageRow(handle, assetId, 'embed')).toEqual({
       version: 0,
       attempts: 0,
       last_error: null,
       processed_at: null,
       dead: 0,
     });
-    expect(stageRow(handle, assetId, 'embed')).toEqual(stageRow(handle, assetId, 'meili'));
+    expect(stageRow(handle, assetId, 'search-blob')?.version).toBe(4);
     for (const stage of ['thumb', 'preview']) {
       expect(stageRow(handle, assetId, stage)).toEqual({
         version: 0,

@@ -8,10 +8,10 @@
  *
  * Images without GPS coordinates return `{ skip }` — not an error, not
  * retried. The runtime counts them as successes toward throughput and marks
- * the stage done so the meili fan-in is unblocked.
+ * the stage done so the search-blob fan-in is unblocked.
  *
- * The old worker's inline Meilisearch upsert is dropped — the `meili` stage
- * (Task 5) owns the Meilisearch write once all enrichment stages have run.
+ * The old worker's inline search upsert is dropped — the `search-blob` stage
+ * owns the blob once all enrichment stages have run.
  */
 
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
@@ -74,12 +74,12 @@ export async function geocodeHandler(image: ImageDoc, _ctx: StageContext): Promi
   const { lat, lng } = gps;
   const cached = await cache.get(lat, lng);
   const place = cached ?? null;
-  if (place) return { patch: placePatch(image, place), invalidates: ['meili', 'embed'] };
+  if (place) return { patch: placePatch(image, place), invalidates: ['search-blob', 'embed'] };
 
   const raw = await client.reverse(lat, lng);
   const fresh = parseNominatimResponse(raw, lat, lng, GEOCODE_HANDLER_VERSION, () => new Date());
   await cache.set(lat, lng, fresh);
-  return { patch: placePatch(image, fresh), invalidates: ['meili', 'embed'] };
+  return { patch: placePatch(image, fresh), invalidates: ['search-blob', 'embed'] };
 }
 
 /** Write the place, and — when it changes the canonical backup folder — reset

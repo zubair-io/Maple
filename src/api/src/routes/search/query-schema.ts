@@ -54,7 +54,7 @@ export interface SearchQuery {
    * only photographs, omitted shows everything. */
   isScreenshot?: string;
   /** Comma-separated person names for an explicit person picker. Passed to
-   * the Meilisearch `people` filterable attribute, and (#2864) filtered on
+   * the search text's people names, and (#2864) filtered on
    * the Mongo path via `faces.person_id` — the route resolves names to
    * person ids (`personIdsForNames`) and hands them to `buildFilter`.
    * OR within the field, AND against other filters (mirrors `subjects`).

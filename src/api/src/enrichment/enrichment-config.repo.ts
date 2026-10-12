@@ -29,13 +29,6 @@ import {
   DEFAULT_DESCRIBE_VISION_PROMPT,
   DESCRIBE_VISION_PROMPT_VERSION,
 } from './describe-prompts.ts';
-import {
-  DEFAULT_MEILISEARCH_EMBEDDER_URL,
-  DEFAULT_MEILISEARCH_EMBEDDER_MODEL,
-  DEFAULT_MEILISEARCH_SEMANTIC_ENABLED,
-  DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
-} from './meilisearch-config.ts';
-import { DEFAULT_MEILISEARCH_TASK_TIMEOUT_MS } from './meilisearch-transport.ts';
 
 const DOC_ID = 'enrichment';
 const log = childLogger('enrichment:config-repo');
@@ -53,13 +46,8 @@ export function builtinModelDir(): string {
  * before and after the operator-configurable surface lands. */
 export const DEFAULT_NOMINATIM_RATE_LIMIT_PER_SEC = 10;
 export const DEFAULT_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE = 60;
-export const DEFAULT_MEILISEARCH_TASK_TIMEOUT_SECONDS = DEFAULT_MEILISEARCH_TASK_TIMEOUT_MS / 1000;
-export {
-  DEFAULT_MEILISEARCH_EMBEDDER_URL,
-  DEFAULT_MEILISEARCH_EMBEDDER_MODEL,
-  DEFAULT_MEILISEARCH_SEMANTIC_ENABLED,
-  DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
-};
+/** The embedding model when neither an `embedder_model` setting nor a `semantic-search` AI assignment names one. */
+export const DEFAULT_EMBEDDER_MODEL = 'bge-m3';
 
 /** Reject obviously broken values up-front. The lower bound is non-zero so
  * a misclick can't pause the worker silently; the upper bound is generous
@@ -69,8 +57,6 @@ export const MIN_NOMINATIM_RATE_LIMIT_PER_SEC = 0.1;
 export const MAX_NOMINATIM_RATE_LIMIT_PER_SEC = 100;
 export const MIN_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE = 1;
 export const MAX_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE = 10_000;
-export const MIN_MEILISEARCH_TASK_TIMEOUT_SECONDS = 30;
-export const MAX_MEILISEARCH_TASK_TIMEOUT_SECONDS = 3600;
 
 /** Default minimum face size, as a fraction of the 640-px detection frame.
  * A detection whose shorter bbox side is below this threshold is dropped
@@ -254,37 +240,13 @@ export interface EnrichmentConfig {
   face_retinaface_sha256?: string | null;
   face_mobilefacenet_url?: string | null;
   face_mobilefacenet_sha256?: string | null;
-  // ── Search index (Phase 7) ───────────────────────────────────────────
-  /** Meilisearch sidecar base URL for typo-tolerant search. `null`/missing →
-   * falls back to `MAPLE_MEILISEARCH_URL` / unset (search uses the built-in
-   * full-text path). */
-  meilisearch_url?: string | null;
-  /** Meilisearch API key (master/search key). Secret: persisted but never
-   * echoed back over HTTP — the config route reports only whether a key is
-   * set. `null`/missing → falls back to the `MAPLE_MEILISEARCH_API_KEY` env
-   * var. */
-  meilisearch_api_key?: string | null;
-  /** Maximum wait for one asynchronous Meilisearch indexing task. DB-backed
-   * so slower Ollama deployments can tune it without restarting Maple. */
-  meilisearch_task_timeout_seconds?: number | null;
-  /** Enables Maple-owned hybrid queries and registers the fixed Ollama
-   * embedder. DB-backed and operator-controlled from Settings → Workers. */
-  meilisearch_semantic_enabled?: boolean | null;
-  /** @deprecated Semantic search reuses `describe_provider_url`. Retained only
-   * so older saved rows and rolling-version clients remain readable. */
-  meilisearch_embedder_url?: string | null;
-  /** Ollama embedding model used for both documents and queries. */
-  meilisearch_embedder_model?: string | null;
-  /** Hybrid vector/keyword blend in [0, 1]. */
-  meilisearch_semantic_ratio?: number | null;
+  // ── Search index ───────────────────────────────────────────────────
   /** Ollama endpoint the `embed` stage computes document vectors on. `null`/missing →
-   * the semantic-search endpoint (`meilisearch_embedder_url`). */
+   * the `semantic-search` AI assignment's endpoint, else the describe endpoint. */
   embedder_url?: string | null;
-  /** Ollama embedding model of the `embed` stage. `null`/missing → the semantic-search model
-   * (`meilisearch_embedder_model`). */
+  /** Ollama embedding model of the `embed` stage. `null`/missing → the `semantic-search` AI
+   * assignment's model, else {@link DEFAULT_EMBEDDER_MODEL}. */
   embedder_model?: string | null;
-  /** Which engine answers text searches (#4463). `null`/missing → `meilisearch`. */
-  search_engine?: 'meilisearch' | 'in-process' | null;
   /** Per-service-key request budget for the external asset-search endpoint.
    * DB-backed so operators can tune it at runtime from Settings → Workers. */
   service_search_rate_limit_per_minute?: number | null;
@@ -322,21 +284,6 @@ const LEGACY_FIELD_REMAP: ReadonlyArray<readonly [keyof EnrichmentConfig, keyof 
     ['face_mobilefacenet_url', 'face_recognizer_url'],
     ['face_mobilefacenet_sha256', 'face_recognizer_sha256'],
   ];
-
-const MEILISEARCH_SEMANTIC_FIELDS = [
-  'meilisearch_semantic_enabled',
-  'meilisearch_embedder_model',
-  'meilisearch_semantic_ratio',
-] as const;
-
-function copyMeilisearchSemanticFields(
-  set: Record<string, SettingsValue | undefined>,
-  config: Partial<EnrichmentConfig>,
-): void {
-  for (const field of MEILISEARCH_SEMANTIC_FIELDS) {
-    if (config[field] !== undefined) set[`config.${field}`] = config[field];
-  }
-}
 
 /** Upsert. Partial patches are supported: only the fields you supply are
  * touched, the rest of the config doc is preserved.
@@ -434,19 +381,8 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
   if (remapped.face_min_detection_size !== undefined) {
     set['config.face_min_detection_size'] = remapped.face_min_detection_size;
   }
-  if (remapped.meilisearch_url !== undefined) {
-    set['config.meilisearch_url'] = remapped.meilisearch_url;
-  }
-  if (remapped.meilisearch_api_key !== undefined) {
-    set['config.meilisearch_api_key'] = remapped.meilisearch_api_key;
-  }
-  if (remapped.meilisearch_task_timeout_seconds !== undefined) {
-    set['config.meilisearch_task_timeout_seconds'] = remapped.meilisearch_task_timeout_seconds;
-  }
-  copyMeilisearchSemanticFields(set, remapped);
   if (remapped.embedder_url !== undefined) set['config.embedder_url'] = remapped.embedder_url;
   if (remapped.embedder_model !== undefined) set['config.embedder_model'] = remapped.embedder_model;
-  if (remapped.search_engine !== undefined) set['config.search_engine'] = remapped.search_engine;
   if (remapped.service_search_rate_limit_per_minute !== undefined) {
     set['config.service_search_rate_limit_per_minute'] =
       remapped.service_search_rate_limit_per_minute;

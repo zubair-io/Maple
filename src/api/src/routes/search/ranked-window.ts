@@ -1,7 +1,6 @@
 /**
  * The ranked window of a free-text request (#4514), from the first engine that answers: the
- * in-process child when Settings → AI selects it, Meilisearch when it is configured and can
- * express the request's filters, the database's inverted index otherwise. Every engine goes
+ * in-process child, the database's inverted index while the child cannot. Every engine goes
  * through `rankWindow` (`db/repos/search.ranked.ts`), so the depth, the widening, the cap and what
  * `total` means are one policy — and {@link requestWindow} is the one function the list, its
  * facets, its buckets and the For You collections take their window from, so all of them describe
@@ -18,14 +17,13 @@ import {
 } from '../../db/repos/search.ranked.ts';
 import { windowDocs } from '../../db/repos/search.page.ts';
 import type { SearchWhere } from '../../db/repos/search.where.ts';
-import { inProcessRanking, inProcessSelected } from '../../search/search-engine-selection.ts';
-import { meiliRanker, meiliServes } from './list-meili.ts';
+import { inProcessRanking } from '../../search/search-ranking.ts';
 import { libraryMaps } from './libraries.ts';
 import { projectAssets, type SearchResult } from './project.ts';
 import type { PhaseTimer } from './server-timing.ts';
 import { clampInt, type SearchQuery } from './query.ts';
 
-export type WindowEngine = 'in-process' | 'meilisearch' | 'database';
+export type WindowEngine = 'in-process' | 'database';
 
 export interface EngineWindow extends RankedWindow {
   engine: WindowEngine;
@@ -56,10 +54,8 @@ function inProcessRanker(where: SearchWhere, query: string): WindowRanker {
 export interface WindowRequest {
   /** Every filter of the date-resolved request (see `resolveRankedScope`). */
   where: SearchWhere;
-  resolved: SearchQuery;
   /** The residual free text an engine ranks. */
   text: string;
-  libraryId: string | undefined;
   /** How many rows the request's page reaches; see {@link windowNeed}. */
   need: number;
 }
@@ -70,34 +66,26 @@ interface Candidate {
 }
 
 /**
- * How a request falls back. `search` asks every engine that applies, the database last. `collection`
- * — a For You card — is ranked by the selected in-process engine alone when it is selected, and
- * answers null while it cannot, so the card serves its stored preview rather than a different
- * engine's ranking; with in-process not selected it falls back like a search.
+ * How a request falls back. `search` asks the in-process engine, then the database. `collection` —
+ * a For You card — is ranked by the in-process engine alone and answers null while it cannot, so
+ * the card serves its stored preview rather than a different engine's ranking.
  */
 export type WindowMode = 'search' | 'collection';
 
-async function candidates(request: WindowRequest, mode: WindowMode): Promise<Candidate[]> {
-  const { where, resolved, text, libraryId } = request;
-  const inProcess = await inProcessSelected();
-  if (inProcess && mode === 'collection') {
-    return [{ engine: 'in-process', ranker: inProcessRanker(where, text) }];
-  }
-  const meili = meiliRanker(where, resolved, libraryId);
-  return [
-    ...(inProcess ? [{ engine: 'in-process' as const, ranker: inProcessRanker(where, text) }] : []),
-    ...(meili ? [{ engine: 'meilisearch' as const, ranker: meili }] : []),
-    { engine: 'database' as const, ranker: ftsRanker(where) },
-  ];
+function candidates(request: WindowRequest, mode: WindowMode): Candidate[] {
+  const { where, text } = request;
+  const inProcess = { engine: 'in-process' as const, ranker: inProcessRanker(where, text) };
+  return mode === 'collection'
+    ? [inProcess]
+    : [inProcess, { engine: 'database' as const, ranker: ftsRanker(where) }];
 }
 
 /**
  * The engine a search asks first, from the date-resolved request alone. Only its answer is ever
  * cached, so the facet and bucket caches key on it and never serve one engine's window for another.
  */
-export async function firstEngine(resolved: SearchQuery): Promise<WindowEngine> {
-  if (await inProcessSelected()) return 'in-process';
-  return meiliServes(resolved) ? 'meilisearch' : 'database';
+export function firstEngine(): WindowEngine {
+  return 'in-process';
 }
 
 /**
@@ -113,7 +101,7 @@ export async function requestWindow(
   request: WindowRequest,
   mode: WindowMode = 'search',
 ): Promise<EngineWindow | null> {
-  const engines = await candidates(request, mode);
+  const engines = candidates(request, mode);
   const answers = await engines.reduce<Promise<EngineWindow[]>>(async (found, candidate) => {
     const earlier = await found;
     if (earlier.some(settles)) return earlier;

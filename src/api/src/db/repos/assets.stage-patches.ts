@@ -68,31 +68,18 @@ const SEARCH_BLOB_UPSERT_SQL = `
 const SEARCH_BLOB_DELETE_SQL = `DELETE FROM asset_search WHERE asset_id = ?`;
 
 /**
- * The search stage's output: the recomposed blob, and the fingerprint recording
- * which embedder produced the vectors now in Meilisearch.
+ * The search-blob stage's output: the recomposed blob.
  *
  * An empty blob is a delete rather than an update to `''`. `asset_search` holds
  * a row only for an asset with something to match — the `CHECK (search_blob <>
- * '')` in the DDL is the partial filter the Mongo text index spelled out — and
- * the FTS5 index is external-content over this table, so a blank row would be a
- * posting list entry for nothing.
+ * '')` in the DDL is the partial filter — and the FTS5 index is external-content
+ * over this table, so a blank row would be a posting list entry for nothing.
  */
-export function searchBlobStatements(
-  assetId: string,
-  blob: string,
-  semanticFingerprint: string | null,
-): SqlStatement[] {
-  const blobStatement: SqlStatement =
+export function searchBlobStatements(assetId: string, blob: string): SqlStatement[] {
+  return [
     blob === ''
       ? { sql: SEARCH_BLOB_DELETE_SQL, params: [assetId] }
-      : { sql: SEARCH_BLOB_UPSERT_SQL, params: [assetId, blob] };
-  if (semanticFingerprint === null) return [blobStatement];
-  return [
-    blobStatement,
-    {
-      sql: `UPDATE assets SET semantic_vector_fingerprint = ? WHERE id = ?`,
-      params: [semanticFingerprint, assetId],
-    },
+      : { sql: SEARCH_BLOB_UPSERT_SQL, params: [assetId, blob] },
   ];
 }
 

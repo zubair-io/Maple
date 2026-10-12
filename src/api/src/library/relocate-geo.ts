@@ -80,7 +80,7 @@ async function dedupeAt(
   sourceAbsPath: string,
 ): Promise<GeoMoveOutcome> {
   // One call where there used to be a hand-rolled `$set`: the repoint, the
-  // cleared missing tag, the meili re-arm and the two path-keyed cache re-arms
+  // cleared missing tag, the embed re-arm and the two path-keyed cache re-arms
   // are all `repointAssetLocation`'s job, and it applies them in one
   // transaction rather than one document update. Its `from` address is the
   // concurrency guard the `matchedCount === 0` check below still reads.

@@ -35,7 +35,7 @@ export interface RankedAsset {
 }
 
 /**
- * A window survivor. `maple_id` is what the in-process engine and Meilisearch know it by;
+ * A window survivor. `maple_id` is what the in-process engine knows it by;
  * `owner_id` lets its page be filled out in one trip (`windowDocs`).
  */
 export interface WindowRow extends RankedAsset {

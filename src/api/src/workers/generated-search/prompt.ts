@@ -10,11 +10,10 @@
  * query pinned to 2017 alone, which returns plenty of photos and passes every
  * volume gate while being false.
  *
- * Semantic mode. `placeQuery` routes through Meilisearch with
- * `semantic: meili.semanticConfigured()` (`routes/search/list-meili.ts`), and
- * the embedder template embeds the full caption prose. So the model describes
- * what a photo SHOWS and the vector index does the matching — it is not
- * guessing literal caption keywords.
+ * Semantic mode. When `placeQuery` is matched against caption vectors, the model describes what
+ * a photo SHOWS and the vector index does the matching — it is not guessing literal caption
+ * keywords. Without vectors the query is keyword matching, and the model is told to use concrete
+ * nouns.
  *
  * Two rules here are regression guards, not style preferences:
  *
@@ -47,7 +46,7 @@ export interface PromptDigest {
   onThisMonthByYear: readonly { year: number; count: number }[];
   /** Themes from recent runs, to avoid repeats. */
   recentThemes: readonly string[];
-  /** Whether Meilisearch semantic (vector) search is configured. Decides how
+  /** Whether `placeQuery` is matched against caption vectors. Decides how
    * `placeQuery` guidance is phrased: with vectors, describing the scene
    * works; without them the query is keyword matching against caption text,
    * and abstract prose matches nothing. The design doc calls this branch out

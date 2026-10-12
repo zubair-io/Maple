@@ -8,7 +8,8 @@ use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-/// How many hits each leg contributes to fusion.
+/// How many hits each leg contributes to fusion when the caller asks for no more than this many.
+/// A caller asking for `k` fused hits gets legs `k` deep, so a filtered list can be paged past it.
 pub const LEG_DEPTH: usize = 100;
 
 /// `embedder` is optional so a caller that already holds a query vector (and
@@ -97,14 +98,26 @@ impl SearchEngine {
         if !matches!(parsed, TextQuery::Terms { .. }) {
             return Ok(Vec::new());
         }
-        let (vector_hits, text_hits) =
-            rayon::join(|| self.vector_leg(parsed, vector), || self.text_leg(parsed));
+        let depth = k.max(LEG_DEPTH);
+        let (vector_hits, text_hits) = rayon::join(
+            || self.vector_leg_to(parsed, vector, depth),
+            || self.text.search(parsed, depth),
+        );
         Ok(fuse(&vector_hits?, &text_hits?, k))
     }
 
     /// Nearest [`LEG_DEPTH`] rows to `vector` among those whose text contains
     /// no term the query excluded with `-`.
     pub fn vector_leg(&self, parsed: &TextQuery, vector: &[f32]) -> Result<Vec<ScoredId>> {
+        self.vector_leg_to(parsed, vector, LEG_DEPTH)
+    }
+
+    fn vector_leg_to(
+        &self,
+        parsed: &TextQuery,
+        vector: &[f32],
+        depth: usize,
+    ) -> Result<Vec<ScoredId>> {
         let unwanted = match parsed {
             TextQuery::Terms { excluded, .. } if !excluded.is_empty() => {
                 self.text.ids_matching_any(excluded)?
@@ -112,7 +125,7 @@ impl SearchEngine {
             _ => Vec::new(),
         };
         self.read_vectors()
-            .nearest_excluding(vector, LEG_DEPTH, &unwanted)
+            .nearest_excluding(vector, depth, &unwanted)
     }
 
     pub fn text_leg(&self, parsed: &TextQuery) -> Result<Vec<ScoredId>> {

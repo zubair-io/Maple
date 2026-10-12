@@ -44,11 +44,6 @@ describe('GET /migration/migrations', () => {
       enabled: expect.any(Boolean),
       status: expect.any(String),
     });
-    expect(byId.get('backfill-meilisearch-vectors')).toMatchObject({
-      title: 'Backfill semantic-search index',
-      enabled: expect.any(Boolean),
-      status: expect.any(String),
-    });
   });
 
   it('serves persisted remaining counts, null before the first count (#3491)', async () => {
@@ -57,7 +52,6 @@ describe('GET /migration/migrations', () => {
     const { _resetDemandThrottleForTests } = await import('./routes-status.ts');
     const at = new Date().toISOString();
     await patchMigrationState('refile-backups', { remaining: 7, remaining_at: at });
-    await patchMigrationState('backfill-meilisearch-vectors', { failed_permanently: 2 });
     _resetDemandThrottleForTests();
 
     const byId = await listMigrations();
@@ -65,9 +59,6 @@ describe('GET /migration/migrations', () => {
     expect(byId.get('refile-backups')).toMatchObject({ remaining: 7, remaining_at: at });
     // Never counted → null, not a fabricated 0.
     expect(byId.get('refile-legacy-daydir')).toMatchObject({ remaining: null, remaining_at: null });
-    expect(byId.get('backfill-meilisearch-vectors')).toMatchObject({ failedPermanently: 2 });
-    // Migrations without a dead-letter queue never carry the field at all.
-    expect('failedPermanently' in byId.get('refile-backups')!).toBe(false);
     // Listing is a demand signal too — the worker refreshes while it is watched.
     expect(await readStatusCountsDemand()).toBeGreaterThan(Date.now());
   });
@@ -111,24 +102,5 @@ describe('PATCH /migration/migrations/:id', () => {
       processed: 0,
       errors: 0,
     });
-  });
-
-  it('resets the semantic backfill’s own cursor alongside the generic state', async () => {
-    // The one migration with resume state outside `app_settings`. Leaving the
-    // cursor behind would make a reset look like a fresh run that instantly
-    // reports itself complete.
-    using live = await createLiveTestDatabase();
-    live.db.run(
-      `INSERT INTO meilisearch_backfill_state (id, scanned, started_at, updated_at, completed_at)
-       VALUES ('assets', 10, '2026-07-26T00:00:00.000Z', '2026-07-26T00:00:00.000Z',
-               '2026-07-26T00:00:00.000Z')`,
-    );
-
-    const res = await patchMigration('backfill-meilisearch-vectors', { reset: true });
-
-    expect(res.status).toBe(200);
-    expect(
-      live.db.query(`SELECT id FROM meilisearch_backfill_state WHERE id = 'assets'`).get(),
-    ).toBeNull();
   });
 });

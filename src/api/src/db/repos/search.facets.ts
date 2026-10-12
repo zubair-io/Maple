@@ -99,7 +99,7 @@ export interface FacetOptions {
  * What the facet buckets count.
  *
  * `all` — every row of the `total`: every match of a search without text, the
- * ranked window of one with text. `top` — only Meilisearch's first `limit`
+ * ranked window of one with text. `top` — only the engine's first `limit`
  * results of its `of` estimated matches. Clients that do not read the field
  * see the shape they always did; one that does should label the buckets
  * "in the 2,000 most relevant of 98,635 results".

@@ -2,8 +2,8 @@
  * The second of the two `$text` call sites: the ranked lexical fallback behind
  * `POST /api/service/assets/search`.
  *
- * That route prefers Meilisearch and falls back to the database when the
- * sidecar is absent, unconfigured or failing. The fallback runs two queries —
+ * That route prefers the in-process engine and falls back to the database when
+ * the engine is loading, failed or absent. The fallback runs two queries —
  * an exact filename match first, then a ranked full-text pass to fill the rest
  * of the page — and it is the second one that uses `$text` with a
  * `{ $meta: 'textScore' }` sort. Both are ported here, because splitting them

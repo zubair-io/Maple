@@ -11,7 +11,10 @@ test('the search child reads changes and counts from the index alone', async () 
     ALL_MIGRATIONS.filter((migration) => migration.id < '0025-asset-vectors-poll-index'),
   );
 
-  const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+  const result = await runMigrations(
+    handle.migrationDb,
+    ALL_MIGRATIONS.filter((migration) => migration.id <= '0025-asset-vectors-poll-index'),
+  );
   const plans = [
     `SELECT maple_id, embedded_at FROM asset_vectors
       WHERE embedded_at > '2026-10-10' AND dims = 1024 AND model IN ('bge-m3', 'bge-m3:latest')

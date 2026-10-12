@@ -32,7 +32,7 @@ import {
   type SeedAsset,
 } from './migration.test-helpers.ts';
 
-const REARMED = ['describe', 'meili'] as const;
+const REARMED = ['describe'] as const;
 
 /** Every fixture needs its own filename: a location is UNIQUE per library and path. */
 let seq = 0;
@@ -86,7 +86,7 @@ describe('clear-video-screenshot-flags', () => {
     expect(after.video_screenshot_clear_version).toBe(VIDEO_SCREENSHOT_CLEAR_VERSION);
   });
 
-  it('re-arms describe and meili with the full five-field reset', async () => {
+  it('re-arms describe with the full five-field reset', async () => {
     using library = await createLibrary('maple-clear-shot-');
     const id = seedVideo(library);
 
@@ -135,7 +135,6 @@ describe('clear-video-screenshot-flags', () => {
     );
     expect(stageRow(library.db, id, 'describe')!.version).toBe(0);
     expect(stageRow(library.db, id, 'describe')!.dead).toBe(0);
-    expect(stageRow(library.db, id, 'meili')!.version).toBe(0);
   });
 
   it('counts a row carrying BOTH flags exactly once', async () => {

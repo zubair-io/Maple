@@ -5,7 +5,7 @@
  * (`captured_desc` / `captured_asc`) answer with `cursorPaging: true` and an
  * opaque `nextCursor`; sending it back seeks with a range predicate on
  * `(captured_at, id)` instead of skipping, so page depth stops costing
- * anything. Every other sort — and the `placeQuery` text/Meili path, whose
+ * anything. Every other sort — and the `placeQuery` text path, whose
  * ordering is a computed relevance rank — keeps `page`/`limit` skip
  * pagination and says so with `cursorPaging: false`. See `cursor.ts` for why
  * each of those can't be seeked, and `list-paging.ts` for the mode decision.
@@ -18,14 +18,13 @@
  *
  * The query string becomes a `SearchWhere` once, via `buildSearchWhere`, and
  * the same translated value feeds the page and the count — which is what
- * keeps a large `total` from appearing above an empty grid, the failure the
- * Meilisearch branch shipped once (#2928).
+ * keeps a large `total` from appearing above an empty grid, the failure a
+ * ranked branch shipped once (#2928).
  *
  * A free-text request is answered from its ranked window instead (`list-ranked.ts`, #4514):
  * `total` is the window's size and `more` says whether a deeper page can widen it.
  *
- * Related modules: `list-ranked.ts` (the free-text branch), `list-meili.ts` (the Meilisearch
- * branch), `total-cache.ts` (the 30 s `total` cache of a structured search).
+ * Related modules: `list-ranked.ts` (the free-text branch), `total-cache.ts` (the 30 s `total` cache of a structured search).
  */
 
 import { Elysia } from 'elysia';
@@ -36,7 +35,6 @@ import { appliedDateFilter } from './date-provenance.ts';
 import { SORT_OPTIONS } from './sort.ts';
 import { cursorFromDoc, encodeCursor } from './cursor.ts';
 import { libraryMaps } from './libraries.ts';
-import { usesPlaceText } from './list-meili.ts';
 import { rankedListPage } from './list-ranked.ts';
 import { resolveRankedScope } from './scope.ts';
 import { resolvePaging } from './list-paging.ts';
@@ -48,7 +46,7 @@ export const listRoute = new Elysia().get(
   async ({ query, set }) => {
     // Natural-language dates: resolve "May 5" / "2023" / "last summer" out
     // of placeQuery into structured from/to, and strip the matched span so
-    // the residual free-text drives the text/Meili path. Pure-date queries
+    // the residual free-text drives the text path. Pure-date queries
     // ("2023") leave an empty residual and skip the text path entirely.
     // One `now` for both calls: the extraction and its provenance must not
     // disagree across a midnight boundary.
@@ -74,7 +72,7 @@ export const listRoute = new Elysia().get(
     // A residual placeQuery turns the page into a relevance-ranked one, served from its ranked
     // window below. A pure-date query ("2023") has an empty residual and runs as a plain
     // structured filter on `captured_at`.
-    const usingPlaceText = usesPlaceText(resolved);
+    const usingPlaceText = childQuery !== null;
     const sort = query.sort && SORT_OPTIONS.has(query.sort) ? query.sort : 'captured_desc';
 
     const paging = resolvePaging(query.cursor, sort, page, limit, usingPlaceText);
@@ -108,9 +106,7 @@ export const listRoute = new Elysia().get(
     if (childQuery !== null) {
       const ranked = await rankedListPage({
         where,
-        resolved,
         childQuery,
-        libraryId: query.libraryId,
         skip: paging.skip,
         limit,
         timing,
