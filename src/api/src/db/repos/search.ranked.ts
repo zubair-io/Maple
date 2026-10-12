@@ -159,6 +159,14 @@ export async function rankWindow(
   return widen(target, null);
 }
 
+/** Whether `pass`, ranked at `depth`, had a new shot past the cap beyond the `held` window. */
+export function cappedPast(held: readonly WindowRow[], pass: WindowPass, depth: number): boolean {
+  const beyond = pass.beyond ?? [];
+  const newShots = collapseShots([...held, ...beyond]).length - held.length;
+  const copiesBeyond = beyond.length - newShots;
+  return depth >= RANKED_WINDOW_MAX && pass.considered - copiesBeyond > depth;
+}
+
 /**
  * Below the cap a full pass says more; at the cap only a lookahead hit past it says capped — and
  * only one that could be a new tile. A lookahead hit that is another copy of a shot the window
@@ -166,13 +174,10 @@ export async function rankWindow(
  */
 function windowOf(pass: WindowPass, depth: number): RankedWindow {
   const atCap = depth >= RANKED_WINDOW_MAX;
-  const beyond = pass.beyond ?? [];
-  const newShots = collapseShots([...pass.rows, ...beyond]).length - pass.rows.length;
-  const copiesBeyond = beyond.length - newShots;
   return {
     rows: pass.rows,
     more: !atCap && pass.considered >= depth,
-    capped: atCap && pass.considered - copiesBeyond > depth,
+    capped: cappedPast(pass.rows, pass, depth),
     semantic: pass.semantic ?? new Set(),
     scores: pass.scores,
     depth,

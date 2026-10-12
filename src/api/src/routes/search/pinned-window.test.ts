@@ -20,11 +20,13 @@ import { setInProcessSearchForTests, type InProcessSearch } from '../../search/s
 import { fakeInProcessSearch } from '../../search/search.test-helpers.ts';
 
 let live: LiveTestDatabase;
+let libraryId: string;
 const ranked: string[] = [];
 
 interface ListBody {
   total: number;
   more: boolean;
+  capped?: boolean;
   results: Array<{ filename: string }>;
   rankPin?: string;
   rankedBy?: unknown;
@@ -33,7 +35,7 @@ interface ListBody {
 
 beforeEach(async () => {
   live = await createLiveTestDatabase();
-  const libraryId = insertFolder(live.db, { slug: 'pinned', path: '/lib' });
+  libraryId = insertFolder(live.db, { slug: 'pinned', path: '/lib' });
   ranked.length = 0;
   for (let rank = 1; rank <= 300; rank++) {
     const mapleId = `photo${String(rank).padStart(3, '0')}`;
@@ -189,6 +191,74 @@ describe('paging a pinned in-process search', () => {
     expect(ranking(restarted.rankPin)).toBe('database:100');
     expect(restarted.rankedBy).toBeUndefined();
   });
+});
+
+describe('paging a pinned search over copies of one shot (#4557)', () => {
+  it('never shows on page 1 a copy of a shot page 0 already showed', async () => {
+    const shots: string[] = [];
+    const copies: string[] = [];
+    for (let index = 1; index <= 150; index++) {
+      const frame = `IMG_${String(index).padStart(4, '0')}`;
+      const capturedAt = new Date(Date.UTC(2020, 0, 1, 0, 0, index)).toISOString();
+      for (const [ids, mapleId, filename] of [
+        [shots, `shot${index}`, `${frame}.dng`],
+        [copies, `copy${index}`, `${frame}(2).dng`],
+      ] as const) {
+        ids.push(mapleId);
+        seedSearchAsset(live.db, libraryId, { mapleId, filename, capturedAt, searchBlob: 'coast' });
+      }
+    }
+    setInProcessSearchForTests(depthSensitive([...shots, ...copies]));
+
+    const first = await page(0, undefined, 'coast');
+    const second = await page(1, first.rankPin, 'coast');
+    const frames = (body: ListBody) =>
+      body.results.map((row) => row.filename.replace('(2)', '').replace('.dng', ''));
+
+    expect(frames(first)).toHaveLength(100);
+    expect(frames(second).filter((frame) => frames(first).includes(frame))).toEqual([]);
+    expect(second).toMatchObject({ total: 150, more: false });
+    expect(new Set([...frames(first), ...frames(second)]).size).toBe(150);
+  });
+});
+
+describe('a pinned page at the cap (#4557)', () => {
+  for (const [last, capped] of [
+    ['copy', false],
+    ['photo001', true],
+  ] as const) {
+    it(`is ${capped ? '' : 'not '}capped when the hit past the cap is ${last}`, async () => {
+      const capturedAt = '2021-05-01T10:00:00.000Z';
+      seedSearchAsset(live.db, libraryId, {
+        mapleId: 'shot',
+        filename: 'IMG_9999.dng',
+        capturedAt,
+        searchBlob: 'greyson',
+      });
+      seedSearchAsset(live.db, libraryId, {
+        mapleId: 'copy',
+        filename: 'IMG_9999(2).dng',
+        capturedAt,
+        searchBlob: 'greyson',
+      });
+      const gone = Array.from({ length: 4_999 }, (_, index) => `gone${index}`);
+      const forward = fakeInProcessSearch(['shot', ...gone, last]);
+      setInProcessSearchForTests({
+        status: forward.status,
+        search: async (query, k) => (await forward.search(query, k))!.slice(0, k),
+      });
+      const read = async (index: number, pin?: string) => {
+        const pinned = pin === undefined ? '' : `&rankPin=${encodeURIComponent(pin)}`;
+        return (await request(`placeQuery=greyson&limit=500&page=${index}${pinned}`)).body;
+      };
+
+      const first = await read(0);
+      const second = await read(1, first.rankPin);
+
+      expect(ranking(first.rankPin)).toBe('in-process:5000');
+      expect([first.capped, second.capped]).toEqual([capped, capped]);
+    });
+  }
 });
 
 describe('paging a pinned database search', () => {
