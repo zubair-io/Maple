@@ -91,7 +91,7 @@ describe('GET /api/search with the in-process engine', () => {
 
     const body = await list('placeQuery=greyson');
 
-    expect(engine.queries).toEqual([{ query: 'greyson', k: 2_000 }]);
+    expect(engine.queries).toEqual([{ query: 'greyson', k: 100 }]);
     expect(filenames(body)).toEqual(['meadow.dng', 'dunes.dng', 'harbour.dng']);
     expect(body.total).toBe(3);
     expect(body.rankedBy).toEqual({ engine: 'in-process', semanticHits: 3 });

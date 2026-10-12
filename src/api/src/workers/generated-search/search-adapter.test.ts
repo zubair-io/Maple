@@ -267,6 +267,6 @@ describe('runGeneratedSearch — a theme with free text (#4514)', () => {
       expect(engine.queries).toEqual([{ query: THEME, k: 100 }]);
     } finally {
       setInProcessSearchForTests(null);
-      }
+    }
   });
 });

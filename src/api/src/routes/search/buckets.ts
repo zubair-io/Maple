@@ -15,7 +15,7 @@ import { Elysia } from 'elysia';
 import { buildSearchWhere, searchBuckets, windowBuckets } from '../../db/repos/search.repo.ts';
 import { firstEngine, requestWindow, windowNeed } from './ranked-window.ts';
 import { windowDepthFor } from '../../db/repos/search.ranked.ts';
-import { extractDatesFromQuery, SearchQueryT, type SearchQuery } from './query.ts';
+import { SearchQueryT, type SearchQuery } from './query.ts';
 import { resolveRankedScope, resolveSearchScope } from './scope.ts';
 import { canonicalOwner } from './total-cache.ts';
 
