@@ -95,6 +95,7 @@ function validateExpectedPortableMapping(
 function invalidObject(reason: string): Error {
   return new Error(`Google object failed identity or integrity validation: ${reason}.`);
 }
+export class ObjectIdentityError extends Error {}
 export function assertObjectIdentity(
   actual: BackupObject,
   expected: BackupObject,
@@ -105,5 +106,5 @@ export function assertObjectIdentity(
     actual.sha256 !== expected.sha256 ||
     actual.size !== expected.size
   )
-    throw new Error(message);
+    throw new ObjectIdentityError(message);
 }
