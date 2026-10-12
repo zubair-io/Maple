@@ -5,6 +5,7 @@ import { ALL_MIGRATIONS } from './index.ts';
 import { createBlankTestDatabase, insertFolder } from '../test-sqlite.test-helpers.ts';
 import { seedSearchAsset } from '../../repos/search.test-helpers.ts';
 import { storeVector } from '../../../search/search.test-helpers.ts';
+import { upsertAssetVectorStatement } from '../../repos/asset-vectors.repo.ts';
 
 const ID = '0028-vector-text-changed';
 
@@ -16,9 +17,10 @@ function stampOf(db: Database, mapleId: string): string | null {
 }
 
 function writeBlob(db: Database, mapleId: string, blob: string | null): void {
-  const asset = `(SELECT id FROM assets WHERE maple_id = '${mapleId}')`;
   if (blob === null) {
-    db.run(`DELETE FROM asset_search WHERE asset_id = ${asset}`);
+    db.run(`DELETE FROM asset_search WHERE asset_id = (SELECT id FROM assets WHERE maple_id = ?)`, [
+      mapleId,
+    ]);
     return;
   }
   db.run(
@@ -57,6 +59,30 @@ test('every search_blob change stamps the vector row, an identical rewrite does 
   expect(
     handle.db.query(`SELECT embedded_at FROM asset_vectors WHERE maple_id = 'a'`).get(),
   ).toEqual({ embedded_at: '2026-10-10T10:00:00.000Z' });
+});
+
+test("a re-embed keeps the row's text stamp", async () => {
+  using handle = createBlankTestDatabase('file');
+  await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+  const libraryId = insertFolder(handle.db, { slug: 'embed', path: '/lib' });
+  seedSearchAsset(handle.db, libraryId, { filename: 'a.dng', mapleId: 'a' });
+  storeVector(handle.db, 'a', 0, '2026-10-10T10:00:00.000Z');
+  writeBlob(handle.db, 'a', 'athlete lacrosse');
+  const stamped = stampOf(handle.db, 'a');
+
+  const vector = new Float32Array(1024);
+  vector[1] = 1;
+  const { sql, params } = upsertAssetVectorStatement({
+    mapleId: 'a',
+    version: 8,
+    model: 'bge-m3',
+    endpoint: 'http://gpu',
+    vector,
+    embeddedAt: new Date('2026-10-11T10:00:00.000Z'),
+  });
+  handle.db.run(sql, params as never);
+
+  expect(stampOf(handle.db, 'a')).toBe(stamped);
 });
 
 test('the text-change poll reads the partial index alone', async () => {
