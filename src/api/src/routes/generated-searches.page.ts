@@ -22,7 +22,6 @@ import { searchCount, searchPage } from '../db/repos/search.page.ts';
 import { assetsDb, bulkLane } from '../db/repos/db-handle.ts';
 import type { SearchWhere } from '../db/repos/search.where.ts';
 import type { GeneratedSearchDoc } from '../workers/generated-search/repo.ts';
-import { inProcessSelected } from '../search/search-engine-selection.ts';
 import { libraryMaps } from './search/libraries.ts';
 import { projectAssets, type SearchResult } from './search/project.ts';
 import type { SearchQuery } from './search/query.ts';
@@ -58,7 +57,7 @@ async function rankedCollectionPage(
   const { doc, where, resolved, offset, limit } = input;
   const page = { skip: offset, limit };
   const request = { where, resolved, text, libraryId: doc.library_id, need: offset + limit };
-  const window = await requestWindow(request, !(await inProcessSelected()));
+  const window = await requestWindow(request, 'collection');
   return window ? withoutRankedBy(await windowPage(window, page)) : pendingPage(doc, where, page);
 }
 

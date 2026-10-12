@@ -25,6 +25,7 @@
  *     result-count floor while being pure garbage.
  */
 
+import { boundedTextQuery } from '../../db/repos/search.where.ts';
 import { ALLOWED_SCENE_TYPE } from '../../enrichment/describe-providers/parse-vision-json-enums.ts';
 
 /** The only query keys the model may influence. Everything else in
@@ -64,6 +65,11 @@ export type ValidationResult =
 const reject = (reason: string): ValidationResult => ({ ok: false, reason });
 
 /** Non-empty trimmed string, or undefined for null/absent/blank. */
+/** A stored theme is never longer than a search accepts (#4514). */
+function boundedText(text: string | undefined): string | undefined {
+  return text === undefined ? undefined : boundedTextQuery(text);
+}
+
 function asText(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
@@ -133,7 +139,7 @@ export function validateProposal(raw: unknown, ctx: ValidationContext): Validati
   // Whitelist construction: the query is rebuilt field by field, so a key the
   // model invents cannot survive by accident.
   const fields: Record<string, { value?: string } | { reason: string }> = {
-    placeQuery: { value: asText(source.placeQuery) },
+    placeQuery: { value: boundedText(asText(source.placeQuery)) },
     from: readDate('from', source.from, ctx),
     to: readDate('to', source.to, ctx),
     month: readMonth(source.month),

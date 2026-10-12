@@ -17,7 +17,7 @@ import { Elysia } from 'elysia';
 import { ObjectId } from '../../db/object-id.ts';
 import { searchFacets } from '../../db/repos/search.repo.ts';
 import type { FacetOptions } from '../../db/repos/search.facets.ts';
-import { requestWindow, windowNeed } from './ranked-window.ts';
+import { firstEngine, requestWindow, windowNeed } from './ranked-window.ts';
 import { emailsForUserIds } from '../../db/repos/auth.users.repo.ts';
 import { namesForPersonIds } from '../../people/people-search-filter.repo.ts';
 import { SearchQueryT, type SearchQuery } from './query.ts';
@@ -42,6 +42,7 @@ async function facetOptions(query: SearchQuery): Promise<FacetOptions> {
   const need = windowNeed(query);
   return {
     need,
+    engine: await firstEngine(resolved),
     window: async () => {
       const window = await requestWindow({
         where,

@@ -13,9 +13,9 @@
 
 import { Elysia } from 'elysia';
 import { buildSearchWhere, searchBuckets, windowBuckets } from '../../db/repos/search.repo.ts';
-import { requestWindow, windowNeed } from './ranked-window.ts';
+import { firstEngine, requestWindow, windowNeed } from './ranked-window.ts';
 import { windowDepthFor } from '../../db/repos/search.ranked.ts';
-import { SearchQueryT, type SearchQuery } from './query.ts';
+import { extractDatesFromQuery, SearchQueryT, type SearchQuery } from './query.ts';
 import { resolveRankedScope, resolveSearchScope } from './scope.ts';
 import { canonicalOwner } from './total-cache.ts';
 
@@ -166,7 +166,8 @@ export const bucketsRoute = new Elysia().get(
     // a 30s TTL keeps repeat loads from the same client cheap and is
     // tight enough that newly-indexed photos surface within a minute.
     const need = windowNeed(query as SearchQuery);
-    const cacheKey = `${makeBucketsCacheKey(query as SearchQuery)}#${windowDepthFor(need)}`;
+    const engine = await firstEngine(extractDatesFromQuery(query as SearchQuery));
+    const cacheKey = `${makeBucketsCacheKey(query as SearchQuery)}#${windowDepthFor(need)}#${engine}`;
     const cached = bucketsCache.get(cacheKey);
     const nowMs = Date.now();
     if (cached && cached.expiresMs > nowMs) {

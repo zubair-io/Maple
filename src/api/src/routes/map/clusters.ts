@@ -215,15 +215,16 @@ interface MapCluster {
 /**
  * What the map clusters. A text search clusters its ranked window — the best matches the list is
  * served from, as deep as a window goes — never the whole match set (#4514); a query whose text is
- * only a date ("2023") clusters the date window; anything else, the translated query.
+ * only a date ("2023") clusters the date window; a request that does not translate is a 400. No
+ * path groups the whole match set.
  */
 async function clusterScope(
   q: MapClustersQuery,
   where: SearchWhere,
-): Promise<{ where: SearchWhere; window?: readonly RankedAsset[] }> {
+): Promise<{ where: SearchWhere; window?: readonly RankedAsset[] } | { error: string }> {
   if (where.match.kind === 'none') return { where };
   const scope = await resolveRankedScope(q);
-  if ('error' in scope) return { where };
+  if ('error' in scope) return scope;
   if (scope.childQuery === null) return { where: scope.where };
   const window = await requestWindow({
     where: scope.where,
@@ -271,6 +272,10 @@ export const mapClustersRoute = new Elysia().get(
     // for every inhabited landmass, so a cell split there costs nothing in
     // practice.
     const clustered = await clusterScope(q, where);
+    if ('error' in clustered) {
+      set.status = 400;
+      return { error: clustered.error };
+    }
     const rows = await mapClusters(clustered.where, bbox, cellSizeDeg, undefined, clustered.window);
 
     const libraries = await loadLibraryRoots().catch(() => new Map<string, string>());

@@ -23,11 +23,9 @@ public final class SearchViewModel {
   public private(set) var results: [SearchAsset] = []
   public private(set) var facets: SearchFacets?
   public private(set) var total: Int = 0
-  /// The server ranked a window of a free-text query and had hits left past
-  /// it (#4514): `total` is the window, and a deeper page widens it.
+  /// `total` is a free-text window with hits left past it; a deeper page widens it (#4514).
   public private(set) var moreBeyondTotal: Bool = false
-  /// The server stopped the ranked window at its 5,000-hit cap with matches
-  /// left (#4514): `total` is every row it will serve, but not every match.
+  /// The window stopped at the server's 5,000-hit cap with matches left (#4514).
   public private(set) var cappedAtTotal: Bool = false
   public private(set) var isLoading: Bool = false
   public private(set) var isLoadingMore: Bool = false
@@ -85,9 +83,8 @@ public final class SearchViewModel {
   /// redundant round-trip when nothing actually changed (e.g. the filter
   /// popover closes without an edit).
   private var lastSubmittedParams: SearchParams?
-  /// Set while the results are a generated-search collection (#4410): further
-  /// pages come from the collection's own endpoint, whose order (newest
-  /// first) differs from a relevance-ranked search. Any submit clears it.
+  /// Set while the results are a generated-search collection (#4410); any
+  /// submit clears it.
   private var collectionPager: CollectionPager?
   /// True from showing a collection's snapshot until its live first page
   /// lands. Pagination waits: offsets only mean something against the live
@@ -96,11 +93,9 @@ public final class SearchViewModel {
   private var liveFirstPageGeneration: Int?
   private var pendingLiveFirstPage: (() async -> GeneratedSearchAssetPage?)?
 
-  /// In-memory result cache so re-issuing an identical query (clear-then-
-  /// reapply, popover round-trips, toggling a sort back) serves from memory
-  /// instead of re-hitting the network — mirrors the web search cache.
-  /// Pages key on the full param set + page index; facets on the param set
-  /// alone. Lives for the VM's lifetime (session-scoped, like the web cache).
+  /// In-memory result cache so re-issuing an identical query serves from
+  /// memory (session-scoped, like the web cache). Pages key on the params +
+  /// page index; facets on `FacetKey`.
   private var pageCache: [PageKey: SearchResponse] = [:]
   private var facetCache: [FacetKey: SearchFacets] = [:]
 
@@ -109,11 +104,22 @@ public final class SearchViewModel {
     let page: Int
   }
 
-  /// Facets are cached per list page: a free-text search's facets count the
-  /// ranked window the list reached by that page (#4514).
+  /// Facets are cached per query and window step (#4514): every page within a
+  /// step of the server's window ladder, the first included, shares one key.
   private struct FacetKey: Hashable {
     let params: SearchParams
-    let page: Int
+    let step: Int
+  }
+
+  private func facetKey(_ params: SearchParams, page listPage: Int) -> FacetKey {
+    let hasText = !params.placeQuery.trimmingCharacters(in: .whitespaces).isEmpty
+    let step = hasText ? Self.windowStep(reaching: (listPage + 1) * limit) : 0
+    return FacetKey(params: params, step: step)
+  }
+
+  /// The server's window ladder (`windowDepthFor`): the first step reaching `need` rows.
+  static func windowStep(reaching need: Int) -> Int {
+    [100, 400, 1_600].first { $0 >= need } ?? 5_000
   }
 
   public init(
@@ -135,8 +141,7 @@ public final class SearchViewModel {
   /// True while more pages remain for the current result set.
   public var canLoadMore: Bool { results.count < total || moreBeyondTotal }
 
-  /// True when `total` is a lower bound on the matches — the window can
-  /// widen, or it stopped at the server's cap — so a count reads "N+".
+  /// True when `total` is a lower bound on the matches, so a count reads "N+".
   public var totalIsLowerBound: Bool { moreBeyondTotal || cappedAtTotal }
 
   /// True when any structured filter is set (drives the "filters" dot).
@@ -208,7 +213,7 @@ public final class SearchViewModel {
     // no spinner, no network round-trip. Only short-circuit when BOTH are
     // cached so a prior facet failure still triggers a refetch.
     if let cachedPage = pageCache[pageKey],
-      let cachedFacets = facetCache[FacetKey(params: requested, page: 0)]
+      let cachedFacets = facetCache[facetKey(requested, page: 0)]
     {
       loadError = nil
       results = cachedPage.results
@@ -257,7 +262,7 @@ public final class SearchViewModel {
       let facetsResult = try? await facetResp
       guard g == generation else { return }
       if let facetsResult {
-        facetCache[FacetKey(params: requested, page: 0)] = facetsResult
+        facetCache[facetKey(requested, page: 0)] = facetsResult
         facets = facetsResult
       }
     } catch {
@@ -298,7 +303,7 @@ public final class SearchViewModel {
     results = firstPage.results
     total = firstPage.total
     moreBeyondTotal = firstPage.more
-    cappedAtTotal = false
+    cappedAtTotal = firstPage.capped
     page = 0
     nextCursor = nil
     appliedDates = nil
@@ -330,7 +335,7 @@ public final class SearchViewModel {
     results = live.results
     total = live.total
     moreBeyondTotal = live.more
-    cappedAtTotal = false
+    cappedAtTotal = live.capped
     // Still the stored preview: the server's engine is loading (#4514). Keep
     // the live page pending so the next `loadMore()` asks again.
     guard !live.isPending else { return }
@@ -351,7 +356,7 @@ public final class SearchViewModel {
   public func loadFacetsIfNeeded() async {
     guard facets == nil, !isLoadingFacets else { return }
     let requested = params
-    let key = FacetKey(params: requested, page: page)
+    let key = facetKey(requested, page: page)
     if let cached = facetCache[key] {
       facets = cached
       return
@@ -361,7 +366,7 @@ public final class SearchViewModel {
     defer { isLoadingFacets = false }
     // Best-effort: a facet failure is not a search failure, so it must not
     // raise the error banner over the (perfectly fine) Recents list.
-    guard let loaded = try? await searchClient.facets(requested, page: key.page, limit: limit)
+    guard let loaded = try? await searchClient.facets(requested, page: page, limit: limit)
     else { return }
     guard g == generation else {
       // A reset superseded this load; the panel may already be open on the
@@ -379,7 +384,7 @@ public final class SearchViewModel {
   /// until the new ones land.
   private func refreshFacetsForWindow(page windowPage: Int, generation g: Int) async {
     let requested = params
-    let key = FacetKey(params: requested, page: windowPage)
+    let key = facetKey(requested, page: windowPage)
     if let cached = facetCache[key] {
       facets = cached
       return
@@ -429,6 +434,7 @@ public final class SearchViewModel {
         results.append(contentsOf: more.results)
         total = more.results.isEmpty ? results.count : more.total
         moreBeyondTotal = !more.results.isEmpty && more.more
+        cappedAtTotal = more.capped
       } catch {
         if Self.isCancellation(error) { return }
         guard g == generation else { return }

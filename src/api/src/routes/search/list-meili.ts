@@ -219,6 +219,20 @@ function meiliSearchOptions(
   };
 }
 
+/** Whether Meilisearch would rank this request: configured, free text, and filters it can express. */
+export function meiliServes(resolved: SearchQuery): boolean {
+  if (!usesPlaceText(resolved) || !meilisearchClient().isConfigured()) return false;
+  // Correctness outranks ranking: see DATABASE_ONLY_FILTERS.
+  const unpushable = unpushableFilters(resolved);
+  if (unpushable.length > 0) {
+    searchLog.debug(
+      { unpushable, placeQuery: resolved.placeQuery },
+      'meilisearch declined; filters have no index counterpart, using the database',
+    );
+  }
+  return unpushable.length === 0;
+}
+
 /**
  * Meilisearch as a ranker for the request's window (`ranked-window.ts`, #4514), or undefined when
  * it would not serve this search at all: not configured, no text, or a filter it cannot express.
@@ -235,17 +249,8 @@ export function meiliRanker(
   resolved: SearchQuery,
   libraryId: string | undefined,
 ): WindowRanker | undefined {
+  if (!meiliServes(resolved)) return undefined;
   const meili = meilisearchClient();
-  if (!usesPlaceText(resolved) || !meili.isConfigured()) return undefined;
-  // Correctness outranks ranking: see DATABASE_ONLY_FILTERS.
-  const unpushable = unpushableFilters(resolved);
-  if (unpushable.length > 0) {
-    searchLog.debug(
-      { unpushable, placeQuery: resolved.placeQuery },
-      'meilisearch declined; filters have no index counterpart, using the database',
-    );
-    return undefined;
-  }
   return async (depth) => {
     try {
       // The caller's hidden mode rides into the Meili filter, so `hidden=only` asks for hidden

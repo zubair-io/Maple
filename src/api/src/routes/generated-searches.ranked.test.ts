@@ -26,6 +26,7 @@ import {
 import { setInProcessSearchForTests } from '../search/search-pool.ts';
 import { fakeInProcessSearch } from '../search/search.test-helpers.ts';
 import { generatedSearchesRoutes } from './generated-searches.ts';
+import { setMeilisearchClientForTests } from '../enrichment/meilisearch-client.ts';
 
 const app = new Elysia().use(generatedSearchesRoutes);
 
@@ -168,6 +169,56 @@ describe('a free-text collection while the selected engine is loading', () => {
     for (const { statements } of [first, second, deeper]) {
       expect(statements.some((sql) => sql.includes('assets_fts'))).toBe(false);
     }
+  });
+
+  it('stays on the preview while the selected engine loads, even with Meilisearch configured', async () => {
+    setInProcessSearchForTests(fakeInProcessSearch(null));
+    const asked: string[] = [];
+    setMeilisearchClientForTests({
+      isConfigured: () => true,
+      semanticConfigured: () => false,
+      health: async () => true,
+      ensureIndex: async () => {},
+      upsert: async () => {},
+      upsertOrThrow: async () => {},
+      tombstone: async () => {},
+      search: async (q) => {
+        asked.push(q);
+        return { ids: ['bridge'], estimatedTotal: 1 };
+      },
+    });
+    try {
+      const id = seedCard([ids.get('street')!]);
+      const { body } = await get(`/api/generated-searches/${id}/assets?limit=30`);
+      expect(body).toMatchObject({ pending: true, snapshot: true, total: 1 });
+      expect(asked).toEqual([]);
+    } finally {
+      setMeilisearchClientForTests(null);
+    }
+  });
+
+  it('shortens a stored theme longer than a search accepts rather than refusing the card', async () => {
+    const engine = fakeInProcessSearch(['bridge']);
+    setInProcessSearchForTests(engine);
+    const id = new ObjectId().toHexString();
+    run(
+      live.db,
+      `INSERT INTO generated_searches
+         (id, library_id, generated_for, generated_at, model, attempts,
+          theme, title, subtitle, query, result_count, cover_asset_id, first_page_ids)
+       VALUES (?, ?, '2026-10-12', '2026-10-12T03:00:00.000Z', 'm', 1, 't', 'Long', NULL, ?, 1,
+               NULL, NULL)`,
+      id,
+      libraryId,
+      JSON.stringify({ placeQuery: 'busy city streets '.repeat(100).trim() }),
+    );
+
+    const { status, body } = await get(`/api/generated-searches/${id}/assets`);
+
+    expect(status).toBe(200);
+    expect(body.total).toBe(1);
+    expect(engine.queries[0]!.query.length).toBeLessThanOrEqual(1_000);
+    expect('busy city streets '.repeat(100).startsWith(`${engine.queries[0]!.query} `)).toBe(true);
   });
 
   it('answers an empty pending page for a card stored before previews existed', async () => {

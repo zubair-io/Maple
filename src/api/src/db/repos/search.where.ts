@@ -98,6 +98,17 @@ import {
  */
 export const MAX_TEXT_QUERY_LENGTH = 1_000;
 
+/**
+ * Free text cut to {@link MAX_TEXT_QUERY_LENGTH} at a word boundary — for text the server stores
+ * itself (a For You card's theme), which is shortened rather than refused.
+ */
+export function boundedTextQuery(query: string): string {
+  if (query.length <= MAX_TEXT_QUERY_LENGTH) return query;
+  const cut = query.slice(0, MAX_TEXT_QUERY_LENGTH);
+  const lastSpace = cut.lastIndexOf(' ');
+  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd();
+}
+
 export interface SearchWhere {
   clauses: readonly string[];
   params: readonly SqlValue[];
