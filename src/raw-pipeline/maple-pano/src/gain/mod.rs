@@ -25,9 +25,11 @@
 //! per-view [`ExposureField`] then absorbs the smooth residual the global
 //! model leaves (#4521, [`field`]).
 
+mod falloff;
 mod field;
 mod field_solve;
 pub(crate) mod fit;
+mod lens;
 pub(crate) mod overlap;
 pub(crate) mod solve;
 mod streaming;
@@ -36,12 +38,12 @@ pub use field::{
     CORRIDOR_MARGIN_NODES, MAX_NODES_PER_VIEW,
 };
 pub(crate) mod vignette;
+pub use falloff::PhotometrySolution;
+pub use lens::{LensFalloff, LensGroups};
 pub use streaming::solve_photometry_streaming;
-pub use vignette::{LensFalloff, LensGroups, PhotometrySolution};
 
-use fit::fit_pairs;
+use falloff::solve_with_falloff;
 use overlap::{OverlapSet, PairSamples, SignalWindow};
-use solve::solve_from_fits;
 
 use rayon::prelude::*;
 
@@ -136,17 +138,19 @@ pub(crate) fn validate_options(opts: &GainOptions, who: &str) -> Result<(), Pano
     Ok(())
 }
 
-/// Solve per-frame photometry with every frame resident.
+/// Solve per-frame photometry with every frame resident, estimating the
+/// falloff of every lens group in `lenses` (#4522).
 ///
-/// Frames and cameras correspond by index; every frame's dimensions
-/// must match its camera's.
+/// Frames, cameras and `lenses.of_frame` correspond by index; every
+/// frame's dimensions must match its camera's.
 pub fn solve_photometry(
     frames: &[PlanarImage],
     cameras: &[Camera],
+    lenses: &LensGroups,
     opts: &GainOptions,
-) -> Result<Vec<FramePhotometry>, PanoError> {
+) -> Result<PhotometrySolution, PanoError> {
     let set = collect_overlap_set(frames, cameras, opts)?;
-    solve_from_fits(&set, &fit_pairs(&set, opts.mode), opts.mode)
+    solve_with_falloff(&set, cameras, lenses, opts.mode)
 }
 
 /// Measure the overlap set of resident frames (both sampling

@@ -9,7 +9,7 @@ use maple_pano::canvas::{auto_canvas, CanvasOptions, CanvasSpec};
 use maple_pano::composite::composite_tiled_frames;
 use maple_pano::gain::{
     solve_exposure_field, solve_photometry, ExposureField, FramePhotometry, GainOptions,
-    MAX_NODES_PER_VIEW,
+    LensGroups, MAX_NODES_PER_VIEW,
 };
 use maple_pano::ingest::{PlanarImage, ValidityMask};
 use maple_pano::prng::SplitMix64;
@@ -54,7 +54,14 @@ fn scene(seed: u64, slope: f32) -> Scene {
         .map(|cam| ramped_frame(&source, cam, slope))
         .collect();
     let canvas = auto_canvas(&cams, &CanvasOptions::default()).expect("canvas");
-    let photometry = solve_photometry(&frames, &cams, &GainOptions::default()).expect("gains");
+    let photometry = solve_photometry(
+        &frames,
+        &cams,
+        &LensGroups::ingest_corrected(frames.len()),
+        &GainOptions::default(),
+    )
+    .expect("gains")
+    .frames;
     Scene {
         source,
         cams,

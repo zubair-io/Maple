@@ -112,7 +112,7 @@ pub(super) fn warp_to_tile_region(
     let inv = inverse_similarity_with_offset(&pose.sim, canvas.offset_x, canvas.offset_y);
     let gain = phot.gain;
     // The ramp + field corrections are log-domain and channel-shared:
-    // out = v · gain · exp(−(slope_x·(ξ−½) + slope_y·(η−½) + field)).
+    // out = v · gain · exp(−(slope_x·(ξ−½) + slope_y·(η−½) + field)) · V(r).
     let has_ramp = phot.slope_x != 0.0 || phot.slope_y != 0.0 || phot.field.is_some();
 
     let mut r = vec![0.0_f32; n];
@@ -142,9 +142,10 @@ pub(super) fn warp_to_tile_region(
                     } else {
                         1.0
                     };
-                    row_r[col] = (sr * gain[0] * corr).max(0.0);
-                    row_g[col] = (sg * gain[1] * corr).max(0.0);
-                    row_b[col] = (sb * gain[2] * corr).max(0.0);
+                    let falloff = phot.falloff_at(fx, fy, src_w, src_h);
+                    row_r[col] = (sr * gain[0] * corr * falloff).max(0.0);
+                    row_g[col] = (sg * gain[1] * corr * falloff).max(0.0);
+                    row_b[col] = (sb * gain[2] * corr * falloff).max(0.0);
                     row_v[col] = true;
                 }
             }

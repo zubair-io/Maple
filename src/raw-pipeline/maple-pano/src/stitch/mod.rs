@@ -96,7 +96,9 @@ use std::path::PathBuf;
 use crate::ba::{self, BaOptions};
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, ProjectionMode};
+use crate::composite::CompositeReport;
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
+use crate::gain::LensGroups;
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{DescriptorTopKProvider, LoopClosureCheck, LoopClosureGate};
 use crate::ingest::{ingest_file_proxy, FrameMeta};
@@ -370,6 +372,7 @@ pub fn stitch(
                 stage_timings_012: [t_decode, t_features, t_graph],
                 applied_opcodes,
                 priors,
+                lenses: LensGroups::from_metas(&metas),
             },
             &mut progress,
             &is_cancelled,
@@ -474,7 +477,7 @@ pub fn stitch(
 
     let kept_inputs: Vec<usize> = kept_meta.iter().map(|(i, _, _)| *i).collect();
     let seam_constraints = seam_gate::for_kept_frames(&opts.seam_constraints, &kept_inputs)?;
-    let (image, comp_report) = rotation_composite::composite(
+    let (image, tiled_report) = rotation_composite::composite(
         &kept_paths,
         &kept_cams,
         &photometry,
@@ -483,6 +486,10 @@ pub fn stitch(
         opts,
         &seam_constraints,
     )?;
+    let comp_report = CompositeReport {
+        falloff,
+        ..tiled_report
+    };
 
     let t_composite = t5.elapsed().as_secs_f64();
     progress(5, 1.0);
@@ -495,7 +502,6 @@ pub fn stitch(
         strategy_report,
         focal_seed_source: focal_seed.source,
         applied_opcodes,
-        falloff,
         priors,
         refined_matches,
         fallback_matches,

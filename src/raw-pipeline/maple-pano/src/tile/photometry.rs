@@ -39,11 +39,12 @@
 use std::collections::BTreeMap;
 
 use crate::error::PanoError;
-use crate::gain::{solve_dense, GainMode, GainOptions};
+use crate::gain::vignette::{estimate_falloff, falloff_gain, radius_squared};
+use crate::gain::{solve_dense, GainMode, GainOptions, LensFalloff, LensGroups};
 
 use super::frame_cache::TileFrameCache;
 use super::placement::{TileCanvasSpec, TilePose};
-use super::sampling::sample_pairs;
+use super::sampling::{sample_correspondences, sample_pairs};
 
 /// Per-frame photometric correction, applied at warp time.
 #[derive(Debug, Clone)]
@@ -56,6 +57,8 @@ pub(super) struct FramePhotometry {
     pub slope_y: f32,
     /// Layer-B residual log-correction field (canvas-anchored), if solved.
     pub field: Option<CoarseField>,
+    /// Blind lens-falloff `q` (#4522); 0 when ingest corrected the falloff.
+    pub falloff_q: f32,
 }
 
 impl FramePhotometry {
@@ -65,7 +68,17 @@ impl FramePhotometry {
             slope_x: 0.0,
             slope_y: 0.0,
             field: None,
+            falloff_q: 0.0,
         }
+    }
+
+    /// The falloff correction `V(r)` at source position `(x, y)`.
+    #[inline]
+    pub fn falloff_at(&self, x: f64, y: f64, width: f64, height: f64) -> f32 {
+        if self.falloff_q == 0.0 {
+            return 1.0;
+        }
+        falloff_gain(self.falloff_q as f64, radius_squared(x, y, width, height)) as f32
     }
 }
 
@@ -102,12 +115,14 @@ impl CoarseField {
 }
 
 /// Summary of the solved correction, for the stitch report.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(super) struct PhotometrySummary {
     pub slope_x: f32,
     pub slope_y: f32,
     pub field_mean_abs_ev: f64,
     pub field_max_abs_ev: f64,
+    /// Blind falloff per lens group (#4522); frames are input indices.
+    pub falloff: Vec<LensFalloff>,
 }
 
 /// Solver knobs. Constructed from [`GainOptions`] so `composite_tile`'s
@@ -187,15 +202,18 @@ pub(super) type PairMap = BTreeMap<(usize, usize), PairAcc>;
 
 /// Solve the full photometric correction for a placed frame set.
 ///
-/// `full_dims` is indexed by the *original* input frame index (same
-/// space as `cache` and `poses[i].frame_idx`) — #3197: frames are
-/// decoded on demand through `cache` rather than requiring the whole set
-/// pre-decoded and resident.
+/// `full_dims` and `lenses.of_frame` are indexed by the *original* input
+/// frame index (same space as `cache` and `poses[i].frame_idx`) — #3197:
+/// frames are decoded on demand through `cache` rather than requiring
+/// the whole set pre-decoded and resident. Frames ingest left with their
+/// lens falloff get the blind vignette estimate (#4522) before layers A
+/// and B, which then see flattened samples.
 pub(super) fn solve_photometry(
     cache: &TileFrameCache,
     full_dims: &[(u32, u32)],
     poses: &[TilePose],
     canvas: &TileCanvasSpec,
+    lenses: &LensGroups,
     opts: &PhotometryOptions,
 ) -> Result<(Vec<FramePhotometry>, PhotometrySummary), PanoError> {
     let n = poses.len();
@@ -224,7 +242,8 @@ pub(super) fn solve_photometry(
         )));
     }
 
-    let pairs = sample_pairs(cache, full_dims, poses, canvas, opts)?;
+    let (q_local, falloff) = solve_falloff(cache, full_dims, poses, canvas, lenses, opts)?;
+    let pairs = sample_pairs(cache, full_dims, poses, canvas, opts, &q_local)?;
 
     // ── Layer A: gains + shared slope ────────────────────────────────────
     let (a_lum, slope_x, slope_y) = solve_gain_slope(n, &pairs, opts);
@@ -267,19 +286,46 @@ pub(super) fn solve_photometry(
         slope_y: slope_y as f32,
         field_mean_abs_ev: mean_ev,
         field_max_abs_ev: max_ev,
+        falloff,
     };
 
     let photometry = gains
         .into_iter()
         .zip(fields)
-        .map(|(gain, field)| FramePhotometry {
+        .zip(&q_local)
+        .map(|((gain, field), q)| FramePhotometry {
             gain,
             slope_x: slope_x as f32,
             slope_y: slope_y as f32,
             field,
+            falloff_q: *q as f32,
         })
         .collect();
     Ok((photometry, summary))
+}
+
+/// Per-pose falloff `q` and the per-group report. Sets with no frame left
+/// uncorrected at ingest skip the extra sampling pass entirely.
+fn solve_falloff(
+    cache: &TileFrameCache,
+    full_dims: &[(u32, u32)],
+    poses: &[TilePose],
+    canvas: &TileCanvasSpec,
+    lenses: &LensGroups,
+    opts: &PhotometryOptions,
+) -> Result<(Vec<f64>, Vec<LensFalloff>), PanoError> {
+    let group_of: Vec<Option<usize>> = poses
+        .iter()
+        .map(|p| lenses.of_frame.get(p.frame_idx).copied().flatten())
+        .collect();
+    if group_of.iter().all(Option::is_none) {
+        return Ok((vec![0.0; poses.len()], Vec::new()));
+    }
+    let obs = sample_correspondences(cache, full_dims, poses, canvas, opts)?;
+    let q = estimate_falloff(&obs, &group_of, lenses.labels.len());
+    let q_local = group_of.iter().map(|g| g.map_or(0.0, |g| q[g])).collect();
+    let placed: Vec<usize> = poses.iter().map(|p| p.frame_idx).collect();
+    Ok((q_local, lenses.report(&q, &placed)))
 }
 
 /// Layer-A joint solve: per-frame log-gains `a_i` (luminance) plus the

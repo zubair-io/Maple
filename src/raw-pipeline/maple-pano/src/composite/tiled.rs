@@ -385,6 +385,7 @@ fn voronoi_blend(
         canvas: canvas.clone(),
         projection: canvas.projection,
         photometry: photometry.to_vec(),
+        falloff: Vec::new(),
         blend_levels: levels,
         min_overlap_width_px: survey.min_overlap_px,
         seam_strategy: SeamStrategy::Voronoi,

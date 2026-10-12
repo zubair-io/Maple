@@ -80,7 +80,14 @@ fn planted_gain_and_offset_recovered() {
         sample_stride: 1,
         ..GainOptions::default()
     };
-    let p = solve_photometry(&frames, &cams, &dense).unwrap();
+    let p = solve_photometry(
+        &frames,
+        &cams,
+        &LensGroups::ingest_corrected(frames.len()),
+        &dense,
+    )
+    .unwrap()
+    .frames;
     assert_relative_gains(&p, &muls, 0.01);
 
     // Corrected value is g·m·S + (g·o + b); the offset term must agree
@@ -102,7 +109,14 @@ fn planted_gain_and_offset_recovered() {
 fn pure_gain_set_keeps_bias_near_zero() {
     let muls = [2.0_f32, 1.0, 0.5];
     let (cams, frames) = planted(&muls, &[0.0; 3]);
-    let p = solve_photometry(&frames, &cams, &GainOptions::default()).unwrap();
+    let p = solve_photometry(
+        &frames,
+        &cams,
+        &LensGroups::ingest_corrected(frames.len()),
+        &GainOptions::default(),
+    )
+    .unwrap()
+    .frames;
     assert_relative_gains(&p, &muls, 0.01);
     for f in &p {
         for c in 0..3 {
@@ -119,7 +133,14 @@ fn bias_is_clamped() {
         .iter()
         .map(|f| SignalWindow::measure(f, 4).white)
         .fold(0.0_f32, f32::max);
-    let p = solve_photometry(&frames, &cams, &GainOptions::default()).unwrap();
+    let p = solve_photometry(
+        &frames,
+        &cams,
+        &LensGroups::ingest_corrected(frames.len()),
+        &GainOptions::default(),
+    )
+    .unwrap()
+    .frames;
     for f in &p {
         assert!(
             f.bias[0].abs() <= (MAX_BIAS_FRACTION as f32) * white * 1.01,
@@ -143,7 +164,14 @@ fn clipped_highlights_do_not_bias_the_gains() {
     for plane in [&mut f0.r, &mut f0.g, &mut f0.b] {
         plane.iter_mut().for_each(|v| *v = v.min(plateau));
     }
-    let p = solve_photometry(&frames, &cams, &GainOptions::default()).unwrap();
+    let p = solve_photometry(
+        &frames,
+        &cams,
+        &LensGroups::ingest_corrected(frames.len()),
+        &GainOptions::default(),
+    )
+    .unwrap()
+    .frames;
     assert_relative_gains(&p, &muls, 0.01);
 }
 
@@ -157,7 +185,14 @@ fn outlier_content_does_not_bias_the_gains() {
     for plane in [&mut f1.r, &mut f1.g, &mut f1.b] {
         plane[band.clone()].iter_mut().for_each(|v| *v *= 3.0);
     }
-    let p = solve_photometry(&frames, &cams, &GainOptions::default()).unwrap();
+    let p = solve_photometry(
+        &frames,
+        &cams,
+        &LensGroups::ingest_corrected(frames.len()),
+        &GainOptions::default(),
+    )
+    .unwrap()
+    .frames;
     assert_relative_gains(&p, &muls, 0.01);
 }
 
