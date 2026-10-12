@@ -31,8 +31,6 @@ struct MapleApp: App {
   @Environment(\.scenePhase) private var scenePhase
 
   init() {
-    // Preserve the published early-feature default for Panorama (#3773).
-    FeatureFlags.publishResolvedFlags()
     Self.registerBundledFonts()
     Self.installMemoryPressureObserver()
     BGTaskRegistration.register()
