@@ -14,7 +14,7 @@ public class PanoFeatureEngineTests
     private static PanoStitchCommand Command(PanoFeatureEngine engine) => PanoStitchCommand.Build(
         new[] { @"C:\pano\a.dng", "--strategy" },
         @"C:\pano\out-master.png", @"C:\pano\out.png",
-        "keep", "mesh", "auto", engine, ModelsDir, OrtPath);
+        "keep", "mesh", "auto", null, engine, ModelsDir, OrtPath);
 
     [Fact]
     public void FreshSettingsChooseTheClassicalMatcher()
@@ -64,6 +64,28 @@ public class PanoFeatureEngineTests
         Assert.Equal(new[] { "pano", "stitch" }, args.Take(2));
         Assert.Equal(new[] { "--", @"C:\pano\a.dng", "--strategy" }, args.TakeLast(3));
         Assert.Equal(1, args.Count(a => a == "--"));
+    }
+
+    [Theory]
+    [InlineData(PanoFeatureEngine.Classical)]
+    [InlineData(PanoFeatureEngine.Ml)]
+    public void PreviewAndStitchRunTheSameEngine(PanoFeatureEngine engine)
+    {
+        var stitch = PanoStitchCommand.Build(
+            new[] { @"C:\pano\a.dng" }, @"C:\pano\out-master.png", @"C:\pano\out.png",
+            "keep", "mesh", "auto", @"C:\t\alignment-1.json", engine, ModelsDir, OrtPath);
+        var preview = PanoPreviewCommand.Build(
+            new[] { @"C:\pano\a.dng" }, new PanoPreviewFiles(@"C:\t\preview-1.png", @"C:\t\alignment-1.json"),
+            null, new PanoPreviewOptions("keep", "mesh", "auto"), engine, ModelsDir, OrtPath);
+        string? ValueOf(System.Collections.Generic.IReadOnlyList<string> args, string flag)
+        {
+            var at = args.ToList().IndexOf(flag);
+            return at < 0 ? null : args[at + 1];
+        }
+        Assert.Equal(ValueOf(preview.Arguments, "--features-engine"), ValueOf(stitch.Arguments, "--features-engine"));
+        Assert.Equal(ValueOf(preview.Arguments, "--models-dir"), ValueOf(stitch.Arguments, "--models-dir"));
+        Assert.Equal(preview.Environment, stitch.Environment);
+        Assert.Equal(@"C:\t\alignment-1.json", ValueOf(stitch.Arguments, "--alignment-in"));
     }
 
     [Fact]
