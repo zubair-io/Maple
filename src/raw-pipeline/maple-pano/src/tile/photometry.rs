@@ -322,10 +322,13 @@ fn solve_falloff(
         return Ok((vec![0.0; poses.len()], Vec::new()));
     }
     let obs = sample_correspondences(cache, full_dims, poses, canvas, opts)?;
-    let q = estimate_falloff(&obs, &group_of, lenses.labels.len());
-    let q_local = group_of.iter().map(|g| g.map_or(0.0, |g| q[g])).collect();
+    let fits = estimate_falloff(&obs, &group_of, lenses.labels.len());
+    let q_local = group_of
+        .iter()
+        .map(|g| g.map_or(0.0, |g| fits[g].q))
+        .collect();
     let placed: Vec<usize> = poses.iter().map(|p| p.frame_idx).collect();
-    Ok((q_local, lenses.report(&q, &placed)))
+    Ok((q_local, lenses.report(&fits, &placed)))
 }
 
 /// Layer-A joint solve: per-frame log-gains `a_i` (luminance) plus the

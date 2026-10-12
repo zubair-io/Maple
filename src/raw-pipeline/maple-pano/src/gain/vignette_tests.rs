@@ -3,7 +3,7 @@
 use super::fit::fit_pairs;
 use super::solve::solve_from_fits;
 use super::tests::frames_to_tmpdir;
-use super::vignette::{falloff_gain, radius_squared};
+use super::vignette::{estimate_falloff, falloff_gain, radius_squared, Correspondence};
 use super::*;
 use crate::ingest::{FrameMeta, FramePriors, ValidityMask};
 use crate::math::Vec3;
@@ -100,6 +100,7 @@ fn planted_vignette_is_recovered_and_flattened() {
     let solution = solve(&frames, &cams, &one_lens(MULS.len()));
     let q = solution.falloff[0].q as f64;
     assert!((q - PLANTED_Q).abs() < 0.01, "q = {q}, planted {PLANTED_Q}");
+    assert!(solution.falloff[0].estimable, "{:?}", solution.falloff[0]);
     assert_eq!(
         solution.falloff[0].frames,
         (0..MULS.len()).collect::<Vec<_>>()
@@ -292,4 +293,53 @@ fn batch_composite_estimates_and_reports_falloff() {
     let (_, plain) = composite(&frames, &cams, &CompositeOptions::default(), &[]).unwrap();
     assert!(plain.falloff.is_empty());
     assert!(plain.photometry.iter().all(|p| p.falloff_q == 0.0));
+}
+
+/// Synthetic correspondences between 6 frames with per-frame log-gains
+/// and a planted `q`; `r2_of` picks each side's squared radius.
+fn synthetic_correspondences(
+    q: f64,
+    r2_of: impl Fn(f64, f64) -> (f64, f64),
+) -> Vec<Correspondence> {
+    let mut rng = SplitMix64::new(5);
+    let log_gain = |f: usize| 0.1 * f as f64 - 0.25;
+    let lens = |r2: f64| 2.0 * (1.0 + q * r2).ln();
+    (0..4000)
+        .map(|n| {
+            let i = n % 5;
+            let (r2_i, r2_j) = r2_of(rng.next_range(0.0, 2.0), rng.next_range(0.0, 2.0));
+            Correspondence {
+                i,
+                j: i + 1,
+                r2_i,
+                r2_j,
+                log_ratio: log_gain(i) - log_gain(i + 1) + lens(r2_i) - lens(r2_j),
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn falloff_is_not_estimable_when_both_sides_share_a_radius() {
+    let obs = synthetic_correspondences(PLANTED_Q, |a, _| (a, a));
+    let fit = estimate_falloff(&obs, &[Some(0); 6], 1)[0];
+    assert!(!fit.estimable, "{fit:?}");
+    assert_eq!(fit.q, 0.0);
+}
+
+#[test]
+fn negative_falloff_is_measured_but_not_applied() {
+    let obs = synthetic_correspondences(-0.07, |a, b| (a, b));
+    let fit = estimate_falloff(&obs, &[Some(0); 6], 1)[0];
+    assert!(fit.estimable, "{fit:?}");
+    assert!((fit.q_unconstrained + 0.07).abs() < 0.02, "{fit:?}");
+    assert_eq!(fit.q, 0.0);
+}
+
+#[test]
+fn observable_positive_falloff_is_estimable() {
+    let obs = synthetic_correspondences(PLANTED_Q, |a, b| (a, b));
+    let fit = estimate_falloff(&obs, &[Some(0); 6], 1)[0];
+    assert!(fit.estimable && fit.sigma < 0.01, "{fit:?}");
+    assert!((fit.q - PLANTED_Q).abs() < 0.01, "{fit:?}");
 }

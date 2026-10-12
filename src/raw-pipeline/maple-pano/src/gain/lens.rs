@@ -3,6 +3,7 @@
 
 use raw_core::FalloffCorrection;
 
+use super::vignette::FalloffFit;
 use crate::ingest::FrameMeta;
 
 /// Lens identity of each frame that still carries its falloff, as an
@@ -91,30 +92,33 @@ impl LensGroups {
         self.of_frame.iter().any(Option::is_some)
     }
 
-    /// Each frame's `q` from the per-group estimate (0 when corrected at
-    /// ingest).
-    pub(crate) fn q_of_frame(&self, q: &[f64]) -> Vec<f64> {
+    /// Each frame's applied `q` from the per-group estimate (0 when
+    /// corrected at ingest).
+    pub(crate) fn q_of_frame(&self, fits: &[FalloffFit]) -> Vec<f64> {
         self.of_frame
             .iter()
-            .map(|g| g.map_or(0.0, |g| q[g]))
+            .map(|g| g.map_or(0.0, |g| fits[g].q))
             .collect()
     }
 
     /// Report entries for the groups, listing the frames among `frames`
     /// (indices into `of_frame`) that belong to each.
-    pub(crate) fn report(&self, q: &[f64], frames: &[usize]) -> Vec<LensFalloff> {
+    pub(crate) fn report(&self, fits: &[FalloffFit], frames: &[usize]) -> Vec<LensFalloff> {
         self.labels
             .iter()
-            .zip(q)
+            .zip(fits)
             .enumerate()
-            .map(|(g, (lens, q))| LensFalloff {
+            .map(|(g, (lens, fit))| LensFalloff {
                 lens: lens.clone(),
                 frames: frames
                     .iter()
                     .copied()
                     .filter(|f| self.of_frame[*f] == Some(g))
                     .collect(),
-                q: *q as f32,
+                q: fit.q as f32,
+                q_unconstrained: fit.q_unconstrained as f32,
+                q_sigma: fit.sigma as f32,
+                estimable: fit.estimable,
             })
             .collect()
     }
@@ -125,5 +129,15 @@ impl LensGroups {
 pub struct LensFalloff {
     pub lens: String,
     pub frames: Vec<usize>,
+    /// The applied `q`: 0 when not estimable or when the data want a
+    /// negative one (corners brighter), which the model cannot express.
     pub q: f32,
+    /// Linearised `q` without the non-negativity bound.
+    pub q_unconstrained: f32,
+    /// Standard error of `q_unconstrained`.
+    pub q_sigma: f32,
+    /// `false` when the overlaps cannot resolve `q` (too few, or radius
+    /// differences collinear with a gain step); `q` is then 0 by default,
+    /// not a measurement.
+    pub estimable: bool,
 }
