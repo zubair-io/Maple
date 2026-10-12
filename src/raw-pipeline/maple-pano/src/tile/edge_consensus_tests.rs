@@ -144,3 +144,22 @@ fn consistent_strip_keeps_every_edge_and_its_dominant_fit() {
         .iter()
         .all(|e| (e.estimate.transform.ty + 300.0 * (e.b - e.a) as f64).abs() < 3.0));
 }
+
+#[test]
+fn triangle_whose_dominant_fits_disagree_settles_on_a_consistent_set() {
+    let g = graph(
+        3,
+        vec![
+            (0, 1, ground(300.0, 330, 1)),
+            (0, 2, [ground(600.0, 84, 2), alias(720.0, 41, 3)].concat()),
+            (1, 2, [alias(370.0, 295, 4), ground(300.0, 139, 5)].concat()),
+        ],
+    );
+    let edges = verify(&g);
+    let ty = |a, b| edge(&edges, a, b).map(|e| -e.estimate.transform.ty);
+    let (t01, t02, t12) = (ty(0, 1), ty(0, 2), ty(1, 2));
+    assert!(
+        matches!((t01, t02, t12), (Some(a), Some(c), Some(b)) if (a + b - c).abs() < 5.0),
+        "inconsistent bands: 0-1 {t01:?}, 1-2 {t12:?}, 0-2 {t02:?}"
+    );
+}
