@@ -137,9 +137,9 @@ describe('GET /api/search with the in-process engine', () => {
     const phases = (res.headers.get('server-timing') ?? '')
       .split(', ')
       .map((entry) => entry.split(';')[0]);
-    expect(phases).toEqual(['scope', 'engine', 'rows', 'project', 'total']);
+    expect(phases).toEqual(['scope', 'engine', 'rows', 'total']);
     expect(((await res.json()) as { total: number }).total).toBe(3);
-    expect(recorded.waves.map((wave) => wave.length)).toEqual([2, 1, 3]);
+    expect(recorded.waves.map((wave) => wave.length)).toEqual([2, 1, 4]);
   });
 
   it('falls back to the database full-text path while the child is down', async () => {

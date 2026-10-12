@@ -27,8 +27,13 @@
 import { facetStatements, type BoundStatement, type FacetName } from './search.facets.sql.ts';
 import { facetRowsOf } from './search.facets.top.ts';
 import type { SearchWhere } from './search.where.ts';
-import { firstRanked, mapleIdRowsSql, someMatchesSql, type RankedAsset } from './search.ranked.ts';
-import { textCount, textOnly } from './search.text-count.ts';
+import {
+  ftsRanker,
+  mapleIdRowsSql,
+  rankWindow,
+  RANKED_WINDOW_BASE,
+  type RankedAsset,
+} from './search.ranked.ts';
 import { cachedFacets } from './search.facets.cache.ts';
 import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
 import type { SqlRow } from '../sqlite/protocol.ts';
@@ -68,21 +73,8 @@ export interface SearchFacets {
 }
 
 /**
- * The most relevant matches a broad text search's facets describe (#4431).
- *
- * A text query matching more assets than this is faceted over its first
- * `FACET_TOP_MATCHES` results in the list's own order — best `bm25()` score,
- * then newest capture, then id — rather than over every match. Counting every
- * match of "group of people standing in front of the ocean" meant reading
- * 98,635 asset rows per facet on production, about six seconds in all; the
- * best two thousand cost a few milliseconds per facet.
- *
- * The trade-off, plainly: for such a query the buckets say "among the 2,000
- * best matches, 312 were shot on a Canon", not "312 of all 98,635 matches
- * were". A camera, place or person that appears only among the weaker matches
- * gets no bucket. `total` stays the exact number of matches, so a client can
- * tell the two apart through {@link FacetScope}. A query matching this many or
- * fewer is faceted over every match, exactly as before.
+ * How many of Meilisearch's best matches a text search's facets describe (#4431); the other
+ * engines facet their ranked window (`search.ranked.ts`), the same rows the list pages through.
  */
 export const FACET_TOP_MATCHES = 2_000;
 
@@ -101,8 +93,6 @@ export interface ExternalRanking {
 
 /** How a text search's facets choose the matches they describe. */
 export interface FacetOptions {
-  /** How many of the most relevant matches; the tests cross it on small libraries. */
-  topMatches?: number;
   /**
    * The list's own ranking when another engine serves this search — absent
    * when it does not, so the database ranking is the answer and is cached as
@@ -120,9 +110,9 @@ export interface FacetOptions {
 /**
  * What the facet buckets count.
  *
- * `all` — every match, which is every search without text and every text
- * search with at most {@link FACET_TOP_MATCHES} matches. `top` — only the
- * first `limit` results of `of` matches. Clients that do not read the field
+ * `all` — every row of the `total`: every match of a search without text, the
+ * ranked window of one with text. `top` — only Meilisearch's first `limit`
+ * results of its `of` estimated matches. Clients that do not read the field
  * see the shape they always did; one that does should label the buckets
  * "in the 2,000 most relevant of 98,635 results".
  */
@@ -215,20 +205,10 @@ interface FacetAnswer {
 }
 
 /**
- * Every facet's rows, with a text query's matches resolved once rather than
- * once per facet, and a broad one cut to its most relevant matches.
- *
- * A full-text search reaches every facet through the same join — the inverted
- * index, `asset_search`, then `assets` — and that join was the whole cost of a
- * facet (#4413), so the assets to group are resolved once and each grouping
- * becomes a keyed probe per asset. Resolving every match stopped paying off at
- * around a hundred thousand of them, where the probes themselves cost seconds,
- * so the set is now the first {@link FACET_TOP_MATCHES} results of the list
- * (#4431) — which, for a search with no more matches than that, is every
- * match, exactly the set it always was. The total is the exact match count.
- *
- * A search without text keeps the statements as they were: each of them
- * already reads one index, or one join the planner has been measured on.
+ * Every facet's rows. A text search's are the rows of its ranked window — the database's, when no
+ * other engine ranked it — so the facets count exactly the photos the list shows and no statement
+ * joins the whole match set (#4514). A search without text keeps the statements as they were:
+ * each reads one index, or one join the planner has been measured on.
  */
 async function facetRows(
   db: SqliteDb,
@@ -242,28 +222,13 @@ async function facetRows(
       ranking: 'database',
     };
   }
-  const topMatches = options.topMatches ?? FACET_TOP_MATCHES;
   const external = options.ranking ? await options.ranking() : null;
   if (external) return externallyRankedRows(db, where, external);
-  if (!textOnly(where)) {
-    const few = await fewMatches(db, where, topMatches);
-    if (few) {
-      return {
-        rows: { ...(await facetRowsOf(db, few)), total: [{ n: few.length }] },
-        scope: { kind: 'all' },
-        ranking: 'database',
-      };
-    }
-  }
-  // The count runs beside the ranking: the first rows of the list are every
-  // match when there are no more than `topMatches`, so it only decides the label.
-  const [total, rows] = await Promise.all([
-    textCount(db, where),
-    firstRanked(db, where, topMatches).then((ranked) => facetRowsOf(db, ranked)),
-  ]);
+  const window = await rankWindow(ftsRanker(where, db), RANKED_WINDOW_BASE);
+  const ranked = window?.rows ?? [];
   return {
-    rows: { ...rows, total: [{ n: total }] },
-    scope: total > topMatches ? { kind: 'top', limit: topMatches, of: total } : { kind: 'all' },
+    rows: { ...(await facetRowsOf(db, ranked)), total: [{ n: ranked.length }] },
+    scope: { kind: 'all' },
     ranking: 'database',
   };
 }
@@ -303,20 +268,6 @@ async function externallyRankedRows(
 }
 
 /**
- * Every match of a filtered text search, when there are at most `limit` —
- * otherwise null, and the search is broad enough to rank. See `someMatchesSql`.
- */
-async function fewMatches(
-  db: SqliteDb,
-  where: SearchWhere,
-  limit: number,
-): Promise<RankedAsset[] | null> {
-  const some = someMatchesSql(where, limit + 1);
-  const rows = await readBulk<RankedAsset>(db, some.sql, some.params);
-  return rows.length <= limit ? rows : null;
-}
-
-/**
  * Every facet for one translated search.
  *
  * The twelve statements are issued together rather than in sequence: they share
@@ -334,7 +285,6 @@ export async function searchFacets(
   options: FacetOptions = {},
 ): Promise<SearchFacets> {
   const db = assetsDb(dbOverride);
-  const topMatches = options.topMatches ?? FACET_TOP_MATCHES;
   if (where.match.kind !== 'match') return (await computeFacets(db, where, options)).facets;
   // Cached under the ranking asked for, and kept only when that ranking
   // answered: a database fallback for a failed Meilisearch request is served
@@ -342,7 +292,7 @@ export async function searchFacets(
   const wanted = options.ranking ? 'external' : 'database';
   const answer = await cachedFacets(
     db,
-    [where, topMatches, wanted, options.rankedBy ?? null],
+    [where, wanted, options.rankedBy ?? null],
     () => computeFacets(db, where, options),
     Date.now(),
     (computed) => computed.ranking === wanted && computed.rankedBy === options.rankedBy,

@@ -272,6 +272,11 @@ export function mapleIdPageSql(where: SearchWhere, mapleIds: readonly string[]):
   });
 }
 
+/** The page columns of already-filtered ids, read by primary key. */
+export function pageColumnsByIdsSql(count: number): string {
+  return `SELECT ${PAGE_COLUMNS} FROM assets WHERE assets.id IN (${placeholders(count)})`;
+}
+
 /** Rows for stored ids under the live filters; the text match is stripped as in {@link mapleIdPageSql}. */
 export function idPageSql(where: SearchWhere, ids: readonly string[]): BoundStatement {
   return statement(PAGE_COLUMNS, { ...where, match: { kind: 'none' } }, '', {
@@ -379,19 +384,26 @@ export function phassetLinksByAssetIdsSql(count: number): string {
  *
  * It answers with `maple_id` rather than an asset id, because that is the
  * identifier the Meilisearch index it stands in for is keyed on. Assets with no
- * `maple_id` are dropped here rather than in the caller — the Mongo version
- * projects the field and filters out non-strings afterwards, which is the same
- * set.
+ * `maple_id` are dropped here rather than in the caller.
+ *
+ * The text is ranked on the inverted index alone and only its best `depth` hits
+ * are joined to `assets` and scoped (#4514): a broad query matches most of the
+ * library, and joining every match to sort it cost a row read per match.
  */
 export function serviceTextSearchSql(scope: string): string {
   return `
-  SELECT assets.maple_id AS maple_id, ${FTS_RANK_SQL}
-    FROM assets_fts
-    JOIN asset_search ON asset_search.rowid = +assets_fts.rowid
-    JOIN assets ON assets.id = asset_search.asset_id
-   WHERE assets_fts MATCH ?
-     AND ${QUALIFIED_LIVE_PREDICATE}
+  WITH hit AS MATERIALIZED (
+    SELECT assets_fts.rowid AS sr, ${FTS_RANK_SQL}
+      FROM assets_fts
+     WHERE assets_fts MATCH ?
+     ORDER BY ${FTS_RANK_ORDER}
+     LIMIT ?)
+  SELECT assets.maple_id AS maple_id
+    FROM hit
+    CROSS JOIN asset_search ON asset_search.rowid = hit.sr
+    CROSS JOIN assets ON assets.id = asset_search.asset_id
+   WHERE ${QUALIFIED_LIVE_PREDICATE}
      AND assets.maple_id IS NOT NULL AND assets.maple_id <> ''${scope}
-   ORDER BY ${FTS_RANK_ORDER}
+   ORDER BY hit.rank ASC
    LIMIT ?`;
 }

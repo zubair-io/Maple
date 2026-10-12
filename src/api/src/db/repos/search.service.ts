@@ -28,9 +28,10 @@
 import { placeholders } from './values.ts';
 import { toTextFilter } from './search.fts.ts';
 import { serviceTextSearchSql } from './search.sql.ts';
+import { RANKED_WINDOW_MAX } from './search.ranked.ts';
 import { likeLiteral } from './search.terms.ts';
 import { QUALIFIED_LIVE_PREDICATE } from './search.where.ts';
-import { assetsDb, type SqliteDb } from './db-handle.ts';
+import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
 import type { SqlValue } from '../sqlite/protocol.ts';
 
 /** The media kinds a caller can ask to be limited to. */
@@ -154,7 +155,7 @@ export async function serviceLexicalSearch(
 ): Promise<ServiceSearchHits> {
   const db = assetsDb(dbOverride);
   const bound = scopeClauses(scope);
-  const exactRows = await db.read<{ maple_id: string }>(exactFilenameSql(bound), [
+  const exactRows = await readBulk<{ maple_id: string }>(db, exactFilenameSql(bound), [
     likeLiteral(query),
     ...bound.params,
     limit,
@@ -173,8 +174,9 @@ export async function serviceLexicalSearch(
 
   // The same scope clauses go into both statements, so the ranked pass and the
   // exact pass see the same universe of assets.
-  const ranked = await db.read<{ maple_id: string }>(serviceTextSearchSql(bound.sql), [
+  const ranked = await readBulk<{ maple_id: string }>(db, serviceTextSearchSql(bound.sql), [
     match.expression,
+    RANKED_WINDOW_MAX,
     ...bound.params,
     limit,
   ]);

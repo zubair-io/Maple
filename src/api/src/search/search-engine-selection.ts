@@ -13,15 +13,16 @@ import {
 } from '../enrichment/enrichment-config.repo.ts';
 import { child as childLogger } from '../log.ts';
 import { searchChildConfig } from './search-child-config.ts';
-import { inProcessSearch, searchChildPool, stopSearchChildPool } from './search-pool.ts';
+import { inProcessRanker, searchChildPool, stopSearchChildPool } from './search-pool.ts';
 import type { FusedSearchHit } from './search-engine-ffi.ts';
+import { RANKED_WINDOW_BASE } from '../db/repos/search.ranked.ts';
 
 export const SEARCH_ENGINES = ['meilisearch', 'in-process'] as const;
 export type SearchEngineName = (typeof SEARCH_ENGINES)[number];
 const DEFAULT_SEARCH_ENGINE: SearchEngineName = 'meilisearch';
 
-/** How many fused hits a search asks the child for; filters and paging apply to these. */
-const IN_PROCESS_CANDIDATES = 100;
+/** How many fused hits a search asks the child for by default; filters and paging apply to these. */
+const IN_PROCESS_CANDIDATES = RANKED_WINDOW_BASE;
 
 const SELECTION_TTL_MS = 5_000;
 const log = childLogger('search-engine');
@@ -61,12 +62,20 @@ export async function startSelectedSearchEngine(): Promise<void> {
 }
 
 /**
- * The child's fused ranking for `query`, or null when Meilisearch is selected or the child cannot
+ * The child's fused top `k` for `query`, or null when Meilisearch is selected or the child cannot
  * answer — the caller then takes today's path.
  */
-export async function inProcessRanking(query: string): Promise<FusedSearchHit[] | null> {
+export async function inProcessRanking(
+  query: string,
+  k: number = IN_PROCESS_CANDIDATES,
+): Promise<FusedSearchHit[] | null> {
   if ((await selectedSearchEngine()) !== 'in-process') return null;
-  return (await inProcessSearch()?.search(query, IN_PROCESS_CANDIDATES)) ?? null;
+  return (await inProcessRanker()?.search(query, k)) ?? null;
+}
+
+/** Whether Settings → AI selects the in-process engine, whether or not it is answering yet. */
+export async function inProcessSelected(): Promise<boolean> {
+  return (await selectedSearchEngine()) === 'in-process';
 }
 
 export function resetSearchEngineSelectionForTests(): void {

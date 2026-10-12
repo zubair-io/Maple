@@ -21,8 +21,11 @@
  * keeps a large `total` from appearing above an empty grid, the failure the
  * Meilisearch branch shipped once (#2928).
  *
- * Related modules: `list-meili.ts` (the Meilisearch branch and its database
- * fallback contract), `total-cache.ts` (the 30 s `total` cache).
+ * A free-text request is answered from its ranked window instead (`list-ranked.ts`, #4514):
+ * `total` is the window's size and `more` says whether a deeper page can widen it.
+ *
+ * Related modules: `list-ranked.ts` (the free-text branch), `list-meili.ts` (the Meilisearch
+ * branch), `total-cache.ts` (the 30 s `total` cache of a structured search).
  */
 
 import { Elysia } from 'elysia';
@@ -33,8 +36,8 @@ import { appliedDateFilter } from './date-provenance.ts';
 import { SORT_OPTIONS } from './sort.ts';
 import { cursorFromDoc, encodeCursor } from './cursor.ts';
 import { libraryMaps } from './libraries.ts';
-import { meiliPage, usesPlaceText } from './list-meili.ts';
-import { inProcessPage } from './list-in-process.ts';
+import { usesPlaceText } from './list-meili.ts';
+import { rankedListPage } from './list-ranked.ts';
 import { resolveRankedScope } from './scope.ts';
 import { resolvePaging } from './list-paging.ts';
 import { getCachedTotal } from './total-cache.ts';
@@ -68,11 +71,8 @@ export const listRoute = new Elysia().get(
     const page = clampInt(query.page, 0, 10_000, 0);
     const limit = clampInt(query.limit, 1, 500, 100);
 
-    // A residual placeQuery turns the page into a relevance-ranked one: the
-    // translated query carries the full-text match and `searchPage` orders by
-    // `bm25()`, tie-breaking on captured_at desc then id for stability. A
-    // pure-date query ("2023") has an empty residual placeQuery here, so it
-    // bypasses both the Meili path and the full-text path and runs as a plain
+    // A residual placeQuery turns the page into a relevance-ranked one, served from its ranked
+    // window below. A pure-date query ("2023") has an empty residual and runs as a plain
     // structured filter on `captured_at`.
     const usingPlaceText = usesPlaceText(resolved);
     const sort = query.sort && SORT_OPTIONS.has(query.sort) ? query.sort : 'captured_desc';
@@ -103,24 +103,22 @@ export const listRoute = new Elysia().get(
       };
     }
 
-    // A placeQuery is ranked by the in-process engine when Settings → AI selects it, else by
-    // Meilisearch when the sidecar is configured; `null` from either means not selected,
-    // not configured or failed, and we fall through to the next, ending at the database's own
-    // full-text path (the source of truth).
-    const ranked =
-      (await inProcessPage({ where, childQuery, skip: paging.skip, limit, timing })) ??
-      (await meiliPage({
+    // A placeQuery is answered from its ranked window (`list-ranked.ts`): an engine ranks the
+    // text, SQL filters its hits, and `total` is the window's size — never a count of every match.
+    if (childQuery !== null) {
+      const ranked = await rankedListPage({
         where,
         resolved,
+        childQuery,
         libraryId: query.libraryId,
         skip: paging.skip,
         limit,
         timing,
-      }));
-    if (ranked) {
+      });
       set.headers['server-timing'] = timing.header();
       return {
         total: ranked.total,
+        more: ranked.more,
         page,
         limit,
         results: ranked.results,

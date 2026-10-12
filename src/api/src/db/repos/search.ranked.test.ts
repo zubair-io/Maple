@@ -1,25 +1,28 @@
 /**
- * How far the score-only pass widens before it gives up (#4431).
+ * The ranked window (#4514): which rows it holds, how far it widens, and what `more` says.
  *
- * On the production snapshot a selective filter (`rating=4`, 1 survivor among
- * 4,000 hits) widened by its survival rate twice, ranking and probing most of
- * the library each time: 9.4 s against 0.55 s for the full statement. A filter
- * that keeps a fair share of the hits should still be answered by one wider
- * pass; one that keeps almost none should go straight to the full statement.
- * Either way the rows are the list's first rows.
+ * The bound is the point. A window never counts or joins the whole match set: it ranks the text
+ * on the inverted index alone, joins only its best hits, widens at most once and never past
+ * `RANKED_WINDOW_MAX` — so a filter that keeps almost nothing answers a short window, not a
+ * statement over every match (the fallback #4431 had, and the shape that pinned production).
  */
 
-import { expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import {
   createTestDatabase,
   insertFolder,
   testSqliteDb,
 } from '../sqlite/test-sqlite.test-helpers.ts';
-import { FTS_RANK_SQL } from './search.fts.ts';
-import { firstRanked } from './search.ranked.ts';
-import { searchFacets } from './search.facets.ts';
-import { facetStatements } from './search.facets.sql.ts';
+import { FTS_RANK_ORDER, FTS_RANK_SQL } from './search.fts.ts';
+import {
+  ftsRanker,
+  RANKED_WINDOW_BASE,
+  RANKED_WINDOW_MAX,
+  rankWindow,
+  type WindowPass,
+  type WindowRanker,
+} from './search.ranked.ts';
 import { statement } from './search.sql.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
 import { seedSearchAsset } from './search.test-helpers.ts';
@@ -60,16 +63,24 @@ function translate(q: SearchQuery): SearchWhere {
   return built;
 }
 
-function listHead(db: Database, where: SearchWhere, k: number): number[] {
-  const head = statement(
+/** The best `depth` hits on the inverted index that pass `where`, by the window's own order. */
+function expectedWindow(db: Database, where: SearchWhere, depth: number): number[] {
+  if (where.match.kind !== 'match') return [];
+  const hits = db
+    .query(
+      `SELECT rowid FROM assets_fts WHERE assets_fts MATCH ? ORDER BY bm25(assets_fts) LIMIT ?`,
+    )
+    .all(where.match.expression, depth) as Array<{ rowid: number }>;
+  const survivors = statement(
     `assets.rowid AS r, ${FTS_RANK_SQL}`,
     where,
-    'ORDER BY rank ASC, assets.captured_at DESC, assets.id LIMIT ?',
-    undefined,
-    [k],
+    `ORDER BY ${FTS_RANK_ORDER}, assets.captured_at DESC, assets.id`,
+    { sql: 'asset_search.rowid IN (SELECT value FROM json_each(?))', params: [] },
+    [JSON.stringify(hits.map((hit) => hit.rowid))],
   );
-  const rows = db.query(head.sql).all(...(head.params as never[])) as Array<{ r: number }>;
-  return rows.map((row) => row.r).sort((a, b) => a - b);
+  return (
+    db.query(survivors.sql).all(...(survivors.params as never[])) as Array<{ r: number }>
+  ).map((row) => row.r);
 }
 
 function recording(db: Database): { handle: SqliteDb; issued: string[] } {
@@ -88,107 +99,126 @@ function recording(db: Database): { handle: SqliteDb; issued: string[] } {
   };
 }
 
-const passes = (issued: string[]) => issued.filter((sql) => sql.includes('WITH hit AS')).length;
-const fullStatements = (issued: string[]) =>
-  issued.filter((sql) => sql.includes('WITH ranked AS')).length;
-
-test('a selective filter goes straight to the full statement after one pass', async () => {
-  await withLibrary(async (db) => {
-    const where = translate({
-      placeQuery: 'group of people standing in front of the ocean',
-      flag: 'pick',
-    });
-    const { handle, issued } = recording(db);
-    const rows = await firstRanked(handle, where, 50);
-    expect(rows.map((row) => row.r).sort((a, b) => a - b)).toEqual(listHead(db, where, 50));
-    expect(rows).toHaveLength(2);
-    expect({ passes: passes(issued), full: fullStatements(issued) }).toEqual({
-      passes: 1,
-      full: 1,
-    });
-  });
-});
-
-test('a filter keeping a fair share of the hits is answered by one wider pass', async () => {
-  await withLibrary(async (db) => {
-    const where = translate({
-      placeQuery: 'group of people standing in front of the ocean',
-      rating: '4',
-    });
-    const { handle, issued } = recording(db);
-    const rows = await firstRanked(handle, where, 50);
-    expect(rows.map((row) => row.r).sort((a, b) => a - b)).toEqual(listHead(db, where, 50));
-    expect(rows).toHaveLength(50);
-    expect({ passes: passes(issued), full: fullStatements(issued) }).toEqual({
-      passes: 2,
-      full: 0,
-    });
-  });
-});
-
-test('no filter: one pass', async () => {
-  await withLibrary(async (db) => {
-    const where = translate({ placeQuery: 'group of people standing in front of the ocean' });
-    const { handle, issued } = recording(db);
-    const rows = await firstRanked(handle, where, 50);
-    expect(rows.map((row) => row.r).sort((a, b) => a - b)).toEqual(listHead(db, where, 50));
-    expect({ passes: passes(issued), full: fullStatements(issued) }).toEqual({
-      passes: 1,
-      full: 0,
-    });
-  });
-});
-
-test("a selective filter's facets are its matches, read once, with no ranking", async () => {
-  await withLibrary(async (db) => {
-    const where = translate({
-      placeQuery: 'group of people standing in front of the ocean',
-      flag: 'pick',
-    });
-    const { handle, issued } = recording(db);
-    const facets = await searchFacets(where, handle, { topMatches: 50 });
-    expect(facets.total).toBe(2);
-    expect(facets.scope).toEqual({ kind: 'all' });
-    const direct = facetStatements(where).cameras;
-    const cameras = db.query(direct.sql).all(...(direct.params as never[])) as Array<{
-      count: number;
-    }>;
-    expect(facets.cameras.reduce((sum, row) => sum + row.count, 0)).toBe(
-      cameras.reduce((sum, row) => sum + row.count, 0),
-    );
-    // One read of the matches, then `assets` and the four side tables.
-    expect({ passes: passes(issued), full: fullStatements(issued), all: issued.length }).toEqual({
-      passes: 0,
-      full: 0,
-      all: 6,
-    });
-  });
-});
-
-test('a tie thousands wide at the cutoff goes to the full statement after one pass', async () => {
-  using handle = await createTestDatabase();
-  const libraryId = insertFolder(handle.db, { slug: 'tied' });
-  // Thirty short captions score best; then two thousand assets share one
-  // caption and score exactly alike; a few hundred others match one word.
-  // A first pass of 100 hits keeps the thirty and stops inside the tie, so
-  // widening by the survival rate would land inside it again.
-  for (let index = 0; index < 2_330; index++) {
-    seedSearchAsset(handle.db, libraryId, {
-      searchBlob:
-        index < 30
-          ? 'harbour lantern'
-          : index < 2_030
-            ? 'harbour lantern night'
-            : `harbour ${'x'.repeat(1 + (index % 29))}${index}`,
-      capturedAt: `2024-0${(index % 9) + 1}-1${index % 10}T10:00:00.000Z`,
+describe("the database's window", () => {
+  for (const q of [
+    { placeQuery: 'group of people standing in front of the ocean' },
+    { placeQuery: 'group of people', rating: '4' },
+    { placeQuery: 'standing', hidden: 'all' },
+  ] as SearchQuery[]) {
+    test(`is the best hits that pass the filters, in rank order: ${JSON.stringify(q)}`, async () => {
+      await withLibrary(async (db) => {
+        const where = translate(q);
+        for (const depth of [1, 7, 50, 400]) {
+          const pass = (await ftsRanker(where, testSqliteDb(db))(depth))!;
+          expect({ depth, rows: pass.rows.map((row) => row.r) }).toEqual({
+            depth,
+            rows: expectedWindow(db, where, depth),
+          });
+          expect(pass.considered).toBeLessThanOrEqual(depth);
+        }
+      });
     });
   }
-  for (let index = 0; index < 400; index++) {
-    seedSearchAsset(handle.db, libraryId, { searchBlob: `meadow ${index}` });
-  }
-  const where = translate({ placeQuery: 'harbour lantern' });
-  const { handle: recorded, issued } = recording(handle.db);
-  const rows = await firstRanked(recorded, where, 50);
-  expect(rows.map((row) => row.r).sort((a, b) => a - b)).toEqual(listHead(handle.db, where, 50));
-  expect({ passes: passes(issued), full: fullStatements(issued) }).toEqual({ passes: 1, full: 1 });
+
+  test('a selective filter widens once, bounded, and never reads every match joined', async () => {
+    await withLibrary(async (db) => {
+      const where = translate({
+        placeQuery: 'group of people standing in front of the ocean',
+        flag: 'pick',
+      });
+      const { handle, issued } = recording(db);
+      const window = (await rankWindow(ftsRanker(where, handle), RANKED_WINDOW_BASE))!;
+      expect(window.rows).toHaveLength(2);
+      expect(window.more).toBe(false);
+      expect(issued).toHaveLength(2);
+      expect(issued.every((sql) => sql.includes('WITH hit AS MATERIALIZED'))).toBe(true);
+      expect(issued.some((sql) => /COUNT\(\*\)\s+AS n/.test(sql))).toBe(false);
+    });
+  });
+
+  test('a text no row can match answers an empty window without a statement', async () => {
+    await withLibrary(async (db) => {
+      const { handle, issued } = recording(db);
+      const window = await rankWindow(ftsRanker(translate({ placeQuery: '-ocean' }), handle), 30);
+      expect(window).toEqual({ rows: [], more: false, semantic: new Set() });
+      expect(issued).toEqual([]);
+    });
+  });
+});
+
+/** A ranker over `matches` hits of which every `keepEvery`-th passes the filters. */
+function syntheticRanker(
+  matches: number,
+  keepEvery: number,
+): { ranker: WindowRanker; depths: number[] } {
+  const depths: number[] = [];
+  const ranker: WindowRanker = async (depth) => {
+    depths.push(depth);
+    const considered = Math.min(depth, matches);
+    const rows = Array.from({ length: considered }, (_, index) => index)
+      .filter((index) => index % keepEvery === 0)
+      .map((index) => ({ r: index, id: `id${index}`, maple_id: `m${index}`, owner_id: null }));
+    return { rows, considered } satisfies WindowPass;
+  };
+  return { ranker, depths };
+}
+
+describe('the window policy', () => {
+  test('starts at the base depth and reports more when the engine filled it', async () => {
+    const { ranker, depths } = syntheticRanker(10_000, 1);
+    const window = (await rankWindow(ranker, 30))!;
+    expect(depths).toEqual([RANKED_WINDOW_BASE]);
+    expect(window.rows).toHaveLength(RANKED_WINDOW_BASE);
+    expect(window.more).toBe(true);
+  });
+
+  test('goes as deep as the page asked for', async () => {
+    const { ranker, depths } = syntheticRanker(10_000, 1);
+    const window = (await rankWindow(ranker, 700))!;
+    expect(depths).toEqual([700]);
+    expect(window.rows).toHaveLength(700);
+  });
+
+  test('a window the engine did not fill is every match: no more, no widening', async () => {
+    const { ranker, depths } = syntheticRanker(40, 3);
+    const window = (await rankWindow(ranker, 30))!;
+    expect(depths).toEqual([RANKED_WINDOW_BASE]);
+    expect(window.rows).toHaveLength(14);
+    expect(window.more).toBe(false);
+  });
+
+  test('widens once by the survival rate when a full window leaves the page short', async () => {
+    const { ranker, depths } = syntheticRanker(10_000, 10);
+    const window = (await rankWindow(ranker, 100))!;
+    expect(depths).toEqual([100, 1_500]);
+    expect(window.rows).toHaveLength(150);
+    expect(window.more).toBe(true);
+  });
+
+  test('never goes past the cap, and says there is no more to widen into there', async () => {
+    const { ranker, depths } = syntheticRanker(1_000_000, 1_000);
+    const window = (await rankWindow(ranker, 100))!;
+    expect(depths).toEqual([100, RANKED_WINDOW_MAX]);
+    expect(window.rows).toHaveLength(5);
+    expect(window.more).toBe(false);
+
+    const deep = syntheticRanker(1_000_000, 1);
+    const capped = (await rankWindow(deep.ranker, 50_000))!;
+    expect(deep.depths).toEqual([RANKED_WINDOW_MAX]);
+    expect(capped.more).toBe(false);
+  });
+
+  test('an engine that cannot answer answers null; one that fails to widen keeps its first pass', async () => {
+    expect(await rankWindow(async () => null, 30)).toBeNull();
+    const calls: number[] = [];
+    const flaky: WindowRanker = async (depth) => {
+      calls.push(depth);
+      return calls.length === 1
+        ? { rows: [{ r: 1, id: 'a', maple_id: 'a', owner_id: null }], considered: depth }
+        : null;
+    };
+    const window = (await rankWindow(flaky, 100))!;
+    expect(window.rows).toHaveLength(1);
+    expect(window.more).toBe(true);
+  });
 });
