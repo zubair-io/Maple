@@ -118,10 +118,13 @@ public struct PanoResult: Sendable {
     public let outputURL: URL
     /// One-paragraph human-readable summary produced by the stitcher.
     public let reportSummary: String
+    /// Whether the run started from an offered preview alignment.
+    public let alignmentOutcome: PanoAlignmentOutcome
 
-    public init(outputURL: URL, reportSummary: String) {
+    public init(outputURL: URL, reportSummary: String, alignmentOutcome: PanoAlignmentOutcome = .solved) {
         self.outputURL = outputURL
         self.reportSummary = reportSummary
+        self.alignmentOutcome = alignmentOutcome
     }
 }
 
@@ -151,11 +154,25 @@ public protocol PanoStitching: AnyObject, Sendable {
     ///     progress if needed.
     /// - Returns: A `PanoResult` describing the output file and run summary.
     /// - Throws: Any error from the stitching pipeline.
+    ///   - alignment: A preview's solved alignment. Reused when it still
+    ///     matches the inputs and geometry options, so matching is skipped;
+    ///     otherwise the stitch re-solves and reports `.stale`.
     func stitch(
         assets: [AssetRef],
         options: PanoOptions,
+        alignment: PanoAlignment?,
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult
+
+    /// Build a quick low-resolution preview (~2048 px long edge) and the
+    /// solved alignment the full stitch can start from. Cancelling the
+    /// calling task stops the run and throws `CancellationError`.
+    func preview(
+        assets: [AssetRef],
+        options: PanoOptions,
+        alignment: PanoAlignment?,
+        progress: @escaping @MainActor (PanoStage, Double) -> Void
+    ) async throws -> PanoPreview
 
     /// Request cancellation of the in-progress stitch. The running `stitch`
     /// call should throw `CancellationError` as soon as possible after this.

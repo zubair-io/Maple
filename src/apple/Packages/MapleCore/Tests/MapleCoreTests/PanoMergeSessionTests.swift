@@ -25,6 +25,7 @@ private final class SynchronousMockStitcher: PanoStitching {
     func stitch(
         assets: [AssetRef],
         options: PanoOptions,
+        alignment: PanoAlignment?,
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult {
         cancelledFlag = false
@@ -40,6 +41,14 @@ private final class SynchronousMockStitcher: PanoStitching {
         // Write a trivially small file so outputURL is non-nil on disk.
         try Data("mock".utf8).write(to: url)
         return PanoResult(outputURL: url, reportSummary: "test summary")
+    }
+    func preview(
+        assets: [AssetRef],
+        options: PanoOptions,
+        alignment: PanoAlignment?,
+        progress: @escaping @MainActor (PanoStage, Double) -> Void
+    ) async throws -> PanoPreview {
+        throw TestStitcherError.deliberate
     }
 }
 
@@ -202,11 +211,21 @@ private final class CancellableSpyStitcher: PanoStitching {
     func stitch(
         assets: [AssetRef],
         options: PanoOptions,
+        alignment: PanoAlignment?,
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult {
         // Yield once so this Task is properly "started" in the cooperative
         // scheduler, then exit cleanly.  The generation counter in
         // PanoMergeSession means this throw never touches session.state.
+        await Task.yield()
+        throw CancellationError()
+    }
+    func preview(
+        assets: [AssetRef],
+        options: PanoOptions,
+        alignment: PanoAlignment?,
+        progress: @escaping @MainActor (PanoStage, Double) -> Void
+    ) async throws -> PanoPreview {
         await Task.yield()
         throw CancellationError()
     }
