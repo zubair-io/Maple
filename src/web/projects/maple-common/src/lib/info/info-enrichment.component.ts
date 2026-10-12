@@ -51,6 +51,7 @@ import {
 import { MuiEnrichmentPanelComponent } from '../ui/enrichment-panel/mui-enrichment-panel.component';
 import { InfoVisionComponent } from './info-vision.component';
 import { InfoTranscriptComponent } from './info-transcript.component';
+import { InfoMirrorsComponent } from './info-mirrors.component';
 import {
   REFRESH_POLL_MS,
   REFRESH_TIMEOUT_MS,
@@ -67,7 +68,12 @@ import {
 @Component({
   selector: 'app-info-enrichment',
   standalone: true,
-  imports: [MuiEnrichmentPanelComponent, InfoVisionComponent, InfoTranscriptComponent],
+  imports: [
+    MuiEnrichmentPanelComponent,
+    InfoVisionComponent,
+    InfoTranscriptComponent,
+    InfoMirrorsComponent,
+  ],
   templateUrl: './info-enrichment.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
