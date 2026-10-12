@@ -22,7 +22,7 @@
 //!
 //! # Memory-bounded tiled path (`composite_tiled`, M6-D #1248)
 //!
-//! [`composite_tiled`] accepts already-solved gains and a `tile_rows` height
+//! [`composite_tiled`] accepts already-solved photometry and a `tile_rows` height
 //! for the strip decomposition. It decodes source frames on demand (one at a
 //! time) using the supplied file paths, warping each frame into one strip's
 //! blend window and freeing the decoded pixels before moving to the next
@@ -51,7 +51,7 @@ use crate::blend::{blend_multiband, levels_for_overlap_width};
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, CanvasSpec};
 use crate::error::PanoError;
-use crate::gain::{solve_gains, GainOptions};
+use crate::gain::{solve_photometry, FramePhotometry, GainOptions};
 use crate::ingest::PlanarImage;
 use crate::local_align::LocalCorrection;
 use crate::project::Projection;
@@ -76,7 +76,7 @@ pub struct CompositeOptions {
 pub struct CompositeReport {
     pub canvas: CanvasSpec,
     pub projection: Projection,
-    pub gains: Vec<[f32; 3]>,
+    pub photometry: Vec<FramePhotometry>,
     pub blend_levels: usize,
     /// Average overlap width (px) of the narrowest overlapping pair —
     /// the input to the band-count rule.
@@ -122,12 +122,12 @@ pub fn composite(
     }
 
     let canvas = auto_canvas(cameras, &opts.canvas)?;
-    let gains = solve_gains(frames, cameras, &opts.gain)?;
+    let photometry = solve_photometry(frames, cameras, &opts.gain)?;
 
     let layers: Vec<PlanarImage> = frames
         .iter()
         .zip(cameras)
-        .zip(&gains)
+        .zip(&photometry)
         .enumerate()
         .map(|(i, ((f, c), &g))| {
             let la = local_corrections.get(i).and_then(|opt| opt.as_ref());
@@ -165,7 +165,7 @@ pub fn composite(
         CompositeReport {
             canvas,
             projection,
-            gains,
+            photometry,
             blend_levels: levels,
             min_overlap_width_px: min_overlap,
             seam_strategy: opts.seam_strategy,
@@ -324,7 +324,7 @@ mod tests {
             .collect()
     }
 
-    /// `composite_tiled_frames` must reproduce `composite` (same gains, same
+    /// `composite_tiled_frames` must reproduce `composite` (same photometry, same
     /// automatic band count) at more than one strip height.
     #[test]
     fn composite_tiled_frames_equals_composite() {
@@ -342,7 +342,7 @@ mod tests {
         let (ref_img, ref_report) =
             composite(&frames, &cams, &ref_opts, &no_lc).expect("composite");
 
-        let gains = ref_report.gains.clone();
+        let photometry = ref_report.photometry.clone();
         assert!(
             ref_report.blend_levels > 1,
             "test must exercise a real pyramid"
@@ -352,7 +352,7 @@ mod tests {
             let (tiled_img, tiled_report) = composite_tiled_frames(
                 &frames,
                 &cams,
-                &gains,
+                &photometry,
                 &no_lc,
                 &canvas,
                 strip_rows,

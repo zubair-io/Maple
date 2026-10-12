@@ -29,6 +29,7 @@ use crate::blend::levels_for_overlap_width;
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
 use crate::error::PanoError;
+use crate::gain::FramePhotometry;
 use crate::ingest::{ingest_file, PlanarImage};
 use crate::local_align::LocalCorrection;
 use crate::seam::{self, SeamMasks};
@@ -40,7 +41,7 @@ use super::{check_inputs, strips};
 pub(super) fn composite_tiled_graph_cut(
     paths: &[std::path::PathBuf],
     cameras: &[Camera],
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
@@ -50,15 +51,16 @@ pub(super) fn composite_tiled_graph_cut(
         "paths",
         paths.len(),
         cameras.len(),
-        gains.len(),
+        photometry.len(),
         local_corrections.len(),
     )?;
 
-    let seam = seam::masks::build_from_paths(paths, cameras, gains, local_corrections, canvas)?;
+    let seam =
+        seam::masks::build_from_paths(paths, cameras, photometry, local_corrections, canvas)?;
 
     graph_cut_blend(
         cameras,
-        gains,
+        photometry,
         local_corrections,
         canvas,
         tile_rows,
@@ -70,7 +72,7 @@ pub(super) fn composite_tiled_graph_cut(
                 &frame.image,
                 &cameras[fi],
                 canvas,
-                gains[fi],
+                photometry[fi],
                 la,
                 tile_y0,
                 tile_y1,
@@ -82,7 +84,7 @@ pub(super) fn composite_tiled_graph_cut(
 pub(super) fn composite_tiled_frames_graph_cut(
     frames: &[PlanarImage],
     cameras: &[Camera],
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
@@ -92,15 +94,16 @@ pub(super) fn composite_tiled_frames_graph_cut(
         "frames",
         frames.len(),
         cameras.len(),
-        gains.len(),
+        photometry.len(),
         local_corrections.len(),
     )?;
 
-    let seam = seam::masks::build_from_frames(frames, cameras, gains, local_corrections, canvas);
+    let seam =
+        seam::masks::build_from_frames(frames, cameras, photometry, local_corrections, canvas);
 
     graph_cut_blend(
         cameras,
-        gains,
+        photometry,
         local_corrections,
         canvas,
         tile_rows,
@@ -111,7 +114,7 @@ pub(super) fn composite_tiled_frames_graph_cut(
                 &frames[fi],
                 &cameras[fi],
                 canvas,
-                gains[fi],
+                photometry[fi],
                 la,
                 tile_y0,
                 tile_y1,
@@ -126,7 +129,7 @@ pub(super) fn composite_tiled_frames_graph_cut(
 /// pre-loaded-frames entry points share this loop.
 fn graph_cut_blend(
     cameras: &[Camera],
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
@@ -147,7 +150,7 @@ fn graph_cut_blend(
     let report = CompositeReport {
         canvas: canvas.clone(),
         projection: canvas.projection,
-        gains: gains.to_vec(),
+        photometry: photometry.to_vec(),
         blend_levels: levels,
         min_overlap_width_px: survey.min_overlap_px,
         seam_strategy: seam::SeamStrategy::GraphCut,

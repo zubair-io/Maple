@@ -21,6 +21,7 @@ use crate::blend::levels_for_overlap_width;
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
 use crate::error::PanoError;
+use crate::gain::FramePhotometry;
 use crate::ingest::{ingest_file, PlanarImage};
 use crate::local_align::LocalCorrection;
 use crate::seam::SeamStrategy;
@@ -173,20 +174,25 @@ fn min_overlap_width(
 pub fn composite_tiled(
     paths: &[std::path::PathBuf],
     cameras: &[Camera],
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
     seam_strategy: SeamStrategy,
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
     match seam_strategy {
-        SeamStrategy::Voronoi => {
-            composite_tiled_voronoi(paths, cameras, gains, local_corrections, canvas, tile_rows)
-        }
+        SeamStrategy::Voronoi => composite_tiled_voronoi(
+            paths,
+            cameras,
+            photometry,
+            local_corrections,
+            canvas,
+            tile_rows,
+        ),
         SeamStrategy::GraphCut => graph_cut::composite_tiled_graph_cut(
             paths,
             cameras,
-            gains,
+            photometry,
             local_corrections,
             canvas,
             tile_rows,
@@ -197,7 +203,7 @@ pub fn composite_tiled(
 fn composite_tiled_voronoi(
     paths: &[std::path::PathBuf],
     cameras: &[Camera],
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
@@ -207,12 +213,12 @@ fn composite_tiled_voronoi(
         "paths",
         paths.len(),
         cameras.len(),
-        gains.len(),
+        photometry.len(),
         local_corrections.len(),
     )?;
     voronoi_blend(
         cameras,
-        gains,
+        photometry,
         local_corrections,
         canvas,
         tile_rows,
@@ -223,7 +229,7 @@ fn composite_tiled_voronoi(
                 &frame.image,
                 &cameras[fi],
                 canvas,
-                gains[fi],
+                photometry[fi],
                 la,
                 y0,
                 y1,
@@ -245,7 +251,7 @@ fn composite_tiled_voronoi(
 pub fn composite_tiled_frames(
     frames: &[PlanarImage],
     cameras: &[Camera],
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
@@ -255,7 +261,7 @@ pub fn composite_tiled_frames(
         SeamStrategy::Voronoi => composite_tiled_frames_voronoi(
             frames,
             cameras,
-            gains,
+            photometry,
             local_corrections,
             canvas,
             tile_rows,
@@ -263,7 +269,7 @@ pub fn composite_tiled_frames(
         SeamStrategy::GraphCut => graph_cut::composite_tiled_frames_graph_cut(
             frames,
             cameras,
-            gains,
+            photometry,
             local_corrections,
             canvas,
             tile_rows,
@@ -274,7 +280,7 @@ pub fn composite_tiled_frames(
 fn composite_tiled_frames_voronoi(
     frames: &[PlanarImage],
     cameras: &[Camera],
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
@@ -284,12 +290,12 @@ fn composite_tiled_frames_voronoi(
         "frames",
         frames.len(),
         cameras.len(),
-        gains.len(),
+        photometry.len(),
         local_corrections.len(),
     )?;
     voronoi_blend(
         cameras,
-        gains,
+        photometry,
         local_corrections,
         canvas,
         tile_rows,
@@ -299,7 +305,7 @@ fn composite_tiled_frames_voronoi(
                 &frames[fi],
                 &cameras[fi],
                 canvas,
-                gains[fi],
+                photometry[fi],
                 la,
                 y0,
                 y1,
@@ -312,7 +318,7 @@ fn composite_tiled_frames_voronoi(
 /// whose projection of it sits deepest inside that frame.
 fn voronoi_blend(
     cameras: &[Camera],
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
@@ -340,7 +346,7 @@ fn voronoi_blend(
     let report = CompositeReport {
         canvas: canvas.clone(),
         projection: canvas.projection,
-        gains: gains.to_vec(),
+        photometry: photometry.to_vec(),
         blend_levels: levels,
         min_overlap_width_px: survey.min_overlap_px,
         seam_strategy: SeamStrategy::Voronoi,
@@ -354,12 +360,12 @@ fn check_inputs(
     noun: &str,
     sources: usize,
     cameras: usize,
-    gains: usize,
+    photometry: usize,
     local_corrections: usize,
 ) -> Result<(), PanoError> {
-    if sources != cameras || sources != gains {
+    if sources != cameras || sources != photometry {
         return Err(PanoError::InvalidOptions(format!(
-            "{entry}: {sources} {noun}, {cameras} cameras, {gains} gains"
+            "{entry}: {sources} {noun}, {cameras} cameras, {photometry} photometry"
         )));
     }
     if local_corrections != 0 && local_corrections != sources {

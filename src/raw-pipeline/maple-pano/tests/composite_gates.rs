@@ -191,12 +191,12 @@ fn gate_gain_recovery() {
         ..Default::default()
     };
     let (out, report) = composite(&frames, &cams, &opts, &[]).expect("composite");
-    // solve_gains fixes the gauge to geometric mean = 1, and the planted
+    // solve_photometry fixes the gauge to geometric mean = 1, and the planted
     // scales {2, ½, 1, 1, 1, 1} have geometric mean 1 — so the expected
     // gains are exactly the inverses.
     for i in 0..frames.len() {
         let expected = 1.0 / scales[i] as f64;
-        let got = report.gains[i][0] as f64;
+        let got = report.photometry[i].gain[0] as f64;
         let rel = (got - expected).abs() / expected;
         println!(
             "gain {i}: got {got:.4}, expected {expected:.4} (rel err {:.3}%)",
@@ -303,7 +303,7 @@ fn tiling_equals_real_composite() {
         let (tiled, tiled_report) = composite_tiled_frames(
             &frames,
             &cams,
-            &report.gains,
+            &report.photometry,
             &[],
             canvas,
             tile_rows,
@@ -336,7 +336,7 @@ fn graph_cut_tiling_is_strip_invariant_multiband() {
         composite_tiled_frames(
             &frames,
             &cams,
-            &report.gains,
+            &report.photometry,
             &[],
             canvas,
             tile_rows,
@@ -350,11 +350,11 @@ fn graph_cut_tiling_is_strip_invariant_multiband() {
         "gate must exercise a real pyramid"
     );
 
-    let seam = build_from_frames(&frames, &cams, &report.gains, &[], canvas);
+    let seam = build_from_frames(&frames, &cams, &report.photometry, &[], canvas);
     let layers: Vec<PlanarImage> = frames
         .iter()
         .zip(&cams)
-        .zip(&report.gains)
+        .zip(&report.photometry)
         .map(|((f, c), &g)| warp_to_canvas(f, c, canvas, g, None))
         .collect();
     let cw = canvas.width as usize;
