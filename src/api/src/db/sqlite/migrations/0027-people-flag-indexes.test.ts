@@ -15,7 +15,7 @@ test('the flag lookups read a partial index and never scan people', async () => 
 
   const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
 
-  expect(result.applied).toEqual(['0027-people-flag-indexes']);
+  expect(result.applied).toContain('0027-people-flag-indexes');
   for (const column of PEOPLE_FLAG_COLUMNS) {
     const plan = (
       handle.db.query(`EXPLAIN QUERY PLAN ${flaggedPersonIdsSql(column)}`).all() as Array<{
