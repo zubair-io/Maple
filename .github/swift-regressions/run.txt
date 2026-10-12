@@ -225,6 +225,7 @@ SavedFolderStoreTests
 SceneLinearChainF32BandingTests
 SearchAssetAddressTests
 SearchCursorPaginationTests
+SearchRankPinTests
 SearchParamsTests
 SearchViewModelTests
 SearchViewModelCollectionTests

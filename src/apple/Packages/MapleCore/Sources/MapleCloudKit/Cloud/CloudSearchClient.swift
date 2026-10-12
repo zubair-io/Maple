@@ -130,16 +130,23 @@ public actor CloudSearchClient {
   /// Pass `cursor` (from a previous response's `nextCursor`) to seek
   /// instead of skipping — see `SearchParams.listQueryItems`. `page` is
   /// ignored when a cursor is supplied.
+  ///
+  /// Pass `rankPin` (from the previous page's response) on a further page of
+  /// a free-text search; when the engine it names cannot rank the page, this
+  /// throws `SearchPagingError.rankEngineChanged` and the caller restarts
+  /// from page 0 (#4542).
   public func search(
     _ params: SearchParams,
     page: Int,
     limit: Int,
-    cursor: String? = nil
+    cursor: String? = nil,
+    rankPin: String? = nil
   ) async throws -> SearchResponse {
     let url = makeURL(
       path: "/api/search",
-      query: params.listQueryItems(page: page, limit: limit, cursor: cursor))
+      query: params.listQueryItems(page: page, limit: limit, cursor: cursor, rankPin: rankPin))
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
+    if Self.isRankEngineChanged(resp, data: data) { throw SearchPagingError.rankEngineChanged }
     try Self.checkOK(resp, data: data)
     do {
       return try JSONDecoder().decode(SearchResponse.self, from: data)
@@ -231,6 +238,12 @@ public actor CloudSearchClient {
     return String(format: "%04d-%02d-%02d", year, month, last)
   }
 
+  private static func isRankEngineChanged(_ resp: URLResponse, data: Data) -> Bool {
+    struct Refusal: Decodable { let code: String? }
+    guard (resp as? HTTPURLResponse)?.statusCode == 409 else { return false }
+    return (try? JSONDecoder().decode(Refusal.self, from: data))?.code == "rank_engine_changed"
+  }
+
   private static func checkOK(_ resp: URLResponse, data: Data) throws {
     guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
       let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
@@ -240,6 +253,12 @@ public actor CloudSearchClient {
         userInfo: [NSLocalizedDescriptionKey: cloudErrorMessage(status: status, data: data)])
     }
   }
+}
+
+/// A further page of a free-text search could not be ranked by the engine that
+/// ranked the earlier pages (#4542): the search must restart from page 0.
+public enum SearchPagingError: Error, Equatable {
+  case rankEngineChanged
 }
 
 /// Human-readable message for a non-2xx response. A gateway or proxy answers
