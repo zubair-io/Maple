@@ -129,8 +129,13 @@ ALTER TABLE stage_state ADD COLUMN claim_token TEXT;
 
 const ISO_NOW = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
 
+// Strictly later than the row's previous stamp: the child skips an (id, stamp) pair it already
+// applied, so two writes in one millisecond must not share a stamp.
+const NEXT_STAMP = `CASE WHEN text_changed_at IS NULL OR text_changed_at < ${ISO_NOW} THEN ${ISO_NOW}
+  ELSE strftime('%Y-%m-%dT%H:%M:%fZ', unixepoch(text_changed_at, 'subsec') + 0.001, 'unixepoch') END`;
+
 function stampVectorText(assetIdExpr: string): string {
-  return `UPDATE asset_vectors SET text_changed_at = ${ISO_NOW}
+  return `UPDATE asset_vectors SET text_changed_at = ${NEXT_STAMP}
    WHERE maple_id = (SELECT maple_id FROM assets WHERE id = ${assetIdExpr});`;
 }
 
