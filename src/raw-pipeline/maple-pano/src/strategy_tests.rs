@@ -34,6 +34,7 @@ fn dummy_priors(n: usize) -> Vec<FramePriors> {
             focal_35mm_equiv: None,
             focal_px: None,
             gimbal: None,
+            gps: None,
         })
         .collect()
 }
@@ -118,6 +119,7 @@ fn gimbal_identity_detected() {
                 pitch_deg: -90.0,
                 roll_deg: 0.0,
             }),
+            gps: None,
         })
         .collect();
     assert!(check_gimbal_identity(&priors));
@@ -139,6 +141,7 @@ fn gimbal_identity_is_wrap_aware_across_the_yaw_seam() {
                 pitch_deg: -90.0,
                 roll_deg: 0.0,
             }),
+            gps: None,
         })
         .collect();
     assert!(check_gimbal_identity(&priors));
@@ -157,6 +160,7 @@ fn gimbal_rotation_not_identical() {
                 pitch_deg: -45.0,
                 roll_deg: 0.0,
             }),
+            gps: None,
         })
         .collect();
     assert!(!check_gimbal_identity(&priors));
@@ -246,6 +250,7 @@ fn gimbal_rotation_spread_reports_none_below_two_frames() {
             pitch_deg: -45.0,
             roll_deg: 0.0,
         }),
+        gps: None,
     }];
     assert_eq!(gimbal_rotation_spread(&priors), None);
 }
@@ -264,6 +269,7 @@ fn gimbal_rotation_spread_matches_yaw_sweep_range() {
                 pitch_deg: -90.0,
                 roll_deg: 0.0,
             }),
+            gps: None,
         })
         .collect();
     let spread = gimbal_rotation_spread(&priors).expect("spread present");
@@ -286,6 +292,7 @@ fn gimbal_rotation_spread_is_wrap_aware() {
                 pitch_deg: -45.0,
                 roll_deg: 0.0,
             }),
+            gps: None,
         })
         .collect();
     let spread = gimbal_rotation_spread(&priors).expect("spread present");

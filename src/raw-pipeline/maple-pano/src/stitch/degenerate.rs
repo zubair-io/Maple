@@ -1,4 +1,6 @@
-//! Degeneracy guard (must run BEFORE any composite allocation).
+//! Rotation-path degeneracy guard, split from `stitch/mod.rs` for the
+//! file-size budget.
+//!
 //! A *connected* near-parallel / translational set forced through the
 //! rotation path produces a BA solution whose spherical projection spans a
 //! huge angular extent — the natural (unclamped) canvas balloons to tens or
@@ -9,7 +11,7 @@
 //!
 //! NOTE this is a *backstop*. A fully translational set whose frames don't
 //! overlap rotationally (e.g. the pano_00 nadir set) disconnects in the
-//! match graph and is already rejected earlier in `stitch` as TooFewSurvivors; `auto`
+//! match graph and is already rejected earlier as TooFewSurvivors; `auto`
 //! routes such sets to tile (#1271). This guard catches the remaining case:
 //! frames that DO connect but whose rotation BA is degenerate enough to blow
 //! up the canvas.
@@ -21,18 +23,18 @@
 
 use crate::camera::Camera;
 use crate::canvas::{natural_canvas_pixel_ratio, CanvasOptions, DEGENERATE_CANVAS_RATIO};
-use crate::strategy::StrategyRequest;
+use crate::strategy::{StrategyReport, StrategyRequest};
 
-use super::types::StitchError;
+use super::types::{StitchError, StitchOptions};
 
 pub(super) fn reject_degenerate_canvas(
     kept_cams: &[Camera],
     canvas_opts: &CanvasOptions,
-    requested: StrategyRequest,
-    max_canvas_px: usize,
+    strategy_report: &StrategyReport,
+    opts: &StitchOptions,
 ) -> Result<(), StitchError> {
-    match natural_canvas_pixel_ratio(kept_cams, canvas_opts) {
-        Some(ratio) if ratio > DEGENERATE_CANVAS_RATIO => {
+    if let Some(ratio) = natural_canvas_pixel_ratio(kept_cams, canvas_opts) {
+        if ratio > DEGENERATE_CANVAS_RATIO {
             // Tailor the hint to how we ended up here.
             // - Auto chose rotation: the content-based vote said rotation, but
             //   the BA geometry is still degenerate.  The frames likely share
@@ -40,7 +42,7 @@ pub(super) fn reject_degenerate_canvas(
             //   planar — suggest Tile or recapture with more overlap.
             // - User forced --strategy rotation: the set may not be a rotation
             //   pano at all; suggest Auto or Tile.
-            let hint = match requested {
+            let hint = match strategy_report.requested {
                 StrategyRequest::Auto => {
                     "Auto selected Rotation, but the solved geometry is degenerate — \
                      the frames may not form a true rotation panorama, or overlap is too \
@@ -49,14 +51,14 @@ pub(super) fn reject_degenerate_canvas(
                 }
                 _ => "try --strategy Auto or --strategy Tile",
             };
-            Err(StitchError::DegenerateGeometry(format!(
+            return Err(StitchError::DegenerateGeometry(format!(
                 "natural canvas is {ratio:.0}× larger than the {mp} MP cap — \
                  the rotation geometry is likely degenerate (near-parallel or \
                  translational frames). {hint} \
                  If this is a genuinely large panorama, raise --max-canvas-px.",
-                mp = max_canvas_px as f64 / 1_000_000.0,
-            )))
+                mp = opts.max_canvas_px as f64 / 1_000_000.0,
+            )));
         }
-        _ => Ok(()),
     }
+    Ok(())
 }

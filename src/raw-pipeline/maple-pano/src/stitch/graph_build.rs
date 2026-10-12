@@ -1,5 +1,9 @@
 //! The one place the stitch paths choose candidate providers (#4519).
 //!
+//! The loop-closure gate's consistency check follows the strategy each
+//! build serves: rotation for the rotation bootstrap and focal rebuild,
+//! planar placement for the tile branch and standalone tile path.
+//!
 //! Without a declared grid every graph build — rotation bootstrap,
 //! homography-focal rebuild, tile branch, standalone tile — keeps the
 //! capture-order + gimbal-prior (+ descriptor top-k where features are
@@ -11,8 +15,10 @@
 
 use crate::graph::{
     build_match_graph, CandidateProvider, CaptureOrderProvider, DescriptorTopKProvider,
-    GimbalPriorProvider, GraphImage, GridLayout, GridPriorProvider, MatchGraph,
+    GimbalPriorProvider, GraphImage, GridPriorProvider, GroundFootprint, LoopClosureGate,
+    MatchGraph,
 };
+use crate::ingest::FramePriors;
 use crate::robust::RobustOptions;
 use crate::twoview::PixelCorrespondence;
 
@@ -24,22 +30,48 @@ pub(super) fn validate_grid(opts: &StitchOptions, frame_count: usize) -> Result<
         .map_err(StitchError::InvalidGrid)
 }
 
+/// Per-frame ground footprint from the DJI GPS fix, height above
+/// take-off and EXIF focal: the frame diagonal projected to the ground
+/// at nadir, `altitude · diagonal_px / focal_px`. `None` when any input
+/// is missing or the altitude is not positive.
+pub(super) fn ground_footprints(
+    priors: &[FramePriors],
+    full_dims: &[(u32, u32)],
+) -> Vec<Option<GroundFootprint>> {
+    priors
+        .iter()
+        .zip(full_dims)
+        .map(|(p, &(w, h))| {
+            let gps = p.gps?;
+            let altitude_m = gps.relative_altitude_m.filter(|&a| a > 0.0)?;
+            let focal_px = p.focal_px.filter(|&f| f > 0.0)?;
+            Some(GroundFootprint {
+                lat_deg: gps.lat_deg,
+                lon_deg: gps.lon_deg,
+                diagonal_m: altitude_m * (w as f64).hypot(h as f64) / focal_px,
+            })
+        })
+        .collect()
+}
+
 pub(super) fn build_stitch_graph(
     images: &[GraphImage],
-    grid: Option<&GridLayout>,
+    grid: Option<&LoopClosureGate<'_>>,
     descriptor_topk: Option<&DescriptorTopKProvider>,
     fetch: impl FnMut(usize, usize) -> Vec<PixelCorrespondence>,
 ) -> MatchGraph {
     let opts = RobustOptions::default();
     match grid {
-        Some(layout) => {
+        Some(gate) => {
             let mut graph = build_match_graph(
                 images,
-                &[&GridPriorProvider { layout: *layout }],
+                &[&GridPriorProvider {
+                    layout: gate.layout,
+                }],
                 fetch,
                 &opts,
             );
-            graph.admit_grid_loop_closures(layout);
+            graph.admit_grid_loop_closures(images, gate);
             graph
         }
         None => {
@@ -58,7 +90,7 @@ pub(super) fn build_stitch_graph(
 mod tests {
     use super::*;
     use crate::camera::{focal_px_for_hfov, Camera};
-    use crate::graph::GridOrder;
+    use crate::graph::{GridLayout, GridOrder, LoopClosureCheck};
     use crate::math::{matrix_to_axis_angle, Mat3};
     use crate::prng::SplitMix64;
     use crate::testkit::{generate_pair_correspondences, CorrespondenceOptions};
@@ -131,9 +163,14 @@ mod tests {
             order: GridOrder::Raster,
             diagonals: false,
         };
+        let gate = LoopClosureGate {
+            layout,
+            check: LoopClosureCheck::Rotation,
+            ground: &[],
+        };
         let mut requested = Vec::new();
         let mut fetch = fetcher(&cams);
-        let graph = build_stitch_graph(&imgs, Some(&layout), None, |a, b| {
+        let graph = build_stitch_graph(&imgs, Some(&gate), None, |a, b| {
             requested.push((a, b));
             fetch(a, b)
         });

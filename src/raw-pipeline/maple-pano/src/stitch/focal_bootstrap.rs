@@ -25,7 +25,7 @@ use std::collections::HashMap;
 
 use crate::ba;
 use crate::camera::{focal_px_for_hfov, Camera};
-use crate::graph::{GraphImage, GridLayout, MatchGraph};
+use crate::graph::{GraphImage, LoopClosureGate, MatchGraph};
 use crate::ingest::{FrameMeta, FramePriors};
 use crate::twoview::PixelCorrespondence;
 
@@ -165,7 +165,7 @@ pub(super) fn refine_from_homography(
 pub(super) fn rebuild_graph_with_focal(
     proxy_images: &[GraphImage],
     cache: &HashMap<(usize, usize), Vec<PixelCorrespondence>>,
-    grid: Option<&GridLayout>,
+    grid: Option<&LoopClosureGate<'_>>,
     mut fetch: impl FnMut(usize, usize) -> Vec<PixelCorrespondence>,
 ) -> MatchGraph {
     super::graph_build::build_stitch_graph(proxy_images, grid, None, |a, b| {
@@ -199,7 +199,7 @@ pub(super) fn refine_if_needed(
     full_images: &mut Vec<GraphImage>,
     proxy_images: &mut Vec<GraphImage>,
     raw_matches_cache: &mut Vec<((usize, usize), Vec<PixelCorrespondence>)>,
-    grid: Option<&GridLayout>,
+    grid: Option<&LoopClosureGate<'_>>,
     mut fetch: impl FnMut(usize, usize) -> Result<Vec<PixelCorrespondence>, String>,
 ) -> Result<(), StitchError> {
     if focal_seed.source != FocalSeedSource::HomographyFallback {

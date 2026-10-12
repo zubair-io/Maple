@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use crate::features::{AlikedDetector, DetectorOptions, LinearRgbFrame};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
-use crate::graph::{DescriptorTopKProvider, MatchGraph};
+use crate::graph::{DescriptorTopKProvider, LoopClosureCheck, LoopClosureGate, MatchGraph};
 use crate::ingest::{ingest_file_proxy, FrameMeta, FramePriors};
 use crate::matching::{LightGlueMatcher, MatcherOptions};
 use crate::models::ModelDir;
@@ -177,9 +177,15 @@ pub fn stitch_tile(
     // input (film scans, nadir strips) — exactly this entry point's own
     // motivating scenario.
     let descriptor_topk = DescriptorTopKProvider::new(&feature_sets);
+    let ground = super::graph_build::ground_footprints(&priors, &full_dims);
+    let planar_gate = opts.grid.map(|layout| LoopClosureGate {
+        layout,
+        check: LoopClosureCheck::Planar,
+        ground: &ground,
+    });
     let graph: MatchGraph = super::graph_build::build_stitch_graph(
         &proxy_images,
-        opts.grid.as_ref(),
+        planar_gate.as_ref(),
         Some(&descriptor_topk),
         |a, b| match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
             Ok(ml_matches) => ml_matches_to_correspondences(&ml_matches, DEFAULT_MIN_SCORE),

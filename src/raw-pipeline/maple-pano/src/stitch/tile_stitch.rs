@@ -36,7 +36,10 @@ use std::path::PathBuf;
 
 use crate::camera::Camera;
 use crate::features::FeatureSet;
-use crate::graph::{DescriptorTopKProvider, GraphImage, MatchGraph, ReverifySummary};
+use crate::graph::{
+    DescriptorTopKProvider, GraphImage, LoopClosureCheck, LoopClosureGate, MatchGraph,
+    ReverifySummary,
+};
 use crate::ingest::FramePriors;
 use crate::refine::{refine_correspondences, RefineOptions};
 use crate::strategy::StrategyReport;
@@ -207,9 +210,15 @@ pub(super) fn run_tile_branch(
     // here costs no new cache misses while keeping the tile path's
     // candidate topology consistent with the rotation path's.
     let descriptor_topk = DescriptorTopKProvider::new(&feature_sets);
+    let ground = super::graph_build::ground_footprints(&priors, &full_dims);
+    let planar_gate = opts.grid.map(|layout| LoopClosureGate {
+        layout,
+        check: LoopClosureCheck::Planar,
+        ground: &ground,
+    });
     let tile_graph = super::graph_build::build_stitch_graph(
         &unit_proxy_images,
-        opts.grid.as_ref(),
+        planar_gate.as_ref(),
         Some(&descriptor_topk),
         |a, b| -> Vec<PixelCorrespondence> {
             match match_cache_map.get(&(a, b)) {
@@ -291,6 +300,7 @@ pub(super) fn tile_tail(
         stage_timings_012: [decode_s, features_s, graph_s],
         inputs,
     } = state;
+    let match_graph = graph.summary();
 
     // #3197: on-demand decode cache — at most TILE_CACHE_CAPACITY frames
     // resident at once, instead of every input frame up front. Shared by
@@ -447,6 +457,7 @@ pub(super) fn tile_tail(
         refined_matches,
         fallback_matches,
         reverify,
+        match_graph,
         orphans: tile_orphans,
         poses_placed,
         mean_planar_residual_px,

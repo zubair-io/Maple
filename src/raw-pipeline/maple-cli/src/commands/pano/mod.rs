@@ -327,6 +327,7 @@ fn stitch_set(
                 refined_matches: outcome.refined_matches,
                 fallback_matches: outcome.fallback_matches,
                 reverify: &outcome.reverify,
+                match_graph: &outcome.match_graph,
                 leveled: outcome.leveled,
                 horizon_tilt_deg: outcome.horizon_tilt_deg,
                 gate_budgets,

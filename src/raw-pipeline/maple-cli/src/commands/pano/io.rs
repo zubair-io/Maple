@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use maple_pano::ba::BaSolution;
 use maple_pano::composite::CompositeReport;
-use maple_pano::graph::ReverifySummary;
+use maple_pano::graph::{GraphSummary, ReverifySummary};
 use maple_pano::ingest::PlanarImage;
 use maple_pano::render::{write_frame_png, PngMetadata};
 use maple_pano::strategy::StrategyReport;
@@ -21,6 +21,7 @@ pub(super) struct ReportContext<'a> {
     pub refined_matches: usize,
     pub fallback_matches: usize,
     pub reverify: &'a ReverifySummary,
+    pub match_graph: &'a GraphSummary,
     pub leveled: bool,
     pub horizon_tilt_deg: Option<f64>,
     /// `(mean_budget_px, max_budget_px)` the §5.3 gate ran at.
@@ -159,6 +160,7 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         "fallback_matches": ctx.fallback_matches,
         "reverify_edges_dropped": ctx.reverify.edges_dropped,
         "reverify_matches_dropped": ctx.reverify.matches_dropped,
+        "match_graph": match_graph_json(ctx.match_graph),
         // Per-frame residual summaries for surviving frames (px in that
         // frame's plane) — null for dropped frames. Triage data: which
         // frame sits where against the §5.3 budgets.
@@ -224,6 +226,7 @@ pub(super) struct TileReportContext<'a> {
     pub refined_matches: usize,
     pub fallback_matches: usize,
     pub reverify: &'a ReverifySummary,
+    pub match_graph: &'a GraphSummary,
     pub tile_report: &'a TileCompositeReport,
     /// Frame indices disconnected from anchor (the tile-path orphan list).
     /// Parallel to the rotation path's `dropped_images`; empty on a
@@ -236,6 +239,18 @@ pub(super) struct TileReportContext<'a> {
     pub focal_seed_source: Option<&'static str>,
     /// Stage timings, serialized in array order.
     pub timings_s: [(&'static str, f64); 8],
+}
+
+fn match_graph_json(summary: &GraphSummary) -> serde_json::Value {
+    serde_json::json!({
+        "candidate_pairs": summary.candidate_pairs,
+        "verified_edges": summary.verified_edges,
+        "rejected": summary.rejected.iter().map(|r| serde_json::json!({
+            "a": r.a,
+            "b": r.b,
+            "reason": r.reason.to_string(),
+        })).collect::<Vec<_>>(),
+    })
 }
 
 /// JSON report for the tile composite path (spec §8 / #1226).
@@ -325,6 +340,7 @@ pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
         "fallback_matches": ctx.fallback_matches,
         "reverify_edges_dropped": ctx.reverify.edges_dropped,
         "reverify_matches_dropped": ctx.reverify.matches_dropped,
+        "match_graph": match_graph_json(ctx.match_graph),
         "tile_placement": placements,
         "mean_planar_residual_px": tr.mean_planar_residual_px,
         "max_planar_residual_px": tr.max_planar_residual_px,

@@ -136,6 +136,8 @@ pub struct StitchOutcome {
     pub fallback_matches: usize,
     /// Summary of the full-resolution reverification (edges/matches dropped).
     pub reverify: crate::graph::ReverifySummary,
+    /// Candidate pairs, verified edges and rejections of the match graph.
+    pub match_graph: crate::graph::GraphSummary,
     /// Whether the BA solution was roll-leveled.
     pub leveled: bool,
     /// Horizon tilt in degrees when leveling was applied.
@@ -174,6 +176,8 @@ pub struct TileStitchOutcome {
     pub fallback_matches: usize,
     /// Summary of the rotation-path reverification step (always 0/0 for tile).
     pub reverify: crate::graph::ReverifySummary,
+    /// Candidate pairs, verified edges and rejections of the tile match graph.
+    pub match_graph: crate::graph::GraphSummary,
     /// Frame indices disconnected from the anchor component.
     pub orphans: Vec<usize>,
     /// Number of frames successfully placed in the tile composite.

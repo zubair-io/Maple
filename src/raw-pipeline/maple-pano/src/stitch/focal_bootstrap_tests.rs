@@ -46,6 +46,7 @@ fn dummy_meta_with_gimbal(
             focal_35mm_equiv: None,
             focal_px,
             gimbal,
+            gps: None,
         },
         camera_make: "Test".to_string(),
         camera_model: "Synthetic".to_string(),
