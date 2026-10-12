@@ -72,9 +72,11 @@
 //! The <4 GB target is an iOS-only goal (tracked: #1274) that requires
 //! ORT model pruning or on-demand ORT teardown.
 
+mod degenerate;
 mod focal_bootstrap;
 mod frame_cache;
 mod io;
+mod seam_gate;
 mod tile_standalone;
 mod tile_stitch;
 mod types;
@@ -88,9 +90,7 @@ use std::path::PathBuf;
 
 use crate::ba::{self, BaOptions};
 use crate::camera::Camera;
-use crate::canvas::{
-    auto_canvas, natural_canvas_pixel_ratio, CanvasOptions, ProjectionMode, DEGENERATE_CANVAS_RATIO,
-};
+use crate::canvas::{auto_canvas, CanvasOptions, ProjectionMode};
 use crate::composite::composite_tiled;
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
 use crate::gain::{solve_photometry_streaming, GainOptions};
@@ -107,6 +107,7 @@ use crate::models::ModelDir;
 use crate::robust::RobustOptions;
 use crate::strategy::{select_strategy, Strategy};
 use crate::twoview::PixelCorrespondence;
+use degenerate::reject_degenerate_canvas;
 use frame_cache::refine_edges_lru;
 use tile_stitch::{run_tile_branch, TileBranchInput};
 
@@ -148,6 +149,7 @@ pub fn stitch(
     if inputs.len() < 2 {
         return Err(StitchError::TooFewFrames(inputs.len()));
     }
+    seam_gate::validate(opts, inputs.len())?;
 
     // ── stage 0: decode proxy + priors (full-res freed immediately) ───────
     //
@@ -446,55 +448,8 @@ pub fn stitch(
     };
 
     // ── Degeneracy guard (must run BEFORE any composite allocation) ────────
-    // A *connected* near-parallel / translational set forced through the
-    // rotation path produces a BA solution whose spherical projection spans a
-    // huge angular extent — the natural (unclamped) canvas balloons to tens or
-    // hundreds of GB. The max_canvas_px cap only bites *inside* composite(),
-    // after that giant buffer (and the decoded frames) are already allocated —
-    // which is how a nadir set ballooned to ~317 GB (#1267). We fail fast here,
-    // before any allocation, comparing the natural canvas pixel count to the cap.
-    //
-    // NOTE this is a *backstop*. A fully translational set whose frames don't
-    // overlap rotationally (e.g. the pano_00 nadir set) disconnects in the
-    // match graph and is already rejected above as TooFewSurvivors; `auto`
-    // routes such sets to tile (#1271). This guard catches the remaining case:
-    // frames that DO connect but whose rotation BA is degenerate enough to blow
-    // up the canvas.
-    //
-    // Threshold = `DEGENERATE_CANVAS_RATIO`, a small multiple of the cap
-    // (#1269: "a sane ceiling, a small multiple of max_canvas_px"). It is
-    // single-sourced in `crate::canvas` so this guard and its unit tests can't
-    // drift; see there for the measured anchors behind the value.
-    {
-        let kept_cams_guard: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
-        if let Some(ratio) = natural_canvas_pixel_ratio(&kept_cams_guard, &canvas_opts) {
-            if ratio > DEGENERATE_CANVAS_RATIO {
-                // Tailor the hint to how we ended up here.
-                // - Auto chose rotation: the content-based vote said rotation, but
-                //   the BA geometry is still degenerate.  The frames likely share
-                //   only a thin sliver of overlap or the matched region is mostly
-                //   planar — suggest Tile or recapture with more overlap.
-                // - User forced --strategy rotation: the set may not be a rotation
-                //   pano at all; suggest Auto or Tile.
-                let hint = match strategy_report.requested {
-                    StrategyRequest::Auto => {
-                        "Auto selected Rotation, but the solved geometry is degenerate — \
-                         the frames may not form a true rotation panorama, or overlap is too \
-                         narrow for a reliable rotation solve. Try --strategy Tile, or \
-                         recapture with more overlap between frames."
-                    }
-                    _ => "try --strategy Auto or --strategy Tile",
-                };
-                return Err(StitchError::DegenerateGeometry(format!(
-                    "natural canvas is {ratio:.0}× larger than the {mp} MP cap — \
-                     the rotation geometry is likely degenerate (near-parallel or \
-                     translational frames). {hint} \
-                     If this is a genuinely large panorama, raise --max-canvas-px.",
-                    mp = opts.max_canvas_px as f64 / 1_000_000.0,
-                )));
-            }
-        }
-    }
+    let kept_cams: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
+    reject_degenerate_canvas(&kept_cams, &canvas_opts, &strategy_report, opts)?;
 
     // ── Gain solve: decode surviving frames on-demand, one at a time ───────
     //
@@ -511,7 +466,6 @@ pub fn stitch(
         .iter()
         .map(|(inp_idx, _, _)| inputs[*inp_idx].clone())
         .collect();
-    let kept_cams: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
     let kept_local: Vec<Option<LocalCorrection>> =
         kept_meta.iter().map(|(_, _, lc)| lc.clone()).collect();
 
@@ -527,6 +481,8 @@ pub fn stitch(
     // to 512 rows so the tiled path (and its memory bound of ≤1 full-res
     // frame resident per strip pass) always engages.
     let tile_rows = opts.canvas_tile_rows.unwrap_or(512);
+    let kept_inputs: Vec<usize> = kept_meta.iter().map(|(i, _, _)| *i).collect();
+    let seam_constraints = seam_gate::for_kept_frames(&opts.seam_constraints, &kept_inputs)?;
     let (image, comp_report) = composite_tiled(
         &kept_paths,
         &kept_cams,
@@ -535,8 +491,9 @@ pub fn stitch(
         &canvas,
         tile_rows,
         opts.seam_strategy,
+        &seam_constraints,
     )
-    .map_err(|e| StitchError::Composite(e.to_string()))?;
+    .map_err(seam_gate::composite_error)?;
 
     let t_composite = t5.elapsed().as_secs_f64();
     progress(5, 1.0);

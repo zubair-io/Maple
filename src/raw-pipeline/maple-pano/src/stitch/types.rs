@@ -73,6 +73,11 @@ pub struct StitchOptions {
     /// opt-in until a follow-up re-baselines those budgets with it as
     /// the default.
     pub seam_strategy: crate::seam::SeamStrategy,
+    /// User seam constraints (#4520), frames named by input index. Needs
+    /// [`crate::seam::SeamStrategy::GraphCut`] and the rotation strategy;
+    /// anything the composite cannot honour is a
+    /// [`StitchError::SeamConstraint`], never silently dropped.
+    pub seam_constraints: Vec<crate::seam::SeamConstraint>,
 }
 
 impl Default for StitchOptions {
@@ -96,6 +101,7 @@ impl Default for StitchOptions {
             canvas_tile_rows: None,
             use_coreml: false,
             seam_strategy: crate::seam::SeamStrategy::Voronoi,
+            seam_constraints: Vec::new(),
         }
     }
 }
@@ -247,6 +253,14 @@ pub enum StitchError {
     DegenerateGeometry(String),
     /// Cancelled by the caller.
     Cancelled,
+    /// User seam constraints (#4520) that cannot all hold.
+    SeamConstraint(crate::seam::SeamConstraintError),
+}
+
+impl From<crate::seam::SeamConstraintError> for StitchError {
+    fn from(e: crate::seam::SeamConstraintError) -> Self {
+        Self::SeamConstraint(e)
+    }
 }
 
 impl std::fmt::Display for StitchError {
@@ -287,6 +301,7 @@ impl std::fmt::Display for StitchError {
                 write!(f, "degenerate rotation geometry: {msg}")
             }
             Self::Cancelled => write!(f, "cancelled by caller"),
+            Self::SeamConstraint(e) => write!(f, "seam constraints: {e}"),
         }
     }
 }

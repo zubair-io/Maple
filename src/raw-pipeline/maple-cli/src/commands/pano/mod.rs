@@ -31,6 +31,7 @@
 
 mod discovery;
 mod io;
+mod seam_constraints;
 mod tile;
 
 use std::path::{Path, PathBuf};
@@ -242,6 +243,7 @@ fn stitch_set(
         // iOS-FFI-only path (M6-C, #1253). See StitchOptions::use_coreml.
         use_coreml: false,
         seam_strategy: args.seam_strategy.to_strategy(),
+        seam_constraints: seam_constraints::load(args.seam_constraints.as_deref())?,
     };
 
     let progress = |stage: u32, _frac: f32| {

@@ -24,7 +24,7 @@ use crate::error::PanoError;
 use crate::gain::FramePhotometry;
 use crate::ingest::{ingest_file, PlanarImage};
 use crate::local_align::LocalCorrection;
-use crate::seam::SeamStrategy;
+use crate::seam::{SeamConstraint, SeamConstraintError, SeamStrategy};
 use crate::warp::warp_to_canvas_strip;
 
 use super::CompositeReport;
@@ -179,8 +179,12 @@ pub fn composite_tiled(
     canvas: &CanvasSpec,
     tile_rows: u32,
     seam_strategy: SeamStrategy,
+    seam_constraints: &[SeamConstraint],
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
     match seam_strategy {
+        SeamStrategy::Voronoi if !seam_constraints.is_empty() => {
+            Err(SeamConstraintError::RequiresGraphCut.into())
+        }
         SeamStrategy::Voronoi => composite_tiled_voronoi(
             paths,
             cameras,
@@ -196,6 +200,7 @@ pub fn composite_tiled(
             local_corrections,
             canvas,
             tile_rows,
+            seam_constraints,
         ),
     }
 }
@@ -256,8 +261,12 @@ pub fn composite_tiled_frames(
     canvas: &CanvasSpec,
     tile_rows: u32,
     seam_strategy: SeamStrategy,
+    seam_constraints: &[SeamConstraint],
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
     match seam_strategy {
+        SeamStrategy::Voronoi if !seam_constraints.is_empty() => {
+            Err(SeamConstraintError::RequiresGraphCut.into())
+        }
         SeamStrategy::Voronoi => composite_tiled_frames_voronoi(
             frames,
             cameras,
@@ -273,6 +282,7 @@ pub fn composite_tiled_frames(
             local_corrections,
             canvas,
             tile_rows,
+            seam_constraints,
         ),
     }
 }

@@ -308,6 +308,7 @@ fn tiling_equals_real_composite() {
             canvas,
             tile_rows,
             SeamStrategy::Voronoi,
+            &[],
         )
         .expect("tiled composite");
         assert_eq!(tiled_report.blend_levels, report.blend_levels);
@@ -341,6 +342,7 @@ fn graph_cut_tiling_is_strip_invariant_multiband() {
             canvas,
             tile_rows,
             SeamStrategy::GraphCut,
+            &[],
         )
         .expect("graph-cut tiled")
     };
@@ -350,7 +352,8 @@ fn graph_cut_tiling_is_strip_invariant_multiband() {
         "gate must exercise a real pyramid"
     );
 
-    let seam = build_from_frames(&frames, &cams, &report.photometry, &[], canvas);
+    let seam =
+        build_from_frames(&frames, &cams, &report.photometry, &[], canvas, &[]).expect("seam");
     let layers: Vec<PlanarImage> = frames
         .iter()
         .zip(&cams)

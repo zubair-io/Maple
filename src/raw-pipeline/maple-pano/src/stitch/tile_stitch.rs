@@ -165,6 +165,7 @@ pub(super) fn run_tile_branch(
 ) -> Result<TileStitchOutcome, super::types::StitchError> {
     use super::types::StitchError;
 
+    super::seam_gate::reject_on_tile(input.opts)?;
     let TileBranchInput {
         inputs,
         opts,
