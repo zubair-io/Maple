@@ -77,7 +77,12 @@ describe('POST /api/search/assets with the in-process engine', () => {
 
     const body = await (await request({ query: 'heating repair', limit: 1 })).json();
 
-    expect(body).toMatchObject({ modeRequested: 'hybrid', modeUsed: 'hybrid', total: 1, more: true });
+    expect(body).toMatchObject({
+      modeRequested: 'hybrid',
+      modeUsed: 'hybrid',
+      total: 1,
+      more: true,
+    });
     expect(body.fallbackReason).toBeNull();
     expect(body.results).toEqual([{ assetId: 'still', score: 1 / 62 }]);
   });
@@ -92,6 +97,19 @@ describe('POST /api/search/assets with the in-process engine', () => {
 
     expect(videos.results.map((hit: { assetId: string }) => hit.assetId)).toEqual(['clip']);
     expect(july2.results.map((hit: { assetId: string }) => hit.assetId)).toEqual(['still']);
+  });
+
+  it('returns a hidden asset only when includeHidden is set', async () => {
+    setInProcessSearchForTests(fakeInProcessSearch(['private', 'still']));
+
+    const hiddenOut = await (await request({ query: 'furnace' })).json();
+    const hiddenIn = await (await request({ query: 'furnace', includeHidden: true })).json();
+
+    expect(hiddenOut.results.map((hit: { assetId: string }) => hit.assetId)).toEqual(['still']);
+    expect(hiddenIn.results.map((hit: { assetId: string }) => hit.assetId)).toEqual([
+      'private',
+      'still',
+    ]);
   });
 
   it('answers a lexical request, and any request while the child is down, from the database', async () => {
