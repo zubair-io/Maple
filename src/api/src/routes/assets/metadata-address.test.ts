@@ -90,6 +90,35 @@ describe('asset metadata address routes against the live catalogue', () => {
     ]);
   });
 
+  it('includes database-backed mirror state in batch metadata responses', async () => {
+    const repo = new BackupRepository(live.handle);
+    const destination = await repo.createDestination({
+      libraryId,
+      kind: 'google-drive',
+      name: 'Drive',
+      path: null,
+    });
+    await repo.updateDestination(destination.id, { enabled: true });
+    await repo.ensureEntry(destination.id, assetId, 0, 'photos/indexed.jpg');
+    const response = await new Elysia({ prefix: '/api/assets' }).use(metadataRoutes).handle(
+      new Request('http://localhost/api/assets/batch-meta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [assetId] }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).assets[0].mirrors).toMatchObject([
+      {
+        destinationId: destination.id,
+        destinationName: 'Drive',
+        provider: 'google-drive',
+        path: 'photos/indexed.jpg',
+        status: 'pending',
+      },
+    ]);
+  });
+
   it('rejects missing values before resolving a library', async () => {
     for (const route of ['by-address', 'by-fspath']) {
       expect((await request(route)).status).toBe(400);

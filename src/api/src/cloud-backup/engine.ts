@@ -103,7 +103,10 @@ async function removeStaleEntryObject(
   if (!mirrorKey && !legacyKey) return;
   const owner = await repo.objectOwner(destination.id, expected.key);
   if (owner?.entryId !== entry.id || !sameObjectIdentity(owner.object, expected)) return;
-  const current = await provider.inspect(expected.key, signal, expected.locator, expected);
+  const current = await provider.inspect(expected.key, signal, {
+    locator: expected.locator,
+    expected,
+  });
   if (!sameObjectIdentity(current, expected)) return;
   const stillOwned = await repo.objectOwner(destination.id, expected.key);
   if (stillOwned?.entryId !== entry.id || !sameObjectIdentity(stillOwned.object, expected)) return;
@@ -147,12 +150,10 @@ export class BackupEngine {
     signal?: AbortSignal,
   ): Promise<BackupObject> {
     const saved = await this.repo.object(destination.id, key);
-    const existing = await provider.inspect(
-      key,
-      signal,
-      saved.object?.locator,
-      saved.object ?? undefined,
-    );
+    const existing = await provider.inspect(key, signal, {
+      locator: saved.object?.locator,
+      expected: saved.object ?? undefined,
+    });
     if (existing) {
       if (existing.size !== source.size || existing.sha256 !== source.sha256)
         throw new Error('Backup immutable object integrity mismatch');

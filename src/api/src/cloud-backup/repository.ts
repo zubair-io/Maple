@@ -45,6 +45,21 @@ export interface BackupEntry {
 }
 const DESTINATION_COLUMNS = `id,library_id AS libraryId,kind,name,enabled,generation,
   path,root_id AS rootId,account_id AS accountId`;
+function mirrorStatus(row: {
+  state: BackupEntry['state'];
+  lastError: string | null;
+  enabled: number;
+  verifiedSequence: number;
+  sequence: number;
+}): BackupMirrorState['status'] {
+  // Lifecycle state outranks connection health; a recorded failure remains
+  // visible while paused so operators can distinguish retryable work.
+  if (row.state === 'purged') return 'purged';
+  if (row.state === 'trash') return 'trash';
+  if (row.lastError) return 'error';
+  if (!row.enabled) return 'paused';
+  return row.verifiedSequence === row.sequence ? 'synced' : 'pending';
+}
 export class BackupRepository {
   constructor(private readonly override?: SqliteDb) {}
   get db(): SqliteDb {
@@ -141,18 +156,6 @@ export class BackupRepository {
       [...assetIds],
     );
     for (const row of rows) {
-      const status: BackupMirrorState['status'] =
-        row.state === 'purged'
-          ? 'purged'
-          : row.state === 'trash'
-            ? 'trash'
-            : row.lastError
-              ? 'error'
-              : !row.enabled
-                ? 'paused'
-                : row.verifiedSequence === row.sequence
-                  ? 'synced'
-                  : 'pending';
       const mirror: BackupMirrorState = {
         destinationId: row.destinationId,
         destinationName: row.destinationName,
@@ -160,7 +163,7 @@ export class BackupRepository {
         enabled: Boolean(row.enabled),
         path: row.path,
         state: row.state,
-        status,
+        status: mirrorStatus(row),
         sequence: row.sequence,
         verifiedSequence: row.verifiedSequence,
         attempts: row.attempts,

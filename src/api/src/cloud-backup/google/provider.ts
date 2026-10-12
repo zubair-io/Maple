@@ -1,4 +1,10 @@
-import type { BackupObject, BackupProvider, PublishSource, UploadCheckpoint } from '../provider.ts';
+import type {
+  BackupInspectOptions,
+  BackupObject,
+  BackupProvider,
+  PublishSource,
+  UploadCheckpoint,
+} from '../provider.ts';
 import {
   DriveClient,
   DRIVE_API,
@@ -83,6 +89,16 @@ export class GoogleDriveProvider implements BackupProvider {
     const parts = relativePath.split('/');
     const name = parts.pop()!;
     return { parentId: await this.ensureFolders(parts, signal), name };
+  }
+  private async findObjectTarget(
+    key: string,
+    signal?: AbortSignal,
+  ): Promise<{ parentId: string; name: string } | null> {
+    validKey(key);
+    const parts = this.objectPath(key).split('/');
+    const name = parts.pop()!;
+    const parentId = await this.findFolders(parts, signal);
+    return parentId ? { parentId, name } : null;
   }
   private objectPath(key: string): string {
     const mirrorParts = key.split('/');
@@ -275,14 +291,18 @@ export class GoogleDriveProvider implements BackupProvider {
   async inspect(
     key: string,
     signal?: AbortSignal,
-    locator?: string,
-    expected?: BackupObject,
-    heartbeat?: (object: BackupObject) => Promise<void>,
+    locatorOrOptions?: string | BackupInspectOptions,
+    legacyHeartbeat?: (candidate: BackupObject) => Promise<void>,
   ): Promise<BackupObject | null> {
+    const options =
+      typeof locatorOrOptions === 'string'
+        ? { locator: locatorOrOptions, heartbeat: legacyHeartbeat }
+        : (locatorOrOptions ?? { heartbeat: legacyHeartbeat });
+    const heartbeat = options.heartbeat;
     validKey(key);
     await this.probe(signal);
-    const match = locator
-      ? await this.inspectLocator(key, locator, signal, expected)
+    const match = options.locator
+      ? await this.inspectLocator(key, options.locator, signal, options.expected)
       : await this.inspectIndex(key, signal);
     if (!match) return null;
     const actual = await verifiedGoogleObject(
@@ -296,7 +316,11 @@ export class GoogleDriveProvider implements BackupProvider {
     // reconciliation, so a checksum mismatch is returned to the mirror writer
     // to repair from the source instead of becoming a stuck validation error.
     if (!key.startsWith('mirror/'))
-      assertObjectIdentity(actual, expected ?? match, 'Google upload read-back checksum mismatch.');
+      assertObjectIdentity(
+        actual,
+        options.expected ?? match,
+        'Google upload read-back checksum mismatch.',
+      );
     return actual;
   }
   private async inspectLocator(
@@ -317,27 +341,13 @@ export class GoogleDriveProvider implements BackupProvider {
     }
   }
   private async inspectIndex(key: string, signal?: AbortSignal): Promise<BackupObject | null> {
-    if (key.startsWith('mirror/')) {
-      const target = await this.objectTarget(key, signal);
-      const matches: DriveFile[] = [];
-      for await (const file of this.client.list(
-        `'${target.parentId}' in parents and trashed = false`,
-        signal,
-      ))
-        if (file.name === target.name && file.mimeType !== 'application/vnd.google-apps.folder')
-          matches.push(file);
-      if (matches.length > 1)
-        throw new Error('Multiple Google files exist at the Maple mirror path.');
-      const file = matches[0];
-      if (!file) return null;
-      await this.assertWithinRoot(file, signal);
-      return backupObject(file, this.rootId, {
-        key,
-        locator: file.id,
-        size: Number(file.size),
-        sha256: objectMarker(file)?.sha256 ?? '0'.repeat(64),
-      });
-    }
+    if (key.startsWith('mirror/')) return this.inspectMirrorIndex(key, signal);
+    return this.inspectPortableIndex(key, signal);
+  }
+  private async inspectPortableIndex(
+    key: string,
+    signal?: AbortSignal,
+  ): Promise<BackupObject | null> {
     const hash = logicalKeyHash(key);
     const matches: BackupObject[] = [];
     const relativePath = this.objectPath(key).split('/');
@@ -348,19 +358,64 @@ export class GoogleDriveProvider implements BackupProvider {
     // https://developers.google.com/workspace/drive/api/guides/search-files
     const query = `'${parentId}' in parents and trashed = false and properties has { key='mapleKeyHash' and value='${hash}' }`;
     for await (const file of this.client.list(query, signal)) {
-      const object = backupObject(file, this.rootId);
-      try {
-        await this.assertWithinRoot(file, signal);
-      } catch {
-        continue;
-      }
-      if (object.key !== key || file.properties?.['mapleKeyHash'] !== hash)
-        throw new Error('Google backup search index does not match its portable object identity.');
+      const object = await this.inspectPortableCandidate(file, key, hash, signal);
+      if (!object) continue;
       matches.push(object);
       if (matches.length > 1)
         throw new Error('Conflicting immutable backup objects require operator review.');
     }
     return matches[0] ?? null;
+  }
+  private async inspectPortableCandidate(
+    file: DriveFile,
+    key: string,
+    hash: string,
+    signal?: AbortSignal,
+  ): Promise<BackupObject | null> {
+    const object = backupObject(file, this.rootId);
+    try {
+      await this.assertWithinRoot(file, signal);
+    } catch {
+      return null;
+    }
+    if (object.key !== key || file.properties?.['mapleKeyHash'] !== hash)
+      throw new Error('Google backup search index does not match its portable object identity.');
+    return object;
+  }
+  private async inspectMirrorIndex(
+    key: string,
+    signal?: AbortSignal,
+  ): Promise<BackupObject | null> {
+    const target = await this.findObjectTarget(key, signal);
+    if (!target) return null;
+    const matches = await this.matchingFiles(target, signal);
+    if (matches.length > 1)
+      throw new Error('Multiple Google files exist at the Maple mirror path.');
+    const file = matches[0];
+    if (!file) return null;
+    await this.assertWithinRoot(file, signal);
+    // The exact path under Maple's managed root is enough to discover an
+    // unmapped mirror candidate. Reconciliation hashes its bytes and rewrites
+    // it from the source; marker metadata never establishes the DB mapping.
+    return backupObject(file, this.rootId, {
+      key,
+      locator: file.id,
+      size: Number(file.size),
+      sha256: objectMarker(file)?.sha256 ?? '0'.repeat(64),
+    });
+  }
+  private async matchingFiles(
+    target: { parentId: string; name: string },
+    signal?: AbortSignal,
+  ): Promise<DriveFile[]> {
+    const matches: DriveFile[] = [];
+    for await (const file of this.client.list(
+      `'${target.parentId}' in parents and trashed = false`,
+      signal,
+    ))
+      if (file.name === target.name && file.mimeType !== 'application/vnd.google-apps.folder')
+        matches.push(file);
+    return matches;
   }
   async publish(
     key: string,
@@ -415,9 +470,28 @@ export class GoogleDriveProvider implements BackupProvider {
     assertObjectIdentity(current, object, errorMessage);
     return current;
   }
+  private async currentObjectMetadata(
+    object: BackupObject,
+    errorMessage: string,
+    signal?: AbortSignal,
+  ): Promise<BackupObject> {
+    const file = await this.client.metadata(object.locator, signal);
+    await this.assertWithinRoot(file, signal);
+    const current = backupObject(file, this.rootId, object);
+    const metadataIdentity = {
+      ...current,
+      size: Number(file.size),
+      sha256: file.sha256Checksum ?? object.sha256,
+    };
+    assertObjectIdentity(metadataIdentity, object, errorMessage);
+    return metadataIdentity;
+  }
   async download(object: BackupObject, signal?: AbortSignal): Promise<ReadableStream<Uint8Array>> {
     await this.probe(signal);
-    await this.currentObject(object, 'Backup object identity changed.', signal);
+    // Consumers hash while streaming (catalog reads are bounded; restore
+    // writes verify before publication). Avoid downloading the same bytes once
+    // here and again for the caller when Drive omits its native checksum.
+    await this.currentObjectMetadata(object, 'Backup object identity changed.', signal);
     const response = await this.client.request(
       `${DRIVE_API}/files/${object.locator}?alt=media`,
       {},
