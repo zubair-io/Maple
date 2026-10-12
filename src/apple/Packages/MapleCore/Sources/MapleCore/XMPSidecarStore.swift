@@ -373,7 +373,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     removalChange: (expected: String, records: String)? = nil,
     expectedSidecarRevision: RemovalSidecarRevision? = nil
   ) throws -> AdjustmentModel {
-    try coordinateSidecarWrite { destination, existing in
+    try coordinateSidecarWrite(removalChange: removalChange != nil) { destination, existing in
       let attempt = removalChange.map {
         LocalRemovalCommitAttempt(
           model: model, expected: $0.expected, records: $0.records,
