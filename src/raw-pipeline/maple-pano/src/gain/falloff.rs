@@ -47,12 +47,12 @@ pub(crate) fn solve_with_falloff(
         .iter()
         .map(|c| (c.width as f64, c.height as f64))
         .collect();
-    let q = estimate_falloff(
+    let fits = estimate_falloff(
         &correspondences(set, &dims),
         &lenses.of_frame,
         lenses.labels.len(),
     );
-    let q_of_frame = lenses.q_of_frame(&q);
+    let q_of_frame = lenses.q_of_frame(&fits);
     let flat = flatten(set, &dims, &q_of_frame);
     let frames = solve_from_fits(&flat, &fit_pairs(&flat, mode), mode)?
         .into_iter()
@@ -65,7 +65,7 @@ pub(crate) fn solve_with_falloff(
     let all: Vec<usize> = (0..lenses.of_frame.len()).collect();
     Ok(PhotometrySolution {
         frames,
-        falloff: lenses.report(&q, &all),
+        falloff: lenses.report(&fits, &all),
     })
 }
 
