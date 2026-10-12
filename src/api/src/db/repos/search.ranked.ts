@@ -55,12 +55,14 @@ export interface WindowPass {
   semantic?: ReadonlySet<string>;
   /** The engine's score of each hit by `maple_id`, when it has one. */
   scores?: ReadonlyMap<string, number>;
+  /** The lookahead hits that pass the filters: never served, only read for which shot they are. */
+  beyond?: WindowRow[];
 }
 
 /**
- * Ranks the text `depth + lookahead` deep and filters the first `depth` hits; `considered` counts
- * every hit returned, so a lookahead hit says matches remain past `depth` without joining it.
- * Null when the engine cannot answer.
+ * Ranks the text `depth + lookahead` deep and filters the first `depth` hits into `rows` and the
+ * rest into `beyond`; `considered` counts every hit returned, so a lookahead hit says matches
+ * remain past `depth`. Null when the engine cannot answer.
  */
 export type WindowRanker = (depth: number, lookahead?: number) => Promise<WindowPass | null>;
 
@@ -143,13 +145,20 @@ export async function rankWindow(
   return widen(target, null);
 }
 
-/** Below the cap a full pass says more; at the cap only a lookahead hit past it says capped. */
+/**
+ * Below the cap a full pass says more; at the cap only a lookahead hit past it says capped — and
+ * only one that could be a new tile. A lookahead hit that is another copy of a shot the window
+ * already holds (#4557) says nothing about shots left past the cap, so it is not counted.
+ */
 function windowOf(pass: WindowPass, depth: number): RankedWindow {
   const atCap = depth >= RANKED_WINDOW_MAX;
+  const beyond = pass.beyond ?? [];
+  const newShots = collapseShots([...pass.rows, ...beyond]).length - pass.rows.length;
+  const copiesBeyond = beyond.length - newShots;
   return {
     rows: pass.rows,
     more: !atCap && pass.considered >= depth,
-    capped: atCap && pass.considered > depth,
+    capped: atCap && pass.considered - copiesBeyond > depth,
     semantic: pass.semantic ?? new Set(),
     scores: pass.scores,
   };
@@ -181,10 +190,10 @@ export function ftsWindowSql(where: SearchWhere, depth: number, lookahead = 0): 
       ? {
           sql: `,
     probed AS MATERIALIZED (SELECT sr, rank FROM hit ORDER BY rank, sr LIMIT ?)`,
-          from: 'probed AS hit',
+          beyond: 'hit.sr NOT IN (SELECT sr FROM probed)',
           params: [depth],
         }
-      : { sql: '', from: 'hit', params: [] };
+      : { sql: '', beyond: '0', params: [] };
   return {
     sql: `WITH hit AS MATERIALIZED (
       SELECT assets_fts.rowid AS sr, ${FTS_RANK_SQL}
@@ -196,15 +205,15 @@ export function ftsWindowSql(where: SearchWhere, depth: number, lookahead = 0): 
       SELECT hit.rank AS rank, hit.sr AS sr, assets.rowid AS r, assets.id AS id,
              assets.maple_id AS maple_id, assets.owner_id AS owner_id,
              assets.captured_at AS captured_at, assets.media_kind AS media_kind,
-             ${LIVE_FILENAME_SQL} AS filename
-        FROM ${probed.from}
+             ${LIVE_FILENAME_SQL} AS filename, ${probed.beyond} AS beyond
+        FROM hit
         CROSS JOIN asset_search ON asset_search.rowid = hit.sr
         CROSS JOIN assets ON assets.id = asset_search.asset_id
        ${rest.sql})
   SELECT (SELECT COUNT(*) FROM hit) AS considered, alive.r AS r, alive.id AS id,
          alive.maple_id AS maple_id, alive.owner_id AS owner_id,
          alive.captured_at AS captured_at, alive.media_kind AS media_kind,
-         alive.filename AS filename
+         alive.filename AS filename, alive.beyond AS beyond
     FROM (SELECT 1) LEFT JOIN alive ON 1
    ORDER BY alive.rank ASC, alive.sr ASC`,
     params: [
@@ -223,15 +232,20 @@ export function ftsRanker(where: SearchWhere, dbOverride?: SqliteDb): WindowRank
     if (where.match.kind !== 'match') return { rows: [], considered: 0 };
     const window = ftsWindowSql(where, depth, lookahead);
     const answer = await readBulk<
-      { considered: number } & { [K in keyof WindowRow]: WindowRow[K] | null }
+      { considered: number; beyond: number | null } & {
+        [K in keyof WindowRow]: WindowRow[K] | null;
+      }
     >(assetsDb(dbOverride), window.sql, window.params);
-    return {
-      considered: answer[0]?.considered ?? 0,
-      rows: answer.flatMap(({ r, id, maple_id, owner_id, captured_at, media_kind, filename }) =>
+    const survivors = answer.flatMap(
+      ({ r, id, maple_id, owner_id, captured_at, media_kind, filename, beyond }) =>
         r === null || id === null || media_kind === null
           ? []
-          : [{ r, id, maple_id, owner_id, captured_at, media_kind, filename }],
-      ),
+          : [{ row: { r, id, maple_id, owner_id, captured_at, media_kind, filename }, beyond }],
+    );
+    return {
+      considered: answer[0]?.considered ?? 0,
+      rows: survivors.flatMap(({ row, beyond }) => (beyond ? [] : [row])),
+      beyond: survivors.flatMap(({ row, beyond }) => (beyond ? [row] : [])),
     };
   };
 }
