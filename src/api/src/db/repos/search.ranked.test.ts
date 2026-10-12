@@ -17,6 +17,7 @@ import {
 import { FTS_RANK_ORDER, FTS_RANK_SQL } from './search.fts.ts';
 import {
   ftsRanker,
+  mapleIdWindow,
   RANKED_WINDOW_BASE,
   RANKED_WINDOW_MAX,
   rankWindow,
@@ -316,6 +317,7 @@ describe('one row per shot (#4557)', () => {
       searchBlob: 'fireworks fireworks',
     });
     const copy = seedSearchAsset(handle.db, libraryId, {
+      mapleId: 'moved-copy',
       filename: 'old-name.mp4',
       locationMissingSince: '2026-01-01T00:00:00.000Z',
       mediaKind: 'video',
@@ -339,6 +341,12 @@ describe('one row per shot (#4557)', () => {
     ))!;
 
     expect(pass.rows.find((row) => row.id === copy)?.filename).toBe('20170521_175035(1).mp4');
+    const [byMapleId] = await mapleIdWindow(
+      translate({ placeQuery: 'fireworks' }),
+      ['moved-copy'],
+      testSqliteDb(handle.db),
+    );
+    expect(byMapleId?.filename).toBe('20170521_175035(1).mp4');
     expect(window.rows.map((row) => row.id)).toEqual([best]);
   });
 

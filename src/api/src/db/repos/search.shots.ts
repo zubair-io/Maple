@@ -34,7 +34,7 @@ const COPY_MARKERS = /(\s*\(\d+\))+$/;
  * `holiday2024-beach`, `2024-wedding-IMG_1234` — is the photographer's own, so two such names are
  * two shots.
  */
-const EXPORT_SUFFIX = /^(_?[a-z]{0,4}_?\d[\d_]*)-[a-z](?:(?!\d{3}).)*$/;
+const EXPORT_SUFFIX = /^(_?[a-z]{0,4}_?\d[\d_]*)(?:\s*\(\d+\))*-[a-z](?:(?!\d{3}).)*$/;
 
 /**
  * `captured_at` is written by `toISOString()` (`indexer/exif.ts`), so its first 19 characters are
