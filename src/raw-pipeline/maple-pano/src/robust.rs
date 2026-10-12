@@ -151,6 +151,17 @@ pub enum VerifyFailure {
     LoopClosureUnconfirmed {
         best_triangle_error_deg: Option<f64>,
     },
+    /// Structured-grid gate, tile path (#4519): no triangle through two
+    /// verified neighbour edges reproduces the loop closure's planar
+    /// placement.
+    #[error("loop closure placement not confirmed by a neighbour triangle (best corner error {best_corner_error_px:?} px)")]
+    LoopClosurePlacementUnconfirmed { best_corner_error_px: Option<f64> },
+    /// Structured-grid gate with GPS (#4519): the frames' ground
+    /// footprints are too far apart to overlap.
+    #[error(
+        "loop closure frames are {distance_m:.1} m apart (footprint allows <= {limit_m:.1} m)"
+    )]
+    LoopClosureBeyondGroundFootprint { distance_m: f64, limit_m: f64 },
 }
 
 /// Robustly estimate the relative rotation from bearing pairs.

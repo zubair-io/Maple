@@ -122,6 +122,7 @@ pub(super) fn run_tile_from_outcome(
         refined_matches: outcome.refined_matches,
         fallback_matches: outcome.fallback_matches,
         reverify: &outcome.reverify,
+        match_graph: &outcome.match_graph,
         tile_report: &outcome.tile_report,
         tile_orphans: &outcome.orphans,
         focal_seed_source: outcome.focal_seed_source.map(|s| s.as_str()),

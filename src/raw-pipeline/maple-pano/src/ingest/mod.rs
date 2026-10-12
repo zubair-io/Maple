@@ -24,7 +24,7 @@ pub mod proxy;
 use std::path::Path;
 
 use crate::error::PanoError;
-pub use priors::{FramePriors, GimbalPrior};
+pub use priors::{FramePriors, GimbalPrior, GpsPrior};
 pub use proxy::proxy_to_long_edge;
 
 /// 1 bit/px validity mask, row-major, bit index `y * width + x` packed
