@@ -4,8 +4,11 @@
 //! Gaussian-weighted 36-bin histogram around it. The descriptor samples a
 //! square patch rotated into that frame, splits it into a 4×4 grid of
 //! cells, and accumulates each pixel's gradient magnitude into 8 relative
-//! orientation bins with trilinear weights — 128 values, L2-normalised,
-//! clamped at 0.2 to damp single strong edges, then renormalised.
+//! orientation bins with trilinear weights — 128 values, mapped to the
+//! Hellinger form (RootSIFT): L1-normalised, then square-rooted. The
+//! square root damps single strong edges the way SIFT's 0.2 clamp did,
+//! but smoothly, so dot products compare bin distributions rather than
+//! letting one dominant gradient decide (#4553).
 
 use std::f32::consts::TAU;
 
@@ -17,7 +20,6 @@ const ORIENTATION_BINS: usize = 8;
 const ORIENTATION_HISTOGRAM_BINS: usize = 36;
 const ORIENTATION_WINDOW_SIGMAS: f32 = 1.5;
 const CELL_WIDTH_SIGMAS: f32 = 3.0;
-const DESCRIPTOR_CLAMP: f32 = 0.2;
 
 /// Pixels of `image` within `radius` of `(x, y)` (continuous coords), as
 /// `(dx, dy, gx, gy)` offsets from the centre.
@@ -131,18 +133,13 @@ pub(super) fn describe(
             hist
         },
     );
-    let normalized = l2_normalize(raw)?;
-    l2_normalize(
-        normalized
-            .into_iter()
-            .map(|v| v.min(DESCRIPTOR_CLAMP))
-            .collect(),
-    )
+    root_normalize(raw)
 }
 
-fn l2_normalize(v: Vec<f32>) -> Option<Vec<f32>> {
-    let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-    (norm > f32::EPSILON).then(|| v.into_iter().map(|x| x / norm).collect())
+/// Hellinger map of a non-negative histogram; unit L2 norm by construction.
+fn root_normalize(v: Vec<f32>) -> Option<Vec<f32>> {
+    let total: f32 = v.iter().sum();
+    (total > f32::EPSILON).then(|| v.into_iter().map(|x| (x / total).sqrt()).collect())
 }
 
 #[cfg(test)]
@@ -192,6 +189,14 @@ mod tests {
         let turned = wrap_angle(a1 - a0);
         assert!((turned - 0.9).abs() < 0.1, "orientation moved {turned} rad");
         assert!(dot(&d0, &d1) > 0.9, "similarity {}", dot(&d0, &d1));
+    }
+
+    #[test]
+    fn hellinger_map_square_roots_the_bin_shares() {
+        let d = root_normalize(vec![9.0, 1.0, 0.0]).expect("non-empty histogram");
+        let expected = [0.9_f32.sqrt(), 0.1_f32.sqrt(), 0.0];
+        assert!(d.iter().zip(expected).all(|(a, b)| (a - b).abs() < 1e-6));
+        assert!(root_normalize(vec![0.0; 4]).is_none());
     }
 
     #[test]
