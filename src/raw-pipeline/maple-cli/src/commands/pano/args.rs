@@ -125,6 +125,20 @@ pub struct StitchArgs {
     /// Defaults to `ml` when built in.
     #[arg(long, value_enum, default_value_t = FeaturesEngineArg::default())]
     pub(super) features_engine: FeaturesEngineArg,
+    /// Preview mode (#4578; single-set): write a quick sRGB preview PNG
+    /// (~2048 px long edge, solved and composited from the proxies — no
+    /// full-resolution refinement) here instead of running the full stitch.
+    #[arg(long, conflicts_with_all = ["manifest", "out", "display"])]
+    pub(super) preview_out: Option<PathBuf>,
+    /// Start from this solved alignment (written by --alignment-out) when it
+    /// still matches the input files and the geometry options; matching and
+    /// graph verification are then skipped. A stale or unreadable file is
+    /// ignored and the alignment re-solved — the report says which.
+    #[arg(long, conflicts_with = "manifest")]
+    pub(super) alignment_in: Option<PathBuf>,
+    /// Write the solved (or reused) alignment JSON here.
+    #[arg(long, conflicts_with = "manifest")]
+    pub(super) alignment_out: Option<PathBuf>,
 }
 
 impl StitchArgs {
