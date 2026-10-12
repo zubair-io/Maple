@@ -23,7 +23,8 @@ use std::ffi::{c_char, CString};
 use std::path::{Path, PathBuf};
 
 use raw_ffi::{
-    maple_last_error, maple_pano_stitch, MaplePanoLocalAlign, MaplePanoRetention, MaplePanoStrategy,
+    maple_last_error, maple_pano_stitch, MaplePanoFeatureEngine, MaplePanoLocalAlign,
+    MaplePanoRetention, MaplePanoStrategy,
 };
 
 fn skip(reason: impl std::fmt::Display) {
@@ -182,6 +183,7 @@ fn pano_ffi_stitch_pano_01_matches_reference() {
             MaplePanoRetention::Keep,
             MaplePanoLocalAlign::Mesh,
             MaplePanoStrategy::Auto,
+            MaplePanoFeatureEngine::Ml,
             None, // no progress callback
             std::ptr::null_mut(),
             std::ptr::null(), // no cancel flag
@@ -327,6 +329,7 @@ fn pano_ffi_stitch_pano_00_tile_succeeds() {
             MaplePanoRetention::Keep,
             MaplePanoLocalAlign::Mesh,
             MaplePanoStrategy::Auto,
+            MaplePanoFeatureEngine::Ml,
             None,
             std::ptr::null_mut(),
             std::ptr::null(),
@@ -459,6 +462,7 @@ fn pano_ffi_rotation_on_translational_set_fails_fast() {
             MaplePanoLocalAlign::Mesh,
             // Force Rotation on a translational set — must fail fast, not balloon.
             MaplePanoStrategy::Rotation,
+            MaplePanoFeatureEngine::Ml,
             None,
             std::ptr::null_mut(),
             std::ptr::null(),

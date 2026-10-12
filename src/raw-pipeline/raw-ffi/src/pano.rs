@@ -43,7 +43,7 @@
 //!      iOS, and iOS-sim all run the real stitch path (M6 #1244).
 //! −4   a raw_paths element is not valid UTF-8 or is null
 //! −5   out_png_path is not valid UTF-8
-//! −6   ML environment unavailable (models or ORT dylib missing)
+//! −6   ML environment unavailable (models or ORT dylib missing; ML engine only)
 //! −7   pipeline error (decode / match / BA / composite / write — detail in last_error)
 //! −8   degenerate rotation geometry (frames are near-parallel / translational
 //!      and cannot be rotation-stitched — retry with Auto or Tile strategy)
@@ -107,6 +107,19 @@ pub enum MaplePanoStrategy {
     Tile = 2,
 }
 
+/// Feature detector/matcher passed to `maple_pano_stitch` (#4554).
+///
+/// `MAPLE_PANO_FEATURE_ENGINE_ML` (0): ALIKED + LightGlue on ONNX Runtime;
+/// needs the downloaded models (and, on macOS, the ORT dylib).
+/// `MAPLE_PANO_FEATURE_ENGINE_CLASSICAL` (1): Harris + gradient-histogram
+/// descriptors, pure CPU, nothing to download.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum MaplePanoFeatureEngine {
+    Ml = 0,
+    Classical = 1,
+}
+
 /// Progress callback type for `maple_pano_stitch`.
 ///
 /// `stage`  — pipeline stage ordinal (0 = decode, 1 = features, 2 = match,
@@ -133,6 +146,7 @@ pub type MaplePanoProgressFn =
 /// `retention`   — frame-retention policy (use `MAPLE_PANO_RETENTION_KEEP`).
 /// `local_align` — local alignment mode (use `MAPLE_PANO_LOCAL_ALIGN_MESH`).
 /// `strategy`    — alignment strategy (use `MAPLE_PANO_STRATEGY_AUTO`).
+/// `engine`      — feature detector/matcher (ML or classical, #4554).
 /// `progress_cb` — optional progress callback (null = suppressed).
 /// `cb_user`     — opaque pointer forwarded to `progress_cb`; ignored if
 ///                 `progress_cb` is null.
@@ -160,6 +174,7 @@ pub unsafe extern "C" fn maple_pano_stitch(
     retention: MaplePanoRetention,
     local_align: MaplePanoLocalAlign,
     strategy: MaplePanoStrategy,
+    engine: MaplePanoFeatureEngine,
     progress_cb: MaplePanoProgressFn,
     cb_user: *mut c_void,
     cancel: *const MapleCancelFlag,
@@ -231,6 +246,7 @@ pub unsafe extern "C" fn maple_pano_stitch(
     // platform-agnostic.
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
+        let opts = pano_apple::stitch_options(retention, local_align, strategy, engine);
         // `cb` is a `SendProgressCallback` which implements `Send` (see
         // struct-level safety comment). The struct is captured whole so the
         // raw `*mut c_void` it wraps crosses the thread boundary through the
@@ -239,9 +255,7 @@ pub unsafe extern "C" fn maple_pano_stitch(
             pano_apple::run_stitch_apple(
                 owned_paths,
                 out_path_str,
-                retention,
-                local_align,
-                strategy,
+                opts,
                 cb, // SendProgressCallback (Send) — pano_apple deconstructs it
                 send_cancel,
             )
@@ -262,6 +276,7 @@ pub unsafe extern "C" fn maple_pano_stitch(
             retention,
             local_align,
             strategy,
+            engine,
             cb,
             send_cancel,
         );

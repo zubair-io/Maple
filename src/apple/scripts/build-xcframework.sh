@@ -254,6 +254,7 @@ echo "    frameworks: $FRAMEWORKS_DIR"
 echo "    profile:    $PROFILE"
 echo "    GPU:        ON (--features gpu, offline + vendored — always-gpu since #1064)"
 echo "    PANO-iOS:   ON (--features pano-ios for iOS slices; static ORT — M6 #1244)"
+echo "    PANO:       classical matcher in every slice (default engine, no download — #4554)"
 
 # ---------------------------------------------------------------------------
 # 0a-pano. Provision the ONNX Runtime iOS static xcframework (M6 #1244).
@@ -427,6 +428,10 @@ build_target() {
         # framework binary named `onnxruntime`) in that dir and emits
         # `cargo:rustc-link-lib=static=onnxruntime`. The iOS sandbox blocks dlopen
         # of arbitrary paths — static linking is the only correct path.
+        #
+        # Both `pano` and `pano-ios` also enable maple-pano's
+        # `classical-features` (raw-ffi Cargo.toml, #4554): the classical
+        # matcher is the default Apple engine and needs no ORT or models.
         #
         # The framework binary inside Apple's pod is named `onnxruntime` (no lib
         # prefix, no .a extension) and is a Mach-O fat archive (0xcafebabe) even
