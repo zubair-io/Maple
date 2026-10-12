@@ -56,6 +56,11 @@ describe('InfoMirrorsComponent', () => {
     ]);
   });
 
+  it('renders one row per location when a destination mirrors the same asset twice', () => {
+    const el = render([mirror({ path: 'a/photo.dng' }), mirror({ path: 'b/photo.dng' })]);
+    expect(el.querySelectorAll('.mirror-row')).toHaveLength(2);
+  });
+
   it('shows paused and the failure together, with the error message beneath', () => {
     const el = render([
       mirror({
