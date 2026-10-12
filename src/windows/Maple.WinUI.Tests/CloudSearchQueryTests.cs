@@ -116,6 +116,54 @@ public sealed class CloudSearchQueryTests
         finally { Directory.Delete(cache, true); }
     }
 
+    [Fact]
+    public async Task RankPinRidesAlongOnlyWhenGivenAndIsReadBack()
+    {
+        var cache = Path.Combine(Path.GetTempPath(), "maple-search-" + Guid.NewGuid().ToString("N"));
+        var handler = new Handler
+        {
+            Body = """{"results":[],"cursorPaging":false,"nextCursor":null,"total":550,"page":1,"limit":200,"rankPin":"in-process:100,400:abcDEF012-_x"}""",
+        };
+        try
+        {
+            using var client = new CloudClient("https://maple.test", handler, cache);
+            var pinned = await client.SearchAsync(new CloudSearchQuery { Text = "beach" }, 1, null,
+                CancellationToken.None, rankPin: "in-process:100:abcDEF012-_x");
+            Assert.Contains("rankPin=in-process%3A100%3AabcDEF012-_x", handler.Route);
+            Assert.Equal("in-process:100,400:abcDEF012-_x", pinned.RankPin);
+
+            await client.SearchAsync(new CloudSearchQuery { Text = "beach" }, 0, null, CancellationToken.None);
+            Assert.DoesNotContain("rankPin", handler.Route);
+        }
+        finally { Directory.Delete(cache, true); }
+    }
+
+    [Fact]
+    public async Task EngineChangedRefusalIsTypedSoTheTimelineRestarts()
+    {
+        var cache = Path.Combine(Path.GetTempPath(), "maple-search-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var changed = new CloudClient("https://maple.test", new Handler
+            {
+                Status = HttpStatusCode.Conflict,
+                Body = """{"error":"restart","code":"rank_engine_changed"}""",
+            }, cache);
+            await Assert.ThrowsAsync<CloudRankEngineChangedException>(() =>
+                changed.SearchAsync(new(), 1, null, CancellationToken.None, rankPin: "database:100:abcDEF012-_x"));
+
+            using var other = new CloudClient("https://maple.test", new Handler
+            {
+                Status = HttpStatusCode.Conflict,
+                Body = """{"error":"something else"}""",
+            }, cache);
+            var failure = await Assert.ThrowsAsync<HttpRequestException>(() =>
+                other.SearchAsync(new(), 1, null, CancellationToken.None));
+            Assert.Equal(HttpStatusCode.Conflict, failure.StatusCode);
+        }
+        finally { Directory.Delete(cache, true); }
+    }
+
     [Theory]
     [InlineData("{}")]
     [InlineData("{\"cursorPaging\":false,\"page\":0,\"limit\":200,\"total\":0}")]
