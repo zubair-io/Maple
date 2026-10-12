@@ -36,10 +36,10 @@ import {
   countSql,
   descriptionsByAssetIdsSql,
   idPageSql,
-  pageColumnsByIdsSql,
   pageSql,
   phassetLinksByAssetIdsSql,
   seekPredicate,
+  windowColumnsSql,
 } from './search.sql.ts';
 import type { SearchWhere } from './search.where.ts';
 import { assetsDb, bulkLane, type SqliteDb } from './db-handle.ts';
@@ -177,19 +177,23 @@ async function hydrate(db: SqliteDb, rows: readonly PageRow[]): Promise<SearchDo
 }
 
 /**
- * The documents behind a ranked window's page, in the order given (#4514). The window already
- * applied every filter and knows each row's owner, so the page's columns are read beside its side
- * tables — one trip through the bulk lane instead of two.
+ * The documents behind a ranked window's page, in the order given (#4514). The window knows each
+ * row's owner, so the page's columns are read beside its side tables — one trip through the bulk
+ * lane instead of two. The columns are read under `where` again (its text stripped, as the window
+ * already matched it): an asset deleted or hidden after the window was ranked drops out of the
+ * page instead of being served (#4545).
  */
 export async function windowDocs(
+  where: SearchWhere,
   page: readonly { id: string; owner_id: string | null }[],
   dbOverride?: SqliteDb,
 ): Promise<SearchDoc[]> {
   if (page.length === 0) return [];
   const lane = bulkLane(assetsDb(dbOverride));
   const ids = page.map((row) => row.id);
+  const live = windowColumnsSql(where, ids);
   const [columns, sides] = await Promise.all([
-    lane.read<PageRow>(pageColumnsByIdsSql(ids.length), ids),
+    lane.read<PageRow>(live.sql, live.params),
     sideTables(lane, ids, page.map(ownerKey)),
   ]);
   const ownerIds = new Map(page.map((row) => [row.id, row.owner_id] as const));

@@ -50,7 +50,7 @@ async function rankedListPage(input: RankedListInput): Promise<RankedListPage> {
     return pinnedWindow(request, pin);
   });
   if (served === null) return { engineChanged: true };
-  const page = await windowPage(served.window, { skip, limit, timing });
+  const page = await windowPage(served.window, { where, skip, limit, timing });
   return { ...page, rankPin: encodeRankPin(served.pin) };
 }
 

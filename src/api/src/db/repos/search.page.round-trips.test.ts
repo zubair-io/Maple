@@ -62,7 +62,7 @@ describe('search page round trips', () => {
       ['four', 'gone', 'two', 'three', 'one'],
       recorded.handle,
     );
-    const docs = await windowDocs(window.slice(1, 3), recorded.handle);
+    const docs = await windowDocs(where({ rating: '5' }), window.slice(1, 3), recorded.handle);
 
     expect(window.map((row) => row.maple_id)).toEqual(['four', 'three', 'one']);
     expect(docs.map((doc) => doc.fileinfo?.[0]?.filename)).toEqual(['three.dng', 'one.dng']);
@@ -75,10 +75,25 @@ describe('search page round trips', () => {
     expect(recorded.waves[1]!.some((sql) => sql.includes('FROM users'))).toBe(true);
   });
 
+  it('drops a window row deleted or hidden between ranking and hydration (#4545)', async () => {
+    const handle = testSqliteDb(database.db);
+    const window = await mapleIdWindow(where(), ['one', 'two', 'three', 'four'], handle);
+    run(
+      database.db,
+      `UPDATE assets SET deleted_at = '2026-10-12T00:00:00Z' WHERE maple_id = 'two'`,
+    );
+    run(database.db, `UPDATE assets SET hidden = 1 WHERE maple_id = 'four'`);
+
+    const docs = await windowDocs(where(), window, handle);
+
+    expect(window.map((row) => row.maple_id)).toEqual(['one', 'two', 'three', 'four']);
+    expect(docs.map((doc) => doc.fileinfo?.[0]?.filename)).toEqual(['one.dng', 'three.dng']);
+  });
+
   it('answers an empty page without hydrating', async () => {
     const recorded = recordReadWaves(testSqliteDb(database.db));
 
-    expect(await windowDocs([], recorded.handle)).toEqual([]);
+    expect(await windowDocs(where(), [], recorded.handle)).toEqual([]);
     expect(recorded.waves).toEqual([]);
   });
 
@@ -100,7 +115,7 @@ describe('search page round trips', () => {
     const handle = testSqliteDb(database.db);
 
     const window = await mapleIdWindow(where({ rating: '5' }), ['one', 'one', 'three'], handle);
-    const docs = await windowDocs(window, handle);
+    const docs = await windowDocs(where({ rating: '5' }), window, handle);
 
     expect(window.map((row) => row.maple_id)).toEqual(['one', 'one', 'three']);
     expect(docs.map((doc) => doc.fileinfo?.[0]?.filename)).toEqual([
@@ -117,7 +132,7 @@ describe('search page round trips', () => {
     const handle = testSqliteDb(database.db);
 
     const window = await mapleIdWindow(where(), ['three', 'two', 'one'], handle);
-    const ranked = await windowDocs(window, handle);
+    const ranked = await windowDocs(where(), window, handle);
     const paged = await searchPage(where(), { sort: 'captured_desc', limit: 10, skip: 0 }, handle);
     const results = projectAssets(paged, new Map(), new Map());
 
@@ -135,7 +150,11 @@ describe('search page round trips', () => {
     run(database.db, `UPDATE assets SET owner_id = ? WHERE maple_id = 'one'`, OWNER.toUpperCase());
     const handle = testSqliteDb(database.db);
 
-    const [ranked] = await windowDocs(await mapleIdWindow(where(), ['one'], handle), handle);
+    const [ranked] = await windowDocs(
+      where(),
+      await mapleIdWindow(where(), ['one'], handle),
+      handle,
+    );
     const paged = await searchPage(where(), { sort: 'captured_desc', limit: 10, skip: 0 }, handle);
 
     expect(ranked?.owner).toEqual({ id: OWNER, email: 'owner@maple.local' });
@@ -156,7 +175,7 @@ describe('search page round trips', () => {
     const window = await mapleIdWindow(where(), ['one'], handle);
     run(database.db, `UPDATE assets SET owner_id = ? WHERE maple_id = 'one'`, OTHER);
 
-    const [doc] = await windowDocs(window, handle);
+    const [doc] = await windowDocs(where(), window, handle);
 
     expect(doc?.owner).not.toBeNull();
     expect(doc?.owner?.id).toBe(

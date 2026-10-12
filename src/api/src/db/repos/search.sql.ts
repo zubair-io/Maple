@@ -256,17 +256,29 @@ function rankedPageSql(
   };
 }
 
-/** The page columns of already-filtered ids, read by primary key. */
-export function pageColumnsByIdsSql(count: number): string {
-  return `SELECT ${PAGE_COLUMNS} FROM assets WHERE assets.id IN (${placeholders(count)})`;
-}
-
 /** Rows for stored ids under the live filters; the text match is stripped, as an engine's ids already matched it. */
 export function idPageSql(where: SearchWhere, ids: readonly string[]): BoundStatement {
   return statement(PAGE_COLUMNS, { ...where, match: { kind: 'none' } }, '', {
     sql: `assets.id IN (${placeholders(ids.length)})`,
     params: [...ids],
   });
+}
+
+/**
+ * The page columns of a ranked window's ids that still pass `where` but its text. The ids lead
+ * through `CROSS JOIN`, so `assets` is probed by key once per id: given the filters as a bare
+ * `WHERE`, the planner walks the live index instead.
+ */
+export function windowColumnsSql(where: SearchWhere, ids: readonly string[]): BoundStatement {
+  const filtered = statement(
+    PAGE_COLUMNS,
+    { ...where, match: { kind: 'none' } },
+    '',
+    undefined,
+    [],
+    'FROM json_each(?) AS page\n      CROSS JOIN assets ON assets.id = page.value',
+  );
+  return { sql: filtered.sql, params: [JSON.stringify(ids), ...filtered.params] };
 }
 
 /**

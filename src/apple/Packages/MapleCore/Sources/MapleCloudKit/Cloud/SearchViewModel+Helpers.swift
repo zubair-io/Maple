@@ -8,7 +8,10 @@ import Foundation
 extension SearchViewModel {
   /// The server's window ladder (`windowDepthFor`): the first step reaching `need` rows.
   nonisolated static func windowStep(reaching need: Int) -> Int {
-    [100, 400, 1_600].first { $0 >= need } ?? 5_000
+    let ladder = RankedWindowLadder.self
+    let reaching = sequence(first: ladder.base) { $0 * ladder.wideningFactor }
+      .first { $0 >= need || $0 >= ladder.max }
+    return min(reaching ?? ladder.max, ladder.max)
   }
 
   /// True when `error` is a request/task cancellation (debounce superseded

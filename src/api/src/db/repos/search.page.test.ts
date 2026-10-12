@@ -369,7 +369,7 @@ async function searchByMapleIds(
   ids: readonly string[],
   db: Parameters<typeof mapleIdWindow>[2],
 ) {
-  return windowDocs(await mapleIdWindow(where, ids, db), db);
+  return windowDocs(where, await mapleIdWindow(where, ids, db), db);
 }
 
 describe("an engine's ranked maple_ids — the window's rows and their documents", () => {
