@@ -332,6 +332,8 @@ export class SearchComponent implements OnInit, AfterViewInit {
   /** Fetch page 0 of the current search, replacing the rows held. */
   private loadFirstPage(): void {
     this.inFlight?.unsubscribe();
+    // Holds `onLoadMore` off until page 0 lands, so no page of the old ranking is appended.
+    this.isStale.set(true);
     this.page.set(0);
     this.nextCursor.set(null);
     this.rankPin = null;

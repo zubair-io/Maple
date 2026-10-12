@@ -527,6 +527,8 @@ describe('SearchComponent (unified search)', () => {
       const restart = stub.calls[stub.calls.length - 1];
       expect(restart.page).toBe(0);
       expect(restart.rankPin).toBeUndefined();
+      component().onLoadMore();
+      expect(stub.calls[stub.calls.length - 1]).toBe(restart);
       stub.resolveLatest(page('fresh', 'database:100'));
       const names = component()
         .results()
