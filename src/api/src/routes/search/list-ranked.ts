@@ -14,7 +14,13 @@
  */
 
 import type { SearchWhere } from '../../db/repos/search.where.ts';
-import { encodeRankPin, pinnedWindow, pinOf, type RankPin } from './pinned-window.ts';
+import {
+  decodeRankPin,
+  encodeRankPin,
+  pinnedWindow,
+  pinOf,
+  type RankPin,
+} from './pinned-window.ts';
 import { requestWindow, windowPage, type WindowPage } from './ranked-window.ts';
 import type { PhaseTimer } from './server-timing.ts';
 
@@ -30,9 +36,9 @@ export interface RankedListInput {
   pin: RankPin | null;
 }
 
-export type RankedListPage = (WindowPage & { rankPin: string }) | { engineChanged: true };
+type RankedListPage = (WindowPage & { rankPin: string }) | { engineChanged: true };
 
-export async function rankedListPage(input: RankedListInput): Promise<RankedListPage> {
+async function rankedListPage(input: RankedListInput): Promise<RankedListPage> {
   const { where, childQuery, skip, limit, timing, pin } = input;
   const request = { where, text: childQuery, need: skip + limit };
   const served = await timing.time('engine', async () => {
@@ -46,4 +52,36 @@ export async function rankedListPage(input: RankedListInput): Promise<RankedList
   if (served === null) return { engineChanged: true };
   const page = await windowPage(served.window, { skip, limit, timing });
   return { ...page, rankPin: encodeRankPin(served.pin) };
+}
+
+/** The 409 a pinned page answers when its engine cannot rank it (#4542): restart at page 0. */
+export const RANK_ENGINE_CHANGED = 'rank_engine_changed';
+
+interface RankedListResponse {
+  status: 200 | 400 | 409;
+  body: Record<string, unknown>;
+}
+
+/** `GET /api/search`'s free-text answer, short of the fields every list response carries. */
+export async function rankedListResponse(
+  input: Omit<RankedListInput, 'pin'> & { rawPin: string | undefined },
+): Promise<RankedListResponse> {
+  const rawPin = input.rawPin?.trim() ?? '';
+  const pin = rawPin === '' ? null : decodeRankPin(rawPin);
+  if (rawPin !== '' && pin === null) return { status: 400, body: { error: 'invalid rankPin' } };
+  const ranked = await rankedListPage({ ...input, pin });
+  if ('engineChanged' in ranked) {
+    return {
+      status: 409,
+      body: {
+        error: 'the engine that ranked earlier pages is unavailable; restart from page 0',
+        code: RANK_ENGINE_CHANGED,
+      },
+    };
+  }
+  const { rankedBy, ...page } = ranked;
+  return {
+    status: 200,
+    body: { ...page, cursorPaging: false, nextCursor: null, ...(rankedBy ? { rankedBy } : {}) },
+  };
 }

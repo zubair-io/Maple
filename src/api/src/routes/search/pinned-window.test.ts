@@ -6,7 +6,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { listRoute, RANK_ENGINE_CHANGED } from './list.ts';
+import { listRoute } from './list.ts';
+import { RANK_ENGINE_CHANGED } from './list-ranked.ts';
 import { decodeRankPin, encodeRankPin } from './pinned-window.ts';
 import { _resetCacheForTests } from './total-cache.ts';
 import { seedSearchAsset } from '../../db/repos/search.test-helpers.ts';

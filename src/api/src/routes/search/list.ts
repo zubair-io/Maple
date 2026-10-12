@@ -37,15 +37,11 @@ import { appliedDateFilter } from './date-provenance.ts';
 import { SORT_OPTIONS } from './sort.ts';
 import { cursorFromDoc, encodeCursor } from './cursor.ts';
 import { libraryMaps } from './libraries.ts';
-import { rankedListPage } from './list-ranked.ts';
-import { decodeRankPin } from './pinned-window.ts';
+import { rankedListResponse } from './list-ranked.ts';
 import { resolveRankedScope } from './scope.ts';
 import { resolvePaging } from './list-paging.ts';
 import { getCachedTotal } from './total-cache.ts';
 import { PhaseTimer } from './server-timing.ts';
-
-/** The 409 a pinned page answers when its engine cannot rank it (#4542): restart at page 0. */
-export const RANK_ENGINE_CHANGED = 'rank_engine_changed';
 
 export const listRoute = new Elysia().get(
   '/',
@@ -110,41 +106,17 @@ export const listRoute = new Elysia().get(
     // A placeQuery is answered from its ranked window (`list-ranked.ts`): an engine ranks the
     // text, SQL filters its hits, and `total` is the window's size — never a count of every match.
     if (childQuery !== null) {
-      const rawPin = query.rankPin?.trim() ?? '';
-      const pin = rawPin === '' ? null : decodeRankPin(rawPin);
-      if (rawPin !== '' && pin === null) {
-        set.status = 400;
-        return { error: 'invalid rankPin' };
-      }
-      const ranked = await rankedListPage({
+      const ranked = await rankedListResponse({
         where,
         childQuery,
         skip: paging.skip,
         limit,
         timing,
-        pin,
+        rawPin: query.rankPin,
       });
       set.headers['server-timing'] = timing.header();
-      if ('engineChanged' in ranked) {
-        set.status = 409;
-        return {
-          error: 'the engine that ranked earlier pages is unavailable; restart from page 0',
-          code: RANK_ENGINE_CHANGED,
-        };
-      }
-      return {
-        total: ranked.total,
-        more: ranked.more,
-        capped: ranked.capped,
-        page,
-        limit,
-        results: ranked.results,
-        cursorPaging: false,
-        nextCursor: null,
-        ...(ranked.rankedBy ? { rankedBy: ranked.rankedBy } : {}),
-        rankPin: ranked.rankPin,
-        ...withDates,
-      };
+      set.status = ranked.status;
+      return ranked.status === 200 ? { ...ranked.body, page, limit, ...withDates } : ranked.body;
     }
 
     // `total` is cached — see `total-cache.ts`. Keyed on the raw query (not
