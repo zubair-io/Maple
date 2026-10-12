@@ -30,9 +30,6 @@ use crate::canvas::CanvasSpec;
 use crate::ingest::{PlanarImage, ValidityMask};
 use crate::local_align::{LocalCorrection, MAX_CORRECTION_PX};
 use crate::math::Vec3;
-use crate::project::Projection;
-
-use std::f64::consts::TAU;
 
 /// Canvas-space footprint of a source frame: a y range plus one or two
 /// half-open x spans (two when the frame straddles a fully-wrapped
@@ -59,15 +56,25 @@ impl CanvasBBox {
 /// `margin_px` on every side. Conservative: the box always contains the
 /// frame's full footprint (border extremes bound the interior for these
 /// projections as long as no pole lies inside the frame; pole-containing
-/// frames get the full x range and an extended y range).
+/// frames get the full periodic range and an extended bounded range).
+///
+/// The periodic axis is x for the standard angular canvases and y for the
+/// transverse ones. A frame straddling a transverse canvas's row seam
+/// gets the full canvas height, since [`CanvasBBox`] has one y range.
 ///
 /// Returns `None` when nothing of the frame can land on the canvas
 /// (e.g. the frame is entirely behind a rectilinear canvas plane).
 pub fn frame_canvas_bbox(cam: &Camera, canvas: &CanvasSpec, margin_px: f64) -> Option<CanvasBBox> {
     let w = cam.width as f64;
     let h = cam.height as f64;
-    let cw = canvas.width as f64;
-    let ch = canvas.height as f64;
+    let transverse = canvas.projection.is_transverse();
+    let to_periodic_bounded = |(x, y): (f64, f64)| if transverse { (y, x) } else { (x, y) };
+    let (a_len_px, b_len_px) = if transverse {
+        (canvas.height, canvas.width)
+    } else {
+        (canvas.width, canvas.height)
+    };
+    let (a_len, b_len) = (a_len_px as f64, b_len_px as f64);
 
     // Border ring: 16 samples per edge + exact corners.
     const EDGE: usize = 16;
@@ -89,99 +96,111 @@ pub fn frame_canvas_bbox(cam: &Camera, canvas: &CanvasSpec, margin_px: f64) -> O
         cam.world_dir_to_pixel(dir)
             .is_some_and(|(px, py)| cam.pixel_in_bounds(px, py, 0.0))
     };
-    let sees_zenith = sees(Vec3::new(0.0, -1.0, 0.0));
-    let sees_nadir = sees(Vec3::new(0.0, 1.0, 0.0));
+    let (pole_lo, pole_hi) = canvas.bounded_axis_poles();
+    let sees_lo = sees(pole_lo);
+    let sees_hi = sees(pole_hi);
 
-    let mut any_unrepresentable = sees_zenith || sees_nadir;
-    let mut px_lo = f64::INFINITY;
-    let mut px_hi = f64::NEG_INFINITY;
-    let mut py_lo = f64::INFINITY;
-    let mut py_hi = f64::NEG_INFINITY;
+    let mut any_unrepresentable = sees_lo || sees_hi;
+    let mut a_lo = f64::INFINITY;
+    let mut a_hi = f64::NEG_INFINITY;
+    let mut b_lo = f64::INFINITY;
+    let mut b_hi = f64::NEG_INFINITY;
 
-    // Unwrap x around the frame center for the angular projections so a
-    // frame straddling the canvas's u-origin gets a contiguous span.
-    let period = match canvas.projection {
-        Projection::Rectilinear => f64::INFINITY,
-        _ => TAU * canvas.pixels_per_radian(),
-    };
-    let center_px = center.and_then(|d| canvas.dir_to_pixel(d)).map(|(x, _)| x);
+    // Unwrap the periodic axis around the frame center so a frame
+    // straddling the canvas's periodic origin gets a contiguous span.
+    let period = canvas.wrap_period_px();
+    let center_a = center
+        .and_then(|d| canvas.dir_to_pixel(d))
+        .map(|p| to_periodic_bounded(p).0);
 
     for d in &dirs {
-        match canvas.dir_to_pixel(*d) {
+        match canvas.dir_to_pixel(*d).map(to_periodic_bounded) {
             None => any_unrepresentable = true,
-            Some((mut px, py)) => {
-                if let (Some(cx), true) = (center_px, period.is_finite()) {
-                    let rel = px - cx;
-                    px = cx + rel - (rel / period + 0.5).floor() * period;
+            Some((mut a, b)) => {
+                if let (Some(ca), true) = (center_a, period.is_finite()) {
+                    let rel = a - ca;
+                    a = ca + rel - (rel / period + 0.5).floor() * period;
                 }
-                px_lo = px_lo.min(px);
-                px_hi = px_hi.max(px);
-                py_lo = py_lo.min(py);
-                py_hi = py_hi.max(py);
+                a_lo = a_lo.min(a);
+                a_hi = a_hi.max(a);
+                b_lo = b_lo.min(b);
+                b_hi = b_hi.max(b);
             }
         }
     }
-    if !px_lo.is_finite() {
+    if !a_lo.is_finite() {
         // Every border direction is unrepresentable (and no pole seen):
         // nothing of the frame is on this canvas.
-        if !(sees_zenith || sees_nadir) {
+        if !(sees_lo || sees_hi) {
             return None;
         }
-        (px_lo, px_hi, py_lo, py_hi) = (0.0, cw, 0.0, ch);
+        (a_lo, a_hi, b_lo, b_hi) = (0.0, a_len, 0.0, b_len);
     }
 
-    // A frame containing a pole covers every longitude; a frame with
-    // unrepresentable border directions (rect canvas horizon,
-    // cylindrical pole) gets the conservative full x range too.
+    // A frame containing a pole covers the whole periodic axis; a frame
+    // with unrepresentable border directions (rect canvas horizon,
+    // cylinder pole) gets the conservative full periodic range too.
     if any_unrepresentable {
-        px_lo = 0.0;
-        px_hi = cw;
-        if sees_zenith {
-            py_lo = 0.0;
+        a_lo = 0.0;
+        a_hi = a_len;
+        if sees_lo {
+            b_lo = 0.0;
         }
-        if sees_nadir {
-            py_hi = ch;
+        if sees_hi {
+            b_hi = b_len;
         }
-        if !(sees_zenith || sees_nadir) {
-            // Rect-canvas horizon case: extent along y is unbounded in
-            // the unrepresentable direction — take the full canvas.
-            py_lo = 0.0;
-            py_hi = ch;
+        if !(sees_lo || sees_hi) {
+            // Rect-canvas horizon case: extent along the bounded axis is
+            // unbounded in the unrepresentable direction — take it all.
+            b_lo = 0.0;
+            b_hi = b_len;
         }
     }
 
-    px_lo -= margin_px;
-    px_hi += margin_px;
-    let y0 = ((py_lo - margin_px).floor().max(0.0)) as u32;
-    let y1 = ((py_hi + margin_px).ceil().min(ch).max(0.0)) as u32;
-    if y0 >= y1 {
+    a_lo -= margin_px;
+    a_hi += margin_px;
+    let b0 = ((b_lo - margin_px).floor().max(0.0)) as u32;
+    let b1 = ((b_hi + margin_px).ceil().min(b_len).max(0.0)) as u32;
+    if b0 >= b1 {
         return None;
     }
 
-    let x_spans = if px_hi - px_lo >= cw {
-        vec![(0u32, canvas.width)]
+    let a_spans = if a_hi - a_lo >= a_len {
+        vec![(0u32, a_len_px)]
     } else if canvas.is_full_wrap() {
-        // Wrap spans modulo the canvas width.
-        let lo = px_lo.floor().rem_euclid(cw);
-        let hi = px_hi.ceil().rem_euclid(cw);
+        // Wrap spans modulo the periodic length.
+        let lo = a_lo.floor().rem_euclid(a_len);
+        let hi = a_hi.ceil().rem_euclid(a_len);
         if lo <= hi {
-            vec![(lo as u32, (hi as u32).min(canvas.width).max(lo as u32 + 1))]
+            vec![(lo as u32, (hi as u32).min(a_len_px).max(lo as u32 + 1))]
         } else {
-            vec![
-                (0u32, (hi as u32 + 1).min(canvas.width)),
-                (lo as u32, canvas.width),
-            ]
+            vec![(0u32, (hi as u32 + 1).min(a_len_px)), (lo as u32, a_len_px)]
         }
     } else {
-        let lo = px_lo.floor().max(0.0) as u32;
-        let hi = (px_hi.ceil().min(cw) as u32).min(canvas.width);
+        let lo = a_lo.floor().max(0.0) as u32;
+        let hi = (a_hi.ceil().min(a_len) as u32).min(a_len_px);
         if lo >= hi {
             return None;
         }
         vec![(lo, hi)]
     };
 
-    Some(CanvasBBox { x_spans, y0, y1 })
+    if !transverse {
+        return Some(CanvasBBox {
+            x_spans: a_spans,
+            y0: b0,
+            y1: b1,
+        });
+    }
+    let (y0, y1) = match a_spans.as_slice() {
+        [(lo, hi)] => (*lo, *hi),
+        _ => (0, canvas.height),
+    };
+    Some(CanvasBBox {
+        x_spans: vec![(b0, b1)],
+        y0,
+        y1,
+    })
 }
 
 /// Catmull-Rom kernel weights for the four taps at lattice offsets

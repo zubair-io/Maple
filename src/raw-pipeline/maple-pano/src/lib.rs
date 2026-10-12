@@ -44,7 +44,7 @@
 //! | -------------- | ----------------------------------------------------- |
 //! | [`math`]       | Hand-rolled `Vec3`/`Mat3`, axis-angle exp/log         |
 //! | [`distortion`] | k1/k2 radial polynomial, forward + Newton inverse     |
-//! | [`project`]    | Rectilinear/cylindrical/spherical forward+inverse     |
+//! | [`project`]    | Rectilinear/cylindrical/spherical (+ transverse) maps |
 //! | [`camera`]     | Posed pinhole camera, pixel ↔ world-direction         |
 //! | [`prng`]       | SplitMix64 (pinned in-tree for byte determinism)      |
 //! | [`synthetic`]  | Procedural equirect test scene                        |
