@@ -22,11 +22,13 @@
 
 import { createHash } from 'node:crypto';
 import {
+  cappedPast,
   RANKED_WINDOW_MAX,
   windowDepthFor,
   type WindowPass,
   type WindowRow,
 } from '../../db/repos/search.ranked.ts';
+import { collapseShots } from '../../db/repos/search.shots.ts';
 import {
   engineRanker,
   firstEngine,
@@ -93,7 +95,7 @@ function merge(into: Merged, pass: WindowPass): Merged {
   const scores = new Map(pass.scores ?? []);
   into.scores.forEach((score, id) => scores.set(id, score));
   return {
-    rows: [...into.rows, ...pass.rows.filter((row) => !held.has(row.r))],
+    rows: collapseShots([...into.rows, ...pass.rows.filter((row) => !held.has(row.r))]),
     semantic: new Set([...into.semantic, ...(pass.semantic ?? [])]),
     scores,
   };
@@ -134,7 +136,7 @@ export async function pinnedWindow(
       window: {
         ...next,
         more: full && !atCap,
-        capped: atCap && pass.considered > depth!,
+        capped: cappedPast(next.rows, pass, depth!),
         depth: depth!,
         engine: pin.engine,
         preferred: pin.engine === firstEngine(),
