@@ -380,3 +380,7 @@ RestoreSafetyTests
 
 # SMB restore is copy-only: trashed files are marked, never deleted or renamed (#4139/#4173).
 SMBCopyOnlyRestoreTests
+
+# Panorama merge preview (#4579): PanoMergeSession preview/debounce/cancel
+# and alignment hand-off against an in-memory recording stitcher; no FFI.
+PanoMergePreviewTests

@@ -262,6 +262,7 @@ struct RustPanoStitcherProvisioningInjectionTests {
             _ = try await stitcher.stitch(
                 assets: [AssetRef(url: a), AssetRef(url: b)],
                 options: .default,
+                alignment: nil,
                 progress: { _, _ in }
             )
             Issue.record("Expected modelsNotInstalled throw but stitch succeeded")

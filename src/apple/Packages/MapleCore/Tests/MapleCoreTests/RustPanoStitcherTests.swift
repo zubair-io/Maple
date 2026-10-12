@@ -161,6 +161,7 @@ struct RustPanoStitcherErrorPathTests {
             _ = try await stitcher.stitch(
                 assets: assets,
                 options: .default,
+                alignment: nil,
                 progress: { _, _ in }
             )
             Issue.record("Expected throw but stitch succeeded")
@@ -197,6 +198,7 @@ struct RustPanoStitcherErrorPathTests {
             _ = try await stitcher.stitch(
                 assets: [bytesAsset, fileAsset],
                 options: .default,
+                alignment: nil,
                 progress: { _, _ in }
             )
             Issue.record("Expected throw but stitch succeeded")
@@ -256,7 +258,7 @@ struct BrowseViewModelInjectPanoTests {
 @MainActor
 struct RustPanoStitcherE2ETests {
 
-    @Test("real stitch with pano_01 fixtures (MAPLE_PANO_E2E=1 required)")
+    @Test("real preview then aligned stitch with pano_01 fixtures (MAPLE_PANO_E2E=1 required)")
     func realStitchPano01() async throws {
         guard ProcessInfo.processInfo.environment["MAPLE_PANO_E2E"] == "1" else {
             // Not opted-in — skip silently.
@@ -299,14 +301,36 @@ struct RustPanoStitcherE2ETests {
         let assets = dngs.map { AssetRef(url: $0) }
         let stitcher = RustPanoStitcher()
 
+        let clock = ContinuousClock()
+        let previewStart = clock.now
+        let preview = try await stitcher.preview(
+            assets: assets,
+            options: .default,
+            alignment: nil,
+            progress: { _, _ in }
+        )
+        #expect(max(preview.image.width, preview.image.height) > 1024,
+                "Preview long edge should be ~2048 px, got \(preview.image.width)×\(preview.image.height)")
+        #expect(preview.alignmentOutcome == .solved)
+        print("pano E2E: preview \(clock.now - previewStart), \(preview.image.width)×\(preview.image.height). \(preview.alignmentOutcome.summary)")
+
         var stagesObserved: [PanoStage] = []
+        var solvingReachedAfter: Duration?
+        let stitchStart = clock.now
         let result = try await stitcher.stitch(
             assets: assets,
             options: .default,
+            alignment: preview.alignment,
             progress: { stage, _ in
                 if stagesObserved.last != stage { stagesObserved.append(stage) }
+                if stage == .solving, solvingReachedAfter == nil { solvingReachedAfter = clock.now - stitchStart }
             }
         )
+        print("pano E2E: stitch \(clock.now - stitchStart), refinement reached after \(solvingReachedAfter.map { "\($0)" } ?? "never"). \(result.alignmentOutcome.summary)")
+
+        #expect(result.alignmentOutcome == .reused,
+                "The full stitch must start from the preview's alignment, got \(result.alignmentOutcome)")
+        #expect(result.reportSummary.contains("matching skipped"))
 
         // Result file must exist on disk.
         #expect(fm.fileExists(atPath: result.outputURL.path),

@@ -13,7 +13,12 @@
 // the `onOpenPanoSettings` callback (supplied by AppShell). AppShell then
 // dismisses this sheet, opens the Settings sheet, and navigates to the Pano tab.
 //
-// Ticket: #1236 / Part of #1234 / #1241
+// Quick preview (#4579): opening the sheet with two or more frames starts a
+// low-resolution preview (PanoPreviewSection); option changes re-run it. The
+// preview's solved alignment stays in the session, and "Create Panorama"
+// hands it to the full stitch so matching is not repeated.
+//
+// Ticket: #1236 / Part of #1234 / #1241 / #4579
 
 import MapleCore
 import MapleUI
@@ -49,10 +54,22 @@ struct PanoMergeView: View {
   /// progress) and then start the stitch — no detour through Settings.
   @State private var provisionModel = PanoProvisionModel()
 
+  /// Set when the sheet opens without an installed ML runtime that can be
+  /// auto-downloaded; the preview then waits for an explicit install.
+  @State private var previewNeedsInstall = false
+
   var body: some View {
     NavigationStack {
       Form {
         inputFramesSection
+        PanoPreviewSection(
+          session: session,
+          needsInstall: previewNeedsInstall,
+          isInstalling: provisionModel.isBusy,
+          onInstall: installAndPreview,
+          onRetry: { session.preview(assets: assets) },
+          onOpenPanoSettings: onOpenPanoSettings
+        )
         optionsSection
 
         provisionStatusSection
@@ -69,6 +86,7 @@ struct PanoMergeView: View {
         }
       }
       .formStyle(.grouped)
+      .task { startPreviewIfReady() }
       .navigationTitle("Merge Panorama")
       #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -99,13 +117,41 @@ struct PanoMergeView: View {
             }
             .accessibilityLabel("Add panorama to library and return to browse")
           } else {
-            Button("Merge") {
+            Button("Create Panorama") {
               startMerge()
             }
             .disabled(assets.count < 2)
-            .accessibilityLabel("Start panorama merge with \(assets.count) selected frames")
+            .accessibilityLabel(
+              session.alignment == nil
+                ? "Create the full panorama from \(assets.count) selected frames"
+                : "Create the full panorama from \(assets.count) selected frames, reusing the preview's alignment"
+            )
           }
         }
+      }
+    }
+  }
+
+  // MARK: - Preview flow
+
+  /// Previews immediately when the runtime is ready (or a manual override is
+  /// in force, whose failure surfaces through the preview's error state).
+  /// An auto-provisionable install waits for the user rather than starting
+  /// a download the moment the sheet opens.
+  private func startPreviewIfReady() {
+    let status = PanoProvisioning().status()
+    let ready = PanoProvisioner.isReady(status) || !PanoProvisioner.canAutoProvision(status)
+    previewNeedsInstall = !ready
+    if ready {
+      session.preview(assets: assets)
+    }
+  }
+
+  private func installAndPreview() {
+    Task {
+      await provisionModel.download {
+        previewNeedsInstall = false
+        session.preview(assets: assets)
       }
     }
   }
@@ -125,6 +171,7 @@ struct PanoMergeView: View {
     // Not provisioned and we can auto-provision: download inline, then stitch.
     Task {
       await provisionModel.download {
+        previewNeedsInstall = false
         session.start(assets: assets)
       }
     }

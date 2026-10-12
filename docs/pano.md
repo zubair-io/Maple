@@ -176,11 +176,16 @@ The progress callback is `void(*)(uint32_t stage, float frac, void *user)`, invo
 
 `src/apple/Packages/MapleCore/Sources/MapleCore/Panorama/`.
 
-`PanoStitching.swift` is the protocol seam plus the option types (`Retention`, `LocalAlign`, `Strategy`) and the `PanoStage` enum whose raw values match the CLI's stage log prefixes. `MockPanoStitcher` satisfies it for previews and tests. `RustPanoStitcher.swift` is the real conformance over `maple_pano_stitch`, running off the main actor because the call blocks for minutes.
+`PanoStitching.swift` is the protocol seam plus the option types (`Retention`, `LocalAlign`, `Strategy`) and the `PanoStage` enum whose raw values match the CLI's stage log prefixes; it has a `stitch` and a `preview`, both taking an optional `PanoAlignment`. `MockPanoStitcher` satisfies it for previews and tests. `RustPanoStitcher.swift` is the real conformance over `maple_pano_stitch_aligned` and `maple_pano_preview` (argument marshalling in `PanoFFICall.swift`), running off the main actor because both calls block for minutes.
 
 Progress bridging is the interesting part. The C trampoline can fire from several rayon worker threads at once, so its hot path does exactly one thing: reconstruct a heap-allocated atom from the opaque `cb_user` pointer, take an `os_unfair_lock` for a two-word store, release. No task allocation, no main-actor hop. A timer polls that atom about 20× a second on the main run loop and publishes only when the value changed. Lifetime is a retain before the call and an unconditional release after, safe because the FFI joins its workers before returning. `cancel()` flips a Rust-allocated cancel flag, the same pattern the scene-linear render path uses.
 
-`PanoMergeSession.swift` is the `@Observable` state machine (idle → running → done | error) with generation-counter discipline so a cancel-then-rerun can never publish stale progress.
+`PanoMergeSession.swift` is the `@Observable` state machine with generation-counter discipline so a cancel-then-rerun can never publish stale progress. It runs two lifecycles (#4579):
+
+1. **Preview.** Opening the merge sheet with two or more frames starts a preview at once. Changing an option cancels the preview in flight and starts a new one 600 ms after the last change, so several quick changes produce one run. The previous image stays on screen, dimmed, while the new one builds. A fresh preview of the 21-frame pano_01 set takes about 2½ minutes because matching dominates, so the sheet shows staged progress and stays usable throughout.
+2. **Stitch.** "Create Panorama" cancels any preview still running and starts the full stitch, offering the latest solved alignment.
+
+The alignment is held only in the session's memory. The FFI takes file paths, so each call writes it to a private temporary directory and deletes that directory when the call returns. Every later preview also offers it, which is why a change to a composite-only option (retention, local alignment) skips matching. When the core reports the alignment stale (return code `1`), the run re-solves and the result carries the reason. The merge sheet's footer and the result summary say whether the alignment was reused.
 
 The two Apple slices differ in one solver setting. iOS requests the **CoreML execution provider** for both ONNX sessions, so eligible operations route to Apple silicon and unsupported ones fall back to ORT's CPU provider automatically. macOS deliberately does not: that path is parity-verified against the references and stays on CPU ORT.
 
