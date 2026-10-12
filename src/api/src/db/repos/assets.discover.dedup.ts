@@ -23,7 +23,7 @@
 
 import type { ObjectId } from '../object-id.ts';
 import { newObjectIdHex } from '../object-id.ts';
-import type { SqlStatement } from '../sqlite/protocol.ts';
+import type { SqlStatement, SqlValue } from '../sqlite/protocol.ts';
 import type { LocationKey } from './assets.discover.ts';
 import { searchRearmStatements } from './assets.stage-rearm.ts';
 import { seedStageRowStatements } from './stage-state.repo.ts';
@@ -127,7 +127,9 @@ function refreshAssetStatement(id: string, refresh: DedupRefresh): SqlStatement 
 /**
  * Record this location on a row that already holds the same content: append it
  * when the row has never seen it, otherwise un-park the entry that is already
- * there. Returns which of the two happened, so the caller can log it.
+ * there. Returns which happened, so the caller can log it — and `noop` when the
+ * location was already live with the same stat and flags, so nothing was
+ * written and there is no change to publish (#4507).
  *
  * Neither path touches a user-edited field — rating, flag, colour label, the
  * sidecar mirror — because a second copy of a photo appearing on disk is not an
@@ -155,7 +157,7 @@ export async function appendOrRefreshLocation(
   refresh: DedupRefresh,
   keep: boolean | undefined,
   dbOverride?: SqliteDb,
-): Promise<'append' | 'refresh'> {
+): Promise<'append' | 'refresh' | 'noop'> {
   const db = sqliteDb(dbOverride);
   const id = toHex(existing.id);
   const revive = typeof existing.deletedAt === 'string' ? searchRearmStatements(id) : [];
@@ -182,18 +184,73 @@ export async function appendOrRefreshLocation(
     return 'append';
   }
 
-  await db.transaction([
-    {
-      sql: `UPDATE asset_locations
-               SET deleted_at = NULL, missing_since = NULL, missing_reason = NULL
-                   ${keep === undefined ? '' : ', keep = ?'}
-             WHERE library_id = ? AND path = ? AND filename = ?`,
-      params: keep === undefined ? locationParams(entry) : [keep ? 1 : 0, ...locationParams(entry)],
-    },
-    refreshAssetStatement(id, refresh),
+  const results = await db.transaction([
+    refreshKnownAssetStatement(id, entry, refresh, keep),
+    refreshKnownLocationStatement(entry, keep),
     ...revive,
   ]);
-  return 'refresh';
+  return results.some((result) => result.changes > 0) ? 'refresh' : 'noop';
+}
+
+/**
+ * Matches the location only when un-parking it or rewriting `keep` would
+ * change it. Binds the location key, then `keep` when the caller supplies it.
+ */
+function staleLocationPredicate(keep: boolean | undefined): string {
+  return `library_id = ? AND path = ? AND filename = ?
+          AND (deleted_at IS NOT NULL OR missing_since IS NOT NULL OR missing_reason IS NOT NULL
+               ${keep === undefined ? '' : 'OR keep IS NOT ?'})`;
+}
+
+function staleLocationParams(entry: LocationKey, keep: boolean | undefined): SqlValue[] {
+  return keep === undefined ? locationParams(entry) : [...locationParams(entry), keep ? 1 : 0];
+}
+
+/**
+ * The asset refresh for a location the row already holds, written only when
+ * something would change (#4507): the row was soft-deleted, its stat moved, or
+ * the location is parked or carries a stale `.keep` flag. It runs before the
+ * location update so the location's old state is still there to compare.
+ */
+function refreshKnownAssetStatement(
+  id: string,
+  entry: LocationKey,
+  refresh: DedupRefresh,
+  keep: boolean | undefined,
+): SqlStatement {
+  return {
+    sql: `UPDATE assets
+             SET indexed_at = ?, deleted_at = NULL, deleted_reason = NULL, mtime = ?, size = ?
+           WHERE id = ?
+             AND (deleted_at IS NOT NULL OR deleted_reason IS NOT NULL
+                  OR mtime IS NOT ? OR size IS NOT ?
+                  OR EXISTS (SELECT 1 FROM asset_locations WHERE ${staleLocationPredicate(keep)}))`,
+    params: [
+      refresh.indexedAt,
+      refresh.mtime,
+      refresh.size,
+      id,
+      refresh.mtime,
+      refresh.size,
+      ...staleLocationParams(entry, keep),
+    ],
+  };
+}
+
+function refreshKnownLocationStatement(
+  entry: LocationKey,
+  keep: boolean | undefined,
+): SqlStatement {
+  return {
+    sql: `UPDATE asset_locations
+             SET deleted_at = NULL, missing_since = NULL, missing_reason = NULL
+                 ${keep === undefined ? '' : ', keep = ?'}
+           WHERE ${staleLocationPredicate(keep)}`,
+    params:
+      keep === undefined
+        ? staleLocationParams(entry, keep)
+        : [keep ? 1 : 0, ...staleLocationParams(entry, keep)],
+  };
 }
 
 /** Everything a freshly discovered file needs to become a row. */

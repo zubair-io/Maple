@@ -200,20 +200,23 @@ async function handleCreatedOrModified(
     return;
   }
   const now = new Date().toISOString();
-  await reconcileStaleContentAt(entry, hashed.sha1_head, absPath);
+  const reconciled = await reconcileStaleContentAt(entry, hashed.sha1_head, absPath);
 
   const refresh: DedupRefresh = { indexedAt: now, mtime: hashed.mtime, size: hashed.size };
   const existing = await findAssetForContent(hashed.maple_id, hashed.sha1_head);
   if (existing) {
     // Same content — record the new location if the row has not seen it,
     // refresh timestamps, revive a soft-deleted row (#2977). No user-edited
-    // field is touched on a dedup hit.
+    // field is touched on a dedup hit. An unchanged re-discover writes and
+    // publishes nothing (#4507): a full re-walk would otherwise journal one
+    // change row per file.
     const dedup = await appendOrRefreshLocation(existing, entry, refresh, keep);
     if (dedup === 'append') {
-      log.info({ absPath, maple_id: hashed.maple_id, dedup: 'append' }, 'deduped — new location');
+      log.info({ absPath, maple_id: hashed.maple_id, dedup }, 'deduped — new location');
     } else {
-      log.debug({ absPath, maple_id: hashed.maple_id, dedup: 'noop' }, 'idempotent re-discover');
+      log.debug({ absPath, maple_id: hashed.maple_id, dedup }, 're-discover');
     }
+    if (dedup === 'noop' && reconciled === 'unchanged') return;
     await publishDiscovered(kind, existing.id, folderId, absPath);
     return;
   }
@@ -273,23 +276,24 @@ async function reconcileStaleContentAt(
   entry: LocationKey,
   sha1Head: string,
   absPath: string,
-): Promise<void> {
+): Promise<'adopted' | 'released' | 'unchanged'> {
   const stale = await findAssetAtLocation(entry);
-  if (!stale) return;
+  if (!stale) return 'unchanged';
   if (stale.sha1Head === null) {
     await adoptSha1Head(stale.id, sha1Head);
     log.info(
       { absPath, sha1_head: sha1Head },
       'legacy row without sha1_head — adopted hash from on-disk file',
     );
-    return;
+    return 'adopted';
   }
-  if (stale.sha1Head === sha1Head) return;
+  if (stale.sha1Head === sha1Head) return 'unchanged';
   await releaseChangedLocation(entry);
   log.info(
     { absPath, old_sha1_head: stale.sha1Head, new_sha1_head: sha1Head },
     'file content changed — released the location from the old row',
   );
+  return 'released';
 }
 
 function publishDiscovered(
