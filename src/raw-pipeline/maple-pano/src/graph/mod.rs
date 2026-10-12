@@ -55,7 +55,7 @@ use crate::twoview::PixelCorrespondence;
 pub use descriptor_topk::DescriptorTopKProvider;
 pub use grid_gate::{
     GroundFootprint, LoopClosureCheck, LoopClosureGate, LOOP_CLOSURE_MAX_CELLS,
-    LOOP_CLOSURE_MAX_CORNER_ERROR_FRAC, LOOP_CLOSURE_MAX_ROTATION_ERROR_DEG,
+    LOOP_CLOSURE_MAX_PLACEMENT_ERROR_FRAC, LOOP_CLOSURE_MAX_ROTATION_ERROR_DEG,
 };
 pub use grid_prior::{GridLayout, GridOrder, GridPriorProvider};
 
