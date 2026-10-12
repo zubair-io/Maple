@@ -36,13 +36,9 @@ use std::path::PathBuf;
 
 use crate::camera::Camera;
 use crate::features::FeatureSet;
-use crate::graph::{
-    build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
-    GraphImage, MatchGraph, ReverifySummary,
-};
+use crate::graph::{DescriptorTopKProvider, GraphImage, MatchGraph, ReverifySummary};
 use crate::ingest::FramePriors;
 use crate::refine::{refine_correspondences, RefineOptions};
-use crate::robust::RobustOptions;
 use crate::strategy::StrategyReport;
 use crate::tile::frame_cache::TileFrameCache;
 use crate::tile::placement::{solve_tile_poses, TileConstraint};
@@ -212,13 +208,10 @@ pub(super) fn run_tile_branch(
     // here costs no new cache misses while keeping the tile path's
     // candidate topology consistent with the rotation path's.
     let descriptor_topk = DescriptorTopKProvider::new(&feature_sets);
-    let tile_graph = build_match_graph(
+    let tile_graph = super::graph_build::build_stitch_graph(
         &unit_proxy_images,
-        &[
-            &CaptureOrderProvider,
-            &GimbalPriorProvider::default(),
-            &descriptor_topk,
-        ],
+        opts.grid.as_ref(),
+        Some(&descriptor_topk),
         |a, b| -> Vec<PixelCorrespondence> {
             match match_cache_map.get(&(a, b)) {
                 Some(cached) => cached.clone(),
@@ -241,7 +234,6 @@ pub(super) fn run_tile_branch(
                 }
             }
         },
-        &RobustOptions::default(),
     );
     if !tile_match_failures.is_empty() {
         return Err(StitchError::MatchFailed(tile_match_failures));

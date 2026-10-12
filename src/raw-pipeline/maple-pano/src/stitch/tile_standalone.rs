@@ -13,14 +13,10 @@ use std::path::PathBuf;
 
 use crate::features::{AlikedDetector, DetectorOptions, LinearRgbFrame};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
-use crate::graph::{
-    build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
-    MatchGraph,
-};
+use crate::graph::{DescriptorTopKProvider, MatchGraph};
 use crate::ingest::{ingest_file_proxy, FrameMeta, FramePriors};
 use crate::matching::{LightGlueMatcher, MatcherOptions};
 use crate::models::ModelDir;
-use crate::robust::RobustOptions;
 use crate::stitch::interleave_planar;
 use crate::strategy::StrategyReport;
 
@@ -61,6 +57,7 @@ pub fn stitch_tile(
     if inputs.len() < 2 {
         return Err(StitchError::TooFewFrames(inputs.len()));
     }
+    super::validate_grid(opts, inputs.len())?;
 
     // ── stage 0: decode + priors ──────────────────────────────────────────
     // #3197 (carrying forward #3090's stage-0 shape): `ingest_file_proxy`
@@ -180,13 +177,10 @@ pub fn stitch_tile(
     // input (film scans, nadir strips) — exactly this entry point's own
     // motivating scenario.
     let descriptor_topk = DescriptorTopKProvider::new(&feature_sets);
-    let graph: MatchGraph = build_match_graph(
+    let graph: MatchGraph = super::graph_build::build_stitch_graph(
         &proxy_images,
-        &[
-            &CaptureOrderProvider,
-            &GimbalPriorProvider::default(),
-            &descriptor_topk,
-        ],
+        opts.grid.as_ref(),
+        Some(&descriptor_topk),
         |a, b| match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
             Ok(ml_matches) => ml_matches_to_correspondences(&ml_matches, DEFAULT_MIN_SCORE),
             Err(e) => {
@@ -194,7 +188,6 @@ pub fn stitch_tile(
                 Vec::new()
             }
         },
-        &RobustOptions::default(),
     );
     if !match_failures.is_empty() {
         return Err(StitchError::MatchFailed(match_failures));

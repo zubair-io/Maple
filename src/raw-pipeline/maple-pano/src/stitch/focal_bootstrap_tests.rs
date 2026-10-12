@@ -171,7 +171,7 @@ fn no_exif_bootstrap_recovers_focal_and_reconnects_the_strip() {
     let (_, bootstrap_proxy_images) =
         build_graph_images(&metas, &seed.full_px, &proxy_dims, &proxy_scale);
     let bootstrap_graph =
-        rebuild_graph_with_focal(&bootstrap_proxy_images, &cache, |_, _| Vec::new());
+        rebuild_graph_with_focal(&bootstrap_proxy_images, &cache, None, |_, _| Vec::new());
     assert!(
         !bootstrap_graph.edges.is_empty(),
         "assumed-FOV bootstrap must verify at least one pair to refine from"
@@ -192,7 +192,8 @@ fn no_exif_bootstrap_recovers_focal_and_reconnects_the_strip() {
     // ── rebuild at the refined focal ────────────────────────────────
     let (_, refined_proxy_images) =
         build_graph_images(&metas, &refined_full_px, &proxy_dims, &proxy_scale);
-    let refined_graph = rebuild_graph_with_focal(&refined_proxy_images, &cache, |_, _| Vec::new());
+    let refined_graph =
+        rebuild_graph_with_focal(&refined_proxy_images, &cache, None, |_, _| Vec::new());
     assert!(
         refined_graph.is_connected(),
         "refined graph must reconnect every frame, orphans: {:?}",
@@ -211,7 +212,7 @@ fn rebuild_graph_with_focal_falls_back_to_fetch_for_an_uncached_pair() {
         .collect();
     let cache: HashMap<(usize, usize), Vec<crate::twoview::PixelCorrespondence>> = HashMap::new();
     let mut fetched = Vec::new();
-    let graph = rebuild_graph_with_focal(&images, &cache, |a, b| {
+    let graph = rebuild_graph_with_focal(&images, &cache, None, |a, b| {
         fetched.push((a, b));
         Vec::new()
     });

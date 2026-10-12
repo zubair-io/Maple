@@ -78,6 +78,11 @@ pub struct StitchOptions {
     /// anything the composite cannot honour is a
     /// [`StitchError::SeamConstraint`], never silently dropped.
     pub seam_constraints: Vec<crate::seam::SeamConstraint>,
+    /// Declared capture grid for drone surveys / camera arrays (#4519).
+    /// `Some` replaces capture-order, gimbal and descriptor top-k
+    /// nomination with [`crate::graph::GridPriorProvider`] and gates
+    /// loop closures on grid footprint + triangle rotation consistency.
+    pub grid: Option<crate::graph::GridLayout>,
 }
 
 impl Default for StitchOptions {
@@ -102,6 +107,7 @@ impl Default for StitchOptions {
             use_coreml: false,
             seam_strategy: crate::seam::SeamStrategy::Voronoi,
             seam_constraints: Vec::new(),
+            grid: None,
         }
     }
 }
@@ -222,6 +228,8 @@ impl StitchSuccess {
 pub enum StitchError {
     /// Fewer than 2 input paths were provided.
     TooFewFrames(usize),
+    /// The declared capture grid does not fit the input frame count.
+    InvalidGrid(String),
     /// ML environment unavailable (models dir or ORT dylib missing).
     MlUnavailable(String),
     /// Frame decode or prior extraction failed.
@@ -267,6 +275,7 @@ impl std::fmt::Display for StitchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::TooFewFrames(n) => write!(f, "need at least 2 frames, got {n}"),
+            Self::InvalidGrid(e) => write!(f, "invalid capture grid: {e}"),
             Self::MlUnavailable(e) => write!(
                 f,
                 "ML environment unavailable: {e}\n\
