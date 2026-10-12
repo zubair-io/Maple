@@ -239,6 +239,7 @@ pub unsafe extern "C" fn maple_pano_stitch(
             pano_apple::run_stitch_apple(
                 owned_paths,
                 out_path_str,
+                None,
                 retention,
                 local_align,
                 strategy,
@@ -344,3 +345,8 @@ pub extern "C" fn maple_pano_ort_selftest() -> i32 {
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 #[path = "pano_apple.rs"]
 mod pano_apple;
+
+// Quick preview + alignment-reusing stitch entries (#4578).
+#[path = "pano_preview.rs"]
+mod pano_preview;
+pub use pano_preview::{maple_pano_preview, maple_pano_stitch_aligned};

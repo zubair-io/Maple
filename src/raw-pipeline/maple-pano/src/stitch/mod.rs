@@ -32,11 +32,20 @@
 //!
 //! # Tile strategy (#1270)
 //!
-//! When `select_strategy` returns `Strategy::Tile`, [`stitch`] hands off to
-//! [`tile_stitch::run_tile_branch`] after completing stages 0–2. The
-//! early-stage state (decode-proxy + ALIKED + LightGlue + match graph) is
-//! shared; only the tail (stages 3–5) differs between the two paths. This
-//! eliminates the previous double-decode + double-ML pattern.
+//! When `select_strategy` returns `Strategy::Tile`, the head builds the
+//! unit-focal tile graph from the cached LightGlue matches
+//! (`tile_stitch::build_tile_graph`) and the tile tail runs instead of the
+//! rotation tail. The early-stage state (decode-proxy + ALIKED + LightGlue +
+//! match graph) is shared; only the tail (stages 3–5) differs between the
+//! two paths. This eliminates the previous double-decode + double-ML pattern.
+//!
+//! # Preview and reusable alignment (#4578)
+//!
+//! `solve_alignment` is the head (stages 0–2 + strategy selection) and
+//! returns a [`SolvedAlignment`]; [`stitch_reusing`] runs the tail from it,
+//! skipping the head when an offered alignment's [`AlignmentKey`] matches.
+//! [`preview`] runs the head (or reuses an alignment) and composites the
+//! proxies onto a ~2048 px canvas without full-resolution refinement.
 //!
 //! [`stitch`] returns `Result<StitchSuccess, StitchError>` where
 //! `StitchSuccess::Rotation(outcome)` or `StitchSuccess::Tile(outcome)`

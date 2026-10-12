@@ -146,6 +146,15 @@ fn long_edge_pixel_cap(width: u32, height: u32) -> usize {
         .max(1.0) as usize
 }
 
+/// A frame that survived the preview solve, with what the composite needs.
+struct KeptProxy {
+    frame: PlanarImage,
+    camera: Camera,
+    local: Option<LocalCorrection>,
+    /// `sx · sy` — full-resolution pixels per proxy pixel.
+    area_scale: f64,
+}
+
 fn rotation_preview(
     alignment: &SolvedAlignment,
     proxies: Vec<PlanarImage>,
@@ -179,14 +188,18 @@ fn rotation_preview(
     if is_cancelled() {
         return Err(StitchError::Cancelled);
     }
-    let kept: Vec<(PlanarImage, Camera, Option<LocalCorrection>, (f64, f64))> = proxies
+    let kept: Vec<KeptProxy> = proxies
         .into_iter()
         .zip(&solution.cameras)
         .zip(&solution.local_corrections)
         .zip(&alignment.frames)
         .filter_map(|(((frame, cam), lc), f)| {
-            cam.as_ref()
-                .map(|c| (frame, c.clone(), lc.clone(), f.proxy_scale))
+            cam.as_ref().map(|c| KeptProxy {
+                frame,
+                camera: c.clone(),
+                local: lc.clone(),
+                area_scale: f.proxy_scale.0 * f.proxy_scale.1,
+            })
         })
         .collect();
     if kept.len() < 2 {
@@ -195,12 +208,11 @@ fn rotation_preview(
             dropped: solution.dropped.clone(),
         });
     }
-    let cameras: Vec<Camera> = kept.iter().map(|(_, c, _, _)| c.clone()).collect();
+    let cameras: Vec<Camera> = kept.iter().map(|k| k.camera.clone()).collect();
 
     // The cap is a full-resolution pixel count; a proxy canvas carries
     // 1 / (sx · sy) as many pixels for the same angular extent.
-    let mean_area_scale =
-        kept.iter().map(|(_, _, _, (sx, sy))| sx * sy).sum::<f64>() / kept.len() as f64;
+    let mean_area_scale = kept.iter().map(|k| k.area_scale).sum::<f64>() / kept.len() as f64;
     let proxy_cap_px = ((opts.max_canvas_px as f64 / mean_area_scale) as usize).max(1);
     let natural_opts = CanvasOptions {
         projection: ProjectionMode::Auto,
@@ -216,7 +228,7 @@ fn rotation_preview(
     let canvas = preview_canvas(&cameras, &natural_opts)?;
 
     let (frames, local): (Vec<PlanarImage>, Vec<Option<LocalCorrection>>) =
-        kept.into_iter().map(|(f, _, lc, _)| (f, lc)).unzip();
+        kept.into_iter().map(|k| (k.frame, k.local)).unzip();
     let gains = solve_gains(&frames, &cameras, &GainOptions::default())
         .map_err(|e| StitchError::Composite(e.to_string()))?;
     let (image, _) = composite_tiled_frames(
