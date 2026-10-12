@@ -102,6 +102,11 @@ export const RANKED_WINDOW_MAX = 5_000;
 /** How much deeper each widening asks: 100, 400, 1,600, then the cap. */
 const WIDENING_FACTOR = 4;
 
+/** The ladder step after `depth`: four times deeper, up to the cap. */
+export function nextWindowDepth(depth: number): number {
+  return Math.min(RANKED_WINDOW_MAX, depth * WIDENING_FACTOR);
+}
+
 /**
  * The rows a ladder step serves: three quarters of its depth (75, 300, 1,200, 3,750). The last
  * quarter is headroom for the hits a step drops — copies of a shot already in it (#4557) and
@@ -154,7 +159,7 @@ export async function rankWindow(
     if (pass.rows.length >= sufficient || pass.considered < depth || atCap) {
       return windowOf(pass, depth);
     }
-    return widen(Math.min(RANKED_WINDOW_MAX, depth * WIDENING_FACTOR), { pass, depth });
+    return widen(nextWindowDepth(depth), { pass, depth });
   };
   return widen(target, null);
 }

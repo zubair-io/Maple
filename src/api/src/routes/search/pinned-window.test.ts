@@ -62,7 +62,7 @@ async function request(query: string): Promise<{ status: number; body: ListBody 
 
 async function page(index: number, pin?: string, query = 'greyson'): Promise<ListBody> {
   const pinned = pin === undefined ? '' : `&rankPin=${encodeURIComponent(pin)}`;
-  const { status, body } = await request(`placeQuery=${query}&limit=100&page=${index}${pinned}`);
+  const { status, body } = await request(`placeQuery=${query}&limit=75&page=${index}${pinned}`);
   expect(status).toBe(200);
   return body;
 }
@@ -111,14 +111,17 @@ describe('paging a pinned in-process search', () => {
     const first = await page(0);
     const second = await page(1, first.rankPin);
     const third = await page(2, second.rankPin);
-    const served = [first, second, third].flatMap((body) => body.results.map((r) => r.filename));
+    const fourth = await page(3, third.rankPin);
+    const served = [first, second, third, fourth].flatMap((body) =>
+      body.results.map((r) => r.filename),
+    );
 
-    expect(served.slice(0, 100)).toEqual(ranked.slice(0, 100).map((id) => `${id}.dng`));
+    expect(served.slice(0, 75)).toEqual(ranked.slice(0, 75).map((id) => `${id}.dng`));
     expect(new Set(served).size).toBe(300);
     expect(ranking(second.rankPin)).toBe('in-process:100,400');
-    expect(ranking(third.rankPin)).toBe('in-process:100,400');
-    expect(engine.ks).toEqual([100, 100, 400, 100, 400]);
-    expect(second.rankedBy).toEqual({ engine: 'in-process', semanticHits: 100 });
+    expect(ranking(fourth.rankPin)).toBe('in-process:100,400');
+    expect(engine.ks).toEqual([100, 100, 400, 100, 400, 100, 400]);
+    expect(second.rankedBy).toEqual({ engine: 'in-process', semanticHits: 75 });
   });
 
   it('answers 409 when the child fails a deeper step the page has to widen to', async () => {
@@ -130,7 +133,7 @@ describe('paging a pinned in-process search', () => {
     const first = await page(0);
 
     const { status, body } = await request(
-      `placeQuery=greyson&limit=100&page=1&rankPin=${encodeURIComponent(first.rankPin!)}`,
+      `placeQuery=greyson&limit=75&page=1&rankPin=${encodeURIComponent(first.rankPin!)}`,
     );
 
     expect({ status, code: body.code }).toEqual({ status: 409, code: RANK_ENGINE_CHANGED });
@@ -166,7 +169,7 @@ describe('paging a pinned in-process search', () => {
     const other = await page(0, undefined, 'xxxxx');
 
     const { status } = await request(
-      `placeQuery=greyson&limit=100&page=1&rankPin=${encodeURIComponent(other.rankPin!)}`,
+      `placeQuery=greyson&limit=75&page=1&rankPin=${encodeURIComponent(other.rankPin!)}`,
     );
 
     expect(status).toBe(409);
@@ -178,7 +181,7 @@ describe('paging a pinned in-process search', () => {
 
     setInProcessSearchForTests(fakeInProcessSearch(null));
     const { status, body } = await request(
-      `placeQuery=greyson&limit=100&page=1&rankPin=${encodeURIComponent(first.rankPin!)}`,
+      `placeQuery=greyson&limit=75&page=1&rankPin=${encodeURIComponent(first.rankPin!)}`,
     );
 
     expect(status).toBe(409);
@@ -215,7 +218,7 @@ describe('paging a pinned search over copies of one shot (#4557)', () => {
     const frames = (body: ListBody) =>
       body.results.map((row) => row.filename.replace('(2)', '').replace('.dng', ''));
 
-    expect(frames(first)).toHaveLength(100);
+    expect(frames(first)).toHaveLength(75);
     expect(frames(second).filter((frame) => frames(first).includes(frame))).toEqual([]);
     expect(second).toMatchObject({ total: 150, more: false });
     expect(new Set([...frames(first), ...frames(second)]).size).toBe(150);
@@ -274,7 +277,7 @@ describe('paging a pinned database search', () => {
     expect(engine.ks).toEqual([]);
     expect(second.rankedBy).toBeUndefined();
     expect(ranking(second.rankPin)).toBe('database:100,400');
-    expect(new Set(served).size).toBe(200);
+    expect(new Set(served).size).toBe(150);
   });
 });
 

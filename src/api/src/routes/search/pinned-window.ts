@@ -24,6 +24,9 @@ import { createHash } from 'node:crypto';
 import {
   cappedPast,
   RANKED_WINDOW_MAX,
+  nextWindowDepth,
+  RANKED_WINDOW_BASE,
+  stepQuota,
   windowDepthFor,
   type WindowPass,
   type WindowRow,
@@ -47,6 +50,11 @@ export interface RankPin {
 
 const FINGERPRINT = /^[A-Za-z0-9_-]{12}$/;
 const STEPS = /^[1-9]\d*(,[1-9]\d*)*$/;
+
+/** Every depth a window is ranked at: 100, 400, 1,600, then the cap. */
+const climbLadder = (depth: number): number[] =>
+  depth >= RANKED_WINDOW_MAX ? [depth] : [depth, ...climbLadder(nextWindowDepth(depth))];
+const LADDER = climbLadder(RANKED_WINDOW_BASE);
 
 /** A short digest of the ranked text and every filter, so a pin cannot steer another search. */
 function searchFingerprint(request: Pick<WindowRequest, 'where' | 'text'>): string {
@@ -73,8 +81,8 @@ export function decodeRankPin(raw: string): RankPin | null {
   const parsed = steps!.split(',').map(Number);
   const climbs = parsed.every((step, index) =>
     index === 0
-      ? windowDepthFor(step) === step
-      : parsed[index - 1]! < RANKED_WINDOW_MAX && step === windowDepthFor(parsed[index - 1]! + 1),
+      ? LADDER.includes(step)
+      : parsed[index - 1]! < RANKED_WINDOW_MAX && step === nextWindowDepth(parsed[index - 1]!),
   );
   return climbs ? { engine, steps: parsed, search: search! } : null;
 }
@@ -114,6 +122,8 @@ export async function pinnedWindow(
   if (pin.search !== searchFingerprint(request)) return null;
   const ranker = engineRanker(pin.engine, request);
   const empty: Merged = { rows: [], semantic: new Set(), scores: new Map() };
+  // The same quota an unpinned request fills (`rankWindow`): its step's three quarters.
+  const sufficient = stepQuota(windowDepthFor(request.need));
 
   const rank = async (
     merged: Merged,
@@ -128,8 +138,8 @@ export async function pinnedWindow(
     const next = merge(merged, pass);
     if (rest.length > 0) return rank(next, steps, rest);
     const full = pass.considered >= depth!;
-    if (next.rows.length < request.need && full && !atCap) {
-      const deeper = windowDepthFor(depth! + 1);
+    if (next.rows.length < sufficient && full && !atCap) {
+      const deeper = nextWindowDepth(depth!);
       return rank(next, [...steps, deeper], [deeper]);
     }
     return {
