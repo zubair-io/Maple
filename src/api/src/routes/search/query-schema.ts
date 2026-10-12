@@ -99,6 +99,9 @@ export interface SearchQuery {
    * `captured_desc` / `captured_asc` sorts mint one; sending a cursor on
    * any other sort, or alongside a residual `placeQuery`, is a 400. */
   cursor?: string;
+  /** Opaque `rankPin` from the previous page of a free-text search (#4542): ranks this page with
+   * the same engine and window steps, or answers 409 `rank_engine_changed` when it cannot. */
+  rankPin?: string;
 }
 
 export const SearchQueryT = t.Object({
@@ -138,4 +141,5 @@ export const SearchQueryT = t.Object({
   limit: t.Optional(t.String()),
   sort: t.Optional(t.String()),
   cursor: t.Optional(t.String()),
+  rankPin: t.Optional(t.String()),
 });

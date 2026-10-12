@@ -160,7 +160,13 @@ describe("the database's window", () => {
     await withLibrary(async (db) => {
       const { handle, issued } = recording(db);
       const window = await rankWindow(ftsRanker(translate({ placeQuery: '-ocean' }), handle), 30);
-      expect(window).toEqual({ rows: [], more: false, capped: false, semantic: new Set() });
+      expect(window).toEqual({
+        rows: [],
+        more: false,
+        capped: false,
+        semantic: new Set(),
+        depth: RANKED_WINDOW_BASE,
+      });
       expect(issued).toEqual([]);
     });
   });

@@ -11,6 +11,7 @@ import {
   ftsRanker,
   inGivenOrder,
   mapleIdWindow,
+  RANKED_WINDOW_BASE,
   RANKED_WINDOW_MAX,
   rankWindow,
   type RankedWindow,
@@ -82,12 +83,17 @@ interface Candidate {
  */
 export type WindowMode = 'search' | 'collection';
 
+/** How `engine` ranks `request`'s text. */
+export function engineRanker(engine: WindowEngine, request: WindowRequest): WindowRanker {
+  return engine === 'in-process'
+    ? inProcessRanker(request.where, request.text)
+    : ftsRanker(request.where);
+}
+
 function candidates(request: WindowRequest, mode: WindowMode): Candidate[] {
-  const { where, text } = request;
-  const inProcess = { engine: 'in-process' as const, ranker: inProcessRanker(where, text) };
-  return mode === 'collection'
-    ? [inProcess]
-    : [inProcess, { engine: 'database' as const, ranker: ftsRanker(where) }];
+  const engines: WindowEngine[] =
+    mode === 'collection' ? ['in-process'] : ['in-process', 'database'];
+  return engines.map((engine) => ({ engine, ranker: engineRanker(engine, request) }));
 }
 
 /**
@@ -143,6 +149,7 @@ function emptyWindow(): EngineWindow {
     more: false,
     capped: false,
     semantic: new Set(),
+    depth: RANKED_WINDOW_BASE,
     engine: 'database',
     preferred: true,
   };
