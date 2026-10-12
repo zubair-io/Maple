@@ -216,6 +216,7 @@ pub fn stitch_tile(
             focal_seed_source: None,
             stage_timings_012: [decode_s, features_s, graph_s],
             inputs,
+            lenses: crate::gain::LensGroups::from_metas(&metas),
         },
         opts,
         applied_opcodes,

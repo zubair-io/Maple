@@ -186,6 +186,7 @@ fn composite_with_far_frame_places_all_content() {
         &[],
         &poses,
         &canvas,
+        &crate::gain::LensGroups::ingest_corrected(full_dims.len()),
         &GainOptions::default(),
         Some(2),
     )

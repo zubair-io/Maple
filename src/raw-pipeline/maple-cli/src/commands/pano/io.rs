@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 
 use maple_pano::ba::BaSolution;
 use maple_pano::composite::CompositeReport;
-use maple_pano::gain::LensFalloff;
 use maple_pano::graph::ReverifySummary;
 use maple_pano::ingest::PlanarImage;
 use maple_pano::render::{write_frame_png, PngMetadata};
@@ -18,8 +17,6 @@ use maple_pano::tile::TileCompositeReport;
 pub(super) struct ReportContext<'a> {
     pub inputs: &'a [PathBuf],
     pub applied_opcodes: &'a [Vec<String>],
-    /// Blind lens-falloff estimate per lens group (#4522).
-    pub falloff: &'a [LensFalloff],
     pub solution: &'a BaSolution,
     pub refined_matches: usize,
     pub fallback_matches: usize,
@@ -120,7 +117,7 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         "applied_opcodes": ctx.applied_opcodes,
         // Blind vignette (#4522): `q` of `V(r) = (1 + q·r²)²` per lens
         // group of frames whose ingest corrected no falloff.
-        "vignette": ctx.falloff.iter().map(|g| serde_json::json!({
+        "vignette": comp_report.falloff.iter().map(|g| serde_json::json!({
             "lens": g.lens,
             "frames": g.frames,
             "q": g.q,
@@ -359,6 +356,12 @@ pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
         "photometric_slope_x": tr.photometric_slope_x,
         "photometric_slope_y": tr.photometric_slope_y,
         "exposure_field_mean_abs_ev": tr.exposure_field_mean_abs_ev,
+        // Blind vignette (#4522), same shape as the rotation report.
+        "vignette": tr.falloff.iter().map(|g| serde_json::json!({
+            "lens": g.lens,
+            "frames": g.frames,
+            "q": g.q,
+        })).collect::<Vec<_>>(),
         "exposure_field_max_abs_ev": tr.exposure_field_max_abs_ev,
         "timings_s": timings,
     })

@@ -1,7 +1,9 @@
 //! Blind per-lens vignette gates (#4522).
 
+use super::fit::fit_pairs;
+use super::solve::solve_from_fits;
 use super::tests::frames_to_tmpdir;
-use super::vignette::{falloff_gain, radius_squared, solve_with_falloff};
+use super::vignette::{falloff_gain, radius_squared};
 use super::*;
 use crate::ingest::{FrameMeta, FramePriors, ValidityMask};
 use crate::math::Vec3;
@@ -70,9 +72,7 @@ fn one_lens(n: usize) -> LensGroups {
 }
 
 fn solve(frames: &[PlanarImage], cams: &[Camera], lenses: &LensGroups) -> PhotometrySolution {
-    let opts = GainOptions::default();
-    let set = collect_overlap_set(frames, cams, &opts).unwrap();
-    solve_with_falloff(&set, cams, lenses, opts.mode).unwrap()
+    solve_photometry(frames, cams, lenses, &GainOptions::default()).unwrap()
 }
 
 /// Corrected-over-true ratio at a frame's corner pixel divided by the
@@ -132,7 +132,14 @@ fn vignette_free_set_estimates_zero() {
     let solution = solve(&frames, &cams, &one_lens(MULS.len()));
     let q = solution.falloff[0].q;
     assert!(q < 0.005, "q = {q} on a vignette-free set");
-    let plain = solve_photometry(&frames, &cams, &GainOptions::default()).unwrap();
+    let plain = solve_photometry(
+        &frames,
+        &cams,
+        &LensGroups::ingest_corrected(frames.len()),
+        &GainOptions::default(),
+    )
+    .unwrap()
+    .frames;
     for (a, b) in solution.frames.iter().zip(&plain) {
         assert!(
             (a.gain[0] / b.gain[0] - 1.0).abs() < 0.005,
@@ -169,7 +176,9 @@ fn all_corrected_set_is_bit_identical_to_plain_photometry() {
     let cams = grid_cameras();
     let frames = planted(&cams, &[PLANTED_Q; MULS.len()]);
     let solution = solve(&frames, &cams, &LensGroups::ingest_corrected(MULS.len()));
-    let plain = solve_photometry(&frames, &cams, &GainOptions::default()).unwrap();
+    let opts = GainOptions::default();
+    let set = collect_overlap_set(&frames, &cams, &opts).unwrap();
+    let plain = solve_from_fits(&set, &fit_pairs(&set, opts.mode), opts.mode).unwrap();
     assert_eq!(solution.frames, plain);
     assert!(solution.falloff.is_empty());
 }
@@ -264,4 +273,22 @@ fn lens_groups_split_by_lens_and_skip_ingest_corrected_frames() {
             "Body 30.0mm"
         ]
     );
+}
+
+#[test]
+fn batch_composite_estimates_and_reports_falloff() {
+    use crate::composite::{composite, CompositeOptions};
+    let cams = grid_cameras();
+    let frames = planted(&cams, &[PLANTED_Q; MULS.len()]);
+    let opts = CompositeOptions {
+        lenses: Some(one_lens(MULS.len())),
+        ..Default::default()
+    };
+    let (_, report) = composite(&frames, &cams, &opts, &[]).unwrap();
+    let q = report.falloff[0].q as f64;
+    assert!((q - PLANTED_Q).abs() < 0.01, "composite q = {q}");
+    assert!(report.photometry.iter().all(|p| p.falloff_q == q as f32));
+    let (_, plain) = composite(&frames, &cams, &CompositeOptions::default(), &[]).unwrap();
+    assert!(plain.falloff.is_empty());
+    assert!(plain.photometry.iter().all(|p| p.falloff_q == 0.0));
 }

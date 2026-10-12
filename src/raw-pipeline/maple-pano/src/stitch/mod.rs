@@ -92,8 +92,9 @@ use crate::camera::Camera;
 use crate::canvas::{
     auto_canvas, natural_canvas_pixel_ratio, CanvasOptions, ProjectionMode, DEGENERATE_CANVAS_RATIO,
 };
-use crate::composite::composite_tiled;
+use crate::composite::{composite_tiled, CompositeReport};
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
+use crate::gain::LensGroups;
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{
     build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
@@ -360,6 +361,7 @@ pub fn stitch(
                 stage_timings_012: [t_decode, t_features, t_graph],
                 applied_opcodes,
                 priors,
+                lenses: LensGroups::from_metas(&metas),
             },
             &mut progress,
             &is_cancelled,
@@ -516,7 +518,7 @@ pub fn stitch(
     // to 512 rows so the tiled path (and its memory bound of ≤1 full-res
     // frame resident per strip pass) always engages.
     let tile_rows = opts.canvas_tile_rows.unwrap_or(512);
-    let (image, comp_report) = composite_tiled(
+    let (image, tiled_report) = composite_tiled(
         &kept_paths,
         &kept_cams,
         &photometry,
@@ -526,6 +528,10 @@ pub fn stitch(
         opts.seam_strategy,
     )
     .map_err(|e| StitchError::Composite(e.to_string()))?;
+    let comp_report = CompositeReport {
+        falloff,
+        ..tiled_report
+    };
 
     let t_composite = t5.elapsed().as_secs_f64();
     progress(5, 1.0);
@@ -538,7 +544,6 @@ pub fn stitch(
         strategy_report,
         focal_seed_source: focal_seed.source,
         applied_opcodes,
-        falloff,
         priors,
         refined_matches,
         fallback_matches,

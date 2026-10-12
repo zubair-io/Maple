@@ -315,6 +315,7 @@ fn finish(
         canvas: canvas.clone(),
         projection: canvas.projection,
         photometry: photometry.to_vec(),
+        falloff: Vec::new(),
         blend_levels: 1,
         min_overlap_width_px: min_overlap_width(k, &overlap_count, &overlap_rows),
         seam_strategy: seam::SeamStrategy::GraphCut,

@@ -91,6 +91,10 @@ mod composite_tests;
 #[path = "photometry_tests.rs"]
 mod photometry_tests;
 
+#[cfg(test)]
+#[path = "vignette_tests.rs"]
+mod vignette_tests;
+
 pub(crate) use composite::composite_tile;
 pub use composite::TileCompositeReport;
 pub use placement::{
