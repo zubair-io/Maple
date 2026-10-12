@@ -3,7 +3,9 @@
 //!
 //! This is the shared measurement layer of the photometric solve: the
 //! batch and streaming paths both reduce to an [`OverlapSet`], which
-//! [`super::fit::fit_pairs`] and [`super::solve`] consume.
+//! [`super::fit::fit_pairs`] and [`super::solve`] consume. Every sample
+//! keeps its source-pixel position in both frames for the blind vignette
+//! estimate ([`super::vignette`]).
 
 use crate::camera::Camera;
 use crate::ingest::PlanarImage;
@@ -69,11 +71,13 @@ impl SignalWindow {
 }
 
 /// One geometrically corresponding point of the `(i, j)` overlap:
-/// its values in frame `i` and frame `j`.
+/// values and source-pixel positions in frame `i` and frame `j`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct OverlapSample {
     pub value_i: [f32; 3],
     pub value_j: [f32; 3],
+    pub pos_i: [f32; 2],
+    pub pos_j: [f32; 2],
 }
 
 impl OverlapSample {
@@ -81,6 +85,8 @@ impl OverlapSample {
         Self {
             value_i: self.value_j,
             value_j: self.value_i,
+            pos_i: self.pos_j,
+            pos_j: self.pos_i,
         }
     }
 }
@@ -190,6 +196,8 @@ pub(crate) fn resolve_points(points: &[PendingPoint], dst: &PlanarImage) -> Vec<
             Some(OverlapSample {
                 value_i: p.value_src,
                 value_j,
+                pos_i: p.pos_src,
+                pos_j: p.pos_dst,
             })
         })
         .collect()

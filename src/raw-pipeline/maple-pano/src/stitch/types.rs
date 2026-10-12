@@ -122,6 +122,10 @@ pub struct StitchOutcome {
     pub focal_seed_source: FocalSeedSource,
     /// Decoded input frames (applied_opcodes survives frame consumption).
     pub applied_opcodes: Vec<Vec<String>>,
+    /// Blind falloff `q` per lens group of frames ingest left uncorrected
+    /// (#4522); `frames` are input indices. Empty when ingest corrected
+    /// every surviving frame.
+    pub falloff: Vec<crate::gain::LensFalloff>,
     /// Per-frame EXIF/gimbal priors (needed for CLI report).
     pub priors: Vec<FramePriors>,
     /// Number of full-resolution NCC-refined correspondences.

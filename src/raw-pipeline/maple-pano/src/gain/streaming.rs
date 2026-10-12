@@ -19,19 +19,19 @@ use crate::camera::Camera;
 use crate::error::PanoError;
 
 use super::overlap::{pending_points, resolve_points, OverlapSet, PairSamples, PendingPoint};
-use super::{
-    fit_pairs, frames_may_overlap, solve_from_fits, validate_options, FramePhotometry, GainOptions,
-    SignalWindow,
-};
+use super::vignette::{solve_with_falloff, LensGroups, PhotometrySolution};
+use super::{frames_may_overlap, validate_options, GainOptions, SignalWindow};
 
-/// Solve per-frame photometry from frame files, one decode per frame.
+/// Solve per-frame photometry from frame files, one decode per frame,
+/// estimating the falloff of every lens group in `lenses` (#4522).
 pub fn solve_photometry_streaming(
     paths: &[PathBuf],
     cameras: &[Camera],
+    lenses: &LensGroups,
     opts: &GainOptions,
-) -> Result<Vec<FramePhotometry>, PanoError> {
+) -> Result<PhotometrySolution, PanoError> {
     let set = collect_overlap_set_streaming(paths, cameras, opts)?;
-    solve_from_fits(&set, &fit_pairs(&set, opts.mode), opts.mode)
+    solve_with_falloff(&set, cameras, lenses, opts.mode)
 }
 
 pub(crate) fn collect_overlap_set_streaming(

@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use maple_pano::ba::BaSolution;
 use maple_pano::composite::CompositeReport;
+use maple_pano::gain::LensFalloff;
 use maple_pano::graph::ReverifySummary;
 use maple_pano::ingest::PlanarImage;
 use maple_pano::render::{write_frame_png, PngMetadata};
@@ -17,6 +18,8 @@ use maple_pano::tile::TileCompositeReport;
 pub(super) struct ReportContext<'a> {
     pub inputs: &'a [PathBuf],
     pub applied_opcodes: &'a [Vec<String>],
+    /// Blind lens-falloff estimate per lens group (#4522).
+    pub falloff: &'a [LensFalloff],
     pub solution: &'a BaSolution,
     pub refined_matches: usize,
     pub fallback_matches: usize,
@@ -115,6 +118,13 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         "local_align": ctx.local_align,
         "focal_seed_source": ctx.focal_seed_source,
         "applied_opcodes": ctx.applied_opcodes,
+        // Blind vignette (#4522): `q` of `V(r) = (1 + q·r²)²` per lens
+        // group of frames whose ingest corrected no falloff.
+        "vignette": ctx.falloff.iter().map(|g| serde_json::json!({
+            "lens": g.lens,
+            "frames": g.frames,
+            "q": g.q,
+        })).collect::<Vec<_>>(),
         "cameras": solution.cameras.iter().map(|c| c.as_ref().map(|c| serde_json::json!({
             "axis_angle": c.axis_angle,
             "focal_px": c.focal_px,

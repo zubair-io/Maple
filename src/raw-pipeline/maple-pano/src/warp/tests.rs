@@ -80,6 +80,7 @@ fn gain_and_bias_are_folded_into_the_warp() {
     let photometry = FramePhotometry {
         gain: [2.0, 0.5, 4.0],
         bias: [0.0, 0.125, -0.25],
+        falloff_q: 0.0,
     };
     let out = warp_to_canvas(&src, &cam, &aligned_canvas(&cam), photometry, None);
     for i in 0..out.pixel_count() {
@@ -238,6 +239,7 @@ fn warp_is_deterministic() {
         FramePhotometry {
             gain: [1.1, 0.9, 1.0],
             bias: [0.0; 3],
+            falloff_q: 0.0,
         },
         None,
     );
@@ -248,6 +250,7 @@ fn warp_is_deterministic() {
         FramePhotometry {
             gain: [1.1, 0.9, 1.0],
             bias: [0.0; 3],
+            falloff_q: 0.0,
         },
         None,
     );
@@ -277,6 +280,7 @@ fn strip_warp_matches_full_warp_pixel_for_pixel() {
     let gain = FramePhotometry {
         gain: [1.1, 0.9, 1.05],
         bias: [0.002, -0.001, 0.0],
+        falloff_q: 0.0,
     };
 
     // Full warp reference.
@@ -360,4 +364,32 @@ fn rotation_accessor_used_by_tests_matches_identity() {
         i.mul_vec(Vec3::new(0.3, -0.2, 0.9)),
         Vec3::new(0.3, -0.2, 0.9)
     );
+}
+
+/// The blind falloff correction (#4522) divides `V(r)` out at each
+/// tap's source position: a planted elliptical vignette over a flat scene
+/// warps back to the flat scene, corner and centre alike.
+#[test]
+fn falloff_is_divided_out_at_the_source_position() {
+    let (w, h) = (48_u32, 32_u32);
+    let q = 0.25_f64;
+    let cam = Camera::new([0.0; 3], 150.0, 0.0, 0.0, w, h);
+    let src = planar_from_fn(w, h, |x, y| {
+        let r2 =
+            (((x as f64 + 0.5) - 24.0) / 24.0).powi(2) + (((y as f64 + 0.5) - 16.0) / 16.0).powi(2);
+        [(0.4 / (1.0 + q * r2).powi(2)) as f32; 3]
+    });
+    let corner_before = src.r[0] / src.r[(16 * w + 24) as usize];
+    assert!(
+        corner_before < 0.5,
+        "planted vignette too weak: {corner_before}"
+    );
+    let photometry = FramePhotometry {
+        falloff_q: q as f32,
+        ..FramePhotometry::IDENTITY
+    };
+    let out = warp_to_canvas(&src, &cam, &aligned_canvas(&cam), photometry, None);
+    for i in 0..out.pixel_count() {
+        assert!((out.r[i] - 0.4).abs() < 1e-4, "pixel {i}: {}", out.r[i]);
+    }
 }

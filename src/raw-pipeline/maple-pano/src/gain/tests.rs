@@ -20,10 +20,16 @@ fn solve_gains_streaming(
     cameras: &[Camera],
     opts: &GainOptions,
 ) -> Result<Vec<[f32; 3]>, PanoError> {
-    Ok(solve_photometry_streaming(paths, cameras, opts)?
-        .iter()
-        .map(|p| p.gain)
-        .collect())
+    Ok(solve_photometry_streaming(
+        paths,
+        cameras,
+        &LensGroups::ingest_corrected(paths.len()),
+        opts,
+    )?
+    .frames
+    .iter()
+    .map(|p| p.gain)
+    .collect())
 }
 
 // ─── Streaming gain test helpers ──────────────────────────────────────────────

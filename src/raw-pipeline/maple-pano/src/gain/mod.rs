@@ -16,14 +16,20 @@
 //!    those gains with a strong zero-shrinkage prior and a tight clamp,
 //!    absorbing only black-level and flare offsets.
 //!
+//! 4. [`vignette`]: for frames whose ingest corrected no lens falloff, a
+//!    shared per-lens radial falloff is estimated jointly with log-gains
+//!    and divided out of the samples before steps 2–3 (#4522).
+//!
 //! The result is folded into the warp ([`crate::warp::warp_to_canvas`]
-//! applies `gain·v + bias`).
+//! applies `gain·V(r)·v + bias`).
 
 pub(crate) mod fit;
 pub(crate) mod overlap;
 pub(crate) mod solve;
 mod streaming;
+pub(crate) mod vignette;
 pub use streaming::solve_photometry_streaming;
+pub use vignette::{LensFalloff, LensGroups, PhotometrySolution};
 
 use fit::fit_pairs;
 use overlap::{OverlapSet, PairSamples, SignalWindow};
@@ -68,18 +74,34 @@ impl Default for GainOptions {
 }
 
 /// Per-frame photometric correction applied in the warp:
-/// `corrected = gain · value + bias`, per channel, in linear light.
+/// `corrected = gain · V(r) · value + bias`, per channel, in linear light,
+/// where `V(r) = (1 + falloff_q·r²)²` is the blind lens-falloff correction
+/// (`falloff_q = 0` for frames corrected at ingest).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FramePhotometry {
     pub gain: [f32; 3],
     pub bias: [f32; 3],
+    pub falloff_q: f32,
 }
 
 impl FramePhotometry {
     pub const IDENTITY: Self = Self {
         gain: [1.0; 3],
         bias: [0.0; 3],
+        falloff_q: 0.0,
     };
+
+    /// Correct a value sampled at source position `(x, y)` of a
+    /// `width × height` frame.
+    #[inline]
+    pub fn apply_at(&self, v: [f32; 3], x: f64, y: f64, width: f64, height: f64) -> [f32; 3] {
+        if self.falloff_q == 0.0 {
+            return self.apply(v);
+        }
+        let r2 = vignette::radius_squared(x, y, width, height);
+        let falloff = vignette::falloff_gain(self.falloff_q as f64, r2) as f32;
+        self.apply(v.map(|c| c * falloff))
+    }
 
     #[inline]
     pub fn apply(&self, v: [f32; 3]) -> [f32; 3] {
@@ -281,3 +303,6 @@ mod tests;
 
 #[cfg(test)]
 mod photometry_tests;
+
+#[cfg(test)]
+mod vignette_tests;
