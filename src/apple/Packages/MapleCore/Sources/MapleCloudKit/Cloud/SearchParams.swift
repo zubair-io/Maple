@@ -229,7 +229,9 @@ public struct SearchParams: Sendable, Equatable, Hashable {
   /// range predicate on `(exif.captured_at, _id)` rather than a SKIP, so
   /// deep pages cost the same as shallow ones. Sending both would be
   /// ambiguous, so only one ever goes on the wire.
-  public func listQueryItems(page: Int, limit: Int, cursor: String? = nil) -> [URLQueryItem] {
+  public func listQueryItems(
+    page: Int, limit: Int, cursor: String? = nil, rankPin: String? = nil
+  ) -> [URLQueryItem] {
     let paging: URLQueryItem = {
       guard let cursor, !cursor.isEmpty else {
         return URLQueryItem(name: "page", value: "\(page)")
@@ -240,7 +242,7 @@ public struct SearchParams: Sendable, Equatable, Hashable {
       URLQueryItem(name: "sort", value: sort.rawValue),
       paging,
       URLQueryItem(name: "limit", value: "\(limit)"),
-    ]
+    ] + (rankPin.map { [URLQueryItem(name: "rankPin", value: $0)] } ?? [])
   }
 
   /// Shared filter serialisation. Mirrors the web `paramsFrom()` skip

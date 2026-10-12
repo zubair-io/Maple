@@ -97,6 +97,8 @@ public final class SearchViewModel {
   /// memory (session-scoped, like the web cache). Pages key on the params +
   /// page index; facets on `FacetKey`.
   private var pageCache: [PageKey: SearchResponse] = [:]
+  /// The ranking the pages held came from (#4542); sent with each further page.
+  private var rankPin: String?
   private var facetCache: [FacetKey: SearchFacets] = [:]
 
   private struct PageKey: Hashable {
@@ -115,11 +117,6 @@ public final class SearchViewModel {
     let hasText = !params.placeQuery.trimmingCharacters(in: .whitespaces).isEmpty
     let step = hasText ? Self.windowStep(reaching: (listPage + 1) * limit) : 0
     return FacetKey(params: params, step: step)
-  }
-
-  /// The server's window ladder (`windowDepthFor`): the first step reaching `need` rows.
-  static func windowStep(reaching need: Int) -> Int {
-    [100, 400, 1_600].first { $0 >= need } ?? 5_000
   }
 
   public init(
@@ -205,6 +202,7 @@ public final class SearchViewModel {
     page = 0
     isLoadingMore = false
     nextCursor = nil
+    rankPin = nil
     lastSubmittedParams = params
     let requested = params
     let pageKey = PageKey(params: requested, page: 0)
@@ -218,6 +216,7 @@ public final class SearchViewModel {
       loadError = nil
       results = cachedPage.results
       nextCursor = cachedPage.nextCursor
+      rankPin = cachedPage.rankPin
       // Must be refreshed here too, not only on the network path: leaving the
       // previous query's value behind makes the chip claim a date filter this
       // query does not carry — the false filter state the chip exists to
@@ -248,6 +247,7 @@ public final class SearchViewModel {
       pageCache[pageKey] = resp
       results = resp.results
       nextCursor = resp.nextCursor
+      rankPin = resp.rankPin
       appliedDates = resp.dateFilter
       // An exhausted seek chain means the rows we hold ARE the result set —
       // see `SearchResponse.seekExhausted`. Believing a stale cached `total`
@@ -457,6 +457,7 @@ public final class SearchViewModel {
       page = next
       results.append(contentsOf: cached.results)
       nextCursor = cached.nextCursor
+      rankPin = cached.rankPin
       total = cached.seekExhausted ? results.count : cached.total
       moreBeyondTotal = !cached.results.isEmpty && (cached.more ?? false)
       cappedAtTotal = cached.capped ?? false
@@ -467,12 +468,14 @@ public final class SearchViewModel {
     }
 
     do {
-      let resp = try await searchClient.search(requested, page: next, limit: limit, cursor: seek)
+      let resp = try await searchClient.search(
+        requested, page: next, limit: limit, cursor: seek, rankPin: rankPin)
       guard g == generation else { return }
       pageCache[pageKey] = resp
       page = next
       results.append(contentsOf: resp.results)
       nextCursor = resp.nextCursor
+      rankPin = resp.rankPin
       total = resp.seekExhausted ? results.count : resp.total
       moreBeyondTotal = !resp.results.isEmpty && (resp.more ?? false)
       cappedAtTotal = resp.capped ?? false
@@ -482,17 +485,15 @@ public final class SearchViewModel {
     } catch {
       if Self.isCancellation(error) { return }
       guard g == generation else { return }
+      // The engine that ranked the pages held is gone: another engine's next
+      // page would repeat and skip rows, so start the search over (#4542).
+      if error as? SearchPagingError == .rankEngineChanged {
+        pageCache = pageCache.filter { $0.key.params != requested }
+        await submit()
+        return
+      }
       loadError = error
     }
-  }
-
-  /// True when `error` is a request/task cancellation (debounce superseded
-  /// this search) rather than a genuine network/decode failure.
-  private static func isCancellation(_ error: Error) -> Bool {
-    if error is CancellationError { return true }
-    if let urlError = error as? URLError, urlError.code == .cancelled { return true }
-    let ns = error as NSError
-    return ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
   }
 
   /// Reset every structured filter (keeping the free-text query + sort)
