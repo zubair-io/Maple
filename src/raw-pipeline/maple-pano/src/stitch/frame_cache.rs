@@ -11,7 +11,7 @@
 use std::path::PathBuf;
 
 use crate::graph::{GraphImage, MatchGraph};
-use crate::ingest::{FrameMeta, PlanarImage};
+use crate::ingest::PlanarImage;
 use crate::refine::{refine_correspondences, RefineGeometry, RefineOptions};
 use crate::stitch::types::StitchError;
 
@@ -77,14 +77,14 @@ pub(super) struct RefinePassResult {
 /// `graph` (#1254), updating `graph.edges[i].inlier_matches` in place.
 ///
 /// Uses a 2-entry LRU decode cache so at most 2 full-resolution frames are
-/// resident at once. `inputs` and `full_images` are index-parallel with the
-/// `metas` used to build the graph.
+/// resident at once. `inputs`, `proxy_scales` (`full / proxy` per axis) and
+/// `full_images` are index-parallel with the graph's frames.
 ///
 /// Returns the aggregate refined / fallback match counts.
 pub(super) fn refine_edges_lru(
     graph: &mut MatchGraph,
     inputs: &[PathBuf],
-    metas: &[FrameMeta],
+    proxy_scales: &[(f64, f64)],
     full_images: &[GraphImage],
     mut progress: impl FnMut(f32),
 ) -> Result<RefinePassResult, StitchError> {
@@ -138,7 +138,6 @@ pub(super) fn refine_edges_lru(
         debug_assert_eq!(img_a.0, ia);
         debug_assert_eq!(img_b.0, ib);
 
-        let scale_of = |meta: &FrameMeta| (meta.proxy_scale_x, meta.proxy_scale_y);
         let (rotation_clone, inlier_matches_clone) = {
             let edge = &graph.edges[ei];
             (edge.rotation, edge.inlier_matches.clone())
@@ -151,8 +150,8 @@ pub(super) fn refine_edges_lru(
         let outcome = refine_correspondences(
             &img_a.1,
             &img_b.1,
-            scale_of(&metas[ia]),
-            scale_of(&metas[ib]),
+            proxy_scales[ia],
+            proxy_scales[ib],
             Some(&geometry),
             &inlier_matches_clone,
             &RefineOptions::default(),

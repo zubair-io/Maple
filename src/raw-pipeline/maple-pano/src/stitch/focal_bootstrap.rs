@@ -16,7 +16,7 @@
 //! and rebuilds the graph a second time — [`rebuild_graph_with_focal`]
 //! reuses the first pass's cached LightGlue correspondences rather than
 //! re-running ONNX inference, the same cache-reuse pattern
-//! [`super::tile_stitch::run_tile_branch`] uses for its unit-focal
+//! [`super::tile_stitch::build_tile_graph`] uses for its unit-focal
 //! rebuild. `< 1` verified pair on the bootstrap graph is the hard-error
 //! floor (spec §5.3: "hard error only when neither is computable").
 

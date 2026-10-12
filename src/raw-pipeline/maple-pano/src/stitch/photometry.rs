@@ -12,28 +12,30 @@ use crate::camera::Camera;
 use crate::gain::{
     solve_photometry_streaming, FramePhotometry, GainOptions, LensFalloff, LensGroups,
 };
-use crate::ingest::FrameMeta;
-use crate::local_align::LocalCorrection;
 
 use super::StitchError;
 
 /// Photometry of the kept frames, and the falloff per lens group with its
-/// frames mapped back to input indices.
+/// frames mapped back to input indices. `lenses` covers every input frame;
+/// `kept_inputs[k]` is the input index of kept frame `k`.
 pub(super) fn solve_kept_photometry(
     kept_paths: &[PathBuf],
     kept_cams: &[Camera],
-    metas: &[FrameMeta],
-    kept_meta: &[(usize, Camera, Option<LocalCorrection>)],
+    lenses: &LensGroups,
+    kept_inputs: &[usize],
 ) -> Result<(Vec<FramePhotometry>, Vec<LensFalloff>), StitchError> {
-    let lenses = LensGroups::from_metas(kept_meta.iter().map(|(inp_idx, _, _)| &metas[*inp_idx]));
-    let solved =
-        solve_photometry_streaming(kept_paths, kept_cams, &lenses, &GainOptions::default())
-            .map_err(|e| StitchError::Composite(e.to_string()))?;
+    let solved = solve_photometry_streaming(
+        kept_paths,
+        kept_cams,
+        &lenses.for_frames(kept_inputs),
+        &GainOptions::default(),
+    )
+    .map_err(|e| StitchError::Composite(e.to_string()))?;
     let falloff = solved
         .falloff
         .into_iter()
         .map(|g| LensFalloff {
-            frames: g.frames.iter().map(|&k| kept_meta[k].0).collect(),
+            frames: g.frames.iter().map(|&k| kept_inputs[k]).collect(),
             ..g
         })
         .collect();
