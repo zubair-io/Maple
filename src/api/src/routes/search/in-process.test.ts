@@ -22,6 +22,8 @@ import {
 import { setInProcessSearchForTests } from '../../search/search-pool.ts';
 import { fakeInProcessSearch } from '../../search/search.test-helpers.ts';
 import { setMeilisearchClientForTests } from '../../enrichment/meilisearch-client.ts';
+import { setSqliteHandleForTests } from '../../db/sqlite/index.ts';
+import { recordReadWaves } from '../../db/sqlite/read-waves.test-helpers.ts';
 
 let live: LiveTestDatabase;
 
@@ -120,6 +122,24 @@ describe('GET /api/search with the in-process engine', () => {
 
     expect(filenames(second)).toEqual(['harbour.dng']);
     expect(second.total).toBe(3);
+  });
+
+  it('names its phases in Server-Timing and reaches the database in three waves (#4503)', async () => {
+    setInProcessSearchForTests(fakeInProcessSearch(RANKED));
+    await list('placeQuery=greyson');
+    const recorded = recordReadWaves(live.handle);
+    setSqliteHandleForTests(recorded.handle);
+
+    const res = await new Elysia()
+      .use(listRoute)
+      .handle(new Request('http://localhost/?placeQuery=greyson&excludeHiddenPeople=true'));
+
+    const phases = (res.headers.get('server-timing') ?? '')
+      .split(', ')
+      .map((entry) => entry.split(';')[0]);
+    expect(phases).toEqual(['scope', 'engine', 'rows', 'project', 'total']);
+    expect(((await res.json()) as { total: number }).total).toBe(3);
+    expect(recorded.waves.map((wave) => wave.length)).toEqual([2, 1, 3]);
   });
 
   it('falls back to the database full-text path while the child is down', async () => {

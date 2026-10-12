@@ -9,8 +9,9 @@
  * comments is agreement that can lapse; as one function it cannot.
  *
  * Both lookups are round trips, which is why `/buckets` keeps this behind its
- * cache rather than in front of it. The 400 comes back as a `Response` so the
- * caller returns it unchanged.
+ * cache rather than in front of it. They go out together, so a request waits
+ * for one (#4503). The 400 comes back as a `Response` so the caller returns it
+ * unchanged.
  */
 
 import { buildSearchWhere } from '../../db/repos/search.repo.ts';
@@ -23,8 +24,10 @@ async function translate(query: SearchQuery): Promise<SearchWhere | { error: str
   // Excluded people (#2894) drop unconditionally; hidden people only when the request opted in
   // (see `personIdsToDrop`). The `people` param carries display names; the face clause needs
   // the person ids faces are tagged with, resolved here so `buildSearchWhere` stays pure.
-  const dropIds = await personIdsToDrop(query.excludeHiddenPeople);
-  const peopleIds = await personIdsForNames(peopleNames(query.people));
+  const [dropIds, peopleIds] = await Promise.all([
+    personIdsToDrop(query.excludeHiddenPeople),
+    personIdsForNames(peopleNames(query.people)),
+  ]);
   return buildSearchWhere(query, dropIds, peopleIds);
 }
 

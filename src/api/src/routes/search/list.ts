@@ -38,6 +38,7 @@ import { inProcessPage } from './list-in-process.ts';
 import { resolveRankedScope } from './scope.ts';
 import { resolvePaging } from './list-paging.ts';
 import { getCachedTotal } from './total-cache.ts';
+import { PhaseTimer } from './server-timing.ts';
 
 export const listRoute = new Elysia().get(
   '/',
@@ -49,7 +50,8 @@ export const listRoute = new Elysia().get(
     // One `now` for both calls: the extraction and its provenance must not
     // disagree across a midnight boundary.
     const now = new Date();
-    const scope = await resolveRankedScope(query as SearchQuery, now);
+    const timing = new PhaseTimer();
+    const scope = await timing.time('scope', () => resolveRankedScope(query as SearchQuery, now));
     if ('error' in scope) {
       set.status = 400;
       return { error: scope.error };
@@ -106,15 +108,17 @@ export const listRoute = new Elysia().get(
     // not configured or failed, and we fall through to the next, ending at the database's own
     // full-text path (the source of truth).
     const ranked =
-      (await inProcessPage({ where, childQuery, skip: paging.skip, limit })) ??
+      (await inProcessPage({ where, childQuery, skip: paging.skip, limit, timing })) ??
       (await meiliPage({
         where,
         resolved,
         libraryId: query.libraryId,
         skip: paging.skip,
         limit,
+        timing,
       }));
     if (ranked) {
+      set.headers['server-timing'] = timing.header();
       return {
         total: ranked.total,
         page,
@@ -134,12 +138,16 @@ export const listRoute = new Elysia().get(
     // can't shrink `total` as the user scrolls. Runs concurrently with the
     // page below.
     const [docs, total] = await Promise.all([
-      searchPage(where, { sort, limit, skip: paging.skip, cursor: paging.cursor }),
-      getCachedTotal(query as SearchQuery, where),
+      timing.time('rows', () =>
+        searchPage(where, { sort, limit, skip: paging.skip, cursor: paging.cursor }),
+      ),
+      timing.time('count', () => getCachedTotal(query as SearchQuery, where)),
     ]);
 
-    const { libs, idToSlug } = await libraryMaps();
-    const results = await projectAssets(docs, libs, idToSlug);
+    const results = await timing.time('project', async () => {
+      const { libs, idToSlug } = await libraryMaps();
+      return projectAssets(docs, libs, idToSlug);
+    });
     // A short page is the last page: no cursor, so the client stops. A full
     // page always mints one, even if the next fetch turns out empty — knowing
     // that would cost an extra row read per request.
@@ -147,6 +155,7 @@ export const listRoute = new Elysia().get(
       paging.direction !== null && docs.length === limit
         ? encodeCursor(cursorFromDoc(docs[docs.length - 1]!, paging.direction))
         : null;
+    set.headers['server-timing'] = timing.header();
     return { total, page, limit, results, cursorPaging, nextCursor, ...withDates };
   },
   { query: SearchQueryT },

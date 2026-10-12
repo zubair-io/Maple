@@ -32,6 +32,7 @@ import {
 import { child as childLogger } from '../../log.ts';
 import { projectAssets, type SearchResult } from './project.ts';
 import { libraryMaps } from './libraries.ts';
+import { PhaseTimer } from './server-timing.ts';
 import { peopleNames, widenFromDate, widenToDate, type SearchQuery } from './query.ts';
 
 const searchLog = childLogger('search');
@@ -52,6 +53,8 @@ export interface MeiliPageInput {
   libraryId: string | undefined;
   skip: number;
   limit: number;
+  /** The request's phase timer, when the caller reports one. */
+  timing?: PhaseTimer;
 }
 
 /** True when there is residual free text for the relevance path to rank. */
@@ -248,6 +251,7 @@ export function meiliSearchOptions(
  */
 export async function meiliPage(input: MeiliPageInput): Promise<MeiliPage | null> {
   const { where, resolved, libraryId, skip, limit } = input;
+  const timing = input.timing ?? new PhaseTimer();
   const meili = meilisearchClient();
   if (!usesPlaceText(resolved) || !meili.isConfigured()) return null;
 
@@ -268,11 +272,13 @@ export async function meiliPage(input: MeiliPageInput): Promise<MeiliPage | null
     // hidden-free id set and always comes back empty (#2358). `only` is
     // pushed all the way into the Meili filter (`hidden = true`) so each
     // candidate page stays dense with rows the re-fetch will keep.
-    const hit = await meili.search(resolved.placeQuery!.trim(), {
-      ...meiliSearchOptions(resolved, libraryId, meili.semanticConfigured()),
-      offset: skip,
-      limit,
-    });
+    const hit = await timing.time('engine', () =>
+      meili.search(resolved.placeQuery!.trim(), {
+        ...meiliSearchOptions(resolved, libraryId, meili.semanticConfigured()),
+        offset: skip,
+        limit,
+      }),
+    );
     if (hit.ids.length === 0) return { total: hit.estimatedTotal, results: [] };
 
     // Fetch full asset rows for the Meilisearch ids, in the order Meilisearch
@@ -281,12 +287,12 @@ export async function meiliPage(input: MeiliPageInput): Promise<MeiliPage | null
     // and re-running it over a typo-tolerant hit ("Musum" → "Museum") would
     // zero the result. Ids with no surviving row drop out, which is what a
     // mid-flight hard delete looks like.
-    const docs = await searchByMapleIds(where, hit.ids);
-    const { libs, idToSlug } = await libraryMaps();
-    return {
-      total: hit.estimatedTotal,
-      results: await projectAssets(docs, libs, idToSlug),
-    };
+    const docs = await timing.time('rows', () => searchByMapleIds(where, hit.ids));
+    const results = await timing.time('project', async () => {
+      const { libs, idToSlug } = await libraryMaps();
+      return projectAssets(docs, libs, idToSlug);
+    });
+    return { total: hit.estimatedTotal, results };
   } catch (err) {
     // Log and let the caller fall through to the database's own full-text
     // path. The route still returns a 200 — the operator sees this in the

@@ -57,10 +57,12 @@ export { searchFacets } from './search.facets.ts';
 
 export {
   mapleIdsMatching,
+  rankedMapleIdPage,
   searchByIds,
   searchByMapleIds,
   searchCount,
   searchPage,
+  type SearchDoc,
 } from './search.page.ts';
 
 export { searchBuckets } from './search.buckets.ts';
