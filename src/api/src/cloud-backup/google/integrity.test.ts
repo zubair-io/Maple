@@ -51,7 +51,7 @@ test('same-size byte drift without a native checksum fails immutable verificatio
   expect(drifted.size).toBe(3);
 });
 
-test('removal checks metadata only and never downloads the object bytes', async () => {
+test('removal trusts a native checksum without downloading, and hashes drifted bytes when Drive omits one', async () => {
   const store = googleStore();
   const mediaRequests: string[] = [];
   const transport: GoogleFetch = async (raw, init) => {
@@ -63,9 +63,19 @@ test('removal checks metadata only and never downloads the object bytes', async 
   const object = await provider.publish('blobs/removed', source(new Uint8Array([1, 2, 3])), {
     saveCheckpoint: async () => {},
   });
-  store.files.get(object.locator)!.sha256Checksum = undefined;
   mediaRequests.length = 0;
   await provider.remove(object);
   expect(mediaRequests).toEqual([]);
   expect(store.files.has(object.locator)).toBe(false);
+
+  const drifted = await provider.publish('blobs/drifted', source(new Uint8Array([4, 5, 6])), {
+    saveCheckpoint: async () => {},
+  });
+  Object.assign(store.files.get(drifted.locator)!, {
+    sha256Checksum: undefined,
+    bytes: new Uint8Array([6, 5, 4]),
+  });
+  await expect(provider.remove(drifted)).rejects.toThrow('checksum mismatch');
+  expect(store.files.has(drifted.locator)).toBe(true);
+  expect(mediaRequests).toEqual([`/drive/v3/files/${drifted.locator}`]);
 });

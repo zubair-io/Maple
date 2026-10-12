@@ -16,6 +16,7 @@ import {
 import { publishGoogleObject, publishGoogleMirrorFile, parseCheckpoint } from './upload.ts';
 import type { GoogleFetch } from './oauth.ts';
 import { inspectGoogleObject } from './inspect.ts';
+import { verifiedGoogleObject } from './integrity.ts';
 
 import { objectMarker, backupObject, assertObjectIdentity } from './object.ts';
 
@@ -349,10 +350,19 @@ export class GoogleDriveProvider implements BackupProvider {
     object: BackupObject,
     errorMessage: string,
     signal?: AbortSignal,
+    hashWithoutNativeChecksum = false,
   ): Promise<BackupObject> {
     const file = await this.client.metadata(object.locator, signal);
     await this.assertWithinRoot(file, signal);
     const current = backupObject(file, this.rootId, object);
+    // Drive's native checksum is the cheap drift detector. When it is absent
+    // and the caller is about to destroy the object, hash the bytes instead of
+    // trusting the database value alone.
+    if (!file.sha256Checksum && hashWithoutNativeChecksum) {
+      const actual = await verifiedGoogleObject(this, object, signal);
+      assertObjectIdentity(actual, object, errorMessage);
+      return actual;
+    }
     const metadataIdentity = {
       ...current,
       size: Number(file.size),
@@ -382,6 +392,7 @@ export class GoogleDriveProvider implements BackupProvider {
         object,
         'Refusing removal of changed backup object.',
         signal,
+        true,
       );
       await this.client.request(
         `${DRIVE_API}/files/${object.locator}`,
