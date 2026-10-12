@@ -26,7 +26,7 @@
  * the result set.
  */
 
-import { ObjectId } from '../object-id.ts';
+import { normaliseObjectIdHex, ObjectId } from '../object-id.ts';
 import type { AssetOwnerSummary } from '../assets.transform.ts';
 import type { AssetDoc, AssetExif, Place } from '../schema.ts';
 import { ownerSummariesForIds } from './assets.owners.ts';
@@ -231,9 +231,12 @@ function toSearchDoc(row: PageRow, sides: SideTables): SearchDoc {
   };
 }
 
-/** The raw `owner_id`: `users.id` is that same string, and a corrupt one simply misses (#4511). */
+/**
+ * The `users.id` an `owner_id` names: a valid id in the lowercase spelling `users.id` is stored in,
+ * anything else as it is, so a corrupt value simply misses (#4511).
+ */
 function ownerKey(row: { owner_id: string | null }): string | null {
-  return row.owner_id || null;
+  return normaliseObjectIdHex(row.owner_id) ?? (row.owner_id || null);
 }
 
 /** A corrupt `owner_id` stays the raw string rather than failing the whole page (#4511). */

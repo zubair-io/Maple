@@ -130,6 +130,18 @@ describe('search page round trips', () => {
     expect(corrupt?.owner_id).toBe('not-an-object-id');
   });
 
+  it('resolves the owner of a valid id stored in uppercase', async () => {
+    database.db.exec('PRAGMA foreign_keys = OFF');
+    run(database.db, `UPDATE assets SET owner_id = ? WHERE maple_id = 'one'`, OWNER.toUpperCase());
+    const handle = testSqliteDb(database.db);
+
+    const [ranked] = await windowDocs(await mapleIdWindow(where(), ['one'], handle), handle);
+    const paged = await searchPage(where(), { sort: 'captured_desc', limit: 10, skip: 0 }, handle);
+
+    expect(ranked?.owner).toEqual({ id: OWNER, email: 'owner@maple.local' });
+    expect(paged.filter((doc) => doc.owner?.id === OWNER)).toHaveLength(3);
+  });
+
   it('keeps owner_id and owner from the same read when the owner changes between the two', async () => {
     const OTHER = 'b'.repeat(24);
     run(
