@@ -28,7 +28,6 @@ pub(super) struct TileOutcomeArgs<'a> {
     pub outcome: TileStitchOutcome,
     pub outs_linear: &'a Path,
     pub outs_display: Option<&'a Path>,
-    pub outs_report: Option<&'a Path>,
     pub inputs: &'a [PathBuf],
     /// PNG metadata (EXIF blob + sRGB tag) pre-computed BEFORE stitch() ran
     /// so that this write phase does not re-read any source RAW at peak RSS
@@ -49,7 +48,6 @@ pub(super) fn run_tile_from_outcome(
         outcome,
         outs_linear,
         outs_display,
-        outs_report,
         inputs,
         display_meta,
         t0,
@@ -137,10 +135,6 @@ pub(super) fn run_tile_from_outcome(
             ("total", t0.elapsed().as_secs_f64()),
         ],
     });
-    if let Some(path) = outs_report {
-        let pretty = serde_json::to_string_pretty(&report).expect("report serializes");
-        std::fs::write(path, &pretty).map_err(|e| format!("{}: {e}", path.display()))?;
-    }
     eprintln!(
         "pano[tile]: wrote {} ({}x{}) in {:.1}s",
         outs_linear.display(),

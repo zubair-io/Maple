@@ -100,6 +100,18 @@ Compositing always runs the **tiled** path on the rotation strategy. `composite_
 
 Finally `stitch/io.rs`'s `develop_for_display` runs the same view tail raw-core uses for a RAW — **AgX** at neutral contrast, then Rec.2020 → sRGB primaries, then the sRGB transfer curve, then 16-bit quantization. A stitched pano has no embedded camera JPEG, so there is no Auto Profile to fit and AgX/Neutral is the correct fallback. This matters: written raw, the scene-linear Rec.2020 composite re-opened cold looking desaturated and flat, because a non-RAW file is assumed to be display-encoded sRGB and the data was then misread on every axis at once. `exif_embed.rs` builds a small TIFF blob for the PNG `eXIf` chunk carrying Make/Model/Software, exposure fields, and GPS when the source frames had it, so Apple's ImageIO surfaces the pano's camera and location panel.
 
+## Quick preview and reusable alignment
+
+Before committing to a full stitch (several minutes on a 21-frame 100 MP set), the merge screen can show a quick low-resolution preview so the photographer can check framing, projection and seams, change options, and only then stitch (#4578).
+
+1. **Preview.** `stitch::preview` runs the shared head — decode to proxies, features, matching, graph verification, strategy selection — then stops before full-resolution refinement. The solve and the composite run on the proxies already in memory, in the proxies' own pixel plane, onto a canvas whose long edge is about 2048 px (`PREVIEW_LONG_EDGE_PX`). No full-resolution frame is decoded. The scene-linear composite goes through the same AgX → sRGB view tail as the stitch's display PNG.
+2. **Alignment.** The preview also returns a `SolvedAlignment`: everything stages 0–2 produced that the tail reads — per-frame sizes, proxy scales, focal seeds, priors, the verified proxy match graph and, for tile, the unit-focal tile graph — keyed by an `AlignmentKey`. It serializes to JSON (`to_json` / `from_json`) with every float stored as its bit pattern, because serde_json's default float parsing is not correctly rounded and a reused alignment must reproduce the exact pixels.
+3. **Full stitch.** `stitch::stitch_reusing` takes that alignment. When the key matches, the head is skipped and the tail (refinement → bundle adjustment → composite) starts from the stored graph; `stitch::stitch` is just `stitch_reusing` with nothing offered, so both paths run the same tail over the same state and produce identical pixels.
+
+The key is the identity of every input — canonical path, byte size, modification time — plus exactly the options that feed the head: strategy request, proxy long edge, models directory, CoreML. A mismatch is never used: the run re-solves and reports `AlignmentReuse::Stale` with the reason ("frame 3 changed on disk", "geometry options changed: strategy auto → tile"). Options read only by the tail — retention, local alignment, residual budgets, canvas cap, strip height, seam strategy — are deliberately not in the key: changing them keeps the matching work and still re-runs everything they affect. The bundle adjustment is not part of the alignment either; it re-runs on full-resolution refined matches in the full stitch, which is what keeps the reused result identical to a fresh one. The preview's own solve uses proxy-accuracy matches, so its residual budgets apply in proxy pixels.
+
+Surfaces: `maple-cli pano stitch --preview-out <png>` (plus `--alignment-out`, and `--alignment-in` on a later preview or full stitch; the report carries `"alignment": {"status": "solved" | "reused" | "stale", "stale_reason"}`), and the C-FFI entries `maple_pano_preview` / `maple_pano_stitch_aligned` below.
+
 ## Tile strategy and exposure matching
 
 `tile/` is the planar branch, selected when the match graph's edges are better explained by 2D similarity transforms than by camera rotations. Each verified edge gets a similarity fit from its inlier correspondences (`similarity/`, refined with the full-resolution matches), the pairwise offsets are turned into absolute canvas poses by a global anchored least-squares solve with frame 0 as the identity anchor, and then the geometry-agnostic downstream stages — gain, Voronoi seam, multi-band blend — run unchanged.
@@ -160,9 +172,31 @@ int32_t maple_pano_stitch(
 | −7   | pipeline error — decode, match, BA, composite, or write |
 | −8   | degenerate rotation geometry; retry with Auto or Tile   |
 
+The quick-preview pair (#4578, `pano_preview.rs`) shares those conventions and codes:
+
+```c
+int32_t maple_pano_preview(
+    const char *const *raw_paths, size_t count,
+    const char *out_preview_png_path,   // required: display-encoded sRGB 16-bit PNG, ~2048 px long edge
+    const char *alignment_in_path,      // nullable: reuse when it still matches
+    const char *alignment_out_path,     // nullable: write the solved alignment JSON
+    MaplePanoRetention retention, MaplePanoLocalAlign local_align, MaplePanoStrategy strategy,
+    MaplePanoProgressFn progress_cb, void *cb_user, const MapleCancelFlag *cancel);
+
+int32_t maple_pano_stitch_aligned(
+    const char *const *raw_paths, size_t count, const char *out_png_path,
+    const char *alignment_in_path,      // nullable: null behaves exactly like maple_pano_stitch
+    MaplePanoRetention retention, MaplePanoLocalAlign local_align, MaplePanoStrategy strategy,
+    MaplePanoProgressFn progress_cb, void *cb_user, const MapleCancelFlag *cancel);
+```
+
+Both return `1` (soft) when an offered alignment was stale or unreadable and matching re-ran, with the reason in `maple_last_error()`; `−5` covers any non-UTF-8 output or alignment path. The preview reports progress stage 3 complete immediately, since it skips refinement. Windows drives the same flow through `maple-cli` and does not bind these.
+
 The progress callback is `void(*)(uint32_t stage, float frac, void *user)`, invoked from worker threads — the host must not block it. Both the callback and the cancel flag accept null. The function joins all worker threads before returning, so caller pointers only need to live for the synchronous call.
 
 `pano_ffi_gates` (`src/raw-pipeline/raw-ffi/tests/pano_ffi_gates.rs`) is the end-to-end parity gate: it calls the actual C entry point, paths in and PNG out, and diffs the result against the reference by peak-normalized RMSE, tolerating up to 2% dimension difference from canvas rounding. It skip-passes when fixtures, `MAPLE_PANO_MODELS`, or `ORT_DYLIB_PATH` are absent. `pano_ffi_classical_gates` points both variables at paths that do not exist, checks the ML engine returns −6, then stitches all of pano_01 with the classical engine; it skip-passes only when the fixtures are absent.
+
+`pano_preview_ffi_gates` drives the preview pair through the C ABI on three pano_01 frames: composite-only changes reuse the alignment, a geometry change does not, and a stitch from the preview's alignment is pixel-identical to a fresh `maple_pano_stitch`. `pano_ffi_gates` (`src/raw-pipeline/raw-ffi/tests/pano_ffi_gates.rs`) is the end-to-end parity gate: it calls the actual C entry point, paths in and PNG out, and diffs the result against the reference by peak-normalized RMSE, tolerating up to 2% dimension difference from canvas rounding. It skip-passes when fixtures, `MAPLE_PANO_MODELS`, or `ORT_DYLIB_PATH` are absent.
 
 ## Apple
 

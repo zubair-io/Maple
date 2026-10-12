@@ -107,6 +107,14 @@ name = "pano_ffi_classical_gates"
 path = "tests/pano_ffi_classical_gates.rs"
 required-features = ["pano"]
 
+[[test]]
+# #4578: maple_pano_preview + maple_pano_stitch_aligned through the C ABI —
+# alignment reuse rules and pixel identity with a fresh stitch. Skip-passes
+# without fixtures or the ML environment.
+name = "pano_preview_ffi_gates"
+path = "tests/pano_preview_ffi_gates.rs"
+required-features = ["pano"]
+
 [dev-dependencies]
 # Byte-identity pins for the Tier-1 thumbnail renders (#3502) hash the
 # encoded output; blake3 is already in the workspace via raw-core.
