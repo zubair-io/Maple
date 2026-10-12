@@ -42,6 +42,7 @@ use crate::graph::{
     ReverifySummary,
 };
 use crate::ingest::FramePriors;
+use crate::local_align::planar::fit_planar_corrections;
 use crate::refine::{refine_correspondences, RefineOptions};
 use crate::strategy::StrategyReport;
 use crate::tile::frame_cache::TileFrameCache;
@@ -441,6 +442,10 @@ pub(super) fn tile_tail(
         });
     }
 
+    let corrections = opts
+        .local_align
+        .then(|| fit_planar_corrections(&poses, &full_dims, &component_edges));
+
     // ── stage 5: composite ─────────────────────────────────────────────────
     let t5 = Instant::now();
     progress(5, 0.0);
@@ -452,6 +457,7 @@ pub(super) fn tile_tail(
         &full_dims,
         &component_edges,
         &poses,
+        corrections.as_deref(),
         &canvas_spec,
         &lenses,
         &Default::default(),
