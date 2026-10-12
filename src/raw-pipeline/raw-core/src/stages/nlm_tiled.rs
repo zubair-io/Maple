@@ -152,7 +152,6 @@ mod tests {
                     h: 0.02,
                 };
                 let n = plane.len();
-                let mut diff = vec![0.0; n];
                 let mut acc = vec![0.0; n];
                 let mut weights = vec![0.0; n];
                 let mut maxima = vec![0.0; n];
@@ -170,10 +169,9 @@ mod tests {
                             dx,
                             dy,
                             params,
-                            &[],
+                            &super::super::radius::LocalRadiusPlane::empty(),
                             &[],
                             false,
-                            &mut diff,
                             &mut acc,
                             &mut weights,
                             &mut maxima,

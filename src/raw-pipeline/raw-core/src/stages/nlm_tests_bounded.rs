@@ -1,4 +1,4 @@
-use super::super::{denoise_plane_cancellable, get_noise_params};
+use super::super::{denoise_plane_cancellable, denoise_plane_strips, get_noise_params};
 use super::*;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -58,16 +58,15 @@ fn tiles_preserve_full_path_bits_across_strip_seeds_profiles_and_borders() {
                     };
                     for profile in profiles {
                         for (iso, chroma) in [(800, false), (800, true), (0, true)] {
-                            let expected = denoise_plane_cancellable(
+                            let expected = denoise_plane_strips(
                                 &input,
                                 w,
                                 h,
                                 params,
                                 CancelToken::never(),
                                 &input,
-                                profile,
-                                iso,
-                                chroma,
+                                profile.is_some(),
+                                get_noise_params(profile, iso, chroma),
                             );
                             let actual = denoise(
                                 &input,

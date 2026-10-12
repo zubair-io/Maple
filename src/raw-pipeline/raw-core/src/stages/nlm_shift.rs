@@ -32,7 +32,7 @@ pub(super) fn process_shift(
     //    horizontal-sum element is touched once per output row — contiguous,
     //    cache-friendly reads, no (2p+1)× strided re-reads. The column window is
     //    sequential, so we parallelise over STRIPS of consecutive output rows
-    //    (height chosen adaptively below); each strip seeds its own colsum
+    //    (fixed height `VSTRIP_ROWS`); each strip seeds its own colsum
     //    directly at its first row (a direct (2p+1)-row sum), which also
     //    re-anchors vertical drift at every strip boundary.
     let p_isz = p as isize;
@@ -60,17 +60,8 @@ pub(super) fn process_shift(
     // (one alloc per worker, not per strip), so the render loop adds no
     // per-pixel/per-tick allocation.
     //
-    // Strip height trades parallelism against per-strip seed/locality overhead:
-    // target ~`threads` strips so every core gets work without over-fragmenting
-    // (over-fine strips regress the cache-resident 2MP tick), a MIN to amortise
-    // the seed, and a MAX of VSTRIP_ROWS to bound vertical drift (≤ RESEED_STRIDE)
-    // and keep the strip scratch small on the 100MP refine.
-    let band_rows = y_hi - y_lo + 1;
-    let threads = rayon::current_num_threads().max(1);
-    const MIN_STRIP_ROWS: usize = 32;
-    let vstrip = (band_rows / threads)
-        .clamp(MIN_STRIP_ROWS, VSTRIP_ROWS)
-        .max(1);
+    // Fixed reseed boundaries make output independent of the Rayon pool size.
+    let vstrip = VSTRIP_ROWS;
     let strip_len = vstrip * w;
     // Thread-local horizontal-sum scratch: at most (VSTRIP_ROWS + 2p) rows ×
     // w cols. Sized for the cap so it is allocated once per worker and reused.
@@ -159,10 +150,8 @@ pub(super) fn process_shift_region(
     if output_lo >= output_end {
         return;
     }
-    // Same adaptive height as process_shift: never use cropped tile height.
-    let vstrip = ((global_end - global_lo) / rayon::current_num_threads().max(1))
-        .clamp(32, VSTRIP_ROWS)
-        .max(1);
+    // Same fixed height as process_shift: never use cropped tile height.
+    let vstrip = VSTRIP_ROWS;
     let first = global_lo + (output_lo - global_lo) / vstrip * vstrip;
     for strip_y0 in (first..output_end).step_by(vstrip) {
         let lo = strip_y0.max(output_lo);

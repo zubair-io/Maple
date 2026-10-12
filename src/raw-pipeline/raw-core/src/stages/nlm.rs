@@ -50,14 +50,18 @@
 //!
 //! # Parallelism
 //!
-//! Shifts run sequentially in the outer loop. Within a shift, the squared
-//! differences, box-sum and accumulation are fused and parallelise across
-//! horizontal STRIPS of output rows — each strip computes its own halo'd
+//! Constant-h five-tap patches on larger planes run in cache-local tiles;
+//! shifts keep the reference addition order and ARM64 vectorizes accumulation.
+//! Other parameters run shifts sequentially in the outer loop. Within a shift,
+//! the squared differences, box-sum and accumulation are fused and parallelise
+//! across horizontal STRIPS of output rows — each strip computes its own halo'd
 //! horizontal sums into a thread-local buffer (recycled across strips, so no
 //! full-frame box-sum plane round-trips through DRAM) and slides the vertical
-//! window down out of it. The persistent acc/wsum/max_w buffers are
-//! allocated once per `denoise_plane` call and reused across all shifts.
-//! Squared differences use the existing thread-local row scratch (#1472).
+//! window down out of it. Strip boundaries are FIXED at `VSTRIP_ROWS` so the
+//! f32 reduction order, and therefore the output bits, never depend on the
+//! Rayon pool size. The persistent acc/wsum/max_w buffers are allocated once
+//! per `denoise_plane` call and reused across all shifts. Squared differences
+//! use the existing thread-local row scratch (#1472).
 //! Above 256 MiB of full-plane weight/radius metadata, persistent workers
 //! process 512-column row tiles instead. They replay the original global box
 //! seeds, preserve per-pixel shift order, and briefly lock only to copy finished
@@ -67,12 +71,16 @@
 use crate::cancel::CancelToken;
 use rayon::prelude::*;
 
+#[path = "nlm_accumulate.rs"]
+mod accumulate;
 #[path = "nlm_bounded.rs"]
 mod bounded;
 #[path = "nlm_radius.rs"]
 mod radius;
 #[path = "nlm_shift.rs"]
 mod shift;
+#[path = "nlm_tiled.rs"]
+mod tiled;
 use radius::LocalRadiusPlane;
 use shift::process_shift;
 
@@ -101,17 +109,17 @@ const FAST_EXP_TABLE_SIZE: usize = 512;
 /// (≈ (2p+1)/256 extra adds/pixel) and the drift comfortably bounded.
 const RESEED_STRIDE: usize = 256;
 
-/// MAXIMUM output-row strip height for the parallel vertical box-sum (#1195).
-/// The vertical running window is sequential down a column, so the accumulate
-/// pass parallelises over STRIPS of consecutive output rows; each strip seeds
-/// its own column-window directly at its first row, which re-anchors vertical
-/// drift at every strip boundary. The actual strip height is chosen adaptively
-/// (~1 strip per worker, i.e. `band_rows / threads`, clamped to
-/// `[MIN_STRIP_ROWS, VSTRIP_ROWS]`) so that every core gets roughly one strip
-/// without over-fragmenting the cache-resident 2MP tick. This value caps strip
-/// height so that (a) vertical drift inside a strip stays ≤ RESEED_STRIDE
-/// steps and (b) locality stays high on the 100MP refine. 256 keeps an 8700-row
-/// refine at ~34 strips while bounding drift to ~256·eps·|colsum| ≈ 4e-6.
+/// Output-row strip height for the parallel vertical box-sum (#1195). The
+/// vertical running window is sequential down a column, so the accumulate pass
+/// parallelises over STRIPS of consecutive output rows; each strip seeds its
+/// own column-window directly at its first row, which re-anchors vertical
+/// drift at every strip boundary. The height is a FIXED constant, never
+/// derived from the Rayon pool size: strip boundaries decide the f32 reduction
+/// order, so a pool-dependent height would make the output bits depend on the
+/// host's core count (locked in by `output_bits_do_not_depend_on_pool_size`).
+/// 256 keeps vertical drift inside a strip ≤ RESEED_STRIDE steps, keeps the
+/// strip scratch small on the 100MP refine, and keeps an 8700-row refine at
+/// ~34 strips while bounding drift to ~256·eps·|colsum| ≈ 4e-6.
 const VSTRIP_ROWS: usize = 256;
 
 #[inline(always)]
@@ -145,17 +153,13 @@ fn fast_neg_exp(x: f32) -> f32 {
     a + (b - a) * frac
 }
 
+// The committed table is shared with raw-gpu (`noise_reduction.rs` includes
+// the same file), so CPU, Metal/WebGPU, native and WASM read identical bits —
+// a runtime `exp()` differs per libm target in 56 of the 513 entries.
+#[path = "nlm_exp_table.rs"]
+mod exp_table;
 fn fast_exp_table() -> &'static [f32; FAST_EXP_TABLE_SIZE + 1] {
-    use std::sync::OnceLock;
-    static TABLE: OnceLock<[f32; FAST_EXP_TABLE_SIZE + 1]> = OnceLock::new();
-    TABLE.get_or_init(|| {
-        let mut t = [0.0f32; FAST_EXP_TABLE_SIZE + 1];
-        for (i, v) in t.iter_mut().enumerate() {
-            let x = i as f32 * FAST_EXP_RANGE / FAST_EXP_TABLE_SIZE as f32;
-            *v = (-x).exp();
-        }
-        t
-    })
+    &exp_table::VALUES
 }
 
 /// Filter parameters for a single NLM pass on one channel plane.
@@ -233,8 +237,9 @@ pub fn denoise_plane_cancellable(
     if params.h <= 0.0 || params.search_radius == 0 {
         return plane.to_vec();
     }
-    let p = params.patch_radius;
-    let s = params.search_radius as isize;
+    if params.patch_radius == 2 && noise_profile.is_none() && n >= 16384 {
+        return tiled::denoise(plane, w, h, params, cancel);
+    }
 
     let use_dynamic = noise_profile.is_some();
     let (s_coeff, o_coeff) = if use_dynamic {
@@ -255,6 +260,36 @@ pub fn denoise_plane_cancellable(
             (s_coeff, o_coeff),
         );
     }
+    denoise_plane_strips(
+        plane,
+        w,
+        h,
+        params,
+        cancel,
+        l_plane,
+        use_dynamic,
+        (s_coeff, o_coeff),
+    )
+}
+
+/// General strip kernel: every parameter set the tiled and bounded paths do
+/// not take. The bounded path replays this kernel's reduction order tile by
+/// tile, so it is gated bit-for-bit against this entry rather than against
+/// the public dispatcher.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn denoise_plane_strips(
+    plane: &[f32],
+    w: usize,
+    h: usize,
+    params: NlmParams,
+    cancel: CancelToken<'_>,
+    l_plane: &[f32],
+    use_dynamic: bool,
+    (s_coeff, o_coeff): (f32, f32),
+) -> Vec<f32> {
+    let n = w * h;
+    let p = params.patch_radius;
+    let s = params.search_radius as isize;
 
     let (local_s_plane, local_inv_norm_plane) = if use_dynamic {
         LocalRadiusPlane::variance_scaled(n, l_plane, params, s_coeff, o_coeff)
@@ -360,3 +395,7 @@ mod tests;
 #[cfg(test)]
 #[path = "nlm_tests_box.rs"]
 mod tests_box;
+
+#[cfg(test)]
+#[path = "nlm_tests_determinism.rs"]
+mod tests_determinism;
