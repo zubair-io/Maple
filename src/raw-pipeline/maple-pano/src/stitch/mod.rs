@@ -79,6 +79,7 @@ mod focal_bootstrap;
 mod frame_cache;
 mod graph_build;
 mod io;
+mod rotation_composite;
 mod seam_gate;
 mod tile_standalone;
 mod tile_stitch;
@@ -94,9 +95,7 @@ use std::path::PathBuf;
 use crate::ba::{self, BaOptions};
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, ProjectionMode};
-use crate::composite::composite_tiled;
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
-use crate::gain::{solve_exposure_field_streaming, solve_photometry_streaming, GainOptions};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{DescriptorTopKProvider, LoopClosureCheck, LoopClosureGate};
 use crate::ingest::{ingest_file_proxy, FrameMeta};
@@ -459,17 +458,6 @@ pub fn stitch(
     let kept_cams: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
     reject_degenerate_canvas(&kept_cams, &canvas_opts, &strategy_report, opts)?;
 
-    // ── Gain solve: decode surviving frames on-demand, one at a time ───────
-    //
-    // #1254: the previous code cloned all surviving full-res frames into
-    // `kept_frames_for_gain` — the dominant ~18 GB memory driver on pano_01.
-    // Instead we decode each surviving frame, accumulate its overlap stats
-    // into a partial-stats table, then drop the pixels before decoding the
-    // next frame.  At most 1 full-resolution frame is resident at a time.
-    //
-    // `solve_photometry` needs simultaneous access to all frames for its
-    // pairwise sampling; `solve_photometry_streaming` instead accumulates
-    // overlap samples frame-by-frame.
     let kept_paths: Vec<PathBuf> = kept_meta
         .iter()
         .map(|(inp_idx, _, _)| inputs[*inp_idx].clone())
@@ -480,32 +468,16 @@ pub fn stitch(
     let canvas =
         auto_canvas(&kept_cams, &canvas_opts).map_err(|e| StitchError::Composite(e.to_string()))?;
 
-    let photometry = solve_photometry_streaming(&kept_paths, &kept_cams, &GainOptions::default())
-        .map_err(|e| StitchError::Composite(e.to_string()))?;
-    let exposure_field =
-        solve_exposure_field_streaming(&kept_paths, &kept_cams, &photometry, &kept_local, &canvas)
-            .map_err(|e| StitchError::Composite(e.to_string()))?;
-
-    // ── Tiled composite (always engaged on this path — #1254) ─────────────
-    //
-    // `canvas_tile_rows` controls the strip height; when `None` we default
-    // to 512 rows so the tiled path (and its memory bound of ≤1 full-res
-    // frame resident per strip pass) always engages.
-    let tile_rows = opts.canvas_tile_rows.unwrap_or(512);
     let kept_inputs: Vec<usize> = kept_meta.iter().map(|(i, _, _)| *i).collect();
     let seam_constraints = seam_gate::for_kept_frames(&opts.seam_constraints, &kept_inputs)?;
-    let (image, comp_report) = composite_tiled(
+    let (image, comp_report) = rotation_composite::composite(
         &kept_paths,
         &kept_cams,
-        &photometry,
         &kept_local,
-        Some(&exposure_field),
         &canvas,
-        tile_rows,
-        opts.seam_strategy,
+        opts,
         &seam_constraints,
-    )
-    .map_err(seam_gate::composite_error)?;
+    )?;
 
     let t_composite = t5.elapsed().as_secs_f64();
     progress(5, 1.0);
