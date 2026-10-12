@@ -143,8 +143,8 @@ CREATE INDEX people_merged_into
  * migration 0027 rather than folded into PEOPLE_INDEX_DDL, which belongs to the frozen 0001.
  */
 export const PEOPLE_FLAG_INDEX_DDL = `
-CREATE INDEX IF NOT EXISTS people_excluded ON people (id) WHERE excluded = 1;
-CREATE INDEX IF NOT EXISTS people_hidden ON people (id) WHERE hidden = 1;
+CREATE INDEX people_excluded ON people (id) WHERE excluded = 1;
+CREATE INDEX people_hidden ON people (id) WHERE hidden = 1;
 `;
 
 /**
