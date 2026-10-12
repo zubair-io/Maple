@@ -11,13 +11,15 @@
 //!         + μ Σ f²                                                gauge anchor
 //! ```
 //!
-//! The normal equations are symmetric positive definite; conjugate
-//! gradients solves them matrix-free over explicit term lists, so the
-//! cost and memory scale with the coarse grid (canvas/128 per side), not
-//! the canvas. Term construction iterates `BTreeMap`s and the CG loop is
+//! The normal equations are symmetric positive definite; the shared
+//! [`crate::screened_cg`] solver runs conjugate gradients on them
+//! matrix-free over explicit term lists, so the cost and memory scale
+//! with the coarse grid (canvas/128 per side), not the canvas. Term construction iterates `BTreeMap`s and the CG loop is
 //! purely data-driven, so the result is deterministic.
 
 use std::collections::BTreeMap;
+
+use crate::screened_cg::{DiffTerm, ScreenedSystem};
 
 use super::photometry::{CoarseField, PairMap, PhotometryOptions};
 use super::placement::{TileCanvasSpec, TilePose};
@@ -96,13 +98,7 @@ pub(super) fn solve_fields(
     }
 
     // ── data terms ───────────────────────────────────────────────────────
-    struct DataTerm {
-        ki: usize,
-        kj: usize,
-        w: f64,
-        d: f64,
-    }
-    let mut data: Vec<DataTerm> = Vec::new();
+    let mut data: Vec<DiffTerm> = Vec::new();
     let mut w_sum = 0.0_f64;
     for (&(i, j), acc) in pairs.iter() {
         if (acc.n as usize) < opts.min_pair_samples {
@@ -120,9 +116,9 @@ pub(super) fn solve_fields(
                 - (a_lum[i] - a_lum[j])
                 - slope_x * (cacc.s_dxi / cacc.n)
                 - slope_y * (cacc.s_deta / cacc.n);
-            data.push(DataTerm {
-                ki,
-                kj,
+            data.push(DiffTerm {
+                a: ki,
+                b: kj,
                 w: cacc.n,
                 d,
             });
@@ -153,55 +149,15 @@ pub(super) fn solve_fields(
     }
 
     // ── conjugate gradients on the normal equations ──────────────────────
-    let apply = |x: &[f64], out: &mut [f64]| {
-        for (o, xv) in out.iter_mut().zip(x) {
-            *o = anchor * xv;
-        }
-        for t in &data {
-            let diff = t.w * (x[t.ki] - x[t.kj]);
-            out[t.ki] += diff;
-            out[t.kj] -= diff;
-        }
-        for &(a, b) in &smooth {
-            let diff = lambda * (x[a] - x[b]);
-            out[a] += diff;
-            out[b] -= diff;
-        }
-    };
-    let mut rhs = vec![0.0_f64; n_unknowns];
-    for t in &data {
-        rhs[t.ki] += t.w * t.d;
-        rhs[t.kj] -= t.w * t.d;
+    let x = ScreenedSystem {
+        unknowns: n_unknowns,
+        data: &data,
+        smooth: &smooth,
+        pinned: &[],
+        lambda,
+        shrinkage: anchor,
     }
-    let rhs_norm2: f64 = rhs.iter().map(|v| v * v).sum();
-    let mut x = vec![0.0_f64; n_unknowns];
-    if rhs_norm2 > 0.0 {
-        let mut r = rhs.clone();
-        let mut p = rhs.clone();
-        let mut ap = vec![0.0_f64; n_unknowns];
-        let mut rs: f64 = rhs_norm2;
-        for _ in 0..opts.field_cg_iters {
-            apply(&p, &mut ap);
-            let p_ap: f64 = p.iter().zip(&ap).map(|(a, b)| a * b).sum();
-            if p_ap <= 0.0 {
-                break;
-            }
-            let alpha = rs / p_ap;
-            for i in 0..n_unknowns {
-                x[i] += alpha * p[i];
-                r[i] -= alpha * ap[i];
-            }
-            let rs_new: f64 = r.iter().map(|v| v * v).sum();
-            if rs_new <= 1e-16 * rhs_norm2 {
-                break;
-            }
-            let beta = rs_new / rs;
-            for i in 0..n_unknowns {
-                p[i] = r[i] + beta * p[i];
-            }
-            rs = rs_new;
-        }
-    }
+    .solve(opts.field_cg_iters);
 
     // ── extract per-frame coarse planes ──────────────────────────────────
     windows
