@@ -86,7 +86,7 @@ export async function searchVectorsAfter(
   ]);
 }
 
-export type ChangeStamp = 'embedded_at' | 'text_changed_at';
+type ChangeStamp = 'embedded_at' | 'text_changed_at';
 
 export type ChangeReader = (
   model: string,
