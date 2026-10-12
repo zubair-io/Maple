@@ -19,12 +19,7 @@ import type { ObservabilityConfigResponse } from '../observability/observability
 import type { NetworkConfigPatch, NetworkConfigResponse } from '../network/network-config.model';
 import type { ApnsConfigPatch, ApnsConfigResponse } from '../network/apns-config.model';
 import type { RenderConfigPatch, RenderConfigResponse } from '../raw-pipeline/render-config.model';
-import type {
-  ApiFolder,
-  ApiHistogram,
-  FolderRescanResult,
-  FolderScanResult,
-} from '../workspace/server-library-io';
+import type { ApiFolder, ApiHistogram } from '../workspace/server-library-io';
 
 export type { ApiFolder, ApiHistogram } from '../workspace/server-library-io';
 
@@ -1001,29 +996,6 @@ export class BunApiBackendService {
         'X-Maple-Pipeline-Version': String(PIPELINE_OUTPUT_VERSION),
       },
     });
-  }
-
-  /** Force a re-scan of one library folder. Resets every stage's version to 0
-   * for all assets under the folder path tree so the pipeline re-processes them.
-   * Returns immediately; the workers pick up the reset docs on their next poll. */
-  rescanFolder(folderId: string): Observable<FolderRescanResult> {
-    return this.http.post<FolderRescanResult>(
-      `${this.base}/folders/${encodeURIComponent(folderId)}/rescan`,
-      {},
-    );
-  }
-
-  /** Content-aware re-discover of one library folder, for auto-scan-on-open
-   * (#804). Re-walks the folder tree so a moved/new file is relinked onto its
-   * existing asset (stages then resume); unlike `rescanFolder` this does NOT
-   * zero stage versions, so opening a folder doesn't reprocess the library.
-   * Server-side gated by `last_scan` — a folder scanned within a recent window
-   * short-circuits (`skipped: 'recent'`) without re-walking. */
-  scanFolder(folderId: string): Observable<FolderScanResult> {
-    return this.http.post<FolderScanResult>(
-      `${this.base}/folders/${encodeURIComponent(folderId)}/scan`,
-      {},
-    );
   }
 
   // -------------------------------------------------------------------------

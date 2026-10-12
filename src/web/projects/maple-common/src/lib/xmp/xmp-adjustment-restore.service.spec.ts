@@ -91,7 +91,6 @@ class ApiStub {
   getXmp = vi.fn((_path: string) => this.getXmpResult);
   putXmp = vi.fn((_path: string, xml: string) => of(xml));
   listFolders = vi.fn(() => of([LIBRARY]));
-  scanFolder = vi.fn(() => new Subject<never>().asObservable());
 }
 
 class NoopSidecarCache {

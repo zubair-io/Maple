@@ -53,14 +53,12 @@ export class LibraryStateService {
 
   // ── Self-Hosted bootstrap state ────────────────────────────────────────────
   // Async-lifecycle signals live in LibraryStatusService (slice 3 of #191);
-  // re-exported here so existing component consumers (browse-shell banners,
-  // asset-grid rescan button) keep working unchanged.
+  // re-exported here so existing component consumers (browse-shell banners)
+  // keep working unchanged.
   readonly backendLoading = this.status.backendLoading;
   readonly backendError = this.status.backendError;
   readonly backendEmpty = this.status.backendEmpty;
   readonly registeredFolders = this.store.registeredFolders;
-  readonly rescanStatus = this.status.rescanStatus;
-  readonly rescanError = this.status.rescanError;
 
   readonly pickerVisible = this.store.pickerVisible;
   openLibraryPicker(): void {
@@ -167,10 +165,6 @@ export class LibraryStateService {
 
   currentRegisteredFolder(): ApiFolder | null {
     return this.store.currentRegisteredFolder(this.selection.selectedSourceId());
-  }
-
-  rescanCurrentFolder(): void {
-    this.fetch_.rescanCurrentFolder();
   }
 
   openSelfHostedFolder(folder: ApiFolder): void {
