@@ -512,7 +512,7 @@ async function mirrorCandidates(
   return {
     existing,
     displaced: present
-      .filter((entry) => entry.candidate !== existing)
+      .filter((entry) => entry.candidate.locator !== existing?.locator)
       .map((entry) => entry.candidate),
   };
 }
