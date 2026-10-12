@@ -73,6 +73,16 @@ describe('different shots', () => {
   });
 });
 
+describe('owners', () => {
+  test("two owners' same-named shots in one second stay apart", () => {
+    const shot = { captured_at: SECOND, media_kind: 'image', filename: 'IMG_0001.JPG' };
+    expect(shotKey({ ...shot, owner_id: 'alice' })).not.toBe(shotKey({ ...shot, owner_id: 'bob' }));
+    expect(shotKey({ ...shot, owner_id: 'alice' })).toBe(
+      shotKey({ ...shot, owner_id: 'alice', filename: 'IMG_0001.CR2' }),
+    );
+  });
+});
+
 describe('capture time', () => {
   test('matches to the second, so a RAW with sub-seconds pairs with its JPEG', () => {
     expect(
