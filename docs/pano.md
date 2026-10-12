@@ -112,6 +112,8 @@ The key is the identity of every input — canonical path, byte size, modificati
 
 Surfaces: `maple-cli pano stitch --preview-out <png>` (plus `--alignment-out`, and `--alignment-in` on a later preview or full stitch; the report carries `"alignment": {"status": "solved" | "reused" | "stale", "stale_reason"}`), and the C-FFI entries `maple_pano_preview` / `maple_pano_stitch_aligned` below.
 
+While a preview or stitch runs, `maple-cli` writes one `pano: progress <stage> <label> <percent>%` line to stderr each time a stage (0 decode, 1 features, 2 match_graph, 3 refine, 4 solve, 5 composite) moves by a whole percent. Decoding and feature extraction advance per frame. Matching, which dominates a preview (about 90 of 105 s on pano_01), advances with the first frame of each candidate pair as the pairs are matched in ascending order — monotone but uneven, since early frames have more candidates. Composite and refinement advance per strip or edge. The Self Hosted job runner and the Windows stitch dialog both parse these lines.
+
 ## Tile strategy and exposure matching
 
 `tile/` is the planar branch, selected when the match graph's edges are better explained by 2D similarity transforms than by camera rotations. Each verified edge gets a similarity fit from its inlier correspondences (`similarity/`, refined with the full-resolution matches), the pairwise offsets are turned into absolute canvas poses by a global anchored least-squares solve with frame 0 as the identity anchor, and then the geometry-agnostic downstream stages — gain, Voronoi seam, multi-band blend — run unchanged.
