@@ -18,7 +18,7 @@ import {
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { setSqliteHandleForTests } from '../../db/sqlite/index.ts';
 import { buildSearchWhere } from '../../db/repos/search.where.ts';
-import { RANKED_WINDOW_BASE, RANKED_WINDOW_MAX } from '../../db/repos/search.ranked.ts';
+import { RANKED_WINDOW_BASE, RANKED_WINDOW_MAX, stepQuota } from '../../db/repos/search.ranked.ts';
 import { setInProcessSearchForTests } from '../../search/search-pool.ts';
 import { fakeInProcessSearch } from '../../search/search.test-helpers.ts';
 import type { SearchQuery } from './query-schema.ts';
@@ -27,6 +27,8 @@ import { requestWindow, windowPage } from './ranked-window.ts';
 const LIBRARY_SIZE = 30_000;
 const CAPTION = 'busy city streets tall buildings and urban cityscapes';
 const BUDGET_MS = 1_000;
+/** A first page that fits the base step's quota, so the ladder starts at its bottom. */
+const NEED = stepQuota(RANKED_WINDOW_BASE);
 
 let live: LiveTestDatabase;
 const outsideJune: string[] = [];
@@ -107,9 +109,9 @@ async function timed(q: SearchQuery) {
   issued.length = 0;
   child.queries.length = 0;
   const started = performance.now();
-  const window = await requestWindow({ where: where(q), text: CAPTION, need: RANKED_WINDOW_BASE });
+  const window = await requestWindow({ where: where(q), text: CAPTION, need: NEED });
   const ranking = issued.length;
-  const page = await windowPage(window, { where: where(q), skip: 0, limit: RANKED_WINDOW_BASE });
+  const page = await windowPage(window, { where: where(q), skip: 0, limit: NEED });
   const elapsedMs = performance.now() - started;
   console.log(
     JSON.stringify({
@@ -131,7 +133,7 @@ describe('requestWindow when the engines come back empty short of the cap (#4545
 
     expect(depths).toHaveLength(4);
     expect(window.engine).toBe('database');
-    expect(page.results).toHaveLength(RANKED_WINDOW_BASE);
+    expect(page.results).toHaveLength(NEED);
     expect(ranking).toBeLessThanOrEqual(2 * 4);
     expect(elapsedMs).toBeLessThan(BUDGET_MS);
   });
@@ -146,7 +148,7 @@ describe('requestWindow when the engines come back empty short of the cap (#4545
     expect(depths).toHaveLength(4);
     expect(window.engine).toBe('database');
     expect(window.rows.length).toBeGreaterThan(0);
-    expect(window.rows.length).toBeLessThan(RANKED_WINDOW_BASE);
+    expect(window.rows.length).toBeLessThan(NEED);
     expect(ranking).toBeLessThanOrEqual(2 * 4);
     expect(elapsedMs).toBeLessThan(BUDGET_MS);
   });

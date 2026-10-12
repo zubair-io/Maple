@@ -306,8 +306,9 @@ final class SearchViewModelCollectionTests: XCTestCase {
       server: server,
       httpClient: AuthenticatedHTTPClient.unauthenticated(
         server: server, urlSession: URLSession(configuration: cfg)))
+    // 50 a page: page 0 fits step 100's quota of 75, page 1 (100 rows) needs step 400.
     let vm = SearchViewModel(
-      server: server, libraryID: "lib-test", searchClient: client, limit: 100)
+      server: server, libraryID: "lib-test", searchClient: client, limit: 50)
     vm.params.placeQuery = "city streets"
 
     await vm.submit()
@@ -370,12 +371,19 @@ final class SearchViewModelCollectionTests: XCTestCase {
       URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
         .first { $0.name == "page" }?.value
     }
-    XCTAssertEqual(pages, ["0", "2"], "page 1 shares page 0's window step; page 2 starts the next")
-    XCTAssertEqual(SearchViewModel.windowStep(reaching: 100), 100)
-    XCTAssertEqual(SearchViewModel.windowStep(reaching: 150), 400)
-    XCTAssertEqual(SearchViewModel.windowStep(reaching: 1_600), 1_600)
-    XCTAssertEqual(SearchViewModel.windowStep(reaching: 1_601), 5_000)
-    XCTAssertEqual(SearchViewModel.windowStep(reaching: 9_000), 5_000)
+    XCTAssertEqual(pages, ["0", "1"], "page 0 fits step 100's quota; pages 1 and 2 share step 400")
+  }
+
+  /// The server's `windowDepthFor` mapping (`search.ranked.test.ts` pins the same pairs): a page
+  /// is served from the first step whose quota — three quarters of its depth — reaches it.
+  func test_windowStep_matchesTheServersQuotaLadder() {
+    let pairs: [(need: Int, step: Int)] = [
+      (30, 100), (75, 100), (76, 400), (100, 400), (300, 400), (301, 1_600),
+      (1_200, 1_600), (1_201, 5_000), (3_750, 5_000), (3_751, 5_000), (9_000, 5_000),
+    ]
+    for pair in pairs {
+      XCTAssertEqual(SearchViewModel.windowStep(reaching: pair.need), pair.step, "need \(pair.need)")
+    }
   }
 
   func test_showCollection_cappedWindowReadsAsALowerBoundAndStopsAtItsTotal() async {
