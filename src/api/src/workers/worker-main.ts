@@ -15,6 +15,7 @@ import {
   loadObservabilityConfig,
 } from '../observability/observability-config.repo.ts';
 import { child as childLogger } from '../log.ts';
+import { installRemoteInProcessSearch } from '../search/remote-search.ts';
 
 installChildHardening('worker');
 // An uncaught exception or unhandled rejection flushes telemetry before the
@@ -57,6 +58,7 @@ async function main(): Promise<void> {
       'initial mirror config load failed — the periodic reload will retry; mirroring inactive until it succeeds',
     );
   }
+  installRemoteInProcessSearch();
   await startWorkers();
   log.info('worker tier started');
   const shutdown = async () => {
