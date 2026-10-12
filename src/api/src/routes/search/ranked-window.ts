@@ -62,6 +62,8 @@ export interface WindowRequest {
   text: string;
   /** How many rows the request's page reaches; see {@link windowNeed}. */
   need: number;
+  /** Stop widening at this many survivors; for a request with no pages to keep stable. */
+  enough?: number;
 }
 
 interface Candidate {
@@ -109,7 +111,7 @@ export async function requestWindow(
   const answers = await engines.reduce<Promise<EngineWindow[]>>(async (found, candidate) => {
     const earlier = await found;
     if (earlier.some(settles)) return earlier;
-    const window = await rankWindow(candidate.ranker, request.need);
+    const window = await rankWindow(candidate.ranker, request.need, request.enough);
     const answer = window && {
       ...window,
       engine: candidate.engine,
