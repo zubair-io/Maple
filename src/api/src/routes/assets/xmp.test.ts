@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'bun:test';
-import { emptyXmp, xmlAttrEscape } from './xmp.ts';
+import { describe, expect, it } from "bun:test";
+import { emptyXmp, xmlAttrEscape } from "./xmp.ts";
 
 /**
  * `emptyXmp(filename)` interpolates `filename` into `rdf:Description
@@ -20,47 +20,47 @@ function xmlAttrUnescape(s: string): string {
   return s
     .replace(/&apos;/g, "'")
     .replace(/&quot;/g, '"')
-    .replace(/&gt;/g, '>')
-    .replace(/&lt;/g, '<')
-    .replace(/&amp;/g, '&');
+    .replace(/&gt;/g, ">")
+    .replace(/&lt;/g, "<")
+    .replace(/&amp;/g, "&");
 }
 
 function extractRdfAbout(xmp: string): string {
   // `rdf:about="…"` — value is delimited by the next unescaped `"`. We
   // escape `"` in the producer, so the closing quote is always literal.
   const m = xmp.match(/rdf:about="([^"]*)"/);
-  if (!m) throw new Error('rdf:about not found');
+  if (!m) throw new Error("rdf:about not found");
   return m[1];
 }
 
-describe('xmlAttrEscape', () => {
-  it('maps the five XML predefined entities', () => {
-    expect(xmlAttrEscape(`& < > " '`)).toBe('&amp; &lt; &gt; &quot; &apos;');
+describe("xmlAttrEscape", () => {
+  it("maps the five XML predefined entities", () => {
+    expect(xmlAttrEscape(`& < > " '`)).toBe("&amp; &lt; &gt; &quot; &apos;");
   });
 
-  it('escapes ampersand before other entities (no double-escape)', () => {
+  it("escapes ampersand before other entities (no double-escape)", () => {
     // `<` would become `&lt;` — if `&` is escaped LAST, we'd get
     // `&amp;lt;`. Confirm we get `&amp;` + `&lt;` in the right order.
-    expect(xmlAttrEscape('<&>')).toBe('&lt;&amp;&gt;');
+    expect(xmlAttrEscape("<&>")).toBe("&lt;&amp;&gt;");
   });
 
-  it('is a no-op for plain text', () => {
-    expect(xmlAttrEscape('plain.dng')).toBe('plain.dng');
+  it("is a no-op for plain text", () => {
+    expect(xmlAttrEscape("plain.dng")).toBe("plain.dng");
   });
 
-  it('passes non-ASCII through untouched', () => {
-    expect(xmlAttrEscape('日本語.dng')).toBe('日本語.dng');
+  it("passes non-ASCII through untouched", () => {
+    expect(xmlAttrEscape("日本語.dng")).toBe("日本語.dng");
   });
 });
 
-describe('emptyXmp', () => {
-  it('produces well-formed XML for a plain filename', () => {
-    const xmp = emptyXmp('plain.dng');
+describe("emptyXmp", () => {
+  it("produces well-formed XML for a plain filename", () => {
+    const xmp = emptyXmp("plain.dng");
     expect(xmp).toContain('<?xml version="1.0" encoding="UTF-8"?>');
-    expect(extractRdfAbout(xmp)).toBe('plain.dng');
+    expect(extractRdfAbout(xmp)).toBe("plain.dng");
   });
 
-  it('survives adversarial filenames containing each XML special character', () => {
+  it("survives adversarial filenames containing each XML special character", () => {
     const cases = [
       `a"b.dng`,
       `a&b.dng`,
@@ -80,13 +80,13 @@ describe('emptyXmp', () => {
       expect(xmlAttrUnescape(aboutValue)).toBe(filename);
       // No raw special characters survive inside the attribute value.
       expect(aboutValue).not.toContain('"');
-      expect(aboutValue).not.toContain('<');
-      expect(aboutValue).not.toContain('>');
+      expect(aboutValue).not.toContain("<");
+      expect(aboutValue).not.toContain(">");
       expect(aboutValue).not.toMatch(/&(?!(amp|lt|gt|quot|apos);)/);
     }
   });
 
-  it('does not allow the filename to close rdf:Description early', () => {
+  it("does not allow the filename to close rdf:Description early", () => {
     const xmp = emptyXmp(`evil"/>`);
     // Exactly one `<rdf:Description …/>` self-closing element should remain.
     const opens = xmp.match(/<rdf:Description\b/g) ?? [];
@@ -98,8 +98,8 @@ describe('emptyXmp', () => {
     expect(closes).toHaveLength(1);
   });
 
-  it('preserves non-ASCII filenames verbatim (XML allows UTF-8 in attributes)', () => {
-    const xmp = emptyXmp('日本語.dng');
-    expect(extractRdfAbout(xmp)).toBe('日本語.dng');
+  it("preserves non-ASCII filenames verbatim (XML allows UTF-8 in attributes)", () => {
+    const xmp = emptyXmp("日本語.dng");
+    expect(extractRdfAbout(xmp)).toBe("日本語.dng");
   });
 });

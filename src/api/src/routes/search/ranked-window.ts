@@ -40,14 +40,18 @@ function inProcessRanker(where: SearchWhere, query: string): WindowRanker {
     const hits = await inProcessRanking(query, depth);
     if (!hits) return null;
     const ranked = hits.slice(0, depth);
+    const survivors = await mapleIdWindow(
+      where,
+      ranked.map((hit) => hit.id),
+    );
+    const alive = new Set(survivors.map((row) => row.maple_id));
     return {
-      rows: await mapleIdWindow(
-        where,
-        ranked.map((hit) => hit.id),
-      ),
+      rows: survivors,
       considered: ranked.length,
       semantic: new Set(ranked.filter((hit) => hit.vectorRank !== null).map((hit) => hit.id)),
-      scores: new Map(ranked.map((hit) => [hit.id, hit.score] as const)),
+      scores: new Map(
+        ranked.filter((hit) => alive.has(hit.id)).map((hit) => [hit.id, hit.score] as const),
+      ),
     };
   };
 }

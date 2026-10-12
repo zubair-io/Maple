@@ -19,4 +19,4 @@
  *   POST   /api/assets/:id/enrichment/requeue     — per-stage requeue
  */
 
-export { assetsRoutes } from './assets/index.ts';
+export { assetsRoutes } from "./assets/index.ts";
