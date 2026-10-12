@@ -16,7 +16,7 @@ import {
 import { recordReadWaves } from '../sqlite/read-waves.test-helpers.ts';
 import { seedSearchAsset } from './search.test-helpers.ts';
 import { buildSearchWhere } from './search.where.ts';
-import { searchByMapleIds, searchPage, windowDocs } from './search.page.ts';
+import { searchPage, windowDocs } from './search.page.ts';
 import { mapleIdWindow } from './search.ranked.ts';
 
 const OWNER = 'a'.repeat(24);
@@ -81,7 +81,7 @@ describe('search page round trips', () => {
     expect(recorded.waves).toEqual([]);
   });
 
-  it('resolves owners alongside the other side tables on the database and Meilisearch pages', async () => {
+  it('resolves owners alongside the other side tables on the database page', async () => {
     const pageWaves = recordReadWaves(testSqliteDb(database.db));
     const docs = await searchPage(
       where(),
@@ -93,11 +93,5 @@ describe('search page round trips', () => {
     expect(docs.filter((doc) => doc.owner?.id === OWNER)).toHaveLength(3);
     expect(docs.find((doc) => doc.owner_id === null)?.owner).toBeNull();
     expect(pageWaves.waves.map((wave) => wave.length)).toEqual([1, 4]);
-
-    const meiliWaves = recordReadWaves(testSqliteDb(database.db));
-    const ranked = await searchByMapleIds(where(), ['four', 'one'], meiliWaves.handle);
-
-    expect(ranked.map((doc) => doc.owner?.email ?? null)).toEqual([null, 'owner@maple.local']);
-    expect(meiliWaves.waves.map((wave) => wave.length)).toEqual([1, 4]);
   });
 });

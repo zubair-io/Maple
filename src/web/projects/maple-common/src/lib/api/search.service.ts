@@ -179,6 +179,12 @@ export interface SearchResponse {
    * grid keeps paging past `total`. Absent on other responses.
    */
   more?: boolean;
+  /**
+   * True when the ranked window stopped at the server's 5,000-hit cap with
+   * matches left (#4514). `more` is false then, so paging ends; a free-text
+   * `total` is never above 5,000.
+   */
+  capped?: boolean;
   /** Set to `true` by the backend when the requested `scope` has no
    * underlying field today (currently only `albums`). The grid is empty
    * by definition; UIs surface "Coming soon" instead of "No matches". */

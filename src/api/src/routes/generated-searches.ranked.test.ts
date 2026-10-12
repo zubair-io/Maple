@@ -149,17 +149,21 @@ describe('a free-text collection with the in-process engine', () => {
 });
 
 describe('a free-text collection while the selected engine is loading', () => {
-  it('serves the stored preview, flagged pending, with a total that ends paging there', async () => {
+  it('pages the stored preview, flagged pending, with one total on every page', async () => {
     setInProcessSearchForTests(fakeInProcessSearch(null));
     const id = seedCard([ids.get('street')!, ids.get('faced')!, ids.get('tower')!]);
 
-    const first = await get(`/api/generated-searches/${id}/assets?limit=30`);
+    const first = await get(`/api/generated-searches/${id}/assets?limit=1`);
+    const second = await get(`/api/generated-searches/${id}/assets?limit=1&offset=1`);
     const deeper = await get(`/api/generated-searches/${id}/assets?limit=30&offset=30`);
 
-    expect(names(first.body)).toEqual(['street', 'tower']);
-    expect(first.body).toMatchObject({ total: 2, snapshot: true, pending: true });
-    expect(deeper.body).toEqual({ total: 30, results: [], snapshot: true, pending: true });
-    for (const { statements } of [first, deeper]) {
+    expect(names(first.body)).toEqual(['street']);
+    expect(names(second.body)).toEqual(['tower']);
+    const pending = { total: 2, more: true, snapshot: true, pending: true };
+    expect(first.body).toMatchObject(pending);
+    expect(second.body).toMatchObject(pending);
+    expect(deeper.body).toEqual({ ...pending, results: [] });
+    for (const { statements } of [first, second, deeper]) {
       expect(statements.some((sql) => sql.includes('assets_fts'))).toBe(false);
     }
   });
@@ -169,7 +173,7 @@ describe('a free-text collection while the selected engine is loading', () => {
 
     const { body } = await get(`/api/generated-searches/${seedCard()}/assets`);
 
-    expect(body).toEqual({ total: 0, results: [], snapshot: true, pending: true });
+    expect(body).toEqual({ total: 0, results: [], more: true, snapshot: true, pending: true });
   });
 });
 

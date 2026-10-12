@@ -430,6 +430,23 @@ describe('SearchComponent (unified search)', () => {
     expect(searchComp.canLoadMore()).toBe(false);
   });
 
+  it('stops paging at a capped window and labels its count open-ended', () => {
+    typeInput(fixture, 'city streets');
+    vi.advanceTimersByTime(250);
+    stub.resolveLatest({
+      total: 5000,
+      more: false,
+      capped: true,
+      page: 0,
+      limit: 30,
+      results: Array.from({ length: 30 }, (_, i) => makeResult(`r${i}`, `r${i}.dng`)),
+    });
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="search-result-count"]')?.textContent,
+    ).toContain('5,000+ results');
+  });
+
   it('persists recents on submit and restores the query on recent tap', () => {
     typeInput(fixture, 'paris');
     const form = fixture.nativeElement.querySelector('form') as HTMLFormElement;

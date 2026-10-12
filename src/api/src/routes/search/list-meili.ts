@@ -9,11 +9,8 @@
  * than throwing — the route must keep answering 200s when Meilisearch is
  * down.
  *
- * Meilisearch is a separate service and is untouched by the SQLite cutover
- * (#3787). What moved is the second half: the re-fetch is
- * `searchByMapleIds` now rather than a `maple_id: { $in: … }` find, and the
- * structured filters reach it as the same translated `SearchWhere` the
- * database path uses.
+ * Its hits become rows through the ranked window (`ranked-window.ts`, #4514): every structured
+ * filter is applied in SQL to the ids it ranked, as for the in-process engine's.
  *
  * Split out of `list.ts` in #2129: adding seek pagination pushed the route
  * handler past the complexity gate, and this branch is the largest
@@ -24,38 +21,18 @@
  * stamps `nextCursor: null` on the response.
  */
 
-import { searchByMapleIds, type SearchWhere } from '../../db/repos/search.repo.ts';
+import type { SearchWhere } from '../../db/repos/search.repo.ts';
+import { mapleIdWindow, type WindowRanker } from '../../db/repos/search.ranked.ts';
 import {
   meilisearchClient,
   type MeilisearchSearchOptions,
 } from '../../enrichment/meilisearch-client.ts';
 import { child as childLogger } from '../../log.ts';
-import { projectAssets, type SearchResult } from './project.ts';
-import { libraryMaps } from './libraries.ts';
-import { PhaseTimer } from './server-timing.ts';
 import { peopleNames, widenFromDate, widenToDate, type SearchQuery } from './query.ts';
 
 const searchLog = childLogger('search');
 
-export interface MeiliPage {
-  total: number;
-  results: SearchResult[];
-}
-
-export interface MeiliPageInput {
-  /** The caller's translated query — every filter except the free text. */
-  where: SearchWhere;
-  /** Date-resolved query (`extractDatesFromQuery` output). */
-  resolved: SearchQuery;
-  /** Library scope, straight off the wire. */
-  libraryId: string | undefined;
-  skip: number;
-  limit: number;
-  /** The request's phase timer, when the caller reports one. */
-  timing?: PhaseTimer;
-}
-
-/** True when there is residual free text for the relevance path to rank. */
+/** Whether a date-resolved query has residual free text for an engine to rank. */
 export function usesPlaceText(resolved: SearchQuery): boolean {
   return typeof resolved.placeQuery === 'string' && resolved.placeQuery.trim().length > 0;
 }
@@ -226,7 +203,7 @@ function visionFilters(resolved: SearchQuery): {
  * with the facets route, whose most-relevant scope has to come from the same
  * ranking the list does (#4431).
  */
-export function meiliSearchOptions(
+function meiliSearchOptions(
   resolved: SearchQuery,
   libraryId: string | undefined,
   semantic: boolean,
@@ -243,16 +220,23 @@ export function meiliSearchOptions(
 }
 
 /**
- * One page of Meilisearch-ranked results, or `null` when the sidecar isn't
- * configured, this isn't a text query, or the query failed (logged; the
- * caller falls through to the database full-text path).
+ * Meilisearch as a ranker for the request's window (`ranked-window.ts`, #4514), or undefined when
+ * it would not serve this search at all: not configured, no text, or a filter it cannot express.
+ *
+ * Its best `depth` ids are filtered by every structured clause of `where` in SQL, exactly as the
+ * in-process engine's are — the sidecar did the text half, typo-tolerantly, and re-running a
+ * `MATCH` over its hits would reject the rows it found. A failure answers null, logged, and the
+ * caller falls through to the database's window; the route keeps answering 200s when the sidecar
+ * is down. Meilisearch returns at most its `maxTotalHits` (1,000 by default), which reads as a
+ * window the engine did not fill.
  */
-export async function meiliPage(input: MeiliPageInput): Promise<MeiliPage | null> {
-  const { where, resolved, libraryId, skip, limit } = input;
-  const timing = input.timing ?? new PhaseTimer();
+export function meiliRanker(
+  where: SearchWhere,
+  resolved: SearchQuery,
+  libraryId: string | undefined,
+): WindowRanker | undefined {
   const meili = meilisearchClient();
-  if (!usesPlaceText(resolved) || !meili.isConfigured()) return null;
-
+  if (!usesPlaceText(resolved) || !meili.isConfigured()) return undefined;
   // Correctness outranks ranking: see DATABASE_ONLY_FILTERS.
   const unpushable = unpushableFilters(resolved);
   if (unpushable.length > 0) {
@@ -260,48 +244,24 @@ export async function meiliPage(input: MeiliPageInput): Promise<MeiliPage | null
       { unpushable, placeQuery: resolved.placeQuery },
       'meilisearch declined; filters have no index counterpart, using the database',
     );
-    return null;
+    return undefined;
   }
-
-  try {
-    // Thread the caller's hidden mode into the Meili candidate set. Meili
-    // defaults to excluding hidden docs, so without this the Mongo
-    // `hidden: true` intersection for `only` runs against an already
-    // hidden-free id set and always comes back empty (#2358). `only` is
-    // pushed all the way into the Meili filter (`hidden = true`) so each
-    // candidate page stays dense with rows the re-fetch will keep.
-    const hit = await timing.time('engine', () =>
-      meili.search(resolved.placeQuery!.trim(), {
+  return async (depth) => {
+    try {
+      // The caller's hidden mode rides into the Meili filter, so `hidden=only` asks for hidden
+      // candidates rather than intersecting a hidden-free id set (#2358).
+      const hit = await meili.search(resolved.placeQuery!.trim(), {
         ...meiliSearchOptions(resolved, libraryId, meili.semanticConfigured()),
-        offset: skip,
-        limit,
-      }),
-    );
-    if (hit.ids.length === 0) return { total: hit.estimatedTotal, results: [] };
-
-    // Fetch full asset rows for the Meilisearch ids, in the order Meilisearch
-    // ranked them. `searchByMapleIds` drops the free-text half of `where` and
-    // keeps every structured filter — the sidecar already did the text match,
-    // and re-running it over a typo-tolerant hit ("Musum" → "Museum") would
-    // zero the result. Ids with no surviving row drop out, which is what a
-    // mid-flight hard delete looks like.
-    const docs = await timing.time('rows', () => searchByMapleIds(where, hit.ids));
-    const results = await timing.time('project', async () => {
-      const { libs, idToSlug } = await libraryMaps();
-      return projectAssets(docs, libs, idToSlug);
-    });
-    return { total: hit.estimatedTotal, results };
-  } catch (err) {
-    // Log and let the caller fall through to the database's own full-text
-    // path. The route still returns a 200 — the operator sees this in the
-    // logs.
-    searchLog.warn(
-      {
-        err: err instanceof Error ? err.message : String(err),
-        placeQuery: resolved.placeQuery,
-      },
-      'meilisearch query failed; falling back to the database full-text path',
-    );
-    return null;
-  }
+        offset: 0,
+        limit: depth,
+      });
+      return { rows: await mapleIdWindow(where, hit.ids), considered: hit.ids.length };
+    } catch (err) {
+      searchLog.warn(
+        { err: err instanceof Error ? err.message : String(err), placeQuery: resolved.placeQuery },
+        'meilisearch query failed; falling back to the database full-text path',
+      );
+      return null;
+    }
+  };
 }

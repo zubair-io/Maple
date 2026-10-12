@@ -7,6 +7,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { listRoute } from './list.ts';
+import { facetsRoute } from './facets.ts';
+import { bucketsRoute, _resetBucketsCacheForTests } from './buckets.ts';
 import { _resetCacheForTests } from './total-cache.ts';
 import { seedSearchAsset } from '../../db/repos/search.test-helpers.ts';
 import {
@@ -130,5 +132,48 @@ describe('paging a window through a tie wider than the window', () => {
     expect(new Set(served).size).toBe(served.length);
     expect(served).toEqual(picked);
     expect(pages.map((body) => body.more)).toEqual([true, true, false, false]);
+  });
+});
+
+describe('facets and buckets of a page describe the window its list counts', () => {
+  async function totals(query: string): Promise<{ list: number; facets: number; buckets: number }> {
+    const app = new Elysia().use(listRoute).use(facetsRoute).use(bucketsRoute);
+    const read = async (path: string) =>
+      (await (await app.handle(new Request(`http://localhost${path}?${query}`))).json()) as {
+        total: number;
+      };
+    _resetBucketsCacheForTests();
+    return {
+      list: (await read('/')).total,
+      facets: (await read('/facets')).total,
+      buckets: (await read('/buckets')).total,
+    };
+  }
+
+  it('with the in-process engine, on a deep page', async () => {
+    setInProcessSearchForTests(honouringK(ranked));
+
+    expect(await totals('placeQuery=greyson&limit=100')).toEqual({
+      list: 100,
+      facets: 100,
+      buckets: 100,
+    });
+    expect(await totals('placeQuery=greyson&limit=100&page=2')).toEqual({
+      list: 250,
+      facets: 250,
+      buckets: 250,
+    });
+  });
+
+  it('with the database window, widened by a filter', async () => {
+    setInProcessSearchForTests(fakeInProcessSearch(null));
+    await saveSearchEngine('meilisearch');
+
+    const shallow = await totals('placeQuery=greyson&rating=5&limit=20');
+    const deep = await totals('placeQuery=greyson&rating=5&limit=100&page=1');
+
+    expect(new Set(Object.values(shallow)).size).toBe(1);
+    expect(new Set(Object.values(deep)).size).toBe(1);
+    expect(deep.list).toBeGreaterThan(shallow.list);
   });
 });

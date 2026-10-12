@@ -36,7 +36,6 @@ import {
   countSql,
   descriptionsByAssetIdsSql,
   idPageSql,
-  mapleIdPageSql,
   pageColumnsByIdsSql,
   pageSql,
   phassetLinksByAssetIdsSql,
@@ -77,8 +76,6 @@ interface LinkRow {
 
 /** A search result row as `projectAsset` reads it: the document plus its owner, resolved with it. */
 export type SearchDoc = AssetDoc & { _id: ObjectId; owner: AssetOwnerSummary | null };
-
-type MapleIdRow = PageRow & { maple_id: string | null };
 
 /** The cursor shape `routes/search/cursor.ts` decodes and validates. */
 export interface SeekPosition {
@@ -141,35 +138,6 @@ export async function searchPage(
 }
 
 /**
- * The assets behind a page of Meilisearch hits, in the order the sidecar
- * ranked them.
- *
- * The sidecar answers with `maple_id`s and a relevance order; the rows still
- * come from here, and every structured filter the caller asked for still
- * applies to them. That second half is what stops this from being a
- * post-filter: `where` carries the whole query except its free text, so a
- * camera or a date range narrows the statement rather than thinning a page
- * after the fact.
- *
- * The text match is dropped rather than carried through, and that is the one
- * thing here that cannot be inferred. Meilisearch is typo-tolerant, so a hit
- * for "Musum" is a row whose text says "Museum" — re-running the full-text
- * match over the ids it returned would reject the very rows it matched and
- * answer an empty page. Its own `WHERE` already did the text half.
- *
- * Ids with no surviving row simply drop out, which is what a hard delete
- * between the sidecar's index and this read looks like.
- */
-export async function searchByMapleIds(
-  where: SearchWhere,
-  mapleIds: readonly string[],
-  dbOverride?: SqliteDb,
-): Promise<SearchDoc[]> {
-  const db = assetsDb(dbOverride);
-  return hydrate(db, await rowsByMapleId(db, where, mapleIds));
-}
-
-/**
  * The assets behind a stored list of ids, in the stored order, keeping only
  * those that still pass `where`'s live filters. Ids with no surviving row drop
  * out.
@@ -186,23 +154,6 @@ export async function searchByIds(
   const byId = new Map(rows.map((row) => [row.id, row] as const));
   const ordered = ids.map((id) => byId.get(id)).filter((row): row is PageRow => row !== undefined);
   return hydrate(db, ordered);
-}
-
-/**
- * The rows behind `mapleIds` that pass `where` without its text, in the order given.
- *
- * The text match is dropped because the engine that produced the ids already did it, typo
- * tolerance included — see {@link searchByMapleIds}. Ids with no surviving row drop out.
- */
-async function rowsByMapleId(
-  db: SqliteDb,
-  where: SearchWhere,
-  mapleIds: readonly string[],
-): Promise<MapleIdRow[]> {
-  if (mapleIds.length === 0) return [];
-  const statement = mapleIdPageSql({ ...where, match: { kind: 'none' } }, mapleIds);
-  const rows = await db.read<MapleIdRow>(statement.sql, statement.params);
-  return inGivenOrder(mapleIds, rows, (row) => row.maple_id);
 }
 
 /**

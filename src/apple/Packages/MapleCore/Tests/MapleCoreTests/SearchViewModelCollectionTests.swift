@@ -248,6 +248,34 @@ final class SearchViewModelCollectionTests: XCTestCase {
     XCTAssertFalse(vm.canLoadMore)
   }
 
+  func test_submit_stopsPagingAtACappedWindow() async {
+    let server = URL(string: "https://stub.test")!
+    let cfg = URLSessionConfiguration.ephemeral
+    cfg.protocolClasses = [StubURLProtocol.self]
+    StubURLProtocol.reset()
+    StubURLProtocol.responder = { request in
+      request.url?.path == "/api/search/facets"
+        ? .failure(URLError(.notConnectedToInternet))
+        : .http(
+          status: 200,
+          body: Data(
+            #"{"results":[{"id":"fs:/p/a.dng","folder_id":"lib","abs_path":"/p/a.dng","filename":"a.dng"}],"total":1,"more":false,"capped":true,"page":0,"limit":100}"#
+              .utf8))
+    }
+    let client = CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(
+        server: server, urlSession: URLSession(configuration: cfg)))
+    let vm = SearchViewModel(server: server, libraryID: "lib-test", searchClient: client)
+    vm.params.placeQuery = "city streets"
+
+    await vm.submit()
+
+    XCTAssertEqual(vm.results.map(\.id), ["fs:/p/a.dng"])
+    XCTAssertFalse(vm.canLoadMore, "a window stopped at the server's cap ends paging")
+    XCTAssertNil(vm.loadError)
+  }
+
   func test_submit_leavesCollectionMode() async {
     let vm = makeVM()
     var pagerCalls = 0

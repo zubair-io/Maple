@@ -19,7 +19,8 @@
  * every page agree by construction. When a full window leaves the request short, it is ranked
  * once more, as much deeper as the survival rate says it needs, up to {@link RANKED_WINDOW_MAX};
  * the window is never replaced by an exact count. `more` says the engine had hits left beyond the
- * window, so asking for a deeper page widens it.
+ * window, so asking for a deeper page widens it; `capped` says it had hits left past the cap, which
+ * no page reaches. A free-text `total` is therefore never more than {@link RANKED_WINDOW_MAX}.
  */
 
 import { FTS_RANK_ORDER, FTS_RANK_SQL } from './search.fts.ts';
@@ -57,6 +58,11 @@ export interface RankedWindow {
   rows: WindowRow[];
   /** The engine returned a full window below the cap: a deeper page may find more. */
   more: boolean;
+  /**
+   * The engine returned a full window at {@link RANKED_WINDOW_MAX}: more matches exist, but no
+   * page can reach them. `more` is false then, so paging ends; this says why.
+   */
+  capped: boolean;
   semantic: ReadonlySet<string>;
 }
 
@@ -78,7 +84,7 @@ export async function rankWindow(ranker: WindowRanker, need: number): Promise<Ra
   if (first === null) return null;
   const full = first.considered >= depth;
   if (first.rows.length >= need || !full || depth >= RANKED_WINDOW_MAX) {
-    return windowOf(first, full && depth < RANKED_WINDOW_MAX);
+    return windowOf(first, full, depth);
   }
   const survival = Math.max(first.rows.length, 1) / first.considered;
   const widened = Math.min(
@@ -87,11 +93,17 @@ export async function rankWindow(ranker: WindowRanker, need: number): Promise<Ra
   );
   const second = (await ranker(widened)) ?? first;
   const deeper = second === first ? depth : widened;
-  return windowOf(second, second.considered >= deeper && deeper < RANKED_WINDOW_MAX);
+  return windowOf(second, second.considered >= deeper, deeper);
 }
 
-function windowOf(pass: WindowPass, more: boolean): RankedWindow {
-  return { rows: pass.rows, more, semantic: pass.semantic ?? new Set() };
+function windowOf(pass: WindowPass, full: boolean, depth: number): RankedWindow {
+  const atCap = depth >= RANKED_WINDOW_MAX;
+  return {
+    rows: pass.rows,
+    more: full && !atCap,
+    capped: full && atCap,
+    semantic: pass.semantic ?? new Set(),
+  };
 }
 
 /**

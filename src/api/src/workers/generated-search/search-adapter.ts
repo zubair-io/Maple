@@ -27,8 +27,7 @@ import { searchCount, searchPage, windowDocs } from '../../db/repos/search.page.
 import { assetsDb, bulkLane } from '../../db/repos/db-handle.ts';
 import type { WindowRow } from '../../db/repos/search.ranked.ts';
 import type { SearchWhere } from '../../db/repos/search.where.ts';
-import { meiliPage } from '../../routes/search/list-meili.ts';
-import { databaseWindow, inProcessWindow } from '../../routes/search/ranked-window.ts';
+import { requestWindow } from '../../routes/search/ranked-window.ts';
 import type { SearchQuery } from '../../routes/search/query.ts';
 import { resolveSearchWhere } from './execute.ts';
 import { FIRST_PAGE_SIZE } from './first-page.ts';
@@ -71,20 +70,8 @@ async function rankedOutcome(
   libraryId: string | undefined,
   text: string,
 ): Promise<SearchOutcome> {
-  const inProcess = await inProcessWindow(where, text, FIRST_PAGE_SIZE);
-  if (inProcess) return windowOutcome(inProcess.rows);
-  const meili = await meiliPage({ where, resolved, libraryId, skip: 0, limit: FIRST_PAGE_SIZE });
-  if (meili !== null) {
-    return {
-      count: meili.total,
-      captions: captionsOf(meili.results.slice(0, CAPTION_SAMPLE)),
-      // `_id`, not `.id`: `SearchResult.id` is the editor-facing `fs:<absPath>`
-      // form, useless against `/api/assets/:id/*`.
-      coverAssetId: meili.results[0]?._id ?? null,
-      firstPageIds: meili.results.map((result) => result._id),
-    };
-  }
-  return windowOutcome((await databaseWindow(where, FIRST_PAGE_SIZE)).rows);
+  const window = await requestWindow({ where, resolved, text, libraryId, need: FIRST_PAGE_SIZE });
+  return windowOutcome(window.rows);
 }
 
 async function windowOutcome(rows: readonly WindowRow[]): Promise<SearchOutcome> {

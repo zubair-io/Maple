@@ -27,13 +27,7 @@
 import { facetStatements, type BoundStatement, type FacetName } from './search.facets.sql.ts';
 import { facetRowsOf } from './search.facets.top.ts';
 import type { SearchWhere } from './search.where.ts';
-import {
-  ftsRanker,
-  mapleIdRowsSql,
-  rankWindow,
-  RANKED_WINDOW_BASE,
-  type RankedAsset,
-} from './search.ranked.ts';
+import { ftsRanker, rankWindow, RANKED_WINDOW_BASE, type RankedAsset } from './search.ranked.ts';
 import { cachedFacets } from './search.facets.cache.ts';
 import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
 import type { SqlRow } from '../sqlite/protocol.ts';
@@ -72,39 +66,22 @@ export interface SearchFacets {
   scope: FacetScope;
 }
 
-/**
- * How many of Meilisearch's best matches a text search's facets describe (#4431); the other
- * engines facet their ranked window (`search.ranked.ts`), the same rows the list pages through.
- */
-export const FACET_TOP_MATCHES = 2_000;
-
-/**
- * Another engine's ranking of a text search's matches — Meilisearch's, when it
- * serves the list — for the facets to describe instead of the database's
- * (#4431): its best matches by `maple_id`, best first, and its own count of
- * every match.
- */
-export interface ExternalRanking {
-  mapleIds: readonly string[];
-  total: number;
-  /** Which engine produced these ids, when the caller distinguishes several. */
-  rankedBy?: string;
+/** The rows a text search's facets count: its request's ranked window. */
+export interface FacetWindow {
+  rows: readonly RankedAsset[];
+  /** The engine the request would ask first answered; a stand-in's answer is served, not cached. */
+  preferred: boolean;
 }
 
-/** How a text search's facets choose the matches they describe. */
+/** How a text search's facets find the window they count. */
 export interface FacetOptions {
   /**
-   * The list's own ranking when another engine serves this search — absent
-   * when it does not, so the database ranking is the answer and is cached as
-   * one. A ranking that resolves to null failed, and its database stand-in is
-   * served but not cached.
+   * The request's window — the one its list pages through (`routes/search/ranked-window.ts`).
+   * Absent, the facets count the database's window at the base depth.
    */
-  ranking?: () => Promise<ExternalRanking | null>;
-  /**
-   * The engine the caller selected. An answer is cached only when that engine is the one that
-   * ranked it, so a fallback ranking never stands in for the selected engine's after it recovers.
-   */
-  rankedBy?: string;
+  window?: () => Promise<FacetWindow>;
+  /** How many rows the request's page reaches; part of the cache key, as the window depends on it. */
+  need?: number;
 }
 
 /**
@@ -196,19 +173,18 @@ async function runFacets<K extends FacetName>(
   >;
 }
 
-/** Every facet's rows, what they describe, and whose ranking chose them. */
+/** Every facet's rows, what they describe, and whether this request's first engine chose them. */
 interface FacetAnswer {
   rows: Record<FacetName, SqlRow[]>;
   scope: FacetScope;
-  ranking: 'external' | 'database';
-  rankedBy?: string;
+  preferred: boolean;
 }
 
 /**
- * Every facet's rows. A text search's are the rows of its ranked window — the database's, when no
- * other engine ranked it — so the facets count exactly the photos the list shows and no statement
- * joins the whole match set (#4514). A search without text keeps the statements as they were:
- * each reads one index, or one join the planner has been measured on.
+ * Every facet's rows. A text search's are the rows of its request's ranked window — the same
+ * window its list pages through — so the facets count exactly the photos the list's `total`
+ * counts and no statement joins the whole match set (#4514). A search without text keeps the
+ * statements as they were: each reads one index, or one join the planner has been measured on.
  */
 async function facetRows(
   db: SqliteDb,
@@ -219,51 +195,19 @@ async function facetRows(
     return {
       rows: await runFacets(db, facetStatements(where)),
       scope: { kind: 'all' },
-      ranking: 'database',
+      preferred: true,
     };
   }
-  const external = options.ranking ? await options.ranking() : null;
-  if (external) return externallyRankedRows(db, where, external);
-  const window = await rankWindow(ftsRanker(where, db), RANKED_WINDOW_BASE);
-  const ranked = window?.rows ?? [];
+  const window: FacetWindow = options.window
+    ? await options.window()
+    : {
+        rows: (await rankWindow(ftsRanker(where, db), RANKED_WINDOW_BASE))?.rows ?? [],
+        preferred: true,
+      };
   return {
-    rows: { ...(await facetRowsOf(db, ranked)), total: [{ n: ranked.length }] },
+    rows: { ...(await facetRowsOf(db, window.rows)), total: [{ n: window.rows.length }] },
     scope: { kind: 'all' },
-    ranking: 'database',
-  };
-}
-
-/**
- * The facets of another engine's best matches, its own count as the total.
- *
- * The ids are mapped back to rows with every filter of the search but its
- * text, exactly as the list's Meilisearch page is: the sidecar did the text
- * half, typo-tolerantly, and a database `MATCH` over its hits would reject the
- * very rows it found. Ids with no surviving row drop out.
- *
- * The cut is however many ids the engine returned, never the number asked
- * for: Meilisearch answers at most `pagination.maxTotalHits` hits (1,000 by
- * default), so a request for 2,000 can come back with 1,000, and the scope —
- * which clients print — has to say 1,000. The `of` is the engine's own
- * estimate of every match, the same number the list shows as its total.
- */
-async function externallyRankedRows(
-  db: SqliteDb,
-  where: SearchWhere,
-  ranking: ExternalRanking,
-): Promise<FacetAnswer> {
-  const ids = mapleIdRowsSql(where, ranking.mapleIds);
-  const assets =
-    ranking.mapleIds.length === 0 ? [] : await readBulk<RankedAsset>(db, ids.sql, ids.params);
-  const rows = await facetRowsOf(db, assets);
-  const cut = ranking.total > ranking.mapleIds.length;
-  return {
-    rows: { ...rows, total: [{ n: ranking.total }] },
-    scope: cut
-      ? { kind: 'top', limit: ranking.mapleIds.length, of: ranking.total }
-      : { kind: 'all' },
-    ranking: 'external',
-    rankedBy: ranking.rankedBy,
+    preferred: window.preferred,
   };
 }
 
@@ -286,27 +230,25 @@ export async function searchFacets(
 ): Promise<SearchFacets> {
   const db = assetsDb(dbOverride);
   if (where.match.kind !== 'match') return (await computeFacets(db, where, options)).facets;
-  // Cached under the ranking asked for, and kept only when that ranking
-  // answered: a database fallback for a failed Meilisearch request is served
-  // to whoever was waiting on it, never to the next 30 s of requests.
-  const wanted = options.ranking ? 'external' : 'database';
+  // Kept only when the request's first engine answered: a stand-in for a selected engine that
+  // was down is served to whoever was waiting on it, never to the next 30 s of requests.
   const answer = await cachedFacets(
     db,
-    [where, wanted, options.rankedBy ?? null],
+    [where, options.need ?? RANKED_WINDOW_BASE, options.window ? 'request' : 'database'],
     () => computeFacets(db, where, options),
     Date.now(),
-    (computed) => computed.ranking === wanted && computed.rankedBy === options.rankedBy,
+    (computed) => computed.preferred,
   );
   return answer.facets;
 }
 
-/** The facets themselves, uncached, and whose ranking chose their rows. */
+/** The facets themselves, uncached, and whether the request's first engine chose their rows. */
 async function computeFacets(
   db: SqliteDb,
   where: SearchWhere,
   options: FacetOptions,
-): Promise<{ facets: SearchFacets } & Pick<FacetAnswer, 'ranking' | 'rankedBy'>> {
-  const { rows, scope, ranking, rankedBy } = await facetRows(db, where, options);
+): Promise<{ facets: SearchFacets; preferred: boolean }> {
+  const { rows, scope, preferred } = await facetRows(db, where, options);
   const as = <T>(name: FacetName): T[] => rows[name] as unknown as T[];
 
   const screenshot = as<{ bucket: number; count: number }>('is_screenshot');
@@ -340,5 +282,5 @@ async function computeFacets(
       .map((row) => ({ id: row.id, count: row.count })),
     scope,
   };
-  return { facets, ranking, rankedBy };
+  return { facets, preferred };
 }

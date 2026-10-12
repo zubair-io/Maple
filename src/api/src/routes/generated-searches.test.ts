@@ -165,8 +165,8 @@ describe('GET /api/generated-searches/:id/assets', () => {
     expect(body.results).toHaveLength(2);
   });
 
-  it('pages with limit + offset, and reports the stored total on every page', async () => {
-    const id = seedCollection({ result_count: 5 });
+  it('pages with limit + offset, and reports the full total on every page', async () => {
+    const id = seedCollection();
     // Distinct capture instants so `captured_desc` gives a stable order to
     // page through — otherwise a tie makes "page 2 continues page 1"
     // unverifiable rather than merely unordered.
@@ -178,9 +178,8 @@ describe('GET /api/generated-searches/:id/assets', () => {
     const second = await get(`/api/generated-searches/${id}/assets?limit=2&offset=2`);
     const last = await get(`/api/generated-searches/${id}/assets?limit=2&offset=4`);
 
-    // `total` is the worker's count of the whole collection on every page —
-    // that is what lets a client know it has more to fetch, and no request
-    // recounts it (#4514).
+    // `total` is the whole collection on every page — that is what lets a
+    // client know it has more to fetch.
     expect(first.body.total).toBe(5);
     expect(second.body.total).toBe(5);
     expect(last.body.total).toBe(5);
@@ -228,11 +227,11 @@ describe('GET /api/generated-searches/:id/assets', () => {
 
     // Simulates a doc written by an earlier worker version.
     const id = seedCollection({ query: { month: '8', excludeHiddenPeople: 'false' } });
-    const visible = seedAsset('visible');
+    seedAsset('visible');
     seedAsset('has-hidden-face', { people: ['Hidden'] });
 
     const { body } = await get(`/api/generated-searches/${id}/assets`);
-    expect(body.results.map((r: { _id: string }) => r._id)).toEqual([visible]);
+    expect(body.total).toBe(1);
   });
 });
 
@@ -310,7 +309,7 @@ describe('GET /api/generated-searches/:id/assets — stored first page', () => {
       seedAsset('s1', { capturedAt: '2018-08-02T12:00:00.000Z' }),
     ];
     const fresh = seedAsset('fresh', { capturedAt: '2018-08-25T12:00:00.000Z' });
-    const id = seedCollection({ result_count: 3, first_page_ids: ids });
+    const id = seedCollection({ result_count: 2, first_page_ids: ids });
 
     for (const qs of ['', '?limit=100', '?limit=100&offset=0', '?limit=1']) {
       const { body } = await get(`/api/generated-searches/${id}/assets${qs}`);

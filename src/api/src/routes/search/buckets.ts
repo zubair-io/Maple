@@ -13,10 +13,9 @@
 
 import { Elysia } from 'elysia';
 import { buildSearchWhere, searchBuckets, windowBuckets } from '../../db/repos/search.repo.ts';
-import { RANKED_WINDOW_BASE } from '../../db/repos/search.ranked.ts';
-import { searchWindow } from './ranked-window.ts';
+import { requestWindow, windowNeed } from './ranked-window.ts';
 import { SearchQueryT, type SearchQuery } from './query.ts';
-import { resolveSearchScope } from './scope.ts';
+import { resolveRankedScope, resolveSearchScope } from './scope.ts';
 import { canonicalOwner } from './total-cache.ts';
 
 // ── Buckets response cache ────────────────────────────────────────────
@@ -122,6 +121,31 @@ export function _resetBucketsCacheForTests(): void {
   bucketsCache.clear();
 }
 
+/**
+ * The histogram, and whether to cache it. A text search's is its request's ranked window's — the
+ * window `requestWindow` serves the list with the same `page` and `limit` (#4514) — and is cached
+ * only when the request's first engine answered.
+ */
+async function histogram(
+  query: SearchQuery,
+  need: number,
+): Promise<Response | { result: Awaited<ReturnType<typeof searchBuckets>>; keep: boolean }> {
+  const where = await resolveSearchScope(query);
+  if (where instanceof Response) return where;
+  if (where.match.kind !== 'match') return { result: await searchBuckets(where), keep: true };
+  const scope = await resolveRankedScope(query);
+  if ('error' in scope) return Response.json({ error: scope.error }, { status: 400 });
+  if (scope.childQuery === null) return { result: await searchBuckets(scope.where), keep: true };
+  const window = await requestWindow({
+    where: scope.where,
+    resolved: scope.resolved,
+    text: scope.childQuery,
+    libraryId: query.libraryId,
+    need,
+  });
+  return { result: await windowBuckets(window.rows), keep: window.preferred };
+}
+
 export const bucketsRoute = new Elysia().get(
   '/buckets',
   async ({ query, set }) => {
@@ -140,7 +164,8 @@ export const bucketsRoute = new Elysia().get(
     // Cache lookup. Buckets only change when assets are written —
     // a 30s TTL keeps repeat loads from the same client cheap and is
     // tight enough that newly-indexed photos surface within a minute.
-    const cacheKey = makeBucketsCacheKey(query as SearchQuery);
+    const need = windowNeed(query as SearchQuery);
+    const cacheKey = `${makeBucketsCacheKey(query as SearchQuery)}#${need}`;
     const cached = bucketsCache.get(cacheKey);
     const nowMs = Date.now();
     if (cached && cached.expiresMs > nowMs) {
@@ -150,15 +175,10 @@ export const bucketsRoute = new Elysia().get(
     // Cache MISS only: the person-id lookups this resolves are the route's
     // extra round trips, so they stay behind the fast path. A fresh exclusion
     // can lag buckets by up to the 30s cache TTL, same as any asset write.
-    const whereOrError = await resolveSearchScope(query as SearchQuery);
-    if (whereOrError instanceof Response) return whereOrError;
-
-    // A text search's histogram is its ranked window's, the rows the list shows (#4514).
-    const text = query.placeQuery?.trim() ?? '';
-    const result =
-      whereOrError.match.kind === 'match'
-        ? await windowBuckets((await searchWindow(whereOrError, text, RANKED_WINDOW_BASE)).rows)
-        : await searchBuckets(whereOrError);
+    const computed = await histogram(query as SearchQuery, need);
+    if (computed instanceof Response) return computed;
+    const { result, keep } = computed;
+    if (!keep) return result;
     // Bound the cache so a parameterised attack can't grow it
     // unboundedly. 500 unique filter sets is generous for a single
     // server; eviction is FIFO via insertion order.

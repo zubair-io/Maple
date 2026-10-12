@@ -1,28 +1,39 @@
 /**
- * The ranked window of a free-text request, whichever engine can rank it (#4514): the
- * in-process child when Settings → AI selects it and it answers, else the database's inverted
- * index. Both go through `rankWindow` (`db/repos/search.ranked.ts`), so the depth, the widening,
- * the cap and what `total` means are one policy for every route that ranks text.
+ * The ranked window of a free-text request (#4514), from the first engine that answers: the
+ * in-process child when Settings → AI selects it, Meilisearch when it is configured and can
+ * express the request's filters, the database's inverted index otherwise. Every engine goes
+ * through `rankWindow` (`db/repos/search.ranked.ts`), so the depth, the widening, the cap and what
+ * `total` means are one policy — and {@link requestWindow} is the one function the list, its
+ * facets, its buckets and the For You collections take their window from, so all of them describe
+ * the same set of photos for the same request.
  */
 
 import {
   ftsRanker,
   mapleIdWindow,
+  RANKED_WINDOW_MAX,
   rankWindow,
   type RankedWindow,
   type WindowRanker,
 } from '../../db/repos/search.ranked.ts';
 import { windowDocs } from '../../db/repos/search.page.ts';
 import type { SearchWhere } from '../../db/repos/search.where.ts';
-import { inProcessRanking } from '../../search/search-engine-selection.ts';
+import { inProcessRanking, inProcessSelected } from '../../search/search-engine-selection.ts';
+import { meiliRanker } from './list-meili.ts';
 import { libraryMaps } from './libraries.ts';
 import { projectAssets, type SearchResult } from './project.ts';
 import type { PhaseTimer } from './server-timing.ts';
+import { clampInt, type SearchQuery } from './query.ts';
 
-export type WindowEngine = 'in-process' | 'database';
+export type WindowEngine = 'in-process' | 'meilisearch' | 'database';
 
 export interface EngineWindow extends RankedWindow {
   engine: WindowEngine;
+  /**
+   * The first engine this request would ask answered it. False when a selected engine was down
+   * and another stood in — an answer worth serving but not worth caching.
+   */
+  preferred: boolean;
 }
 
 /** The child's top `depth` hits, filtered by `where`. */
@@ -42,34 +53,77 @@ function inProcessRanker(where: SearchWhere, query: string): WindowRanker {
   };
 }
 
-/** The in-process window, or null when the child is not selected or not answering. */
-export async function inProcessWindow(
-  where: SearchWhere,
-  query: string,
-  need: number,
+export interface WindowRequest {
+  /** Every filter of the date-resolved request (see `resolveRankedScope`). */
+  where: SearchWhere;
+  resolved: SearchQuery;
+  /** The residual free text an engine ranks. */
+  text: string;
+  libraryId: string | undefined;
+  /** How many rows the request's page reaches; see {@link windowNeed}. */
+  need: number;
+}
+
+interface Candidate {
+  engine: WindowEngine;
+  ranker: WindowRanker;
+}
+
+async function candidates(request: WindowRequest, databaseFloor: boolean): Promise<Candidate[]> {
+  const { where, resolved, text, libraryId } = request;
+  const meili = meiliRanker(where, resolved, libraryId);
+  return [
+    ...((await inProcessSelected())
+      ? [{ engine: 'in-process' as const, ranker: inProcessRanker(where, text) }]
+      : []),
+    ...(meili ? [{ engine: 'meilisearch' as const, ranker: meili }] : []),
+    ...(databaseFloor ? [{ engine: 'database' as const, ranker: ftsRanker(where) }] : []),
+  ];
+}
+
+/**
+ * The window a request is served from: the first engine that answers. With `databaseFloor` off it
+ * answers null when no engine but the database could — the For You collection's case, which
+ * serves its stored preview then rather than ranking the library in the database.
+ */
+export async function requestWindow(
+  request: WindowRequest,
+  databaseFloor: false,
+): Promise<EngineWindow | null>;
+export async function requestWindow(request: WindowRequest): Promise<EngineWindow>;
+export async function requestWindow(
+  request: WindowRequest,
+  databaseFloor: boolean,
+): Promise<EngineWindow | null>;
+export async function requestWindow(
+  request: WindowRequest,
+  databaseFloor = true,
 ): Promise<EngineWindow | null> {
-  const window = await rankWindow(inProcessRanker(where, query), need);
-  return window && { ...window, engine: 'in-process' };
+  const engines = await candidates(request, databaseFloor);
+  const answer = await engines.reduce<Promise<EngineWindow | null>>(async (found, candidate) => {
+    const earlier = await found;
+    if (earlier) return earlier;
+    const window = await rankWindow(candidate.ranker, request.need);
+    return window && { ...window, engine: candidate.engine, preferred: candidate === engines[0] };
+  }, Promise.resolve(null));
+  return answer ?? (databaseFloor ? emptyWindow() : null);
 }
 
-/** The database's window. It always answers: it is the floor every other engine falls to. */
-export async function databaseWindow(where: SearchWhere, need: number): Promise<EngineWindow> {
-  const window = await rankWindow(ftsRanker(where), need);
-  return { ...(window ?? { rows: [], more: false, semantic: new Set() }), engine: 'database' };
-}
-
-/** The window for a request reaching `need` rows: the in-process engine's, else the database's. */
-export async function searchWindow(
-  where: SearchWhere,
-  query: string,
-  need: number,
-): Promise<EngineWindow> {
-  return (await inProcessWindow(where, query, need)) ?? databaseWindow(where, need);
+function emptyWindow(): EngineWindow {
+  return {
+    rows: [],
+    more: false,
+    capped: false,
+    semantic: new Set(),
+    engine: 'database',
+    preferred: true,
+  };
 }
 
 export interface WindowPage {
   total: number;
   more: boolean;
+  capped: boolean;
   results: SearchResult[];
   rankedBy?: { engine: 'in-process'; semanticHits: number };
 }
@@ -97,7 +151,19 @@ export async function windowPage(
   return {
     total: window.rows.length,
     more: window.more,
+    capped: window.capped,
     results,
     ...(rankedBy ? { rankedBy } : {}),
   };
+}
+
+/**
+ * The rows a request's page reaches — `(page + 1) × limit`, clamped as `GET /api/search` clamps
+ * them — so facets and buckets asked with the list's own `page` and `limit` describe the same
+ * window its `total` does.
+ */
+export function windowNeed(query: Pick<SearchQuery, 'page' | 'limit'>): number {
+  const page = clampInt(query.page, 0, 10_000, 0);
+  const limit = clampInt(query.limit, 1, 500, 100);
+  return Math.min(RANKED_WINDOW_MAX, (page + 1) * limit);
 }
