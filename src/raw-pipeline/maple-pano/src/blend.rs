@@ -338,10 +338,10 @@ pub fn blend_multiband(layers: &[PlanarImage], weights: &[Vec<f32>], levels: usi
     }
     // Invalid pixels carry zeroed values for determinism.
     for plane in &mut planes_out {
-        for i in 0..n {
+        for (i, v) in plane.iter_mut().enumerate() {
             let (x, y) = ((i % w as usize) as u32, (i / w as usize) as u32);
             if !validity.get(x, y) {
-                plane[i] = 0.0;
+                *v = 0.0;
             }
         }
     }
