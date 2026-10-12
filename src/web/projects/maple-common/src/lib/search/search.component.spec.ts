@@ -6,7 +6,7 @@
 // NOT bundle. Pattern matches `library-state.service.spec.ts`.
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { Observable, Subject } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -70,6 +70,10 @@ class StubSearchService {
     const subj = this.subjects[this.subjects.length - 1];
     subj.next(response ?? this.defaultResponse);
     subj.complete();
+  }
+
+  rejectLatest(err: unknown): void {
+    this.subjects[this.subjects.length - 1].error(err);
   }
 
   resolveLatestFacets(facets?: SearchFacets): void {
@@ -473,6 +477,78 @@ describe('SearchComponent (unified search)', () => {
     expect(
       fixture.nativeElement.querySelector('[data-testid="search-result-count"]')?.textContent,
     ).toContain('5,000+ results');
+  });
+
+  describe('one ranking per search (#4542)', () => {
+    const page = (prefix: string, rankPin: string): SearchResponse => ({
+      total: 30,
+      more: true,
+      page: 0,
+      limit: 30,
+      rankPin,
+      results: Array.from({ length: 30 }, (_, i) =>
+        makeResult(`${prefix}${i}`, `${prefix}${i}.dng`),
+      ),
+    });
+    const component = () =>
+      fixture.componentInstance as unknown as {
+        onLoadMore(): void;
+        results: () => readonly SearchResult[];
+        page: () => number;
+      };
+
+    it('sends each page the pin of the page before it, never the first page', () => {
+      typeInput(fixture, 'city streets');
+      vi.advanceTimersByTime(250);
+      expect(stub.calls[stub.calls.length - 1].rankPin).toBeUndefined();
+      stub.resolveLatest(page('r', 'in-process:100'));
+
+      component().onLoadMore();
+      expect(stub.calls[stub.calls.length - 1]).toMatchObject({
+        page: 1,
+        rankPin: 'in-process:100',
+      });
+      stub.resolveLatest(page('s', 'in-process:100,400'));
+
+      component().onLoadMore();
+      expect(stub.calls[stub.calls.length - 1].rankPin).toBe('in-process:100,400');
+    });
+
+    it('restarts from page 0 when the engine that ranked the rows is gone', () => {
+      typeInput(fixture, 'city streets');
+      vi.advanceTimersByTime(250);
+      stub.resolveLatest(page('r', 'in-process:100'));
+
+      component().onLoadMore();
+      stub.rejectLatest(
+        new HttpErrorResponse({ status: 409, error: { code: 'rank_engine_changed' } }),
+      );
+
+      const restart = stub.calls[stub.calls.length - 1];
+      expect(restart.page).toBe(0);
+      expect(restart.rankPin).toBeUndefined();
+      stub.resolveLatest(page('fresh', 'database:100'));
+      const names = component()
+        .results()
+        .map((r) => r.filename);
+      expect([names.length, names[0], component().page()]).toEqual([30, 'fresh0.dng', 0]);
+
+      component().onLoadMore();
+      expect(stub.calls[stub.calls.length - 1].rankPin).toBe('database:100');
+    });
+
+    it('keeps the rows held on any other load-more failure', () => {
+      typeInput(fixture, 'city streets');
+      vi.advanceTimersByTime(250);
+      stub.resolveLatest(page('r', 'in-process:100'));
+      const requests = stub.calls.length;
+
+      component().onLoadMore();
+      stub.rejectLatest(new HttpErrorResponse({ status: 409, error: { error: 'other' } }));
+
+      expect(stub.calls.length).toBe(requests + 1);
+      expect(component().results()).toHaveLength(30);
+    });
   });
 
   it('persists recents on submit and restores the query on recent tap', () => {

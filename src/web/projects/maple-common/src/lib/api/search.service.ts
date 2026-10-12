@@ -4,7 +4,7 @@
 // interceptor attach the bearer.
 
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { API_BASE_URL } from './api-base-url.token';
 import type { ColorLabelValue } from '../models/color-label';
@@ -76,6 +76,10 @@ export interface SearchParams {
    * restart the scroll at page 0 and duplicate everything already shown.
    */
   cursor?: string;
+  /** The previous page's `rankPin` on a further page of a free-text search
+   * (#4542): the server ranks the page with the same engine and window steps,
+   * or refuses it with 409 `rank_engine_changed` (see `isRankEngineChanged`). */
+  rankPin?: string;
   /** Max 200, default 100. */
   limit?: number;
   sort?: SearchSort;
@@ -184,6 +188,9 @@ export interface SearchResponse {
    * `total` is never above 5,000.
    */
   capped?: boolean;
+  /** Opaque pin of the ranking a free-text page came from (#4542); send it
+   * back as `rankPin` with the next page so every page shares one ranking. */
+  rankPin?: string;
   /** Set to `true` by the backend when the requested `scope` has no
    * underlying field today (currently only `albums`). The grid is empty
    * by definition; UIs surface "Coming soon" instead of "No matches". */
@@ -210,6 +217,19 @@ export interface SearchResponse {
  */
 export function seekExhausted(r: SearchResponse): boolean {
   return r.cursorPaging === true && (r.nextCursor ?? null) === null;
+}
+
+/**
+ * True when a pinned further page was refused because the engine that ranked
+ * the earlier pages cannot rank it (#4542): the search restarts from page 0
+ * rather than appending another engine's ranking.
+ */
+export function isRankEngineChanged(err: unknown): boolean {
+  return (
+    err instanceof HttpErrorResponse &&
+    err.status === 409 &&
+    (err.error as { code?: unknown } | null)?.code === 'rank_engine_changed'
+  );
 }
 
 /**
@@ -289,6 +309,7 @@ function paramsFrom(p: SearchParams): HttpParams {
     // stale page counter left on the caller's params can't shadow the seek.
     p.cursor !== undefined && p.cursor !== '' ? ['cursor', p.cursor] : ['page', p.page],
     ['limit', p.limit],
+    ['rankPin', p.rankPin],
     ['sort', p.sort],
     ['pathPrefix', p.pathPrefix],
     ['hasCapturedAt', boolStr(p.hasCapturedAt)],
