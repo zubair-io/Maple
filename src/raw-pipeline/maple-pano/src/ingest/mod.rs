@@ -234,6 +234,8 @@ pub struct IngestedFrame {
     /// OpcodeList3 corrections applied at decode (#1159) — empty when the
     /// source carries none. Surfaced in the stitch report.
     pub applied_opcodes: Vec<String>,
+    /// Which correction flattened lens falloff at decode (#4516).
+    pub falloff_correction: raw_core::FalloffCorrection,
 }
 
 /// Ingest a RAW frame from bytes. `ext` is the lowercase file-extension
@@ -251,6 +253,7 @@ pub fn ingest_bytes(bytes: &[u8], ext: &str) -> Result<IngestedFrame, PanoError>
         camera_make: decoded.metadata.camera_make,
         camera_model: decoded.metadata.camera_model,
         applied_opcodes: decoded.applied_opcodes,
+        falloff_correction: decoded.falloff_correction,
     })
 }
 
@@ -272,6 +275,7 @@ pub fn ingest_file(path: &Path) -> Result<IngestedFrame, PanoError> {
         camera_make: decoded.metadata.camera_make,
         camera_model: decoded.metadata.camera_model,
         applied_opcodes: decoded.applied_opcodes,
+        falloff_correction: decoded.falloff_correction,
     })
 }
 
@@ -304,6 +308,8 @@ pub struct FrameMeta {
     /// OpcodeList3 corrections applied at decode — surfaced in the stitch
     /// report; empty when the source carries none.
     pub applied_opcodes: Vec<String>,
+    /// Which correction flattened lens falloff at decode (#4516).
+    pub falloff_correction: raw_core::FalloffCorrection,
 }
 
 /// Decode `path`, produce the long-edge-capped proxy (side ≤
@@ -351,6 +357,7 @@ pub fn ingest_file_proxy(path: &Path, proxy_long_edge: u32) -> Result<FrameMeta,
         camera_make: decoded.metadata.camera_make,
         camera_model: decoded.metadata.camera_model,
         applied_opcodes: decoded.applied_opcodes,
+        falloff_correction: decoded.falloff_correction,
     })
 }
 

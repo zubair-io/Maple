@@ -18,7 +18,9 @@
 //!     (vignette/shading) and `WarpRectilinear` (geometric distortion +
 //!     lateral CA), applied in list order on the demosaiced linear data
 //!     — the DNG processing-model stage for List3. See [`opcodes`] /
-//!     [`opcode_apply`] and the divergence note below,
+//!     [`opcode_apply`] and the divergence note below. When the list
+//!     carries no gain opcode, the bundled lens profile's vignette runs
+//!     first instead (#4516, [`falloff`]),
 //! 3. DNG § 6.3 DefaultCrop,
 //! 4. DNG § C.1.2 BaselineExposure gain,
 //! 5. DNG WB pre-gain (`AsShotNeutral`),
@@ -64,8 +66,11 @@
 //! `tests::applies_opcode_list3_on_dji_fixtures` proves the divergence is
 //! real on opcode-carrying sources.
 
+pub mod falloff;
 pub mod opcode_apply;
 pub mod opcodes;
+
+pub use falloff::FalloffCorrection;
 
 use rawler::decoders::{RawDecodeParams, WellKnownIFD};
 use rawler::rawsource::RawSource;
@@ -151,6 +156,8 @@ pub struct PanoIngest {
     /// source carries none. Decode-time fact, surfaced so the stitch
     /// report can show which frames were lens-corrected.
     pub applied_opcodes: Vec<String>,
+    /// Which correction flattened lens falloff before alignment (#4516).
+    pub falloff_correction: FalloffCorrection,
 }
 
 /// Decode a RAW byte slice into a [`PanoIngest`] (see module docs for the
@@ -167,7 +174,8 @@ fn decode_for_pano_unguarded(bytes: &[u8], ext: &str) -> Result<PanoIngest> {
     // Stage 2a inputs (#1159): best-effort — a source without (parseable)
     // opcodes develops exactly as before.
     let list3 = opcodes::read_opcode_list3(bytes, ext, raw.width, raw.height);
-    let (scene, applied_opcodes) = develop_scene_linear_for_pano(&raw, list3.as_ref())?;
+    let (scene, applied_opcodes, falloff_correction) =
+        develop_scene_linear_for_pano(&raw, list3.as_ref())?;
     let image = stage("pano_orient", || {
         orient_scene_linear(scene, raw.orientation)
     });
@@ -176,6 +184,7 @@ fn decode_for_pano_unguarded(bytes: &[u8], ext: &str) -> Result<PanoIngest> {
         image,
         metadata,
         applied_opcodes,
+        falloff_correction,
     })
 }
 
@@ -235,7 +244,7 @@ fn guard_decode_panics<T>(entry: &str, ext: &str, body: impl FnOnce() -> Result<
 fn develop_scene_linear_for_pano(
     raw: &RawImage,
     list3: Option<&(opcodes::OpcodeList3, opcodes::ActiveAreaRect)>,
-) -> Result<(Image, Vec<String>)> {
+) -> Result<(Image, Vec<String>, FalloffCorrection)> {
     let never = CancelToken::never();
     let quality = RenderQuality::Full;
     let mut camera_rgb = match raw.cfa {
@@ -314,6 +323,20 @@ fn develop_scene_linear_for_pano(
     // Stage 2a (#1159): DNG OpcodeList3 on the demosaiced linear data, in
     // ActiveArea coordinates — i.e. BEFORE DefaultCrop moves the origin.
     // The pano-only divergence from the canonical chain (module docs).
+    // The bundled vignette is a recorded-coordinate gain, so it must run
+    // before any WarpRectilinear in the list resamples the frame.
+    let list_corrects_falloff = list3.is_some_and(|(list, _)| falloff::list_corrects_falloff(list));
+    let bundled_corrected = !list_corrects_falloff
+        && stage("pano_bundled_vignette", || {
+            falloff::apply_bundled_vignette(raw, &mut camera_rgb)
+        });
+    let falloff_correction = if list_corrects_falloff {
+        FalloffCorrection::Opcode
+    } else if bundled_corrected {
+        FalloffCorrection::BundledProfile
+    } else {
+        FalloffCorrection::None
+    };
     let mut applied_opcodes = Vec::new();
     if let Some((list, aa)) = list3 {
         stage("pano_opcode_list3", || {
@@ -366,7 +389,7 @@ fn develop_scene_linear_for_pano(
 
     // STOP — everything downstream of DCP in the canonical chain is
     // display prep or user adjustment (see module docs).
-    Ok((scene, applied_opcodes))
+    Ok((scene, applied_opcodes, falloff_correction))
 }
 
 /// Apply EXIF orientation to a `[f32; 3]` RGB `Image`.
@@ -541,3 +564,5 @@ fn read_pano_metadata_from_parts(bytes: &[u8], ext: &str, raw: &RawImage) -> Pan
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_falloff;

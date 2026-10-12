@@ -14,8 +14,8 @@ mod auto;
 pub mod lensfun;
 pub(crate) mod metadata;
 pub use auto::{
-    applies, auto_match, compatible_lenses, evidence_for, resolve_auto, resolve_for_model,
-    set_auto_match_enabled,
+    applies, auto_match, compatible_lenses, evidence_for, resolve_auto, resolve_bundled,
+    resolve_for_model, set_auto_match_enabled,
 };
 mod registry;
 pub use registry::{

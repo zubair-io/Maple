@@ -86,6 +86,13 @@ pub fn resolve_auto(raw: &RawImage) -> Result<Option<Resolution>, String> {
     if raw.opcode_list3.is_some() {
         return Ok(None);
     }
+    resolve_bundled(raw)
+}
+
+/// The bundled match for this RAW's EXIF identity, whatever embedded
+/// corrections it carries. Callers own the precedence: the pano ingest uses
+/// it for the falloff an `OpcodeList3` without a gain opcode leaves behind.
+pub fn resolve_bundled(raw: &RawImage) -> Result<Option<Resolution>, String> {
     auto_match(raw)
         .map(|matched| resolve_match(raw, &matched))
         .transpose()
