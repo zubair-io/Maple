@@ -57,7 +57,7 @@ jobs:
         run: |
           cargo build --release --target ${{ matrix.target }} --manifest-path src/raw-pipeline/Cargo.toml -p raw-ffi --features gpu
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo build --release --target ${{ matrix.target }} --manifest-path src/raw-pipeline/Cargo.toml -p maple-cli --features pano
+          cargo build --release --target ${{ matrix.target }} --manifest-path src/raw-pipeline/Cargo.toml -p maple-cli --features pano,pano-classical
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
