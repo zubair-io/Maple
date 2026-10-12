@@ -6,10 +6,11 @@
  * `_MG_5652-ultra-8.jpg`, the same video copied into two folders. They share no bytes, so the
  * byte-identical `deduplicate` stage never merges them, and a ranked search shows each of them.
  *
- * Two assets are the same shot when they were captured in the same second, are the same kind of
- * media, and their filenames name the same frame once the copy and export decorations are
+ * Two assets are the same shot when they belong to the same owner, were captured in the same
+ * second, are the same kind of media, and their filenames name the same frame once the copy and export decorations are
  * removed. Burst frames share a capture second but not a frame number (`_MG_1768` and `_MG_1770`),
  * and a Live Photo's still and its motion clip share both but not a media kind, so they stay apart.
+ * Two people's `IMG_0001.JPG` taken in the same second are two photographs, so owners never mix.
  */
 
 /**
@@ -18,6 +19,7 @@
  * reached it through: an asset is one tile however many folders hold its bytes.
  */
 export interface ShotFields {
+  owner_id?: string | null;
   captured_at: string | null;
   media_kind: string;
   filename: string | null;
@@ -58,7 +60,7 @@ export function shotKey(row: ShotFields): string | null {
   if (row.captured_at.length < CAPTURE_SECOND_LENGTH) return null;
   const stem = shotStem(row.filename);
   const second = row.captured_at.slice(0, CAPTURE_SECOND_LENGTH);
-  return stem.length > 0 ? `${second}\u0000${row.media_kind}\u0000${stem}` : null;
+  return stem.length > 0 ? [row.owner_id ?? '', second, row.media_kind, stem].join('\u0000') : null;
 }
 
 /**
