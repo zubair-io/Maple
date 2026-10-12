@@ -240,7 +240,7 @@ Web adds saved versioned recipes and a durable batch queue from Browse or the fo
 
 Selecting several frames and choosing "Merge to panorama" runs the stitcher in `src/raw-pipeline/maple-pano/`. The user-facing options are the same in all three places that offer it: **frame retention** (Keep or Strict), **local alignment** (Mesh or Off), and, when the binary reports support for it, a **projection strategy** (Auto, Rotation, or Tile). Progress streams while it runs, and the stitched result is written back into the library.
 
-Stitching depends on ALIKED and LightGlue ONNX models plus a recent ONNX Runtime, so it is **off until provisioned**. On the server, `PanoConfig.enabled` defaults to false and a stitch request returns `pano_not_provisioned` until Settings → Panorama supplies the `maple-cli` path and models directory; only one stitch may run at a time. Apple and Windows provision their own local model directories (`Views/PanoSettingsView.swift`, `Services/Pano/PanoProvisioner.cs`) and stitch in-process. Details in [pano.md](pano.md).
+On the server, `PanoConfig.enabled` defaults to false and a stitch request returns `pano_not_provisioned` until Settings → Panorama supplies the `maple-cli` path and turns it on; only one stitch may run at a time. The server's default matcher is the classical one, which needs no downloads. The ML matcher (ALIKED and LightGlue ONNX models plus a recent ONNX Runtime) is opt-in on the same page and needs both paths set. Apple and Windows provision their own local model directories (`Views/PanoSettingsView.swift`, `Services/Pano/PanoProvisioner.cs`) and stitch in-process. Details in [pano.md](pano.md).
 
 ---
 

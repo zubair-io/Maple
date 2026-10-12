@@ -10,12 +10,14 @@ const CONFIG: PanoConfig = {
   models_dir: null,
   ort_dylib_path: null,
   enabled: true,
+  matcher: 'classical',
   strategy_supported: false,
   source: {
     maple_cli_path: 'db',
     models_dir: 'unset',
     ort_dylib_path: 'unset',
     enabled: 'db',
+    matcher: 'default',
   },
 };
 

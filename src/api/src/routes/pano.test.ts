@@ -41,6 +41,7 @@ import {
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import { getJob } from '../job-runner/jobs.repo.ts';
 
 const app = new Elysia().use(panoRoutes);
 
@@ -204,6 +205,15 @@ describe('GET /api/pano/config', () => {
     expect(body.enabled).toBe(false);
     expect(body.maple_cli_path).toBeNull();
   });
+
+  it('defaults the matcher to classical', async () => {
+    const body = (await (await getReq('/api/pano/config')).json()) as {
+      matcher: string;
+      source: { matcher: string };
+    };
+    expect(body.matcher).toBe('classical');
+    expect(body.source.matcher).toBe('default');
+  });
 });
 
 describe('PUT /api/pano/config', () => {
@@ -217,6 +227,20 @@ describe('PUT /api/pano/config', () => {
     expect(body.ok).toBe(true);
     expect(body.maple_cli_path).toBe(fakeCli);
     expect(body.enabled).toBe(true);
+  });
+
+  it('persists the matcher selection', async () => {
+    const body = (await (await putJson('/api/pano/config', { matcher: 'ml' })).json()) as {
+      matcher: string;
+      source: { matcher: string };
+    };
+    expect(body.matcher).toBe('ml');
+    expect(body.source.matcher).toBe('db');
+  });
+
+  it('rejects an unknown matcher value', async () => {
+    const res = await putJson('/api/pano/config', { matcher: 'sift' });
+    expect(res.status).toBe(422);
   });
 });
 
@@ -236,6 +260,63 @@ describe('POST /api/pano/stitch (provisioning)', () => {
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe('pano_not_provisioned');
+  });
+});
+
+// ── matcher selection (#4555) ─────────────────────────────────────────────────
+
+describe('POST /api/pano/stitch (matcher)', () => {
+  async function stitchPayload(): Promise<Record<string, unknown>> {
+    const res = await postJson('/api/pano/stitch', STITCH_BODY());
+    expect(res.status).toBe(201);
+    const { id } = (await res.json()) as { id: string };
+    const job = await getJob(new ObjectId(id));
+    if (!job) throw new Error('job not persisted');
+    return job.payload;
+  }
+
+  it('stitches with the classical matcher on a server with no models or ONNX Runtime', async () => {
+    await putJson('/api/pano/config', { maple_cli_path: fakeCli, enabled: true });
+    const payload = await stitchPayload();
+    expect(payload.featuresEngine).toBe('classical');
+    expect(payload.modelsDir).toBeNull();
+    expect(payload.ortDylibPath).toBeNull();
+  });
+
+  it('returns 409 pano_ml_not_provisioned when ML is selected without model paths', async () => {
+    await putJson('/api/pano/config', { maple_cli_path: fakeCli, enabled: true, matcher: 'ml' });
+    const res = await postJson('/api/pano/stitch', STITCH_BODY());
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe('pano_ml_not_provisioned');
+    expect(body.message).toContain('Settings');
+  });
+
+  it('returns 409 pano_ml_not_provisioned when ML has models but no ONNX Runtime', async () => {
+    await putJson('/api/pano/config', {
+      maple_cli_path: fakeCli,
+      enabled: true,
+      matcher: 'ml',
+      models_dir: tmpDir,
+    });
+    const res = await postJson('/api/pano/stitch', STITCH_BODY());
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe('pano_ml_not_provisioned');
+  });
+
+  it('stitches with the ML matcher once its model paths are provisioned', async () => {
+    const ortDylib = path.join(tmpDir, 'libonnxruntime.so');
+    await putJson('/api/pano/config', {
+      maple_cli_path: fakeCli,
+      enabled: true,
+      matcher: 'ml',
+      models_dir: tmpDir,
+      ort_dylib_path: ortDylib,
+    });
+    const payload = await stitchPayload();
+    expect(payload.featuresEngine).toBe('ml');
+    expect(payload.modelsDir).toBe(tmpDir);
+    expect(payload.ortDylibPath).toBe(ortDylib);
   });
 });
 

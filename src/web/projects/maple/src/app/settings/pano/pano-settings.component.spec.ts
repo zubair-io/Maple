@@ -11,13 +11,22 @@ const CONFIG: PanoConfig = {
   models_dir: '/var/models',
   ort_dylib_path: null,
   enabled: false,
+  matcher: 'ml',
   strategy_supported: false,
   source: {
     maple_cli_path: 'db',
     models_dir: 'db',
     ort_dylib_path: 'unset',
     enabled: 'db',
+    matcher: 'db',
   },
+};
+
+const CLASSICAL_DEFAULT: PanoConfig = {
+  ...CONFIG,
+  models_dir: null,
+  matcher: 'classical',
+  source: { ...CONFIG.source, models_dir: 'unset', matcher: 'default' },
 };
 
 describe('PanoSettingsComponent', () => {
@@ -41,9 +50,9 @@ describe('PanoSettingsComponent', () => {
 
   afterEach(() => http.verify());
 
-  async function load(): Promise<void> {
+  async function load(config: PanoConfig = CONFIG): Promise<void> {
     fixture.detectChanges(); // ngOnInit → GET config
-    http.expectOne('/api/pano/config').flush(CONFIG);
+    http.expectOne('/api/pano/config').flush(config);
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
@@ -55,6 +64,23 @@ describe('PanoSettingsComponent', () => {
     );
     if (!el) throw new Error(`missing input labeled ${ariaLabel}`);
     return el;
+  }
+
+  function hasInput(ariaLabel: string): boolean {
+    return (
+      (fixture.nativeElement as HTMLElement).querySelector(
+        `mui-input input[aria-label="${ariaLabel}"]`,
+      ) !== null
+    );
+  }
+
+  function matcherSegment(label: string): HTMLButtonElement {
+    const segments = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>(
+      'mui-segmented-toggle button[role="radio"]',
+    );
+    const match = [...segments].find((b) => b.textContent?.trim() === label);
+    if (!match) throw new Error(`missing matcher segment ${label}`);
+    return match;
   }
 
   function enabledCheckbox(): HTMLInputElement {
@@ -100,11 +126,36 @@ describe('PanoSettingsComponent', () => {
     expect(call.request.method).toBe('PUT');
     expect(call.request.body).toEqual({
       enabled: true,
+      matcher: 'ml',
       maple_cli_path: '/usr/local/bin/maple-cli',
       models_dir: null,
       ort_dylib_path: null,
     });
     call.flush({ ...CONFIG, enabled: true, maple_cli_path: '/usr/local/bin/maple-cli', ok: true });
+  });
+
+  it('defaults to the classical matcher and hides the ML-only path fields (#4555)', async () => {
+    await load(CLASSICAL_DEFAULT);
+    expect(matcherSegment('Classical').getAttribute('aria-checked')).toBe('true');
+    expect(hasInput('Models directory (MAPLE_PANO_MODELS)')).toBe(false);
+    expect(hasInput('ONNX Runtime dylib (ORT_DYLIB_PATH)')).toBe(false);
+  });
+
+  it('reveals the ML path fields and saves the matcher when ML is chosen (#4555)', async () => {
+    await load(CLASSICAL_DEFAULT);
+    matcherSegment('ML').click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(hasInput('Models directory (MAPLE_PANO_MODELS)')).toBe(true);
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      'needs both the models directory and the ONNX Runtime path',
+    );
+
+    clickSave();
+
+    const call = http.expectOne('/api/pano/config');
+    expect(call.request.body).toMatchObject({ matcher: 'ml' });
+    call.flush({ ...CLASSICAL_DEFAULT, matcher: 'ml', ok: true });
   });
 
   it('shows the load error state when the config fetch fails', () => {

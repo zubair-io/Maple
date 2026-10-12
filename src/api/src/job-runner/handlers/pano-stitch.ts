@@ -11,14 +11,16 @@
  *     strategy?:     'auto' | 'rotation' | 'tile',   // only when strategySupported
  *     strategySupported: boolean,
  *     mapleCli:      string,                // resolved maple-cli path
- *     modelsDir:     string | null,
- *     ortDylibPath:  string | null,
+ *     featuresEngine: 'classical' | 'ml',   // absent → classical
+ *     modelsDir:     string | null,         // ML only
+ *     ortDylibPath:  string | null,         // ML only
  *   }
  *
  * The handler:
  *   1. Resolves the absolute paths for the selected assets.
  *   2. Spawns `maple-cli pano stitch <inputs...> --out <output.png>
- *      --retention <r> --local-align <l> [--strategy <s>]` via Bun.spawn.
+ *      --retention <r> --local-align <l> --features-engine <e>
+ *      [--strategy <s>] [--models-dir <d>]` via Bun.spawn.
  *   3. Streams stderr lines; parses `pano: <stage>` prefix for coarse
  *      progress (≤ 6 stages; total is set to 6 at start).
  *   4. On exit 0: upserts the output PNG as a new asset in the library.
@@ -38,6 +40,7 @@ import { hashFileForId } from '../../indexer/id.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { child as childLogger } from '../../log.ts';
+import type { PanoMatcher } from '../../pano/pano-config.repo.ts';
 import type { JobHandler, JobHandlerContext, JobHandlerResult } from './index.ts';
 
 const log = childLogger('job:pano-stitch');
@@ -55,8 +58,20 @@ interface PanoStitchPayload {
   strategy: 'auto' | 'rotation' | 'tile' | null;
   strategySupported: boolean;
   mapleCli: string;
-  modelsDir: string | null;
-  ortDylibPath: string | null;
+  featuresEngine: PanoMatcher;
+  mlPaths: MlMatcherPaths | null;
+}
+
+interface MlMatcherPaths {
+  modelsDir: string;
+  ortDylibPath: string;
+}
+
+function mlMatcherPaths(modelsDir: string | null, ortDylibPath: string | null): MlMatcherPaths {
+  if (modelsDir === null || ortDylibPath === null) {
+    throw new Error('pano_stitch: the ML matcher needs both modelsDir and ortDylibPath');
+  }
+  return { modelsDir, ortDylibPath };
 }
 
 interface PanoStitchResult {
@@ -105,6 +120,7 @@ function parsePayload(raw: Record<string, unknown>): PanoStitchPayload {
       'pano_stitch: payload.ortDylibPath must be an absolute path and not start with "-"',
     );
   }
+  const featuresEngine: PanoMatcher = raw.featuresEngine === 'ml' ? 'ml' : 'classical';
 
   return {
     assetIds: ids as string[],
@@ -115,8 +131,8 @@ function parsePayload(raw: Record<string, unknown>): PanoStitchPayload {
     strategy,
     strategySupported,
     mapleCli: raw.mapleCli as string,
-    modelsDir,
-    ortDylibPath,
+    featuresEngine,
+    mlPaths: featuresEngine === 'ml' ? mlMatcherPaths(modelsDir, ortDylibPath) : null,
   };
 }
 
@@ -183,12 +199,15 @@ export const panoStitchHandler: JobHandler = {
         payload.retention,
         '--local-align',
         payload.localAlign,
+        '--features-engine',
+        payload.featuresEngine,
       ];
       if (payload.strategySupported && payload.strategy) {
         args.push('--strategy', payload.strategy);
       }
-      if (payload.modelsDir) {
-        args.push('--models-dir', payload.modelsDir);
+      const { mlPaths } = payload;
+      if (mlPaths) {
+        args.push('--models-dir', mlPaths.modelsDir);
       }
 
       args.push('--', ...inputPaths);
@@ -197,8 +216,10 @@ export const panoStitchHandler: JobHandler = {
       const env: Record<string, string> = {
         ...(process.env as Record<string, string>),
       };
-      if (payload.modelsDir) env.MAPLE_PANO_MODELS = payload.modelsDir;
-      if (payload.ortDylibPath) env.ORT_DYLIB_PATH = payload.ortDylibPath;
+      if (mlPaths) {
+        env.MAPLE_PANO_MODELS = mlPaths.modelsDir;
+        env.ORT_DYLIB_PATH = mlPaths.ortDylibPath;
+      }
 
       log.info({ cmd: payload.mapleCli, args }, 'spawning maple-cli pano stitch');
 

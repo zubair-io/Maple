@@ -13,6 +13,9 @@ import { API_BASE_URL } from './api-base-url.token';
 export type PanoRetention = 'keep' | 'strict';
 export type PanoLocalAlign = 'mesh' | 'off';
 export type PanoStrategy = 'auto' | 'rotation' | 'tile';
+/** `classical` runs with no downloads; `ml` (ALIKED + LightGlue) needs the
+ *  models directory and ONNX Runtime path set (#4555). */
+export type PanoMatcher = 'classical' | 'ml';
 export type PanoJobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
 
 export interface PanoStitchOptions {
@@ -77,6 +80,7 @@ export interface PanoConfig {
   models_dir: string | null;
   ort_dylib_path: string | null;
   enabled: boolean;
+  matcher: PanoMatcher;
   /** Whether the binary supports --strategy (probed at request time). */
   strategy_supported: boolean;
   source: {
@@ -84,6 +88,7 @@ export interface PanoConfig {
     models_dir: ConfigSource;
     ort_dylib_path: ConfigSource;
     enabled: 'db' | 'default';
+    matcher: 'db' | 'default';
   };
 }
 
@@ -92,10 +97,16 @@ export interface PanoConfigPatch {
   models_dir?: string | null;
   ort_dylib_path?: string | null;
   enabled?: boolean | null;
+  matcher?: PanoMatcher | null;
 }
 
 export interface PanoNotProvisionedError {
   error: 'pano_not_provisioned';
+  message: string;
+}
+
+export interface PanoMlNotProvisionedError {
+  error: 'pano_ml_not_provisioned';
   message: string;
 }
 

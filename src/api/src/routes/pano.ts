@@ -11,6 +11,8 @@
  *
  * Provisioning: when pano is not provisioned (enabled=false or no binary
  * path), POST returns 409 { error: 'pano_not_provisioned', message: '...' }.
+ * The classical matcher needs nothing else; the opt-in ML matcher without its
+ * models directory or ONNX Runtime returns 409 { error: 'pano_ml_not_provisioned' }.
  *
  * Concurrency: one pano_stitch job may run at a time (they are heavy:
  * ~6 min, tens of GB RSS). POST returns 409 { error: 'pano_job_running' }
@@ -30,6 +32,7 @@ import path from 'node:path';
 import { ObjectId } from '../db/object-id.ts';
 import { child as childLogger } from '../log.ts';
 import {
+  isMlMatcherUnprovisioned,
   isPanoProvisioned,
   loadPanoConfig,
   resolvePanoConfig,
@@ -113,6 +116,7 @@ const ConfigBody = t.Object({
   models_dir: t.Optional(t.Union([t.String(), t.Null()])),
   ort_dylib_path: t.Optional(t.Union([t.String(), t.Null()])),
   enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
+  matcher: t.Optional(t.Union([t.Literal('classical'), t.Literal('ml'), t.Null()])),
 });
 
 // ── view helpers ─────────────────────────────────────────────────────────────
@@ -335,7 +339,16 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
           error: 'pano_not_provisioned',
           message:
             'Panorama stitching is not configured. Go to Settings > Pano to set the ' +
-            'maple-cli path, models directory, and enable the feature.',
+            'maple-cli path and enable the feature.',
+        };
+      }
+      if (isMlMatcherUnprovisioned(cfg)) {
+        set.status = 409;
+        return {
+          error: 'pano_ml_not_provisioned',
+          message:
+            'The ML matcher is selected but its models directory or ONNX Runtime path is ' +
+            'not set. Go to Settings > Pano to set both, or switch back to the classical matcher.',
         };
       }
 
@@ -454,6 +467,7 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
           strategy: body.options.strategy ?? null,
           strategySupported,
           mapleCli: cfg.maple_cli_path!,
+          featuresEngine: cfg.matcher,
           modelsDir: cfg.models_dir,
           ortDylibPath: cfg.ort_dylib_path,
         },
