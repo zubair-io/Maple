@@ -4,14 +4,12 @@
  * A card whose query carries free text is a ranked collection: the in-process engine ranks the
  * text and SQL filters its hits (`search/ranked-window.ts`), so `total` is the ranked window's
  * size and `more` says a deeper page can widen it — the same window `GET /api/search` serves for
- * the same query, and the one the worker measured the card with. Meilisearch answers when it is
- * configured and the child is not selected.
+ * the same query, and the one the worker measured the card with.
  *
- * While the selected in-process engine is still loading (about a minute after a restart) the
+ * While the in-process engine is still loading (about a minute after a restart) the
  * collection answers with the worker's stored preview and `pending: true` rather than ranking the
  * text in the database: those rows are what the card already shows, `total` is their count on
- * every page, and `more` says to ask again once the engine is up. Only a server with no engine selected or
- * configured ranks a card in the database, through the same bounded window.
+ * every page, and `more` says to ask again once the engine is up.
  *
  * A card without free text is a structured filter — dates, people, scene type — with no full-text
  * term, so its page is the capture-ordered index walk `GET /api/search` uses and its `total` a live
@@ -54,9 +52,9 @@ async function rankedCollectionPage(
   input: CollectionPageInput,
   text: string,
 ): Promise<CollectionPage> {
-  const { doc, where, resolved, offset, limit } = input;
+  const { doc, where, offset, limit } = input;
   const page = { skip: offset, limit };
-  const request = { where, resolved, text, libraryId: doc.library_id, need: offset + limit };
+  const request = { where, text, need: offset + limit };
   const window = await requestWindow(request, 'collection');
   return window ? withoutRankedBy(await windowPage(window, page)) : pendingPage(doc, where, page);
 }

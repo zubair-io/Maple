@@ -16,10 +16,6 @@ import {
   insertFolder,
   type LiveTestDatabase,
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
-import {
-  resetSearchEngineSelectionForTests,
-  saveSearchEngine,
-} from '../../search/search-engine-selection.ts';
 import { setInProcessSearchForTests } from '../../search/search-pool.ts';
 import { fakeInProcessSearch } from '../../search/search.test-helpers.ts';
 import { RANKED_WINDOW_BASE, RANKED_WINDOW_MAX } from '../../db/repos/search.ranked.ts';
@@ -44,13 +40,10 @@ beforeEach(async () => {
     });
   }
   _resetCacheForTests();
-  resetSearchEngineSelectionForTests();
-  await saveSearchEngine('in-process');
 });
 
 afterEach(() => {
   setInProcessSearchForTests(null);
-  resetSearchEngineSelectionForTests();
   _resetCacheForTests();
   live.close();
 });
@@ -222,7 +215,6 @@ describe('facets and buckets of a page describe the window its list counts', () 
 
   it('with the database window, widened by a filter', async () => {
     setInProcessSearchForTests(fakeInProcessSearch(null));
-    await saveSearchEngine('meilisearch');
 
     const shallow = await totals('placeQuery=greyson&rating=5&limit=20');
     const deep = await totals('placeQuery=greyson&rating=5&limit=100&page=1');
@@ -263,8 +255,8 @@ describe('the free text a search accepts', () => {
 });
 
 describe('cached facets and buckets follow the engine that answers', () => {
-  it("never serves one engine's window for another after the selection changes", async () => {
-    setInProcessSearchForTests(honouringK(ranked.slice(0, 5)));
+  it("never keeps the database's stand-in for the child's window once the child answers", async () => {
+    setInProcessSearchForTests(fakeInProcessSearch(null));
     const app = new Elysia().use(facetsRoute).use(bucketsRoute);
     const totals = async () => ({
       facets: (
@@ -279,8 +271,8 @@ describe('cached facets and buckets follow the engine that answers', () => {
       ).total,
     });
 
-    expect(await totals()).toEqual({ facets: 5, buckets: 5 });
-    await saveSearchEngine('meilisearch');
     expect(await totals()).toEqual({ facets: RANKED_WINDOW_BASE, buckets: RANKED_WINDOW_BASE });
+    setInProcessSearchForTests(honouringK(ranked.slice(0, 5)));
+    expect(await totals()).toEqual({ facets: 5, buckets: 5 });
   });
 });

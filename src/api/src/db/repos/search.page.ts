@@ -5,7 +5,7 @@
  *
  * A search response carries a page of results and a count of everything that
  * matched, and the failure mode when those disagree is not subtle — the grid
- * shows "1,482 photos" above an empty scroller. The Meilisearch branch produced
+ * shows "1,482 photos" above an empty scroller. A ranked branch produced
  * exactly that once, by post-filtering a single page and reporting a count from
  * a different predicate. Here {@link searchPage} and {@link searchCount} take
  * the same translated {@link SearchWhere} and compose it the same way, so the

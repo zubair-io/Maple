@@ -4,7 +4,7 @@ import type { AssetFaceDoc } from '../../db/schema.ts';
 import type { ImageDoc, StageResult } from '../run-stage.ts';
 import { createLiveTestDatabase } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { insertPerson } from '../../db/repos/people.test-helpers.ts';
-import { EMBEDDER_TEMPLATE_SHAPE_VERSION } from '../../enrichment/meilisearch-embedder-template.ts';
+import { EMBEDDER_TEMPLATE_SHAPE_VERSION } from '../../enrichment/embedder-document.ts';
 import { decodeVector, l2Normalize } from '../../enrichment/ollama-embed-client.ts';
 import { forgetEmbedderTarget } from '../embed/embedder-target.ts';
 import embedStage, { embedHandler, setEmbedBatchForTests } from './embed.ts';

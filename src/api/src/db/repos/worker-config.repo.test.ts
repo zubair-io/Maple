@@ -86,9 +86,9 @@ describe('upsert', () => {
   test('leaves fields the config does not carry alone', async () => {
     using handle = await createTestDatabase();
     const repo = new WorkerConfigRepo(testSqliteDb(handle.db));
-    await repo.upsert('meili', { ...FULL, paused: true, pause_reason: 'no embedder' });
-    await repo.upsert('meili', { ...FULL, paused: true, concurrency: 8 });
-    const loaded = await repo.load('meili');
+    await repo.upsert('search-blob', { ...FULL, paused: true, pause_reason: 'no embedder' });
+    await repo.upsert('search-blob', { ...FULL, paused: true, concurrency: 8 });
+    const loaded = await repo.load('search-blob');
     expect(loaded?.concurrency).toBe(8);
     expect(loaded?.pause_reason).toBe('no embedder');
   });
@@ -113,12 +113,12 @@ describe('patch', () => {
   test('a resume clears the reason the pause came with', async () => {
     using handle = await createTestDatabase();
     const repo = new WorkerConfigRepo(testSqliteDb(handle.db));
-    await repo.upsert('meili', FULL);
-    await repo.patch('meili', { paused: true, pause_reason: 'embedder address rejected' });
-    expect((await repo.load('meili'))?.pause_reason).toBe('embedder address rejected');
+    await repo.upsert('search-blob', FULL);
+    await repo.patch('search-blob', { paused: true, pause_reason: 'embedder address rejected' });
+    expect((await repo.load('search-blob'))?.pause_reason).toBe('embedder address rejected');
 
-    await repo.patch('meili', { paused: false });
-    const resumed = await repo.load('meili');
+    await repo.patch('search-blob', { paused: false });
+    const resumed = await repo.load('search-blob');
     expect(resumed?.paused).toBe(false);
     // Not merely null — the key is gone, which is what the status row renders.
     expect(Object.keys(resumed ?? {})).not.toContain('pause_reason');
@@ -127,10 +127,10 @@ describe('patch', () => {
   test('a fresh self-pause writes a new reason', async () => {
     using handle = await createTestDatabase();
     const repo = new WorkerConfigRepo(testSqliteDb(handle.db));
-    await repo.patch('meili', { paused: true, pause_reason: 'first' });
-    await repo.patch('meili', { paused: false });
-    await repo.patch('meili', { paused: true, pause_reason: 'second' });
-    expect((await repo.load('meili'))?.pause_reason).toBe('second');
+    await repo.patch('search-blob', { paused: true, pause_reason: 'first' });
+    await repo.patch('search-blob', { paused: false });
+    await repo.patch('search-blob', { paused: true, pause_reason: 'second' });
+    expect((await repo.load('search-blob'))?.pause_reason).toBe('second');
   });
 
   test('a patch that names nothing neither inserts nor throws', async () => {

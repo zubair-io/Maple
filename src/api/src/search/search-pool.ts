@@ -3,7 +3,7 @@
  * query at a time and restarts it when it dies.
  *
  * Every failure answers `null` rather than throwing — the child not running, still loading, dead
- * mid-query, a query queued past its deadline — and callers take that as "use the Meilisearch
+ * mid-query, a query queued past its deadline — and callers take that as "use the database
  * path". A search never fails because the in-process engine is unavailable.
  *
  * One query in flight: a query already uses every thread the embedder and the vector scan are

@@ -20,8 +20,11 @@
 
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
-import { embedderDocumentFor, renderEmbedderDocument } from '../../enrichment/embedder-document.ts';
-import { EMBEDDER_TEMPLATE_SHAPE_VERSION } from '../../enrichment/meilisearch-embedder-template.ts';
+import {
+  EMBEDDER_TEMPLATE_SHAPE_VERSION,
+  embedderDocumentFor,
+  renderEmbedderDocument,
+} from '../../enrichment/embedder-document.ts';
 import {
   EMBED_BATCH_SIZE,
   embedTexts,
@@ -33,7 +36,7 @@ import type { AssetFaceDoc, Place, TranscriptDoc } from '../../db/schema.ts';
 import { createBatcher } from '../embed/batcher.ts';
 import { currentEmbedderTarget, freshEmbedderTarget } from '../embed/embedder-target.ts';
 import { sweepEmbedderChange } from '../embed/embedder-rearm.ts';
-import { loadNamedPeople, peopleNamesForFaces } from './meili.ts';
+import { loadNamedPeople, peopleNamesForFaces } from '../../people/asset-person-names.ts';
 
 const EMBED_STAGE_VERSION = EMBEDDER_TEMPLATE_SHAPE_VERSION;
 

@@ -140,7 +140,7 @@ export async function stampMarkerIfUnmoved(
  * `thumb` and `preview` reset to version 0 because their cache key is derived
  * from the file's path, so the `.maple` derivatives were dropped with the move
  * (`docs/caching.md`). The expensive per-image stages are deliberately not in
- * that list: the pixels did not change. `meili` is re-armed because `filename`
+ * that list: the pixels did not change. `embed` is re-armed because `filename`
  * is the highest-weight lexical field in the search index and a relocate that
  * skipped it leaves the document permanently stale (#2357).
  */

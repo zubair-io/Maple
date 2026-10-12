@@ -26,10 +26,6 @@ import {
   run,
 } from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../../src/indexer/libraries.cache.ts';
-import type {
-  MeilisearchAssetDoc,
-  MeilisearchClient,
-} from '../../src/enrichment/meilisearch-client.ts';
 
 /**
  * Register one library root and drop the process-wide roots cache onto it.
@@ -219,55 +215,4 @@ export function searchBlob(db: Database, id: string): string {
     search_blob: string;
   } | null;
   return row?.search_blob ?? '';
-}
-
-/** A Meilisearch client that records what the route asked it to do. */
-export interface CapturingMeili extends MeilisearchClient {
-  tombstones: string[];
-  upserts: MeilisearchAssetDoc[];
-}
-
-export function capturingMeili(): CapturingMeili {
-  const tombstones: string[] = [];
-  const upserts: MeilisearchAssetDoc[] = [];
-  return {
-    tombstones,
-    upserts,
-    isConfigured: () => true,
-    semanticConfigured: () => false,
-    health: async () => true,
-    ensureIndex: async () => {},
-    upsert: async (doc) => {
-      upserts.push(doc);
-    },
-    upsertOrThrow: async (doc) => {
-      upserts.push(doc);
-    },
-    tombstone: async (id) => {
-      tombstones.push(id);
-    },
-    search: async () => ({ ids: [], estimatedTotal: 0 }),
-  };
-}
-
-/**
- * A Meilisearch client whose named verbs throw — the "search is down" fixture
- * both trash suites use to prove the catalogue write survives it.
- */
-export function failingMeili(failing: ('upsert' | 'tombstone')[]): MeilisearchClient {
-  const boom = async (): Promise<never> => {
-    throw new Error('meilisearch unavailable');
-  };
-  const upsertFails = failing.includes('upsert');
-  const tombstoneFails = failing.includes('tombstone');
-  return {
-    isConfigured: () => true,
-    semanticConfigured: () => false,
-    health: async () => true,
-    ensureIndex: async () => {},
-    upsert: upsertFails ? boom : async () => {},
-    upsertOrThrow: upsertFails ? boom : async () => {},
-    tombstone: tombstoneFails ? boom : async () => {},
-    search: async () => ({ ids: [], estimatedTotal: 0 }),
-  };
 }

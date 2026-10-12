@@ -33,10 +33,6 @@ import { runGeneratedSearch } from './search-adapter.ts';
 import { toSearchQuery } from './execute.ts';
 import { setSqliteHandleForTests } from '../../db/sqlite/index.ts';
 import { recordReadWaves } from '../../db/sqlite/read-waves.test-helpers.ts';
-import {
-  resetSearchEngineSelectionForTests,
-  saveSearchEngine,
-} from '../../search/search-engine-selection.ts';
 import { setInProcessSearchForTests } from '../../search/search-pool.ts';
 import { fakeInProcessSearch } from '../../search/search.test-helpers.ts';
 
@@ -236,7 +232,6 @@ describe('runGeneratedSearch — a theme with free text (#4514)', () => {
 
   it('measures the ranked window and counts nothing', async () => {
     using live = await createLiveTestDatabase();
-    resetSearchEngineSelectionForTests();
     const libraryId = seedLibrary(live.db);
     seedAsset(live.db, libraryId, 'a', { searchBlob: 'busy city at night', description: 'Night' });
     seedAsset(live.db, libraryId, 'b', { searchBlob: 'tall buildings', description: 'Towers' });
@@ -259,10 +254,8 @@ describe('runGeneratedSearch — a theme with free text (#4514)', () => {
     ).toBe(true);
   });
 
-  it("ranks with the in-process engine when it is selected, the API's child answering", async () => {
+  it("ranks with the in-process engine, the API's child answering", async () => {
     using live = await createLiveTestDatabase();
-    resetSearchEngineSelectionForTests();
-    await saveSearchEngine('in-process');
     const libraryId = seedLibrary(live.db);
     seedAsset(live.db, libraryId, 'a');
     seedAsset(live.db, libraryId, 'b');
@@ -274,7 +267,6 @@ describe('runGeneratedSearch — a theme with free text (#4514)', () => {
       expect(engine.queries).toEqual([{ query: THEME, k: 100 }]);
     } finally {
       setInProcessSearchForTests(null);
-      resetSearchEngineSelectionForTests();
-    }
+      }
   });
 });

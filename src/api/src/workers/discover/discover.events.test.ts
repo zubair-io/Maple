@@ -123,22 +123,22 @@ describe('discover producer — events', () => {
     expect(changesFor(library.db, newPath).map((row) => row.kind)).toEqual(['update', 'delete']);
   });
 
-  it('re-arms the meili stage in full on a rename event', async () => {
-    // #2357: a rename rewrites the filename — the highest-weight lexical field
-    // in the Meilisearch index. Without re-arming the stage the search document
-    // is never re-synced and goes permanently stale. The reset is all five
+  it('re-arms the embed stage in full on a rename event', async () => {
+    // #2357: a rename rewrites the filename — the first line of the text
+    // the embedder reads. Without re-arming the stage the vector is never
+    // re-synced and goes permanently stale. The reset is all five
     // fields, not just the version: a stage that had dead-lettered would
     // otherwise stay parked and never be claimed.
-    using library = await createDiscoverLibrary('discover-meili-rename-');
-    const file = path.join(library.root, 'meili-src.jpg');
+    using library = await createDiscoverLibrary('discover-embed-rename-');
+    const file = path.join(library.root, 'embed-src.jpg');
     await writeFile(file, Buffer.alloc(64, 0x55));
 
     await handleEvent({ kind: 'created', absPath: file }, library.folderId, library.root);
-    const assetId = assetIdAt(library.db, '', 'meili-src.jpg');
+    const assetId = assetIdAt(library.db, '', 'embed-src.jpg');
     expect(assetId).not.toBeNull();
-    deadLetterStage(library.db, assetId!, 'meili');
+    deadLetterStage(library.db, assetId!, 'embed');
 
-    const newPath = path.join(library.root, 'meili-renamed.jpg');
+    const newPath = path.join(library.root, 'embed-renamed.jpg');
     await writeFile(newPath, Buffer.alloc(64, 0x55));
     await handleEvent(
       { kind: 'renamed', absPath: newPath, fromPath: file },
@@ -146,11 +146,11 @@ describe('discover producer — events', () => {
       library.root,
     );
 
-    const meili = stageRow(library.db, assetId!, 'meili')!;
-    expect(meili.version).toBe(0);
-    expect(meili.dead).toBe(0);
-    expect(meili.attempts).toBe(0);
-    expect(meili.last_error).toBeNull();
+    const embed = stageRow(library.db, assetId!, 'embed')!;
+    expect(embed.version).toBe(0);
+    expect(embed.dead).toBe(0);
+    expect(embed.attempts).toBe(0);
+    expect(embed.last_error).toBeNull();
   });
 
   for (const reserved of [

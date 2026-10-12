@@ -611,8 +611,8 @@ export interface AssetDoc {
    * worker's `complete()` so the value stays consistent without a
    * separate write. The full-text search index (FTS5) lives on this field. */
   search_blob?: string;
-  /** Fingerprint of the semantic embedder configuration whose Meilisearch
-   * task completed for this asset. Used for exact live-vector coverage. */
+  /** Retired: the fingerprint the Meilisearch vector coverage stamped. Nothing writes it
+   * any more; the column is kept because dropping it needs a table rebuild. */
   semantic_vector_fingerprint?: string;
   /** Per-device link from Apple Photos. Multiple entries when the same
    * content has been observed on more than one device. See
@@ -672,7 +672,7 @@ export interface AssetDoc {
    * Video screenshot-flag clear generation
    * (`workers/migration/clear-video-screenshot-flags.ts`). Stamped once that
    * migration has cleared a video's `is_screenshot` / `vision.is_screenshot`
-   * and re-armed its describe + meili stages (#2325); its `{ $ne: N }`
+   * and re-armed its describe + search stages (#2325); its `{ $ne: N }`
    * selector re-sweeps videos once per bump. Without this marker the
    * candidate set would refill as soon as a re-run re-flagged a row, and the
    * migration would never reach "done."
@@ -1130,7 +1130,7 @@ export interface PersonDoc {
    * An excluded person's photos are dropped from every non-file listing
    * API UNCONDITIONALLY (search results, timeline buckets, facets, map
    * clusters — no opt-in flag, unlike `excludeHiddenPeople`), their name
-   * is dropped from the Meili index, and the person appears in no people
+   * is dropped from the search text, and the person appears in no people
    * listing except the recovery list (`GET /api/people/excluded`). Direct
    * file browsing (folder contents) is deliberately unaffected. Faces stay
    * assigned and the row stays a clustering seed, same as `hidden`.

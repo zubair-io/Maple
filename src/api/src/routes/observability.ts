@@ -14,10 +14,10 @@
  *                                    auth without saving.
  *
  * All routes are mounted behind `requireAuth` — see `src/index.ts`. The
- * ingestion key is echoed on GET (unlike the meilisearch key, which is
+ * ingestion key is echoed on GET (unlike the provider API keys, which are
  * write-only) BECAUSE the client transport posts straight to SigNoz with it;
  * the gate is the bearer-auth wrapper, not field-level redaction. Write
- * semantics still mirror meilisearch_api_key (non-empty sets, null clears to
+ * semantics still mirror the provider API keys (non-empty sets, null clears to
  * env, ""/omitted leaves unchanged) so a blank field in the UI never wipes a
  * key the operator typed once.
  */

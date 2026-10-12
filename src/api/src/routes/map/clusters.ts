@@ -228,9 +228,7 @@ async function clusterScope(
   if (scope.childQuery === null) return { where: scope.where };
   const window = await requestWindow({
     where: scope.where,
-    resolved: scope.resolved,
     text: scope.childQuery,
-    libraryId: q.libraryId,
     need: RANKED_WINDOW_MAX,
   });
   return { where, window: window.rows };

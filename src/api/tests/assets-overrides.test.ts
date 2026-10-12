@@ -7,7 +7,7 @@
  * override. Nothing external to reach, so nothing to skip on.
  *
  * Where the Mongo document fanned out: the caption lives on `asset_detail`,
- * the synthesised search text on `asset_search`, the `stages.meili` re-arm on
+ * the synthesised search text on `asset_search`, the `search-blob` re-arm on
  * `stage_state`, and the per-stage enrichment bookkeeping on
  * `enrichment_state`. Each assertion reads the table that now owns the field.
  */
@@ -32,8 +32,14 @@ import {
 
 const LIBRARY_ROOT = '/libraries/overrides';
 
-/** The stage bookkeeping a re-armed `meili` row carries. */
-const REARMED_MEILI = { version: 0, attempts: 0, dead: 0, processed_at: null, last_error: null };
+/** The stage bookkeeping a re-armed `search-blob` row carries. */
+const REARMED_SEARCH_BLOB = {
+  version: 0,
+  attempts: 0,
+  dead: 0,
+  processed_at: null,
+  last_error: null,
+};
 
 let live: LiveTestDatabase;
 let app: Elysia;
@@ -131,7 +137,7 @@ describe('PUT /api/assets/:id/place', () => {
     // search_blob (description and ocr_text are still null). Sort is
     // pure alphabetical — "york" lands after "usa".
     expect(searchBlob(live.db, assetId)).toBe('brooklyn new usa york');
-    expect(stageStateRow(live.db, assetId, 'meili')).toMatchObject(REARMED_MEILI);
+    expect(stageStateRow(live.db, assetId, 'search-blob')).toMatchObject(REARMED_SEARCH_BLOB);
   });
 
   it('clears the place when null is sent', async () => {
@@ -159,7 +165,7 @@ describe('PUT /api/assets/:id/description', () => {
     expect(descriptionOf(assetId)).toBe('A red barn at sunset');
     // search_blob = sorted lowercase token bag.
     expect(searchBlob(live.db, assetId)).toBe('a at barn red sunset');
-    expect(stageStateRow(live.db, assetId, 'meili')).toMatchObject(REARMED_MEILI);
+    expect(stageStateRow(live.db, assetId, 'search-blob')).toMatchObject(REARMED_SEARCH_BLOB);
   });
 
   it('clears description when null is sent', async () => {

@@ -219,8 +219,8 @@ export interface ListFilter {
    * The Mongo repo's `findListItems` filters on `deleted_at: null` alone, so
    * it also returns assets whose every location has been tagged missing. That
    * is the outlier, not this: `LIVE_ASSET_FILTER` in
-   * `enrichment/meilisearch-vector-coverage.ts` — the definition the search
-   * index, the facets and the coverage counts all use — is
+   * the live-asset definition the search
+   * index, the facets and the coverage counts all use is
    * `deleted_at: null` PLUS `fileinfo: { $elemMatch: { deleted_at: null,
    * missing_since: null } }`, which is exactly the predicate here. The list
    * endpoint was the one live surface disagreeing with the rest of the

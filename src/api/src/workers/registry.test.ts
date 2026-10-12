@@ -81,7 +81,16 @@ describe('StageRegistry.statuses() pre-registration', () => {
   });
 
   it('statuses() returns every pre-registered stage even when none have booted', () => {
-    const names = ['hash', 'exif', 'thumb', 'preview', 'face', 'describe', 'geocode', 'meili'];
+    const names = [
+      'hash',
+      'exif',
+      'thumb',
+      'preview',
+      'face',
+      'describe',
+      'geocode',
+      'search-blob',
+    ];
     for (const n of names) stageRegistry.preregister(n, 1);
     const s = stageRegistry.statuses();
     expect(Object.keys(s).sort()).toEqual(names.sort());
@@ -108,9 +117,9 @@ describe('StageRegistry.statuses() pre-registration', () => {
   });
 
   it('preregister is idempotent — re-calling updates targetVersion in place', () => {
-    stageRegistry.preregister('meili', 1);
-    stageRegistry.preregister('meili', 5);
-    expect(stageRegistry.statuses().meili!.targetVersion).toBe(5);
+    stageRegistry.preregister('search-blob', 1);
+    stageRegistry.preregister('search-blob', 5);
+    expect(stageRegistry.statuses()['search-blob']!.targetVersion).toBe(5);
   });
 
   it('preregister preserves previously-registered deps when re-called without them', () => {

@@ -6,7 +6,7 @@ import type { SqliteDb } from './db-handle.ts';
 import { assignFaceToPerson, hideFace, renamePerson } from './people.repo.ts';
 import { mergePeopleInto } from './people.merge.ts';
 import { excludePerson, hidePerson, unexcludePerson, unhidePerson } from './people.visibility.ts';
-import { EMBED_STAGE, MEILI_STAGE } from './assets.stage-rearm.ts';
+import { EMBED_STAGE, SEARCH_BLOB_STAGE } from './assets.stage-rearm.ts';
 import { insertStageState } from './assets.test-helpers.ts';
 import { stageRow } from './stage-runtime.test-helpers.ts';
 import {
@@ -58,11 +58,11 @@ function state(db: Database) {
 function failSearchWrites(db: Database): void {
   for (const operation of ['INSERT', 'UPDATE']) {
     db.exec(`CREATE TRIGGER reject_search_${operation} BEFORE ${operation} ON stage_state
-      WHEN NEW.stage = 'meili' BEGIN SELECT RAISE(ABORT, 'search work unavailable'); END`);
+      WHEN NEW.stage = 'search-blob' BEGIN SELECT RAISE(ABORT, 'search work unavailable'); END`);
   }
 }
 
-const SEARCH_STAGES = [MEILI_STAGE, EMBED_STAGE];
+const SEARCH_STAGES = [SEARCH_BLOB_STAGE, EMBED_STAGE];
 
 function seedIndexedStages(db: Database, assetId: string): void {
   SEARCH_STAGES.forEach((stage) =>
@@ -135,9 +135,9 @@ describe.each(mutations)('$name commits with its local search work', (mutation) 
       none: [asset],
     }[mutation.rearms ?? 'none'];
     rearmed.forEach((assetId) => expectSearchStagesRearmed(db, assetId));
-    expect(stageRow(db, unrelated, MEILI_STAGE)?.version).toBe(6);
+    expect(stageRow(db, unrelated, SEARCH_BLOB_STAGE)?.version).toBe(6);
     if (!rearmed.includes(otherAsset)) {
-      expect(stageRow(db, otherAsset, MEILI_STAGE)?.version).toBe(6);
+      expect(stageRow(db, otherAsset, SEARCH_BLOB_STAGE)?.version).toBe(6);
     }
   });
 });

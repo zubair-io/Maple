@@ -254,7 +254,7 @@ function toImageDoc(
  * did on Mongo. `transcript` is the one field that is omitted rather than
  * nulled: it is declared optional on the document instead of nullable, so an
  * asset with no transcript carries no key at all, which is the shape the
- * collection held and the shape `meili` reads through `image.transcript?.text`.
+ * collection held and the shape `search-blob` reads through `image.transcript?.text`.
  */
 function detailFields(detail: DetailRow | undefined) {
   const columns = detail ?? NO_DETAIL;

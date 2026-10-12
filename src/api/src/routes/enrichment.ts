@@ -9,11 +9,9 @@ import { requireAuth, requireOwnerBeforeHandle } from '../auth/middleware.ts';
 import { child as childLogger } from '../log.ts';
 import {
   MAX_FACE_MIN_DETECTION_SIZE,
-  MAX_MEILISEARCH_TASK_TIMEOUT_SECONDS,
   MAX_NOMINATIM_RATE_LIMIT_PER_SEC,
   MAX_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE,
   MIN_FACE_MIN_DETECTION_SIZE,
-  MIN_MEILISEARCH_TASK_TIMEOUT_SECONDS,
   MIN_NOMINATIM_RATE_LIMIT_PER_SEC,
   MIN_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE,
   asDescribeProvider,
@@ -29,14 +27,7 @@ import { readWorkerStatus } from '../db/repos/worker-status.repo.ts';
 import { validateHttpUrl } from '../observability/observability-config.repo.ts';
 import { RemoteError, getDescribeProvider } from '../enrichment/describe-providers/index.ts';
 import { validateDescribePatch } from './enrichment-describe-patch.ts';
-import {
-  createMeilisearchClient,
-  reconfigureMeilisearch,
-} from '../enrichment/meilisearch-client.ts';
-import { validMeilisearchSemanticRatio } from '../enrichment/meilisearch-config.ts';
 import { configureServiceSearchRateLimit } from '../enrichment/service-search-rate-limit.ts';
-import { syncIndexAndCoverage } from '../enrichment/meilisearch-vector-coverage.ts';
-import { testMeilisearchConnection } from '../enrichment/meilisearch-connection-test.ts';
 
 const log = childLogger('enrichment:routes');
 
@@ -102,35 +93,11 @@ const ConfigBody = t.Object({
   face_retinaface_sha256: t.Optional(t.Union([t.String(), t.Null()])),
   face_mobilefacenet_url: t.Optional(t.Union([t.String(), t.Null()])),
   face_mobilefacenet_sha256: t.Optional(t.Union([t.String(), t.Null()])),
-  // ── Search index (Phase 7) ─────────────────────────────────────────
-  /** Meilisearch sidecar URL. `null`/empty clears back to the
-   * `MAPLE_MEILISEARCH_URL` env var (or disables the sidecar); omitted
-   * leaves the saved value alone. */
-  meilisearch_url: t.Optional(t.Union([t.String(), t.Null()])),
-  /** Meilisearch API key. Secret — write-only. A non-empty string sets it;
-   * `null` clears it back to the `MAPLE_MEILISEARCH_API_KEY` env var;
-   * omitted (or empty string) leaves the saved key unchanged so a blank
-   * field in the UI never wipes a key the operator can't see. */
-  meilisearch_api_key: t.Optional(t.Union([t.String(), t.Null()])),
-  meilisearch_task_timeout_seconds: t.Optional(t.Union([t.Number(), t.Null()])),
-  meilisearch_semantic_enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
-  /** Deprecated rolling-deploy compatibility field. Semantic search now
-   * always reuses `describe_provider_url`; this value is ignored. */
-  meilisearch_embedder_url: t.Optional(t.Union([t.String(), t.Null()])),
-  meilisearch_embedder_model: t.Optional(t.Union([t.String(), t.Null()])),
-  meilisearch_semantic_ratio: t.Optional(t.Union([t.Number(), t.Null()])),
   service_search_rate_limit_per_minute: t.Optional(t.Union([t.Number(), t.Null()])),
 });
 
 const TestBody = t.Object({
   nominatim_url: t.String({ minLength: 1 }),
-});
-
-const TestMeiliBody = t.Object({
-  meilisearch_url: t.String({ minLength: 1 }),
-  /** Optional write-only key to probe with a not-yet-saved value. When
-   * omitted the env var (`MAPLE_MEILISEARCH_API_KEY`) is used. */
-  api_key: t.Optional(t.Union([t.String(), t.Null()])),
 });
 
 function boundedIntegerError(
@@ -187,7 +154,6 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
   .put(
     '/config',
     async ({ body, set }) => {
-      const existing = resolveEnrichmentConfig(await loadEnrichmentConfig());
       const validated = validateHttpUrl(body.nominatim_url);
       if (validated && typeof validated === 'object' && 'error' in validated) {
         set.status = 400;
@@ -260,65 +226,6 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         }
       }
 
-      // ── Meilisearch URL validation ────────────────────────────────
-      // `undefined` = field omitted (keep existing); `null`/empty = clear
-      // back to env-or-disabled. Unlike Nominatim, an unreachable Meili URL
-      // is NOT a save-blocker — search degrades to the SQLite FTS5 path —
-      // so we only validate the URL shape here, not connectivity.
-      let meiliUrl: string | null | undefined;
-      if (body.meilisearch_url !== undefined) {
-        const validatedMeili = validateHttpUrl(body.meilisearch_url);
-        if (validatedMeili && typeof validatedMeili === 'object' && 'error' in validatedMeili) {
-          set.status = 400;
-          return { error: `Invalid meilisearch_url: ${validatedMeili.error}` };
-        }
-        meiliUrl = validatedMeili as string | null;
-      }
-      const semanticEnabled =
-        body.meilisearch_semantic_enabled ?? existing.meilisearch_semantic_enabled;
-      const effectiveMeiliUrl = meiliUrl === undefined ? existing.meilisearch_url : meiliUrl;
-      if (semanticEnabled && !effectiveMeiliUrl) {
-        set.status = 400;
-        return {
-          error: 'Semantic search requires a Meilisearch URL.',
-        };
-      }
-
-      // Meilisearch API key (secret, write-only). `undefined` or empty
-      // string = leave the saved key unchanged (a blank field in the UI must
-      // not wipe a key the operator can't see); `null` = clear back to env;
-      // a non-empty string sets a new key.
-      let meiliApiKey: string | null | undefined;
-      if (body.meilisearch_api_key === null) {
-        meiliApiKey = null;
-      } else if (typeof body.meilisearch_api_key === 'string') {
-        const trimmed = body.meilisearch_api_key.trim();
-        if (trimmed.length > 0) meiliApiKey = trimmed;
-      }
-      const meilisearchTaskTimeout = body.meilisearch_task_timeout_seconds;
-      const taskTimeoutError = boundedIntegerError(
-        'meilisearch_task_timeout_seconds',
-        meilisearchTaskTimeout,
-        MIN_MEILISEARCH_TASK_TIMEOUT_SECONDS,
-        MAX_MEILISEARCH_TASK_TIMEOUT_SECONDS,
-      );
-      if (taskTimeoutError) {
-        set.status = 400;
-        return { error: taskTimeoutError };
-      }
-      const meiliEmbedderModel =
-        body.meilisearch_embedder_model === undefined
-          ? undefined
-          : body.meilisearch_embedder_model?.trim() || null;
-      const semanticRatio = body.meilisearch_semantic_ratio;
-      if (
-        semanticRatio !== undefined &&
-        semanticRatio !== null &&
-        !validMeilisearchSemanticRatio(semanticRatio)
-      ) {
-        set.status = 400;
-        return { error: 'Invalid meilisearch_semantic_ratio: must be a number between 0 and 1' };
-      }
       const serviceSearchRateLimit = body.service_search_rate_limit_per_minute;
       const serviceRateError = boundedIntegerError(
         'service_search_rate_limit_per_minute',
@@ -383,18 +290,6 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         ...(body.face_worker_enabled !== undefined
           ? { face_worker_enabled: body.face_worker_enabled }
           : {}),
-        ...(meiliUrl !== undefined ? { meilisearch_url: meiliUrl } : {}),
-        ...(meiliApiKey !== undefined ? { meilisearch_api_key: meiliApiKey } : {}),
-        ...(meilisearchTaskTimeout !== undefined
-          ? { meilisearch_task_timeout_seconds: meilisearchTaskTimeout }
-          : {}),
-        ...(body.meilisearch_semantic_enabled !== undefined
-          ? { meilisearch_semantic_enabled: body.meilisearch_semantic_enabled }
-          : {}),
-        ...(meiliEmbedderModel !== undefined
-          ? { meilisearch_embedder_model: meiliEmbedderModel }
-          : {}),
-        ...(semanticRatio !== undefined ? { meilisearch_semantic_ratio: semanticRatio } : {}),
         ...(serviceSearchRateLimit !== undefined
           ? { service_search_rate_limit_per_minute: serviceSearchRateLimit }
           : {}),
@@ -440,31 +335,7 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         return { error: `Saved, but worker reconfigure failed: ${configApplyErr}` };
       }
 
-      // Swap the cached search client synchronously so settings apply now.
-      reconfigureMeilisearch({
-        url: resolved.meilisearch_url,
-        apiKey: resolved.meilisearch_api_key,
-        taskTimeoutMs: resolved.meilisearch_task_timeout_seconds * 1000,
-        semanticEnabled: resolved.meilisearch_semantic_enabled,
-        embedderUrl: resolved.meilisearch_embedder_url,
-        embedderModel: resolved.meilisearch_embedder_model,
-        semanticRatio: resolved.meilisearch_semantic_ratio,
-      });
       configureServiceSearchRateLimit(resolved.service_search_rate_limit_per_minute);
-      if (resolved.meilisearch_url) {
-        // Warm up without blocking save; search falls back if Meili is unavailable.
-        const meili = createMeilisearchClient({
-          url: resolved.meilisearch_url,
-          apiKey: resolved.meilisearch_api_key ?? undefined,
-          semantic: resolved.meilisearch_semantic_enabled,
-          embedderUrl: resolved.meilisearch_embedder_url,
-          embedderModel: resolved.meilisearch_embedder_model,
-          semanticRatio: resolved.meilisearch_semantic_ratio,
-        });
-        void syncIndexAndCoverage(meili).catch((err) => {
-          log.warn({ err }, 'Meilisearch reconfigure health/ensureIndex failed (non-fatal)');
-        });
-      }
 
       // Strip the secret key before returning.
       return await toPublicConfig(resolved);
@@ -499,19 +370,6 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
       }
     },
     { body: TestBody },
-  )
-
-  // POST /api/enrichment/test-meili — health-check an arbitrary Meilisearch
-  // URL without saving. A blank key reuses the effective saved DB key,
-  // matching the live client instead of silently falling back to env only.
-  .post(
-    '/test-meili',
-    async ({ body, set }) => {
-      const result = await testMeilisearchConnection(body);
-      set.status = result.status;
-      return result.body;
-    },
-    { body: TestMeiliBody },
   )
 
   // POST /api/enrichment/test-describe — health-check the configured

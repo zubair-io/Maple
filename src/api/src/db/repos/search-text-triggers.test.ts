@@ -9,7 +9,7 @@ import { insertFace, insertLibrary, insertLiveAsset, insertPerson } from './peop
 import { insertStageState } from './assets.test-helpers.ts';
 import { stageRow } from './stage-runtime.test-helpers.ts';
 
-const SEARCH_STAGES = ['meili', 'embed'] as const;
+const SEARCH_STAGES = ['search-blob', 'embed'] as const;
 
 async function indexedAsset() {
   const handle = await createTestDatabase();
@@ -163,7 +163,7 @@ describe('search-text triggers on asset_locations', () => {
       [asset],
     );
 
-    expect(versions(handle, asset)).toEqual([0, 0]);
+    expect(versions(handle, asset)).toEqual([8, 0]);
   });
 
   test('losing the primary location re-arms; changing a non-primary location does not', async () => {
@@ -184,7 +184,7 @@ describe('search-text triggers on asset_locations', () => {
       `UPDATE asset_locations SET missing_since = 'x' WHERE asset_id = ? AND ordinal = 0`,
       [asset],
     );
-    expect(versions(handle, asset)).toEqual([0, 0]);
+    expect(versions(handle, asset)).toEqual([8, 0]);
   });
 
   test('renaming the primary file re-arms, and adding a higher-ordinal copy does not', async () => {
@@ -209,7 +209,7 @@ describe('search-text triggers on asset_locations', () => {
       `UPDATE asset_locations SET filename = 'renamed.dng' WHERE asset_id = ? AND ordinal = 0`,
       [asset],
     );
-    expect(versions(handle, asset)).toEqual([0, 0]);
+    expect(versions(handle, asset)).toEqual([8, 0]);
   });
 
   test('a trashed asset re-arms nothing when its locations change', async () => {
@@ -256,7 +256,7 @@ describe('search-text triggers on asset_locations', () => {
       condemned,
     ]);
 
-    expect(versions(handle, asset)).toEqual([0, 0]);
+    expect(versions(handle, asset)).toEqual([8, 0]);
   });
 
   test('moving a location onto a trashed asset re-arms nothing', async () => {
@@ -305,7 +305,7 @@ describe('search-text triggers on asset_locations', () => {
 
     insertLocation(handle.db, { assetId: asset, libraryId: library, filename: 'back.dng' });
 
-    expect(versions(handle, asset)).toEqual([0, 0]);
+    expect(versions(handle, asset)).toEqual([8, 0]);
   });
 
   test('a live location arriving where every existing one is missing re-arms it', async () => {
@@ -332,6 +332,6 @@ describe('search-text triggers on asset_locations', () => {
       filename: 'n.dng',
     });
 
-    expect(versions(handle, asset)).toEqual([0, 0]);
+    expect(versions(handle, asset)).toEqual([8, 0]);
   });
 });

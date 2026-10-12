@@ -168,7 +168,7 @@ export interface AssetCoreInfo {
   fileinfo?: FileInfo[];
   size: number;
   mtime: number;
-  /** Used by trash / Meilisearch tombstone paths. */
+  /** Used by trash paths. */
   maple_id: string | null;
   deleted_at: string | null;
   /** `'reaped'` when the missing-reaper soft-deleted the row (#2977) — no
@@ -177,7 +177,7 @@ export interface AssetCoreInfo {
   original_path: string | null;
   /** Relative Apple-rendered companion path, retained for permanent erasure. */
   apple_rendered_path?: string;
-  /** Carried for the trash route's Meilisearch re-index branch. */
+  /** Carried for the trash route. */
   place: Place | null;
   description: string | null;
   ocr_text: string | null;

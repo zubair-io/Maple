@@ -15,7 +15,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { signAccessToken } from '../src/auth/tokens.ts';
 import { newObjectIdHex } from '../src/db/object-id.ts';
-import { setMeilisearchClientForTests } from '../src/enrichment/meilisearch-client.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
@@ -24,8 +23,6 @@ import { insertDetail } from '../src/db/repos/assets.test-helpers.ts';
 import { withTestEnv } from '../src/test-support/env.test-helpers.ts';
 import {
   assetRow,
-  capturingMeili,
-  failingMeili,
   locationRows,
   primaryAbsPath,
   registerLibrary,
@@ -101,12 +98,7 @@ describe('POST /api/assets/:id/restore', () => {
 
   afterAll(async () => {
     live.close();
-    setMeilisearchClientForTests(null);
     await fs.rm(ROOT, { recursive: true, force: true });
-  });
-
-  beforeEach(() => {
-    setMeilisearchClientForTests(null);
   });
 
   test('restores to original_path; clears deleted_at + original_path', async () => {
@@ -266,60 +258,6 @@ describe('POST /api/assets/:id/restore', () => {
     });
     const res = await app.handle(restoreReq(assetId, {}));
     expect(res.status).toBe(409);
-  });
-
-  test('restore re-indexes the asset in Meilisearch with deletedAt=null', async () => {
-    const meili = capturingMeili();
-    setMeilisearchClientForTests(meili);
-    const { app } = await import('../src/index.ts');
-    const mapleId = 'feedfacefeedface';
-    const { assetId, originalPath } = await trashedAsset('IMG_RM1.ARW', {
-      mapleId,
-      description: 'a sunset over the river',
-    });
-
-    const res = await app.handle(restoreReq(assetId, {}));
-    expect(res.status).toBe(200);
-
-    expect(meili.upserts.length).toBe(1);
-    const upserted = meili.upserts[0]!;
-    expect(upserted.id).toBe(mapleId);
-    expect(upserted.deletedAt).toBeNull();
-    expect(upserted.folderId).toBe(folderId);
-    expect(upserted.description).toBe('a sunset over the river');
-    // searchBlob is a sorted, deduped token bag — the description tokens
-    // are present in some order.
-    expect(upserted.searchBlob).toContain('sunset');
-    expect(upserted.searchBlob).toContain('river');
-
-    // File restored regardless of Meili side-effects.
-    await fs.stat(originalPath);
-  });
-
-  test('restore skips Meilisearch when maple_id is absent (legacy row)', async () => {
-    const meili = capturingMeili();
-    setMeilisearchClientForTests(meili);
-    const { app } = await import('../src/index.ts');
-    const { assetId } = await trashedAsset('IMG_RM2.ARW');
-
-    const res = await app.handle(restoreReq(assetId, {}));
-    expect(res.status).toBe(200);
-    expect(meili.upserts).toEqual([]);
-  });
-
-  test('restore returns 200 even when Meilisearch throws', async () => {
-    setMeilisearchClientForTests(failingMeili(['upsert']));
-    const { app } = await import('../src/index.ts');
-    const { assetId, originalPath } = await trashedAsset('IMG_RM3.ARW', { mapleId: 'xyz789' });
-
-    const res = await app.handle(restoreReq(assetId, {}));
-    expect(res.status).toBe(200);
-    // Catalog restored and file moved despite the Meilisearch failure.
-    const row = assetRow(live.db, assetId);
-    expect(row!.deleted_at).toBeNull();
-    expect(row!.original_path).toBeNull();
-    expect(primaryAbsPath(live.db, ROOT, assetId)).toBe(originalPath);
-    await fs.stat(originalPath);
   });
 
   test('404 on unknown asset id', async () => {

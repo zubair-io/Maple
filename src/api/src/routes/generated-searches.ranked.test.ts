@@ -19,14 +19,9 @@ import { seedSearchAsset, type SeedAsset } from '../db/repos/search.test-helpers
 import { setSqliteHandleForTests } from '../db/sqlite/index.ts';
 import { recordReadWaves } from '../db/sqlite/read-waves.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
-import {
-  resetSearchEngineSelectionForTests,
-  saveSearchEngine,
-} from '../search/search-engine-selection.ts';
 import { setInProcessSearchForTests } from '../search/search-pool.ts';
 import { fakeInProcessSearch } from '../search/search.test-helpers.ts';
 import { generatedSearchesRoutes } from './generated-searches.ts';
-import { setMeilisearchClientForTests } from '../enrichment/meilisearch-client.ts';
 
 const app = new Elysia().use(generatedSearchesRoutes);
 
@@ -63,13 +58,10 @@ beforeEach(async () => {
       ),
     );
   }
-  resetSearchEngineSelectionForTests();
-  await saveSearchEngine('in-process');
 });
 
 afterEach(() => {
   setInProcessSearchForTests(null);
-  resetSearchEngineSelectionForTests();
   live.close();
   invalidateLibraryRoots();
 });
@@ -171,32 +163,6 @@ describe('a free-text collection while the selected engine is loading', () => {
     }
   });
 
-  it('stays on the preview while the selected engine loads, even with Meilisearch configured', async () => {
-    setInProcessSearchForTests(fakeInProcessSearch(null));
-    const asked: string[] = [];
-    setMeilisearchClientForTests({
-      isConfigured: () => true,
-      semanticConfigured: () => false,
-      health: async () => true,
-      ensureIndex: async () => {},
-      upsert: async () => {},
-      upsertOrThrow: async () => {},
-      tombstone: async () => {},
-      search: async (q) => {
-        asked.push(q);
-        return { ids: ['bridge'], estimatedTotal: 1 };
-      },
-    });
-    try {
-      const id = seedCard([ids.get('street')!]);
-      const { body } = await get(`/api/generated-searches/${id}/assets?limit=30`);
-      expect(body).toMatchObject({ pending: true, snapshot: true, total: 1 });
-      expect(asked).toEqual([]);
-    } finally {
-      setMeilisearchClientForTests(null);
-    }
-  });
-
   it('shortens a stored theme longer than a search accepts rather than refusing the card', async () => {
     const engine = fakeInProcessSearch(['bridge']);
     setInProcessSearchForTests(engine);
@@ -227,20 +193,5 @@ describe('a free-text collection while the selected engine is loading', () => {
     const { body } = await get(`/api/generated-searches/${seedCard()}/assets`);
 
     expect(body).toEqual({ total: 0, results: [], more: false, snapshot: true, pending: true });
-  });
-});
-
-describe('a free-text collection with no engine selected', () => {
-  it('ranks in the database through the bounded window', async () => {
-    await saveSearchEngine('meilisearch');
-
-    const { body, statements } = await get(`/api/generated-searches/${seedCard()}/assets`);
-
-    expect(body.total).toBe(3);
-    expect(body.pending).toBeUndefined();
-    const fullText = statements.filter((sql) => sql.includes('assets_fts'));
-    expect(fullText).toHaveLength(1);
-    expect(fullText[0]).toStartWith('bulk: ');
-    expect(fullText[0]).toContain('WITH hit AS MATERIALIZED');
   });
 });

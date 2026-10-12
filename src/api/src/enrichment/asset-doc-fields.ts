@@ -1,19 +1,16 @@
 /**
- * Pure derivation of the prose-valued Meilisearch document fields, shared by
- * the two writers that build `MeilisearchAssetDoc`: the per-asset meili stage
- * (`workers/stages/meili.ts`) and the bulk backfill
- * (`meilisearch-backfill-compose.ts`). A field added to one writer only is a
- * silent ranking bug for half the corpus, so both call these.
+ * Pure derivation of the prose-valued fields of the embedder document
+ * (`embedder-document.ts`).
  *
  * "Prose" is the point. `search_blob` is a lowercased, deduped,
  * alphabetically-sorted token bag (see `search-blob.ts`) — fine for the
- * built-in full-text fallback, useless as embedder input, because word order and
+ * built-in full-text index, useless as embedder input, because word order and
  * repetition are exactly what a sentence embedder reads. These fields carry
- * the original text through to the index unmodified.
+ * the original text through unmodified.
  */
 
-/** Structural shape both writers satisfy. The meili stage models the field as
- * `{ text?: string }` and the backfill as `TranscriptDoc` (`text: string`);
+/** Structural shape the transcript is read through: stage documents model it as
+ * `{ text?: string }` and stored rows as `TranscriptDoc` (`text: string`);
  * an optional-property type accepts both. */
 export interface IndexableTranscript {
   text?: string | null;

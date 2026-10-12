@@ -105,7 +105,7 @@ describe('sidecarMetadataIndexHandler — patch path', () => {
     );
     const result = await sidecarMetadataIndexHandler(image, fakeCtx);
 
-    expect(invalidatesOf(result)).toContain('meili');
+    expect(invalidatesOf(result)).toContain('geocode');
     const { override } = written(result);
     expect(override['gps']).toMatchObject({ lat: expect.any(Number), lng: expect.any(Number) });
     expect(Array.isArray(override['touched_fields'])).toBe(true);
@@ -243,9 +243,9 @@ describe('sidecarMetadataIndexHandler — video assets (M5)', () => {
 // ---------------------------------------------------------------------------
 
 describe('sidecarMetadataIndexHandler — downstream re-arms', () => {
-  test('re-arms only the search index when nothing else changed', async () => {
+  test('re-arms nothing downstream when nothing else changed', async () => {
     const image = await writeSidecar(library, makeXmp('photoshop:City="Paris"'));
-    expect(invalidatesOf(await sidecarMetadataIndexHandler(image, fakeCtx))).toEqual(['meili']);
+    expect(invalidatesOf(await sidecarMetadataIndexHandler(image, fakeCtx))).toEqual([]);
   });
 
   test('re-arms geocode when the sidecar moved the coordinates', async () => {

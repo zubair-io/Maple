@@ -39,7 +39,7 @@ export interface QueryResponse {
  * the keyword index is still being rebuilt; `failed` when the engine could not open.
  * `incompatible-embedder` when the configured embedding model is not the one the child embeds
  * queries with, and `empty` while no vector of that model exists yet: in both the child answers
- * nothing, and searches take the Meilisearch path.
+ * nothing, and searches take the database's full-text path.
  */
 export type SearchChildPhase = 'loading' | 'ready' | 'empty' | 'incompatible-embedder' | 'failed';
 

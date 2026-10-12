@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test';
-import { renderEmbedderDocument, type EmbedderDocument } from './embedder-document.ts';
-import { EMBEDDER_TEMPLATE_MAX_BYTES } from './meilisearch-embedder-template.ts';
+import {
+  EMBEDDER_TEMPLATE_MAX_BYTES,
+  renderEmbedderDocument,
+  type EmbedderDocument,
+} from './embedder-document.ts';
 
 const EMPTY: EmbedderDocument = {
   filename: null,

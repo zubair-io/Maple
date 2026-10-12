@@ -147,7 +147,7 @@ function refreshAssetStatement(id: string, refresh: DedupRefresh): SqlStatement 
  * dedup hit rewrites the flag; the race-loser fallback passes `undefined` and
  * leaves it alone, matching its pre-cutover behaviour.
  *
- * **A soft-deleted row re-arms `meili` in the same transaction.** Its search
+ * **A soft-deleted row re-arms `embed` in the same transaction.** Its search
  * document was tombstoned, so without the re-arm the revived asset stays
  * invisible in search until the next full backfill.
  */

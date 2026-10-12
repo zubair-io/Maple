@@ -38,17 +38,15 @@ function canonicalHex(id: string): string {
 async function facetOptions(query: SearchQuery): Promise<FacetOptions> {
   const scope = await resolveRankedScope(query);
   if ('error' in scope || scope.childQuery === null) return {};
-  const { where, resolved, childQuery } = scope;
+  const { where, childQuery } = scope;
   const need = windowNeed(query);
   return {
     need,
-    engine: await firstEngine(resolved),
+    engine: firstEngine(),
     window: async () => {
       const window = await requestWindow({
         where,
-        resolved,
         text: childQuery,
-        libraryId: query.libraryId,
         need,
       });
       return { rows: window.rows, preferred: window.preferred };

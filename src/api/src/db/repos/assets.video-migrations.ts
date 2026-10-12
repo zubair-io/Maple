@@ -122,13 +122,10 @@ export const SCREENSHOT_VIDEO_SCOPE: CandidateScope = {
 };
 
 /**
- * Clear the flag on both of its homes, stamp the done-marker, and re-queue the
- * two stages whose stored output the flag corrupted.
- *
- * `describe` because the screenshot short-circuit nulled the whole scene
- * description on every flagged row, and a re-run is the only way those fields
- * come back; `meili` because the search index and its facet counts hold the
- * stale `true`. Deliberately not `thumb` / `preview` / `cf-thumb-sync`: the
+ * Clear the flag on both of its homes, stamp the done-marker, and re-queue
+ * `describe`: the screenshot short-circuit nulled the whole scene description on
+ * every flagged row, and a re-run is the only way those fields come back (it
+ * re-arms the search stages itself once it finishes). Deliberately not `thumb` / `preview` / `cf-thumb-sync`: the
  * derivatives are correct, and re-arming the mirror would re-upload every one
  * of these thumbnails to R2 for no benefit.
  *
@@ -159,7 +156,6 @@ export async function clearVideoScreenshotFlagRows(
       params: [version, ...hexes],
     },
     stageRearmBatchStatement(hexes, 'describe'),
-    stageRearmBatchStatement(hexes, 'meili'),
   ]);
   return results[1]?.changes ?? 0;
 }

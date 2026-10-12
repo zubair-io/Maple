@@ -5,7 +5,7 @@
  * accepts, and a few combinations of them, each paged to exhaustion and checked
  * against its own count. That is the ticket's third exit criterion, and it is
  * the property whose absence produced the bug this slice must not repeat — the
- * Meilisearch branch once post-filtered a single page and reported a count from
+ * ranked branch once post-filtered a single page and reported a count from
  * a different predicate, so the grid showed a large number above no photos.
  *
  * Paging is done twice for the sorts that support a cursor: once with
@@ -398,7 +398,7 @@ describe("an engine's ranked maple_ids — the window's rows and their documents
       const where = translate({ name: 'rating', query: () => ({ rating: '4' }) }, library);
       const ids = ['skyline', 'kitchen'].map((name) => mapleId(library, name));
       // `kitchen` is rated 3 and must drop out even though the sidecar
-      // returned it: a filter with no Meilisearch counterpart still narrows.
+      // returned it: a filter the engine cannot express still narrows.
       const rows = await searchByMapleIds(where, ids, db);
       expect(rows.map((row) => row.fileinfo?.[0]?.filename)).toEqual(['skyline.dng']);
     });

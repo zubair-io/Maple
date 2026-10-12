@@ -48,7 +48,6 @@ import { facetStatements } from '../db/repos/search.facets.sql.ts';
 import { mapRoutes } from './map/index.ts';
 import { generatedSearchesRoutes } from './generated-searches.ts';
 import { searchRoutes, _resetBucketsCacheForTests, _resetCacheForTests } from './search/index.ts';
-import { resetSearchEngineSelectionForTests } from '../search/search-engine-selection.ts';
 
 const ASSETS = 120_000;
 const HIDDEN_PERSON = 'a'.repeat(24);
@@ -124,7 +123,6 @@ const SEED_TIMEOUT_MS = 120_000;
 beforeAll(async () => {
   live = await createLiveTestDatabase('file');
   seedLargeLibrary();
-  resetSearchEngineSelectionForTests();
 }, SEED_TIMEOUT_MS);
 
 afterAll(() => {
