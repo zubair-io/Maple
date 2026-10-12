@@ -75,12 +75,12 @@ async function rankedOutcome(
   text: string,
 ): Promise<SearchOutcome> {
   const window = await requestWindow({ where, text, need: FIRST_PAGE_SIZE });
-  return windowOutcome(where, window.rows);
+  return windowOutcome(where, window);
 }
 
 async function windowOutcome(
   where: SearchWhere,
-  window: readonly WindowRow[],
+  window: { rows: readonly WindowRow[]; copies?: readonly WindowRow[] },
 ): Promise<SearchOutcome> {
   const rows = await windowSurvivors(where, window);
   const firstPageIds = rows.slice(0, FIRST_PAGE_SIZE).map((row) => row.id);

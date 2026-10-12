@@ -25,6 +25,8 @@ import { facetsRoute } from './facets.ts';
 import { listRoute } from './list.ts';
 import { _resetCacheForTests } from './total-cache.ts';
 import { RANKED_WINDOW_MAX } from '../../db/repos/search.ranked.ts';
+import { buildSearchWhere } from '../../db/repos/search.where.ts';
+import { requestWindow, windowPage } from './ranked-window.ts';
 
 const SECOND = '2018-05-21T17:50:35.000Z';
 
@@ -103,6 +105,24 @@ describe('the list', () => {
 
     expect(body.total).toBe(SHOTS.length);
     expect(new Set(body.results.map((row) => row.filename.slice(0, 8))).size).toBe(SHOTS.length);
+  });
+
+  it('still counts a shot once when its kept copy is deleted after ranking (#4545)', async () => {
+    const built = buildSearchWhere({ placeQuery: 'sunset' });
+    if ('error' in built) throw new Error(built.error);
+    const window = await requestWindow({ where: built, text: 'sunset', need: 10 });
+    run(live.db, `UPDATE assets SET deleted_at = '2026-10-12T00:00:00Z' WHERE maple_id = 'copy-a'`);
+
+    const page = await windowPage(window, { where: built, skip: 0, limit: 10 });
+
+    expect(window.rows.map((row) => row.filename)).toEqual(SHOTS);
+    expect(page.results.map((row) => row.filename)).toEqual([
+      '_MG_1768.CR2',
+      '_MG_4006.CR2',
+      'IMG_0039.CR2',
+      '_MG_1770.CR2',
+    ]);
+    expect(page.total).toBe(SHOTS.length);
   });
 });
 

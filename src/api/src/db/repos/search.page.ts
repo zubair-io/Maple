@@ -44,6 +44,7 @@ import {
 import type { SearchWhere } from './search.where.ts';
 import { assetsDb, bulkLane, type SqliteDb } from './db-handle.ts';
 import { inGivenOrder } from './search.ranked.ts';
+import { collapseShots, type ShotFields } from './search.shots.ts';
 
 /** The narrow `assets` projection a search result is built from. */
 interface PageRow {
@@ -177,16 +178,19 @@ async function hydrate(db: SqliteDb, rows: readonly PageRow[]): Promise<SearchDo
 }
 
 /**
- * The rows of a ranked window that still pass `where` but its text, in window order (#4545): an
+ * The shots of a ranked window that still pass `where` but its text, in window order (#4545): an
  * asset deleted or hidden after the window was ranked drops out, wherever in the window it sits,
- * so a total counted from these is one every page of the window agrees on. One statement, a
- * keyed probe per row — the same bound the ranking itself has.
+ * so a total counted from these is one every page of the window agrees on. The window's copies
+ * are re-checked and collapsed again (#4557), so a shot whose kept copy died is represented by a
+ * live sibling instead of vanishing. One statement, a keyed probe per row — the same bound the
+ * ranking itself has.
  */
-export async function windowSurvivors<T extends { id: string }>(
+export async function windowSurvivors<T extends { id: string } & ShotFields>(
   where: SearchWhere,
-  rows: readonly T[],
+  window: { rows: readonly T[]; copies?: readonly T[] },
   dbOverride?: SqliteDb,
 ): Promise<T[]> {
+  const rows = window.copies ?? window.rows;
   if (rows.length === 0) return [];
   const live = windowColumnsSql(
     where,
@@ -195,7 +199,7 @@ export async function windowSurvivors<T extends { id: string }>(
   );
   const alive = await bulkLane(assetsDb(dbOverride)).read<{ id: string }>(live.sql, live.params);
   const ids = new Set(alive.map((row) => row.id));
-  return rows.filter((row) => ids.has(row.id));
+  return collapseShots(rows.filter((row) => ids.has(row.id)));
 }
 
 /**
