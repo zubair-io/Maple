@@ -57,9 +57,7 @@
             >
             <span class="field-hint set-record-field-hint">
               Absolute path to the compiled <code>maple-cli</code> binary on this server. Build
-              with:
-              <code>cargo build --release --bin maple-cli --features pano,pano-classical</code> (in
-              <code>src/raw-pipeline/</code>).
+              with: <code>{{ buildCommand }}</code> (in <code>src/raw-pipeline/</code>).
             </span>
             @if (config()?.source?.maple_cli_path) {
               <span class="field-source set-field-source">{{
@@ -77,6 +75,13 @@
             />
           </div>
         </div>
+
+        @if (cliOutdated()) {
+          <div class="banner-error set-banner-error-record" data-testid="pano-cli-outdated">
+            This maple-cli predates the classical matcher and can only stitch with ML. Rebuild it
+            with <code>{{ buildCommand }}</code> (in <code>src/raw-pipeline/</code>).
+          </div>
+        }
 
         <!-- Matcher -->
         <div class="field-row set-record-field-row">
@@ -106,7 +111,8 @@
               >
               <span class="field-hint set-record-field-hint">
                 Directory containing the ALIKED + LightGlue ONNX model files. SHA-pinned versions
-                are listed in <code>src/raw-pipeline/maple-pano/models.toml</code>.
+                are listed in <code>src/raw-pipeline/maple-pano/models.toml</code>. When blank, the
+                deprecated <code>MAPLE_PANO_MODELS</code> environment variable is used.
               </span>
               @if (config()?.source?.models_dir) {
                 <span class="field-source set-field-source">{{
@@ -135,7 +141,8 @@
                 Path to <code>libonnxruntime.dylib</code> / <code>libonnxruntime.so</code> version ≥
                 1.23. Required by the ALIKED and LightGlue models. The default location on macOS
                 after <code>brew install onnxruntime</code> is
-                <code>/opt/homebrew/lib/libonnxruntime.dylib</code>.
+                <code>/opt/homebrew/lib/libonnxruntime.dylib</code>. When blank, the deprecated
+                <code>ORT_DYLIB_PATH</code> environment variable is used.
               </span>
               @if (config()?.source?.ort_dylib_path) {
                 <span class="field-source set-field-source">{{

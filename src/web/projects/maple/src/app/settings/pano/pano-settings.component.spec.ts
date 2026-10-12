@@ -13,6 +13,7 @@ const CONFIG: PanoConfig = {
   enabled: false,
   matcher: 'ml',
   strategy_supported: false,
+  features_engine_supported: true,
   source: {
     maple_cli_path: 'db',
     models_dir: 'db',
@@ -156,6 +157,26 @@ describe('PanoSettingsComponent', () => {
     const call = http.expectOne('/api/pano/config');
     expect(call.request.body).toMatchObject({ matcher: 'ml' });
     call.flush({ ...CLASSICAL_DEFAULT, matcher: 'ml', ok: true });
+  });
+
+  it('warns that a binary without --features-engine must be rebuilt (#4555)', async () => {
+    await load({ ...CLASSICAL_DEFAULT, features_engine_supported: false });
+    const banner = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="pano-cli-outdated"]',
+    );
+    expect(banner?.textContent).toContain('--features pano,pano-classical');
+  });
+
+  it('seeds ML paths resolved from the legacy environment variables and labels them (#4555)', async () => {
+    await load({
+      ...CONFIG,
+      models_dir: '/env/models',
+      ort_dylib_path: '/env/libonnxruntime.so',
+      source: { ...CONFIG.source, models_dir: 'env', ort_dylib_path: 'env' },
+    });
+    const text = (fixture.nativeElement as HTMLElement).textContent;
+    expect(text).not.toContain('needs both the models directory and the ONNX Runtime path');
+    expect(text).toContain('environment variable (deprecated)');
   });
 
   it('shows the load error state when the config fetch fails', () => {

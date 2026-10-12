@@ -111,9 +111,16 @@ describe('panoStitchHandler feature engine (#4555)', () => {
     expect(args).not.toContain('--models-dir');
   });
 
-  it('treats a payload without an engine as classical', async () => {
-    const args = await stitchArgs({});
-    expect(flagValue(args, '--features-engine')).toBe('classical');
+  it('omits --features-engine for a binary that predates it and still hands it the ML paths', async () => {
+    const ortDylib = path.join(tmpDir, 'libonnxruntime.so');
+    const args = await stitchArgs({
+      featuresEngine: null,
+      modelsDir: tmpDir,
+      ortDylibPath: ortDylib,
+    });
+    expect(args).not.toContain('--features-engine');
+    expect(flagValue(args, '--models-dir')).toBe(tmpDir);
+    expect(args).toContain(`ORT_DYLIB_PATH=${ortDylib}`);
   });
 
   it('does not hand ML model paths to a classical run', async () => {
