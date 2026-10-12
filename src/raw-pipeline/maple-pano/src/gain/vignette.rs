@@ -150,18 +150,42 @@ fn huber_weights(residuals: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-/// `q` per lens group (0 for groups without enough support). `group_of`
-/// assigns each of the `group_of.len()` frames its group, `None` for
-/// frames corrected at ingest.
+/// One lens group's falloff estimate.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct FalloffFit {
+    /// The applied `q` (0 when not estimable).
+    pub q: f64,
+    /// Linearised estimate without the `q ≥ 0` bound — negative when the
+    /// overlaps say the corners are brighter than the centre.
+    pub q_unconstrained: f64,
+    /// Standard error of `q_unconstrained`.
+    pub sigma: f64,
+    /// Enough correspondences, with radius differences independent enough
+    /// of a pure gain step, to resolve `q` to [`MAX_Q_SIGMA`].
+    pub estimable: bool,
+}
+
+/// Largest standard error at which `q` is still applied: a quarter of the
+/// smallest falloff worth correcting (`q = 0.04`, ~14% corner darkening).
+const MAX_Q_SIGMA: f64 = 0.01;
+
+/// Per-group estimate. `group_of` assigns each of the `group_of.len()`
+/// frames its group, `None` for frames corrected at ingest.
 pub(crate) fn estimate_falloff(
     obs: &[Correspondence],
     group_of: &[Option<usize>],
     groups: usize,
-) -> Vec<f64> {
-    if obs.is_empty() {
-        return vec![0.0; groups];
-    }
+) -> Vec<FalloffFit> {
     let frames = group_of.len();
+    if obs.is_empty() {
+        let unknown = FalloffFit {
+            q: 0.0,
+            q_unconstrained: 0.0,
+            sigma: f64::INFINITY,
+            estimable: false,
+        };
+        return vec![unknown; groups];
+    }
     let support: Vec<usize> = (0..groups)
         .map(|g| {
             obs.iter()
@@ -169,6 +193,7 @@ pub(crate) fn estimate_falloff(
                 .count()
         })
         .collect();
+    let linear = linear_falloff(obs, group_of, groups);
     let model = Model { frames, group_of };
     let seed: Vec<f64> = std::iter::repeat_n(0.0, frames)
         .chain(std::iter::repeat_n(K_SEED, groups))
@@ -187,11 +212,119 @@ pub(crate) fn estimate_falloff(
     params[frames..]
         .iter()
         .zip(&support)
-        .map(|(k, n)| {
-            if *n >= MIN_GROUP_OBSERVATIONS {
-                k * k
-            } else {
-                0.0
+        .zip(&linear)
+        .map(|((k, n), lin)| {
+            let estimable = *n >= MIN_GROUP_OBSERVATIONS && lin.sigma <= MAX_Q_SIGMA;
+            FalloffFit {
+                q: if estimable { k * k } else { 0.0 },
+                q_unconstrained: lin.q,
+                sigma: lin.sigma,
+                estimable,
+            }
+        })
+        .collect()
+}
+
+/// Small-`q` linearisation of one group's falloff (`L ≈ 2·q·r²`) with the
+/// gains profiled out: the unconstrained estimate (negative = corners
+/// brighter than the centre) and its standard error.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct LinearFalloff {
+    pub q: f64,
+    pub sigma: f64,
+}
+
+const LINEAR_IRLS_ITERATIONS: usize = 5;
+const RESIDUAL_SCALE_FLOOR: f64 = 0.01;
+
+/// Huber IRLS on the linearised model. The standard error is the robust
+/// residual scale through the inverse normal matrix — large when the
+/// overlaps' radius differences are nearly collinear with a pure gain
+/// step, i.e. when the falloff is not observable from this geometry.
+pub(crate) fn linear_falloff(
+    obs: &[Correspondence],
+    group_of: &[Option<usize>],
+    groups: usize,
+) -> Vec<LinearFalloff> {
+    let frames = group_of.len();
+    let m = frames + groups;
+    let row = |o: &Correspondence| {
+        [
+            (o.i, 1.0),
+            (o.j, -1.0),
+            group_of[o.i].map_or((0, 0.0), |g| (frames + g, 2.0 * o.r2_i)),
+            group_of[o.j].map_or((0, 0.0), |g| (frames + g, -2.0 * o.r2_j)),
+        ]
+    };
+    let normal = |weights: &[f64]| {
+        obs.iter().zip(weights).fold(
+            (
+                (0..m)
+                    .map(|d| {
+                        let mut r = vec![0.0_f64; m];
+                        r[d] = TIKHONOV;
+                        r
+                    })
+                    .collect::<Vec<_>>(),
+                vec![0.0_f64; m],
+            ),
+            |(mut a, mut b), (o, w)| {
+                let terms = row(o);
+                let live = || terms.iter().filter(|t| t.1 != 0.0);
+                for &(r, cr) in live() {
+                    b[r] += w * cr * o.log_ratio;
+                    for &(c, cc) in live() {
+                        a[r][c] += w * cr * cc;
+                    }
+                }
+                (a, b)
+            },
+        )
+    };
+    let residuals = |params: &[f64]| -> Vec<f64> {
+        obs.iter()
+            .map(|o| o.log_ratio - row(o).iter().map(|&(k, c)| c * params[k]).sum::<f64>())
+            .collect()
+    };
+    let unknown = || {
+        vec![
+            LinearFalloff {
+                q: 0.0,
+                sigma: f64::INFINITY
+            };
+            groups
+        ]
+    };
+    if obs.is_empty() {
+        return unknown();
+    }
+    let solved = (0..LINEAR_IRLS_ITERATIONS).try_fold(
+        (vec![0.0_f64; m], vec![1.0_f64; obs.len()]),
+        |(_, weights), _| {
+            let (a, b) = normal(&weights);
+            let params = solve_dense(a, b)?;
+            let weights = huber_weights(&residuals(&params));
+            Some((params, weights))
+        },
+    );
+    let Some((params, weights)) = solved else {
+        return unknown();
+    };
+    let mut magnitudes: Vec<f64> = residuals(&params).iter().map(|r| r.abs()).collect();
+    let mid = magnitudes.len() / 2;
+    let (_, median, _) = magnitudes.select_nth_unstable_by(mid, f64::total_cmp);
+    // Floor: noise-free data must not make an unobservable `q` look exact.
+    let scale = (MAD_TO_SIGMA * *median).max(RESIDUAL_SCALE_FLOOR);
+    (0..groups)
+        .map(|g| {
+            let (a, _) = normal(&weights);
+            let unit = (0..m)
+                .map(|d| f64::from(u8::from(d == frames + g)))
+                .collect();
+            let variance = solve_dense(a, unit).map_or(f64::INFINITY, |z| z[frames + g]);
+            LinearFalloff {
+                q: params[frames + g],
+                sigma: scale * variance.max(0.0).sqrt(),
             }
         })
         .collect()

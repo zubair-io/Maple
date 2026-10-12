@@ -116,6 +116,7 @@ fn tile_planted_vignette_is_recovered_and_flattened() {
     let (after, falloff) = ripple(planted(PLANTED_Q), &one_lens());
     let q = falloff[0].q as f64;
     assert!((q - PLANTED_Q).abs() < 0.01, "q = {q}");
+    assert!(falloff[0].estimable, "{:?}", falloff[0]);
     assert_eq!(falloff[0].frames, (0..MULS.len()).collect::<Vec<_>>());
     assert!(before > 1.3, "uncorrected ripple only {before}");
     assert!(
