@@ -42,15 +42,11 @@
 //   2. Process environment (MAPLE_PANO_MODELS / ORT_DYLIB_PATH — dev / CI).
 //   3. Default app-support location.
 //
-// If none of the three tiers yields a path that exists on disk, `stitch`
-// throws `PanoStitcherError.modelsNotInstalled` with a message that directs
-// the user to Settings → Pano.
+// These are only needed by the opt-in ML matcher (#4554). The default
+// classical matcher needs nothing on disk; `PanoProvisioning.featureEngine()`
+// picks ML only when Settings → Pano turned it on and it is provisioned.
 //
-// follow-up: #1234 M6 — auto-download / bundle ONNX models + libonnxruntime
-//   so users don't need to configure paths manually. iOS ORT provisioning
-//   also deferred to M6 (FFI returns -3 on iOS today).
-//
-// Ticket: #1234 (M4+M5) / #1235 / #1239 / #1241
+// Ticket: #1234 (M4+M5) / #1235 / #1239 / #1241 / #4554
 
 import Foundation
 import OSLog
@@ -232,9 +228,10 @@ public final class RustPanoStitcher: PanoStitching {
         // Validate assets: pano needs file-backed images.
         let inputURLs = try collectInputURLs(from: assets)
 
-        // Provision ML environment env vars so the Rust core finds the dylib
-        // and models directory when it calls `ort::init_from(...)`.
-        try provisionMLEnvironment()
+        let engine = provisioning.featureEngine()
+        if engine == .ml {
+            try provisionMLEnvironment()
+        }
 
         // Output path: a unique PNG next to the first input file's parent
         // (or in Application Support if we can't resolve one).
@@ -267,6 +264,7 @@ public final class RustPanoStitcher: PanoStitching {
                     inputURLs: inputURLs,
                     outputURL: outputURL,
                     options: options,
+                    engine: engine,
                     atom: atom,
                     cancelFlag: flag
                 )
@@ -293,6 +291,7 @@ public final class RustPanoStitcher: PanoStitching {
         inputURLs: [URL],
         outputURL: URL,
         options: PanoOptions,
+        engine: PanoFeatureEngine,
         atom: ProgressAtom,
         cancelFlag: CancelFlag
     ) throws -> PanoResult {
@@ -326,6 +325,10 @@ public final class RustPanoStitcher: PanoStitching {
             case .rotation: Rotation
             case .tile:     Tile
         }
+        let featureEngine: MaplePanoFeatureEngine = switch engine {
+            case .classical: Classical
+            case .ml:        Ml
+        }
 
         // 4. Progress bridging — retain the atom across the synchronous FFI
         //    call; release unconditionally when it returns (the FFI joins all
@@ -347,7 +350,7 @@ public final class RustPanoStitcher: PanoStitching {
             }
         }
 
-        panoLog.notice("maple_pano_stitch START: \(inputURLs.count) frames → \(outputURL.lastPathComponent, privacy: .public)")
+        panoLog.notice("maple_pano_stitch START: \(inputURLs.count) frames, \(engine.rawValue, privacy: .public) engine → \(outputURL.lastPathComponent, privacy: .public)")
 
         // 6. Call the FFI via the recursive helper that stacks
         //    `withUnsafeBufferPointer` closures so every base address stays
@@ -363,6 +366,7 @@ public final class RustPanoStitcher: PanoStitching {
                         retention,
                         localAlign,
                         strategy,
+                        featureEngine,
                         panoProgressTrampoline,
                         ctxPtr,
                         cancelFlag.pointer
@@ -374,7 +378,7 @@ public final class RustPanoStitcher: PanoStitching {
         // 7. Interpret return code.
         if rc == 0 {
             panoLog.notice("maple_pano_stitch OK → \(outputURL.path, privacy: .private)")
-            let summary = "Stitched \(inputURLs.count) frames using \(options.strategy.rawValue) strategy. " +
+            let summary = "Stitched \(inputURLs.count) frames with the \(engine.displayName) using \(options.strategy.rawValue) strategy. " +
                           "Local align: \(options.localAlign.rawValue). Retention: \(options.retention.rawValue). " +
                           "Output: \(outputURL.lastPathComponent)"
             return PanoResult(outputURL: outputURL, reportSummary: summary)
