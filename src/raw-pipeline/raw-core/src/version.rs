@@ -132,7 +132,9 @@
 ///   sensor space matching EXIF orientation (#4426).
 /// - 18 — the GPU live chain evaluates local-adjustment masks in the upright
 ///   frame on the sensor-framed Linux and Web one-shot prefixes (#4479).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 18;
+/// - 19 — highlight recovery treats demosaic ripple beside a clipped channel
+///   as clipped instead of as a chromaticity witness (#4582).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 19;
 
 #[cfg(test)]
 mod tests {
