@@ -71,6 +71,7 @@ fn all_invalid_layer_is_inert_in_masks_and_blend() {
             warp::warp_to_tile_region(
                 f,
                 p,
+                None,
                 &canvas,
                 &photometry::FramePhotometry::neutral(),
                 0,
@@ -131,6 +132,7 @@ fn voronoi_seam_sits_mid_overlap() {
             warp::warp_to_tile_region(
                 f,
                 p,
+                None,
                 &canvas,
                 &photometry::FramePhotometry::neutral(),
                 0,
@@ -185,6 +187,7 @@ fn composite_with_far_frame_places_all_content() {
         &full_dims,
         &[],
         &poses,
+        None,
         &canvas,
         &GainOptions::default(),
         Some(2),

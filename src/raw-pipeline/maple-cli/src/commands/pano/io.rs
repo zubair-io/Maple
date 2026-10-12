@@ -242,14 +242,14 @@ pub(super) struct TileReportContext<'a> {
 ///
 /// Absent keys vs rotation report: `cameras`, `mean_reproj_error_px`,
 /// `max_reproj_error_px`, `mean_reproj_before_local_px`,
-/// `max_reproj_before_local_px`, `local_correction_rms_px`,
-/// `shared_focal_px`, `k1`, `k2`, `dropped_images`, `pruned_matches`,
+/// `max_reproj_before_local_px`, `shared_focal_px`, `k1`, `k2`, `dropped_images`, `pruned_matches`,
 /// `motion_affected`, `motion_pruned_matches`, `placed_by_prior`, `leveled`,
 /// `horizon_tilt_deg`, `gate_mean_budget_px`, `gate_max_budget_px`,
 /// `projection`.
 ///
 /// Present keys unique to tile: `strategy` block, `tile_placement`,
-/// `mean_planar_residual_px`, `max_planar_residual_px`.
+/// `mean_planar_residual_px`, `max_planar_residual_px`,
+/// `mean_planar_before_local_px`, `max_planar_before_local_px`.
 pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
     let timings: serde_json::Map<String, serde_json::Value> = ctx
         .timings_s
@@ -328,6 +328,12 @@ pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
         "tile_placement": placements,
         "mean_planar_residual_px": tr.mean_planar_residual_px,
         "max_planar_residual_px": tr.max_planar_residual_px,
+        // Stage-F mesh on the tile path (#4577): residuals before it, and
+        // the per-frame correction RMS (px, parallel to tile_placement;
+        // 0 for frames left uncorrected or with --local-align off).
+        "mean_planar_before_local_px": tr.mean_planar_before_local_px,
+        "max_planar_before_local_px": tr.max_planar_before_local_px,
+        "local_correction_rms_px": tr.local_correction_rms_px,
         // EV spread of the solved per-frame gains (spec §8: "warn if
         // spread > 2 EV"). Not gated by the harness — capture-technique
         // information, not a pipeline defect.
