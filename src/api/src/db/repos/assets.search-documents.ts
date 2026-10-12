@@ -1,6 +1,7 @@
 /**
  * The rows the search child's keyword text is rendered from: an asset's description, OCR and
- * transcript text, place, face people and locations, looked up by content id.
+ * transcript text, place, face people and locations, and its `search_blob`, looked up by content
+ * id.
  *
  * Locations and faces are one-to-many, so they are separate statements against the ids the first
  * query chose rather than a join that would multiply the asset rows. Face embeddings and landmarks
@@ -20,6 +21,7 @@ export interface SearchDocumentAssetRow {
   description: string | null;
   ocr_text: string | null;
   transcript: string | null;
+  search_blob: string | null;
 }
 
 export interface SearchDocumentFaceRow {
@@ -40,8 +42,10 @@ export async function loadSearchDocumentRows(
   if (mapleIds.length === 0) return { rows: [], locations: new Map(), faces: new Map() };
   const db = sqliteDb(dbOverride);
   const rows = await db.read<SearchDocumentAssetRow>(
-    `SELECT a.id, a.maple_id, a.place, d.description, d.ocr_text, d.transcript
-       FROM assets a LEFT JOIN asset_detail d ON d.asset_id = a.id
+    `SELECT a.id, a.maple_id, a.place, d.description, d.ocr_text, d.transcript, s.search_blob
+       FROM assets a
+       LEFT JOIN asset_detail d ON d.asset_id = a.id
+       LEFT JOIN asset_search s ON s.asset_id = a.id
       WHERE a.maple_id IN (${placeholders(mapleIds.length)})`,
     [...mapleIds],
   );

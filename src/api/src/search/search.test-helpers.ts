@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { encodeVector } from '../enrichment/ollama-embed-client.ts';
 import type { SearchEngineOps } from './search-index-sync.ts';
+import type { SearchText } from './search-engine-ffi.ts';
 import type { ChildProcessWorker } from '../runtime/child-process-worker.ts';
 import { SearchChildPool, type InProcessSearch, type SearchEngineStatus } from './search-pool.ts';
 import type {
@@ -15,17 +16,21 @@ const DIMS = 1024;
 /** An engine that records vectors by their one non-zero axis and text with commit semantics. */
 export class RecordingEngine implements SearchEngineOps {
   vectors = new Map<string, number>();
-  texts = new Map<string, string>();
-  staged = new Map<string, string | null>();
+  texts = new Map<string, SearchText>();
+  staged = new Map<string, SearchText | null>();
   commits = 0;
   clears = 0;
+  vectorWrites = 0;
 
   loadVectors(bytes: Uint8Array, ids: readonly string[]): void {
     const view = new Float32Array(bytes.slice().buffer);
     this.vectors = new Map(ids.map((id, row) => [id, axisOf(view.subarray(row * DIMS))]));
   }
-  upsert(id: string, vector: Float32Array | null, text: string | null): void {
-    if (vector) this.vectors.set(id, axisOf(vector));
+  upsert(id: string, vector: Float32Array | null, text: SearchText | null): void {
+    if (vector) {
+      this.vectors.set(id, axisOf(vector));
+      this.vectorWrites++;
+    }
     if (text !== null) this.staged.set(id, text);
   }
   delete(id: string): void {
