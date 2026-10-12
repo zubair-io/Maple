@@ -42,6 +42,14 @@ ONNX Runtime itself is loaded two ways, which is why `maple-pano` has two Cargo 
 
 Static linking on iOS is not a preference — the iOS sandbox blocks `dlopen` of arbitrary paths.
 
+### Classical fallback (no ONNX)
+
+A third feature, `classical-features`, builds the whole stitch pipeline without ONNX Runtime or model files. `features/classical.rs` finds corners on the log of the frame's luminance (so two frames shot at different exposures still produce the same corners), across a Gaussian pyramid of several octaves. At each scale it scores corners with the Harris measure `(AC−B²)/(A+C+ε)`, rejects edge-like points, and keeps only the strongest point in each neighbourhood. It then describes each corner with a 128-value histogram of gradient directions, measured relative to the corner's dominant orientation so that a rolled camera still matches. The matcher keeps a pair only when each point is the other's closest descriptor and the closest is clearly better than the runner-up. It emits the same records LightGlue does, so glue, graph and everything after it are shared.
+
+`StitchOptions::feature_engine` picks the engine per run, defaulting to ML when that is built in. In `maple-cli`, the `pano-classical` build feature enables the classical path. When both `pano` and `pano-classical` are built, `pano stitch --features-engine classical` selects it. The CI gate `tests/classical_gates.rs` renders a synthetic pair and requires the recovered relative rotation to fall within the 0.3° two-view gate. The test uses a value-noise scene (`testkit::value_noise_source`), because the renderer's default scene has too few distinct corners for a corner detector to work with.
+
+The classical path is clean-room code. No ICE-derived tables, binaries, or learned descriptor projections are in it.
+
 ### Match graph and pair verification
 
 `graph.rs` builds "a graph, not a chain." Candidate pairs come from pluggable providers: `CaptureOrderProvider` (consecutive frames in input order) and `GimbalPriorProvider` (pairs whose prior view directions are closer than 1.5× the per-image field of view). Each candidate is verified by `robust::verify_pair`, a MAGSAC-style robust estimator over the closed-form relative rotation in `twoview.rs` (bearings plus a Wahba solve, backed by the Jacobi eigensolver in `eigen.rs`), and becomes a verified edge only with enough inlier support. The builder reports connected components and orphans, because the rule is to stitch the largest component and report the orphans — never silently drop a frame or force-align it.
