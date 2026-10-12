@@ -98,10 +98,16 @@ export function windowDepthFor(need: number): number {
  * reaches `need`: a full window with fewer survivors than that step is widened up the ladder until
  * it has them, the engine runs out of hits, or the cap is reached. So every page's `skip` indexes
  * a prefix earlier pages served in full, and the window depends only on the query and its step —
- * which is what lets the facet and bucket caches share it across the pages of a step.
+ * which is what lets the facet and bucket caches share it across the pages of a step. A caller
+ * with no pages to keep stable passes `enough`: widening stops at that many survivors instead.
  */
-export async function rankWindow(ranker: WindowRanker, need: number): Promise<RankedWindow | null> {
+export async function rankWindow(
+  ranker: WindowRanker,
+  need: number,
+  enough?: number,
+): Promise<RankedWindow | null> {
   const target = windowDepthFor(need);
+  const sufficient = enough ?? target;
   const widen = async (
     depth: number,
     previous: { pass: WindowPass; depth: number } | null,
@@ -114,7 +120,7 @@ export async function rankWindow(ranker: WindowRanker, need: number): Promise<Ra
       );
     }
     const full = pass.considered >= depth;
-    if (pass.rows.length >= target || !full || depth >= RANKED_WINDOW_MAX) {
+    if (pass.rows.length >= sufficient || !full || depth >= RANKED_WINDOW_MAX) {
       return windowOf(pass, full, depth);
     }
     return widen(Math.min(RANKED_WINDOW_MAX, depth * WIDENING_FACTOR), { pass, depth });

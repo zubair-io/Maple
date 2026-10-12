@@ -25,7 +25,7 @@ export async function inProcessServiceSearch(
   limit: number,
 ): Promise<ServiceSearchResult | null> {
   const window = await requestWindow(
-    { where: serviceSearchWhere(scope), text: query, need: limit },
+    { where: serviceSearchWhere(scope), text: query, need: limit, enough: limit },
     'collection',
   );
   if (!window) return null;

@@ -181,6 +181,21 @@ describe('POST /api/search/assets with the in-process engine', () => {
       expect(body).toMatchObject({ total: 20, more: true });
     });
 
+    it('ranks once when the first 100 hits already hold the limit', async () => {
+      const libraryId = insertFolder(live.db, { path: '/bulk', slug: 'bulk' });
+      const bulk = fillers(30, 'bulk');
+      bulk.forEach((mapleId) =>
+        seedSearchAsset(live.db, libraryId, { mapleId, filename: `${mapleId}.dng` }),
+      );
+      const engine = fakeInProcessSearch([...bulk, ...fillers(300)]);
+      setInProcessSearchForTests(engine);
+
+      const body = await (await request({ query: 'furnace', limit: 20 })).json();
+
+      expect(body.results).toHaveLength(20);
+      expect(engine.queries).toHaveLength(1);
+    });
+
     it('says capped when the child still had hits past the deepest window', async () => {
       setInProcessSearchForTests(fakeInProcessSearch(fillers(5_200)));
 
