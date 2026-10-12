@@ -42,26 +42,25 @@ use maple_pano::exif_embed::build_exif_blob;
 use maple_pano::ingest::PlanarImage;
 use maple_pano::render::{write_frame_png, PngMetadata};
 use maple_pano::stitch::{
-    develop_for_display, stitch, write_display_sidecars, StitchError, StitchOptions, StitchSuccess,
+    develop_for_display, stitch, write_display_sidecars, FeatureEngine, StitchError, StitchOptions,
+    StitchSuccess,
 };
 use maple_pano::strategy::StrategyRequest;
 use raw_core::read_exif;
 
-use super::{MaplePanoLocalAlign, MaplePanoRetention, MaplePanoStrategy, SendProgressCallback};
+use super::{
+    MaplePanoFeatureEngine, MaplePanoLocalAlign, MaplePanoRetention, MaplePanoStrategy,
+    SendProgressCallback,
+};
 
-/// Full Apple stitch pipeline. Called by `maple_pano_stitch` after argument
-/// validation; runs on a large-stack worker thread (see `with_large_stack`
-/// in the caller). Returns 0 on success, negative on failure (last_error set).
-pub(super) fn run_stitch_apple(
-    input_paths: Vec<String>,
-    out_png_path: String,
+/// Maps the C option enums onto the shared [`StitchOptions`].
+pub(super) fn stitch_options(
     retention: MaplePanoRetention,
     local_align: MaplePanoLocalAlign,
     strategy: MaplePanoStrategy,
-    cb: SendProgressCallback,
-    send_cancel: SendCancelPtr,
-) -> i32 {
-    let opts = StitchOptions {
+    engine: MaplePanoFeatureEngine,
+) -> StitchOptions {
+    StitchOptions {
         retention: match retention {
             MaplePanoRetention::Keep => RetentionPolicy::KeepAlignable,
             MaplePanoRetention::Strict => RetentionPolicy::Strict,
@@ -72,6 +71,10 @@ pub(super) fn run_stitch_apple(
             MaplePanoStrategy::Rotation => StrategyRequest::Rotation,
             MaplePanoStrategy::Tile => StrategyRequest::Tile,
         },
+        feature_engine: match engine {
+            MaplePanoFeatureEngine::Ml => FeatureEngine::Ml,
+            MaplePanoFeatureEngine::Classical => FeatureEngine::Classical,
+        },
         // M6-C (#1251): enable CoreML EP on iOS only. macOS stays on CPU-ORT
         // (parity-verified; do not change). On iOS the simulator falls back to
         // ORT-CPU automatically (no ANE); real-device ANE speedup is
@@ -79,8 +82,19 @@ pub(super) fn run_stitch_apple(
         #[cfg(target_os = "ios")]
         use_coreml: true,
         ..StitchOptions::default()
-    };
+    }
+}
 
+/// Full Apple stitch pipeline. Called by `maple_pano_stitch` after argument
+/// validation; runs on a large-stack worker thread (see `with_large_stack`
+/// in the caller). Returns 0 on success, negative on failure (last_error set).
+pub(super) fn run_stitch_apple(
+    input_paths: Vec<String>,
+    out_png_path: String,
+    opts: StitchOptions,
+    cb: SendProgressCallback,
+    send_cancel: SendCancelPtr,
+) -> i32 {
     let inputs: Vec<PathBuf> = input_paths.iter().map(PathBuf::from).collect();
 
     // Adapt the typed C progress callback (inside SendProgressCallback) into
@@ -168,7 +182,7 @@ pub(super) fn run_stitch_apple(
     // After #1270, `stitch` handles both rotation and tile internally.
     // ALIKED + LightGlue run exactly once; the tile path re-uses their output
     // without a second decode or ML pass.  No `TileNotSupported` fallthrough.
-    match stitch(&inputs, &opts, &mut progress, &is_cancelled) {
+    match stitch(&inputs, &opts, &mut progress, is_cancelled) {
         Ok(StitchSuccess::Rotation(outcome)) => write_out(&outcome.image),
         Ok(StitchSuccess::Tile(tile)) => write_out(&tile.image),
 
