@@ -13,12 +13,14 @@ const CONFIG = (strategySupported: boolean): PanoConfig => ({
   models_dir: '/models',
   ort_dylib_path: null,
   enabled: true,
+  matcher: 'classical',
   strategy_supported: strategySupported,
   source: {
     maple_cli_path: 'db',
     models_dir: 'db',
     ort_dylib_path: 'unset',
     enabled: 'db',
+    matcher: 'default',
   },
 });
 
@@ -300,6 +302,24 @@ describe('PanoDialogComponent', () => {
     const el: HTMLElement = fixture.nativeElement;
     // The settings hint must appear, not the generic "Check server logs" text.
     fixture.detectChanges();
+    expect(el.textContent).toContain('Settings');
+    expect(el.textContent).not.toContain('Check the server logs');
+  });
+
+  it('shows the settings hint on 409 pano_ml_not_provisioned (#4555)', () => {
+    open(false);
+    fixture.componentInstance.onSubmit();
+    http.expectOne('/api/pano/stitch').flush(
+      {
+        error: 'pano_ml_not_provisioned',
+        message: 'The ML matcher is selected but its models directory is not set.',
+      },
+      { status: 409, statusText: 'Conflict' },
+    );
+    expect(fixture.componentInstance.errorCode()).toBe('pano_ml_not_provisioned');
+    expect(fixture.componentInstance.errorMessage()).toContain('ML matcher');
+    fixture.detectChanges();
+    const el: HTMLElement = fixture.nativeElement;
     expect(el.textContent).toContain('Settings');
     expect(el.textContent).not.toContain('Check the server logs');
   });

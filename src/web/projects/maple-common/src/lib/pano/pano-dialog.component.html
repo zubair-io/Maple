@@ -192,10 +192,9 @@
           <p class="m-0 text-[12px] leading-[1.5] text-[color:var(--color-error,#cc3333)]">
             {{ errorMessage() }}
           </p>
-          @if (errorCode() === 'pano_not_provisioned') {
+          @if (settingsFixable()) {
             <p class="m-0 text-[11px] leading-[1.5] text-text-muted">
-              Go to <strong>Settings › Pano</strong> to configure the maple-cli path, models
-              directory, and enable panorama stitching.
+              Go to <strong>Settings › Pano</strong> to configure panorama stitching.
             </p>
           } @else {
             <p class="m-0 text-[11px] leading-[1.5] text-text-muted">

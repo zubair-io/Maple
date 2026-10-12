@@ -77,6 +77,10 @@ export class PanoDialogComponent implements OnDestroy {
    * 'pano_job_running'). Used by the template to switch on a code rather than
    * matching substrings of the localised error message. */
   readonly errorCode = signal<string>('');
+  readonly settingsFixable = computed(
+    () =>
+      this.errorCode() === 'pano_not_provisioned' || this.errorCode() === 'pano_ml_not_provisioned',
+  );
   readonly job = signal<PanoJobView | null>(null);
 
   // ── option model (two-way signals) ────────────────────────────────────────
@@ -239,7 +243,7 @@ export class PanoDialogComponent implements OnDestroy {
         error: (err: HttpErrorResponse) => {
           const code: string = err.error?.error ?? '';
           this.errorCode.set(code);
-          if (err.status === 409 && code === 'pano_not_provisioned') {
+          if (err.status === 409 && this.settingsFixable()) {
             this.errorMessage.set(err.error.message);
           } else if (err.status === 409 && code === 'pano_job_running') {
             this.errorMessage.set(

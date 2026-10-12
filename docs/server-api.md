@@ -287,7 +287,7 @@ Recovery bodies are `{ targetPath, includeTrash, entryId?, sequence? }`; `entryI
 | GET    | `/api/jobs`               | bearer | List jobs, newest first. `status`, `kind`, `limit`                                                                                                                                |
 | GET    | `/api/jobs/:id`           | bearer | Job document with progress                                                                                                                                                        |
 | POST   | `/api/jobs/:id/cancel`    | bearer | Set `cancel_requested`                                                                                                                                                            |
-| POST   | `/api/pano/stitch`        | bearer | Create a `pano_stitch` job. `409 pano_not_provisioned` when no binary is configured, `409 pano_job_running` when one is already running (they're heavy — minutes, tens of GB RSS) |
+| POST   | `/api/pano/stitch`        | bearer | Create a `pano_stitch` job. 409 `pano_not_provisioned` (no binary), `pano_ml_not_provisioned` (ML matcher lacks model paths), `pano_job_running` (a stitch is queued or running). |
 | GET    | `/api/pano/jobs/:id`      | bearer | Pano job status and progress                                                                                                                                                      |
 | DELETE | `/api/pano/jobs/:id`      | bearer | Cancel an in-flight stitch                                                                                                                                                        |
 
