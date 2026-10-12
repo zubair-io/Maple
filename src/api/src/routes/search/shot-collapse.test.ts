@@ -1,7 +1,7 @@
 /**
  * One tile per shot on every path that takes the shared ranked window (#4557): the list, its
- * facets and buckets, a For You collection and service search all serve the best-ranked copy of
- * each shot and count shots, not files.
+ * facets and buckets, map clusters, a For You collection and hybrid service search all serve the
+ * best-ranked copy of each shot and count shots, not files.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -18,6 +18,7 @@ import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { setInProcessSearchForTests } from '../../search/search-pool.ts';
 import { fakeInProcessSearch } from '../../search/search.test-helpers.ts';
 import { generatedSearchesRoutes } from '../generated-searches.ts';
+import { mapRoutes } from '../map/index.ts';
 import { inProcessServiceSearch } from '../service-asset-search-in-process.ts';
 import { bucketsRoute, _resetBucketsCacheForTests } from './buckets.ts';
 import { facetsRoute } from './facets.ts';
@@ -51,6 +52,7 @@ beforeEach(async () => {
       path,
       filename,
       capturedAt: SECOND,
+      gps: { lat: 21.27, lng: -157.82 },
       searchBlob: `sunset ${mapleId}`,
     });
   }
@@ -109,6 +111,21 @@ describe('facets and buckets', () => {
     const buckets = await read<{ total: number }>('/buckets?placeQuery=sunset&limit=10');
 
     expect([facets.total, buckets.total]).toEqual([SHOTS.length, SHOTS.length]);
+  });
+});
+
+describe('map clusters', () => {
+  it('cluster one point per shot', async () => {
+    const res = await new Elysia()
+      .use(mapRoutes)
+      .handle(
+        new Request(
+          'http://localhost/api/map/clusters?placeQuery=sunset&bbox=-180,-90,180,90&zoom=3',
+        ),
+      );
+    const body = (await res.json()) as { cells: Array<{ count: number }> };
+
+    expect(body.cells.reduce((sum, cell) => sum + cell.count, 0)).toBe(SHOTS.length);
   });
 });
 
