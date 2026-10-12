@@ -30,21 +30,25 @@ public final class CloudServerRegistry {
   /// `.standard`. Falls back to `.standard` only if the suite cannot be
   /// created (missing entitlement — e.g. unit tests without a host app).
   public static func appGroupDefaults() -> UserDefaults {
-    guard let group = UserDefaults(suiteName: appGroupID) else { return .standard }
-    let migratedKey = "cloud.migratedToAppGroup"
-    if !group.bool(forKey: migratedKey) {
-      let standard = UserDefaults.standard
-      for (key, value) in standard.dictionaryRepresentation()
-      where key.hasPrefix("cloud.") {
-        // Only fill gaps: if the group already has a value (a fresh install
-        // that never touched .standard, or a re-run), leave it alone.
-        if group.object(forKey: key) == nil {
-          group.set(value, forKey: key)
+    #if os(watchOS)
+      return .standard
+    #else
+      guard let group = UserDefaults(suiteName: appGroupID) else { return .standard }
+      let migratedKey = "cloud.migratedToAppGroup"
+      if !group.bool(forKey: migratedKey) {
+        let standard = UserDefaults.standard
+        for (key, value) in standard.dictionaryRepresentation()
+        where key.hasPrefix("cloud.") {
+          // Only fill gaps: if the group already has a value (a fresh install
+          // that never touched .standard, or a re-run), leave it alone.
+          if group.object(forKey: key) == nil {
+            group.set(value, forKey: key)
+          }
         }
+        group.set(true, forKey: migratedKey)
       }
-      group.set(true, forKey: migratedKey)
-    }
-    return group
+      return group
+    #endif
   }
 
   /// Currently-connected servers, in registration order.
@@ -85,11 +89,13 @@ public final class CloudServerRegistry {
       if let host = url.host {
         modes[host] = CloudViewMode.load(host: host, defaults: defaults)
         if let name = defaults.string(forKey: Self.nameKey(host: host)),
-           !name.isEmpty {
+          !name.isEmpty
+        {
           names[host] = name
         }
         if let libraryID = defaults.string(forKey: Self.selectedLibraryIDKey(host: host)),
-           !libraryID.isEmpty {
+          !libraryID.isEmpty
+        {
           libraryIDs[host] = libraryID
         }
       }
@@ -195,7 +201,7 @@ public final class CloudServerRegistry {
 
   private static func loadList(from defaults: UserDefaults) -> [URL] {
     guard let data = defaults.data(forKey: listKey),
-          let strings = try? JSONDecoder().decode([String].self, from: data)
+      let strings = try? JSONDecoder().decode([String].self, from: data)
     else { return [] }
     return strings.compactMap { URL(string: $0) }
   }

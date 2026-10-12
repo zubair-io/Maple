@@ -64,6 +64,13 @@ public struct DeviceSessionMint: Codable {
   public let refresh_token: String
 }
 
+/// Platform marker for a paired-device session. The TV default preserves
+/// existing callers; Watch pairing opts into `.watchOS` explicitly.
+public enum PairedDevicePlatform: String, Sendable {
+  case tvOS = "tvos"
+  case watchOS = "watchos"
+}
+
 public actor AuthClient {
   public nonisolated let server: URL
   let urlSession: URLSession
@@ -110,22 +117,15 @@ public actor AuthClient {
         auth: accessToken) as EmptyResponse
   }
 
-  /// Mints a new, device-scoped token pair for a paired tvOS device. Called
-  /// once, at the end of the pairing handshake — the phone (which holds a
-  /// live PRIMARY session) proves it by sending its own current
-  /// `refreshToken` as `refresh_token`; the server mints a distinct
-  /// credential in the same family for the TV rather than handing the TV
-  /// the phone's own tokens. `platform` is hardcoded to `"tvos"`: it's the
-  /// only value the server accepts for this endpoint (see the milestone B
-  /// wire contract). 403 on an invalid/expired/family-revoked/platform-marked
-  /// proof surfaces as `AuthClientError.forbidden`, same as every other
-  /// mutating AuthClient call.
+  /// Mints a distinct device-scoped session using the primary phone session
+  /// as proof. The paired device never receives the phone's tokens.
   public func mintDeviceSession(
-    accessToken: String, refreshToken: String, label: String
+    accessToken: String, refreshToken: String, label: String,
+    platform: PairedDevicePlatform = .tvOS
   ) async throws -> DeviceSessionMint {
     return try await postJSON(
       "/api/auth/device-sessions",
-      body: ["label": label, "platform": "tvos", "refresh_token": refreshToken],
+      body: ["label": label, "platform": platform.rawValue, "refresh_token": refreshToken],
       auth: accessToken)
   }
 

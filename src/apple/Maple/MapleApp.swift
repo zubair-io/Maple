@@ -36,6 +36,9 @@ struct MapleApp: App {
     Self.registerBundledFonts()
     Self.installMemoryPressureObserver()
     BGTaskRegistration.register()
+    #if os(iOS)
+      WatchPhonePairing.shared.start()
+    #endif
     // #1338 — MUST run on the main thread, before any GpuLiveSession
     // actor could read CanvasColorSpace.current: this is the one-time
     // UIScreen/NSScreen probe that seeds the P3-vs-sRGB default for an
