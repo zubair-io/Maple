@@ -197,6 +197,57 @@ final class SearchViewModelCollectionTests: XCTestCase {
     XCTAssertFalse(vm.canLoadMore)
   }
 
+  // MARK: - Ranked windows and a loading engine (#4514)
+
+  func test_showCollection_pendingLiveReloadStaysPendingAndAsksAgainOnLoadMore() async throws {
+    let vm = makeVM()
+    var requestedOffsets: [Int] = []
+    var attempts = 0
+    let preview = [Self.makeAsset(id: "snap")]
+    vm.showCollection(
+      params: SearchParams(libraryID: "lib-test"),
+      firstPage: GeneratedSearchAssetPage(results: preview, total: 100, isSnapshot: true),
+      nextPage: { offset, _ in
+        requestedOffsets.append(offset)
+        return GeneratedSearchAssetPage(results: [], total: 2)
+      },
+      liveFirstPage: {
+        attempts += 1
+        return attempts == 1
+          ? GeneratedSearchAssetPage(results: preview, total: 1, isSnapshot: true, isPending: true)
+          : GeneratedSearchAssetPage(
+            results: [Self.makeAsset(id: "live1"), Self.makeAsset(id: "live2")], total: 2)
+      })
+    try await Task.sleep(for: .milliseconds(50))
+
+    XCTAssertEqual(attempts, 1)
+    XCTAssertEqual(vm.results.map(\.id), ["snap"])
+    XCTAssertEqual(vm.total, 1, "a pending preview ends paging at its own rows")
+    await vm.loadMore()
+    XCTAssertEqual(attempts, 2, "the next scroll to the end asks for the live page again")
+    XCTAssertEqual(requestedOffsets, [])
+    XCTAssertEqual(vm.results.map(\.id), ["live1", "live2"])
+  }
+
+  func test_loadMore_pagesPastTotalWhileTheWindowHasMore() async {
+    let vm = makeVM()
+    var requestedOffsets: [Int] = []
+    vm.showCollection(
+      params: SearchParams(libraryID: "lib-test"),
+      firstPage: GeneratedSearchAssetPage(
+        results: [Self.makeAsset(id: "a")], total: 1, more: true),
+      nextPage: { offset, _ in
+        requestedOffsets.append(offset)
+        return GeneratedSearchAssetPage(results: [Self.makeAsset(id: "b")], total: 2, more: false)
+      })
+
+    XCTAssertTrue(vm.canLoadMore, "a full window's total is not the end of the collection")
+    await vm.loadMore()
+    XCTAssertEqual(requestedOffsets, [1])
+    XCTAssertEqual(vm.results.map(\.id), ["a", "b"])
+    XCTAssertFalse(vm.canLoadMore)
+  }
+
   func test_submit_leavesCollectionMode() async {
     let vm = makeVM()
     var pagerCalls = 0

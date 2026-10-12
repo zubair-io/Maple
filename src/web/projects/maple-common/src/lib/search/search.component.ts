@@ -142,6 +142,8 @@ export class SearchComponent implements OnInit, AfterViewInit {
   protected readonly sort = signal<SearchSortOrder>('captured_desc');
   protected readonly results = signal<readonly SearchResult[]>([]);
   protected readonly total = signal<number>(0);
+  /** The server ranked a window of the text and had hits left past `total` (#4514). */
+  protected readonly more = signal<boolean>(false);
   protected readonly isStale = signal<boolean>(false);
   protected readonly recent = signal<readonly string[]>(readRecents());
   protected readonly page = signal<number>(0);
@@ -207,13 +209,16 @@ export class SearchComponent implements OnInit, AfterViewInit {
   protected readonly facetScope = computed(() => this.facets()?.scope ?? null);
 
   /** True when there are server-side results not yet loaded locally. */
-  protected readonly canLoadMore = computed(() => this.results().length < this.total());
+  protected readonly canLoadMore = computed(
+    () => this.results().length < this.total() || this.more(),
+  );
 
   /** Empty state — recents render only when nothing is being searched. */
   protected readonly showRecents = computed(() => !this.hasText() && !this.filtersActive());
 
   protected readonly totalLabel = computed(
-    () => `${this.total().toLocaleString()} ${this.total() === 1 ? 'result' : 'results'}`,
+    () =>
+      `${this.total().toLocaleString()}${this.more() ? '+' : ''} ${this.total() === 1 && !this.more() ? 'result' : 'results'}`,
   );
 
   @ViewChild(SearchBarComponent) private searchBar?: SearchBarComponent;
@@ -250,6 +255,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
       if (text.length === 0 && !hasActiveFilters(f)) {
         this.results.set([]);
         this.total.set(0);
+        this.more.set(false);
         this.page.set(0);
         this.nextCursor.set(null);
         this.appliedDates.set(undefined);
@@ -267,6 +273,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
             this.nextCursor.set(res.nextCursor ?? null);
             this.appliedDates.set(res.dateFilter);
             this.total.set(seekExhausted(res) ? res.results.length : res.total);
+            this.more.set(res.more ?? false);
             this.isStale.set(false);
             this.queueThumbs(res.results);
             const scrollEl = this.mainScrollRef?.nativeElement;
@@ -497,6 +504,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
         this.results.set(merged);
         this.nextCursor.set(res.nextCursor ?? null);
         this.total.set(seekExhausted(res) || res.results.length === 0 ? merged.length : res.total);
+        this.more.set(res.results.length > 0 && (res.more ?? false));
         // `page` is the skip-mode fallback counter — a seek request leaves
         // it alone rather than adopting the server's echoed `page: 0`.
         if (cursor === null) this.page.set(nextPage);

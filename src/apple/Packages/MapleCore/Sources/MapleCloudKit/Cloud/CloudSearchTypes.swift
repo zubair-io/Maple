@@ -277,6 +277,10 @@ public struct SearchResponse: Codable, Sendable {
   /// The capture-date window in effect, when there is one. Optional so
   /// responses from a server predating the field still decode.
   public let dateFilter: AppliedDateFilter?
+  /// True when `total` is a ranked window of a free-text query and the server
+  /// had hits left past it (#4514): a deeper page widens the window. Optional
+  /// so responses from a server predating the field still decode.
+  public let more: Bool?
 
   /// True when a seek-paginated result set has been walked to its end.
   ///
@@ -294,7 +298,8 @@ public struct SearchResponse: Codable, Sendable {
     results: [SearchAsset],
     cursorPaging: Bool? = nil,
     nextCursor: String? = nil,
-    dateFilter: AppliedDateFilter? = nil
+    dateFilter: AppliedDateFilter? = nil,
+    more: Bool? = nil
   ) {
     self.total = total
     self.page = page
@@ -303,6 +308,7 @@ public struct SearchResponse: Codable, Sendable {
     self.cursorPaging = cursorPaging
     self.nextCursor = nextCursor
     self.dateFilter = dateFilter
+    self.more = more
   }
 }
 
