@@ -1553,8 +1553,7 @@ struct AppShell: View {
   private func showAppSettings(initialTab: SettingsTab? = nil) {
     #if os(macOS)
       if let initialTab {
-        SettingsNavigation.shared.selectedTab =
-          initialTab == .pano && !FeatureFlags.isPanoramaEnabled ? .general : initialTab
+        SettingsNavigation.shared.selectedTab = initialTab
       }
       openSettings()
     #else
@@ -1616,7 +1615,6 @@ struct AppShell: View {
   /// Open the panorama merge view with the currently-selected assets.
   /// Only called when `browseVM.canMergePanorama` is true.
   func openPanoramaMerge() {
-    guard FeatureFlags.isPanoramaEnabled else { return }
     guard browseVM.canMergePanorama else { return }
     panoMergeSession.reset()
     mode = .panoramaMerge
