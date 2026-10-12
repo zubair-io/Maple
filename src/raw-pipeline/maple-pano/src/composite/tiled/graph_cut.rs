@@ -29,20 +29,21 @@ use crate::blend::levels_for_overlap_width;
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
 use crate::error::PanoError;
-use crate::gain::FramePhotometry;
+use crate::gain::{ExposureField, FramePhotometry};
 use crate::ingest::{ingest_file, PlanarImage};
 use crate::local_align::LocalCorrection;
 use crate::seam::{self, SeamConstraint, SeamMasks};
 use crate::warp::warp_to_canvas_strip;
 
 use super::super::CompositeReport;
-use super::{check_inputs, strips};
+use super::{check_inputs, strips, with_exposure_field};
 
 pub(super) fn composite_tiled_graph_cut(
     paths: &[std::path::PathBuf],
     cameras: &[Camera],
     photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
+    exposure_field: Option<&ExposureField>,
     canvas: &CanvasSpec,
     tile_rows: u32,
     seam_constraints: &[SeamConstraint],
@@ -75,7 +76,7 @@ pub(super) fn composite_tiled_graph_cut(
         |fi, tile_y0, tile_y1| {
             let frame = ingest_file(&paths[fi])?;
             let la = local_corrections.get(fi).and_then(|o| o.as_ref());
-            Ok(warp_to_canvas_strip(
+            let strip = warp_to_canvas_strip(
                 &frame.image,
                 &cameras[fi],
                 canvas,
@@ -83,6 +84,13 @@ pub(super) fn composite_tiled_graph_cut(
                 la,
                 tile_y0,
                 tile_y1,
+            );
+            Ok(with_exposure_field(
+                exposure_field,
+                fi,
+                strip,
+                canvas,
+                tile_y0,
             ))
         },
     )
@@ -93,6 +101,7 @@ pub(super) fn composite_tiled_frames_graph_cut(
     cameras: &[Camera],
     photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
+    exposure_field: Option<&ExposureField>,
     canvas: &CanvasSpec,
     tile_rows: u32,
     seam_constraints: &[SeamConstraint],
@@ -124,7 +133,7 @@ pub(super) fn composite_tiled_frames_graph_cut(
         &seam,
         |fi, tile_y0, tile_y1| {
             let la = local_corrections.get(fi).and_then(|o| o.as_ref());
-            Ok(warp_to_canvas_strip(
+            let strip = warp_to_canvas_strip(
                 &frames[fi],
                 &cameras[fi],
                 canvas,
@@ -132,6 +141,13 @@ pub(super) fn composite_tiled_frames_graph_cut(
                 la,
                 tile_y0,
                 tile_y1,
+            );
+            Ok(with_exposure_field(
+                exposure_field,
+                fi,
+                strip,
+                canvas,
+                tile_y0,
             ))
         },
     )
@@ -168,6 +184,7 @@ fn graph_cut_blend(
         blend_levels: levels,
         min_overlap_width_px: survey.min_overlap_px,
         seam_strategy: seam::SeamStrategy::GraphCut,
+        exposure_field: None,
     };
     Ok((blended, report))
 }

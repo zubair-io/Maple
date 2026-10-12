@@ -17,12 +17,20 @@
 //!    absorbing only black-level and flare offsets.
 //!
 //! The result is folded into the warp ([`crate::warp::warp_to_canvas`]
-//! applies `gain·v + bias`).
+//! applies `gain·v + bias`). On the rotation strategy a coarse per-view
+//! [`ExposureField`] then absorbs the smooth residual the global model
+//! leaves (#4521, [`field`]).
 
+mod field;
+mod field_solve;
 pub(crate) mod fit;
 pub(crate) mod overlap;
 pub(crate) mod solve;
 mod streaming;
+pub use field::{
+    solve_exposure_field, solve_exposure_field_streaming, ExposureField, ExposureFieldSummary,
+    CORRIDOR_MARGIN_NODES, MAX_NODES_PER_VIEW,
+};
 pub use streaming::solve_photometry_streaming;
 
 use fit::fit_pairs;
@@ -281,3 +289,6 @@ mod tests;
 
 #[cfg(test)]
 mod photometry_tests;
+
+#[cfg(test)]
+mod field_tests;

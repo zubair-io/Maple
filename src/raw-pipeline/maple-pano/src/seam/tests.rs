@@ -373,6 +373,7 @@ fn tiled_graph_cut_composite_shows_only_the_force_included_frame() {
             &ring.cams,
             &photometry,
             &[],
+            None,
             &ring.canvas,
             16,
             strategy,

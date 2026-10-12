@@ -110,6 +110,16 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
     if !solution.placed_by_prior.is_empty() {
         warnings.push(low_texture_warning(solution.placed_by_prior.len()));
     }
+    let exposure_field = comp_report.exposure_field.map(|f| {
+        serde_json::json!({
+            "lattice": [f.lattice.0, f.lattice.1],
+            "unknowns": f.unknowns,
+            "max_unknowns_per_view": f.max_unknowns_per_view,
+            "max_abs_log": f.max_abs_log,
+            "step_rms_before": f.step_rms_before,
+            "step_rms_after": f.step_rms_after,
+        })
+    });
     serde_json::json!({
         "inputs": ctx.inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
         "retention": ctx.retention,
@@ -182,6 +192,7 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         "blend_levels": comp_report.blend_levels,
         "min_overlap_width_px": comp_report.min_overlap_width_px,
         "seam_strategy": comp_report.seam_strategy.label(),
+        "exposure_field": exposure_field,
         "timings_s": timings,
     })
 }

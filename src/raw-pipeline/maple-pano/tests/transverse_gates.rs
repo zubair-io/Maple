@@ -221,6 +221,7 @@ fn gate_closed_pitch_ring_wraps_in_rows() {
         &cams,
         &vec![FramePhotometry::IDENTITY; cams.len()],
         &[],
+        None,
         &canvas,
         64,
         SeamStrategy::Voronoi,

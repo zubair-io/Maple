@@ -21,7 +21,7 @@ use crate::blend::levels_for_overlap_width;
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
 use crate::error::PanoError;
-use crate::gain::FramePhotometry;
+use crate::gain::{ExposureField, FramePhotometry};
 use crate::ingest::{ingest_file, PlanarImage};
 use crate::local_align::LocalCorrection;
 use crate::seam::{SeamConstraint, SeamConstraintError, SeamStrategy};
@@ -176,12 +176,13 @@ pub fn composite_tiled(
     cameras: &[Camera],
     photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
+    exposure_field: Option<&ExposureField>,
     canvas: &CanvasSpec,
     tile_rows: u32,
     seam_strategy: SeamStrategy,
     seam_constraints: &[SeamConstraint],
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
-    match seam_strategy {
+    let composited = match seam_strategy {
         SeamStrategy::Voronoi if !seam_constraints.is_empty() => {
             Err(SeamConstraintError::RequiresGraphCut.into())
         }
@@ -190,6 +191,7 @@ pub fn composite_tiled(
             cameras,
             photometry,
             local_corrections,
+            exposure_field,
             canvas,
             tile_rows,
         ),
@@ -198,11 +200,21 @@ pub fn composite_tiled(
             cameras,
             photometry,
             local_corrections,
+            exposure_field,
             canvas,
             tile_rows,
             seam_constraints,
         ),
-    }
+    };
+    composited.map(|(image, report)| {
+        (
+            image,
+            CompositeReport {
+                exposure_field: exposure_field.map(|field| field.summary),
+                ..report
+            },
+        )
+    })
 }
 
 fn composite_tiled_voronoi(
@@ -210,6 +222,7 @@ fn composite_tiled_voronoi(
     cameras: &[Camera],
     photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
+    exposure_field: Option<&ExposureField>,
     canvas: &CanvasSpec,
     tile_rows: u32,
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
@@ -230,7 +243,7 @@ fn composite_tiled_voronoi(
         |fi, y0, y1| {
             let frame = ingest_file(&paths[fi])?;
             let la = local_corrections.get(fi).and_then(|o| o.as_ref());
-            Ok(warp_to_canvas_strip(
+            let strip = warp_to_canvas_strip(
                 &frame.image,
                 &cameras[fi],
                 canvas,
@@ -238,7 +251,8 @@ fn composite_tiled_voronoi(
                 la,
                 y0,
                 y1,
-            ))
+            );
+            Ok(with_exposure_field(exposure_field, fi, strip, canvas, y0))
         },
     )
 }
@@ -258,12 +272,13 @@ pub fn composite_tiled_frames(
     cameras: &[Camera],
     photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
+    exposure_field: Option<&ExposureField>,
     canvas: &CanvasSpec,
     tile_rows: u32,
     seam_strategy: SeamStrategy,
     seam_constraints: &[SeamConstraint],
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
-    match seam_strategy {
+    let composited = match seam_strategy {
         SeamStrategy::Voronoi if !seam_constraints.is_empty() => {
             Err(SeamConstraintError::RequiresGraphCut.into())
         }
@@ -272,6 +287,7 @@ pub fn composite_tiled_frames(
             cameras,
             photometry,
             local_corrections,
+            exposure_field,
             canvas,
             tile_rows,
         ),
@@ -280,11 +296,21 @@ pub fn composite_tiled_frames(
             cameras,
             photometry,
             local_corrections,
+            exposure_field,
             canvas,
             tile_rows,
             seam_constraints,
         ),
-    }
+    };
+    composited.map(|(image, report)| {
+        (
+            image,
+            CompositeReport {
+                exposure_field: exposure_field.map(|field| field.summary),
+                ..report
+            },
+        )
+    })
 }
 
 fn composite_tiled_frames_voronoi(
@@ -292,6 +318,7 @@ fn composite_tiled_frames_voronoi(
     cameras: &[Camera],
     photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
+    exposure_field: Option<&ExposureField>,
     canvas: &CanvasSpec,
     tile_rows: u32,
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
@@ -311,7 +338,7 @@ fn composite_tiled_frames_voronoi(
         tile_rows,
         |fi, y0, y1| {
             let la = local_corrections.get(fi).and_then(|o| o.as_ref());
-            Ok(warp_to_canvas_strip(
+            let strip = warp_to_canvas_strip(
                 &frames[fi],
                 &cameras[fi],
                 canvas,
@@ -319,7 +346,8 @@ fn composite_tiled_frames_voronoi(
                 la,
                 y0,
                 y1,
-            ))
+            );
+            Ok(with_exposure_field(exposure_field, fi, strip, canvas, y0))
         },
     )
 }
@@ -360,8 +388,24 @@ fn voronoi_blend(
         blend_levels: levels,
         min_overlap_width_px: survey.min_overlap_px,
         seam_strategy: SeamStrategy::Voronoi,
+        exposure_field: None,
     };
     Ok((blended, report))
+}
+
+/// Scale a freshly warped strip (canvas rows from `y0`) by frame `fi`'s
+/// exposure correction, in place, when a field was solved (#4521).
+fn with_exposure_field(
+    field: Option<&ExposureField>,
+    fi: usize,
+    mut strip: PlanarImage,
+    canvas: &CanvasSpec,
+    y0: u32,
+) -> PlanarImage {
+    if let Some(field) = field {
+        field.apply_to_strip(fi, &mut strip, canvas, y0);
+    }
+    strip
 }
 
 /// Shared shape validation for every tiled entry point.

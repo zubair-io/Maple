@@ -51,7 +51,7 @@ use crate::blend::{blend_multiband, levels_for_overlap_width};
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, CanvasSpec};
 use crate::error::PanoError;
-use crate::gain::{solve_photometry, FramePhotometry, GainOptions};
+use crate::gain::{solve_photometry, ExposureFieldSummary, FramePhotometry, GainOptions};
 use crate::ingest::PlanarImage;
 use crate::local_align::LocalCorrection;
 use crate::project::Projection;
@@ -83,6 +83,8 @@ pub struct CompositeReport {
     pub min_overlap_width_px: usize,
     /// Which seam placement this run actually used (#1179).
     pub seam_strategy: SeamStrategy,
+    /// The residual exposure field the tiled path applied, if any (#4521).
+    pub exposure_field: Option<ExposureFieldSummary>,
 }
 
 /// Composite posed frames onto an automatically constructed canvas.
@@ -170,6 +172,7 @@ pub fn composite(
             blend_levels: levels,
             min_overlap_width_px: min_overlap,
             seam_strategy: opts.seam_strategy,
+            exposure_field: None,
         },
     ))
 }
@@ -355,6 +358,7 @@ mod tests {
                 &cams,
                 &photometry,
                 &no_lc,
+                None,
                 &canvas,
                 strip_rows,
                 SeamStrategy::Voronoi,
