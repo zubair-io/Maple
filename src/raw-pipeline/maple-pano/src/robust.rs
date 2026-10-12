@@ -141,6 +141,16 @@ pub enum VerifyFailure {
     NoModel { iterations: usize },
     #[error("only {inliers} inliers (pair acceptance requires >= {required})")]
     BelowMinInliers { inliers: usize, required: usize },
+    /// Structured-grid gate (#4519): a non-neighbour edge whose frames
+    /// sit further apart on the declared grid than any real overlap.
+    #[error("loop closure spans {cells} grid cells (footprint allows <= {max})", max = crate::graph::LOOP_CLOSURE_MAX_CELLS)]
+    LoopClosureOutsideFootprint { cells: usize },
+    /// Structured-grid gate (#4519): no triangle through two verified
+    /// neighbour edges reproduces the loop closure's relative rotation.
+    #[error("loop closure not confirmed by a neighbour triangle (best error {best_triangle_error_deg:?} deg)")]
+    LoopClosureUnconfirmed {
+        best_triangle_error_deg: Option<f64>,
+    },
 }
 
 /// Robustly estimate the relative rotation from bearing pairs.

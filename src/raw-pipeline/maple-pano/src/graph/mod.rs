@@ -23,6 +23,9 @@
 //!   neither capture order nor gimbal priors give a signal (ticket
 //!   #1215). See that module for the similarity choice, its cost, and
 //!   why it's a struct field rather than a trait-signature change.
+//! - [`grid_prior::GridPriorProvider`] — declared `R × C` drone/array
+//!   grids (#4519): O(N) neighbour nomination plus a post-verification
+//!   footprint + triangle-consistency gate on loop closures.
 //!
 //! # Determinism
 //!
@@ -37,6 +40,7 @@
 // (`stitch::*`); the crate builds bare without it (#3236).
 #[cfg(any(feature = "ml", feature = "ml-static"))]
 pub mod descriptor_topk;
+pub mod grid_prior;
 
 use std::collections::BTreeSet;
 
@@ -48,6 +52,10 @@ use crate::twoview::PixelCorrespondence;
 
 #[cfg(any(feature = "ml", feature = "ml-static"))]
 pub use descriptor_topk::DescriptorTopKProvider;
+pub use grid_prior::{
+    GridLayout, GridOrder, GridPriorProvider, LOOP_CLOSURE_MAX_CELLS,
+    LOOP_CLOSURE_MAX_ROTATION_ERROR_DEG,
+};
 
 /// One image entering the graph build.
 ///

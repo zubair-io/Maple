@@ -96,6 +96,11 @@ name = "graph_gates"
 path = "tests/graph_gates.rs"
 required-features = ["testkit"]
 
+[[test]]
+name = "grid_prior_gates"
+path = "tests/grid_prior_gates.rs"
+required-features = ["testkit"]
+
 [dependencies]
 clap.workspace = true
 # `image` reads the optional equirect source PNG (8/16-bit, gray/RGB(A)).
