@@ -518,7 +518,22 @@ export class GoogleDriveProvider implements BackupProvider {
     await this.probe(signal);
     await this.cancelSession(state.session, signal);
     if (state.replace) {
-      const current = await this.inspect(state.key, signal, state.fileId);
+      const current = await this.inspect(state.key, signal, {
+        locator: state.fileId,
+        ...(state.key.startsWith('mirror/')
+          ? {
+              // A mirror checkpoint is local DB state. Use its locator to
+              // inspect markerless files while checking whether the upload
+              // completed before cancellation.
+              expected: {
+                key: state.key,
+                locator: state.fileId,
+                sha256: state.sha256,
+                size: state.size,
+              },
+            }
+          : {}),
+      });
       return current?.sha256 === state.sha256 && current.size === state.size ? current : null;
     }
     // Cancellation precedes cleanup: a final chunk racing cancellation can

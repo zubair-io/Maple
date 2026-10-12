@@ -98,7 +98,11 @@ test('unmapped mirror discovery repairs markerless exact-path files and rejects 
   file.description = '{}';
   expect((await provider.inspect(key))?.locator).toBe(first.locator);
 
-  const duplicate = { ...file, id: 'duplicate-mirror-file', bytes: file.bytes?.slice() };
+  const duplicate = {
+    ...file,
+    id: 'duplicate-mirror-file',
+    bytes: file.bytes?.slice(),
+  };
   store.files.set(duplicate.id, duplicate);
   await expect(provider.inspect(key)).rejects.toThrow('Multiple Google files');
 });
@@ -180,4 +184,43 @@ test('stale mirror upload checkpoint yields to the database-mapped locator', asy
   });
   expect(repaired.locator).toBe(current.locator);
   expect(store.files.get(current.locator)!.bytes).toEqual(new Uint8Array([2, 3]));
+});
+
+test('changed source resumes a markerless mapped mirror after discarding its stale checkpoint', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const key = `mirror/${'f'.repeat(24)}/2026/photo.jpg`;
+  const original = source(new Uint8Array([1, 2, 3]));
+  const current = await provider.mirrorFile(key, '2026/photo.jpg', original, {
+    saveCheckpoint: async () => {},
+  });
+  const target = await provider.objectTarget(key);
+  const staleSource = source(new Uint8Array([7, 8]));
+  const checkpoint: UploadCheckpoint = {
+    provider: 'google-drive',
+    version: 1,
+    state: {
+      rootId: root,
+      key,
+      fileId: current.locator,
+      parentId: target.parentId,
+      name: target.name,
+      replace: true,
+      exactName: true,
+      sha256: staleSource.sha256,
+      size: staleSource.size,
+      session: null,
+    },
+  };
+  store.files.get(current.locator)!.description = '{}';
+
+  const replacement = source(new Uint8Array([4, 5, 6, 7]));
+  const repaired = await provider.mirrorFile(key, '2026/photo.jpg', replacement, {
+    checkpoint,
+    expected: current,
+    saveCheckpoint: async () => {},
+  });
+
+  expect(repaired.locator).toBe(current.locator);
+  expect(store.files.get(current.locator)!.bytes).toEqual(new Uint8Array([4, 5, 6, 7]));
 });
