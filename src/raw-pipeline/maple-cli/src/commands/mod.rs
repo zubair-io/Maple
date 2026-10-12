@@ -26,5 +26,5 @@ pub mod tile;
 pub mod transcode_dcp;
 pub mod types;
 
-#[cfg(feature = "pano")]
+#[cfg(any(feature = "pano", feature = "pano-classical"))]
 pub mod pano;
