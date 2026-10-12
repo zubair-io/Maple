@@ -387,7 +387,12 @@ pub(super) fn tile_tail(
     if is_cancelled() {
         return Err(StitchError::Cancelled);
     }
-    let tile_edges = verify_tile_edges(&graph, 0x1226_cafe_dead_bee1, &Default::default());
+    let tile_edges = verify_tile_edges(
+        &graph,
+        0x1226_cafe_dead_bee1,
+        &Default::default(),
+        &full_dims,
+    );
     if tile_edges.is_empty() {
         return Err(StitchError::MatchFailed(vec![
             "no edges passed the similarity verifier — \
