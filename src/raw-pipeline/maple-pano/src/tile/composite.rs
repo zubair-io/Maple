@@ -3,7 +3,7 @@
 
 use crate::blend::{blend_multiband, levels_for_overlap_width, MAX_LEVELS};
 use crate::error::PanoError;
-use crate::gain::GainOptions;
+use crate::gain::{GainOptions, LensFalloff, LensGroups};
 use crate::ingest::PlanarImage;
 
 use super::frame_cache::TileFrameCache;
@@ -63,6 +63,9 @@ pub struct TileCompositeReport {
     pub exposure_field_mean_abs_ev: f64,
     /// Max |residual exposure field| in EV (#350 layer B).
     pub exposure_field_max_abs_ev: f64,
+    /// Blind lens falloff per lens group (#4522); frames are input
+    /// indices. Empty when ingest corrected every placed frame.
+    pub falloff: Vec<LensFalloff>,
 }
 
 /// End-to-end tile composite with spatial tiling + multiband blend.
@@ -106,8 +109,9 @@ pub struct TileCompositeReport {
 ///
 /// `cache` decodes frames on demand, keyed by `poses[i].frame_idx` — the
 /// *original* input frame index, not a position in `poses`. `full_dims`
-/// is indexed the same way (one entry per original input frame) and
-/// gives pixel dimensions without paying for a decode; `tile_edges` is
+/// and `lenses.of_frame` are indexed the same way (one entry per
+/// original input frame); `full_dims` gives pixel dimensions without
+/// paying for a decode; `tile_edges` is
 /// filtered to the reachable component (same contract as before). Peak
 /// resident frames is bounded by `cache`'s capacity, not by the total
 /// input frame count — see `TileFrameCache` docs.
@@ -115,12 +119,14 @@ pub struct TileCompositeReport {
 /// `pub(crate)`, not `pub`: `TileFrameCache` itself is crate-internal,
 /// so this can't be called from outside the crate either — the only
 /// caller is `stitch::tile_stitch`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn composite_tile(
     cache: &TileFrameCache,
     full_dims: &[(u32, u32)],
     tile_edges: &[TileEdge],
     poses: &[TilePose],
     canvas: &TileCanvasSpec,
+    lenses: &LensGroups,
     gain_opts: &GainOptions,
     levels_override: Option<usize>,
 ) -> Result<(PlanarImage, TileCompositeReport), PanoError> {
@@ -177,6 +183,7 @@ pub(crate) fn composite_tile(
         full_dims,
         poses,
         canvas,
+        lenses,
         &PhotometryOptions::from_gain(gain_opts),
     )?;
     let gains: Vec<[f32; 3]> = photometry.iter().map(|p| p.gain).collect();
@@ -360,6 +367,7 @@ pub(crate) fn composite_tile(
             photometric_slope_y: phot_summary.slope_y,
             exposure_field_mean_abs_ev: phot_summary.field_mean_abs_ev,
             exposure_field_max_abs_ev: phot_summary.field_max_abs_ev,
+            falloff: phot_summary.falloff,
         },
     ))
 }

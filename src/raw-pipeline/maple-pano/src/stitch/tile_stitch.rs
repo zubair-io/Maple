@@ -36,6 +36,7 @@ use std::path::PathBuf;
 
 use crate::camera::Camera;
 use crate::features::FeatureSet;
+use crate::gain::LensGroups;
 use crate::graph::{
     DescriptorTopKProvider, GraphImage, LoopClosureCheck, LoopClosureGate, MatchGraph,
     ReverifySummary,
@@ -110,6 +111,9 @@ pub(super) struct TileEarlyState<'a> {
     /// report and to build the on-demand decode cache `tile_tail`'s
     /// stage 3–5 work reads frames through (#3197).
     pub inputs: &'a [PathBuf],
+    /// Lens identity per input frame for the blind vignette estimate
+    /// (#4522), parallel to `full_dims`.
+    pub lenses: LensGroups,
 }
 
 // ─── Tile branch helper called from stitch() ─────────────────────────────────
@@ -148,6 +152,9 @@ pub(super) struct TileBranchInput<'a> {
     pub applied_opcodes: Vec<Vec<String>>,
     /// Per-frame EXIF/gimbal priors from stage 0.
     pub priors: Vec<crate::ingest::FramePriors>,
+    /// Lens identity per input frame for the blind vignette estimate
+    /// (#4522).
+    pub lenses: LensGroups,
 }
 
 /// Run the tile branch from inside `stitch()` (#1270).
@@ -177,6 +184,7 @@ pub(super) fn run_tile_branch(
         stage_timings_012,
         applied_opcodes,
         priors,
+        lenses,
     } = input;
 
     // Build unit-focal proxy cameras (same as stitch_tile does).  The tile
@@ -262,6 +270,7 @@ pub(super) fn run_tile_branch(
             focal_seed_source: Some(focal_seed_source),
             stage_timings_012,
             inputs,
+            lenses,
         },
         opts,
         applied_opcodes,
@@ -300,6 +309,7 @@ pub(super) fn tile_tail(
         focal_seed_source,
         stage_timings_012: [decode_s, features_s, graph_s],
         inputs,
+        lenses,
     } = state;
     let match_graph = graph.summary();
 
@@ -438,6 +448,7 @@ pub(super) fn tile_tail(
         &component_edges,
         &poses,
         &canvas_spec,
+        &lenses,
         &Default::default(),
         None,
     )

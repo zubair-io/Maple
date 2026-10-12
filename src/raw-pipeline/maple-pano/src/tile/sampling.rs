@@ -1,6 +1,8 @@
 //! The photometric sampling pass: one strided canvas scan that feeds
 //! both correction layers (#350). Split from `photometry.rs` for the
-//! file-size budget.
+//! file-size budget. A coarser scan of the same shape collects raw
+//! per-point correspondences for the blind vignette estimate (#4522),
+//! whose falloff the main scan then divides out of every sample.
 //!
 //! Every canvas grid point is inverse-mapped into each frame that could
 //! cover it (bbox-prefiltered), sampled with the same bicubic kernel the
@@ -25,7 +27,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::error::PanoError;
+use crate::gain::vignette::{falloff_gain, Correspondence};
 use crate::ingest::PlanarImage;
+use crate::similarity::Similarity2d;
 
 use super::frame_cache::TileFrameCache;
 use super::frame_window::{self, Cell};
@@ -34,8 +38,193 @@ use super::placement::{TileCanvasSpec, TilePose};
 use super::warp::{inverse_similarity_with_offset, sample_bicubic};
 use super::TILE_PX;
 
+/// Canvas grid points the vignette correspondence scan targets; its
+/// stride grows with the canvas so the estimate stays bounded in memory.
+const CORRESPONDENCE_POINTS: f64 = 250_000.0;
+
+/// One frame's sample at a canvas grid point: luminance, RGB and the
+/// frame-local position `(ξ − ½, η − ½)`.
+#[derive(Clone, Copy)]
+struct Hit {
+    frame: usize,
+    lum: f64,
+    rgb: [f64; 3],
+    xi: f64,
+    eta: f64,
+}
+
+impl Hit {
+    /// Elliptically normalised squared radius (`r² = 2` at a corner).
+    fn r2(&self) -> f64 {
+        4.0 * (self.xi * self.xi + self.eta * self.eta)
+    }
+}
+
+/// Per-frame inverse maps and canvas bboxes shared by every scan.
+struct ScanGeometry<'a> {
+    poses: &'a [TilePose],
+    inv_sims: Vec<Similarity2d>,
+    frame_dims: Vec<(f64, f64)>,
+    bboxes: Vec<(f64, f64, f64, f64)>,
+}
+
+impl<'a> ScanGeometry<'a> {
+    fn new(full_dims: &[(u32, u32)], poses: &'a [TilePose], canvas: &TileCanvasSpec) -> Self {
+        let inv_sims = poses
+            .iter()
+            .map(|p| inverse_similarity_with_offset(&p.sim, canvas.offset_x, canvas.offset_y))
+            .collect();
+        let frame_dims: Vec<(f64, f64)> = poses
+            .iter()
+            .map(|p| {
+                let (w, h) = full_dims[p.frame_idx];
+                (w as f64, h as f64)
+            })
+            .collect();
+        // Canvas-space bboxes for the cheap per-sample prefilter AND for
+        // deciding which frames each spatial cell/wave needs (#3197).
+        let bboxes = poses
+            .iter()
+            .zip(&frame_dims)
+            .map(|(pose, &(fw, fh))| {
+                [(0.0, 0.0), (fw, 0.0), (0.0, fh), (fw, fh)]
+                    .iter()
+                    .map(|&(x, y)| pose.sim.apply(x, y))
+                    .map(|(x, y)| (x + canvas.offset_x, y + canvas.offset_y))
+                    .fold(
+                        (
+                            f64::INFINITY,
+                            f64::INFINITY,
+                            f64::NEG_INFINITY,
+                            f64::NEG_INFINITY,
+                        ),
+                        |(x0, y0, x1, y1), (x, y)| (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+                    )
+            })
+            .collect();
+        Self {
+            poses,
+            inv_sims,
+            frame_dims,
+            bboxes,
+        }
+    }
+
+    /// Run `per_cell` over every spatial cell. Waves run strictly
+    /// sequentially (bounded residency); a wave's own cells run in
+    /// parallel once its frames are pinned. Results come back in
+    /// canonical cell order (waves are consecutive slices of that order)
+    /// so callers can fold them deterministically.
+    fn scan<T: Send>(
+        &self,
+        cache: &TileFrameCache,
+        canvas: &TileCanvasSpec,
+        per_cell: impl Fn(Cell, &HashMap<usize, Arc<PlanarImage>>) -> T + Sync,
+    ) -> Result<Vec<T>, PanoError> {
+        let cells =
+            frame_window::spatial_cells(canvas.width as usize, canvas.height as usize, TILE_PX);
+        let waves = frame_window::group_into_waves(
+            &cells,
+            &self.bboxes,
+            |local| self.poses[local].frame_idx,
+            cache.capacity(),
+        );
+        waves.iter().try_fold(Vec::new(), |mut out, wave| {
+            let pinned = frame_window::pin_wave(cache, wave)?;
+            out.extend(
+                wave.cells
+                    .par_iter()
+                    .map(|&cell| per_cell(cell, &pinned))
+                    .collect::<Vec<T>>(),
+            );
+            Ok(out)
+        })
+    }
+
+    /// Visit every strided grid point of `cell` covered by two or more
+    /// frames, with each frame's sample divided by its falloff `q`
+    /// (`falloff[frame] = 0` leaves the sample as recorded).
+    fn visit_cell(
+        &self,
+        cell: Cell,
+        stride: usize,
+        pinned: &HashMap<usize, Arc<PlanarImage>>,
+        falloff: &[f64],
+        mut visit: impl FnMut(usize, usize, &[Hit]),
+    ) {
+        let k = self.poses.len();
+        let mut hits: Vec<Hit> = Vec::with_capacity(k);
+        let first_ry = cell.y0.div_ceil(stride) * stride;
+        let first_rx = cell.x0.div_ceil(stride) * stride;
+
+        for ry in (first_ry..cell.y1).step_by(stride) {
+            let cy = ry as f64 + 0.5;
+            for rx in (first_rx..cell.x1).step_by(stride) {
+                let cx = rx as f64 + 0.5;
+                hits.clear();
+                for i in 0..k {
+                    let (bx0, by0, bx1, by1) = self.bboxes[i];
+                    if cx < bx0 || cx > bx1 || cy < by0 || cy > by1 {
+                        continue;
+                    }
+                    let (fw, fh) = self.frame_dims[i];
+                    let (fx, fy) = self.inv_sims[i].apply(cx, cy);
+                    if fx < 0.0 || fx > fw || fy < 0.0 || fy > fh {
+                        continue;
+                    }
+                    // Invariant: the wave that owns this cell was pinned with
+                    // the union of every frame any of its cells' bboxes touch
+                    // (see `frame_window::group_into_waves`), so
+                    // `poses[i].frame_idx` is always present here. A debug
+                    // build catches a broken invariant loudly instead of
+                    // silently dropping samples and skewing the photometric
+                    // solve (Copilot review).
+                    let Some(frame) = pinned.get(&self.poses[i].frame_idx) else {
+                        debug_assert!(
+                            false,
+                            "frame {} missing from pinned wave set",
+                            self.poses[i].frame_idx
+                        );
+                        continue;
+                    };
+                    let Some(v) = sample_bicubic(frame, fx - 0.5, fy - 0.5) else {
+                        continue;
+                    };
+                    let (xi, eta) = (fx / fw - 0.5, fy / fh - 0.5);
+                    let q = falloff.get(i).copied().unwrap_or(0.0);
+                    let gain = if q == 0.0 {
+                        1.0
+                    } else {
+                        falloff_gain(q, 4.0 * (xi * xi + eta * eta))
+                    };
+                    let rgb = [
+                        (v[0].max(0.0)) as f64 * gain,
+                        (v[1].max(0.0)) as f64 * gain,
+                        (v[2].max(0.0)) as f64 * gain,
+                    ];
+                    let lum = (rgb[0] + rgb[1] + rgb[2]) / 3.0;
+                    if lum < MIN_LUM {
+                        continue;
+                    }
+                    hits.push(Hit {
+                        frame: i,
+                        lum,
+                        rgb,
+                        xi,
+                        eta,
+                    });
+                }
+                if hits.len() >= 2 {
+                    visit(rx, ry, &hits);
+                }
+            }
+        }
+    }
+}
+
 /// One strided canvas scan accumulating per-pair (and per-pair-per-cell)
-/// log-ratio statistics.
+/// log-ratio statistics, with each frame's falloff `q` (indexed like
+/// `poses`) divided out first.
 ///
 /// `full_dims` is indexed by the *original* input frame index (same
 /// space as `cache` and `poses[i].frame_idx`).
@@ -45,180 +234,85 @@ pub(super) fn sample_pairs(
     poses: &[TilePose],
     canvas: &TileCanvasSpec,
     opts: &PhotometryOptions,
+    falloff: &[f64],
 ) -> Result<PairMap, PanoError> {
-    let k = poses.len();
-    let cw = canvas.width as usize;
-    let ch = canvas.height as usize;
-    let ncx = cw.div_ceil(opts.field_cell_px);
-
-    let inv_sims: Vec<_> = poses
-        .iter()
-        .map(|p| inverse_similarity_with_offset(&p.sim, canvas.offset_x, canvas.offset_y))
-        .collect();
-    let frame_dims: Vec<(f64, f64)> = poses
-        .iter()
-        .map(|p| {
-            let (w, h) = full_dims[p.frame_idx];
-            (w as f64, h as f64)
-        })
-        .collect();
-    // Canvas-space bboxes for the cheap per-sample prefilter AND for
-    // deciding which frames each spatial cell/wave needs (#3197).
-    let bboxes: Vec<(f64, f64, f64, f64)> = poses
-        .iter()
-        .zip(&frame_dims)
-        .map(|(pose, &(fw, fh))| {
-            [(0.0, 0.0), (fw, 0.0), (0.0, fh), (fw, fh)]
-                .iter()
-                .map(|&(x, y)| pose.sim.apply(x, y))
-                .map(|(x, y)| (x + canvas.offset_x, y + canvas.offset_y))
-                .fold(
-                    (
-                        f64::INFINITY,
-                        f64::INFINITY,
-                        f64::NEG_INFINITY,
-                        f64::NEG_INFINITY,
-                    ),
-                    |(x0, y0, x1, y1), (x, y)| (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
-                )
-        })
-        .collect();
-
-    let cells = frame_window::spatial_cells(cw, ch, TILE_PX);
-    let waves = frame_window::group_into_waves(
-        &cells,
-        &bboxes,
-        |local| poses[local].frame_idx,
-        cache.capacity(),
-    );
-
-    // Waves run strictly sequentially (bounded residency); a wave's own
-    // cells run in parallel once its frames are pinned. Merged in
-    // canonical cell order (waves are consecutive slices of that order)
-    // for deterministic float summation.
-    let mut merged = PairMap::new();
-    for wave in &waves {
-        let pinned = frame_window::pin_wave(cache, wave)?;
-        let cell_maps: Vec<PairMap> = wave
-            .cells
-            .par_iter()
-            .map(|&cell| {
-                sample_cell(
-                    cell,
-                    cw,
-                    k,
-                    ncx,
-                    opts,
-                    &bboxes,
-                    &frame_dims,
-                    &inv_sims,
-                    poses,
-                    &pinned,
-                )
-            })
-            .collect();
-        for map in cell_maps {
+    let geometry = ScanGeometry::new(full_dims, poses, canvas);
+    let ncx = (canvas.width as usize).div_ceil(opts.field_cell_px);
+    let cell_maps = geometry.scan(cache, canvas, |cell, pinned| {
+        let mut map = PairMap::new();
+        geometry.visit_cell(cell, opts.stride, pinned, falloff, |rx, ry, hits| {
+            let cell_lin = ((ry / opts.field_cell_px) * ncx + (rx / opts.field_cell_px)) as u32;
+            accumulate(&mut map, cell_lin, hits);
+        });
+        map
+    })?;
+    Ok(cell_maps
+        .into_iter()
+        .fold(PairMap::new(), |mut merged, map| {
             merge_into(&mut merged, map);
-        }
-    }
-    Ok(merged)
+            merged
+        }))
 }
 
-/// Accumulate one spatial cell's per-pair log-ratio statistics against an
-/// already-pinned frame set (no cache access here — see module docs).
-#[allow(clippy::too_many_arguments)]
-fn sample_cell(
-    cell: Cell,
-    _cw: usize,
-    k: usize,
-    ncx: usize,
-    opts: &PhotometryOptions,
-    bboxes: &[(f64, f64, f64, f64)],
-    frame_dims: &[(f64, f64)],
-    inv_sims: &[crate::similarity::Similarity2d],
+/// Raw (uncorrected) per-point correspondences between every co-visible
+/// frame pair, for the blind vignette estimate. Frame indices are
+/// positions in `poses`.
+pub(super) fn sample_correspondences(
+    cache: &TileFrameCache,
+    full_dims: &[(u32, u32)],
     poses: &[TilePose],
-    pinned: &HashMap<usize, Arc<PlanarImage>>,
-) -> PairMap {
-    let mut map = PairMap::new();
-    let mut hits: Vec<(usize, f64, [f64; 3], f64, f64)> = Vec::with_capacity(k);
-    let stride = opts.stride;
-    let first_ry = cell.y0.div_ceil(stride) * stride;
-    let first_rx = cell.x0.div_ceil(stride) * stride;
+    canvas: &TileCanvasSpec,
+    opts: &PhotometryOptions,
+) -> Result<Vec<Correspondence>, PanoError> {
+    let geometry = ScanGeometry::new(full_dims, poses, canvas);
+    let area = canvas.width as f64 * canvas.height as f64;
+    let stride = opts
+        .stride
+        .max((area / CORRESPONDENCE_POINTS).sqrt().ceil() as usize);
+    let per_cell = geometry.scan(cache, canvas, |cell, pinned| {
+        let mut out = Vec::new();
+        geometry.visit_cell(cell, stride, pinned, &[], |_, _, hits| {
+            for (a, ha) in hits.iter().enumerate() {
+                for hb in &hits[a + 1..] {
+                    out.push(Correspondence {
+                        i: ha.frame,
+                        j: hb.frame,
+                        r2_i: ha.r2(),
+                        r2_j: hb.r2(),
+                        log_ratio: hb.lum.ln() - ha.lum.ln(),
+                    });
+                }
+            }
+        });
+        out
+    })?;
+    Ok(per_cell.into_iter().flatten().collect())
+}
 
-    for ry in (first_ry..cell.y1).step_by(stride) {
-        let cy = ry as f64 + 0.5;
-        for rx in (first_rx..cell.x1).step_by(stride) {
-            let cx = rx as f64 + 0.5;
-            hits.clear();
-            for i in 0..k {
-                let (bx0, by0, bx1, by1) = bboxes[i];
-                if cx < bx0 || cx > bx1 || cy < by0 || cy > by1 {
-                    continue;
-                }
-                let (fw, fh) = frame_dims[i];
-                let (fx, fy) = inv_sims[i].apply(cx, cy);
-                if fx < 0.0 || fx > fw || fy < 0.0 || fy > fh {
-                    continue;
-                }
-                // Invariant: the wave that owns this cell was pinned with
-                // the union of every frame any of its cells' bboxes touch
-                // (see `frame_window::group_into_waves`), so
-                // `poses[i].frame_idx` is always present here. A debug
-                // build catches a broken invariant loudly instead of
-                // silently dropping samples and skewing the photometric
-                // solve (Copilot review).
-                let Some(frame) = pinned.get(&poses[i].frame_idx) else {
-                    debug_assert!(
-                        false,
-                        "frame {} missing from pinned wave set",
-                        poses[i].frame_idx
-                    );
-                    continue;
-                };
-                let Some(v) = sample_bicubic(frame, fx - 0.5, fy - 0.5) else {
-                    continue;
-                };
-                let rgb = [
-                    (v[0].max(0.0)) as f64,
-                    (v[1].max(0.0)) as f64,
-                    (v[2].max(0.0)) as f64,
-                ];
-                let lum = (rgb[0] + rgb[1] + rgb[2]) / 3.0;
-                if lum < MIN_LUM {
-                    continue;
-                }
-                hits.push((i, lum, rgb, fx / fw - 0.5, fy / fh - 0.5));
-            }
-            if hits.len() < 2 {
-                continue;
-            }
-            let cell_lin = ((ry / opts.field_cell_px) * ncx + (rx / opts.field_cell_px)) as u32;
-            for a in 0..hits.len() {
-                for b in (a + 1)..hits.len() {
-                    let (i, lum_i, ch_i, xi_i, eta_i) = hits[a];
-                    let (j, lum_j, ch_j, xi_j, eta_j) = hits[b];
-                    let acc = map.entry((i, j)).or_default();
-                    let lnr = (lum_i).ln() - (lum_j).ln();
-                    acc.n += 1.0;
-                    acc.s_lnr_lum += lnr;
-                    acc.s_dxi += xi_i - xi_j;
-                    acc.s_deta += eta_i - eta_j;
-                    for c in 0..3 {
-                        if ch_i[c] > MIN_LUM && ch_j[c] > MIN_LUM {
-                            acc.s_lnr_ch[c] += ch_i[c].ln() - ch_j[c].ln();
-                            acc.n_ch[c] += 1.0;
-                        }
-                    }
-                    let cacc = acc.cells.entry(cell_lin).or_default();
-                    cacc.n += 1.0;
-                    cacc.s_lnr += lnr;
-                    cacc.s_dxi += xi_i - xi_j;
-                    cacc.s_deta += eta_i - eta_j;
+fn accumulate(map: &mut PairMap, cell_lin: u32, hits: &[Hit]) {
+    for (a, ha) in hits.iter().enumerate() {
+        for hb in &hits[a + 1..] {
+            let (i, lum_i, ch_i, xi_i, eta_i) = (ha.frame, ha.lum, ha.rgb, ha.xi, ha.eta);
+            let (j, lum_j, ch_j, xi_j, eta_j) = (hb.frame, hb.lum, hb.rgb, hb.xi, hb.eta);
+            let acc = map.entry((i, j)).or_default();
+            let lnr = (lum_i).ln() - (lum_j).ln();
+            acc.n += 1.0;
+            acc.s_lnr_lum += lnr;
+            acc.s_dxi += xi_i - xi_j;
+            acc.s_deta += eta_i - eta_j;
+            for c in 0..3 {
+                if ch_i[c] > MIN_LUM && ch_j[c] > MIN_LUM {
+                    acc.s_lnr_ch[c] += ch_i[c].ln() - ch_j[c].ln();
+                    acc.n_ch[c] += 1.0;
                 }
             }
+            let cacc = acc.cells.entry(cell_lin).or_default();
+            cacc.n += 1.0;
+            cacc.s_lnr += lnr;
+            cacc.s_dxi += xi_i - xi_j;
+            cacc.s_deta += eta_i - eta_j;
         }
     }
-    map
 }
 
 /// Fold `src` into `dst`, field by field (deterministic — see module

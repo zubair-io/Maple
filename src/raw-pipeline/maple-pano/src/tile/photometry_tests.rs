@@ -5,6 +5,7 @@
 use super::frame_cache::TileFrameCache;
 use super::photometry::{solve_photometry, FramePhotometry, PhotometryOptions};
 use super::placement::{TileCanvasSpec, TilePose};
+use crate::gain::LensGroups;
 use crate::ingest::{PlanarImage, ValidityMask};
 use crate::similarity::Similarity2d;
 
@@ -96,8 +97,15 @@ fn shared_slope_absorbed_not_aliased_into_gain_ramp() {
     };
 
     let (cache, full_dims) = cache_and_dims(&frames);
-    let (phot, summary) =
-        solve_photometry(&cache, &full_dims, &poses, &canvas, &test_opts()).unwrap();
+    let (phot, summary) = solve_photometry(
+        &cache,
+        &full_dims,
+        &poses,
+        &canvas,
+        &LensGroups::ingest_corrected(full_dims.len()),
+        &test_opts(),
+    )
+    .unwrap();
 
     assert!(
         (f64::from(summary.slope_x) - slope).abs() < 0.05,
@@ -146,8 +154,15 @@ fn true_exposure_steps_recovered_as_gains() {
     };
 
     let (cache, full_dims) = cache_and_dims(&frames);
-    let (phot, summary) =
-        solve_photometry(&cache, &full_dims, &poses, &canvas, &test_opts()).unwrap();
+    let (phot, summary) = solve_photometry(
+        &cache,
+        &full_dims,
+        &poses,
+        &canvas,
+        &LensGroups::ingest_corrected(full_dims.len()),
+        &test_opts(),
+    )
+    .unwrap();
 
     assert!(
         f64::from(summary.slope_x).abs() < 0.05,
@@ -195,7 +210,15 @@ fn residual_blob_absorbed_by_field() {
 
     let opts = test_opts();
     let (cache, full_dims) = cache_and_dims(&frames);
-    let (phot, summary) = solve_photometry(&cache, &full_dims, &poses, &canvas, &opts).unwrap();
+    let (phot, summary) = solve_photometry(
+        &cache,
+        &full_dims,
+        &poses,
+        &canvas,
+        &LensGroups::ingest_corrected(full_dims.len()),
+        &opts,
+    )
+    .unwrap();
     assert!(
         summary.field_max_abs_ev > 0.15,
         "field did not engage: max {} EV",
@@ -298,7 +321,15 @@ fn per_channel_gains_ignore_dark_channel_samples() {
     };
 
     let (cache, full_dims) = cache_and_dims(&frames);
-    let (phot, _) = solve_photometry(&cache, &full_dims, &poses, &canvas, &opts).unwrap();
+    let (phot, _) = solve_photometry(
+        &cache,
+        &full_dims,
+        &poses,
+        &canvas,
+        &LensGroups::ingest_corrected(full_dims.len()),
+        &opts,
+    )
+    .unwrap();
 
     // Blue gain ratios track the true blue offsets despite only half the
     // pixels contributing. Dividing by the luminance count `n` instead of

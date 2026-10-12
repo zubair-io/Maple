@@ -51,7 +51,9 @@ use crate::blend::{blend_multiband, levels_for_overlap_width};
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, CanvasSpec};
 use crate::error::PanoError;
-use crate::gain::{solve_photometry, ExposureFieldSummary, FramePhotometry, GainOptions};
+use crate::gain::{
+    solve_photometry, ExposureFieldSummary, FramePhotometry, GainOptions, LensFalloff, LensGroups,
+};
 use crate::ingest::PlanarImage;
 use crate::local_align::LocalCorrection;
 use crate::project::Projection;
@@ -69,6 +71,9 @@ pub struct CompositeOptions {
     /// Voronoi (default) or graph-cut seam placement (#1179). See the
     /// module doc.
     pub seam_strategy: SeamStrategy,
+    /// Lens identity per frame for the blind vignette estimate (#4522);
+    /// `None` treats every frame as falloff-corrected at ingest.
+    pub lenses: Option<LensGroups>,
 }
 
 /// What [`composite`] did — the numbers the CLI report surfaces.
@@ -77,6 +82,9 @@ pub struct CompositeReport {
     pub canvas: CanvasSpec,
     pub projection: Projection,
     pub photometry: Vec<FramePhotometry>,
+    /// Blind falloff per lens group (#4522); empty when no frame was left
+    /// uncorrected at ingest.
+    pub falloff: Vec<LensFalloff>,
     pub blend_levels: usize,
     /// Average overlap width (px) of the narrowest overlapping pair —
     /// the input to the band-count rule.
@@ -124,7 +132,12 @@ pub fn composite(
     }
 
     let canvas = auto_canvas(cameras, &opts.canvas)?;
-    let photometry = solve_photometry(frames, cameras, &opts.gain)?;
+    let lenses = opts
+        .lenses
+        .clone()
+        .unwrap_or_else(|| LensGroups::ingest_corrected(frames.len()));
+    let solved = solve_photometry(frames, cameras, &lenses, &opts.gain)?;
+    let photometry = solved.frames;
 
     let layers: Vec<PlanarImage> = frames
         .iter()
@@ -169,6 +182,7 @@ pub fn composite(
             canvas,
             projection,
             photometry,
+            falloff: solved.falloff,
             blend_levels: levels,
             min_overlap_width_px: min_overlap,
             seam_strategy: opts.seam_strategy,

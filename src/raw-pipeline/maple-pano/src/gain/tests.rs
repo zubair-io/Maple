@@ -9,10 +9,16 @@ fn solve_gains(
     cameras: &[Camera],
     opts: &GainOptions,
 ) -> Result<Vec<[f32; 3]>, PanoError> {
-    Ok(solve_photometry(frames, cameras, opts)?
-        .iter()
-        .map(|p| p.gain)
-        .collect())
+    Ok(solve_photometry(
+        frames,
+        cameras,
+        &LensGroups::ingest_corrected(frames.len()),
+        opts,
+    )?
+    .frames
+    .iter()
+    .map(|p| p.gain)
+    .collect())
 }
 
 fn solve_gains_streaming(

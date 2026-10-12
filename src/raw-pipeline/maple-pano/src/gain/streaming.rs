@@ -18,8 +18,9 @@ use std::path::PathBuf;
 use crate::camera::Camera;
 use crate::error::PanoError;
 
+use super::falloff::{solve_with_falloff, PhotometrySolution};
+use super::lens::LensGroups;
 use super::overlap::{pending_points, resolve_points, OverlapSet, PairSamples, PendingPoint};
-use super::vignette::{solve_with_falloff, LensGroups, PhotometrySolution};
 use super::{frames_may_overlap, validate_options, GainOptions, SignalWindow};
 
 /// Solve per-frame photometry from frame files, one decode per frame,
