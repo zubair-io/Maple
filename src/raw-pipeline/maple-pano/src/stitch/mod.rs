@@ -281,6 +281,9 @@ pub(super) fn solve_alignment(
         rotation_gate.as_ref(),
         Some(&descriptor_topk),
         |a, b| -> Vec<PixelCorrespondence> {
+            // Candidates arrive in ascending (a, b) order, so the first index
+            // is a monotone (if uneven) measure of how far matching has got.
+            progress(2, a as f32 / metas.len() as f32);
             let corrs = match pair_matcher.match_pair(&feature_sets[a], &feature_sets[b]) {
                 Ok(corrs) => corrs,
                 Err(e) => {

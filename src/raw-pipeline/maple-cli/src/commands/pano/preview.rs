@@ -68,8 +68,14 @@ pub(super) fn run_preview(
     let t0 = Instant::now();
     let opts = super::stitch_options(args, (args.max_mean_px, args.max_residual_px))?;
     let (offered, unreadable) = offered_alignment(args);
-    let preview = stitch::preview(inputs, &opts, offered.as_ref(), |_, _| {}, || false)
-        .map_err(|e| e.to_string())?;
+    let preview = stitch::preview(
+        inputs,
+        &opts,
+        offered.as_ref(),
+        super::progress::stderr_progress(),
+        || false,
+    )
+    .map_err(|e| e.to_string())?;
 
     let t_out = Instant::now();
     write_frame_png(
