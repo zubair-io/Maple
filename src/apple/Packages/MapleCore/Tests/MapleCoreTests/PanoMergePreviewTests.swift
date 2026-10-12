@@ -99,6 +99,52 @@ final class PanoMergePreviewTests: XCTestCase {
         XCTAssertEqual(session.alignment, RecordingStitcher.alignment(for: PanoOptions(strategy: .tile)))
     }
 
+    func testCompositeOnlyChangeLetsTheMatchingPreviewFinishThenRePreviewsFromItsAlignment() async {
+        let stitcher = RecordingStitcher()
+        stitcher.holdPreviews = true
+        let session = PanoMergeSession(stitcher: stitcher, previewDebounce: .milliseconds(20))
+        session.preview(assets: makeAssets(3))
+        await waitUntil { stitcher.previewCalls.count == 1 }
+
+        session.options.localAlign = .off
+        session.options.retention = .strict
+        try? await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(stitcher.cancelledPreviews, 0, "a composite-only change must not cancel matching")
+        XCTAssertEqual(stitcher.previewCalls.count, 1)
+        guard case .running = session.previewState else {
+            return XCTFail("the matching preview should keep running, got \(session.previewState)")
+        }
+
+        stitcher.holdPreviews = false
+        await waitUntil { stitcher.previewCalls.count == 2 && !session.isPreviewing }
+
+        XCTAssertEqual(stitcher.previewCalls[1].options, PanoOptions(retention: .strict, localAlign: .off, strategy: .auto))
+        XCTAssertEqual(stitcher.previewCalls[1].alignment, RecordingStitcher.alignment(for: .default))
+        XCTAssertEqual(stitcher.cancelledPreviews, 0)
+    }
+
+    func testCreateAfterACompositeOnlyChangeWaitsAndStitchesWithTheNewOptions() async {
+        let stitcher = RecordingStitcher()
+        stitcher.holdPreviews = true
+        let session = PanoMergeSession(stitcher: stitcher, previewDebounce: .milliseconds(20))
+        let assets = makeAssets(3)
+        session.preview(assets: assets)
+        await waitUntil { stitcher.previewCalls.count == 1 }
+
+        session.options.localAlign = .off
+        session.start(assets: assets)
+        guard case .finishingAlignment = session.state else {
+            return XCTFail("expected Create to wait for the matching preview, got \(session.state)")
+        }
+        stitcher.holdPreviews = false
+        await waitUntil { if case .done = session.state { true } else { false } }
+        try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(stitcher.previewCalls.count, 1, "Create supersedes the deferred re-preview")
+        XCTAssertEqual(stitcher.stitchOptions.map(\.localAlign), [.off])
+        XCTAssertEqual(stitcher.stitchAlignments, [RecordingStitcher.alignment(for: .default)])
+    }
+
     func testProgressFromASupersededPreviewIsDropped() async {
         let stitcher = RecordingStitcher()
         stitcher.holdPreviews = true
@@ -235,6 +281,7 @@ private final class RecordingStitcher: PanoStitching, @unchecked Sendable {
 
     @MainActor var previewCalls: [PreviewCall] = []
     @MainActor var stitchAlignments: [PanoAlignment?] = []
+    @MainActor var stitchOptions: [PanoOptions] = []
     @MainActor var cancelledPreviews = 0
     @MainActor var holdPreviews = false
     @MainActor var lastProgress: (@MainActor (PanoStage, Double) -> Void)?
@@ -282,7 +329,10 @@ private final class RecordingStitcher: PanoStitching, @unchecked Sendable {
         alignment: PanoAlignment?,
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult {
-        await MainActor.run { stitchAlignments.append(alignment) }
+        await MainActor.run {
+            stitchAlignments.append(alignment)
+            stitchOptions.append(options)
+        }
         return PanoResult(
             outputURL: FileManager.default.temporaryDirectory.appendingPathComponent("recorded.png"),
             reportSummary: "recorded",
