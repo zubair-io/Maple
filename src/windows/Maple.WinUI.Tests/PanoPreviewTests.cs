@@ -24,10 +24,15 @@ public class PanoProgressLineTests
     public void AMidStagePercentIsAPartialFraction() =>
         Assert.True(PanoProgressLine.TryParse("pano: progress 0 decode 42%")!.HasPartialFraction);
 
+    [Fact]
+    public void MatchingReportsPartialFractionsPerPair() =>
+        Assert.True(PanoProgressLine.TryParse("pano: progress 2 match_graph 37%")!.HasPartialFraction);
+
     [Theory]
     [InlineData("pano: alignment — reused")]
     [InlineData("pano: progress two decode 5%")]
     [InlineData("pano: progress 1 features 5")]
+    [InlineData("pano: progress 2 0.500")]
     [InlineData("{")]
     public void OtherLinesAreNotProgress(string line) => Assert.Null(PanoProgressLine.TryParse(line));
 
