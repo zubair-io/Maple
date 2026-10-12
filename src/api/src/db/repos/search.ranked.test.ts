@@ -137,7 +137,7 @@ describe("the database's window", () => {
     });
   });
 
-  test('a lookahead hit is counted but never joined or served (#4543)', async () => {
+  test('a lookahead hit is counted and read for its shot, but never served (#4543, #4557)', async () => {
     await withLibrary(async (db) => {
       const where = translate({ placeQuery: 'standing', hidden: 'all' });
       const ranker = ftsRanker(where, testSqliteDb(db));
@@ -147,6 +147,9 @@ describe("the database's window", () => {
         const pass = (await ranker(depth, 1))!;
         expect(pass.considered).toBe(Math.min(depth + 1, matches));
         expect(pass.rows.map((row) => row.r)).toEqual(expectedWindow(db, where, depth));
+        expect([...pass.rows, ...pass.beyond!].map((row) => row.r)).toEqual(
+          expectedWindow(db, where, depth + 1),
+        );
       }
     });
   });
@@ -376,7 +379,7 @@ describe('one row per shot (#4557)', () => {
 
   test('stops at the cap with copies collapsed, capped and with no more paging', async () => {
     const depths: number[] = [];
-    const ranker: WindowRanker = async (depth) => {
+    const ranker: WindowRanker = async (depth, lookahead = 0) => {
       depths.push(depth);
       const rows = Array.from({ length: depth }, (_, index) => ({
         r: index,
@@ -387,13 +390,50 @@ describe('one row per shot (#4557)', () => {
         media_kind: 'image',
         filename: `IMG_${Math.floor(index / 10)}(${index % 10}).JPG`,
       }));
-      return { rows, considered: depth };
+      return { rows, considered: depth + lookahead };
     };
 
     const window = (await rankWindow(ranker, 1_000))!;
 
     expect(depths).toEqual([1_600, RANKED_WINDOW_MAX]);
     expect(window.rows).toHaveLength(RANKED_WINDOW_MAX / 10);
+    expect(window).toMatchObject({ more: false, capped: true });
+  });
+});
+
+describe('the cap counts shots past it, not files (#4543, #4557)', () => {
+  const shot = (index: number, filename = `IMG_${index}.CR2`) => ({
+    r: index,
+    id: `id${index}`,
+    maple_id: `m${index}`,
+    owner_id: null,
+    captured_at: '2024-01-01T00:00:00.000Z',
+    media_kind: 'image',
+    filename,
+  });
+  /** Exactly the cap's worth of distinct shots, then `beyond` as the one lookahead hit. */
+  const atTheCap =
+    (beyond: ReturnType<typeof shot>[]): WindowRanker =>
+    async (depth, lookahead = 0) => ({
+      rows: Array.from({ length: depth }, (_, index) => shot(index)),
+      considered: depth + lookahead,
+      beyond: lookahead > 0 ? beyond : [],
+    });
+
+  test('another copy of a shot already in the window does not cap it', async () => {
+    const window = (await rankWindow(atTheCap([shot(5_000, 'IMG_17.JPG')]), RANKED_WINDOW_MAX))!;
+    expect(window.rows).toHaveLength(RANKED_WINDOW_MAX);
+    expect(window).toMatchObject({ more: false, capped: false });
+  });
+
+  test('a new shot past the cap caps it', async () => {
+    const window = (await rankWindow(atTheCap([shot(5_000)]), RANKED_WINDOW_MAX))!;
+    expect(window.rows).toHaveLength(RANKED_WINDOW_MAX);
+    expect(window).toMatchObject({ more: false, capped: true });
+  });
+
+  test('a hit past the cap the filters reject still caps it, as before', async () => {
+    const window = (await rankWindow(atTheCap([]), RANKED_WINDOW_MAX))!;
     expect(window).toMatchObject({ more: false, capped: true });
   });
 });

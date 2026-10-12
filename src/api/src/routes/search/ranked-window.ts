@@ -9,6 +9,7 @@
 
 import {
   ftsRanker,
+  inGivenOrder,
   mapleIdWindow,
   RANKED_WINDOW_MAX,
   rankWindow,
@@ -34,20 +35,23 @@ export interface EngineWindow extends RankedWindow {
   preferred: boolean;
 }
 
-/** The child's top `depth` hits, filtered by `where`; `lookahead` more only counted. */
+/**
+ * The child's top `depth` hits, filtered by `where`; the `lookahead` hits past them are filtered
+ * too, but only so the window can tell which shot they are.
+ */
 function inProcessRanker(where: SearchWhere, query: string): WindowRanker {
   return async (depth, lookahead = 0) => {
     const hits = await inProcessRanking(query, depth + lookahead);
     if (!hits) return null;
     const ranked = hits.slice(0, depth);
-    const survivors = await mapleIdWindow(
-      where,
-      ranked.map((hit) => hit.id),
-    );
+    const ids = hits.slice(0, depth + lookahead).map((hit) => hit.id);
+    const filtered = await mapleIdWindow(where, ids);
+    const survivors = inGivenOrder(ids.slice(0, depth), filtered, (row) => row.maple_id);
     const alive = new Set(survivors.map((row) => row.maple_id));
     const surviving = ranked.filter((hit) => alive.has(hit.id));
     return {
       rows: survivors,
+      beyond: inGivenOrder(ids.slice(depth), filtered, (row) => row.maple_id),
       considered: Math.min(hits.length, depth + lookahead),
       semantic: new Set(surviving.filter((hit) => hit.vectorRank !== null).map((hit) => hit.id)),
       scores: new Map(surviving.map((hit) => [hit.id, hit.score] as const)),

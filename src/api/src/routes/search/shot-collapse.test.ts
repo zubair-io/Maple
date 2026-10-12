@@ -24,6 +24,7 @@ import { bucketsRoute, _resetBucketsCacheForTests } from './buckets.ts';
 import { facetsRoute } from './facets.ts';
 import { listRoute } from './list.ts';
 import { _resetCacheForTests } from './total-cache.ts';
+import { RANKED_WINDOW_MAX } from '../../db/repos/search.ranked.ts';
 
 const SECOND = '2018-05-21T17:50:35.000Z';
 
@@ -102,6 +103,36 @@ describe('the list', () => {
 
     expect(body.total).toBe(SHOTS.length);
     expect(new Set(body.results.map((row) => row.filename.slice(0, 8))).size).toBe(SHOTS.length);
+  });
+});
+
+describe('the cap', () => {
+  it('is not capped by a copy past it, and is capped by a new shot past it', async () => {
+    const shots = Array.from({ length: RANKED_WINDOW_MAX }, (_, index) => `cap${index}`);
+    live.db.exec('BEGIN');
+    for (const [mapleId, filename] of [
+      ...shots.map((id, index) => [id, `CAP_${index}.CR2`]),
+      ['cap-copy', 'CAP_42.JPG'],
+      ['cap-new', 'CAP_NEW.CR2'],
+    ]) {
+      seedSearchAsset(live.db, libraryId, {
+        mapleId,
+        filename,
+        capturedAt: SECOND,
+        searchBlob: 'harbour',
+      });
+    }
+    live.db.exec('COMMIT');
+    const page = `/?placeQuery=harbour&limit=500&page=${RANKED_WINDOW_MAX / 500 - 1}`;
+
+    setInProcessSearchForTests(fakeInProcessSearch([...shots, 'cap-copy']));
+    const copyPast = await read<ListBody & { capped: boolean }>(page);
+    _resetCacheForTests();
+    setInProcessSearchForTests(fakeInProcessSearch([...shots, 'cap-new']));
+    const newPast = await read<ListBody & { capped: boolean }>(page);
+
+    expect(copyPast).toMatchObject({ total: RANKED_WINDOW_MAX, more: false, capped: false });
+    expect(newPast).toMatchObject({ total: RANKED_WINDOW_MAX, more: false, capped: true });
   });
 });
 
