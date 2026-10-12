@@ -171,7 +171,14 @@ function syntheticRanker(
     const considered = Math.min(depth + lookahead, matches);
     const rows = Array.from({ length: Math.min(depth, matches) }, (_, index) => index)
       .filter((index) => index % keepEvery === 0)
-      .map((index) => ({ r: index, id: `id${index}`, maple_id: `m${index}`, owner_id: null }));
+      .map((index) => ({
+        r: index,
+        id: `id${index}`,
+        maple_id: `m${index}`,
+        owner_id: null,
+        captured_at: null,
+        filename: null,
+      }));
     return { rows, considered } satisfies WindowPass;
   };
   return { ranker, depths };
@@ -249,11 +256,62 @@ describe('the window policy', () => {
     const flaky: WindowRanker = async (depth) => {
       calls.push(depth);
       return calls.length === 1
-        ? { rows: [{ r: 1, id: 'a', maple_id: 'a', owner_id: null }], considered: depth }
+        ? {
+            rows: [
+              { r: 1, id: 'a', maple_id: 'a', owner_id: null, captured_at: null, filename: null },
+            ],
+            considered: depth,
+          }
         : null;
     };
     const window = (await rankWindow(flaky, 100))!;
     expect(window.rows).toHaveLength(1);
+    expect(window.more).toBe(true);
+  });
+});
+
+describe('one row per shot (#4557)', () => {
+  test("the database's window keeps the best-ranked copy of each shot", async () => {
+    using handle = await createTestDatabase();
+    const libraryId = insertFolder(handle.db, { slug: 'shots' });
+    const capturedAt = '2018-07-07T13:30:40.000Z';
+    const seed = (filename: string, searchBlob: string) =>
+      seedSearchAsset(handle.db, libraryId, { filename, capturedAt, searchBlob });
+    const raw = seed('_MG_4006.CR2', 'sunset beach sunset');
+    seed('_MG_4006(2).jpg', 'sunset beach sunset sky');
+    seed('_MG_4006(1)(1).jpg', 'sunset beach sunset sky sand');
+    const neighbour = seed('_MG_4007.CR2', 'sunset beach sunset sky sand sea');
+    seed('lake.dng', 'lake');
+
+    const window = (await rankWindow(
+      ftsRanker(translate({ placeQuery: 'sunset' }), testSqliteDb(handle.db)),
+      RANKED_WINDOW_BASE,
+    ))!;
+
+    expect(window.rows.map((row) => row.id)).toEqual([raw, neighbour]);
+    expect(window.rows[0]).toMatchObject({ captured_at: capturedAt, filename: '_MG_4006.CR2' });
+  });
+
+  test('widens when collapsed copies leave a full window short of the page', async () => {
+    const depths: number[] = [];
+    const ranker: WindowRanker = async (depth) => {
+      depths.push(depth);
+      const rows = Array.from({ length: depth }, (_, index) => ({
+        r: index,
+        id: `id${index}`,
+        maple_id: `m${index}`,
+        owner_id: null,
+        captured_at: '2024-01-01T00:00:00.000Z',
+        filename: `IMG_${Math.floor(index / 2)}${index % 2 === 0 ? '.CR2' : '.JPG'}`,
+      }));
+      return { rows, considered: depth };
+    };
+
+    const window = (await rankWindow(ranker, 100))!;
+
+    expect(depths).toEqual([100, 400]);
+    expect(window.rows).toHaveLength(200);
+    expect(window.rows.every((row) => row.filename!.endsWith('.CR2'))).toBe(true);
     expect(window.more).toBe(true);
   });
 });

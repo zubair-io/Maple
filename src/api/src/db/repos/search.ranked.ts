@@ -26,6 +26,7 @@
  */
 
 import { FTS_RANK_ORDER, FTS_RANK_SQL } from './search.fts.ts';
+import { collapseShots, type ShotFields } from './search.shots.ts';
 import { statement, type BoundStatement } from './search.sql.ts';
 import { monthNarrowing, searchWhereSql, type SearchWhere } from './search.where.ts';
 import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
@@ -38,9 +39,10 @@ export interface RankedAsset {
 
 /**
  * A window survivor. `maple_id` is what the in-process engine knows it by;
- * `owner_id` lets its page be filled out in one trip (`windowDocs`).
+ * `owner_id` lets its page be filled out in one trip (`windowDocs`); its capture time and
+ * canonical filename say which shot it is (`search.shots.ts`).
  */
-export interface WindowRow extends RankedAsset {
+export interface WindowRow extends RankedAsset, ShotFields {
   maple_id: string | null;
   owner_id: string | null;
 }
@@ -75,6 +77,13 @@ export interface RankedWindow {
   scores?: ReadonlyMap<string, number>;
 }
 
+/**
+ * The canonical entry's filename, for the shot rule: one index-only probe of
+ * `asset_locations_primary_entry` per survivor, and unlike a join it cannot multiply a row.
+ */
+const CANONICAL_FILENAME_SQL = `(SELECT l.filename FROM asset_locations l
+              WHERE l.asset_id = assets.id AND l.ordinal = 0)`;
+
 /** The depth a window starts at, and the in-process engine's candidate count. */
 export const RANKED_WINDOW_BASE = 100;
 
@@ -104,7 +113,9 @@ export function windowDepthFor(need: number): number {
  * reaches `need`: a full window with fewer survivors than that step is widened up the ladder until
  * it has them, the engine runs out of hits, or the cap is reached. So every page's `skip` indexes
  * a prefix earlier pages served in full, and the window depends only on the query and its step —
- * which is what lets the facet and bucket caches share it across the pages of a step. A caller
+ * which is what lets the facet and bucket caches share it across the pages of a step. Each pass
+ * keeps one row per shot (#4557), so the survivors counted here, `total` and every page count
+ * shots, and a pass whose copies leave it short widens like any other. A caller
  * with no pages to keep stable passes `enough`: widening stops at that many survivors instead.
  */
 export async function rankWindow(
@@ -119,7 +130,8 @@ export async function rankWindow(
     previous: { pass: WindowPass; depth: number } | null,
   ): Promise<RankedWindow | null> => {
     const atCap = depth >= RANKED_WINDOW_MAX;
-    const pass = await ranker(depth, atCap ? 1 : 0);
+    const answer = await ranker(depth, atCap ? 1 : 0);
+    const pass = answer && { ...answer, rows: collapseShots(answer.rows) };
     if (pass === null) return previous && windowOf(previous.pass, previous.depth);
     if (pass.rows.length >= sufficient || pass.considered < depth || atCap) {
       return windowOf(pass, depth);
@@ -180,13 +192,15 @@ export function ftsWindowSql(where: SearchWhere, depth: number, lookahead = 0): 
        LIMIT ?)${probed.sql},
     alive AS MATERIALIZED (
       SELECT hit.rank AS rank, hit.sr AS sr, assets.rowid AS r, assets.id AS id,
-             assets.maple_id AS maple_id, assets.owner_id AS owner_id
+             assets.maple_id AS maple_id, assets.owner_id AS owner_id,
+             assets.captured_at AS captured_at, ${CANONICAL_FILENAME_SQL} AS filename
         FROM ${probed.from}
         CROSS JOIN asset_search ON asset_search.rowid = hit.sr
         CROSS JOIN assets ON assets.id = asset_search.asset_id
        ${rest.sql})
   SELECT (SELECT COUNT(*) FROM hit) AS considered, alive.r AS r, alive.id AS id,
-         alive.maple_id AS maple_id, alive.owner_id AS owner_id
+         alive.maple_id AS maple_id, alive.owner_id AS owner_id,
+         alive.captured_at AS captured_at, alive.filename AS filename
     FROM (SELECT 1) LEFT JOIN alive ON 1
    ORDER BY alive.rank ASC, alive.sr ASC`,
     params: [
@@ -209,8 +223,8 @@ export function ftsRanker(where: SearchWhere, dbOverride?: SqliteDb): WindowRank
     >(assetsDb(dbOverride), window.sql, window.params);
     return {
       considered: answer[0]?.considered ?? 0,
-      rows: answer.flatMap(({ r, id, maple_id, owner_id }) =>
-        r === null || id === null ? [] : [{ r, id, maple_id, owner_id }],
+      rows: answer.flatMap(({ r, id, maple_id, owner_id, captured_at, filename }) =>
+        r === null || id === null ? [] : [{ r, id, maple_id, owner_id, captured_at, filename }],
       ),
     };
   };
@@ -252,7 +266,8 @@ export function inGivenOrder<T>(
  */
 export function mapleIdRowsSql(where: SearchWhere, mapleIds: readonly string[]): BoundStatement {
   return statement(
-    'assets.rowid AS r, assets.id AS id, assets.maple_id AS maple_id, assets.owner_id AS owner_id',
+    `assets.rowid AS r, assets.id AS id, assets.maple_id AS maple_id, assets.owner_id AS owner_id,
+     assets.captured_at AS captured_at, ${CANONICAL_FILENAME_SQL} AS filename`,
     { ...where, match: { kind: 'none' } },
     '',
     {
