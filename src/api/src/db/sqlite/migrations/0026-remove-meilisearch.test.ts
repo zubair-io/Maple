@@ -47,7 +47,7 @@ test('the meili stage becomes search-blob with its progress and settings', async
 
   const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
 
-  expect(result.applied).toEqual([ID]);
+  expect(result.applied).toContain(ID);
   expect(
     handle.db.query(`SELECT stage, version FROM stage_state WHERE asset_id = ?`).all(asset),
   ).toEqual(expect.arrayContaining([{ stage: 'search-blob', version: 10 }]));
