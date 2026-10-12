@@ -265,5 +265,38 @@ test('a mapped mirror file renamed inside the root is re-created at its library 
   const file = store.files.get(restored.locator)!;
   expect(file.name).toBe('photo.jpg');
   expect(file.parents).toEqual([target.parentId]);
+  expect(store.files.has(mapped.locator)).toBe(false);
+  expect((await provider.inspect(key))?.locator).toBe(restored.locator);
+});
+
+test('a displaced copy is still removed when the replacement committed before the retry', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const key = `mirror/${'i'.repeat(24)}/2026/photo.jpg`;
+  const content = source(new Uint8Array([1, 2, 3]));
+  const mapped = await provider.mirrorFile(key, '2026/photo.jpg', content, {
+    saveCheckpoint: async () => {},
+  });
+  Object.assign(store.files.get(mapped.locator)!, { name: 'renamed.jpg' });
+  let checkpoint: UploadCheckpoint | null = null;
+  store.loseFinal();
+  await expect(
+    provider.mirrorFile(key, '2026/photo.jpg', content, {
+      expected: mapped,
+      saveCheckpoint: async (value) => {
+        checkpoint = value;
+      },
+    }),
+  ).rejects.toThrow('request failed');
+  expect(store.files.has(mapped.locator)).toBe(true);
+
+  const restored = await provider.mirrorFile(key, '2026/photo.jpg', content, {
+    checkpoint,
+    expected: mapped,
+    saveCheckpoint: async () => {},
+  });
+  expect(restored.locator).not.toBe(mapped.locator);
+  expect(store.files.get(restored.locator)!.name).toBe('photo.jpg');
+  expect(store.files.has(mapped.locator)).toBe(false);
   expect((await provider.inspect(key))?.locator).toBe(restored.locator);
 });

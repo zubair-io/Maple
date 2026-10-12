@@ -477,6 +477,26 @@ async function atMirrorTarget(
   const file = await ctx.provider.client.metadata(object.locator, ctx.options.signal);
   return file.name === target.name && file.parents?.[0] === target.parentId;
 }
+// A displaced copy whose bytes changed after inspection is no longer Maple's
+// to delete; everything else (network, auth) surfaces so the retry converges.
+async function removeDisplacedCopy(ctx: UploadContext, copy: BackupObject): Promise<void> {
+  try {
+    await ctx.provider.remove(copy, ctx.options.signal);
+  } catch (error) {
+    if (!(error instanceof Error && error.message.startsWith('Refusing removal'))) throw error;
+  }
+}
+async function mirrorCandidates(
+  ctx: UploadContext,
+  target: { parentId: string; name: string },
+  candidates: BackupObject[],
+): Promise<{ existing: BackupObject | null; displaced: BackupObject[] }> {
+  const placed: BackupObject[] = [];
+  for (const candidate of candidates)
+    if (await atMirrorTarget(ctx, candidate, target)) placed.push(candidate);
+  const existing = placed[0] ?? null;
+  return { existing, displaced: candidates.filter((candidate) => candidate !== existing) };
+}
 export async function publishGoogleMirrorFile(
   provider: GoogleDriveProvider,
   key: string,
@@ -500,20 +520,24 @@ export async function publishGoogleMirrorFile(
   );
   const committed = divergent ? await committedCheckpoint(ctx, checkpoint!) : null;
   const saved = divergent ? null : checkpoint;
-  const expected = committed ?? mappedObject(saved, options.expected);
-  const located =
-    committed ??
-    (await provider.inspect(key, options.signal, {
-      locator: saved?.fileId ?? expected?.locator,
-      expected,
-    }));
-  // A mapped file that was renamed or moved inside the root still carries the
-  // right bytes, but the mirror's contract is the library-relative path. Treat
-  // it as absent so a fresh file lands at the path; the engine then removes
-  // the displaced copy when it retires the old mapping.
-  const existing = located && (await atMirrorTarget(ctx, located, target)) ? located : null;
-  const resumable = saved && (existing || saved.fileId !== located?.locator) ? saved : null;
-  if (matchesSource(existing, source)) return existing;
-  const state = await mirrorState(ctx, target, resumable, existing);
-  return uploadMirror(ctx, state);
+  const expected = mappedObject(saved, options.expected);
+  const mapped = await provider.inspect(key, options.signal, {
+    locator: saved?.fileId ?? expected?.locator,
+    expected,
+  });
+  // The mirror's contract is the library-relative path. A mapped or committed
+  // file that was renamed or moved inside the root, or a second copy left by
+  // an interrupted replacement, is removed once the file at the path is
+  // confirmed; the engine's key-based cleanup never sees those locators.
+  const { existing, displaced } = await mirrorCandidates(
+    ctx,
+    target,
+    [committed, mapped].filter((candidate): candidate is BackupObject => candidate !== null),
+  );
+  const resumable = saved && displaced.some((copy) => copy.locator === saved.fileId) ? null : saved;
+  const published = matchesSource(existing, source)
+    ? existing
+    : await uploadMirror(ctx, await mirrorState(ctx, target, resumable, existing));
+  for (const copy of displaced) await removeDisplacedCopy(ctx, copy);
+  return published;
 }
