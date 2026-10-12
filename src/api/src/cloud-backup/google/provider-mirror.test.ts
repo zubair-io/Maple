@@ -328,3 +328,68 @@ test('a displaced copy whose bytes changed after inspection is left alone while 
   expect(store.files.get(restored.locator)!.name).toBe('photo.jpg');
   expect(store.files.has(mapped.locator)).toBe(true);
 });
+
+test('a second Maple copy at the target left by an interrupted replacement is retired', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const key = `mirror/${'k'.repeat(24)}/2026/photo.jpg`;
+  const content = source(new Uint8Array([1, 2, 3]));
+  const mapped = await provider.mirrorFile(key, '2026/photo.jpg', content, {
+    saveCheckpoint: async () => {},
+  });
+  Object.assign(store.files.get(mapped.locator)!, { name: 'renamed.jpg' });
+  let checkpoint: UploadCheckpoint | null = null;
+  store.loseFinal();
+  await expect(
+    provider.mirrorFile(key, '2026/photo.jpg', content, {
+      expected: mapped,
+      saveCheckpoint: async (value) => {
+        checkpoint = value;
+      },
+    }),
+  ).rejects.toThrow('request failed');
+  Object.assign(store.files.get(mapped.locator)!, { name: 'photo.jpg' });
+
+  const restored = await provider.mirrorFile(key, '2026/photo.jpg', content, {
+    checkpoint,
+    expected: mapped,
+    saveCheckpoint: async () => {},
+  });
+  expect(restored.locator).not.toBe(mapped.locator);
+  expect(store.files.has(mapped.locator)).toBe(false);
+  expect((await provider.inspect(key))?.locator).toBe(restored.locator);
+});
+
+test('a candidate deleted between inspection and placement is ignored', async () => {
+  const store = googleStore();
+  let displacedId: string | null = null;
+  let metadataReads = 0;
+  const transport: GoogleFetch = async (raw, init) => {
+    const url = new URL(raw);
+    if (
+      displacedId &&
+      url.pathname === `/drive/v3/files/${displacedId}` &&
+      url.searchParams.get('alt') !== 'media'
+    ) {
+      metadataReads += 1;
+      if (metadataReads === 2) store.files.delete(displacedId);
+    }
+    return store.transport(raw, init);
+  };
+  const provider = new GoogleDriveProvider(root, async () => 'token', transport);
+  const key = `mirror/${'l'.repeat(24)}/2026/photo.jpg`;
+  const content = source(new Uint8Array([1, 2, 3]));
+  const mapped = await provider.mirrorFile(key, '2026/photo.jpg', content, {
+    saveCheckpoint: async () => {},
+  });
+  Object.assign(store.files.get(mapped.locator)!, { name: 'renamed.jpg' });
+  displacedId = mapped.locator;
+
+  const restored = await provider.mirrorFile(key, '2026/photo.jpg', content, {
+    expected: mapped,
+    saveCheckpoint: async () => {},
+  });
+  expect(restored.locator).not.toBe(mapped.locator);
+  expect(store.files.get(restored.locator)!.name).toBe('photo.jpg');
+  expect(metadataReads).toBeGreaterThanOrEqual(2);
+});
