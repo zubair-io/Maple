@@ -105,7 +105,7 @@ fn main() -> Result<()> {
     for (input_index, camera) in outcome.solution.cameras.iter().enumerate() {
         let Some(camera) = camera else { continue };
         let frame = ingest_file(&args.inputs[input_index])?;
-        let gain = outcome.comp_report.gains[kept_index];
+        let photometry = outcome.comp_report.photometry[kept_index];
         kept_index += 1;
         for (roi_index, entry) in evidence.iter_mut().enumerate() {
             let [x, y, w, h] = entry.region.rect;
@@ -113,7 +113,7 @@ fn main() -> Result<()> {
                 &frame.image,
                 camera,
                 canvas,
-                gain,
+                photometry,
                 outcome.local_corrections[input_index].as_ref(),
                 y,
                 y + h,

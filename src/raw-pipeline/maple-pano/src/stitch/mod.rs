@@ -93,7 +93,7 @@ use crate::canvas::{
 };
 use crate::composite::composite_tiled;
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
-use crate::gain::{solve_gains_streaming, GainOptions};
+use crate::gain::{solve_photometry_streaming, GainOptions};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{
     build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
@@ -504,9 +504,9 @@ pub fn stitch(
     // into a partial-stats table, then drop the pixels before decoding the
     // next frame.  At most 1 full-resolution frame is resident at a time.
     //
-    // `solve_gains` needs simultaneous access to all frames for its pairwise
-    // sampling.  We instead call the streaming helper `solve_gains_streaming`
-    // which accumulates overlap statistics frame-by-frame.
+    // `solve_photometry` needs simultaneous access to all frames for its
+    // pairwise sampling; `solve_photometry_streaming` instead accumulates
+    // overlap samples frame-by-frame.
     let kept_paths: Vec<PathBuf> = kept_meta
         .iter()
         .map(|(inp_idx, _, _)| inputs[*inp_idx].clone())
@@ -518,9 +518,7 @@ pub fn stitch(
     let canvas =
         auto_canvas(&kept_cams, &canvas_opts).map_err(|e| StitchError::Composite(e.to_string()))?;
 
-    // Solve gains by decoding frames one at a time.
-    // We use the streaming gain solve that accepts frames individually.
-    let gains = solve_gains_streaming(&kept_paths, &kept_cams, &GainOptions::default())
+    let photometry = solve_photometry_streaming(&kept_paths, &kept_cams, &GainOptions::default())
         .map_err(|e| StitchError::Composite(e.to_string()))?;
 
     // ── Tiled composite (always engaged on this path — #1254) ─────────────
@@ -532,7 +530,7 @@ pub fn stitch(
     let (image, comp_report) = composite_tiled(
         &kept_paths,
         &kept_cams,
-        &gains,
+        &photometry,
         &kept_local,
         &canvas,
         tile_rows,

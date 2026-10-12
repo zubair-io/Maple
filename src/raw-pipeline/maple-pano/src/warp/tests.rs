@@ -58,7 +58,13 @@ fn identity_warp_reproduces_source_near_exactly() {
             ((x + y) as f32 * 0.007).fract(),
         ]
     });
-    let out = warp_to_canvas(&src, &cam, &aligned_canvas(&cam), [1.0; 3], None);
+    let out = warp_to_canvas(
+        &src,
+        &cam,
+        &aligned_canvas(&cam),
+        FramePhotometry::IDENTITY,
+        None,
+    );
     for i in 0..src.pixel_count() {
         assert!((out.r[i] - src.r[i]).abs() < 1e-9, "R at {i}");
         assert!((out.g[i] - src.g[i]).abs() < 1e-9, "G at {i}");
@@ -68,14 +74,18 @@ fn identity_warp_reproduces_source_near_exactly() {
 }
 
 #[test]
-fn gain_is_folded_into_the_warp() {
+fn gain_and_bias_are_folded_into_the_warp() {
     let cam = Camera::new([0.0; 3], 100.0, 0.0, 0.0, 32, 24);
     let src = planar_from_fn(32, 24, |_, _| [0.25, 0.5, 0.125]);
-    let out = warp_to_canvas(&src, &cam, &aligned_canvas(&cam), [2.0, 0.5, 4.0], None);
+    let photometry = FramePhotometry {
+        gain: [2.0, 0.5, 4.0],
+        bias: [0.0, 0.125, -0.25],
+    };
+    let out = warp_to_canvas(&src, &cam, &aligned_canvas(&cam), photometry, None);
     for i in 0..out.pixel_count() {
         assert_eq!(out.r[i], 0.5);
-        assert_eq!(out.g[i], 0.25);
-        assert_eq!(out.b[i], 0.5);
+        assert_eq!(out.g[i], 0.375);
+        assert_eq!(out.b[i], 0.25);
     }
 }
 
@@ -128,7 +138,7 @@ fn invalid_hole_does_not_smear_into_neighbors() {
         false,
     )
     .unwrap();
-    let out = warp_to_canvas(&src, &cam, &canvas, [1.0; 3], None);
+    let out = warp_to_canvas(&src, &cam, &canvas, FramePhotometry::IDENTITY, None);
     let mut checked_valid = 0;
     let mut hole_interior_invalid = 0;
     for y in 0..h {
@@ -157,7 +167,7 @@ fn footprint_validity_matches_camera_mapping() {
     let cam = Camera::new([0.1, 0.9, 0.0], 80.0, -0.03, 0.01, 64, 48);
     let src = planar_from_fn(64, 48, |_, _| [0.5; 3]);
     let canvas = CanvasSpec::full_sphere(96).unwrap();
-    let out = warp_to_canvas(&src, &cam, &canvas, [1.0; 3], None);
+    let out = warp_to_canvas(&src, &cam, &canvas, FramePhotometry::IDENTITY, None);
     let mut mismatches = 0;
     for y in 0..canvas.height {
         for x in 0..canvas.width {
@@ -186,7 +196,7 @@ fn wrap_straddling_frame_covers_both_canvas_edges() {
     let canvas = CanvasSpec::full_sphere(64).unwrap();
     let bbox = frame_canvas_bbox(&cam, &canvas, 4.0).expect("on canvas");
     assert_eq!(bbox.x_spans.len(), 2, "bbox must split across the wrap");
-    let out = warp_to_canvas(&src, &cam, &canvas, [1.0; 3], None);
+    let out = warp_to_canvas(&src, &cam, &canvas, FramePhotometry::IDENTITY, None);
     let h2 = canvas.height / 2;
     assert!(out.validity.get(0, h2), "left edge covered");
     assert!(out.validity.get(canvas.width - 1, h2), "right edge covered");
@@ -205,7 +215,7 @@ fn frame_behind_rect_canvas_is_fully_invalid() {
     let canvas = aligned_canvas(&forward);
     assert_eq!(frame_canvas_bbox(&cam, &canvas, 4.0), None);
     let src = planar_from_fn(32, 24, |_, _| [1.0; 3]);
-    let out = warp_to_canvas(&src, &cam, &canvas, [1.0; 3], None);
+    let out = warp_to_canvas(&src, &cam, &canvas, FramePhotometry::IDENTITY, None);
     assert_eq!(out.validity.count_valid(), 0);
 }
 
@@ -221,8 +231,26 @@ fn warp_is_deterministic() {
         ]
     });
     let canvas = CanvasSpec::full_sphere(80).unwrap();
-    let a = warp_to_canvas(&src, &cam, &canvas, [1.1, 0.9, 1.0], None);
-    let b = warp_to_canvas(&src, &cam, &canvas, [1.1, 0.9, 1.0], None);
+    let a = warp_to_canvas(
+        &src,
+        &cam,
+        &canvas,
+        FramePhotometry {
+            gain: [1.1, 0.9, 1.0],
+            bias: [0.0; 3],
+        },
+        None,
+    );
+    let b = warp_to_canvas(
+        &src,
+        &cam,
+        &canvas,
+        FramePhotometry {
+            gain: [1.1, 0.9, 1.0],
+            bias: [0.0; 3],
+        },
+        None,
+    );
     assert_eq!(a.r, b.r);
     assert_eq!(a.g, b.g);
     assert_eq!(a.b, b.b);
@@ -246,7 +274,10 @@ fn strip_warp_matches_full_warp_pixel_for_pixel() {
         ]
     });
     let canvas = CanvasSpec::full_sphere(80).unwrap();
-    let gain = [1.1_f32, 0.9, 1.05];
+    let gain = FramePhotometry {
+        gain: [1.1, 0.9, 1.05],
+        bias: [0.002, -0.001, 0.0],
+    };
 
     // Full warp reference.
     let full = warp_to_canvas(&src, &cam, &canvas, gain, None);

@@ -22,7 +22,7 @@
 //!
 //! # Memory-bounded tiled path (`composite_tiled`, M6-D #1248)
 //!
-//! [`composite_tiled`] accepts already-solved gains and a `tile_rows` height
+//! [`composite_tiled`] accepts already-solved photometry and a `tile_rows` height
 //! for the strip decomposition. It decodes source frames on demand (one at a
 //! time) using the supplied file paths, warping each frame into a
 //! `canvas_width × tile_rows` strip buffer and immediately freeing the
@@ -52,7 +52,7 @@ use crate::blend::{blend_multiband, levels_for_overlap_width};
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, CanvasSpec};
 use crate::error::PanoError;
-use crate::gain::{solve_gains, GainOptions};
+use crate::gain::{solve_photometry, FramePhotometry, GainOptions};
 use crate::ingest::PlanarImage;
 use crate::local_align::LocalCorrection;
 use crate::project::Projection;
@@ -77,7 +77,7 @@ pub struct CompositeOptions {
 pub struct CompositeReport {
     pub canvas: CanvasSpec,
     pub projection: Projection,
-    pub gains: Vec<[f32; 3]>,
+    pub photometry: Vec<FramePhotometry>,
     pub blend_levels: usize,
     /// Average overlap width (px) of the narrowest overlapping pair —
     /// the input to the band-count rule.
@@ -123,12 +123,12 @@ pub fn composite(
     }
 
     let canvas = auto_canvas(cameras, &opts.canvas)?;
-    let gains = solve_gains(frames, cameras, &opts.gain)?;
+    let photometry = solve_photometry(frames, cameras, &opts.gain)?;
 
     let layers: Vec<PlanarImage> = frames
         .iter()
         .zip(cameras)
-        .zip(&gains)
+        .zip(&photometry)
         .enumerate()
         .map(|(i, ((f, c), &g))| {
             let la = local_corrections.get(i).and_then(|opt| opt.as_ref());
@@ -166,7 +166,7 @@ pub fn composite(
         CompositeReport {
             canvas,
             projection,
-            gains,
+            photometry,
             blend_levels: levels,
             min_overlap_width_px: min_overlap,
             seam_strategy: opts.seam_strategy,
@@ -329,8 +329,8 @@ mod tests {
     /// to `composite` (with `levels_override: Some(1)` to match the Voronoi
     /// linear blend that `composite_tiled_frames` always uses).
     ///
-    /// The same gain vector produced by `composite`'s internal `solve_gains`
-    /// is fed to `composite_tiled_frames`, so both paths see identical gains.
+    /// The same gain vector produced by `composite`'s internal `solve_photometry`
+    /// is fed to `composite_tiled_frames`, so both paths see identical photometry.
     ///
     /// Tested with two different `tile_rows` values to confirm strip size
     /// does not affect the result.
@@ -357,14 +357,14 @@ mod tests {
         // Use the exact gain vector that composite computed so both paths
         // see identical inputs (guards against future changes to GainOptions
         // defaults affecting only one path).
-        let gains = ref_report.gains.clone();
+        let photometry = ref_report.photometry.clone();
 
         // Run composite_tiled_frames at two strip heights.
         for strip_rows in [1_u32, 8] {
             let (tiled_img, _) = composite_tiled_frames(
                 &frames,
                 &cams,
-                &gains,
+                &photometry,
                 &no_lc,
                 &canvas,
                 strip_rows,

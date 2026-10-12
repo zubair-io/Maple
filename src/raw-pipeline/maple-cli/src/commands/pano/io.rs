@@ -61,7 +61,7 @@ fn low_texture_warning(n: usize) -> String {
     )
 }
 
-/// EV spread of the per-frame gains `solve_gains` produced, after its
+/// EV spread of the per-frame gains `solve_photometry` produced, after its
 /// gauge normalization (spec §8). Each frame's `[r, g, b]` gain
 /// collapses to its mean (scalar-mode gains store the same value three
 /// times; per-channel mode averages the channels), then the spread is
@@ -70,9 +70,8 @@ fn low_texture_warning(n: usize) -> String {
 /// matching the rest of the report's "zero means no signal" convention.
 fn gain_spread_ev(gains: &[[f32; 3]]) -> f64 {
     // Single pass: (count, min, max) over the per-frame means of frames whose
-    // three channel gains are each finite and positive — `solve_gains` can
-    // leave a non-positive channel in per-channel mode, and a mean that
-    // happens to stay > 0 must not smuggle that frame into the spread.
+    // three channel gains are each finite and positive, so a degenerate
+    // channel cannot hide behind a positive mean.
     let (count, min, max) = gains
         .iter()
         .filter(|g| g.iter().all(|c| c.is_finite() && *c > 0.0))
@@ -97,7 +96,9 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         .iter()
         .map(|&(k, v)| (k.to_string(), serde_json::json!(v)))
         .collect();
-    let gain_spread = gain_spread_ev(&comp_report.gains);
+    let gains: Vec<[f32; 3]> = comp_report.photometry.iter().map(|p| p.gain).collect();
+    let biases: Vec<[f32; 3]> = comp_report.photometry.iter().map(|p| p.bias).collect();
+    let gain_spread = gain_spread_ev(&gains);
     let mut warnings: Vec<String> = Vec::new();
     if !solution.motion_affected.is_empty() {
         warnings.push("Movement detected, some areas may show ghosting".to_string());
@@ -174,7 +175,8 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         "gate_max_budget_px": ctx.gate_budgets.1,
         "projection": format!("{:?}", comp_report.projection),
         "canvas": { "width": comp_report.canvas.width, "height": comp_report.canvas.height },
-        "gains": comp_report.gains,
+        "gains": gains,
+        "biases": biases,
         "blend_levels": comp_report.blend_levels,
         "min_overlap_width_px": comp_report.min_overlap_width_px,
         "seam_strategy": comp_report.seam_strategy.label(),

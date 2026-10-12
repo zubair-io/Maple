@@ -10,8 +10,8 @@
 //! pixel is invalid when it maps outside the source frame, behind the
 //! camera, or onto fully-invalid taps.
 //!
-//! The optional per-frame gain (spec §5.5) is folded into the sampling
-//! loop — same shape as the WGSL `warp_inverse` kernel will use (eng
+//! The per-frame photometric correction (gain and bias, spec §5.5) is
+//! folded into the sampling loop — same shape as the WGSL `warp_inverse` kernel will use (eng
 //! design §5, "gain multiplier folded in — saves a pass").
 //!
 //! Rows are rayon-parallel; per-pixel work is pure, so output is
@@ -27,6 +27,7 @@ use rayon::prelude::*;
 
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
+use crate::gain::FramePhotometry;
 use crate::ingest::{PlanarImage, ValidityMask};
 use crate::local_align::{LocalCorrection, MAX_CORRECTION_PX};
 use crate::math::Vec3;
@@ -254,9 +255,9 @@ fn sample_bicubic(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
     ])
 }
 
-/// Warp one source frame onto the canvas. `gain` is the per-channel
-/// multiplier from gain compensation (`[1.0; 3]` = none), folded into
-/// the sampling loop.
+/// Warp one source frame onto the canvas. `photometry` is the frame's
+/// gain and bias ([`FramePhotometry::IDENTITY`] = none), folded into the
+/// sampling loop.
 ///
 /// The output is a canvas-sized [`PlanarImage`] whose validity marks
 /// exactly the pixels that received a covered sample.
@@ -269,7 +270,7 @@ pub fn warp_to_canvas(
     src: &PlanarImage,
     cam: &Camera,
     canvas: &CanvasSpec,
-    gain: [f32; 3],
+    photometry: FramePhotometry,
     local_align: Option<&LocalCorrection>,
 ) -> PlanarImage {
     assert_eq!(
@@ -331,9 +332,10 @@ pub fn warp_to_canvas(
                         let Some(s) = sample_bicubic(src, fx, fy) else {
                             continue;
                         };
-                        row_r[x] = s[0] * gain[0];
-                        row_g[x] = s[1] * gain[1];
-                        row_b[x] = s[2] * gain[2];
+                        let [cr, cg, cb] = photometry.apply(s);
+                        row_r[x] = cr;
+                        row_g[x] = cg;
+                        row_b[x] = cb;
                         row_v[x] = true;
                     }
                 }
@@ -368,7 +370,7 @@ pub fn warp_to_canvas_strip(
     src: &PlanarImage,
     cam: &Camera,
     canvas: &CanvasSpec,
-    gain: [f32; 3],
+    photometry: FramePhotometry,
     local_align: Option<&LocalCorrection>,
     tile_y0: u32,
     tile_y1: u32,
@@ -444,9 +446,10 @@ pub fn warp_to_canvas_strip(
                     let Some(s) = sample_bicubic(src, fx, fy) else {
                         continue;
                     };
-                    row_r[x] = s[0] * gain[0];
-                    row_g[x] = s[1] * gain[1];
-                    row_b[x] = s[2] * gain[2];
+                    let [cr, cg, cb] = photometry.apply(s);
+                    row_r[x] = cr;
+                    row_g[x] = cg;
+                    row_b[x] = cb;
                     row_v[x] = true;
                 }
             }
