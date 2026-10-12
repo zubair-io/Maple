@@ -11,7 +11,7 @@
  * stage re-arm a rename has to carry (#2357).
  */
 import { describe, expect, it } from 'bun:test';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, utimes, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import {
   allAssets,
@@ -100,6 +100,9 @@ describe('discover producer — events', () => {
     await handleEvent({ kind: 'created', absPath: file }, library.folderId, library.root);
     expect(changesFor(library.db, file).map((row) => row.kind)).toEqual(['create']);
 
+    // A modify that changes nothing publishes nothing (#4507); a real one moves the mtime.
+    const modifiedAt = new Date('2030-03-01T00:00:00.000Z');
+    await utimes(file, modifiedAt, modifiedAt);
     await handleEvent({ kind: 'modified', absPath: file }, library.folderId, library.root);
     expect(changesFor(library.db, file).map((row) => row.kind)).toEqual(['create', 'update']);
 
