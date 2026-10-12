@@ -134,7 +134,7 @@ Measured on the 21-frame set, frame-processing peak dropped from about 34 GB to 
 
 ## The C-FFI surface
 
-`src/raw-pipeline/raw-ffi/src/pano.rs` defines the ABI; `pano_apple.rs` is the platform-agnostic body that calls `maple_pano::stitch::stitch`. Two Cargo features select the ORT linkage: `pano` (macOS, `maple-pano/ml`) and `pano-ios` (iOS and simulator, `maple-pano/ml-static`).
+`src/raw-pipeline/raw-ffi/src/pano.rs` defines the ABI; `pano_apple.rs` is the platform-agnostic body that calls `maple_pano::stitch::stitch`. Two Cargo features select the ORT linkage: `pano` (macOS, `maple-pano/ml`) and `pano-ios` (iOS and simulator, `maple-pano/ml-static`). Both also enable `maple-pano/classical-features`, so every Apple slice carries the classical matcher and can stitch with no ONNX Runtime or models on disk.
 
 ```c
 int32_t maple_pano_stitch(
@@ -142,6 +142,7 @@ int32_t maple_pano_stitch(
     MaplePanoRetention retention,       // KEEP = 0, STRICT = 1
     MaplePanoLocalAlign local_align,    // MESH = 0, OFF = 1
     MaplePanoStrategy strategy,         // AUTO = 0, ROTATION = 1, TILE = 2
+    MaplePanoFeatureEngine engine,      // ML = 0, CLASSICAL = 1
     MaplePanoProgressFn progress_cb, void *cb_user,
     const MapleCancelFlag *cancel);
 ```
@@ -155,13 +156,13 @@ int32_t maple_pano_stitch(
 | −3   | unsupported platform (Linux, WASM)                      |
 | −4   | a `raw_paths` element is null or not UTF-8              |
 | −5   | `out_png_path` is not UTF-8                             |
-| −6   | ML environment unavailable (models or ORT missing)      |
+| −6   | ML engine chosen but its models or ORT are missing      |
 | −7   | pipeline error — decode, match, BA, composite, or write |
 | −8   | degenerate rotation geometry; retry with Auto or Tile   |
 
 The progress callback is `void(*)(uint32_t stage, float frac, void *user)`, invoked from worker threads — the host must not block it. Both the callback and the cancel flag accept null. The function joins all worker threads before returning, so caller pointers only need to live for the synchronous call.
 
-`pano_ffi_gates` (`src/raw-pipeline/raw-ffi/tests/pano_ffi_gates.rs`) is the end-to-end parity gate: it calls the actual C entry point, paths in and PNG out, and diffs the result against the reference by peak-normalized RMSE, tolerating up to 2% dimension difference from canvas rounding. It skip-passes when fixtures, `MAPLE_PANO_MODELS`, or `ORT_DYLIB_PATH` are absent.
+`pano_ffi_gates` (`src/raw-pipeline/raw-ffi/tests/pano_ffi_gates.rs`) is the end-to-end parity gate: it calls the actual C entry point, paths in and PNG out, and diffs the result against the reference by peak-normalized RMSE, tolerating up to 2% dimension difference from canvas rounding. It skip-passes when fixtures, `MAPLE_PANO_MODELS`, or `ORT_DYLIB_PATH` are absent. `pano_ffi_classical_gates` points both variables at paths that do not exist, checks the ML engine returns −6, then stitches all of pano_01 with the classical engine; it skip-passes only when the fixtures are absent.
 
 ## Apple
 
@@ -170,6 +171,8 @@ The progress callback is `void(*)(uint32_t stage, float frac, void *user)`, invo
 `PanoStitching.swift` is the protocol seam plus the option types (`Retention`, `LocalAlign`, `Strategy`) and the `PanoStage` enum whose raw values match the CLI's stage log prefixes. `MockPanoStitcher` satisfies it for previews and tests. `RustPanoStitcher.swift` is the real conformance over `maple_pano_stitch`, running off the main actor because the call blocks for minutes.
 
 Progress bridging is the interesting part. The C trampoline can fire from several rayon worker threads at once, so its hot path does exactly one thing: reconstruct a heap-allocated atom from the opaque `cb_user` pointer, take an `os_unfair_lock` for a two-word store, release. No task allocation, no main-actor hop. A timer polls that atom about 20× a second on the main run loop and publishes only when the value changed. Lifetime is a retain before the call and an unconditional release after, safe because the FFI joins its workers before returning. `cancel()` flips a Rust-allocated cancel flag, the same pattern the scene-linear render path uses.
+
+Panorama merge works on a fresh install with nothing downloaded. `PanoProvisioning.featureEngine()` picks the ML matcher only when the user has turned on "Use ML matcher" in Settings → Pano (stored under `maple.pano.settings.useMLMatcher.v1`, off by default) and the models and runtime are on disk. In every other case the stitch uses the classical matcher, and the merge sheet never starts a download. Turning the setting on is what runs `PanoProvisioner`. Turning it off keeps the downloaded files but goes back to the classical matcher. The result summary names the matcher that ran.
 
 `PanoMergeSession.swift` is the `@Observable` state machine (idle → running → done | error) with generation-counter discipline so a cancel-then-rerun can never publish stale progress.
 

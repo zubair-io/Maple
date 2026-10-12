@@ -217,35 +217,72 @@ struct PanoProvisioningStatusTests {
     }
 }
 
+// MARK: - Engine selection (#4554)
+
+@Suite(.serialized)
+struct PanoFeatureEngineSelectionTests {
+
+    private func provisionedSuite(in dir: URL) throws -> UserDefaults {
+        let models = dir.appendingPathComponent("models", isDirectory: true)
+        try FileManager.default.createDirectory(at: models, withIntermediateDirectories: true)
+        let dylib = dir.appendingPathComponent("libonnxruntime.dylib")
+        FileManager.default.createFile(atPath: dylib.path, contents: Data())
+        let suite = makeSuite()
+        suite.set(models.path, forKey: PanoProvisioningDefaults.modelsDirKey)
+        suite.set(dylib.path, forKey: PanoProvisioningDefaults.ortDylibPathKey)
+        return suite
+    }
+
+    private func tempDir() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pano-engine-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    @Test("classical by default, even when the ML runtime is installed")
+    func classicalByDefault() throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let provisioning = PanoProvisioning(defaults: try provisionedSuite(in: dir))
+        #expect(PanoProvisioner.isReady(provisioning.status()))
+        #expect(provisioning.featureEngine() == .classical)
+    }
+
+    @Test("ML when the toggle is on and the runtime is installed")
+    func mlWhenOptedInAndInstalled() throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let suite = try provisionedSuite(in: dir)
+        suite.set(true, forKey: PanoProvisioningDefaults.useMLMatcherKey)
+        #expect(PanoProvisioning(defaults: suite).featureEngine() == .ml)
+    }
+
+    @Test("classical when the toggle is on but the runtime is not installed")
+    func classicalWhenOptedInButMissing() {
+        let suite = makeSuite()
+        suite.set("/no/such/models", forKey: PanoProvisioningDefaults.modelsDirKey)
+        suite.set("/no/such/libonnxruntime.dylib", forKey: PanoProvisioningDefaults.ortDylibPathKey)
+        suite.set(true, forKey: PanoProvisioningDefaults.useMLMatcherKey)
+        #expect(PanoProvisioning(defaults: suite).featureEngine() == .classical)
+    }
+}
+
 // MARK: - RustPanoStitcher injection tests
 
-/// Confirm that `RustPanoStitcher.init(provisioning:)` accepts a custom
-/// resolver so tests can inject known-bad paths and get the `modelsNotInstalled`
-/// error without touching env vars or UserDefaults.standard.
+/// An opted-in but uninstalled ML matcher must not block a merge: the
+/// stitcher falls back to classical, so placeholder frames reach the FFI
+/// and fail in decode rather than in the models check.
 @MainActor
 @Suite(.serialized)
 struct RustPanoStitcherProvisioningInjectionTests {
 
-    @Test("injecting a resolver with non-existent paths throws modelsNotInstalled")
-    func injectedResolverThrowsWhenPathsMissing() async throws {
+    @Test("ML opted in but missing falls back to classical instead of modelsNotInstalled")
+    func injectedResolverFallsBackToClassical() async throws {
         let suite = makeSuite()
         suite.set("/no/such/models", forKey: PanoProvisioningDefaults.modelsDirKey)
         suite.set("/no/such/libonnxruntime.dylib", forKey: PanoProvisioningDefaults.ortDylibPathKey)
-        let provisioning = PanoProvisioning(defaults: suite)
-
-        // We still need MAPLE_PANO_MODELS and ORT_DYLIB_PATH to be unset so
-        // the env tier doesn't short-circuit past the settings tier check.
-        // (In the injected resolver, settings wins anyway — but the stitcher's
-        // provisionMLEnvironment also checks the live process env, so we clear
-        // it to isolate the test.)
-        let savedModels = ProcessInfo.processInfo.environment["MAPLE_PANO_MODELS"]
-        let savedOrt    = ProcessInfo.processInfo.environment["ORT_DYLIB_PATH"]
-        defer {
-            if let v = savedModels { setenv("MAPLE_PANO_MODELS", v, 1) } else { unsetenv("MAPLE_PANO_MODELS") }
-            if let v = savedOrt    { setenv("ORT_DYLIB_PATH", v, 1)    } else { unsetenv("ORT_DYLIB_PATH")    }
-        }
-        unsetenv("MAPLE_PANO_MODELS")
-        unsetenv("ORT_DYLIB_PATH")
+        suite.set(true, forKey: PanoProvisioningDefaults.useMLMatcherKey)
 
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("pano-inject-\(UUID().uuidString)", isDirectory: true)
@@ -257,22 +294,17 @@ struct RustPanoStitcherProvisioningInjectionTests {
         try Data("placeholder".utf8).write(to: a)
         try Data("placeholder".utf8).write(to: b)
 
-        let stitcher = RustPanoStitcher(provisioning: provisioning)
+        let stitcher = RustPanoStitcher(provisioning: PanoProvisioning(defaults: suite))
         do {
             _ = try await stitcher.stitch(
                 assets: [AssetRef(url: a), AssetRef(url: b)],
                 options: .default,
                 progress: { _, _ in }
             )
-            Issue.record("Expected modelsNotInstalled throw but stitch succeeded")
-        } catch let err as PanoStitcherError {
-            if case .modelsNotInstalled = err {
-                // Expected — pass.
-            } else {
-                Issue.record("Expected modelsNotInstalled, got \(err)")
-            }
+            Issue.record("Placeholder frames cannot stitch")
+        } catch PanoStitcherError.stitchFailed {
         } catch {
-            Issue.record("Unexpected error type: \(error)")
+            Issue.record("Expected a classical-path decode failure, got \(error)")
         }
     }
 }

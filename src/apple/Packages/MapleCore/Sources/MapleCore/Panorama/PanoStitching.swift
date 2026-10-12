@@ -59,6 +59,23 @@ public struct PanoOptions: Sendable, Equatable {
     public static let `default` = PanoOptions()
 }
 
+// MARK: - PanoFeatureEngine
+
+/// Detector/matcher that builds the frame-overlap graph (#4554). Classical
+/// is the default and needs no download; ML (ALIKED + LightGlue) is the
+/// opt-in engine from Settings → Pano.
+public enum PanoFeatureEngine: String, Sendable, CaseIterable {
+    case classical
+    case ml
+
+    public var displayName: String {
+        switch self {
+        case .classical: return "classical matcher"
+        case .ml: return "ML matcher (ALIKED + LightGlue)"
+        }
+    }
+}
+
 // MARK: - PanoStage
 
 /// Processing stages emitted during a stitch run, in order. Names match the

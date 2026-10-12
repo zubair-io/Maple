@@ -1,29 +1,17 @@
 // PanoSettingsView.swift — Settings → Pano tab.
 //
-// Lets the user configure the two paths the panorama pipeline needs:
-//   • Models directory — folder containing aliked.onnx + lightglue.onnx.
-//   • ONNX Runtime dylib — path to libonnxruntime.dylib (≥ 1.23).
+// Panorama merge works out of the box with the classical matcher (#4554).
+// The "Use ML matcher" toggle (off by default, persisted under
+// PanoProvisioningDefaults.useMLMatcherKey) opts into ALIKED + LightGlue:
+// turning it on runs `PanoProvisioner` to download + SHA-verify the models
+// (and, on macOS, the ONNX Runtime dylib) into Application Support; turning
+// it off keeps the files but stitches with the classical matcher again.
 //
-// Mirrors the BackupSettingsView pattern:
-//   • UserDefaults persistence via PanoProvisioningDefaults keys.
-//   • Debounced save on every edit (800ms, same cadence as Backup).
-//   • Status indicator (provisioned / not provisioned) driven by
-//     PanoProvisioning.status() checked on appear and on each change.
+// The path fields are optional overrides for the ML runtime (Settings →
+// MAPLE_PANO_MODELS / ORT_DYLIB_PATH → Application Support), saved with an
+// 800ms debounce like BackupSettingsView, and shown only while ML is on.
 //
-// Resolution order (shown in the footer so the user understands the
-// precedence — mirrors the web's /settings/pano page):
-//   1. These settings (UserDefaults).
-//   2. MAPLE_PANO_MODELS / ORT_DYLIB_PATH environment variables (dev).
-//   3. ~/Library/Application Support/app.justmaple.aperture/pano-models/
-//      and …/ort/libonnxruntime.dylib (default locations).
-//
-// Auto-provisioning (#1234 M6): the "Download & Install" action runs
-//   `PanoProvisioner`, which downloads + SHA-verifies the ONNX models (and,
-//   on macOS, the ONNX Runtime dylib) into the default Application Support
-//   location — so users don't have to configure paths manually. The path
-//   fields remain as optional overrides for advanced setups.
-//
-// Ticket: #1241 / #1234 M6
+// Ticket: #1241 / #1234 M6 / #4554
 
 import MapleCore
 import MapleUI
@@ -47,43 +35,56 @@ struct PanoSettingsView: View {
   @State private var status: PanoProvisioningStatus = PanoProvisioning().status()
   @State private var saveDebounceTask: Task<Void, Never>?
   @State private var provisionModel = PanoProvisionModel()
+  @AppStorage(PanoProvisioningDefaults.useMLMatcherKey) private var useMLMatcher = false
 
   private let provisioning = PanoProvisioning()
 
   var body: some View {
     Form {
-      statusSection
-      pathsSection
-      resolutionOrderSection
+      matcherSection
+      if useMLMatcher {
+        pathsSection
+        resolutionOrderSection
+      }
     }
     .formStyle(.grouped)
     .mapleSettingsBackground()
     .onChange(of: modelsDir) { _, _ in scheduleSave() }
     .onChange(of: ortDylibPath) { _, _ in scheduleSave() }
+    .onChange(of: useMLMatcher) { _, enabled in
+      if enabled { downloadIfNeeded() }
+    }
     .task { refreshStatus() }
   }
 
-  // MARK: - Status section
+  // MARK: - Matcher section
+
+  private var mlReady: Bool { PanoProvisioner.isReady(status) }
 
   @ViewBuilder
-  private var statusSection: some View {
+  private var matcherSection: some View {
     Section {
-      HStack(spacing: 10) {
-        MuiIcon(
-          name: PanoProvisioner.isReady(status)
-            ? "checkmark.circle.fill"
-            : "exclamationmark.triangle.fill", size: .sm
-        )
-        .foregroundStyle(PanoProvisioner.isReady(status) ? Color.green : Color.orange)
-        .imageScale(.medium)
-        .accessibilityHidden(true)
+      Toggle(isOn: $useMLMatcher) {
         VStack(alignment: .leading, spacing: 2) {
-          Text(PanoProvisioner.isReady(status) ? "Ready" : "Not configured")
+          Text("Use ML matcher")
+          Text("Better alignment, downloads ~\(approxDownloadMB) MB")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      }
+      .disabled(provisionModel.isBusy)
+      .accessibilityIdentifier("pano.settings.useMLMatcher")
+      .accessibilityHint(
+        "Off uses the built-in classical matcher. On downloads the ML models and uses them once installed.")
+
+      HStack(spacing: 10) {
+        MuiIcon(name: engineIcon, size: .sm)
+          .foregroundStyle(engineTint)
+          .imageScale(.medium)
+          .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(engineTitle)
             .font(.subheadline.weight(.medium))
-            .accessibilityLabel(
-              PanoProvisioner.isReady(status)
-                ? "Panorama models and runtime are configured and ready"
-                : "Panorama models or runtime are not configured")
           Text(statusDescription)
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -92,11 +93,29 @@ struct PanoSettingsView: View {
       .padding(.vertical, 2)
       .accessibilityElement(children: .combine)
 
-      provisionActionView
+      if useMLMatcher {
+        provisionActionView
+      }
     } header: {
-      Text("Status")
+      Text("Matcher")
     }
     .listRowBackground(MapleTokens.surface)
+  }
+
+  private var engineTitle: String {
+    switch (useMLMatcher, mlReady) {
+    case (false, _): return "Classical matcher"
+    case (true, true): return "ML matcher ready"
+    case (true, false): return "ML matcher not installed"
+    }
+  }
+
+  private var engineIcon: String {
+    useMLMatcher && !mlReady ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+  }
+
+  private var engineTint: Color {
+    useMLMatcher && !mlReady ? Color.orange : Color.green
   }
 
   // MARK: - Auto-provision action
@@ -179,6 +198,12 @@ struct PanoSettingsView: View {
     Int((Double(PanoProvisioner.approximateDownloadBytes) / 1_000_000).rounded())
   }
 
+  private func downloadIfNeeded() {
+    refreshStatus()
+    guard !mlReady, PanoProvisioner.canAutoProvision(status) else { return }
+    startDownload()
+  }
+
   private func startDownload() {
     Task {
       await provisionModel.download {
@@ -188,16 +213,27 @@ struct PanoSettingsView: View {
   }
 
   private var statusDescription: String {
-    if PanoProvisioner.isReady(status) {
-      return "Panorama stitching is ready to use."
+    guard useMLMatcher else {
+      return "Panorama merge works without any download."
     }
-    var missing: [String] = []
-    if !status.modelsDirExists { missing.append("models") }
-    #if os(macOS)
+    if mlReady {
+      return "Merges use ALIKED + LightGlue."
+    }
+    let missing = [
+      status.modelsDirExists ? nil : "models",
       // iOS embeds the ONNX Runtime at build time — never "missing" there.
-      if !status.ortDylibExists { missing.append("ONNX Runtime") }
+      Self.needsOrtDylib && !status.ortDylibExists ? "ONNX Runtime" : nil,
+    ].compactMap { $0 }
+    return "Missing: " + missing.joined(separator: ", ")
+      + ". Merges use the classical matcher until these are installed."
+  }
+
+  private static var needsOrtDylib: Bool {
+    #if os(macOS)
+      return true
+    #else
+      return false
     #endif
-    return "Missing: " + missing.joined(separator: ", ") + "."
   }
 
   // MARK: - Paths section
@@ -259,9 +295,9 @@ struct PanoSettingsView: View {
       Text("Paths")
     } footer: {
       Text(
-        "These paths are optional overrides for advanced setups. Most users can leave "
-          + "them blank and use “Download & Install” above, which fetches the required "
-          + "files and installs them into the default Application Support location."
+        "These paths are optional overrides for the ML matcher. Most users can leave "
+          + "them blank: turning on the ML matcher downloads the required files into "
+          + "the default Application Support location."
       )
       .font(.caption2)
       .foregroundStyle(Color(white: 0.5))
