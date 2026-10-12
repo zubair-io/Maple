@@ -13,13 +13,15 @@ use std::collections::BTreeSet;
 use maple_pano::camera::{focal_px_for_hfov, Camera};
 use maple_pano::graph::{
     build_match_graph, CandidateProvider, GraphImage, GridLayout, GridOrder, GridPriorProvider,
-    MatchGraph,
+    GroundFootprint, LoopClosureCheck, LoopClosureGate, MatchGraph,
 };
 use maple_pano::math::{matrix_to_axis_angle, Mat3};
 use maple_pano::prng::SplitMix64;
 use maple_pano::robust::{RobustOptions, VerifyFailure};
 use maple_pano::testkit::{generate_pair_correspondences, CorrespondenceOptions};
-use maple_pano::twoview::{relative_rotation_ground_truth, rotation_angle_between};
+use maple_pano::twoview::{
+    relative_rotation_ground_truth, rotation_angle_between, PixelCorrespondence,
+};
 
 const FRAMES: usize = 14;
 const FAR_FALSE: (usize, usize) = (0, 12);
@@ -75,14 +77,17 @@ impl CandidateProvider for Planted {
     }
 }
 
-fn build(cams: &[Camera], layout: &GridLayout) -> MatchGraph {
-    let images: Vec<GraphImage> = cams
-        .iter()
+fn graph_images(cams: &[Camera]) -> Vec<GraphImage> {
+    cams.iter()
         .map(|c| GraphImage {
             camera: c.clone(),
             prior_rotation: None,
         })
-        .collect();
+        .collect()
+}
+
+fn build(cams: &[Camera], layout: &GridLayout) -> MatchGraph {
+    let images = graph_images(cams);
     let corr = CorrespondenceOptions {
         count: 200,
         noise_sigma_px: 1.0,
@@ -128,7 +133,14 @@ fn gate_serpentine_grid_rejects_false_loop_closures_and_keeps_neighbours() {
     let layout = layout();
     let cams = grid_cameras(&layout);
     let mut graph = build(&cams, &layout);
-    let rejected = graph.admit_grid_loop_closures(&layout);
+    let rejected = graph.admit_grid_loop_closures(
+        &graph_images(&cams),
+        &LoopClosureGate {
+            layout,
+            check: LoopClosureCheck::Rotation,
+            ground: &[],
+        },
+    );
 
     let edges = edge_set(&graph);
     let neighbours: BTreeSet<(usize, usize)> = (0..FRAMES)
@@ -202,12 +214,7 @@ fn grid_provider_nominates_linearly_many_pairs() {
         order: GridOrder::Serpentine,
         diagonals: true,
     };
-    let images: Vec<GraphImage> = (0..400)
-        .map(|_| GraphImage {
-            camera: camera_with(Mat3::identity()),
-            prior_rotation: None,
-        })
-        .collect();
+    let images = graph_images(&vec![camera_with(Mat3::identity()); 400]);
     let pairs = GridPriorProvider { layout }.candidates(&images);
     let unique: BTreeSet<(usize, usize)> =
         pairs.iter().map(|&(i, j)| (i.min(j), i.max(j))).collect();
@@ -217,4 +224,204 @@ fn grid_provider_nominates_linearly_many_pairs() {
         unique.len(),
         images.len()
     );
+}
+
+// ── Tile path: translation-dominant nadir survey ─────────────────────────
+
+const STEP_X_PX: f64 = 300.0;
+const STEP_Y_PX: f64 = 220.0;
+const METRES_PER_PX: f64 = 0.1;
+const NEAR_FALSE_PLANAR: (usize, usize) = (0, 6);
+const PERIOD_SHIFT_PX: f64 = 60.0;
+
+/// Ground-plane origin (px) of each frame: a pure translation grid with
+/// a little flight jitter, the shape the tile strategy serves.
+fn ground_origins(layout: &GridLayout) -> Vec<(f64, f64)> {
+    let mut rng = SplitMix64::new(0x4519_7117);
+    (0..FRAMES)
+        .map(|i| {
+            let (row, col) = layout.cell(i).expect("index inside the grid");
+            (
+                col as f64 * STEP_X_PX + rng.next_range(-6.0, 6.0),
+                row as f64 * STEP_Y_PX + rng.next_range(-6.0, 6.0),
+            )
+        })
+        .collect()
+}
+
+/// Correspondences for a ground translation `offset = origin_b − origin_a`:
+/// `b = a − offset`, 0.5 px noise, 25 % outliers.
+fn translation_matches(offset: (f64, f64), seed: u64) -> Vec<PixelCorrespondence> {
+    let mut rng = SplitMix64::new(seed);
+    let (w, h) = (640.0, 480.0);
+    let inside = |x: f64, y: f64| (8.0..w - 8.0).contains(&x) && (8.0..h - 8.0).contains(&y);
+    let supports: Vec<(f64, f64)> = (0..4000)
+        .map(|_| (rng.next_range(8.0, w - 8.0), rng.next_range(8.0, h - 8.0)))
+        .filter(|&(x, y)| inside(x - offset.0, y - offset.1))
+        .take(200)
+        .collect();
+    supports
+        .into_iter()
+        .map(|(x, y)| {
+            let b = if rng.next_range(0.0, 1.0) < 0.25 {
+                (rng.next_range(8.0, w - 8.0), rng.next_range(8.0, h - 8.0))
+            } else {
+                (
+                    x - offset.0 + rng.next_range(-0.5, 0.5),
+                    y - offset.1 + rng.next_range(-0.5, 0.5),
+                )
+            };
+            PixelCorrespondence { a: (x, y), b }
+        })
+        .collect()
+}
+
+fn build_translation_grid(
+    layout: &GridLayout,
+    origins: &[(f64, f64)],
+) -> (Vec<GraphImage>, MatchGraph) {
+    let unit_focal = Camera::new([0.0; 3], 1.0, 0.0, 0.0, 640, 480);
+    let images = graph_images(&vec![unit_focal; FRAMES]);
+    let graph = build_match_graph(
+        &images,
+        &[
+            &GridPriorProvider { layout: *layout },
+            &Planted(vec![FAR_FALSE]),
+        ],
+        |a, b| {
+            let truth = (origins[b].0 - origins[a].0, origins[b].1 - origins[a].1);
+            let offset = match (a, b) {
+                FAR_FALSE => (100.0, 50.0),
+                NEAR_FALSE_PLANAR => (truth.0 + PERIOD_SHIFT_PX, truth.1),
+                _ => truth,
+            };
+            translation_matches(offset, 0x4519 ^ ((a as u64) << 32) ^ b as u64)
+        },
+        &RobustOptions::default(),
+    );
+    (images, graph)
+}
+
+fn ground(origins: &[(f64, f64)]) -> Vec<Option<GroundFootprint>> {
+    const EARTH_RADIUS_M: f64 = 6_371_008.8;
+    let (lat0, lon0) = (48.8694_f64, 2.3386_f64);
+    origins
+        .iter()
+        .map(|&(x, y)| {
+            let (east_m, north_m) = (x * METRES_PER_PX, -y * METRES_PER_PX);
+            Some(GroundFootprint {
+                lat_deg: lat0 + (north_m / EARTH_RADIUS_M).to_degrees(),
+                lon_deg: lon0 + (east_m / (EARTH_RADIUS_M * lat0.to_radians().cos())).to_degrees(),
+                diagonal_m: 640.0_f64.hypot(480.0) * METRES_PER_PX,
+            })
+        })
+        .collect()
+}
+
+#[test]
+fn gate_translation_grid_planar_check_keeps_true_closures_and_rejects_false_ones() {
+    let layout = layout();
+    let origins = ground_origins(&layout);
+    let (images, mut graph) = build_translation_grid(&layout, &origins);
+    let before = edge_set(&graph);
+    assert!(
+        before.contains(&FAR_FALSE) && before.contains(&NEAR_FALSE_PLANAR),
+        "both planted edges must pass unit-focal verification, got {before:?}"
+    );
+    let footprints = ground(&origins);
+    let rejected = graph.admit_grid_loop_closures(
+        &images,
+        &LoopClosureGate {
+            layout,
+            check: LoopClosureCheck::Planar,
+            ground: &footprints,
+        },
+    );
+
+    let edges = edge_set(&graph);
+    let neighbours: BTreeSet<(usize, usize)> = (0..FRAMES)
+        .flat_map(|a| ((a + 1)..FRAMES).map(move |b| (a, b)))
+        .filter(|&(a, b)| layout.is_neighbour(a, b))
+        .collect();
+    let missing: Vec<_> = neighbours.difference(&edges).collect();
+    assert!(missing.is_empty(), "true neighbour edges lost: {missing:?}");
+
+    let reason = |pair: (usize, usize)| {
+        graph
+            .rejected
+            .iter()
+            .find(|r| (r.a, r.b) == pair)
+            .map(|r| r.reason.clone())
+            .expect("planted edge must be reported as rejected")
+    };
+    let far = reason(FAR_FALSE);
+    assert!(
+        matches!(far, VerifyFailure::LoopClosureBeyondGroundFootprint { distance_m, limit_m } if distance_m > limit_m),
+        "far false edge rejected for the wrong reason: {far:?}"
+    );
+    let near = reason(NEAR_FALSE_PLANAR);
+    let VerifyFailure::LoopClosurePlacementUnconfirmed {
+        best_corner_error_px: Some(err_px),
+    } = near
+    else {
+        panic!("near false edge rejected for the wrong reason: {near:?}");
+    };
+    assert!(
+        err_px > 40.0,
+        "planted {PERIOD_SHIFT_PX} px shift measured as {err_px:.2} px"
+    );
+
+    let closures: Vec<(usize, usize)> = edges
+        .iter()
+        .copied()
+        .filter(|&(a, b)| !layout.is_neighbour(a, b))
+        .collect();
+    let true_closure_candidates = before
+        .iter()
+        .filter(|&&(a, b)| {
+            !layout.is_neighbour(a, b) && (a, b) != FAR_FALSE && (a, b) != NEAR_FALSE_PLANAR
+        })
+        .count();
+    assert_eq!(
+        closures.len(),
+        true_closure_candidates,
+        "every verified true loop closure must survive the planar gate"
+    );
+    assert!(
+        closures.len() >= 8,
+        "only {} closures verified",
+        closures.len()
+    );
+    assert!(graph.is_connected());
+    eprintln!(
+        "gate(grid, tile): {} neighbours kept, {} true loop closures admitted, {rejected} \
+         rejected; far false edge {far}; near false edge corner error {err_px:.2} px",
+        neighbours.len(),
+        closures.len(),
+    );
+}
+
+#[test]
+fn translation_grid_without_gps_falls_back_to_grid_cells() {
+    let layout = layout();
+    let origins = ground_origins(&layout);
+    let (images, mut graph) = build_translation_grid(&layout, &origins);
+    graph.admit_grid_loop_closures(
+        &images,
+        &LoopClosureGate {
+            layout,
+            check: LoopClosureCheck::Planar,
+            ground: &[],
+        },
+    );
+    let far = graph
+        .rejected
+        .iter()
+        .find(|r| (r.a, r.b) == FAR_FALSE)
+        .map(|r| r.reason.clone());
+    assert_eq!(
+        far,
+        Some(VerifyFailure::LoopClosureOutsideFootprint { cells: 3 })
+    );
+    assert!(!edge_set(&graph).contains(&NEAR_FALSE_PLANAR));
 }

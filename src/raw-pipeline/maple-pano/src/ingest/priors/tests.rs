@@ -337,3 +337,47 @@ fn from_metadata_leaves_focal_px_none_without_any_focal_source() {
     assert_eq!(priors.focal_35mm_equiv, None);
     assert_eq!(priors.focal_px, None);
 }
+
+fn gps_packet(attrs: &str) -> String {
+    format!(
+        r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description xmlns:drone-dji="http://www.uav.com/drone-dji/1.0/" {attrs}/>
+</rdf:RDF></x:xmpmeta>"#
+    )
+}
+
+#[test]
+fn parses_dji_gps_fix_with_relative_altitude() {
+    // Attribute values from the real pano_00/0000.DNG packet.
+    let xmp = gps_packet(
+        r#"drone-dji:GpsStatus="Normal" drone-dji:GpsLatitude="+48.869377293"
+           drone-dji:GpsLongitude="+2.338563916" drone-dji:RelativeAltitude="+157.205""#,
+    );
+    assert_eq!(
+        parse_dji_gps(xmp.as_bytes()),
+        Some(GpsPrior {
+            lat_deg: 48.869377293,
+            lon_deg: 2.338563916,
+            relative_altitude_m: Some(157.205),
+        })
+    );
+}
+
+#[test]
+fn accepts_the_longtitude_misspelling_and_rejects_no_fix() {
+    let misspelled =
+        gps_packet(r#"drone-dji:GpsLatitude="-21.5" drone-dji:GpsLongtitude="-156.25""#);
+    assert_eq!(
+        parse_dji_gps(misspelled.as_bytes()),
+        Some(GpsPrior {
+            lat_deg: -21.5,
+            lon_deg: -156.25,
+            relative_altitude_m: None,
+        })
+    );
+    let no_fix = gps_packet(r#"drone-dji:GpsLatitude="0.0" drone-dji:GpsLongitude="0.0""#);
+    assert_eq!(parse_dji_gps(no_fix.as_bytes()), None);
+    let out_of_range = gps_packet(r#"drone-dji:GpsLatitude="95" drone-dji:GpsLongitude="2""#);
+    assert_eq!(parse_dji_gps(out_of_range.as_bytes()), None);
+    assert_eq!(parse_dji_gps(DJI_MAVIC3_XMP.as_bytes()), None);
+}

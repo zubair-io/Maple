@@ -1,7 +1,7 @@
 //! Structured-grid candidate prior for drone surveys and camera arrays
 //! (#4519).
 //!
-//! Global descriptor nomination ([`super::DescriptorTopKProvider`]) and
+//! Global descriptor nomination (`DescriptorTopKProvider`) and
 //! the gimbal prior both misbehave on nadir grids: repetitive terrain
 //! (fields, roofs) ranks unrelated frames as similar, and a fixed nadir
 //! gimbal puts every frame inside every other's prior cone — false loop
@@ -12,40 +12,15 @@
 //! - [`GridPriorProvider`] nominates the 4-connected neighbours (plus
 //!   diagonals when asked) and the loop-closure pairs that share a
 //!   common neighbour — a constant number per frame, O(N) overall.
-//! - [`MatchGraph::admit_grid_loop_closures`] runs after two-view
-//!   verification. Neighbour edges are the prior and always stay; any
-//!   other verified edge survives only when its frames lie within
-//!   [`LOOP_CLOSURE_MAX_CELLS`] of each other on the grid (the footprint
-//!   gate) **and** some triangle through two verified neighbour edges
-//!   reproduces its relative rotation within
-//!   [`LOOP_CLOSURE_MAX_ROTATION_ERROR_DEG`] (the cycle-consistency
-//!   gate). Rejections move to [`MatchGraph::rejected`] with their
-//!   reason — reported, never silently dropped.
-//!
-//! The footprint is measured in grid cells: frame priors carry no GPS
-//! position today, so the declared grid is the only metric layout.
+//! - [`super::grid_gate`] then admits or rejects every non-neighbour
+//!   (loop-closure) edge after two-view verification.
 //!
 //! `cols` is the number of frames per pass; a column-major flight is
 //! the same grid transposed (`C × R`), which preserves every neighbour
 //! relation. A ragged final pass (fewer than `cols` frames) is allowed;
 //! in serpentine order a reversed final pass fills from the far end.
 
-use std::collections::BTreeMap;
-
-use super::{connected_components, orphans_of, CandidateProvider, GraphImage, MatchGraph};
-use super::{RejectedPair, VerifiedEdge};
-use crate::math::Mat3;
-use crate::robust::VerifyFailure;
-use crate::twoview::rotation_angle_between;
-
-/// Chebyshev grid distance beyond which two frames cannot overlap on a
-/// survey flown at normal (≤ ~80 %) forward/side overlap.
-pub const LOOP_CLOSURE_MAX_CELLS: usize = 2;
-
-/// Two composed neighbour rotations each carry the verifier's
-/// sub-0.5° noise; a real loop closure lands well inside this, a false
-/// match on repetitive texture lands far outside.
-pub const LOOP_CLOSURE_MAX_ROTATION_ERROR_DEG: f64 = 2.0;
+use super::{CandidateProvider, GraphImage};
 
 /// Capture order of the frames within the grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,7 +98,7 @@ impl GridLayout {
         }
     }
 
-    fn neighbours(&self, index: usize, frame_count: usize) -> Vec<usize> {
+    pub(super) fn neighbours(&self, index: usize, frame_count: usize) -> Vec<usize> {
         let Some((row, col)) = self.cell(index) else {
             return Vec::new();
         };
@@ -177,78 +152,6 @@ impl CandidateProvider for GridPriorProvider {
                 .map(move |k| (i, k))
         });
         direct.chain(closures).collect()
-    }
-}
-
-impl MatchGraph {
-    /// Apply the structured-grid loop-closure gate (module docs) in
-    /// place; returns how many edges it rejected. Components and orphans
-    /// are recomputed.
-    pub fn admit_grid_loop_closures(&mut self, layout: &GridLayout) -> usize {
-        let trusted: BTreeMap<(usize, usize), Mat3> = self
-            .edges
-            .iter()
-            .filter(|e| layout.is_neighbour(e.a, e.b))
-            .map(|e| ((e.a, e.b), e.rotation))
-            .collect();
-        let (kept, refused): (Vec<_>, Vec<_>) = std::mem::take(&mut self.edges)
-            .into_iter()
-            .map(|e| {
-                let verdict = loop_closure_verdict(&e, layout, self.image_count, &trusted);
-                (e, verdict)
-            })
-            .partition(|(_, verdict)| verdict.is_none());
-        let rejected_count = refused.len();
-        self.edges = kept.into_iter().map(|(e, _)| e).collect();
-        self.rejected
-            .extend(refused.into_iter().filter_map(|(e, verdict)| {
-                verdict.map(|reason| RejectedPair {
-                    a: e.a,
-                    b: e.b,
-                    reason,
-                })
-            }));
-        self.rejected.sort_by_key(|r| (r.a, r.b));
-        self.components = connected_components(self.image_count, &self.edges);
-        self.orphans = orphans_of(&self.components);
-        rejected_count
-    }
-}
-
-/// `None` admits the edge; `Some(reason)` rejects it.
-fn loop_closure_verdict(
-    edge: &VerifiedEdge,
-    layout: &GridLayout,
-    frame_count: usize,
-    trusted: &BTreeMap<(usize, usize), Mat3>,
-) -> Option<VerifyFailure> {
-    if layout.is_neighbour(edge.a, edge.b) {
-        return None;
-    }
-    let cells = layout.cell_distance(edge.a, edge.b).unwrap_or(usize::MAX);
-    if cells > LOOP_CLOSURE_MAX_CELLS {
-        return Some(VerifyFailure::LoopClosureOutsideFootprint { cells });
-    }
-    let directed = |from: usize, to: usize| -> Option<Mat3> {
-        if from < to {
-            trusted.get(&(from, to)).copied()
-        } else {
-            trusted.get(&(to, from)).map(Mat3::transpose)
-        }
-    };
-    let best_triangle_error_deg = layout
-        .neighbours(edge.a, frame_count)
-        .into_iter()
-        .filter_map(|k| {
-            let via = directed(k, edge.b)?.mul_mat(&directed(edge.a, k)?);
-            Some(rotation_angle_between(&via, &edge.rotation).to_degrees())
-        })
-        .min_by(f64::total_cmp);
-    match best_triangle_error_deg {
-        Some(err) if err <= LOOP_CLOSURE_MAX_ROTATION_ERROR_DEG => None,
-        _ => Some(VerifyFailure::LoopClosureUnconfirmed {
-            best_triangle_error_deg,
-        }),
     }
 }
 

@@ -96,7 +96,7 @@ use crate::composite::composite_tiled;
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
 use crate::gain::{solve_photometry_streaming, GainOptions};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
-use crate::graph::DescriptorTopKProvider;
+use crate::graph::{DescriptorTopKProvider, LoopClosureCheck, LoopClosureGate};
 use crate::ingest::{ingest_file_proxy, FrameMeta};
 
 use crate::leveling;
@@ -108,7 +108,7 @@ use crate::strategy::{select_strategy, Strategy};
 use crate::twoview::PixelCorrespondence;
 use degenerate::reject_degenerate_canvas;
 use frame_cache::refine_edges_lru;
-use graph_build::{build_stitch_graph, validate_grid};
+use graph_build::{build_stitch_graph, ground_footprints, validate_grid};
 use tile_stitch::{run_tile_branch, TileBranchInput};
 
 /// Strategy selection request (mirrors `maple_pano::strategy::StrategyRequest`
@@ -267,9 +267,19 @@ pub fn stitch(
     // Additive only — verification still decides, so it costs nothing on a
     // well-ordered/metadata-rich set beyond a few redundant candidate checks.
     let descriptor_topk = DescriptorTopKProvider::new(&feature_sets);
+    let full_dims: Vec<(u32, u32)> = metas
+        .iter()
+        .map(|m| (m.full_width, m.full_height))
+        .collect();
+    let ground = ground_footprints(&priors, &full_dims);
+    let rotation_gate = opts.grid.map(|layout| LoopClosureGate {
+        layout,
+        check: LoopClosureCheck::Rotation,
+        ground: &ground,
+    });
     let mut graph = build_stitch_graph(
         &proxy_images,
-        opts.grid.as_ref(),
+        rotation_gate.as_ref(),
         Some(&descriptor_topk),
         |a, b| -> Vec<PixelCorrespondence> {
             let corrs = match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
@@ -300,7 +310,7 @@ pub fn stitch(
         &mut full_images,
         &mut proxy_images,
         &mut raw_matches_cache,
-        opts.grid.as_ref(),
+        rotation_gate.as_ref(),
         |a, b| {
             matcher
                 .match_features(&feature_sets[a], &feature_sets[b])
@@ -308,6 +318,7 @@ pub fn stitch(
                 .map_err(|e| e.to_string())
         },
     )?;
+    let match_graph = graph.summary();
     drop(matcher); // #3197: LightGlue done too — same reasoning as above
     drop(models);
     // Timed after refinement, not just the bootstrap build, so the stage
@@ -348,10 +359,7 @@ pub fn stitch(
                 inputs,
                 opts,
                 raw_matches_cache,
-                full_dims: metas
-                    .iter()
-                    .map(|m| (m.full_width, m.full_height))
-                    .collect(), // #3197: free reuse
+                full_dims, // #3197: free reuse
                 proxy_dims,
                 feature_sets,
                 strategy_report,
@@ -508,6 +516,7 @@ pub fn stitch(
         refined_matches,
         fallback_matches,
         reverify,
+        match_graph,
         leveled,
         horizon_tilt_deg,
         stage_timings_s: [

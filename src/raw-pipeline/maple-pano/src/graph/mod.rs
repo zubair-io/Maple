@@ -24,8 +24,8 @@
 //!   #1215). See that module for the similarity choice, its cost, and
 //!   why it's a struct field rather than a trait-signature change.
 //! - [`grid_prior::GridPriorProvider`] — declared `R × C` drone/array
-//!   grids (#4519): O(N) neighbour nomination plus a post-verification
-//!   footprint + triangle-consistency gate on loop closures.
+//!   grids (#4519): O(N) neighbour nomination, plus the
+//!   [`grid_gate`] distance + cycle-consistency gate on loop closures.
 //!
 //! # Determinism
 //!
@@ -40,6 +40,7 @@
 // (`stitch::*`); the crate builds bare without it (#3236).
 #[cfg(any(feature = "ml", feature = "ml-static"))]
 pub mod descriptor_topk;
+pub mod grid_gate;
 pub mod grid_prior;
 
 use std::collections::BTreeSet;
@@ -52,10 +53,11 @@ use crate::twoview::PixelCorrespondence;
 
 #[cfg(any(feature = "ml", feature = "ml-static"))]
 pub use descriptor_topk::DescriptorTopKProvider;
-pub use grid_prior::{
-    GridLayout, GridOrder, GridPriorProvider, LOOP_CLOSURE_MAX_CELLS,
-    LOOP_CLOSURE_MAX_ROTATION_ERROR_DEG,
+pub use grid_gate::{
+    GroundFootprint, LoopClosureCheck, LoopClosureGate, LOOP_CLOSURE_MAX_CELLS,
+    LOOP_CLOSURE_MAX_CORNER_ERROR_FRAC, LOOP_CLOSURE_MAX_ROTATION_ERROR_DEG,
 };
+pub use grid_prior::{GridLayout, GridOrder, GridPriorProvider};
 
 /// One image entering the graph build.
 ///
@@ -212,7 +214,25 @@ pub struct ReverifySummary {
     pub matches_dropped: usize,
 }
 
+/// The match graph as nominated and gated, before any full-resolution
+/// reverification — surfaced in the stitch report so dropped candidate
+/// pairs are visible, never silent.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct GraphSummary {
+    pub candidate_pairs: usize,
+    pub verified_edges: usize,
+    pub rejected: Vec<RejectedPair>,
+}
+
 impl MatchGraph {
+    pub fn summary(&self) -> GraphSummary {
+        GraphSummary {
+            candidate_pairs: self.edges.len() + self.rejected.len(),
+            verified_edges: self.edges.len(),
+            rejected: self.rejected.clone(),
+        }
+    }
+
     /// `true` when every image is reachable from every other (vacuously
     /// true for 0 or 1 images).
     pub fn is_connected(&self) -> bool {

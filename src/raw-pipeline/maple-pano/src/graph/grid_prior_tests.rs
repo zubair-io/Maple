@@ -1,5 +1,8 @@
 use super::*;
 use crate::camera::Camera;
+use crate::graph::{MatchGraph, VerifiedEdge};
+use crate::math::Mat3;
+use crate::robust::VerifyFailure;
 
 fn grid(rows: usize, cols: usize, order: GridOrder) -> GridLayout {
     GridLayout {
@@ -132,6 +135,20 @@ fn diagonals_become_neighbours_when_enabled() {
 }
 
 #[test]
+fn ground_distance_is_haversine_metres() {
+    use crate::graph::GroundFootprint;
+    let at = |lat_deg, lon_deg| GroundFootprint {
+        lat_deg,
+        lon_deg,
+        diagonal_m: 0.0,
+    };
+    let one_milli_degree_north = at(48.0, 2.0).distance_m(&at(48.001, 2.0));
+    assert!((one_milli_degree_north - 111.195).abs() < 0.01);
+    let east = at(48.0, 2.0).distance_m(&at(48.0, 2.001));
+    assert!((east - 111.195 * 48.0_f64.to_radians().cos()).abs() < 0.01);
+}
+
+#[test]
 fn closure_without_a_verified_triangle_is_unconfirmed() {
     let layout = grid(1, 3, GridOrder::Raster);
     let edge = |a, b| VerifiedEdge {
@@ -149,7 +166,12 @@ fn closure_without_a_verified_triangle_is_unconfirmed() {
         components: vec![vec![0, 1, 2]],
         orphans: Vec::new(),
     };
-    assert_eq!(graph.admit_grid_loop_closures(&layout), 1);
+    let gate = crate::graph::LoopClosureGate {
+        layout,
+        check: crate::graph::LoopClosureCheck::Rotation,
+        ground: &[],
+    };
+    assert_eq!(graph.admit_grid_loop_closures(&images(3), &gate), 1);
     assert_eq!(
         graph.rejected[0].reason,
         VerifyFailure::LoopClosureUnconfirmed {
