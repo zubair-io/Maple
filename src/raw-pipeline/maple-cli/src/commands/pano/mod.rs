@@ -32,6 +32,7 @@
 mod discovery;
 mod io;
 mod preview;
+mod progress;
 mod tile;
 
 use std::path::{Path, PathBuf};
@@ -255,25 +256,17 @@ fn stitch_set(
 
     let opts = stitch_options(args, gate_budgets);
 
-    let progress = |stage: u32, _frac: f32| {
-        // Progress to stderr so it doesn't pollute the report JSON on stdout.
-        let label = match stage {
-            0 => "decode",
-            1 => "features",
-            2 => "match_graph",
-            3 => "refine",
-            4 => "solve",
-            5 => "composite",
-            _ => "?",
-        };
-        let _ = label; // consumed only at stage start (frac == 0.0)
-    };
-
     // After #1270 `stitch` handles both rotation and tile internally.
     // ALIKED + LightGlue run once; the result is either Rotation or Tile.
     let (offered, unreadable) = preview::offered_alignment(args);
-    let run = stitch::stitch_reusing(inputs, &opts, offered.as_ref(), progress, || false)
-        .map_err(|e| e.to_string())?;
+    let run = stitch::stitch_reusing(
+        inputs,
+        &opts,
+        offered.as_ref(),
+        progress::stderr_progress(),
+        || false,
+    )
+    .map_err(|e| e.to_string())?;
     preview::save_alignment(args.alignment_out.as_deref(), &run.alignment)?;
     let alignment = preview::alignment_report(&preview::verdict(run.reuse, unreadable));
     let report = match run.success {
