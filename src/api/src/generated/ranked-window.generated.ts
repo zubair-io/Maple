@@ -3,3 +3,4 @@
 export const RANKED_WINDOW_BASE = 100;
 export const RANKED_WINDOW_MAX = 5000;
 export const RANKED_WINDOW_WIDENING_FACTOR = 4;
+export const RANKED_WINDOW_STEP_QUOTA_PERCENT = 75;

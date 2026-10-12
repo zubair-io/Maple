@@ -4,4 +4,5 @@ public enum RankedWindowLadder {
   public static let base = 100
   public static let max = 5000
   public static let wideningFactor = 4
+  public static let stepQuotaPercent = 75
 }

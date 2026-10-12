@@ -33,6 +33,7 @@ import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
 import {
   RANKED_WINDOW_BASE,
   RANKED_WINDOW_MAX,
+  RANKED_WINDOW_STEP_QUOTA_PERCENT,
   RANKED_WINDOW_WIDENING_FACTOR as WIDENING_FACTOR,
 } from '../../generated/ranked-window.generated.ts';
 
@@ -104,8 +105,9 @@ const LIVE_FILENAME_SQL = `(SELECT l.filename FROM asset_locations l
               ORDER BY l.ordinal LIMIT 1)`;
 
 /**
- * The ladder — start depth, cap, widening factor — is `raw_core::ranked_window`, generated here and
- * into the Apple client by `tools/codegen.sh`, so the two cannot step differently (#4545).
+ * The ladder — start depth, cap, widening factor, step quota — is `raw_core::ranked_window`,
+ * generated here and into the Apple client by `tools/codegen.sh`, so the two cannot step
+ * differently (#4545).
  */
 export { RANKED_WINDOW_BASE, RANKED_WINDOW_MAX };
 
@@ -123,7 +125,7 @@ export function nextWindowDepth(depth: number): number {
  * almost every search with a single copy in its first 100 hits.
  */
 export function stepQuota(depth: number): number {
-  return Math.floor((depth * 3) / 4);
+  return Math.floor((depth * RANKED_WINDOW_STEP_QUOTA_PERCENT) / 100);
 }
 
 /**

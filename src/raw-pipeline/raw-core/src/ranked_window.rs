@@ -14,6 +14,11 @@ pub const RANKED_WINDOW_MAX: u32 = 5_000;
 /// How much deeper each widening asks: 100, 400, 1,600, then the cap.
 pub const RANKED_WINDOW_WIDENING_FACTOR: u32 = 4;
 
+/// The share of a step's depth, in percent, that it serves: 75, 300, 1,200, 3,750. The rest is
+/// headroom for the copies and filtered hits a step drops, so it rarely has to rank again. A
+/// request is served from the first step whose quota reaches its rows.
+pub const RANKED_WINDOW_STEP_QUOTA_PERCENT: u32 = 75;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -26,5 +31,10 @@ mod tests {
         })
         .collect();
         assert_eq!(steps, [100, 400, 1_600, 5_000]);
+        let quotas: Vec<u32> = steps
+            .iter()
+            .map(|step| step * RANKED_WINDOW_STEP_QUOTA_PERCENT / 100)
+            .collect();
+        assert_eq!(quotas, [75, 300, 1_200, 3_750]);
     }
 }

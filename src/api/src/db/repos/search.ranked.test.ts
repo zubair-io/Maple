@@ -200,14 +200,20 @@ function syntheticRanker(
 describe('the window policy', () => {
   test('serves three quarters of each ladder step, keeping a quarter as headroom', () => {
     expect([100, 400, 1_600, RANKED_WINDOW_MAX].map(stepQuota)).toEqual([75, 300, 1_200, 3_750]);
-    expect([1, 30, 75, 76, 300, 301, 1_200, 1_201, 5_000].map(windowDepthFor)).toEqual([
+    // The same mapping SearchViewModel.windowStep pins on the Apple side (#4545).
+    expect(
+      [1, 30, 75, 76, 100, 300, 301, 1_200, 1_201, 3_750, 3_751, 5_000].map(windowDepthFor),
+    ).toEqual([
       100,
       100,
       100,
       400,
       400,
+      400,
       1_600,
       1_600,
+      RANKED_WINDOW_MAX,
+      RANKED_WINDOW_MAX,
       RANKED_WINDOW_MAX,
       RANKED_WINDOW_MAX,
     ]);
