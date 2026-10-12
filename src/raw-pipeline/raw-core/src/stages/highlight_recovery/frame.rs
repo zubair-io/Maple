@@ -1,5 +1,5 @@
 //! Exact frame evidence and coordinate anchors for native highlight tiles.
-use super::{baseline_gain, ceilings, EPSILON};
+use super::ripple_floors;
 
 /// The full frame's tier-3 scene prior, resolved only when a render actually
 /// defers a pixel to tier 3, so tiles without large clipped interiors never
@@ -24,10 +24,9 @@ pub(crate) struct SceneSamples {
 }
 impl SceneSamples {
     pub(crate) fn new(neutral: [f32; 3], baseline_exposure: f32) -> Self {
-        let margin = EPSILON * baseline_gain(baseline_exposure);
         Self {
             samples: Vec::new(),
-            thresholds: ceilings(neutral, baseline_exposure).map(|v| v - margin),
+            thresholds: ripple_floors(neutral, baseline_exposure),
         }
     }
     pub(crate) fn push(&mut self, p: [f32; 3]) {
