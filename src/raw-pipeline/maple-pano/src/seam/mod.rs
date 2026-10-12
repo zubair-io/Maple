@@ -37,6 +37,8 @@ pub mod bk;
 pub mod labels;
 pub mod masks;
 pub mod pairwise;
+#[cfg(test)]
+mod tests;
 
 pub use masks::SeamMasks;
 
