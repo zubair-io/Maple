@@ -127,7 +127,7 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
 
       return {
         total,
-        results: await projectAssets(docs, libs, idToSlug),
+        results: projectAssets(docs, libs, idToSlug),
       };
     },
     {

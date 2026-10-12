@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   overlapCount,
+  parseServerTiming,
   percentile,
   readQueries,
   summaryLines,
@@ -23,6 +24,7 @@ test('overlap, percentiles and the summary', () => {
     ids: ['a', 'b', 'c'],
     servedInProcess,
     semanticHits,
+    phases: {},
   });
   const rows: QueryComparison[] = [
     { query: 'x', inProcess: run(60, true, 3), meilisearch: run(250, false, null), overlap: 2 },
@@ -37,5 +39,42 @@ test('overlap, percentiles and the summary', () => {
     'meilisearch  median 250 ms  p95 270 ms  max 270 ms',
     'mean top-30 overlap 1.5 / 30',
     'in-process answered 1 / 2; semantic hits on 1 / 2',
+  ]);
+});
+
+test('server phases are parsed from Server-Timing and summarised per engine', () => {
+  expect(
+    parseServerTiming('scope;dur=0.4, engine;desc="child";dur=71.2, cache, total;dur=80'),
+  ).toEqual({
+    scope: 0.4,
+    engine: 71.2,
+    total: 80,
+  });
+  expect(parseServerTiming(null)).toEqual({});
+
+  const run = (phases: Record<string, number>) => ({
+    ms: 100,
+    ids: [],
+    servedInProcess: true,
+    semanticHits: 0,
+    phases,
+  });
+  const rows: QueryComparison[] = [
+    {
+      query: 'x',
+      inProcess: run({ engine: 70, rows: 5, total: 80 }),
+      meilisearch: run({}),
+      overlap: 0,
+    },
+    {
+      query: 'y',
+      inProcess: run({ engine: 90, rows: 7, total: 100 }),
+      meilisearch: run({}),
+      overlap: 0,
+    },
+  ];
+
+  expect(summaryLines(rows, 30).slice(4)).toEqual([
+    'in-process   server phases (median ms): engine 70.0  rows 5.0  total 80.0',
   ]);
 });

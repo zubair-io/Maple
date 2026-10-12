@@ -19,14 +19,17 @@
  * the wire shape cannot drift from the Mongo path during the cutover — and
  * `cursorFromDoc` keeps working on the last row of the page for free.
  *
- * Four statements per page. The first decides *which* assets; the other three
- * fill in the locations, the caption and the PhotoKit links for exactly those
- * ids. That ordering is the semi-join rule again: nothing after the first query
- * can widen or narrow the result set.
+ * Five statements per page, in two round trips to the pool. The first decides
+ * *which* assets; the other four fill in the locations, the caption, the
+ * PhotoKit links and the owner for exactly those ids, all at once. That ordering
+ * is the semi-join rule again: nothing after the first query can widen or narrow
+ * the result set.
  */
 
 import { ObjectId } from '../object-id.ts';
+import type { AssetOwnerSummary } from '../assets.transform.ts';
 import type { AssetDoc, AssetExif, Place } from '../schema.ts';
+import { ownerSummariesForIds } from './assets.owners.ts';
 import { groupByAsset, json, toFileInfo, type LocationRow } from './assets.rows.ts';
 import { locationsByAssetIdsSql } from './assets.sql.ts';
 import {
@@ -69,6 +72,11 @@ interface LinkRow {
   phasset_cloud_id: string | null;
   first_seen: string;
 }
+
+/** A search result row as `projectAsset` reads it: the document plus its owner, resolved with it. */
+export type SearchDoc = AssetDoc & { _id: ObjectId; owner: AssetOwnerSummary | null };
+
+type MapleIdRow = PageRow & { maple_id: string | null };
 
 /** The cursor shape `routes/search/cursor.ts` decodes and validates. */
 export interface SeekPosition {
@@ -119,7 +127,7 @@ export async function searchPage(
   where: SearchWhere,
   options: PageOptions,
   dbOverride?: SqliteDb,
-): Promise<Array<AssetDoc & { _id: ObjectId }>> {
+): Promise<SearchDoc[]> {
   if (options.cursor && where.match.kind === 'match') {
     throw new Error('searchPage: a seek cursor cannot resume a relevance-ordered text query');
   }
@@ -154,19 +162,9 @@ export async function searchByMapleIds(
   where: SearchWhere,
   mapleIds: readonly string[],
   dbOverride?: SqliteDb,
-): Promise<Array<AssetDoc & { _id: ObjectId }>> {
-  if (mapleIds.length === 0) return [];
+): Promise<SearchDoc[]> {
   const db = assetsDb(dbOverride);
-  const statement = mapleIdPageSql({ ...where, match: { kind: 'none' } }, mapleIds);
-  const rows = await db.read<PageRow & { maple_id: string | null }>(
-    statement.sql,
-    statement.params,
-  );
-  const byMapleId = new Map(rows.map((row) => [row.maple_id, row] as const));
-  const ordered = mapleIds
-    .map((id) => byMapleId.get(id))
-    .filter((row): row is PageRow & { maple_id: string | null } => row !== undefined);
-  return hydrate(db, ordered);
+  return hydrate(db, await rowsByMapleId(db, where, mapleIds));
 }
 
 /**
@@ -178,7 +176,7 @@ export async function searchByIds(
   where: SearchWhere,
   ids: readonly string[],
   dbOverride?: SqliteDb,
-): Promise<Array<AssetDoc & { _id: ObjectId }>> {
+): Promise<SearchDoc[]> {
   if (ids.length === 0) return [];
   const db = assetsDb(dbOverride);
   const statement = idPageSql(where, ids);
@@ -197,40 +195,90 @@ export async function mapleIdsMatching(
   mapleIds: readonly string[],
   dbOverride?: SqliteDb,
 ): Promise<string[]> {
+  const rows = await rowsByMapleId(assetsDb(dbOverride), where, mapleIds);
+  return rows.map((row) => row.maple_id!);
+}
+
+/** The in-process engine's candidates after `where`: how many survive, and one hydrated page of them. */
+export interface RankedMapleIdPage {
+  total: number;
+  /** The page's `maple_id`s, in rank order. */
+  mapleIds: string[];
+  docs: SearchDoc[];
+}
+
+/**
+ * {@link mapleIdsMatching} and {@link searchByMapleIds} for one page, from a single read of the
+ * candidates (#4503): the statement that decides which candidates survive already returns their
+ * page columns, so the page is sliced from it rather than read a second time.
+ */
+export async function rankedMapleIdPage(
+  where: SearchWhere,
+  mapleIds: readonly string[],
+  page: { skip: number; limit: number },
+  dbOverride?: SqliteDb,
+): Promise<RankedMapleIdPage> {
+  const db = assetsDb(dbOverride);
+  const surviving = await rowsByMapleId(db, where, mapleIds);
+  const pageRows = surviving.slice(page.skip, page.skip + page.limit);
+  return {
+    total: surviving.length,
+    mapleIds: pageRows.map((row) => row.maple_id!),
+    docs: await hydrate(db, pageRows),
+  };
+}
+
+/**
+ * The rows behind `mapleIds` that pass `where` without its text, in the order given.
+ *
+ * The text match is dropped because the engine that produced the ids already did it, typo
+ * tolerance included — see {@link searchByMapleIds}. Ids with no surviving row drop out.
+ */
+async function rowsByMapleId(
+  db: SqliteDb,
+  where: SearchWhere,
+  mapleIds: readonly string[],
+): Promise<MapleIdRow[]> {
   if (mapleIds.length === 0) return [];
   const statement = mapleIdPageSql({ ...where, match: { kind: 'none' } }, mapleIds);
-  const rows = await assetsDb(dbOverride).read<{ maple_id: string | null }>(
-    statement.sql,
-    statement.params,
-  );
-  const surviving = new Set(rows.map((row) => row.maple_id));
-  return mapleIds.filter((id) => surviving.has(id));
+  const rows = await db.read<MapleIdRow>(statement.sql, statement.params);
+  const byMapleId = new Map(rows.map((row) => [row.maple_id, row] as const));
+  return mapleIds
+    .map((id) => byMapleId.get(id))
+    .filter((row): row is MapleIdRow => row !== undefined);
 }
 
 /**
  * Fills a set of chosen `assets` rows out into documents.
  *
- * Three statements, all keyed on the ids the first query already decided on,
+ * Four statements, all keyed on the ids the first query already decided on,
  * so nothing here can widen or narrow the result set — the semi-join rule
- * again, one level up.
+ * again, one level up. They go out together: the owner lookup used to wait
+ * for the other three to come back, one more trip through the reader queue on
+ * every search (#4503).
  */
-async function hydrate(
-  db: SqliteDb,
-  rows: readonly PageRow[],
-): Promise<Array<AssetDoc & { _id: ObjectId }>> {
+async function hydrate(db: SqliteDb, rows: readonly PageRow[]): Promise<SearchDoc[]> {
   if (rows.length === 0) return [];
   const ids = rows.map((row) => row.id);
-  const [locations, descriptions, links] = await Promise.all([
+  const [locations, descriptions, links, owners] = await Promise.all([
     db.read<LocationRow>(locationsByAssetIdsSql(ids.length), ids),
     db.read<DescriptionRow>(descriptionsByAssetIdsSql(ids.length), ids),
     db.read<LinkRow>(phassetLinksByAssetIdsSql(ids.length), ids),
+    ownerSummariesForIds(rows.map(ownerKey), db),
   ]);
 
   const locationsByAsset = groupByAsset(locations);
   const linksByAsset = groupByAsset(links);
   const captions = new Map(descriptions.map((row) => [row.asset_id, row.description] as const));
 
-  return rows.map((row) => toAssetDoc(row, locationsByAsset, linksByAsset, captions));
+  return rows.map((row) => ({
+    ...toAssetDoc(row, locationsByAsset, linksByAsset, captions),
+    owner: owners.get(ownerKey(row) ?? '') ?? null,
+  }));
+}
+
+function ownerKey(row: PageRow): string | null {
+  return row.owner_id ? new ObjectId(row.owner_id).toHexString() : null;
 }
 
 /**

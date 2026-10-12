@@ -11,6 +11,8 @@
  * Switches the server's `search_engine` setting and puts the original back when it finishes, so
  * point it only at a server you mean to switch. Waits for the in-process engine to finish loading
  * before timing it, and marks any in-process answer the server served from Meilisearch instead.
+ * When the server reports a `Server-Timing` header (#4503), the median of each phase is printed
+ * beside the client-side latency, so the time spent outside the engine has a name.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -29,6 +31,8 @@ export interface QueryRun {
   ids: string[];
   servedInProcess: boolean;
   semanticHits: number | null;
+  /** Server-side milliseconds per phase, from `Server-Timing`; empty when the server sends none. */
+  phases: Record<string, number>;
 }
 
 export interface QueryComparison {
@@ -60,6 +64,27 @@ export function percentile(values: readonly number[], p: number): number {
   return sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)]!;
 }
 
+/** `Server-Timing` → phase → milliseconds; entries without a `dur` are skipped. */
+export function parseServerTiming(header: string | null): Record<string, number> {
+  const pairs = (header ?? '')
+    .split(',')
+    .map((entry) => /^\s*([^;\s]+)\s*;(?:.*;)?\s*dur=([\d.]+)/.exec(entry))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .map((match) => [match[1]!, Number(match[2])] as const);
+  return Object.fromEntries(pairs);
+}
+
+/** One line per engine: the median of every phase its server reported, in first-seen order. */
+function phaseLines(label: string, runs: readonly QueryRun[]): string[] {
+  const names = [...new Set(runs.flatMap((run) => Object.keys(run.phases)))];
+  if (names.length === 0) return [];
+  const medians = names.map((name) => {
+    const values = runs.flatMap((run) => (name in run.phases ? [run.phases[name]!] : []));
+    return `${name} ${percentile(values, 50).toFixed(1)}`;
+  });
+  return [`${label.padEnd(12)} server phases (median ms): ${medians.join('  ')}`];
+}
+
 export function summaryLines(rows: readonly QueryComparison[], top: number): string[] {
   const line = (label: string, runs: QueryRun[]) => {
     const ms = runs.map((run) => run.ms);
@@ -77,6 +102,11 @@ export function summaryLines(rows: readonly QueryComparison[], top: number): str
     ),
     `mean top-${top} overlap ${meanOverlap.toFixed(1)} / ${top}`,
     `in-process answered ${rows.length - fellBack} / ${rows.length}; semantic hits on ${withSemantic} / ${rows.length}`,
+    ...phaseLines('in-process', inProcess),
+    ...phaseLines(
+      'meilisearch',
+      rows.map((row) => row.meilisearch),
+    ),
   ];
 }
 
@@ -116,14 +146,16 @@ async function accessToken(baseUrl: string, token: string | undefined, devLogin:
 }
 
 function client(baseUrl: string, token: string) {
-  const call = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
+  const respond = async (path: string, init: RequestInit = {}): Promise<Response> => {
     const response = await fetch(`${baseUrl}${path}`, {
       ...init,
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     });
     if (!response.ok) throw new Error(`${init.method ?? 'GET'} ${path}: ${response.status}`);
-    return (await response.json()) as T;
+    return response;
   };
+  const call = async <T>(path: string, init: RequestInit = {}): Promise<T> =>
+    (await (await respond(path, init)).json()) as T;
   return {
     engine: () => call<EngineStatus>('/api/ai/search-engine/'),
     select: (engine: Engine) =>
@@ -133,15 +165,19 @@ function client(baseUrl: string, token: string) {
       }),
     search: async (query: string, top: number): Promise<QueryRun> => {
       const started = performance.now();
-      const body = await call<{
+      const response = await respond(
+        `/api/search?placeQuery=${encodeURIComponent(query)}&limit=${top}`,
+      );
+      const body = (await response.json()) as {
         results: Array<{ id: string }>;
         rankedBy?: { engine: string; semanticHits: number };
-      }>(`/api/search?placeQuery=${encodeURIComponent(query)}&limit=${top}`);
+      };
       return {
         ms: performance.now() - started,
         ids: body.results.map((result) => result.id),
         servedInProcess: body.rankedBy?.engine === 'in-process',
         semanticHits: body.rankedBy?.semanticHits ?? null,
+        phases: parseServerTiming(response.headers.get('server-timing')),
       };
     },
   };

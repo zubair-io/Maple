@@ -132,3 +132,41 @@ describe('GET /api/search — placeQuery hidden mode (#2358)', () => {
     expect(calls[0]?.onlyHidden).toBe(false);
   });
 });
+
+describe('GET /api/search — Server-Timing (#4503)', () => {
+  async function phaseNames(url: string): Promise<string[]> {
+    const res = await new Elysia().use(listRoute).handle(new Request(url));
+    expect(res.status).toBe(200);
+    return (res.headers.get('server-timing') ?? '')
+      .split(', ')
+      .map((entry) => entry.split(';')[0]!)
+      .sort();
+  }
+
+  it('names the phases of the Meilisearch path', async () => {
+    using live = await createLiveTestDatabase();
+    seed(live);
+    setMeilisearchClientForTests(fakeMeiliClient().client);
+
+    expect(await phaseNames('http://localhost/?placeQuery=museum')).toEqual([
+      'engine',
+      'project',
+      'rows',
+      'scope',
+      'total',
+    ]);
+  });
+
+  it('names the phases of the database path', async () => {
+    using live = await createLiveTestDatabase();
+    seed(live);
+
+    expect(await phaseNames('http://localhost/?rating=0')).toEqual([
+      'count',
+      'project',
+      'rows',
+      'scope',
+      'total',
+    ]);
+  });
+});

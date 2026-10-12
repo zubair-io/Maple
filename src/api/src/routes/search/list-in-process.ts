@@ -13,12 +13,13 @@
  * No diversity reorder here: that is a workaround for Meilisearch's single-word ranking.
  */
 
-import { mapleIdsMatching, searchByMapleIds } from '../../db/repos/search.repo.ts';
+import { rankedMapleIdPage } from '../../db/repos/search.repo.ts';
 import { inProcessRanking } from '../../search/search-engine-selection.ts';
 import { libraryMaps } from './libraries.ts';
 import type { MeiliPage } from './list-meili.ts';
 import type { SearchWhere } from '../../db/repos/search.where.ts';
 import { projectAssets } from './project.ts';
+import type { PhaseTimer } from './server-timing.ts';
 
 export interface InProcessPageInput {
   /** Every filter of the date-resolved request (see `resolveRankedScope`). */
@@ -27,24 +28,32 @@ export interface InProcessPageInput {
   childQuery: string | null;
   skip: number;
   limit: number;
+  timing: PhaseTimer;
 }
 
 export async function inProcessPage(input: InProcessPageInput): Promise<MeiliPage | null> {
-  const { where, childQuery, skip, limit } = input;
+  const { where, childQuery, skip, limit, timing } = input;
   if (childQuery === null) return null;
-  const hits = await inProcessRanking(childQuery);
+  const hits = await timing.time('engine', () => inProcessRanking(childQuery));
   if (!hits) return null;
-  const ranked = await mapleIdsMatching(
-    where,
-    hits.map((hit) => hit.id),
+  const page = await timing.time('rows', () =>
+    rankedMapleIdPage(
+      where,
+      hits.map((hit) => hit.id),
+      { skip, limit },
+    ),
   );
-  const page = ranked.slice(skip, skip + limit);
   const semantic = new Set(hits.filter((hit) => hit.vectorRank !== null).map((hit) => hit.id));
-  const docs = await searchByMapleIds(where, page);
-  const { libs, idToSlug } = await libraryMaps();
+  const results = await timing.time('project', async () => {
+    const { libs, idToSlug } = await libraryMaps();
+    return projectAssets(page.docs, libs, idToSlug);
+  });
   return {
-    total: ranked.length,
-    results: await projectAssets(docs, libs, idToSlug),
-    rankedBy: { engine: 'in-process', semanticHits: page.filter((id) => semantic.has(id)).length },
+    total: page.total,
+    results,
+    rankedBy: {
+      engine: 'in-process',
+      semanticHits: page.mapleIds.filter((id) => semantic.has(id)).length,
+    },
   };
 }
