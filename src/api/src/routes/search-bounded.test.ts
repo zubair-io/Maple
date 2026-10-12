@@ -220,12 +220,11 @@ describe('a large match set, without planner statistics', () => {
     }
   });
 
-  it('a For You card ranks a bounded window and never counts the library', async () => {
+  it('a For You card never ranks or counts the library in the database', async () => {
     const id = seedCard({ placeQuery: THEME, month: '10' });
     const { issued, body } = await issuedBy(`/api/generated-searches/${id}/assets?limit=30`);
-    expectBounded(issued);
-    expect(body.results).toHaveLength(30);
-    expect(body.total).toBeLessThanOrEqual(5_000);
+    expect(issued.filter((statement) => statement.sql.includes('assets_fts'))).toEqual([]);
+    expect(body.pending).toBe(true);
   });
 
   it('a search list, its facets and its buckets stay bounded too', async () => {
