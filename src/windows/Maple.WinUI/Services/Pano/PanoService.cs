@@ -11,7 +11,7 @@ namespace Maple.WinUI.Services.Pano
     /// Panorama stitching via the maple-cli subprocess (#2583) — the same
     /// route the Self-Hosted API's pano_stitch job uses, chosen over an FFI
     /// export so a multi-minute, multi-GB stitch lives in its own process.
-    /// Spawns `maple-cli pano stitch` with MAPLE_PANO_MODELS/ORT_DYLIB_PATH,
+    /// Spawns `maple-cli pano stitch` (see <see cref="PanoStitchCommand"/>),
     /// streams the CLI's `pano:`-prefixed stderr lines as status, and keeps
     /// the stderr tail for error reporting (the CLI exits 1 with `error: …`).
     /// </summary>
@@ -28,11 +28,15 @@ namespace Maple.WinUI.Services.Pano
             IReadOnlyList<string> inputs,
             string outPath, string displayPath,
             string retention, string localAlign, string strategy,
+            PanoFeatureEngine engine,
             Action<string> progress, CancellationToken ct)
         {
             if (provisioner.CliPath is not { } cli)
                 return new StitchResult(false, "maple-cli.exe not found.", outPath, displayPath);
 
+            var command = PanoStitchCommand.Build(
+                inputs, outPath, displayPath, retention, localAlign, strategy,
+                engine, provisioner.ModelsDir, provisioner.OrtDylibPath);
             var psi = new ProcessStartInfo
             {
                 FileName = cli,
@@ -41,28 +45,10 @@ namespace Maple.WinUI.Services.Pano
                 RedirectStandardError = true,
                 RedirectStandardOutput = true,
             };
-            psi.ArgumentList.Add("pano");
-            psi.ArgumentList.Add("stitch");
-            psi.ArgumentList.Add("--out");
-            psi.ArgumentList.Add(outPath);
-            psi.ArgumentList.Add("--display");
-            psi.ArgumentList.Add(displayPath);
-            psi.ArgumentList.Add("--retention");
-            psi.ArgumentList.Add(retention);
-            psi.ArgumentList.Add("--local-align");
-            psi.ArgumentList.Add(localAlign);
-            psi.ArgumentList.Add("--strategy");
-            psi.ArgumentList.Add(strategy);
-            psi.ArgumentList.Add("--models-dir");
-            psi.ArgumentList.Add(provisioner.ModelsDir);
-            // POSIX terminator before the positional paths (the API handler
-            // does the same): a file literally named "--strategy" must never
-            // parse as a flag.
-            psi.ArgumentList.Add("--");
-            foreach (var input in inputs)
-                psi.ArgumentList.Add(input);
-            psi.Environment["MAPLE_PANO_MODELS"] = provisioner.ModelsDir;
-            psi.Environment["ORT_DYLIB_PATH"] = provisioner.OrtDylibPath;
+            foreach (var argument in command.Arguments)
+                psi.ArgumentList.Add(argument);
+            foreach (var (name, value) in command.Environment)
+                psi.Environment[name] = value;
 
             using var process = new Process { StartInfo = psi };
             var stderrTail = new Queue<string>();

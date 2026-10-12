@@ -12,8 +12,9 @@ namespace Maple.WinUI.Services.Pano
 {
     /// <summary>
     /// Pano ML provisioning for Windows (#2583) — the PanoProvisioner /
-    /// PanoProvisionManifest equivalent from the Apple shell. Two artifact
-    /// sets, both pinned:
+    /// PanoProvisionManifest equivalent from the Apple shell. Only the opt-in
+    /// ML matcher needs it (#4556); the default classical matcher is built
+    /// into maple-cli. Two artifact sets, both pinned:
     ///  - the ALIKED + LightGlue ONNX models (URLs + SHA-256 from
     ///    src/raw-pipeline/maple-pano/models.toml — maple-cli re-verifies the
     ///    same hashes before every stitch), and
@@ -81,19 +82,12 @@ namespace Maple.WinUI.Services.Pano
 
         public bool CliPresent => CliPath != null;
 
-        /// <summary>One provisioning check = ~180 MB of hashing, so it runs
-        /// once per dialog on the thread pool and the result is reused.</summary>
-        public sealed record ProvisionState(bool Cli, bool Models, bool Ort)
-        {
-            public bool IsProvisioned => Cli && Models && Ort;
-            public string Summary =>
-                $"maple-cli: {(Cli ? "ready" : "missing")} · " +
-                $"models: {(Models ? "ready" : "missing")} · " +
-                $"ONNX Runtime: {(Ort ? "ready" : "missing")}";
-        }
-
-        public Task<ProvisionState> CheckAsync() => Task.Run(
-            () => new ProvisionState(CliPresent, ModelsVerified(), OrtVerified()));
+        /// <summary>An ML check = ~180 MB of hashing, so it runs once per
+        /// dialog on the thread pool and the result is reused. A classical
+        /// check touches nothing but the CLI path.</summary>
+        public Task<PanoProvisionState> CheckAsync(PanoFeatureEngine engine) => engine == PanoFeatureEngine.Ml
+            ? Task.Run(() => new PanoProvisionState(engine, CliPresent, ModelsVerified(), OrtVerified()))
+            : Task.FromResult(new PanoProvisionState(engine, CliPresent, Models: false, Ort: false));
 
         /// <summary>Present AND hash-verified — a same-size corrupted install
         /// must re-provision rather than fail later inside the stitch.
