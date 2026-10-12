@@ -178,7 +178,7 @@ export async function windowPage(
   const ranked = window.rows.slice(page.skip, page.skip + page.limit);
   const hydrate = async () => {
     const [survivors, rankedDocs, { libs, idToSlug }] = await Promise.all([
-      windowSurvivors(page.where, window.rows),
+      windowSurvivors(page.where, window),
       windowDocs(page.where, ranked),
       libraryMaps(),
     ]);

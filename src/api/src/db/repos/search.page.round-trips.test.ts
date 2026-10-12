@@ -96,7 +96,7 @@ describe('search page round trips', () => {
     const window = await mapleIdWindow(rated, ['one', 'three', 'four'], handle);
     run(database.db, `UPDATE assets SET rating = 1 WHERE maple_id = 'three'`);
 
-    const survivors = await windowSurvivors(rated, window, handle);
+    const survivors = await windowSurvivors(rated, { rows: window }, handle);
     const docs = await windowDocs(rated, window, handle);
 
     expect(window.map((row) => row.maple_id)).toEqual(['one', 'three', 'four']);

@@ -62,6 +62,8 @@ export interface WindowPass {
   scores?: ReadonlyMap<string, number>;
   /** The lookahead hits that pass the filters: never served, only read for which shot they are. */
   beyond?: WindowRow[];
+  /** Every survivor in rank order, copies of a shot included, when collapsing dropped any. */
+  copies?: WindowRow[];
 }
 
 /**
@@ -84,6 +86,12 @@ export interface RankedWindow {
   scores?: ReadonlyMap<string, number>;
   /** The ladder step the served pass was ranked at. */
   depth: number;
+  /**
+   * Every row the filters let through, copies of a shot included, when `rows` collapsed any
+   * (#4557). A page re-checks these, not `rows` alone, so a shot whose kept copy is deleted
+   * mid-request is still served by a live sibling (#4545).
+   */
+  copies?: WindowRow[];
 }
 
 /**
@@ -153,7 +161,7 @@ export async function rankWindow(
   ): Promise<RankedWindow | null> => {
     const atCap = depth >= RANKED_WINDOW_MAX;
     const answer = await ranker(depth, atCap ? 1 : 0);
-    const pass = answer && { ...answer, rows: collapseShots(answer.rows) };
+    const pass = answer && collapsed(answer);
     if (pass === null) return previous && windowOf(previous.pass, previous.depth);
     if (pass.rows.length >= sufficient || pass.considered < depth || atCap) {
       return windowOf(pass, depth);
@@ -171,6 +179,12 @@ export function cappedPast(held: readonly WindowRow[], pass: WindowPass, depth: 
   return depth >= RANKED_WINDOW_MAX && pass.considered - copiesBeyond > depth;
 }
 
+/** A pass with one row per shot, keeping every copy aside when that dropped any. */
+function collapsed(pass: WindowPass): WindowPass {
+  const rows = collapseShots(pass.rows);
+  return rows.length === pass.rows.length ? pass : { ...pass, rows, copies: pass.rows };
+}
+
 /**
  * Below the cap a full pass says more; at the cap only a lookahead hit past it says capped — and
  * only one that could be a new tile. A lookahead hit that is another copy of a shot the window
@@ -185,6 +199,7 @@ function windowOf(pass: WindowPass, depth: number): RankedWindow {
     semantic: pass.semantic ?? new Set(),
     scores: pass.scores,
     depth,
+    ...(pass.copies ? { copies: pass.copies } : {}),
   };
 }
 
