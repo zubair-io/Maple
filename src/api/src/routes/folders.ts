@@ -246,7 +246,7 @@ async function scanTargetOrError(rawId: string): Promise<FolderWithId | Response
 // A walk of a large library outlasts the `last_scan` de-bounce by hours, since
 // the stamp lands only when it finishes. Without this every folder open in that
 // time started another full walk, and the overlapping walks saturated the
-// SQLite pool until every reader timed out.
+// SQLite pool until every reader timed out. Per process, like `uploadLocks`.
 const walksInProgress = new Map<string, Promise<string>>();
 
 /**
