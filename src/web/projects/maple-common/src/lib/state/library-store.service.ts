@@ -118,8 +118,8 @@ export class LibraryStore {
   // consumer of the prefs, so this class does not inject it.
 
   // ── Self-Hosted bootstrap state ────────────────────────────────────────────
-  // Note: the five async-lifecycle signals (backendLoading, backendError,
-  // backendEmpty, rescanStatus, rescanError) moved to
+  // Note: the three async-lifecycle signals (backendLoading, backendError,
+  // backendEmpty) moved to
   // `LibraryStatusService` in slice 3 of #191. The facade still
   // re-exports them so component consumers are unchanged.
   /** Latest server-side registered libraries. */

@@ -3,7 +3,6 @@
      an existing `@switch` — it adds no branches. The file simply entered the
      changed-file audit scope for the first time. What the count measures is
      top-level layout branching — the breadcrumb's folder-vs-source fork, the
-     Self-Hosted-only rescan pill with its four-state `@switch`, the
      sort/filter pills, and the asset-vs-folder-tile split inside the
      virtual-scroll row — each a deliberate structural decision rather than
      accidental nesting. Same suppression and same reasoning as
@@ -23,35 +22,6 @@
       <span class="text-text-main font-medium">{{ state.selectedSourceLabel() }}</span>
     }
   </div>
-
-  <!-- Rescan button — Self-Hosted only, visible when a registered library
-       contains the current selection. Tells the indexer to walk the
-       library root and pick up anything the slow polling watcher hasn't
-       seen yet. -->
-  @if (state.currentRegisteredFolder(); as rf) {
-    <mui-button
-      variant="secondary"
-      size="sm"
-      [disabled]="state.rescanStatus() === 'running' || state.rescanStatus() === 'done'"
-      [title]="state.rescanError() ?? 'Re-scan ' + rf.path + ' for new files'"
-      (pressed)="state.rescanCurrentFolder()"
-    >
-      @switch (state.rescanStatus()) {
-        @case ('running') {
-          <span>Rescanning…</span>
-        }
-        @case ('done') {
-          <span class="text-primary">Queued ✓</span>
-        }
-        @case ('error') {
-          <span class="text-error-text">Rescan failed</span>
-        }
-        @default {
-          <span>Rescan</span>
-        }
-      }
-    </mui-button>
-  }
 
   <div class="flex-1"></div>
 

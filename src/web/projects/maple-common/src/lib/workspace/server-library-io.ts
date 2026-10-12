@@ -24,30 +24,11 @@ export interface ApiHistogram {
   b: number[];
 }
 
-export interface FolderRescanResult {
-  ok: boolean;
-  folderId: string;
-  path: string;
-  reset: number;
-  error?: string;
-}
-
-export interface FolderScanResult {
-  ok: boolean;
-  folderId?: string;
-  path?: string;
-  skipped?: 'recent';
-  last_scan?: string;
-  error?: string;
-}
-
 /** Narrow server port consumed by shared library state. It deliberately owns
  * its DTOs instead of deriving its shape from the concrete Bun HTTP client. */
 export interface ServerLibraryIo {
   listFolders(): Observable<ApiFolder[]>;
   registerFolder(folderPath: string): Observable<ApiFolder>;
-  rescanFolder(folderId: string): Observable<FolderRescanResult>;
-  scanFolder(folderId: string): Observable<FolderScanResult>;
   getThumb(assetId: string): Observable<Blob>;
   getRawBytes(
     assetId: string,

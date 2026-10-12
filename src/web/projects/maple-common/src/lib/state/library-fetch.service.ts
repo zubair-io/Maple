@@ -126,15 +126,6 @@ export class LibraryFetch {
   private _indexWriteTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly _indexWrites = new Set<Promise<void>>();
 
-  // ── Auto-scan-on-open fire-once guard (#804) ───────────────────────────────
-  // Registered-library ids we've already triggered a content-aware `/scan`
-  // for this session. `scanFolderAndDiscover` walks the WHOLE library, so one
-  // scan per library covers every sub-folder — keying on the library id (not
-  // the per-sub-folder source id) avoids re-scanning on every sidebar click.
-  // The server's `last_scan` gate is the cross-session backstop; this guard
-  // just stops same-session request spam on rapid navigation.
-  private readonly _autoScannedLibraryIds = new Set<string>();
-
   // ── Self-Hosted XMP write debounce ────────────────────────────────────────
   private readonly API_XMP_DEBOUNCE_MS = 200;
   private readonly _apiXmpTimers = new Map<AssetId, ReturnType<typeof setTimeout>>();
@@ -549,44 +540,6 @@ export class LibraryFetch {
   }
 
   /**
-   * Force a re-walk of the registered library that owns the current
-   * selection. The server pushes every supported file under the library
-   * root back into the indexer's discover channel; the upsert is
-   * idempotent so unchanged files no-op and new files get indexed.
-   */
-  rescanCurrentFolder(): void {
-    if (this.status.rescanStatus() === 'running') return;
-    const folder = this.store.currentRegisteredFolder(this.selection.selectedSourceId());
-    if (!folder) {
-      this.status.rescanError.set('Pick a library folder first.');
-      this.status.rescanStatus.set('error');
-      return;
-    }
-    this.status.rescanError.set(null);
-    this.status.rescanStatus.set('running');
-    if (!this.api) return;
-    this.api.rescanFolder(folder.id).subscribe({
-      next: (res) => {
-        if (res.ok) {
-          this.status.rescanStatus.set('done');
-          // Brief success indicator, then return to idle.
-          setTimeout(() => {
-            if (this.status.rescanStatus() === 'done') this.status.rescanStatus.set('idle');
-          }, 2_500);
-        } else {
-          this.status.rescanError.set(res.error ?? 'Rescan failed');
-          this.status.rescanStatus.set('error');
-        }
-      },
-      error: (err: HttpErrorResponse) => {
-        const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
-        this.status.rescanError.set(`Rescan failed: ${detail}`);
-        this.status.rescanStatus.set('error');
-      },
-    });
-  }
-
-  /**
    * Self-Hosted: open a registered library by walking its filesystem.
    *
    * Builds a MapleAddress from the folder's slug (M1 field) and calls
@@ -667,13 +620,6 @@ export class LibraryFetch {
         );
       },
     );
-
-    // Auto-scan-on-open (#804): kick a content-aware re-discover of the owning
-    // registered library so a moved/new file is relinked (stages resume). This
-    // is non-blocking — the grid paints from the `_swrListFolder` listing above;
-    // the scan resolves later and we re-pull the listing only if it actually
-    // re-walked (new/relinked rows may now have apiId + enrichment).
-    this._autoScanLibraryForSourceId(id);
   }
 
   /**
@@ -711,55 +657,6 @@ export class LibraryFetch {
     } catch {
       // Unparseable id (e.g. a legacy `fs:` node) — nothing to refresh.
     }
-  }
-
-  /**
-   * Fire the content-aware `/scan` for the registered library that owns
-   * `absPath`, then refresh the open folder's listing when it completes.
-   *
-   * Non-blocking by contract — the caller has already painted the grid from
-   * the filesystem listing. The self-hosted grid is a `/api/fs/dir` walk, so
-   * a moved/new file is *already* visible; what the scan fixes is server-side
-   * (relink → stages resume → thumbnails/previews/apiId enrich). We therefore
-   * re-pull the fs listing for the still-selected path on completion so the
-   * freshly-relinked rows pick up their server-side ids/state.
-   *
-   * Fire-once per library per session (`_autoScannedLibraryIds`) so navigating
-   * across a library's sub-folders doesn't re-request; the server's `last_scan`
-   * gate is the cross-session backstop and returns `skipped: 'recent'` cheaply.
-   */
-  private _autoScanLibraryForSourceId(sourceId: string): void {
-    if (this.store.backend !== 'self-hosted') return;
-    const library = this.store.currentRegisteredFolder(sourceId);
-    if (!library) return;
-    if (this._autoScannedLibraryIds.has(library.id)) return;
-    this._autoScannedLibraryIds.add(library.id);
-
-    if (!this.api) return;
-    this.api.scanFolder(library.id).subscribe({
-      next: (res) => {
-        // A skipped (recent) scan did no re-walk — nothing new to surface, so
-        // don't churn the listing. Only refresh when the walk actually ran.
-        if (!res.ok || res.skipped === 'recent') return;
-        // Re-pull the still-selected address listing so relinked/new rows
-        // appear with their server-side ids. Guard against the user having
-        // navigated away while the scan was in flight.
-        if (this.selection.selectedSourceId() !== sourceId) return;
-        const addr = parseAddress(sourceId);
-        this._swrListFolder(
-          addr,
-          (listing) => this._applyFolderListing(sourceId, listing),
-          () => {
-            // Refresh failure is non-fatal — the grid already shows the
-            // filesystem listing; the next manual navigation will re-pull.
-          },
-        );
-      },
-      error: () => {
-        // Auto-scan is best-effort — drop the guard so a later open can retry.
-        this._autoScannedLibraryIds.delete(library.id);
-      },
-    });
   }
 
   /**
