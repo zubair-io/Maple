@@ -48,6 +48,7 @@ import { generatedSearchesFirstPageMigration } from './0023-generated-searches-f
 import { locationSearchTriggersMigration } from './0024-location-search-triggers.ts';
 import { assetVectorsPollIndexMigration } from './0025-asset-vectors-poll-index.ts';
 import { removeMeilisearchMigration } from './0026-remove-meilisearch.ts';
+import { peopleFlagIndexesMigration } from './0027-people-flag-indexes.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -76,4 +77,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   locationSearchTriggersMigration,
   assetVectorsPollIndexMigration,
   removeMeilisearchMigration,
+  peopleFlagIndexesMigration,
 ];
