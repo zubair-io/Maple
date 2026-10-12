@@ -273,24 +273,36 @@ fn a_template_match_outranks_a_blob_only_match() {
     assert!(hits[0].1 > hits[1].1);
 }
 
-#[test]
-fn a_document_without_a_blob_scores_as_it_did_before() {
+fn harbour_scores<'a>(
+    docs: impl IntoIterator<Item = (&'a str, SearchText<'a>)>,
+) -> Vec<(String, f32)> {
     let dir = tempfile::tempdir().unwrap();
     let index = TextIndex::open(dir.path()).unwrap();
-    index.rebuild(LIBRARY).unwrap();
-    let before = scored(index.search(&parse_text_query("harbour"), 10).unwrap());
-    index
-        .upsert(
-            "lantern",
+    index.rebuild(docs).unwrap();
+    scored(index.search(&parse_text_query("harbour"), 10).unwrap())
+}
+
+// Two fresh builds rather than an upsert into one index: Tantivy's BM25 counts a replaced
+// document's tombstone (`max_doc`, its tokens) until a background merge drops it, so scores read
+// right after an upsert depend on merge timing whatever the blob field does.
+#[test]
+fn a_document_without_a_blob_scores_as_it_did_before() {
+    let template_only = harbour_scores(LIBRARY.map(|(id, text)| (id, text.into())));
+    let with_a_blob = harbour_scores(LIBRARY.map(|(id, text)| {
+        let blob = if id == "lantern" {
+            "kyoto lanterns night paper street"
+        } else {
+            ""
+        };
+        (
+            id,
             SearchText {
-                template: "lantern.dng kyoto paper lanterns over a narrow street",
-                blob: "kyoto lanterns night paper street",
+                template: text,
+                blob,
             },
         )
-        .unwrap();
-    index.commit().unwrap();
-    let after = scored(index.search(&parse_text_query("harbour"), 10).unwrap());
-    assert_eq!(after, before);
+    }));
+    assert_eq!(with_a_blob, template_only);
 }
 
 #[test]
