@@ -61,6 +61,20 @@ test('every search_blob change stamps the vector row, an identical rewrite does 
   ).toEqual({ embedded_at: '2026-10-10T10:00:00.000Z' });
 });
 
+test('two changes in one millisecond get distinct, increasing stamps', async () => {
+  using handle = createBlankTestDatabase('file');
+  await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+  const libraryId = insertFolder(handle.db, { slug: 'same-ms', path: '/lib' });
+  seedSearchAsset(handle.db, libraryId, { filename: 'a.dng', mapleId: 'a' });
+  storeVector(handle.db, 'a', 0, '2026-10-10T10:00:00.000Z');
+  handle.db.run(`UPDATE asset_vectors SET text_changed_at = '2999-01-01T00:00:00.999Z'`);
+
+  writeBlob(handle.db, 'a', 'athlete');
+  expect(stampOf(handle.db, 'a')).toBe('2999-01-01T00:00:01.000Z');
+  writeBlob(handle.db, 'a', 'athlete lacrosse');
+  expect(stampOf(handle.db, 'a')).toBe('2999-01-01T00:00:01.001Z');
+});
+
 test("a re-embed keeps the row's text stamp", async () => {
   using handle = createBlankTestDatabase('file');
   await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
