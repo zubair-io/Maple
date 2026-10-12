@@ -75,6 +75,7 @@
 mod focal_bootstrap;
 mod frame_cache;
 mod io;
+mod photometry;
 mod tile_standalone;
 mod tile_stitch;
 mod types;
@@ -93,7 +94,6 @@ use crate::canvas::{
 };
 use crate::composite::composite_tiled;
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
-use crate::gain::{solve_photometry_streaming, GainOptions, LensFalloff, LensGroups};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{
     build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
@@ -108,6 +108,7 @@ use crate::robust::RobustOptions;
 use crate::strategy::{select_strategy, Strategy};
 use crate::twoview::PixelCorrespondence;
 use frame_cache::refine_edges_lru;
+use photometry::solve_kept_photometry;
 use tile_stitch::{run_tile_branch, TileBranchInput};
 
 /// Strategy selection request (mirrors `maple_pano::strategy::StrategyRequest`
@@ -496,17 +497,6 @@ pub fn stitch(
         }
     }
 
-    // ── Gain solve: decode surviving frames on-demand, one at a time ───────
-    //
-    // #1254: the previous code cloned all surviving full-res frames into
-    // `kept_frames_for_gain` — the dominant ~18 GB memory driver on pano_01.
-    // Instead we decode each surviving frame, accumulate its overlap stats
-    // into a partial-stats table, then drop the pixels before decoding the
-    // next frame.  At most 1 full-resolution frame is resident at a time.
-    //
-    // `solve_photometry` needs simultaneous access to all frames for its
-    // pairwise sampling; `solve_photometry_streaming` instead accumulates
-    // overlap samples frame-by-frame.
     let kept_paths: Vec<PathBuf> = kept_meta
         .iter()
         .map(|(inp_idx, _, _)| inputs[*inp_idx].clone())
@@ -518,19 +508,7 @@ pub fn stitch(
     let canvas =
         auto_canvas(&kept_cams, &canvas_opts).map_err(|e| StitchError::Composite(e.to_string()))?;
 
-    let lenses = LensGroups::from_metas(kept_meta.iter().map(|(inp_idx, _, _)| &metas[*inp_idx]));
-    let solved =
-        solve_photometry_streaming(&kept_paths, &kept_cams, &lenses, &GainOptions::default())
-            .map_err(|e| StitchError::Composite(e.to_string()))?;
-    let photometry = solved.frames;
-    let falloff = solved
-        .falloff
-        .into_iter()
-        .map(|g| LensFalloff {
-            frames: g.frames.iter().map(|&k| kept_meta[k].0).collect(),
-            ..g
-        })
-        .collect();
+    let (photometry, falloff) = solve_kept_photometry(&kept_paths, &kept_cams, &metas, &kept_meta)?;
 
     // ── Tiled composite (always engaged on this path — #1254) ─────────────
     //
