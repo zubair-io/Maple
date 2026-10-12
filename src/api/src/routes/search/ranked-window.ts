@@ -19,7 +19,7 @@ import {
 import { windowDocs } from '../../db/repos/search.page.ts';
 import type { SearchWhere } from '../../db/repos/search.where.ts';
 import { inProcessRanking, inProcessSelected } from '../../search/search-engine-selection.ts';
-import { meiliRanker } from './list-meili.ts';
+import { meiliRanker, meiliServes } from './list-meili.ts';
 import { libraryMaps } from './libraries.ts';
 import { projectAssets, type SearchResult } from './project.ts';
 import type { PhaseTimer } from './server-timing.ts';
@@ -69,37 +69,51 @@ interface Candidate {
   ranker: WindowRanker;
 }
 
-async function candidates(request: WindowRequest, databaseFloor: boolean): Promise<Candidate[]> {
+/**
+ * How a request falls back. `search` asks every engine that applies, the database last. `collection`
+ * — a For You card — is ranked by the selected in-process engine alone when it is selected, and
+ * answers null while it cannot, so the card serves its stored preview rather than a different
+ * engine's ranking; with in-process not selected it falls back like a search.
+ */
+export type WindowMode = 'search' | 'collection';
+
+async function candidates(request: WindowRequest, mode: WindowMode): Promise<Candidate[]> {
   const { where, resolved, text, libraryId } = request;
+  const inProcess = await inProcessSelected();
+  if (inProcess && mode === 'collection') {
+    return [{ engine: 'in-process', ranker: inProcessRanker(where, text) }];
+  }
   const meili = meiliRanker(where, resolved, libraryId);
   return [
-    ...((await inProcessSelected())
-      ? [{ engine: 'in-process' as const, ranker: inProcessRanker(where, text) }]
-      : []),
+    ...(inProcess ? [{ engine: 'in-process' as const, ranker: inProcessRanker(where, text) }] : []),
     ...(meili ? [{ engine: 'meilisearch' as const, ranker: meili }] : []),
-    ...(databaseFloor ? [{ engine: 'database' as const, ranker: ftsRanker(where) }] : []),
+    { engine: 'database' as const, ranker: ftsRanker(where) },
   ];
 }
 
 /**
- * The window a request is served from: the first engine that answers. With `databaseFloor` off it
- * answers null when no engine but the database could — the For You collection's case, which
- * serves its stored preview then rather than ranking the library in the database.
+ * The engine a search asks first, from the date-resolved request alone. Only its answer is ever
+ * cached, so the facet and bucket caches key on it and never serve one engine's window for another.
+ */
+export async function firstEngine(resolved: SearchQuery): Promise<WindowEngine> {
+  if (await inProcessSelected()) return 'in-process';
+  return meiliServes(resolved) ? 'meilisearch' : 'database';
+}
+
+/**
+ * The window a request is served from: the first engine that answers. A `collection` answers null
+ * while its selected engine cannot — see {@link WindowMode}.
  */
 export async function requestWindow(
   request: WindowRequest,
-  databaseFloor: false,
+  mode: 'collection',
 ): Promise<EngineWindow | null>;
 export async function requestWindow(request: WindowRequest): Promise<EngineWindow>;
 export async function requestWindow(
   request: WindowRequest,
-  databaseFloor: boolean,
-): Promise<EngineWindow | null>;
-export async function requestWindow(
-  request: WindowRequest,
-  databaseFloor = true,
+  mode: WindowMode = 'search',
 ): Promise<EngineWindow | null> {
-  const engines = await candidates(request, databaseFloor);
+  const engines = await candidates(request, mode);
   const answers = await engines.reduce<Promise<EngineWindow[]>>(async (found, candidate) => {
     const earlier = await found;
     if (earlier.some(settles)) return earlier;
@@ -111,7 +125,7 @@ export async function requestWindow(
     };
     return answer ? [...earlier, answer] : earlier;
   }, Promise.resolve([]));
-  return answers.find(settles) ?? answers[0] ?? (databaseFloor ? emptyWindow() : null);
+  return answers.find(settles) ?? answers[0] ?? (mode === 'search' ? emptyWindow() : null);
 }
 
 /**

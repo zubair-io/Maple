@@ -88,6 +88,11 @@ export interface FacetOptions {
   window?: () => Promise<FacetWindow>;
   /** How many rows the request's page reaches; part of the cache key, as the window depends on it. */
   need?: number;
+  /**
+   * The engine the request asks first. Part of the cache key, and only that engine's answer is
+   * kept, so a cached window is never one engine's served for another's.
+   */
+  engine?: string;
 }
 
 /**
@@ -243,7 +248,7 @@ export async function searchFacets(
     [
       where,
       windowDepthFor(options.need ?? RANKED_WINDOW_BASE),
-      options.window ? 'request' : 'database',
+      options.window ? (options.engine ?? 'request') : 'database',
     ],
     () => computeFacets(db, where, options),
     Date.now(),

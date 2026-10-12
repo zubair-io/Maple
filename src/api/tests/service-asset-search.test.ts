@@ -358,6 +358,12 @@ describe('POST /api/search/assets', () => {
     expect(await empty.json()).toEqual({ error: 'query_must_not_be_empty' });
   });
 
+  it('rejects a query longer than the service search accepts, before ranking it (#4514)', async () => {
+    const tooLong = await request({ query: 'harbour '.repeat(70) });
+    expect(tooLong.status).toBe(400);
+    expect(await tooLong.json()).toEqual({ error: 'invalid_request_body' });
+  });
+
   it('authenticates before validating the request body', async () => {
     const response = await new Elysia().use(serviceAssetSearchRoutes).handle(
       new Request('http://localhost/api/search/assets', {

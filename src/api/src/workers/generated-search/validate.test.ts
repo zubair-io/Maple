@@ -52,6 +52,13 @@ describe('validateProposal — shape', () => {
     expect(value.query.sceneType).toBe('outdoor');
   });
 
+  it('stores a theme longer than a search accepts cut at a word boundary (#4514)', () => {
+    const long = 'children running through sprinklers '.repeat(60).trim();
+    const value = accepted({ ...GOOD, query: { ...GOOD.query, placeQuery: long } });
+    expect(value.query.placeQuery!.length).toBeLessThanOrEqual(1_000);
+    expect(long.startsWith(`${value.query.placeQuery} `)).toBe(true);
+  });
+
   it('rejects a non-object', () => {
     expect(validateProposal('nope', CTX).ok).toBe(false);
     expect(validateProposal(null, CTX).ok).toBe(false);

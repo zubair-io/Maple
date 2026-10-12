@@ -268,6 +268,13 @@ describe('GET /api/map/clusters', () => {
     expect(nycBody.cells[0]!.count).toBe(2);
   });
 
+  it('rejects a placeQuery longer than a search accepts with a 400 (#4514)', async () => {
+    const { status } = await get(
+      `${NYC_LONDON_PARIS_BBOX}&zoom=4&placeQuery=${'thames '.repeat(150)}`,
+    );
+    expect(status).toBe(400);
+  });
+
   it('carries thumbKey only on single-count cells', async () => {
     const { body } = await get(`${NYC_LONDON_PARIS_BBOX}&zoom=4`);
 

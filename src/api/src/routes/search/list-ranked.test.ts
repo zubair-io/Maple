@@ -261,3 +261,26 @@ describe('the free text a search accepts', () => {
     expect(engine.queries.every((query) => query.query.length <= 1_000)).toBe(true);
   });
 });
+
+describe('cached facets and buckets follow the engine that answers', () => {
+  it("never serves one engine's window for another after the selection changes", async () => {
+    setInProcessSearchForTests(honouringK(ranked.slice(0, 5)));
+    const app = new Elysia().use(facetsRoute).use(bucketsRoute);
+    const totals = async () => ({
+      facets: (
+        (await (
+          await app.handle(new Request('http://localhost/facets?placeQuery=greyson'))
+        ).json()) as { total: number }
+      ).total,
+      buckets: (
+        (await (
+          await app.handle(new Request('http://localhost/buckets?placeQuery=greyson'))
+        ).json()) as { total: number }
+      ).total,
+    });
+
+    expect(await totals()).toEqual({ facets: 5, buckets: 5 });
+    await saveSearchEngine('meilisearch');
+    expect(await totals()).toEqual({ facets: RANKED_WINDOW_BASE, buckets: RANKED_WINDOW_BASE });
+  });
+});
