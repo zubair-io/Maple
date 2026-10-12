@@ -16,6 +16,14 @@ use crate::graph::{
 use crate::robust::RobustOptions;
 use crate::twoview::PixelCorrespondence;
 
+use super::types::{StitchError, StitchOptions};
+
+pub(super) fn validate_grid(opts: &StitchOptions, frame_count: usize) -> Result<(), StitchError> {
+    opts.grid
+        .map_or(Ok(()), |layout| layout.validate(frame_count))
+        .map_err(StitchError::InvalidGrid)
+}
+
 pub(super) fn build_stitch_graph(
     images: &[GraphImage],
     grid: Option<&GridLayout>,
