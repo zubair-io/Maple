@@ -70,12 +70,12 @@ describe('the in-process window', () => {
     const engine = honouringK(ranked);
     setInProcessSearchForTests(engine);
 
-    const first = await list('placeQuery=greyson&limit=100');
-    const third = await list('placeQuery=greyson&limit=100&page=2');
+    const first = await list('placeQuery=greyson&limit=75');
+    const fourth = await list('placeQuery=greyson&limit=75&page=3');
 
     expect(first).toMatchObject({ total: RANKED_WINDOW_BASE, more: true });
-    expect(third).toMatchObject({ total: 250, more: false });
-    expect(third.results).toHaveLength(50);
+    expect(fourth).toMatchObject({ total: 250, more: false });
+    expect(fourth.results).toHaveLength(25);
     expect(engine.queries.map((q) => q.k)).toEqual([RANKED_WINDOW_BASE, 400]);
   });
 
@@ -83,7 +83,7 @@ describe('the in-process window', () => {
     const engine = honouringK(ranked);
     setInProcessSearchForTests(engine);
 
-    const body = await list('placeQuery=greyson&rating=5&limit=100');
+    const body = await list('placeQuery=greyson&rating=5&limit=75');
 
     expect(engine.queries.map((q) => q.k)).toEqual([RANKED_WINDOW_BASE, 400]);
     expect(body).toMatchObject({ total: 125, more: false });
@@ -223,12 +223,12 @@ describe('facets and buckets of a page describe the window its list counts', () 
   it('with the in-process engine, on a deep page', async () => {
     setInProcessSearchForTests(honouringK(ranked));
 
-    expect(await totals('placeQuery=greyson&limit=100')).toEqual({
+    expect(await totals('placeQuery=greyson&limit=75')).toEqual({
       list: 100,
       facets: 100,
       buckets: 100,
     });
-    expect(await totals('placeQuery=greyson&limit=100&page=2')).toEqual({
+    expect(await totals('placeQuery=greyson&limit=75&page=2')).toEqual({
       list: 250,
       facets: 250,
       buckets: 250,
@@ -283,12 +283,12 @@ describe('cached facets and buckets follow the engine that answers', () => {
     const totals = async () => ({
       facets: (
         (await (
-          await app.handle(new Request('http://localhost/facets?placeQuery=greyson'))
+          await app.handle(new Request('http://localhost/facets?placeQuery=greyson&limit=30'))
         ).json()) as { total: number }
       ).total,
       buckets: (
         (await (
-          await app.handle(new Request('http://localhost/buckets?placeQuery=greyson'))
+          await app.handle(new Request('http://localhost/buckets?placeQuery=greyson&limit=30'))
         ).json()) as { total: number }
       ).total,
     });

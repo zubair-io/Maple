@@ -89,7 +89,7 @@ describe('GET /api/search with the in-process engine', () => {
     const engine = fakeInProcessSearch(RANKED);
     setInProcessSearchForTests(engine);
 
-    const body = await list('placeQuery=greyson');
+    const body = await list('placeQuery=greyson&limit=30');
 
     expect(engine.queries).toEqual([{ query: 'greyson', k: 100 }]);
     expect(filenames(body)).toEqual(['meadow.dng', 'dunes.dng', 'harbour.dng']);
