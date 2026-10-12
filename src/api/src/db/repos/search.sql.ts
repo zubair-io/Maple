@@ -265,13 +265,17 @@ export function idPageSql(where: SearchWhere, ids: readonly string[]): BoundStat
 }
 
 /**
- * The page columns of a ranked window's ids that still pass `where` but its text. The ids lead
- * through `CROSS JOIN`, so `assets` is probed by key once per id: given the filters as a bare
- * `WHERE`, the planner walks the live index instead.
+ * The columns of a ranked window's ids that still pass `where` but its text — the page's by
+ * default. The ids lead through `CROSS JOIN`, so `assets` is probed by key once per id: given the
+ * filters as a bare `WHERE`, the planner walks the live index instead.
  */
-export function windowColumnsSql(where: SearchWhere, ids: readonly string[]): BoundStatement {
+export function windowColumnsSql(
+  where: SearchWhere,
+  ids: readonly string[],
+  projection: string = PAGE_COLUMNS,
+): BoundStatement {
   const filtered = statement(
-    PAGE_COLUMNS,
+    projection,
     { ...where, match: { kind: 'none' } },
     '',
     undefined,

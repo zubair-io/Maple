@@ -22,7 +22,12 @@
  */
 
 import { child as childLogger } from '../../log.ts';
-import { searchCount, searchPage, windowDocs } from '../../db/repos/search.page.ts';
+import {
+  searchCount,
+  searchPage,
+  windowDocs,
+  windowSurvivors,
+} from '../../db/repos/search.page.ts';
 import { assetsDb, bulkLane } from '../../db/repos/db-handle.ts';
 import type { WindowRow } from '../../db/repos/search.ranked.ts';
 import type { SearchWhere } from '../../db/repos/search.where.ts';
@@ -75,8 +80,9 @@ async function rankedOutcome(
 
 async function windowOutcome(
   where: SearchWhere,
-  rows: readonly WindowRow[],
+  window: readonly WindowRow[],
 ): Promise<SearchOutcome> {
+  const rows = await windowSurvivors(where, window);
   const firstPageIds = rows.slice(0, FIRST_PAGE_SIZE).map((row) => row.id);
   const sampled = await windowDocs(where, rows.slice(0, CAPTION_SAMPLE));
   return {
