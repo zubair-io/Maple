@@ -153,26 +153,37 @@ describe('POST /api/search/assets with the in-process engine', () => {
       expect(ids(dated)).toEqual(['still']);
     });
 
-    it('says a full window has more, and returns only the requested limit of it', async () => {
+    async function seededBulk(count: number): Promise<string[]> {
       const libraryId = insertFolder(live.db, { path: '/bulk', slug: 'bulk' });
-      const bulk = fillers(100, 'bulk');
+      const bulk = fillers(count, 'bulk');
       bulk.forEach((mapleId) =>
         seedSearchAsset(live.db, libraryId, { mapleId, filename: `${mapleId}.dng` }),
       );
-      setInProcessSearchForTests(fakeInProcessSearch([...bulk, ...fillers(200)]));
+      return bulk;
+    }
 
-      const body = await (await request({ query: 'furnace', limit: 100 })).json();
+    it('says there is no more when exactly the limit survives a full window', async () => {
+      const bulk = await seededBulk(20);
+      setInProcessSearchForTests(fakeInProcessSearch([...bulk, ...fillers(300)]));
 
-      expect(body.results).toHaveLength(100);
-      expect(body).toMatchObject({ total: 100, more: true, capped: false });
+      const body = await (await request({ query: 'furnace', limit: 20 })).json();
+
+      expect(body.results).toHaveLength(20);
+      expect(body).toMatchObject({ total: 20, more: false });
+    });
+
+    it('says there is more when one survivor exceeds the limit', async () => {
+      const bulk = await seededBulk(21);
+      setInProcessSearchForTests(fakeInProcessSearch([...bulk, ...fillers(300)]));
+
+      const body = await (await request({ query: 'furnace', limit: 20 })).json();
+
+      expect(body.results).toHaveLength(20);
+      expect(body).toMatchObject({ total: 20, more: true, capped: false });
     });
 
     it('never reports a total larger than the results it delivers', async () => {
-      const libraryId = insertFolder(live.db, { path: '/bulk', slug: 'bulk' });
-      const bulk = fillers(150, 'bulk');
-      bulk.forEach((mapleId) =>
-        seedSearchAsset(live.db, libraryId, { mapleId, filename: `${mapleId}.dng` }),
-      );
+      const bulk = await seededBulk(150);
       setInProcessSearchForTests(fakeInProcessSearch(bulk));
 
       const body = await (await request({ query: 'furnace', limit: 20 })).json();
@@ -182,11 +193,7 @@ describe('POST /api/search/assets with the in-process engine', () => {
     });
 
     it('ranks once when the first 100 hits already hold the limit', async () => {
-      const libraryId = insertFolder(live.db, { path: '/bulk', slug: 'bulk' });
-      const bulk = fillers(30, 'bulk');
-      bulk.forEach((mapleId) =>
-        seedSearchAsset(live.db, libraryId, { mapleId, filename: `${mapleId}.dng` }),
-      );
+      const bulk = await seededBulk(30);
       const engine = fakeInProcessSearch([...bulk, ...fillers(300)]);
       setInProcessSearchForTests(engine);
 
