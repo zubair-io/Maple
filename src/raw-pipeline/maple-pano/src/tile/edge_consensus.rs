@@ -6,17 +6,16 @@
 //! band is tightest, and when neighbouring edges lock onto different
 //! bands the anchored solve spreads hundreds of pixels of contradiction
 //! over every seam. So each edge keeps up to [`MAX_HYPOTHESES`] band
-//! hypotheses (sequential robust fits on the remaining matches) and
-//! switches to the one the placement solved from all *other* edges
-//! agrees with best; the loop repeats until the choice settles. The
-//! solve leaves the judged edge out so its own pull cannot vote for the
-//! band it already holds. Then, under the full weighted solve, an edge
-//! whose choice still contradicts the placement by more than
-//! [`OUTLIER_EDGE_FACTOR`] × the median contradiction (and more than the
-//! verifier's own inlier gate) is dropped, worst first, and selection
-//! reruns. The weighting puts a conflict's blame on its weaker side, and
-//! a bridge edge, whose far side nothing else places, is fitted to
-//! within its own inlier spread, so it is never dropped.
+//! hypotheses (sequential robust fits on the remaining matches), and the
+//! choice of one hypothesis per edge descends the graph's summed
+//! contradiction one switch at a time, from the dominant fits and from
+//! seeded random starts. An edge whose choice still
+//! contradicts the placement by more than [`OUTLIER_EDGE_FACTOR`] × the
+//! median contradiction (and more than the verifier's own inlier gate) is
+//! then dropped, worst first, and selection reruns. The solve is weighted
+//! by inlier count, so a conflict's blame lands on its weaker side, and a
+//! bridge edge, whose far side nothing else places, is fitted to within
+//! its own inlier spread, so it is never dropped.
 
 use crate::graph::MatchGraph;
 use crate::prng::SplitMix64;
@@ -27,7 +26,8 @@ use super::placement::{solve_tile_poses, TileConstraint, TilePose};
 use super::TileEdge;
 
 const MAX_HYPOTHESES: usize = 5;
-const MAX_SELECTION_ROUNDS: usize = 8;
+const MAX_SWITCHES: usize = 64;
+const RANDOM_STARTS: usize = 16;
 const OUTLIER_EDGE_FACTOR: f64 = 3.0;
 
 /// Verify every edge in `graph` with the similarity model, choosing per
@@ -58,7 +58,7 @@ pub fn verify_tile_edges(
         .filter(|h| !h.is_empty())
         .collect();
     let gate_px = TAU_SCALE * opts.sigma_max_px;
-    prune_and_select(candidates, full_dims, gate_px)
+    prune_and_select(candidates, full_dims, gate_px, seed)
 }
 
 /// Sequential robust fits: each hypothesis is fitted on the matches no
@@ -103,11 +103,12 @@ fn prune_and_select(
     mut candidates: Vec<Vec<TileEdge>>,
     full_dims: &[(u32, u32)],
     gate_px: f64,
+    seed: u64,
 ) -> Vec<TileEdge> {
     let mut choice = vec![0usize; candidates.len()];
     loop {
-        choice = settle_choice(&candidates, choice, full_dims);
-        let Some(poses) = solve_without(&candidates, &choice, usize::MAX, full_dims) else {
+        choice = settle_choice(&candidates, choice, full_dims, seed);
+        let Some(poses) = solve(&candidates, &choice, full_dims) else {
             break;
         };
         let contradiction: Vec<f64> = candidates
@@ -132,52 +133,96 @@ fn prune_and_select(
         .collect()
 }
 
-/// Switch every edge to the hypothesis the *other* edges' solve agrees
-/// with best, until the choice is stable (or the round budget runs out).
-/// A bridge edge (nothing else places its far side) keeps its choice.
+/// The best of [`descend`] runs from the given choice and from
+/// [`RANDOM_STARTS`] seeded random choices. Over strong relief (a dune
+/// strip carries five or more bands per pair) the contradiction landscape
+/// has many local minima, and a single descent from the dominant fits
+/// stops in one far from the consistent set.
 fn settle_choice(
     candidates: &[Vec<TileEdge>],
     initial: Vec<usize>,
     full_dims: &[(u32, u32)],
+    seed: u64,
 ) -> Vec<usize> {
-    (0..MAX_SELECTION_ROUNDS)
-        .try_fold(initial, |choice, _| {
-            let next: Vec<usize> = (0..candidates.len())
-                .map(|i| {
-                    solve_without(candidates, &choice, i, full_dims)
-                        .and_then(|poses| {
-                            candidates[i]
-                                .iter()
-                                .enumerate()
-                                .filter_map(|(h, e)| Some((h, disagreement(e, &poses)?)))
-                                .min_by(|x, y| x.1.total_cmp(&y.1).then(x.0.cmp(&y.0)))
-                        })
-                        .map_or(choice[i], |(h, _)| h)
-                })
-                .collect();
-            if next == choice {
-                Err(next)
-            } else {
-                Ok(next)
-            }
+    let mut rng = SplitMix64::new(seed);
+    let random_starts: Vec<Vec<usize>> = (0..RANDOM_STARTS)
+        .map(|_| {
+            candidates
+                .iter()
+                .map(|h| (rng.next_u64() % h.len() as u64) as usize)
+                .collect()
         })
-        .unwrap_or_else(|settled| settled)
+        .collect();
+    std::iter::once(initial)
+        .chain(random_starts)
+        .map(|start| descend(candidates, start, full_dims))
+        .map(|choice| (summed_contradiction(candidates, &choice, full_dims), choice))
+        .min_by(|x, y| x.0.total_cmp(&y.0))
+        .map(|(_, choice)| choice)
+        .unwrap_or_default()
 }
 
-/// Placement from every chosen hypothesis except edge `skip`'s (pass an
-/// out-of-range index to keep them all).
-fn solve_without(
+/// Steepest single-switch descent on [`summed_contradiction`]: try every
+/// edge on every one of its other hypotheses, take the switch that lowers
+/// the sum most, and stop when none does. Each step strictly lowers the
+/// objective, so unlike re-choosing every edge at once against the last
+/// solve (where two edges of one cycle can trade bands back and forth
+/// forever), it cannot cycle.
+fn descend(
+    candidates: &[Vec<TileEdge>],
+    initial: Vec<usize>,
+    full_dims: &[(u32, u32)],
+) -> Vec<usize> {
+    let score = |choice: &[usize]| summed_contradiction(candidates, choice, full_dims);
+    std::iter::successors(Some((score(&initial), initial)), |(current, choice)| {
+        candidates
+            .iter()
+            .enumerate()
+            .flat_map(|(i, h)| (0..h.len()).map(move |k| (i, k)))
+            .filter(|&(i, k)| k != choice[i])
+            .map(|(i, k)| {
+                let switched: Vec<usize> = choice
+                    .iter()
+                    .enumerate()
+                    .map(|(j, &c)| if j == i { k } else { c })
+                    .collect();
+                (score(&switched), switched)
+            })
+            .min_by(|x, y| x.0.total_cmp(&y.0))
+            .filter(|(next, _)| next < current)
+    })
+    .take(MAX_SWITCHES)
+    .last()
+    .map_or_else(Vec::new, |(_, choice)| choice)
+}
+
+/// Sum over edges of each chosen hypothesis's disagreement with the
+/// placement solved from all chosen hypotheses. Every edge counts once
+/// whichever hypothesis it holds, so a choice cannot score better just by
+/// holding fewer inliers.
+fn summed_contradiction(
     candidates: &[Vec<TileEdge>],
     choice: &[usize],
-    skip: usize,
+    full_dims: &[(u32, u32)],
+) -> f64 {
+    solve(candidates, choice, full_dims).map_or(f64::INFINITY, |poses| {
+        candidates
+            .iter()
+            .zip(choice)
+            .filter_map(|(h, &c)| disagreement(&h[c], &poses))
+            .sum()
+    })
+}
+
+fn solve(
+    candidates: &[Vec<TileEdge>],
+    choice: &[usize],
     full_dims: &[(u32, u32)],
 ) -> Option<Vec<TilePose>> {
     let constraints: Vec<TileConstraint> = candidates
         .iter()
         .zip(choice)
-        .enumerate()
-        .filter(|&(i, _)| i != skip)
-        .map(|(_, (h, &c))| TileConstraint {
+        .map(|(h, &c)| TileConstraint {
             a: h[c].a,
             b: h[c].b,
             sim_ab: h[c].estimate.transform,
