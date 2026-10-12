@@ -119,21 +119,22 @@ export async function pinnedWindow(
     pending: readonly number[],
   ): Promise<{ window: EngineWindow; pin: RankPin } | null> => {
     const [depth, ...rest] = pending;
-    const pass = await ranker(depth!);
+    const atCap = depth! >= RANKED_WINDOW_MAX;
+    // The same lookahead `rankWindow` asks for at the cap, so a replayed step ranks as it did.
+    const pass = await ranker(depth!, atCap ? 1 : 0);
     if (pass === null) return null;
     const next = merge(merged, pass);
     if (rest.length > 0) return rank(next, steps, rest);
     const full = pass.considered >= depth!;
-    if (next.rows.length < request.need && full && depth! < RANKED_WINDOW_MAX) {
+    if (next.rows.length < request.need && full && !atCap) {
       const deeper = windowDepthFor(depth! + 1);
       return rank(next, [...steps, deeper], [deeper]);
     }
-    const atCap = depth! >= RANKED_WINDOW_MAX;
     return {
       window: {
         ...next,
         more: full && !atCap,
-        capped: full && atCap,
+        capped: atCap && pass.considered > depth!,
         depth: depth!,
         engine: pin.engine,
         preferred: pin.engine === firstEngine(),

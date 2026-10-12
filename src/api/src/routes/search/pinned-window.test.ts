@@ -134,24 +134,30 @@ describe('paging a pinned in-process search', () => {
     expect({ status, code: body.code }).toEqual({ status: 409, code: RANK_ENGINE_CHANGED });
   });
 
-  it('stops at the cap and says so, however the pin got there', async () => {
-    const gone = Array.from({ length: 6_000 }, (_, index) => `gone${index}`);
-    const forward = fakeInProcessSearch([...ranked, ...gone]);
-    setInProcessSearchForTests({
-      status: forward.status,
-      search: async (query, k) => (await forward.search(query, k))!.slice(0, k),
+  for (const [hits, capped] of [
+    [6_000, true],
+    [5_000, false],
+  ] as const) {
+    it(`replays the cap's lookahead: ${hits} hits ${capped ? 'are' : 'are not'} capped`, async () => {
+      const gone = Array.from({ length: hits - ranked.length }, (_, index) => `gone${index}`);
+      const forward = fakeInProcessSearch([...ranked, ...gone]);
+      setInProcessSearchForTests({
+        status: forward.status,
+        search: async (query, k) => (await forward.search(query, k))!.slice(0, k),
+      });
+      const read = async (index: number, pin?: string) => {
+        const pinned = pin === undefined ? '' : `&rankPin=${encodeURIComponent(pin)}`;
+        return (await request(`placeQuery=greyson&limit=500&page=${index}${pinned}`)).body;
+      };
+
+      const first = await read(0);
+      const second = await read(1, first.rankPin);
+
+      expect(ranking(first.rankPin)).toBe('in-process:5000');
+      expect(first).toMatchObject({ total: 300, more: false, capped });
+      expect(second).toMatchObject({ total: 300, more: false, capped, results: [] });
     });
-    const read = async (index: number, pin?: string) => {
-      const pinned = pin === undefined ? '' : `&rankPin=${encodeURIComponent(pin)}`;
-      return (await request(`placeQuery=greyson&limit=500&page=${index}${pinned}`)).body;
-    };
-
-    const first = await read(0);
-    const second = await read(1, first.rankPin);
-
-    expect(ranking(first.rankPin)).toBe('in-process:5000');
-    expect(second).toMatchObject({ total: 300, more: false, capped: true, results: [] });
-  });
+  }
 
   it('answers 409 when the pin was minted for another search', async () => {
     setInProcessSearchForTests(depthSensitive(ranked));
