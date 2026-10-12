@@ -207,7 +207,6 @@ pub fn stitch_tile(
         TileEarlyState {
             full_dims,
             proxy_dims,
-            _feature_sets: feature_sets,
             graph,
             strategy_report,
             // This standalone entry point never resolves EXIF/homography
