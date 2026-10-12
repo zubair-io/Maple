@@ -26,6 +26,8 @@ namespace Maple.WinUI.Services.Cloud
         [JsonPropertyName("page")] public int Page { get; set; } = -1;
         [JsonPropertyName("limit")] public int Limit { get; set; }
         [JsonPropertyName("notImplemented")] public bool NotImplemented { get; set; }
+        /// <summary>Opaque pin of the ranking a free-text page came from; sent back with the next page (#4542).</summary>
+        [JsonPropertyName("rankPin")] public string? RankPin { get; set; }
 
         /// <summary>Keep server order, omitting existing paths and duplicates within this page.</summary>
         public CloudTimelinePhoto[] NewPhotos(IEnumerable<string> existingPaths)
