@@ -136,6 +136,20 @@ describe("the database's window", () => {
     });
   });
 
+  test('a lookahead hit is counted but never joined or served (#4543)', async () => {
+    await withLibrary(async (db) => {
+      const where = translate({ placeQuery: 'standing', hidden: 'all' });
+      const ranker = ftsRanker(where, testSqliteDb(db));
+      const matches = (await ranker(1_000))!.considered;
+      expect(matches).toBeGreaterThan(5);
+      for (const depth of [matches - 1, matches]) {
+        const pass = (await ranker(depth, 1))!;
+        expect(pass.considered).toBe(Math.min(depth + 1, matches));
+        expect(pass.rows.map((row) => row.r)).toEqual(expectedWindow(db, where, depth));
+      }
+    });
+  });
+
   test('a text no row can match answers an empty window without a statement', async () => {
     await withLibrary(async (db) => {
       const { handle, issued } = recording(db);
@@ -152,10 +166,10 @@ function syntheticRanker(
   keepEvery: number,
 ): { ranker: WindowRanker; depths: number[] } {
   const depths: number[] = [];
-  const ranker: WindowRanker = async (depth) => {
+  const ranker: WindowRanker = async (depth, lookahead = 0) => {
     depths.push(depth);
-    const considered = Math.min(depth, matches);
-    const rows = Array.from({ length: considered }, (_, index) => index)
+    const considered = Math.min(depth + lookahead, matches);
+    const rows = Array.from({ length: Math.min(depth, matches) }, (_, index) => index)
       .filter((index) => index % keepEvery === 0)
       .map((index) => ({ r: index, id: `id${index}`, maple_id: `m${index}`, owner_id: null }));
     return { rows, considered } satisfies WindowPass;
@@ -212,6 +226,21 @@ describe('the window policy', () => {
   test('is not capped when the engine ran out of matches before the cap', async () => {
     const { ranker } = syntheticRanker(4_000, 1);
     expect(await rankWindow(ranker, 5_000)).toMatchObject({ more: false, capped: false });
+  });
+
+  test('is not capped when the engine has exactly as many matches as the cap (#4543)', async () => {
+    const { ranker } = syntheticRanker(RANKED_WINDOW_MAX, 1);
+    const window = (await rankWindow(ranker, RANKED_WINDOW_MAX))!;
+    expect(window.rows).toHaveLength(RANKED_WINDOW_MAX);
+    expect(window).toMatchObject({ more: false, capped: false });
+  });
+
+  test('is capped by one match past the cap, which it counts but never serves (#4543)', async () => {
+    const { ranker } = syntheticRanker(RANKED_WINDOW_MAX + 1, 1);
+    const window = (await rankWindow(ranker, RANKED_WINDOW_MAX))!;
+    expect(window.rows).toHaveLength(RANKED_WINDOW_MAX);
+    expect(window.rows.at(-1)!.r).toBe(RANKED_WINDOW_MAX - 1);
+    expect(window).toMatchObject({ more: false, capped: true });
   });
 
   test('an engine that cannot answer answers null; one that fails to widen keeps its first pass', async () => {

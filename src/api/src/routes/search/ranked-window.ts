@@ -34,10 +34,10 @@ export interface EngineWindow extends RankedWindow {
   preferred: boolean;
 }
 
-/** The child's top `depth` hits, filtered by `where`. */
+/** The child's top `depth` hits, filtered by `where`; `lookahead` more only counted. */
 function inProcessRanker(where: SearchWhere, query: string): WindowRanker {
-  return async (depth) => {
-    const hits = await inProcessRanking(query, depth);
+  return async (depth, lookahead = 0) => {
+    const hits = await inProcessRanking(query, depth + lookahead);
     if (!hits) return null;
     const ranked = hits.slice(0, depth);
     const survivors = await mapleIdWindow(
@@ -48,7 +48,7 @@ function inProcessRanker(where: SearchWhere, query: string): WindowRanker {
     const surviving = ranked.filter((hit) => alive.has(hit.id));
     return {
       rows: survivors,
-      considered: ranked.length,
+      considered: Math.min(hits.length, depth + lookahead),
       semantic: new Set(surviving.filter((hit) => hit.vectorRank !== null).map((hit) => hit.id)),
       scores: new Map(surviving.map((hit) => [hit.id, hit.score] as const)),
     };
@@ -124,7 +124,7 @@ export async function requestWindow(
 
 /**
  * Whether an engine's answer is the request's answer. An empty window settles it only when the
- * engine searched as deep as a window goes and the filters still left nothing — the next engine
+ * engine had hits past the deepest window and the filters still left nothing — the next engine
  * would rank to the same bound and add cost, not truth. An empty window short of the cap means
  * the engine returned fewer hits than it was asked for, so the next engine is asked too, and the
  * empty answer stands only if none of them finds anything either.

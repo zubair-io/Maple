@@ -105,8 +105,9 @@ export function installRemoteInProcessSearch(): void {
 /**
  * The API's side: answer a worker's `search-rank` request from this process's child. Returns
  * whether the message was one, so the supervisor can ignore everything else. The depth is clamped
- * to a window's cap and a query longer than a search accepts is answered null without reaching
- * the child, whatever the worker sent.
+ * to a window's cap plus the one lookahead hit that tells a capped window from an exactly full one,
+ * and a query longer than a search accepts is answered null without reaching the child, whatever
+ * the worker sent.
  */
 export function answerRemoteSearch(
   worker: { postMessage(message: SearchRankReply): void },
@@ -114,7 +115,7 @@ export function answerRemoteSearch(
   engine: InProcessRanker | null = inProcessSearch(),
 ): boolean {
   if (!isRequest(message)) return false;
-  const k = Math.min(Math.max(1, Math.floor(message.k)), RANKED_WINDOW_MAX);
+  const k = Math.min(Math.max(1, Math.floor(message.k)), RANKED_WINDOW_MAX + 1);
   const reply = (hits: FusedSearchHit[] | null): void => {
     try {
       worker.postMessage({ type: 'search-rank-reply', id: message.id, hits });

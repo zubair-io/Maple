@@ -20,7 +20,9 @@
  * again four times deeper, up to {@link RANKED_WINDOW_MAX}, until the page is filled; the window
  * is never replaced by an exact count. `more` says the engine had hits left beyond the
  * window, so asking for a deeper page widens it; `capped` says it had hits left past the cap, which
- * no page reaches. A free-text `total` is therefore never more than {@link RANKED_WINDOW_MAX}.
+ * no page reaches. The deepest pass ranks one hit past the cap to tell the two apart: a query with
+ * exactly {@link RANKED_WINDOW_MAX} matches has none left, and is not capped. A free-text `total`
+ * is therefore never more than {@link RANKED_WINDOW_MAX}.
  */
 
 import { FTS_RANK_ORDER, FTS_RANK_SQL } from './search.fts.ts';
@@ -53,16 +55,20 @@ export interface WindowPass {
   scores?: ReadonlyMap<string, number>;
 }
 
-/** Ranks the text `depth` deep and filters the hits; null when the engine cannot answer. */
-export type WindowRanker = (depth: number) => Promise<WindowPass | null>;
+/**
+ * Ranks the text `depth + lookahead` deep and filters the first `depth` hits; `considered` counts
+ * every hit returned, so a lookahead hit says matches remain past `depth` without joining it.
+ * Null when the engine cannot answer.
+ */
+export type WindowRanker = (depth: number, lookahead?: number) => Promise<WindowPass | null>;
 
 export interface RankedWindow {
   rows: WindowRow[];
   /** The engine returned a full window below the cap: a deeper page may find more. */
   more: boolean;
   /**
-   * The engine returned a full window at {@link RANKED_WINDOW_MAX}: more matches exist, but no
-   * page can reach them. `more` is false then, so paging ends; this says why.
+   * The engine had a hit past {@link RANKED_WINDOW_MAX}: more matches exist, but no page can
+   * reach them. `more` is false then, so paging ends; this says why.
    */
   capped: boolean;
   semantic: ReadonlySet<string>;
@@ -112,28 +118,24 @@ export async function rankWindow(
     depth: number,
     previous: { pass: WindowPass; depth: number } | null,
   ): Promise<RankedWindow | null> => {
-    const pass = await ranker(depth);
-    if (pass === null) {
-      return (
-        previous &&
-        windowOf(previous.pass, previous.pass.considered >= previous.depth, previous.depth)
-      );
-    }
-    const full = pass.considered >= depth;
-    if (pass.rows.length >= sufficient || !full || depth >= RANKED_WINDOW_MAX) {
-      return windowOf(pass, full, depth);
+    const atCap = depth >= RANKED_WINDOW_MAX;
+    const pass = await ranker(depth, atCap ? 1 : 0);
+    if (pass === null) return previous && windowOf(previous.pass, previous.depth);
+    if (pass.rows.length >= sufficient || pass.considered < depth || atCap) {
+      return windowOf(pass, depth);
     }
     return widen(Math.min(RANKED_WINDOW_MAX, depth * WIDENING_FACTOR), { pass, depth });
   };
   return widen(target, null);
 }
 
-function windowOf(pass: WindowPass, full: boolean, depth: number): RankedWindow {
+/** Below the cap a full pass says more; at the cap only a lookahead hit past it says capped. */
+function windowOf(pass: WindowPass, depth: number): RankedWindow {
   const atCap = depth >= RANKED_WINDOW_MAX;
   return {
     rows: pass.rows,
-    more: full && !atCap,
-    capped: full && atCap,
+    more: !atCap && pass.considered >= depth,
+    capped: atCap && pass.considered > depth,
     semantic: pass.semantic ?? new Set(),
     scores: pass.scores,
   };
@@ -156,21 +158,30 @@ function windowOf(pass: WindowPass, full: boolean, depth: number): RankedWindow 
  *   would repeat and skip assets. With one total order, every window is a prefix of every
  *   deeper one.
  */
-export function ftsWindowSql(where: SearchWhere, depth: number): BoundStatement {
+export function ftsWindowSql(where: SearchWhere, depth: number, lookahead = 0): BoundStatement {
   if (where.match.kind !== 'match') throw new Error('ftsWindowSql: not a text query');
   const narrowing = monthNarrowing(where);
   const rest = searchWhereSql({ ...where, match: { kind: 'none' } });
+  const probed =
+    lookahead > 0
+      ? {
+          sql: `,
+    probed AS MATERIALIZED (SELECT sr, rank FROM hit ORDER BY rank, sr LIMIT ?)`,
+          from: 'probed AS hit',
+          params: [depth],
+        }
+      : { sql: '', from: 'hit', params: [] };
   return {
     sql: `WITH hit AS MATERIALIZED (
       SELECT assets_fts.rowid AS sr, ${FTS_RANK_SQL}
         FROM assets_fts
        WHERE assets_fts MATCH ?${narrowing ? `\n         AND ${narrowing.sql}` : ''}
        ORDER BY ${FTS_RANK_ORDER}, assets_fts.rowid
-       LIMIT ?),
+       LIMIT ?)${probed.sql},
     alive AS MATERIALIZED (
       SELECT hit.rank AS rank, hit.sr AS sr, assets.rowid AS r, assets.id AS id,
              assets.maple_id AS maple_id, assets.owner_id AS owner_id
-        FROM hit
+        FROM ${probed.from}
         CROSS JOIN asset_search ON asset_search.rowid = hit.sr
         CROSS JOIN assets ON assets.id = asset_search.asset_id
        ${rest.sql})
@@ -178,15 +189,21 @@ export function ftsWindowSql(where: SearchWhere, depth: number): BoundStatement 
          alive.maple_id AS maple_id, alive.owner_id AS owner_id
     FROM (SELECT 1) LEFT JOIN alive ON 1
    ORDER BY alive.rank ASC, alive.sr ASC`,
-    params: [where.match.expression, ...(narrowing?.params ?? []), depth, ...rest.params],
+    params: [
+      where.match.expression,
+      ...(narrowing?.params ?? []),
+      depth + lookahead,
+      ...probed.params,
+      ...rest.params,
+    ],
   };
 }
 
 /** {@link ftsWindowSql} as a {@link WindowRanker}, through the pool's bulk lane. */
 export function ftsRanker(where: SearchWhere, dbOverride?: SqliteDb): WindowRanker {
-  return async (depth) => {
+  return async (depth, lookahead = 0) => {
     if (where.match.kind !== 'match') return { rows: [], considered: 0 };
-    const window = ftsWindowSql(where, depth);
+    const window = ftsWindowSql(where, depth, lookahead);
     const answer = await readBulk<
       { considered: number } & { [K in keyof WindowRow]: WindowRow[K] | null }
     >(assetsDb(dbOverride), window.sql, window.params);
