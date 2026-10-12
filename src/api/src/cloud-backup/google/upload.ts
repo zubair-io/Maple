@@ -192,18 +192,13 @@ async function savedCheckpoint(ctx: UploadContext): Promise<GoogleCheckpoint | n
     throw new Error('Upload checkpoint content changed.');
   return state;
 }
+// An in-flight checkpoint names the file this upload is writing. A database
+// mapping left behind by an object that has since vanished from Drive must not
+// veto resuming it, or every retry rejects the completed replacement.
 function mappedObject(state: GoogleCheckpoint | null, expected?: BackupObject | null) {
-  return (
-    expected ??
-    (state
-      ? {
-          key: state.key,
-          locator: state.fileId,
-          size: state.size,
-          sha256: state.sha256,
-        }
-      : undefined)
-  );
+  return state
+    ? { key: state.key, locator: state.fileId, size: state.size, sha256: state.sha256 }
+    : (expected ?? undefined);
 }
 async function startSession(
   ctx: UploadContext,
