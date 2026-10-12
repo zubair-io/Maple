@@ -15,7 +15,6 @@ import {
 } from './client.ts';
 import { publishGoogleObject, publishGoogleMirrorFile, parseCheckpoint } from './upload.ts';
 import type { GoogleFetch } from './oauth.ts';
-import { verifiedGoogleObject } from './integrity.ts';
 import { inspectGoogleObject } from './inspect.ts';
 
 import { objectMarker, backupObject, assertObjectIdentity } from './object.ts';
@@ -346,15 +345,6 @@ export class GoogleDriveProvider implements BackupProvider {
     await this.probe(options.signal);
     return publishGoogleMirrorFile(this, key, relativePath, source, options);
   }
-  private async currentObject(
-    object: BackupObject,
-    errorMessage: string,
-    signal?: AbortSignal,
-  ): Promise<BackupObject> {
-    const current = await verifiedGoogleObject(this, object, signal);
-    assertObjectIdentity(current, object, errorMessage);
-    return current;
-  }
   private async currentObjectMetadata(
     object: BackupObject,
     errorMessage: string,
@@ -388,7 +378,11 @@ export class GoogleDriveProvider implements BackupProvider {
   async remove(object: BackupObject, signal?: AbortSignal) {
     await this.probe(signal);
     try {
-      await this.currentObject(object, 'Refusing removal of changed backup object.', signal);
+      await this.currentObjectMetadata(
+        object,
+        'Refusing removal of changed backup object.',
+        signal,
+      );
       await this.client.request(
         `${DRIVE_API}/files/${object.locator}`,
         { method: 'DELETE' },
