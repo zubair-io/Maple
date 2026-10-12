@@ -96,6 +96,62 @@ pub struct StitchArgs {
     /// re-baselines the budgets with it as the default.
     #[arg(long, value_enum, default_value_t = SeamStrategyArg::Voronoi)]
     pub(super) seam_strategy: SeamStrategyArg,
+    /// Declared capture grid `ROWSxCOLS` for drone surveys / camera
+    /// arrays (#4519), COLS = frames per pass; the last pass may be
+    /// short. Replaces global candidate nomination with grid neighbours
+    /// and rejects loop closures that leave the grid footprint or break
+    /// triangle rotation consistency. Single-set mode only.
+    #[arg(long, value_parser = parse_grid, conflicts_with = "manifest")]
+    pub(super) grid: Option<(usize, usize)>,
+    /// Pass direction for --grid: `raster` (every pass the same way) or
+    /// `serpentine` (alternate passes reversed).
+    #[arg(long, value_enum, default_value_t = GridOrderArg::Serpentine, requires = "grid")]
+    pub(super) grid_order: GridOrderArg,
+    /// Treat diagonal grid cells as neighbours too.
+    #[arg(long, requires = "grid")]
+    pub(super) grid_diagonals: bool,
+}
+
+impl StitchArgs {
+    pub(super) fn grid_layout(&self) -> Option<maple_pano::graph::GridLayout> {
+        self.grid.map(|(rows, cols)| maple_pano::graph::GridLayout {
+            rows,
+            cols,
+            order: self.grid_order.to_order(),
+            diagonals: self.grid_diagonals,
+        })
+    }
+}
+
+fn parse_grid(value: &str) -> Result<(usize, usize), String> {
+    let (rows, cols) = value
+        .split_once(['x', 'X'])
+        .ok_or_else(|| format!("expected ROWSxCOLS, got {value:?}"))?;
+    let parse = |part: &str| {
+        part.trim()
+            .parse::<usize>()
+            .ok()
+            .filter(|&n| n > 0)
+            .ok_or_else(|| format!("grid dimension {part:?} must be a positive integer"))
+    };
+    Ok((parse(rows)?, parse(cols)?))
+}
+
+/// CLI surface for [`maple_pano::graph::GridOrder`].
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(super) enum GridOrderArg {
+    Raster,
+    Serpentine,
+}
+
+impl GridOrderArg {
+    fn to_order(self) -> maple_pano::graph::GridOrder {
+        use maple_pano::graph::GridOrder;
+        match self {
+            GridOrderArg::Raster => GridOrder::Raster,
+            GridOrderArg::Serpentine => GridOrder::Serpentine,
+        }
+    }
 }
 
 /// CLI surface for [`maple_pano::ba::RetentionPolicy`].
@@ -172,5 +228,19 @@ impl SeamStrategyArg {
             SeamStrategyArg::Voronoi => SeamStrategy::Voronoi,
             SeamStrategyArg::GraphCut => SeamStrategy::GraphCut,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_grid;
+
+    #[test]
+    fn grid_flag_parses_rows_by_cols() {
+        assert_eq!(parse_grid("4x6"), Ok((4, 6)));
+        assert_eq!(parse_grid("3X2"), Ok((3, 2)));
+        assert!(parse_grid("4").is_err());
+        assert!(parse_grid("0x3").is_err());
+        assert!(parse_grid("ax3").is_err());
     }
 }

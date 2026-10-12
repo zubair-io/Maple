@@ -74,6 +74,7 @@
 
 mod focal_bootstrap;
 mod frame_cache;
+mod graph_build;
 mod io;
 mod tile_standalone;
 mod tile_stitch;
@@ -95,9 +96,7 @@ use crate::composite::composite_tiled;
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
 use crate::gain::{solve_gains_streaming, GainOptions};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
-use crate::graph::{
-    build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
-};
+use crate::graph::DescriptorTopKProvider;
 use crate::ingest::{ingest_file_proxy, FrameMeta};
 
 use crate::leveling;
@@ -108,6 +107,7 @@ use crate::robust::RobustOptions;
 use crate::strategy::{select_strategy, Strategy};
 use crate::twoview::PixelCorrespondence;
 use frame_cache::refine_edges_lru;
+use graph_build::build_stitch_graph;
 use tile_stitch::{run_tile_branch, TileBranchInput};
 
 /// Strategy selection request (mirrors `maple_pano::strategy::StrategyRequest`
@@ -148,6 +148,7 @@ pub fn stitch(
     if inputs.len() < 2 {
         return Err(StitchError::TooFewFrames(inputs.len()));
     }
+    validate_grid(opts, inputs.len())?;
 
     // ── stage 0: decode proxy + priors (full-res freed immediately) ───────
     //
@@ -264,13 +265,10 @@ pub fn stitch(
     // Additive only — verification still decides, so it costs nothing on a
     // well-ordered/metadata-rich set beyond a few redundant candidate checks.
     let descriptor_topk = DescriptorTopKProvider::new(&feature_sets);
-    let mut graph = build_match_graph(
+    let mut graph = build_stitch_graph(
         &proxy_images,
-        &[
-            &CaptureOrderProvider,
-            &GimbalPriorProvider::default(),
-            &descriptor_topk,
-        ],
+        opts.grid.as_ref(),
+        Some(&descriptor_topk),
         |a, b| -> Vec<PixelCorrespondence> {
             let corrs = match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
                 Ok(ml_matches) => ml_matches_to_correspondences(&ml_matches, DEFAULT_MIN_SCORE),
@@ -282,7 +280,6 @@ pub fn stitch(
             raw_matches_cache.push(((a, b), corrs.clone()));
             corrs
         },
-        &RobustOptions::default(),
     );
     if !match_failures.is_empty() {
         return Err(StitchError::MatchFailed(match_failures));
@@ -301,6 +298,7 @@ pub fn stitch(
         &mut full_images,
         &mut proxy_images,
         &mut raw_matches_cache,
+        opts.grid.as_ref(),
         |a, b| {
             matcher
                 .match_features(&feature_sets[a], &feature_sets[b])
@@ -566,4 +564,10 @@ pub fn stitch(
             t_composite,
         ],
     }))
+}
+
+pub(super) fn validate_grid(opts: &StitchOptions, frame_count: usize) -> Result<(), StitchError> {
+    opts.grid
+        .map_or(Ok(()), |layout| layout.validate(frame_count))
+        .map_err(StitchError::InvalidGrid)
 }
