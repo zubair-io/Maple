@@ -16,7 +16,8 @@ import {
 import { recordReadWaves } from '../sqlite/read-waves.test-helpers.ts';
 import { seedSearchAsset } from './search.test-helpers.ts';
 import { buildSearchWhere } from './search.where.ts';
-import { searchPage, windowDocs } from './search.page.ts';
+import { searchByIds, searchPage, windowDocs } from './search.page.ts';
+import { projectAssets } from '../../routes/search/project.ts';
 import { mapleIdWindow } from './search.ranked.ts';
 
 const OWNER = 'a'.repeat(24);
@@ -93,5 +94,77 @@ describe('search page round trips', () => {
     expect(docs.filter((doc) => doc.owner?.id === OWNER)).toHaveLength(3);
     expect(docs.find((doc) => doc.owner_id === null)?.owner).toBeNull();
     expect(pageWaves.waves.map((wave) => wave.length)).toEqual([1, 4]);
+  });
+
+  it('keeps a candidate repeated by the engine repeated through the window and its page', async () => {
+    const handle = testSqliteDb(database.db);
+
+    const window = await mapleIdWindow(where({ rating: '5' }), ['one', 'one', 'three'], handle);
+    const docs = await windowDocs(window, handle);
+
+    expect(window.map((row) => row.maple_id)).toEqual(['one', 'one', 'three']);
+    expect(docs.map((doc) => doc.fileinfo?.[0]?.filename)).toEqual([
+      'one.dng',
+      'one.dng',
+      'three.dng',
+    ]);
+  });
+
+  it('renders rows whose owner_id is corrupt or empty with no owner rather than failing the page', async () => {
+    database.db.exec('PRAGMA foreign_keys = OFF');
+    run(database.db, `UPDATE assets SET owner_id = 'not-an-object-id' WHERE maple_id = 'three'`);
+    run(database.db, `UPDATE assets SET owner_id = '' WHERE maple_id = 'two'`);
+    const handle = testSqliteDb(database.db);
+
+    const window = await mapleIdWindow(where(), ['three', 'two', 'one'], handle);
+    const ranked = await windowDocs(window, handle);
+    const paged = await searchPage(where(), { sort: 'captured_desc', limit: 10, skip: 0 }, handle);
+    const results = projectAssets(paged, new Map(), new Map());
+
+    expect(ranked.map((doc) => doc.owner?.id ?? null)).toEqual([null, null, OWNER]);
+    expect(ranked.map((doc) => doc.owner_id)).toEqual(['not-an-object-id', '', expect.anything()]);
+    expect(paged).toHaveLength(4);
+    expect(paged.find((doc) => doc.owner_id === '')?.owner).toBeNull();
+    const corrupt = results.find((result) => result.filename === 'three.dng');
+    expect(corrupt?.owner).toBeNull();
+    expect(corrupt?.owner_id).toBe('not-an-object-id');
+  });
+
+  it('keeps owner_id and owner from the same read when the owner changes between the two', async () => {
+    const OTHER = 'b'.repeat(24);
+    run(
+      database.db,
+      `INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, ?, ?, 'member', ?)`,
+      OTHER,
+      'other@maple.local',
+      'other@maple.local',
+      '2026-01-01T00:00:00Z',
+    );
+    const handle = testSqliteDb(database.db);
+    const window = await mapleIdWindow(where(), ['one'], handle);
+    run(database.db, `UPDATE assets SET owner_id = ? WHERE maple_id = 'one'`, OTHER);
+
+    const [doc] = await windowDocs(window, handle);
+
+    expect(doc?.owner).not.toBeNull();
+    expect(doc?.owner?.id).toBe(
+      typeof doc?.owner_id === 'string' ? doc.owner_id : doc?.owner_id?.toHexString(),
+    );
+  });
+
+  it('projects stored-id pages with their owners', async () => {
+    const recorded = recordReadWaves(testSqliteDb(database.db));
+    const [one, four] = database.db
+      .query(`SELECT id FROM assets WHERE maple_id IN ('one', 'four') ORDER BY maple_id DESC`)
+      .all() as Array<{ id: string }>;
+
+    const docs = await searchByIds(where(), [one!.id, 'f'.repeat(24), four!.id], recorded.handle);
+    const results = projectAssets(docs, new Map(), new Map());
+
+    expect(results.map((result) => [result.filename, result.owner])).toEqual([
+      ['one.dng', { id: OWNER, email: 'owner@maple.local' }],
+      ['four.dng', null],
+    ]);
+    expect(recorded.waves.map((wave) => wave.length)).toEqual([1, 4]);
   });
 });
