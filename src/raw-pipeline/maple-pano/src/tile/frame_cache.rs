@@ -119,16 +119,11 @@ impl<'a> TileFrameCache<'a> {
         }
     }
 
-    /// Test-only: a cache pre-seeded with already-decoded synthetic
-    /// frames, keyed by their position in `frames`. Unit tests across
-    /// `tile/` build `PlanarImage`s directly in memory (no files on disk
-    /// to decode-on-demand from), so this gives them the same
-    /// `TileFrameCache` interface production code uses. Unbounded
-    /// capacity (`frames.len()`) — a fixed synthetic fixture is exactly
-    /// the "small handful of frames" case this cache is sized for, and
-    /// tests should never observe an eviction their assertions didn't
-    /// ask for.
-    #[cfg(test)]
+    /// A cache pre-seeded with already-decoded frames, keyed by their
+    /// position in `frames`: the panorama preview's in-memory proxies
+    /// (#4578) and the synthetic frames unit tests across `tile/` build.
+    /// Capacity is `frames.len()` so nothing is ever evicted — there are
+    /// no backing files to re-decode an evicted frame from.
     pub(crate) fn from_frames(frames: Vec<PlanarImage>) -> Self {
         let capacity = frames.len().max(1);
         let mut slots = HashMap::new();
@@ -141,6 +136,7 @@ impl<'a> TileFrameCache<'a> {
         }
         Self {
             inputs: None,
+            #[cfg(test)]
             test_decoder: None,
             capacity,
             state: Mutex::new(CacheState { slots, order }),

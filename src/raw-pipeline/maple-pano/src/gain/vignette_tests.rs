@@ -278,6 +278,26 @@ fn lens_groups_split_by_lens_and_skip_ingest_corrected_frames() {
 }
 
 #[test]
+fn lens_groups_for_kept_frames_match_grouping_their_metadata_alone() {
+    use raw_core::FalloffCorrection::{None as Uncorrected, Opcode};
+    let metas = [
+        meta("A", Some(24.0), (6000, 4000), Uncorrected),
+        meta("B", Some(24.0), (6000, 4000), Uncorrected),
+        meta("A", Some(50.0), (6000, 4000), Uncorrected),
+        meta("A", Some(24.0), (6000, 4000), Opcode),
+        meta("B", Some(24.0), (6000, 4000), Uncorrected),
+    ];
+    let all = LensGroups::from_metas(&metas);
+    for kept in [vec![4, 2, 3], vec![1, 3], vec![3], vec![0, 1, 2, 3, 4]] {
+        assert_eq!(
+            all.for_frames(&kept),
+            LensGroups::from_metas(kept.iter().map(|&i| &metas[i])),
+            "{kept:?}"
+        );
+    }
+}
+
+#[test]
 fn batch_composite_estimates_and_reports_falloff() {
     use crate::composite::{composite, CompositeOptions};
     let cams = grid_cameras();

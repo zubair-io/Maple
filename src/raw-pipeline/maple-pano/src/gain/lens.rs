@@ -88,6 +88,30 @@ impl LensGroups {
         }
     }
 
+    /// The groups restricted to `frames` (indices into `of_frame`), in that
+    /// order, with labels renumbered by first appearance — what
+    /// [`Self::from_metas`] gives for those frames' metadata alone.
+    pub fn for_frames(&self, frames: &[usize]) -> Self {
+        let kept_groups: Vec<Option<usize>> = frames.iter().map(|&f| self.of_frame[f]).collect();
+        let distinct = kept_groups
+            .iter()
+            .flatten()
+            .fold(Vec::<usize>::new(), |acc, &g| {
+                if acc.contains(&g) {
+                    acc
+                } else {
+                    acc.into_iter().chain(std::iter::once(g)).collect()
+                }
+            });
+        Self {
+            labels: distinct.iter().map(|&g| self.labels[g].clone()).collect(),
+            of_frame: kept_groups
+                .iter()
+                .map(|g| g.and_then(|g| distinct.iter().position(|&d| d == g)))
+                .collect(),
+        }
+    }
+
     pub(crate) fn any(&self) -> bool {
         self.of_frame.iter().any(Option::is_some)
     }
