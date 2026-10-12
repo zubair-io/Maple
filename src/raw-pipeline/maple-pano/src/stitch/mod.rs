@@ -58,7 +58,9 @@
 //! **Gain solve** (just before composite): surviving frames are decoded
 //! on demand one at a time, their overlap statistics accumulated, and the pixel
 //! buffer freed before the next frame is decoded — so at most 1 full-resolution
-//! frame is resident during the gain phase.
+//! frame is resident during the gain phase. The residual exposure field
+//! (#4521) is solved right after it the same way, one decode at a time onto
+//! the ~1 MP seam canvas.
 //!
 //! **Stage 5 (composite)**: always uses the tiled path (`composite_tiled`),
 //! which decodes each source frame on demand per tile strip and frees it before
@@ -93,7 +95,7 @@ use crate::canvas::{
 };
 use crate::composite::composite_tiled;
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
-use crate::gain::{solve_photometry_streaming, GainOptions};
+use crate::gain::{solve_exposure_field_streaming, solve_photometry_streaming, GainOptions};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{
     build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
@@ -520,6 +522,9 @@ pub fn stitch(
 
     let photometry = solve_photometry_streaming(&kept_paths, &kept_cams, &GainOptions::default())
         .map_err(|e| StitchError::Composite(e.to_string()))?;
+    let exposure_field =
+        solve_exposure_field_streaming(&kept_paths, &kept_cams, &photometry, &kept_local, &canvas)
+            .map_err(|e| StitchError::Composite(e.to_string()))?;
 
     // ── Tiled composite (always engaged on this path — #1254) ─────────────
     //
@@ -532,6 +537,7 @@ pub fn stitch(
         &kept_cams,
         &photometry,
         &kept_local,
+        Some(&exposure_field),
         &canvas,
         tile_rows,
         opts.seam_strategy,

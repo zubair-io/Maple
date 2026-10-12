@@ -181,3 +181,9 @@ pub mod stitch;
 // Rust, no `ml`/`ml-static` gate) so it builds on every target the crate
 // does, including iOS. Appended after stitch — keep lib.rs append-only.
 pub mod seam;
+
+// --- Shared coarse-field solver (#4521): the matrix-free screened-Poisson
+// conjugate gradients used by the tile strategy's residual exposure fields
+// and the rotation strategy's per-view exposure field. Appended after
+// seam — keep lib.rs append-only.
+pub(crate) mod screened_cg;
