@@ -58,18 +58,26 @@ test('a first boot rebuilds the text, records the version and reports ready twic
 
 test('a boot on a current index only catches up instead of rebuilding', async () => {
   const engine = new RecordingEngine();
-  engine.texts.set('harbour', 'kept from the last run');
-  const saved = { version: SEARCH_INDEX_VERSION, textWatermark: '2020-06-01T00:00:00.000Z' };
+  engine.texts.set('harbour', { template: 'kept from the last run', blob: '' });
+  const saved = {
+    version: SEARCH_INDEX_VERSION,
+    textWatermark: '2020-06-01T00:00:00.000Z',
+    blobWatermark: '2020-06-01T00:00:00.000Z',
+  };
 
   await bootSearchIndex(engine, 'bge-m3', saved, join(dir, 'state.json'), () => {});
 
   expect(engine.clears).toBe(0);
-  expect(engine.texts.get('harbour')).toBe('kept from the last run');
+  expect(engine.texts.get('harbour')?.template).toBe('kept from the last run');
 });
 
 test('a boot whose text count disagrees with the vectors rebuilds after all', async () => {
   const engine = new RecordingEngine();
-  const saved = { version: SEARCH_INDEX_VERSION, textWatermark: '2020-06-01T00:00:00.000Z' };
+  const saved = {
+    version: SEARCH_INDEX_VERSION,
+    textWatermark: '2020-06-01T00:00:00.000Z',
+    blobWatermark: '2020-06-01T00:00:00.000Z',
+  };
 
   await bootSearchIndex(engine, 'bge-m3', saved, join(dir, 'state.json'), () => {});
 
@@ -81,17 +89,27 @@ test('an index from another version is deleted before the engine opens it', () =
   const indexDir = join(dir, 'text');
   const stateFile = join(dir, 'state.json');
   mkdirSync(indexDir);
-  writeFileSync(stateFile, JSON.stringify({ version: '0.0', textWatermark: '2026-01-01' }));
+  writeFileSync(
+    stateFile,
+    JSON.stringify({ version: '0.0', textWatermark: '2026-01-01', blobWatermark: '2026-01-01' }),
+  );
 
   expect(reusableIndexState(stateFile, indexDir)).toBeNull();
   expect(existsSync(indexDir)).toBe(false);
 
   writeFileSync(
     stateFile,
-    JSON.stringify({ version: SEARCH_INDEX_VERSION, textWatermark: '2026-01-01' }),
+    JSON.stringify({
+      version: SEARCH_INDEX_VERSION,
+      textWatermark: '2026-01-01',
+      blobWatermark: '2026-01-02',
+    }),
   );
   mkdirSync(indexDir);
-  expect(reusableIndexState(stateFile, indexDir)?.textWatermark).toBe('2026-01-01');
+  expect(reusableIndexState(stateFile, indexDir)).toMatchObject({
+    textWatermark: '2026-01-01',
+    blobWatermark: '2026-01-02',
+  });
   expect(existsSync(indexDir)).toBe(true);
 });
 

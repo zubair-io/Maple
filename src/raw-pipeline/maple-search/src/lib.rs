@@ -18,5 +18,5 @@ pub use engine::{fuse, SearchConfig, SearchEngine, LEG_DEPTH};
 pub use error::{Result, SearchError};
 pub use fusion::{reciprocal_rank_fusion, FusedHit, RRF_K};
 pub use terms::{parse_text_query, TextQuery, MAX_TERMS};
-pub use text_index::TextIndex;
+pub use text_index::{SearchText, TextIndex, BLOB_BOOST};
 pub use vectors::{ScoredId, VectorMatrix, DIM};

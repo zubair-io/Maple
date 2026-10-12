@@ -113,7 +113,7 @@ fn upsert_and_delete_reach_both_legs() {
     let dir = tempfile::tempdir().unwrap();
     let engine = engine(&dir);
     engine
-        .upsert("cellar", Some(&basis(3)), Some("wine cellar"))
+        .upsert("cellar", Some(&basis(3)), Some("wine cellar".into()))
         .unwrap();
     engine.delete("lantern");
     engine.commit().unwrap();
@@ -132,7 +132,9 @@ fn a_cleared_rebuild_only_shows_once_committed() {
     let dir = tempfile::tempdir().unwrap();
     let engine = engine(&dir);
     engine.clear_text().unwrap();
-    engine.upsert("fresh", None, Some("fresh harbour")).unwrap();
+    engine
+        .upsert("fresh", None, Some("fresh harbour".into()))
+        .unwrap();
     assert_eq!(engine.text_count(), 4);
     engine.commit().unwrap();
     assert_eq!(engine.text_count(), 1);

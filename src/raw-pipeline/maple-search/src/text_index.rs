@@ -1,6 +1,13 @@
-//! The keyword leg: a Tantivy index of one text blob per asset, English-stemmed,
+//! The keyword leg: a Tantivy index of two texts per asset, English-stemmed,
 //! ranked with BM25. The index is a rebuildable cache of the API's SQLite
 //! rows, so nothing here is the source of truth for any asset.
+//!
+//! The two texts are the embedder template (what the vector leg embedded) and
+//! the API's `search_blob`, which adds the structured vision fields (subjects,
+//! setting, activity, objects, tags) the template leaves out. They are separate
+//! fields so each keeps its own length normalisation: a template match scores
+//! as it did before the blob was indexed, and the blob — a sorted, deduplicated
+//! bag that repeats most of the template — adds a down-weighted second score.
 //!
 //! Text is analysed like the API's FTS5 table (`unicode61`, diacritics
 //! removed, porter stemming): split on non-alphanumerics, lowercased,
@@ -17,14 +24,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tantivy::collector::{DocSetCollector, TopDocs};
 use tantivy::directory::MmapDirectory;
-use tantivy::query::{BooleanQuery, Occur, PhraseQuery, Query, TermQuery};
+use tantivy::query::{BooleanQuery, BoostQuery, Occur, PhraseQuery, Query, TermQuery};
 use tantivy::schema::{
     Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, FAST, STORED, STRING,
 };
 use tantivy::tokenizer::{
     AsciiFoldingFilter, Language, LowerCaser, SimpleTokenizer, Stemmer, TextAnalyzer,
 };
-use tantivy::{doc, DocAddress, Index, IndexReader, IndexWriter, ReloadPolicy, Searcher, Term};
+use tantivy::{
+    doc, DocAddress, Index, IndexReader, IndexWriter, ReloadPolicy, Searcher, TantivyDocument, Term,
+};
 
 const TOKENIZER: &str = "maple_en_folded";
 /// BM25 sums can differ in the last bits between Tantivy's pruned top-k pass
@@ -33,6 +42,23 @@ const TOKENIZER: &str = "maple_en_folded";
 /// the full pass's scores alone.
 const BOUNDARY_TOLERANCE: f32 = 1e-5;
 const WRITER_MEMORY_BYTES: usize = 256 * 1024 * 1024;
+/// The blob's BM25 weight against the template's 1.0. Meilisearch ranked
+/// `searchBlob` as its lowest-weight attribute; a term in both texts still
+/// outranks one found only among the vision tags.
+pub const BLOB_BOOST: f32 = 0.5;
+
+/// One asset's indexed text: the embedder template and its `search_blob`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SearchText<'a> {
+    pub template: &'a str,
+    pub blob: &'a str,
+}
+
+impl<'a> From<&'a str> for SearchText<'a> {
+    fn from(template: &'a str) -> Self {
+        Self { template, blob: "" }
+    }
+}
 
 pub struct TextIndex {
     path: PathBuf,
@@ -41,19 +67,19 @@ pub struct TextIndex {
     writer: Mutex<IndexWriter>,
     id: Field,
     text: Field,
+    blob: Field,
 }
 
 fn schema() -> Schema {
     let mut builder = Schema::builder();
     builder.add_text_field("id", STRING | STORED | FAST);
-    builder.add_text_field(
-        "text",
-        TextOptions::default().set_indexing_options(
-            TextFieldIndexing::default()
-                .set_tokenizer(TOKENIZER)
-                .set_index_option(IndexRecordOption::WithFreqsAndPositions),
-        ),
+    let analysed = TextOptions::default().set_indexing_options(
+        TextFieldIndexing::default()
+            .set_tokenizer(TOKENIZER)
+            .set_index_option(IndexRecordOption::WithFreqsAndPositions),
     );
+    builder.add_text_field("text", analysed.clone());
+    builder.add_text_field("blob", analysed);
     builder.build()
 }
 
@@ -90,6 +116,7 @@ impl TextIndex {
         Ok(Self {
             id: field("id")?,
             text: field("text")?,
+            blob: field("blob")?,
             path: path.to_path_buf(),
             index,
             reader,
@@ -105,12 +132,16 @@ impl TextIndex {
         self.reader.searcher().num_docs()
     }
 
-    /// Stages a replace of `id`'s text; visible to searches after [`Self::commit`].
-    pub fn upsert(&self, id: &str, text: &str) -> Result<()> {
+    /// Stages a replace of `id`'s texts; visible to searches after [`Self::commit`].
+    pub fn upsert<'a>(&self, id: &str, text: impl Into<SearchText<'a>>) -> Result<()> {
         let writer = self.lock_writer();
         writer.delete_term(Term::from_field_text(self.id, id));
-        writer.add_document(doc!(self.id => id, self.text => text))?;
+        writer.add_document(self.document(id, text.into()))?;
         Ok(())
+    }
+
+    fn document(&self, id: &str, text: SearchText<'_>) -> TantivyDocument {
+        doc!(self.id => id, self.text => text.template, self.blob => text.blob)
     }
 
     /// Stages a delete of `id`; visible to searches after [`Self::commit`].
@@ -133,11 +164,14 @@ impl TextIndex {
 
     /// Replaces the whole index with `docs` and commits. Searches keep
     /// answering from the previous contents until the commit lands.
-    pub fn rebuild<'a>(&self, docs: impl IntoIterator<Item = (&'a str, &'a str)>) -> Result<u64> {
+    pub fn rebuild<'a, T: Into<SearchText<'a>>>(
+        &self,
+        docs: impl IntoIterator<Item = (&'a str, T)>,
+    ) -> Result<u64> {
         let mut writer = self.lock_writer();
         writer.delete_all_documents()?;
         for (id, text) in docs {
-            writer.add_document(doc!(self.id => id, self.text => text))?;
+            writer.add_document(self.document(id, text.into()))?;
         }
         writer.commit()?;
         drop(writer);
@@ -203,7 +237,7 @@ impl TextIndex {
         Ok(scored)
     }
 
-    /// Every id whose text contains any of the `excluded` terms or phrases,
+    /// Every id whose texts contain any of the `excluded` terms or phrases,
     /// read from the id fast field rather than the document store.
     pub fn ids_matching_any(&self, excluded: &[String]) -> Result<Vec<String>> {
         let exclusions = self.excluded_clauses(excluded, Occur::Should);
@@ -254,23 +288,24 @@ impl TextIndex {
             .collect()
     }
 
-    /// `text` analysed the way the field was indexed: one token is a term
-    /// query, several are a phrase, none (all dropped by the analyser) is
-    /// `None` because nothing in the index can match it.
+    /// `text` analysed the way both fields were indexed and matched in
+    /// either, scored as the template's match plus the blob's down-weighted
+    /// one. `None` when the analyser drops every token, because nothing in the
+    /// index can match it.
     fn phrase_query(&self, text: &str) -> Option<Box<dyn Query>> {
-        let mut terms = Vec::new();
+        let mut tokens = Vec::new();
         let mut analyzer = self.index.tokenizers().get(TOKENIZER)?;
         analyzer
             .token_stream(text)
-            .process(&mut |token| terms.push(Term::from_field_text(self.text, &token.text)));
-        match terms.len() {
-            0 => None,
-            1 => Some(Box::new(TermQuery::new(
-                terms.remove(0),
-                IndexRecordOption::WithFreqs,
-            ))),
-            _ => Some(Box::new(PhraseQuery::new(terms))),
+            .process(&mut |token| tokens.push(token.text.clone()));
+        if tokens.is_empty() {
+            return None;
         }
+        let blob = BoostQuery::new(field_phrase(self.blob, &tokens), BLOB_BOOST);
+        Some(Box::new(BooleanQuery::new(vec![
+            (Occur::Should, field_phrase(self.text, &tokens)),
+            (Occur::Should, Box::new(blob)),
+        ])))
     }
 
     fn error(&self, message: String) -> SearchError {
@@ -284,6 +319,22 @@ impl TextIndex {
         self.writer
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// One token is a term query, several are a phrase that must be adjacent.
+fn field_phrase(field: Field, tokens: &[String]) -> Box<dyn Query> {
+    let mut terms: Vec<Term> = tokens
+        .iter()
+        .map(|token| Term::from_field_text(field, token))
+        .collect();
+    if terms.len() == 1 {
+        Box::new(TermQuery::new(
+            terms.remove(0),
+            IndexRecordOption::WithFreqs,
+        ))
+    } else {
+        Box::new(PhraseQuery::new(terms))
     }
 }
 

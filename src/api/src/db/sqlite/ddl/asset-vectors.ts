@@ -126,3 +126,42 @@ END;
 export const STAGE_CLAIM_TOKEN_DDL = `
 ALTER TABLE stage_state ADD COLUMN claim_token TEXT;
 `;
+
+const ISO_NOW = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
+
+function stampVectorText(assetIdExpr: string): string {
+  return `UPDATE asset_vectors SET text_changed_at = ${ISO_NOW}
+   WHERE maple_id = (SELECT maple_id FROM assets WHERE id = ${assetIdExpr});`;
+}
+
+/**
+ * The search child indexes each vector's `search_blob` beside its template text (#4512), and a
+ * blob can change without the template changing (a new vision tag), so the `embed` stage's
+ * `embedded_at` does not cover it. Every write to `asset_search` — the `search-blob` stage, a
+ * description edit, a blob emptied into a delete — stamps `text_changed_at` on the asset's vector
+ * row, and the child polls that stamp the way it polls `embedded_at`. An asset with no vector yet
+ * has nothing to stamp; its blob is read when the vector arrives. Rewriting an identical blob
+ * stamps nothing.
+ */
+export const VECTOR_TEXT_CHANGED_DDL = `
+ALTER TABLE asset_vectors ADD COLUMN text_changed_at TEXT;
+
+CREATE INDEX asset_vectors_text_poll ON asset_vectors (model, text_changed_at, maple_id, dims)
+WHERE text_changed_at IS NOT NULL;
+
+CREATE TRIGGER asset_search_text_inserted AFTER INSERT ON asset_search
+BEGIN
+  ${stampVectorText('NEW.asset_id')}
+END;
+
+CREATE TRIGGER asset_search_text_updated AFTER UPDATE OF search_blob ON asset_search
+WHEN OLD.search_blob IS NOT NEW.search_blob
+BEGIN
+  ${stampVectorText('NEW.asset_id')}
+END;
+
+CREATE TRIGGER asset_search_text_deleted AFTER DELETE ON asset_search
+BEGIN
+  ${stampVectorText('OLD.asset_id')}
+END;
+`;
