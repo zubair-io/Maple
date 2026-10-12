@@ -13,20 +13,16 @@
  * is operator surface, not a public read.
  */
 
-import { Elysia, t } from "elysia";
+import { Elysia, t } from 'elysia';
 import {
   groupEnrichmentDeadLetter,
   isEnrichmentStage,
   listEnrichmentDeadLetter,
   resetEnrichmentDeadLetter,
   type EnrichmentStage,
-} from "../enrichment/dead-letter.repo.ts";
+} from '../enrichment/dead-letter.repo.ts';
 
-const STAGE_VALUES: ReadonlyArray<EnrichmentStage> = [
-  "geocode",
-  "face",
-  "describe",
-];
+const STAGE_VALUES: ReadonlyArray<EnrichmentStage> = ['geocode', 'face', 'describe'];
 
 const ListQuery = t.Object({
   stage: t.String(),
@@ -43,21 +39,21 @@ const ResetBody = t.Object({
 });
 
 function invalidStageMessage(s: string): string {
-  return `Invalid stage: ${s}. Expected one of ${STAGE_VALUES.join(", ")}.`;
+  return `Invalid stage: ${s}. Expected one of ${STAGE_VALUES.join(', ')}.`;
 }
 
 export const enrichmentAdminRoutes = new Elysia({
-  prefix: "/api/enrichment/dead-letter",
+  prefix: '/api/enrichment/dead-letter',
 })
   .get(
-    "/",
+    '/',
     async ({ query, set }) => {
       if (!isEnrichmentStage(query.stage)) {
         set.status = 400;
         return { error: invalidStageMessage(query.stage) };
       }
       let limit: number | undefined;
-      if (query.limit !== undefined && query.limit !== "") {
+      if (query.limit !== undefined && query.limit !== '') {
         const n = Number(query.limit);
         if (!Number.isFinite(n) || n < 1) {
           set.status = 400;
@@ -75,7 +71,7 @@ export const enrichmentAdminRoutes = new Elysia({
   )
 
   .get(
-    "/groups",
+    '/groups',
     async ({ query, set }) => {
       if (!isEnrichmentStage(query.stage)) {
         set.status = 400;
@@ -88,7 +84,7 @@ export const enrichmentAdminRoutes = new Elysia({
   )
 
   .post(
-    "/reset",
+    '/reset',
     async ({ body, set }) => {
       if (!isEnrichmentStage(body.stage)) {
         set.status = 400;

@@ -30,7 +30,7 @@ import { toTextFilter } from './search.fts.ts';
 import { serviceTextSearchSql } from './search.sql.ts';
 import { RANKED_WINDOW_MAX } from './search.ranked.ts';
 import { likeLiteral } from './search.terms.ts';
-import { QUALIFIED_LIVE_PREDICATE } from './search.where.ts';
+import { QUALIFIED_LIVE_PREDICATE, type SearchWhere } from './search.where.ts';
 import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
 import type { SqlValue } from '../sqlite/protocol.ts';
 
@@ -60,10 +60,9 @@ interface Bound {
  * search — which is what a caller asking for a date range wants, and what
  * Mongo's type bracketing gave for free.
  */
-function scopeClauses(scope: ServiceSearchScope): Bound {
+function scopeTerms(scope: ServiceSearchScope): Bound[] {
   const kinds = scope.mediaTypes;
-  const parts: Bound[] = [
-    ...(scope.includeHidden ? [] : [{ sql: 'assets.hidden = 0', params: [] }]),
+  return [
     ...(kinds === undefined || kinds.length === 0
       ? []
       : [
@@ -79,9 +78,29 @@ function scopeClauses(scope: ServiceSearchScope): Bound {
       ? []
       : [{ sql: 'assets.captured_at < ?', params: [scope.capturedBefore] as SqlValue[] }]),
   ];
+}
+
+function scopeClauses(scope: ServiceSearchScope): Bound {
+  const parts: Bound[] = [
+    ...(scope.includeHidden ? [] : [{ sql: 'assets.hidden = 0', params: [] }]),
+    ...scopeTerms(scope),
+  ];
   return {
     sql: parts.length === 0 ? '' : ` AND ${parts.map((part) => part.sql).join(' AND ')}`,
     params: parts.flatMap((part) => part.params),
+  };
+}
+
+/** The scope as the filters of a ranked window, so the service route widens like the list does. */
+export function serviceSearchWhere(scope: ServiceSearchScope): SearchWhere {
+  const terms = scopeTerms(scope);
+  return {
+    clauses: terms.map((term) => term.sql),
+    params: terms.flatMap((term) => term.params),
+    match: { kind: 'none' },
+    ownerId: null,
+    hidden: scope.includeHidden ? null : 0,
+    month: null,
   };
 }
 
@@ -107,28 +126,6 @@ function exactFilenameSql(scope: Bound): string {
                       AND l.deleted_at IS NULL AND l.missing_since IS NULL
                       AND l.filename LIKE ? ESCAPE '\\')${scope.sql}
      LIMIT ?`;
-}
-
-/**
- * Which of `mapleIds` are live and inside `scope`, in the order given — the in-process engine's
- * candidates (#4463) under the same scope clauses as the lexical passes.
- */
-export async function serviceScopedMapleIds(
-  scope: ServiceSearchScope,
-  mapleIds: readonly string[],
-  dbOverride?: SqliteDb,
-): Promise<string[]> {
-  if (mapleIds.length === 0) return [];
-  const bound = scopeClauses(scope);
-  const rows = await assetsDb(dbOverride).read<{ maple_id: string }>(
-    `SELECT assets.maple_id AS maple_id
-       FROM assets
-      WHERE ${QUALIFIED_LIVE_PREDICATE}
-        AND assets.maple_id IN (${placeholders(mapleIds.length)})${bound.sql}`,
-    [...mapleIds, ...bound.params],
-  );
-  const surviving = new Set(rows.map((row) => row.maple_id));
-  return mapleIds.filter((id) => surviving.has(id));
 }
 
 /** What the route needs back: content ids, and which of them matched exactly. */

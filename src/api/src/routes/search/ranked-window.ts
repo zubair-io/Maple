@@ -47,6 +47,7 @@ function inProcessRanker(where: SearchWhere, query: string): WindowRanker {
       ),
       considered: ranked.length,
       semantic: new Set(ranked.filter((hit) => hit.vectorRank !== null).map((hit) => hit.id)),
+      scores: new Map(ranked.map((hit) => [hit.id, hit.score] as const)),
     };
   };
 }
