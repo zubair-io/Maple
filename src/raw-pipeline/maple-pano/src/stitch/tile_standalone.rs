@@ -57,7 +57,7 @@ pub fn stitch_tile(
     if inputs.len() < 2 {
         return Err(StitchError::TooFewFrames(inputs.len()));
     }
-    super::validate_grid(opts, inputs.len())?;
+    super::graph_build::validate_grid(opts, inputs.len())?;
 
     // ── stage 0: decode + priors ──────────────────────────────────────────
     // #3197 (carrying forward #3090's stage-0 shape): `ingest_file_proxy`

@@ -108,7 +108,7 @@ use crate::strategy::{select_strategy, Strategy};
 use crate::twoview::PixelCorrespondence;
 use degenerate::reject_degenerate_canvas;
 use frame_cache::refine_edges_lru;
-use graph_build::build_stitch_graph;
+use graph_build::{build_stitch_graph, validate_grid};
 use tile_stitch::{run_tile_branch, TileBranchInput};
 
 /// Strategy selection request (mirrors `maple_pano::strategy::StrategyRequest`
@@ -519,10 +519,4 @@ pub fn stitch(
             t_composite,
         ],
     }))
-}
-
-pub(super) fn validate_grid(opts: &StitchOptions, frame_count: usize) -> Result<(), StitchError> {
-    opts.grid
-        .map_or(Ok(()), |layout| layout.validate(frame_count))
-        .map_err(StitchError::InvalidGrid)
 }
