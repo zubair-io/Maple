@@ -42,14 +42,12 @@ struct RowBest {
     second: f32,
 }
 
+/// A block's row results plus its best `(similarity, row)` per column.
+type BlockBest = (Vec<RowBest>, Vec<(f32, usize)>);
+
 /// Forward nearest neighbours for `rows`, plus this block's best row per
 /// second-set column (for the mutual check). Ties keep the lowest index.
-fn match_block(
-    a: &FeatureSet,
-    b: &FeatureSet,
-    rows: &[usize],
-    distinct_sq: f32,
-) -> (Vec<RowBest>, Vec<(f32, usize)>) {
+fn match_block(a: &FeatureSet, b: &FeatureSet, rows: &[usize], distinct_sq: f32) -> BlockBest {
     let initial = vec![(f32::NEG_INFINITY, usize::MAX); b.len()];
     rows.iter().fold(
         (Vec::with_capacity(rows.len()), initial),
@@ -101,7 +99,7 @@ pub fn match_classical(
         return Vec::new();
     }
     let distinct_sq = opts.distinct_px * opts.distinct_px;
-    let blocks: Vec<(Vec<RowBest>, Vec<(f32, usize)>)> = (0..a.len())
+    let blocks: Vec<BlockBest> = (0..a.len())
         .collect::<Vec<_>>()
         .par_chunks(ROW_BLOCK)
         .map(|rows| match_block(a, b, rows, distinct_sq))
