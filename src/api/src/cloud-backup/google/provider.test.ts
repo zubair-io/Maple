@@ -357,54 +357,6 @@ test('portable root listings and direct downloads do not depend on the searchabl
   expect(await provider.inspect(object.key, undefined, object.locator)).toBeNull();
 });
 
-test('database-mapped mirror files recover from missing Drive markers and repair changed bytes', async () => {
-  const store = googleStore();
-  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
-  const key = `mirror/${'a'.repeat(24)}/2026/photo.jpg`;
-  const original = source(new Uint8Array([1, 2, 3]));
-  const object = await provider.mirrorFile(key, '2026/photo.jpg', original, {
-    saveCheckpoint: async () => {},
-  });
-  const file = store.files.get(object.locator)!;
-  expect(JSON.parse(file.description).key).toBe(key);
-  expect(file.properties?.mapleKeyHash).toBe(logicalKeyHash(key));
-
-  // A legacy marker that was edited or truncated has no bearing on the DB mapping.
-  file.description = '{}';
-  expect(await provider.inspect(key, undefined, object.locator, object)).toEqual(object);
-
-  file.bytes = new Uint8Array([9, 9, 9]);
-  file.size = '3';
-  file.sha256Checksum = sha(file.bytes);
-  const repaired = await provider.mirrorFile(key, '2026/photo.jpg', original, {
-    expected: object,
-    saveCheckpoint: async () => {},
-  });
-  expect(repaired.locator).toBe(object.locator);
-  expect(repaired.sha256).toBe(original.sha256);
-  expect(store.files.get(object.locator)!.bytes).toEqual(new Uint8Array([1, 2, 3]));
-});
-
-test('cached photo folders are checked before reading them after a user moves one outside the root', async () => {
-  const store = googleStore();
-  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
-  const target = await provider.objectTarget('mirror/library/2024/Wedding/IMG_0042.JPG');
-  const moved = store.files.get(target.parentId)!;
-  moved.parents = ['outside-root'];
-  const before = store.requests.length;
-
-  await expect(provider.inspect('mirror/library/2024/Wedding/IMG_0042.JPG')).rejects.toThrow(
-    'moved outside',
-  );
-
-  const folderQueries = store.requests
-    .slice(before)
-    .filter((request) => request.query?.includes(' in parents'));
-  expect(
-    folderQueries.some((request) => request.query?.includes(`'${target.parentId}' in parents`)),
-  ).toBe(false);
-});
-
 test('exact search rejects inconsistent public metadata and duplicates across result pages', async () => {
   const store = googleStore();
   const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);

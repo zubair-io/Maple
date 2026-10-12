@@ -256,11 +256,14 @@ async function reconcileExpiredReplacement(
   state: GoogleCheckpoint,
   error: unknown,
 ): Promise<Progress> {
-  const current = await ctx.provider.inspect(state.key, ctx.options.signal, state.fileId, {
-    key: state.key,
+  const current = await ctx.provider.inspect(state.key, ctx.options.signal, {
     locator: state.fileId,
-    size: state.size,
-    sha256: state.sha256,
+    expected: {
+      key: state.key,
+      locator: state.fileId,
+      size: state.size,
+      sha256: state.sha256,
+    },
   });
   if (current) {
     if (current.sha256 === state.sha256 && current.size === state.size)
@@ -430,12 +433,10 @@ export async function publishGoogleObject(
   const ctx = { provider, key, source, options, replace: false };
   const saved = await savedCheckpoint(ctx);
   const expected = mappedObject(saved, options.expected);
-  const existing = await provider.inspect(
-    key,
-    options.signal,
-    saved?.fileId ?? expected?.locator,
+  const existing = await provider.inspect(key, options.signal, {
+    locator: saved?.fileId ?? expected?.locator,
     expected,
-  );
+  });
   if (existing) {
     if (existing.sha256 !== source.sha256 || existing.size !== source.size)
       throw new Error('Immutable backup key conflicts with different content.');
@@ -473,14 +474,18 @@ export async function publishGoogleMirrorFile(
   if (target.name !== relativePath.split('/').at(-1))
     throw new Error('Invalid Google mirror path.');
   const ctx = { provider, key, source, options, replace: true };
-  const saved = await mirrorCheckpoint(ctx, target);
+  let saved = await mirrorCheckpoint(ctx, target);
+  // A checkpoint may outlive the DB mapping it was created from (for
+  // example, after another worker completed a replacement). The DB locator
+  // wins: discard the stale resumable session and rebuild the mirror state
+  // against the mapped object instead of passing contradictory identities to
+  // inspect(). The abandoned Google session expires without mutating files.
+  if (saved && options.expected && saved.fileId !== options.expected.locator) saved = null;
   const expected = mappedObject(saved, options.expected);
-  const existing = await provider.inspect(
-    key,
-    options.signal,
-    saved?.fileId ?? expected?.locator,
+  const existing = await provider.inspect(key, options.signal, {
+    locator: saved?.fileId ?? expected?.locator,
     expected,
-  );
+  });
   if (matchesSource(existing, source)) return existing;
   const state = await mirrorState(ctx, target, saved, existing);
   return uploadMirror(ctx, state);

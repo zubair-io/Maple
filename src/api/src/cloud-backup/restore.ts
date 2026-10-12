@@ -75,12 +75,10 @@ async function recoveryGaps(
   for (const file of files) {
     signal?.throwIfAborted();
     try {
-      const actual = await provider.inspect(
-        file.object.key,
-        signal,
-        file.object.locator,
-        file.object,
-      );
+      const actual = await provider.inspect(file.object.key, signal, {
+        locator: file.object.locator,
+        expected: file.object,
+      });
       if (!actual) gaps.push(`${file.path}: backup object is missing or outside the backup root`);
       else if (
         actual.key !== file.object.key ||

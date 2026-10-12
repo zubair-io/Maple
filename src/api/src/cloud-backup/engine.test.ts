@@ -103,9 +103,19 @@ test('database-backed asset mirror state is visible and a stale failure forces a
   expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('synced');
   await repo.updateDestination(destination.id, { enabled: false });
   expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('paused');
+  await repo.db.write('UPDATE backup_entries SET last_error=? WHERE destination_id=?', [
+    'Retry required',
+    destination.id,
+  ]);
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('error');
   await repo.db.write("UPDATE backup_entries SET state='trash' WHERE destination_id=?", [
     destination.id,
   ]);
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('trash');
+  await repo.db.write(
+    "UPDATE backup_entries SET state='trash',last_error='Retry required' WHERE destination_id=?",
+    [destination.id],
+  );
   expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('trash');
   await repo.db.write("UPDATE backup_entries SET state='purged' WHERE destination_id=?", [
     destination.id,

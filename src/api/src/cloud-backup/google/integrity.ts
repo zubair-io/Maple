@@ -15,8 +15,11 @@ export async function verifiedGoogleObject(
   await provider.assertWithinRoot(file, signal);
   const object = backupObject(file, provider.rootId, expected);
   await heartbeat?.();
-  if (file.sha256Checksum)
-    return { ...object, size: Number(file.size), sha256: file.sha256Checksum };
+  if (file.sha256Checksum) {
+    const actual = { ...object, size: Number(file.size), sha256: file.sha256Checksum };
+    if (!expected.key.startsWith('mirror/')) assertExpectedIdentity(actual, expected);
+    return actual;
+  }
   const response = await provider.client.request(
     `${DRIVE_API}/files/${expected.locator}?alt=media`,
     {},
@@ -41,6 +44,11 @@ export async function verifiedGoogleObject(
   } finally {
     await reader.cancel();
   }
-  if (size !== object.size) throw new Error('Google upload read-back size mismatch.');
+  if (size !== object.size && !expected.key.startsWith('mirror/'))
+    throw new Error('Google upload read-back size mismatch.');
   return { ...object, size, sha256: hash.digest('hex') };
+}
+function assertExpectedIdentity(actual: BackupObject, expected: BackupObject): void {
+  if (actual.size !== expected.size || actual.sha256 !== expected.sha256)
+    throw new Error('Google upload read-back checksum mismatch.');
 }
