@@ -96,6 +96,7 @@ use crate::ba::{self, BaOptions};
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, ProjectionMode};
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
+use crate::gain::{solve_photometry_streaming, GainOptions, LensFalloff, LensGroups};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{DescriptorTopKProvider, LoopClosureCheck, LoopClosureGate};
 use crate::ingest::{ingest_file_proxy, FrameMeta};
@@ -468,11 +469,26 @@ pub fn stitch(
     let canvas =
         auto_canvas(&kept_cams, &canvas_opts).map_err(|e| StitchError::Composite(e.to_string()))?;
 
+    let lenses = LensGroups::from_metas(kept_meta.iter().map(|(inp_idx, _, _)| &metas[*inp_idx]));
+    let solved =
+        solve_photometry_streaming(&kept_paths, &kept_cams, &lenses, &GainOptions::default())
+            .map_err(|e| StitchError::Composite(e.to_string()))?;
+    let photometry = solved.frames;
+    let falloff = solved
+        .falloff
+        .into_iter()
+        .map(|g| LensFalloff {
+            frames: g.frames.iter().map(|&k| kept_meta[k].0).collect(),
+            ..g
+        })
+        .collect();
+
     let kept_inputs: Vec<usize> = kept_meta.iter().map(|(i, _, _)| *i).collect();
     let seam_constraints = seam_gate::for_kept_frames(&opts.seam_constraints, &kept_inputs)?;
     let (image, comp_report) = rotation_composite::composite(
         &kept_paths,
         &kept_cams,
+        &photometry,
         &kept_local,
         &canvas,
         opts,
@@ -490,6 +506,7 @@ pub fn stitch(
         strategy_report,
         focal_seed_source: focal_seed.source,
         applied_opcodes,
+        falloff,
         priors,
         refined_matches,
         fallback_matches,

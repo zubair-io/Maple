@@ -10,8 +10,9 @@
 //! pixel is invalid when it maps outside the source frame, behind the
 //! camera, or onto fully-invalid taps.
 //!
-//! The per-frame photometric correction (gain and bias, spec §5.5) is
-//! folded into the sampling loop — same shape as the WGSL `warp_inverse` kernel will use (eng
+//! The per-frame photometric correction (gain, bias and the blind
+//! lens-falloff correction at the tap's source position, spec §5.5,
+//! #4522) is folded into the sampling loop — same shape as the WGSL `warp_inverse` kernel will use (eng
 //! design §5, "gain multiplier folded in — saves a pass").
 //!
 //! Rows are rayon-parallel; per-pixel work is pure, so output is
@@ -275,8 +276,8 @@ fn sample_bicubic(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
 }
 
 /// Warp one source frame onto the canvas. `photometry` is the frame's
-/// gain and bias ([`FramePhotometry::IDENTITY`] = none), folded into the
-/// sampling loop.
+/// gain, bias and falloff ([`FramePhotometry::IDENTITY`] = none), folded
+/// into the sampling loop.
 ///
 /// The output is a canvas-sized [`PlanarImage`] whose validity marks
 /// exactly the pixels that received a covered sample.
@@ -351,7 +352,7 @@ pub fn warp_to_canvas(
                         let Some(s) = sample_bicubic(src, fx, fy) else {
                             continue;
                         };
-                        let [cr, cg, cb] = photometry.apply(s);
+                        let [cr, cg, cb] = photometry.apply_at(s, fx, fy, src_w, src_h);
                         row_r[x] = cr;
                         row_g[x] = cg;
                         row_b[x] = cb;
@@ -465,7 +466,7 @@ pub fn warp_to_canvas_strip(
                     let Some(s) = sample_bicubic(src, fx, fy) else {
                         continue;
                     };
-                    let [cr, cg, cb] = photometry.apply(s);
+                    let [cr, cg, cb] = photometry.apply_at(s, fx, fy, src_w, src_h);
                     row_r[x] = cr;
                     row_g[x] = cg;
                     row_b[x] = cb;
