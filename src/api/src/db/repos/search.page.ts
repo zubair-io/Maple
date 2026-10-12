@@ -35,7 +35,6 @@ import { locationsByAssetIdsSql } from './assets.sql.ts';
 import {
   countSql,
   descriptionsByAssetIdsSql,
-  idPageSql,
   pageSql,
   phassetLinksByAssetIdsSql,
   seekPredicate,
@@ -149,11 +148,12 @@ export async function searchByIds(
 ): Promise<SearchDoc[]> {
   if (ids.length === 0) return [];
   const db = assetsDb(dbOverride);
-  const statement = idPageSql(where, ids);
+  const statement = windowColumnsSql(where, ids);
   const rows = await db.read<PageRow>(statement.sql, statement.params);
-  const byId = new Map(rows.map((row) => [row.id, row] as const));
-  const ordered = ids.map((id) => byId.get(id)).filter((row): row is PageRow => row !== undefined);
-  return hydrate(db, ordered);
+  return hydrate(
+    db,
+    inGivenOrder(ids, rows, (row) => row.id),
+  );
 }
 
 /**

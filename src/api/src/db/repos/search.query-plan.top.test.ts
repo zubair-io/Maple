@@ -162,3 +162,36 @@ describe("a window's page is re-read under its filters by key (#4545)", () => {
     }
   }
 });
+
+const STORED_QUERIES: SearchQuery[] = [
+  {},
+  { month: '6' },
+  { hidden: 'all' },
+  { rating: '3', camera: 'apple' },
+  { subjects: 'dog', ext: 'dng' },
+  { placeQuery: 'harbour' },
+];
+
+describe("a collection's stored ids are re-read under its filters by key (#4571)", () => {
+  for (const statistics of ['analyzed', 'none'] as const) {
+    for (const q of STORED_QUERIES) {
+      test(`${JSON.stringify(q)}${statistics === 'none' ? ' without statistics' : ''}`, async () => {
+        await withDb((db) => {
+          const plan = planOf(
+            db,
+            windowColumnsSql(translate(q), [
+              '0123456789abcdef01234567',
+              '89abcdef0123456789abcdef',
+            ]),
+          );
+          expect(plan[0]).toMatch(/^SCAN page VIRTUAL TABLE/);
+          expect(plan[1]).toMatch(
+            /^SEARCH assets USING (COVERING )?INDEX \S+ \((\w+=\? AND )*id=\?( AND \w+=\?)*\)$/,
+          );
+          expect(plan.some((line) => line.includes('assets_fts'))).toBe(false);
+          expect(plan.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
+        }, statistics);
+      });
+    }
+  }
+});
