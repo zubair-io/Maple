@@ -214,7 +214,9 @@ struct CloudSearchView: View {
   }
 
   private var countLabel: String {
-    vm.total == 1 ? "1 result" : "\(vm.total) results"
+    vm.totalIsLowerBound
+      ? "\(vm.total)+ results"
+      : vm.total == 1 ? "1 result" : "\(vm.total) results"
   }
 
   private func statePane(icon: String, title: String, detail: String) -> some View {

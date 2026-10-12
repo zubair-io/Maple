@@ -19,6 +19,8 @@ import {
 } from './search-engine-selection.ts';
 import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { RANKED_WINDOW_MAX } from '../db/repos/search.ranked.ts';
+import { ChildProcessWorker, childScriptPath } from '../runtime/child-process-worker.ts';
+import type { FusedSearchHit } from './search-engine-ffi.ts';
 
 afterEach(() => {
   setInProcessSearchForTests(null);
@@ -116,4 +118,29 @@ describe('the remote search bridge', () => {
     expect((await inProcessRanking('harbour', 30))?.map((hit) => hit.id)).toEqual(['remote-hit']);
     expect(api.queries).toEqual([{ query: 'harbour', k: 30 }]);
   });
+
+  it('reaches the API side from a real child process over the supervisor channel', async () => {
+    const api = fakeInProcessSearch(['from-api']);
+    const worker = new ChildProcessWorker(
+      childScriptPath(import.meta.url, './__fixtures__/remote-search-child.ts'),
+      { label: 'remote-search-test' },
+    );
+    try {
+      const reported = await new Promise<FusedSearchHit[] | null>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('no report from the child')), 10_000);
+        worker.addEventListener('message', (event) => {
+          if (answerRemoteSearch(worker, event.data, api)) return;
+          const data = event.data as { type?: string; hits?: FusedSearchHit[] | null };
+          if (data.type !== 'fixture-result') return;
+          clearTimeout(timer);
+          resolve(data.hits ?? null);
+        });
+        worker.addEventListener('error', (event) => reject(new Error(event.message)));
+      });
+      expect(reported?.map((hit) => hit.id)).toEqual(['from-api']);
+      expect(api.queries).toEqual([{ query: 'harbour', k: 7 }]);
+    } finally {
+      worker.terminate();
+    }
+  }, 15_000);
 });
