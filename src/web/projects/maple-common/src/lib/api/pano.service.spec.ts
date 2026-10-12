@@ -11,6 +11,7 @@ const CONFIG: PanoConfig = {
   ort_dylib_path: null,
   enabled: true,
   strategy_supported: false,
+  preview_supported: true,
   source: {
     maple_cli_path: 'db',
     models_dir: 'unset',
@@ -76,6 +77,32 @@ describe('PanoService', () => {
       );
     expect(status).toBe(409);
     expect(code).toBe('pano_not_provisioned');
+  });
+
+  it('preview POSTs the request, alignment reference included, to /pano/preview (#4580)', () => {
+    const req = {
+      assetPaths: ['/lib/a.dng', '/lib/b.dng'],
+      libraryId: 'lib1',
+      options: { retention: 'keep' as const, localAlign: 'off' as const },
+      alignmentFrom: 'prev1',
+    };
+    let id = '';
+    svc.preview(req).subscribe((r) => (id = r.id));
+    const call = http.expectOne('/api/pano/preview');
+    expect(call.request.method).toBe('POST');
+    expect(call.request.body).toEqual(req);
+    call.flush({ id: 'job2' }, { status: 201, statusText: 'Created' });
+    expect(id).toBe('job2');
+  });
+
+  it('previewImage GETs the preview PNG as a blob (#4580)', () => {
+    let size = 0;
+    svc.previewImage('job 2').subscribe((b) => (size = b.size));
+    const call = http.expectOne('/api/pano/jobs/job%202/preview');
+    expect(call.request.method).toBe('GET');
+    expect(call.request.responseType).toBe('blob');
+    call.flush(new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }));
+    expect(size).toBe(3);
   });
 
   it('getJob GETs /pano/jobs/:id with the id encoded', () => {

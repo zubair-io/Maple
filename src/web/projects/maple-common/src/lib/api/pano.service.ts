@@ -36,6 +36,10 @@ export interface PanoStitchRequest {
   assetPaths?: string[];
   libraryId: string;
   options: PanoStitchOptions;
+  /** A finished preview job whose solved alignment the job starts from, so
+   *  matching is not repeated (#4580). Ignored by the server when the preview
+   *  is unknown or unfinished. */
+  alignmentFrom?: string;
 }
 
 export interface PanoStitchResponse {
@@ -44,6 +48,8 @@ export interface PanoStitchResponse {
    *  Present and > 0 when the server had to index files that were not yet in
    *  the assets collection. The job proceeds normally regardless. */
   indexing?: number;
+  /** Whether the stitch was handed the preview's alignment (`alignmentFrom`). */
+  alignmentReused?: boolean;
 }
 
 export interface PanoJobProgress {
@@ -51,11 +57,25 @@ export interface PanoJobProgress {
   total: number;
 }
 
+export interface PanoAlignmentVerdict {
+  status: 'solved' | 'reused' | 'stale';
+  stale_reason: string | null;
+}
+
 export interface PanoJobResult {
   outputAssetId: string | null;
   outputPath: string;
   stagesCompleted: number;
+  alignment?: PanoAlignmentVerdict | null;
   error: string | null;
+}
+
+/** `result` of a finished `pano_preview` job. */
+export interface PanoPreviewResult {
+  alignment: PanoAlignmentVerdict | null;
+  width: number | null;
+  height: number | null;
+  seconds: number | null;
 }
 
 export interface PanoJobView {
@@ -63,7 +83,7 @@ export interface PanoJobView {
   kind: string;
   status: PanoJobStatus;
   progress: PanoJobProgress;
-  result: PanoJobResult | null;
+  result: (PanoJobResult & Partial<PanoPreviewResult>) | null;
   error: string | null;
   cancel_requested: boolean;
   created_at: string;
@@ -79,6 +99,8 @@ export interface PanoConfig {
   enabled: boolean;
   /** Whether the binary supports --strategy (probed at request time). */
   strategy_supported: boolean;
+  /** Whether the binary supports the quick preview (`--preview-out`, #4580). */
+  preview_supported: boolean;
   source: {
     maple_cli_path: ConfigSource;
     models_dir: ConfigSource;
@@ -116,6 +138,19 @@ export class PanoService {
    * The observable errors on non-2xx; callers should handle 409 explicitly. */
   stitch(req: PanoStitchRequest): Observable<PanoStitchResponse> {
     return this.http.post<PanoStitchResponse>(`${this.base}/pano/stitch`, req);
+  }
+
+  /** Create a pano_preview job; a newer preview supersedes a running one.
+   *  409 `pano_preview_unsupported` from an older maple-cli. */
+  preview(req: PanoStitchRequest): Observable<PanoStitchResponse> {
+    return this.http.post<PanoStitchResponse>(`${this.base}/pano/preview`, req);
+  }
+
+  /** The finished preview image of a `pano_preview` job. */
+  previewImage(jobId: string): Observable<Blob> {
+    return this.http.get(`${this.base}/pano/jobs/${encodeURIComponent(jobId)}/preview`, {
+      responseType: 'blob',
+    });
   }
 
   /** Poll job status + progress. */

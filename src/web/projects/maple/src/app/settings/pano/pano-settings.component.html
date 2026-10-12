@@ -154,6 +154,24 @@
               }}
             </span>
           </div>
+          <div class="flex items-center gap-3 py-2 border-t-[0.5px] border-t-border">
+            <span class="text-[11px] font-semibold text-text-muted min-w-[120px]"
+              >Quick preview</span
+            >
+            <span
+              [class]="
+                config()?.preview_supported
+                  ? 'text-[11px] text-[var(--color-success,#33aa55)]'
+                  : 'text-[11px] text-text-muted'
+              "
+            >
+              {{
+                config()?.preview_supported
+                  ? 'Supported — the merge dialog previews before stitching'
+                  : 'Not supported by this binary — rebuild maple-cli for previews'
+              }}
+            </span>
+          </div>
         }
 
         <!-- Save / status -->

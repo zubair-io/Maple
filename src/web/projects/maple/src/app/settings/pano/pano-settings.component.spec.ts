@@ -12,6 +12,7 @@ const CONFIG: PanoConfig = {
   ort_dylib_path: null,
   enabled: false,
   strategy_supported: false,
+  preview_supported: false,
   source: {
     maple_cli_path: 'db',
     models_dir: 'db',
