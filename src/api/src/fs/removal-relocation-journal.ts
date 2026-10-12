@@ -5,7 +5,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { removalRecords } from './removal-records.ts';
 import { listPairedSidecars } from './xmp-conflict.ts';
-import { removalRelocationLease } from './removal-relocation-lease.ts';
+import { xmpSidecarPath } from './xmp.ts';
+import { removalLeaseFiles, removalRelocationLease } from './removal-relocation-lease.ts';
 import { isWithinRoot } from './root.ts';
 
 interface JournalFile {
@@ -186,6 +187,38 @@ async function restore(target: string, record: Journal) {
     } else await fs.rm(path, { force: true });
     await syncRemovalDirectory(dirname(target));
   }
+}
+
+/** Only a photo that carries accepted removal records, an interrupted removal
+ * relocation journal, or an existing coordination inode (another owner has
+ * leased it before) needs the kernel lease. Ordinary metadata writes and
+ * relocations on every other photo stay inode-free, exactly as before #1472.
+ * An unreadable sidecar cannot prove the absence of edits, so it requires the
+ * lease. `paired` also inspects conflict variants, which a relocation carries
+ * along with the primary. */
+export async function removalCoordinationRequired(
+  raw: string,
+  scope: 'primary' | 'paired',
+): Promise<boolean> {
+  if ((await removalFileDigest(removalJournalPath(raw))) !== null) return true;
+  for (const lock of removalLeaseFiles(raw)) {
+    const present = await fs.lstat(lock).then(
+      () => true,
+      (error: unknown) =>
+        !(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT'),
+    );
+    if (present) return true;
+  }
+  const sidecars = scope === 'paired' ? await listPairedSidecars(raw) : [xmpSidecarPath(raw)];
+  for (const sidecar of sidecars) {
+    const xml = await fs.readFile(sidecar, 'utf8').catch((error: unknown) => {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
+        return '';
+      return null;
+    });
+    if (xml === null || xml.includes('InpaintRemovals')) return true;
+  }
+  return false;
 }
 
 /** Caller holds the lease when publishing or recovering. */

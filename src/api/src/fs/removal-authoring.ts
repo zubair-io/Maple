@@ -121,31 +121,35 @@ export async function publishRemovalCompanion(raw: string, name: string, bytes: 
   assetName(name);
   requirePublicationLease();
   await authorizeRaw(raw);
-  return withSidecarMutationLease(raw, async () => {
-    const path = join(await assetDirectory(raw, true), name);
-    const temp = `${path}.tmp.${randomUUID()}`;
-    try {
-      const handle = await fs.open(temp, 'wx');
+  return withSidecarMutationLease(
+    raw,
+    async () => {
+      const path = join(await assetDirectory(raw, true), name);
+      const temp = `${path}.tmp.${randomUUID()}`;
       try {
-        await handle.writeFile(bytes);
-        await handle.sync();
+        const handle = await fs.open(temp, 'wx');
+        try {
+          await handle.writeFile(bytes);
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+        await validateAsset(temp, name);
+        await fs.link(temp, path).catch((error: unknown) => {
+          if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST'))
+            throw error;
+        });
+        await validateAsset(path, name);
+        if (!(await fs.readFile(path)).equals(Buffer.from(bytes)))
+          fail(409, 'Existing removal companion differs; retained without replacement');
+        await syncRemovalDirectory(dirname(path));
       } finally {
-        await handle.close();
+        await fs.rm(temp, { force: true });
       }
-      await validateAsset(temp, name);
-      await fs.link(temp, path).catch((error: unknown) => {
-        if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST'))
-          throw error;
-      });
-      await validateAsset(path, name);
-      if (!(await fs.readFile(path)).equals(Buffer.from(bytes)))
-        fail(409, 'Existing removal companion differs; retained without replacement');
-      await syncRemovalDirectory(dirname(path));
-    } finally {
-      await fs.rm(temp, { force: true });
-    }
-    return { name };
-  });
+      return { name };
+    },
+    { removal: true },
+  );
 }
 
 function validatedRecords(xml: string) {
@@ -183,56 +187,63 @@ export async function commitRemovalSidecar(raw: string, request: RemovalSidecarC
   requirePublicationLease();
   await authorizeRaw(raw);
   const records = validatedRecords(request.xml);
-  return withSidecarMutationLease(raw, async () => {
-    const current = await removalSidecarSnapshot(raw);
-    // A lost HTTP acknowledgement can be retried without overwriting later
-    // edits. Only the exact already-published document satisfies the retry.
-    if (current.revision === revision(Buffer.from(request.xml))) {
-      await verifyStack(raw, request.expectedRecords, records);
+  return withSidecarMutationLease(
+    raw,
+    async () => {
+      const current = await removalSidecarSnapshot(raw);
+      // A lost HTTP acknowledgement can be retried without overwriting later
+      // edits. Only the exact already-published document satisfies the retry.
+      if (current.revision === revision(Buffer.from(request.xml))) {
+        await verifyStack(raw, request.expectedRecords, records);
+        if ((await removalSidecarSnapshot(raw)).revision !== current.revision)
+          fail(409, 'XMP changed during removal retry validation');
+        return current;
+      }
+      if (current.revision !== request.expectedRevision)
+        fail(409, 'XMP changed since this removal edit opened; reload before saving');
+      const prior = current.xml ? validatedRecords(current.xml) : '[]';
+      if (prior !== request.expectedRecords) fail(409, 'Saved removal history changed');
+      await verifyStack(raw, prior, records);
+      // Non-cooperating external writers cannot grant our lease. Re-read the
+      // precondition immediately before publication as well as on entry.
       if ((await removalSidecarSnapshot(raw)).revision !== current.revision)
-        fail(409, 'XMP changed during removal retry validation');
-      return current;
-    }
-    if (current.revision !== request.expectedRevision)
-      fail(409, 'XMP changed since this removal edit opened; reload before saving');
-    const prior = current.xml ? validatedRecords(current.xml) : '[]';
-    if (prior !== request.expectedRecords) fail(409, 'Saved removal history changed');
-    await verifyStack(raw, prior, records);
-    // Non-cooperating external writers cannot grant our lease. Re-read the
-    // precondition immediately before publication as well as on entry.
-    if ((await removalSidecarSnapshot(raw)).revision !== current.revision)
-      fail(409, 'XMP changed during removal validation');
-    const path = xmpSidecarPath(raw);
-    const write = await writeSidecarAtomic(path, request.xml, 'Removal XMP write failed');
-    if (!write.ok) fail(500, write.error);
-    await syncRemovalDirectory(dirname(path));
-    const result = await removalSidecarSnapshot(raw);
-    if (result.revision !== revision(Buffer.from(request.xml)))
-      fail(409, 'Published removal XMP could not be confirmed');
-    return result;
-  });
+        fail(409, 'XMP changed during removal validation');
+      const path = xmpSidecarPath(raw);
+      const write = await writeSidecarAtomic(path, request.xml, 'Removal XMP write failed');
+      if (!write.ok) fail(500, write.error);
+      await syncRemovalDirectory(dirname(path));
+      const result = await removalSidecarSnapshot(raw);
+      if (result.revision !== revision(Buffer.from(request.xml)))
+        fail(409, 'Published removal XMP could not be confirmed');
+      return result;
+    },
+    { removal: true },
+  );
 }
 
 /** Ordinary Web metadata saves cannot introduce, discard or replace accepted pixels. */
 export async function writeRemovalAwareXmp(raw: string, xml: string) {
   try {
-    return await withSidecarMutationLease(raw, () =>
-      serializeSidecarWrite(xmpSidecarPath(raw), async () => {
-        const current = await fs.readFile(xmpSidecarPath(raw), 'utf8').catch((error: unknown) => {
-          if (missing(error)) return '';
-          throw error;
-        });
-        const before = current ? (removalRecords(current) ?? '[]') : '[]';
-        const after = removalRecords(xml) ?? '[]';
-        if (before !== after)
-          fail(
-            409,
-            'Removal history changed; use a confirmed removal commit before saving this document',
-          );
-        const output = await prepareWorkflowWrite(current || null, xml);
-        const result = await writeSidecarAtomic(xmpSidecarPath(raw), output, 'XMP write failed');
-        return result.ok ? { ...result, data: output } : result;
-      }),
+    return await withSidecarMutationLease(
+      raw,
+      () =>
+        serializeSidecarWrite(xmpSidecarPath(raw), async () => {
+          const current = await fs.readFile(xmpSidecarPath(raw), 'utf8').catch((error: unknown) => {
+            if (missing(error)) return '';
+            throw error;
+          });
+          const before = current ? (removalRecords(current) ?? '[]') : '[]';
+          const after = removalRecords(xml) ?? '[]';
+          if (before !== after)
+            fail(
+              409,
+              'Removal history changed; use a confirmed removal commit before saving this document',
+            );
+          const output = await prepareWorkflowWrite(current || null, xml);
+          const result = await writeSidecarAtomic(xmpSidecarPath(raw), output, 'XMP write failed');
+          return result.ok ? { ...result, data: output } : result;
+        }),
+      { incomingXml: xml },
     );
   } catch (error) {
     return {

@@ -115,13 +115,16 @@ export async function writeXmpAtomic(
   const allowed = await primarySidecarDestination(rawAbsPath);
   if (!allowed.ok) return allowed;
   const destination = allowed.data;
-  return withSidecarMutationLease(rawAbsPath, () =>
-    serializeSidecarWrite(destination, async () => {
-      const prepared = await preparePrimarySidecarWrite(destination, xmlContent);
-      if (!prepared.ok) return prepared;
-      const result = await writeSidecarAtomic(destination, prepared.data, 'XMP write failed');
-      return result.ok ? { ok: true, data: prepared.data } : { ok: false, error: result.error };
-    }),
+  return withSidecarMutationLease(
+    rawAbsPath,
+    () =>
+      serializeSidecarWrite(destination, async () => {
+        const prepared = await preparePrimarySidecarWrite(destination, xmlContent);
+        if (!prepared.ok) return prepared;
+        const result = await writeSidecarAtomic(destination, prepared.data, 'XMP write failed');
+        return result.ok ? { ok: true, data: prepared.data } : { ok: false, error: result.error };
+      }),
+    { incomingXml: xmlContent },
   ).catch(
     (error): OpResult<string> => ({
       ok: false,
@@ -321,50 +324,53 @@ export async function writeXmpWithPrecondition(
   const allowed = await primarySidecarDestination(rawAbsPath);
   if (!allowed.ok) return { kind: 'error', error: allowed.error };
   const sidecar = allowed.data;
-  return withSidecarMutationLease(rawAbsPath, () =>
-    serializeSidecarWrite<XmpWriteOutcome>(sidecar, async (): Promise<XmpWriteOutcome> => {
-      const writeConflictCopy = async (): Promise<XmpWriteOutcome> => {
-        const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName);
-        const written = await writeSidecarAtomic(
-          conflictPath,
-          xmlContent,
-          'Conflict-copy write failed',
-        );
-        return written.ok
-          ? { kind: 'conflict', conflictPath, conflictMtime: written.mtime }
-          : { kind: 'error', error: written.error };
-      };
-
-      if (requireAbsent) {
-        const created = await writeSidecarCreateOnly(sidecar, xmlContent, 'XMP write failed');
-        if ('exists' in created) return writeConflictCopy();
-        return created.ok
-          ? { kind: 'ok', mtime: created.mtime }
-          : { kind: 'error', error: created.error };
-      }
-
-      if (ifMtimeMatchesEpoch !== null) {
-        let onDiskEpoch: number | null = null;
-        try {
-          const st = await fs.stat(sidecar);
-          onDiskEpoch = Math.floor(st.mtimeMs / 1000);
-        } catch {
-          onDiskEpoch = null;
-        }
-        if (onDiskEpoch !== ifMtimeMatchesEpoch) return writeConflictCopy();
-      }
-
-      const prepared = await preparePrimarySidecarWrite(sidecar, xmlContent);
-      if (!prepared.ok)
-        return {
-          kind: 'error',
-          error: prepared.error ?? 'Workflow validation failed',
+  return withSidecarMutationLease(
+    rawAbsPath,
+    () =>
+      serializeSidecarWrite<XmpWriteOutcome>(sidecar, async (): Promise<XmpWriteOutcome> => {
+        const writeConflictCopy = async (): Promise<XmpWriteOutcome> => {
+          const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName);
+          const written = await writeSidecarAtomic(
+            conflictPath,
+            xmlContent,
+            'Conflict-copy write failed',
+          );
+          return written.ok
+            ? { kind: 'conflict', conflictPath, conflictMtime: written.mtime }
+            : { kind: 'error', error: written.error };
         };
-      const result = await writeSidecarAtomic(sidecar, prepared.data, 'XMP write failed');
-      return result.ok
-        ? { kind: 'ok', mtime: result.mtime }
-        : { kind: 'error', error: result.error };
-    }),
+
+        if (requireAbsent) {
+          const created = await writeSidecarCreateOnly(sidecar, xmlContent, 'XMP write failed');
+          if ('exists' in created) return writeConflictCopy();
+          return created.ok
+            ? { kind: 'ok', mtime: created.mtime }
+            : { kind: 'error', error: created.error };
+        }
+
+        if (ifMtimeMatchesEpoch !== null) {
+          let onDiskEpoch: number | null = null;
+          try {
+            const st = await fs.stat(sidecar);
+            onDiskEpoch = Math.floor(st.mtimeMs / 1000);
+          } catch {
+            onDiskEpoch = null;
+          }
+          if (onDiskEpoch !== ifMtimeMatchesEpoch) return writeConflictCopy();
+        }
+
+        const prepared = await preparePrimarySidecarWrite(sidecar, xmlContent);
+        if (!prepared.ok)
+          return {
+            kind: 'error',
+            error: prepared.error ?? 'Workflow validation failed',
+          };
+        const result = await writeSidecarAtomic(sidecar, prepared.data, 'XMP write failed');
+        return result.ok
+          ? { kind: 'ok', mtime: result.mtime }
+          : { kind: 'error', error: result.error };
+      }),
+    { incomingXml: xmlContent },
   ).catch(
     (error): XmpWriteOutcome => ({
       kind: 'error',

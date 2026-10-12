@@ -4,13 +4,25 @@ import { dirname } from 'node:path';
 import { safeWriteAllowed } from './root.ts';
 import { xmpSidecarPath } from './xmp.ts';
 import { removalRelocationLease } from './removal-relocation-lease.ts';
-import { assertRemovalRecovered, recoverRemovalRelocation } from './removal-relocation-journal.ts';
+import {
+  assertRemovalRecovered,
+  recoverRemovalRelocation,
+  removalCoordinationRequired,
+} from './removal-relocation-journal.ts';
 
 const pending = new Map<string, Promise<void>>();
+
+export interface SidecarMutationOptions {
+  /** The document about to be written; removal records in it require the lease. */
+  incomingXml?: string;
+  /** Removal authoring always leases, even before the photo has a sidecar. */
+  removal?: boolean;
+}
 
 export async function withSidecarMutationLease<T>(
   raw: string,
   mutation: () => Promise<T>,
+  options: SidecarMutationOptions = {},
 ): Promise<T> {
   const sidecar = xmpSidecarPath(raw);
   const allowed = await safeWriteAllowed(sidecar);
@@ -35,6 +47,14 @@ export async function withSidecarMutationLease<T>(
     await previous;
     await fs.mkdir(dirname(sidecar), { recursive: true });
     await recoverRemovalRelocation(raw);
+    // An ordinary save on a photo without accepted removals needs no kernel
+    // lease: taking one would leave permanent coordination inodes beside
+    // every edited photo.
+    const required =
+      options.removal === true ||
+      (options.incomingXml?.includes('InpaintRemovals') ?? false) ||
+      (await removalCoordinationRequired(raw, 'primary'));
+    if (!required) return await mutation();
     const lease = await removalRelocationLease(raw, raw);
     try {
       await assertRemovalRecovered(raw);

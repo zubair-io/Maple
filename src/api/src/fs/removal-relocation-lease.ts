@@ -4,35 +4,41 @@ import { basename, dirname, join } from 'node:path';
 import * as fs from './mirrored.ts';
 import { xmpSidecarPath } from './xmp.ts';
 
+const FLOCK_LIBRARY =
+  process.platform === 'darwin'
+    ? '/usr/lib/libSystem.B.dylib'
+    : process.platform === 'linux'
+      ? 'libc.so.6'
+      : null;
+const FLOCK_SIGNATURE = {
+  flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
+} as const;
+let flockLibrary: ReturnType<typeof dlopen<typeof FLOCK_SIGNATURE>> | null = null;
+// One process-wide handle: the lease runs on every removal write, and a
+// dlopen/close pair per call is wasted work on the single event loop.
+function flockSymbols() {
+  if (!FLOCK_LIBRARY) throw new Error('Removal relocation requires a POSIX filesystem lease');
+  const library = flockLibrary ?? dlopen(FLOCK_LIBRARY, FLOCK_SIGNATURE);
+  flockLibrary = library;
+  return library.symbols;
+}
+
+// Match Apple's persistent lock names. Never unlink: a new inode would let
+// another process bypass an owner still holding the original descriptor.
+export function removalLeaseFiles(raw: string): string[] {
+  return [
+    join(dirname(raw), `.${basename(raw)}.relocation.lock`),
+    join(dirname(raw), `.${basename(xmpSidecarPath(raw))}.lock`),
+  ];
+}
+
 export async function removalRelocationLease(source: string, target: string) {
-  const library =
-    process.platform === 'darwin'
-      ? '/usr/lib/libSystem.B.dylib'
-      : process.platform === 'linux'
-        ? 'libc.so.6'
-        : null;
-  if (!library) throw new Error('Removal relocation requires a POSIX filesystem lease');
-  const native = dlopen(library, {
-    flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
-  });
+  const native = flockSymbols();
   const handles: Awaited<ReturnType<typeof fs.open>>[] = [];
   const inodes = new Set<string>();
-  // Match Apple's persistent lock names. Never unlink: a new inode would let
-  // another process bypass an owner still holding the original descriptor.
-  const names = [
-    ...new Set(
-      [source, target].flatMap((raw) => [
-        join(dirname(raw), `.${basename(raw)}.relocation.lock`),
-        join(dirname(raw), `.${basename(xmpSidecarPath(raw))}.lock`),
-      ]),
-    ),
-  ].sort();
+  const names = [...new Set([source, target].flatMap(removalLeaseFiles))].sort();
   const release = async () => {
-    try {
-      await Promise.all(handles.reverse().map((handle) => handle.close()));
-    } finally {
-      native.close();
-    }
+    await Promise.all(handles.reverse().map((handle) => handle.close()));
   };
   const acquire = async (handle: Awaited<ReturnType<typeof fs.open>>) => {
     handles.push(handle);
@@ -44,7 +50,7 @@ export async function removalRelocationLease(source: string, target: string) {
       return;
     }
     inodes.add(inode);
-    if (!info.isFile() || native.symbols.flock(handle.fd, 2 | 4) !== 0)
+    if (!info.isFile() || native.flock(handle.fd, 2 | 4) !== 0)
       throw new Error('Photo is busy with another edit or relocation');
   };
   try {

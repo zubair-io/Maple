@@ -56,7 +56,11 @@ import { sidecarRenameTarget, companionRenameTarget } from './sidecar-rename.ts'
 import { classifySameFile, performCaseOnlyRename } from './relocate-case-only-rename.ts';
 import { relocateRemoval } from './relocate-removal.ts';
 import { pickFreePath } from './pick-free-path.ts';
-import { recoverRemovalRelocation, assertRemovalRecovered } from './removal-relocation-journal.ts';
+import {
+  recoverRemovalRelocation,
+  assertRemovalRecovered,
+  removalCoordinationRequired,
+} from './removal-relocation-journal.ts';
 import { removalRelocationLease } from './removal-relocation-lease.ts';
 
 export { sidecarRenameTarget, pickFreePath };
@@ -419,6 +423,13 @@ async function withRelocationLease(
     await recoverRemovalRelocation(req.sourceAbsPath);
     await recoverRemovalRelocation(target);
     if (process.platform !== 'darwin' && process.platform !== 'linux') return await operation();
+    // Only photos carrying accepted removals (or an interrupted removal
+    // relocation) take the kernel lease; an ordinary move or trash must not
+    // leave permanent coordination inodes in the user's folders.
+    const required =
+      (await removalCoordinationRequired(req.sourceAbsPath, 'paired')) ||
+      (await removalCoordinationRequired(target, 'paired'));
+    if (!required) return await operation();
     const lease = await removalRelocationLease(req.sourceAbsPath, target);
     try {
       await assertRemovalRecovered(req.sourceAbsPath);

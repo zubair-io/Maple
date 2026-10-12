@@ -171,15 +171,9 @@ describe('relocateFile — case-only rename (#2704)', () => {
       expect(await read('a/img.cr3')).toBe('pixels');
       expect(await exists('a/img.xmp')).toBe(true);
       expect(await read('a/img.xmp')).toBe('edits');
-      const storedNames = await fs.readdir(abs('a'));
-      // Persistent kernel-lock files keep the same inode across owners (#1472).
-      // Confirm the photo's stored casing separately, without tolerating temps.
-      const lockName = /^\.(?:img\.cr3\.relocation|img\.xmp)\.lock$/i;
-      expect(storedNames.filter((name) => !lockName.test(name)).sort()).toEqual([
-        'img.cr3',
-        'img.xmp',
-      ]);
-      expect(storedNames.filter((name) => lockName.test(name)).length).toBe(2);
+      // A photo without accepted removals takes no kernel lease, so the
+      // directory holds exactly the reverted pair: no lock inodes, no temps.
+      expect((await fs.readdir(abs('a'))).sort()).toEqual(['img.cr3', 'img.xmp']);
     },
   );
 
