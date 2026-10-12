@@ -243,17 +243,30 @@ async function scanTargetOrError(rawId: string): Promise<FolderWithId | Response
   return folder ?? Response.json({ ok: false, error: 'Folder not found' }, { status: 404 });
 }
 
+// A walk of a large library outlasts the `last_scan` de-bounce by hours, since
+// the stamp lands only when it finishes. Without this every folder open in that
+// time started another full walk, and the overlapping walks saturated the
+// SQLite pool until every reader timed out.
+const walksInProgress = new Map<string, Promise<string>>();
+
 /**
  * Re-walks a library and stamps the time it finished, which is what both scan
  * routes mean by scanning: the walk pushes every supported file through the
  * discover producer, and `last_scan` is what the de-bounce on `/:id/scan`
  * reads afterwards. Returns the stamp so the caller can hand it back.
  */
-async function rewalkFolder(folder: FolderWithId): Promise<string> {
-  await scanFolderAndDiscover(folder.path, folder._id, folder.path);
-  const scannedAt = new Date().toISOString();
-  await setFolderLastScan(folder._id, scannedAt);
-  return scannedAt;
+function rewalkFolder(folder: FolderWithId): Promise<string> {
+  const key = folder._id.toHexString();
+  const inProgress = walksInProgress.get(key);
+  if (inProgress) return inProgress;
+  const walk = (async () => {
+    await scanFolderAndDiscover(folder.path, folder._id, folder.path);
+    const scannedAt = new Date().toISOString();
+    await setFolderLastScan(folder._id, scannedAt);
+    return scannedAt;
+  })().finally(() => walksInProgress.delete(key));
+  walksInProgress.set(key, walk);
+  return walk;
 }
 
 export const foldersRoutes = new Elysia({ prefix: '/api/folders' })

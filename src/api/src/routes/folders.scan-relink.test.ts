@@ -172,6 +172,25 @@ describe('POST /api/folders/:id/scan — relink on open', () => {
     expect(secondBody.last_scan).toBe(firstScan);
   });
 
+  it('joins a walk already in progress instead of starting a second one', async () => {
+    const root = await makeRoot('scan-overlap-');
+    await writeFile(path.join(root, 'IMG.dng'), Buffer.alloc(72 * 1024, 0x3c));
+    const folderId = insertFolder(live.db, { path: root, slug: 'overlap-test' });
+
+    const responses = await Promise.all([scan(folderId), scan(folderId), scan(folderId)]);
+    const bodies = (await Promise.all(responses.map((r) => r.json()))) as Array<{
+      ok: boolean;
+      last_scan?: string;
+    }>;
+
+    expect(bodies.every((b) => b.ok)).toBe(true);
+    expect(new Set(bodies.map((b) => b.last_scan)).size).toBe(1);
+    const changes = live.db
+      .query(`SELECT COUNT(*) AS n FROM asset_changes WHERE abs_path = ?`)
+      .get(path.join(root, 'IMG.dng')) as { n: number };
+    expect(changes.n).toBe(1);
+  });
+
   it('returns 404 for an unknown folder id', async () => {
     const res = await scan(new ObjectId().toHexString());
     expect(res.status).toBe(404);
