@@ -12,7 +12,7 @@ import { requestWindow } from './search/ranked-window.ts';
 /** Asset ids best first, with the count of every match and the engine's scores when it has them. */
 export interface ServiceSearchResult {
   ids: string[];
-  /** The size of the ranked window the request was served from; see `search/ranked-window.ts`. */
+  /** The ids delivered: a total the caller can always retrieve, never the window's larger size. */
   estimatedTotal: number;
   scores?: Record<string, number>;
   more?: boolean;
@@ -32,9 +32,9 @@ export async function inProcessServiceSearch(
   const ids = window.rows.flatMap((row) => (row.maple_id === null ? [] : [row.maple_id]));
   return {
     ids: ids.slice(0, limit),
-    estimatedTotal: ids.length,
+    estimatedTotal: Math.min(ids.length, limit),
     scores: Object.fromEntries(window.scores ?? []),
-    more: window.more,
+    more: window.more || ids.length > limit,
     capped: window.capped,
   };
 }

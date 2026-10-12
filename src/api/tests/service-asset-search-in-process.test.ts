@@ -77,7 +77,7 @@ describe('POST /api/search/assets with the in-process engine', () => {
 
     const body = await (await request({ query: 'heating repair', limit: 1 })).json();
 
-    expect(body).toMatchObject({ modeRequested: 'hybrid', modeUsed: 'hybrid', total: 2 });
+    expect(body).toMatchObject({ modeRequested: 'hybrid', modeUsed: 'hybrid', total: 1, more: true });
     expect(body.fallbackReason).toBeNull();
     expect(body.results).toEqual([{ assetId: 'still', score: 1 / 62 }]);
   });
@@ -103,6 +103,8 @@ describe('POST /api/search/assets with the in-process engine', () => {
 
     expect(engine.queries).toEqual([]);
     expect(lexical).toMatchObject({ modeUsed: 'lexical', fallbackReason: null });
+    expect(down).not.toHaveProperty('more');
+    expect(down).not.toHaveProperty('capped');
     expect(down).toMatchObject({
       modeUsed: 'lexical',
       fallbackReason: 'search_engine_unavailable',
@@ -145,6 +147,20 @@ describe('POST /api/search/assets with the in-process engine', () => {
 
       expect(body.results).toHaveLength(100);
       expect(body).toMatchObject({ total: 100, more: true, capped: false });
+    });
+
+    it('never reports a total larger than the results it delivers', async () => {
+      const libraryId = insertFolder(live.db, { path: '/bulk', slug: 'bulk' });
+      const bulk = fillers(150, 'bulk');
+      bulk.forEach((mapleId) =>
+        seedSearchAsset(live.db, libraryId, { mapleId, filename: `${mapleId}.dng` }),
+      );
+      setInProcessSearchForTests(fakeInProcessSearch(bulk));
+
+      const body = await (await request({ query: 'furnace', limit: 20 })).json();
+
+      expect(body.results).toHaveLength(20);
+      expect(body).toMatchObject({ total: 20, more: true });
     });
 
     it('says capped when the child still had hits past the deepest window', async () => {
