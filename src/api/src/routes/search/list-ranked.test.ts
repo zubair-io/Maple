@@ -22,6 +22,7 @@ import { setInProcessSearchForTests } from '../../search/search-pool.ts';
 import { fakeInProcessSearch } from '../../search/search.test-helpers.ts';
 import { RANKED_WINDOW_BASE, RANKED_WINDOW_MAX } from '../../db/repos/search.ranked.ts';
 import { requestWindow, windowNeed, windowPage } from './ranked-window.ts';
+import { decodeRankPin, pinnedWindow } from './pinned-window.ts';
 
 let live: LiveTestDatabase;
 let libraryId: string;
@@ -323,5 +324,27 @@ describe('a window row deleted between ranking and hydration (#4545)', () => {
       [2, 4].map((index) => `${ranked[index]!}.dng`),
     ]);
     expect(pages.map((page) => page.total)).toEqual([4, 4]);
+  });
+
+  it('holds for a pinned page 1 too (#4542)', async () => {
+    setInProcessSearchForTests(honouringK(ranked.slice(0, 5)));
+    const first = (await list('placeQuery=greyson&limit=2')) as unknown as { rankPin: string };
+    const pin = decodeRankPin(first.rankPin)!;
+    const built = buildSearchWhere({ placeQuery: 'greyson' });
+    if ('error' in built) throw new Error(built.error);
+    const pinned = (await pinnedWindow({ where: built, text: 'greyson', need: 4 }, pin))!;
+    run(
+      live.db,
+      `UPDATE assets SET deleted_at = '2026-10-12T00:00:00Z' WHERE maple_id = ?`,
+      ranked[3]!,
+    );
+
+    const page = await windowPage(pinned.window, { where: built, skip: 2, limit: 2 });
+
+    expect(pinned.window.rows).toHaveLength(5);
+    expect(page.results.map((row) => row.filename)).toEqual(
+      [2, 4].map((index) => `${ranked[index]!}.dng`),
+    );
+    expect(page.total).toBe(4);
   });
 });

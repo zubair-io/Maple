@@ -94,16 +94,20 @@ export function pinOf(window: EngineWindow, request: WindowRequest): RankPin {
 
 interface Merged {
   rows: WindowRow[];
+  /** Every row merged so far, copies of a shot included: what a page re-checks (#4545). */
+  copies: WindowRow[];
   semantic: Set<string>;
   scores: Map<string, number>;
 }
 
 function merge(into: Merged, pass: WindowPass): Merged {
-  const held = new Set(into.rows.map((row) => row.r));
+  const held = new Set(into.copies.map((row) => row.r));
   const scores = new Map(pass.scores ?? []);
   into.scores.forEach((score, id) => scores.set(id, score));
+  const copies = [...into.copies, ...(pass.copies ?? pass.rows).filter((row) => !held.has(row.r))];
   return {
-    rows: collapseShots([...into.rows, ...pass.rows.filter((row) => !held.has(row.r))]),
+    rows: collapseShots(copies),
+    copies,
     semantic: new Set([...into.semantic, ...(pass.semantic ?? [])]),
     scores,
   };
@@ -121,7 +125,7 @@ export async function pinnedWindow(
 ): Promise<{ window: EngineWindow; pin: RankPin } | null> {
   if (pin.search !== searchFingerprint(request)) return null;
   const ranker = engineRanker(pin.engine, request);
-  const empty: Merged = { rows: [], semantic: new Set(), scores: new Map() };
+  const empty: Merged = { rows: [], copies: [], semantic: new Set(), scores: new Map() };
   // The same quota an unpinned request fills (`rankWindow`): its step's three quarters.
   const sufficient = stepQuota(windowDepthFor(request.need));
 
@@ -142,9 +146,11 @@ export async function pinnedWindow(
       const deeper = nextWindowDepth(depth!);
       return rank(next, [...steps, deeper], [deeper]);
     }
+    const { copies, ...held } = next;
     return {
       window: {
-        ...next,
+        ...held,
+        ...(copies.length > held.rows.length ? { copies } : {}),
         more: full && !atCap,
         capped: cappedPast(next.rows, pass, depth!),
         depth: depth!,
