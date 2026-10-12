@@ -150,7 +150,6 @@ describe('GET /api/search — Server-Timing (#4503)', () => {
 
     expect(await phaseNames('http://localhost/?placeQuery=museum')).toEqual([
       'engine',
-      'project',
       'rows',
       'scope',
       'total',

@@ -40,7 +40,8 @@ import {
   FACET_STATE_TRIGGER_NAMES,
 } from '../db/sqlite/ddl/facet-state.ts';
 import { setSqliteHandleForTests } from '../db/sqlite/index.ts';
-import { recordReadWaves } from '../db/sqlite/read-waves.test-helpers.ts';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
+import type { SqlParams } from '../db/sqlite/protocol.ts';
 import { buildSearchWhere, type SearchWhere } from '../db/repos/search.where.ts';
 import { countSql } from '../db/repos/search.sql.ts';
 import { generatedSearchesRoutes } from './generated-searches.ts';
@@ -104,8 +105,8 @@ function seedCard(query: Record<string, string>): string {
   return id;
 }
 
-const SEED_TIMEOUT_MS = 60_000;
-const BOUNDED_MS = 10_000;
+const SEED_TIMEOUT_MS = 120_000;
+const BOUNDED_MS = 30_000;
 
 beforeAll(async () => {
   live = await createLiveTestDatabase('file');
@@ -119,16 +120,39 @@ afterAll(() => {
 });
 
 /** Every statement one request issued, `bulk: `-prefixed when it took the bulk lane. */
-async function issuedBy(path: string): Promise<{ statements: string[]; ms: number; body: any }> {
+interface Issued {
+  sql: string;
+  params: SqlParams | undefined;
+  bulk: boolean;
+}
+
+/** Every statement one request issued, with its parameters and the lane it took. */
+async function issuedBy(
+  path: string,
+): Promise<{ issued: Issued[]; ms: number; body: { total: number; results: unknown[] } }> {
   _resetCacheForTests();
   _resetBucketsCacheForTests();
-  const recorded = recordReadWaves(testSqliteDb(live.db));
-  setSqliteHandleForTests(recorded.handle);
+  const inner = testSqliteDb(live.db);
+  const issued: Issued[] = [];
+  const handle: SqliteDb & { readBulk: SqliteDb['read'] } = {
+    read: (sql, params) => (issued.push({ sql, params, bulk: false }), inner.read(sql, params)),
+    readBulk: (sql, params) => (issued.push({ sql, params, bulk: true }), inner.read(sql, params)),
+    write: (sql, params) => inner.write(sql, params),
+    transaction: (statements) => inner.transaction(statements),
+  };
+  setSqliteHandleForTests(handle);
   const started = performance.now();
   const res = await app.handle(new Request(`http://localhost${path}`));
   const ms = performance.now() - started;
   expect(res.status).toBe(200);
-  return { statements: recorded.waves.flat(), ms, body: await res.json() };
+  return { issued, ms, body: await res.json() };
+}
+
+function planOf(statement: Issued): string[] {
+  const args = (Array.isArray(statement.params) ? statement.params : []) as never[];
+  return (
+    live.db.query(`EXPLAIN QUERY PLAN ${statement.sql}`).all(...args) as Array<{ detail: string }>
+  ).map((row) => row.detail);
 }
 
 function translate(query: Record<string, string>): SearchWhere {
@@ -137,17 +161,28 @@ function translate(query: Record<string, string>): SearchWhere {
   return built;
 }
 
-/** The text is read once, ranked alone with a `LIMIT`, on the bulk lane; nothing counts it. */
-function expectBounded(statements: readonly string[]): void {
-  const fullText = statements.filter((sql) => sql.includes('assets_fts'));
+/**
+ * The primary gate is the plan, not the clock: the text is ranked once, alone, with a `LIMIT`, on
+ * the bulk lane — the full-text scan is the first table read and the only one, never nested under
+ * an asset loop — and nothing counts the match set.
+ */
+function expectBounded(issued: readonly Issued[]): void {
+  const fullText = issued.filter((statement) => statement.sql.includes('assets_fts'));
   expect(fullText.length).toBeGreaterThan(0);
-  for (const sql of fullText) {
-    expect(sql.startsWith('bulk: ')).toBe(true);
-    expect(sql).toContain('WITH hit AS MATERIALIZED');
-    expect(sql).toMatch(/ORDER BY rank ASC, assets_fts\.rowid\s+LIMIT \?\)/);
+  for (const statement of fullText) {
+    expect(statement.bulk).toBe(true);
+    expect(statement.sql).toMatch(/ORDER BY rank ASC, assets_fts\.rowid\s+LIMIT \?\)/);
+    const plan = planOf(statement);
+    const reads = plan.filter(
+      (line) => /^(SCAN|SEARCH) /.test(line) && line !== 'SCAN CONSTANT ROW',
+    );
+    expect(reads[0]).toBe('SCAN assets_fts VIRTUAL TABLE INDEX 0:M1');
+    expect(plan.filter((line) => line.includes('assets_fts'))).toHaveLength(1);
+    expect(plan.filter((line) => line.includes('0:='))).toEqual([]);
   }
-  expect(statements.filter((sql) => /COUNT\(\*\)\s+AS n\s+FROM assets_fts/.test(sql))).toEqual([]);
-  expect(statements.filter((sql) => sql.includes('WITH ranked AS'))).toEqual([]);
+  expect(
+    issued.filter((statement) => /COUNT\(\*\)\s+AS n\s+FROM assets_fts/.test(statement.sql)),
+  ).toEqual([]);
 }
 
 describe('a large match set, without planner statistics', () => {
@@ -165,10 +200,8 @@ describe('a large match set, without planner statistics', () => {
 
   it('a For You card ranks a bounded window and never counts the library', async () => {
     const id = seedCard({ placeQuery: THEME, month: '10' });
-    const { statements, ms, body } = await issuedBy(
-      `/api/generated-searches/${id}/assets?limit=30`,
-    );
-    expectBounded(statements);
+    const { issued, ms, body } = await issuedBy(`/api/generated-searches/${id}/assets?limit=30`);
+    expectBounded(issued);
     expect(body.results).toHaveLength(30);
     expect(body.total).toBeLessThanOrEqual(5_000);
     expect(ms).toBeLessThan(BOUNDED_MS);
@@ -180,8 +213,8 @@ describe('a large match set, without planner statistics', () => {
       `/api/search/facets?placeQuery=${encodeURIComponent(THEME)}&month=10`,
       `/api/search/buckets?placeQuery=${encodeURIComponent(THEME)}`,
     ]) {
-      const { statements, ms } = await issuedBy(path);
-      expectBounded(statements);
+      const { issued, ms } = await issuedBy(path);
+      expectBounded(issued);
       expect({ path, fast: ms < BOUNDED_MS }).toEqual({ path, fast: true });
     }
   });

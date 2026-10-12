@@ -119,6 +119,7 @@ export const listRoute = new Elysia().get(
       return {
         total: ranked.total,
         more: ranked.more,
+        capped: ranked.capped,
         page,
         limit,
         results: ranked.results,

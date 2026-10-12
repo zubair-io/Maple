@@ -140,7 +140,7 @@ describe("the database's window", () => {
     await withLibrary(async (db) => {
       const { handle, issued } = recording(db);
       const window = await rankWindow(ftsRanker(translate({ placeQuery: '-ocean' }), handle), 30);
-      expect(window).toEqual({ rows: [], more: false, semantic: new Set() });
+      expect(window).toEqual({ rows: [], more: false, capped: false, semantic: new Set() });
       expect(issued).toEqual([]);
     });
   });
@@ -195,17 +195,23 @@ describe('the window policy', () => {
     expect(window.more).toBe(true);
   });
 
-  test('never goes past the cap, and says there is no more to widen into there', async () => {
+  test('never goes past the cap, and says it stopped there with matches left', async () => {
     const { ranker, depths } = syntheticRanker(1_000_000, 1_000);
     const window = (await rankWindow(ranker, 100))!;
     expect(depths).toEqual([100, RANKED_WINDOW_MAX]);
     expect(window.rows).toHaveLength(5);
-    expect(window.more).toBe(false);
+    expect(window).toMatchObject({ more: false, capped: true });
 
     const deep = syntheticRanker(1_000_000, 1);
     const capped = (await rankWindow(deep.ranker, 50_000))!;
     expect(deep.depths).toEqual([RANKED_WINDOW_MAX]);
-    expect(capped.more).toBe(false);
+    expect(capped).toMatchObject({ more: false, capped: true });
+    expect(capped.rows).toHaveLength(RANKED_WINDOW_MAX);
+  });
+
+  test('is not capped when the engine ran out of matches before the cap', async () => {
+    const { ranker } = syntheticRanker(4_000, 1);
+    expect(await rankWindow(ranker, 5_000)).toMatchObject({ more: false, capped: false });
   });
 
   test('an engine that cannot answer answers null; one that fails to widen keeps its first pass', async () => {

@@ -1,9 +1,8 @@
 /**
- * A text search's facets describe the ranking its list uses (#4431): when
- * Meilisearch serves the list, the most relevant matches are Meilisearch's,
- * fetched with the same filters and counted with every database filter but the
- * text; when it cannot — not configured, a filter it cannot express, a failure
- * — the facets fall back to the database's own ranking, as the list does.
+ * A text search's facets describe the ranked window its list uses (#4431, #4514): when
+ * Meilisearch serves the list, the window is Meilisearch's best matches, fetched with the same
+ * filters and kept with every database filter but the text; when it cannot — not configured, a
+ * filter it cannot express, a failure — the facets count the database's window, as the list does.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -82,9 +81,9 @@ async function facets(query: string): Promise<{
 }
 
 describe('GET /api/search/facets — the ranking behind a text search', () => {
-  it("counts Meilisearch's best matches when Meilisearch serves the list", async () => {
+  it("counts Meilisearch's window when Meilisearch serves the list", async () => {
     // Meilisearch ranks the meadow first (typo-tolerant or semantic hits need
-    // not share a word with the query) and claims 5,000 matches in all.
+    // not share a word with the query).
     const { client, calls } = fakeMeili(async () => ({
       ids: ['maple-d', 'maple-c', 'maple-missing'],
       estimatedTotal: 5_000,
@@ -94,26 +93,23 @@ describe('GET /api/search/facets — the ranking behind a text search', () => {
     const body = await facets('placeQuery=greyson&sceneType=outdoor');
     expect(calls).toHaveLength(1);
     expect(calls[0]?.q).toBe('greyson');
-    expect(calls[0]?.opts).toMatchObject({ offset: 0, limit: 2_000, sceneType: 'outdoor' });
-    expect(body.total).toBe(5_000);
-    expect(body.scope).toEqual({ kind: 'top', limit: 3, of: 5_000 });
+    expect(calls[0]?.opts).toMatchObject({ offset: 0, limit: 100, sceneType: 'outdoor' });
     // Rows come from the ids, filters applied: sceneType=outdoor matches no
-    // seeded asset, so nothing survives the mapping.
+    // seeded asset, so the window is empty, and its size is the total.
+    expect(body.total).toBe(0);
+    expect(body.scope).toEqual({ kind: 'all' });
     expect(body.cameras).toEqual([]);
   });
 
-  it('reports the cut Meilisearch actually made, not the one it was asked for', async () => {
-    // Meilisearch's default `pagination.maxTotalHits` is 1,000: asked for 2,000
-    // it returns 1,000, with an estimated total of every match. The scope must
-    // say 1,000 — the client's note prints it.
+  it('widens a full Meilisearch window the filters thinned, as the list does', async () => {
     const ids = ['maple-c', 'maple-d', ...Array.from({ length: 998 }, (_, i) => `maple-x${i}`)];
     const { client, calls } = fakeMeili(async () => ({ ids, estimatedTotal: 8_217 }));
     setMeilisearchClientForTests(client);
 
     const body = await facets('placeQuery=greyson');
-    expect(calls[0]?.opts.limit).toBe(2_000);
-    expect(body.total).toBe(8_217);
-    expect(body.scope).toEqual({ kind: 'top', limit: 1_000, of: 8_217 });
+    expect(calls.map((call) => call.opts.limit)).toEqual([100, 5_000]);
+    expect(body.total).toBe(2);
+    expect(body.scope).toEqual({ kind: 'all' });
     expect(body.cameras.map((row) => [row.make, row.count]).sort()).toEqual([
       ['Apple', 1],
       ['SONY', 1],
@@ -167,8 +163,8 @@ describe('GET /api/search/facets — the ranking behind a text search', () => {
     failing = false;
     const ranked = await facets('placeQuery=greyson');
     expect(calls).toHaveLength(2);
-    expect(ranked.total).toBe(4_000);
-    expect(ranked.scope).toEqual({ kind: 'top', limit: 2, of: 4_000 });
+    expect(ranked.total).toBe(2);
+    expect(ranked.scope).toEqual({ kind: 'all' });
 
     // A Meilisearch answer is cached as usual: no third search.
     await facets('placeQuery=greyson');

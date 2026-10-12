@@ -144,6 +144,8 @@ export class SearchComponent implements OnInit, AfterViewInit {
   protected readonly total = signal<number>(0);
   /** The server ranked a window of the text and had hits left past `total` (#4514). */
   protected readonly more = signal<boolean>(false);
+  /** The window stopped at the server's 5,000-hit cap with matches left (#4514). */
+  protected readonly capped = signal<boolean>(false);
   protected readonly isStale = signal<boolean>(false);
   protected readonly recent = signal<readonly string[]>(readRecents());
   protected readonly page = signal<number>(0);
@@ -216,9 +218,11 @@ export class SearchComponent implements OnInit, AfterViewInit {
   /** Empty state — recents render only when nothing is being searched. */
   protected readonly showRecents = computed(() => !this.hasText() && !this.filtersActive());
 
+  private readonly openEnded = computed(() => this.more() || this.capped());
+
   protected readonly totalLabel = computed(
     () =>
-      `${this.total().toLocaleString()}${this.more() ? '+' : ''} ${this.total() === 1 && !this.more() ? 'result' : 'results'}`,
+      `${this.total().toLocaleString()}${this.openEnded() ? '+' : ''} ${this.total() === 1 && !this.openEnded() ? 'result' : 'results'}`,
   );
 
   @ViewChild(SearchBarComponent) private searchBar?: SearchBarComponent;
@@ -256,6 +260,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
         this.results.set([]);
         this.total.set(0);
         this.more.set(false);
+        this.capped.set(false);
         this.page.set(0);
         this.nextCursor.set(null);
         this.appliedDates.set(undefined);
@@ -274,6 +279,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
             this.appliedDates.set(res.dateFilter);
             this.total.set(seekExhausted(res) ? res.results.length : res.total);
             this.more.set(res.more ?? false);
+            this.capped.set(res.capped ?? false);
             this.isStale.set(false);
             this.queueThumbs(res.results);
             const scrollEl = this.mainScrollRef?.nativeElement;
@@ -505,6 +511,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
         this.nextCursor.set(res.nextCursor ?? null);
         this.total.set(seekExhausted(res) || res.results.length === 0 ? merged.length : res.total);
         this.more.set(res.results.length > 0 && (res.more ?? false));
+        this.capped.set(res.capped ?? false);
         // `page` is the skip-mode fallback counter — a seek request leaves
         // it alone rather than adopting the server's echoed `page: 0`.
         if (cursor === null) this.page.set(nextPage);
