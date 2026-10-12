@@ -77,6 +77,8 @@ export interface RankedWindow {
   capped: boolean;
   semantic: ReadonlySet<string>;
   scores?: ReadonlyMap<string, number>;
+  /** The ladder step the served pass was ranked at. */
+  depth: number;
 }
 
 /**
@@ -173,6 +175,7 @@ function windowOf(pass: WindowPass, depth: number): RankedWindow {
     capped: atCap && pass.considered - copiesBeyond > depth,
     semantic: pass.semantic ?? new Set(),
     scores: pass.scores,
+    depth,
   };
 }
 

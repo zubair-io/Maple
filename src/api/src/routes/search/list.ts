@@ -22,7 +22,9 @@
  * ranked branch shipped once (#2928).
  *
  * A free-text request is answered from its ranked window instead (`list-ranked.ts`, #4514):
- * `total` is the window's size and `more` says whether a deeper page can widen it.
+ * `total` is the window's size and `more` says whether a deeper page can widen it. Its `rankPin`
+ * goes back with each further page so every page comes from one ranking (#4542); a page whose
+ * pinned engine is gone answers 409 `rank_engine_changed`, and the client restarts at page 0.
  *
  * Related modules: `list-ranked.ts` (the free-text branch), `total-cache.ts` (the 30 s `total` cache of a structured search).
  */
@@ -36,10 +38,14 @@ import { SORT_OPTIONS } from './sort.ts';
 import { cursorFromDoc, encodeCursor } from './cursor.ts';
 import { libraryMaps } from './libraries.ts';
 import { rankedListPage } from './list-ranked.ts';
+import { decodeRankPin } from './pinned-window.ts';
 import { resolveRankedScope } from './scope.ts';
 import { resolvePaging } from './list-paging.ts';
 import { getCachedTotal } from './total-cache.ts';
 import { PhaseTimer } from './server-timing.ts';
+
+/** The 409 a pinned page answers when its engine cannot rank it (#4542): restart at page 0. */
+export const RANK_ENGINE_CHANGED = 'rank_engine_changed';
 
 export const listRoute = new Elysia().get(
   '/',
@@ -104,14 +110,28 @@ export const listRoute = new Elysia().get(
     // A placeQuery is answered from its ranked window (`list-ranked.ts`): an engine ranks the
     // text, SQL filters its hits, and `total` is the window's size — never a count of every match.
     if (childQuery !== null) {
+      const rawPin = query.rankPin?.trim() ?? '';
+      const pin = rawPin === '' ? null : decodeRankPin(rawPin);
+      if (rawPin !== '' && pin === null) {
+        set.status = 400;
+        return { error: 'invalid rankPin' };
+      }
       const ranked = await rankedListPage({
         where,
         childQuery,
         skip: paging.skip,
         limit,
         timing,
+        pin,
       });
       set.headers['server-timing'] = timing.header();
+      if ('engineChanged' in ranked) {
+        set.status = 409;
+        return {
+          error: 'the engine that ranked earlier pages is unavailable; restart from page 0',
+          code: RANK_ENGINE_CHANGED,
+        };
+      }
       return {
         total: ranked.total,
         more: ranked.more,
@@ -122,6 +142,7 @@ export const listRoute = new Elysia().get(
         cursorPaging: false,
         nextCursor: null,
         ...(ranked.rankedBy ? { rankedBy: ranked.rankedBy } : {}),
+        rankPin: ranked.rankPin,
         ...withDates,
       };
     }
