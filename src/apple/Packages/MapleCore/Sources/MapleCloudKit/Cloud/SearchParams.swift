@@ -107,8 +107,8 @@ public struct SearchParams: Sendable, Equatable, Hashable {
   public var q: String = ""
   /// Free-text content search against the unified `search_blob` (place +
   /// caption + OCR + people). Natural-language dates and person names work
-  /// with or without Meilisearch; when Meilisearch is configured it adds
-  /// typo-tolerance and semantic ranking on top. This is what the main
+  /// on every path; when the server's in-process search engine is ready it
+  /// adds typo-tolerance and semantic ranking on top. This is what the main
   /// search box drives — mirrors the web `placeQuery`.
   public var placeQuery: String = ""
   /// Scope to one registered library (folder ObjectId hex).
