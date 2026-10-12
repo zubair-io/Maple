@@ -94,8 +94,8 @@ public final class SearchViewModel {
   private var pendingLiveFirstPage: (() async -> GeneratedSearchAssetPage?)?
 
   /// In-memory result cache so re-issuing an identical query serves from
-  /// memory (session-scoped, like the web cache). Pages key on the params +
-  /// page index; facets on `FacetKey`.
+  /// memory (session-scoped, like the web cache). Pages key on the params,
+  /// page index and the rank pin they continue (#4542); facets on `FacetKey`.
   private var pageCache: [PageKey: SearchResponse] = [:]
   /// The ranking the pages held came from (#4542); sent with each further page.
   private var rankPin: String?
@@ -104,6 +104,7 @@ public final class SearchViewModel {
   private struct PageKey: Hashable {
     let params: SearchParams
     let page: Int
+    let rankPin: String?
   }
 
   /// Facets are cached per query and window step (#4514): every page within a
@@ -205,7 +206,7 @@ public final class SearchViewModel {
     rankPin = nil
     lastSubmittedParams = params
     let requested = params
-    let pageKey = PageKey(params: requested, page: 0)
+    let pageKey = PageKey(params: requested, page: 0, rankPin: nil)
 
     // Serve an identical query (results + facets) from the in-memory cache —
     // no spinner, no network round-trip. Only short-circuit when BOTH are
@@ -445,7 +446,7 @@ public final class SearchViewModel {
 
     let next = page + 1
     let requested = params
-    let pageKey = PageKey(params: requested, page: next)
+    let pageKey = PageKey(params: requested, page: next, rankPin: rankPin)
     // Seek past the last row we hold when the server minted a cursor; the
     // page index still advances so it can key the cache and cover the
     // skip-pagination fallback (see `nextCursor`).

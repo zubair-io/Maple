@@ -116,6 +116,31 @@ final class SearchRankPinTests: XCTestCase {
     XCTAssertTrue(recorder.searchURLs.contains { $0.hasSuffix("rankPin=database:100") })
   }
 
+  @MainActor
+  func test_loadMore_neverReusesACachedPageOfAnotherRanking() async {
+    let recorder = URLRecorder()
+    let firstPages = Counter()
+    // Facets fail, so the second submit refetches page 0 rather than serving
+    // it from the cache — and that page 0 comes back ranked by the database.
+    let vm = makeVM(recorder, facetsStatus: 500) { url in
+      guard url.contains("page=0") else {
+        let pin = url.hasSuffix("rankPin=database:100") ? "database:100,400" : "in-process:100"
+        return .http(status: 200, body: Self.page(id: "next-\(pin)", pin: pin))
+      }
+      let pin = firstPages.next() == 0 ? "in-process:100" : "database:100"
+      return .http(status: 200, body: Self.page(id: "first-\(pin)", pin: pin))
+    }
+
+    await vm.submit()
+    await vm.loadMore()
+    await vm.submit()
+    await vm.loadMore()
+
+    XCTAssertTrue(recorder.searchURLs.last?.hasSuffix("rankPin=database:100") == true)
+    XCTAssertEqual(vm.results.count, 2)
+    XCTAssertEqual(vm.results.last?.filename, "next-database:100,400.dng")
+  }
+
   // MARK: - Helpers
 
   private static func page(id: String, pin: String) -> Data {
@@ -145,14 +170,15 @@ final class SearchRankPinTests: XCTestCase {
 
   @MainActor
   private func makeVM(
-    _ recorder: URLRecorder, search: @escaping @Sendable (String) -> StubResponse
+    _ recorder: URLRecorder, facetsStatus: Int = 200,
+    search: @escaping @Sendable (String) -> StubResponse
   ) -> SearchViewModel {
     let server = URL(string: "https://stub.test")!
     StubURLProtocol.reset()
     StubURLProtocol.responder = { request in
       let url = request.url?.absoluteString.removingPercentEncoding ?? ""
       if url.contains("/api/search/facets") {
-        return .http(status: 200, body: Data(Self.facetsBody.utf8))
+        return .http(status: facetsStatus, body: Data(Self.facetsBody.utf8))
       }
       recorder.record(url)
       return search(url)
