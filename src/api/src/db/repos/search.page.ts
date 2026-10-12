@@ -177,6 +177,28 @@ async function hydrate(db: SqliteDb, rows: readonly PageRow[]): Promise<SearchDo
 }
 
 /**
+ * The rows of a ranked window that still pass `where` but its text, in window order (#4545): an
+ * asset deleted or hidden after the window was ranked drops out, wherever in the window it sits,
+ * so a total counted from these is one every page of the window agrees on. One statement, a
+ * keyed probe per row — the same bound the ranking itself has.
+ */
+export async function windowSurvivors<T extends { id: string }>(
+  where: SearchWhere,
+  rows: readonly T[],
+  dbOverride?: SqliteDb,
+): Promise<T[]> {
+  if (rows.length === 0) return [];
+  const live = windowColumnsSql(
+    where,
+    rows.map((row) => row.id),
+    'assets.id AS id',
+  );
+  const alive = await bulkLane(assetsDb(dbOverride)).read<{ id: string }>(live.sql, live.params);
+  const ids = new Set(alive.map((row) => row.id));
+  return rows.filter((row) => ids.has(row.id));
+}
+
+/**
  * The documents behind a ranked window's page, in the order given (#4514). The window knows each
  * row's owner, so the page's columns are read beside its side tables — one trip through the bulk
  * lane instead of two. The columns are read under `where` again (its text stripped, as the window

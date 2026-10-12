@@ -280,7 +280,7 @@ describe('cached facets and buckets follow the engine that answers', () => {
 });
 
 describe('a window row deleted between ranking and hydration (#4545)', () => {
-  it('is neither served nor counted in the total', async () => {
+  it('is neither served nor counted, and every page reports the same total', async () => {
     setInProcessSearchForTests(honouringK(ranked.slice(0, 5)));
     const built = buildSearchWhere({ placeQuery: 'greyson' });
     if ('error' in built) throw new Error(built.error);
@@ -288,15 +288,18 @@ describe('a window row deleted between ranking and hydration (#4545)', () => {
     run(
       live.db,
       `UPDATE assets SET deleted_at = '2026-10-12T00:00:00Z' WHERE maple_id = ?`,
-      ranked[1]!,
+      ranked[3]!,
     );
 
-    const page = await windowPage(window, { where: built, skip: 0, limit: 10 });
+    const pages = await Promise.all(
+      [0, 2].map((skip) => windowPage(window, { where: built, skip, limit: 2 })),
+    );
 
     expect(window.rows).toHaveLength(5);
-    expect(page.results.map((row) => row.filename)).toEqual(
-      [0, 2, 3, 4].map((index) => `${ranked[index]!}.dng`),
-    );
-    expect(page.total).toBe(page.results.length);
+    expect(pages.map((page) => page.results.map((row) => row.filename))).toEqual([
+      [0, 1].map((index) => `${ranked[index]!}.dng`),
+      [2, 4].map((index) => `${ranked[index]!}.dng`),
+    ]);
+    expect(pages.map((page) => page.total)).toEqual([4, 4]);
   });
 });

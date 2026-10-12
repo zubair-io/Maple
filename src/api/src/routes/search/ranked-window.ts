@@ -15,7 +15,7 @@ import {
   type RankedWindow,
   type WindowRanker,
 } from '../../db/repos/search.ranked.ts';
-import { windowDocs } from '../../db/repos/search.page.ts';
+import { windowDocs, windowSurvivors } from '../../db/repos/search.page.ts';
 import type { SearchWhere } from '../../db/repos/search.where.ts';
 import { inProcessRanking } from '../../search/search-ranking.ts';
 import { libraryMaps } from './libraries.ts';
@@ -153,23 +153,33 @@ export interface WindowPage {
 }
 
 /**
- * One page of a window: its rows hydrated under `where` and projected. `total` is the window's
- * size less the page's rows that no longer pass `where` — an asset deleted or hidden since the
- * window was ranked — so a total never promises a row the page could not serve (#4545).
+ * One page of a window: the window's rows that still pass `where` — an asset deleted or hidden
+ * since the window was ranked drops out (#4545) — sliced, hydrated and projected. `total` counts
+ * those survivors, so it is the same whichever page asks and never promises a row no page serves.
+ *
+ * The survivors are read beside the page as ranked, in one wave (#4503). Only when a row at or
+ * before the page died in between does the page differ, and only then is it hydrated again.
  */
 export async function windowPage(
   window: EngineWindow,
   page: { where: SearchWhere; skip: number; limit: number; timing?: PhaseTimer },
 ): Promise<WindowPage> {
-  const rows = window.rows.slice(page.skip, page.skip + page.limit);
+  const ranked = window.rows.slice(page.skip, page.skip + page.limit);
   const hydrate = async () => {
-    const [docs, { libs, idToSlug }] = await Promise.all([
-      windowDocs(page.where, rows),
+    const [survivors, rankedDocs, { libs, idToSlug }] = await Promise.all([
+      windowSurvivors(page.where, window.rows),
+      windowDocs(page.where, ranked),
       libraryMaps(),
     ]);
-    return projectAssets(docs, libs, idToSlug);
+    const rows = survivors.slice(page.skip, page.skip + page.limit);
+    const unchanged =
+      rows.length === ranked.length && rows.every((row, index) => row === ranked[index]);
+    const docs = unchanged ? rankedDocs : await windowDocs(page.where, rows);
+    return { total: survivors.length, rows, results: projectAssets(docs, libs, idToSlug) };
   };
-  const results = page.timing ? await page.timing.time('rows', hydrate) : await hydrate();
+  const { total, rows, results } = page.timing
+    ? await page.timing.time('rows', hydrate)
+    : await hydrate();
   const rankedBy =
     window.engine === 'in-process'
       ? {
@@ -180,7 +190,7 @@ export async function windowPage(
         }
       : undefined;
   return {
-    total: window.rows.length - (rows.length - results.length),
+    total,
     more: window.more,
     capped: window.capped,
     results,
