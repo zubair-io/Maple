@@ -13,6 +13,9 @@ export interface MirrorStatusVm {
 }
 
 export interface MirrorRowVm {
+  /** One backup entry per on-disk location, so a destination can appear
+   * more than once for the same asset; the path disambiguates. */
+  readonly key: string;
   readonly destinationId: string;
   readonly name: string;
   readonly path: string;
@@ -52,6 +55,7 @@ function statuses(mirror: ApiAssetMirrorState): MirrorStatusVm[] {
 
 export function mirrorRows(mirrors: readonly ApiAssetMirrorState[]): MirrorRowVm[] {
   return mirrors.map((mirror) => ({
+    key: `${mirror.destinationId}:${mirror.path}`,
     destinationId: mirror.destinationId,
     name: mirror.destinationName,
     path: mirror.path,

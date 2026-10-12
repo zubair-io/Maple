@@ -1,7 +1,7 @@
 @if (rows().length > 0) {
   <mui-collapsible label="Backups" storageKey="info-mirrors">
     <ul class="m-0 list-none space-y-2 p-0 px-4 py-[5px]">
-      @for (row of rows(); track row.destinationId) {
+      @for (row of rows(); track row.key) {
         <li class="mirror-row flex flex-col gap-1" [attr.data-destination-id]="row.destinationId">
           <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
             <mui-text variant="row-label">{{ row.name }}</mui-text>

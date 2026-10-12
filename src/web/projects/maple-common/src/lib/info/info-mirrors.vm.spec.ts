@@ -57,6 +57,11 @@ describe('mirrorRows', () => {
     expect(row!.statuses.map((s) => s.text)).toEqual(['In Trash', 'Sync failed']);
   });
 
+  it('keys rows by destination and path so one destination can mirror several locations', () => {
+    const rows = mirrorRows([mirror({ path: 'a/photo.dng' }), mirror({ path: 'b/photo.dng' })]);
+    expect(rows.map((row) => row.key)).toEqual(['dest-1:a/photo.dng', 'dest-1:b/photo.dng']);
+  });
+
   it('carries the destination name and mirror path', () => {
     const [row] = mirrorRows([mirror({ destinationName: 'Archive', path: 'a/b.dng' })]);
     expect(row).toMatchObject({ destinationId: 'dest-1', name: 'Archive', path: 'a/b.dng' });
