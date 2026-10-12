@@ -18,7 +18,7 @@ import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import type { JobHandlerContext } from './index.ts';
 import type { PanoStitchPayload } from './pano-stitch.ts';
 
-export const PANO_STAGE_COUNT = 6;
+const PANO_STAGE_COUNT = 6;
 export const PROGRESS_PER_STAGE = 100;
 export const PROGRESS_TOTAL = PANO_STAGE_COUNT * PROGRESS_PER_STAGE;
 

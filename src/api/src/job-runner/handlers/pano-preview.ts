@@ -30,7 +30,7 @@ import { parsePayload, readAlignmentVerdict, type PanoAlignmentVerdict } from '.
 
 const log = childLogger('job:pano-preview');
 
-export interface PanoPreviewResult {
+interface PanoPreviewResult {
   alignment: PanoAlignmentVerdict | null;
   width: number | null;
   height: number | null;

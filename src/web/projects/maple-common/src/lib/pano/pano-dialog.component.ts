@@ -58,6 +58,14 @@ type DialogPhase =
   | 'done'
   | 'error';
 
+function stitchErrorMessage(err: HttpErrorResponse, code: string): string {
+  if (err.status === 409 && code === 'pano_not_provisioned') return err.error.message;
+  if (err.status === 409 && code === 'pano_job_running') {
+    return `A panorama job is already running or queued (job ${err.error.jobId ?? ''}). Wait for it to finish.`;
+  }
+  return err.error?.message ?? 'Failed to start panorama job.';
+}
+
 @Component({
   selector: 'app-pano-dialog',
   standalone: true,
@@ -244,15 +252,7 @@ export class PanoDialogComponent implements OnDestroy {
       error: (err: HttpErrorResponse) => {
         const code: string = err.error?.error ?? '';
         this.errorCode.set(code);
-        if (err.status === 409 && code === 'pano_not_provisioned') {
-          this.errorMessage.set(err.error.message);
-        } else if (err.status === 409 && code === 'pano_job_running') {
-          this.errorMessage.set(
-            `A panorama job is already running or queued (job ${err.error.jobId ?? ''}). Wait for it to finish.`,
-          );
-        } else {
-          this.errorMessage.set(err.error?.message ?? 'Failed to start panorama job.');
-        }
+        this.errorMessage.set(stitchErrorMessage(err, code));
         this.phase.set('error');
       },
     });

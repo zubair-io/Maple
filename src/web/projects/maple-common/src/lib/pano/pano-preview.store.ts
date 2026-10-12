@@ -24,13 +24,13 @@ import {
 export const PREVIEW_DEBOUNCE_MS = 600;
 export const PREVIEW_POLL_MS = 1_000;
 
-export interface PanoPreviewImage {
+interface PanoPreviewImage {
   jobId: string;
   url: string;
   result: PanoPreviewResult | null;
 }
 
-export type PanoPreviewRun =
+type PanoPreviewRun =
   | { kind: 'idle' }
   | { kind: 'running'; progress: PanoJobProgress | null }
   | { kind: 'failed'; message: string };

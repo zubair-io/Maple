@@ -16,13 +16,13 @@
 
 import { Elysia } from 'elysia';
 import path from 'node:path';
-import { ObjectId } from '../db/object-id.ts';
 import { child as childLogger } from '../log.ts';
-import { createJob, getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
+import { createJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
 import { probePanoCliFlags } from '../pano/pano-cli-flags.ts';
 import { newPreviewDir, ownedPreviewDir, PREVIEW_FILES } from '../pano/pano-previews.ts';
 import {
   activePanoJob,
+  findPanoJob,
   NOT_PROVISIONED,
   panoJobPayload,
   panoJobRunning,
@@ -32,6 +32,8 @@ import {
 } from './pano.ts';
 
 const log = childLogger('pano:preview-routes');
+
+const PREVIEW_KIND: ReadonlySet<string> = new Set(['pano_preview']);
 
 async function supersedeActivePreviews(): Promise<number> {
   const active = await listJobs({
@@ -86,14 +88,14 @@ export const panoPreviewRoutes = new Elysia({ prefix: '/api/pano' })
   )
 
   .get('/jobs/:id/preview', async ({ params, set }) => {
-    if (!ObjectId.isValid(params.id)) {
-      set.status = 400;
-      return { error: 'Invalid job id' };
+    const found = await findPanoJob(params.id, PREVIEW_KIND);
+    if ('status' in found) {
+      set.status = found.status;
+      return { error: found.error };
     }
-    const doc = await getJob(new ObjectId(params.id));
-    const dir = doc?.kind === 'pano_preview' ? ownedPreviewDir(doc.payload.outputDir) : null;
+    const dir = ownedPreviewDir(found.doc.payload.outputDir);
     const file = dir === null ? null : Bun.file(path.join(dir, PREVIEW_FILES.image));
-    if (doc?.status !== 'done' || file === null || !(await file.exists())) {
+    if (found.doc.status !== 'done' || file === null || !(await file.exists())) {
       set.status = 404;
       return { error: 'Pano preview not found' };
     }

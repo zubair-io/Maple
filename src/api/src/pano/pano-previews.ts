@@ -26,7 +26,7 @@ export const PREVIEW_FILES = {
   report: 'report.json',
 } as const;
 
-export function previewsRoot(): string {
+function previewsRoot(): string {
   return path.join(os.tmpdir(), 'maple-pano-previews');
 }
 

@@ -98,57 +98,55 @@ export async function readAlignmentVerdict(
   return report?.alignment ?? null;
 }
 
+function optionalAbsolutePath(
+  raw: Record<string, unknown>,
+  key: 'modelsDir' | 'ortDylibPath',
+): string | null {
+  const value = raw[key];
+  if (typeof value !== 'string' || value.length === 0) return null;
+  if (value.startsWith('-') || !path.isAbsolute(value)) {
+    throw new Error(`pano_stitch: payload.${key} must be an absolute path and not start with "-"`);
+  }
+  return value;
+}
+
+function requiredString(raw: Record<string, unknown>, key: string): string {
+  const value = raw[key];
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`pano_stitch: payload.${key} must be a non-empty string`);
+  }
+  return value;
+}
+
+function parseStrategy(raw: Record<string, unknown>): PanoStitchPayload['strategy'] {
+  const s = raw.strategySupported === true ? raw.strategy : null;
+  return s === 'auto' || s === 'rotation' || s === 'tile' ? s : null;
+}
+
 export function parsePayload(raw: Record<string, unknown>): PanoStitchPayload {
   const ids = raw.assetIds;
   if (!Array.isArray(ids) || ids.length < 2 || ids.some((x) => typeof x !== 'string')) {
     throw new Error('pano_stitch: payload.assetIds must be string[] of length ≥ 2');
   }
-  if (typeof raw.libraryId !== 'string' || raw.libraryId.length === 0) {
-    throw new Error('pano_stitch: payload.libraryId must be a non-empty string');
-  }
-  if (typeof raw.outputDir !== 'string' || raw.outputDir.length === 0) {
-    throw new Error('pano_stitch: payload.outputDir must be a non-empty string');
-  }
-  if (typeof raw.mapleCli !== 'string' || raw.mapleCli.length === 0) {
-    throw new Error('pano_stitch: payload.mapleCli must be a non-empty string');
-  }
-  if (raw.mapleCli.startsWith('-') || !path.isAbsolute(raw.mapleCli)) {
+  const libraryId = requiredString(raw, 'libraryId');
+  const outputDir = requiredString(raw, 'outputDir');
+  const mapleCli = requiredString(raw, 'mapleCli');
+  if (mapleCli.startsWith('-') || !path.isAbsolute(mapleCli)) {
     throw new Error(
       'pano_stitch: payload.mapleCli must be an absolute path and not start with "-"',
     );
   }
-  const retention = raw.retention === 'strict' ? 'strict' : 'keep';
-  const localAlign = raw.localAlign === 'off' ? 'off' : 'mesh';
-  const strategySupported = raw.strategySupported === true;
-  let strategy: PanoStitchPayload['strategy'] = null;
-  if (strategySupported && typeof raw.strategy === 'string') {
-    const s = raw.strategy;
-    if (s === 'auto' || s === 'rotation' || s === 'tile') strategy = s;
-  }
-  const modelsDir = typeof raw.modelsDir === 'string' ? raw.modelsDir : null;
-  if (modelsDir && (modelsDir.startsWith('-') || !path.isAbsolute(modelsDir))) {
-    throw new Error(
-      'pano_stitch: payload.modelsDir must be an absolute path and not start with "-"',
-    );
-  }
-  const ortDylibPath = typeof raw.ortDylibPath === 'string' ? raw.ortDylibPath : null;
-  if (ortDylibPath && (ortDylibPath.startsWith('-') || !path.isAbsolute(ortDylibPath))) {
-    throw new Error(
-      'pano_stitch: payload.ortDylibPath must be an absolute path and not start with "-"',
-    );
-  }
-
   return {
     assetIds: ids as string[],
-    libraryId: raw.libraryId as string,
-    outputDir: raw.outputDir as string,
-    retention,
-    localAlign,
-    strategy,
-    strategySupported,
-    mapleCli: raw.mapleCli as string,
-    modelsDir,
-    ortDylibPath,
+    libraryId,
+    outputDir,
+    retention: raw.retention === 'strict' ? 'strict' : 'keep',
+    localAlign: raw.localAlign === 'off' ? 'off' : 'mesh',
+    strategy: parseStrategy(raw),
+    strategySupported: raw.strategySupported === true,
+    mapleCli,
+    modelsDir: optionalAbsolutePath(raw, 'modelsDir'),
+    ortDylibPath: optionalAbsolutePath(raw, 'ortDylibPath'),
     alignmentIn: parseAlignmentIn(raw.alignmentIn),
   };
 }

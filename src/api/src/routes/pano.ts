@@ -384,7 +384,7 @@ export function panoJobRunning(jobId: ObjectId) {
  * one — the stitch then simply solves its own alignment. The path is rebuilt
  * from the server-written payload, never taken from the client.
  */
-export async function previewAlignment(previewJobId: string | undefined): Promise<string | null> {
+async function previewAlignment(previewJobId: string | undefined): Promise<string | null> {
   if (previewJobId === undefined || !ObjectId.isValid(previewJobId)) return null;
   const doc = await getJob(new ObjectId(previewJobId));
   if (doc?.kind !== 'pano_preview' || doc.status !== 'done') return null;
@@ -421,6 +421,16 @@ async function withProbedFlags<T extends { maple_cli_path: string | null }>(cfg:
     ? await probePanoCliFlags(cfg.maple_cli_path)
     : { strategy: false, preview: false };
   return { ...cfg, strategy_supported: flags.strategy, preview_supported: flags.preview };
+}
+
+/** A pano job of one of `kinds` by id, or the 400/404 to answer with. */
+export async function findPanoJob(
+  id: string,
+  kinds: ReadonlySet<string>,
+): Promise<{ doc: JobWithId } | { status: 400 | 404; error: string }> {
+  if (!ObjectId.isValid(id)) return { status: 400, error: 'Invalid job id' };
+  const doc = await getJob(new ObjectId(id));
+  return doc && kinds.has(doc.kind) ? { doc } : { status: 404, error: 'Pano job not found' };
 }
 
 // ── route group ───────────────────────────────────────────────────────────────
@@ -477,31 +487,22 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
 
   // GET /api/pano/jobs/:id — job status.
   .get('/jobs/:id', async ({ params, set }) => {
-    if (!ObjectId.isValid(params.id)) {
-      set.status = 400;
-      return { error: 'Invalid job id' };
+    const found = await findPanoJob(params.id, PANO_JOB_KINDS);
+    if ('status' in found) {
+      set.status = found.status;
+      return { error: found.error };
     }
-    const doc = await getJob(new ObjectId(params.id));
-    if (!doc || !PANO_JOB_KINDS.has(doc.kind)) {
-      set.status = 404;
-      return { error: 'Pano job not found' };
-    }
-    return projectJob(doc);
+    return projectJob(found.doc);
   })
 
   // DELETE /api/pano/jobs/:id — cancel.
   .delete('/jobs/:id', async ({ params, set }) => {
-    if (!ObjectId.isValid(params.id)) {
-      set.status = 400;
-      return { error: 'Invalid job id' };
+    const found = await findPanoJob(params.id, PANO_JOB_KINDS);
+    if ('status' in found) {
+      set.status = found.status;
+      return { error: found.error };
     }
-    const doc = await getJob(new ObjectId(params.id));
-    if (!doc || !PANO_JOB_KINDS.has(doc.kind)) {
-      set.status = 404;
-      return { error: 'Pano job not found' };
-    }
-    const ok = await requestCancel(new ObjectId(params.id));
-    return { ok };
+    return { ok: await requestCancel(found.doc._id) };
   })
 
   // GET /api/pano/config — effective config + probed optional flags.
