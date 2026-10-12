@@ -77,6 +77,10 @@ describe('asset metadata address routes against the live catalogue', () => {
 
     const response = await request(assetId);
     expect(response.status).toBe(200);
+    const byAddress = await request('by-address', 'photos:photos/indexed.jpg');
+    expect((await byAddress.json()).mirrors).toHaveLength(1);
+    const byPath = await request('by-fspath', join(libraryRoot, 'photos', 'indexed.jpg'));
+    expect((await byPath.json()).mirrors).toHaveLength(1);
     expect((await response.json()).mirrors).toMatchObject([
       {
         destinationId: destination.id,
