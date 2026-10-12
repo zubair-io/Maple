@@ -1,15 +1,15 @@
 use super::*;
 
-const DAYLIGHT: [f32; 3] = [0.5, 1.0, 0.7];
-const SKY: [f32; 3] = [0.8, 1.0, 1.25];
+const PANO_01_NEUTRAL: [f32; 3] = [0.421_139_2, 1.0, 0.525_532_5];
+const SKY: [f32; 3] = [1.2, 1.0, 1.6];
 const DEMOSAIC_DIP: f32 = 0.985;
 
 fn green_to_known(p: [f32; 3]) -> f32 {
     p[1] / ((p[0] + p[2]) / 2.0)
 }
 
-/// Post-WB blue sky brightening toward the sun: G crosses its ceiling of 1.0
-/// while R and B stay below theirs. Demosaic interpolation leaves every other
+/// Post-WB sky brightening toward the sun, as pano_01 records it: G, the
+/// lowest channel, crosses its ceiling of 1.0 while R and B stay below theirs. Demosaic interpolation leaves every other
 /// clipped green site just under the ceiling, the pattern pano_01 shows.
 fn sun_halo(size: usize) -> (Image, Vec<bool>) {
     let mut img = Image::new(size as u32, size as u32, ColorSpace::CameraNativeLinearRgb);
@@ -39,7 +39,7 @@ fn demosaic_ripple_beside_a_green_clip_keeps_the_sky_hue() {
     apply(
         &mut img,
         HighlightRecoveryMode::ChromaticAdaptation,
-        DAYLIGHT,
+        PANO_01_NEUTRAL,
         0.0,
     );
     let truth = green_to_known(SKY);
@@ -73,6 +73,21 @@ fn near_ceiling_pixel_without_a_clip_nearby_is_scene_evidence() {
         0.0,
     );
     assert_eq!(img.pixels[..5], original[..5]);
+}
+
+#[test]
+fn near_ceiling_channel_above_another_stays_scene_evidence() {
+    let mut img = Image::new(8, 1, ColorSpace::CameraNativeLinearRgb);
+    img.pixels = vec![[0.985, 0.8, 0.4]; 8];
+    img.pixels[7] = [1.0, 0.8, 0.4];
+    let original = img.pixels.clone();
+    apply(
+        &mut img,
+        HighlightRecoveryMode::ChromaticAdaptation,
+        NEUTRAL,
+        0.0,
+    );
+    assert_eq!(img.pixels[..7], original[..7]);
 }
 
 const NEUTRAL: [f32; 3] = [1.0, 1.0, 1.0];
