@@ -20,6 +20,10 @@ export async function verifiedGoogleObject(
     if (!expected.key.startsWith('mirror/')) assertExpectedIdentity(actual, expected);
     return actual;
   }
+  // The media read bypasses download(); revalidate the configured root
+  // first so bytes are never hashed out of a root that was trashed or
+  // re-marked after the metadata read.
+  await provider.probe(signal);
   const response = await provider.client.request(
     `${DRIVE_API}/files/${expected.locator}?alt=media`,
     {},

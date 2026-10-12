@@ -79,3 +79,27 @@ test('removal trusts a native checksum without downloading, and hashes drifted b
   expect(store.files.has(drifted.locator)).toBe(true);
   expect(mediaRequests).toEqual([`/drive/v3/files/${drifted.locator}`]);
 });
+
+test('byte verification revalidates the backup root before reading media', async () => {
+  const store = googleStore();
+  let rootTrashed = false;
+  const mediaRequests: string[] = [];
+  const transport: GoogleFetch = async (raw, init) => {
+    const url = new URL(raw);
+    if (url.searchParams.get('alt') === 'media') mediaRequests.push(url.pathname);
+    if (rootTrashed && url.pathname === `/drive/v3/files/${root}`) {
+      const body = (await (await store.transport(raw, init)).json()) as Record<string, unknown>;
+      return Response.json({ ...body, trashed: true });
+    }
+    return store.transport(raw, init);
+  };
+  const provider = new GoogleDriveProvider(root, async () => 'token', transport);
+  const object = await provider.publish('blobs/root-check', source(new Uint8Array([1, 2, 3])), {
+    saveCheckpoint: async () => {},
+  });
+  store.files.get(object.locator)!.sha256Checksum = undefined;
+  mediaRequests.length = 0;
+  rootTrashed = true;
+  await expect(verifiedGoogleObject(provider, object)).rejects.toThrow();
+  expect(mediaRequests).toEqual([]);
+});
