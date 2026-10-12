@@ -105,6 +105,11 @@ function windowOf(pass: WindowPass, more: boolean): RankedWindow {
  *   loop: at most `depth` keyed probes.
  * - The `LEFT JOIN` from a one-row select answers at least one row, so an empty window still
  *   reports how many hits there were.
+ * - The order is total — score, then the index's rowid — in the ranking and in the answer alike.
+ *   A broad query ties thousands of hits on one score, and cutting that tie by anything else
+ *   would let a widened window admit rows that sort ahead of a page already served, so paging
+ *   would repeat and skip assets. With one total order, every window is a prefix of every
+ *   deeper one.
  */
 export function ftsWindowSql(where: SearchWhere, depth: number): BoundStatement {
   if (where.match.kind !== 'match') throw new Error('ftsWindowSql: not a text query');
@@ -115,11 +120,11 @@ export function ftsWindowSql(where: SearchWhere, depth: number): BoundStatement 
       SELECT assets_fts.rowid AS sr, ${FTS_RANK_SQL}
         FROM assets_fts
        WHERE assets_fts MATCH ?${narrowing ? `\n         AND ${narrowing.sql}` : ''}
-       ORDER BY ${FTS_RANK_ORDER}
+       ORDER BY ${FTS_RANK_ORDER}, assets_fts.rowid
        LIMIT ?),
     alive AS MATERIALIZED (
-      SELECT hit.rank AS rank, assets.rowid AS r, assets.id AS id, assets.maple_id AS maple_id,
-             assets.owner_id AS owner_id, assets.captured_at AS captured_at
+      SELECT hit.rank AS rank, hit.sr AS sr, assets.rowid AS r, assets.id AS id,
+             assets.maple_id AS maple_id, assets.owner_id AS owner_id
         FROM hit
         CROSS JOIN asset_search ON asset_search.rowid = hit.sr
         CROSS JOIN assets ON assets.id = asset_search.asset_id
@@ -127,7 +132,7 @@ export function ftsWindowSql(where: SearchWhere, depth: number): BoundStatement 
   SELECT (SELECT COUNT(*) FROM hit) AS considered, alive.r AS r, alive.id AS id,
          alive.maple_id AS maple_id, alive.owner_id AS owner_id
     FROM (SELECT 1) LEFT JOIN alive ON 1
-   ORDER BY alive.rank ASC, alive.captured_at DESC, alive.id`,
+   ORDER BY alive.rank ASC, alive.sr ASC`,
     params: [where.match.expression, ...(narrowing?.params ?? []), depth, ...rest.params],
   };
 }
