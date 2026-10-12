@@ -19,6 +19,7 @@
  */
 
 import { child as childLogger } from '../log.ts';
+import { answerRemoteSearch } from '../search/remote-search.ts';
 import {
   ChildProcessWorker,
   childScriptPath,
@@ -67,6 +68,7 @@ function spawn(workerEntry: string): void {
       childScriptPath(workerEntry, './workers/worker-main.ts'),
       { nice: DEFAULT_NATIVE_CHILD_NICE, label: 'worker' },
     );
+    worker.addEventListener('message', (event) => answerRemoteSearch(worker, event.data));
     worker.addEventListener('error', (event) => {
       const uptimeMs = Date.now() - spawnedAt;
       // Ran healthily then died → one-off, reset the backoff. Died fast → grow it.

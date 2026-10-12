@@ -19,6 +19,7 @@
  */
 
 import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
+import { inProcessSelected } from '../../search/search-engine-selection.ts';
 import { capturedYearCounts } from '../../db/repos/assets.sweeps.ts';
 import { recentGeneratedSearchThemes } from '../../db/repos/generated-searches.repo.ts';
 import { indexableRosterNames } from '../../db/repos/people.search-filter.ts';
@@ -68,7 +69,9 @@ export async function buildDigest(libraryId: string, now: Date): Promise<PromptD
     onThisMonthByYear: thisMonth.filter(({ year }) => credible.has(year)),
     recentThemes: themes,
     // Read fresh each run, not cached: an operator can flip semantic search
-    // on from Settings and the next run's prompt should switch with it.
-    semanticSearch: meilisearchClient().semanticConfigured(),
+    // on from Settings and the next run's prompt should switch with it. The
+    // in-process engine ranks by caption vectors too, reached from this worker
+    // through the API process (#4510).
+    semanticSearch: meilisearchClient().semanticConfigured() || (await inProcessSelected()),
   };
 }
