@@ -23,7 +23,8 @@ use super::focal_bootstrap::FocalSeedSource;
 pub struct StitchOptions {
     /// Frame-retention policy passed to the BA solver.
     pub retention: RetentionPolicy,
-    /// Enable Stage-F bilinear-mesh local alignment (#1218).
+    /// Enable Stage-F bilinear-mesh local alignment on both the rotation
+    /// (#1218) and tile (#4577) paths.
     pub local_align: bool,
     /// Content-based / forced strategy selection (#1226).
     pub strategy: crate::strategy::StrategyRequest,

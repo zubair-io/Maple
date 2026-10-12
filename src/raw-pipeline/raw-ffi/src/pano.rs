@@ -84,9 +84,9 @@ pub enum MaplePanoRetention {
 
 /// Local-alignment mode passed to `maple_pano_stitch`.
 ///
-/// `MAPLE_PANO_LOCAL_ALIGN_MESH` (0): bounded bilinear mesh absorbs the
-/// parallax floor (spec §8, #1218). `MAPLE_PANO_LOCAL_ALIGN_OFF` (1):
-/// chain ends at BA rotations.
+/// `MAPLE_PANO_LOCAL_ALIGN_MESH` (0): bounded bilinear mesh absorbs
+/// parallax on both rotation and tile stitches (spec §8, #1218, #4577).
+/// `MAPLE_PANO_LOCAL_ALIGN_OFF` (1): chain ends at the global solve.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub enum MaplePanoLocalAlign {
