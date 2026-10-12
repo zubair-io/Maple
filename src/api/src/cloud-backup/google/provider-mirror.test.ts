@@ -96,7 +96,11 @@ test('unmapped mirror discovery repairs markerless exact-path files and rejects 
   });
   const file = store.files.get(first.locator)!;
   file.description = '{}';
+  const before = store.requests.length;
   expect((await provider.inspect(key))?.locator).toBe(first.locator);
+  const listings = store.requests.slice(before).filter((request) => request.query);
+  expect(listings.length).toBeGreaterThan(0);
+  for (const request of listings) expect(request.query).toContain("name = 'photo.jpg'");
 
   const duplicate = {
     ...file,
@@ -223,4 +227,20 @@ test('changed source resumes a markerless mapped mirror after discarding its sta
 
   expect(repaired.locator).toBe(current.locator);
   expect(store.files.get(current.locator)!.bytes).toEqual(new Uint8Array([4, 5, 6, 7]));
+});
+
+test('mirror discovery escapes Drive query quotes in file names', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const name = "o'neil \\ 2026.jpg";
+  const key = `mirror/${'g'.repeat(24)}/2026/${name}`;
+  const first = await provider.mirrorFile(key, `2026/${name}`, source(new Uint8Array([1])), {
+    saveCheckpoint: async () => {},
+  });
+  store.files.get(first.locator)!.description = '{}';
+  const found = await provider.inspect(key);
+  expect(found?.locator).toBe(first.locator);
+  expect(
+    store.requests.some((request) => request.query?.includes("name = 'o\\'neil \\\\ 2026.jpg'")),
+  ).toBe(true);
 });
