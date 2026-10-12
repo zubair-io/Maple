@@ -43,6 +43,9 @@ describe('different shots', () => {
     ['IMG_1234.HEIC', 'IMG_1234.MOV'],
     ['wedding-kiss-01.jpg', 'wedding-kiss-02.jpg'],
     ['sunset-beach.jpg', 'sunset-city.jpg'],
+    ['holiday2024-beach.jpg', 'holiday2024-city.jpg'],
+    ['2024-wedding-IMG_1234.jpg', '2024-wedding-IMG_1235.jpg'],
+    ['IMG_1234-ultra-1235.jpg', 'IMG_1234.CR2'],
     ['2017-05-21 17.50.35.jpg', '2017-05-21 17.50.36.jpg'],
     ['2017-05-21 17.50.35.jpg', '2017-05-21 17.50.35-1.jpg'],
   ]) {
@@ -64,6 +67,7 @@ describe('different shots', () => {
 
   test('a row without a capture time or a filename is never collapsed', () => {
     expect(sameShot('IMG_0039.CR2', 'IMG_0039.JPG', null)).toBe(false);
+    expect(sameShot('IMG_0039.CR2', 'IMG_0039.JPG', '2006-03-04')).toBe(false);
     expect(shotKey({ captured_at: SECOND, media_kind: 'image', filename: null })).toBeNull();
   });
 });
@@ -88,6 +92,9 @@ describe('shotStem', () => {
     expect(shotStem('-edit.jpg')).toBe('-edit');
     expect(shotStem('DSC_100-a.jpg')).toBe('dsc_100');
     expect(shotStem('wedding-kiss-01.jpg')).toBe('wedding-kiss-01');
+    expect(shotStem('20170521_175035-Edit.jpg')).toBe('20170521_175035');
+    expect(shotStem('DSCF0042-HDR-2.jpg')).toBe('dscf0042');
+    expect(shotStem('2024-wedding-IMG_1234.jpg')).toBe('2024-wedding-img_1234');
   });
 });
 
