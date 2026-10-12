@@ -5,8 +5,8 @@
  *
  * Progress is `PROGRESS_PER_STAGE` units for each of the stitch's six stage
  * ordinals (0 decode, 1 features, 2 matching, 3 refine, 4 solve, 5 composite),
- * parsed from the `pano: progress <stage> <fraction>` lines the CLI prints
- * (#4580). A binary that predates those lines prints none, so its job simply
+ * parsed from the `pano: progress <stage> <label> <percent>%` lines the CLI
+ * prints (#4578). A binary that predates those lines prints none, so its job simply
  * sits at zero until it finishes.
  */
 
@@ -22,7 +22,7 @@ const PANO_STAGE_COUNT = 6;
 export const PROGRESS_PER_STAGE = 100;
 export const PROGRESS_TOTAL = PANO_STAGE_COUNT * PROGRESS_PER_STAGE;
 
-const PROGRESS_LINE = /^pano: progress (\d+) (\d+(?:\.\d+)?)$/;
+const PROGRESS_LINE = /^pano: progress (\d+) \S+ (\d+)%$/;
 const CANCEL_POLL_MS = 3_000;
 
 /** Progress units a `pano: progress` line stands for, or null for any other line. */
@@ -30,7 +30,7 @@ export function progressFromLine(line: string): number | null {
   const m = PROGRESS_LINE.exec(line);
   if (!m) return null;
   const stage = Math.min(Number(m[1]), PANO_STAGE_COUNT - 1);
-  const fraction = Math.min(Math.max(Number(m[2]), 0), 1);
+  const fraction = Math.min(Number(m[2]), 100) / 100;
   return Math.round((stage + fraction) * PROGRESS_PER_STAGE);
 }
 

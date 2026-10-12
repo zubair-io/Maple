@@ -43,11 +43,11 @@ while [ $# -gt 0 ]; do
   shift
 done
 for s in 0 1 2; do
-  echo "pano: progress $s 0.000" >&2
-  echo "pano: progress $s 0.500" >&2
-  echo "pano: progress $s 1.000" >&2
+  echo "pano: progress $s stage 0%" >&2
+  echo "pano: progress $s stage 50%" >&2
+  echo "pano: progress $s stage 100%" >&2
 done
-echo "pano: progress 5 1.000" >&2
+echo "pano: progress 5 composite 100%" >&2
 if [ ${opts.exitCode ?? 0} -ne 0 ]; then echo "pano: boom" >&2; exit ${opts.exitCode ?? 0}; fi
 STATUS=solved; [ -n "$ALIGN_IN" ] && STATUS=reused
 [ -n "$OUT" ] && echo '${TINY_PNG_B64}' | base64 -d > "$OUT"

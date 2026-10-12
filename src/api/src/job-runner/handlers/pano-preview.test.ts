@@ -100,19 +100,20 @@ const exists = (p: string) =>
 
 describe('progressFromLine', () => {
   it('maps a stage and fraction onto 100 units per stage', () => {
-    expect(progressFromLine('pano: progress 0 0.000')).toBe(0);
-    expect(progressFromLine('pano: progress 2 0.500')).toBe(250);
-    expect(progressFromLine('pano: progress 5 1.000')).toBe(PROGRESS_TOTAL);
+    expect(progressFromLine('pano: progress 0 decode 0%')).toBe(0);
+    expect(progressFromLine('pano: progress 2 match_graph 50%')).toBe(250);
+    expect(progressFromLine('pano: progress 5 composite 100%')).toBe(PROGRESS_TOTAL);
   });
 
   it('ignores every other line', () => {
     expect(progressFromLine('pano: alignment — solved')).toBeNull();
     expect(progressFromLine('pano: solve — mean 0.9px')).toBeNull();
+    expect(progressFromLine('pano: progress 2 0.500')).toBeNull();
   });
 
   it('clamps an out-of-range stage or fraction', () => {
-    expect(progressFromLine('pano: progress 9 0.500')).toBe(550);
-    expect(progressFromLine('pano: progress 1 7')).toBe(200);
+    expect(progressFromLine('pano: progress 9 unknown 50%')).toBe(550);
+    expect(progressFromLine('pano: progress 1 features 700%')).toBe(200);
   });
 });
 
