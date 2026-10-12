@@ -249,14 +249,20 @@ fn lens_groups_split_by_lens_and_skip_ingest_corrected_frames() {
         meta("A", Some(24.0), (6000, 4000), Opcode),
         meta("A", Some(24.0), (6000, 4000), BundledProfile),
         meta("B", Some(24.0), (6000, 4000), Uncorrected),
+        meta("", Some(30.0), (6000, 4000), Uncorrected),
     ];
     let groups = LensGroups::from_metas(&metas);
     assert_eq!(
         groups.of_frame,
-        vec![Some(0), Some(0), Some(1), None, None, Some(2)]
+        vec![Some(0), Some(0), Some(1), None, None, Some(2), Some(3)]
     );
     assert_eq!(
         groups.labels,
-        vec!["A Body 24.0mm", "A Body 50.0mm", "B Body 24.0mm"]
+        vec![
+            "A Body 24.0mm",
+            "A Body 50.0mm",
+            "B Body 24.0mm",
+            "Body 30.0mm"
+        ]
     );
 }
