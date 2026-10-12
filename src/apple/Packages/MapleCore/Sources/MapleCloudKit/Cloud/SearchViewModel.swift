@@ -529,41 +529,11 @@ public final class SearchViewModel {
     facets = nil
   }
 
-  // MARK: - Preview
-
-  public enum PreviewState: Sendable {
-    case empty
-    case loading
-    case loaded
-  }
-
-  /// Sample VM for SwiftUI `#Preview` blocks. Points at an unreachable
-  /// server so any live request fails fast, then stages the requested
-  /// case directly.
-  public static func preview(_ state: PreviewState = .loaded) -> SearchViewModel {
-    let server = URL(string: "https://preview.maple.invalid")!
-    let vm = SearchViewModel(
-      server: server,
-      libraryID: "preview-library",
-      searchClient: CloudSearchClient.preview(server: server))
-    switch state {
-    case .empty:
-      break
-    case .loading:
-      vm.isLoading = true
-    case .loaded:
-      vm.total = 2
-      vm.results = [
-        SearchAsset(
-          id: "fs:/photos/IMG_0001.dng", folder_id: "lib",
-          abs_path: "/photos/IMG_0001.dng", filename: "IMG_0001.dng",
-          rating: 4),
-        SearchAsset(
-          id: "fs:/photos/IMG_0002.dng", folder_id: "lib",
-          abs_path: "/photos/IMG_0002.dng", filename: "IMG_0002.dng"),
-      ]
-    }
-    return vm
+  /// Stages a preview's state; see `SearchViewModel+Preview.swift`.
+  func _stagePreview(loading: Bool, results assets: [SearchAsset]) {
+    isLoading = loading
+    results = assets
+    total = assets.count
   }
 
   // MARK: - Test-only internal setters
