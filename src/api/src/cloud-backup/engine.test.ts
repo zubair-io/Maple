@@ -301,3 +301,23 @@ test('legacy mirror IDs survive restart and destination deletion cannot abandon 
     repo.db.write('DELETE FROM backup_destinations WHERE id=?', [destination.id]),
   ).rejects.toThrow('pending cleanup');
 });
+
+test('a recorded failure honours its backoff before the stale-error retry runs', async () => {
+  using live = await createLiveTestDatabase();
+  const { assetId, destination, repo, engine } = await setup(live);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  const entry = (await repo.entries(destination.id))[0]!;
+  expect(await repo.claim(entry, 'worker')).toBe(true);
+  await repo.fail(entry, 'worker', 'Transient Google failure');
+
+  expect(await engine.backupAsset(assetId)).toBe(false);
+  const backedOff = (await repo.entries(destination.id))[0]!;
+  expect(backedOff.last_error).toBe('Transient Google failure');
+  expect(backedOff.retry_at).toBeGreaterThan(Date.now());
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('error');
+
+  await repo.db.write('UPDATE backup_entries SET retry_at=0 WHERE id=?', [entry.id]);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  expect((await repo.entries(destination.id))[0]?.last_error).toBeNull();
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('synced');
+});
