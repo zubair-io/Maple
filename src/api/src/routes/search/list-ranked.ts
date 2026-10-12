@@ -10,7 +10,8 @@
  *
  * Each page answers with a `rankPin`; a further page that sends it back is ranked by the same
  * engine over the same steps (`pinned-window.ts`, #4542), or — when that engine cannot answer —
- * is refused with `engineChanged` so the client restarts at page 0 rather than mixing rankings.
+ * — or when the pin belongs to another search — is refused with `engineChanged` so the client
+ * restarts at page 0 rather than mixing rankings. A first page never takes a pin.
  */
 
 import type { SearchWhere } from '../../db/repos/search.where.ts';
@@ -44,10 +45,9 @@ async function rankedListPage(input: RankedListInput): Promise<RankedListPage> {
   const served = await timing.time('engine', async () => {
     if (pin === null) {
       const window = await requestWindow(request);
-      return { window, pin: pinOf(window) };
+      return { window, pin: pinOf(window, request) };
     }
-    const pinned = await pinnedWindow(request, pin);
-    return pinned && { window: pinned.window, pin: { engine: pin.engine, steps: pinned.steps } };
+    return pinnedWindow(request, pin);
   });
   if (served === null) return { engineChanged: true };
   const page = await windowPage(served.window, { skip, limit, timing });
@@ -66,15 +66,19 @@ interface RankedListResponse {
 export async function rankedListResponse(
   input: Omit<RankedListInput, 'pin'> & { rawPin: string | undefined },
 ): Promise<RankedListResponse> {
-  const rawPin = input.rawPin?.trim() ?? '';
-  const pin = rawPin === '' ? null : decodeRankPin(rawPin);
-  if (rawPin !== '' && pin === null) return { status: 400, body: { error: 'invalid rankPin' } };
+  const pin = input.rawPin === undefined ? null : decodeRankPin(input.rawPin);
+  if (input.rawPin !== undefined && (pin === null || input.skip === 0)) {
+    return {
+      status: 400,
+      body: { error: 'invalid rankPin: a pin from a previous page goes on the next' },
+    };
+  }
   const ranked = await rankedListPage({ ...input, pin });
   if ('engineChanged' in ranked) {
     return {
       status: 409,
       body: {
-        error: 'the engine that ranked earlier pages is unavailable; restart from page 0',
+        error: 'the ranking earlier pages came from is unavailable; restart from page 0',
         code: RANK_ENGINE_CHANGED,
       },
     };

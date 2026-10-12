@@ -58,11 +58,16 @@ async function request(query: string): Promise<{ status: number; body: ListBody 
   return { status: res.status, body: (await res.json()) as ListBody };
 }
 
-async function page(index: number, pin?: string): Promise<ListBody> {
+async function page(index: number, pin?: string, query = 'greyson'): Promise<ListBody> {
   const pinned = pin === undefined ? '' : `&rankPin=${encodeURIComponent(pin)}`;
-  const { status, body } = await request(`placeQuery=greyson&limit=100&page=${index}${pinned}`);
+  const { status, body } = await request(`placeQuery=${query}&limit=100&page=${index}${pinned}`);
   expect(status).toBe(200);
   return body;
+}
+
+/** A pin's engine and steps, without the search fingerprint every pin ends with. */
+function ranking(pin: string | undefined): string {
+  return (pin ?? '').split(':').slice(0, 2).join(':');
 }
 
 /**
@@ -87,12 +92,12 @@ function depthSensitive(ids: readonly string[]): InProcessSearch & { ks: number[
 describe('a first page', () => {
   it('names the in-process engine and the step it ranked at', async () => {
     setInProcessSearchForTests(depthSensitive(ranked));
-    expect((await page(0)).rankPin).toBe('in-process:100');
+    expect(ranking((await page(0)).rankPin)).toBe('in-process:100');
   });
 
   it('names the database while the child is down', async () => {
     setInProcessSearchForTests(fakeInProcessSearch(null));
-    expect((await page(0)).rankPin).toBe('database:100');
+    expect(ranking((await page(0)).rankPin)).toBe('database:100');
   });
 });
 
@@ -108,8 +113,55 @@ describe('paging a pinned in-process search', () => {
 
     expect(served.slice(0, 100)).toEqual(ranked.slice(0, 100).map((id) => `${id}.dng`));
     expect(new Set(served).size).toBe(300);
-    expect(second.rankPin).toBe('in-process:100,400');
-    expect(third.rankPin).toBe('in-process:100,400');
+    expect(ranking(second.rankPin)).toBe('in-process:100,400');
+    expect(ranking(third.rankPin)).toBe('in-process:100,400');
+    expect(engine.ks).toEqual([100, 100, 400, 100, 400]);
+    expect(second.rankedBy).toEqual({ engine: 'in-process', semanticHits: 100 });
+  });
+
+  it('answers 409 when the child fails a deeper step the page has to widen to', async () => {
+    const forward = fakeInProcessSearch(ranked);
+    setInProcessSearchForTests({
+      status: forward.status,
+      search: async (query, k) => (k < 400 ? (await forward.search(query, k))!.slice(0, k) : null),
+    });
+    const first = await page(0);
+
+    const { status, body } = await request(
+      `placeQuery=greyson&limit=100&page=1&rankPin=${encodeURIComponent(first.rankPin!)}`,
+    );
+
+    expect({ status, code: body.code }).toEqual({ status: 409, code: RANK_ENGINE_CHANGED });
+  });
+
+  it('stops at the cap and says so, however the pin got there', async () => {
+    const gone = Array.from({ length: 6_000 }, (_, index) => `gone${index}`);
+    const forward = fakeInProcessSearch([...ranked, ...gone]);
+    setInProcessSearchForTests({
+      status: forward.status,
+      search: async (query, k) => (await forward.search(query, k))!.slice(0, k),
+    });
+    const read = async (index: number, pin?: string) => {
+      const pinned = pin === undefined ? '' : `&rankPin=${encodeURIComponent(pin)}`;
+      return (await request(`placeQuery=greyson&limit=500&page=${index}${pinned}`)).body;
+    };
+
+    const first = await read(0);
+    const second = await read(1, first.rankPin);
+
+    expect(ranking(first.rankPin)).toBe('in-process:5000');
+    expect(second).toMatchObject({ total: 300, more: false, capped: true, results: [] });
+  });
+
+  it('answers 409 when the pin was minted for another search', async () => {
+    setInProcessSearchForTests(depthSensitive(ranked));
+    const other = await page(0, undefined, 'xxxxx');
+
+    const { status } = await request(
+      `placeQuery=greyson&limit=100&page=1&rankPin=${encodeURIComponent(other.rankPin!)}`,
+    );
+
+    expect(status).toBe(409);
   });
 
   it('answers 409 rank_engine_changed when the child goes down between pages', async () => {
@@ -128,7 +180,7 @@ describe('paging a pinned in-process search', () => {
   it('ranks a restarted first page with whichever engine answers', async () => {
     setInProcessSearchForTests(fakeInProcessSearch(null));
     const restarted = await page(0);
-    expect(restarted.rankPin).toBe('database:100');
+    expect(ranking(restarted.rankPin)).toBe('database:100');
     expect(restarted.rankedBy).toBeUndefined();
   });
 });
@@ -145,7 +197,7 @@ describe('paging a pinned database search', () => {
 
     expect(engine.ks).toEqual([]);
     expect(second.rankedBy).toBeUndefined();
-    expect(second.rankPin).toBe('database:100,400');
+    expect(ranking(second.rankPin)).toBe('database:100,400');
     expect(new Set(served).size).toBe(200);
   });
 });
@@ -153,7 +205,11 @@ describe('paging a pinned database search', () => {
 describe('the rankPin a request carries', () => {
   it('is a 400 when this server could not have minted it', async () => {
     setInProcessSearchForTests(depthSensitive(ranked));
-    for (const pin of ['meili:100', 'in-process:150', 'in-process:400,100', 'in-process:']) {
+    const search = (await page(0)).rankPin!.split(':')[2];
+    const forged = ['meili:100', 'in-process:150', 'in-process:400,100', 'in-process:100,1600'];
+    const malformed = ['in-process:0100', 'in-process:100,5000', 'in-process:', ' ', ''];
+    for (const steps of [...forged, ...malformed]) {
+      const pin = steps.trim() === '' ? steps : `${steps}:${search}`;
       const { status } = await request(
         `placeQuery=greyson&page=1&rankPin=${encodeURIComponent(pin)}`,
       );
@@ -161,11 +217,30 @@ describe('the rankPin a request carries', () => {
     }
   });
 
+  it('is a 400 on a first page, which never takes one', async () => {
+    setInProcessSearchForTests(depthSensitive(ranked));
+    const pin = (await page(0)).rankPin!;
+    const { status } = await request(
+      `placeQuery=greyson&page=0&rankPin=${encodeURIComponent(pin)}`,
+    );
+    expect(status).toBe(400);
+  });
+
   it('round-trips through its wire form', () => {
-    const pin = { engine: 'in-process' as const, steps: [100, 400, 1_600, 5_000] };
+    const pin = {
+      engine: 'in-process' as const,
+      steps: [100, 400, 1_600, 5_000],
+      search: 'abcDEF012-_x',
+    };
     expect(decodeRankPin(encodeRankPin(pin))).toEqual(pin);
-    expect(decodeRankPin('database:400')).toEqual({ engine: 'database', steps: [400] });
-    expect(decodeRankPin('database:400:1')).toBeNull();
-    expect(decodeRankPin('database:1e2')).toBeNull();
+    expect(decodeRankPin('database:1600,5000:abcDEF012-_x')).toEqual({
+      engine: 'database',
+      steps: [1_600, 5_000],
+      search: 'abcDEF012-_x',
+    });
+    expect(decodeRankPin('database:400')).toBeNull();
+    expect(decodeRankPin('database:400:short')).toBeNull();
+    expect(decodeRankPin('database:1e2:abcDEF012-_x')).toBeNull();
+    expect(decodeRankPin('database:5000,20000:abcDEF012-_x')).toBeNull();
   });
 });
