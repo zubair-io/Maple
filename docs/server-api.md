@@ -273,21 +273,23 @@ Recovery bodies are `{ targetPath, includeTrash, entryId?, sequence? }`; `entryI
 
 ## Imports and jobs
 
-| Method | Path                      | Auth   | Purpose                                                                                                                                                                           |
-| ------ | ------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/api/imports/scan`       | +file  | Walk a server-local source folder and return buckets. Source must pass the roots jail                                                                                             |
-| POST   | `/api/imports`            | +file  | Create a pending import; returns `{ id }`. Every bucket label is re-validated server-side as a safe directory segment                                                             |
-| GET    | `/api/imports`            | +file  | List imports, newest first. `status`, `limit`                                                                                                                                     |
-| GET    | `/api/imports/:id`        | +file  | Full import document with per-file progress                                                                                                                                       |
-| POST   | `/api/imports/:id/cancel` | +file  | Request cancel, honoured between files                                                                                                                                            |
-| POST   | `/api/imports/:id/retry`  | +file  | Reset failed files to pending and clear the lease so a worker re-claims it. Copied files stay copied and dedup-skip on the re-run                                                 |
-| POST   | `/api/jobs`               | bearer | Queue a JobRunner job. The only kind this route accepts is `batch_jpeg_export`; pano jobs are created through `/api/pano/stitch`                                                  |
-| GET    | `/api/jobs`               | bearer | List jobs, newest first. `status`, `kind`, `limit`                                                                                                                                |
-| GET    | `/api/jobs/:id`           | bearer | Job document with progress                                                                                                                                                        |
-| POST   | `/api/jobs/:id/cancel`    | bearer | Set `cancel_requested`                                                                                                                                                            |
-| POST   | `/api/pano/stitch`        | bearer | Create a `pano_stitch` job. `409 pano_not_provisioned` when no binary is configured, `409 pano_job_running` when one is already running (they're heavy — minutes, tens of GB RSS) |
-| GET    | `/api/pano/jobs/:id`      | bearer | Pano job status and progress                                                                                                                                                      |
-| DELETE | `/api/pano/jobs/:id`      | bearer | Cancel an in-flight stitch                                                                                                                                                        |
+| Method | Path                         | Auth   | Purpose                                                                                                                                                                           |
+| ------ | ---------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/imports/scan`          | +file  | Walk a server-local source folder and return buckets. Source must pass the roots jail                                                                                             |
+| POST   | `/api/imports`               | +file  | Create a pending import; returns `{ id }`. Every bucket label is re-validated server-side as a safe directory segment                                                             |
+| GET    | `/api/imports`               | +file  | List imports, newest first. `status`, `limit`                                                                                                                                     |
+| GET    | `/api/imports/:id`           | +file  | Full import document with per-file progress                                                                                                                                       |
+| POST   | `/api/imports/:id/cancel`    | +file  | Request cancel, honoured between files                                                                                                                                            |
+| POST   | `/api/imports/:id/retry`     | +file  | Reset failed files to pending and clear the lease so a worker re-claims it. Copied files stay copied and dedup-skip on the re-run                                                 |
+| POST   | `/api/jobs`                  | bearer | Queue a JobRunner job. The only kind this route accepts is `batch_jpeg_export`; pano jobs are created through `/api/pano/stitch`                                                  |
+| GET    | `/api/jobs`                  | bearer | List jobs, newest first. `status`, `kind`, `limit`                                                                                                                                |
+| GET    | `/api/jobs/:id`              | bearer | Job document with progress                                                                                                                                                        |
+| POST   | `/api/jobs/:id/cancel`       | bearer | Set `cancel_requested`                                                                                                                                                            |
+| POST   | `/api/pano/stitch`           | bearer | Create a `pano_stitch` job. `409 pano_not_provisioned` when no binary is configured, `409 pano_job_running` when one is already running (they're heavy — minutes, tens of GB RSS) |
+| GET    | `/api/pano/jobs/:id`         | bearer | Pano job status and progress                                                                                                                                                      |
+| POST   | `/api/pano/preview`          | bearer | Create a `pano_preview` job (quick ~2048 px preview + reusable alignment, #4580); supersedes a running preview. `409 pano_preview_unsupported` for an older `maple-cli`           |
+| GET    | `/api/pano/jobs/:id/preview` | bearer | The finished preview PNG                                                                                                                                                          |
+| DELETE | `/api/pano/jobs/:id`         | bearer | Cancel an in-flight stitch                                                                                                                                                        |
 
 ## Change feed
 
@@ -334,30 +336,30 @@ Stage names accepted by the `:name` routes come from `workers/stages/manifest.ts
 
 Every one of these reads and writes a document in `app_settings`, so a change takes effect without a restart.
 
-| Method | Path                                 | Auth   | Purpose                                                                                                        |
-| ------ | ------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/enrichment/config`             | bearer | Effective enrichment config plus per-field source. Secrets are never echoed                                    |
-| PUT    | `/api/enrichment/config`             | owner  | Save it. Owner-only because it can repoint provider URLs at another host, taking their stored API keys with it |
-| POST   | `/api/enrichment/test`               | bearer | Health-check an arbitrary Nominatim URL without saving                                                         |
-| POST   | `/api/enrichment/test-describe`      | bearer | Same for a describe provider                                                                                   |
-| GET    | `/api/cloudflare/config`             | owner  | R2 config, secret redacted                                                                                     |
-| PUT    | `/api/cloudflare/config`             | owner  | Save it; validates credentials before persisting when enabling                                                 |
-| POST   | `/api/cloudflare/test`               | owner  | Round-trip a probe object through R2 without saving                                                            |
-| GET    | `/api/observability/config`          | bearer | Resolved OTel config — including `ingestion_key`, because client transports post to SigNoz directly with it    |
-| PUT    | `/api/observability/config`          | bearer | Save it and hot-reconfigure the running SDK                                                                    |
-| POST   | `/api/observability/test`            | bearer | POST an empty span batch to verify reach and auth without saving                                               |
-| POST   | `/api/observability/otlp/v1/:signal` | bearer | Proxy client telemetry (`traces`, `logs`) upstream                                                             |
-| GET    | `/api/render/config`                 | bearer | Web GPU live-render ramp/kill switch. Read by every signed-in client at startup and on a poll                  |
-| PUT    | `/api/render/config`                 | bearer | Flip it                                                                                                        |
-| GET    | `/api/display/config`                | bearer | Display preferences, e.g. `show_hidden_images`                                                                 |
-| PUT    | `/api/display/config`                | bearer | Save them                                                                                                      |
-| GET    | `/api/map/config`                    | bearer | Base-map tile URL plus source (`db` or `default`). This route never sees photo coordinates                     |
-| PUT    | `/api/map/config`                    | bearer | Save the operator override                                                                                     |
-| GET    | `/api/pano/config`                   | bearer | Pano config plus `strategySupported`, probed once per process from `maple-cli pano stitch --help`              |
-| PUT    | `/api/pano/config`                   | bearer | Save it                                                                                                        |
-| GET    | `/api/presets`                       | bearer | User develop presets, name-sorted. Built-in presets ship inside each client and are not served here            |
-| POST   | `/api/presets`                       | bearer | Create one from a sparse, schema-versioned adjustment model. `409` on a duplicate name                         |
-| DELETE | `/api/presets/:id`                   | bearer | Delete one                                                                                                     |
+| Method | Path                                 | Auth   | Purpose                                                                                                                      |
+| ------ | ------------------------------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/enrichment/config`             | bearer | Effective enrichment config plus per-field source. Secrets are never echoed                                                  |
+| PUT    | `/api/enrichment/config`             | owner  | Save it. Owner-only because it can repoint provider URLs at another host, taking their stored API keys with it               |
+| POST   | `/api/enrichment/test`               | bearer | Health-check an arbitrary Nominatim URL without saving                                                                       |
+| POST   | `/api/enrichment/test-describe`      | bearer | Same for a describe provider                                                                                                 |
+| GET    | `/api/cloudflare/config`             | owner  | R2 config, secret redacted                                                                                                   |
+| PUT    | `/api/cloudflare/config`             | owner  | Save it; validates credentials before persisting when enabling                                                               |
+| POST   | `/api/cloudflare/test`               | owner  | Round-trip a probe object through R2 without saving                                                                          |
+| GET    | `/api/observability/config`          | bearer | Resolved OTel config — including `ingestion_key`, because client transports post to SigNoz directly with it                  |
+| PUT    | `/api/observability/config`          | bearer | Save it and hot-reconfigure the running SDK                                                                                  |
+| POST   | `/api/observability/test`            | bearer | POST an empty span batch to verify reach and auth without saving                                                             |
+| POST   | `/api/observability/otlp/v1/:signal` | bearer | Proxy client telemetry (`traces`, `logs`) upstream                                                                           |
+| GET    | `/api/render/config`                 | bearer | Web GPU live-render ramp/kill switch. Read by every signed-in client at startup and on a poll                                |
+| PUT    | `/api/render/config`                 | bearer | Flip it                                                                                                                      |
+| GET    | `/api/display/config`                | bearer | Display preferences, e.g. `show_hidden_images`                                                                               |
+| PUT    | `/api/display/config`                | bearer | Save them                                                                                                                    |
+| GET    | `/api/map/config`                    | bearer | Base-map tile URL plus source (`db` or `default`). This route never sees photo coordinates                                   |
+| PUT    | `/api/map/config`                    | bearer | Save the operator override                                                                                                   |
+| GET    | `/api/pano/config`                   | bearer | Pano config plus `strategy_supported` / `preview_supported`, probed once per binary path from `maple-cli pano stitch --help` |
+| PUT    | `/api/pano/config`                   | bearer | Save it                                                                                                                      |
+| GET    | `/api/presets`                       | bearer | User develop presets, name-sorted. Built-in presets ship inside each client and are not served here                          |
+| POST   | `/api/presets`                       | bearer | Create one from a sparse, schema-versioned adjustment model. `409` on a duplicate name                                       |
+| DELETE | `/api/presets/:id`                   | bearer | Delete one                                                                                                                   |
 
 ## Imported lens profiles
 
