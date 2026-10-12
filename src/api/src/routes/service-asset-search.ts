@@ -192,6 +192,7 @@ function finishSearch(
     fallbackReason,
     results: responseHits(result, exactIds),
     total: result.estimatedTotal,
+    ...(result.more === undefined ? {} : { more: result.more, capped: result.capped }),
   };
 }
 

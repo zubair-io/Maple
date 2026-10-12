@@ -112,4 +112,55 @@ describe('POST /api/search/assets with the in-process engine', () => {
       'still',
     ]);
   });
+
+  describe('the ranked window', () => {
+    const fillers = (count: number, prefix = 'filler') =>
+      Array.from({ length: count }, (_, index) => `${prefix}-${index}`);
+    const ids = (body: { results: Array<{ assetId: string }> }) =>
+      body.results.map((hit) => hit.assetId);
+
+    it('finds scoped matches the child ranks between 150 and 2,000', async () => {
+      const ranking = [...fillers(150), 'clip', ...fillers(1849, 'late'), 'still'];
+      setInProcessSearchForTests(fakeInProcessSearch(ranking));
+
+      const body = await (
+        await request({ query: 'furnace', filters: { mediaTypes: ['video'] } })
+      ).json();
+      const dated = await (await request({ query: 'furnace', from: '2025-07-02' })).json();
+
+      expect(ids(body)).toEqual(['clip']);
+      expect(body).toMatchObject({ total: 1, more: false, capped: false });
+      expect(ids(dated)).toEqual(['still']);
+    });
+
+    it('says a full window has more, and returns only the requested limit of it', async () => {
+      const libraryId = insertFolder(live.db, { path: '/bulk', slug: 'bulk' });
+      const bulk = fillers(100, 'bulk');
+      bulk.forEach((mapleId) =>
+        seedSearchAsset(live.db, libraryId, { mapleId, filename: `${mapleId}.dng` }),
+      );
+      setInProcessSearchForTests(fakeInProcessSearch([...bulk, ...fillers(200)]));
+
+      const body = await (await request({ query: 'furnace', limit: 100 })).json();
+
+      expect(body.results).toHaveLength(100);
+      expect(body).toMatchObject({ total: 100, more: true, capped: false });
+    });
+
+    it('says capped when the child still had hits past the deepest window', async () => {
+      setInProcessSearchForTests(fakeInProcessSearch(fillers(5_200)));
+
+      const body = await (
+        await request({ query: 'furnace', filters: { mediaTypes: ['video'] } })
+      ).json();
+
+      expect(body).toMatchObject({ results: [], total: 0, more: false, capped: true });
+    });
+
+    it('still refuses a query over 500 characters', async () => {
+      setInProcessSearchForTests(fakeInProcessSearch(['clip']));
+
+      expect((await request({ query: 'x'.repeat(501) })).status).toBe(400);
+    });
+  });
 });

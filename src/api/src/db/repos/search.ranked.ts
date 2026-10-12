@@ -49,6 +49,8 @@ export interface WindowPass {
   considered: number;
   /** `maple_id`s the engine's vector leg found, when it has one. */
   semantic?: ReadonlySet<string>;
+  /** The engine's score of each hit by `maple_id`, when it has one. */
+  scores?: ReadonlyMap<string, number>;
 }
 
 /** Ranks the text `depth` deep and filters the hits; null when the engine cannot answer. */
@@ -64,6 +66,7 @@ export interface RankedWindow {
    */
   capped: boolean;
   semantic: ReadonlySet<string>;
+  scores?: ReadonlyMap<string, number>;
 }
 
 /** The depth a window starts at, and the in-process engine's candidate count. */
@@ -126,6 +129,7 @@ function windowOf(pass: WindowPass, full: boolean, depth: number): RankedWindow 
     more: full && !atCap,
     capped: full && atCap,
     semantic: pass.semantic ?? new Set(),
+    scores: pass.scores,
   };
 }
 
