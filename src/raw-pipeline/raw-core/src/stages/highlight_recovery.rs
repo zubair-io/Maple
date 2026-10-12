@@ -69,7 +69,11 @@ const EPSILON: f32 = 0.005;
 /// its ceiling within two pixels of a true clip (RCD on pano_01's blown sky
 /// reads 0.985–0.995 there). Those samples are censored, not scene evidence:
 /// left unflagged they act as low-ratio witnesses and leave magenta speckle
-/// (#4582). A channel inside this band next to a hard clip counts as clipped.
+/// (#4582). A channel inside this band next to a hard clip counts as clipped
+/// only while it is the pixel's lowest channel: that is the reading a
+/// censored channel shifts toward the complementary hue, whereas a band
+/// channel above another channel (a warm or tinted highlight) is still
+/// evidence of the scene's own colour.
 const DEMOSAIC_RIPPLE: f32 = 0.03;
 const RIPPLE_RADIUS: i32 = 2;
 
@@ -195,8 +199,14 @@ fn channels_at_or_above(p: &[f32; 3], levels: [f32; 3]) -> u8 {
     (0..3).fold(0u8, |m, c| if p[c] >= levels[c] { m | (1 << c) } else { m })
 }
 
-/// Hard clips plus their ripple band: a channel at or above its ripple floor
-/// with a hard clip of the same channel within [`RIPPLE_RADIUS`] in `region`.
+fn lowest_channels(p: &[f32; 3]) -> u8 {
+    let lowest = p[0].min(p[1]).min(p[2]);
+    channels_at_or_above(&p.map(|v| -v), [-lowest; 3])
+}
+
+/// Hard clips plus their ripple band: a lowest channel at or above its ripple
+/// floor with a hard clip of the same channel within [`RIPPLE_RADIUS`] in
+/// `region`.
 fn clip_mask_with_ripple(
     img: &Image,
     thresholds: [f32; 3],
@@ -221,7 +231,7 @@ fn clip_mask_with_ripple(
         .zip(hard)
         .enumerate()
         .map(|(i, (p, &h))| {
-            let band = channels_at_or_above(p, floors) & !h;
+            let band = channels_at_or_above(p, floors) & lowest_channels(p) & !h;
             let (x, y) = (i as i32 % w, i as i32 / w);
             let inside = x >= left && x < right && y >= top && y < bottom;
             if band == 0 || !inside {
