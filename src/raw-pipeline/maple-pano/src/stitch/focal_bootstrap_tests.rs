@@ -50,6 +50,7 @@ fn dummy_meta_with_gimbal(
         camera_make: "Test".to_string(),
         camera_model: "Synthetic".to_string(),
         applied_opcodes: Vec::new(),
+        falloff_correction: raw_core::FalloffCorrection::None,
     }
 }
 
