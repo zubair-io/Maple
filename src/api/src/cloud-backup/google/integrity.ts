@@ -44,9 +44,9 @@ export async function verifiedGoogleObject(
   } finally {
     await reader.cancel();
   }
-  if (size !== object.size && !expected.key.startsWith('mirror/'))
-    throw new Error('Google upload read-back size mismatch.');
-  return { ...object, size, sha256: hash.digest('hex') };
+  const actual = { ...object, size, sha256: hash.digest('hex') };
+  if (!expected.key.startsWith('mirror/')) assertExpectedIdentity(actual, expected);
+  return actual;
 }
 function assertExpectedIdentity(actual: BackupObject, expected: BackupObject): void {
   if (actual.size !== expected.size || actual.sha256 !== expected.sha256)
