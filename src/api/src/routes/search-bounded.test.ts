@@ -224,7 +224,7 @@ describe('a large match set, without planner statistics', () => {
     const id = seedCard({ placeQuery: THEME, month: '10' });
     const { issued, body } = await issuedBy(`/api/generated-searches/${id}/assets?limit=30`);
     expect(issued.filter((statement) => statement.sql.includes('assets_fts'))).toEqual([]);
-    expect(body.pending).toBe(true);
+    expect((body as { pending?: boolean }).pending).toBe(true);
   });
 
   it('a search list, its facets and its buckets stay bounded too', async () => {
