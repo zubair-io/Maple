@@ -244,3 +244,26 @@ test('mirror discovery escapes Drive query quotes in file names', async () => {
     store.requests.some((request) => request.query?.includes("name = 'o\\'neil \\\\ 2026.jpg'")),
   ).toBe(true);
 });
+
+test('a mapped mirror file renamed inside the root is re-created at its library path', async () => {
+  const store = googleStore();
+  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
+  const key = `mirror/${'h'.repeat(24)}/2026/photo.jpg`;
+  const content = source(new Uint8Array([1, 2, 3]));
+  const mapped = await provider.mirrorFile(key, '2026/photo.jpg', content, {
+    saveCheckpoint: async () => {},
+  });
+  const target = await provider.objectTarget(key);
+  Object.assign(store.files.get(mapped.locator)!, { name: 'renamed.jpg', description: '{}' });
+
+  const restored = await provider.mirrorFile(key, '2026/photo.jpg', content, {
+    expected: mapped,
+    saveCheckpoint: async () => {},
+  });
+  expect(restored.locator).not.toBe(mapped.locator);
+  expect(restored.sha256).toBe(content.sha256);
+  const file = store.files.get(restored.locator)!;
+  expect(file.name).toBe('photo.jpg');
+  expect(file.parents).toEqual([target.parentId]);
+  expect((await provider.inspect(key))?.locator).toBe(restored.locator);
+});
