@@ -94,6 +94,18 @@ export function readBulk<T = SqlRow>(db: SqliteDb, sql: string, params?: SqlPara
     : db.read<T>(sql, params);
 }
 
+/**
+ * `db` with every read sent through {@link readBulk}, for a fan-out that hands the handle on to
+ * another repository function rather than issuing each statement itself.
+ */
+export function bulkLane(db: SqliteDb): SqliteDb {
+  return {
+    read: (sql, params) => readBulk(db, sql, params),
+    write: (sql, params) => db.write(sql, params),
+    transaction: (statements) => db.transaction(statements),
+  };
+}
+
 interface BulkReadHandle {
   readBulk<T = SqlRow>(sql: string, params?: SqlParams): Promise<T[]>;
 }

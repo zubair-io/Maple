@@ -1,6 +1,7 @@
 /**
  * How many sequential trips a search page makes through the reader queue (#4503): one statement
- * decides the rows, and one wave fills in their locations, captions, PhotoKit links and owner.
+ * decides the rows, and one wave fills in their locations, captions, PhotoKit links and owner,
+ * through the bulk lane so the fan-out always leaves a reader free for a grid page.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -68,6 +69,8 @@ describe('search page round trips', () => {
       { id: OWNER, email: 'owner@maple.local' },
     ]);
     expect(recorded.waves.map((wave) => wave.length)).toEqual([1, 4]);
+    expect(recorded.waves[0]!.every((sql) => !sql.startsWith('bulk: '))).toBe(true);
+    expect(recorded.waves[1]!.every((sql) => sql.startsWith('bulk: '))).toBe(true);
     expect(recorded.waves[1]!.some((sql) => sql.includes('FROM users'))).toBe(true);
   });
 

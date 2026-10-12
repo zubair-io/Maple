@@ -42,7 +42,7 @@ import {
   seekPredicate,
 } from './search.sql.ts';
 import type { SearchWhere } from './search.where.ts';
-import { assetsDb, type SqliteDb } from './db-handle.ts';
+import { assetsDb, bulkLane, type SqliteDb } from './db-handle.ts';
 
 /** The narrow `assets` projection a search result is built from. */
 interface PageRow {
@@ -255,16 +255,18 @@ async function rowsByMapleId(
  * so nothing here can widen or narrow the result set — the semi-join rule
  * again, one level up. They go out together: the owner lookup used to wait
  * for the other three to come back, one more trip through the reader queue on
- * every search (#4503).
+ * every search (#4503). They go through the bulk lane, so a page's fan-out can
+ * never hold every reader and stall a concurrent grid page (#4413).
  */
 async function hydrate(db: SqliteDb, rows: readonly PageRow[]): Promise<SearchDoc[]> {
   if (rows.length === 0) return [];
   const ids = rows.map((row) => row.id);
+  const lane = bulkLane(db);
   const [locations, descriptions, links, owners] = await Promise.all([
-    db.read<LocationRow>(locationsByAssetIdsSql(ids.length), ids),
-    db.read<DescriptionRow>(descriptionsByAssetIdsSql(ids.length), ids),
-    db.read<LinkRow>(phassetLinksByAssetIdsSql(ids.length), ids),
-    ownerSummariesForIds(rows.map(ownerKey), db),
+    lane.read<LocationRow>(locationsByAssetIdsSql(ids.length), ids),
+    lane.read<DescriptionRow>(descriptionsByAssetIdsSql(ids.length), ids),
+    lane.read<LinkRow>(phassetLinksByAssetIdsSql(ids.length), ids),
+    ownerSummariesForIds(rows.map(ownerKey), lane),
   ]);
 
   const locationsByAsset = groupByAsset(locations);
