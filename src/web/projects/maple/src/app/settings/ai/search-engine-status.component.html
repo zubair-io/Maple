@@ -1,0 +1,13 @@
+<section aria-labelledby="search-engine-title">
+  <h2 id="search-engine-title">Search engine</h2>
+  <p>
+    Searches are ranked on this server from the search vectors above and a keyword index. First use
+    downloads ~2.2 GB to {{ view()?.modelCacheDir ?? 'the data directory' }}.
+  </p>
+  @if (statusLine(); as line) {
+    <p role="status">{{ line }}</p>
+  }
+  @if (error()) {
+    <p role="alert" class="set-banner-error-record">{{ error() }}</p>
+  }
+</section>
