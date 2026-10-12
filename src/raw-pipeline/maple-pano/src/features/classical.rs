@@ -33,6 +33,8 @@ use pyramid::{
 /// Smallest octave edge worth detecting on (the descriptor patch at the
 /// coarsest level spans ~40 px).
 const MIN_OCTAVE_EDGE: usize = 64;
+/// Cells per side of the keypoint-selection grid.
+const SELECTION_GRID: usize = 8;
 
 /// Detector tunables.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -101,8 +103,8 @@ pub fn detect_classical(frame: &LinearRgbFrame, opts: &ClassicalOptions) -> Feat
             .then(a.x.total_cmp(&b.x))
     });
     let peak = candidates.first().map_or(1.0, |c| c.response);
-    let described: Vec<(Keypoint, Vec<f32>)> = candidates
-        .iter()
+    let mut described: Vec<(Keypoint, Vec<f32>)> = spread_across_grid(&candidates, frame)
+        .into_iter()
         .filter_map(|c| {
             let image = &octaves[c.octave][c.level].image;
             let angle = descriptor::dominant_orientation(image, c.x, c.y, c.sigma);
@@ -119,12 +121,44 @@ pub fn detect_classical(frame: &LinearRgbFrame, opts: &ClassicalOptions) -> Feat
         })
         .take(opts.max_keypoints)
         .collect();
+    described.sort_by(|(a, _), (b, _)| b.score.total_cmp(&a.score));
     FeatureSet {
         keypoints: described.iter().map(|(k, _)| *k).collect(),
         descriptors: described.into_iter().flat_map(|(_, d)| d).collect(),
         descriptor_dim: descriptor::DESCRIPTOR_DIM,
         norm_keypoints: Vec::new(),
     }
+}
+
+/// Reorders response-sorted candidates so every cell of a
+/// `SELECTION_GRID`² grid contributes its best point before any cell
+/// contributes its second. A global top-k would spend the whole budget on
+/// the few high-contrast regions (cloud edges, a coastline) and leave
+/// frames of open water or sky with no matchable support elsewhere.
+fn spread_across_grid<'a>(
+    candidates: &'a [Candidate],
+    frame: &LinearRgbFrame,
+) -> Vec<&'a Candidate> {
+    let cell = |c: &Candidate| {
+        let to_source = (1u32 << c.octave) as f32;
+        let gx = (c.x * to_source * SELECTION_GRID as f32 / frame.width as f32) as usize;
+        let gy = (c.y * to_source * SELECTION_GRID as f32 / frame.height as f32) as usize;
+        gy.min(SELECTION_GRID - 1) * SELECTION_GRID + gx.min(SELECTION_GRID - 1)
+    };
+    let (mut ranked, _) = candidates.iter().fold(
+        (
+            Vec::with_capacity(candidates.len()),
+            vec![0usize; SELECTION_GRID * SELECTION_GRID],
+        ),
+        |(mut ranked, mut seen), c| {
+            let k = cell(c);
+            ranked.push((seen[k], c));
+            seen[k] += 1;
+            (ranked, seen)
+        },
+    );
+    ranked.sort_by_key(|&(rank, _)| rank);
+    ranked.into_iter().map(|(_, c)| c).collect()
 }
 
 fn build_octaves(base: GrayImage, opts: &ClassicalOptions) -> Vec<Vec<ScaleLevel>> {
