@@ -469,6 +469,14 @@ export async function publishGoogleObject(
   return uploadChunks(ctx, ready.state, ready.next);
 }
 
+async function atMirrorTarget(
+  ctx: UploadContext,
+  object: BackupObject,
+  target: { parentId: string; name: string },
+): Promise<boolean> {
+  const file = await ctx.provider.client.metadata(object.locator, ctx.options.signal);
+  return file.name === target.name && file.parents?.[0] === target.parentId;
+}
 export async function publishGoogleMirrorFile(
   provider: GoogleDriveProvider,
   key: string,
@@ -493,13 +501,19 @@ export async function publishGoogleMirrorFile(
   const committed = divergent ? await committedCheckpoint(ctx, checkpoint!) : null;
   const saved = divergent ? null : checkpoint;
   const expected = committed ?? mappedObject(saved, options.expected);
-  const existing =
+  const located =
     committed ??
     (await provider.inspect(key, options.signal, {
       locator: saved?.fileId ?? expected?.locator,
       expected,
     }));
+  // A mapped file that was renamed or moved inside the root still carries the
+  // right bytes, but the mirror's contract is the library-relative path. Treat
+  // it as absent so a fresh file lands at the path; the engine then removes
+  // the displaced copy when it retires the old mapping.
+  const existing = located && (await atMirrorTarget(ctx, located, target)) ? located : null;
+  const resumable = saved && (existing || saved.fileId !== located?.locator) ? saved : null;
   if (matchesSource(existing, source)) return existing;
-  const state = await mirrorState(ctx, target, saved, existing);
+  const state = await mirrorState(ctx, target, resumable, existing);
   return uploadMirror(ctx, state);
 }
