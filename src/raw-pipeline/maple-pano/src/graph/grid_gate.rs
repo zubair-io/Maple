@@ -15,9 +15,11 @@
 //!    degrees); on the tile path — translation-dominant nadir surveys,
 //!    where the rotation verifier runs at a placeholder unit focal and
 //!    its rotations carry no geometry — it is a robust 2D similarity fit
-//!    to the edge's inliers, gated on how far frame `a`'s corners land
-//!    apart under the composed vs direct transform, as a fraction of the
-//!    frame diagonal.
+//!    to the edge's inliers, gated on the median distance between where
+//!    the composed and the direct transform send the edge's own inlier
+//!    points, as a fraction of the frame diagonal. Measuring inside the
+//!    overlap, not at the frame corners, keeps small per-edge scale and
+//!    angle noise from being extrapolated across a thin overlap strip.
 //!
 //! Rejections move to [`MatchGraph::rejected`] with their reason.
 
@@ -40,11 +42,11 @@ pub const LOOP_CLOSURE_MAX_CELLS: usize = 2;
 /// match on repetitive texture lands far outside.
 pub const LOOP_CLOSURE_MAX_ROTATION_ERROR_DEG: f64 = 2.0;
 
-/// Corner disagreement allowed on the tile path, as a fraction of frame
-/// `a`'s diagonal (~20 px on a 1600 px proxy): three similarity fits'
-/// noise plus mild nadir parallax stay well under it, while a false match
-/// on a repeating texture is off by at least one texture period.
-pub const LOOP_CLOSURE_MAX_CORNER_ERROR_FRAC: f64 = 0.01;
+/// Placement disagreement allowed on the tile path, as a fraction of
+/// frame `a`'s diagonal (~20 px on a 1600 px proxy): three similarity
+/// fits' noise plus mild nadir parallax stay well under it, while a false
+/// match on a repeating texture is off by at least one texture period.
+pub const LOOP_CLOSURE_MAX_PLACEMENT_ERROR_FRAC: f64 = 0.01;
 
 const MEAN_EARTH_RADIUS_M: f64 = 6_371_008.8;
 
@@ -131,23 +133,30 @@ impl Relation {
         }
     }
 
-    /// Degrees for rotations; corner disagreement over the frame
-    /// diagonal for similarities.
-    fn disagreement(&self, other: &Relation, frame: (u32, u32)) -> Option<f64> {
+    /// Degrees for rotations; for similarities, the median distance
+    /// between where the two transforms send `points`, over the frame
+    /// diagonal.
+    fn disagreement(
+        &self,
+        other: &Relation,
+        frame: (u32, u32),
+        points: &[(f64, f64)],
+    ) -> Option<f64> {
         match (self, other) {
             (Relation::Rotation(x), Relation::Rotation(y)) => {
                 Some(rotation_angle_between(x, y).to_degrees())
             }
             (Relation::Planar(x), Relation::Planar(y)) => {
-                let (w, h) = (frame.0 as f64, frame.1 as f64);
-                let worst = [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)]
+                let mut gaps: Vec<f64> = points
                     .iter()
-                    .map(|&(cx, cy)| {
-                        let ((x0, y0), (x1, y1)) = (x.apply(cx, cy), y.apply(cx, cy));
+                    .map(|&(px, py)| {
+                        let ((x0, y0), (x1, y1)) = (x.apply(px, py), y.apply(px, py));
                         (x0 - x1).hypot(y0 - y1)
                     })
-                    .fold(0.0_f64, f64::max);
-                Some(worst / w.hypot(h))
+                    .collect();
+                gaps.sort_unstable_by(f64::total_cmp);
+                let median = *gaps.get(gaps.len() / 2)?;
+                Some(median / (frame.0 as f64).hypot(frame.1 as f64))
             }
             _ => None,
         }
@@ -205,12 +214,13 @@ impl MatchGraph {
                 let frame = images
                     .get(e.a)
                     .map_or((1, 1), |img| (img.camera.width, img.camera.height));
+                let points: Vec<(f64, f64)> = e.inlier_matches.iter().map(|m| m.a).collect();
                 let best = layout
                     .neighbours(e.a, self.image_count)
                     .into_iter()
                     .filter_map(|k| {
                         let via = trusted(e.a, k)?.then(&trusted(k, e.b)?)?;
-                        via.disagreement(direct?, frame)
+                        via.disagreement(direct?, frame, &points)
                     })
                     .min_by(f64::total_cmp);
                 consistency_verdict(best, gate.check, frame)
@@ -275,9 +285,9 @@ fn consistency_verdict(
             }),
         },
         LoopClosureCheck::Planar => match best {
-            Some(frac) if frac <= LOOP_CLOSURE_MAX_CORNER_ERROR_FRAC => None,
+            Some(frac) if frac <= LOOP_CLOSURE_MAX_PLACEMENT_ERROR_FRAC => None,
             _ => Some(VerifyFailure::LoopClosurePlacementUnconfirmed {
-                best_corner_error_px: best
+                best_placement_error_px: best
                     .map(|frac| frac * (frame.0 as f64).hypot(frame.1 as f64)),
             }),
         },
