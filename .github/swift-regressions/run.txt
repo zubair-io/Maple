@@ -201,7 +201,7 @@ MaskRasterAlphaTests
 MaskRasterStoreTests
 MaskRemapRasterTests
 MaskRemapTests
-MeilisearchSettingsFormTests
+ServiceSearchSettingsFormTests
 MergedTimelineSourceTests
 MirrorConfigClientTests
 
