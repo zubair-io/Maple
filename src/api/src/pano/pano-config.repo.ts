@@ -4,12 +4,15 @@
  *
  * Settings (all operator-configurable at runtime via PUT /api/pano/config):
  *   - maple_cli_path  : absolute path to the compiled maple-cli binary
- *   - models_dir      : MAPLE_PANO_MODELS directory (ALIKED + LightGlue)
- *   - ort_dylib_path  : ORT_DYLIB_PATH — libonnxruntime ≥ 1.23 shared lib
+ *   - matcher         : 'classical' (default, no downloads) or 'ml' (opt-in)
+ *   - models_dir      : MAPLE_PANO_MODELS directory (ALIKED + LightGlue; ML only)
+ *   - ort_dylib_path  : ORT_DYLIB_PATH — libonnxruntime ≥ 1.23 (ML only)
  *   - enabled         : operator on/off toggle (default: false)
  *
  * When `enabled` is false or `maple_cli_path` is absent, POST /api/pano/stitch
- * returns 409 { error: 'pano_not_provisioned', ... }.
+ * returns 409 { error: 'pano_not_provisioned', ... }. With `matcher: 'ml'` and
+ * either model path unset it returns 409 { error: 'pano_ml_not_provisioned' }
+ * rather than silently falling back to classical (#4555).
  */
 
 import path from 'node:path';
@@ -21,6 +24,9 @@ import {
 import { child as childLogger } from '../log.ts';
 
 const DOC_ID = 'pano';
+
+export const PANO_MATCHERS = ['classical', 'ml'] as const;
+export type PanoMatcher = (typeof PANO_MATCHERS)[number];
 const log = childLogger('pano:config-repo');
 
 export interface PanoConfig {
@@ -32,6 +38,8 @@ export interface PanoConfig {
   ort_dylib_path?: string | null;
   /** Operator enable/disable toggle. Default false until provisioned. */
   enabled?: boolean | null;
+  /** Feature detector/matcher the stitch runs with. Default classical. */
+  matcher?: PanoMatcher | null;
   updated_at?: number;
 }
 
@@ -45,6 +53,7 @@ export interface ResolvedPanoConfig {
   models_dir: string | null;
   ort_dylib_path: string | null;
   enabled: boolean;
+  matcher: PanoMatcher;
   /** Whether the binary at maple_cli_path supports --strategy (probed at
    * request time; cached for the life of the request). */
   strategy_supported: boolean;
@@ -53,6 +62,7 @@ export interface ResolvedPanoConfig {
     models_dir: 'db' | 'unset';
     ort_dylib_path: 'db' | 'unset';
     enabled: 'db' | 'default';
+    matcher: 'db' | 'default';
   };
 }
 
@@ -73,6 +83,7 @@ export async function savePanoConfig(patch: Partial<PanoConfig>): Promise<void> 
   if (patch.models_dir !== undefined) set['config.models_dir'] = patch.models_dir;
   if (patch.ort_dylib_path !== undefined) set['config.ort_dylib_path'] = patch.ort_dylib_path;
   if (patch.enabled !== undefined) set['config.enabled'] = patch.enabled;
+  if (patch.matcher !== undefined) set['config.matcher'] = patch.matcher;
   await patchAppSettings(DOC_ID, set);
   log.info({ patch }, 'pano config saved');
 }
@@ -111,17 +122,20 @@ export function resolvePanoConfig(
     enabled = db.enabled;
     enabledSource = 'db';
   }
+  const storedMatcher = PANO_MATCHERS.find((m) => m === db?.matcher);
 
   return {
     maple_cli_path: cliPath.value,
     models_dir: modelsDir.value,
     ort_dylib_path: ortDylib.value,
     enabled,
+    matcher: storedMatcher ?? 'classical',
     source: {
       maple_cli_path: cliPath.source,
       models_dir: modelsDir.source,
       ort_dylib_path: ortDylib.source,
       enabled: enabledSource,
+      matcher: storedMatcher ? 'db' : 'default',
     },
   };
 }
@@ -129,4 +143,11 @@ export function resolvePanoConfig(
 /** True when pano is fully provisioned and enabled. */
 export function isPanoProvisioned(cfg: Omit<ResolvedPanoConfig, 'strategy_supported'>): boolean {
   return cfg.enabled && cfg.maple_cli_path !== null;
+}
+
+/** True when the ML matcher is selected but its models or ONNX Runtime are unset. */
+export function isMlMatcherUnprovisioned(
+  cfg: Omit<ResolvedPanoConfig, 'strategy_supported'>,
+): boolean {
+  return cfg.matcher === 'ml' && (cfg.models_dir === null || cfg.ort_dylib_path === null);
 }
