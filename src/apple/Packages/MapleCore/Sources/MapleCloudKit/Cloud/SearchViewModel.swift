@@ -102,9 +102,16 @@ public final class SearchViewModel {
   /// Pages key on the full param set + page index; facets on the param set
   /// alone. Lives for the VM's lifetime (session-scoped, like the web cache).
   private var pageCache: [PageKey: SearchResponse] = [:]
-  private var facetCache: [SearchParams: SearchFacets] = [:]
+  private var facetCache: [FacetKey: SearchFacets] = [:]
 
   private struct PageKey: Hashable {
+    let params: SearchParams
+    let page: Int
+  }
+
+  /// Facets are cached per list page: a free-text search's facets count the
+  /// ranked window the list reached by that page (#4514).
+  private struct FacetKey: Hashable {
     let params: SearchParams
     let page: Int
   }
@@ -200,7 +207,9 @@ public final class SearchViewModel {
     // Serve an identical query (results + facets) from the in-memory cache —
     // no spinner, no network round-trip. Only short-circuit when BOTH are
     // cached so a prior facet failure still triggers a refetch.
-    if let cachedPage = pageCache[pageKey], let cachedFacets = facetCache[requested] {
+    if let cachedPage = pageCache[pageKey],
+      let cachedFacets = facetCache[FacetKey(params: requested, page: 0)]
+    {
       loadError = nil
       results = cachedPage.results
       nextCursor = cachedPage.nextCursor
@@ -224,7 +233,7 @@ public final class SearchViewModel {
     // failure must not blank the results, so it's awaited best-effort. The
     // child task is awaited in both branches so it isn't implicitly
     // cancelled mid-flight when `search` throws.
-    async let facetResp = searchClient.facets(requested)
+    async let facetResp = searchClient.facets(requested, page: 0, limit: limit)
     do {
       let resp = try await searchClient.search(requested, page: 0, limit: limit)
       guard g == generation else {
@@ -248,7 +257,7 @@ public final class SearchViewModel {
       let facetsResult = try? await facetResp
       guard g == generation else { return }
       if let facetsResult {
-        facetCache[requested] = facetsResult
+        facetCache[FacetKey(params: requested, page: 0)] = facetsResult
         facets = facetsResult
       }
     } catch {
@@ -342,7 +351,8 @@ public final class SearchViewModel {
   public func loadFacetsIfNeeded() async {
     guard facets == nil, !isLoadingFacets else { return }
     let requested = params
-    if let cached = facetCache[requested] {
+    let key = FacetKey(params: requested, page: page)
+    if let cached = facetCache[key] {
       facets = cached
       return
     }
@@ -351,7 +361,8 @@ public final class SearchViewModel {
     defer { isLoadingFacets = false }
     // Best-effort: a facet failure is not a search failure, so it must not
     // raise the error banner over the (perfectly fine) Recents list.
-    guard let loaded = try? await searchClient.facets(requested) else { return }
+    guard let loaded = try? await searchClient.facets(requested, page: key.page, limit: limit)
+    else { return }
     guard g == generation else {
       // A reset superseded this load; the panel may already be open on the
       // new params, so fetch those now rather than leaving it empty.
@@ -359,8 +370,31 @@ public final class SearchViewModel {
       await loadFacetsIfNeeded()
       return
     }
-    facetCache[requested] = loaded
+    facetCache[key] = loaded
     facets = loaded
+  }
+
+  /// A deeper page widened a free-text search's ranked window (#4514):
+  /// refetch the facets for that window, keeping the current ones on screen
+  /// until the new ones land.
+  private func refreshFacetsForWindow(page windowPage: Int, generation g: Int) async {
+    let requested = params
+    let key = FacetKey(params: requested, page: windowPage)
+    if let cached = facetCache[key] {
+      facets = cached
+      return
+    }
+    guard let loaded = try? await searchClient.facets(requested, page: windowPage, limit: limit),
+      g == generation
+    else { return }
+    facetCache[key] = loaded
+    facets = loaded
+  }
+
+  /// Whether a page that just landed widened the window a free-text total counts.
+  private func widensWindow(_ response: SearchResponse, over previousTotal: Int) -> Bool {
+    !params.placeQuery.trimmingCharacters(in: .whitespaces).isEmpty
+      && !response.results.isEmpty && response.total != previousTotal
   }
 
   /// Re-run the search only if `params` changed since the last submit.
@@ -411,6 +445,7 @@ public final class SearchViewModel {
     // skip-pagination fallback (see `nextCursor`).
     let seek = nextCursor
 
+    let previousTotal = total
     if let cached = pageCache[pageKey] {
       guard g == generation else { return }
       page = next
@@ -419,6 +454,9 @@ public final class SearchViewModel {
       total = cached.seekExhausted ? results.count : cached.total
       moreBeyondTotal = !cached.results.isEmpty && (cached.more ?? false)
       cappedAtTotal = cached.capped ?? false
+      if widensWindow(cached, over: previousTotal) {
+        Task { [weak self] in await self?.refreshFacetsForWindow(page: next, generation: g) }
+      }
       return
     }
 
@@ -432,6 +470,9 @@ public final class SearchViewModel {
       total = resp.seekExhausted ? results.count : resp.total
       moreBeyondTotal = !resp.results.isEmpty && (resp.more ?? false)
       cappedAtTotal = resp.capped ?? false
+      if widensWindow(resp, over: previousTotal) {
+        Task { [weak self] in await self?.refreshFacetsForWindow(page: next, generation: g) }
+      }
     } catch {
       if Self.isCancellation(error) { return }
       guard g == generation else { return }

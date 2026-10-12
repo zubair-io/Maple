@@ -120,7 +120,7 @@ describe("the database's window", () => {
     });
   }
 
-  test('a selective filter widens once, bounded, and never reads every match joined', async () => {
+  test('a selective filter widens up the ladder, bounded, and never reads every match joined', async () => {
     await withLibrary(async (db) => {
       const where = translate({
         placeQuery: 'group of people standing in front of the ocean',
@@ -130,7 +130,7 @@ describe("the database's window", () => {
       const window = (await rankWindow(ftsRanker(where, handle), RANKED_WINDOW_BASE))!;
       expect(window.rows).toHaveLength(2);
       expect(window.more).toBe(false);
-      expect(issued).toHaveLength(2);
+      expect(issued.length).toBeLessThanOrEqual(4);
       expect(issued.every((sql) => sql.includes('WITH hit AS MATERIALIZED'))).toBe(true);
       expect(issued.some((sql) => /COUNT\(\*\)\s+AS n/.test(sql))).toBe(false);
     });
@@ -175,8 +175,8 @@ describe('the window policy', () => {
   test('goes as deep as the page asked for', async () => {
     const { ranker, depths } = syntheticRanker(10_000, 1);
     const window = (await rankWindow(ranker, 700))!;
-    expect(depths).toEqual([700]);
-    expect(window.rows).toHaveLength(700);
+    expect(depths).toEqual([1_600]);
+    expect(window.rows).toHaveLength(1_600);
   });
 
   test('a window the engine did not fill is every match: no more, no widening', async () => {
@@ -187,18 +187,18 @@ describe('the window policy', () => {
     expect(window.more).toBe(false);
   });
 
-  test('widens once by the survival rate when a full window leaves the page short', async () => {
+  test('widens up the ladder until a full window fills the page', async () => {
     const { ranker, depths } = syntheticRanker(10_000, 10);
     const window = (await rankWindow(ranker, 100))!;
-    expect(depths).toEqual([100, 1_500]);
-    expect(window.rows).toHaveLength(150);
+    expect(depths).toEqual([100, 400, 1_600]);
+    expect(window.rows).toHaveLength(160);
     expect(window.more).toBe(true);
   });
 
   test('never goes past the cap, and says it stopped there with matches left', async () => {
     const { ranker, depths } = syntheticRanker(1_000_000, 1_000);
     const window = (await rankWindow(ranker, 100))!;
-    expect(depths).toEqual([100, RANKED_WINDOW_MAX]);
+    expect(depths).toEqual([100, 400, 1_600, RANKED_WINDOW_MAX]);
     expect(window.rows).toHaveLength(5);
     expect(window).toMatchObject({ more: false, capped: true });
 

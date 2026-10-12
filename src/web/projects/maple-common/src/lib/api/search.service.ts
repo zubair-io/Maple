@@ -323,9 +323,11 @@ export class SearchService {
     });
   }
 
-  /** GET /api/search/facets — counts/ranges scoped to the same filter set
-   * (page/limit/sort are ignored server-side). */
-  facets(params: Omit<SearchParams, 'page' | 'limit' | 'sort'>): Observable<SearchFacets> {
+  /** GET /api/search/facets — counts/ranges scoped to the same filter set.
+   * A free-text search's facets count the list's ranked window, so the
+   * list's current `page` and `limit` ride along (#4514); `sort` and
+   * `cursor` do not affect them. */
+  facets(params: Omit<SearchParams, 'sort' | 'cursor'>): Observable<SearchFacets> {
     return this.http.get<SearchFacets>(`${this.base}/search/facets`, {
       params: paramsFrom(params),
     });

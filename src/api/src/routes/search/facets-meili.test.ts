@@ -107,7 +107,7 @@ describe('GET /api/search/facets — the ranking behind a text search', () => {
     setMeilisearchClientForTests(client);
 
     const body = await facets('placeQuery=greyson');
-    expect(calls.map((call) => call.opts.limit)).toEqual([100, 5_000]);
+    expect(calls.map((call) => call.opts.limit)).toEqual([100, 400, 1_600]);
     expect(body.total).toBe(2);
     expect(body.scope).toEqual({ kind: 'all' });
     expect(body.cameras.map((row) => [row.make, row.count]).sort()).toEqual([

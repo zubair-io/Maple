@@ -138,13 +138,15 @@ describe('a free-text collection with the in-process engine', () => {
     expect(assetReads.every((sql) => sql.startsWith('bulk: '))).toBe(true);
   });
 
-  it('says there is more when the engine filled the window', async () => {
+  it('widens a thinned window until the engine runs dry, then reports no more', async () => {
     const window = Array.from({ length: 100 }, (_, index) => `missing${index}`);
-    setInProcessSearchForTests(fakeInProcessSearch(['tower', ...window]));
+    const engine = fakeInProcessSearch(['tower', ...window]);
+    setInProcessSearchForTests(engine);
 
     const { body } = await get(`/api/generated-searches/${seedCard()}/assets?limit=1`);
 
-    expect(body).toMatchObject({ total: 1, more: true });
+    expect(engine.queries.map((query) => query.k)).toEqual([100, 400]);
+    expect(body).toMatchObject({ total: 1, more: false, capped: false });
   });
 });
 
@@ -162,7 +164,7 @@ describe('a free-text collection while the selected engine is loading', () => {
     const pending = { total: 2, more: true, snapshot: true, pending: true };
     expect(first.body).toMatchObject(pending);
     expect(second.body).toMatchObject(pending);
-    expect(deeper.body).toEqual({ ...pending, results: [] });
+    expect(deeper.body).toEqual({ ...pending, more: false, results: [] });
     for (const { statements } of [first, second, deeper]) {
       expect(statements.some((sql) => sql.includes('assets_fts'))).toBe(false);
     }
@@ -173,7 +175,7 @@ describe('a free-text collection while the selected engine is loading', () => {
 
     const { body } = await get(`/api/generated-searches/${seedCard()}/assets`);
 
-    expect(body).toEqual({ total: 0, results: [], more: true, snapshot: true, pending: true });
+    expect(body).toEqual({ total: 0, results: [], more: false, snapshot: true, pending: true });
   });
 });
 

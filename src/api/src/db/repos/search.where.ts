@@ -91,6 +91,13 @@ import {
  * `search.sql.ts`. Its third state, a text query no row can satisfy, is the one
  * case that *is* a residual, and {@link searchWhereSql} is where it becomes one.
  */
+/**
+ * The longest free text a search accepts. A query is ranked by the in-process child's embedder
+ * and its full-text leg, and FTS5 keeps at most 24 terms of it; nothing a person types into a
+ * search box comes near this, and a longer one is work for the child with no use (#4514).
+ */
+export const MAX_TEXT_QUERY_LENGTH = 1_000;
+
 export interface SearchWhere {
   clauses: readonly string[];
   params: readonly SqlValue[];
@@ -158,6 +165,10 @@ const VALIDATIONS: ReadonlyArray<(q: SearchQuery) => string | null> = [
       ? `Invalid color: ${q.color}`
       : null,
   (q) => (q.pathPrefix !== undefined && q.pathPrefix.length > 1024 ? 'pathPrefix too long' : null),
+  (q) =>
+    q.placeQuery !== undefined && q.placeQuery.length > MAX_TEXT_QUERY_LENGTH
+      ? 'placeQuery too long'
+      : null,
   (q) =>
     q.sceneType !== undefined && q.sceneType !== '' && !SCENE_TYPES.has(q.sceneType)
       ? `Invalid sceneType: ${q.sceneType}`

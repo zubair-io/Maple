@@ -100,13 +100,29 @@ export async function requestWindow(
   databaseFloor = true,
 ): Promise<EngineWindow | null> {
   const engines = await candidates(request, databaseFloor);
-  const answer = await engines.reduce<Promise<EngineWindow | null>>(async (found, candidate) => {
+  const answers = await engines.reduce<Promise<EngineWindow[]>>(async (found, candidate) => {
     const earlier = await found;
-    if (earlier) return earlier;
+    if (earlier.some(settles)) return earlier;
     const window = await rankWindow(candidate.ranker, request.need);
-    return window && { ...window, engine: candidate.engine, preferred: candidate === engines[0] };
-  }, Promise.resolve(null));
-  return answer ?? (databaseFloor ? emptyWindow() : null);
+    const answer = window && {
+      ...window,
+      engine: candidate.engine,
+      preferred: candidate === engines[0] && earlier.length === 0,
+    };
+    return answer ? [...earlier, answer] : earlier;
+  }, Promise.resolve([]));
+  return answers.find(settles) ?? answers[0] ?? (databaseFloor ? emptyWindow() : null);
+}
+
+/**
+ * Whether an engine's answer is the request's answer. An empty window settles it only when the
+ * engine searched as deep as a window goes and the filters still left nothing — the next engine
+ * would rank to the same bound and add cost, not truth. An empty window short of the cap means
+ * the engine returned fewer hits than it was asked for, so the next engine is asked too, and the
+ * empty answer stands only if none of them finds anything either.
+ */
+function settles(window: EngineWindow): boolean {
+  return window.rows.length > 0 || window.capped || window.engine === 'database';
 }
 
 function emptyWindow(): EngineWindow {

@@ -211,10 +211,15 @@ public struct SearchParams: Sendable, Equatable, Hashable {
 
   // MARK: - Serialisation
 
-  /// Query items for `/api/search/facets` — everything except page / limit
-  /// / sort (the server ignores those for facet aggregation).
-  public func facetQueryItems() -> [URLQueryItem] {
+  /// Query items for `/api/search/facets` — the base filters, plus the
+  /// list's `page` and `limit` when given: a free-text search's facets count
+  /// the list's ranked window as of that page (#4514). Sort never affects them.
+  public func facetQueryItems(page: Int? = nil, limit: Int? = nil) -> [URLQueryItem] {
     baseItems()
+      + [
+        page.map { URLQueryItem(name: "page", value: "\($0)") },
+        limit.map { URLQueryItem(name: "limit", value: "\($0)") },
+      ].compactMap { $0 }
   }
 
   /// Query items for `/api/search` — base filters plus sort + pagination.

@@ -27,7 +27,7 @@ import { RECENT_QUERIES_KEY } from './search-types';
 class StubSearchService {
   readonly calls: SearchParams[] = [];
   readonly subjects: Subject<SearchResponse>[] = [];
-  readonly facetCalls: Array<Omit<SearchParams, 'page' | 'limit' | 'sort'>> = [];
+  readonly facetCalls: Array<Omit<SearchParams, 'sort' | 'cursor'>> = [];
   readonly facetSubjects: Subject<SearchFacets>[] = [];
   defaultResponse: SearchResponse = { total: 0, page: 0, limit: 30, results: [] };
   defaultFacets: SearchFacets = {
@@ -59,7 +59,7 @@ class StubSearchService {
     return subj.asObservable();
   }
 
-  facets(params: Omit<SearchParams, 'page' | 'limit' | 'sort'>): Observable<SearchFacets> {
+  facets(params: Omit<SearchParams, 'sort' | 'cursor'>): Observable<SearchFacets> {
     this.facetCalls.push(params);
     const subj = new Subject<SearchFacets>();
     this.facetSubjects.push(subj);
@@ -428,6 +428,34 @@ describe('SearchComponent (unified search)', () => {
     });
     fixture.detectChanges();
     expect(searchComp.canLoadMore()).toBe(false);
+  });
+
+  it('asks facets for the window of the page the list reached when paging widens it', () => {
+    typeInput(fixture, 'city streets');
+    vi.advanceTimersByTime(400);
+    expect(stub.facetCalls[stub.facetCalls.length - 1]).toMatchObject({ page: 0, limit: 30 });
+    stub.resolveLatest({
+      total: 30,
+      more: true,
+      page: 0,
+      limit: 30,
+      results: Array.from({ length: 30 }, (_, i) => makeResult(`r${i}`, `r${i}.dng`)),
+    });
+    stub.resolveLatestFacets();
+    fixture.detectChanges();
+    const facetRequests = stub.facetCalls.length;
+
+    (fixture.componentInstance as unknown as { onLoadMore(): void }).onLoadMore();
+    stub.resolveLatest({
+      total: 52,
+      more: false,
+      page: 1,
+      limit: 30,
+      results: Array.from({ length: 22 }, (_, i) => makeResult(`s${i}`, `s${i}.dng`)),
+    });
+
+    expect(stub.facetCalls.length).toBe(facetRequests + 1);
+    expect(stub.facetCalls[stub.facetCalls.length - 1]).toMatchObject({ page: 1, limit: 30 });
   });
 
   it('stops paging at a capped window and labels its count open-ended', () => {
