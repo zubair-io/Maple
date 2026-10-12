@@ -95,11 +95,18 @@ public final class PanoMergeSession {
 
     // MARK: - Options (mutable before/after a run; not during)
 
-    /// Changing an option while a preview is active re-runs it after
-    /// `previewDebounce`, cancelling the one in flight.
+    /// Changing an option while a preview is active re-runs it. A change to
+    /// the geometry the alignment is keyed on cancels the run in flight and
+    /// re-runs after `previewDebounce`; a composite-only change (retention,
+    /// local alignment) lets the running preview finish its matching, then
+    /// re-previews from that alignment with the new options.
     public var options: PanoOptions = .default {
         didSet {
             guard options != oldValue, previewAssets.count >= 2 else { return }
+            if case .running = previewState, previewRunStrategy == options.strategy {
+                rePreviewWhenCurrentFinishes = true
+                return
+            }
             schedulePreview(after: previewDebounce)
         }
     }
@@ -114,6 +121,8 @@ public final class PanoMergeSession {
     private var previewAssets: [AssetRef] = []
     /// Geometry option the in-flight preview run solves for.
     private var previewRunStrategy: PanoOptions.Strategy?
+    /// A composite-only option changed while a preview was matching.
+    private var rePreviewWhenCurrentFinishes = false
 
     public init(stitcher: any PanoStitching, previewDebounce: Duration = .milliseconds(600)) {
         self.stitcher = stitcher
@@ -136,6 +145,7 @@ public final class PanoMergeSession {
     }
 
     private func schedulePreview(after delay: Duration) {
+        rePreviewWhenCurrentFinishes = false
         previewTask?.cancel()
         previewGeneration &+= 1
         let gen = previewGeneration
@@ -172,6 +182,9 @@ public final class PanoMergeSession {
                 guard self.previewGeneration == gen else { return }
                 self.previewState = .failed(StitchError(underlying: error))
             }
+            if self.rePreviewWhenCurrentFinishes {
+                self.schedulePreview(after: .zero)
+            }
         }
     }
 
@@ -184,6 +197,7 @@ public final class PanoMergeSession {
     }
 
     private func cancelPreview() {
+        rePreviewWhenCurrentFinishes = false
         previewGeneration &+= 1
         previewTask?.cancel()
         previewTask = nil
@@ -205,6 +219,7 @@ public final class PanoMergeSession {
         guard assets.count >= 2 else { return }
 
         let awaitedPreview = previewWorthAwaiting
+        rePreviewWhenCurrentFinishes = false
         if awaitedPreview == nil {
             if isPreviewing { cancelPreview() }
             stitcher.cancel()
