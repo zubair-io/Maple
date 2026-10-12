@@ -90,12 +90,15 @@ impl LensKey {
     }
 
     fn label(&self) -> String {
-        let body = format!("{} {}", self.make, self.model);
         let focal = self
             .focal_decimm
-            .map(|d| format!(" {:.1}mm", d as f64 / 10.0))
-            .unwrap_or_default();
-        format!("{}{focal}", body.trim())
+            .map(|d| format!("{:.1}mm", d as f64 / 10.0));
+        [Some(self.make.clone()), Some(self.model.clone()), focal]
+            .into_iter()
+            .flatten()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 }
 
