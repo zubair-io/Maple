@@ -21,6 +21,7 @@ use rayon::prelude::*;
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
 use crate::error::PanoError;
+use crate::gain::FramePhotometry;
 use crate::ingest::{ingest_file, PlanarImage, ValidityMask};
 use crate::local_align::LocalCorrection;
 use crate::seam::SeamStrategy;
@@ -215,20 +216,25 @@ fn build_validity_mask(out_valid: &[bool], canvas_width: u32, canvas_height: u32
 pub fn composite_tiled(
     paths: &[std::path::PathBuf],
     cameras: &[Camera],
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
     seam_strategy: SeamStrategy,
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
     match seam_strategy {
-        SeamStrategy::Voronoi => {
-            composite_tiled_voronoi(paths, cameras, gains, local_corrections, canvas, tile_rows)
-        }
+        SeamStrategy::Voronoi => composite_tiled_voronoi(
+            paths,
+            cameras,
+            photometry,
+            local_corrections,
+            canvas,
+            tile_rows,
+        ),
         SeamStrategy::GraphCut => graph_cut::composite_tiled_graph_cut(
             paths,
             cameras,
-            gains,
+            photometry,
             local_corrections,
             canvas,
             tile_rows,
@@ -242,17 +248,17 @@ pub fn composite_tiled(
 fn composite_tiled_voronoi(
     paths: &[std::path::PathBuf],
     cameras: &[Camera],
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
-    if paths.len() != cameras.len() || paths.len() != gains.len() {
+    if paths.len() != cameras.len() || paths.len() != photometry.len() {
         return Err(PanoError::InvalidOptions(format!(
-            "composite_tiled: {} paths, {} cameras, {} gains",
+            "composite_tiled: {} paths, {} cameras, {} photometry",
             paths.len(),
             cameras.len(),
-            gains.len(),
+            photometry.len(),
         )));
     }
     if !local_corrections.is_empty() && local_corrections.len() != paths.len() {
@@ -299,7 +305,7 @@ fn composite_tiled_voronoi(
         drop(depths);
 
         // Stream each frame: decode → warp strip → accumulate → drop.
-        for (fi, ((path, cam), gain)) in paths.iter().zip(cameras).zip(gains).enumerate() {
+        for (fi, ((path, cam), gain)) in paths.iter().zip(cameras).zip(photometry).enumerate() {
             if !owner.iter().any(|&o| o == fi as u16) {
                 continue; // skip decode — frame doesn't own any tile pixel
             }
@@ -334,7 +340,7 @@ fn composite_tiled_voronoi(
     let report = CompositeReport {
         canvas: canvas.clone(),
         projection: canvas.projection,
-        gains: gains.to_vec(),
+        photometry: photometry.to_vec(),
         blend_levels: 1,
         min_overlap_width_px: min_overlap_width(k, &overlap_count, &overlap_rows),
         seam_strategy: SeamStrategy::Voronoi,
@@ -355,7 +361,7 @@ fn composite_tiled_voronoi(
 pub fn composite_tiled_frames(
     frames: &[PlanarImage],
     cameras: &[Camera],
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
@@ -365,7 +371,7 @@ pub fn composite_tiled_frames(
         SeamStrategy::Voronoi => composite_tiled_frames_voronoi(
             frames,
             cameras,
-            gains,
+            photometry,
             local_corrections,
             canvas,
             tile_rows,
@@ -373,7 +379,7 @@ pub fn composite_tiled_frames(
         SeamStrategy::GraphCut => graph_cut::composite_tiled_frames_graph_cut(
             frames,
             cameras,
-            gains,
+            photometry,
             local_corrections,
             canvas,
             tile_rows,
@@ -384,17 +390,17 @@ pub fn composite_tiled_frames(
 fn composite_tiled_frames_voronoi(
     frames: &[PlanarImage],
     cameras: &[Camera],
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
-    if frames.len() != cameras.len() || frames.len() != gains.len() {
+    if frames.len() != cameras.len() || frames.len() != photometry.len() {
         return Err(PanoError::InvalidOptions(format!(
-            "composite_tiled_frames: {} frames, {} cameras, {} gains",
+            "composite_tiled_frames: {} frames, {} cameras, {} photometry",
             frames.len(),
             cameras.len(),
-            gains.len(),
+            photometry.len(),
         )));
     }
     if !local_corrections.is_empty() && local_corrections.len() != frames.len() {
@@ -440,7 +446,11 @@ fn composite_tiled_frames_voronoi(
         );
         drop(depths);
 
-        for (fi, (frame, (cam, gain))) in frames.iter().zip(cameras.iter().zip(gains)).enumerate() {
+        for (fi, (frame, (cam, gain))) in frames
+            .iter()
+            .zip(cameras.iter().zip(photometry))
+            .enumerate()
+        {
             if !owner.iter().any(|&o| o == fi as u16) {
                 continue;
             }
@@ -472,7 +482,7 @@ fn composite_tiled_frames_voronoi(
     let report = CompositeReport {
         canvas: canvas.clone(),
         projection: canvas.projection,
-        gains: gains.to_vec(),
+        photometry: photometry.to_vec(),
         blend_levels: 1,
         min_overlap_width_px: min_overlap_width(k, &overlap_count, &overlap_rows),
         seam_strategy: SeamStrategy::Voronoi,

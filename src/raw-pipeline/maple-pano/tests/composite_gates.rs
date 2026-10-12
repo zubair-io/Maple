@@ -189,12 +189,12 @@ fn gate_gain_recovery() {
         ..Default::default()
     };
     let (out, report) = composite(&frames, &cams, &opts, &[]).expect("composite");
-    // solve_gains fixes the gauge to geometric mean = 1, and the planted
+    // solve_photometry fixes the gauge to geometric mean = 1, and the planted
     // scales {2, ½, 1, 1, 1, 1} have geometric mean 1 — so the expected
     // gains are exactly the inverses.
     for i in 0..frames.len() {
         let expected = 1.0 / scales[i] as f64;
-        let got = report.gains[i][0] as f64;
+        let got = report.photometry[i].gain[0] as f64;
         let rel = (got - expected).abs() / expected;
         println!(
             "gain {i}: got {got:.4}, expected {expected:.4} (rel err {:.3}%)",
@@ -285,7 +285,7 @@ fn tiling_equals_real_composite() {
     // Re-use the canvas and gains from the reference run so both paths
     // operate on identical geometry and colour corrections.
     let canvas = &report.canvas;
-    let gains = &report.gains;
+    let photometry = &report.photometry;
 
     let (w, h) = (canvas.width as usize, canvas.height as usize);
     let ref_covered = reference.validity.count_valid();
@@ -307,7 +307,7 @@ fn tiling_equals_real_composite() {
         let (tiled, _) = composite_tiled_frames(
             &frames,
             &cams,
-            gains,
+            photometry,
             &[],
             canvas,
             tile_rows,

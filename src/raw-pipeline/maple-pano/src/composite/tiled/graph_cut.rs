@@ -29,6 +29,7 @@
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
 use crate::error::PanoError;
+use crate::gain::FramePhotometry;
 use crate::ingest::{ingest_file, PlanarImage, ValidityMask};
 use crate::local_align::LocalCorrection;
 use crate::seam::{self, SeamMasks};
@@ -46,17 +47,17 @@ type OverlapStats = (Vec<Vec<usize>>, Vec<Vec<std::collections::BTreeSet<usize>>
 pub(super) fn composite_tiled_graph_cut(
     paths: &[std::path::PathBuf],
     cameras: &[Camera],
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
-    if paths.len() != cameras.len() || paths.len() != gains.len() {
+    if paths.len() != cameras.len() || paths.len() != photometry.len() {
         return Err(PanoError::InvalidOptions(format!(
-            "composite_tiled(graph_cut): {} paths, {} cameras, {} gains",
+            "composite_tiled(graph_cut): {} paths, {} cameras, {} photometry",
             paths.len(),
             cameras.len(),
-            gains.len(),
+            photometry.len(),
         )));
     }
     if !local_corrections.is_empty() && local_corrections.len() != paths.len() {
@@ -72,7 +73,8 @@ pub(super) fn composite_tiled_graph_cut(
         ));
     }
 
-    let seam = seam::masks::build_from_paths(paths, cameras, gains, local_corrections, canvas)?;
+    let seam =
+        seam::masks::build_from_paths(paths, cameras, photometry, local_corrections, canvas)?;
 
     let (out_r, out_g, out_b, out_weight, overlap) = run_tiles(
         cameras,
@@ -87,7 +89,7 @@ pub(super) fn composite_tiled_graph_cut(
                 &frame.image,
                 &cameras[fi],
                 canvas,
-                gains[fi],
+                photometry[fi],
                 la,
                 tile_y0,
                 tile_y1,
@@ -101,7 +103,7 @@ pub(super) fn composite_tiled_graph_cut(
         out_b,
         out_weight,
         canvas,
-        gains,
+        photometry,
         cameras.len(),
         overlap,
     ))
@@ -110,17 +112,17 @@ pub(super) fn composite_tiled_graph_cut(
 pub(super) fn composite_tiled_frames_graph_cut(
     frames: &[PlanarImage],
     cameras: &[Camera],
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
-    if frames.len() != cameras.len() || frames.len() != gains.len() {
+    if frames.len() != cameras.len() || frames.len() != photometry.len() {
         return Err(PanoError::InvalidOptions(format!(
-            "composite_tiled_frames(graph_cut): {} frames, {} cameras, {} gains",
+            "composite_tiled_frames(graph_cut): {} frames, {} cameras, {} photometry",
             frames.len(),
             cameras.len(),
-            gains.len(),
+            photometry.len(),
         )));
     }
     if !local_corrections.is_empty() && local_corrections.len() != frames.len() {
@@ -136,7 +138,8 @@ pub(super) fn composite_tiled_frames_graph_cut(
         ));
     }
 
-    let seam = seam::masks::build_from_frames(frames, cameras, gains, local_corrections, canvas);
+    let seam =
+        seam::masks::build_from_frames(frames, cameras, photometry, local_corrections, canvas);
 
     let (out_r, out_g, out_b, out_weight, overlap) = run_tiles(
         cameras,
@@ -150,7 +153,7 @@ pub(super) fn composite_tiled_frames_graph_cut(
                 &frames[fi],
                 &cameras[fi],
                 canvas,
-                gains[fi],
+                photometry[fi],
                 la,
                 tile_y0,
                 tile_y1,
@@ -164,7 +167,7 @@ pub(super) fn composite_tiled_frames_graph_cut(
         out_b,
         out_weight,
         canvas,
-        gains,
+        photometry,
         cameras.len(),
         overlap,
     ))
@@ -291,7 +294,7 @@ fn finish(
     mut b: Vec<f32>,
     out_weight: Vec<f32>,
     canvas: &CanvasSpec,
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     k: usize,
     overlap: OverlapStats,
 ) -> (PlanarImage, CompositeReport) {
@@ -311,7 +314,7 @@ fn finish(
     let report = CompositeReport {
         canvas: canvas.clone(),
         projection: canvas.projection,
-        gains: gains.to_vec(),
+        photometry: photometry.to_vec(),
         blend_levels: 1,
         min_overlap_width_px: min_overlap_width(k, &overlap_count, &overlap_rows),
         seam_strategy: seam::SeamStrategy::GraphCut,
