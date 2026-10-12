@@ -11,17 +11,17 @@
  *
  * Provisioning: when pano is not provisioned (enabled=false or no binary
  * path), POST returns 409 { error: 'pano_not_provisioned', message: '...' }.
- * The classical matcher needs nothing else; the opt-in ML matcher without its
- * models directory or ONNX Runtime returns 409 { error: 'pano_ml_not_provisioned' }.
+ * How the matcher is chosen, and the 409s for an ML matcher without its paths
+ * (`pano_ml_not_provisioned`) or a pre-#4523 binary that can only run ML
+ * (`pano_cli_outdated`), is `pano/pano-engine.ts`.
  *
  * Concurrency: one pano_stitch job may run at a time (they are heavy:
  * ~6 min, tens of GB RSS). POST returns 409 { error: 'pano_job_running' }
  * when a running job exists.
  *
- * --strategy conditional: the config response includes `strategySupported`.
- * The UI hides the strategy control when false. The flag is probed by running
- * `maple-cli pano stitch --help` and checking for `--strategy` in the output;
- * result is cached for the process lifetime.
+ * Optional flags: `--strategy` and `--features-engine` are probed from
+ * `maple-cli pano stitch --help` (`pano/pano-cli-probe.ts`) and reported as
+ * `strategy_supported` / `features_engine_supported` on the config response.
  */
 
 import { Elysia, t } from 'elysia';
@@ -32,12 +32,14 @@ import path from 'node:path';
 import { ObjectId } from '../db/object-id.ts';
 import { child as childLogger } from '../log.ts';
 import {
-  isMlMatcherUnprovisioned,
   isPanoProvisioned,
   loadPanoConfig,
   resolvePanoConfig,
   savePanoConfig,
+  type PanoConfigResolution,
 } from '../pano/pano-config.repo.ts';
+import { invalidatePanoCliProbe, probePanoCli } from '../pano/pano-cli-probe.ts';
+import { planPanoEngine } from '../pano/pano-engine.ts';
 import { createJob, getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
 import type { JobWithId } from '../db/schema.ts';
 import {
@@ -48,47 +50,6 @@ import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { isUnderRoot } from '../fs/browse.ts';
 
 const log = childLogger('pano:routes');
-
-// ── strategy probe cache (process-scoped) ─────────────────────────────────────
-let _strategyProbeResult: boolean | null = null;
-let _strategyProbedPath: string | null = null;
-
-async function probeStrategySupported(cliPath: string): Promise<boolean> {
-  if (_strategyProbedPath === cliPath && _strategyProbeResult !== null) {
-    return _strategyProbeResult;
-  }
-  // Security: only allow absolute paths that don't look like flags.
-  if (cliPath.startsWith('-') || !path.isAbsolute(cliPath)) {
-    log.warn({ cliPath }, 'pano: refusing to probe non-absolute or hyphen-prefixed cliPath');
-    // Cache the rejection so repeated calls with the same invalid path skip
-    // the check rather than re-running (and re-emitting) the warning.
-    _strategyProbeResult = false;
-    _strategyProbedPath = cliPath;
-    return false;
-  }
-  try {
-    const proc = Bun.spawn([cliPath, 'pano', 'stitch', '--help'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    // Collect both stdout AND stderr: clap may print help to either depending
-    // on the version. Match the exact flag token `--strategy` to avoid a
-    // false positive from help text that merely contains the word "strategy".
-    const [out, err] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    const supported = out.includes('--strategy') || err.includes('--strategy');
-    _strategyProbeResult = supported;
-    _strategyProbedPath = cliPath;
-    return supported;
-  } catch {
-    _strategyProbeResult = false;
-    _strategyProbedPath = cliPath;
-    return false;
-  }
-}
 
 // ── body / query schemas ──────────────────────────────────────────────────────
 
@@ -118,6 +79,17 @@ const ConfigBody = t.Object({
   enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
   matcher: t.Optional(t.Union([t.Literal('classical'), t.Literal('ml'), t.Null()])),
 });
+
+async function withProbedFlags(cfg: PanoConfigResolution) {
+  const capabilities = cfg.maple_cli_path
+    ? await probePanoCli(cfg.maple_cli_path)
+    : { strategy: false, featuresEngine: false };
+  return {
+    ...cfg,
+    strategy_supported: capabilities.strategy,
+    features_engine_supported: capabilities.featuresEngine,
+  };
+}
 
 // ── view helpers ─────────────────────────────────────────────────────────────
 
@@ -342,14 +314,11 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
             'maple-cli path and enable the feature.',
         };
       }
-      if (isMlMatcherUnprovisioned(cfg)) {
+      const capabilities = await probePanoCli(cfg.maple_cli_path!);
+      const plan = planPanoEngine(cfg, capabilities.featuresEngine);
+      if (plan.kind === 'refuse') {
         set.status = 409;
-        return {
-          error: 'pano_ml_not_provisioned',
-          message:
-            'The ML matcher is selected but its models directory or ONNX Runtime path is ' +
-            'not set. Go to Settings > Pano to set both, or switch back to the classical matcher.',
-        };
+        return { error: plan.error, message: plan.message };
       }
 
       // 2. Reject if a pano_stitch job is already running OR queued.
@@ -448,14 +417,11 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
         };
       }
 
-      // 4. Probe strategy support.
-      const strategySupported = await probeStrategySupported(cfg.maple_cli_path!);
-
-      // 5. Build temp output dir for this job (will be cleaned up by the handler
+      // 4. Build temp output dir for this job (will be cleaned up by the handler
       //    after importing the result).
       const outputDir = path.join(os.tmpdir(), `maple-pano-${randomBytes(8).toString('hex')}`);
 
-      // 6. Create the job.
+      // 5. Create the job.
       const doc = await createJob({
         kind: 'pano_stitch',
         payload: {
@@ -465,9 +431,9 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
           retention: body.options.retention,
           localAlign: body.options.localAlign,
           strategy: body.options.strategy ?? null,
-          strategySupported,
+          strategySupported: capabilities.strategy,
           mapleCli: cfg.maple_cli_path!,
-          featuresEngine: cfg.matcher,
+          featuresEngine: plan.featuresEngine,
           modelsDir: cfg.models_dir,
           ortDylibPath: cfg.ort_dylib_path,
         },
@@ -508,32 +474,17 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
   })
 
   // GET /api/pano/config — effective config + strategySupported.
-  .get('/config', async () => {
-    const dbCfg = await loadPanoConfig();
-    const cfg = resolvePanoConfig(dbCfg);
-    let strategySupported = false;
-    if (cfg.maple_cli_path) {
-      strategySupported = await probeStrategySupported(cfg.maple_cli_path);
-    }
-    return { ...cfg, strategy_supported: strategySupported };
-  })
+  .get('/config', async () => withProbedFlags(resolvePanoConfig(await loadPanoConfig())))
 
   // PUT /api/pano/config — upsert pano settings.
   .put(
     '/config',
     async ({ body }) => {
       await savePanoConfig(body);
-      const dbCfg = await loadPanoConfig();
-      const cfg = resolvePanoConfig(dbCfg);
-      // Invalidate strategy probe cache so the new path is probed fresh.
-      _strategyProbeResult = null;
-      _strategyProbedPath = null;
-      let strategySupported = false;
-      if (cfg.maple_cli_path) {
-        strategySupported = await probeStrategySupported(cfg.maple_cli_path);
-      }
+      invalidatePanoCliProbe();
+      const cfg = await withProbedFlags(resolvePanoConfig(await loadPanoConfig()));
       log.info({ enabled: cfg.enabled }, 'pano config updated');
-      return { ok: true, ...cfg, strategy_supported: strategySupported };
+      return { ok: true, ...cfg };
     },
     { body: ConfigBody },
   );

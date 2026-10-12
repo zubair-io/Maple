@@ -12,6 +12,7 @@ const CONFIG: PanoConfig = {
   enabled: true,
   matcher: 'classical',
   strategy_supported: false,
+  features_engine_supported: true,
   source: {
     maple_cli_path: 'db',
     models_dir: 'unset',

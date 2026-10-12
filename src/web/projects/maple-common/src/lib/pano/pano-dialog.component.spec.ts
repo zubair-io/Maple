@@ -15,6 +15,7 @@ const CONFIG = (strategySupported: boolean): PanoConfig => ({
   enabled: true,
   matcher: 'classical',
   strategy_supported: strategySupported,
+  features_engine_supported: true,
   source: {
     maple_cli_path: 'db',
     models_dir: 'db',
@@ -318,6 +319,23 @@ describe('PanoDialogComponent', () => {
     );
     expect(fixture.componentInstance.errorCode()).toBe('pano_ml_not_provisioned');
     expect(fixture.componentInstance.errorMessage()).toContain('ML matcher');
+    fixture.detectChanges();
+    const el: HTMLElement = fixture.nativeElement;
+    expect(el.textContent).toContain('Settings');
+    expect(el.textContent).not.toContain('Check the server logs');
+  });
+
+  it('shows the rebuild message and settings hint on 409 pano_cli_outdated (#4555)', () => {
+    open(false);
+    fixture.componentInstance.onSubmit();
+    http.expectOne('/api/pano/stitch').flush(
+      {
+        error: 'pano_cli_outdated',
+        message: 'Rebuild maple-cli with `--features pano,pano-classical`.',
+      },
+      { status: 409, statusText: 'Conflict' },
+    );
+    expect(fixture.componentInstance.errorMessage()).toContain('pano,pano-classical');
     fixture.detectChanges();
     const el: HTMLElement = fixture.nativeElement;
     expect(el.textContent).toContain('Settings');

@@ -184,6 +184,8 @@
         "src/routes/assets/rename.test.ts",
         "src/routes/assets/batch-rename.test.ts",
         "src/routes/assets/trash.ts",
+        // #4555: stat-only read of the maple-cli mtime to key the help probe cache.
+        "src/pano/pano-cli-probe.ts",
         "src/routes/backup-ingest.ts",
         "src/routes/backup-rendered.ts",
         "src/routes/folders-trash.test.ts",

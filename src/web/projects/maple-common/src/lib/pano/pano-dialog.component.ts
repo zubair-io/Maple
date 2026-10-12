@@ -48,6 +48,12 @@ type DialogPhase =
   | 'done'
   | 'error';
 
+const SETTINGS_FIXABLE_ERRORS: ReadonlySet<string> = new Set([
+  'pano_not_provisioned',
+  'pano_ml_not_provisioned',
+  'pano_cli_outdated',
+]);
+
 @Component({
   selector: 'app-pano-dialog',
   standalone: true,
@@ -77,10 +83,7 @@ export class PanoDialogComponent implements OnDestroy {
    * 'pano_job_running'). Used by the template to switch on a code rather than
    * matching substrings of the localised error message. */
   readonly errorCode = signal<string>('');
-  readonly settingsFixable = computed(
-    () =>
-      this.errorCode() === 'pano_not_provisioned' || this.errorCode() === 'pano_ml_not_provisioned',
-  );
+  readonly settingsFixable = computed(() => SETTINGS_FIXABLE_ERRORS.has(this.errorCode()));
   readonly job = signal<PanoJobView | null>(null);
 
   // ── option model (two-way signals) ────────────────────────────────────────
