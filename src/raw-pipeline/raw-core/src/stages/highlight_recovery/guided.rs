@@ -390,12 +390,13 @@ pub(super) fn chroma_weight(
 }
 
 /// Tier-3 scene prior: per-channel medians over a strided grid of unclipped,
-/// finite, non-negative region pixels. `None` when the region holds no usable
+/// finite, non-negative region pixels below their ripple `floors`. `None` when the region holds no usable
 /// scene evidence (a fully blown frame), in which case the fallback degrades
 /// to the pre-#1690 neutral exactly.
 pub(super) fn scene_median(
     img: &Image,
     clip_mask: &[u8],
+    floors: [f32; 3],
     left: i32,
     top: i32,
     right: i32,
@@ -412,7 +413,8 @@ pub(super) fn scene_median(
             (left..right).step_by(step).filter_map(move |x| {
                 let idx = (y * w + x) as usize;
                 let p = img.pixels[idx];
-                (clip_mask[idx] == 0 && p.iter().all(|v| v.is_finite() && *v >= 0.0)).then_some(p)
+                let usable = (0..3).all(|c| p[c].is_finite() && p[c] >= 0.0 && p[c] < floors[c]);
+                (clip_mask[idx] == 0 && usable).then_some(p)
             })
         })
     };

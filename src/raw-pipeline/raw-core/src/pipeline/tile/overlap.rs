@@ -134,8 +134,11 @@ mod tests {
     #[test]
     fn guided_default_counts_complete_cell_support() {
         let model = AdjustmentModel::default();
-        assert_eq!(tile_overlap_px(None, &model, 6000, 1), 8 + 47 + 4 + 5);
-        assert_eq!(tile_overlap_px(None, &model, 3000, 2), 2 * (8 + 47 + 4 + 5));
+        assert_eq!(tile_overlap_px(None, &model, 6000, 1), 8 + 47 + 2 + 4 + 5);
+        assert_eq!(
+            tile_overlap_px(None, &model, 3000, 2),
+            2 * (8 + 47 + 2 + 4 + 5)
+        );
         let off = AdjustmentModel {
             highlight_recovery: crate::xmp::HighlightRecoveryMode::Off,
             ..model
