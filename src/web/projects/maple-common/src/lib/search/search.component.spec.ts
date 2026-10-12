@@ -520,19 +520,18 @@ describe('SearchComponent (unified search)', () => {
       stub.resolveLatest(page('r', 'in-process:100'));
 
       component().onLoadMore();
+      const facetRequests = stub.facetCalls.length;
       stub.rejectLatest(
         new HttpErrorResponse({ status: 409, error: { code: 'rank_engine_changed' } }),
       );
 
       const restart = stub.calls[stub.calls.length - 1];
-      expect(restart.page).toBe(0);
-      expect(restart.rankPin).toBeUndefined();
+      expect(`${restart.page}:${restart.rankPin ?? 'unpinned'}`).toBe('0:unpinned');
+      expect(stub.facetCalls.length).toBe(facetRequests + 1);
       component().onLoadMore();
       expect(stub.calls[stub.calls.length - 1]).toBe(restart);
       stub.resolveLatest(page('fresh', 'database:100'));
-      const names = component()
-        .results()
-        .map((r) => r.filename);
+      const names = Array.from(component().results(), (r) => r.filename);
       expect([names.length, names[0], component().page()]).toEqual([30, 'fresh0.dng', 0]);
 
       component().onLoadMore();

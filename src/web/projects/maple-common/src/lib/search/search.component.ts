@@ -539,7 +539,9 @@ export class SearchComponent implements OnInit, AfterViewInit {
         this.isLoadingMore.set(false);
         // The engine that ranked the rows held is gone; another engine's next
         // page would repeat and skip rows, so the search starts over (#4542).
-        if (isRankEngineChanged(err)) this.loadFirstPage();
+        if (!isRankEngineChanged(err)) return;
+        this.loadFirstPage();
+        this.loadFacets(0);
       },
     });
   }
