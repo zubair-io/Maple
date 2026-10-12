@@ -12,7 +12,9 @@
  */
 
 import { Elysia } from 'elysia';
-import { buildSearchWhere, searchBuckets } from '../../db/repos/search.repo.ts';
+import { buildSearchWhere, searchBuckets, windowBuckets } from '../../db/repos/search.repo.ts';
+import { RANKED_WINDOW_BASE } from '../../db/repos/search.ranked.ts';
+import { searchWindow } from './ranked-window.ts';
 import { SearchQueryT, type SearchQuery } from './query.ts';
 import { resolveSearchScope } from './scope.ts';
 import { canonicalOwner } from './total-cache.ts';
@@ -151,7 +153,12 @@ export const bucketsRoute = new Elysia().get(
     const whereOrError = await resolveSearchScope(query as SearchQuery);
     if (whereOrError instanceof Response) return whereOrError;
 
-    const result = await searchBuckets(whereOrError);
+    // A text search's histogram is its ranked window's, the rows the list shows (#4514).
+    const text = query.placeQuery?.trim() ?? '';
+    const result =
+      whereOrError.match.kind === 'match'
+        ? await windowBuckets((await searchWindow(whereOrError, text, RANKED_WINDOW_BASE)).rows)
+        : await searchBuckets(whereOrError);
     // Bound the cache so a parameterised attack can't grow it
     // unboundedly. 500 unique filter sets is generous for a single
     // server; eviction is FIFO via insertion order.

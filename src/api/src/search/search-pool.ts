@@ -43,9 +43,13 @@ export interface SearchEngineStatus extends Omit<SearchChildState, 'phase'> {
   restarts: number;
 }
 
-/** What the routes depend on; tests install a fake through {@link setInProcessSearchForTests}. */
-export interface InProcessSearch {
+/** What a search ranks with: the child's fused top `k`, or null when it cannot answer. */
+export interface InProcessRanker {
   search(query: string, k: number): Promise<FusedSearchHit[] | null>;
+}
+
+/** What the routes depend on; tests install a fake through {@link setInProcessSearchForTests}. */
+export interface InProcessSearch extends InProcessRanker {
   status(): SearchEngineStatus;
 }
 
@@ -222,6 +226,7 @@ export class SearchChildPool implements InProcessSearch {
 
 let pool: SearchChildPool | null = null;
 let testSearch: InProcessSearch | null = null;
+let remote: InProcessRanker | null = null;
 
 /** The process-wide pool, created on first use with the config `search-child-config.ts` builds. */
 export function searchChildPool(config: () => SearchChildConfig): SearchChildPool {
@@ -236,6 +241,19 @@ export function stopSearchChildPool(): void {
 /** The engine the routes query: the test fake when one is installed, else the pool if created. */
 export function inProcessSearch(): InProcessSearch | null {
   return testSearch ?? pool;
+}
+
+/**
+ * What this process ranks with: the API's own child, or — in the worker tier, which has none —
+ * the API's child reached over IPC (`remote-search.ts`, #4510).
+ */
+export function inProcessRanker(): InProcessRanker | null {
+  return inProcessSearch() ?? remote;
+}
+
+/** Installs the worker tier's bridge to the API's child. */
+export function setRemoteInProcessSearch(search: InProcessRanker | null): void {
+  remote = search;
 }
 
 export function setInProcessSearchForTests(search: InProcessSearch | null): void {

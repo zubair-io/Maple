@@ -1,7 +1,8 @@
 /**
  * How many sequential trips a search page makes through the reader queue (#4503): one statement
  * decides the rows, and one wave fills in their locations, captions, PhotoKit links and owner,
- * through the bulk lane so the fan-out always leaves a reader free for a grid page.
+ * through the bulk lane so the fan-out always leaves a reader free for a grid page. A ranked
+ * window's page (#4514) reads its columns in that same wave, every statement on the bulk lane.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -15,7 +16,8 @@ import {
 import { recordReadWaves } from '../sqlite/read-waves.test-helpers.ts';
 import { seedSearchAsset } from './search.test-helpers.ts';
 import { buildSearchWhere } from './search.where.ts';
-import { rankedMapleIdPage, searchByMapleIds, searchPage } from './search.page.ts';
+import { searchByMapleIds, searchPage, windowDocs } from './search.page.ts';
+import { mapleIdWindow } from './search.ranked.ts';
 
 const OWNER = 'a'.repeat(24);
 let database: TestDatabase;
@@ -51,36 +53,32 @@ function where(query: Record<string, string> = {}) {
 }
 
 describe('search page round trips', () => {
-  it('pages the in-process candidates from one read of them, then hydrates in one wave', async () => {
+  it('filters the in-process candidates in one read, then fills a page in one wave', async () => {
     const recorded = recordReadWaves(testSqliteDb(database.db));
 
-    const page = await rankedMapleIdPage(
+    const window = await mapleIdWindow(
       where({ rating: '5' }),
       ['four', 'gone', 'two', 'three', 'one'],
-      { skip: 1, limit: 2 },
       recorded.handle,
     );
+    const docs = await windowDocs(window.slice(1, 3), recorded.handle);
 
-    expect(page.total).toBe(3);
-    expect(page.mapleIds).toEqual(['three', 'one']);
-    expect(page.docs.map((doc) => doc.fileinfo?.[0]?.filename)).toEqual(['three.dng', 'one.dng']);
-    expect(page.docs.map((doc) => doc.owner)).toEqual([
+    expect(window.map((row) => row.maple_id)).toEqual(['four', 'three', 'one']);
+    expect(docs.map((doc) => doc.fileinfo?.[0]?.filename)).toEqual(['three.dng', 'one.dng']);
+    expect(docs.map((doc) => doc.owner)).toEqual([
       { id: OWNER, email: 'owner@maple.local' },
       { id: OWNER, email: 'owner@maple.local' },
     ]);
-    expect(recorded.waves.map((wave) => wave.length)).toEqual([1, 4]);
-    expect(recorded.waves[0]!.every((sql) => !sql.startsWith('bulk: '))).toBe(true);
-    expect(recorded.waves[1]!.every((sql) => sql.startsWith('bulk: '))).toBe(true);
+    expect(recorded.waves.map((wave) => wave.length)).toEqual([1, 5]);
+    expect(recorded.waves.flat().every((sql) => sql.startsWith('bulk: '))).toBe(true);
     expect(recorded.waves[1]!.some((sql) => sql.includes('FROM users'))).toBe(true);
   });
 
   it('answers an empty page without hydrating', async () => {
     const recorded = recordReadWaves(testSqliteDb(database.db));
 
-    const page = await rankedMapleIdPage(where(), ['two'], { skip: 1, limit: 2 }, recorded.handle);
-
-    expect(page).toEqual({ total: 1, mapleIds: [], docs: [] });
-    expect(recorded.waves.map((wave) => wave.length)).toEqual([1]);
+    expect(await windowDocs([], recorded.handle)).toEqual([]);
+    expect(recorded.waves).toEqual([]);
   });
 
   it('resolves owners alongside the other side tables on the database and Meilisearch pages', async () => {

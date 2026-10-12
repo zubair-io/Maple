@@ -1,13 +1,10 @@
 /**
- * Facets of a broad text search describe its most relevant matches (#4431).
+ * Facets of a text search describe its ranked window (#4431, #4514).
  *
- * Two properties. With at most `topMatches` matches nothing changes: the
- * buckets count every match, as they always did. With more, the buckets count
- * exactly the first `topMatches` rows of the result list — same order, same
- * tie-breaks, every filter applied — and `scope` says so.
- *
- * The library is built for ties, so the boundary of the first `k` rows falls
- * among equal `bm25()` scores and the capture date and id decide it.
+ * Two properties. The buckets, counted in TypeScript over the window's rows,
+ * are exactly what the per-facet statements answer for those rows. And the
+ * facets of a search count exactly the window the list pages through — its
+ * `total` is the window's size, never a count of every match.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -17,12 +14,10 @@ import {
   insertFolder,
   testSqliteDb,
 } from '../sqlite/test-sqlite.test-helpers.ts';
-import { FTS_RANK_SQL } from './search.fts.ts';
 import { facetStatements } from './search.facets.sql.ts';
 import { searchFacets } from './search.facets.ts';
-import { firstRanked } from './search.ranked.ts';
+import { ftsRanker, rankWindow, RANKED_WINDOW_BASE } from './search.ranked.ts';
 import { facetRowsOf } from './search.facets.top.ts';
-import { countSql, statement } from './search.sql.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
 import { seedSearchAsset, type SeedAsset } from './search.test-helpers.ts';
 import type { SearchQuery } from '../../routes/search/query-schema.ts';
@@ -69,19 +64,6 @@ function translate(q: SearchQuery, excluded: readonly string[] = []): SearchWher
   return built;
 }
 
-/** The result list's first `k` rows, by the order the list itself uses. */
-function listHead(db: Database, where: SearchWhere, k: number): number[] {
-  const head = statement(
-    `assets.rowid AS r, ${FTS_RANK_SQL}`,
-    where,
-    'ORDER BY rank ASC, assets.captured_at DESC, assets.id LIMIT ?',
-    undefined,
-    [k],
-  );
-  const rows = db.query(head.sql).all(...(head.params as never[])) as Array<{ r: number }>;
-  return rows.map((row) => row.r);
-}
-
 /** `where` cut to the given rows — the per-facet statements' answer for them. */
 function onlyRows(where: SearchWhere, rowids: readonly number[]): SearchWhere {
   return {
@@ -111,38 +93,19 @@ const QUERIES: Array<[string, SearchQuery, excludeAda?: boolean]> = [
   ['excluded people', { placeQuery: 'people standing' }, true],
 ];
 
-describe('the first k results of a text search', () => {
-  // Compared as sets: a facet groups them, so their order is not returned.
-  for (const [name, q, excludeAda] of QUERIES) {
-    test(`${name}: are the list's first k rows, for every k`, async () => {
-      await withLibrary(async (db, ada) => {
-        const where = translate(q, excludeAda ? [ada] : []);
-        const handle = testSqliteDb(db);
-        for (const k of [1, 2, 3, 5, 8, 13, 40, 200]) {
-          const ranked = await firstRanked(handle, where, k);
-          expect({ k, rows: ranked.map((row) => row.r).sort((a, b) => a - b) }).toEqual({
-            k,
-            rows: listHead(db, where, k).sort((a, b) => a - b),
-          });
-        }
-      });
-    });
-  }
-});
-
 /** Rows as sorted, key-ordered JSON, so neither column nor tie order can flake. */
 function canonical(rows: readonly object[]): string[] {
   return rows.map((row) => JSON.stringify(Object.fromEntries(Object.entries(row).sort()))).sort();
 }
 
-describe('every facet of the first k results, counted in TypeScript', () => {
+describe('every facet of a window, counted in TypeScript', () => {
   for (const [name, q, excludeAda] of QUERIES) {
     test(`${name}: equals the per-facet statements over the same rows`, async () => {
       await withLibrary(async (db, ada) => {
         const where = translate(q, excludeAda ? [ada] : []);
         const handle = testSqliteDb(db);
         for (const k of [3, 10, 1_000]) {
-          const ranked = await firstRanked(handle, where, k);
+          const ranked = (await ftsRanker(where, handle)(k))!.rows;
           const counted = await facetRowsOf(handle, ranked);
           const expected = facetStatements(
             onlyRows(
@@ -168,42 +131,39 @@ describe('every facet of the first k results, counted in TypeScript', () => {
 
 describe('facets of a broad text search', () => {
   for (const [name, q, excludeAda] of QUERIES) {
-    test(`${name}: count exactly the list's first k rows`, async () => {
+    test(`${name}: count exactly the list's window`, async () => {
       await withLibrary(async (db, ada) => {
         const where = translate(q, excludeAda ? [ada] : []);
-        const count = countSql(where);
-        const total = (db.query(count.sql).get(...(count.params as never[])) as { n: number }).n;
-        for (const k of [3, 10]) {
-          const facets = await searchFacets(where, testSqliteDb(db), { topMatches: k });
-          const head = listHead(db, where, k);
-          const expected = facetStatements(onlyRows(where, head));
-          const covered = Math.min(k, total);
-          expect(facets.total).toBe(total);
-          expect(facets.scope).toEqual(
-            total > k ? { kind: 'top', limit: k, of: total } : { kind: 'all' },
-          );
-          expect(facets.cameras.reduce((sum, row) => sum + row.count, 0)).toBe(covered);
-          expect(sorted(db, expected.cameras)).toEqual(
-            facets.cameras
-              .map((row) => JSON.stringify({ make: row.make, model: row.model, count: row.count }))
-              .sort(),
-          );
-          expect(sorted(db, expected.subjects)).toEqual(
-            facets.subjects.map((row) => JSON.stringify(row)).sort(),
-          );
-          expect(sorted(db, expected.people)).toEqual(
-            facets.people.map((row) => JSON.stringify(row)).sort(),
-          );
-        }
+        const facets = await searchFacets(where, testSqliteDb(db));
+        const window = (await rankWindow(ftsRanker(where, testSqliteDb(db)), RANKED_WINDOW_BASE))!;
+        const expected = facetStatements(
+          onlyRows(
+            where,
+            window.rows.map((row) => row.r),
+          ),
+        );
+        expect(facets.total).toBe(window.rows.length);
+        expect(facets.scope).toEqual({ kind: 'all' });
+        expect(sorted(db, expected.cameras)).toEqual(
+          facets.cameras
+            .map((row) => JSON.stringify({ make: row.make, model: row.model, count: row.count }))
+            .sort(),
+        );
+        expect(sorted(db, expected.subjects)).toEqual(
+          facets.subjects.map((row) => JSON.stringify(row)).sort(),
+        );
+        expect(sorted(db, expected.people)).toEqual(
+          facets.people.map((row) => JSON.stringify(row)).sort(),
+        );
       });
     });
   }
 
-  test('at most k matches: every match, exactly as before', async () => {
+  test('a window holding every match facets every match, exactly as before', async () => {
     await withLibrary(async (db) => {
       const where = translate({ placeQuery: 'group of people' });
       const direct = facetStatements(where);
-      const facets = await searchFacets(where, testSqliteDb(db), { topMatches: 1_000 });
+      const facets = await searchFacets(where, testSqliteDb(db));
       expect(facets.scope).toEqual({ kind: 'all' });
       expect(
         facets.cameras
@@ -221,9 +181,7 @@ describe('facets of a broad text search', () => {
 
   test('a search without text is never cut', async () => {
     await withLibrary(async (db) => {
-      const facets = await searchFacets(translate({ rating: '2' }), testSqliteDb(db), {
-        topMatches: 1,
-      });
+      const facets = await searchFacets(translate({ rating: '2' }), testSqliteDb(db));
       expect(facets.scope).toEqual({ kind: 'all' });
       expect(facets.total).toBeGreaterThan(1);
     });

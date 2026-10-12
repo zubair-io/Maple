@@ -37,6 +37,7 @@ import {
   descriptionsByAssetIdsSql,
   idPageSql,
   mapleIdPageSql,
+  pageColumnsByIdsSql,
   pageSql,
   phassetLinksByAssetIdsSql,
   seekPredicate,
@@ -187,48 +188,6 @@ export async function searchByIds(
 }
 
 /**
- * Which of `mapleIds` survive every filter of `where` but its text, in the order given — the
- * in-process engine's candidates (#4463) narrowed before they are counted and paged.
- */
-export async function mapleIdsMatching(
-  where: SearchWhere,
-  mapleIds: readonly string[],
-  dbOverride?: SqliteDb,
-): Promise<string[]> {
-  const rows = await rowsByMapleId(assetsDb(dbOverride), where, mapleIds);
-  return rows.map((row) => row.maple_id!);
-}
-
-/** The in-process engine's candidates after `where`: how many survive, and one hydrated page of them. */
-export interface RankedMapleIdPage {
-  total: number;
-  /** The page's `maple_id`s, in rank order. */
-  mapleIds: string[];
-  docs: SearchDoc[];
-}
-
-/**
- * {@link mapleIdsMatching} and {@link searchByMapleIds} for one page, from a single read of the
- * candidates (#4503): the statement that decides which candidates survive already returns their
- * page columns, so the page is sliced from it rather than read a second time.
- */
-export async function rankedMapleIdPage(
-  where: SearchWhere,
-  mapleIds: readonly string[],
-  page: { skip: number; limit: number },
-  dbOverride?: SqliteDb,
-): Promise<RankedMapleIdPage> {
-  const db = assetsDb(dbOverride);
-  const surviving = await rowsByMapleId(db, where, mapleIds);
-  const pageRows = surviving.slice(page.skip, page.skip + page.limit);
-  return {
-    total: surviving.length,
-    mapleIds: pageRows.map((row) => row.maple_id!),
-    docs: await hydrate(db, pageRows),
-  };
-}
-
-/**
  * The rows behind `mapleIds` that pass `where` without its text, in the order given.
  *
  * The text match is dropped because the engine that produced the ids already did it, typo
@@ -260,26 +219,71 @@ async function rowsByMapleId(
  */
 async function hydrate(db: SqliteDb, rows: readonly PageRow[]): Promise<SearchDoc[]> {
   if (rows.length === 0) return [];
-  const ids = rows.map((row) => row.id);
-  const lane = bulkLane(db);
+  const sides = await sideTables(
+    bulkLane(db),
+    rows.map((row) => row.id),
+    rows.map(ownerKey),
+  );
+  return rows.map((row) => toSearchDoc(row, sides));
+}
+
+/**
+ * The documents behind a ranked window's page, in the order given (#4514). The window already
+ * applied every filter and knows each row's owner, so the page's columns are read beside its side
+ * tables — one trip through the bulk lane instead of two.
+ */
+export async function windowDocs(
+  page: readonly { id: string; owner_id: string | null }[],
+  dbOverride?: SqliteDb,
+): Promise<SearchDoc[]> {
+  if (page.length === 0) return [];
+  const lane = bulkLane(assetsDb(dbOverride));
+  const ids = page.map((row) => row.id);
+  const [columns, sides] = await Promise.all([
+    lane.read<PageRow>(pageColumnsByIdsSql(ids.length), ids),
+    sideTables(lane, ids, page.map(ownerKey)),
+  ]);
+  const byId = new Map(columns.map((row) => [row.id, row] as const));
+  return ids.flatMap((id) => {
+    const row = byId.get(id);
+    return row === undefined ? [] : [toSearchDoc(row, sides)];
+  });
+}
+
+interface SideTables {
+  locations: ReadonlyMap<string, LocationRow[]>;
+  links: ReadonlyMap<string, LinkRow[]>;
+  captions: ReadonlyMap<string, string | null>;
+  owners: ReadonlyMap<string, AssetOwnerSummary>;
+}
+
+async function sideTables(
+  lane: SqliteDb,
+  ids: readonly string[],
+  ownerKeys: readonly (string | null)[],
+): Promise<SideTables> {
   const [locations, descriptions, links, owners] = await Promise.all([
     lane.read<LocationRow>(locationsByAssetIdsSql(ids.length), ids),
     lane.read<DescriptionRow>(descriptionsByAssetIdsSql(ids.length), ids),
     lane.read<LinkRow>(phassetLinksByAssetIdsSql(ids.length), ids),
-    ownerSummariesForIds(rows.map(ownerKey), lane),
+    ownerSummariesForIds(ownerKeys, lane),
   ]);
-
-  const locationsByAsset = groupByAsset(locations);
-  const linksByAsset = groupByAsset(links);
-  const captions = new Map(descriptions.map((row) => [row.asset_id, row.description] as const));
-
-  return rows.map((row) => ({
-    ...toAssetDoc(row, locationsByAsset, linksByAsset, captions),
-    owner: owners.get(ownerKey(row) ?? '') ?? null,
-  }));
+  return {
+    locations: groupByAsset(locations),
+    links: groupByAsset(links),
+    captions: new Map(descriptions.map((row) => [row.asset_id, row.description] as const)),
+    owners,
+  };
 }
 
-function ownerKey(row: PageRow): string | null {
+function toSearchDoc(row: PageRow, sides: SideTables): SearchDoc {
+  return {
+    ...toAssetDoc(row, sides.locations, sides.links, sides.captions),
+    owner: sides.owners.get(ownerKey(row) ?? '') ?? null,
+  };
+}
+
+function ownerKey(row: { owner_id: string | null }): string | null {
   return row.owner_id ? new ObjectId(row.owner_id).toHexString() : null;
 }
 

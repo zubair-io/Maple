@@ -20,7 +20,9 @@
  *   - `project.ts` — wire-shape projection (`AssetDoc` → `SearchResult`)
  *   - `libraries.ts`   — the library root + slug maps the projection needs
  *   - `list.ts`    — `GET /`
- *   - `list-meili.ts`  — the Meilisearch branch + its database fallback
+ *   - `list-ranked.ts` — the free-text branch of `GET /`: one page of the ranked window
+ *   - `ranked-window.ts` — the ranked window of a free-text request, whichever engine ranks it
+ *   - `list-meili.ts`  — the Meilisearch branch
  *   - `list-paging.ts` — skip-vs-seek mode resolution for `GET /`
  *   - `cursor.ts`  — the seek cursor's shape and validation (#2129)
  *   - `total-cache.ts` — 30s `total` count cache for `GET /`
