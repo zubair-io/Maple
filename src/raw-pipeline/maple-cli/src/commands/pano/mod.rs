@@ -325,6 +325,7 @@ fn stitch_set(
             let report = stitch_report(&ReportContext {
                 inputs,
                 applied_opcodes: &outcome.applied_opcodes,
+                falloff: &outcome.falloff,
                 solution: &outcome.solution,
                 refined_matches: outcome.refined_matches,
                 fallback_matches: outcome.fallback_matches,

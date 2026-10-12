@@ -201,7 +201,14 @@ fn streaming_pure_gain_set_keeps_bias_near_zero() {
     let muls = [1.6_f32, 1.0, 0.7];
     let (cams, frames) = planted(&muls, &[0.0; 3]);
     let (_dir, paths) = frames_to_tmpdir(&frames, &cams);
-    let p = solve_photometry_streaming(&paths, &cams, &GainOptions::default()).unwrap();
+    let p = solve_photometry_streaming(
+        &paths,
+        &cams,
+        &LensGroups::ingest_corrected(paths.len()),
+        &GainOptions::default(),
+    )
+    .unwrap()
+    .frames;
     let gains = gains_of(&p);
     assert!(
         gains[0][0] < gains[1][0] && gains[1][0] < gains[2][0],
