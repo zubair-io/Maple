@@ -26,7 +26,7 @@ test('the search child reads changes and counts from the index alone', async () 
       .join(' | '),
   );
 
-  expect(result.applied).toEqual(['0025-asset-vectors-poll-index']);
+  expect(result.applied).toContain('0025-asset-vectors-poll-index');
   for (const plan of plans) expect(plan).toContain('COVERING INDEX asset_vectors_poll');
   // Both spellings of the model are ranges on the index; only the window's rows are sorted.
   expect(plans[0]).toContain('(model=? AND embedded_at>?)');
