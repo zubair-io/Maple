@@ -12,12 +12,12 @@ Batch metadata keeps a native multiline `TextBox` for one-keyword-per-line entry
 
 Heal/Clone actions use `MuiButton` with 44-DIP minimum heights. Its spot list retains native `ListView` virtualization and selection semantics, with Maple-red selection indicators and system high-contrast resources. Numeric repair fields retain `NumberBox` for bounded numeric entry and range automation; the shared single-line text input is not an equivalent numeric control.
 
-| Artifact            | Built from                                           | Role                                                                                                 |
-| ------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `Maple.WinUI.exe`   | `src/windows/Maple.WinUI/Maple.WinUI.csproj`         | The app. WinUI 3, .NET 8, `win-x64` / `win-arm64`.                                                   |
-| `raw_ffi.dll`       | `cargo build --release -p raw-ffi --features gpu`    | The Rust core behind the C ABI. Copied next to the exe by the csproj when present; not committed.    |
-| `maple-cli.exe`     | `cargo build --release -p maple-cli --features pano` | Subprocess used for panorama stitching (and as the reference renderer in the qualification harness). |
-| `maple-windows.exe` | `cargo build --manifest-path src/windows/Cargo.toml` | Rust host binary — diagnostics/scaffolding, see below.                                               |
+| Artifact            | Built from                                                          | Role                                                                                                 |
+| ------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `Maple.WinUI.exe`   | `src/windows/Maple.WinUI/Maple.WinUI.csproj`                        | The app. WinUI 3, .NET 8, `win-x64` / `win-arm64`.                                                   |
+| `raw_ffi.dll`       | `cargo build --release -p raw-ffi --features gpu`                   | The Rust core behind the C ABI. Copied next to the exe by the csproj when present; not committed.    |
+| `maple-cli.exe`     | `cargo build --release -p maple-cli --features pano,pano-classical` | Subprocess used for panorama stitching (and as the reference renderer in the qualification harness). |
+| `maple-windows.exe` | `cargo build --manifest-path src/windows/Cargo.toml`                | Rust host binary — diagnostics/scaffolding, see below.                                               |
 
 The csproj declares `WindowsPackageType=None` and `WindowsAppSDKSelfContained=true`, targets `net8.0-windows10.0.19041.0` with a minimum of Windows 10 1809, and is PerMonitorV2 DPI-aware (`app.manifest`). Because there is no package identity, anything that normally needs it is done the unpackaged way: settings go to a JSON file rather than `ApplicationData`, protocol and file-type registration write `HKCU\Software\Classes`, and the cloud folder registers through the Win32 Cloud Files API instead of the WinRT sync-root manager.
 
@@ -265,7 +265,7 @@ dotnet test src/windows/Maple.WinUI.Tests/Maple.WinUI.Tests.csproj -c Release
 
 The wrapper regenerates declarations, explicitly targets both Rust builds, and selects the matching WinUI platform and runtime. Native artifacts live under `target/<triple>/release/` in their respective Rust workspaces. The application and its required `raw_ffi.dll` are verified under `src/windows/Maple.WinUI/bin/Release/<triple>/`. `CARGO_TARGET_DIR` cannot redirect those outputs.
 
-Direct builds shown above retain the csproj's legacy `src/raw-pipeline/target/release/` lookup. With `-p:MapleRustTarget=<triple>`, the csproj reads only that target's release directory and fails if the core DLL is absent. The optional panorama CLI is copied from the same directory when present; the wrapper does not build it. Build `maple-cli` separately with `--features pano --target <triple>` before invoking the wrapper when packaging panorama support.
+Direct builds shown above retain the csproj's legacy `src/raw-pipeline/target/release/` lookup. With `-p:MapleRustTarget=<triple>`, the csproj reads only that target's release directory and fails if the core DLL is absent. The optional panorama CLI is copied from the same directory when present; the wrapper does not build it. Build `maple-cli` separately with `--features pano,pano-classical --target <triple>` before invoking the wrapper when packaging panorama support.
 
 Wrapper contract tests run without native tools: `python3 src/windows/scripts/test_build_windows.py`. Windows CI also runs the actual x64 and ARM64 wrappers; those compilation checks do not qualify interactive GPU or color performance.
 
