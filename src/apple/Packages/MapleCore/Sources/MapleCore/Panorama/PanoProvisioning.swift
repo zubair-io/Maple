@@ -37,6 +37,7 @@ import Foundation
 public enum PanoProvisioningDefaults {
     public static let modelsDirKey   = "maple.pano.settings.modelsDir.v1"
     public static let ortDylibPathKey = "maple.pano.settings.ortDylibPath.v1"
+    public static let useMLMatcherKey = "maple.pano.settings.useMLMatcher.v1"
 }
 
 // MARK: - PanoProvisioningStatus
@@ -135,6 +136,16 @@ public struct PanoProvisioning: @unchecked Sendable {
         }
         // 3. Default app-support
         return Self.defaultOrtDylibPath()
+    }
+
+    // MARK: - Engine selection
+
+    /// The engine the next stitch uses: ML only when the user turned it on
+    /// in Settings → Pano AND its models/runtime are on disk; classical
+    /// otherwise, so a merge never waits on (or fails for) a download.
+    public func featureEngine() -> PanoFeatureEngine {
+        defaults.bool(forKey: PanoProvisioningDefaults.useMLMatcherKey)
+            && PanoProvisioner.isReady(status()) ? .ml : .classical
     }
 
     // MARK: - Status snapshot (for Settings → Pano UI)
