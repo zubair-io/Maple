@@ -72,6 +72,7 @@
 //! The <4 GB target is an iOS-only goal (tracked: #1274) that requires
 //! ORT model pruning or on-demand ORT teardown.
 
+mod engine;
 mod focal_bootstrap;
 mod frame_cache;
 mod io;
@@ -79,6 +80,7 @@ mod tile_standalone;
 mod tile_stitch;
 mod types;
 
+pub use engine::FeatureEngine;
 pub use focal_bootstrap::FocalSeedSource;
 pub use io::{develop_for_display, interleave_planar, quantize_to_u16, write_display_sidecars};
 pub use tile_standalone::stitch_tile;
@@ -92,9 +94,7 @@ use crate::canvas::{
     auto_canvas, natural_canvas_pixel_ratio, CanvasOptions, ProjectionMode, DEGENERATE_CANVAS_RATIO,
 };
 use crate::composite::composite_tiled;
-use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
 use crate::gain::{solve_gains_streaming, GainOptions};
-use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{
     build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
 };
@@ -102,8 +102,6 @@ use crate::ingest::{ingest_file_proxy, FrameMeta};
 
 use crate::leveling;
 use crate::local_align::LocalCorrection;
-use crate::matching::{LightGlueMatcher, MatcherOptions};
-use crate::models::ModelDir;
 use crate::robust::RobustOptions;
 use crate::strategy::{select_strategy, Strategy};
 use crate::twoview::PixelCorrespondence;
@@ -180,53 +178,12 @@ pub fn stitch(
     let t1 = Instant::now();
     progress(1, 0.0);
 
-    let models = ModelDir::resolve(opts.models_dir.as_deref())
-        .map_err(|e| StitchError::MlUnavailable(e.to_string()))?;
-    let mut detector = AlikedDetector::load(
-        &models,
-        DetectorOptions {
-            use_coreml: opts.use_coreml,
-            ..DetectorOptions::default()
-        },
-    )
-    .map_err(|e| StitchError::MlUnavailable(format!("ALIKED load failed: {e}")))?;
-    let mut matcher = LightGlueMatcher::load(
-        &models,
-        MatcherOptions {
-            use_coreml: opts.use_coreml,
-            ..Default::default()
-        },
-    )
-    .map_err(|e| StitchError::MlUnavailable(format!("LightGlue load failed: {e}")))?;
-
-    let mut feature_sets: Vec<FeatureSet> = Vec::with_capacity(metas.len());
-    // proxy_scale and proxy_dims are now stored in FrameMeta.
+    let (feature_sets, mut pair_matcher) =
+        engine::extract_features(&metas, opts, &mut progress, &is_cancelled)?;
     let proxy_dims: Vec<(u32, u32)> = metas
         .iter()
         .map(|m| (m.proxy.width(), m.proxy.height()))
         .collect();
-
-    for (i, meta) in metas.iter().enumerate() {
-        if is_cancelled() {
-            return Err(StitchError::Cancelled);
-        }
-        // Proxy was already computed in stage 0; re-use it directly.
-        let rgb = interleave_planar(&meta.proxy);
-        let lin =
-            LinearRgbFrame::new(meta.proxy.width(), meta.proxy.height(), rgb).map_err(|e| {
-                StitchError::Feature {
-                    frame_idx: i,
-                    cause: e.to_string(),
-                }
-            })?;
-        let fs = detector.detect(&lin).map_err(|e| StitchError::Feature {
-            frame_idx: i,
-            cause: e.to_string(),
-        })?;
-        feature_sets.push(fs);
-        progress(1, (i + 1) as f32 / metas.len() as f32);
-    }
-    drop(detector); // #3197: ALIKED done — free its ONNX session before stages 3–5
     let t_features = t1.elapsed().as_secs_f64();
 
     // Per-frame x and y proxy→full-res scale factors (stored in FrameMeta).
@@ -272,8 +229,8 @@ pub fn stitch(
             &descriptor_topk,
         ],
         |a, b| -> Vec<PixelCorrespondence> {
-            let corrs = match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
-                Ok(ml_matches) => ml_matches_to_correspondences(&ml_matches, DEFAULT_MIN_SCORE),
+            let corrs = match pair_matcher.match_pair(&feature_sets[a], &feature_sets[b]) {
+                Ok(corrs) => corrs,
                 Err(e) => {
                     match_failures.push(format!("pair ({a},{b}): {e}"));
                     Vec::new()
@@ -301,15 +258,9 @@ pub fn stitch(
         &mut full_images,
         &mut proxy_images,
         &mut raw_matches_cache,
-        |a, b| {
-            matcher
-                .match_features(&feature_sets[a], &feature_sets[b])
-                .map(|ml| ml_matches_to_correspondences(&ml, DEFAULT_MIN_SCORE))
-                .map_err(|e| e.to_string())
-        },
+        |a, b| pair_matcher.match_pair(&feature_sets[a], &feature_sets[b]),
     )?;
-    drop(matcher); // #3197: LightGlue done too — same reasoning as above
-    drop(models);
+    pair_matcher.release();
     // Timed after refinement, not just the bootstrap build, so the stage
     // duration covers any fallback rebuild work too.
     let t_graph = t2.elapsed().as_secs_f64();

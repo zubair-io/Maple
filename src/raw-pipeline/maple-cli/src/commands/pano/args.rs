@@ -96,6 +96,35 @@ pub struct StitchArgs {
     /// re-baselines the budgets with it as the default.
     #[arg(long, value_enum, default_value_t = SeamStrategyArg::Voronoi)]
     pub(super) seam_strategy: SeamStrategyArg,
+    /// Feature detector/matcher (#4523). `ml`: ALIKED + LightGlue (needs
+    /// ONNX Runtime + models; `pano` builds). `classical`: Harris +
+    /// gradient-histogram descriptors, no ONNX (`pano-classical` builds).
+    /// Defaults to `ml` when built in.
+    #[arg(long, value_enum, default_value_t = FeaturesEngineArg::default())]
+    pub(super) features_engine: FeaturesEngineArg,
+}
+
+/// CLI surface for [`maple_pano::stitch::FeatureEngine`] (#4523).
+#[derive(Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+pub(super) enum FeaturesEngineArg {
+    #[cfg(feature = "pano")]
+    #[default]
+    Ml,
+    #[cfg(feature = "pano-classical")]
+    #[cfg_attr(not(feature = "pano"), default)]
+    Classical,
+}
+
+impl FeaturesEngineArg {
+    pub(super) fn to_engine(self) -> maple_pano::stitch::FeatureEngine {
+        use maple_pano::stitch::FeatureEngine;
+        match self {
+            #[cfg(feature = "pano")]
+            FeaturesEngineArg::Ml => FeatureEngine::Ml,
+            #[cfg(feature = "pano-classical")]
+            FeaturesEngineArg::Classical => FeatureEngine::Classical,
+        }
+    }
 }
 
 /// CLI surface for [`maple_pano::ba::RetentionPolicy`].

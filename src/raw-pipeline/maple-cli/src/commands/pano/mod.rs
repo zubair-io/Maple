@@ -242,6 +242,7 @@ fn stitch_set(
         // iOS-FFI-only path (M6-C, #1253). See StitchOptions::use_coreml.
         use_coreml: false,
         seam_strategy: args.seam_strategy.to_strategy(),
+        feature_engine: args.features_engine.to_engine(),
     };
 
     let progress = |stage: u32, _frac: f32| {

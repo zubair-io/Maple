@@ -35,7 +35,7 @@
 // The descriptor top-k provider consumes `features::FeatureSet` — ALIKED
 // output — so it lives behind the same `ml` gate as its only consumers
 // (`stitch::*`); the crate builds bare without it (#3236).
-#[cfg(any(feature = "ml", feature = "ml-static"))]
+#[cfg(any(feature = "ml", feature = "ml-static", feature = "classical-features"))]
 pub mod descriptor_topk;
 
 use std::collections::BTreeSet;
@@ -46,7 +46,7 @@ use crate::prng::SplitMix64;
 use crate::robust::{verify_pair, RobustOptions, VerifyFailure};
 use crate::twoview::PixelCorrespondence;
 
-#[cfg(any(feature = "ml", feature = "ml-static"))]
+#[cfg(any(feature = "ml", feature = "ml-static", feature = "classical-features"))]
 pub use descriptor_topk::DescriptorTopKProvider;
 
 /// One image entering the graph build.
