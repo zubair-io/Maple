@@ -1,5 +1,5 @@
 import type { BackupInspectOptions, BackupObject } from '../provider.ts';
-import { isDriveStatus, logicalKeyHash, type DriveFile } from './client.ts';
+import { assertDriveFileId, isDriveStatus, logicalKeyHash, type DriveFile } from './client.ts';
 import type { GoogleDriveProvider } from './provider.ts';
 import { verifiedGoogleObject } from './integrity.ts';
 import { objectMarker, backupObject, assertObjectIdentity } from './object.ts';
@@ -78,6 +78,7 @@ async function inspectPortableIndex(
   const hash = logicalKeyHash(key);
   const target = await provider.findObjectTarget(key, signal);
   if (!target) return null;
+  assertDriveFileId(target.parentId);
   // Bounded lookup: only files whose public hash property matches. Marker
   // metadata is verified after the match, never trusted from the index alone.
   // https://developers.google.com/workspace/drive/api/guides/search-files
@@ -141,6 +142,7 @@ async function matchingFiles(
 ): Promise<DriveFile[]> {
   // Name-bounded so a mirror folder holding thousands of photos is never
   // enumerated per inspect; the in-memory filter guards against a lenient match.
+  assertDriveFileId(target.parentId);
   const query = `'${target.parentId}' in parents and trashed = false and name = '${driveQueryString(target.name)}'`;
   const matches: DriveFile[] = [];
   for await (const file of provider.client.list(query, signal))

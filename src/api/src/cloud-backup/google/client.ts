@@ -21,6 +21,9 @@ export interface DriveFile {
   driveId?: string;
 }
 /** Shared-drive ownership is collective; only an affirmative My Drive owner is allowed. */
+export function assertDriveFileId(id: string): void {
+  if (!/^[A-Za-z0-9_-]{1,200}$/.test(id)) throw new Error('Invalid Google file identifier.');
+}
 export function isOwnedMyDriveFile(file: DriveFile): boolean {
   return file.ownedByMe === true && file.driveId === undefined;
 }
@@ -103,7 +106,7 @@ export class DriveClient {
     return (await this.request(url, init, signal)).json() as Promise<T>;
   }
   metadata(id: string, signal?: AbortSignal): Promise<DriveFile> {
-    if (!/^[A-Za-z0-9_-]{1,200}$/.test(id)) throw new Error('Invalid Google file identifier.');
+    assertDriveFileId(id);
     return this.json(`${DRIVE_API}/files/${id}?fields=${FILE_FIELDS}`, {}, signal);
   }
   async reserveId(signal?: AbortSignal): Promise<string> {
