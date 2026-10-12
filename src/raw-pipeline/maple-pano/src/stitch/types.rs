@@ -73,6 +73,10 @@ pub struct StitchOptions {
     /// opt-in until a follow-up re-baselines those budgets with it as
     /// the default.
     pub seam_strategy: crate::seam::SeamStrategy,
+    /// Detector/matcher for the proxy match graph (#4523). Defaults to
+    /// ALIKED + LightGlue when `ml`/`ml-static` is built in, else to the
+    /// classical Harris + gradient-histogram path.
+    pub feature_engine: super::FeatureEngine,
 }
 
 impl Default for StitchOptions {
@@ -96,6 +100,7 @@ impl Default for StitchOptions {
             canvas_tile_rows: None,
             use_coreml: false,
             seam_strategy: crate::seam::SeamStrategy::Voronoi,
+            feature_engine: super::FeatureEngine::default(),
         }
     }
 }

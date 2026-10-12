@@ -196,6 +196,15 @@ jobs:
       - name: cargo build --bin maple-cli --features pano (compile gate)
         working-directory: src/raw-pipeline
         run: cargo build --bin maple-cli --features pano
+      # Classical feature fallback (#4523): the ONNX-free detector/matcher
+      # needs no ORT, models or fixtures, so its synthetic two-view gate and
+      # the `pano-classical` CLI build run on every runner.
+      - name: cargo test -p maple-pano classical-features (no ORT)
+        working-directory: src/raw-pipeline
+        run: cargo test -p maple-pano --no-default-features --features classical-features,testkit --lib --test classical_gates
+      - name: cargo build --bin maple-cli --features pano-classical (compile gate)
+        working-directory: src/raw-pipeline
+        run: cargo build --bin maple-cli --features pano-classical
       # Synthetic film-look, P3 and export-recipe tests need this feature;
       # a default CLI build does not compile their callers (#3905).
       - name: cargo test -p maple-cli --features test-support

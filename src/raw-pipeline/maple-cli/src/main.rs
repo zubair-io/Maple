@@ -108,8 +108,8 @@ enum Cmd {
         #[arg(long, default_value_t = 85)]
         quality: u8,
     },
-    /// Panorama stitching (requires the `pano` build feature).
-    #[cfg(feature = "pano")]
+    /// Panorama stitching (requires the `pano` or `pano-classical` build feature).
+    #[cfg(any(feature = "pano", feature = "pano-classical"))]
     Pano {
         #[command(subcommand)]
         cmd: commands::pano::PanoCmd,
@@ -550,7 +550,7 @@ fn main() -> ExitCode {
             &out,
             out_pool.as_deref(),
         )),
-        #[cfg(feature = "pano")]
+        #[cfg(any(feature = "pano", feature = "pano-classical"))]
         Cmd::Pano { cmd } => run_or_exit(
             commands::pano::run(cmd)
                 .map(|()| 0)
