@@ -50,6 +50,14 @@ async function withDb(
   body(handle.db);
 }
 
+/** The shot rule's filename (#4557) is one keyed probe per survivor, never a location scan. */
+function expectShotProbeByKey(plan: string[]): void {
+  expect(
+    plan.filter((line) => /^SEARCH l USING .*\(asset_id=\? AND ordinal=\?\)/.test(line)),
+  ).toHaveLength(1);
+  expect(plan.filter((line) => /^SCAN l\b/.test(line))).toEqual([]);
+}
+
 const QUERIES: SearchQuery[] = [
   { placeQuery: 'group of people' },
   { placeQuery: 'harbour', month: '6' },
@@ -78,6 +86,7 @@ describe('the window is ranked on the inverted index, then probed by key', () =>
             // or one of its indexes.
             expect(reads.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
             expect(plan).toContain('SEARCH asset_search USING INTEGER PRIMARY KEY (rowid=?)');
+            expectShotProbeByKey(plan);
             expect(
               reads.filter(
                 (line) => line.startsWith('SEARCH assets ') && !/(id=\?|rowid=\?)/.test(line),
@@ -135,6 +144,7 @@ describe("another engine's ranked ids become rows by key", () => {
         );
         expect(plan.some((line) => line.includes('assets_fts'))).toBe(false);
         expect(plan.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
+        expectShotProbeByKey(plan);
       });
     });
   }
