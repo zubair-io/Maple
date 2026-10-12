@@ -8,7 +8,6 @@ import type {
 import {
   DriveClient,
   DRIVE_API,
-  logicalKeyHash,
   isDriveStatus,
   isOwnedMyDriveFile,
   validateGoogleRoot,
@@ -17,6 +16,7 @@ import {
 import { publishGoogleObject, publishGoogleMirrorFile, parseCheckpoint } from './upload.ts';
 import type { GoogleFetch } from './oauth.ts';
 import { verifiedGoogleObject } from './integrity.ts';
+import { inspectGoogleObject } from './inspect.ts';
 
 import { objectMarker, backupObject, assertObjectIdentity } from './object.ts';
 
@@ -90,7 +90,7 @@ export class GoogleDriveProvider implements BackupProvider {
     const name = parts.pop()!;
     return { parentId: await this.ensureFolders(parts, signal), name };
   }
-  private async findObjectTarget(
+  async findObjectTarget(
     key: string,
     signal?: AbortSignal,
   ): Promise<{ parentId: string; name: string } | null> {
@@ -298,124 +298,9 @@ export class GoogleDriveProvider implements BackupProvider {
       typeof locatorOrOptions === 'string'
         ? { locator: locatorOrOptions, heartbeat: legacyHeartbeat }
         : (locatorOrOptions ?? { heartbeat: legacyHeartbeat });
-    const heartbeat = options.heartbeat;
     validKey(key);
     await this.probe(signal);
-    const match = options.locator
-      ? await this.inspectLocator(key, options.locator, signal, options.expected)
-      : await this.inspectIndex(key, signal);
-    if (!match) return null;
-    const actual = await verifiedGoogleObject(
-      this,
-      match,
-      signal,
-      heartbeat ? () => heartbeat(match) : undefined,
-    );
-    // Mirror paths are identified by their database mapping or their exact
-    // path under the app-owned root. Their current bytes are authoritative for
-    // reconciliation, so a checksum mismatch is returned to the mirror writer
-    // to repair from the source instead of becoming a stuck validation error.
-    if (!key.startsWith('mirror/'))
-      assertObjectIdentity(
-        actual,
-        options.expected ?? match,
-        'Google upload read-back checksum mismatch.',
-      );
-    return actual;
-  }
-  private async inspectLocator(
-    key: string,
-    locator: string,
-    signal?: AbortSignal,
-    expected?: BackupObject,
-  ): Promise<BackupObject | null> {
-    try {
-      const file = await this.client.metadata(locator, signal);
-      const object = backupObject(file, this.rootId, expected);
-      if (object.key !== key) throw new Error('Backup object identity changed.');
-      await this.assertWithinRoot(file, signal);
-      return object;
-    } catch (error) {
-      if (isDriveStatus(error, 404)) return null;
-      throw error;
-    }
-  }
-  private async inspectIndex(key: string, signal?: AbortSignal): Promise<BackupObject | null> {
-    if (key.startsWith('mirror/')) return this.inspectMirrorIndex(key, signal);
-    return this.inspectPortableIndex(key, signal);
-  }
-  private async inspectPortableIndex(
-    key: string,
-    signal?: AbortSignal,
-  ): Promise<BackupObject | null> {
-    const hash = logicalKeyHash(key);
-    const matches: BackupObject[] = [];
-    const relativePath = this.objectPath(key).split('/');
-    relativePath.pop();
-    const parentId = await this.findFolders(relativePath, signal);
-    if (!parentId) return null;
-    // 76 UTF-8 bytes total, below Drive's 124-byte public-property limit.
-    // https://developers.google.com/workspace/drive/api/guides/search-files
-    const query = `'${parentId}' in parents and trashed = false and properties has { key='mapleKeyHash' and value='${hash}' }`;
-    for await (const file of this.client.list(query, signal)) {
-      const object = await this.inspectPortableCandidate(file, key, hash, signal);
-      if (!object) continue;
-      matches.push(object);
-      if (matches.length > 1)
-        throw new Error('Conflicting immutable backup objects require operator review.');
-    }
-    return matches[0] ?? null;
-  }
-  private async inspectPortableCandidate(
-    file: DriveFile,
-    key: string,
-    hash: string,
-    signal?: AbortSignal,
-  ): Promise<BackupObject | null> {
-    const object = backupObject(file, this.rootId);
-    try {
-      await this.assertWithinRoot(file, signal);
-    } catch {
-      return null;
-    }
-    if (object.key !== key || file.properties?.['mapleKeyHash'] !== hash)
-      throw new Error('Google backup search index does not match its portable object identity.');
-    return object;
-  }
-  private async inspectMirrorIndex(
-    key: string,
-    signal?: AbortSignal,
-  ): Promise<BackupObject | null> {
-    const target = await this.findObjectTarget(key, signal);
-    if (!target) return null;
-    const matches = await this.matchingFiles(target, signal);
-    if (matches.length > 1)
-      throw new Error('Multiple Google files exist at the Maple mirror path.');
-    const file = matches[0];
-    if (!file) return null;
-    await this.assertWithinRoot(file, signal);
-    // The exact path under Maple's managed root is enough to discover an
-    // unmapped mirror candidate. Reconciliation hashes its bytes and rewrites
-    // it from the source; marker metadata never establishes the DB mapping.
-    return backupObject(file, this.rootId, {
-      key,
-      locator: file.id,
-      size: Number(file.size),
-      sha256: objectMarker(file)?.sha256 ?? '0'.repeat(64),
-    });
-  }
-  private async matchingFiles(
-    target: { parentId: string; name: string },
-    signal?: AbortSignal,
-  ): Promise<DriveFile[]> {
-    const matches: DriveFile[] = [];
-    for await (const file of this.client.list(
-      `'${target.parentId}' in parents and trashed = false`,
-      signal,
-    ))
-      if (file.name === target.name && file.mimeType !== 'application/vnd.google-apps.folder')
-        matches.push(file);
-    return matches;
+    return inspectGoogleObject(this, key, options, signal);
   }
   async publish(
     key: string,
