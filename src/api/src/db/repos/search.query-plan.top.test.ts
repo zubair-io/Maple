@@ -52,9 +52,7 @@ async function withDb(
 
 /** The shot rule's filename (#4557) is one keyed probe per survivor, never a location scan. */
 function expectShotProbeByKey(plan: string[]): void {
-  expect(
-    plan.filter((line) => /^SEARCH l USING .*\(asset_id=\? AND ordinal=\?\)/.test(line)),
-  ).toHaveLength(1);
+  expect(plan.filter((line) => /^SEARCH l USING .*\(asset_id=\?/.test(line))).toHaveLength(1);
   expect(plan.filter((line) => /^SCAN l\b/.test(line))).toEqual([]);
 }
 

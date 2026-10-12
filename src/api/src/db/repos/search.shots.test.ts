@@ -9,8 +9,12 @@ import { collapseShots, shotKey, shotStem, type ShotFields } from './search.shot
 const SECOND = '2018-07-07T13:30:40.000Z';
 
 function sameShot(a: string, b: string, capturedAt: string | null = SECOND): boolean {
-  const left = shotKey({ captured_at: capturedAt, filename: a });
-  return left !== null && left === shotKey({ captured_at: capturedAt, filename: b });
+  const kindOf = (name: string) => (/\.(mp4|mov)$/i.test(name) ? 'video' : 'image');
+  const left = shotKey({ captured_at: capturedAt, media_kind: kindOf(a), filename: a });
+  return (
+    left !== null &&
+    left === shotKey({ captured_at: capturedAt, media_kind: kindOf(b), filename: b })
+  );
 }
 
 describe('copies of one shot', () => {
@@ -36,6 +40,9 @@ describe('different shots', () => {
     ['_MG_1768.CR2', '_MG_1770.CR2'],
     ['IMG_3816.HEIC', 'IMG_3817.HEIC'],
     ['20180707_133040_093.jpg', '20180707_133040_095.jpg'],
+    ['IMG_1234.HEIC', 'IMG_1234.MOV'],
+    ['wedding-kiss-01.jpg', 'wedding-kiss-02.jpg'],
+    ['sunset-beach.jpg', 'sunset-city.jpg'],
     ['2017-05-21 17.50.35.jpg', '2017-05-21 17.50.36.jpg'],
     ['2017-05-21 17.50.35.jpg', '2017-05-21 17.50.35-1.jpg'],
   ]) {
@@ -46,14 +53,28 @@ describe('different shots', () => {
 
   test('the same name at a different capture time is a different shot', () => {
     expect(
-      shotKey({ captured_at: SECOND, filename: 'IMG_0039.CR2' }) ===
-        shotKey({ captured_at: '2006-01-01T00:00:00.000Z', filename: 'IMG_0039.JPG' }),
+      shotKey({ captured_at: SECOND, media_kind: 'image', filename: 'IMG_0039.CR2' }) ===
+        shotKey({
+          captured_at: '2006-01-01T00:00:00.000Z',
+          media_kind: 'image',
+          filename: 'IMG_0039.JPG',
+        }),
     ).toBe(false);
   });
 
   test('a row without a capture time or a filename is never collapsed', () => {
     expect(sameShot('IMG_0039.CR2', 'IMG_0039.JPG', null)).toBe(false);
-    expect(shotKey({ captured_at: SECOND, filename: null })).toBeNull();
+    expect(shotKey({ captured_at: SECOND, media_kind: 'image', filename: null })).toBeNull();
+  });
+});
+
+describe('capture time', () => {
+  test('matches to the second, so a RAW with sub-seconds pairs with its JPEG', () => {
+    expect(
+      shotKey({ captured_at: '2006-03-04T10:11:12.340Z', media_kind: 'image', filename: 'a.CR2' }),
+    ).toBe(
+      shotKey({ captured_at: '2006-03-04T10:11:12.000Z', media_kind: 'image', filename: 'a.JPG' }),
+    );
   });
 });
 
@@ -65,12 +86,14 @@ describe('shotStem', () => {
     expect(shotStem('archive.tar.gz')).toBe('archive.tar');
     expect(shotStem('.hidden')).toBe('.hidden');
     expect(shotStem('-edit.jpg')).toBe('-edit');
+    expect(shotStem('DSC_100-a.jpg')).toBe('dsc_100');
+    expect(shotStem('wedding-kiss-01.jpg')).toBe('wedding-kiss-01');
   });
 });
 
 describe('collapseShots', () => {
   const row = (id: string, filename: string | null, captured_at: string | null = SECOND) =>
-    ({ id, filename, captured_at }) satisfies ShotFields & { id: string };
+    ({ id, filename, captured_at, media_kind: 'image' }) satisfies ShotFields & { id: string };
 
   test('keeps the best-ranked copy of each shot, in rank order', () => {
     const rows = [

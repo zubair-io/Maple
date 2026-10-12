@@ -177,6 +177,7 @@ function syntheticRanker(
         maple_id: `m${index}`,
         owner_id: null,
         captured_at: null,
+        media_kind: 'image',
         filename: null,
       }));
     return { rows, considered } satisfies WindowPass;
@@ -258,7 +259,15 @@ describe('the window policy', () => {
       return calls.length === 1
         ? {
             rows: [
-              { r: 1, id: 'a', maple_id: 'a', owner_id: null, captured_at: null, filename: null },
+              {
+                r: 1,
+                id: 'a',
+                maple_id: 'a',
+                owner_id: null,
+                captured_at: null,
+                media_kind: 'image',
+                filename: null,
+              },
             ],
             considered: depth,
           }
@@ -289,7 +298,48 @@ describe('one row per shot (#4557)', () => {
     ))!;
 
     expect(window.rows.map((row) => row.id)).toEqual([raw, neighbour]);
-    expect(window.rows[0]).toMatchObject({ captured_at: capturedAt, filename: '_MG_4006.CR2' });
+    expect(window.rows[0]).toMatchObject({
+      captured_at: capturedAt,
+      media_kind: 'image',
+      filename: '_MG_4006.CR2',
+    });
+  });
+
+  test("names a shot by a live entry's filename when the canonical entry is gone", async () => {
+    using handle = await createTestDatabase();
+    const libraryId = insertFolder(handle.db, { slug: 'moved' });
+    const capturedAt = '2017-05-21T17:50:35.000Z';
+    const best = seedSearchAsset(handle.db, libraryId, {
+      filename: '20170521_175035.mp4',
+      mediaKind: 'video',
+      capturedAt,
+      searchBlob: 'fireworks fireworks',
+    });
+    const copy = seedSearchAsset(handle.db, libraryId, {
+      filename: 'old-name.mp4',
+      locationMissingSince: '2026-01-01T00:00:00.000Z',
+      mediaKind: 'video',
+      capturedAt,
+      searchBlob: 'fireworks fireworks night',
+    });
+    handle.db
+      .query(
+        `INSERT INTO asset_locations (asset_id, ordinal, library_id, path, filename)
+         VALUES (?, 1, ?, '2017/05', '20170521_175035(1).mp4')`,
+      )
+      .run(copy, libraryId);
+
+    const pass = (await ftsRanker(
+      translate({ placeQuery: 'fireworks' }),
+      testSqliteDb(handle.db),
+    )(RANKED_WINDOW_BASE))!;
+    const window = (await rankWindow(
+      ftsRanker(translate({ placeQuery: 'fireworks' }), testSqliteDb(handle.db)),
+      RANKED_WINDOW_BASE,
+    ))!;
+
+    expect(pass.rows.find((row) => row.id === copy)?.filename).toBe('20170521_175035(1).mp4');
+    expect(window.rows.map((row) => row.id)).toEqual([best]);
   });
 
   test('widens when collapsed copies leave a full window short of the page', async () => {
@@ -302,6 +352,7 @@ describe('one row per shot (#4557)', () => {
         maple_id: `m${index}`,
         owner_id: null,
         captured_at: '2024-01-01T00:00:00.000Z',
+        media_kind: 'image',
         filename: `IMG_${Math.floor(index / 2)}${index % 2 === 0 ? '.CR2' : '.JPG'}`,
       }));
       return { rows, considered: depth };
