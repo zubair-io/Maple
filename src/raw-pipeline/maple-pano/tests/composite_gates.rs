@@ -3,6 +3,7 @@
 //! gain recovery, validity edges, and determinism. All gates use
 //! exactly-known cameras (no solver) so they measure compositing alone.
 
+use maple_pano::blend::blend_multiband;
 use maple_pano::camera::Camera;
 use maple_pano::canvas::{auto_canvas, CanvasOptions};
 use maple_pano::composite::{composite, composite_tiled_frames, CompositeOptions};
@@ -10,8 +11,10 @@ use maple_pano::gain::GainMode;
 use maple_pano::ingest::{PlanarImage, ValidityMask};
 use maple_pano::prng::SplitMix64;
 use maple_pano::render::{build_camera_set, render_frame, CameraSetOptions, Pattern};
+use maple_pano::seam::masks::build_from_frames;
 use maple_pano::seam::SeamStrategy;
 use maple_pano::source::EquirectSource;
+use maple_pano::warp::warp_to_canvas;
 
 fn ring(count: u32, fov_deg: f64, full: bool) -> CameraSetOptions {
     CameraSetOptions {
@@ -247,22 +250,33 @@ fn gate_deterministic() {
     assert_eq!(a.b, b.b);
 }
 
-// ─── Tiling invariant (M6-D, #1248) ──────────────────────────────────────────
+// ─── Tiling invariant (M6-D #1248, multi-band #4524) ─────────────────────────
 
-/// Tiling invariant: `composite_tiled_frames` with multiple tile heights
-/// produces pixel-identical output to the REAL `composite` (with
-/// `levels_override: Some(1)` to match the tiled path's linear Voronoi blend).
-///
-/// This test compares the tiled path against the production `composite` path,
-/// not against itself. The reference is `composite` with `levels_override: 1`
-/// (single-band = pure linear Voronoi), which is what the tiled path
-/// implements. Voronoi assigns exclusive ownership (each canvas pixel belongs
-/// to exactly one frame), so with single-band blending the result must be
-/// pixel-identical regardless of tile decomposition — the strip arithmetic
-/// cannot change which sample is written.
-///
-/// Tile heights tested: 1, 7, 23, 64, and the full canvas height (the last
-/// exercises the no-split degenerate case).
+/// Validity mismatches and the largest per-channel value gap over pixels
+/// both images mark valid.
+fn image_gap(a: &PlanarImage, b: &PlanarImage) -> (usize, f32) {
+    assert_eq!((a.width(), a.height()), (b.width(), b.height()), "shape");
+    let w = a.width() as usize;
+    (0..a.r.len()).fold((0, 0.0_f32), |(mismatch, gap), i| {
+        let (x, y) = ((i % w) as u32, (i / w) as u32);
+        match (a.validity.get(x, y), b.validity.get(x, y)) {
+            (true, true) => {
+                let d = [(&a.r, &b.r), (&a.g, &b.g), (&a.b, &b.b)]
+                    .iter()
+                    .map(|(p, q)| (p[i] - q[i]).abs())
+                    .fold(gap, f32::max);
+                (mismatch, d)
+            }
+            (false, false) => (mismatch, gap),
+            _ => (mismatch + 1, gap),
+        }
+    })
+}
+
+/// Tiling invariant: the Voronoi tiled path multi-band blends to the same
+/// pixels as the REAL whole-canvas `composite` at its automatic band count
+/// (> 1), for every strip height — including non-divisors of the canvas
+/// height that land off the coarse pyramid grid, and the no-split case.
 #[test]
 fn tiling_equals_real_composite() {
     // 6-frame partial ring: non-trivial overlap, no full wrap (we want
@@ -272,90 +286,100 @@ fn tiling_equals_real_composite() {
     let cams = camera_set(&ring(6, 55.0, false), 11);
     let frames = gt_frames(&source, &cams);
 
-    // Compute the real composite with single-band blending so the blend
-    // algebra matches the tiled path's linear Voronoi exactly.
-    let comp_opts = CompositeOptions {
-        canvas: CanvasOptions::default(),
-        levels_override: Some(1),
-        ..Default::default()
-    };
     let (reference, report) =
-        composite(&frames, &cams, &comp_opts, &[]).expect("reference composite");
-
-    // Re-use the canvas and gains from the reference run so both paths
-    // operate on identical geometry and colour corrections.
+        composite(&frames, &cams, &CompositeOptions::default(), &[]).expect("reference");
     let canvas = &report.canvas;
-    let photometry = &report.photometry;
-
-    let (w, h) = (canvas.width as usize, canvas.height as usize);
-    let ref_covered = reference.validity.count_valid();
     println!(
-        "reference: {}x{} canvas, {}/{} valid pixels, {} frames",
+        "reference: {}x{} canvas, {} valid px, {} bands (min overlap {} px)",
         canvas.width,
         canvas.height,
-        ref_covered,
-        w * h,
-        cams.len()
+        reference.validity.count_valid(),
+        report.blend_levels,
+        report.min_overlap_width_px
     );
-    assert!(
-        ref_covered > 0,
-        "reference composite must cover some pixels"
-    );
+    assert!(report.blend_levels > 1, "gate must exercise a real pyramid");
+    assert!(reference.validity.count_valid() > 0);
 
-    // Tiled at multiple heights, including non-divisors and the full height.
-    for tile_rows in [1u32, 7, 23, 64, canvas.height] {
-        let (tiled, _) = composite_tiled_frames(
+    for tile_rows in [37u32, 128, canvas.height] {
+        let (tiled, tiled_report) = composite_tiled_frames(
             &frames,
             &cams,
-            photometry,
+            &report.photometry,
             &[],
             canvas,
             tile_rows,
             SeamStrategy::Voronoi,
         )
         .expect("tiled composite");
+        assert_eq!(tiled_report.blend_levels, report.blend_levels);
+        let (mismatches, gap) = image_gap(&tiled, &reference);
+        println!("tile_rows={tile_rows}: {mismatches} validity mismatches, max gap {gap:e}");
+        assert_eq!(mismatches, 0, "tile_rows={tile_rows}: validity differs");
+        assert!(
+            gap <= 1e-6,
+            "tile_rows={tile_rows}: max gap {gap} vs composite"
+        );
+    }
+}
 
-        let mut validity_mismatches = 0usize;
-        let mut value_mismatches = 0usize;
-        for y in 0..h as u32 {
-            for x in 0..w as u32 {
-                let ref_v = reference.validity.get(x, y);
-                let tile_v = tiled.validity.get(x, y);
-                if ref_v != tile_v {
-                    validity_mismatches += 1;
-                    continue;
-                }
-                if ref_v {
-                    let i = y as usize * w + x as usize;
-                    if tiled.r[i] != reference.r[i]
-                        || tiled.g[i] != reference.g[i]
-                        || tiled.b[i] != reference.b[i]
-                    {
-                        value_mismatches += 1;
-                        if value_mismatches <= 3 {
-                            eprintln!(
-                                "  tile_rows={tile_rows} pixel ({x},{y}): \
-                                 tiled=({:.6},{:.6},{:.6}) ref=({:.6},{:.6},{:.6})",
-                                tiled.r[i],
-                                tiled.g[i],
-                                tiled.b[i],
-                                reference.r[i],
-                                reference.g[i],
-                                reference.b[i]
-                            );
-                        }
-                    }
-                }
-            }
-        }
-        assert_eq!(
-            validity_mismatches, 0,
-            "tile_rows={tile_rows}: {validity_mismatches} validity mismatches vs real composite"
-        );
-        assert_eq!(
-            value_mismatches, 0,
-            "tile_rows={tile_rows}: {value_mismatches} pixel value mismatches vs real composite"
-        );
+/// Graph-cut tiled path: strip height never changes the pixels, and the
+/// result equals a whole-canvas `blend_multiband` of the fully warped
+/// layers under the same seam weights.
+#[test]
+fn graph_cut_tiling_is_strip_invariant_multiband() {
+    let source = scene(31);
+    let cams = camera_set(&ring(4, 60.0, false), 5);
+    let frames = gt_frames(&source, &cams);
+    let (_, report) = composite(&frames, &cams, &CompositeOptions::default(), &[]).expect("canvas");
+    let canvas = &report.canvas;
+
+    let tiled_at = |tile_rows: u32| {
+        composite_tiled_frames(
+            &frames,
+            &cams,
+            &report.photometry,
+            &[],
+            canvas,
+            tile_rows,
+            SeamStrategy::GraphCut,
+        )
+        .expect("graph-cut tiled")
+    };
+    let (full, full_report) = tiled_at(canvas.height);
+    assert!(
+        full_report.blend_levels > 1,
+        "gate must exercise a real pyramid"
+    );
+
+    let seam = build_from_frames(&frames, &cams, &report.photometry, &[], canvas);
+    let layers: Vec<PlanarImage> = frames
+        .iter()
+        .zip(&cams)
+        .zip(&report.photometry)
+        .map(|((f, c), &g)| warp_to_canvas(f, c, canvas, g, None))
+        .collect();
+    let cw = canvas.width as usize;
+    let weights: Vec<Vec<f32>> = (0..layers.len())
+        .map(|fi| {
+            (0..layers[fi].r.len())
+                .map(|i| seam.weight(fi, (i % cw) as f64 + 0.5, (i / cw) as f64 + 0.5))
+                .collect()
+        })
+        .collect();
+    let reference = blend_multiband(&layers, &weights, full_report.blend_levels);
+    let (mismatches, gap) = image_gap(&full, &reference);
+    println!("graph-cut vs blend_multiband: {mismatches} validity mismatches, max gap {gap:e}");
+    assert_eq!(mismatches, 0);
+    assert!(
+        gap <= 1e-6,
+        "graph-cut tiled vs whole-canvas multiband: {gap}"
+    );
+
+    for tile_rows in [29u32, 100] {
+        let (tiled, _) = tiled_at(tile_rows);
+        let (mismatches, gap) = image_gap(&tiled, &full);
+        assert_eq!(mismatches, 0, "tile_rows={tile_rows}: validity differs");
+        assert!(gap <= 1e-6, "tile_rows={tile_rows}: max gap {gap}");
     }
 }
 
