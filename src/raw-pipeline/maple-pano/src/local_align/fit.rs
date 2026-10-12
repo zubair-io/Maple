@@ -76,7 +76,7 @@ pub(crate) fn fit_mesh(
     bounds: MeshBounds,
 ) -> LocalCorrection {
     let mut corr = LocalCorrection::identity(w, h);
-    if pts.is_empty() || !(w > 0.0) || !(h > 0.0) {
+    if pts.is_empty() || w.is_nan() || h.is_nan() || w <= 0.0 || h <= 0.0 {
         return corr;
     }
     corr.fit_blocks = pts.len();
