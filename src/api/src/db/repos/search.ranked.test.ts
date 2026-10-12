@@ -365,4 +365,27 @@ describe('one row per shot (#4557)', () => {
     expect(window.rows.every((row) => row.filename!.endsWith('.CR2'))).toBe(true);
     expect(window.more).toBe(true);
   });
+
+  test('stops at the cap with copies collapsed, capped and with no more paging', async () => {
+    const depths: number[] = [];
+    const ranker: WindowRanker = async (depth) => {
+      depths.push(depth);
+      const rows = Array.from({ length: depth }, (_, index) => ({
+        r: index,
+        id: `id${index}`,
+        maple_id: `m${index}`,
+        owner_id: null,
+        captured_at: '2024-01-01T00:00:00.000Z',
+        media_kind: 'image',
+        filename: `IMG_${Math.floor(index / 10)}(${index % 10}).JPG`,
+      }));
+      return { rows, considered: depth };
+    };
+
+    const window = (await rankWindow(ranker, 1_000))!;
+
+    expect(depths).toEqual([1_600, RANKED_WINDOW_MAX]);
+    expect(window.rows).toHaveLength(RANKED_WINDOW_MAX / 10);
+    expect(window).toMatchObject({ more: false, capped: true });
+  });
 });
