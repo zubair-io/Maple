@@ -227,6 +227,9 @@ class GitTests(unittest.TestCase):
         self.git("config", "user.email", "selector@example.invalid")
         self.git("config", "commit.gpgsign", "false")
         self.git("config", "core.hooksPath", str(self.repo / "no-hooks"))
+        # A detached post-commit gc/maintenance process can still be writing under .git during cleanup (#4536).
+        self.git("config", "gc.auto", "0")
+        self.git("config", "maintenance.auto", "false")
         self.base = self.commit("README.md")
 
     def git(self, *args):
