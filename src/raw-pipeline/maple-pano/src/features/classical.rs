@@ -8,7 +8,7 @@
 //! ```text
 //! LinearRgbFrame ─ log luma ─ Gaussian pyramid (octaves × levels)
 //!   ─ scale-normalised Harris (AC−B²)/(A+C+ε) + curvature gate
-//!   ─ scale-space NMS + sub-texel peak ─ strongest `max_keypoints`
+//!   ─ scale-space NMS + sub-texel peak ─ `max_keypoints`, grid-spread
 //!   ─ dominant orientation ─ 4×4×8 gradient histogram (128-D, unit norm)
 //! ```
 //!
@@ -39,8 +39,11 @@ const SELECTION_GRID: usize = 8;
 /// Detector tunables.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClassicalOptions {
-    /// Keypoints kept per frame, strongest response first (ALIKED's
-    /// top-k in the ML path is 2000 too).
+    /// Keypoints kept per frame. 4× ALIKED's 2000: a hand-built
+    /// descriptor discriminates less, so repetitive texture (rows of roof
+    /// dormers on pano_03) loses most matches to the ratio test, and the
+    /// verified-inlier count per pair only clears the tile verifier with
+    /// the larger pool (60 → 236–298 inliers on pano_03's weakest pairs).
     pub max_keypoints: usize,
     /// Upper bound on pyramid octaves (fewer when the frame is small).
     pub max_octaves: usize,
@@ -59,7 +62,7 @@ pub struct ClassicalOptions {
 impl Default for ClassicalOptions {
     fn default() -> Self {
         Self {
-            max_keypoints: 2000,
+            max_keypoints: 8000,
             max_octaves: 4,
             levels_per_octave: 3,
             base_sigma: 1.2,
