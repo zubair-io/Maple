@@ -186,7 +186,9 @@ export async function windowPage(
     const unchanged =
       rows.length === ranked.length && rows.every((row, index) => row === ranked[index]);
     const docs = unchanged ? rankedDocs : await windowDocs(page.where, rows);
-    return { total: survivors.length, rows, results: projectAssets(docs, libs, idToSlug) };
+    // A row that died after the survivors were read is missing from `docs`; uncount it too.
+    const total = survivors.length - (rows.length - docs.length);
+    return { total, rows, results: projectAssets(docs, libs, idToSlug) };
   };
   const { total, rows, results } = page.timing
     ? await page.timing.time('rows', hydrate)
