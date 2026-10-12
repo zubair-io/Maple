@@ -23,6 +23,9 @@ public final class SearchViewModel {
   public private(set) var results: [SearchAsset] = []
   public private(set) var facets: SearchFacets?
   public private(set) var total: Int = 0
+  /// The server ranked a window of a free-text query and had hits left past
+  /// it (#4514): `total` is the window, and a deeper page widens it.
+  public private(set) var moreBeyondTotal: Bool = false
   public private(set) var isLoading: Bool = false
   public private(set) var isLoadingMore: Bool = false
   public private(set) var loadError: Error?
@@ -47,6 +50,7 @@ public final class SearchViewModel {
       results = []
       facets = nil
       total = 0
+      moreBeyondTotal = false
       page = 0
       nextCursor = nil
       appliedDates = nil
@@ -118,7 +122,7 @@ public final class SearchViewModel {
   }
 
   /// True while more pages remain for the current result set.
-  public var canLoadMore: Bool { results.count < total }
+  public var canLoadMore: Bool { results.count < total || moreBeyondTotal }
 
   /// True when any structured filter is set (drives the "filters" dot).
   public var hasActiveFilters: Bool { params.hasActiveFilters }
@@ -198,6 +202,7 @@ public final class SearchViewModel {
       // prevent (#2960).
       appliedDates = cachedPage.dateFilter
       total = cachedPage.seekExhausted ? cachedPage.results.count : cachedPage.total
+      moreBeyondTotal = cachedPage.more ?? false
       facets = cachedFacets
       return
     }
@@ -226,6 +231,7 @@ public final class SearchViewModel {
       // instead would keep `canLoadMore` true and drop `loadMore()` back to
       // deep page-based SKIP pagination.
       total = resp.seekExhausted ? resp.results.count : resp.total
+      moreBeyondTotal = resp.more ?? false
       // Results publish before facets: the facet aggregation is the slower
       // request and only feeds the filter panel, so it must not hold the grid.
       isLoading = false
@@ -245,6 +251,7 @@ public final class SearchViewModel {
       loadError = error
       results = []
       total = 0
+      moreBeyondTotal = false
       // Keep the last good facets (mirrors the web client): an aggregation
       // hiccup shouldn't blank the People / Places pickers, and nothing is
       // scheduled to refill them — `loadFacetsIfNeeded()` treats non-nil
@@ -270,6 +277,7 @@ public final class SearchViewModel {
     collectionPager = nextPage
     results = firstPage.results
     total = firstPage.total
+    moreBeyondTotal = firstPage.more
     page = 0
     nextCursor = nil
     appliedDates = nil
@@ -300,6 +308,10 @@ public final class SearchViewModel {
     guard g == generation, let live else { return }
     results = live.results
     total = live.total
+    moreBeyondTotal = live.more
+    // Still the stored preview: the server's engine is loading (#4514). Keep
+    // the live page pending so the next `loadMore()` asks again.
+    guard !live.isPending else { return }
     pendingLiveFirstPage = nil
     isRefreshingCollection = false
   }
@@ -369,6 +381,7 @@ public final class SearchViewModel {
         page += 1
         results.append(contentsOf: more.results)
         total = more.results.isEmpty ? results.count : more.total
+        moreBeyondTotal = !more.results.isEmpty && more.more
       } catch {
         if Self.isCancellation(error) { return }
         guard g == generation else { return }
@@ -391,6 +404,7 @@ public final class SearchViewModel {
       results.append(contentsOf: cached.results)
       nextCursor = cached.nextCursor
       total = cached.seekExhausted ? results.count : cached.total
+      moreBeyondTotal = !cached.results.isEmpty && (cached.more ?? false)
       return
     }
 
@@ -402,6 +416,7 @@ public final class SearchViewModel {
       results.append(contentsOf: resp.results)
       nextCursor = resp.nextCursor
       total = resp.seekExhausted ? results.count : resp.total
+      moreBeyondTotal = !resp.results.isEmpty && (resp.more ?? false)
     } catch {
       if Self.isCancellation(error) { return }
       guard g == generation else { return }
@@ -445,6 +460,7 @@ public final class SearchViewModel {
     lastSubmittedParams = fresh
     results = []
     total = 0
+    moreBeyondTotal = false
     page = 0
     nextCursor = nil
     appliedDates = nil

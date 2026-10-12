@@ -398,6 +398,38 @@ describe('SearchComponent (unified search)', () => {
     expect(searchComp.canLoadMore()).toBe(false);
   });
 
+  it('keeps paging past a ranked window that has more, and labels its count open-ended', () => {
+    typeInput(fixture, 'city streets');
+    vi.advanceTimersByTime(250);
+    stub.resolveLatest({
+      total: 30,
+      more: true,
+      page: 0,
+      limit: 30,
+      results: Array.from({ length: 30 }, (_, i) => makeResult(`r${i}`, `r${i}.dng`)),
+    });
+    fixture.detectChanges();
+    const searchComp = fixture.componentInstance as unknown as {
+      canLoadMore: () => boolean;
+      onLoadMore(): void;
+    };
+    expect(searchComp.canLoadMore()).toBe(true);
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="search-result-count"]')?.textContent,
+    ).toContain('30+ results');
+    searchComp.onLoadMore();
+    expect(stub.calls[stub.calls.length - 1].page).toBe(1);
+    stub.resolveLatest({
+      total: 45,
+      more: false,
+      page: 1,
+      limit: 30,
+      results: Array.from({ length: 15 }, (_, i) => makeResult(`s${i}`, `s${i}.dng`)),
+    });
+    fixture.detectChanges();
+    expect(searchComp.canLoadMore()).toBe(false);
+  });
+
   it('persists recents on submit and restores the query on recent tap', () => {
     typeInput(fixture, 'paris');
     const form = fixture.nativeElement.querySelector('form') as HTMLFormElement;

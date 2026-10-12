@@ -173,6 +173,12 @@ export interface SearchResponse {
    * `cursorPaging` for what `null` means in each mode.
    */
   nextCursor?: string | null;
+  /**
+   * True when `total` is a ranked window of a free-text query and the server
+   * had hits left past it (#4514): a deeper page widens the window, so the
+   * grid keeps paging past `total`. Absent on other responses.
+   */
+  more?: boolean;
   /** Set to `true` by the backend when the requested `scope` has no
    * underlying field today (currently only `albums`). The grid is empty
    * by definition; UIs surface "Coming soon" instead of "No matches". */
