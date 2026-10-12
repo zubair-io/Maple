@@ -371,8 +371,10 @@ test('a candidate deleted between inspection and placement is ignored', async ()
       url.pathname === `/drive/v3/files/${displacedId}` &&
       url.searchParams.get('alt') !== 'media'
     ) {
+      // Reads 1 and 2 belong to inspect (locator + verification); the third
+      // is the placement check, where the race under test happens.
       metadataReads += 1;
-      if (metadataReads === 2) store.files.delete(displacedId);
+      if (metadataReads === 3) store.files.delete(displacedId);
     }
     return store.transport(raw, init);
   };
@@ -391,5 +393,5 @@ test('a candidate deleted between inspection and placement is ignored', async ()
   });
   expect(restored.locator).not.toBe(mapped.locator);
   expect(store.files.get(restored.locator)!.name).toBe('photo.jpg');
-  expect(metadataReads).toBeGreaterThanOrEqual(2);
+  expect(metadataReads).toBe(3);
 });
