@@ -29,6 +29,10 @@
     <Compile Include="..\Maple.WinUI\Services\Pano\PanoFeatureEngine.cs" Link="Services\PanoFeatureEngine.cs" />
     <Compile Include="..\Maple.WinUI\Services\Pano\PanoProvisionState.cs" Link="Services\PanoProvisionState.cs" />
     <Compile Include="..\Maple.WinUI\Services\Pano\PanoStitchCommand.cs" Link="Services\PanoStitchCommand.cs" />
+    <Compile Include="..\Maple.WinUI\Services\Pano\PanoProgressLine.cs" Link="Services\PanoProgressLine.cs" />
+    <Compile Include="..\Maple.WinUI\Services\Pano\PanoPreviewCommand.cs" Link="Services\PanoPreviewCommand.cs" />
+    <Compile Include="..\Maple.WinUI\Services\Pano\PanoScratch.cs" Link="Services\PanoScratch.cs" />
+    <Compile Include="..\Maple.WinUI\Services\Pano\PanoPreviewSession.cs" Link="Services\PanoPreviewSession.cs" />
     <Content Include="Fixtures\defringe.dng" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\test-fixtures\batch-transfer\source.dng" Link="Fixtures\source.dng" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
