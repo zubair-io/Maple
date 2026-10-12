@@ -14,7 +14,12 @@
 // the error section offers "Configure in Settings → Pano", which calls
 // `onOpenPanoSettings` (AppShell dismisses this sheet and opens that tab).
 //
-// Ticket: #1236 / Part of #1234 / #1241 / #4554
+// Quick preview (#4579): opening the sheet with two or more frames starts a
+// low-resolution preview (PanoPreviewSection); option changes re-run it. The
+// preview's solved alignment stays in the session, and "Create Panorama"
+// hands it to the full stitch so matching is not repeated.
+//
+// Ticket: #1236 / Part of #1234 / #1241 / #4554 / #4579
 
 import MapleCore
 import MapleUI
@@ -49,6 +54,11 @@ struct PanoMergeView: View {
     NavigationStack {
       Form {
         inputFramesSection
+        PanoPreviewSection(
+          session: session,
+          onRetry: { session.preview(assets: assets) },
+          onOpenPanoSettings: onOpenPanoSettings
+        )
         optionsSection
 
         switch session.state {
@@ -63,6 +73,7 @@ struct PanoMergeView: View {
         }
       }
       .formStyle(.grouped)
+      .task { session.preview(assets: assets) }
       .navigationTitle("Merge Panorama")
       #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -89,11 +100,15 @@ struct PanoMergeView: View {
             }
             .accessibilityLabel("Add panorama to library and return to browse")
           } else {
-            Button("Merge") {
+            Button("Create Panorama") {
               session.start(assets: assets)
             }
             .disabled(assets.count < 2)
-            .accessibilityLabel("Start panorama merge with \(assets.count) selected frames")
+            .accessibilityLabel(
+              session.alignment == nil
+                ? "Create the full panorama from \(assets.count) selected frames"
+                : "Create the full panorama from \(assets.count) selected frames, reusing the preview's alignment"
+            )
           }
         }
       }
@@ -389,8 +404,8 @@ extension PanoOptions.LocalAlign {
   }
   var helpText: String {
     switch self {
-    case .mesh: return "Absorbs parallax at seams after global solving — subject depth in rotation panoramas, terrain relief in drone surveys."
-    case .off: return "Skip the mesh pass. Global alignment only; seams show more where depth varies."
+    case .mesh: return "Corrects residual lens-roll and perspective drift after global solving."
+    case .off: return "Skip the mesh pass. Faster; suitable when lens distortion is negligible."
     }
   }
 }

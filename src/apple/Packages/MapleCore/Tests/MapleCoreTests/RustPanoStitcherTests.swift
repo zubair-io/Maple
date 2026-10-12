@@ -144,6 +144,7 @@ struct RustPanoStitcherErrorPathTests {
             _ = try await RustPanoStitcher(provisioning: provisioning).stitch(
                 assets: [AssetRef(url: a), AssetRef(url: b)],
                 options: .default,
+                alignment: nil,
                 progress: { _, _ in }
             )
             Issue.record("Placeholder frames cannot stitch")
@@ -175,6 +176,7 @@ struct RustPanoStitcherErrorPathTests {
             _ = try await stitcher.stitch(
                 assets: [bytesAsset, fileAsset],
                 options: .default,
+                alignment: nil,
                 progress: { _, _ in }
             )
             Issue.record("Expected throw but stitch succeeded")
@@ -255,19 +257,44 @@ struct RustPanoStitcherE2ETests {
         return dngs.count >= 2 ? dngs.map { AssetRef(url: $0) } : nil
     }
 
+    /// Preview, then the full stitch from the preview's alignment (#4579),
+    /// with one stitcher so both resolve the same engine.
     private func stitchAndCheck(
         _ assets: [AssetRef],
         provisioning: PanoProvisioning,
         desktopName: String
     ) async throws -> PanoResult {
-        var stagesObserved: [PanoStage] = []
-        let result = try await RustPanoStitcher(provisioning: provisioning).stitch(
+        let stitcher = RustPanoStitcher(provisioning: provisioning)
+        let clock = ContinuousClock()
+        let previewStart = clock.now
+        let preview = try await stitcher.preview(
             assets: assets,
             options: .default,
+            alignment: nil,
+            progress: { _, _ in }
+        )
+        #expect(max(preview.image.width, preview.image.height) > 1024,
+                "Preview long edge should be ~2048 px, got \(preview.image.width)×\(preview.image.height)")
+        #expect(preview.alignmentOutcome == .solved)
+        print("pano E2E: preview \(clock.now - previewStart), \(preview.image.width)×\(preview.image.height). \(preview.alignmentOutcome.summary)")
+
+        var stagesObserved: [PanoStage] = []
+        var solvingReachedAfter: Duration?
+        let stitchStart = clock.now
+        let result = try await stitcher.stitch(
+            assets: assets,
+            options: .default,
+            alignment: preview.alignment,
             progress: { stage, _ in
                 if stagesObserved.last != stage { stagesObserved.append(stage) }
+                if stage == .solving, solvingReachedAfter == nil { solvingReachedAfter = clock.now - stitchStart }
             }
         )
+        print("pano E2E: stitch \(clock.now - stitchStart), refinement reached after \(solvingReachedAfter.map { "\($0)" } ?? "never"). \(result.alignmentOutcome.summary)")
+        #expect(result.alignmentOutcome == .reused,
+                "The full stitch must start from the preview's alignment, got \(result.alignmentOutcome)")
+        #expect(result.reportSummary.contains("matching skipped"))
+
         let fm = FileManager.default
         #expect(fm.fileExists(atPath: result.outputURL.path),
                 "Output PNG should exist at \(result.outputURL.path)")

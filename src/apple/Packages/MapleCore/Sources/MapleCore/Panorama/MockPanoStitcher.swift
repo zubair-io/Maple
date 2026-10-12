@@ -45,102 +45,126 @@ public final class MockPanoStitcher: PanoStitching {
     public func stitch(
         assets: [AssetRef],
         options: PanoOptions,
+        alignment: PanoAlignment?,
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult {
         cancelledFlag = false
+        let outcome = Self.outcome(offered: alignment, solved: Self.alignment(for: assets, options: options))
+        let headDuration = outcome == .reused ? 0.0 : 1.0
 
-        // Stage schedule: (stage, durationSeconds, steps)
-        // localAlign is skipped when options.localAlign == .off
         let allStages: [(PanoStage, Double, Int)] = [
-            (.decoding,     Double(assets.count) * 0.3,  assets.count),
-            (.matching,     1.2,  6),
-            (.graph,        0.4,  4),
+            (.decoding,     headDuration * Double(assets.count) * 0.3, assets.count),
+            (.matching,     headDuration * 1.2, 6),
+            (.graph,        headDuration * 0.4, 4),
             (.solving,      1.5,  8),
             (.localAlign,   options.localAlign == .mesh ? 1.0 : 0.0, 5),
             (.compositing,  2.0, 10),
             (.writing,      0.5,  4),
         ]
-
-        for (stage, duration, steps) in allStages {
-            guard !cancelledFlag else { throw CancellationError() }
-            guard duration > 0 else { continue }
-
-            let stepDuration = duration / Double(steps)
-            for step in 0..<steps {
-                guard !cancelledFlag else { throw CancellationError() }
-                let stageFraction = Double(step) / Double(steps)
-                await MainActor.run { progress(stage, stageFraction) }
-                try await Task.sleep(for: .seconds(stepDuration))
-            }
-            // Emit 1.0 completion for this stage.
-            await MainActor.run { progress(stage, 1.0) }
-        }
-
-        guard !cancelledFlag else { throw CancellationError() }
+        try await walk(allStages, progress: progress)
 
         let outputURL = try writePlaceholderPanorama(assetCount: assets.count)
-
         let summary = """
             Stitched \(assets.count) frames using \(options.strategy.rawValue) strategy. \
             Local align: \(options.localAlign.rawValue). Retention: \(options.retention.rawValue). \
-            [Mock result — no actual image processing was performed]
+            \(outcome.summary) [Mock result — no actual image processing was performed]
             """
+        return PanoResult(outputURL: outputURL, reportSummary: summary, alignmentOutcome: outcome)
+    }
 
-        return PanoResult(outputURL: outputURL, reportSummary: summary)
+    public func preview(
+        assets: [AssetRef],
+        options: PanoOptions,
+        alignment: PanoAlignment?,
+        progress: @escaping @MainActor (PanoStage, Double) -> Void
+    ) async throws -> PanoPreview {
+        cancelledFlag = false
+        let solved = Self.alignment(for: assets, options: options)
+        let outcome = Self.outcome(offered: alignment, solved: solved)
+        let headDuration = outcome == .reused ? 0.0 : 1.0
+        let stages: [(PanoStage, Double, Int)] = [
+            (.decoding,    headDuration * 0.4, 4),
+            (.matching,    headDuration * 0.6, 6),
+            (.graph,       headDuration * 1.0, 8),
+            (.localAlign,  0.3, 3),
+            (.compositing, 0.5, 5),
+        ]
+        try await walk(stages, progress: progress)
+        let image = try gradientImage(width: min(2048, 512 * assets.count), height: 512)
+        return PanoPreview(image: image, alignment: solved, alignmentOutcome: outcome)
     }
 
     // MARK: - Private
 
+    /// A stand-in alignment keyed on what the real key covers: the inputs
+    /// and the geometry strategy. Retention and local alignment are
+    /// composite-side options and do not invalidate it.
+    private static func alignment(for assets: [AssetRef], options: PanoOptions) -> PanoAlignment {
+        let key = assets.map(\.displayName).joined(separator: "|") + "#" + options.strategy.rawValue
+        return PanoAlignment(json: Data(key.utf8))
+    }
+
+    private static func outcome(offered: PanoAlignment?, solved: PanoAlignment) -> PanoAlignmentOutcome {
+        guard let offered else { return .solved }
+        return offered == solved ? .reused : .stale(reason: "mock key changed")
+    }
+
+    private func walk(
+        _ stages: [(PanoStage, Double, Int)],
+        progress: @escaping @MainActor (PanoStage, Double) -> Void
+    ) async throws {
+        for (stage, duration, steps) in stages {
+            guard !cancelledFlag else { throw CancellationError() }
+            guard duration > 0 else {
+                await MainActor.run { progress(stage, 1.0) }
+                continue
+            }
+            let stepDuration = duration / Double(steps)
+            for step in 0..<steps {
+                guard !cancelledFlag else { throw CancellationError() }
+                await MainActor.run { progress(stage, Double(step) / Double(steps)) }
+                try await Task.sleep(for: .seconds(stepDuration))
+            }
+            await MainActor.run { progress(stage, 1.0) }
+        }
+        guard !cancelledFlag else { throw CancellationError() }
+    }
+
     /// Write a simple grey gradient TIFF to a temp path as the mock output.
     private func writePlaceholderPanorama(assetCount: Int) throws -> URL {
-        // Panorama aspect ratio grows with frame count (rough approximation).
-        let width = min(4096, 1024 * assetCount)
-        let height = 512
-
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("maple-pano-mock", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-
         let outputURL = dir.appendingPathComponent("panorama-mock-\(UUID().uuidString).tiff")
+        let cgImage = try gradientImage(width: min(4096, 1024 * assetCount), height: 512)
 
-        // Build a wide grey gradient image as a stand-in.
+        guard let dest = CGImageDestinationCreateWithURL(outputURL as CFURL, "public.tiff" as CFString, 1, nil) else {
+            throw MockPanoError.renderFailed
+        }
+        CGImageDestinationAddImage(dest, cgImage, nil)
+        guard CGImageDestinationFinalize(dest) else { throw MockPanoError.renderFailed }
+        return outputURL
+    }
+
+    private func gradientImage(width: Int, height: Int) throws -> CGImage {
         let bytesPerPixel = 4
         let bytesPerRow = width * bytesPerPixel
-        var pixelData = [UInt8](repeating: 0, count: height * bytesPerRow)
-
-        for y in 0..<height {
-            for x in 0..<width {
-                let t = UInt8(128 + Int(Double(x) / Double(width) * 80.0) - 40)
-                let offset = y * bytesPerRow + x * bytesPerPixel
-                pixelData[offset + 0] = t         // R
-                pixelData[offset + 1] = t         // G
-                pixelData[offset + 2] = t         // B
-                pixelData[offset + 3] = 255       // A
-            }
+        let row: [UInt8] = (0..<width).flatMap { x -> [UInt8] in
+            let t = UInt8(128 + Int(Double(x) / Double(width) * 80.0) - 40)
+            return [t, t, t, 255]
         }
-
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        var pixelData = Array((0..<height).map { _ in row }.joined())
         guard let ctx = CGContext(
             data: &pixelData,
             width: width, height: height,
             bitsPerComponent: 8,
             bytesPerRow: bytesPerRow,
-            space: colorSpace,
+            space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ), let cgImage = ctx.makeImage() else {
             throw MockPanoError.renderFailed
         }
-
-        let dest = CGImageDestinationCreateWithURL(
-            outputURL as CFURL,
-            "public.tiff" as CFString,
-            1, nil
-        )
-        guard let dest else { throw MockPanoError.renderFailed }
-        CGImageDestinationAddImage(dest, cgImage, nil)
-        guard CGImageDestinationFinalize(dest) else { throw MockPanoError.renderFailed }
-
-        return outputURL
+        return cgImage
     }
 }
 
