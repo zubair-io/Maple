@@ -24,13 +24,12 @@
 //!
 //! [`composite_tiled`] accepts already-solved gains and a `tile_rows` height
 //! for the strip decomposition. It decodes source frames on demand (one at a
-//! time) using the supplied file paths, warping each frame into a
-//! `canvas_width × tile_rows` strip buffer and immediately freeing the
-//! decoded pixels before moving to the next frame.  The Voronoi ownership
-//! mask is computed per tile from camera geometry (no pixels needed), and the
-//! blend is linear-under-ownership-mask (identical to blend_multiband at
-//! levels=1, which is exact for Voronoi-exclusive ownership).  The output
-//! canvas is assembled strip-by-strip into a final [`PlanarImage`].
+//! time) using the supplied file paths, warping each frame into one strip's
+//! blend window and freeing the decoded pixels before moving to the next
+//! frame. Each strip is multi-band blended inside a window widened by the
+//! pyramid's reach (#4524), so the assembled canvas equals [`composite`]'s
+//! whole-canvas [`blend_multiband`] at the same band count for any
+//! `tile_rows`, while blend memory stays bounded by the window.
 //!
 //! Measured peak RSS on pano_01 (21 DJI DNGs, proxy_long_edge=1600,
 //! canvas_tile_rows=512): **17.83 GB** — dominated by the full-resolution
@@ -325,17 +324,10 @@ mod tests {
             .collect()
     }
 
-    /// `composite_tiled_frames` must produce pixel-for-pixel identical output
-    /// to `composite` (with `levels_override: Some(1)` to match the Voronoi
-    /// linear blend that `composite_tiled_frames` always uses).
-    ///
-    /// The same gain vector produced by `composite`'s internal `solve_gains`
-    /// is fed to `composite_tiled_frames`, so both paths see identical gains.
-    ///
-    /// Tested with two different `tile_rows` values to confirm strip size
-    /// does not affect the result.
+    /// `composite_tiled_frames` must reproduce `composite` (same gains, same
+    /// automatic band count) at more than one strip height.
     #[test]
-    fn composite_tiled_frames_equals_composite_at_level1() {
+    fn composite_tiled_frames_equals_composite() {
         let cams = ring_cameras(3);
         let frames: Vec<PlanarImage> = cams.iter().map(frame_from_scene).collect();
         let no_lc: Vec<Option<crate::local_align::LocalCorrection>> = vec![None; cams.len()];
@@ -343,25 +335,21 @@ mod tests {
         let canvas_opts = CanvasOptions::default();
         let canvas = auto_canvas(&cams, &canvas_opts).expect("canvas");
 
-        // Reference: composite with Voronoi mask and levels=1 (single-band
-        // blend — identical contract to composite_tiled_frames).
         let ref_opts = CompositeOptions {
             canvas: canvas_opts.clone(),
-            gain: GainOptions::default(),
-            levels_override: Some(1),
-            seam_strategy: SeamStrategy::Voronoi,
+            ..Default::default()
         };
         let (ref_img, ref_report) =
             composite(&frames, &cams, &ref_opts, &no_lc).expect("composite");
 
-        // Use the exact gain vector that composite computed so both paths
-        // see identical inputs (guards against future changes to GainOptions
-        // defaults affecting only one path).
         let gains = ref_report.gains.clone();
+        assert!(
+            ref_report.blend_levels > 1,
+            "test must exercise a real pyramid"
+        );
 
-        // Run composite_tiled_frames at two strip heights.
-        for strip_rows in [1_u32, 8] {
-            let (tiled_img, _) = composite_tiled_frames(
+        for strip_rows in [5_u32, 16] {
+            let (tiled_img, tiled_report) = composite_tiled_frames(
                 &frames,
                 &cams,
                 &gains,
@@ -371,6 +359,7 @@ mod tests {
                 SeamStrategy::Voronoi,
             )
             .expect("composite_tiled_frames");
+            assert_eq!(tiled_report.blend_levels, ref_report.blend_levels);
 
             assert_eq!(
                 tiled_img.width(),
