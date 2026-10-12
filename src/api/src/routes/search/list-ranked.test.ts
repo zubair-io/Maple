@@ -100,15 +100,30 @@ describe('an in-process window the filters leave empty', () => {
     expect(body.rankedBy).toBeUndefined();
   });
 
-  it('stands when the child ranked as deep as the cap and nothing survived', async () => {
+  it('asks the database too when the child had exactly the cap and nothing survived (#4543)', async () => {
     const nowhere = Array.from({ length: RANKED_WINDOW_MAX }, (_, index) => `gone${index}`);
+    setInProcessSearchForTests(honouringK(nowhere));
+
+    const body = await list('placeQuery=greyson&limit=10');
+
+    expect(body).toMatchObject({ total: RANKED_WINDOW_BASE, more: true, capped: false });
+    expect(body.rankedBy).toBeUndefined();
+  });
+
+  it('stands when the child ranked past the cap and nothing survived', async () => {
+    const nowhere = Array.from({ length: RANKED_WINDOW_MAX + 1 }, (_, index) => `gone${index}`);
     const engine = honouringK(nowhere);
     setInProcessSearchForTests(engine);
 
     const body = await list('placeQuery=greyson&limit=10');
 
     expect(body).toMatchObject({ total: 0, more: false, capped: true });
-    expect(engine.queries.map((query) => query.k)).toEqual([100, 400, 1_600, RANKED_WINDOW_MAX]);
+    expect(engine.queries.map((query) => query.k)).toEqual([
+      100,
+      400,
+      1_600,
+      RANKED_WINDOW_MAX + 1,
+    ]);
   });
 });
 

@@ -82,14 +82,14 @@ describe('the remote search bridge', () => {
     expect((await second)?.[0]?.id).toBe('second');
   });
 
-  it('caps the depth a worker can ask the API child for', async () => {
+  it('caps the depth a worker can ask the API child for at the window cap plus its lookahead', async () => {
     const engine = fakeInProcessSearch(['a']);
     setInProcessSearchForTests(engine);
     const { bridge } = joined();
 
     await bridge.search('harbour', 1_000_000);
 
-    expect(engine.queries[0]!.k).toBe(RANKED_WINDOW_MAX);
+    expect(engine.queries[0]!.k).toBe(RANKED_WINDOW_MAX + 1);
   });
 
   it('answers null to a query longer than a search accepts, without asking the child', async () => {

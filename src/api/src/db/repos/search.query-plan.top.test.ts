@@ -62,29 +62,32 @@ describe('the window is ranked on the inverted index, then probed by key', () =>
     for (const q of QUERIES) {
       test(`${JSON.stringify(q)}${statistics === 'none' ? ' without statistics' : ''}`, async () => {
         await withDb((db) => {
-          const plan = planOf(db, ftsWindowSql(translate(q), 4_000));
-          const reads = plan.filter(
-            (line) => /^(SCAN|SEARCH) /.test(line) && line !== 'SCAN CONSTANT ROW',
-          );
-          // The ranking is the first table read, and the only full-text one.
-          expect(reads[0]).toBe('SCAN assets_fts VIRTUAL TABLE INDEX 0:M1');
-          expect(plan.filter((line) => line.includes('assets_fts'))).toEqual([
-            'SCAN assets_fts VIRTUAL TABLE INDEX 0:M1',
-          ]);
-          expect(plan.filter((line) => line.includes('0:='))).toEqual([]);
-          // Every asset is reached by key from a hit, never by walking the table
-          // or one of its indexes.
-          expect(reads.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
-          expect(plan).toContain('SEARCH asset_search USING INTEGER PRIMARY KEY (rowid=?)');
-          expect(
-            reads.filter(
-              (line) => line.startsWith('SEARCH assets ') && !/(id=\?|rowid=\?)/.test(line),
-            ),
-          ).toEqual(
-            q.month === undefined
-              ? []
-              : ['SEARCH assets USING INDEX assets_live_month (captured_month=? AND hidden=?)'],
-          );
+          for (const plan of [0, 1].map((lookahead) =>
+            planOf(db, ftsWindowSql(translate(q), 4_000, lookahead)),
+          )) {
+            const reads = plan.filter(
+              (line) => /^(SCAN|SEARCH) /.test(line) && line !== 'SCAN CONSTANT ROW',
+            );
+            // The ranking is the first table read, and the only full-text one.
+            expect(reads[0]).toBe('SCAN assets_fts VIRTUAL TABLE INDEX 0:M1');
+            expect(plan.filter((line) => line.includes('assets_fts'))).toEqual([
+              'SCAN assets_fts VIRTUAL TABLE INDEX 0:M1',
+            ]);
+            expect(plan.filter((line) => line.includes('0:='))).toEqual([]);
+            // Every asset is reached by key from a hit, never by walking the table
+            // or one of its indexes.
+            expect(reads.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
+            expect(plan).toContain('SEARCH asset_search USING INTEGER PRIMARY KEY (rowid=?)');
+            expect(
+              reads.filter(
+                (line) => line.startsWith('SEARCH assets ') && !/(id=\?|rowid=\?)/.test(line),
+              ),
+            ).toEqual(
+              q.month === undefined
+                ? []
+                : ['SEARCH assets USING INDEX assets_live_month (captured_month=? AND hidden=?)'],
+            );
+          }
         }, statistics);
       });
     }
