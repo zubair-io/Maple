@@ -35,7 +35,6 @@ import { locationsByAssetIdsSql } from './assets.sql.ts';
 import {
   countSql,
   descriptionsByAssetIdsSql,
-  idPageSql,
   pageSql,
   phassetLinksByAssetIdsSql,
   seekPredicate,
@@ -141,7 +140,8 @@ export async function searchPage(
 /**
  * The assets behind a stored list of ids, in the stored order, keeping only
  * those that still pass `where`'s live filters. Ids with no surviving row drop
- * out.
+ * out. The ids lead, so each is one keyed probe (#4593): beside the filters as a
+ * bare `IN`, an owner filter had the planner walk that owner's whole live index.
  */
 export async function searchByIds(
   where: SearchWhere,
@@ -150,7 +150,7 @@ export async function searchByIds(
 ): Promise<SearchDoc[]> {
   if (ids.length === 0) return [];
   const db = assetsDb(dbOverride);
-  const statement = idPageSql(where, ids);
+  const statement = windowColumnsSql(where, ids);
   const rows = await db.read<PageRow>(statement.sql, statement.params);
   const byId = new Map(rows.map((row) => [row.id, row] as const));
   const ordered = ids.map((id) => byId.get(id)).filter((row): row is PageRow => row !== undefined);

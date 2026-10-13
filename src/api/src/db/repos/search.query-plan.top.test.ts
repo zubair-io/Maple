@@ -173,3 +173,26 @@ describe("a window's page is re-read under its filters by key (#4545)", () => {
     }
   }
 });
+
+describe("a generated search's stored first page is read by key under its filters (#4593)", () => {
+  const filtered: SearchQuery = { isScreenshot: 'false', owner: '0123456789abcdef01234567' };
+  const hiddenPeople = ['person-hidden-a', 'person-hidden-b'];
+
+  for (const statistics of ['analyzed', 'none'] as const) {
+    test(`hidden people, screenshots and owner${statistics === 'none' ? ' without statistics' : ''}`, async () => {
+      await withDb((db) => {
+        const built = buildSearchWhere(filtered, hiddenPeople);
+        if ('error' in built) throw new Error(built.error);
+        const plan = planOf(
+          db,
+          windowColumnsSql(built, ['0123456789abcdef01234567', '89abcdef0123456789abcdef']),
+        );
+        expect(plan[0]).toMatch(/^SCAN page VIRTUAL TABLE/);
+        expect(plan[1]).toMatch(
+          /^SEARCH assets USING (COVERING )?INDEX \S+ \((\w+=\? AND )*id=\?( AND \w+=\?)*\)$/,
+        );
+        expect(plan.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
+      }, statistics);
+    });
+  }
+});

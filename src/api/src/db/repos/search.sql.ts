@@ -256,14 +256,6 @@ function rankedPageSql(
   };
 }
 
-/** Rows for stored ids under the live filters; the text match is stripped, as an engine's ids already matched it. */
-export function idPageSql(where: SearchWhere, ids: readonly string[]): BoundStatement {
-  return statement(PAGE_COLUMNS, { ...where, match: { kind: 'none' } }, '', {
-    sql: `assets.id IN (${placeholders(ids.length)})`,
-    params: [...ids],
-  });
-}
-
 /**
  * The columns of a ranked window's ids that still pass `where` but its text — the page's by
  * default. The ids lead through `CROSS JOIN`, so `assets` is probed by key once per id: given the
