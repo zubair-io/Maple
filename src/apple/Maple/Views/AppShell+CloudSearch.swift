@@ -166,16 +166,24 @@ extension AppShell {
       let libraryID = await resolveGeneratedSearchLibraryID(
         server: serverID,
         folders: CloudFoldersClient(server: effectiveServer, httpClient: httpClient))
+      let thumbClient = CloudThumbClient(server: effectiveServer, httpClient: httpClient)
+      let thumbCache = CloudThumbCache()
+      let coverProvider = ThumbnailProvider(thumbClient: thumbClient, thumbCache: thumbCache)
+      let host = serverID.cacheHostKey
       return PhoneSearchSession(
         key: phoneSearchSessionKey ?? serverID.absoluteString,
         server: serverID,
         vm: vm,
-        thumbClient: CloudThumbClient(server: effectiveServer, httpClient: httpClient),
-        thumbCache: CloudThumbCache(),
+        thumbClient: thumbClient,
+        thumbCache: thumbCache,
         collections: libraryID.map {
           GeneratedSearchCollectionsViewModel(
             libraryID: $0,
-            client: GeneratedSearchClient(server: effectiveServer, httpClient: httpClient))
+            client: GeneratedSearchClient(server: effectiveServer, httpClient: httpClient),
+            cache: .shared,
+            coverWarmer: { cover in
+              await SearchGeneratedCollections.warmCover(cover, host: host, provider: coverProvider)
+            })
         })
     }
 

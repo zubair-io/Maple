@@ -231,6 +231,7 @@ SearchViewModelTests
 SearchViewModelCollectionTests
 GeneratedSearchCollectionsViewModelTests
 GeneratedSearchCollectionsOrderTests
+GeneratedSearchCollectionsCacheTests
 SessionPruningTests
 SidecarModifyIdempotencyTests
 SidecarPathTests

@@ -5,8 +5,11 @@
 // cover is the first photo of the card's filtered snapshot page
 // (`GeneratedSearchCollectionsViewModel.covers`): stored ids behind the live
 // hidden-people and screenshot filters, so no search runs and nothing hidden
-// shows. An empty page leaves the placeholder tile. Tapping a card hands the host the card; the host opens the
-// collection's own results (`SearchViewModel.showCollection`).
+// shows. An empty page leaves the placeholder tile. Tapping a card hands the
+// host the card; the host opens the collection's own results
+// (`SearchViewModel.showCollection`). The row renders from the view model's
+// on-disk cache first and its covers from `CloudThumbCache`, so a revisit
+// shows covers with no request in flight (#4595).
 
 #if os(iOS)
 
@@ -75,6 +78,17 @@
       .accessibilityLabel(card.title)
       .accessibilityAction { onTap(card) }
       .accessibilityIdentifier("search-collection-\(card.id)")
+    }
+
+    /// Decode a replacement cover into the bitmap cache the card's cell
+    /// reads first, so the card swaps from the old picture to the new one
+    /// without a placeholder frame in between (#4595).
+    static func warmCover(_ cover: SearchAsset, host: String, provider: ThumbnailProvider) async {
+      let item = PhotoGridItem(cloud: cover, host: host, style: .phone)
+      let key = DevelopedImageRevision.shared.decodedKey(for: item.id, url: nil)
+      guard ThumbnailDecoder.cachedImage(forKey: key) == nil else { return }
+      let bytes = await provider.thumbnail(for: item.thumbnailSource)
+      _ = await ThumbnailDecoder.image(for: bytes, key: key)
     }
 
     @ViewBuilder
