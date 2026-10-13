@@ -202,11 +202,13 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
     await cache.write(Self.snapshot(["a": "old-a"]), libraryID: Self.library, host: Self.host)
     let warmer = CoverWarmerProbe()
     warmer.hold()
-    let vm = makeVM(CachedCardsStub(covers: ["a": "new-a"]), cache: cache, warmer: warmer)
+    let stub = CachedCardsStub(covers: ["a": "new-a"])
+    let vm = makeVM(stub, cache: cache, warmer: warmer)
 
     let load = Task { await vm.load() }
     try await waitUntil { warmer.warmed == ["new-a"] }
     await cache.forgetAsset(host: Self.host, assetID: "new-a", absPath: "/p/new-a.dng")
+    stub.covers = ["a": "old-a"]
     warmer.release()
     await load.value
 
@@ -226,6 +228,7 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
     let load = Task { await vm.load() }
     try await waitUntil { vm.covers["a"] != nil }
     await cache.forgetAsset(host: Self.host, assetID: "old-a", absPath: "/p/old-a.dng")
+    stub.covers = ["a": nil, "b": "old-b"]
     stub.release()
     await load.value
 
@@ -259,6 +262,23 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
     await load.value
 
     XCTAssertEqual(vm.covers["a"]?.id, "new-a")
+  }
+
+  func test_anUnrelatedTrashDuringAFirstVisit_stillLeavesCovers() async throws {
+    let cache = ForYouCache(directory: directory)
+    let warmer = CoverWarmerProbe()
+    warmer.hold()
+    let vm = makeVM(CachedCardsStub(covers: ["a": "new-a"]), cache: cache, warmer: warmer)
+
+    let load = Task { await vm.load() }
+    try await waitUntil { warmer.warmed == ["new-a"] }
+    await cache.forgetAsset(host: Self.host, assetID: "elsewhere", absPath: "/x/elsewhere.dng")
+    warmer.release()
+    await load.value
+
+    XCTAssertEqual(vm.covers["a"]?.id, "new-a", "the retry under the new epoch commits")
+    let stored = await cache.read(libraryID: Self.library, host: Self.host)
+    XCTAssertEqual(stored?.firstPages["a"]?.results.first?.id, "new-a")
   }
 
   func test_twoServersWithTheSameLibraryID_keepSeparateSets() async {
@@ -390,15 +410,22 @@ final class TestGate: @unchecked Sendable {
 final class CachedCardsStub: @unchecked Sendable {
   static let day = "2026-10-07"
   private let lock = NSLock()
-  private let covers: [String: String?]
+  private var _covers: [String: String?]
   private let gate = TestGate()
   private var _served = 0
 
   init(covers: [String: String?]) {
-    self.covers = covers
+    _covers = covers
   }
 
   var served: Int { lock.withLock { _served } }
+
+  /// What the server answers from now on, e.g. after it stops returning a
+  /// photo the user trashed.
+  var covers: [String: String?] {
+    get { lock.withLock { _covers } }
+    set { lock.withLock { _covers = newValue } }
+  }
   func hold() { gate.hold() }
   func release() { gate.release() }
 
