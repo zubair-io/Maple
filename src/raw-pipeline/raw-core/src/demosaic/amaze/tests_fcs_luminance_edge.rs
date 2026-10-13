@@ -1,0 +1,220 @@
+//! #4123: at a sharp luminance edge AMaZE's directional colour-difference
+//! kernel can extrapolate a reconstructed chroma below zero. False-colour
+//! suppression must then follow the measured surface chromaticity instead of
+//! importing the bright side's sensor mean into the dark side.
+
+use super::{amaze, fcs};
+use crate::image::{CfaPattern, ColorSpace, Image};
+
+const PATTERNS: [CfaPattern; 4] = [
+    CfaPattern::Rggb,
+    CfaPattern::Bggr,
+    CfaPattern::Grbg,
+    CfaPattern::Gbrg,
+];
+const CHROMA: [f32; 3] = [0.46, 1.0, 0.47];
+const SIDE: usize = 24;
+
+fn edge_side(direction: usize, x: usize, y: usize) -> bool {
+    let (x, y) = (x as isize - 12, y as isize - 12);
+    match direction {
+        0 => x < 0,
+        1 => y < 0,
+        _ => x < y,
+    }
+}
+
+fn sampled(pattern: CfaPattern, i: usize) -> usize {
+    pattern.color_at((i % SIDE) as u32, (i / SIDE) as u32) as usize
+}
+
+/// Runs FCS on a frame whose reconstructed chroma is `truth` except at the
+/// pixels `collapse` selects, which carry `fill` × green — negative where
+/// the AMaZE kernel extrapolated past zero.
+fn suppress(
+    pattern: CfaPattern,
+    truth: &[[f32; 3]],
+    collapse: impl Fn(usize) -> bool,
+    fill: f32,
+) -> Image {
+    let cfa_flat: Vec<f32> = truth
+        .iter()
+        .enumerate()
+        .map(|(i, p)| p[sampled(pattern, i)])
+        .collect();
+    let green: Vec<f32> = truth.iter().map(|p| p[1]).collect();
+    let mut image = Image::new(SIDE as u32, SIDE as u32, ColorSpace::CameraNativeLinearRgb);
+    image.pixels = truth
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let c = sampled(pattern, i);
+            let mut q = *p;
+            if collapse(i) {
+                for t in [0, 2].into_iter().filter(|&t| t != c) {
+                    q[t] = fill * p[1];
+                }
+            }
+            q
+        })
+        .collect();
+    fcs::suppress_false_colour(
+        &mut image,
+        &cfa_flat,
+        &green,
+        SIDE,
+        SIDE,
+        pattern,
+        fcs::FALSE_COLOUR_SUPPRESS_STRENGTH,
+    );
+    image
+}
+
+fn within(direction: usize, i: usize, reach: usize) -> bool {
+    let (x, y) = (i % SIDE, i / SIDE);
+    (x.saturating_sub(reach)..=x + reach)
+        .flat_map(|nx| (y.saturating_sub(reach)..=y + reach).map(move |ny| (nx, ny)))
+        .any(|(nx, ny)| edge_side(direction, nx, ny) != edge_side(direction, x, y))
+}
+
+fn near_edge(direction: usize, i: usize) -> bool {
+    within(direction, i, 2)
+}
+
+#[test]
+fn collapsed_chroma_at_a_luminance_edge_follows_the_surface_chromaticity() {
+    for pattern in PATTERNS {
+        for direction in 0..3 {
+            for exposure in [0.01_f32, 1.0, 16.0] {
+                let truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
+                    .map(|i| {
+                        let level = if edge_side(direction, i % SIDE, i / SIDE) {
+                            0.75
+                        } else {
+                            0.045
+                        };
+                        CHROMA.map(|k| k * level * exposure)
+                    })
+                    .collect();
+                let out = suppress(pattern, &truth, |i| near_edge(direction, i), -0.5);
+                for (i, (actual, expected)) in out.pixels.iter().zip(&truth).enumerate() {
+                    let (x, y) = (i % SIDE, i / SIDE);
+                    if x < 3 || y < 3 || x + 3 >= SIDE || y + 3 >= SIDE {
+                        continue;
+                    }
+                    for t in 0..3 {
+                        assert!(
+                            (actual[t] - expected[t]).abs() <= 1e-5 * expected[t],
+                            "{pattern:?} direction={direction} exposure={exposure} ({x},{y}) \
+                             channel {t}: {actual:?} != {expected:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn collapsed_chroma_at_a_colour_edge_keeps_the_existing_value_blend() {
+    for pattern in PATTERNS {
+        for direction in 0..3 {
+            let truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
+                .map(|i| {
+                    if edge_side(direction, i % SIDE, i / SIDE) {
+                        [0.133, 0.321, 0.114]
+                    } else {
+                        [0.046, 0.087, 0.396]
+                    }
+                })
+                .collect();
+            let collapsed = suppress(pattern, &truth, |i| near_edge(direction, i), -0.5);
+            let zero_floor = suppress(pattern, &truth, |i| near_edge(direction, i), 0.0);
+            for i in (0..SIDE * SIDE).filter(|&i| within(direction, i, 1)) {
+                assert_eq!(
+                    collapsed.pixels[i], zero_floor.pixels[i],
+                    "{pattern:?} direction={direction} pixel {i}: a colour edge has no \
+                     supported hue, so a collapsed estimate takes the zero-floor value blend"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn suppression_never_emits_negative_chroma() {
+    let truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
+        .map(|i| {
+            CHROMA.map(|k| {
+                k * if edge_side(2, i % SIDE, i / SIDE) {
+                    0.75
+                } else {
+                    0.045
+                }
+            })
+        })
+        .collect();
+    for pattern in PATTERNS {
+        let out = suppress(pattern, &truth, |_| true, -0.5);
+        assert!(
+            out.pixels.iter().flatten().all(|v| *v >= 0.0),
+            "{pattern:?}"
+        );
+    }
+    let mut disabled = Image::new(SIDE as u32, SIDE as u32, ColorSpace::CameraNativeLinearRgb);
+    disabled.pixels = vec![[-0.1, 0.2, -0.3]; SIDE * SIDE];
+    fcs::suppress_false_colour(
+        &mut disabled,
+        &vec![0.2; SIDE * SIDE],
+        &vec![0.2; SIDE * SIDE],
+        SIDE,
+        SIDE,
+        CfaPattern::Rggb,
+        0.0,
+    );
+    assert!(disabled.pixels.iter().flatten().all(|v| *v >= 0.0));
+}
+
+/// Area-sampled axis-aligned edge between two surfaces of the same
+/// chromaticity, `bright` on the far side of `split`.
+fn step_mosaic(cfa: CfaPattern, size: u32, vertical: bool, split: f32, flip: bool) -> Image {
+    let mut img = Image::new(size, size, ColorSpace::CameraNativeMosaic);
+    for y in 0..size {
+        for x in 0..size {
+            let along = if vertical { x } else { y } as f32;
+            let lit = (along + 1.0 - split).clamp(0.0, 1.0);
+            let lit = if flip { 1.0 - lit } else { lit };
+            let level = 0.045 + (0.75 - 0.045) * lit;
+            let c = cfa.color_at(x, y) as usize;
+            img.pixels[(y * size + x) as usize][c] = level * CHROMA[c];
+        }
+    }
+    img
+}
+
+#[test]
+fn amaze_step_between_equal_chromaticity_surfaces_gains_no_false_chroma() {
+    const SIZE: u32 = 48;
+    for cfa in PATTERNS {
+        for vertical in [true, false] {
+            for flip in [false, true] {
+                for split in [24.0_f32, 24.4] {
+                    let out = amaze(&step_mosaic(cfa, SIZE, vertical, split, flip), cfa);
+                    for y in 8..SIZE - 8 {
+                        for x in 8..SIZE - 8 {
+                            let p = out.pixels[(y * SIZE + x) as usize];
+                            for t in [0usize, 2] {
+                                let ratio = (p[t] / p[1]) / (CHROMA[t] / CHROMA[1]);
+                                assert!(
+                                    (1.0 / 1.5..=1.5).contains(&ratio),
+                                    "{cfa:?} vertical={vertical} flip={flip} split={split} \
+                                     ({x},{y}) channel {t}: {p:?} is {ratio:.3}x the surface ratio"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
