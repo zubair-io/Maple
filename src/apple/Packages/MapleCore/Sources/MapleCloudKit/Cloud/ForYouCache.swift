@@ -4,15 +4,16 @@
 // collection list in the order it was shown, and each card's snapshot first
 // page, whose first photo is the cover. The cover's pixels are not here; they
 // live in `CloudThumbCache`, keyed by server host and the asset's path, both
-// stable across launches. One small JSON file per server and library in the
-// caches directory, read and written behind this actor so disk I/O never runs
-// on the main actor.
+// stable across launches. One small JSON file per library, in a directory per
+// server, read and written behind this actor so disk I/O never runs on the
+// main actor.
 //
 // A cover is a photo the server's hidden-people and screenshot filters
 // picked, so the cache bounds how long a stale one can show: the app drops
-// any first page holding a photo it has just trashed (`forgetAssets`), even
-// one a refresh already in flight fetched, and the view model ignores covers
-// older than `maxCoverAge`.
+// any first page holding a photo it has just trashed (`forgetAsset`), and the
+// view model ignores covers older than `maxCoverAge`. Dropping a page bumps
+// the server's epoch; a refresh that began under an older epoch may have
+// fetched the trashed photo, so `commit` refuses it.
 
 import CryptoKit
 import Foundation
@@ -50,10 +51,7 @@ public actor ForYouCache {
   public static let shared = ForYouCache()
 
   private let directory: URL
-  /// Photos trashed during this process. A refresh that fetched a page
-  /// before the trash landed must not write that photo back as a cover.
-  private var trashedPaths: Set<String> = []
-  private var trashedFolders: [String] = []
+  private var epochs: [String: Int] = [:]
 
   public init(directory: URL? = nil) {
     self.directory =
@@ -63,8 +61,14 @@ public actor ForYouCache {
       .appendingPathComponent("for-you", isDirectory: true)
   }
 
+  /// Bumped every time something is forgotten on `host`. A refresh reads it
+  /// before its first request and hands it back to `commit`.
+  func epoch(host: String) -> Int {
+    epochs[host, default: 0]
+  }
+
   /// `host` is the server's `cacheHostKey`: two servers can carry the same
-  /// library id (a restored or cloned database), and must not share a row.
+  /// library id (a restored or cloned database) and must not share a set.
   func read(libraryID: String, host: String) -> ForYouSnapshot? {
     guard let data = try? Data(contentsOf: fileURL(for: libraryID, host: host)),
       let snapshot = try? JSONDecoder().decode(ForYouSnapshot.self, from: data),
@@ -73,37 +77,44 @@ public actor ForYouCache {
     return snapshot
   }
 
+  /// Persist a refresh unless something was forgotten on `host` since it
+  /// began. False means the refresh is stale and must not be shown either.
+  func commit(
+    _ snapshot: ForYouSnapshot, libraryID: String, host: String, epoch: Int
+  ) -> Bool {
+    guard epoch == self.epoch(host: host) else { return false }
+    write(snapshot, libraryID: libraryID, host: host)
+    return true
+  }
+
   func write(_ snapshot: ForYouSnapshot, libraryID: String, host: String) {
-    let committed = snapshot.forgetting(isTrashed) ?? snapshot
-    guard let data = try? JSONEncoder().encode(committed) else { return }
-    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    try? data.write(to: fileURL(for: libraryID, host: host), options: .atomic)
+    guard let data = try? JSONEncoder().encode(snapshot) else { return }
+    let file = fileURL(for: libraryID, host: host)
+    try? FileManager.default.createDirectory(
+      at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try? data.write(to: file, options: .atomic)
   }
 
-  /// Drop every cached first page that shows one of these photos, in every
-  /// library, so a photo the user just trashed can't come back as a cover
-  /// before the server's next answer.
-  public func forgetAssets(absPaths: Set<String>) {
-    trashedPaths.formUnion(absPaths)
-    forget { absPaths.contains($0.abs_path) }
+  /// Drop every cached first page on `host` that shows this photo, so a photo
+  /// the user just trashed can't come back as a cover before the server's
+  /// next answer. `assetID` is the id the app trashed by; the path catches a
+  /// cached row that carries the other id form.
+  public func forgetAsset(host: String, assetID: String, absPath: String) {
+    forget(host: host) { $0.id == assetID || $0.abs_path == absPath }
   }
 
-  /// `forgetAssets` for every photo under a trashed folder.
-  public func forgetAssets(under folderPath: String) {
+  /// `forgetAsset` for every photo under a trashed folder of the library
+  /// `libraryFolderID`.
+  public func forgetFolder(host: String, libraryFolderID: String, folderPath: String) {
     let prefix = folderPath.hasSuffix("/") ? folderPath : folderPath + "/"
-    trashedFolders.append(prefix)
-    forget { $0.abs_path.hasPrefix(prefix) }
+    forget(host: host) { $0.folder_id == libraryFolderID && $0.abs_path.hasPrefix(prefix) }
   }
 
-  private func isTrashed(_ asset: SearchAsset) -> Bool {
-    trashedPaths.contains(asset.abs_path)
-      || trashedFolders.contains { asset.abs_path.hasPrefix($0) }
-  }
-
-  private func forget(_ isGone: (SearchAsset) -> Bool) {
+  private func forget(host: String, _ isGone: (SearchAsset) -> Bool) {
+    epochs[host, default: 0] += 1
     let files =
       (try? FileManager.default.contentsOfDirectory(
-        at: directory, includingPropertiesForKeys: nil)) ?? []
+        at: hostDirectory(host), includingPropertiesForKeys: nil)) ?? []
     for file in files where file.pathExtension == "json" {
       guard let data = try? Data(contentsOf: file),
         let snapshot = try? JSONDecoder().decode(ForYouSnapshot.self, from: data),
@@ -114,11 +125,16 @@ public actor ForYouCache {
     }
   }
 
-  /// Hashed so an id is never trusted as a path component.
+  /// Hashed so neither a host nor an id is ever trusted as a path component.
+  private func hostDirectory(_ host: String) -> URL {
+    directory.appendingPathComponent(Self.digest(host), isDirectory: true)
+  }
+
   private func fileURL(for libraryID: String, host: String) -> URL {
-    let digest = SHA256.hash(data: Data("\(host)|\(libraryID)".utf8)).map {
-      String(format: "%02x", $0)
-    }
-    return directory.appendingPathComponent("\(digest.joined()).json")
+    hostDirectory(host).appendingPathComponent("\(Self.digest(libraryID)).json")
+  }
+
+  private static func digest(_ value: String) -> String {
+    SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
   }
 }

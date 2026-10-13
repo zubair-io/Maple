@@ -174,11 +174,14 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
       Self.snapshot(["a": "old-a", "b": "old-b"]), libraryID: Self.library, host: Self.host)
     await cache.write(Self.snapshot(["c": "old-c"]), libraryID: "another-library", host: Self.host)
 
-    await cache.forgetAssets(absPaths: ["/p/old-a.dng"])
-    await cache.forgetAssets(under: "/q")
+    await cache.forgetAsset(host: Self.host, assetID: "old-a", absPath: "/elsewhere/a.dng")
+    await cache.forgetFolder(host: Self.host, libraryFolderID: "lib", folderPath: "/q")
+    await cache.forgetAsset(host: "other.test", assetID: "old-b", absPath: "/p/old-b.dng")
 
     let stored = await cache.read(libraryID: Self.library, host: Self.host)
-    XCTAssertEqual(stored.map { Set($0.firstPages.keys) }, ["b"])
+    XCTAssertEqual(
+      stored.map { Set($0.firstPages.keys) }, ["b"],
+      "matched by asset id; another server's trash leaves this one alone")
     XCTAssertEqual(stored?.collections.map(\.id), ["a", "b"], "the card stays, without a cover")
     let other = await cache.read(libraryID: "another-library", host: Self.host)
     XCTAssertEqual(other.map { Set($0.firstPages.keys) }, ["c"])
@@ -203,13 +206,59 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
 
     let load = Task { await vm.load() }
     try await waitUntil { warmer.warmed == ["new-a"] }
-    await cache.forgetAssets(absPaths: ["/p/new-a.dng"])
+    await cache.forgetAsset(host: Self.host, assetID: "new-a", absPath: "/p/new-a.dng")
     warmer.release()
     await load.value
 
+    XCTAssertEqual(vm.covers["a"]?.id, "old-a", "the stale refresh never reaches the screen")
     let stored = await cache.read(libraryID: Self.library, host: Self.host)
-    XCTAssertNil(stored?.firstPages["a"], "the trashed photo must not be committed as a cover")
-    XCTAssertEqual(stored?.collections.map(\.id), ["a"])
+    XCTAssertEqual(stored?.firstPages["a"]?.results.first?.id, "old-a")
+  }
+
+  func test_trashingTheShownCoverDuringARefresh_clearsItFromTheScreen() async throws {
+    let cache = ForYouCache(directory: directory)
+    await cache.write(
+      Self.snapshot(["a": "old-a", "b": "old-b"]), libraryID: Self.library, host: Self.host)
+    let stub = CachedCardsStub(covers: ["a": "old-a", "b": "old-b"])
+    stub.hold()
+    let vm = makeVM(stub, cache: cache)
+
+    let load = Task { await vm.load() }
+    try await waitUntil { vm.covers["a"] != nil }
+    await cache.forgetAsset(host: Self.host, assetID: "old-a", absPath: "/p/old-a.dng")
+    stub.release()
+    await load.value
+
+    XCTAssertNil(vm.covers["a"])
+    XCTAssertEqual(vm.covers["b"]?.id, "old-b")
+  }
+
+  func test_aRefreshAfterARestore_cachesThePhotoAgain() async {
+    let cache = ForYouCache(directory: directory)
+    await cache.write(Self.snapshot(["a": "old-a"]), libraryID: Self.library, host: Self.host)
+    await cache.forgetAsset(host: Self.host, assetID: "old-a", absPath: "/p/old-a.dng")
+
+    let vm = makeVM(CachedCardsStub(covers: ["a": "old-a"]), cache: cache)
+    await vm.load()
+
+    XCTAssertEqual(vm.covers["a"]?.id, "old-a")
+    let stored = await cache.read(libraryID: Self.library, host: Self.host)
+    XCTAssertEqual(stored?.firstPages["a"]?.results.first?.id, "old-a")
+  }
+
+  func test_trashOnAnotherServer_doesNotDiscardThisRefresh() async throws {
+    let cache = ForYouCache(directory: directory)
+    let warmer = CoverWarmerProbe()
+    warmer.hold()
+    let vm = makeVM(CachedCardsStub(covers: ["a": "new-a"]), cache: cache, warmer: warmer)
+
+    let load = Task { await vm.load() }
+    try await waitUntil { warmer.warmed == ["new-a"] }
+    await cache.forgetAsset(host: "other.test", assetID: "new-a", absPath: "/p/new-a.dng")
+    warmer.release()
+    await load.value
+
+    XCTAssertEqual(vm.covers["a"]?.id, "new-a")
   }
 
   func test_twoServersWithTheSameLibraryID_keepSeparateSets() async {
@@ -229,7 +278,7 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
     await cache.write(
       Self.snapshot(["a": "old-a", "b": "old-b"]), libraryID: Self.library, host: Self.host)
 
-    await cache.forgetAssets(under: "/p")
+    await cache.forgetFolder(host: Self.host, libraryFolderID: "lib", folderPath: "/p")
 
     let stored = await cache.read(libraryID: Self.library, host: Self.host)
     XCTAssertEqual(stored?.firstPages.isEmpty, true)
