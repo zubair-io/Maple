@@ -18,6 +18,10 @@
 //     television, unattended.
 //   * Cards show in a shuffled order that holds for the session
 //     (`ForYouOrder`, #4594), never the server's.
+//   * A load renders the library's cached set first (`ForYouCache`, #4595)
+//     and revalidates behind it. A card's cover changes only when the server
+//     names a different first photo, and only once that photo's thumbnail is
+//     decoded (`coverWarmer`), so a cover never blanks or flickers.
 //
 // Generation-counter staleness guard: bump
 // before any `await`, re-check after every suspension point, so a library
@@ -55,28 +59,46 @@ public final class GeneratedSearchCollectionsViewModel {
   private let client: GeneratedSearchClient
   private let sessionOrder: ForYouSessionOrder
   private var random: AnyRandomNumberGenerator
+  private let cache: ForYouCache?
+  private let coverWarmer: (@Sendable (SearchAsset) async -> Void)?
   private var generation: Int = 0
 
+  /// - Parameters:
+  ///   - cache: Where the rendered set persists between visits and launches;
+  ///     nil keeps it in memory only.
+  ///   - coverWarmer: Fetches and decodes a new cover's thumbnail into the
+  ///     surface's decoded-image cache, so the card swaps straight from the
+  ///     old picture to the new one.
   public init(
     libraryID: String,
     client: GeneratedSearchClient,
+    cache: ForYouCache? = nil,
+    coverWarmer: (@Sendable (SearchAsset) async -> Void)? = nil,
     sessionOrder: ForYouSessionOrder = .shared,
     random: some RandomNumberGenerator = SystemRandomNumberGenerator()
   ) {
     self.libraryID = libraryID
     self.client = client
+    self.cache = cache
+    self.coverWarmer = coverWarmer
     self.sessionOrder = sessionOrder
     self.random = AnyRandomNumberGenerator(random)
   }
 
   /// Load the most recent day that produced anything. Omitting the date is
   /// what keeps a late or empty run showing yesterday's set rather than
-  /// blanking the screen.
+  /// blanking the screen. An empty screen first shows the cached set, before
+  /// any request goes out.
   public func load() async {
     generation += 1
     let g = generation
     isLoading = true
     defer { if g == generation { isLoading = false } }
+
+    if collections.isEmpty, let cached = await cache?.read(libraryID: libraryID) {
+      guard g == generation else { return }
+      if collections.isEmpty { show(cached) }
+    }
 
     let loaded: [GeneratedSearchCard]
     do {
@@ -99,15 +121,18 @@ public final class GeneratedSearchCollectionsViewModel {
     firstPages = firstPages.filter { loadedIDs.contains($0.key) }
 
     // One snapshot fetch per collection (there are a handful per day), run
-    // concurrently. A failure just leaves that card on its gradient.
+    // concurrently. A failure keeps whatever the card already shows.
+    let shownCoverIDs = covers.mapValues(\.id)
     await withTaskGroup(of: (String, GeneratedSearchAssetPage?).self) { group in
       for collection in loaded {
-        group.addTask { [client] in
-          (
-            collection.id,
-            try? await client.assets(
-              collectionID: collection.id, limit: Self.firstPageSize, snapshot: true)
-          )
+        let shownCoverID = shownCoverIDs[collection.id]
+        group.addTask { [client, coverWarmer] in
+          let page = try? await client.assets(
+            collectionID: collection.id, limit: Self.firstPageSize, snapshot: true)
+          if let cover = page?.results.first, cover.id != shownCoverID {
+            await coverWarmer?(cover)
+          }
+          return (collection.id, page)
         }
       }
       for await (id, page) in group {
@@ -115,6 +140,15 @@ public final class GeneratedSearchCollectionsViewModel {
         if let page { firstPages[id] = page }
       }
     }
+    guard g == generation else { return }
+    await cache?.write(
+      ForYouSnapshot(collections: collections, firstPages: firstPages), libraryID: libraryID)
+  }
+
+  private func show(_ cached: ForYouSnapshot) {
+    collections = arrangeForSession(cached.collections)
+    let ids = Set(cached.collections.map(\.id))
+    firstPages = cached.firstPages.filter { ids.contains($0.key) }
   }
 
   /// `loaded` in this session's order for the library, recorded so the next

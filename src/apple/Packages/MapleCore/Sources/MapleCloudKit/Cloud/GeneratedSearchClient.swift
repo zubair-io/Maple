@@ -105,7 +105,7 @@ struct GeneratedSearchAssetsResponse: Codable, Sendable {
 
 /// One page of a collection's photos. `total` is the size of the whole
 /// collection, not of this page, so a caller knows whether to ask for more.
-public struct GeneratedSearchAssetPage: Sendable {
+public struct GeneratedSearchAssetPage: Codable, Equatable, Sendable {
   public let results: [SearchAsset]
   public let total: Int
   /// True when the server answered from the worker's stored preview rather
