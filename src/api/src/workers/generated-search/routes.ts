@@ -21,11 +21,16 @@ import {
   type GeneratedSearchConfig,
 } from './config.repo.ts';
 import { startRunNow } from './run-now.ts';
+import { loadLatestRunRecord } from './run-state.repo.ts';
 
 export const generatedSearchConfigRoutes = new Elysia({ prefix: '/api/workers' })
   .get('/generated-search/config', async () => {
     return await loadGeneratedSearchConfig();
   })
+
+  // The most recent attempt across libraries, so a stalled schedule shows on
+  // Settings → Workers instead of only as an absence of new collections.
+  .get('/generated-search/last-run', async () => ({ last_run: await loadLatestRunRecord() }))
 
   // Kick one pass now, returning immediately. Bypasses the pause gate (see
   // run-now.ts — that is the point of the button); refuses a second click

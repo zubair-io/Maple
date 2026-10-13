@@ -7,7 +7,7 @@ import * as deduplicate from './dedupe.ts';
 import * as mirrorScan from './mirror/scan.ts';
 import * as mirrorCopy from './mirror/copy.ts';
 import * as derivativeAudit from './derivative-audit/scan.ts';
-import * as generatedSearch from './generated-search/run.ts';
+import * as generatedSearch from './generated-search/schedule.ts';
 import { startMaintenanceJobs, stopMaintenanceJobs } from './maintenance.ts';
 import { stopWorkers } from './start-workers.ts';
 import { backupEngine } from '../cloud-backup/runtime.ts';

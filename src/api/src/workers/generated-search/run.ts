@@ -1,9 +1,9 @@
 import { assignedAi } from '../../enrichment/ai-connections.ts';
 /**
- * Generated-search maintenance job: one pass per library per day, plus the
- * interval wrapper that schedules it.
+ * Generated-search maintenance job: one pass per library per day. When a pass
+ * is owed is decided by the restart-safe schedule in `schedule.ts`.
  *
- * A library-wide, interval-fired job — NOT a per-asset stage. Stages in
+ * A library-wide, timer-fired job — NOT a per-asset stage. Stages in
  * `workers/stages/` exist to bring every asset to a version; this produces a
  * handful of library-level documents on a schedule, which is why it lives
  * beside trash-gc and dedupe in `maintenance.ts`.
@@ -18,14 +18,19 @@ import { loadEnrichmentConfig } from '../../enrichment/enrichment-config.repo.ts
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
 import { child as childLogger } from '../../log.ts';
 import { buildDigest } from './build-digest.ts';
-import { loadGeneratedSearchConfig } from './config.repo.ts';
+import { loadGeneratedSearchConfig, type GeneratedSearchConfig } from './config.repo.ts';
 import { runProposalLoop } from './loop.ts';
 import { createOllamaJsonClient } from './ollama-adapter.ts';
 import { saveGeneratedSearches, pruneGeneratedSearches } from './repo.ts';
+import {
+  loadRunRecords,
+  saveRunRecord,
+  type LibraryRunRecord,
+  type RunTrigger,
+} from './run-state.repo.ts';
 import { runGeneratedSearch } from './search-adapter.ts';
 
 const log = childLogger('generated-search');
-const DAY_MS = 86_400_000;
 
 export interface GeneratedSearchSummary {
   libraries: number;
@@ -35,21 +40,17 @@ export interface GeneratedSearchSummary {
 }
 
 /** `YYYY-MM-DD` in UTC — the key a day's collections are grouped under. */
-function dayKey(now: Date): string {
+export function dayKey(now: Date): string {
   return now.toISOString().slice(0, 10);
 }
 
-/**
- * One pass over every library. Exported for tests and for an operator-
- * triggered run; the interval wrapper below simply calls it.
- */
 /** One library's pass: digest, propose/measure/title, persist. Returns how
  * many collections were saved. */
 async function runForLibrary(
   libraryId: string,
   ctx: {
     client: { generateJson: (prompt: string, schema: unknown) => Promise<unknown> };
-    config: Awaited<ReturnType<typeof loadGeneratedSearchConfig>>;
+    config: GeneratedSearchConfig;
     model: string;
     generatedFor: string;
     generatedAt: string;
@@ -100,25 +101,21 @@ async function runForLibrary(
   return collections.length;
 }
 
-/**
- * One pass over every library. Exported for tests and for an operator-
- * triggered run; the interval wrapper below simply calls it.
- */
-export async function runGeneratedSearchOnce(
-  now: Date = new Date(),
-  opts: { force?: boolean } = {},
-): Promise<GeneratedSearchSummary> {
-  const config = await loadGeneratedSearchConfig();
-  // `force` is the operator's Run-now: it bypasses the pause gate so a
-  // just-enabled worker (or a dry run while still paused) fires immediately
-  // instead of waiting out the daily interval.
-  if (config.paused && !opts.force) {
-    // Paused stops the LLM run, not retention. A worker paused for months
-    // must not let generated_searches outlive its window unbounded.
-    const pruned = await pruneGeneratedSearches(config.retention_days, now);
-    return { libraries: 0, saved: 0, pruned, skipped: true };
-  }
+type LibraryPass = (libraryId: string) => Promise<number>;
 
+export interface RunOptions {
+  /** Run now: bypass the pause gate. */
+  force?: boolean;
+  /** Only these libraries; every registered library when omitted. */
+  libraries?: readonly string[];
+  trigger?: RunTrigger;
+  /** Stamps each run record; the schedule's tests inject theirs. */
+  clock?: () => Date;
+  /** Test seam replacing the digest → LLM → persist pass for one library. */
+  runLibrary?: LibraryPass;
+}
+
+async function realLibraryPass(config: GeneratedSearchConfig, now: Date): Promise<LibraryPass> {
   // A saved AI assignment is independent; legacy deployments retain their
   // existing endpoint/model until the unified settings are first saved.
   const enrichment = resolveEnrichmentConfig(await loadEnrichmentConfig());
@@ -136,43 +133,93 @@ export async function runGeneratedSearchOnce(
     generatedAt: now.toISOString(),
     now,
   };
+  return (libraryId) => runForLibrary(libraryId, ctx);
+}
 
-  const libraries = [...(await loadLibraryRoots()).keys()];
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * One library's attempt, bracketed by its persisted run record: `running`
+ * before the model is called, so a restart mid-pass (or a pass in the other
+ * process) sees the claim, then the outcome once it settles.
+ */
+async function attemptLibrary(
+  running: LibraryRunRecord,
+  pass: LibraryPass,
+  dryRun: boolean,
+  clock: () => Date,
+): Promise<number> {
+  await saveRunRecord(running);
+  const settled = await pass(running.library_id).then(
+    (saved) => ({ saved, error: null }),
+    (err: unknown) => ({ saved: 0, error: errorText(err) }),
+  );
+  if (settled.error !== null) {
+    // One library's failure must not abort the others.
+    log.warn({ libraryId: running.library_id, err: settled.error }, 'library pass failed');
+  }
+  const outcome =
+    settled.error !== null ? 'failed' : dryRun ? 'dry-run' : settled.saved > 0 ? 'saved' : 'empty';
+  await saveRunRecord({
+    ...running,
+    finished_at: clock().toISOString(),
+    outcome,
+    saved: settled.saved,
+    error: settled.error,
+  });
+  return settled.saved;
+}
+
+/**
+ * One pass over every library, or the given subset. The schedule calls it for
+ * the libraries it finds owed today; Run now calls it for all of them.
+ */
+export async function runGeneratedSearchOnce(
+  now: Date = new Date(),
+  opts: RunOptions = {},
+): Promise<GeneratedSearchSummary> {
+  const config = await loadGeneratedSearchConfig();
+  // `force` is the operator's Run-now: it bypasses the pause gate so a
+  // just-enabled worker (or a dry run while still paused) fires immediately
+  // instead of waiting for the schedule.
+  if (config.paused && !opts.force) {
+    // Paused stops the LLM run, not retention. A worker paused for months
+    // must not let generated_searches outlive its window unbounded.
+    const pruned = await pruneGeneratedSearches(config.retention_days, now);
+    return { libraries: 0, saved: 0, pruned, skipped: true };
+  }
+
+  const pass = opts.runLibrary ?? (await realLibraryPass(config, now));
+  const libraries = opts.libraries ?? [...(await loadLibraryRoots()).keys()];
+  const clock = opts.clock ?? (() => new Date());
+  const day = dayKey(now);
+  const records = await loadRunRecords();
+  const attemptsToday = (libraryId: string): number => {
+    const record = records.get(libraryId);
+    return record?.day === day ? record.attempts : 0;
+  };
   let saved = 0;
   for (const libraryId of libraries) {
-    try {
-      saved += await runForLibrary(libraryId, ctx);
-    } catch (err) {
-      // One library's failure must not abort the others.
-      log.warn(
-        { libraryId, err: err instanceof Error ? err.message : String(err) },
-        'library pass failed',
-      );
-    }
+    saved += await attemptLibrary(
+      {
+        library_id: libraryId,
+        day,
+        attempts: attemptsToday(libraryId) + 1,
+        started_at: clock().toISOString(),
+        finished_at: null,
+        outcome: 'running',
+        saved: 0,
+        error: null,
+        trigger: opts.trigger ?? 'run-now',
+      },
+      pass,
+      config.dry_run,
+      clock,
+    );
   }
 
   const pruned = config.dry_run ? 0 : await pruneGeneratedSearches(config.retention_days, now);
   return { libraries: libraries.length, saved, pruned, skipped: false };
-}
-
-export interface GeneratedSearchHandle {
-  stop(): void;
-}
-
-/** Schedule the daily pass. Idempotent per caller; `maintenance.ts` owns the
- * single instance. The first pass runs one interval in, not at boot — a
- * process restart should not trigger a fresh round of LLM calls. */
-export function startGeneratedSearch(intervalMs: number = DAY_MS): GeneratedSearchHandle {
-  const timer = setInterval(() => {
-    void runGeneratedSearchOnce().catch((err: unknown) => {
-      log.warn({ err: err instanceof Error ? err.message : String(err) }, 'pass failed');
-    });
-  }, intervalMs);
-  // Don't hold the process open for a once-a-day timer.
-  timer.unref?.();
-  return {
-    stop(): void {
-      clearInterval(timer);
-    },
-  };
 }

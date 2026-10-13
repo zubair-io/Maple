@@ -39,7 +39,7 @@ import { startMirrorScan, type MirrorScanHandle } from './mirror/scan.ts';
 import { startMirrorCopyWorker, type MirrorCopyHandle } from './mirror/copy.ts';
 import { installMirrorQueueSink } from './mirror/sink.ts';
 import { startDerivativeAudit, type DerivativeAuditHandle } from './derivative-audit/scan.ts';
-import { startGeneratedSearch, type GeneratedSearchHandle } from './generated-search/run.ts';
+import { startGeneratedSearch, type GeneratedSearchHandle } from './generated-search/schedule.ts';
 import { loadMirrorConfig } from '../fs/mirror-config.ts';
 import { child as childLogger } from '../log.ts';
 import { maintainBackup } from '../cloud-backup/runtime.ts';
