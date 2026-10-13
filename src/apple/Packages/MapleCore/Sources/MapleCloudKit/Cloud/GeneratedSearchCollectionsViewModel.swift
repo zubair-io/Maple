@@ -105,15 +105,13 @@ public final class GeneratedSearchCollectionsViewModel {
   /// what keeps a late or empty run showing yesterday's set rather than
   /// blanking the screen. An empty screen first shows the cached set, before
   /// any request goes out.
-  public func load() async {
-    await load(retryingStale: true)
-  }
-
+  ///
   /// A refresh is stale when something on the server was trashed while it
-  /// ran (see `ForYouCache.commit`). It is retried once under the new epoch:
-  /// the server already excludes the trashed photo, so the retry's pages are
-  /// safe to show, and an unrelated trash doesn't cost the row its covers.
-  private func load(retryingStale: Bool) async {
+  /// ran (see `ForYouCache.commit`). It is then run again under the new
+  /// epoch, as many times as trashes keep landing mid-refresh: the server
+  /// already excludes what was trashed, so the rerun's pages are safe to
+  /// show, and an unrelated trash doesn't cost the row its covers.
+  public func load() async {
     generation += 1
     let g = generation
     isLoading = true
@@ -187,7 +185,7 @@ public final class GeneratedSearchCollectionsViewModel {
     let surviving = await cache.read(libraryID: libraryID, host: cacheHost)?.firstPages ?? [:]
     guard g == generation else { return }
     firstPages = firstPages.filter { surviving[$0.key] == $0.value }
-    if retryingStale { await load(retryingStale: false) }
+    await load()
   }
 
   private func show(_ cached: ForYouSnapshot) {

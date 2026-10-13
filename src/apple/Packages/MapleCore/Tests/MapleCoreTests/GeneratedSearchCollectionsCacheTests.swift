@@ -281,6 +281,23 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
     XCTAssertEqual(stored?.firstPages["a"]?.results.first?.id, "new-a")
   }
 
+  func test_trashesThatKeepOverlappingRefreshes_stillEndWithCovers() async {
+    let cache = ForYouCache(directory: directory)
+    let host = Self.host
+    let warmer = CoverWarmerProbe(duringWarm: { call in
+      guard call <= 2 else { return }
+      await cache.forgetAsset(host: host, assetID: "elsewhere-\(call)", absPath: "/x/\(call)")
+    })
+    let vm = makeVM(CachedCardsStub(covers: ["a": "new-a"]), cache: cache, warmer: warmer)
+
+    await vm.load()
+
+    XCTAssertEqual(warmer.warmed.count, 3, "two stale refreshes, then one that commits")
+    XCTAssertEqual(vm.covers["a"]?.id, "new-a")
+    let stored = await cache.read(libraryID: Self.library, host: Self.host)
+    XCTAssertEqual(stored?.firstPages["a"]?.results.first?.id, "new-a")
+  }
+
   func test_twoServersWithTheSameLibraryID_keepSeparateSets() async {
     let cache = ForYouCache(directory: directory)
     await cache.write(Self.snapshot(["a": "old-a"]), libraryID: Self.library, host: "one.test")
@@ -455,12 +472,16 @@ final class CachedCardsStub: @unchecked Sendable {
 /// Records each cover it is asked to warm; `hold()` keeps the warm pending.
 final class CoverWarmerProbe: @unchecked Sendable {
   private let succeeds: Bool
+  /// Runs inside the warm, i.e. while a refresh is in flight, with the
+  /// 1-based number of this warm call.
+  private let duringWarm: (@Sendable (Int) async -> Void)?
   private let lock = NSLock()
   private let gate = TestGate()
   private var _warmed: [String] = []
 
-  init(succeeds: Bool = true) {
+  init(succeeds: Bool = true, duringWarm: (@Sendable (Int) async -> Void)? = nil) {
     self.succeeds = succeeds
+    self.duringWarm = duringWarm
   }
 
   var warmed: [String] { lock.withLock { _warmed } }
@@ -468,7 +489,11 @@ final class CoverWarmerProbe: @unchecked Sendable {
   func release() { gate.release() }
 
   func warm(_ cover: SearchAsset) async -> Bool {
-    lock.withLock { _warmed.append(cover.id) }
+    let call = lock.withLock {
+      _warmed.append(cover.id)
+      return _warmed.count
+    }
+    await duringWarm?(call)
     while gate.isHeld {
       try? await Task.sleep(nanoseconds: 5_000_000)
     }
