@@ -98,11 +98,16 @@ const UNLINKED_INODE_SUFFIX = ' (deleted)';
 export async function resolveRealPath(filePath: string): Promise<string> {
   const real = await realpath(filePath);
   if (!real.endsWith(UNLINKED_INODE_SUFFIX)) return real;
-  const present = await lstat(real).then(
-    () => true,
-    () => false,
-  );
-  return present ? real : real.slice(0, -UNLINKED_INODE_SUFFIX.length);
+  const [resolved, requested] = await Promise.all([
+    lstat(real).catch(() => null),
+    stat(filePath).catch(() => null),
+  ]);
+  const sameFile =
+    resolved !== null &&
+    requested !== null &&
+    resolved.dev === requested.dev &&
+    resolved.ino === requested.ino;
+  return sameFile ? real : real.slice(0, -UNLINKED_INODE_SUFFIX.length);
 }
 
 /**
