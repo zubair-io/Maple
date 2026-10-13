@@ -77,6 +77,14 @@
 //! This is a **single resample** — no extra pass. The canvas bounding-box
 //! margin is widened by [`MAX_CORRECTION_PX`] so coverage stays correct.
 //!
+//! # Tile path (#4577)
+//!
+//! Planar (drone-survey) stitches reuse the same mesh fit through
+//! [`planar`]: data points come from each verified match's midpoint on
+//! the canvas mapped back through the frame's similarity pose, bounded by
+//! the tile path's own, wider envelope, and applied in the tile warp as
+//! the same single source-coordinate shift.
+//!
 //! # Identity guarantee (pure-rotation sets)
 //!
 //! On noiseless correspondences from a pure rotation-model set the fitted
@@ -88,6 +96,7 @@ use crate::ba::residual::{eval_residual, Block, FrameMeta, State};
 use crate::ba::FrameStats;
 
 mod fit;
+pub(crate) mod planar;
 
 pub(crate) use fit::fit_local_corrections;
 

@@ -5,7 +5,13 @@ import { insertFolder } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { insertUser, updateUser } from '../../db/repos/auth.users.repo.ts';
 import { GOOGLE_BACKUP_DDL, loadConnection, saveConfig } from './repo.ts';
 import { startGoogleFlow, finishGoogleFlow, googleAccessToken, type GoogleFetch } from './oauth.ts';
-import { callbackUrl, DEFAULT_GOOGLE_CONFIG, DRIVE_SCOPE, RELAY_CALLBACK } from './config.ts';
+import {
+  callbackUrl,
+  DEFAULT_GOOGLE_CONFIG,
+  DRIVE_SCOPE,
+  GoogleConnectionError,
+  RELAY_CALLBACK,
+} from './config.ts';
 
 const clientId = '12345-example.apps.googleusercontent.com';
 const destination = '9051f218-c3cc-419b-ab02-356e14eebd86';
@@ -388,3 +394,18 @@ for (const lateResult of ['rotated-token', 'invalid_grant'] as const) {
     ).toEqual({ refresh_owner: null, refresh_until: 0 });
   });
 }
+
+test('a direct refresh that cannot reach Google is a connection failure, not a raw fetch error', async () => {
+  const { db } = await setup();
+  using _handle = db;
+  const connection = await loadConnection(destination);
+  await saveConfig(
+    destination,
+    { ...connection.config, refreshToken: 'saved-refresh', accountId: 'account-1' },
+    connection.epoch,
+  );
+  const unreachable: GoogleFetch = () => Promise.reject(new TypeError('fetch failed'));
+  await expect(googleAccessToken(destination, unreachable)).rejects.toBeInstanceOf(
+    GoogleConnectionError,
+  );
+});

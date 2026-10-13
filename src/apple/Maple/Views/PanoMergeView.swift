@@ -8,12 +8,18 @@
 // Mac/iPad and iPhone: presented as a modal sheet via `.sheet(isPresented:)`
 // in AppShell. Cancel/Done dismisses the sheet and returns to browse.
 //
-// Not-provisioned UX (#1241): when the error state is `modelsNotInstalled`
-// the error section shows a "Configure in Settings → Pano" button that calls
-// the `onOpenPanoSettings` callback (supplied by AppShell). AppShell then
-// dismisses this sheet, opens the Settings sheet, and navigates to the Pano tab.
+// Merge never downloads anything (#4554): the stitcher uses the classical
+// matcher unless Settings → Pano opted into the ML matcher and it is
+// installed. If an opted-in ML runtime fails to load (`modelsNotInstalled`),
+// the error section offers "Configure in Settings → Pano", which calls
+// `onOpenPanoSettings` (AppShell dismisses this sheet and opens that tab).
 //
-// Ticket: #1236 / Part of #1234 / #1241
+// Quick preview (#4579): opening the sheet with two or more frames starts a
+// low-resolution preview (PanoPreviewSection); option changes re-run it. The
+// preview's solved alignment stays in the session, and "Create Panorama"
+// hands it to the full stitch so matching is not repeated.
+//
+// Ticket: #1236 / Part of #1234 / #1241 / #4554 / #4579
 
 import MapleCore
 import MapleUI
@@ -44,24 +50,24 @@ struct PanoMergeView: View {
   /// actor (and its in-memory cache) stable across body re-evaluations.
   @State private var thumbLoader = ThumbnailLoader()
 
-  /// Drives the auto-download-on-Merge flow (#1234 M6): if the ML runtime
-  /// isn't provisioned when the user taps Merge, fetch it inline (with
-  /// progress) and then start the stitch — no detour through Settings.
-  @State private var provisionModel = PanoProvisionModel()
-
   var body: some View {
     NavigationStack {
       Form {
         inputFramesSection
+        PanoPreviewSection(
+          session: session,
+          onRetry: { session.preview(assets: assets) },
+          onOpenPanoSettings: onOpenPanoSettings
+        )
         optionsSection
-
-        provisionStatusSection
 
         switch session.state {
         case .idle:
           EmptyView()
+        case .finishingAlignment:
+          progressSection(title: "Finishing alignment…", overall: previewFraction)
         case .running(let stage, _, let overall):
-          progressSection(stage: stage, overall: overall)
+          progressSection(title: stage.displayName, overall: overall)
         case .done(let result):
           resultSection(result: result)
         case .error(let stitchError):
@@ -69,6 +75,7 @@ struct PanoMergeView: View {
         }
       }
       .formStyle(.grouped)
+      .task { session.preview(assets: assets) }
       .navigationTitle("Merge Panorama")
       #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -82,11 +89,7 @@ struct PanoMergeView: View {
           .accessibilityLabel("Cancel panorama merge and return to browse")
         }
         ToolbarItem(placement: .confirmationAction) {
-          if provisionModel.isBusy {
-            Button("Installing…") {}
-              .disabled(true)
-              .accessibilityLabel("Downloading panorama components")
-          } else if session.isRunning {
+          if session.isRunning {
             Button("Stop") {
               session.cancel()
             }
@@ -99,82 +102,17 @@ struct PanoMergeView: View {
             }
             .accessibilityLabel("Add panorama to library and return to browse")
           } else {
-            Button("Merge") {
-              startMerge()
+            Button("Create Panorama") {
+              session.start(assets: assets)
             }
             .disabled(assets.count < 2)
-            .accessibilityLabel("Start panorama merge with \(assets.count) selected frames")
+            .accessibilityLabel(
+              session.alignment == nil
+                ? "Create the full panorama from \(assets.count) selected frames"
+                : "Create the full panorama from \(assets.count) selected frames, reusing the preview's alignment"
+            )
           }
         }
-      }
-    }
-  }
-
-  // MARK: - Merge flow (auto-provision, then stitch)
-
-  private func startMerge() {
-    let status = PanoProvisioning().status()
-    // Ready, or a manual Settings/env override is in force (auto-download
-    // into the app-support default wouldn't change resolution) → start
-    // directly. An unprovisioned override surfaces the existing
-    // modelsNotInstalled error with the "Configure in Settings" path.
-    if PanoProvisioner.isReady(status) || !PanoProvisioner.canAutoProvision(status) {
-      session.start(assets: assets)
-      return
-    }
-    // Not provisioned and we can auto-provision: download inline, then stitch.
-    Task {
-      await provisionModel.download {
-        session.start(assets: assets)
-      }
-    }
-  }
-
-  @ViewBuilder
-  private var provisionStatusSection: some View {
-    switch provisionModel.state {
-    case .idle:
-      EmptyView()
-    case .running(let fraction, let label):
-      Section {
-        VStack(alignment: .leading, spacing: 8) {
-          HStack {
-            Text(label).font(.subheadline)
-            Spacer()
-            Text("\(Int((fraction * 100).rounded()))%")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-              .monospacedDigit()
-          }
-          ProgressView(value: fraction).progressViewStyle(.linear)
-        }
-        .padding(.vertical, 4)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-          "Downloading panorama components, \(Int((fraction * 100).rounded())) percent")
-      } header: {
-        Text("Setting Up")
-      }
-    case .failed(let message):
-      Section {
-        HStack(alignment: .top, spacing: 10) {
-          MuiIcon(name: "warning", size: .sm, filled: true)
-            .foregroundStyle(.red)
-            .imageScale(.large)
-            .accessibilityHidden(true)
-          VStack(alignment: .leading, spacing: 4) {
-            Text("Download failed")
-              .font(.subheadline.weight(.medium))
-            Text(message)
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-        }
-        .padding(.vertical, 4)
-        Button("Retry Download") { startMerge() }
-          .accessibilityLabel("Retry downloading panorama components")
-      } header: {
-        Text("Setting Up")
       }
     }
   }
@@ -269,12 +207,18 @@ struct PanoMergeView: View {
     }
   }
 
+  /// Progress of the preview a pending Create Panorama is waiting on.
+  private var previewFraction: Double {
+    if case .running(_, let overall) = session.previewState { return overall }
+    return 1
+  }
+
   @ViewBuilder
-  private func progressSection(stage: PanoStage, overall: Double) -> some View {
+  private func progressSection(title: String, overall: Double) -> some View {
     Section {
       VStack(alignment: .leading, spacing: 8) {
         HStack {
-          Text(stage.displayName)
+          Text(title)
             .font(.subheadline)
           Spacer()
           Text(Int(overall * 100).description + "%")
@@ -284,7 +228,8 @@ struct PanoMergeView: View {
         }
         ProgressView(value: overall)
           .progressViewStyle(.linear)
-          .accessibilityLabel("Overall panorama merge progress: \(Int(overall * 100)) percent")
+          .accessibilityLabel(
+            "\(title), overall panorama merge progress: \(Int(overall * 100)) percent")
       }
       .padding(.vertical, 4)
     } header: {

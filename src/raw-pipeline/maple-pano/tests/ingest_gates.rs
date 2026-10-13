@@ -53,6 +53,12 @@ fn ingest_pano0001_full_frame() {
     // the sensor margins).
     assert!(img.validity.all_valid());
 
+    // The L2D-20c's OpcodeList3 GainMap owns its falloff (#4516).
+    assert_eq!(
+        frame.falloff_correction,
+        raw_core::FalloffCorrection::Opcode
+    );
+
     // Finite values + plausible scene-linear range. The frame is a
     // mid-day aerial shot at base ISO: mean must sit well inside (0, 1),
     // maxima may exceed 1.0 (scene-referred, nothing clips) but not

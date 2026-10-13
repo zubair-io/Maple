@@ -24,10 +24,6 @@ final class SettingsDestinationTests: XCTestCase {
     #endif
   }
 
-  func testPanoramaVisibilityMatchesFeatureFlag() {
-    XCTAssertEqual(SettingsTab.pano.isVisible, FeatureFlags.isPanoramaEnabled)
-  }
-
   func testAccessibilityIdentifiers() {
     XCTAssertEqual(SettingsTab.sources.accessibilityIdentifier, "settings.tab.sources")
     XCTAssertEqual(SettingsTab.pano.accessibilityIdentifier, "settings.tab.pano")

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use maple_pano::ba::BaSolution;
 use maple_pano::composite::CompositeReport;
-use maple_pano::graph::ReverifySummary;
+use maple_pano::graph::{GraphSummary, ReverifySummary};
 use maple_pano::ingest::PlanarImage;
 use maple_pano::render::{write_frame_png, PngMetadata};
 use maple_pano::strategy::StrategyReport;
@@ -21,6 +21,7 @@ pub(super) struct ReportContext<'a> {
     pub refined_matches: usize,
     pub fallback_matches: usize,
     pub reverify: &'a ReverifySummary,
+    pub match_graph: &'a GraphSummary,
     pub leveled: bool,
     pub horizon_tilt_deg: Option<f64>,
     /// `(mean_budget_px, max_budget_px)` the §5.3 gate ran at.
@@ -61,7 +62,7 @@ fn low_texture_warning(n: usize) -> String {
     )
 }
 
-/// EV spread of the per-frame gains `solve_gains` produced, after its
+/// EV spread of the per-frame gains `solve_photometry` produced, after its
 /// gauge normalization (spec §8). Each frame's `[r, g, b]` gain
 /// collapses to its mean (scalar-mode gains store the same value three
 /// times; per-channel mode averages the channels), then the spread is
@@ -70,9 +71,8 @@ fn low_texture_warning(n: usize) -> String {
 /// matching the rest of the report's "zero means no signal" convention.
 fn gain_spread_ev(gains: &[[f32; 3]]) -> f64 {
     // Single pass: (count, min, max) over the per-frame means of frames whose
-    // three channel gains are each finite and positive — `solve_gains` can
-    // leave a non-positive channel in per-channel mode, and a mean that
-    // happens to stay > 0 must not smuggle that frame into the spread.
+    // three channel gains are each finite and positive, so a degenerate
+    // channel cannot hide behind a positive mean.
     let (count, min, max) = gains
         .iter()
         .filter(|g| g.iter().all(|c| c.is_finite() && *c > 0.0))
@@ -97,7 +97,9 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         .iter()
         .map(|&(k, v)| (k.to_string(), serde_json::json!(v)))
         .collect();
-    let gain_spread = gain_spread_ev(&comp_report.gains);
+    let gains: Vec<[f32; 3]> = comp_report.photometry.iter().map(|p| p.gain).collect();
+    let biases: Vec<[f32; 3]> = comp_report.photometry.iter().map(|p| p.bias).collect();
+    let gain_spread = gain_spread_ev(&gains);
     let mut warnings: Vec<String> = Vec::new();
     if !solution.motion_affected.is_empty() {
         warnings.push("Movement detected, some areas may show ghosting".to_string());
@@ -108,12 +110,32 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
     if !solution.placed_by_prior.is_empty() {
         warnings.push(low_texture_warning(solution.placed_by_prior.len()));
     }
+    let exposure_field = comp_report.exposure_field.map(|f| {
+        serde_json::json!({
+            "lattice": [f.lattice.0, f.lattice.1],
+            "unknowns": f.unknowns,
+            "max_unknowns_per_view": f.max_unknowns_per_view,
+            "max_abs_log": f.max_abs_log,
+            "step_rms_before": f.step_rms_before,
+            "step_rms_after": f.step_rms_after,
+        })
+    });
     serde_json::json!({
         "inputs": ctx.inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
         "retention": ctx.retention,
         "local_align": ctx.local_align,
         "focal_seed_source": ctx.focal_seed_source,
         "applied_opcodes": ctx.applied_opcodes,
+        // Blind vignette (#4522): `q` of `V(r) = (1 + q·r²)²` per lens
+        // group of frames whose ingest corrected no falloff.
+        "vignette": comp_report.falloff.iter().map(|g| serde_json::json!({
+            "lens": g.lens,
+            "frames": g.frames,
+            "q": g.q,
+            "q_unconstrained": g.q_unconstrained,
+            "q_sigma": g.q_sigma,
+            "estimable": g.estimable,
+        })).collect::<Vec<_>>(),
         "cameras": solution.cameras.iter().map(|c| c.as_ref().map(|c| serde_json::json!({
             "axis_angle": c.axis_angle,
             "focal_px": c.focal_px,
@@ -159,6 +181,7 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         "fallback_matches": ctx.fallback_matches,
         "reverify_edges_dropped": ctx.reverify.edges_dropped,
         "reverify_matches_dropped": ctx.reverify.matches_dropped,
+        "match_graph": match_graph_json(ctx.match_graph),
         // Per-frame residual summaries for surviving frames (px in that
         // frame's plane) — null for dropped frames. Triage data: which
         // frame sits where against the §5.3 budgets.
@@ -174,10 +197,12 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         "gate_max_budget_px": ctx.gate_budgets.1,
         "projection": format!("{:?}", comp_report.projection),
         "canvas": { "width": comp_report.canvas.width, "height": comp_report.canvas.height },
-        "gains": comp_report.gains,
+        "gains": gains,
+        "biases": biases,
         "blend_levels": comp_report.blend_levels,
         "min_overlap_width_px": comp_report.min_overlap_width_px,
         "seam_strategy": comp_report.seam_strategy.label(),
+        "exposure_field": exposure_field,
         "timings_s": timings,
     })
 }
@@ -224,6 +249,7 @@ pub(super) struct TileReportContext<'a> {
     pub refined_matches: usize,
     pub fallback_matches: usize,
     pub reverify: &'a ReverifySummary,
+    pub match_graph: &'a GraphSummary,
     pub tile_report: &'a TileCompositeReport,
     /// Frame indices disconnected from anchor (the tile-path orphan list).
     /// Parallel to the rotation path's `dropped_images`; empty on a
@@ -238,18 +264,30 @@ pub(super) struct TileReportContext<'a> {
     pub timings_s: [(&'static str, f64); 8],
 }
 
+fn match_graph_json(summary: &GraphSummary) -> serde_json::Value {
+    serde_json::json!({
+        "candidate_pairs": summary.candidate_pairs,
+        "verified_edges": summary.verified_edges,
+        "rejected": summary.rejected.iter().map(|r| serde_json::json!({
+            "a": r.a,
+            "b": r.b,
+            "reason": r.reason.to_string(),
+        })).collect::<Vec<_>>(),
+    })
+}
+
 /// JSON report for the tile composite path (spec §8 / #1226).
 ///
 /// Absent keys vs rotation report: `cameras`, `mean_reproj_error_px`,
 /// `max_reproj_error_px`, `mean_reproj_before_local_px`,
-/// `max_reproj_before_local_px`, `local_correction_rms_px`,
-/// `shared_focal_px`, `k1`, `k2`, `dropped_images`, `pruned_matches`,
+/// `max_reproj_before_local_px`, `shared_focal_px`, `k1`, `k2`, `dropped_images`, `pruned_matches`,
 /// `motion_affected`, `motion_pruned_matches`, `placed_by_prior`, `leveled`,
 /// `horizon_tilt_deg`, `gate_mean_budget_px`, `gate_max_budget_px`,
 /// `projection`.
 ///
 /// Present keys unique to tile: `strategy` block, `tile_placement`,
-/// `mean_planar_residual_px`, `max_planar_residual_px`.
+/// `mean_planar_residual_px`, `max_planar_residual_px`,
+/// `mean_planar_before_local_px`, `max_planar_before_local_px`.
 pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
     let timings: serde_json::Map<String, serde_json::Value> = ctx
         .timings_s
@@ -325,9 +363,16 @@ pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
         "fallback_matches": ctx.fallback_matches,
         "reverify_edges_dropped": ctx.reverify.edges_dropped,
         "reverify_matches_dropped": ctx.reverify.matches_dropped,
+        "match_graph": match_graph_json(ctx.match_graph),
         "tile_placement": placements,
         "mean_planar_residual_px": tr.mean_planar_residual_px,
         "max_planar_residual_px": tr.max_planar_residual_px,
+        // Stage-F mesh on the tile path (#4577): residuals before it, and
+        // the per-frame correction RMS (px, parallel to tile_placement;
+        // 0 for frames left uncorrected or with --local-align off).
+        "mean_planar_before_local_px": tr.mean_planar_before_local_px,
+        "max_planar_before_local_px": tr.max_planar_before_local_px,
+        "local_correction_rms_px": tr.local_correction_rms_px,
         // EV spread of the solved per-frame gains (spec §8: "warn if
         // spread > 2 EV"). Not gated by the harness — capture-technique
         // information, not a pipeline defect.
@@ -347,6 +392,15 @@ pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
         "photometric_slope_x": tr.photometric_slope_x,
         "photometric_slope_y": tr.photometric_slope_y,
         "exposure_field_mean_abs_ev": tr.exposure_field_mean_abs_ev,
+        // Blind vignette (#4522), same shape as the rotation report.
+        "vignette": tr.falloff.iter().map(|g| serde_json::json!({
+            "lens": g.lens,
+            "frames": g.frames,
+            "q": g.q,
+            "q_unconstrained": g.q_unconstrained,
+            "q_sigma": g.q_sigma,
+            "estimable": g.estimable,
+        })).collect::<Vec<_>>(),
         "exposure_field_max_abs_ev": tr.exposure_field_max_abs_ev,
         "timings_s": timings,
     })

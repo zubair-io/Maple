@@ -62,10 +62,11 @@ pub struct StitchArgs {
     /// outcome either way.
     #[arg(long, value_enum, default_value_t = RetentionArg::Keep)]
     pub(super) retention: RetentionArg,
-    /// Stage-F local alignment (#1218). `mesh` (default): a bounded
-    /// bilinear mesh absorbs the parallax floor before gating and
-    /// compositing. `off`: the geometric chain ends at the BA rotations
-    /// (pure #1213 geometry).
+    /// Stage-F local alignment (#1218, #4577). `mesh` (default): a
+    /// bounded bilinear mesh per frame absorbs parallax before compositing
+    /// — the camera-drift floor on rotation stitches, terrain relief on
+    /// tile stitches. `off`: the geometric chain ends at the global solve
+    /// (BA rotations or tile similarity placement).
     #[arg(long, value_enum, default_value_t = LocalAlignArg::Mesh)]
     pub(super) local_align: LocalAlignArg,
     /// Alignment strategy (spec §8, #1226).
@@ -96,6 +97,113 @@ pub struct StitchArgs {
     /// re-baselines the budgets with it as the default.
     #[arg(long, value_enum, default_value_t = SeamStrategyArg::Voronoi)]
     pub(super) seam_strategy: SeamStrategyArg,
+    /// User seam constraints (#4520; single-set mode, needs
+    /// `--seam-strategy graph-cut`): a JSON array of `include` / `exclude`
+    /// rectangles in output-canvas pixels, each naming a frame by its index
+    /// in the sorted input list. An include keeps that frame's content (one
+    /// instance of a moving subject); an exclude keeps it out (a passer-by).
+    /// Contradictory constraints fail the stitch with the conflict location.
+    #[arg(long, conflicts_with = "manifest")]
+    pub(super) seam_constraints: Option<PathBuf>,
+    /// Declared capture grid `ROWSxCOLS` for drone surveys / camera
+    /// arrays (#4519), COLS = frames per pass; the last pass may be
+    /// short. Replaces global candidate nomination with grid neighbours
+    /// and rejects loop closures that leave the grid footprint or break
+    /// triangle rotation consistency. Single-set mode only.
+    #[arg(long, value_parser = parse_grid, conflicts_with = "manifest")]
+    pub(super) grid: Option<(usize, usize)>,
+    /// Pass direction for --grid: `raster` (every pass the same way) or
+    /// `serpentine` (alternate passes reversed).
+    #[arg(long, value_enum, default_value_t = GridOrderArg::Serpentine, requires = "grid")]
+    pub(super) grid_order: GridOrderArg,
+    /// Treat diagonal grid cells as neighbours too.
+    #[arg(long, requires = "grid")]
+    pub(super) grid_diagonals: bool,
+    /// Feature detector/matcher (#4523). `ml`: ALIKED + LightGlue (needs
+    /// ONNX Runtime + models; `pano` builds). `classical`: Harris +
+    /// gradient-histogram descriptors, no ONNX (`pano-classical` builds).
+    /// Defaults to `ml` when built in.
+    #[arg(long, value_enum, default_value_t = FeaturesEngineArg::default())]
+    pub(super) features_engine: FeaturesEngineArg,
+    /// Preview mode (#4578; single-set): write a quick sRGB preview PNG
+    /// (~2048 px long edge, solved and composited from the proxies — no
+    /// full-resolution refinement) here instead of running the full stitch.
+    #[arg(long, conflicts_with_all = ["manifest", "out", "display"])]
+    pub(super) preview_out: Option<PathBuf>,
+    /// Start from this solved alignment (written by --alignment-out) when it
+    /// still matches the input files and the geometry options; matching and
+    /// graph verification are then skipped. A stale or unreadable file is
+    /// ignored and the alignment re-solved — the report says which.
+    #[arg(long, conflicts_with = "manifest")]
+    pub(super) alignment_in: Option<PathBuf>,
+    /// Write the solved (or reused) alignment JSON here.
+    #[arg(long, conflicts_with = "manifest")]
+    pub(super) alignment_out: Option<PathBuf>,
+}
+
+impl StitchArgs {
+    pub(super) fn grid_layout(&self) -> Option<maple_pano::graph::GridLayout> {
+        self.grid.map(|(rows, cols)| maple_pano::graph::GridLayout {
+            rows,
+            cols,
+            order: self.grid_order.to_order(),
+            diagonals: self.grid_diagonals,
+        })
+    }
+}
+
+fn parse_grid(value: &str) -> Result<(usize, usize), String> {
+    let (rows, cols) = value
+        .split_once(['x', 'X'])
+        .ok_or_else(|| format!("expected ROWSxCOLS, got {value:?}"))?;
+    let parse = |part: &str| {
+        part.trim()
+            .parse::<usize>()
+            .ok()
+            .filter(|&n| n > 0)
+            .ok_or_else(|| format!("grid dimension {part:?} must be a positive integer"))
+    };
+    Ok((parse(rows)?, parse(cols)?))
+}
+
+/// CLI surface for [`maple_pano::graph::GridOrder`].
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(super) enum GridOrderArg {
+    Raster,
+    Serpentine,
+}
+
+impl GridOrderArg {
+    fn to_order(self) -> maple_pano::graph::GridOrder {
+        use maple_pano::graph::GridOrder;
+        match self {
+            GridOrderArg::Raster => GridOrder::Raster,
+            GridOrderArg::Serpentine => GridOrder::Serpentine,
+        }
+    }
+}
+
+/// CLI surface for [`maple_pano::stitch::FeatureEngine`] (#4523).
+#[derive(Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+pub(super) enum FeaturesEngineArg {
+    #[cfg(feature = "pano")]
+    #[default]
+    Ml,
+    #[cfg(feature = "pano-classical")]
+    #[cfg_attr(not(feature = "pano"), default)]
+    Classical,
+}
+
+impl FeaturesEngineArg {
+    pub(super) fn to_engine(self) -> maple_pano::stitch::FeatureEngine {
+        use maple_pano::stitch::FeatureEngine;
+        match self {
+            #[cfg(feature = "pano")]
+            FeaturesEngineArg::Ml => FeatureEngine::Ml,
+            #[cfg(feature = "pano-classical")]
+            FeaturesEngineArg::Classical => FeatureEngine::Classical,
+        }
+    }
 }
 
 /// CLI surface for [`maple_pano::ba::RetentionPolicy`].
@@ -172,5 +280,19 @@ impl SeamStrategyArg {
             SeamStrategyArg::Voronoi => SeamStrategy::Voronoi,
             SeamStrategyArg::GraphCut => SeamStrategy::GraphCut,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_grid;
+
+    #[test]
+    fn grid_flag_parses_rows_by_cols() {
+        assert_eq!(parse_grid("4x6"), Ok((4, 6)));
+        assert_eq!(parse_grid("3X2"), Ok((3, 2)));
+        assert!(parse_grid("4").is_err());
+        assert!(parse_grid("0x3").is_err());
+        assert!(parse_grid("ax3").is_err());
     }
 }

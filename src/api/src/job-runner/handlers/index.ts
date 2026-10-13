@@ -15,6 +15,7 @@ import type { ObjectId } from '../../db/object-id.ts';
 import type { JobKind } from '../../db/schema.ts';
 import { batchJpegExportHandler } from './batch-jpeg-export.ts';
 import { panoStitchHandler } from './pano-stitch.ts';
+import { panoPreviewHandler } from './pano-preview.ts';
 import { batchAdjustmentSyncHandler } from './batch-adjustment-sync.ts';
 import { batchRecipeExportHandler } from './batch-recipe-export.ts';
 import { cloudBackupRestoreHandler } from './cloud-backup-restore.ts';
@@ -52,6 +53,7 @@ export type JobHandlerResult =
 export const HANDLERS: Record<JobKind, JobHandler> = {
   batch_jpeg_export: batchJpegExportHandler,
   pano_stitch: panoStitchHandler,
+  pano_preview: panoPreviewHandler,
   batch_adjustment_sync: batchAdjustmentSyncHandler,
   batch_recipe_export: batchRecipeExportHandler,
   cloud_backup_restore: cloudBackupRestoreHandler,

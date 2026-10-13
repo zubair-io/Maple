@@ -10,9 +10,10 @@
       <div class="titles">
         <h1>Panorama</h1>
         <p>
-          Configure the maple-cli binary and model files required for server-side panorama
-          stitching. When enabled, a "Merge to panorama…" action appears in the library toolbar when
-          two or more images are selected.
+          Configure the maple-cli binary used for server-side panorama stitching. The classical
+          matcher works out of the box; the ML matcher is opt-in and needs downloaded model files.
+          When enabled, a "Merge to panorama…" action appears in the library toolbar when two or
+          more images are selected.
         </p>
       </div>
     </header>
@@ -56,8 +57,7 @@
             >
             <span class="field-hint set-record-field-hint">
               Absolute path to the compiled <code>maple-cli</code> binary on this server. Build
-              with: <code>cargo build --release --bin maple-cli</code> (in
-              <code>src/raw-pipeline/</code>).
+              with: <code>{{ buildCommand }}</code> (in <code>src/raw-pipeline/</code>).
             </span>
             @if (config()?.source?.maple_cli_path) {
               <span class="field-source set-field-source">{{
@@ -76,63 +76,97 @@
           </div>
         </div>
 
-        <!-- Models dir -->
+        @if (cliOutdated()) {
+          <div class="banner-error set-banner-error-record" data-testid="pano-cli-outdated">
+            This maple-cli predates the classical matcher and can only stitch with ML. Rebuild it
+            with <code>{{ buildCommand }}</code> (in <code>src/raw-pipeline/</code>).
+          </div>
+        }
+
+        <!-- Matcher -->
         <div class="field-row set-record-field-row">
           <div class="field-label-group set-record-field-label-group">
-            <label class="field-label set-record-field-label" for="pano-models-dir"
-              >Models directory (MAPLE_PANO_MODELS)</label
-            >
+            <span class="field-label set-record-field-label">Feature matcher</span>
             <span class="field-hint set-record-field-hint">
-              Directory containing the ALIKED + LightGlue ONNX model files. SHA-pinned versions are
-              listed in <code>src/raw-pipeline/maple-pano/models.toml</code>. Leave blank to use the
-              <code>MAPLE_PANO_MODELS</code> environment variable.
+              Classical needs nothing beyond maple-cli. ML (ALIKED + LightGlue) aligns nadir drone
+              strips more precisely but needs downloaded model files and ONNX Runtime.
             </span>
-            @if (config()?.source?.models_dir) {
-              <span class="field-source set-field-source">{{
-                sourceLabel(config()?.source?.models_dir)
-              }}</span>
-            }
           </div>
           <div class="field-control set-record-field-control">
-            <mui-input
-              inputId="pano-models-dir"
-              [(value)]="fModelsDir"
-              placeholder="~/.cache/maple-pano/models"
-              ariaLabel="Models directory (MAPLE_PANO_MODELS)"
-              (committed)="save()"
+            <mui-segmented-toggle
+              [options]="matcherOptions"
+              [value]="fMatcher()"
+              (valueChange)="selectMatcher($event)"
+              ariaLabel="Feature matcher"
             />
           </div>
         </div>
 
-        <!-- ORT dylib path -->
-        <div class="field-row set-record-field-row">
-          <div class="field-label-group set-record-field-label-group">
-            <label class="field-label set-record-field-label" for="pano-ort-dylib-path"
-              >ONNX Runtime dylib (ORT_DYLIB_PATH)</label
-            >
-            <span class="field-hint set-record-field-hint">
-              Path to <code>libonnxruntime.dylib</code> / <code>libonnxruntime.so</code> version ≥
-              1.23. Required by the ALIKED and LightGlue models. The default location on macOS after
-              <code>brew install onnxruntime</code> is
-              <code>/opt/homebrew/lib/libonnxruntime.dylib</code>. Leave blank to use the
-              <code>ORT_DYLIB_PATH</code> environment variable.
-            </span>
-            @if (config()?.source?.ort_dylib_path) {
-              <span class="field-source set-field-source">{{
-                sourceLabel(config()?.source?.ort_dylib_path)
-              }}</span>
-            }
+        @if (mlSelected()) {
+          <!-- Models dir -->
+          <div class="field-row set-record-field-row">
+            <div class="field-label-group set-record-field-label-group">
+              <label class="field-label set-record-field-label" for="pano-models-dir"
+                >Models directory (MAPLE_PANO_MODELS)</label
+              >
+              <span class="field-hint set-record-field-hint">
+                Directory containing the ALIKED + LightGlue ONNX model files. SHA-pinned versions
+                are listed in <code>src/raw-pipeline/maple-pano/models.toml</code>. When blank, the
+                deprecated <code>MAPLE_PANO_MODELS</code> environment variable is used.
+              </span>
+              @if (config()?.source?.models_dir) {
+                <span class="field-source set-field-source">{{
+                  sourceLabel(config()?.source?.models_dir)
+                }}</span>
+              }
+            </div>
+            <div class="field-control set-record-field-control">
+              <mui-input
+                inputId="pano-models-dir"
+                [(value)]="fModelsDir"
+                placeholder="~/.cache/maple-pano/models"
+                ariaLabel="Models directory (MAPLE_PANO_MODELS)"
+                (committed)="save()"
+              />
+            </div>
           </div>
-          <div class="field-control set-record-field-control">
-            <mui-input
-              inputId="pano-ort-dylib-path"
-              [(value)]="fOrtDylibPath"
-              placeholder="/opt/homebrew/lib/libonnxruntime.dylib"
-              ariaLabel="ONNX Runtime dylib (ORT_DYLIB_PATH)"
-              (committed)="save()"
-            />
+
+          <!-- ORT dylib path -->
+          <div class="field-row set-record-field-row">
+            <div class="field-label-group set-record-field-label-group">
+              <label class="field-label set-record-field-label" for="pano-ort-dylib-path"
+                >ONNX Runtime dylib (ORT_DYLIB_PATH)</label
+              >
+              <span class="field-hint set-record-field-hint">
+                Path to <code>libonnxruntime.dylib</code> / <code>libonnxruntime.so</code> version ≥
+                1.23. Required by the ALIKED and LightGlue models. The default location on macOS
+                after <code>brew install onnxruntime</code> is
+                <code>/opt/homebrew/lib/libonnxruntime.dylib</code>. When blank, the deprecated
+                <code>ORT_DYLIB_PATH</code> environment variable is used.
+              </span>
+              @if (config()?.source?.ort_dylib_path) {
+                <span class="field-source set-field-source">{{
+                  sourceLabel(config()?.source?.ort_dylib_path)
+                }}</span>
+              }
+            </div>
+            <div class="field-control set-record-field-control">
+              <mui-input
+                inputId="pano-ort-dylib-path"
+                [(value)]="fOrtDylibPath"
+                placeholder="/opt/homebrew/lib/libonnxruntime.dylib"
+                ariaLabel="ONNX Runtime dylib (ORT_DYLIB_PATH)"
+                (committed)="save()"
+              />
+            </div>
           </div>
-        </div>
+          @if (mlPathsMissing()) {
+            <div class="banner-error set-banner-error-record">
+              The ML matcher needs both the models directory and the ONNX Runtime path. Until both
+              are set, merging a panorama is refused rather than falling back to classical.
+            </div>
+          }
+        }
 
         <!-- Strategy support indicator -->
         @if (config()) {
@@ -151,6 +185,24 @@
                 config()?.strategy_supported
                   ? 'Supported (ticket #1226 is merged)'
                   : 'Not supported by this binary'
+              }}
+            </span>
+          </div>
+          <div class="flex items-center gap-3 py-2 border-t-[0.5px] border-t-border">
+            <span class="text-[11px] font-semibold text-text-muted min-w-[120px]"
+              >Quick preview</span
+            >
+            <span
+              [class]="
+                config()?.preview_supported
+                  ? 'text-[11px] text-[var(--color-success,#33aa55)]'
+                  : 'text-[11px] text-text-muted'
+              "
+            >
+              {{
+                config()?.preview_supported
+                  ? 'Supported — the merge dialog previews before stitching'
+                  : 'Not supported by this binary — rebuild maple-cli for previews'
               }}
             </span>
           </div>

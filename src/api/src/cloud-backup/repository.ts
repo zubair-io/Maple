@@ -40,9 +40,14 @@ export interface BackupEntry {
   attempts: number;
   retry_at: number;
   last_error: string | null;
+  error_kind: BackupErrorKind | null;
   lease_owner: string | null;
   lease_until: number;
 }
+/** `connection`: the destination itself was unreachable or unauthorized, so a
+ * later healthy connection proves the failure resolved. Anything else stays
+ * attached to the entry until its own retry succeeds. */
+export type BackupErrorKind = 'connection';
 const DESTINATION_COLUMNS = `id,library_id AS libraryId,kind,name,enabled,generation,
   path,root_id AS rootId,account_id AS accountId`;
 function mirrorStatus(row: {
@@ -272,7 +277,7 @@ export class BackupRepository {
   ): Promise<boolean> {
     const result = await this.db.write(
       `UPDATE backup_entries SET manifest=?,verified_sequence=?,source_path=?,
-      state=?,attempts=0,retry_at=0,last_error=NULL,lease_owner=NULL,lease_until=0
+      state=?,attempts=0,retry_at=0,last_error=NULL,error_kind=NULL,lease_owner=NULL,lease_until=0
       WHERE id=? AND sequence=? AND lease_owner=? AND lease_until>? AND state!='purged'
       AND EXISTS (SELECT 1 FROM backup_destinations WHERE id=? AND enabled=1 AND generation=?)
       AND NOT EXISTS (SELECT 1 FROM backup_lifecycle WHERE asset_id=backup_entries.asset_id
@@ -296,17 +301,49 @@ export class BackupRepository {
     );
     return result.changes > 0;
   }
-  async fail(entry: BackupEntry, owner: string, error: string): Promise<void> {
+  async fail(
+    entry: BackupEntry,
+    owner: string,
+    error: string,
+    kind: BackupErrorKind | null = null,
+  ): Promise<void> {
     await this.db.write(
-      `UPDATE backup_entries SET attempts=attempts+1,retry_at=?,last_error=?,lease_owner=NULL,lease_until=0
+      `UPDATE backup_entries SET attempts=attempts+1,retry_at=?,last_error=?,error_kind=?,
+      lease_owner=NULL,lease_until=0
       WHERE id=? AND lease_owner=?`,
       [
         Date.now() + Math.min(3_600_000, 5000 * 2 ** Math.min(entry.attempts, 10)),
         error.slice(0, 300),
+        kind,
         entry.id,
         owner,
       ],
     );
+  }
+  /** A proven-healthy connection rearms every entry whose last failure was the
+   * connection itself. Entries a worker currently holds are left alone; their
+   * own outcome supersedes the stale error. */
+  async clearResolvedConnectionErrors(destinationId: string): Promise<void> {
+    const now = Date.now();
+    const resolved = `destination_id=? AND error_kind='connection' AND (lease_owner IS NULL OR lease_until<=?)`;
+    const [pending] = await this.db.read<{ found: number }>(
+      `SELECT EXISTS(SELECT 1 FROM backup_entries WHERE ${resolved}) AS found`,
+      [destinationId, now],
+    );
+    if (!pending?.found) return;
+    await this.db.transaction([
+      {
+        sql: `UPDATE stage_state SET version=0,attempts=0,dead=0,next_attempt_at=NULL
+        WHERE stage='cloud-backup' AND asset_id IN (
+          SELECT DISTINCT asset_id FROM backup_entries WHERE ${resolved})`,
+        params: [destinationId, now],
+      },
+      {
+        sql: `UPDATE backup_entries SET retry_at=0,attempts=0,last_error=NULL,error_kind=NULL,
+          lease_owner=NULL,lease_until=0 WHERE ${resolved}`,
+        params: [destinationId, now],
+      },
+    ]);
   }
   async object(
     destinationId: string,
@@ -413,7 +450,7 @@ export class BackupRepository {
   }
   async retry(id: string): Promise<void> {
     await this.db.write(
-      `UPDATE backup_entries SET retry_at=0,attempts=0,last_error=NULL WHERE destination_id=?`,
+      `UPDATE backup_entries SET retry_at=0,attempts=0,last_error=NULL,error_kind=NULL WHERE destination_id=?`,
       [id],
     );
     const destination = await this.destination(id);

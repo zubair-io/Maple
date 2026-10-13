@@ -10,6 +10,12 @@
 // controls to show (strategy hidden when strategySupported=false), submits,
 // polls every 2s, and navigates to the new asset or shows the error report.
 //
+// Quick preview (#4580): while the options are open and the binary supports
+// it, a low-resolution preview is requested and re-requested (debounced) on
+// every option change (`PanoPreviewStore`). "Create panorama" hands the last
+// finished preview to the stitch as `alignmentFrom`, so the full stitch does
+// not repeat feature matching.
+//
 // Parent binds [visible] and [assetIds] and listens for (dismiss).
 
 import {
@@ -22,6 +28,7 @@ import {
   output,
   signal,
   effect,
+  untracked,
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Router } from '@angular/router';
@@ -34,7 +41,10 @@ import {
   PanoLocalAlign,
   PanoStrategy,
   PanoJobView,
+  PanoStitchRequest,
 } from '../api/pano.service';
+import { PanoPreviewStore } from './pano-preview.store';
+import { panoProgressFraction, panoProgressLabel } from './pano-progress';
 import { LibraryStateService } from '../state/library-state.service';
 import { viewRouteCommands } from '../addressing/route-address';
 import { MuiButtonComponent } from '../ui/button/mui-button.component';
@@ -48,10 +58,25 @@ type DialogPhase =
   | 'done'
   | 'error';
 
+const SETTINGS_FIXABLE_ERRORS: ReadonlySet<string> = new Set([
+  'pano_not_provisioned',
+  'pano_ml_not_provisioned',
+  'pano_cli_outdated',
+]);
+
+function stitchErrorMessage(err: HttpErrorResponse, code: string): string {
+  if (err.status === 409 && SETTINGS_FIXABLE_ERRORS.has(code)) return err.error.message;
+  if (err.status === 409 && code === 'pano_job_running') {
+    return `A panorama job is already running or queued (job ${err.error.jobId ?? ''}). Wait for it to finish.`;
+  }
+  return err.error?.message ?? 'Failed to start panorama job.';
+}
+
 @Component({
   selector: 'app-pano-dialog',
   standalone: true,
   imports: [MuiButtonComponent],
+  providers: [PanoPreviewStore],
   templateUrl: './pano-dialog.component.html',
   styleUrl: './pano-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -68,6 +93,7 @@ export class PanoDialogComponent implements OnDestroy {
   private readonly pano = inject(PanoService);
   private readonly state = inject(LibraryStateService);
   private readonly router = inject(Router);
+  readonly preview = inject(PanoPreviewStore);
 
   // ── state ─────────────────────────────────────────────────────────────────
   readonly phase = signal<DialogPhase>('idle');
@@ -77,6 +103,7 @@ export class PanoDialogComponent implements OnDestroy {
    * 'pano_job_running'). Used by the template to switch on a code rather than
    * matching substrings of the localised error message. */
   readonly errorCode = signal<string>('');
+  readonly settingsFixable = computed(() => SETTINGS_FIXABLE_ERRORS.has(this.errorCode()));
   readonly job = signal<PanoJobView | null>(null);
 
   // ── option model (two-way signals) ────────────────────────────────────────
@@ -85,22 +112,20 @@ export class PanoDialogComponent implements OnDestroy {
   readonly strategy = signal<PanoStrategy>('auto');
 
   readonly strategySupported = computed(() => this.config()?.strategy_supported ?? false);
+  readonly previewSupported = computed(() => this.config()?.preview_supported ?? false);
   readonly assetCount = computed(() => this.assetIds().length);
 
-  /** Human-readable progress label derived from the job stage counter. */
-  readonly progressLabel = computed(() => {
-    const j = this.job();
-    if (!j) return 'Starting…';
-    const stageLabels = [
-      'Decoding frames',
-      'Detecting keypoints',
-      'Building match graph',
-      'Refining matches',
-      'Bundle adjustment',
-      'Writing output',
-    ];
-    const idx = Math.min(j.progress.current, stageLabels.length) - 1;
-    return idx >= 0 ? stageLabels[idx] : 'Starting…';
+  /** Human-readable progress label derived from the job's stage progress. */
+  readonly progressLabel = computed(() => panoProgressLabel(this.job()?.progress));
+  readonly progressFraction = computed(() => panoProgressFraction(this.job()?.progress));
+
+  readonly previewLabel = computed(() => {
+    const run = this.preview.run();
+    return run.kind === 'running' ? panoProgressLabel(run.progress) : '';
+  });
+  readonly previewFraction = computed(() => {
+    const run = this.preview.run();
+    return run.kind === 'running' ? panoProgressFraction(run.progress) : null;
   });
 
   private pollSub: Subscription | null = null;
@@ -112,6 +137,7 @@ export class PanoDialogComponent implements OnDestroy {
         this._loadConfig();
       }
       if (!this.visible()) {
+        untracked(() => this.preview.dispose());
         this.phase.set('idle');
         this.config.set(null);
         this.errorMessage.set('');
@@ -120,10 +146,28 @@ export class PanoDialogComponent implements OnDestroy {
         this._stopPolling();
       }
     });
+
+    // Re-preview whenever an option changes while the options are open.
+    effect(() => {
+      if (this.phase() !== 'options' || !this.previewSupported()) return;
+      const options = this.options();
+      untracked(() => {
+        const built = this.buildRequest(options);
+        if ('request' in built) this.preview.request(built.request);
+      });
+    });
   }
 
   ngOnDestroy(): void {
     this._stopPolling();
+  }
+
+  private options(): PanoStitchRequest['options'] {
+    return {
+      retention: this.retention(),
+      localAlign: this.localAlign(),
+      ...(this.strategySupported() ? { strategy: this.strategy() } : {}),
+    };
   }
 
   // ── actions ───────────────────────────────────────────────────────────────
@@ -142,115 +186,83 @@ export class PanoDialogComponent implements OnDestroy {
     });
   }
 
-  onSubmit(): void {
-    const localIds = this.assetIds();
-    if (localIds.length < 2) return;
-
-    // ── Resolve the library id ──────────────────────────────────────────
-    // `selectedSourceId` is `fs:<absPath>` in self-hosted browse mode —
-    // NOT a server id. `currentRegisteredFolder()` does a
-    // longest-prefix match against the registered library roots and returns
-    // the ApiFolder whose `id` IS the hex id the handler validates.
+  /**
+   * The stitch request for the current selection, or the error to show.
+   *
+   * `selectedSourceId` is `fs:<absPath>` in self-hosted browse mode — not a
+   * server id — so the library comes from `currentRegisteredFolder()`, a
+   * longest-prefix match against the registered roots. Per asset the best
+   * single reference is sent: the absolute path (the server resolves it fresh,
+   * avoiding the stale-id false negative) or, only when there is no path, the
+   * API id. Never both: a stale cached id beside a fresh path would make the
+   * server stitch a duplicate (or a 404'd) document.
+   */
+  private buildRequest(
+    options: PanoStitchRequest['options'],
+  ): { request: PanoStitchRequest } | { errorCode: string; errorMessage: string } {
     const folder = this.state.currentRegisteredFolder();
     if (!folder) {
-      this.errorCode.set('');
-      this.errorMessage.set(
-        'No registered library is selected. Pick a library folder in the sidebar first.',
-      );
-      this.phase.set('error');
-      return;
+      return {
+        errorCode: '',
+        errorMessage:
+          'No registered library is selected. Pick a library folder in the sidebar first.',
+      };
     }
-    const libraryId = folder.id;
-
-    // ── Resolve asset references ──────────────────────────────────────────
-    // Strategy: always send absolute paths so the server can resolve the
-    // current index state at merge time (avoids the stale-client-map false-
-    // negative). The client's `apiIdFor` map is populated from a prior browse
-    // fetch and may not reflect recently-indexed files.
-    //
-    // We also include any known server asset ids as an optimisation — the
-    // server accepts both and prefers the path for freshness.
-    //
-    // For self-hosted FS-walk assets the local id is `fs:<absPath>`, so
-    // `absPathFor(localId)` returns the absolute path. When no abs-path is
-    // available (e.g. a cloud-hosted asset already carrying an API id) we
-    // fall back to the API id alone.
-    // Per asset, send the best single reference: prefer the absolute path
-    // (the server resolves it fresh, avoiding the stale-id false-negative) and
-    // fall back to the API id only when there is no path. We never send BOTH a
-    // path and an id for the same asset — a stale cached id alongside a fresh
-    // path would make the server stitch a duplicate (or a 404'd) document.
-    const assetPaths: string[] = [];
-    const assetIds: string[] = [];
-    const unreferenced: string[] = [];
-
-    for (const localId of localIds) {
-      const absPath = this.state.absPathFor(localId);
-      if (absPath) {
-        assetPaths.push(absPath);
-        continue;
-      }
-      const apiId = this.state.apiIdFor(localId);
-      if (apiId) {
-        assetIds.push(apiId);
-        continue;
-      }
-      unreferenced.push(localId);
-    }
-
-    // Fail fast if ANY selected asset cannot be referenced. Dropping it
-    // silently would stitch fewer images than the user picked, with no
-    // feedback — surface a clear error instead.
-    if (unreferenced.length > 0) {
-      this.errorCode.set('assets_not_indexed');
-      this.errorMessage.set(
-        `${unreferenced.length} of the selected ` +
-          `${unreferenced.length === 1 ? 'image' : 'images'} could not be located ` +
+    const refs = this.assetIds().map((localId) => ({
+      localId,
+      absPath: this.state.absPathFor(localId),
+      apiId: this.state.apiIdFor(localId),
+    }));
+    const assetPaths = refs.flatMap((r) => (r.absPath ? [r.absPath] : []));
+    const assetIds = refs.flatMap((r) => (!r.absPath && r.apiId ? [r.apiId] : []));
+    const unreferenced = refs.filter((r) => !r.absPath && !r.apiId).length;
+    // Dropping an unreferenced asset would silently stitch fewer images than
+    // the user picked.
+    if (unreferenced > 0) {
+      return {
+        errorCode: 'assets_not_indexed',
+        errorMessage:
+          `${unreferenced} of the selected ` +
+          `${unreferenced === 1 ? 'image' : 'images'} could not be located ` +
           'on disk or in the index. Try re-opening the folder and selecting again.',
-      );
-      this.phase.set('error');
-      return;
+      };
     }
-
-    this.phase.set('submitting');
-    const options = {
-      retention: this.retention(),
-      localAlign: this.localAlign(),
-      ...(this.strategySupported() ? { strategy: this.strategy() } : {}),
-    };
-
-    this.pano
-      .stitch({
+    return {
+      request: {
         ...(assetPaths.length > 0 ? { assetPaths } : {}),
         ...(assetIds.length > 0 ? { assetIds } : {}),
-        libraryId,
+        libraryId: folder.id,
         options,
-      })
-      .subscribe({
-        next: ({ id, indexing }) => {
-          if (indexing && indexing > 0) {
-            // Server indexed files on-demand before queuing the job.
-            // The job is now queued; transition directly to polling.
-            this.errorMessage.set('');
-          }
-          this.phase.set('polling');
-          this._startPolling(id);
-        },
-        error: (err: HttpErrorResponse) => {
-          const code: string = err.error?.error ?? '';
-          this.errorCode.set(code);
-          if (err.status === 409 && code === 'pano_not_provisioned') {
-            this.errorMessage.set(err.error.message);
-          } else if (err.status === 409 && code === 'pano_job_running') {
-            this.errorMessage.set(
-              `A panorama job is already running or queued (job ${err.error.jobId ?? ''}). Wait for it to finish.`,
-            );
-          } else {
-            this.errorMessage.set(err.error?.message ?? 'Failed to start panorama job.');
-          }
-          this.phase.set('error');
-        },
-      });
+      },
+    };
+  }
+
+  onSubmit(): void {
+    if (this.assetIds().length < 2) return;
+    const built = this.buildRequest(this.options());
+    if (!('request' in built)) {
+      this.errorCode.set(built.errorCode);
+      this.errorMessage.set(built.errorMessage);
+      this.phase.set('error');
+      return;
+    }
+
+    const alignmentFrom = this.preview.alignmentFrom();
+    this.preview.cancel();
+    this.phase.set('submitting');
+    this.pano.stitch({ ...built.request, ...(alignmentFrom ? { alignmentFrom } : {}) }).subscribe({
+      next: ({ id }) => {
+        this.errorMessage.set('');
+        this.phase.set('polling');
+        this._startPolling(id);
+      },
+      error: (err: HttpErrorResponse) => {
+        const code: string = err.error?.error ?? '';
+        this.errorCode.set(code);
+        this.errorMessage.set(stitchErrorMessage(err, code));
+        this.phase.set('error');
+      },
+    });
   }
 
   onCancel(): void {
@@ -258,6 +270,7 @@ export class PanoDialogComponent implements OnDestroy {
     if (j && this.phase() === 'polling') {
       this.pano.cancelJob(j.id).subscribe();
     }
+    this.preview.cancel();
     this._stopPolling();
     this.dismiss.emit();
   }

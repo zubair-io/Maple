@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { GoogleConnectionError } from './google/config.ts';
+import { isDriveConnectionFailure } from './google/client.ts';
 import * as path from 'node:path';
 import { BackupRepository, type BackupDestination, type BackupEntry } from './repository.ts';
 import {
@@ -112,6 +114,9 @@ async function removeStaleEntryObject(
   if (stillOwned?.entryId !== entry.id || !sameObjectIdentity(stillOwned.object, expected)) return;
   await provider.remove(current!, signal);
   await repo.forgetObject(destination.id, current!.key, current!.locator);
+}
+function connectionFailure(error: unknown): boolean {
+  return error instanceof GoogleConnectionError || isDriveConnectionFailure(error);
 }
 export class BackupEngine {
   constructor(
@@ -351,6 +356,7 @@ export class BackupEngine {
         throw new Error('Backup configuration or lifecycle changed');
       const provider = await this.provider(destination);
       await provider.probe(lease.signal);
+      await this.rearmConnectionFailures(destination);
       const ctx = { destination, entry, owner, provider, signal: lease.signal };
       const objects = await this.publishFiles(ctx, files);
       await this.validateCurrentInventory(ctx, location, files);
@@ -360,11 +366,23 @@ export class BackupEngine {
         initial,
         owner,
         error instanceof Error ? error.message : 'Backup transfer failed',
+        connectionFailure(error) ? 'connection' : null,
       );
       return false;
     } finally {
       lease.stop();
       if (files) await releaseCapture(files);
+    }
+  }
+  // A probe that just succeeded proves the destination healthy for every entry
+  // still parked on a connection failure. The repository call is one partial-
+  // index lookup when nothing is parked, and best effort: a failure here must
+  // not turn a healthy transfer into a recorded error.
+  private async rearmConnectionFailures(destination: BackupDestination): Promise<void> {
+    try {
+      await this.repo.clearResolvedConnectionErrors(destination.id);
+    } catch {
+      return;
     }
   }
   async backupAsset(assetId: string, signal?: AbortSignal): Promise<boolean> {

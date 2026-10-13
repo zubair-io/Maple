@@ -65,6 +65,18 @@ use guided::{resolve_deferred, scene_median, CellField, SkipGrid, SKIP_GRID_TRIG
 /// Scale it with the pixels and ceilings when baseline exposure is applied.
 const EPSILON: f32 = 0.005;
 
+/// Demosaic interpolation ripples a saturated channel down to ~1.5 % below
+/// its ceiling within two pixels of a true clip (RCD on pano_01's blown sky
+/// reads 0.985–0.995 there). Those samples are censored, not scene evidence:
+/// left unflagged they act as low-ratio witnesses and leave magenta speckle
+/// (#4582). A channel inside this band next to a hard clip counts as clipped
+/// only while it is the pixel's lowest channel: that is the reading a
+/// censored channel shifts toward the complementary hue, whereas a band
+/// channel above another channel (a warm or tinted highlight) is still
+/// evidence of the scene's own colour.
+const DEMOSAIC_RIPPLE: f32 = 0.03;
+const RIPPLE_RADIUS: i32 = 2;
+
 /// Half-window for the unclipped-neighbor scan.
 const NEIGHBOR_RADIUS: i32 = 3; // 7×7 window per spec.
 
@@ -78,7 +90,9 @@ pub(crate) fn stencil_reach_px(mode: HighlightRecoveryMode) -> usize {
     match mode {
         HighlightRecoveryMode::Blend
         | HighlightRecoveryMode::Luminance
-        | HighlightRecoveryMode::ChromaticAdaptation => guided::STENCIL_REACH,
+        | HighlightRecoveryMode::ChromaticAdaptation => {
+            guided::STENCIL_REACH + RIPPLE_RADIUS as usize
+        }
         _ => 0,
     }
 }
@@ -174,6 +188,61 @@ fn ceilings(neutral: [f32; 3], baseline_exposure: f32) -> [f32; 3] {
     .map(|ceiling| ceiling * gain)
 }
 
+/// Per-channel floor of the demosaic ripple band. Scene-prior samples must
+/// sit below it on every channel, a per-pixel rule the full render and the
+/// tile path's frame sampler evaluate identically.
+fn ripple_floors(neutral: [f32; 3], baseline_exposure: f32) -> [f32; 3] {
+    ceilings(neutral, baseline_exposure).map(|ceiling| ceiling * (1.0 - DEMOSAIC_RIPPLE))
+}
+
+fn channels_at_or_above(p: &[f32; 3], levels: [f32; 3]) -> u8 {
+    (0..3).fold(0u8, |m, c| if p[c] >= levels[c] { m | (1 << c) } else { m })
+}
+
+fn lowest_channels(p: &[f32; 3]) -> u8 {
+    let lowest = p[0].min(p[1]).min(p[2]);
+    channels_at_or_above(&p.map(|v| -v), [-lowest; 3])
+}
+
+/// Hard clips plus their ripple band: a lowest channel at or above its ripple
+/// floor with a hard clip of the same channel within [`RIPPLE_RADIUS`] in
+/// `region`.
+fn clip_mask_with_ripple(
+    img: &Image,
+    thresholds: [f32; 3],
+    floors: [f32; 3],
+    (left, top, right, bottom): (i32, i32, i32, i32),
+) -> Vec<u8> {
+    let w = img.width as i32;
+    let hard: Vec<u8> = img
+        .pixels
+        .iter()
+        .map(|p| channels_at_or_above(p, thresholds))
+        .collect();
+    let hard = hard.as_slice();
+    let near_hard = |x: i32, y: i32| {
+        let rows = (y - RIPPLE_RADIUS).max(top)..(y + RIPPLE_RADIUS + 1).min(bottom);
+        let cols = (x - RIPPLE_RADIUS).max(left)..(x + RIPPLE_RADIUS + 1).min(right);
+        rows.flat_map(|ny| cols.clone().map(move |nx| hard[(ny * w + nx) as usize]))
+            .fold(0u8, |m, h| m | h)
+    };
+    img.pixels
+        .iter()
+        .zip(hard)
+        .enumerate()
+        .map(|(i, (p, &h))| {
+            let band = channels_at_or_above(p, floors) & lowest_channels(p) & !h;
+            let (x, y) = (i as i32 % w, i as i32 / w);
+            let inside = x >= left && x < right && y >= top && y < bottom;
+            if band == 0 || !inside {
+                h
+            } else {
+                h | (band & near_hard(x, y))
+            }
+        })
+        .collect()
+}
+
 fn baseline_gain(baseline_exposure: f32) -> f32 {
     // Match the baseline-exposure stage's negligible-gain fast path in
     // full, sized, tile and panorama develop, including its exact boundary.
@@ -225,25 +294,11 @@ fn apply_chromatic_adaptation(
         return;
     }
 
-    // Pass 1: build a per-pixel clip mask. Bit 0..2 = "channel c is clipped".
-    // Pixels with any channel ≥ its per-channel ceiling minus the margin count as
-    // "clipped" for the purposes of neighbor exclusion. Storing the mask in a
-    // `Vec<u8>` rather than recomputing keeps the inner loop branch-free.
-    let n = img.pixels.len();
-    let mut clip_mask = vec![0u8; n];
-    for (i, p) in img.pixels.iter().enumerate() {
-        let mut m: u8 = 0;
-        if p[0] >= thresholds[0] {
-            m |= 0b001;
-        }
-        if p[1] >= thresholds[1] {
-            m |= 0b010;
-        }
-        if p[2] >= thresholds[2] {
-            m |= 0b100;
-        }
-        clip_mask[i] = m;
-    }
+    // Pass 1: the per-pixel clip mask. Bit 0..2 = "channel c is clipped":
+    // at its ceiling minus the margin, or inside the demosaic ripple band
+    // beside such a clip.
+    let floors = ripple_floors(neutral, baseline_exposure);
+    let clip_mask = clip_mask_with_ripple(img, thresholds, floors, (left, top, right, bottom));
 
     // Keep this mask frozen: even a reconstructed value below threshold must
     // remain excluded. Every accepted witness is therefore still original.
@@ -370,7 +425,7 @@ fn apply_chromatic_adaptation(
         // nothing unclipped exists to sample. A tile carries the full frame's
         // prior in its anchor (#4378).
         let scene_chroma = anchor.map_or_else(
-            || scene_median(img, &clip_mask, left, top, right, bottom),
+            || scene_median(img, &clip_mask, floors, left, top, right, bottom),
             |a| a.prior.scene(),
         );
         resolve_deferred(
@@ -397,3 +452,7 @@ mod tests_mask_aware;
 #[cfg(test)]
 #[path = "highlight_recovery/tests_guided.rs"]
 mod tests_guided;
+
+#[cfg(test)]
+#[path = "highlight_recovery/tests_ripple.rs"]
+mod tests_ripple;

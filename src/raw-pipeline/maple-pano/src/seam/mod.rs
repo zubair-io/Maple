@@ -34,10 +34,14 @@
 //! given run actually used.
 
 pub mod bk;
+pub mod constraints;
 pub mod labels;
 pub mod masks;
 pub mod pairwise;
+#[cfg(test)]
+mod tests;
 
+pub use constraints::{CanvasRect, SeamConstraint, SeamConstraintError};
 pub use masks::SeamMasks;
 
 /// Which seam-placement algorithm a composite pass used.

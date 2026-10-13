@@ -3,8 +3,10 @@
 
 use crate::blend::{blend_multiband, levels_for_overlap_width, MAX_LEVELS};
 use crate::error::PanoError;
-use crate::gain::GainOptions;
+use crate::gain::{GainOptions, LensFalloff, LensGroups};
 use crate::ingest::PlanarImage;
+use crate::local_align::planar::planar_residuals;
+use crate::local_align::LocalCorrection;
 
 use super::frame_cache::TileFrameCache;
 use super::masks::{estimate_min_overlap_width, voronoi_masks_region};
@@ -53,6 +55,13 @@ pub struct TileCompositeReport {
     pub mean_planar_residual_px: f64,
     /// Max planar residual over verified inlier pairs (px).
     pub max_planar_residual_px: f64,
+    /// The planar residuals before the Stage-F mesh (#4577); equal to the
+    /// two above when local alignment is off.
+    pub mean_planar_before_local_px: f64,
+    pub max_planar_before_local_px: f64,
+    /// Per-frame Stage-F correction RMS (px), parallel to `placements`;
+    /// 0 for frames left uncorrected.
+    pub local_correction_rms_px: Vec<f64>,
     /// Halo width used in the tiled multiband blend (px).
     pub halo_px: usize,
     /// Shared per-frame log-slope along frame-local x (#350 layer A).
@@ -63,6 +72,9 @@ pub struct TileCompositeReport {
     pub exposure_field_mean_abs_ev: f64,
     /// Max |residual exposure field| in EV (#350 layer B).
     pub exposure_field_max_abs_ev: f64,
+    /// Blind lens falloff per lens group (#4522); frames are input
+    /// indices. Empty when ingest corrected every placed frame.
+    pub falloff: Vec<LensFalloff>,
 }
 
 /// End-to-end tile composite with spatial tiling + multiband blend.
@@ -106,8 +118,9 @@ pub struct TileCompositeReport {
 ///
 /// `cache` decodes frames on demand, keyed by `poses[i].frame_idx` — the
 /// *original* input frame index, not a position in `poses`. `full_dims`
-/// is indexed the same way (one entry per original input frame) and
-/// gives pixel dimensions without paying for a decode; `tile_edges` is
+/// and `lenses.of_frame` are indexed the same way (one entry per
+/// original input frame); `full_dims` gives pixel dimensions without
+/// paying for a decode; `tile_edges` is
 /// filtered to the reachable component (same contract as before). Peak
 /// resident frames is bounded by `cache`'s capacity, not by the total
 /// input frame count — see `TileFrameCache` docs.
@@ -115,12 +128,15 @@ pub struct TileCompositeReport {
 /// `pub(crate)`, not `pub`: `TileFrameCache` itself is crate-internal,
 /// so this can't be called from outside the crate either — the only
 /// caller is `stitch::tile_stitch`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn composite_tile(
     cache: &TileFrameCache,
     full_dims: &[(u32, u32)],
     tile_edges: &[TileEdge],
     poses: &[TilePose],
+    corrections: Option<&[LocalCorrection]>,
     canvas: &TileCanvasSpec,
+    lenses: &LensGroups,
     gain_opts: &GainOptions,
     levels_override: Option<usize>,
 ) -> Result<(PlanarImage, TileCompositeReport), PanoError> {
@@ -137,39 +153,11 @@ pub(crate) fn composite_tile(
         )));
     }
 
-    // ── planar residuals ─────────────────────────────────────────────────────
-    let max_frame_idx = poses.iter().map(|p| p.frame_idx).max().unwrap_or(0);
-    let mut frame_to_local = vec![usize::MAX; max_frame_idx + 1];
-    for (li, pose) in poses.iter().enumerate() {
-        frame_to_local[pose.frame_idx] = li;
-    }
-    let mut residual_sum = 0.0_f64;
-    let mut residual_max = 0.0_f64;
-    let mut residual_count = 0usize;
-    for edge in tile_edges {
-        let la = frame_to_local.get(edge.a).copied().unwrap_or(usize::MAX);
-        let lb = frame_to_local.get(edge.b).copied().unwrap_or(usize::MAX);
-        if la == usize::MAX || lb == usize::MAX {
-            continue;
-        }
-        let pa = &poses[la];
-        let pb = &poses[lb];
-        for m in &edge.inlier_matches {
-            let (cax, cay) = pa.sim.apply(m.a.0, m.a.1);
-            let (cbx, cby) = pb.sim.apply(m.b.0, m.b.1);
-            let res = ((cax - cbx).powi(2) + (cay - cby).powi(2)).sqrt();
-            residual_sum += res;
-            if res > residual_max {
-                residual_max = res;
-            }
-            residual_count += 1;
-        }
-    }
-    let mean_planar = if residual_count > 0 {
-        residual_sum / residual_count as f64
-    } else {
-        0.0
-    };
+    let (mean_before, max_before) = planar_residuals(poses, tile_edges, None);
+    let (mean_planar, residual_max) = planar_residuals(poses, tile_edges, corrections);
+    let max_correction_px = corrections.map_or(0.0, |cs| {
+        cs.iter().map(|c| c.max_correction_px).fold(0.0, f64::max)
+    });
 
     // ── photometric solve: gains + shared ramp + residual fields (#350) ──────
     let (photometry, phot_summary) = solve_photometry(
@@ -177,6 +165,7 @@ pub(crate) fn composite_tile(
         full_dims,
         poses,
         canvas,
+        lenses,
         &PhotometryOptions::from_gain(gain_opts),
     )?;
     let gains: Vec<[f32; 3]> = photometry.iter().map(|p| p.gain).collect();
@@ -215,7 +204,7 @@ pub(crate) fn composite_tile(
                 .iter()
                 .map(|&(x, y)| pose.sim.apply(x, y))
                 .map(|(x, y)| (x + canvas.offset_x, y + canvas.offset_y));
-            mapped.fold(
+            let (x0, y0, x1, y1) = mapped.fold(
                 (
                     f64::INFINITY,
                     f64::INFINITY,
@@ -223,7 +212,9 @@ pub(crate) fn composite_tile(
                     f64::NEG_INFINITY,
                 ),
                 |(x0, y0, x1, y1), (x, y)| (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
-            )
+            );
+            let pad = max_correction_px * pose.sim.scale;
+            (x0 - pad, y0 - pad, x1 + pad, y1 + pad)
         })
         .collect();
 
@@ -270,6 +261,7 @@ pub(crate) fn composite_tile(
                     Ok(warp_to_tile_region(
                         &frame,
                         &poses[i],
+                        corrections.map(|c| &c[i]),
                         canvas,
                         &photometry[i],
                         hx0,
@@ -355,11 +347,18 @@ pub(crate) fn composite_tile(
             min_overlap_width_px: min_overlap,
             mean_planar_residual_px: mean_planar,
             max_planar_residual_px: residual_max,
+            mean_planar_before_local_px: mean_before,
+            max_planar_before_local_px: max_before,
+            local_correction_rms_px: corrections.map_or_else(
+                || vec![0.0; poses.len()],
+                |cs| cs.iter().map(|c| c.rms_px).collect(),
+            ),
             halo_px: halo,
             photometric_slope_x: phot_summary.slope_x,
             photometric_slope_y: phot_summary.slope_y,
             exposure_field_mean_abs_ev: phot_summary.field_mean_abs_ev,
             exposure_field_max_abs_ev: phot_summary.field_max_abs_ev,
+            falloff: phot_summary.falloff,
         },
     ))
 }

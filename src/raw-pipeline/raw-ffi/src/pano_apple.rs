@@ -42,26 +42,25 @@ use maple_pano::exif_embed::build_exif_blob;
 use maple_pano::ingest::PlanarImage;
 use maple_pano::render::{write_frame_png, PngMetadata};
 use maple_pano::stitch::{
-    develop_for_display, stitch, write_display_sidecars, StitchError, StitchOptions, StitchSuccess,
+    develop_for_display, stitch_reusing, write_display_sidecars, AlignmentReuse, FeatureEngine,
+    SolvedAlignment, StitchError, StitchOptions,
 };
 use maple_pano::strategy::StrategyRequest;
 use raw_core::read_exif;
 
-use super::{MaplePanoLocalAlign, MaplePanoRetention, MaplePanoStrategy, SendProgressCallback};
+use super::{
+    MaplePanoFeatureEngine, MaplePanoLocalAlign, MaplePanoRetention, MaplePanoStrategy,
+    SendProgressCallback,
+};
 
-/// Full Apple stitch pipeline. Called by `maple_pano_stitch` after argument
-/// validation; runs on a large-stack worker thread (see `with_large_stack`
-/// in the caller). Returns 0 on success, negative on failure (last_error set).
-pub(super) fn run_stitch_apple(
-    input_paths: Vec<String>,
-    out_png_path: String,
+/// Maps the C option enums onto the shared [`StitchOptions`].
+pub(super) fn stitch_options(
     retention: MaplePanoRetention,
     local_align: MaplePanoLocalAlign,
     strategy: MaplePanoStrategy,
-    cb: SendProgressCallback,
-    send_cancel: SendCancelPtr,
-) -> i32 {
-    let opts = StitchOptions {
+    engine: MaplePanoFeatureEngine,
+) -> StitchOptions {
+    StitchOptions {
         retention: match retention {
             MaplePanoRetention::Keep => RetentionPolicy::KeepAlignable,
             MaplePanoRetention::Strict => RetentionPolicy::Strict,
@@ -72,6 +71,10 @@ pub(super) fn run_stitch_apple(
             MaplePanoStrategy::Rotation => StrategyRequest::Rotation,
             MaplePanoStrategy::Tile => StrategyRequest::Tile,
         },
+        feature_engine: match engine {
+            MaplePanoFeatureEngine::Ml => FeatureEngine::Ml,
+            MaplePanoFeatureEngine::Classical => FeatureEngine::Classical,
+        },
         // M6-C (#1251): enable CoreML EP on iOS only. macOS stays on CPU-ORT
         // (parity-verified; do not change). On iOS the simulator falls back to
         // ORT-CPU automatically (no ANE); real-device ANE speedup is
@@ -79,36 +82,28 @@ pub(super) fn run_stitch_apple(
         #[cfg(target_os = "ios")]
         use_coreml: true,
         ..StitchOptions::default()
-    };
+    }
+}
 
+/// Full Apple stitch pipeline. Called by `maple_pano_stitch` after argument
+/// validation; runs on a large-stack worker thread (see `with_large_stack`
+/// in the caller). Returns 0 on success, negative on failure (last_error set).
+///
+/// `alignment_in` (#4578): a solved-alignment file from `maple_pano_preview`.
+/// When it still matches the inputs and options, matching is skipped; when
+/// it doesn't (or can't be read) the stitch re-solves and returns `1` with
+/// the reason in `maple_last_error()`.
+pub(super) fn run_stitch_apple(
+    input_paths: Vec<String>,
+    out_png_path: String,
+    alignment_in: Option<String>,
+    opts: StitchOptions,
+    cb: SendProgressCallback,
+    send_cancel: SendCancelPtr,
+) -> i32 {
     let inputs: Vec<PathBuf> = input_paths.iter().map(PathBuf::from).collect();
-
-    // Adapt the typed C progress callback (inside SendProgressCallback) into
-    // a Rust closure. No usize round-trip: we hold the `Option<fn-pointer>`
-    // + `*mut c_void` directly and call them through their C types. The
-    // worker is joined before `maple_pano_stitch` returns, so both remain
-    // valid here.
-    let mut progress = move |stage: u32, frac: f32| {
-        if let Some(f) = cb.f {
-            // SAFETY: `f` is a valid extern "C" fn; `cb.user` is the
-            // caller-supplied opaque pointer, valid for the duration of the
-            // synchronous FFI call (the worker is joined before returning).
-            unsafe { f(stage, frac, cb.user) };
-        }
-    };
-
-    let is_cancelled = || {
-        if send_cancel.0.is_null() {
-            return false;
-        }
-        // SAFETY: non-null pointer from `maple_cancel_flag_new`, still alive
-        // because `maple_pano_stitch` is synchronous (joins before returning).
-        if let Some(atomic_ptr) = unsafe { token_from_ptr(send_cancel.0) } {
-            unsafe { atomic_ptr.as_ref() }.load(Ordering::Relaxed)
-        } else {
-            false
-        }
-    };
+    let mut progress = progress_adapter(cb);
+    let is_cancelled = cancel_adapter(send_cancel);
 
     // Build display PNG metadata from the first source frame (capture order =
     // sorted order, matching how inputs arrive from Swift). Degrades silently
@@ -168,30 +163,104 @@ pub(super) fn run_stitch_apple(
     // After #1270, `stitch` handles both rotation and tile internally.
     // ALIKED + LightGlue run exactly once; the tile path re-uses their output
     // without a second decode or ML pass.  No `TileNotSupported` fallthrough.
-    match stitch(&inputs, &opts, &mut progress, &is_cancelled) {
-        Ok(StitchSuccess::Rotation(outcome)) => write_out(&outcome.image),
-        Ok(StitchSuccess::Tile(tile)) => write_out(&tile.image),
+    let (offered, unreadable) = read_alignment(alignment_in.as_deref());
+    match stitch_reusing(
+        &inputs,
+        &opts,
+        offered.as_ref(),
+        &mut progress,
+        &is_cancelled,
+    ) {
+        Ok(run) => match write_out(run.success.image()) {
+            0 => reuse_rc("maple_pano_stitch", &run.reuse, unreadable),
+            rc => rc,
+        },
+        Err(e) => error_rc("maple_pano_stitch", e),
+    }
+}
 
-        Err(StitchError::Cancelled) => {
-            set_last_error("maple_pano_stitch: cancelled by caller".into());
+/// Adapt the typed C progress callback (inside SendProgressCallback) into a
+/// Rust closure. No usize round-trip: the `Option<fn-pointer>` + `*mut c_void`
+/// are called through their C types. The worker is joined before the FFI
+/// entry returns, so both remain valid here.
+pub(super) fn progress_adapter(cb: SendProgressCallback) -> impl FnMut(u32, f32) {
+    move |stage: u32, frac: f32| {
+        if let Some(f) = cb.f {
+            // SAFETY: `f` is a valid extern "C" fn; `cb.user` is the
+            // caller-supplied opaque pointer, valid for the duration of the
+            // synchronous FFI call (the worker is joined before returning).
+            unsafe { f(stage, frac, cb.user) };
+        }
+    }
+}
+
+pub(super) fn cancel_adapter(send_cancel: SendCancelPtr) -> impl Fn() -> bool {
+    move || {
+        if send_cancel.0.is_null() {
+            return false;
+        }
+        // SAFETY: non-null pointer from `maple_cancel_flag_new`, still alive
+        // because the FFI entry is synchronous (joins before returning).
+        if let Some(atomic_ptr) = unsafe { token_from_ptr(send_cancel.0) } {
+            unsafe { atomic_ptr.as_ref() }.load(Ordering::Relaxed)
+        } else {
+            false
+        }
+    }
+}
+
+/// Read an optional alignment file; an unusable file becomes the reason a
+/// re-solve will be reported, never a failure.
+pub(super) fn read_alignment(path: Option<&str>) -> (Option<SolvedAlignment>, Option<String>) {
+    match path.map(|p| {
+        std::fs::read_to_string(p)
+            .map_err(|e| format!("{p}: {e}"))
+            .and_then(|json| SolvedAlignment::from_json(&json))
+    }) {
+        None => (None, None),
+        Some(Ok(a)) => (Some(a), None),
+        Some(Err(reason)) => (None, Some(reason)),
+    }
+}
+
+/// `0` when the offered alignment was used (or none was offered), `1` with
+/// `maple_last_error()` naming why matching re-ran otherwise.
+pub(super) fn reuse_rc(fn_name: &str, reuse: &AlignmentReuse, unreadable: Option<String>) -> i32 {
+    match unreadable.as_deref().or(reuse.reason()) {
+        None => 0,
+        Some(reason) => {
+            set_last_error(format!(
+                "{fn_name}: alignment not reused ({reason}); matching re-ran"
+            ));
+            eprintln!("{fn_name}: alignment not reused ({reason}); matching re-ran");
+            1
+        }
+    }
+}
+
+/// Map a stitch/preview failure to the shared error codes (see `pano.rs`).
+pub(super) fn error_rc(fn_name: &str, e: StitchError) -> i32 {
+    match e {
+        StitchError::Cancelled => {
+            set_last_error(format!("{fn_name}: cancelled by caller"));
             -7
         }
-        Err(StitchError::MlUnavailable(msg)) => {
-            set_last_error(format!("maple_pano_stitch: {msg}"));
+        StitchError::MlUnavailable(msg) => {
+            set_last_error(format!("{fn_name}: {msg}"));
             -6
         }
         // rc -8: degenerate rotation geometry — the caller should retry with
         // Auto or Tile strategy. Distinct from -7 (generic failure) so Swift
         // callers can surface "use Auto/Tile" rather than a generic error.
-        Err(StitchError::DegenerateGeometry(msg)) => {
+        StitchError::DegenerateGeometry(msg) => {
             set_last_error(format!(
-                "maple_pano_stitch: rotation geometry is degenerate — {msg}; \
+                "{fn_name}: rotation geometry is degenerate — {msg}; \
                  retry with Auto or Tile strategy"
             ));
             -8
         }
-        Err(e) => {
-            set_last_error(format!("maple_pano_stitch: {e}"));
+        e => {
+            set_last_error(format!("{fn_name}: {e}"));
             -7
         }
     }

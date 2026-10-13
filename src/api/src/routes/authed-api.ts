@@ -37,6 +37,7 @@ import { purgeSubthresholdFacesRoutes } from './admin-purge-subthreshold-faces.t
 import { peopleRoutes } from './people.ts';
 import { presetsRoutes } from './presets.ts';
 import { panoRoutes } from './pano.ts';
+import { panoPreviewRoutes } from './pano-preview.ts';
 import { mapConfigRoutes } from './map-config.ts';
 import { batchMetadataRoutes } from './batch-metadata.ts';
 import { backupIngestRoutes } from './backup-ingest.ts';
@@ -116,6 +117,7 @@ export const authedApi = new Elysia({ name: 'authedApi' })
   // wide config, no per-user scoping, same tier as renderConfigRoutes above.
   .use(apnsConfigRoutes)
   .use(panoRoutes)
+  .use(panoPreviewRoutes)
   .use(mapConfigRoutes)
   .use(changesRoutes)
   .use(mirrorRoutes)

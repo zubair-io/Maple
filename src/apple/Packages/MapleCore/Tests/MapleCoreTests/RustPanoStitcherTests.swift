@@ -12,6 +12,14 @@ import Testing
 import Foundation
 @testable import MapleCore
 
+/// An empty UserDefaults suite: no path overrides, ML matcher toggle unset.
+private func freshDefaults() -> UserDefaults {
+    let name = "rust-pano-stitcher-\(UUID().uuidString)"
+    let suite = UserDefaults(suiteName: name)!
+    suite.removePersistentDomain(forName: name)
+    return suite
+}
+
 // MARK: - PanoStage FFI mapping tests
 
 @MainActor
@@ -105,17 +113,11 @@ struct PanoStitcherErrorTests {
 @MainActor
 struct RustPanoStitcherErrorPathTests {
 
-    /// Verifies that `RustPanoStitcher.stitch` throws a clear error when the
-    /// ML environment is not provisioned. Uses file-backed AssetRefs so the
-    /// path-collection step succeeds; the models check fires next.
-    ///
-    /// We deliberately un-set `MAPLE_PANO_MODELS` and `ORT_DYLIB_PATH` and
-    /// point the app-support resolver to a temp dir with no models, so the
-    /// "models not installed" branch fires deterministically.
-    @Test("throws modelsNotInstalled when environment is unprovisioned")
-    func throwsWhenModelsUnprovisioned() async throws {
-        // Un-set env vars so the resolver falls through to the app-support path.
-        // Save and restore so we don't poison other tests that may run with env set.
+    /// A fresh install has no ML runtime and the ML toggle is off: the stitch
+    /// must go straight to the classical matcher (#4554), so placeholder
+    /// frames reach the FFI and fail in decode, never in the models check.
+    @Test("fresh install stitches with the classical matcher, not a models check")
+    func freshInstallUsesClassical() async throws {
         let savedModels = ProcessInfo.processInfo.environment["MAPLE_PANO_MODELS"]
         let savedOrt = ProcessInfo.processInfo.environment["ORT_DYLIB_PATH"]
         defer {
@@ -125,9 +127,6 @@ struct RustPanoStitcherErrorPathTests {
         unsetenv("MAPLE_PANO_MODELS")
         unsetenv("ORT_DYLIB_PATH")
 
-        // Create two real DNG-shaped placeholder files in a temp dir so
-        // `collectInputURLs` succeeds (the files don't need to be valid RAWs
-        // for the models-check path — we never reach the FFI).
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("rust-pano-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -138,40 +137,20 @@ struct RustPanoStitcherErrorPathTests {
         try Data("placeholder".utf8).write(to: a)
         try Data("placeholder".utf8).write(to: b)
 
-        let assets = [AssetRef(url: a), AssetRef(url: b)]
-
-        // Point the app-support resolver to a non-existent path by ensuring
-        // neither env var is set and the default app-support location doesn't
-        // happen to have a models dir on this machine (most test environments
-        // won't). If it does, this test skips gracefully.
-        let appSupportModels = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first?.appendingPathComponent("app.justmaple.aperture/pano-models") ?? tmp
-
-        if FileManager.default.fileExists(atPath: appSupportModels.path) {
-            // Models are installed locally — skip this test; we can't
-            // un-provision them without side effects. The real-stitch gate
-            // will exercise the success path if MAPLE_PANO_E2E=1 is set.
-            return
-        }
-
-        let stitcher = RustPanoStitcher()
+        let provisioning = PanoProvisioning(defaults: freshDefaults())
+        #expect(provisioning.featureEngine() == .classical)
 
         do {
-            _ = try await stitcher.stitch(
-                assets: assets,
+            _ = try await RustPanoStitcher(provisioning: provisioning).stitch(
+                assets: [AssetRef(url: a), AssetRef(url: b)],
                 options: .default,
+                alignment: nil,
                 progress: { _, _ in }
             )
-            Issue.record("Expected throw but stitch succeeded")
-        } catch let err as PanoStitcherError {
-            if case .modelsNotInstalled = err {
-                // Expected — pass.
-            } else {
-                Issue.record("Expected modelsNotInstalled, got \(err)")
-            }
+            Issue.record("Placeholder frames cannot stitch")
+        } catch PanoStitcherError.stitchFailed {
         } catch {
-            Issue.record("Unexpected error type: \(error)")
+            Issue.record("Expected a classical-path decode failure, got \(error)")
         }
     }
 
@@ -197,6 +176,7 @@ struct RustPanoStitcherErrorPathTests {
             _ = try await stitcher.stitch(
                 assets: [bytesAsset, fileAsset],
                 options: .default,
+                alignment: nil,
                 progress: { _, _ in }
             )
             Issue.record("Expected throw but stitch succeeded")
@@ -246,81 +226,123 @@ struct BrowseViewModelInjectPanoTests {
 
 // MARK: - Real stitch gate (opt-in, MAPLE_PANO_E2E=1)
 
-/// End-to-end stitch test. Set MAPLE_PANO_E2E=1 and ensure:
-///   MAPLE_PANO_MODELS points to the dir with aliked.onnx + lightglue.onnx
-///   ORT_DYLIB_PATH points to libonnxruntime.dylib (≥ 1.23)
-///   The pano_01 fixture DNGs exist at test-fixtures/raws/pano_01/
-///
-/// Skips automatically when any precondition is absent — mirrors the
+/// End-to-end stitches of the pano_01 fixture. Set MAPLE_PANO_E2E=1; the
+/// DNGs come from MAPLE_PANO_FIXTURE_DIR or test-fixtures/raws/pano_01/.
+/// The ML test additionally needs MAPLE_PANO_MODELS + ORT_DYLIB_PATH; the
+/// classical test clears both to prove a fresh install merges (#4554).
+/// Each skips silently when a precondition is absent — mirrors the
 /// MAPLE_AUTO_E2E pattern used in ExposureFFITests.
 @MainActor
+@Suite(.serialized)
 struct RustPanoStitcherE2ETests {
 
-    @Test("real stitch with pano_01 fixtures (MAPLE_PANO_E2E=1 required)")
-    func realStitchPano01() async throws {
-        guard ProcessInfo.processInfo.environment["MAPLE_PANO_E2E"] == "1" else {
-            // Not opted-in — skip silently.
-            return
-        }
-
-        // Resolve pano_01 fixtures. Priority:
-        //   1. MAPLE_PANO_FIXTURE_DIR env var (explicit override for worktrees).
-        //   2. Relative to source tree via #file (works when test-fixtures/ is
-        //      a sibling of src/).
+    private func pano01Assets() throws -> [AssetRef]? {
+        guard ProcessInfo.processInfo.environment["MAPLE_PANO_E2E"] == "1" else { return nil }
         let fm = FileManager.default
-        let fixtureDir: URL
-        if let envDir = ProcessInfo.processInfo.environment["MAPLE_PANO_FIXTURE_DIR"] {
-            fixtureDir = URL(fileURLWithPath: envDir, isDirectory: true)
-        } else {
-            let repoRoot = URL(fileURLWithPath: #file)
-                .deletingLastPathComponent()     // Tests/MapleCoreTests/
-                .deletingLastPathComponent()     // Tests/
-                .deletingLastPathComponent()     // MapleCore/
-                .deletingLastPathComponent()     // Packages/
-                .deletingLastPathComponent()     // apple/
-                .deletingLastPathComponent()     // src/
-            fixtureDir = repoRoot.appendingPathComponent("test-fixtures/raws/pano_01")
-        }
-
-        guard fm.fileExists(atPath: fixtureDir.path) else {
-            // No fixtures — soft skip.
-            return
-        }
-
-        let dngs = try fm.contentsOfDirectory(at: fixtureDir,
-                                              includingPropertiesForKeys: nil)
+        let fixtureDir = ProcessInfo.processInfo.environment["MAPLE_PANO_FIXTURE_DIR"]
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()     // …/Tests/MapleCoreTests
+                .deletingLastPathComponent()     // …/MapleCore/Tests
+                .deletingLastPathComponent()     // …/Packages/MapleCore
+                .deletingLastPathComponent()     // …/apple/Packages
+                .deletingLastPathComponent()     // …/src/apple
+                .deletingLastPathComponent()     // …/src
+                .deletingLastPathComponent()     // repo root
+                .appendingPathComponent("test-fixtures/raws/pano_01")
+        guard fm.fileExists(atPath: fixtureDir.path) else { return nil }
+        let dngs = try fm.contentsOfDirectory(at: fixtureDir, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension.uppercased() == "DNG" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        return dngs.count >= 2 ? dngs.map { AssetRef(url: $0) } : nil
+    }
 
-        guard dngs.count >= 2 else {
-            return   // Not enough frames — skip.
-        }
-
-        let assets = dngs.map { AssetRef(url: $0) }
-        let stitcher = RustPanoStitcher()
+    /// Preview, then the full stitch from the preview's alignment (#4579),
+    /// with one stitcher so both resolve the same engine.
+    private func stitchAndCheck(
+        _ assets: [AssetRef],
+        provisioning: PanoProvisioning,
+        desktopName: String
+    ) async throws -> PanoResult {
+        let stitcher = RustPanoStitcher(provisioning: provisioning)
+        let clock = ContinuousClock()
+        let previewStart = clock.now
+        let preview = try await stitcher.preview(
+            assets: assets,
+            options: .default,
+            alignment: nil,
+            progress: { _, _ in }
+        )
+        #expect(max(preview.image.width, preview.image.height) > 1024,
+                "Preview long edge should be ~2048 px, got \(preview.image.width)×\(preview.image.height)")
+        #expect(preview.alignmentOutcome == .solved)
+        print("pano E2E: preview \(clock.now - previewStart), \(preview.image.width)×\(preview.image.height). \(preview.alignmentOutcome.summary)")
 
         var stagesObserved: [PanoStage] = []
+        var solvingReachedAfter: Duration?
+        let stitchStart = clock.now
         let result = try await stitcher.stitch(
             assets: assets,
             options: .default,
+            alignment: preview.alignment,
             progress: { stage, _ in
                 if stagesObserved.last != stage { stagesObserved.append(stage) }
+                if stage == .solving, solvingReachedAfter == nil { solvingReachedAfter = clock.now - stitchStart }
             }
         )
+        print("pano E2E: stitch \(clock.now - stitchStart), refinement reached after \(solvingReachedAfter.map { "\($0)" } ?? "never"). \(result.alignmentOutcome.summary)")
+        #expect(result.alignmentOutcome == .reused,
+                "The full stitch must start from the preview's alignment, got \(result.alignmentOutcome)")
+        #expect(result.reportSummary.contains("matching skipped"))
 
-        // Result file must exist on disk.
+        let fm = FileManager.default
         #expect(fm.fileExists(atPath: result.outputURL.path),
                 "Output PNG should exist at \(result.outputURL.path)")
-
-        // At least a few progress stages should have fired.
         #expect(stagesObserved.count >= 2, "Expected at least 2 distinct stages, got \(stagesObserved)")
 
-        // Copy to ~/Desktop for visual review (mirrors the MEMORY note
-        // "save color test outputs to ~/Desktop/maple-color-tests/").
-        let desktopDest = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Desktop/maple-color-tests/1234/pano_01_mac_ffi.png")
+        let desktopDest = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent("Desktop/maple-color-tests/1234/\(desktopName)")
         try? fm.createDirectory(at: desktopDest.deletingLastPathComponent(),
                                 withIntermediateDirectories: true)
+        try? fm.removeItem(at: desktopDest)
         try? fm.copyItem(at: result.outputURL, to: desktopDest)
+        return result
+    }
+
+    @Test("ML stitch of pano_01 reports the ML matcher (MAPLE_PANO_E2E=1)")
+    func realStitchPano01() async throws {
+        guard let assets = try pano01Assets(),
+              ProcessInfo.processInfo.environment["MAPLE_PANO_MODELS"] != nil,
+              ProcessInfo.processInfo.environment["ORT_DYLIB_PATH"] != nil else { return }
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: PanoProvisioningDefaults.useMLMatcherKey)
+        let provisioning = PanoProvisioning(defaults: defaults)
+        #expect(provisioning.featureEngine() == .ml)
+
+        let result = try await stitchAndCheck(
+            assets, provisioning: provisioning, desktopName: "pano_01_mac_ffi.png")
+        #expect(result.reportSummary.contains(PanoFeatureEngine.ml.displayName))
+    }
+
+    @Test("fresh install stitches pano_01 with the classical matcher (MAPLE_PANO_E2E=1)")
+    func classicalStitchPano01WithoutModels() async throws {
+        guard let assets = try pano01Assets() else { return }
+        let savedModels = ProcessInfo.processInfo.environment["MAPLE_PANO_MODELS"]
+        let savedOrt = ProcessInfo.processInfo.environment["ORT_DYLIB_PATH"]
+        defer {
+            if let v = savedModels { setenv("MAPLE_PANO_MODELS", v, 1) } else { unsetenv("MAPLE_PANO_MODELS") }
+            if let v = savedOrt   { setenv("ORT_DYLIB_PATH", v, 1)    } else { unsetenv("ORT_DYLIB_PATH")    }
+        }
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("no-pano-ml-\(UUID().uuidString)")
+        setenv("MAPLE_PANO_MODELS", missing.path, 1)
+        setenv("ORT_DYLIB_PATH", missing.appendingPathComponent("libonnxruntime.dylib").path, 1)
+        let provisioning = PanoProvisioning(defaults: freshDefaults())
+        #expect(!PanoProvisioner.isReady(provisioning.status()))
+
+        let result = try await stitchAndCheck(
+            assets, provisioning: provisioning, desktopName: "pano_01_mac_ffi_classical.png")
+        #expect(result.reportSummary.contains(PanoFeatureEngine.classical.displayName))
+        print("RustPanoStitcherE2ETests classical: \(result.reportSummary)")
     }
 }

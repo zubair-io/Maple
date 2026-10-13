@@ -56,6 +56,12 @@ ml = ["dep:ort", "ort/load-dynamic", "dep:libloading", "dep:sha2", "dep:toml"]
 # in ort). `load-dynamic` implies `std`, so the `ml` path gets it transitively;
 # `ml-static` must add it explicitly since we omit `load-dynamic`.
 ml-static = ["dep:ort", "ort/std", "dep:sha2", "dep:toml"]
+# Clean-room classical detector/matcher (#4523): Harris scale-space
+# keypoints + gradient-histogram descriptors + ratio-test matching, pure
+# CPU, no ONNX Runtime. Builds the full stitch pipeline without `ort`;
+# alongside `ml` it is selectable per run via `StitchOptions::feature_engine`.
+# `sha2` is the stitch sidecar's filename-hash key (`stitch/io.rs`), not ML.
+classical-features = ["dep:sha2"]
 
 [[bin]]
 name = "pano-gt-render"
@@ -94,6 +100,11 @@ required-features = ["testkit"]
 [[test]]
 name = "graph_gates"
 path = "tests/graph_gates.rs"
+required-features = ["testkit"]
+
+[[test]]
+name = "grid_prior_gates"
+path = "tests/grid_prior_gates.rs"
 required-features = ["testkit"]
 
 [dependencies]
@@ -170,6 +181,13 @@ required-features = ["testkit"]
 name = "ml_smoke"
 path = "tests/ml_smoke.rs"
 required-features = ["ml"]
+
+# #4523: classical detector/matcher on a rendered synthetic pair — no ORT,
+# no models, no fixtures, so it runs on every CI runner.
+[[test]]
+name = "classical_gates"
+path = "tests/classical_gates.rs"
+required-features = ["classical-features", "testkit"]
 
 [dev-dependencies]
 # `SyntheticGreyDng` for the #3230 rejected-DNG ingest gate — a file rawler

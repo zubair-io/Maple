@@ -3,36 +3,41 @@
 // Operator provisioning surface for panorama stitching:
 //   - Enable/disable toggle
 //   - maple-cli binary path
-//   - MAPLE_PANO_MODELS directory
-//   - ORT_DYLIB_PATH (libonnxruntime ≥ 1.23)
-//
-// Settings precedence (DB-first with env fallback):
-//   - maple_cli_path:  DB value only — there is no env fallback for the binary path.
-//   - models_dir:      DB value wins; when unset the handler inherits MAPLE_PANO_MODELS
-//                      from the server process environment (the CLI still finds models).
-//   - ort_dylib_path:  DB value wins; when unset the handler inherits ORT_DYLIB_PATH
-//                      from the server process environment.
-//   - enabled:         DB value only (defaults to false).
-//
-// The UI reflects this: the models_dir and ort_dylib_path fields say "Leave blank to
-// use the MAPLE_PANO_MODELS / ORT_DYLIB_PATH environment variable." The env fallback is
-// intentional and documented — it lets operators bootstrap from a .env file or Docker
-// Compose before they have access to the settings page. The DB value always takes
-// precedence when set.
+//   - Matcher: classical (default, nothing to download) or ML (opt-in, #4555)
+//   - MAPLE_PANO_MODELS directory and ORT_DYLIB_PATH, shown only for ML; the
+//     server answers a stitch with 409 pano_ml_not_provisioned until both are set
+//     here or in the deprecated environment variables
+//   - A rebuild notice when the binary predates --features-engine (ML-only)
 //
 // Config is saved via PUT /api/pano/config and re-resolved from the server
 // response, same as the Observability settings page.
 
-import { ChangeDetectionStrategy, Component, OnInit, effect, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnInit,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   PanoService,
   type PanoConfig,
+  type PanoMatcher,
   MuiButtonComponent,
   MuiCheckboxComponent,
   MuiInputComponent,
+  MuiSegmentedToggleComponent,
+  type MuiSegmentedToggleOption,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
+
+const MATCHER_OPTIONS: readonly MuiSegmentedToggleOption[] = [
+  { value: 'classical', label: 'Classical' },
+  { value: 'ml', label: 'ML' },
+];
 
 type SaveState =
   | { kind: 'idle' }
@@ -43,7 +48,13 @@ type SaveState =
 @Component({
   selector: 'maple-pano-settings',
   standalone: true,
-  imports: [SettingsShellComponent, MuiButtonComponent, MuiCheckboxComponent, MuiInputComponent],
+  imports: [
+    SettingsShellComponent,
+    MuiButtonComponent,
+    MuiCheckboxComponent,
+    MuiInputComponent,
+    MuiSegmentedToggleComponent,
+  ],
   templateUrl: './pano-settings.component.html',
   host: { class: 'set-page-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -60,8 +71,23 @@ export class PanoSettingsComponent implements OnInit {
   // ── Editable form fields ─────────────────────────────────────────────────
   protected readonly fEnabled = signal(false);
   protected readonly fCliPath = signal('');
+  protected readonly fMatcher = signal<PanoMatcher>('classical');
   protected readonly fModelsDir = signal('');
   protected readonly fOrtDylibPath = signal('');
+
+  protected readonly matcherOptions = MATCHER_OPTIONS;
+  protected readonly mlSelected = computed(() => this.fMatcher() === 'ml');
+  protected readonly mlPathsMissing = computed(
+    () =>
+      this.mlSelected() &&
+      (this.fModelsDir().trim().length === 0 || this.fOrtDylibPath().trim().length === 0),
+  );
+  protected readonly cliOutdated = computed(() => {
+    const cfg = this.config();
+    return cfg !== null && cfg.maple_cli_path !== null && !cfg.features_engine_supported;
+  });
+  protected readonly buildCommand =
+    'cargo build --release --bin maple-cli --features pano,pano-classical';
 
   private formSeeded = false;
 
@@ -91,6 +117,7 @@ export class PanoSettingsComponent implements OnInit {
   private seedForm(cfg: PanoConfig): void {
     this.fEnabled.set(cfg.enabled);
     this.fCliPath.set(cfg.maple_cli_path ?? '');
+    this.fMatcher.set(cfg.matcher);
     this.fModelsDir.set(cfg.models_dir ?? '');
     this.fOrtDylibPath.set(cfg.ort_dylib_path ?? '');
   }
@@ -101,6 +128,7 @@ export class PanoSettingsComponent implements OnInit {
     this.pano
       .putConfig({
         enabled: this.fEnabled(),
+        matcher: this.fMatcher(),
         maple_cli_path: cliPath.length > 0 ? cliPath : null,
         models_dir: this.fModelsDir().trim() || null,
         ort_dylib_path: this.fOrtDylibPath().trim() || null,
@@ -123,10 +151,16 @@ export class PanoSettingsComponent implements OnInit {
       });
   }
 
+  protected selectMatcher(value: string): void {
+    this.fMatcher.set(value === 'ml' ? 'ml' : 'classical');
+  }
+
   protected sourceLabel(source: string | undefined): string {
     switch (source) {
       case 'db':
         return 'saved';
+      case 'env':
+        return 'environment variable (deprecated)';
       case 'unset':
         return 'not set';
       case 'default':

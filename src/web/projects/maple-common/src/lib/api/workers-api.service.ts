@@ -164,6 +164,22 @@ export interface GeneratedSearchConfig {
   dry_run: boolean;
 }
 
+/** The most recent generated-search attempt across libraries
+ * (GET /api/workers/generated-search/last-run). Mirrors `LibraryRunRecord` in
+ * src/api/src/workers/generated-search/run-state.repo.ts. */
+export interface GeneratedSearchLastRun {
+  library_id: string;
+  claim_id: string;
+  day: string;
+  attempts: number;
+  started_at: string;
+  finished_at: string | null;
+  outcome: 'running' | 'saved' | 'empty' | 'failed' | 'dry-run';
+  saved: number;
+  error: string | null;
+  trigger: 'schedule' | 'run-now';
+}
+
 /** One collection card from GET /api/generated-searches. `query` rides along
  * so the settings page can deep-link into /search with the same filters. */
 export interface GeneratedSearchCard {
@@ -355,6 +371,13 @@ export class WorkersApiService {
     return this.http.patch<{ ok: boolean; config: GeneratedSearchConfig }>(
       `${this.base}/workers/generated-search/config`,
       patch,
+    );
+  }
+
+  /** The latest attempt, or null when the job has never run. */
+  getGeneratedSearchLastRun(): Observable<{ last_run: GeneratedSearchLastRun | null }> {
+    return this.http.get<{ last_run: GeneratedSearchLastRun | null }>(
+      `${this.base}/workers/generated-search/last-run`,
     );
   }
 

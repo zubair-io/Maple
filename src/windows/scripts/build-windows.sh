@@ -48,6 +48,12 @@ cargo build --release --target "$TARGET" --target-dir src/raw-pipeline/target \
   --manifest-path src/raw-pipeline/Cargo.toml -p raw-ffi --features gpu
 [[ -s "$NATIVE_DIR/raw_ffi.dll" ]] || fail "missing native output: $NATIVE_DIR/raw_ffi.dll"
 
+# The app's panorama stitcher: classical matcher by default, ML opt-in (#4556).
+echo "--> Building maple-cli for $TARGET..."
+cargo build --release --target "$TARGET" --target-dir src/raw-pipeline/target \
+  --manifest-path src/raw-pipeline/Cargo.toml -p maple-cli --features pano,pano-classical
+[[ -s "$NATIVE_DIR/maple-cli.exe" ]] || fail "missing native output: $NATIVE_DIR/maple-cli.exe"
+
 echo "--> Building diagnostic host for $TARGET..."
 cargo build --release --target "$TARGET" --target-dir src/windows/target \
   --manifest-path src/windows/Cargo.toml
@@ -56,7 +62,7 @@ cargo build --release --target "$TARGET" --target-dir src/windows/target \
 echo "--> Building WinUI application for $RID ($PLATFORM)..."
 dotnet build src/windows/Maple.WinUI/Maple.WinUI.csproj -c Release \
   -r "$RID" "-p:Platform=$PLATFORM" "-p:MapleRustTarget=$TARGET" -o "$APP_DIR"
-for output in Maple.WinUI.exe raw_ffi.dll; do
+for output in Maple.WinUI.exe raw_ffi.dll maple-cli.exe; do
   [[ -s "$APP_DIR/$output" ]] || fail "missing application output: $APP_DIR/$output"
 done
 

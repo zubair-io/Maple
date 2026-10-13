@@ -11,17 +11,24 @@
  *     strategy?:     'auto' | 'rotation' | 'tile',   // only when strategySupported
  *     strategySupported: boolean,
  *     mapleCli:      string,                // resolved maple-cli path
- *     modelsDir:     string | null,
- *     ortDylibPath:  string | null,
+ *     featuresEngine: 'classical' | 'ml' | null, // null: binary predates the flag
+ *     modelsDir:     string | null,         // ML only
+ *     ortDylibPath:  string | null,         // ML only
+ *     alignmentIn?:  string | null,         // a done preview's alignment.json (#4580)
  *   }
  *
  * The handler:
  *   1. Resolves the absolute paths for the selected assets.
  *   2. Spawns `maple-cli pano stitch <inputs...> --out <output.png>
- *      --retention <r> --local-align <l> [--strategy <s>]` via Bun.spawn.
- *   3. Streams stderr lines; parses `pano: <stage>` prefix for coarse
- *      progress (≤ 6 stages; total is set to 6 at start).
- *   4. On exit 0: upserts the output PNG as a new asset in the library.
+ *      --report <report.json> --retention <r> --local-align <l>
+ *      [--features-engine <e>] [--strategy <s>] [--models-dir <d>]
+ *      [--alignment-in <a>]` via Bun.spawn. A null engine means a
+ *      pre-#4523 binary, which is ML-only and has no flag.
+ *   3. Streams stderr `pano: progress` lines into job progress
+ *      (`pano-cli-process.ts`).
+ *   4. On exit 0: upserts the output PNG as a new asset in the library and
+ *      records the report's alignment verdict — `reused` means the preview's
+ *      matching was not repeated.
  *   5. On non-zero exit or spawn error: fails the job with the last stderr
  *      content.
  *
@@ -29,24 +36,29 @@
  * pano_stitch job is already running); the handler itself is stateless.
  */
 
-import { mkdir, rename, rm, unlink } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { ObjectId } from '../../db/object-id.ts';
-import { loadAssetLocationViews } from '../../db/repos/assets.locations.repo.ts';
 import { upsertAssetByMapleId } from '../../db/repos/assets.upsert.ts';
 import { hashFileForId } from '../../indexer/id.ts';
-import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { child as childLogger } from '../../log.ts';
+import type { PanoMatcher } from '../../pano/pano-config.repo.ts';
+import { ownedPreviewDir, removePreviewDir, sweepStalePreviews } from '../../pano/pano-previews.ts';
 import type { JobHandler, JobHandlerContext, JobHandlerResult } from './index.ts';
+import {
+  cliFailure,
+  panoOptionArgs,
+  PROGRESS_PER_STAGE,
+  PROGRESS_TOTAL,
+  reportPath,
+  resolveInputPaths,
+  runPanoCli,
+} from './pano-cli-process.ts';
 
 const log = childLogger('job:pano-stitch');
 
-/** Coarse stage labels emitted by maple-cli on stderr (prefix `pano:`). */
-const PANO_STAGES = ['decoding', 'keypoints', 'graph', 'refine', 'solve', 'wrote'] as const;
-const TOTAL_STAGES = PANO_STAGES.length;
-
-interface PanoStitchPayload {
+export interface PanoStitchPayload {
   assetIds: string[];
   libraryId: string;
   outputDir: string;
@@ -55,79 +67,112 @@ interface PanoStitchPayload {
   strategy: 'auto' | 'rotation' | 'tile' | null;
   strategySupported: boolean;
   mapleCli: string;
+  featuresEngine: PanoMatcher | null;
+  /** Model paths handed to the subprocess; always null for a classical run. */
   modelsDir: string | null;
   ortDylibPath: string | null;
+  alignmentIn: string | null;
+}
+
+/** The report's `alignment` block; null from a binary that predates #4578. */
+export interface PanoAlignmentVerdict {
+  status: 'solved' | 'reused' | 'stale';
+  stale_reason: string | null;
 }
 
 interface PanoStitchResult {
   outputAssetId: string | null;
   outputPath: string;
   stagesCompleted: number;
+  alignment: PanoAlignmentVerdict | null;
   error: string | null;
 }
 
-function parsePayload(raw: Record<string, unknown>): PanoStitchPayload {
+/** An alignment file inside a preview directory this server handed out. */
+function parseAlignmentIn(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const dir = ownedPreviewDir(path.dirname(raw));
+  return dir === null ? null : path.join(dir, path.basename(raw));
+}
+
+export async function readAlignmentVerdict(
+  outputDir: string,
+): Promise<PanoAlignmentVerdict | null> {
+  const report = await readFile(reportPath(outputDir), 'utf8')
+    .then((text) => JSON.parse(text) as { alignment?: PanoAlignmentVerdict })
+    .catch(() => null);
+  return report?.alignment ?? null;
+}
+
+function optionalAbsolutePath(
+  raw: Record<string, unknown>,
+  key: 'modelsDir' | 'ortDylibPath',
+): string | null {
+  const value = raw[key];
+  if (typeof value !== 'string' || value.length === 0) return null;
+  if (value.startsWith('-') || !path.isAbsolute(value)) {
+    throw new Error(`pano_stitch: payload.${key} must be an absolute path and not start with "-"`);
+  }
+  return value;
+}
+
+function parseEngine(
+  featuresEngine: unknown,
+  modelsDir: string | null,
+  ortDylibPath: string | null,
+): Pick<PanoStitchPayload, 'featuresEngine' | 'modelsDir' | 'ortDylibPath'> {
+  if (featuresEngine === 'classical') {
+    return { featuresEngine, modelsDir: null, ortDylibPath: null };
+  }
+  const engine = featuresEngine === 'ml' ? featuresEngine : null;
+  if (engine === 'ml' && (modelsDir === null || ortDylibPath === null)) {
+    throw new Error('pano_stitch: the ML matcher needs both modelsDir and ortDylibPath');
+  }
+  return { featuresEngine: engine, modelsDir, ortDylibPath };
+}
+
+function requiredString(raw: Record<string, unknown>, key: string): string {
+  const value = raw[key];
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`pano_stitch: payload.${key} must be a non-empty string`);
+  }
+  return value;
+}
+
+function parseStrategy(raw: Record<string, unknown>): PanoStitchPayload['strategy'] {
+  const s = raw.strategySupported === true ? raw.strategy : null;
+  return s === 'auto' || s === 'rotation' || s === 'tile' ? s : null;
+}
+
+export function parsePayload(raw: Record<string, unknown>): PanoStitchPayload {
   const ids = raw.assetIds;
   if (!Array.isArray(ids) || ids.length < 2 || ids.some((x) => typeof x !== 'string')) {
     throw new Error('pano_stitch: payload.assetIds must be string[] of length ≥ 2');
   }
-  if (typeof raw.libraryId !== 'string' || raw.libraryId.length === 0) {
-    throw new Error('pano_stitch: payload.libraryId must be a non-empty string');
-  }
-  if (typeof raw.outputDir !== 'string' || raw.outputDir.length === 0) {
-    throw new Error('pano_stitch: payload.outputDir must be a non-empty string');
-  }
-  if (typeof raw.mapleCli !== 'string' || raw.mapleCli.length === 0) {
-    throw new Error('pano_stitch: payload.mapleCli must be a non-empty string');
-  }
-  if (raw.mapleCli.startsWith('-') || !path.isAbsolute(raw.mapleCli)) {
+  const libraryId = requiredString(raw, 'libraryId');
+  const outputDir = requiredString(raw, 'outputDir');
+  const mapleCli = requiredString(raw, 'mapleCli');
+  if (mapleCli.startsWith('-') || !path.isAbsolute(mapleCli)) {
     throw new Error(
       'pano_stitch: payload.mapleCli must be an absolute path and not start with "-"',
     );
   }
-  const retention = raw.retention === 'strict' ? 'strict' : 'keep';
-  const localAlign = raw.localAlign === 'off' ? 'off' : 'mesh';
-  const strategySupported = raw.strategySupported === true;
-  let strategy: PanoStitchPayload['strategy'] = null;
-  if (strategySupported && typeof raw.strategy === 'string') {
-    const s = raw.strategy;
-    if (s === 'auto' || s === 'rotation' || s === 'tile') strategy = s;
-  }
-  const modelsDir = typeof raw.modelsDir === 'string' ? raw.modelsDir : null;
-  if (modelsDir && (modelsDir.startsWith('-') || !path.isAbsolute(modelsDir))) {
-    throw new Error(
-      'pano_stitch: payload.modelsDir must be an absolute path and not start with "-"',
-    );
-  }
-  const ortDylibPath = typeof raw.ortDylibPath === 'string' ? raw.ortDylibPath : null;
-  if (ortDylibPath && (ortDylibPath.startsWith('-') || !path.isAbsolute(ortDylibPath))) {
-    throw new Error(
-      'pano_stitch: payload.ortDylibPath must be an absolute path and not start with "-"',
-    );
-  }
-
   return {
     assetIds: ids as string[],
-    libraryId: raw.libraryId as string,
-    outputDir: raw.outputDir as string,
-    retention,
-    localAlign,
-    strategy,
-    strategySupported,
-    mapleCli: raw.mapleCli as string,
-    modelsDir,
-    ortDylibPath,
+    libraryId,
+    outputDir,
+    retention: raw.retention === 'strict' ? 'strict' : 'keep',
+    localAlign: raw.localAlign === 'off' ? 'off' : 'mesh',
+    strategy: parseStrategy(raw),
+    strategySupported: raw.strategySupported === true,
+    mapleCli,
+    ...parseEngine(
+      raw.featuresEngine,
+      optionalAbsolutePath(raw, 'modelsDir'),
+      optionalAbsolutePath(raw, 'ortDylibPath'),
+    ),
+    alignmentIn: parseAlignmentIn(raw.alignmentIn),
   };
-}
-
-/** Parse a `pano: <stage>` line to a 1-based stage index (1..TOTAL_STAGES),
- * or 0 when the line doesn't match any known stage. */
-function parseStage(line: string): number {
-  if (!line.startsWith('pano:')) return 0;
-  for (let i = 0; i < PANO_STAGES.length; i++) {
-    if (line.includes(PANO_STAGES[i])) return i + 1;
-  }
-  return 0;
 }
 
 export const panoStitchHandler: JobHandler = {
@@ -143,137 +188,32 @@ export const panoStitchHandler: JobHandler = {
     // leaves the source temp PNG behind — that is handled below.
 
     try {
-      // ── 1. Resolve asset paths ────────────────────────────────────────────
-      const libs = await loadLibraryRoots();
-      const inputPaths: string[] = [];
-
-      const objectIds: ObjectId[] = [];
-      for (const idHex of payload.assetIds) {
-        if (!ObjectId.isValid(idHex)) {
-          throw new Error(`pano_stitch: invalid asset id: ${idHex}`);
-        }
-        objectIds.push(new ObjectId(idHex));
-      }
-
-      const viewsById = await loadAssetLocationViews(objectIds);
-
-      for (const id of objectIds) {
-        const idHex = id.toHexString();
-        const view = viewsById.get(idHex);
-        if (!view) throw new Error(`pano_stitch: asset not found: ${idHex}`);
-        const p = assetAbsPath(view, libs);
-        if (!p) throw new Error(`pano_stitch: asset has no resolvable path: ${idHex}`);
-        inputPaths.push(p);
-      }
-
-      // Sort by filename (capture order) as the CLI expects.
-      inputPaths.sort();
-
-      await ctx.reportProgress(0, TOTAL_STAGES);
+      const inputPaths = await resolveInputPaths(payload.assetIds);
+      await ctx.reportProgress(0, PROGRESS_TOTAL);
 
       const outputPng = path.join(payload.outputDir, 'pano.png');
-
-      // ── 2. Build CLI args ─────────────────────────────────────────────────
-      const args: string[] = [
+      const args = [
         'pano',
         'stitch',
         '--out',
         outputPng,
-        '--retention',
-        payload.retention,
-        '--local-align',
-        payload.localAlign,
+        '--report',
+        reportPath(payload.outputDir),
+        ...panoOptionArgs(payload),
+        ...(payload.alignmentIn ? ['--alignment-in', payload.alignmentIn] : []),
+        '--',
+        ...inputPaths,
       ];
-      if (payload.strategySupported && payload.strategy) {
-        args.push('--strategy', payload.strategy);
-      }
-      if (payload.modelsDir) {
-        args.push('--models-dir', payload.modelsDir);
-      }
-
-      args.push('--', ...inputPaths);
-
-      // ── 3. Spawn maple-cli ────────────────────────────────────────────────
-      const env: Record<string, string> = {
-        ...(process.env as Record<string, string>),
-      };
-      if (payload.modelsDir) env.MAPLE_PANO_MODELS = payload.modelsDir;
-      if (payload.ortDylibPath) env.ORT_DYLIB_PATH = payload.ortDylibPath;
-
       log.info({ cmd: payload.mapleCli, args }, 'spawning maple-cli pano stitch');
+      const run = await runPanoCli(payload, args, ctx);
+      const stagesCompleted = Math.floor(run.progress / PROGRESS_PER_STAGE);
 
-      const proc = Bun.spawn([payload.mapleCli, ...args], {
-        env,
-        stdout: 'pipe',
-        stderr: 'pipe',
-      });
-
-      let stagesCompleted = 0;
-      const stderrLines: string[] = [];
-
-      // Drain stderr line-by-line; parse stage progress.
-      const stderrDrain = (async () => {
-        const reader = proc.stderr!.getReader();
-        const decoder = new TextDecoder();
-        let buf = '';
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          const lines = buf.split('\n');
-          buf = lines.pop() ?? '';
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (trimmed.length > 0) stderrLines.push(trimmed);
-            const stage = parseStage(trimmed);
-            if (stage > stagesCompleted) {
-              stagesCompleted = stage;
-              await ctx.reportProgress(stagesCompleted, TOTAL_STAGES).catch(() => {});
-            }
-          }
-        }
-        if (buf.trim().length > 0) stderrLines.push(buf.trim());
-      })();
-
-      // Drain stdout to prevent backpressure; we don't use it.
-      const stdoutDrain = (async () => {
-        const reader = proc.stdout!.getReader();
-        while (true) {
-          const { done } = await reader.read();
-          if (done) break;
-        }
-      })();
-
-      // Poll for cancellation while the process runs.
-      // Race the 3s sleep against proc.exited so the poll loop wakes promptly
-      // when the process exits — instead of always sleeping a full 3s after exit.
-      const cancelPoll = (async () => {
-        while (true) {
-          // Race: either the 3s poll interval expires OR the process exits,
-          // whichever comes first. This eliminates the fixed 3s tail latency
-          // that the old `await Bun.sleep(3_000)` unconditionally added after
-          // process exit.
-          const raceResult = await Promise.race([
-            Bun.sleep(3_000).then(() => 'tick' as const),
-            proc.exited.then(() => 'exited' as const).catch(() => 'exited' as const),
-          ]);
-          if (raceResult === 'exited') return;
-          if (await ctx.shouldCancel()) {
-            proc.kill('SIGTERM');
-            return;
-          }
-        }
-      })();
-
-      // Wait for process + drains.
-      const exitCode = await proc.exited;
-      await Promise.all([stderrDrain, stdoutDrain, cancelPoll]);
-
-      if (await ctx.shouldCancel()) {
+      if (run.cancelled) {
         const result: PanoStitchResult = {
           outputAssetId: null,
           outputPath: outputPng,
           stagesCompleted,
+          alignment: null,
           error: 'cancelled',
         };
         return {
@@ -282,18 +222,22 @@ export const panoStitchHandler: JobHandler = {
         };
       }
 
-      if (exitCode !== 0) {
-        const lastLines = stderrLines.slice(-10).join('\n');
-        const errMsg = `maple-cli exited ${exitCode}${lastLines ? `:\n${lastLines}` : ''}`;
-        log.error({ exitCode, stderrLines: stderrLines.slice(-5) }, 'pano stitch failed');
-        throw new Error(errMsg);
+      if (run.exitCode !== 0) {
+        log.error(
+          { exitCode: run.exitCode, stderrLines: run.stderrLines.slice(-5) },
+          'pano stitch failed',
+        );
+        throw cliFailure(run);
       }
 
+      const alignment = await readAlignmentVerdict(payload.outputDir);
+      log.info({ alignment, alignmentIn: payload.alignmentIn }, 'pano stitch alignment');
+
       // ── 4. Import result PNG into the library ─────────────────────────────
-      await ctx.reportProgress(TOTAL_STAGES, TOTAL_STAGES);
+      await ctx.reportProgress(PROGRESS_TOTAL, PROGRESS_TOTAL);
 
       const libId = new ObjectId(payload.libraryId);
-      const libPath = libs.get(payload.libraryId);
+      const libPath = (await loadLibraryRoots()).get(payload.libraryId);
       if (!libPath) throw new Error(`pano_stitch: library ${payload.libraryId} not found`);
 
       // Place the result in .maple/panos/<jobId hex>.png under the library root.
@@ -348,8 +292,10 @@ export const panoStitchHandler: JobHandler = {
         outputAssetId,
         outputPath: destAbs,
         stagesCompleted,
+        alignment,
         error: null,
       };
+      if (payload.alignmentIn) await removePreviewDir(path.dirname(payload.alignmentIn));
       return {
         kind: 'done',
         result: result as unknown as Record<string, unknown>,
@@ -365,6 +311,7 @@ export const panoStitchHandler: JobHandler = {
           'pano_stitch: failed to remove temp dir',
         );
       });
+      await sweepStalePreviews();
     }
   },
 };

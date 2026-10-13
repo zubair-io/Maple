@@ -19,7 +19,10 @@
 //!    inlier matches that graph reverification places on the edges. Since
 //!    the tile strategy operates purely in pixel space (not bearing space),
 //!    `sigma_max_px` in pixel units is the relevant noise model — no
-//!    angular conversion needed.
+//!    angular conversion needed. Over relief every depth band moves by its
+//!    own amount, so [`verify_tile_edges`] keeps several band hypotheses
+//!    per edge and picks the one the rest of the graph agrees on, dropping
+//!    edges that still contradict it (#4553, `edge_consensus.rs`).
 //!
 //! 2. **Global anchored least squares.** The per-edge similarities give
 //!    pairwise offsets; [`solve_tile_poses`] converts these into absolute
@@ -63,6 +66,7 @@
 //! | File            | Contents                                          |
 //! | --------------- | ------------------------------------------------- |
 //! | `placement.rs`  | Anchored LS pose solve, canvas spec, canvas cap   |
+//! | `edge_consensus.rs` | Per-edge band hypotheses + graph-consistent choice (#4553) |
 //! | `warp.rs`       | Inverse-similarity bicubic warps                  |
 //! | `composite.rs`  | Tiled multiband composite (#1291/#3086)           |
 //! | `masks.rs`      | Voronoi ownership masks + overlap estimation      |
@@ -76,6 +80,7 @@ pub mod placement;
 pub mod warp;
 
 mod composite;
+mod edge_consensus;
 mod exposure_field;
 pub(crate) mod frame_cache;
 mod frame_window;
@@ -91,15 +96,19 @@ mod composite_tests;
 #[path = "photometry_tests.rs"]
 mod photometry_tests;
 
+#[cfg(test)]
+#[path = "vignette_tests.rs"]
+mod vignette_tests;
+
 pub(crate) use composite::composite_tile;
 pub use composite::TileCompositeReport;
+pub use edge_consensus::verify_tile_edges;
 pub use placement::{
     apply_canvas_cap, solve_tile_poses, TileCanvasSpec, TilePlacement, TilePlacementError, TilePose,
 };
 pub use warp::warp_to_tile_canvas;
 
-use crate::graph::MatchGraph;
-use crate::similarity::{estimate_similarity, SimilarityEstimate, SimilarityOptions};
+use crate::similarity::SimilarityEstimate;
 use crate::twoview::PixelCorrespondence;
 
 /// Spatial unit size (canvas pixels per side), shared by `composite.rs`'s
@@ -119,46 +128,4 @@ pub struct TileEdge {
     pub estimate: SimilarityEstimate,
     /// Inlier matches (index-filtered from the graph edge).
     pub inlier_matches: Vec<PixelCorrespondence>,
-}
-
-/// Verify every edge in `graph` with the similarity model.
-///
-/// Uses the graph's existing inlier matches (from rotation verification
-/// and full-res refinement) as the correspondence pool. A pair that
-/// passes the rotation verifier typically has rich overlap even if the
-/// rotation model badly fits it — the similarity verifier just fits a
-/// different model to the same matches.
-///
-/// `seed`: base PRNG seed for the RANSAC (mixed with pair index for
-/// independence, mirroring `graph.rs`'s `pair_seed`).
-pub fn verify_tile_edges(graph: &MatchGraph, seed: u64, opts: &SimilarityOptions) -> Vec<TileEdge> {
-    use crate::prng::SplitMix64;
-
-    graph
-        .edges
-        .iter()
-        .filter_map(|edge| {
-            let pair_seed =
-                SplitMix64::new(seed ^ ((edge.a as u64) << 32) ^ edge.b as u64).next_u64();
-            let mut rng = SplitMix64::new(pair_seed);
-            match estimate_similarity(&edge.inlier_matches, opts, &mut rng) {
-                Ok(est) => {
-                    let inlier_matches: Vec<PixelCorrespondence> = edge
-                        .inlier_matches
-                        .iter()
-                        .zip(&est.inlier_mask)
-                        .filter(|(_, &keep)| keep)
-                        .map(|(&m, _)| m)
-                        .collect();
-                    Some(TileEdge {
-                        a: edge.a,
-                        b: edge.b,
-                        estimate: est,
-                        inlier_matches,
-                    })
-                }
-                Err(_) => None,
-            }
-        })
-        .collect()
 }

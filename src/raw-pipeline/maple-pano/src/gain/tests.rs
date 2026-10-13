@@ -4,6 +4,40 @@ use crate::math::Vec3;
 use crate::prng::SplitMix64;
 use crate::render::{build_camera_set, CameraSetOptions, Pattern};
 
+fn solve_gains(
+    frames: &[PlanarImage],
+    cameras: &[Camera],
+    opts: &GainOptions,
+) -> Result<Vec<[f32; 3]>, PanoError> {
+    Ok(solve_photometry(
+        frames,
+        cameras,
+        &LensGroups::ingest_corrected(frames.len()),
+        opts,
+    )?
+    .frames
+    .iter()
+    .map(|p| p.gain)
+    .collect())
+}
+
+fn solve_gains_streaming(
+    paths: &[std::path::PathBuf],
+    cameras: &[Camera],
+    opts: &GainOptions,
+) -> Result<Vec<[f32; 3]>, PanoError> {
+    Ok(solve_photometry_streaming(
+        paths,
+        cameras,
+        &LensGroups::ingest_corrected(paths.len()),
+        opts,
+    )?
+    .frames
+    .iter()
+    .map(|p| p.gain)
+    .collect())
+}
+
 // ─── Streaming gain test helpers ──────────────────────────────────────────────
 
 // Mirrors `src/bin/pano-gen-fixture/dng.rs` for the round-trip
@@ -170,7 +204,7 @@ fn planar_to_dng_bytes(img: &crate::ingest::PlanarImage, focal_35mm: u16) -> Vec
 }
 
 /// Write frames to temp files and return the paths.
-fn frames_to_tmpdir(
+pub(super) fn frames_to_tmpdir(
     frames: &[PlanarImage],
     cams: &[Camera],
 ) -> (std::path::PathBuf, Vec<std::path::PathBuf>) {
@@ -200,7 +234,7 @@ fn frames_to_tmpdir(
 }
 
 /// Smooth deterministic scene function of world direction.
-fn scene(dir: Vec3) -> [f32; 3] {
+pub(super) fn scene(dir: Vec3) -> [f32; 3] {
     let base = 0.45 + 0.2 * (3.0 * dir.x + 1.0).sin() + 0.15 * (2.0 * dir.y - 0.5).cos();
     [
         base as f32,
@@ -210,7 +244,7 @@ fn scene(dir: Vec3) -> [f32; 3] {
 }
 
 /// Render a frame of the scene function through a camera.
-fn frame_from_scene(cam: &Camera, mul: [f32; 3]) -> PlanarImage {
+pub(super) fn frame_from_scene(cam: &Camera, mul: [f32; 3]) -> PlanarImage {
     let (w, h) = (cam.width, cam.height);
     let n = (w as usize) * (h as usize);
     let (mut r, mut g, mut b) = (vec![0.0; n], vec![0.0; n], vec![0.0; n]);
@@ -229,7 +263,7 @@ fn frame_from_scene(cam: &Camera, mul: [f32; 3]) -> PlanarImage {
     PlanarImage::from_planes(w, h, r, g, b, ValidityMask::new_filled(w, h, true))
 }
 
-fn ring_cameras(count: u32, fov: f64, overlap: f64) -> Vec<Camera> {
+pub(super) fn ring_cameras(count: u32, fov: f64, overlap: f64) -> Vec<Camera> {
     let opts = CameraSetOptions {
         count,
         pattern: Pattern::Ring { full: false },
@@ -249,7 +283,7 @@ fn ring_cameras(count: u32, fov: f64, overlap: f64) -> Vec<Camera> {
         .collect()
 }
 
-fn geometric_mean(g: &[[f32; 3]], c: usize) -> f64 {
+pub(super) fn geometric_mean(g: &[[f32; 3]], c: usize) -> f64 {
     let s: f64 = g.iter().map(|v| (v[c] as f64).ln()).sum();
     (s / g.len() as f64).exp()
 }
@@ -362,7 +396,7 @@ fn input_validation() {
     let wrong = Camera::new([0.0; 3], 90.0, 0.0, 0.0, 32, 24);
     assert!(solve_gains(&[frame.clone()], &[wrong], &GainOptions::default()).is_err());
     let bad = GainOptions {
-        sigma_n: 0.0,
+        sample_stride: 0,
         ..GainOptions::default()
     };
     assert!(solve_gains(&[frame], &[cam], &bad).is_err());
@@ -382,52 +416,9 @@ fn solve_dense_matches_known_system() {
     assert!(solve_dense(s, vec![1.0, 2.0]).is_none());
 }
 
-/// Gauge normalization divides by the count of POSITIVE gains only.
-///
-/// If any frame's solved gain is ≤ 0, the old code divided the log-sum
-/// by `x.len()` (the full count), biasing `log_mean` low. This test
-/// verifies the normalization produces geometric mean = 1.0 over the
-/// POSITIVE entries even when a non-positive gain appears.
-///
-/// Key example: x = [4.0, 0.5, -0.1].
-///   Positive subset {4.0, 0.5}: geomean = sqrt(2).
-///   Correct log_mean  = (ln4 + ln0.5) / 2 = (ln4 - ln2) / 2 = ln(2)/2.
-///   norm              = exp(-ln(2)/2) = 1/sqrt(2).
-///   Normalised gains  = [4/sqrt(2), 0.5/sqrt(2)] = [2√2, √2/2].
-///   Their geomean     = sqrt(2√2 · √2/2) = sqrt(2) * 1/sqrt(2) = 1.0. ✓
-///
-///   Buggy (divide by 3): log_mean = ln(2)/3, norm = 2^(-1/3).
-///   Normalised gains  = [4·2^(-1/3), 0.5·2^(-1/3)].
-///   Their geomean     = sqrt(2) · 2^(-1/3) ≠ 1.0. ✗
+/// The solved gains are gauged to geometric mean 1.
 #[test]
-fn gauge_normalization_divides_by_positive_count() {
-    let x: Vec<f64> = vec![4.0, 0.5, -0.1];
-    // Correct computation using the fixed divisor.
-    let positive_lns: Vec<f64> = x.iter().filter(|&&g| g > 0.0).map(|&g| g.ln()).collect();
-    assert_eq!(positive_lns.len(), 2);
-    let log_mean_correct = positive_lns.iter().sum::<f64>() / positive_lns.len() as f64;
-    let norm = (-log_mean_correct).exp();
-
-    // After normalization, geomean of positive entries = 1.0.
-    let normalised: Vec<f64> = x.iter().filter(|&&g| g > 0.0).map(|&g| g * norm).collect();
-    let geomean_after =
-        (normalised.iter().map(|g| g.ln()).sum::<f64>() / normalised.len() as f64).exp();
-    assert!(
-        (geomean_after - 1.0).abs() < 1e-12,
-        "geomean of normalised positive gains must be 1.0, got {geomean_after}"
-    );
-
-    // Confirm the buggy divisor gives a DIFFERENT (wrong) result.
-    let log_mean_buggy = positive_lns.iter().sum::<f64>() / x.len() as f64;
-    // x.len()=3 ≠ positive_lns.len()=2, so the means differ.
-    assert!(
-        (log_mean_correct - log_mean_buggy).abs() > 1e-9,
-        "the fix must change log_mean: correct={log_mean_correct:.6} buggy={log_mean_buggy:.6}"
-    );
-
-    // Full end-to-end: solve_gains on overlapping frames should produce
-    // geomean ≈ 1.0 when all solver outputs are positive (regression
-    // guard: the fix must not change behaviour on the normal case).
+fn gains_are_gauged_to_unit_geometric_mean() {
     let cams = ring_cameras(3, 60.0, 0.4);
     let muls = [1.5_f32, 1.0, 0.8];
     let frames: Vec<_> = cams
@@ -436,13 +427,7 @@ fn gauge_normalization_divides_by_positive_count() {
         .map(|(c, m)| frame_from_scene(c, [m; 3]))
         .collect();
     let gains = solve_gains(&frames, &cams, &GainOptions::default()).unwrap();
-    let positive_count = gains.iter().filter(|g| g[0] > 0.0).count();
-    let ln_sum: f64 = gains
-        .iter()
-        .filter(|g| g[0] > 0.0)
-        .map(|g| (g[0] as f64).ln())
-        .sum();
-    let geomean = (ln_sum / positive_count as f64).exp();
+    let geomean = geometric_mean(&gains, 0);
     assert!(
         (geomean - 1.0).abs() < 1e-4,
         "geomean of solved gains should be ≈1.0, got {geomean}"
@@ -490,8 +475,12 @@ fn streaming_unity_input_solves_to_one() {
 #[test]
 fn streaming_plus_minus_one_ev_recovered() {
     let cams = ring_cameras(3, 60.0, 0.45);
-    // 2× / 1× / 0.5× — large contrast to survive DNG quantization noise.
-    let muls = [2.0_f32, 1.0, 0.5];
+    // 1× / 0.5× / 0.25× — two stops of contrast to survive DNG quantization
+    // noise, with the brightest frame below white: the scene peaks near 0.8,
+    // and a clipped frame's overlap is excluded from the photometry (#4517),
+    // all the more since #4582 treats ripple beside a clipped channel as
+    // clipped, so a 2× frame would carry no exposure evidence at all.
+    let muls = [1.0_f32, 0.5, 0.25];
     let frames: Vec<_> = cams
         .iter()
         .zip(muls)

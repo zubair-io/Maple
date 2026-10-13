@@ -16,7 +16,7 @@
 //! and rebuilds the graph a second time — [`rebuild_graph_with_focal`]
 //! reuses the first pass's cached LightGlue correspondences rather than
 //! re-running ONNX inference, the same cache-reuse pattern
-//! [`super::tile_stitch::run_tile_branch`] uses for its unit-focal
+//! [`super::tile_stitch::build_tile_graph`] uses for its unit-focal
 //! rebuild. `< 1` verified pair on the bootstrap graph is the hard-error
 //! floor (spec §5.3: "hard error only when neither is computable").
 
@@ -25,11 +25,8 @@ use std::collections::HashMap;
 
 use crate::ba;
 use crate::camera::{focal_px_for_hfov, Camera};
-use crate::graph::{
-    build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage, MatchGraph,
-};
+use crate::graph::{GraphImage, LoopClosureGate, MatchGraph};
 use crate::ingest::{FrameMeta, FramePriors};
-use crate::robust::RobustOptions;
 use crate::twoview::PixelCorrespondence;
 
 /// Where the shared camera focal seed came from — surfaced in the
@@ -168,17 +165,15 @@ pub(super) fn refine_from_homography(
 pub(super) fn rebuild_graph_with_focal(
     proxy_images: &[GraphImage],
     cache: &HashMap<(usize, usize), Vec<PixelCorrespondence>>,
+    grid: Option<&LoopClosureGate<'_>>,
     mut fetch: impl FnMut(usize, usize) -> Vec<PixelCorrespondence>,
 ) -> MatchGraph {
-    build_match_graph(
-        proxy_images,
-        &[&CaptureOrderProvider, &GimbalPriorProvider::default()],
-        |a, b| match cache.get(&(a, b)) {
+    super::graph_build::build_stitch_graph(proxy_images, grid, None, |a, b| {
+        match cache.get(&(a, b)) {
             Some(cached) => cached.clone(),
             None => fetch(a, b),
-        },
-        &RobustOptions::default(),
-    )
+        }
+    })
 }
 
 /// Full homography-fallback refinement, in place — the single call
@@ -204,6 +199,7 @@ pub(super) fn refine_if_needed(
     full_images: &mut Vec<GraphImage>,
     proxy_images: &mut Vec<GraphImage>,
     raw_matches_cache: &mut Vec<((usize, usize), Vec<PixelCorrespondence>)>,
+    grid: Option<&LoopClosureGate<'_>>,
     mut fetch: impl FnMut(usize, usize) -> Result<Vec<PixelCorrespondence>, String>,
 ) -> Result<(), StitchError> {
     if focal_seed.source != FocalSeedSource::HomographyFallback {
@@ -225,7 +221,7 @@ pub(super) fn refine_if_needed(
         std::mem::take(raw_matches_cache).into_iter().collect();
     let mut newly_fetched: Vec<((usize, usize), Vec<PixelCorrespondence>)> = Vec::new();
     let mut failures: Vec<String> = Vec::new();
-    *graph = rebuild_graph_with_focal(proxy_images, &cache, |a, b| match fetch(a, b) {
+    *graph = rebuild_graph_with_focal(proxy_images, &cache, grid, |a, b| match fetch(a, b) {
         Ok(corrs) => {
             newly_fetched.push(((a, b), corrs.clone()));
             corrs

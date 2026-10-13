@@ -152,7 +152,7 @@
               Button("Paste Settings…", systemImage: "doc.on.clipboard", action: onPasteSettings)
                 .disabled(!canTransferSettings || !canPasteSettings)
             }
-            if FeatureFlags.isPanoramaEnabled, let onMergePanorama {
+            if let onMergePanorama {
               Button("Merge to Panorama…", systemImage: "photo.stack", action: onMergePanorama)
                 .disabled(!vm.canMergePanorama || !canExport)
             }

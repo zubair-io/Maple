@@ -11,19 +11,11 @@
 
 use std::path::PathBuf;
 
-use crate::features::{AlikedDetector, DetectorOptions, LinearRgbFrame};
-use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
-use crate::graph::{
-    build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
-    MatchGraph,
-};
+use crate::graph::{DescriptorTopKProvider, LoopClosureCheck, LoopClosureGate, MatchGraph};
 use crate::ingest::{ingest_file_proxy, FrameMeta, FramePriors};
-use crate::matching::{LightGlueMatcher, MatcherOptions};
-use crate::models::ModelDir;
-use crate::robust::RobustOptions;
-use crate::stitch::interleave_planar;
 use crate::strategy::StrategyReport;
 
+use super::engine::extract_features;
 use super::tile_stitch::{tile_tail, TileEarlyState};
 use super::types::{StitchError, StitchOptions, TileStitchOutcome};
 
@@ -61,6 +53,7 @@ pub fn stitch_tile(
     if inputs.len() < 2 {
         return Err(StitchError::TooFewFrames(inputs.len()));
     }
+    super::graph_build::validate_grid(opts, inputs.len())?;
 
     // ── stage 0: decode + priors ──────────────────────────────────────────
     // #3197 (carrying forward #3090's stage-0 shape): `ingest_file_proxy`
@@ -102,52 +95,12 @@ pub fn stitch_tile(
         return Err(StitchError::Cancelled);
     }
 
-    let models = ModelDir::resolve(opts.models_dir.as_deref())
-        .map_err(|e| StitchError::MlUnavailable(e.to_string()))?;
-    let mut detector = AlikedDetector::load(
-        &models,
-        DetectorOptions {
-            use_coreml: opts.use_coreml,
-            ..DetectorOptions::default()
-        },
-    )
-    .map_err(|e| StitchError::MlUnavailable(format!("ALIKED load failed: {e}")))?;
-    let mut matcher = LightGlueMatcher::load(
-        &models,
-        MatcherOptions {
-            use_coreml: opts.use_coreml,
-            ..MatcherOptions::default()
-        },
-    )
-    .map_err(|e| StitchError::MlUnavailable(format!("LightGlue load failed: {e}")))?;
-
-    let mut feature_sets = Vec::with_capacity(metas.len());
-    // Proxy was already computed in stage 0; re-use it directly (same as
-    // `stitch::stitch`'s stage 1 — see #3090/#3197 note on stage 0 above).
+    let (feature_sets, mut pair_matcher) =
+        extract_features(&metas, opts, &mut progress, &is_cancelled)?;
     let proxy_dims: Vec<(u32, u32)> = metas
         .iter()
         .map(|m| (m.proxy.width(), m.proxy.height()))
         .collect();
-
-    for (i, meta) in metas.iter().enumerate() {
-        if is_cancelled() {
-            return Err(StitchError::Cancelled);
-        }
-        let rgb = interleave_planar(&meta.proxy);
-        let lin =
-            LinearRgbFrame::new(meta.proxy.width(), meta.proxy.height(), rgb).map_err(|e| {
-                StitchError::Feature {
-                    frame_idx: i,
-                    cause: e.to_string(),
-                }
-            })?;
-        let fs = detector.detect(&lin).map_err(|e| StitchError::Feature {
-            frame_idx: i,
-            cause: format!("detect: {e}"),
-        })?;
-        feature_sets.push(fs);
-        progress(1, (i + 1) as f32 / metas.len() as f32);
-    }
     let features_s = t1.elapsed().as_secs_f64();
 
     // Build proxy-resolution camera seeds with unit focal (1.0). The tile
@@ -180,21 +133,23 @@ pub fn stitch_tile(
     // input (film scans, nadir strips) — exactly this entry point's own
     // motivating scenario.
     let descriptor_topk = DescriptorTopKProvider::new(&feature_sets);
-    let graph: MatchGraph = build_match_graph(
+    let ground = super::graph_build::ground_footprints(&priors, &full_dims);
+    let planar_gate = opts.grid.map(|layout| LoopClosureGate {
+        layout,
+        check: LoopClosureCheck::Planar,
+        ground: &ground,
+    });
+    let graph: MatchGraph = super::graph_build::build_stitch_graph(
         &proxy_images,
-        &[
-            &CaptureOrderProvider,
-            &GimbalPriorProvider::default(),
-            &descriptor_topk,
-        ],
-        |a, b| match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
-            Ok(ml_matches) => ml_matches_to_correspondences(&ml_matches, DEFAULT_MIN_SCORE),
+        planar_gate.as_ref(),
+        Some(&descriptor_topk),
+        |a, b| match pair_matcher.match_pair(&feature_sets[a], &feature_sets[b]) {
+            Ok(corrs) => corrs,
             Err(e) => {
                 match_failures.push(format!("pair ({a},{b}): {e}"));
                 Vec::new()
             }
         },
-        &RobustOptions::default(),
     );
     if !match_failures.is_empty() {
         return Err(StitchError::MatchFailed(match_failures));
@@ -207,7 +162,6 @@ pub fn stitch_tile(
         TileEarlyState {
             full_dims,
             proxy_dims,
-            _feature_sets: feature_sets,
             graph,
             strategy_report,
             // This standalone entry point never resolves EXIF/homography
@@ -216,6 +170,7 @@ pub fn stitch_tile(
             focal_seed_source: None,
             stage_timings_012: [decode_s, features_s, graph_s],
             inputs,
+            lenses: crate::gain::LensGroups::from_metas(&metas),
         },
         opts,
         applied_opcodes,

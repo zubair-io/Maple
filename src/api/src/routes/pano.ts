@@ -11,15 +11,23 @@
  *
  * Provisioning: when pano is not provisioned (enabled=false or no binary
  * path), POST returns 409 { error: 'pano_not_provisioned', message: '...' }.
+ * How the matcher is chosen, and the 409s for an ML matcher without its paths
+ * (`pano_ml_not_provisioned`) or a pre-#4523 binary that can only run ML
+ * (`pano_cli_outdated`), is `pano/pano-engine.ts`.
  *
  * Concurrency: one pano_stitch job may run at a time (they are heavy:
  * ~6 min, tens of GB RSS). POST returns 409 { error: 'pano_job_running' }
  * when a running job exists.
  *
- * --strategy conditional: the config response includes `strategySupported`.
- * The UI hides the strategy control when false. The flag is probed by running
- * `maple-cli pano stitch --help` and checking for `--strategy` in the output;
- * result is cached for the process lifetime.
+ * Optional flags: `--strategy`, `--features-engine` and the preview flags are
+ * probed from `maple-cli pano stitch --help` (`pano/pano-cli-probe.ts`) and
+ * reported as `strategy_supported` / `features_engine_supported` /
+ * `preview_supported` on the config response.
+ *
+ * Quick preview (#4580): `routes/pano-preview.ts`. A stitch body may name a
+ * done preview job in `alignmentFrom`; its solved alignment is handed to the
+ * CLI so matching is not repeated. Preview and stitch get the same plan from
+ * `planStitch`, so both run the same matcher.
  */
 
 import { Elysia, t } from 'elysia';
@@ -34,8 +42,12 @@ import {
   loadPanoConfig,
   resolvePanoConfig,
   savePanoConfig,
+  type PanoConfigResolution,
 } from '../pano/pano-config.repo.ts';
+import { invalidatePanoCliProbe, probePanoCli } from '../pano/pano-cli-probe.ts';
+import { planPanoEngine } from '../pano/pano-engine.ts';
 import { createJob, getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
+import { ownedPreviewDir, PREVIEW_FILES } from '../pano/pano-previews.ts';
 import type { JobWithId } from '../db/schema.ts';
 import {
   findAssetLocationsByFilenames,
@@ -45,47 +57,6 @@ import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { isUnderRoot } from '../fs/browse.ts';
 
 const log = childLogger('pano:routes');
-
-// ── strategy probe cache (process-scoped) ─────────────────────────────────────
-let _strategyProbeResult: boolean | null = null;
-let _strategyProbedPath: string | null = null;
-
-async function probeStrategySupported(cliPath: string): Promise<boolean> {
-  if (_strategyProbedPath === cliPath && _strategyProbeResult !== null) {
-    return _strategyProbeResult;
-  }
-  // Security: only allow absolute paths that don't look like flags.
-  if (cliPath.startsWith('-') || !path.isAbsolute(cliPath)) {
-    log.warn({ cliPath }, 'pano: refusing to probe non-absolute or hyphen-prefixed cliPath');
-    // Cache the rejection so repeated calls with the same invalid path skip
-    // the check rather than re-running (and re-emitting) the warning.
-    _strategyProbeResult = false;
-    _strategyProbedPath = cliPath;
-    return false;
-  }
-  try {
-    const proc = Bun.spawn([cliPath, 'pano', 'stitch', '--help'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    // Collect both stdout AND stderr: clap may print help to either depending
-    // on the version. Match the exact flag token `--strategy` to avoid a
-    // false positive from help text that merely contains the word "strategy".
-    const [out, err] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    const supported = out.includes('--strategy') || err.includes('--strategy');
-    _strategyProbeResult = supported;
-    _strategyProbedPath = cliPath;
-    return supported;
-  } catch {
-    _strategyProbeResult = false;
-    _strategyProbedPath = cliPath;
-    return false;
-  }
-}
 
 // ── body / query schemas ──────────────────────────────────────────────────────
 
@@ -97,7 +68,7 @@ async function probeStrategySupported(cliPath: string): Promise<boolean> {
 // fresh path. The route resolves paths → ids and unions them with the supplied
 // ids. Both are optional here; the ≥2-distinct-inputs invariant is validated in
 // the handler.
-const StitchBody = t.Object({
+export const StitchBody = t.Object({
   assetIds: t.Optional(t.Array(t.String())),
   assetPaths: t.Optional(t.Array(t.String())),
   libraryId: t.String(),
@@ -106,14 +77,30 @@ const StitchBody = t.Object({
     localAlign: t.Union([t.Literal('mesh'), t.Literal('off')]),
     strategy: t.Optional(t.Union([t.Literal('auto'), t.Literal('rotation'), t.Literal('tile')])),
   }),
+  alignmentFrom: t.Optional(t.String()),
 });
+
+export type StitchRequest = typeof StitchBody.static;
 
 const ConfigBody = t.Object({
   maple_cli_path: t.Optional(t.Union([t.String(), t.Null()])),
   models_dir: t.Optional(t.Union([t.String(), t.Null()])),
   ort_dylib_path: t.Optional(t.Union([t.String(), t.Null()])),
   enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
+  matcher: t.Optional(t.Union([t.Literal('classical'), t.Literal('ml'), t.Null()])),
 });
+
+async function withProbedFlags(cfg: PanoConfigResolution) {
+  const capabilities = cfg.maple_cli_path
+    ? await probePanoCli(cfg.maple_cli_path)
+    : { strategy: false, featuresEngine: false, preview: false };
+  return {
+    ...cfg,
+    strategy_supported: capabilities.strategy,
+    features_engine_supported: capabilities.featuresEngine,
+    preview_supported: capabilities.preview,
+  };
+}
 
 // ── view helpers ─────────────────────────────────────────────────────────────
 
@@ -128,6 +115,8 @@ interface JobView {
   created_at: string;
   updated_at: string;
 }
+
+const PANO_JOB_KINDS: ReadonlySet<string> = new Set(['pano_stitch', 'pano_preview']);
 
 function projectJob(doc: JobWithId): JobView {
   return {
@@ -318,6 +307,154 @@ async function resolveAssetPaths(
   return { resolvedIds, indexedCount };
 }
 
+const NOT_PROVISIONED = {
+  error: 'pano_not_provisioned',
+  message:
+    'Panorama stitching is not configured. Go to Settings > Pano to set the ' +
+    'maple-cli path and enable the feature.',
+} as const;
+
+/**
+ * Provisioning, the binary's capabilities and the matcher, shared by the
+ * stitch and preview routes — or the 409 body to refuse with.
+ */
+export async function planStitch() {
+  const cfg = resolvePanoConfig(await loadPanoConfig());
+  if (!isPanoProvisioned(cfg)) return { refusal: NOT_PROVISIONED };
+  const mapleCli = cfg.maple_cli_path!;
+  const capabilities = await probePanoCli(mapleCli);
+  const plan = planPanoEngine(cfg, capabilities.featuresEngine);
+  return plan.kind === 'refuse'
+    ? { refusal: { error: plan.error, message: plan.message } }
+    : { cfg: { ...cfg, maple_cli_path: mapleCli }, capabilities, plan };
+}
+
+type StitchPlan = Exclude<Awaited<ReturnType<typeof planStitch>>, { refusal: unknown }>;
+
+type StitchInputs =
+  | { uniqueIds: string[]; indexedCount: number }
+  | { status: number; rejection: { error: string; message: string } };
+
+const PATH_FAILURE_DEFAULTS: Record<number, { error: string; message: string }> = {
+  400: { error: 'invalid_path', message: 'Invalid path.' },
+  500: { error: 'index_failed', message: 'Index failed.' },
+};
+
+async function resolvePathInputs(
+  assetPaths: string[] | undefined,
+): Promise<
+  { resolvedIds: string[]; indexedCount: number } | Extract<StitchInputs, { rejection: unknown }>
+> {
+  if (!assetPaths || assetPaths.length === 0) return { resolvedIds: [], indexedCount: 0 };
+  try {
+    return await resolveAssetPaths(assetPaths);
+  } catch (err) {
+    const e = err as { status?: number; code?: string; message?: string };
+    const fallback = e.status === undefined ? undefined : PATH_FAILURE_DEFAULTS[e.status];
+    if (!fallback) throw err;
+    return {
+      status: e.status!,
+      rejection: { error: e.code ?? fallback.error, message: e.message ?? fallback.message },
+    };
+  }
+}
+
+/**
+ * Server-authoritative input resolution. Per selected asset the client sends
+ * its best reference: an absolute path (always fresh) or, only for an asset it
+ * cannot name by path, an id. Paths are resolved to ids (indexing on demand,
+ * jailed to the library roots) and unioned with the ids, so a mixed selection
+ * stitches every asset instead of dropping one set.
+ */
+export async function resolveStitchInputs(body: {
+  assetIds?: string[];
+  assetPaths?: string[];
+}): Promise<StitchInputs> {
+  const fromPaths = await resolvePathInputs(body.assetPaths);
+  if ('rejection' in fromPaths) return fromPaths;
+  const assetIds = body.assetIds ?? [];
+  const invalidId = assetIds.find((id) => !ObjectId.isValid(id));
+  if (invalidId !== undefined) {
+    return {
+      status: 422,
+      rejection: { error: 'invalid_asset_id', message: `Invalid asset id: ${invalidId}` },
+    };
+  }
+  // A path and an id can resolve to the same deduplicated asset (identical
+  // content shares one id); the stitcher must not receive one input twice.
+  const uniqueIds = [...new Set([...fromPaths.resolvedIds, ...assetIds])];
+  return uniqueIds.length < 2
+    ? {
+        status: 422,
+        rejection: {
+          error: 'insufficient_assets',
+          message:
+            'At least 2 valid images (via assetPaths or assetIds) are required to create a panorama.',
+        },
+      }
+    : { uniqueIds, indexedCount: fromPaths.indexedCount };
+}
+
+export async function activePanoJob(kind: 'pano_stitch' | 'pano_preview') {
+  const [active] = await listJobs({ kind, statuses: ['queued', 'running'], limit: 1 });
+  return active ?? null;
+}
+
+export function panoJobRunning(jobId: ObjectId) {
+  return {
+    error: 'pano_job_running',
+    message: 'A panorama job is already running or queued. Wait for it to finish.',
+    jobId: jobId.toHexString(),
+  };
+}
+
+/**
+ * The alignment file of a finished preview, or null when the id does not name
+ * one — the stitch then simply solves its own alignment. The path is rebuilt
+ * from the server-written payload, never taken from the client.
+ */
+async function previewAlignment(previewJobId: string | undefined): Promise<string | null> {
+  if (previewJobId === undefined || !ObjectId.isValid(previewJobId)) return null;
+  const doc = await getJob(new ObjectId(previewJobId));
+  if (doc?.kind !== 'pano_preview' || doc.status !== 'done') return null;
+  const dir = ownedPreviewDir(doc.payload.outputDir);
+  if (dir === null) return null;
+  const file = path.join(dir, PREVIEW_FILES.alignment);
+  return (await Bun.file(file).exists()) ? file : null;
+}
+
+export async function panoJobPayload(
+  { cfg, capabilities, plan }: StitchPlan,
+  request: StitchRequest,
+  assetIds: string[],
+  outputDir: string,
+) {
+  return {
+    assetIds,
+    libraryId: request.libraryId,
+    outputDir,
+    retention: request.options.retention,
+    localAlign: request.options.localAlign,
+    strategy: request.options.strategy ?? null,
+    strategySupported: capabilities.strategy,
+    mapleCli: cfg.maple_cli_path,
+    featuresEngine: plan.featuresEngine,
+    modelsDir: cfg.models_dir,
+    ortDylibPath: cfg.ort_dylib_path,
+    alignmentIn: capabilities.preview ? await previewAlignment(request.alignmentFrom) : null,
+  };
+}
+
+/** A pano job of one of `kinds` by id, or the 400/404 to answer with. */
+export async function findPanoJob(
+  id: string,
+  kinds: ReadonlySet<string>,
+): Promise<{ doc: JobWithId } | { status: 400 | 404; error: string }> {
+  if (!ObjectId.isValid(id)) return { status: 400, error: 'Invalid job id' };
+  const doc = await getJob(new ObjectId(id));
+  return doc && kinds.has(doc.kind) ? { doc } : { status: 404, error: 'Pano job not found' };
+}
+
 // ── route group ───────────────────────────────────────────────────────────────
 
 export const panoRoutes = new Elysia({ prefix: '/api/pano' })
@@ -326,41 +463,22 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
   .post(
     '/stitch',
     async ({ body, set }) => {
-      // 1. Check provisioning.
-      const dbCfg = await loadPanoConfig();
-      const cfg = resolvePanoConfig(dbCfg);
-      if (!isPanoProvisioned(cfg)) {
+      const stitchPlan = await planStitch();
+      if ('refusal' in stitchPlan) {
         set.status = 409;
-        return {
-          error: 'pano_not_provisioned',
-          message:
-            'Panorama stitching is not configured. Go to Settings > Pano to set the ' +
-            'maple-cli path, models directory, and enable the feature.',
-        };
+        return stitchPlan.refusal;
       }
 
-      // 2. Reject if a pano_stitch job is already running OR queued.
-      // Checking only 'running' lets close-together requests enqueue multiple
-      // 'queued' jobs that workers later execute concurrently — pano is
-      // ~tens of GB RSS, so concurrent runs OOM the box.
-      const active = await listJobs({
-        kind: 'pano_stitch',
-        statuses: ['queued', 'running'],
-        limit: 1,
-      });
-      if (active.length > 0) {
+      // Queued counts as active too: close-together requests would otherwise
+      // enqueue several stitches, and concurrent runs (tens of GB RSS) OOM the box.
+      const active = await activePanoJob('pano_stitch');
+      if (active !== null) {
         set.status = 409;
-        return {
-          error: 'pano_job_running',
-          message: 'A panorama job is already running or queued. Wait for it to finish.',
-          jobId: active[0]._id.toHexString(),
-        };
+        return panoJobRunning(active._id);
       }
 
-      // 2b. Validate libraryId is a well-formed ObjectId. The job handler does
-      //     `new ObjectId(payload.libraryId)` and `loadLibraryRoots().get(id)`;
-      //     a malformed id would otherwise create a job that is guaranteed to
-      //     crash at run time. Reject early with a clear 422.
+      // The handler does `new ObjectId(payload.libraryId)`; a malformed id
+      // would create a job guaranteed to crash at run time.
       if (!ObjectId.isValid(body.libraryId)) {
         set.status = 422;
         return {
@@ -369,157 +487,58 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
         };
       }
 
-      // 3. Resolve asset IDs — server-authoritative to avoid stale-client-map
-      //    false-negatives.
-      //
-      //    The client sends, per selected asset, the best reference it has:
-      //      (a) `assetPaths` — absolute server-side paths (always fresh).
-      //      (b) `assetIds`   — 24-character asset ids, ONLY for assets the
-      //                         client cannot reference by path (e.g. cloud-
-      //                         hosted). The client never sends an id for an
-      //                         asset it also sends a path for, so a stale id
-      //                         can never shadow a fresh path-resolved id.
-      //
-      //    We resolve paths → ids (indexing on-demand, enforcing the library-
-      //    root boundary in `resolveAssetPaths`) and UNION them with the
-      //    directly-supplied ids. A union — not paths-XOR-ids — is what lets a
-      //    mixed selection (some path-only, some id-only assets) stitch all of
-      //    them instead of dropping one set or failing when neither set alone
-      //    has 2 entries.
-      const resolvedIds: string[] = [];
-      let indexedCount = 0;
-
-      if (body.assetPaths && body.assetPaths.length > 0) {
-        let resolved: Awaited<ReturnType<typeof resolveAssetPaths>>;
-        try {
-          resolved = await resolveAssetPaths(body.assetPaths);
-        } catch (err) {
-          const e = err as { status?: number; code?: string; message?: string };
-          if (e.status === 400) {
-            set.status = 400;
-            return { error: e.code ?? 'invalid_path', message: e.message ?? 'Invalid path.' };
-          }
-          if (e.status === 500) {
-            set.status = 500;
-            return { error: e.code ?? 'index_failed', message: e.message ?? 'Index failed.' };
-          }
-          throw err;
-        }
-        resolvedIds.push(...resolved.resolvedIds);
-        indexedCount = resolved.indexedCount;
+      const inputs = await resolveStitchInputs(body);
+      if ('rejection' in inputs) {
+        set.status = inputs.status;
+        return inputs.rejection;
       }
 
-      if (body.assetIds && body.assetIds.length > 0) {
-        // Validate each id-only reference is a well-formed ObjectId.
-        for (const id of body.assetIds) {
-          if (!ObjectId.isValid(id)) {
-            set.status = 422;
-            return { error: 'invalid_asset_id', message: `Invalid asset id: ${id}` };
-          }
-        }
-        resolvedIds.push(...body.assetIds);
-      }
-
-      // Dedup while preserving order: a path and an id can resolve to the same
-      // deduplicated asset (two files with identical content share one asset
-      // id), and the stitcher must not receive the same input twice.
-      const uniqueIds = [...new Set(resolvedIds)];
-
-      // Need ≥ 2 distinct inputs for a stitch.
-      if (uniqueIds.length < 2) {
-        set.status = 422;
-        return {
-          error: 'insufficient_assets',
-          message:
-            'At least 2 valid images (via assetPaths or assetIds) are required to create a panorama.',
-        };
-      }
-
-      // 4. Probe strategy support.
-      const strategySupported = await probeStrategySupported(cfg.maple_cli_path!);
-
-      // 5. Build temp output dir for this job (will be cleaned up by the handler
-      //    after importing the result).
+      // The handler removes this temp dir after importing the result.
       const outputDir = path.join(os.tmpdir(), `maple-pano-${randomBytes(8).toString('hex')}`);
-
-      // 6. Create the job.
-      const doc = await createJob({
-        kind: 'pano_stitch',
-        payload: {
-          assetIds: uniqueIds,
-          libraryId: body.libraryId,
-          outputDir,
-          retention: body.options.retention,
-          localAlign: body.options.localAlign,
-          strategy: body.options.strategy ?? null,
-          strategySupported,
-          mapleCli: cfg.maple_cli_path!,
-          modelsDir: cfg.models_dir,
-          ortDylibPath: cfg.ort_dylib_path,
-        },
-      });
+      const payload = await panoJobPayload(stitchPlan, body, inputs.uniqueIds, outputDir);
+      const doc = await createJob({ kind: 'pano_stitch', payload });
       set.status = 201;
-      return { id: doc._id.toHexString(), ...(indexedCount > 0 ? { indexing: indexedCount } : {}) };
+      return {
+        id: doc._id.toHexString(),
+        alignmentReused: payload.alignmentIn !== null,
+        ...(inputs.indexedCount > 0 ? { indexing: inputs.indexedCount } : {}),
+      };
     },
     { body: StitchBody },
   )
 
   // GET /api/pano/jobs/:id — job status.
   .get('/jobs/:id', async ({ params, set }) => {
-    if (!ObjectId.isValid(params.id)) {
-      set.status = 400;
-      return { error: 'Invalid job id' };
+    const found = await findPanoJob(params.id, PANO_JOB_KINDS);
+    if ('status' in found) {
+      set.status = found.status;
+      return { error: found.error };
     }
-    const doc = await getJob(new ObjectId(params.id));
-    if (!doc || doc.kind !== 'pano_stitch') {
-      set.status = 404;
-      return { error: 'Pano job not found' };
-    }
-    return projectJob(doc);
+    return projectJob(found.doc);
   })
 
   // DELETE /api/pano/jobs/:id — cancel.
   .delete('/jobs/:id', async ({ params, set }) => {
-    if (!ObjectId.isValid(params.id)) {
-      set.status = 400;
-      return { error: 'Invalid job id' };
+    const found = await findPanoJob(params.id, PANO_JOB_KINDS);
+    if ('status' in found) {
+      set.status = found.status;
+      return { error: found.error };
     }
-    const doc = await getJob(new ObjectId(params.id));
-    if (!doc || doc.kind !== 'pano_stitch') {
-      set.status = 404;
-      return { error: 'Pano job not found' };
-    }
-    const ok = await requestCancel(new ObjectId(params.id));
-    return { ok };
+    return { ok: await requestCancel(found.doc._id) };
   })
 
-  // GET /api/pano/config — effective config + strategySupported.
-  .get('/config', async () => {
-    const dbCfg = await loadPanoConfig();
-    const cfg = resolvePanoConfig(dbCfg);
-    let strategySupported = false;
-    if (cfg.maple_cli_path) {
-      strategySupported = await probeStrategySupported(cfg.maple_cli_path);
-    }
-    return { ...cfg, strategy_supported: strategySupported };
-  })
+  // GET /api/pano/config — effective config + probed optional flags.
+  .get('/config', async () => withProbedFlags(resolvePanoConfig(await loadPanoConfig())))
 
   // PUT /api/pano/config — upsert pano settings.
   .put(
     '/config',
     async ({ body }) => {
       await savePanoConfig(body);
-      const dbCfg = await loadPanoConfig();
-      const cfg = resolvePanoConfig(dbCfg);
-      // Invalidate strategy probe cache so the new path is probed fresh.
-      _strategyProbeResult = null;
-      _strategyProbedPath = null;
-      let strategySupported = false;
-      if (cfg.maple_cli_path) {
-        strategySupported = await probeStrategySupported(cfg.maple_cli_path);
-      }
+      invalidatePanoCliProbe();
+      const cfg = await withProbedFlags(resolvePanoConfig(await loadPanoConfig()));
       log.info({ enabled: cfg.enabled }, 'pano config updated');
-      return { ok: true, ...cfg, strategy_supported: strategySupported };
+      return { ok: true, ...cfg };
     },
     { body: ConfigBody },
   );

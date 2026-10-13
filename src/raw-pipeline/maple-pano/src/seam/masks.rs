@@ -31,10 +31,12 @@
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
 use crate::error::PanoError;
+use crate::gain::FramePhotometry;
 use crate::ingest::{ingest_file, PlanarImage};
 use crate::local_align::LocalCorrection;
 use crate::warp::warp_to_canvas;
 
+use super::constraints::{self, SeamConstraint};
 use super::labels;
 
 /// Total pixel cap for the seam canvas ("downsampled overlaps, <= ~2MP"
@@ -108,24 +110,29 @@ fn sample_bilinear(plane: &[f32], w: u32, h: u32, x: f64, y: f64) -> f32 {
     top * (1.0 - ty) + bot * ty
 }
 
-/// Shared tail: run the n-way label solve over already-warped
-/// seam-canvas layers, feather, and package as [`SeamMasks`].
+/// Shared tail: rasterize the user constraints, run the n-way label solve
+/// over already-warped seam-canvas layers, feather, and package as
+/// [`SeamMasks`].
 fn finish(
     layers: Vec<PlanarImage>,
     seam_canvas: &CanvasSpec,
     full_canvas: &CanvasSpec,
-) -> SeamMasks {
+    seam_constraints: &[SeamConstraint],
+) -> Result<SeamMasks, PanoError> {
     let (sw, sh) = (seam_canvas.width, seam_canvas.height);
-    let labels = labels::compute_labels(&layers);
+    let scale_x = sw as f64 / full_canvas.width as f64;
+    let scale_y = sh as f64 / full_canvas.height as f64;
+    let pins = constraints::rasterize(seam_constraints, &layers, scale_x, scale_y)?;
+    let labels = labels::compute_labels(&layers, &pins);
     let mut masks = labels::labels_to_masks(&labels, layers.len());
     labels::feather_masks(&mut masks, sw, sh, FEATHER_RADIUS_PX);
-    SeamMasks {
+    Ok(SeamMasks {
         seam_width: sw,
         seam_height: sh,
         masks,
-        scale_x: sw as f64 / full_canvas.width as f64,
-        scale_y: sh as f64 / full_canvas.height as f64,
-    }
+        scale_x,
+        scale_y,
+    })
 }
 
 /// Build [`SeamMasks`] by decoding each source frame from disk, warping
@@ -137,16 +144,17 @@ fn finish(
 pub fn build_from_paths(
     paths: &[std::path::PathBuf],
     cameras: &[Camera],
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     full_canvas: &CanvasSpec,
+    seam_constraints: &[SeamConstraint],
 ) -> Result<SeamMasks, PanoError> {
-    if paths.len() != cameras.len() || paths.len() != gains.len() {
+    if paths.len() != cameras.len() || paths.len() != photometry.len() {
         return Err(PanoError::InvalidOptions(format!(
-            "seam::masks::build_from_paths: {} paths, {} cameras, {} gains",
+            "seam::masks::build_from_paths: {} paths, {} cameras, {} photometry",
             paths.len(),
             cameras.len(),
-            gains.len(),
+            photometry.len(),
         )));
     }
     if !local_corrections.is_empty() && local_corrections.len() != paths.len() {
@@ -156,16 +164,17 @@ pub fn build_from_paths(
             paths.len()
         )));
     }
+    constraints::validate(seam_constraints, paths.len(), full_canvas)?;
     let seam_canvas = full_canvas.downscaled(SEAM_CANVAS_MAX_PX);
     let mut layers = Vec::with_capacity(paths.len());
     for (i, (path, cam)) in paths.iter().zip(cameras).enumerate() {
         let frame = ingest_file(path)?;
         let la = local_corrections.get(i).and_then(|o| o.as_ref());
-        let gain = gains.get(i).copied().unwrap_or([1.0, 1.0, 1.0]);
+        let gain = photometry.get(i).copied().unwrap_or_default();
         layers.push(warp_to_canvas(&frame.image, cam, &seam_canvas, gain, la));
         // frame drops here — full-resolution pixels never accumulate.
     }
-    Ok(finish(layers, &seam_canvas, full_canvas))
+    finish(layers, &seam_canvas, full_canvas, seam_constraints)
 }
 
 /// Same as [`build_from_paths`] but for already-decoded frames (tests,
@@ -174,10 +183,11 @@ pub fn build_from_paths(
 pub fn build_from_frames(
     frames: &[PlanarImage],
     cameras: &[Camera],
-    gains: &[[f32; 3]],
+    photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     full_canvas: &CanvasSpec,
-) -> SeamMasks {
+    seam_constraints: &[SeamConstraint],
+) -> Result<SeamMasks, PanoError> {
     assert_eq!(
         frames.len(),
         cameras.len(),
@@ -185,7 +195,7 @@ pub fn build_from_frames(
     );
     assert_eq!(
         frames.len(),
-        gains.len(),
+        photometry.len(),
         "seam::masks::build_from_frames: frame/gain count mismatch"
     );
     assert!(
@@ -194,6 +204,7 @@ pub fn build_from_frames(
         local_corrections.len(),
         frames.len()
     );
+    constraints::validate(seam_constraints, frames.len(), full_canvas)?;
     let seam_canvas = full_canvas.downscaled(SEAM_CANVAS_MAX_PX);
     let layers: Vec<PlanarImage> = frames
         .iter()
@@ -201,11 +212,11 @@ pub fn build_from_frames(
         .enumerate()
         .map(|(i, (f, cam))| {
             let la = local_corrections.get(i).and_then(|o| o.as_ref());
-            let gain = gains.get(i).copied().unwrap_or([1.0, 1.0, 1.0]);
+            let gain = photometry.get(i).copied().unwrap_or_default();
             warp_to_canvas(f, cam, &seam_canvas, gain, la)
         })
         .collect();
-    finish(layers, &seam_canvas, full_canvas)
+    finish(layers, &seam_canvas, full_canvas, seam_constraints)
 }
 
 #[cfg(test)]
@@ -266,9 +277,10 @@ mod tests {
         let frames: Vec<PlanarImage> = cams.iter().map(frame_from_scene).collect();
         let canvas = crate::canvas::auto_canvas(&cams, &crate::canvas::CanvasOptions::default())
             .expect("canvas");
-        let gains = vec![[1.0, 1.0, 1.0]; cams.len()];
+        let photometry = vec![FramePhotometry::IDENTITY; cams.len()];
         let no_lc: Vec<Option<LocalCorrection>> = vec![None; cams.len()];
-        let seam = build_from_frames(&frames, &cams, &gains, &no_lc, &canvas);
+        let seam =
+            build_from_frames(&frames, &cams, &photometry, &no_lc, &canvas, &[]).expect("seam");
 
         // Sample a grid of full-canvas points. Total weight across frames
         // must never exceed ~1 (feathering only softens a boundary, never
@@ -307,13 +319,13 @@ mod tests {
             std::path::PathBuf::from("/nonexistent/a.dng"),
             std::path::PathBuf::from("/nonexistent/b.dng"),
         ];
-        let gains = vec![[1.0, 1.0, 1.0]; cams.len()];
+        let photometry = vec![FramePhotometry::IDENTITY; cams.len()];
         let canvas = crate::canvas::auto_canvas(&cams, &crate::canvas::CanvasOptions::default())
             .expect("canvas");
         // One entry for two frames: neither empty nor exactly per-frame.
         let short_lc: Vec<Option<LocalCorrection>> = vec![None];
 
-        let result = build_from_paths(&paths, &cams, &gains, &short_lc, &canvas);
+        let result = build_from_paths(&paths, &cams, &photometry, &short_lc, &canvas, &[]);
         assert!(
             result.is_err(),
             "expected a length-mismatch error, got Ok (silently truncated)"
@@ -328,12 +340,12 @@ mod tests {
     fn build_from_frames_rejects_mismatched_local_corrections() {
         let cams = ring_cameras(2);
         let frames: Vec<PlanarImage> = cams.iter().map(frame_from_scene).collect();
-        let gains = vec![[1.0, 1.0, 1.0]; cams.len()];
+        let photometry = vec![FramePhotometry::IDENTITY; cams.len()];
         let canvas = crate::canvas::auto_canvas(&cams, &crate::canvas::CanvasOptions::default())
             .expect("canvas");
         // One entry for two frames: neither empty nor exactly per-frame.
         let short_lc: Vec<Option<LocalCorrection>> = vec![None];
 
-        build_from_frames(&frames, &cams, &gains, &short_lc, &canvas);
+        let _ = build_from_frames(&frames, &cams, &photometry, &short_lc, &canvas, &[]);
     }
 }

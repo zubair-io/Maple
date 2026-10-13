@@ -50,6 +50,17 @@
         }
       </div>
 
+      <div class="flex flex-wrap items-center gap-1.5 text-[12px]" data-testid="gs-last-run">
+        <span class="text-[var(--s-text-dim)]">Last run:</span>
+        <span
+          class="py-0.5 px-[7px] rounded-[4px] bg-[var(--s-surface)] border-[0.5px] border-[var(--s-border)]"
+          >{{ lastRunOutcome() }}</span
+        >
+        @if (lastRunAt(); as when) {
+          <span class="text-[var(--s-text-dim)]">{{ when }}</span>
+        }
+      </div>
+
       @if (draft(); as d) {
         <maple-generated-search-knobs
           [draft]="d"

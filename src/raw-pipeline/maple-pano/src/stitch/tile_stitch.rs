@@ -36,13 +36,14 @@ use std::path::PathBuf;
 
 use crate::camera::Camera;
 use crate::features::FeatureSet;
+use crate::gain::LensGroups;
 use crate::graph::{
-    build_match_graph, CaptureOrderProvider, DescriptorTopKProvider, GimbalPriorProvider,
-    GraphImage, MatchGraph, ReverifySummary,
+    DescriptorTopKProvider, GraphImage, GridLayout, LoopClosureCheck, LoopClosureGate, MatchGraph,
+    ReverifySummary,
 };
 use crate::ingest::FramePriors;
+use crate::local_align::planar::fit_planar_corrections;
 use crate::refine::{refine_correspondences, RefineOptions};
-use crate::robust::RobustOptions;
 use crate::strategy::StrategyReport;
 use crate::tile::frame_cache::TileFrameCache;
 use crate::tile::placement::{solve_tile_poses, TileConstraint};
@@ -91,11 +92,6 @@ pub(super) struct TileEarlyState<'a> {
     pub full_dims: Vec<(u32, u32)>,
     /// Per-frame proxy dimensions `(width, height)`.
     pub proxy_dims: Vec<(u32, u32)>,
-    /// Feature sets extracted by ALIKED (kept here for the struct but not read
-    /// by `tile_tail` — the graph's match closure already consumed them during
-    /// `build_match_graph`; they are stored so the caller can forward them if
-    /// a future stage needs re-matching without re-running ALIKED).
-    pub _feature_sets: Vec<FeatureSet>,
     /// The proxy-resolution match graph (verified edges).
     pub graph: MatchGraph,
     /// Strategy-selection report (evidence + selected strategy + warning).
@@ -103,7 +99,7 @@ pub(super) struct TileEarlyState<'a> {
     /// Which source produced the shared camera focal seed. `None` only
     /// for the standalone [`stitch_tile`] entry point, which never
     /// resolves a real per-frame focal (always unit-focal — see
-    /// `run_tile_branch`'s doc comment).
+    /// `build_tile_graph`'s doc comment).
     pub focal_seed_source: Option<super::FocalSeedSource>,
     /// Wall-clock times for stages 0, 1, 2 (seconds).
     pub stage_timings_012: [f64; 3],
@@ -111,74 +107,25 @@ pub(super) struct TileEarlyState<'a> {
     /// report and to build the on-demand decode cache `tile_tail`'s
     /// stage 3–5 work reads frames through (#3197).
     pub inputs: &'a [PathBuf],
+    /// Lens identity per input frame for the blind vignette estimate
+    /// (#4522), parallel to `full_dims`.
+    pub lenses: LensGroups,
 }
 
-// ─── Tile branch helper called from stitch() ─────────────────────────────────
+// ─── Tile graph built during the shared head ──────────────────────────────────
 
-/// State passed from `stitch()` into the tile branch.
-///
-/// Contains everything `stitch()` computed in stages 0–2 that the tile
-/// branch needs, plus the raw LightGlue match cache so the graph can be
-/// re-built with unit-focal cameras without re-running ONNX inference.
-pub(super) struct TileBranchInput<'a> {
-    /// Paths of the input files (used for on-demand full-res decode).
-    pub inputs: &'a [std::path::PathBuf],
-    /// Options forwarded from the `stitch()` caller.
-    pub opts: &'a super::types::StitchOptions,
-    /// Raw LightGlue correspondences keyed by `(a, b)` in candidate order.
-    pub raw_matches_cache: Vec<((usize, usize), Vec<PixelCorrespondence>)>,
-    /// Per-frame full-resolution pixel dimensions from stage 0 (already
-    /// computed there — `FrameMeta::full_width`/`full_height` — so this
-    /// costs nothing extra; #3197 threads it through instead of
-    /// re-decoding every frame to learn its size).
-    pub full_dims: Vec<(u32, u32)>,
-    /// Per-frame proxy dimensions `(width, height)` from stage 0.
-    pub proxy_dims: Vec<(u32, u32)>,
-    /// Feature sets from stage 1 (kept for future re-matching without ALIKED).
-    pub feature_sets: Vec<FeatureSet>,
-    /// Strategy report (evidence + selected strategy + warning).
-    pub strategy_report: StrategyReport,
-    /// Which source produced the shared camera focal seed — EXIF, or the
-    /// homography self-calibration fallback (spec §5.3, ticket #1214).
-    /// Computed in `stitch()` before strategy selection, so it's known
-    /// regardless of which strategy ultimately ran.
-    pub focal_seed_source: super::FocalSeedSource,
-    /// Stage 0–2 wall-clock timings (decode, features, match_graph).
-    pub stage_timings_012: [f64; 3],
-    /// Per-frame opcode lists from stage 0.
-    pub applied_opcodes: Vec<Vec<String>>,
-    /// Per-frame EXIF/gimbal priors from stage 0.
-    pub priors: Vec<crate::ingest::FramePriors>,
-}
-
-/// Run the tile branch from inside `stitch()` (#1270).
-///
-/// `stitch()` calls this when `select_strategy` returns `Tile`.  The raw
-/// LightGlue matches from stage 2 are re-used verbatim; only the geometric
-/// verification is re-run with unit-focal cameras (no ONNX call).
-///
-/// Returns a `TileStitchOutcome` ready for `StitchSuccess::Tile`.
-pub(super) fn run_tile_branch(
-    input: TileBranchInput<'_>,
-    progress: impl FnMut(u32, f32),
-    is_cancelled: impl Fn() -> bool,
-) -> Result<TileStitchOutcome, super::types::StitchError> {
-    use super::types::StitchError;
-
-    let TileBranchInput {
-        inputs,
-        opts,
-        raw_matches_cache,
-        full_dims,
-        proxy_dims,
-        feature_sets,
-        strategy_report,
-        focal_seed_source,
-        stage_timings_012,
-        applied_opcodes,
-        priors,
-    } = input;
-
+/// Re-verify the head's cached matches with unit-focal cameras — the graph
+/// the tile tail consumes (#1270). Runs inside `solve_alignment` when
+/// strategy selection returns `Tile`, so the tile graph is part of the
+/// reusable alignment (#4578). No matcher call.
+pub(super) fn build_tile_graph(
+    raw_matches_cache: Vec<((usize, usize), Vec<PixelCorrespondence>)>,
+    proxy_dims: &[(u32, u32)],
+    feature_sets: &[FeatureSet],
+    grid: Option<GridLayout>,
+    priors: &[FramePriors],
+    full_dims: &[(u32, u32)],
+) -> Result<MatchGraph, StitchError> {
     // Build unit-focal proxy cameras (same as stitch_tile does).  The tile
     // path uses pixel correspondences directly; it doesn't need real focal.
     let unit_proxy_images: Vec<GraphImage> = proxy_dims
@@ -210,14 +157,17 @@ pub(super) fn run_tile_branch(
     // of those pairs is already in `match_cache_map`, so including it
     // here costs no new cache misses while keeping the tile path's
     // candidate topology consistent with the rotation path's.
-    let descriptor_topk = DescriptorTopKProvider::new(&feature_sets);
-    let tile_graph = build_match_graph(
+    let descriptor_topk = DescriptorTopKProvider::new(feature_sets);
+    let ground = super::graph_build::ground_footprints(priors, full_dims);
+    let planar_gate = grid.map(|layout| LoopClosureGate {
+        layout,
+        check: LoopClosureCheck::Planar,
+        ground: &ground,
+    });
+    let tile_graph = super::graph_build::build_stitch_graph(
         &unit_proxy_images,
-        &[
-            &CaptureOrderProvider,
-            &GimbalPriorProvider::default(),
-            &descriptor_topk,
-        ],
+        planar_gate.as_ref(),
+        Some(&descriptor_topk),
         |a, b| -> Vec<PixelCorrespondence> {
             match match_cache_map.get(&(a, b)) {
                 Some(cached) => cached.clone(),
@@ -230,7 +180,7 @@ pub(super) fn run_tile_branch(
                     // available in this scope. Instead we record a failure and
                     // return an empty correspondence list; the graph will drop
                     // this edge, and `tile_match_failures` will cause
-                    // `run_tile_branch` to propagate `StitchError::MatchFailed`.
+                    // `build_tile_graph` to propagate `StitchError::MatchFailed`.
                     tile_match_failures.push(format!(
                         "tile re-verify: pair ({a},{b}) not in rotation match cache — \
                          the unit-focal candidate set requested a pair the EXIF-focal \
@@ -240,33 +190,12 @@ pub(super) fn run_tile_branch(
                 }
             }
         },
-        &RobustOptions::default(),
     );
-    if !tile_match_failures.is_empty() {
-        return Err(StitchError::MatchFailed(tile_match_failures));
+    if tile_match_failures.is_empty() {
+        Ok(tile_graph)
+    } else {
+        Err(StitchError::MatchFailed(tile_match_failures))
     }
-
-    // #3197: no upfront full-res decode here — `full_dims` was already
-    // computed cheaply in stage 0 (`FrameMeta::full_width`/`full_height`).
-    // `tile_tail` builds the on-demand decode cache from `inputs` and
-    // pixels get decoded only when a stage actually needs them.
-    tile_tail(
-        TileEarlyState {
-            full_dims,
-            proxy_dims,
-            _feature_sets: feature_sets,
-            graph: tile_graph,
-            strategy_report,
-            focal_seed_source: Some(focal_seed_source),
-            stage_timings_012,
-            inputs,
-        },
-        opts,
-        applied_opcodes,
-        priors,
-        progress,
-        is_cancelled,
-    )
 }
 
 // ─── Tile tail (stages 3–5) ───────────────────────────────────────────────────
@@ -289,16 +218,18 @@ pub(super) fn tile_tail(
 ) -> Result<TileStitchOutcome, StitchError> {
     use std::time::Instant;
 
+    super::seam_gate::reject_on_tile(opts)?;
     let TileEarlyState {
         full_dims,
         proxy_dims,
-        _feature_sets: _,
         mut graph,
         strategy_report,
         focal_seed_source,
         stage_timings_012: [decode_s, features_s, graph_s],
         inputs,
+        lenses,
     } = state;
+    let match_graph = graph.summary();
 
     // #3197: on-demand decode cache — at most TILE_CACHE_CAPACITY frames
     // resident at once, instead of every input frame up front. Shared by
@@ -368,13 +299,88 @@ pub(super) fn tile_tail(
     let refine_s = t3.elapsed().as_secs_f64();
     progress(3, 1.0);
 
+    let TilePlaced {
+        image,
+        tile_report,
+        orphans: tile_orphans,
+        poses_placed,
+        solve_s,
+        composite_s,
+    } = place_and_composite(
+        &graph,
+        &full_dims,
+        &cache,
+        &lenses,
+        opts.local_align,
+        |_, _| opts.max_canvas_px,
+        &mut progress,
+        &is_cancelled,
+    )?;
+
+    let mean_planar_residual_px = tile_report.mean_planar_residual_px;
+    let max_planar_residual_px = tile_report.max_planar_residual_px;
+
+    Ok(TileStitchOutcome {
+        image,
+        tile_report,
+        strategy_report,
+        focal_seed_source,
+        applied_opcodes,
+        priors,
+        refined_matches,
+        fallback_matches,
+        reverify,
+        match_graph,
+        orphans: tile_orphans,
+        poses_placed,
+        mean_planar_residual_px,
+        max_planar_residual_px,
+        stage_timings_s: [
+            decode_s,
+            features_s,
+            graph_s,
+            refine_s,
+            solve_s,
+            composite_s,
+        ],
+    })
+}
+
+/// What [`place_and_composite`] produced.
+pub(super) struct TilePlaced {
+    pub image: crate::ingest::PlanarImage,
+    pub tile_report: crate::tile::TileCompositeReport,
+    pub orphans: Vec<usize>,
+    pub poses_placed: usize,
+    pub solve_s: f64,
+    pub composite_s: f64,
+}
+
+/// Tile stages 4–5: verify edges, solve placement, cap the canvas, then
+/// composite from `cache`. `dims[i]` is the size of the frames `cache`
+/// serves and of the coordinates `graph`'s matches are in — full
+/// resolution for the stitch, proxy resolution for the preview (#4578).
+/// `canvas_cap_px` maps the solved natural canvas size to its pixel cap.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn place_and_composite(
+    graph: &MatchGraph,
+    dims: &[(u32, u32)],
+    cache: &TileFrameCache,
+    lenses: &LensGroups,
+    local_align: bool,
+    canvas_cap_px: impl FnOnce(u32, u32) -> usize,
+    progress: &mut dyn FnMut(u32, f32),
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<TilePlaced, StitchError> {
+    use std::time::Instant;
+
     // ── stage 4: tile placement solve + edge verification ─────────────────
     let t4 = Instant::now();
     progress(4, 0.0);
     if is_cancelled() {
         return Err(StitchError::Cancelled);
     }
-    let tile_edges = verify_tile_edges(&graph, 0x1226_cafe_dead_bee1, &Default::default());
+    let tile_edges = verify_tile_edges(graph, 0x1226_cafe_dead_bee1, &Default::default(), dims);
     if tile_edges.is_empty() {
         return Err(StitchError::MatchFailed(vec![
             "no edges passed the similarity verifier — \
@@ -391,24 +397,21 @@ pub(super) fn tile_tail(
             weight: e.inlier_matches.len() as f64,
         })
         .collect();
-    let (solved_poses, solved_canvas, tile_orphans) =
-        solve_tile_poses(full_dims.len(), &constraints, 0, &full_dims)
+    let (solved_poses, solved_canvas, orphans) =
+        solve_tile_poses(dims.len(), &constraints, 0, dims)
             .map_err(|e| StitchError::BaSolve(format!("tile placement: {e}")))?;
     // Honor the total-canvas pixel cap (uniform downscale to fit) — the
     // same `--max-canvas-px` contract the rotation path applies via
     // `auto_canvas` (#3086).
-    let (poses, canvas_spec) =
-        crate::tile::apply_canvas_cap(solved_poses, solved_canvas, opts.max_canvas_px)
-            .map_err(|e| StitchError::BaSolve(format!("tile placement: {e}")))?;
+    let cap_px = canvas_cap_px(solved_canvas.width, solved_canvas.height);
+    let (poses, canvas_spec) = crate::tile::apply_canvas_cap(solved_poses, solved_canvas, cap_px)
+        .map_err(|e| StitchError::BaSolve(format!("tile placement: {e}")))?;
     let solve_s = t4.elapsed().as_secs_f64();
     progress(4, 1.0);
 
     let poses_placed = poses.len();
-    // #3197: no more moving decoded images out of a pre-decoded `frames`
-    // list — `poses[i].frame_idx` already identifies which original
-    // frame each pose covers, and `composite_tile` decodes it on demand
-    // through `cache`. `poses.len()` alone is exactly the placed-frame
-    // count the old `component_frames.len()` check reflected.
+    // #3197: `poses[i].frame_idx` identifies which original frame each pose
+    // covers, and `composite_tile` decodes it on demand through `cache`.
     let reachable_set: HashSet<usize> = poses.iter().map(|p| p.frame_idx).collect();
     let component_edges: Vec<crate::tile::TileEdge> = tile_edges
         .iter()
@@ -423,6 +426,8 @@ pub(super) fn tile_tail(
         });
     }
 
+    let corrections = local_align.then(|| fit_planar_corrections(&poses, dims, &component_edges));
+
     // ── stage 5: composite ─────────────────────────────────────────────────
     let t5 = Instant::now();
     progress(5, 0.0);
@@ -430,11 +435,13 @@ pub(super) fn tile_tail(
         return Err(StitchError::Cancelled);
     }
     let (image, tile_report) = composite_tile(
-        &cache,
-        &full_dims,
+        cache,
+        dims,
         &component_edges,
         &poses,
+        corrections.as_deref(),
         &canvas_spec,
+        lenses,
         &Default::default(),
         None,
     )
@@ -442,30 +449,12 @@ pub(super) fn tile_tail(
     let composite_s = t5.elapsed().as_secs_f64();
     progress(5, 1.0);
 
-    let mean_planar_residual_px = tile_report.mean_planar_residual_px;
-    let max_planar_residual_px = tile_report.max_planar_residual_px;
-
-    Ok(TileStitchOutcome {
+    Ok(TilePlaced {
         image,
         tile_report,
-        strategy_report,
-        focal_seed_source,
-        applied_opcodes,
-        priors,
-        refined_matches,
-        fallback_matches,
-        reverify,
-        orphans: tile_orphans,
+        orphans,
         poses_placed,
-        mean_planar_residual_px,
-        max_planar_residual_px,
-        stage_timings_s: [
-            decode_s,
-            features_s,
-            graph_s,
-            refine_s,
-            solve_s,
-            composite_s,
-        ],
+        solve_s,
+        composite_s,
     })
 }

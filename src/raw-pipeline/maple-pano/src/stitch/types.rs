@@ -23,7 +23,8 @@ use super::focal_bootstrap::FocalSeedSource;
 pub struct StitchOptions {
     /// Frame-retention policy passed to the BA solver.
     pub retention: RetentionPolicy,
-    /// Enable Stage-F bilinear-mesh local alignment (#1218).
+    /// Enable Stage-F bilinear-mesh local alignment on both the rotation
+    /// (#1218) and tile (#4577) paths.
     pub local_align: bool,
     /// Content-based / forced strategy selection (#1226).
     pub strategy: crate::strategy::StrategyRequest,
@@ -73,6 +74,20 @@ pub struct StitchOptions {
     /// opt-in until a follow-up re-baselines those budgets with it as
     /// the default.
     pub seam_strategy: crate::seam::SeamStrategy,
+    /// User seam constraints (#4520), frames named by input index. Needs
+    /// [`crate::seam::SeamStrategy::GraphCut`] and the rotation strategy;
+    /// anything the composite cannot honour is a
+    /// [`StitchError::SeamConstraint`], never silently dropped.
+    pub seam_constraints: Vec<crate::seam::SeamConstraint>,
+    /// Declared capture grid for drone surveys / camera arrays (#4519).
+    /// `Some` replaces capture-order, gimbal and descriptor top-k
+    /// nomination with [`crate::graph::GridPriorProvider`] and gates
+    /// loop closures on grid footprint + triangle rotation consistency.
+    pub grid: Option<crate::graph::GridLayout>,
+    /// Detector/matcher for the proxy match graph (#4523). Defaults to
+    /// ALIKED + LightGlue when `ml`/`ml-static` is built in, else to the
+    /// classical Harris + gradient-histogram path.
+    pub feature_engine: super::FeatureEngine,
 }
 
 impl Default for StitchOptions {
@@ -96,6 +111,9 @@ impl Default for StitchOptions {
             canvas_tile_rows: None,
             use_coreml: false,
             seam_strategy: crate::seam::SeamStrategy::Voronoi,
+            seam_constraints: Vec::new(),
+            grid: None,
+            feature_engine: super::FeatureEngine::default(),
         }
     }
 }
@@ -130,6 +148,8 @@ pub struct StitchOutcome {
     pub fallback_matches: usize,
     /// Summary of the full-resolution reverification (edges/matches dropped).
     pub reverify: crate::graph::ReverifySummary,
+    /// Candidate pairs, verified edges and rejections of the match graph.
+    pub match_graph: crate::graph::GraphSummary,
     /// Whether the BA solution was roll-leveled.
     pub leveled: bool,
     /// Horizon tilt in degrees when leveling was applied.
@@ -168,6 +188,8 @@ pub struct TileStitchOutcome {
     pub fallback_matches: usize,
     /// Summary of the rotation-path reverification step (always 0/0 for tile).
     pub reverify: crate::graph::ReverifySummary,
+    /// Candidate pairs, verified edges and rejections of the tile match graph.
+    pub match_graph: crate::graph::GraphSummary,
     /// Frame indices disconnected from the anchor component.
     pub orphans: Vec<usize>,
     /// Number of frames successfully placed in the tile composite.
@@ -216,6 +238,8 @@ impl StitchSuccess {
 pub enum StitchError {
     /// Fewer than 2 input paths were provided.
     TooFewFrames(usize),
+    /// The declared capture grid does not fit the input frame count.
+    InvalidGrid(String),
     /// ML environment unavailable (models dir or ORT dylib missing).
     MlUnavailable(String),
     /// Frame decode or prior extraction failed.
@@ -247,12 +271,21 @@ pub enum StitchError {
     DegenerateGeometry(String),
     /// Cancelled by the caller.
     Cancelled,
+    /// User seam constraints (#4520) that cannot all hold.
+    SeamConstraint(crate::seam::SeamConstraintError),
+}
+
+impl From<crate::seam::SeamConstraintError> for StitchError {
+    fn from(e: crate::seam::SeamConstraintError) -> Self {
+        Self::SeamConstraint(e)
+    }
 }
 
 impl std::fmt::Display for StitchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::TooFewFrames(n) => write!(f, "need at least 2 frames, got {n}"),
+            Self::InvalidGrid(e) => write!(f, "invalid capture grid: {e}"),
             Self::MlUnavailable(e) => write!(
                 f,
                 "ML environment unavailable: {e}\n\
@@ -287,6 +320,7 @@ impl std::fmt::Display for StitchError {
                 write!(f, "degenerate rotation geometry: {msg}")
             }
             Self::Cancelled => write!(f, "cancelled by caller"),
+            Self::SeamConstraint(e) => write!(f, "seam constraints: {e}"),
         }
     }
 }

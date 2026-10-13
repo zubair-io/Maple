@@ -27,7 +27,7 @@ export function assertDriveFileId(id: string): void {
 export function isOwnedMyDriveFile(file: DriveFile): boolean {
   return file.ownedByMe === true && file.driveId === undefined;
 }
-class GoogleDriveError extends Error {
+export class GoogleDriveError extends Error {
   constructor(
     public readonly status: number,
     public readonly retryAfterMs: number | null,
@@ -43,6 +43,14 @@ class GoogleDriveError extends Error {
 }
 export function isDriveStatus(error: unknown, ...statuses: number[]): error is GoogleDriveError {
   return error instanceof GoogleDriveError && statuses.includes(error.status);
+}
+/** Drive failures that say nothing about the object being worked on: the
+ * network (status 0), rejected credentials, quota, or Google itself. */
+export function isDriveConnectionFailure(error: unknown): error is GoogleDriveError {
+  return (
+    error instanceof GoogleDriveError &&
+    (error.status === 0 || error.status === 401 || error.status === 403 || error.status >= 500)
+  );
 }
 function driveEndpoint(url: string): URL {
   const parsed = new URL(url);

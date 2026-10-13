@@ -1,8 +1,8 @@
 /**
  * Operator-triggered "Run now" for the generated-search job — the settings
  * page's answer to "I just enabled this, why is nothing happening?" (the
- * interval timer deliberately fires one full interval after boot, so the
- * first scheduled pass can be a day away).
+ * schedule checks every 15 minutes and backs off after a failed attempt, so
+ * the next scheduled pass can be an hour or more away).
  *
  * `runGeneratedSearchOnce` checks `paused` itself, which would defeat the
  * two things the button exists for: a first run right after enabling (config

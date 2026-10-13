@@ -282,7 +282,6 @@ GpuPreviewPersistTests
 
 # App Store feature flags (#3773): pure env / UserDefaults / semver-string
 # resolution, no fixtures, no Metal, no host services.
-FeatureFlagsTests
 
 # Files edit refresh (#3957): observation and generated ImageIO pixels;
 # no RAW fixtures, Metal device, or host services.
@@ -383,3 +382,7 @@ RestoreSafetyTests
 
 # SMB restore is copy-only: trashed files are marked, never deleted or renamed (#4139/#4173).
 SMBCopyOnlyRestoreTests
+
+# Panorama merge preview (#4579): PanoMergeSession preview/debounce/cancel
+# and alignment hand-off against an in-memory recording stitcher; no FFI.
+PanoMergePreviewTests

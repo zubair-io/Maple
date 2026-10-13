@@ -228,7 +228,7 @@ fn hasselblad_l3d_reach_calculation() {
     let guided = base_model();
     assert_eq!(
         overlap::tile_overlap_px(Some(&raw), &guided, 0, 1),
-        8 + 47 + 55
+        8 + 47 + 2 + 55
     );
     let model = AdjustmentModel {
         highlight_recovery: crate::xmp::HighlightRecoveryMode::Off,
