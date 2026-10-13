@@ -21,11 +21,11 @@ import { buildDigest } from './build-digest.ts';
 import { loadGeneratedSearchConfig, type GeneratedSearchConfig } from './config.repo.ts';
 import { runProposalLoop } from './loop.ts';
 import { createOllamaJsonClient } from './ollama-adapter.ts';
-import { saveGeneratedSearches, pruneGeneratedSearches } from './repo.ts';
+import { pruneGeneratedSearches, type GeneratedSearchInput } from './repo.ts';
 import {
   claimLibraryRun,
   loadRunRecords,
-  saveRunRecord,
+  settleClaimedRun,
   type ClaimMode,
   type LibraryRunRecord,
   type RunTrigger,
@@ -46,8 +46,8 @@ export function dayKey(now: Date): string {
   return now.toISOString().slice(0, 10);
 }
 
-/** One library's pass: digest, propose/measure/title, persist. Returns how
- * many collections were saved. */
+/** One library's pass: digest, propose/measure/title. Returns the collections
+ * to publish; persisting them is the claim holder's job (`settleClaimedRun`). */
 async function runForLibrary(
   libraryId: string,
   ctx: {
@@ -58,7 +58,7 @@ async function runForLibrary(
     generatedAt: string;
     now: Date;
   },
-): Promise<number> {
+): Promise<GeneratedSearchInput[]> {
   const digest = await buildDigest(libraryId, ctx.now);
   const collections = await runProposalLoop({
     generateJson: (prompt, schema) => ctx.client.generateJson(prompt, schema),
@@ -88,10 +88,9 @@ async function runForLibrary(
       },
       'dry run — not persisting',
     );
-    return 0;
+    return [];
   }
 
-  await saveGeneratedSearches(collections);
   if (collections.length < ctx.config.collections_per_day) {
     // A partial day is legitimate, but the operator should be able to see it
     // happened rather than wonder why the widget has two cards.
@@ -100,10 +99,10 @@ async function runForLibrary(
       'run produced fewer collections than requested',
     );
   }
-  return collections.length;
+  return collections;
 }
 
-type LibraryPass = (libraryId: string) => Promise<number>;
+type LibraryPass = (libraryId: string) => Promise<readonly GeneratedSearchInput[]>;
 
 export interface RunOptions {
   /** Run now: bypass the pause gate. */
@@ -154,8 +153,9 @@ function errorText(err: unknown): string {
 /**
  * One library's attempt, bracketed by its persisted run record: an atomic
  * `running` claim before the model is called, so a restart mid-pass or a
- * pass in the other process cannot start a second one, then the outcome once
- * it settles. A lost claim skips the library.
+ * pass in the other process cannot start a second one, then a fenced publish
+ * of the collections and outcome. A lost claim skips the library; a claim
+ * taken over mid-pass (it ran past the stale threshold) publishes nothing.
  */
 async function attemptLibrary(
   running: LibraryRunRecord,
@@ -169,23 +169,25 @@ async function attemptLibrary(
     return 0;
   }
   const settled = await pass(running.library_id).then(
-    (saved) => ({ saved, error: null }),
-    (err: unknown) => ({ saved: 0, error: errorText(err) }),
+    (collections) => ({ collections: dryRun ? [] : collections, error: null }),
+    (err: unknown) => ({ collections: [], error: errorText(err) }),
   );
+  const saved = settled.collections.length;
   if (settled.error !== null) {
     // One library's failure must not abort the others.
     log.warn({ libraryId: running.library_id, err: settled.error }, 'library pass failed');
   }
   const outcome =
-    settled.error !== null ? 'failed' : dryRun ? 'dry-run' : settled.saved > 0 ? 'saved' : 'empty';
-  await saveRunRecord({
-    ...running,
-    finished_at: clock().toISOString(),
-    outcome,
-    saved: settled.saved,
-    error: settled.error,
-  });
-  return settled.saved;
+    settled.error !== null ? 'failed' : dryRun ? 'dry-run' : saved > 0 ? 'saved' : 'empty';
+  const held = await settleClaimedRun(
+    { ...running, finished_at: clock().toISOString(), outcome, saved, error: settled.error },
+    settled.collections,
+  );
+  if (!held) {
+    log.warn({ libraryId: running.library_id }, 'claim was taken over mid-pass — discarding');
+    return 0;
+  }
+  return saved;
 }
 
 /**
@@ -225,6 +227,7 @@ export async function runGeneratedSearchOnce(
     saved += await attemptLibrary(
       {
         library_id: libraryId,
+        claim_id: crypto.randomUUID(),
         day,
         attempts: attemptsToday(libraryId) + 1,
         started_at: clock().toISOString(),

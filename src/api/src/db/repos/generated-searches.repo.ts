@@ -26,6 +26,7 @@ import type {
 import type { GeneratedQuery } from '../../workers/generated-search/validate.ts';
 import { newObjectIdHex } from '../object-id.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
+import type { SqlStatement, SqlValue } from '../sqlite/protocol.ts';
 import { parseJson, toObjectId } from './values.ts';
 
 // The two document interfaces are NOT re-exported from here, though this is
@@ -102,25 +103,43 @@ export async function saveGeneratedSearches(
 ): Promise<void> {
   if (docs.length === 0) return;
   await sqliteDb(dbOverride).transaction(
-    docs.map((doc) => ({
-      sql: INSERT_SQL,
-      params: [
-        newObjectIdHex(),
-        doc.library_id,
-        doc.generated_for,
-        doc.generated_at,
-        doc.model,
-        doc.attempts,
-        doc.theme,
-        doc.title,
-        doc.subtitle,
-        JSON.stringify(doc.query),
-        doc.result_count,
-        doc.cover_asset_id,
-        JSON.stringify(doc.first_page_ids),
-      ],
-    })),
+    docs.map((doc) => ({ sql: INSERT_SQL, params: insertParams(doc) })),
   );
+}
+
+function insertParams(doc: GeneratedSearchInput): SqlValue[] {
+  return [
+    newObjectIdHex(),
+    doc.library_id,
+    doc.generated_for,
+    doc.generated_at,
+    doc.model,
+    doc.attempts,
+    doc.theme,
+    doc.title,
+    doc.subtitle,
+    JSON.stringify(doc.query),
+    doc.result_count,
+    doc.cover_asset_id,
+    JSON.stringify(doc.first_page_ids),
+  ];
+}
+
+/**
+ * Insert statements that each write their row only while `guard` (a boolean
+ * SQL expression) holds, for a caller to run in one transaction beside the
+ * write that settles the guard (#4602: a generated-search pass publishes its
+ * collections only while it still holds its claim).
+ */
+export function guardedInsertStatements(
+  docs: readonly GeneratedSearchInput[],
+  guard: { sql: string; params: readonly SqlValue[] },
+): SqlStatement[] {
+  return docs.map((doc) => ({
+    sql: `INSERT INTO generated_searches (${SELECT_COLUMNS})
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ${guard.sql}`,
+    params: [...insertParams(doc), ...guard.params],
+  }));
 }
 
 /**

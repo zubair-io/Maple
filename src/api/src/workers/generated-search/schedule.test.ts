@@ -3,8 +3,9 @@
  *
  * A "restart" here is simply another tick: the schedule keeps no memory
  * between ticks, so a fresh process and the next tick of a running one ask the
- * same persisted question. The per-library LLM pass is replaced by a counter,
- * so these tests pin when a pass happens, not what it produces.
+ * same persisted question. The per-library LLM pass is replaced by a stub that
+ * returns placeholder collections, so these tests pin when a pass happens and
+ * whose result is published, not what the model would propose.
  */
 
 import { describe, it, expect } from 'bun:test';
@@ -13,7 +14,8 @@ import {
   type LiveTestDatabase,
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { saveGeneratedSearchConfig } from './config.repo.ts';
-import { runGeneratedSearchOnce } from './run.ts';
+import type { GeneratedSearchInput } from './repo.ts';
+import { dayKey, runGeneratedSearchOnce } from './run.ts';
 import {
   claimLibraryRun,
   loadLatestRunRecord,
@@ -40,6 +42,31 @@ function seedCollection(live: LiveTestDatabase, generatedAt: string): void {
   );
 }
 
+function fakeCollections(count: number, now: Date, theme = 'theme'): GeneratedSearchInput[] {
+  return Array.from({ length: count }, (_, index) => ({
+    library_id: LIBRARY,
+    generated_for: dayKey(now),
+    generated_at: now.toISOString(),
+    model: 'm',
+    attempts: 1,
+    theme: `${theme}-${index}`,
+    title: theme,
+    subtitle: null,
+    query: {},
+    result_count: 12,
+    cover_asset_id: null,
+    first_page_ids: null,
+  }));
+}
+
+function storedThemes(live: LiveTestDatabase): string[] {
+  return (
+    live.db.query(`SELECT theme FROM generated_searches ORDER BY theme`).all() as {
+      theme: string;
+    }[]
+  ).map((row) => row.theme);
+}
+
 /** A clock the test moves by hand, and a pass that counts its calls. */
 function harness(start: string, pass: (call: number) => Promise<number> = async () => 4) {
   let now = new Date(start);
@@ -47,7 +74,7 @@ function harness(start: string, pass: (call: number) => Promise<number> = async 
   const deps = {
     now: () => now,
     listLibraries: async () => [LIBRARY],
-    runLibrary: async () => pass(++calls),
+    runLibrary: async () => fakeCollections(await pass(++calls), now),
   };
   return {
     tick: () => generatedSearchTick(deps),
@@ -226,6 +253,63 @@ describe('generated-search schedule — operator controls', () => {
   });
 });
 
+describe('generated-search — a preempted pass publishes nothing', () => {
+  function gated() {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    return { gate, release: () => release() };
+  }
+
+  it('discards a pass whose stale claim was taken over, leaving only the newer result', async () => {
+    using live = await createLiveTestDatabase();
+    await enable();
+    let now = new Date('2026-10-12T06:00:00.000Z');
+    const clock = () => now;
+    const a = gated();
+    const b = gated();
+
+    const passA = runGeneratedSearchOnce(now, {
+      libraries: [LIBRARY],
+      clock,
+      runLibrary: async () => {
+        await a.gate;
+        return fakeCollections(4, now, 'A');
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const claimA = (await loadRunRecords()).get(LIBRARY);
+    expect(claimA?.outcome).toBe('running');
+
+    now = new Date('2026-10-12T08:01:00.000Z');
+    const passB = runGeneratedSearchOnce(now, {
+      libraries: [LIBRARY],
+      clock,
+      runLibrary: async () => {
+        await b.gate;
+        return fakeCollections(3, now, 'B');
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const claimB = (await loadRunRecords()).get(LIBRARY);
+    expect(claimB?.claim_id).not.toBe(claimA?.claim_id);
+    expect(claimB?.outcome).toBe('running');
+
+    a.release();
+    expect((await passA).saved).toBe(0);
+    expect((await loadRunRecords()).get(LIBRARY)).toEqual(claimB);
+    expect(storedThemes(live)).toEqual([]);
+
+    b.release();
+    expect((await passB).saved).toBe(3);
+    expect(storedThemes(live)).toEqual(['B-0', 'B-1', 'B-2']);
+    expect((await loadRunRecords()).get(LIBRARY)).toMatchObject({
+      claim_id: claimB?.claim_id,
+      outcome: 'saved',
+      saved: 3,
+    });
+  });
+});
+
 describe('generated-search schedule — one pass per claim across processes', () => {
   /** A pass that stays in flight until released, so two claimants overlap. */
   function gatedPass() {
@@ -236,7 +320,7 @@ describe('generated-search schedule — one pass per claim across processes', ()
       runLibrary: async () => {
         calls += 1;
         await gate;
-        return 4;
+        return fakeCollections(4, NOW);
       },
       release: () => release(),
       calls: () => calls,
@@ -244,7 +328,7 @@ describe('generated-search schedule — one pass per claim across processes', ()
   }
 
   const NOW = new Date('2026-10-12T06:00:00.000Z');
-  const deps = (runLibrary: () => Promise<number>) => ({
+  const deps = (runLibrary: () => Promise<GeneratedSearchInput[]>) => ({
     now: () => NOW,
     listLibraries: async () => [LIBRARY],
     runLibrary,
@@ -287,6 +371,7 @@ describe('generated-search schedule — one pass per claim across processes', ()
     using _live = await createLiveTestDatabase();
     const claim = (startedAt: string): LibraryRunRecord => ({
       library_id: LIBRARY,
+      claim_id: startedAt,
       day: '2026-10-12',
       attempts: 1,
       started_at: startedAt,
@@ -314,6 +399,7 @@ describe('generated-search schedule — one pass per claim across processes', ()
     using _live = await createLiveTestDatabase();
     const record: LibraryRunRecord = {
       library_id: LIBRARY,
+      claim_id: 'first',
       day: '2026-10-12',
       attempts: 1,
       started_at: '2026-10-12T05:00:00.000Z',

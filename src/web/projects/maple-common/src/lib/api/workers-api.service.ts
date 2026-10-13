@@ -169,6 +169,7 @@ export interface GeneratedSearchConfig {
  * src/api/src/workers/generated-search/run-state.repo.ts. */
 export interface GeneratedSearchLastRun {
   library_id: string;
+  claim_id: string;
   day: string;
   attempts: number;
   started_at: string;

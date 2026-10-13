@@ -15,8 +15,10 @@
  * backoff instead of calling the model again at boot).
  */
 
-import { jsonPath, patchAppSettings, readAppSettings } from '../../db/repos/app-settings.repo.ts';
-import { matchedOne, sqliteDb } from '../../db/repos/db-handle.ts';
+import { jsonPath, readAppSettings } from '../../db/repos/app-settings.repo.ts';
+import { changesAt, matchedOne, sqliteDb } from '../../db/repos/db-handle.ts';
+import { guardedInsertStatements } from '../../db/repos/generated-searches.repo.ts';
+import type { GeneratedSearchInput } from './repo.ts';
 
 const DOC_ID = 'generated_search_runs';
 
@@ -25,6 +27,8 @@ export type RunTrigger = 'schedule' | 'run-now';
 
 export interface LibraryRunRecord {
   library_id: string;
+  /** Identifies the pass holding this record; every later write is fenced on it. */
+  claim_id: string;
   /** `YYYY-MM-DD` (UTC) the attempt targeted. */
   day: string;
   /** How many attempts have started for `day`, this one included. */
@@ -54,10 +58,6 @@ export async function loadLatestRunRecord(): Promise<LibraryRunRecord | null> {
       latest === null || record.started_at > latest.started_at ? record : latest,
     null,
   );
-}
-
-export async function saveRunRecord(record: LibraryRunRecord): Promise<void> {
-  await patchAppSettings(DOC_ID, { [`libraries.${record.library_id}`]: record });
 }
 
 /** A pass makes minutes of LLM calls; one claimed for longer than this died
@@ -99,4 +99,32 @@ export async function claimLibraryRun(
     [DOC_ID, path, value, path, value, path, path, staleBefore, ...casParams],
   );
   return matchedOne(result.changes) === 1;
+}
+
+/**
+ * Publish a claimed pass's result: its collections and its terminal record, in
+ * one transaction where every write requires the stored marker to still carry
+ * this pass's `claim_id`. A pass that ran past {@link STALE_RUNNING_MS} and was
+ * taken over therefore writes nothing — no collections, no outcome, no
+ * overwrite of the newer claim — and only the pass holding the claim counts.
+ * Returns whether the claim was still held.
+ */
+export async function settleClaimedRun(
+  terminal: LibraryRunRecord,
+  collections: readonly GeneratedSearchInput[],
+): Promise<boolean> {
+  const path = jsonPath(`libraries.${terminal.library_id}`);
+  const heldSql = `json_extract(doc, ? || '.claim_id') = ?`;
+  const guard = {
+    sql: `EXISTS (SELECT 1 FROM app_settings WHERE id = ? AND ${heldSql})`,
+    params: [DOC_ID, path, terminal.claim_id],
+  };
+  const results = await sqliteDb().transaction([
+    ...guardedInsertStatements(collections, guard),
+    {
+      sql: `UPDATE app_settings SET doc = json_set(doc, ?, json(?)) WHERE id = ? AND ${heldSql}`,
+      params: [path, JSON.stringify(terminal), DOC_ID, path, terminal.claim_id],
+    },
+  ]);
+  return matchedOne(changesAt(results, collections.length)) === 1;
 }

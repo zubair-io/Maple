@@ -30,7 +30,13 @@ import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { generatedSearchesRoutes } from './generated-searches.ts';
 import { generatedSearchConfigRoutes } from '../workers/generated-search/routes.ts';
 import { _resetRunNowForTests, _awaitRunNowForTests } from '../workers/generated-search/run-now.ts';
-import { saveRunRecord } from '../workers/generated-search/run-state.repo.ts';
+import {
+  claimLibraryRun,
+  type LibraryRunRecord,
+} from '../workers/generated-search/run-state.repo.ts';
+
+const saveRunRecord = (record: LibraryRunRecord) =>
+  claimLibraryRun(record, { force: true }, new Date(record.started_at));
 
 const app = new Elysia().use(generatedSearchesRoutes).use(generatedSearchConfigRoutes);
 
@@ -376,12 +382,14 @@ describe('GET /api/workers/generated-search/last-run', () => {
     await saveRunRecord({
       ...base,
       library_id: 'older',
+      claim_id: 'older',
       started_at: '2026-10-12T01:00:00.000Z',
       outcome: 'saved',
     });
     await saveRunRecord({
       ...base,
       library_id: 'newer',
+      claim_id: 'newer',
       started_at: '2026-10-12T05:00:00.000Z',
       outcome: 'failed',
       error: 'ollama unreachable',
