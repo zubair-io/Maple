@@ -412,3 +412,24 @@ test('Drive transport and credential failures are recorded as connection failure
     });
   }
 });
+
+test('any successful probe on the destination rearms parked connection failures', async () => {
+  using live = await createLiveTestDatabase();
+  const { assetId, destination, repo, engine } = await setup(live);
+  const parkedAsset = insertAsset(live.db);
+  const parked = await repo.ensureEntry(destination.id, parkedAsset, 0, 'parked.dng');
+  await repo.db.write(
+    `UPDATE backup_entries SET last_error='Google is unreachable; retry shortly.',error_kind='connection',
+     attempts=3,retry_at=? WHERE id=?`,
+    [Date.now() + 60_000, parked.id],
+  );
+
+  expect(await engine.backupAsset(assetId)).toBe(true);
+
+  expect((await repo.entries(destination.id, parkedAsset))[0]).toMatchObject({
+    last_error: null,
+    error_kind: null,
+    attempts: 0,
+    retry_at: 0,
+  });
+});
