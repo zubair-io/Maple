@@ -111,10 +111,13 @@ public final class GeneratedSearchCollectionsViewModel {
     isLoading = true
     defer { if g == generation { isLoading = false } }
 
-    if collections.isEmpty, let cached = await cache?.read(libraryID: libraryID, host: cacheHost) {
+    if collections.isEmpty,
+      let cached = await cache?.read(libraryID: libraryID, host: cacheHost)
+    {
       guard g == generation else { return }
       if collections.isEmpty { show(cached) }
     }
+    let epoch = await cache?.epoch(host: cacheHost)
 
     let loaded: [GeneratedSearchCard]
     do {
@@ -141,7 +144,7 @@ public final class GeneratedSearchCollectionsViewModel {
     // decoded, keeps whatever the card already shows. An empty page is an
     // answer, not a failure: the old cover no longer passes the filters.
     let shownCoverIDs = covers.mapValues(\.id)
-    await withTaskGroup(of: (String, GeneratedSearchAssetPage?).self) { group in
+    let fetched = await withTaskGroup(of: (String, GeneratedSearchAssetPage?).self) { group in
       for collection in loaded {
         let shownCoverID = shownCoverIDs[collection.id]
         group.addTask { [client, coverWarmer] in
@@ -155,15 +158,27 @@ public final class GeneratedSearchCollectionsViewModel {
           return (collection.id, warmed || shownCoverID == nil ? page : nil)
         }
       }
-      for await (id, page) in group {
-        guard g == generation else { return }
-        if let page { firstPages[id] = page }
+      return await group.reduce(into: [String: GeneratedSearchAssetPage]()) { pages, result in
+        if let page = result.1 { pages[result.0] = page }
       }
     }
     guard g == generation else { return }
-    await cache?.write(
-      ForYouSnapshot(collections: collections, firstPages: firstPages, savedAt: now()),
-      libraryID: libraryID, host: cacheHost)
+    let refreshed = firstPages.merging(fetched) { _, new in new }
+    guard let cache, let epoch else {
+      firstPages = refreshed
+      return
+    }
+    let snapshot = ForYouSnapshot(collections: collections, firstPages: refreshed, savedAt: now())
+    if await cache.commit(snapshot, libraryID: libraryID, host: cacheHost, epoch: epoch) {
+      guard g == generation else { return }
+      firstPages = refreshed
+      return
+    }
+    // A photo was trashed while this refresh was in flight, so what it
+    // fetched may show it. Keep only pages the pruned cache still holds.
+    let surviving = await cache.read(libraryID: libraryID, host: cacheHost)?.firstPages ?? [:]
+    guard g == generation else { return }
+    firstPages = firstPages.filter { surviving[$0.key] == $0.value }
   }
 
   private func show(_ cached: ForYouSnapshot) {
