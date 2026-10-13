@@ -26,7 +26,8 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
 
   func test_cachedCardsAndCovers_showBeforeAnyResponse() async throws {
     let cache = ForYouCache(directory: directory)
-    await cache.write(Self.snapshot(["a": "old-a", "b": "old-b"]), libraryID: Self.library)
+    await cache.write(
+      Self.snapshot(["a": "old-a", "b": "old-b"]), libraryID: Self.library, host: Self.host)
     let stub = CachedCardsStub(covers: ["a": "old-a", "b": "old-b"])
     stub.hold()
     let vm = makeVM(stub, cache: cache)
@@ -48,7 +49,7 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
   func test_retiredCollections_arePrunedFromTheCache() async throws {
     let cache = ForYouCache(directory: directory)
     await cache.write(
-      Self.snapshot(["a": "old-a", "gone": "old-gone"]), libraryID: Self.library)
+      Self.snapshot(["a": "old-a", "gone": "old-gone"]), libraryID: Self.library, host: Self.host)
     let stub = CachedCardsStub(covers: ["a": "old-a"])
     let vm = makeVM(stub, cache: cache)
 
@@ -56,14 +57,14 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
 
     XCTAssertEqual(vm.collections.map(\.id), ["a"])
     XCTAssertNil(vm.firstPages["gone"])
-    let stored = await cache.read(libraryID: Self.library)
+    let stored = await cache.read(libraryID: Self.library, host: Self.host)
     XCTAssertEqual(stored?.collections.map(\.id), ["a"])
     XCTAssertEqual(stored.map { Set($0.firstPages.keys) }, ["a"])
   }
 
   func test_aNewCover_replacesTheOldOnlyOnceWarmed() async throws {
     let cache = ForYouCache(directory: directory)
-    await cache.write(Self.snapshot(["a": "old-a"]), libraryID: Self.library)
+    await cache.write(Self.snapshot(["a": "old-a"]), libraryID: Self.library, host: Self.host)
     let stub = CachedCardsStub(covers: ["a": "new-a"])
     let warmer = CoverWarmerProbe()
     warmer.hold()
@@ -77,13 +78,13 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
     warmer.release()
     await load.value
     XCTAssertEqual(vm.covers["a"]?.id, "new-a")
-    let stored = await cache.read(libraryID: Self.library)
+    let stored = await cache.read(libraryID: Self.library, host: Self.host)
     XCTAssertEqual(stored?.firstPages["a"]?.results.first?.id, "new-a")
   }
 
   func test_anUnchangedCover_isNeitherWarmedNorReplaced() async {
     let cache = ForYouCache(directory: directory)
-    await cache.write(Self.snapshot(["a": "old-a"]), libraryID: Self.library)
+    await cache.write(Self.snapshot(["a": "old-a"]), libraryID: Self.library, host: Self.host)
     let warmer = CoverWarmerProbe()
     let vm = makeVM(CachedCardsStub(covers: ["a": "old-a"]), cache: cache, warmer: warmer)
 
@@ -95,7 +96,7 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
 
   func test_aCoverTheServerNoLongerReturns_isDropped() async {
     let cache = ForYouCache(directory: directory)
-    await cache.write(Self.snapshot(["a": "hidden-a"]), libraryID: Self.library)
+    await cache.write(Self.snapshot(["a": "hidden-a"]), libraryID: Self.library, host: Self.host)
     let vm = makeVM(CachedCardsStub(covers: ["a": nil]), cache: cache)
 
     await vm.load()
@@ -105,20 +106,20 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
 
   func test_anEmptyPage_clearsTheCoverEvenWhenAWarmerWouldFail() async {
     let cache = ForYouCache(directory: directory)
-    await cache.write(Self.snapshot(["a": "hidden-a"]), libraryID: Self.library)
+    await cache.write(Self.snapshot(["a": "hidden-a"]), libraryID: Self.library, host: Self.host)
     let warmer = CoverWarmerProbe(succeeds: false)
     let vm = makeVM(CachedCardsStub(covers: ["a": nil]), cache: cache, warmer: warmer)
 
     await vm.load()
 
     XCTAssertNil(vm.covers["a"])
-    let stored = await cache.read(libraryID: Self.library)
+    let stored = await cache.read(libraryID: Self.library, host: Self.host)
     XCTAssertEqual(stored?.firstPages["a"]?.results.count, 0)
   }
 
   func test_aReplacementCoverThatFailsToWarm_keepsTheOldCover() async {
     let cache = ForYouCache(directory: directory)
-    await cache.write(Self.snapshot(["a": "old-a"]), libraryID: Self.library)
+    await cache.write(Self.snapshot(["a": "old-a"]), libraryID: Self.library, host: Self.host)
     let warmer = CoverWarmerProbe(succeeds: false)
     let vm = makeVM(CachedCardsStub(covers: ["a": "new-a"]), cache: cache, warmer: warmer)
 
@@ -126,14 +127,15 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
 
     XCTAssertEqual(warmer.warmed, ["new-a"])
     XCTAssertEqual(vm.covers["a"]?.id, "old-a")
-    let stored = await cache.read(libraryID: Self.library)
+    let stored = await cache.read(libraryID: Self.library, host: Self.host)
     XCTAssertEqual(stored?.firstPages["a"]?.results.first?.id, "old-a")
   }
 
   func test_aSnapshotOlderThanThreeDays_showsCardsWithoutCovers() async throws {
     let cache = ForYouCache(directory: directory)
     let saved = Date(timeIntervalSince1970: 1_800_000_000)
-    await cache.write(Self.snapshot(["a": "old-a"], savedAt: saved), libraryID: Self.library)
+    await cache.write(
+      Self.snapshot(["a": "old-a"], savedAt: saved), libraryID: Self.library, host: Self.host)
     let stub = CachedCardsStub(covers: ["a": "old-a"])
     stub.hold()
     let vm = makeVM(
@@ -152,7 +154,8 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
   func test_aSnapshotWithinThreeDays_showsItsCovers() async throws {
     let cache = ForYouCache(directory: directory)
     let saved = Date(timeIntervalSince1970: 1_800_000_000)
-    await cache.write(Self.snapshot(["a": "old-a"], savedAt: saved), libraryID: Self.library)
+    await cache.write(
+      Self.snapshot(["a": "old-a"], savedAt: saved), libraryID: Self.library, host: Self.host)
     let stub = CachedCardsStub(covers: ["a": "old-a"])
     stub.hold()
     let vm = makeVM(stub, cache: cache, now: saved.addingTimeInterval(2 * 24 * 60 * 60))
@@ -168,16 +171,16 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
   func test_trashedPhotos_leaveTheCacheAtOnce() async throws {
     let cache = ForYouCache(directory: directory)
     await cache.write(
-      Self.snapshot(["a": "old-a", "b": "old-b"]), libraryID: Self.library)
-    await cache.write(Self.snapshot(["c": "old-c"]), libraryID: "another-library")
+      Self.snapshot(["a": "old-a", "b": "old-b"]), libraryID: Self.library, host: Self.host)
+    await cache.write(Self.snapshot(["c": "old-c"]), libraryID: "another-library", host: Self.host)
 
     await cache.forgetAssets(absPaths: ["/p/old-a.dng"])
     await cache.forgetAssets(under: "/q")
 
-    let stored = await cache.read(libraryID: Self.library)
+    let stored = await cache.read(libraryID: Self.library, host: Self.host)
     XCTAssertEqual(stored.map { Set($0.firstPages.keys) }, ["b"])
     XCTAssertEqual(stored?.collections.map(\.id), ["a", "b"], "the card stays, without a cover")
-    let other = await cache.read(libraryID: "another-library")
+    let other = await cache.read(libraryID: "another-library", host: Self.host)
     XCTAssertEqual(other.map { Set($0.firstPages.keys) }, ["c"])
 
     let stub = CachedCardsStub(covers: ["a": "old-a", "b": "old-b"])
@@ -191,13 +194,44 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
     await load.value
   }
 
+  func test_aRefreshInFlight_cannotWriteATrashedCoverBack() async throws {
+    let cache = ForYouCache(directory: directory)
+    await cache.write(Self.snapshot(["a": "old-a"]), libraryID: Self.library, host: Self.host)
+    let warmer = CoverWarmerProbe()
+    warmer.hold()
+    let vm = makeVM(CachedCardsStub(covers: ["a": "new-a"]), cache: cache, warmer: warmer)
+
+    let load = Task { await vm.load() }
+    try await waitUntil { warmer.warmed == ["new-a"] }
+    await cache.forgetAssets(absPaths: ["/p/new-a.dng"])
+    warmer.release()
+    await load.value
+
+    let stored = await cache.read(libraryID: Self.library, host: Self.host)
+    XCTAssertNil(stored?.firstPages["a"], "the trashed photo must not be committed as a cover")
+    XCTAssertEqual(stored?.collections.map(\.id), ["a"])
+  }
+
+  func test_twoServersWithTheSameLibraryID_keepSeparateSets() async {
+    let cache = ForYouCache(directory: directory)
+    await cache.write(Self.snapshot(["a": "old-a"]), libraryID: Self.library, host: "one.test")
+    await cache.write(Self.snapshot(["b": "old-b"]), libraryID: Self.library, host: "two.test")
+
+    let one = await cache.read(libraryID: Self.library, host: "one.test")
+    let two = await cache.read(libraryID: Self.library, host: "two.test")
+
+    XCTAssertEqual(one?.collections.map(\.id), ["a"])
+    XCTAssertEqual(two?.collections.map(\.id), ["b"])
+  }
+
   func test_aTrashedFolder_dropsEveryPageShowingAPhotoInsideIt() async {
     let cache = ForYouCache(directory: directory)
-    await cache.write(Self.snapshot(["a": "old-a", "b": "old-b"]), libraryID: Self.library)
+    await cache.write(
+      Self.snapshot(["a": "old-a", "b": "old-b"]), libraryID: Self.library, host: Self.host)
 
     await cache.forgetAssets(under: "/p")
 
-    let stored = await cache.read(libraryID: Self.library)
+    let stored = await cache.read(libraryID: Self.library, host: Self.host)
     XCTAssertEqual(stored?.firstPages.isEmpty, true)
   }
 
@@ -211,7 +245,7 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
     await vm.load()
     let shown = vm.collections.map(\.id)
 
-    let stored = await cache.read(libraryID: Self.library)
+    let stored = await cache.read(libraryID: Self.library, host: Self.host)
     XCTAssertEqual(stored?.collections.map(\.id), shown)
 
     stub.hold()
@@ -227,6 +261,7 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
   // MARK: - Helpers
 
   private static let library = "lib-cache"
+  private static let host = "stub.test"
 
   private static func snapshot(
     _ covers: [String: String], savedAt: Date = Date()
@@ -269,7 +304,7 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
       httpClient: AuthenticatedHTTPClient.unauthenticated(
         server: server, urlSession: URLSession(configuration: cfg)))
     return GeneratedSearchCollectionsViewModel(
-      libraryID: Self.library, client: client, cache: cache,
+      libraryID: Self.library, client: client, cache: cache, cacheHost: Self.host,
       coverWarmer: warmer.map { probe in { await probe.warm($0) } },
       sessionOrder: store, random: SplitMix64(seed: 21), now: { now })
   }
