@@ -181,4 +181,58 @@ describe('PanoPreviewStore', () => {
     expect(store.run().kind).toBe('idle');
     vi.advanceTimersByTime(PREVIEW_POLL_MS * 3);
   });
+
+  it('cancels a job whose id arrives after the dialog cancelled the preview', () => {
+    store.request(REQUEST);
+    vi.advanceTimersByTime(PREVIEW_DEBOUNCE_MS);
+    const pending = http.expectOne('/api/pano/preview');
+
+    store.cancel();
+    pending.flush({ id: 'late' }, { status: 201, statusText: 'Created' });
+    vi.advanceTimersByTime(0);
+
+    const cancel = http.expectOne('/api/pano/jobs/late');
+    expect(cancel.request.method).toBe('DELETE');
+    cancel.flush({ ok: true });
+    vi.advanceTimersByTime(PREVIEW_POLL_MS * 3);
+    expect(store.run().kind).toBe('idle');
+  });
+
+  it('cancels a job whose id arrives after the store was disposed', () => {
+    store.request(REQUEST);
+    vi.advanceTimersByTime(PREVIEW_DEBOUNCE_MS);
+    const pending = http.expectOne('/api/pano/preview');
+
+    store.dispose();
+    pending.flush({ id: 'late' }, { status: 201, statusText: 'Created' });
+    vi.advanceTimersByTime(0);
+
+    expect(http.expectOne('/api/pano/jobs/late').request.method).toBe('DELETE');
+    vi.advanceTimersByTime(PREVIEW_POLL_MS * 3);
+  });
+
+  it('cancels a superseded preview whose id arrives after a newer request', () => {
+    store.request(REQUEST);
+    vi.advanceTimersByTime(PREVIEW_DEBOUNCE_MS);
+    const first = http.expectOne('/api/pano/preview');
+
+    store.request(REQUEST);
+    first.flush({ id: 'old' }, { status: 201, statusText: 'Created' });
+    vi.advanceTimersByTime(0);
+    expect(http.expectOne('/api/pano/jobs/old').request.method).toBe('DELETE');
+
+    startPreview('new');
+    http.expectOne('/api/pano/jobs/new').flush(job('new', { status: 'cancelled' }));
+  });
+
+  it('stops polling as soon as the preview is cancelled', () => {
+    store.request(REQUEST);
+    startPreview('p1');
+    http.expectOne('/api/pano/jobs/p1').flush(job('p1', {}));
+
+    store.cancel();
+    http.expectOne('/api/pano/jobs/p1').flush({ ok: true });
+    vi.advanceTimersByTime(PREVIEW_POLL_MS * 3);
+    http.expectNone('/api/pano/jobs/p1');
+  });
 });
