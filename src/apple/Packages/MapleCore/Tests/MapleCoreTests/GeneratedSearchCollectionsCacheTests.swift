@@ -298,6 +298,37 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
     XCTAssertEqual(stored?.firstPages["a"]?.results.first?.id, "new-a")
   }
 
+  func test_aKeptViewModel_dropsACoverTrashedAfterItLoaded() async throws {
+    let cache = ForYouCache(directory: directory)
+    let stub = CachedCardsStub(covers: ["a": "old-a", "b": "old-b"])
+    let vm = makeVM(stub, cache: cache)
+    await vm.load()
+    XCTAssertEqual(vm.covers["a"]?.id, "old-a")
+
+    await cache.forgetAsset(host: Self.host, assetID: "old-a", absPath: "/p/old-a.dng")
+    stub.covers = ["a": "next-a", "b": "old-b"]
+    stub.hold()
+    let revalidate = Task { await vm.dropTrashedCovers() }
+    try await waitUntil { vm.covers["a"] == nil }
+    XCTAssertEqual(vm.covers["b"]?.id, "old-b", "untouched covers stay up")
+    stub.release()
+    await revalidate.value
+
+    XCTAssertEqual(vm.covers["a"]?.id, "next-a", "the refresh brings the replacement")
+  }
+
+  func test_aKeptViewModel_withNothingTrashed_doesNotRefetch() async {
+    let cache = ForYouCache(directory: directory)
+    let stub = CachedCardsStub(covers: ["a": "old-a"])
+    let vm = makeVM(stub, cache: cache)
+    await vm.load()
+    let served = stub.served
+
+    await vm.dropTrashedCovers()
+
+    XCTAssertEqual(stub.served, served)
+  }
+
   func test_twoServersWithTheSameLibraryID_keepSeparateSets() async {
     let cache = ForYouCache(directory: directory)
     await cache.write(Self.snapshot(["a": "old-a"]), libraryID: Self.library, host: "one.test")
