@@ -16,7 +16,7 @@
  */
 
 import { jsonPath, patchAppSettings, readAppSettings } from '../../db/repos/app-settings.repo.ts';
-import { sqliteDb } from '../../db/repos/db-handle.ts';
+import { matchedOne, sqliteDb } from '../../db/repos/db-handle.ts';
 
 const DOC_ID = 'generated_search_runs';
 
@@ -98,5 +98,5 @@ export async function claimLibraryRun(
         ${casClause}`,
     [DOC_ID, path, value, path, value, path, path, staleBefore, ...casParams],
   );
-  return result.changes > 0;
+  return matchedOne(result.changes) === 1;
 }
