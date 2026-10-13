@@ -338,6 +338,7 @@ extension AppShell {
             let catalog = makeCloudCatalog(server: server)
             do {
                 let summary = try await catalog.trashFolder(folderID: libraryFolderID, relativePath: relative)
+                await ForYouCache.shared.forgetAssets(under: absPath)
                 folderRefreshGeneration += 1
                 if summary.failed > 0 {
                     browseVM.loadError = FileOperationError.underlying(

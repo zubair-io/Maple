@@ -82,13 +82,16 @@
 
     /// Decode a replacement cover into the bitmap cache the card's cell
     /// reads first, so the card swaps from the old picture to the new one
-    /// without a placeholder frame in between (#4595).
-    static func warmCover(_ cover: SearchAsset, host: String, provider: ThumbnailProvider) async {
+    /// without a placeholder frame in between (#4595). False when the
+    /// thumbnail couldn't be fetched or decoded.
+    static func warmCover(_ cover: SearchAsset, host: String, provider: ThumbnailProvider) async
+      -> Bool
+    {
       let item = PhotoGridItem(cloud: cover, host: host, style: .phone)
       let key = DevelopedImageRevision.shared.decodedKey(for: item.id, url: nil)
-      guard ThumbnailDecoder.cachedImage(forKey: key) == nil else { return }
+      guard ThumbnailDecoder.cachedImage(forKey: key) == nil else { return true }
       let bytes = await provider.thumbnail(for: item.thumbnailSource)
-      _ = await ThumbnailDecoder.image(for: bytes, key: key)
+      return await ThumbnailDecoder.image(for: bytes, key: key) != nil
     }
 
     @ViewBuilder

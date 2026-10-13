@@ -3,7 +3,9 @@
 // The For You row renders its cached set before any request (#4595), then
 // revalidates: retired collections leave the cache, a cover changes only when
 // the server names a different first photo and only once that photo is
-// warmed, and the cached order is the order that was shown.
+// warmed, and the cached order is the order that was shown. Stale covers are
+// bounded: trashed photos leave the cache at once, covers older than three
+// days don't render, and an empty server page clears the cover.
 
 import XCTest
 
@@ -101,6 +103,104 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
     XCTAssertNil(vm.covers["a"], "an empty filtered page leaves the placeholder")
   }
 
+  func test_anEmptyPage_clearsTheCoverEvenWhenAWarmerWouldFail() async {
+    let cache = ForYouCache(directory: directory)
+    await cache.write(Self.snapshot(["a": "hidden-a"]), libraryID: Self.library)
+    let warmer = CoverWarmerProbe(succeeds: false)
+    let vm = makeVM(CachedCardsStub(covers: ["a": nil]), cache: cache, warmer: warmer)
+
+    await vm.load()
+
+    XCTAssertNil(vm.covers["a"])
+    let stored = await cache.read(libraryID: Self.library)
+    XCTAssertEqual(stored?.firstPages["a"]?.results.count, 0)
+  }
+
+  func test_aReplacementCoverThatFailsToWarm_keepsTheOldCover() async {
+    let cache = ForYouCache(directory: directory)
+    await cache.write(Self.snapshot(["a": "old-a"]), libraryID: Self.library)
+    let warmer = CoverWarmerProbe(succeeds: false)
+    let vm = makeVM(CachedCardsStub(covers: ["a": "new-a"]), cache: cache, warmer: warmer)
+
+    await vm.load()
+
+    XCTAssertEqual(warmer.warmed, ["new-a"])
+    XCTAssertEqual(vm.covers["a"]?.id, "old-a")
+    let stored = await cache.read(libraryID: Self.library)
+    XCTAssertEqual(stored?.firstPages["a"]?.results.first?.id, "old-a")
+  }
+
+  func test_aSnapshotOlderThanThreeDays_showsCardsWithoutCovers() async throws {
+    let cache = ForYouCache(directory: directory)
+    let saved = Date(timeIntervalSince1970: 1_800_000_000)
+    await cache.write(Self.snapshot(["a": "old-a"], savedAt: saved), libraryID: Self.library)
+    let stub = CachedCardsStub(covers: ["a": "old-a"])
+    stub.hold()
+    let vm = makeVM(
+      stub, cache: cache, now: saved.addingTimeInterval(3 * 24 * 60 * 60 + 1))
+
+    let load = Task { await vm.load() }
+    try await waitUntil { !vm.collections.isEmpty }
+
+    XCTAssertEqual(vm.collections.map(\.id), ["a"])
+    XCTAssertNil(vm.covers["a"], "a stale cover waits for the server")
+    stub.release()
+    await load.value
+    XCTAssertEqual(vm.covers["a"]?.id, "old-a")
+  }
+
+  func test_aSnapshotWithinThreeDays_showsItsCovers() async throws {
+    let cache = ForYouCache(directory: directory)
+    let saved = Date(timeIntervalSince1970: 1_800_000_000)
+    await cache.write(Self.snapshot(["a": "old-a"], savedAt: saved), libraryID: Self.library)
+    let stub = CachedCardsStub(covers: ["a": "old-a"])
+    stub.hold()
+    let vm = makeVM(stub, cache: cache, now: saved.addingTimeInterval(2 * 24 * 60 * 60))
+
+    let load = Task { await vm.load() }
+    try await waitUntil { !vm.collections.isEmpty }
+
+    XCTAssertEqual(vm.covers["a"]?.id, "old-a")
+    stub.release()
+    await load.value
+  }
+
+  func test_trashedPhotos_leaveTheCacheAtOnce() async throws {
+    let cache = ForYouCache(directory: directory)
+    await cache.write(
+      Self.snapshot(["a": "old-a", "b": "old-b"]), libraryID: Self.library)
+    await cache.write(Self.snapshot(["c": "old-c"]), libraryID: "another-library")
+
+    await cache.forgetAssets(absPaths: ["/p/old-a.dng"])
+    await cache.forgetAssets(under: "/q")
+
+    let stored = await cache.read(libraryID: Self.library)
+    XCTAssertEqual(stored.map { Set($0.firstPages.keys) }, ["b"])
+    XCTAssertEqual(stored?.collections.map(\.id), ["a", "b"], "the card stays, without a cover")
+    let other = await cache.read(libraryID: "another-library")
+    XCTAssertEqual(other.map { Set($0.firstPages.keys) }, ["c"])
+
+    let stub = CachedCardsStub(covers: ["a": "old-a", "b": "old-b"])
+    stub.hold()
+    let vm = makeVM(stub, cache: cache)
+    let load = Task { await vm.load() }
+    try await waitUntil { !vm.collections.isEmpty }
+    XCTAssertNil(vm.covers["a"], "the trashed photo never renders from the cache")
+    XCTAssertEqual(vm.covers["b"]?.id, "old-b")
+    stub.release()
+    await load.value
+  }
+
+  func test_aTrashedFolder_dropsEveryPageShowingAPhotoInsideIt() async {
+    let cache = ForYouCache(directory: directory)
+    await cache.write(Self.snapshot(["a": "old-a", "b": "old-b"]), libraryID: Self.library)
+
+    await cache.forgetAssets(under: "/p")
+
+    let stored = await cache.read(libraryID: Self.library)
+    XCTAssertEqual(stored?.firstPages.isEmpty, true)
+  }
+
   func test_theCachedOrder_isTheOrderShown() async {
     let ids = ["a", "b", "c", "d", "e", "f"]
     let cache = ForYouCache(directory: directory)
@@ -128,7 +228,9 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
 
   private static let library = "lib-cache"
 
-  private static func snapshot(_ covers: [String: String]) -> ForYouSnapshot {
+  private static func snapshot(
+    _ covers: [String: String], savedAt: Date = Date()
+  ) -> ForYouSnapshot {
     let ids = covers.keys.sorted()
     return ForYouSnapshot(
       collections: ids.map {
@@ -137,7 +239,8 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
       },
       firstPages: covers.mapValues {
         GeneratedSearchAssetPage(results: [asset($0)], total: 1, isSnapshot: true)
-      })
+      },
+      savedAt: savedAt)
   }
 
   static func asset(_ id: String) -> SearchAsset {
@@ -154,7 +257,7 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
 
   private func makeVM(
     _ stub: CachedCardsStub, cache: ForYouCache, warmer: CoverWarmerProbe? = nil,
-    store: ForYouSessionOrder = ForYouSessionOrder()
+    store: ForYouSessionOrder = ForYouSessionOrder(), now: Date = Date()
   ) -> GeneratedSearchCollectionsViewModel {
     let server = URL(string: "https://stub.test")!
     let cfg = URLSessionConfiguration.ephemeral
@@ -168,7 +271,7 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
     return GeneratedSearchCollectionsViewModel(
       libraryID: Self.library, client: client, cache: cache,
       coverWarmer: warmer.map { probe in { await probe.warm($0) } },
-      sessionOrder: store, random: SplitMix64(seed: 21))
+      sessionOrder: store, random: SplitMix64(seed: 21), now: { now })
   }
 }
 
@@ -240,18 +343,24 @@ final class CachedCardsStub: @unchecked Sendable {
 
 /// Records each cover it is asked to warm; `hold()` keeps the warm pending.
 final class CoverWarmerProbe: @unchecked Sendable {
+  private let succeeds: Bool
   private let lock = NSLock()
   private let gate = TestGate()
   private var _warmed: [String] = []
+
+  init(succeeds: Bool = true) {
+    self.succeeds = succeeds
+  }
 
   var warmed: [String] { lock.withLock { _warmed } }
   func hold() { gate.hold() }
   func release() { gate.release() }
 
-  func warm(_ cover: SearchAsset) async {
+  func warm(_ cover: SearchAsset) async -> Bool {
     lock.withLock { _warmed.append(cover.id) }
     while gate.isHeld {
       try? await Task.sleep(nanoseconds: 5_000_000)
     }
+    return succeeds
   }
 }
