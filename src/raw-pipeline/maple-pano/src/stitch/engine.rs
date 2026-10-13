@@ -38,6 +38,20 @@ pub enum FeatureEngine {
     Classical,
 }
 
+impl FeatureEngine {
+    /// The name `maple-cli --features-engine` takes, and the alignment key
+    /// records (#4515): an alignment matched by one engine is never reused
+    /// by the other.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            #[cfg(any(feature = "ml", feature = "ml-static"))]
+            Self::Ml => "ml",
+            #[cfg(feature = "classical-features")]
+            Self::Classical => "classical",
+        }
+    }
+}
+
 /// The stage-2 half of a loaded engine (the detector is released once
 /// stage 1 finishes — #3197).
 pub(super) enum PairMatcher {

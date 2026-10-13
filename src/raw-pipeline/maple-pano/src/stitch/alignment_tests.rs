@@ -71,6 +71,19 @@ fn composite_only_options_keep_the_alignment_valid() {
             max_budget_px: 12.0,
             ..base.clone()
         },
+        StitchOptions {
+            seam_strategy: SeamStrategy::GraphCut,
+            seam_constraints: vec![crate::seam::SeamConstraint::ForceExclude(
+                1,
+                crate::seam::CanvasRect {
+                    x: 0,
+                    y: 0,
+                    width: 8,
+                    height: 8,
+                },
+            )],
+            ..base.clone()
+        },
     ];
     for opts in &composite_only {
         assert_eq!(stored.mismatch(&key(&frames, opts)), None);
@@ -97,6 +110,15 @@ fn geometry_options_invalidate_the_alignment() {
         },
         StitchOptions {
             use_coreml: true,
+            ..base.clone()
+        },
+        StitchOptions {
+            grid: Some(crate::graph::GridLayout {
+                rows: 1,
+                cols: 3,
+                order: crate::graph::GridOrder::Serpentine,
+                diagonals: false,
+            }),
             ..base.clone()
         },
     ];
@@ -359,4 +381,46 @@ fn malformed_or_inconsistent_files_are_errors() {
     solved.tile_graph = Some(awkward_graph(3));
     let err = SolvedAlignment::from_json(&solved.to_json()).unwrap_err();
     assert!(err.contains("tile graph"), "{err}");
+}
+
+#[test]
+fn the_alignment_key_records_the_feature_engine() {
+    let frames = TempFrames::new("engine-key", 2);
+    let opts = StitchOptions::default();
+    assert_eq!(
+        key(&frames, &opts).feature_engine,
+        opts.feature_engine.as_str()
+    );
+}
+
+#[test]
+fn switching_the_matcher_marks_the_alignment_stale() {
+    let frames = TempFrames::new("engine-switch", 3);
+    let solved = awkward_alignment(StrategyRequest::Rotation, &frames);
+    let reloaded = SolvedAlignment::from_json(&solved.to_json()).unwrap();
+    let current = key(
+        &frames,
+        &StitchOptions {
+            strategy: StrategyRequest::Rotation,
+            ..StitchOptions::default()
+        },
+    );
+    let [this, other] = ["classical", "ml"].map(|engine| AlignmentKey {
+        feature_engine: engine.into(),
+        ..current.clone()
+    });
+    let offered = SolvedAlignment {
+        key: this,
+        ..reloaded
+    };
+    assert_eq!(
+        usable(Some(&offered), &offered.key.clone()).1,
+        AlignmentReuse::Reused
+    );
+    let (hit, verdict) = usable(Some(&offered), &other);
+    assert!(hit.is_none());
+    assert!(
+        matches!(&verdict, AlignmentReuse::Stale(r) if r.contains("matcher classical → ml")),
+        "{verdict:?}"
+    );
 }

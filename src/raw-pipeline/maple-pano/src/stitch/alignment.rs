@@ -9,7 +9,8 @@
 //! [`AlignmentKey`] is the fingerprint that decides whether an alignment
 //! may be reused: the identity of every input file (canonical path, byte
 //! size, modification time) plus exactly the options that feed stages 0–2
-//! (strategy request, proxy size, model directory, CoreML). Options read
+//! (strategy request, proxy size, feature engine, declared capture grid,
+//! model directory, CoreML). Options read
 //! only after the boundary — retention, local alignment, residual budgets,
 //! canvas cap, strip height, seam strategy — are deliberately absent: the
 //! tail re-runs them on every stitch, so changing them keeps the matching
@@ -72,8 +73,26 @@ pub struct AlignmentKey {
     pub inputs: Vec<InputIdentity>,
     pub strategy: String,
     pub proxy_long_edge: u32,
+    /// `ml` or `classical` (#4523) — the matcher that built the graph.
+    pub feature_engine: String,
+    /// The declared capture grid (#4519), which gates the graph's loop
+    /// closures; `None` when none was declared.
+    pub grid: Option<String>,
     pub models_dir: Option<PathBuf>,
     pub use_coreml: bool,
+}
+
+fn grid_label(grid: &crate::graph::GridLayout) -> String {
+    let order = match grid.order {
+        crate::graph::GridOrder::Raster => "raster",
+        crate::graph::GridOrder::Serpentine => "serpentine",
+    };
+    let diagonals = if grid.diagonals {
+        " with diagonals"
+    } else {
+        ""
+    };
+    format!("{}x{} {order}{diagonals}", grid.rows, grid.cols)
 }
 
 impl AlignmentKey {
@@ -86,6 +105,8 @@ impl AlignmentKey {
                 .collect::<Result<_, _>>()?,
             strategy: opts.strategy.as_str().to_string(),
             proxy_long_edge: opts.proxy_long_edge,
+            feature_engine: opts.feature_engine.as_str().to_string(),
+            grid: opts.grid.as_ref().map(grid_label),
             models_dir: opts.models_dir.clone(),
             use_coreml: opts.use_coreml,
         })
@@ -134,6 +155,20 @@ impl AlignmentKey {
                 format!(
                     "proxy long edge {} → {}",
                     self.proxy_long_edge, current.proxy_long_edge
+                )
+            }),
+            (self.feature_engine != current.feature_engine).then(|| {
+                format!(
+                    "matcher {} → {}",
+                    self.feature_engine, current.feature_engine
+                )
+            }),
+            (self.grid != current.grid).then(|| {
+                let shown = |g: &Option<String>| g.clone().unwrap_or_else(|| "none".into());
+                format!(
+                    "capture grid {} → {}",
+                    shown(&self.grid),
+                    shown(&current.grid)
                 )
             }),
             (self.models_dir != current.models_dir).then(|| "models directory".to_string()),
