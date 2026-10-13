@@ -26,6 +26,10 @@ use rayon::prelude::*;
 /// strength.
 pub(super) const FALSE_COLOUR_SUPPRESS_STRENGTH: f32 = 5.0;
 
+/// AMaZE's own ratio-trust threshold (`green.rs`, `diag.rs`): a colour ratio
+/// within this relative distance of its reference is treated as the same hue.
+const ARTHRESH: f32 = 0.75;
+
 /// `green` is the final reconstructed green plane; `cfa_flat` the flattened
 /// mosaic (raw sensor sample per site). Operates in place on the
 /// camera-native RGB.
@@ -39,6 +43,7 @@ pub(super) fn suppress_false_colour(
     strength: f32,
 ) {
     if strength <= 0.0 || w < 9 || h < 9 {
+        clamp_signed_chroma(out);
         return;
     }
     const EPS: f32 = 1e-6;
@@ -108,6 +113,56 @@ pub(super) fn suppress_false_colour(
         ((gc - mean).abs() / mag).min(1.0)
     };
 
+    // A negative reconstructed chroma means AMaZE's directional kernel
+    // extrapolated the colour difference past green at a luminance edge, so
+    // the hue path carries no estimate there. Where every measured R and B
+    // sample in the 5×5 window shares one chromaticity, the surface colour
+    // follows green exactly: transport the nearest same-colour samples by
+    // their ratio to green. Otherwise (a colour edge, or noise dominating the
+    // ratios) there is no supported hue and the existing value blend from a
+    // zero floor stands. Without this, that blend imports the bright side's
+    // mean into the dark side as a magenta/green fringe (#4123).
+    let collapsed_estimate = |x: usize, y: usize, t: usize| -> Option<f32> {
+        let centre = green[y * w + x];
+        if centre <= 0.0 {
+            return None;
+        }
+        let ratio_at = |nx: usize, ny: usize| {
+            let (g, v) = (green[ny * w + nx], cfa_flat[ny * w + nx]);
+            (g > 0.0 && v >= 0.0).then(|| v / g)
+        };
+        for k in [0usize, 2] {
+            let mut ratios = [0.0_f32; 9];
+            let mut n = 0;
+            for ny in y - 2..=y + 2 {
+                for nx in x - 2..=x + 2 {
+                    if color_at(nx, ny) == k {
+                        ratios[n] = ratio_at(nx, ny)?;
+                        n += 1;
+                    }
+                }
+            }
+            let ratios = &ratios[..n];
+            let mean = ratios.iter().sum::<f32>() / n as f32;
+            if !(mean > 0.0) || ratios.iter().any(|r| (1.0 - r / mean).abs() >= ARTHRESH) {
+                return None;
+            }
+        }
+        let ring: [(isize, isize); 4] = if color_at(x, y) == 1 {
+            [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        } else {
+            [(-1, -1), (1, -1), (-1, 1), (1, 1)]
+        };
+        let (colour, guide) = ring
+            .iter()
+            .map(|&(dx, dy)| ((x as isize + dx) as usize, (y as isize + dy) as usize))
+            .filter(|&(nx, ny)| color_at(nx, ny) == t)
+            .fold((0.0_f32, 0.0_f32), |(c, g), (nx, ny)| {
+                (c + cfa_flat[ny * w + nx], g + green[ny * w + nx])
+            });
+        Some(centre * colour / guide)
+    };
+
     // Reads only touch the immutable `green`/`cfa_flat` planes, so the
     // in-place write to each output pixel is independent of every other.
     out.pixels
@@ -116,13 +171,11 @@ pub(super) fn suppress_false_colour(
         .for_each(|(y, row)| {
             for x in 0..w {
                 if x < 3 || y < 3 || x + 3 >= w || y + 3 >= h {
+                    row[x] = row[x].map(|v| v.max(0.0));
                     continue;
                 }
                 let c = color_at(x, y);
                 let ghf = green_hf(x, y);
-                if ghf <= 0.0 {
-                    continue;
-                }
                 let mut px = row[x];
                 for t in 0..3usize {
                     // Only reconstructed channels; the sampled channel and
@@ -130,7 +183,17 @@ pub(super) fn suppress_false_colour(
                     if t == c || t == 1 {
                         continue;
                     }
-                    let c_hue = px[t];
+                    if px[t] < 0.0 {
+                        if let Some(estimate) = collapsed_estimate(x, y, t) {
+                            px[t] = estimate;
+                            continue;
+                        }
+                    }
+                    let c_hue = px[t].max(0.0);
+                    if ghf <= 0.0 {
+                        px[t] = c_hue;
+                        continue;
+                    }
                     let c_val = value_estimate(x, y, t);
                     // Disagreement between the two estimates, normalised by
                     // the local channel magnitude.
@@ -145,4 +208,10 @@ pub(super) fn suppress_false_colour(
                 row[x] = px;
             }
         });
+}
+
+fn clamp_signed_chroma(out: &mut Image) {
+    out.pixels
+        .par_iter_mut()
+        .for_each(|p| *p = p.map(|v| v.max(0.0)));
 }
