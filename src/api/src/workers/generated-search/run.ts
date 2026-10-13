@@ -23,8 +23,10 @@ import { runProposalLoop } from './loop.ts';
 import { createOllamaJsonClient } from './ollama-adapter.ts';
 import { saveGeneratedSearches, pruneGeneratedSearches } from './repo.ts';
 import {
+  claimLibraryRun,
   loadRunRecords,
   saveRunRecord,
+  type ClaimMode,
   type LibraryRunRecord,
   type RunTrigger,
 } from './run-state.repo.ts';
@@ -111,22 +113,31 @@ export interface RunOptions {
   trigger?: RunTrigger;
   /** Stamps each run record; the schedule's tests inject theirs. */
   clock?: () => Date;
+  /** The records the schedule read when it decided these libraries were owed.
+   * Each claim then requires the record to be unchanged; without it (Run now)
+   * a claim only has to find no live pass in flight. */
+  observed?: ReadonlyMap<string, LibraryRunRecord>;
   /** Test seam replacing the digest → LLM → persist pass for one library. */
   runLibrary?: LibraryPass;
 }
 
-async function realLibraryPass(config: GeneratedSearchConfig, now: Date): Promise<LibraryPass> {
-  // A saved AI assignment is independent; legacy deployments retain their
-  // existing endpoint/model until the unified settings are first saved.
+/** A saved AI assignment is independent; legacy deployments retain their
+ * existing endpoint/model until the unified settings are first saved. */
+async function resolveModelEndpoint(
+  config: GeneratedSearchConfig,
+): Promise<{ model: string; url: string }> {
   const enrichment = resolveEnrichmentConfig(await loadEnrichmentConfig());
   const assigned = assignedAi(enrichment.ai_connections, 'generated-search');
-  const model =
-    assigned?.model ?? (config.model.length > 0 ? config.model : enrichment.describe_model);
+  const legacyModel = config.model.length > 0 ? config.model : enrichment.describe_model;
+  return assigned === null
+    ? { model: legacyModel, url: enrichment.describe_provider_url }
+    : { model: assigned.model, url: assigned.primary.url };
+}
+
+async function realLibraryPass(config: GeneratedSearchConfig, now: Date): Promise<LibraryPass> {
+  const { model, url } = await resolveModelEndpoint(config);
   const ctx = {
-    client: createOllamaJsonClient(
-      assigned?.primary.url ?? enrichment.describe_provider_url,
-      model,
-    ),
+    client: createOllamaJsonClient(url, model),
     config,
     model,
     generatedFor: dayKey(now),
@@ -141,17 +152,22 @@ function errorText(err: unknown): string {
 }
 
 /**
- * One library's attempt, bracketed by its persisted run record: `running`
- * before the model is called, so a restart mid-pass (or a pass in the other
- * process) sees the claim, then the outcome once it settles.
+ * One library's attempt, bracketed by its persisted run record: an atomic
+ * `running` claim before the model is called, so a restart mid-pass or a
+ * pass in the other process cannot start a second one, then the outcome once
+ * it settles. A lost claim skips the library.
  */
 async function attemptLibrary(
   running: LibraryRunRecord,
+  mode: ClaimMode,
   pass: LibraryPass,
   dryRun: boolean,
   clock: () => Date,
 ): Promise<number> {
-  await saveRunRecord(running);
+  if (!(await claimLibraryRun(running, mode, clock()))) {
+    log.info({ libraryId: running.library_id }, 'another pass holds the claim — skipping');
+    return 0;
+  }
   const settled = await pass(running.library_id).then(
     (saved) => ({ saved, error: null }),
     (err: unknown) => ({ saved: 0, error: errorText(err) }),
@@ -195,7 +211,11 @@ export async function runGeneratedSearchOnce(
   const libraries = opts.libraries ?? [...(await loadLibraryRoots()).keys()];
   const clock = opts.clock ?? (() => new Date());
   const day = dayKey(now);
-  const records = await loadRunRecords();
+  const records = opts.observed ?? (await loadRunRecords());
+  const claimMode = (libraryId: string): ClaimMode =>
+    opts.observed === undefined
+      ? { force: true }
+      : { force: false, expectedStartedAt: opts.observed.get(libraryId)?.started_at ?? null };
   const attemptsToday = (libraryId: string): number => {
     const record = records.get(libraryId);
     return record?.day === day ? record.attempts : 0;
@@ -214,6 +234,7 @@ export async function runGeneratedSearchOnce(
         error: null,
         trigger: opts.trigger ?? 'run-now',
       },
+      claimMode(libraryId),
       pass,
       config.dry_run,
       clock,

@@ -20,6 +20,11 @@
  *   4. An attempt still marked running → leave it, unless the claim is old
  *      enough that its process must have died mid-pass.
  *
+ * Deciding is a read, so the pass itself starts only through an atomic claim
+ * (`claimLibraryRun`) that requires the record to be unchanged since. Run now
+ * in the API process and this schedule in the worker process can therefore
+ * never both start a library's pass.
+ *
  * All of that reads persisted state (`run-state.repo.ts`), never memory, so a
  * restart picks up exactly where the last process left off.
  */
@@ -29,22 +34,19 @@ import { librariesWithSetFor } from '../../db/repos/generated-searches.repo.ts';
 import { child as childLogger } from '../../log.ts';
 import { loadGeneratedSearchConfig, type GeneratedSearchConfig } from './config.repo.ts';
 import { dayKey, runGeneratedSearchOnce, type RunOptions } from './run.ts';
-import { loadRunRecords, type LibraryRunRecord } from './run-state.repo.ts';
+import { loadRunRecords, STALE_RUNNING_MS, type LibraryRunRecord } from './run-state.repo.ts';
 
 const log = childLogger('generated-search');
 
 const MINUTE_MS = 60_000;
-export const TICK_MS = 15 * MINUTE_MS;
-export const BOOT_DELAY_MS = 2 * MINUTE_MS;
-export const RETRY_BASE_MS = 60 * MINUTE_MS;
+const TICK_MS = 15 * MINUTE_MS;
+const BOOT_DELAY_MS = 2 * MINUTE_MS;
+const RETRY_BASE_MS = 60 * MINUTE_MS;
 export const MAX_ATTEMPTS_PER_DAY = 3;
-/** A pass makes minutes of LLM calls; one claimed for longer than this died
- * with its process. */
-export const STALE_RUNNING_MS = 2 * 60 * MINUTE_MS;
 
 /** Delay before the next attempt after `attempts` unsuccessful ones today:
  * one hour, then two. */
-export function retryDelayMs(attempts: number): number {
+function retryDelayMs(attempts: number): number {
   return RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1);
 }
 
@@ -74,15 +76,16 @@ function attemptIsOwed(
   }
 }
 
-/** The libraries whose pass for `dayKey(now)` is still owed. */
-export async function librariesOwedToday(
+/** The libraries whose pass for `dayKey(now)` is still owed, judged from
+ * `records` — the same snapshot each pass's claim later requires unchanged. */
+async function librariesOwedToday(
   libraries: readonly string[],
   config: GeneratedSearchConfig,
   now: Date,
+  records: ReadonlyMap<string, LibraryRunRecord>,
 ): Promise<string[]> {
-  if (config.paused) return [];
   const day = dayKey(now);
-  const [withSet, records] = await Promise.all([librariesWithSetFor(day), loadRunRecords()]);
+  const withSet = await librariesWithSetFor(day);
   return libraries.filter((libraryId) => {
     if (withSet.has(libraryId)) return false;
     const record = records.get(libraryId);
@@ -113,10 +116,12 @@ export async function generatedSearchTick(deps: ScheduleDeps = defaultDeps): Pro
     await runGeneratedSearchOnce(now);
     return [];
   }
-  const owed = await librariesOwedToday(await deps.listLibraries(), config, now);
+  const records = await loadRunRecords();
+  const owed = await librariesOwedToday(await deps.listLibraries(), config, now, records);
   if (owed.length === 0) return [];
   const summary = await runGeneratedSearchOnce(now, {
     libraries: owed,
+    observed: records,
     trigger: 'schedule',
     clock: deps.now,
     runLibrary: deps.runLibrary,

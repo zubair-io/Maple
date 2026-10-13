@@ -13,7 +13,13 @@ import {
   type LiveTestDatabase,
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { saveGeneratedSearchConfig } from './config.repo.ts';
-import { loadLatestRunRecord, loadRunRecords } from './run-state.repo.ts';
+import { runGeneratedSearchOnce } from './run.ts';
+import {
+  claimLibraryRun,
+  loadLatestRunRecord,
+  loadRunRecords,
+  type LibraryRunRecord,
+} from './run-state.repo.ts';
 import { generatedSearchTick, MAX_ATTEMPTS_PER_DAY, startGeneratedSearch } from './schedule.ts';
 
 const LIBRARY = 'lib-a';
@@ -217,6 +223,112 @@ describe('generated-search schedule — operator controls', () => {
     h.advance(15 * MINUTE);
     await h.tick();
     expect(h.calls()).toBe(2);
+  });
+});
+
+describe('generated-search schedule — one pass per claim across processes', () => {
+  /** A pass that stays in flight until released, so two claimants overlap. */
+  function gatedPass() {
+    let calls = 0;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    return {
+      runLibrary: async () => {
+        calls += 1;
+        await gate;
+        return 4;
+      },
+      release: () => release(),
+      calls: () => calls,
+    };
+  }
+
+  const NOW = new Date('2026-10-12T06:00:00.000Z');
+  const deps = (runLibrary: () => Promise<number>) => ({
+    now: () => NOW,
+    listLibraries: async () => [LIBRARY],
+    runLibrary,
+  });
+
+  it('gives exactly one pass to two schedulers checking at once', async () => {
+    using _live = await createLiveTestDatabase();
+    await enable();
+    const pass = gatedPass();
+    const both = Promise.all([
+      generatedSearchTick(deps(pass.runLibrary)),
+      generatedSearchTick(deps(pass.runLibrary)),
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    pass.release();
+    await both;
+    expect(pass.calls()).toBe(1);
+  });
+
+  it('gives exactly one pass to Run now and the schedule racing', async () => {
+    using _live = await createLiveTestDatabase();
+    await enable();
+    const pass = gatedPass();
+    const both = Promise.all([
+      generatedSearchTick(deps(pass.runLibrary)),
+      runGeneratedSearchOnce(NOW, {
+        force: true,
+        libraries: [LIBRARY],
+        clock: () => NOW,
+        runLibrary: pass.runLibrary,
+      }),
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    pass.release();
+    await both;
+    expect(pass.calls()).toBe(1);
+  });
+
+  it('lets Run now take over a stale claim but not one still in flight', async () => {
+    using _live = await createLiveTestDatabase();
+    const claim = (startedAt: string): LibraryRunRecord => ({
+      library_id: LIBRARY,
+      day: '2026-10-12',
+      attempts: 1,
+      started_at: startedAt,
+      finished_at: null,
+      outcome: 'running',
+      saved: 0,
+      error: null,
+      trigger: 'schedule',
+    });
+    expect(await claimLibraryRun(claim('2026-10-12T06:00:00.000Z'), { force: true }, NOW)).toBe(
+      true,
+    );
+
+    const inFlight = new Date('2026-10-12T07:00:00.000Z');
+    expect(await claimLibraryRun(claim(inFlight.toISOString()), { force: true }, inFlight)).toBe(
+      false,
+    );
+
+    const stale = new Date('2026-10-12T08:30:00.000Z');
+    expect(await claimLibraryRun(claim(stale.toISOString()), { force: true }, stale)).toBe(true);
+    expect((await loadLatestRunRecord())?.started_at).toBe(stale.toISOString());
+  });
+
+  it('refuses a schedule claim when the record changed since it was read', async () => {
+    using _live = await createLiveTestDatabase();
+    const record: LibraryRunRecord = {
+      library_id: LIBRARY,
+      day: '2026-10-12',
+      attempts: 1,
+      started_at: '2026-10-12T05:00:00.000Z',
+      finished_at: '2026-10-12T05:05:00.000Z',
+      outcome: 'failed',
+      saved: 0,
+      error: 'boom',
+      trigger: 'run-now',
+    };
+    await claimLibraryRun(record, { force: true }, NOW);
+    const next = { ...record, started_at: NOW.toISOString(), outcome: 'running' as const };
+    expect(await claimLibraryRun(next, { force: false, expectedStartedAt: null }, NOW)).toBe(false);
+    expect(
+      await claimLibraryRun(next, { force: false, expectedStartedAt: record.started_at }, NOW),
+    ).toBe(true);
   });
 });
 
