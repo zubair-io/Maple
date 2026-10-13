@@ -475,8 +475,12 @@ fn streaming_unity_input_solves_to_one() {
 #[test]
 fn streaming_plus_minus_one_ev_recovered() {
     let cams = ring_cameras(3, 60.0, 0.45);
-    // 2× / 1× / 0.5× — large contrast to survive DNG quantization noise.
-    let muls = [2.0_f32, 1.0, 0.5];
+    // 1× / 0.5× / 0.25× — two stops of contrast to survive DNG quantization
+    // noise, with the brightest frame below white: the scene peaks near 0.8,
+    // and a clipped frame's overlap is excluded from the photometry (#4517),
+    // all the more since #4582 treats ripple beside a clipped channel as
+    // clipped, so a 2× frame would carry no exposure evidence at all.
+    let muls = [1.0_f32, 0.5, 0.25];
     let frames: Vec<_> = cams
         .iter()
         .zip(muls)

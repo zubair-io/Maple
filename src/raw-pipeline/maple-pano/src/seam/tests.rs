@@ -395,9 +395,27 @@ fn tiled_graph_cut_composite_shows_only_the_force_included_frame() {
         FramePhotometry::IDENTITY,
         None,
     );
+    let winner = 1 - loser;
+    let other = warp_to_canvas(
+        &ring.frames[winner],
+        &ring.cams[winner],
+        &ring.canvas,
+        FramePhotometry::IDENTITY,
+        None,
+    );
+    // The tiled composite is multi-band (#4524): the seam's low frequencies
+    // reach a few pixels into a 6×12 rectangle, so the included frame's
+    // content must dominate there rather than match it bit for bit.
     for (x, y) in rect_pixels(r) {
         let i = (y as usize) * (ring.canvas.width as usize) + x as usize;
-        assert!((image.r[i] - only.r[i]).abs() < 1e-5, "({x},{y})");
-        assert!((image.b[i] - only.b[i]).abs() < 1e-5, "({x},{y})");
+        for (img, inc, exc) in [
+            (image.r[i], only.r[i], other.r[i]),
+            (image.b[i], only.b[i], other.b[i]),
+        ] {
+            assert!((img - inc).abs() < 0.02, "({x},{y}) {img} vs {inc}");
+            if (inc - exc).abs() > 0.1 {
+                assert!((img - inc).abs() < 0.25 * (inc - exc).abs(), "({x},{y})");
+            }
+        }
     }
 }
