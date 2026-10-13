@@ -16,6 +16,8 @@
 //     `excludeHiddenPeople` and the screenshot exclusion when IT runs the
 //     stored query; a client that rebuilt the query would drop both, on a
 //     television, unattended.
+//   * Cards show in a shuffled order that holds for the session
+//     (`ForYouOrder`, #4594), never the server's.
 //
 // Generation-counter staleness guard: bump
 // before any `await`, re-check after every suspension point, so a library
@@ -51,11 +53,20 @@ public final class GeneratedSearchCollectionsViewModel {
   /// Enough to fill the first screens of a 3-column grid; the rest pages in.
   nonisolated static let firstPageSize = 30
   private let client: GeneratedSearchClient
+  private let sessionOrder: ForYouSessionOrder
+  private var random: AnyRandomNumberGenerator
   private var generation: Int = 0
 
-  public init(libraryID: String, client: GeneratedSearchClient) {
+  public init(
+    libraryID: String,
+    client: GeneratedSearchClient,
+    sessionOrder: ForYouSessionOrder = .shared,
+    random: some RandomNumberGenerator = SystemRandomNumberGenerator()
+  ) {
     self.libraryID = libraryID
     self.client = client
+    self.sessionOrder = sessionOrder
+    self.random = AnyRandomNumberGenerator(random)
   }
 
   /// Load the most recent day that produced anything. Omitting the date is
@@ -78,7 +89,7 @@ public final class GeneratedSearchCollectionsViewModel {
     }
     guard g == generation else { return }
     loadError = nil
-    collections = loaded
+    collections = arrangeForSession(loaded)
     // Drop covers for collections that just fell out of the set. A reload
     // replaces `collections` wholesale, so without this the map only ever
     // grows — every day's retired collections stay resident for the life of
@@ -104,6 +115,17 @@ public final class GeneratedSearchCollectionsViewModel {
         if let page { firstPages[id] = page }
       }
     }
+  }
+
+  /// `loaded` in this session's order for the library, recorded so the next
+  /// load — on this view model or a new one — keeps it.
+  private func arrangeForSession(_ loaded: [GeneratedSearchCard]) -> [GeneratedSearchCard] {
+    let day = ForYouOrder.day(of: loaded)
+    let order = ForYouOrder.arrange(
+      loaded.map(\.id), keeping: sessionOrder.order(for: libraryID, day: day), using: &random)
+    sessionOrder.record(order, day: day, for: libraryID)
+    let byID = Dictionary(loaded.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    return order.compactMap { byID[$0] }
   }
 
   /// The FIRST PAGE of one collection's photos, plus the collection's full
