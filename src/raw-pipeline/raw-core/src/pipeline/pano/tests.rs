@@ -382,7 +382,7 @@ fn blown_sky_is_not_magenta() {
         )))
         .expect("read frame");
         let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
-        let (scene, _) = develop_scene_linear_for_pano(&raw, None).expect("develop");
+        let (scene, _, _) = develop_scene_linear_for_pano(&raw, None).expect("develop");
         let crop = raw.crop_rect.expect("DJI frames carry a DefaultCrop");
         let sensor_w = raw.width as usize;
         assert!(matches!(raw.cfa, crate::image::CfaPattern::Rggb));
