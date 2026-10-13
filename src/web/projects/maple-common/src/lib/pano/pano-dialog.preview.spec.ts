@@ -14,9 +14,17 @@ const config = (previewSupported: boolean): PanoConfig => ({
   models_dir: '/models',
   ort_dylib_path: null,
   enabled: true,
+  matcher: 'classical',
   strategy_supported: false,
+  features_engine_supported: true,
   preview_supported: previewSupported,
-  source: { maple_cli_path: 'db', models_dir: 'db', ort_dylib_path: 'unset', enabled: 'db' },
+  source: {
+    maple_cli_path: 'db',
+    models_dir: 'db',
+    ort_dylib_path: 'unset',
+    enabled: 'db',
+    matcher: 'default',
+  },
 });
 
 const previewJob = (id: string, patch: Partial<PanoJobView>): PanoJobView => ({
