@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 // Temp-only symlink fixtures intentionally bypass durable mirrored product I/O.
-import { mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join, parse, sep } from 'node:path';
 import { getRegisteredRoots, registerRoot, safeWriteAllowed, unregisterRoot } from './root.ts';
@@ -141,11 +141,23 @@ describe('safeWriteAllowed', () => {
     });
   });
 
+  test('keeps a live filename ending with the unlinked-inode suffix', async () => {
+    const fixture = await realpath(await mkdtemp(join(tmpdir(), 'maple-root-deleted-name-')));
+    temporaryRoots.push(fixture);
+    const sidecar = join(fixture, 'photo.xmp (deleted)');
+    await writeFile(sidecar, '<xmpmeta/>');
+    process.env.MAPLE_ROOTS = fixture;
+
+    expect(await safeWriteAllowed(sidecar)).toEqual({ ok: true, data: sidecar });
+  });
+
   test('keeps one destination while atomic saves replace the sidecar (#4051)', async () => {
     const fixture = await realpath(await mkdtemp(join(tmpdir(), 'maple-root-replaced-')));
     temporaryRoots.push(fixture);
     const sidecar = join(fixture, 'photo.xmp');
+    const decoy = `${sidecar} (deleted)`;
     await writeFile(sidecar, '<xmpmeta/>');
+    await writeFile(decoy, '<decoy/>');
     process.env.MAPLE_ROOTS = fixture;
 
     const destinations = new Set<string | undefined>();
@@ -168,6 +180,7 @@ describe('safeWriteAllowed', () => {
     await Promise.all([authorize(5000), replace(0)]);
 
     expect([...destinations]).toEqual([sidecar]);
+    expect(await readFile(decoy, 'utf8')).toBe('<decoy/>');
   });
 
   test('authorizes every root in the native platform path list', async () => {
