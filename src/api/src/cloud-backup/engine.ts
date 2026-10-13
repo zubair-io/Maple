@@ -356,7 +356,7 @@ export class BackupEngine {
         throw new Error('Backup configuration or lifecycle changed');
       const provider = await this.provider(destination);
       await provider.probe(lease.signal);
-      if (initial.error_kind === 'connection') await this.rearmConnectionFailures(destination);
+      await this.rearmConnectionFailures(destination);
       const ctx = { destination, entry, owner, provider, signal: lease.signal };
       const objects = await this.publishFiles(ctx, files);
       await this.validateCurrentInventory(ctx, location, files);
@@ -374,9 +374,10 @@ export class BackupEngine {
       if (files) await releaseCapture(files);
     }
   }
-  // This entry was failing on the connection and its probe just succeeded, so
-  // its siblings' connection errors are resolved too. Cleanup is best effort:
-  // a failure here must not turn a healthy transfer into a recorded error.
+  // A probe that just succeeded proves the destination healthy for every entry
+  // still parked on a connection failure. The repository call is one partial-
+  // index lookup when nothing is parked, and best effort: a failure here must
+  // not turn a healthy transfer into a recorded error.
   private async rearmConnectionFailures(destination: BackupDestination): Promise<void> {
     try {
       await this.repo.clearResolvedConnectionErrors(destination.id);
