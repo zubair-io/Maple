@@ -107,8 +107,8 @@ public struct SearchParams: Sendable, Equatable, Hashable {
   public var q: String = ""
   /// Free-text content search against the unified `search_blob` (place +
   /// caption + OCR + people). Natural-language dates and person names work
-  /// with or without Meilisearch; when Meilisearch is configured it adds
-  /// typo-tolerance and semantic ranking on top. This is what the main
+  /// on every path; when the server's in-process search engine is ready it
+  /// adds typo-tolerance and semantic ranking on top. This is what the main
   /// search box drives — mirrors the web `placeQuery`.
   public var placeQuery: String = ""
   /// Scope to one registered library (folder ObjectId hex).
@@ -211,10 +211,15 @@ public struct SearchParams: Sendable, Equatable, Hashable {
 
   // MARK: - Serialisation
 
-  /// Query items for `/api/search/facets` — everything except page / limit
-  /// / sort (the server ignores those for facet aggregation).
-  public func facetQueryItems() -> [URLQueryItem] {
+  /// Query items for `/api/search/facets` — the base filters, plus the
+  /// list's `page` and `limit` when given: a free-text search's facets count
+  /// the list's ranked window as of that page (#4514). Sort never affects them.
+  public func facetQueryItems(page: Int? = nil, limit: Int? = nil) -> [URLQueryItem] {
     baseItems()
+      + [
+        page.map { URLQueryItem(name: "page", value: "\($0)") },
+        limit.map { URLQueryItem(name: "limit", value: "\($0)") },
+      ].compactMap { $0 }
   }
 
   /// Query items for `/api/search` — base filters plus sort + pagination.
@@ -224,7 +229,9 @@ public struct SearchParams: Sendable, Equatable, Hashable {
   /// range predicate on `(exif.captured_at, _id)` rather than a SKIP, so
   /// deep pages cost the same as shallow ones. Sending both would be
   /// ambiguous, so only one ever goes on the wire.
-  public func listQueryItems(page: Int, limit: Int, cursor: String? = nil) -> [URLQueryItem] {
+  public func listQueryItems(
+    page: Int, limit: Int, cursor: String? = nil, rankPin: String? = nil
+  ) -> [URLQueryItem] {
     let paging: URLQueryItem = {
       guard let cursor, !cursor.isEmpty else {
         return URLQueryItem(name: "page", value: "\(page)")
@@ -235,7 +242,7 @@ public struct SearchParams: Sendable, Equatable, Hashable {
       URLQueryItem(name: "sort", value: sort.rawValue),
       paging,
       URLQueryItem(name: "limit", value: "\(limit)"),
-    ]
+    ] + (rankPin.map { [URLQueryItem(name: "rankPin", value: $0)] } ?? [])
   }
 
   /// Shared filter serialisation. Mirrors the web `paramsFrom()` skip

@@ -71,7 +71,7 @@ function seedTwoLocationAsset(db: Database): { assetId: string; libraryId: strin
   const assetId = insertAsset(db);
   insertLocation(db, { assetId, libraryId, ordinal: 0, path: 'photos', filename: 'IMG_1.dng' });
   insertLocation(db, { assetId, libraryId, ordinal: 1, path: 'backup', filename: 'IMG_1.dng' });
-  for (const stage of ['meili', 'embed', 'thumb', 'preview']) {
+  for (const stage of ['search-blob', 'embed', 'thumb', 'preview']) {
     insertStageState(db, assetId, stage, {
       version: 7,
       attempts: 3,
@@ -126,9 +126,9 @@ describe('markSoftDeleted', () => {
       dbOverride: testSqliteDb(db),
     });
 
-    // The meili re-arm clears `processed_at`; the cache re-arm deliberately
+    // The embed re-arm clears `processed_at`; the cache re-arm deliberately
     // does not — the asymmetry is inherited from the Mongo fragments.
-    expect(stageState(db, assetId, 'meili')).toEqual({
+    expect(stageState(db, assetId, 'embed')).toEqual({
       version: 0,
       attempts: 0,
       dead: 0,
@@ -285,7 +285,7 @@ describe('restoreFromTrash', () => {
       `${ROOT}/photos/IMG_1.dng`,
       assetId,
     );
-    for (const stage of ['meili', 'thumb', 'preview'])
+    for (const stage of ['search-blob', 'thumb', 'preview'])
       insertStageState(db, assetId, stage, { version: 9 });
 
     const result = await restoreFromTrash({
@@ -307,7 +307,6 @@ describe('restoreFromTrash', () => {
       mtime: 1_700_000_000_000,
     });
     expect(locations(db, assetId)[0]).toMatchObject({ path: 'photos', filename: 'IMG_1.dng' });
-    expect(stageState(db, assetId, 'meili')?.version).toBe(0);
     expect(stageState(db, assetId, 'embed')?.version).toBe(0);
     expect(stageState(db, assetId, 'thumb')?.version).toBe(0);
   });

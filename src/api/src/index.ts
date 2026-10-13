@@ -24,11 +24,6 @@
  *                        when unset.
  *   MAPLE_GEOCODE_WORKER_ENABLED — set to "false" to disable the geocode
  *                        worker even when a URL is provided. Default on.
- *   MAPLE_MEILISEARCH_URL — base URL of a Meilisearch sidecar for typo-
- *                        tolerant place search. When unset, the search
- *                        route uses Maple's own full-text index only. See
- *                        `docs/operations/meilisearch.md`.
- *   MAPLE_MEILISEARCH_API_KEY — bearer key for the Meilisearch instance.
  *   MAPLE_FACE_ORT_INTRA_OP_THREADS — intra-op thread count passed to
  *                        onnxruntime-node when creating the face InferenceSession
  *                        instances. Defaults to `min(4, availableParallelism())`.
@@ -91,7 +86,6 @@ import { ensureSchemaAtBoot, sqliteDatabasePath } from './db/sqlite/boot-schema.
 import { loadMirrorConfig } from './fs/mirror-config.ts';
 import { flushPendingMirrorOps } from './fs/mirrored.ts';
 import { installMirrorQueueSink } from './workers/mirror/sink.ts';
-import { initializeHttpSearch } from './enrichment/meilisearch-http-bootstrap.ts';
 import {
   loadObservabilityConfig,
   resolveObservabilityConfig,
@@ -102,7 +96,7 @@ import { getApnsPushTrigger } from './apns/push-trigger.ts';
 import { startEventLoopLagMonitor, stopEventLoopLagMonitor } from './runtime/diag-eventloop.ts';
 import { startMemoryTelemetry, stopMemoryTelemetry } from './runtime/memory-telemetry.ts';
 import { startWorkerSupervisor, stopWorkerSupervisor } from './runtime/worker-supervisor.ts';
-import { startSelectedSearchEngine } from './search/search-engine-selection.ts';
+import { startSearchEngine } from './search/search-ranking.ts';
 import { stopSearchChildPool } from './search/search-pool.ts';
 import { SERVER_PORT } from './runtime/server-port.ts';
 import { TLS_ENABLED, listenOptions } from './runtime/tls-config.ts';
@@ -387,8 +381,7 @@ async function start(): Promise<void> {
     // guarantees that. Respawn-on-crash and its backoff live in the supervisor.
     startWorkerSupervisor(import.meta.url);
 
-    await initializeHttpSearch();
-    await startSelectedSearchEngine();
+    startSearchEngine();
 
     try {
       // OpenTelemetry → SigNoz. The backend ships its own logs + traces over
@@ -409,7 +402,7 @@ async function start(): Promise<void> {
   //
   // Failure is logged at `error` (operator-visible) but non-fatal — the
   // pattern matches the surrounding subsystem boots (workers, discover,
-  // meili, jobrunner all log + continue). A missing success line is the
+  // jobrunner all log + continue). A missing success line is the
   // operator's signal that the backup subsystem is degraded; promoting to
   // process exit would be inconsistent with the rest of the boot.
   try {

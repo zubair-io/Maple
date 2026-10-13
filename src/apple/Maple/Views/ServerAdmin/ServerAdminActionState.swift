@@ -30,7 +30,7 @@ enum ServerAdminActionState: Equatable {
 /// in-flight state, replacing the old per-file "Saving…"/"Testing…" verb
 /// swap. `disabledReason`, when non-nil, renders as a caption between the
 /// button and the status line (the "why is Test disabled" explanation
-/// Geocode/Meilisearch/Cloudflare all show).
+/// Geocode/Cloudflare all show).
 ///
 /// `successIdentifier`/`failureIdentifier` default to `"<identifier>Result"`
 /// + `.success`/`.error`, matching the convention Enrichment and Cloudflare

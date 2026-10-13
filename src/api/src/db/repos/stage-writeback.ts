@@ -77,9 +77,9 @@ const STAGE_NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
  * On Mongo this guarded against a `.`- or `$`-bearing value silently creating
  * unintended nested fields inside a `$set` path. Here the name is a bound
  * parameter and cannot reach the SQL text, so the injection is gone — but the
- * mistake it caught is not. `invalidates: ['meili.version']` means the author
+ * mistake it caught is not. `invalidates: ['search-blob.version']` means the author
  * thought they were writing a field path, and honouring it would create a
- * `stage_state` row for a stage called `meili.version` that no runner will ever
+ * `stage_state` row for a stage called `search-blob.version` that no runner will ever
  * claim. Failing the attempt loudly is still the right answer.
  */
 function assertStageNames(names: readonly string[]): void {

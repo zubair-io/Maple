@@ -5,7 +5,7 @@
  * (`captured_desc` / `captured_asc`) answer with `cursorPaging: true` and an
  * opaque `nextCursor`; sending it back seeks with a range predicate on
  * `(captured_at, id)` instead of skipping, so page depth stops costing
- * anything. Every other sort — and the `placeQuery` text/Meili path, whose
+ * anything. Every other sort — and the `placeQuery` text path, whose
  * ordering is a computed relevance rank — keeps `page`/`limit` skip
  * pagination and says so with `cursorPaging: false`. See `cursor.ts` for why
  * each of those can't be seeked, and `list-paging.ts` for the mode decision.
@@ -18,11 +18,15 @@
  *
  * The query string becomes a `SearchWhere` once, via `buildSearchWhere`, and
  * the same translated value feeds the page and the count — which is what
- * keeps a large `total` from appearing above an empty grid, the failure the
- * Meilisearch branch shipped once (#2928).
+ * keeps a large `total` from appearing above an empty grid, the failure a
+ * ranked branch shipped once (#2928).
  *
- * Related modules: `list-meili.ts` (the Meilisearch branch and its database
- * fallback contract), `total-cache.ts` (the 30 s `total` cache).
+ * A free-text request is answered from its ranked window instead (`list-ranked.ts`, #4514):
+ * `total` is the window's size and `more` says whether a deeper page can widen it. Its `rankPin`
+ * goes back with each further page so every page comes from one ranking (#4542); a page whose
+ * pinned engine is gone answers 409 `rank_engine_changed`, and the client restarts at page 0.
+ *
+ * Related modules: `list-ranked.ts` (the free-text branch), `total-cache.ts` (the 30 s `total` cache of a structured search).
  */
 
 import { Elysia } from 'elysia';
@@ -33,8 +37,7 @@ import { appliedDateFilter } from './date-provenance.ts';
 import { SORT_OPTIONS } from './sort.ts';
 import { cursorFromDoc, encodeCursor } from './cursor.ts';
 import { libraryMaps } from './libraries.ts';
-import { meiliPage, usesPlaceText } from './list-meili.ts';
-import { inProcessPage } from './list-in-process.ts';
+import { rankedListResponse } from './list-ranked.ts';
 import { resolveRankedScope } from './scope.ts';
 import { resolvePaging } from './list-paging.ts';
 import { getCachedTotal } from './total-cache.ts';
@@ -45,7 +48,7 @@ export const listRoute = new Elysia().get(
   async ({ query, set }) => {
     // Natural-language dates: resolve "May 5" / "2023" / "last summer" out
     // of placeQuery into structured from/to, and strip the matched span so
-    // the residual free-text drives the text/Meili path. Pure-date queries
+    // the residual free-text drives the text path. Pure-date queries
     // ("2023") leave an empty residual and skip the text path entirely.
     // One `now` for both calls: the extraction and its provenance must not
     // disagree across a midnight boundary.
@@ -68,13 +71,10 @@ export const listRoute = new Elysia().get(
     const page = clampInt(query.page, 0, 10_000, 0);
     const limit = clampInt(query.limit, 1, 500, 100);
 
-    // A residual placeQuery turns the page into a relevance-ranked one: the
-    // translated query carries the full-text match and `searchPage` orders by
-    // `bm25()`, tie-breaking on captured_at desc then id for stability. A
-    // pure-date query ("2023") has an empty residual placeQuery here, so it
-    // bypasses both the Meili path and the full-text path and runs as a plain
+    // A residual placeQuery turns the page into a relevance-ranked one, served from its ranked
+    // window below. A pure-date query ("2023") has an empty residual and runs as a plain
     // structured filter on `captured_at`.
-    const usingPlaceText = usesPlaceText(resolved);
+    const usingPlaceText = childQuery !== null;
     const sort = query.sort && SORT_OPTIONS.has(query.sort) ? query.sort : 'captured_desc';
 
     const paging = resolvePaging(query.cursor, sort, page, limit, usingPlaceText);
@@ -103,32 +103,20 @@ export const listRoute = new Elysia().get(
       };
     }
 
-    // A placeQuery is ranked by the in-process engine when Settings → AI selects it, else by
-    // Meilisearch when the sidecar is configured; `null` from either means not selected,
-    // not configured or failed, and we fall through to the next, ending at the database's own
-    // full-text path (the source of truth).
-    const ranked =
-      (await inProcessPage({ where, childQuery, skip: paging.skip, limit, timing })) ??
-      (await meiliPage({
+    // A placeQuery is answered from its ranked window (`list-ranked.ts`): an engine ranks the
+    // text, SQL filters its hits, and `total` is the window's size — never a count of every match.
+    if (childQuery !== null) {
+      const ranked = await rankedListResponse({
         where,
-        resolved,
-        libraryId: query.libraryId,
+        childQuery,
         skip: paging.skip,
         limit,
         timing,
-      }));
-    if (ranked) {
+        rawPin: query.rankPin,
+      });
       set.headers['server-timing'] = timing.header();
-      return {
-        total: ranked.total,
-        page,
-        limit,
-        results: ranked.results,
-        cursorPaging: false,
-        nextCursor: null,
-        ...(ranked.rankedBy ? { rankedBy: ranked.rankedBy } : {}),
-        ...withDates,
-      };
+      set.status = ranked.status;
+      return ranked.status === 200 ? { ...ranked.body, page, limit, ...withDates } : ranked.body;
     }
 
     // `total` is cached — see `total-cache.ts`. Keyed on the raw query (not

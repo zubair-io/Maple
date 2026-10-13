@@ -3,7 +3,7 @@ import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve
 import { workerEnrichmentFingerprint } from './enrichment-config-refresh.ts';
 
 describe('worker enrichment config refresh', () => {
-  it('invalidates worker caches when any search or shared Ollama setting changes', () => {
+  it('invalidates worker caches when any describe or provider setting changes', () => {
     const base = resolveEnrichmentConfig(null, {});
     const fingerprint = workerEnrichmentFingerprint(base);
     const changes = [
@@ -14,12 +14,6 @@ describe('worker enrichment config refresh', () => {
       { anthropic_api_key: 'sk-ant-test' },
       { gemini_api_key: 'AIzaSyTest' },
       { describe_provider_url: 'http://ollama.internal:11434' },
-      { meilisearch_url: 'http://meili.internal:7700' },
-      { meilisearch_api_key: 'new-secret' },
-      { meilisearch_semantic_enabled: true },
-      { meilisearch_embedder_model: 'snowflake-arctic-embed2' },
-      { meilisearch_semantic_ratio: 0.7 },
-      { meilisearch_task_timeout_seconds: 900 },
     ];
 
     for (const change of changes) {
@@ -27,7 +21,7 @@ describe('worker enrichment config refresh', () => {
     }
   });
 
-  it('does not rebuild search clients for unrelated enrichment settings', () => {
+  it('does not re-apply the worker config for unrelated enrichment settings', () => {
     const base = resolveEnrichmentConfig(null, {});
     expect(
       workerEnrichmentFingerprint({

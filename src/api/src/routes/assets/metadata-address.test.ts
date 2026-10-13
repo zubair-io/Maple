@@ -10,11 +10,13 @@ import {
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { registerLibrary, seedRouteAsset } from '../../../tests/helpers/assets-route-fixtures.ts';
+import { BackupRepository } from '../../cloud-backup/repository.ts';
 
 describe('asset metadata address routes against the live catalogue', () => {
   let live: LiveTestDatabase;
   let root: string;
   let libraryRoot: string;
+  let libraryId: string;
   let assetId: string;
 
   beforeEach(async () => {
@@ -26,7 +28,7 @@ describe('asset metadata address routes against the live catalogue', () => {
     await writeFile(join(libraryRoot, 'unindexed.jpg'), 'unindexed original');
     await writeFile(join(root, 'outside.jpg'), 'outside original');
     await symlink(join(root, 'outside.jpg'), join(libraryRoot, 'escape.jpg'));
-    const libraryId = registerLibrary(live.db, libraryRoot, 'photos');
+    libraryId = registerLibrary(live.db, libraryRoot, 'photos');
     assetId = seedRouteAsset(live.db, {
       libraryId,
       path: 'photos',
@@ -59,6 +61,68 @@ describe('asset metadata address routes against the live catalogue', () => {
     expect(pathBody.address).toBe('photos:photos/indexed.jpg');
   });
 
+  it('includes database-backed mirror state on the asset detail object', async () => {
+    const repo = new BackupRepository(live.handle);
+    const destination = await repo.createDestination({
+      libraryId,
+      kind: 'google-drive',
+      name: 'Drive',
+      path: null,
+    });
+    await repo.updateDestination(destination.id, { enabled: true });
+    const entry = await repo.ensureEntry(destination.id, assetId, 0, 'photos/indexed.jpg');
+    await repo.db.write('UPDATE backup_entries SET verified_sequence=sequence WHERE id=?', [
+      entry.id,
+    ]);
+
+    const response = await request(assetId);
+    expect(response.status).toBe(200);
+    const byAddress = await request('by-address', 'photos:photos/indexed.jpg');
+    expect((await byAddress.json()).mirrors).toHaveLength(1);
+    const byPath = await request('by-fspath', join(libraryRoot, 'photos', 'indexed.jpg'));
+    expect((await byPath.json()).mirrors).toHaveLength(1);
+    expect((await response.json()).mirrors).toMatchObject([
+      {
+        destinationId: destination.id,
+        destinationName: 'Drive',
+        provider: 'google-drive',
+        path: 'photos/indexed.jpg',
+        status: 'synced',
+        state: 'active',
+        lastError: null,
+      },
+    ]);
+  });
+
+  it('includes database-backed mirror state in batch metadata responses', async () => {
+    const repo = new BackupRepository(live.handle);
+    const destination = await repo.createDestination({
+      libraryId,
+      kind: 'google-drive',
+      name: 'Drive',
+      path: null,
+    });
+    await repo.updateDestination(destination.id, { enabled: true });
+    await repo.ensureEntry(destination.id, assetId, 0, 'photos/indexed.jpg');
+    const response = await new Elysia({ prefix: '/api/assets' }).use(metadataRoutes).handle(
+      new Request('http://localhost/api/assets/batch-meta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [assetId] }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).assets[0].mirrors).toMatchObject([
+      {
+        destinationId: destination.id,
+        destinationName: 'Drive',
+        provider: 'google-drive',
+        path: 'photos/indexed.jpg',
+        status: 'pending',
+      },
+    ]);
+  });
+
   it('rejects missing values before resolving a library', async () => {
     for (const route of ['by-address', 'by-fspath']) {
       expect((await request(route)).status).toBe(400);
@@ -87,7 +151,9 @@ describe('asset metadata address routes against the live catalogue', () => {
     ]) {
       const response = await request('by-fspath', absolutePath);
       expect(response.status).toBe(404);
-      expect(await response.json()).toEqual({ error: 'Path not in any library' });
+      expect(await response.json()).toEqual({
+        error: 'Path not in any library',
+      });
     }
     for (const [route, value] of [
       ['by-address', 'photos:unindexed.jpg'],

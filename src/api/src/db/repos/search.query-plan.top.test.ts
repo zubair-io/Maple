@@ -1,15 +1,14 @@
 /**
- * The plans behind a broad text search's facets (#4431).
+ * The plans behind a text search's ranked window (#4431, #4514).
  *
- * Each of the three statements exists to avoid one row read per match, and a
- * plan that quietly reintroduces it still returns the right rows — only slower,
- * by the second on production. So the shape is pinned here:
+ * Each statement exists to avoid one row read per match, and a plan that
+ * quietly reintroduces it still returns the right rows — only slower, by
+ * minutes on production. So the shape is pinned here, with the planner's
+ * statistics and without them (production's plan flipped once they went stale):
  *
- *  - the first results are ranked on the inverted index alone (the month
- *    narrowing aside, which is a list built once), and only those are joined,
- *    probing `asset_search` and `assets` by key;
- *  - the exact total reads the inverted index and the `assets_unlisted` index,
- *    never an asset per match;
+ *  - the window is ranked on the inverted index alone (the month narrowing
+ *    aside, which is a list built once), and only its hits are joined, probing
+ *    `asset_search` and `assets` by key;
  *  - the facet columns of those results are read once, by key: `assets` by
  *    rowid and each side table by asset id, never by walking a table.
  *
@@ -20,10 +19,9 @@
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { createTestDatabase } from '../sqlite/test-sqlite.test-helpers.ts';
-import { firstRankedSql, mapleIdRowsSql, someMatchesSql } from './search.ranked.ts';
+import { ftsWindowSql, mapleIdRowsSql } from './search.ranked.ts';
 import { assetFacetRowsSql, sideFacetRowsSql } from './search.facets.top.ts';
-import type { BoundStatement } from './search.sql.ts';
-import { textOnlyCountSql } from './search.text-count.ts';
+import { windowColumnsSql, type BoundStatement } from './search.sql.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
 import { seedSearchLibrary } from './search.test-helpers.ts';
 import type { SearchQuery } from '../../routes/search/query-schema.ts';
@@ -41,10 +39,21 @@ function translate(q: SearchQuery): SearchWhere {
   return built;
 }
 
-async function withDb(body: (db: Database) => void): Promise<void> {
+async function withDb(
+  body: (db: Database) => void,
+  statistics?: 'analyzed' | 'none',
+): Promise<void> {
   using handle = await createTestDatabase();
   seedSearchLibrary(handle.db);
+  if (statistics !== undefined) handle.db.exec('ANALYZE');
+  if (statistics === 'none') handle.db.exec('DELETE FROM sqlite_stat1');
   body(handle.db);
+}
+
+/** The shot rule's filename (#4557) is one keyed probe per survivor, never a location scan. */
+function expectShotProbeByKey(plan: string[]): void {
+  expect(plan.filter((line) => /^SEARCH l USING .*\(asset_id=\?/.test(line))).toHaveLength(1);
+  expect(plan.filter((line) => /^SCAN l\b/.test(line))).toEqual([]);
 }
 
 const QUERIES: SearchQuery[] = [
@@ -54,63 +63,42 @@ const QUERIES: SearchQuery[] = [
   { placeQuery: 'harbour', rating: '3', camera: 'apple' },
 ];
 
-describe('the first results are ranked on the inverted index, then probed by key', () => {
-  for (const q of QUERIES) {
-    test(JSON.stringify(q), async () => {
-      await withDb((db) => {
-        const plan = planOf(db, firstRankedSql(translate(q), 4_000, 2_000));
-        const reads = plan.filter(
-          (line) => /^(SCAN|SEARCH) /.test(line) && line !== 'SCAN CONSTANT ROW',
-        );
-        // The ranking is the first table read, and the only full-text one.
-        expect(reads[0]).toBe('SCAN assets_fts VIRTUAL TABLE INDEX 0:M1');
-        expect(plan.filter((line) => line.includes('assets_fts'))).toEqual([
-          'SCAN assets_fts VIRTUAL TABLE INDEX 0:M1',
-        ]);
-        expect(plan.filter((line) => line.includes('0:='))).toEqual([]);
-        // Every asset is reached by key from a hit, never by walking the table
-        // or one of its indexes.
-        expect(reads.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
-        expect(plan).toContain('SEARCH asset_search USING INTEGER PRIMARY KEY (rowid=?)');
-        expect(
-          reads.filter(
-            (line) => line.startsWith('SEARCH assets ') && !/(id=\?|rowid=\?)/.test(line),
-          ),
-        ).toEqual(
-          q.month === undefined
-            ? []
-            : ['SEARCH assets USING INDEX assets_live_month (captured_month=? AND hidden=?)'],
-        );
+describe('the window is ranked on the inverted index, then probed by key', () => {
+  for (const statistics of ['analyzed', 'none'] as const) {
+    for (const q of QUERIES) {
+      test(`${JSON.stringify(q)}${statistics === 'none' ? ' without statistics' : ''}`, async () => {
+        await withDb((db) => {
+          for (const plan of [0, 1].map((lookahead) =>
+            planOf(db, ftsWindowSql(translate(q), 4_000, lookahead)),
+          )) {
+            const reads = plan.filter(
+              (line) => /^(SCAN|SEARCH) /.test(line) && line !== 'SCAN CONSTANT ROW',
+            );
+            // The ranking is the first table read, and the only full-text one.
+            expect(reads[0]).toBe('SCAN assets_fts VIRTUAL TABLE INDEX 0:M1');
+            expect(plan.filter((line) => line.includes('assets_fts'))).toEqual([
+              'SCAN assets_fts VIRTUAL TABLE INDEX 0:M1',
+            ]);
+            expect(plan.filter((line) => line.includes('0:='))).toEqual([]);
+            // Every asset is reached by key from a hit, never by walking the table
+            // or one of its indexes.
+            expect(reads.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
+            expect(plan).toContain('SEARCH asset_search USING INTEGER PRIMARY KEY (rowid=?)');
+            expectShotProbeByKey(plan);
+            expect(
+              reads.filter(
+                (line) => line.startsWith('SEARCH assets ') && !/(id=\?|rowid=\?)/.test(line),
+              ),
+            ).toEqual(
+              q.month === undefined
+                ? []
+                : ['SEARCH assets USING INDEX assets_live_month (captured_month=? AND hidden=?)'],
+            );
+          }
+        }, statistics);
       });
-    });
+    }
   }
-});
-
-describe('the exact total reads no asset per match', () => {
-  test('without a month: matches less the unlisted', async () => {
-    await withDb((db) => {
-      const plan = planOf(db, textOnlyCountSql(translate({ placeQuery: 'group of people' })));
-      expect(plan).toContain('SCAN assets USING INDEX assets_unlisted');
-      expect(plan.filter((line) => line.startsWith('SCAN assets_fts'))).toEqual([
-        'SCAN assets_fts VIRTUAL TABLE INDEX 0:M1',
-        'SCAN assets_fts VIRTUAL TABLE INDEX 0:M1',
-      ]);
-      expect(plan.some((line) => line.includes('assets_live_id'))).toBe(false);
-      expect(plan.filter((line) => line.includes('0:='))).toEqual([]);
-    });
-  });
-
-  test("with a month: the month's rows, counted on the inverted index", async () => {
-    await withDb((db) => {
-      const plan = planOf(db, textOnlyCountSql(translate({ placeQuery: 'harbour', month: '6' })));
-      expect(plan[0]).toBe('SCAN assets_fts VIRTUAL TABLE INDEX 0:M1');
-      expect(plan).toContain(
-        'SEARCH assets USING INDEX assets_live_month (captured_month=? AND hidden=?)',
-      );
-      expect(plan.some((line) => line.includes('assets_live_id'))).toBe(false);
-      expect(plan.filter((line) => line.includes('0:='))).toEqual([]);
-    });
-  });
 });
 
 describe('the facet columns of the first results are read by key', () => {
@@ -144,32 +132,44 @@ describe('the facet columns of the first results are read by key', () => {
   });
 });
 
-describe("a filtered search's matches are read with the inverted index leading", () => {
-  for (const q of QUERIES) {
-    test(JSON.stringify(q), async () => {
-      await withDb((db) => {
-        const plan = planOf(db, someMatchesSql(translate(q), 2_001));
-        expect(plan[0]).toBe('SCAN assets_fts VIRTUAL TABLE INDEX 0:M1');
-        expect(plan.filter((line) => line.includes('0:='))).toEqual([]);
-        expect(plan.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
-      });
-    });
-  }
-});
-
 describe("another engine's ranked ids become rows by key", () => {
   for (const q of QUERIES) {
     test(JSON.stringify(q), async () => {
       await withDb((db) => {
         const plan = planOf(db, mapleIdRowsSql(translate(q), ['maple-a', 'maple-b']));
-        // By the ids, or by the month when one narrows further — a keyed search
-        // either way, never a walk of the table.
         expect(plan[0]).toMatch(
-          /^SEARCH assets USING (COVERING )?INDEX (assets_maple_id \(maple_id=\?\)|assets_live_month )/,
+          /^SEARCH assets USING (COVERING )?INDEX assets_maple_id \(maple_id=\?\)/,
         );
         expect(plan.some((line) => line.includes('assets_fts'))).toBe(false);
         expect(plan.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
+        expectShotProbeByKey(plan);
       });
     });
+  }
+});
+
+describe("a window's page is re-read under its filters by key (#4545)", () => {
+  for (const statistics of ['analyzed', 'none'] as const) {
+    for (const q of QUERIES) {
+      test(`${JSON.stringify(q)}${statistics === 'none' ? ' without statistics' : ''}`, async () => {
+        await withDb((db) => {
+          const plan = planOf(
+            db,
+            windowColumnsSql(translate(q), [
+              '0123456789abcdef01234567',
+              '89abcdef0123456789abcdef',
+            ]),
+          );
+          expect(plan[0]).toMatch(/^SCAN page VIRTUAL TABLE/);
+          // One equality probe per id: the primary key, or an index whose other
+          // columns the filters pin to single values.
+          expect(plan[1]).toMatch(
+            /^SEARCH assets USING (COVERING )?INDEX \S+ \((\w+=\? AND )*id=\?( AND \w+=\?)*\)$/,
+          );
+          expect(plan.some((line) => line.includes('assets_fts'))).toBe(false);
+          expect(plan.filter((line) => /^SCAN assets\b(?!_)/.test(line))).toEqual([]);
+        }, statistics);
+      });
+    }
   }
 });

@@ -3,9 +3,7 @@
  * `app.handle`. GET/test routes need no auth beyond a bearer (mirroring the
  * search-route + jobs-route patterns); PUT /config additionally requires the
  * `owner` role (#2353) — the `put()` helper below defaults to an owner JWT so
- * the existing save-path tests stay unchanged. Meilisearch-field PUT coverage
- * and the dedicated owner-gate rejection tests live in
- * `enrichment-route-meilisearch.test.ts` (split for the file-size budget).
+ * the existing save-path tests stay unchanged.
  *
  * The Nominatim health-check is faked by stubbing `globalThis.fetch` for
  * the duration of each test — no network calls.
@@ -129,6 +127,20 @@ describe('GET /api/enrichment/config', () => {
         nominatim_url: 'unset',
         geocode_worker_enabled: 'env',
       },
+    });
+  });
+
+  it('still carries the deprecated meilisearch_* fields released Apple builds require (#4464)', async () => {
+    const r = await get('/api/enrichment/config');
+
+    expect(r.body).toMatchObject({
+      meilisearch_url: null,
+      meilisearch_api_key_set: false,
+      meilisearch_task_timeout_seconds: 600,
+      meilisearch_semantic_enabled: false,
+      meilisearch_embedder_url: '',
+      meilisearch_embedder_model: '',
+      meilisearch_semantic_ratio: 0.5,
     });
   });
 
@@ -403,32 +415,46 @@ describe('POST /api/enrichment/test', () => {
   });
 });
 
-describe('POST /api/enrichment/test-meili', () => {
-  it('returns ok:true when Meilisearch /health is reachable', async () => {
-    stubFetch((url) =>
-      url.endsWith('/health') ? { status: 200, body: { status: 'available' } } : { status: 200 },
+// #2353 — PUT /config can repoint provider URLs and their API-key bearers at an
+// attacker-controlled host, so it must reject anyone but the owner. GET/test stay
+// member-readable — no state change, no secrets in the response.
+describe('PUT /api/enrichment/config — owner gate (#2353)', () => {
+  const body = { nominatim_url: null, geocode_worker_enabled: false };
+
+  it('rejects an unauthenticated request with 401', async () => {
+    // Raw request (bypassing the `put()` helper) — the 401 rejection body is
+    // plain text ("missing bearer"), not JSON, so `put()`'s `res.json()`
+    // parse would throw.
+    const res = await app!.handle(
+      new Request('http://localhost/api/enrichment/config', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
     );
-    const r = await post('/api/enrichment/test-meili', {
-      meilisearch_url: 'http://meili.test:7700/',
-    });
-    expect(r.status).toBe(200);
-    // Trailing slash is stripped to match the saved/used form.
-    expect(r.body).toMatchObject({ ok: true, url: 'http://meili.test:7700' });
+    expect(res.status).toBe(401);
   });
 
-  it('returns ok:false when the health check fails', async () => {
-    stubFetch(() => ({ status: 503, body: { status: 'unavailable' } }));
-    const r = await post('/api/enrichment/test-meili', {
-      meilisearch_url: 'http://meili.test:7700',
-    });
-    expect(r.status).toBe(200);
-    expect((r.body as { ok: boolean }).ok).toBe(false);
+  it('rejects a member-role token with 403', async () => {
+    const r = await put('/api/enrichment/config', body, memberJwt);
+    expect(r.status).toBe(403);
+    expect((r.body as { error: string }).error).toBe('owner role required');
+    expect(readEnrichmentConfig(live.db)).toBeNull();
   });
 
-  it('returns 400 for an invalid URL', async () => {
-    const r = await post('/api/enrichment/test-meili', {
-      meilisearch_url: 'not-a-url',
-    });
-    expect(r.status).toBe(400);
+  it('allows an owner-role token through to the save path (200)', async () => {
+    const r = await put('/api/enrichment/config', body, ownerJwt);
+    expect(r.status).toBe(200);
+  });
+
+  it('GET /config stays member-readable', async () => {
+    const r = await get('/api/enrichment/config', memberJwt);
+    expect(r.status).toBe(200);
+  });
+
+  it('POST /test stays member-accessible', async () => {
+    stubFetch(() => ({ status: 200 }));
+    const r = await post('/api/enrichment/test', { nominatim_url: 'http://n.test' }, memberJwt);
+    expect(r.status).toBe(200);
   });
 });

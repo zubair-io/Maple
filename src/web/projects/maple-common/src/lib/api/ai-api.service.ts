@@ -35,9 +35,7 @@ export interface AiConnectionsResponse {
   }>;
 }
 
-export type SearchEngineName = 'meilisearch' | 'in-process';
 export interface SearchEngineView {
-  engine: SearchEngineName;
   status: {
     phase:
       | 'stopped'
@@ -76,9 +74,6 @@ export class AiApiService {
   }
   getSearchEngine(): Observable<SearchEngineView> {
     return this.http.get<SearchEngineView>(`${this.baseUrl}/ai/search-engine/`);
-  }
-  setSearchEngine(engine: SearchEngineName): Observable<SearchEngineView> {
-    return this.http.put<SearchEngineView>(`${this.baseUrl}/ai/search-engine/`, { engine });
   }
   probeConnection(
     connection: AiConnection,

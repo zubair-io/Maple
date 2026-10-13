@@ -66,12 +66,9 @@ export interface WorkerConfig {
    */
   last_seen_target_version: number;
   /**
-   * Why the stage paused ITSELF — set by `pauseStageWithReason`
-   * (`stage-pause.ts`) when a stage detects it cannot make progress (the
-   * `meili` stage under Meilisearch's embedder address policy, #3315) so
-   * Settings → Workers can show the explanation next to the paused row.
-   * Absent/null for an operator pause. Cleared by every resume path — see
-   * `WorkerConfigRepo.patch`.
+   * Why the stage paused ITSELF, so Settings → Workers can show the
+   * explanation next to the paused row. Absent/null for an operator pause.
+   * Cleared by every resume path — see `WorkerConfigRepo.patch`.
    */
   pause_reason?: string | null;
   /** Operator-assigned semver version string, e.g. "v0.2.1". */
@@ -96,8 +93,8 @@ export type StageResult<TPatch = readonly SqlStatement[]> =
   // `invalidates` lists downstream stages the runner marks stale (version 0,
   // bookkeeping cleared) in the SAME atomic $set as the patch, so their poll
   // loops re-claim the doc and rebuild from the freshly-patched fields. The
-  // canonical caller is describe → meili: the caption/OCR usually lands after
-  // the search index was already built (meili depends on exif+thumb only), so
+  // canonical caller is describe → search-blob: the caption/OCR usually lands after
+  // the search index was already built (search-blob depends on exif+thumb only), so
   // without this the recovered text never becomes searchable (#2172). Done by
   // the runner — handlers cannot touch `stages.*` keys in the patch itself.
   | { patch: TPatch; invalidates?: readonly string[] }

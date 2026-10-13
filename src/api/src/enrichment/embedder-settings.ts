@@ -22,12 +22,12 @@ export function embedderSettingsView(
   return {
     url: saved?.embedder_url?.trim() ?? '',
     model: saved?.embedder_model?.trim() ?? '',
-    default_url: resolved.meilisearch_embedder_url,
-    default_model: resolved.meilisearch_embedder_model,
+    default_url: resolved.embedder_default_url,
+    default_model: resolved.embedder_default_model,
   };
 }
 
-/** Blank values clear the override back to the semantic-search default. */
+/** Blank values clear the override back to the default. */
 export function embedderPatch(
   input: EmbedderSettingsInput,
 ): Pick<EnrichmentConfig, 'embedder_url' | 'embedder_model'> | { error: string } {

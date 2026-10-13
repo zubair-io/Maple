@@ -31,7 +31,12 @@ afterEach(async () => {
 async function setup(live: Awaited<ReturnType<typeof createLiveTestDatabase>>) {
   const libraryId = insertFolder(live.db, { path: root });
   const assetId = insertAsset(live.db);
-  insertLocation(live.db, { assetId, libraryId, path: '', filename: 'photo.dng' });
+  insertLocation(live.db, {
+    assetId,
+    libraryId,
+    path: '',
+    filename: 'photo.dng',
+  });
   await fs.writeFile(path.join(root, 'photo.dng'), 'immutable original');
   await fs.writeFile(
     path.join(root, 'photo.xmp'),
@@ -73,6 +78,49 @@ test('original and exact XMP bytes mirror to one current remote path without the
   run(live.db, 'DELETE FROM backup_entries');
   expect((await readRemoteCatalog(provider)).entries).toHaveLength(1);
   expect(await fs.readFile(path.join(root, 'photo.dng'), 'utf8')).toBe('immutable original');
+});
+test('database-backed asset mirror state is visible and a stale failure forces another sync', async () => {
+  using live = await createLiveTestDatabase();
+  const { assetId, destination, repo, engine } = await setup(live);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  const states = await repo.mirrorsForAssets([assetId]);
+  expect(states.get(assetId)).toMatchObject([
+    {
+      destinationId: destination.id,
+      provider: 'google-drive',
+      status: 'synced',
+      state: 'active',
+    },
+  ]);
+
+  await repo.db.write('UPDATE backup_entries SET last_error=? WHERE destination_id=?', [
+    'Google object failed identity or integrity validation: backup marker is missing or malformed.',
+    destination.id,
+  ]);
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('error');
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  expect((await repo.entries(destination.id))[0]?.last_error).toBeNull();
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('synced');
+  await repo.updateDestination(destination.id, { enabled: false });
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('paused');
+  await repo.db.write('UPDATE backup_entries SET last_error=? WHERE destination_id=?', [
+    'Retry required',
+    destination.id,
+  ]);
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('error');
+  await repo.db.write("UPDATE backup_entries SET state='trash' WHERE destination_id=?", [
+    destination.id,
+  ]);
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('trash');
+  await repo.db.write(
+    "UPDATE backup_entries SET state='trash',last_error='Retry required' WHERE destination_id=?",
+    [destination.id],
+  );
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('trash');
+  await repo.db.write("UPDATE backup_entries SET state='purged' WHERE destination_id=?", [
+    destination.id,
+  ]);
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('purged');
 });
 test('outgoing entry cleanup preserves a mirror path that another entry has claimed', async () => {
   using live = await createLiveTestDatabase();
@@ -252,4 +300,24 @@ test('legacy mirror IDs survive restart and destination deletion cannot abandon 
   await expect(
     repo.db.write('DELETE FROM backup_destinations WHERE id=?', [destination.id]),
   ).rejects.toThrow('pending cleanup');
+});
+
+test('a recorded failure honours its backoff before the stale-error retry runs', async () => {
+  using live = await createLiveTestDatabase();
+  const { assetId, destination, repo, engine } = await setup(live);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  const entry = (await repo.entries(destination.id))[0]!;
+  expect(await repo.claim(entry, 'worker')).toBe(true);
+  await repo.fail(entry, 'worker', 'Transient Google failure');
+
+  expect(await engine.backupAsset(assetId)).toBe(false);
+  const backedOff = (await repo.entries(destination.id))[0]!;
+  expect(backedOff.last_error).toBe('Transient Google failure');
+  expect(backedOff.retry_at).toBeGreaterThan(Date.now());
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('error');
+
+  await repo.db.write('UPDATE backup_entries SET retry_at=0 WHERE id=?', [entry.id]);
+  expect(await engine.backupAsset(assetId)).toBe(true);
+  expect((await repo.entries(destination.id))[0]?.last_error).toBeNull();
+  expect((await repo.mirrorsForAssets([assetId])).get(assetId)?.[0]?.status).toBe('synced');
 });

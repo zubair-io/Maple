@@ -98,6 +98,9 @@ struct GeneratedSearchAssetsResponse: Codable, Sendable {
   let total: Int
   let results: [SearchAsset]
   let snapshot: Bool?
+  let more: Bool?
+  let capped: Bool?
+  let pending: Bool?
 }
 
 /// One page of a collection's photos. `total` is the size of the whole
@@ -109,11 +112,25 @@ public struct GeneratedSearchAssetPage: Sendable {
   /// than a live query. A preview is not page 1 of a paginated sequence: its
   /// rows and total are only consistent with themselves.
   public let isSnapshot: Bool
+  /// The collection is a ranked window with hits left past `total` (#4514).
+  public let more: Bool
+  /// The window stopped at the server's 5,000-hit cap with matches left:
+  /// `total` is every row it will serve, read as "N+".
+  public let capped: Bool
+  /// The server's search engine is still loading, so this is the stored
+  /// preview standing in for the live page; ask again later (#4514).
+  public let isPending: Bool
 
-  public init(results: [SearchAsset], total: Int, isSnapshot: Bool = false) {
+  public init(
+    results: [SearchAsset], total: Int, isSnapshot: Bool = false, more: Bool = false,
+    capped: Bool = false, isPending: Bool = false
+  ) {
     self.results = results
     self.total = total
     self.isSnapshot = isSnapshot
+    self.more = more
+    self.capped = capped
+    self.isPending = isPending
   }
 }
 
@@ -187,7 +204,9 @@ public actor GeneratedSearchClient {
     try Self.checkOK(resp, data: data)
     let decoded = try JSONDecoder().decode(GeneratedSearchAssetsResponse.self, from: data)
     return GeneratedSearchAssetPage(
-      results: decoded.results, total: decoded.total, isSnapshot: decoded.snapshot ?? false)
+      results: decoded.results, total: decoded.total, isSnapshot: decoded.snapshot ?? false,
+      more: decoded.more ?? false, capped: decoded.capped ?? false,
+      isPending: decoded.pending ?? false)
   }
 
   // MARK: - Helpers

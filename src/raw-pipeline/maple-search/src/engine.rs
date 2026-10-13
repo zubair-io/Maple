@@ -2,13 +2,14 @@ use crate::embedder::{EmbedderConfig, QueryEmbedder};
 use crate::error::{Result, SearchError};
 use crate::fusion::{reciprocal_rank_fusion, FusedHit};
 use crate::terms::{parse_text_query, TextQuery};
-use crate::text_index::TextIndex;
+use crate::text_index::{SearchText, TextIndex};
 use crate::vectors::{ScoredId, VectorMatrix};
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-/// How many hits each leg contributes to fusion.
+/// How many hits each leg contributes to fusion when the caller asks for no more than this many.
+/// A caller asking for `k` fused hits gets legs `k` deep, so a filtered list can be paged past it.
 pub const LEG_DEPTH: usize = 100;
 
 /// `embedder` is optional so a caller that already holds a query vector (and
@@ -97,14 +98,26 @@ impl SearchEngine {
         if !matches!(parsed, TextQuery::Terms { .. }) {
             return Ok(Vec::new());
         }
-        let (vector_hits, text_hits) =
-            rayon::join(|| self.vector_leg(parsed, vector), || self.text_leg(parsed));
+        let depth = k.max(LEG_DEPTH);
+        let (vector_hits, text_hits) = rayon::join(
+            || self.vector_leg_to(parsed, vector, depth),
+            || self.text.search(parsed, depth),
+        );
         Ok(fuse(&vector_hits?, &text_hits?, k))
     }
 
-    /// Nearest [`LEG_DEPTH`] rows to `vector` among those whose text contains
+    /// Nearest [`LEG_DEPTH`] rows to `vector` among those whose texts contain
     /// no term the query excluded with `-`.
     pub fn vector_leg(&self, parsed: &TextQuery, vector: &[f32]) -> Result<Vec<ScoredId>> {
+        self.vector_leg_to(parsed, vector, LEG_DEPTH)
+    }
+
+    fn vector_leg_to(
+        &self,
+        parsed: &TextQuery,
+        vector: &[f32],
+        depth: usize,
+    ) -> Result<Vec<ScoredId>> {
         let unwanted = match parsed {
             TextQuery::Terms { excluded, .. } if !excluded.is_empty() => {
                 self.text.ids_matching_any(excluded)?
@@ -112,7 +125,7 @@ impl SearchEngine {
             _ => Vec::new(),
         };
         self.read_vectors()
-            .nearest_excluding(vector, LEG_DEPTH, &unwanted)
+            .nearest_excluding(vector, depth, &unwanted)
     }
 
     pub fn text_leg(&self, parsed: &TextQuery) -> Result<Vec<ScoredId>> {
@@ -121,7 +134,12 @@ impl SearchEngine {
 
     /// Vector changes apply at once; text changes become visible on
     /// [`Self::commit`].
-    pub fn upsert(&self, id: &str, vector: Option<&[f32]>, text: Option<&str>) -> Result<()> {
+    pub fn upsert(
+        &self,
+        id: &str,
+        vector: Option<&[f32]>,
+        text: Option<SearchText<'_>>,
+    ) -> Result<()> {
         if let Some(vector) = vector {
             self.write_vectors().upsert(id, vector)?;
         }
@@ -147,9 +165,9 @@ impl SearchEngine {
         self.text.commit()
     }
 
-    pub fn rebuild_text<'a>(
+    pub fn rebuild_text<'a, T: Into<SearchText<'a>>>(
         &self,
-        docs: impl IntoIterator<Item = (&'a str, &'a str)>,
+        docs: impl IntoIterator<Item = (&'a str, T)>,
     ) -> Result<u64> {
         self.text.rebuild(docs)
     }

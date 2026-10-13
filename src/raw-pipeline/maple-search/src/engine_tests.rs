@@ -113,7 +113,7 @@ fn upsert_and_delete_reach_both_legs() {
     let dir = tempfile::tempdir().unwrap();
     let engine = engine(&dir);
     engine
-        .upsert("cellar", Some(&basis(3)), Some("wine cellar"))
+        .upsert("cellar", Some(&basis(3)), Some("wine cellar".into()))
         .unwrap();
     engine.delete("lantern");
     engine.commit().unwrap();
@@ -132,7 +132,9 @@ fn a_cleared_rebuild_only_shows_once_committed() {
     let dir = tempfile::tempdir().unwrap();
     let engine = engine(&dir);
     engine.clear_text().unwrap();
-    engine.upsert("fresh", None, Some("fresh harbour")).unwrap();
+    engine
+        .upsert("fresh", None, Some("fresh harbour".into()))
+        .unwrap();
     assert_eq!(engine.text_count(), 4);
     engine.commit().unwrap();
     assert_eq!(engine.text_count(), 1);
@@ -209,4 +211,42 @@ fn an_exclusion_covering_the_nearest_hundred_still_fills_the_vector_leg() {
     assert_eq!(leg.len(), LEG_DEPTH);
     assert!(leg.iter().all(|hit| hit.id.starts_with("quay")));
     assert_eq!(leg[0].id, "quay000");
+}
+
+#[test]
+fn k_beyond_the_default_depth_reaches_deeper_hits() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = SearchEngine::open(&SearchConfig {
+        index_dir: dir.path().join("text"),
+        embedder: None,
+    })
+    .unwrap();
+    let rows: Vec<(String, f32)> = (0..400)
+        .map(|i| (format!("harbour{i:03}"), 1.0 - i as f32 * 1e-3))
+        .collect();
+    let bytes: Vec<u8> = rows
+        .iter()
+        .flat_map(|(_, weight)| {
+            let mut vector = basis(0);
+            vector[0] = *weight;
+            vector[1] = 1.0 - weight;
+            vector
+        })
+        .flat_map(f32::to_le_bytes)
+        .collect();
+    let ids = rows.iter().map(|(id, _)| id.clone()).collect();
+    engine.load_vectors(&bytes, ids).unwrap();
+    engine
+        .rebuild_text(rows.iter().map(|(id, _)| (id.as_str(), "a quiet harbour")))
+        .unwrap();
+
+    let default_depth = engine
+        .search_with_vector("harbour", &basis(0), 100)
+        .unwrap();
+    let deep = engine
+        .search_with_vector("harbour", &basis(0), 400)
+        .unwrap();
+
+    assert!(default_depth.len() <= 200);
+    assert_eq!(deep.len(), 400);
 }

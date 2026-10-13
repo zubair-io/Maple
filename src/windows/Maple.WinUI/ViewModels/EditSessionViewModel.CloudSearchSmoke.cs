@@ -18,12 +18,13 @@ public partial class EditSessionViewModel
         using var handler = new SearchResponses();
         using var client = new CloudClient("https://search.invalid", handler, Path.Combine(output, "search-cache"));
         var session = new EditSessionViewModel(restoreSources: false) { _cloud = client, CloudConnected = true };
-        static HttpResponseMessage Page(string name, bool cursor, string? next, int page, int total) => new(HttpStatusCode.OK)
+        static HttpResponseMessage Page(string name, bool cursor, string? next, int page, int total,
+            string? rankPin = null) => new(HttpStatusCode.OK)
         {
             Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(new
             {
                 results = new[] { new { filename = name, abs_path = "/photos/" + name, mtime = 0 } },
-                cursorPaging = cursor, nextCursor = next, page, total, limit = 200,
+                cursorPaging = cursor, nextCursor = next, page, total, limit = 200, rankPin,
             })),
         };
         static void Require(bool value, string reason)
@@ -98,6 +99,26 @@ public partial class EditSessionViewModel
                 "facet changes did not reach the server together");
             facetsPage.SetResult(Page("facet-match.dng", false, null, 0, 1));
             await Wait(() => !session.IsLibraryLoading);
+            // #4542: a further page carries its predecessor's rank pin, and a refusal because that
+            // engine is gone restarts the search at page 0 instead of appending another ranking.
+            handler.Next().SetResult(Page("pinned-first.dng", false, null, 0, 400, "in-process:100:abcDEF012-_x"));
+            session.SearchText = "pinned ranking";
+            await Wait(() => handler.Queries.Count == 8 && !session.IsLibraryLoading);
+            Require(!handler.Queries[^1].Contains("rankPin="), "a first page carried a rank pin");
+            handler.Next().SetResult(new(HttpStatusCode.Conflict)
+            {
+                Content = new StringContent("""{"error":"restart","code":"rank_engine_changed"}"""),
+            });
+            handler.Next().SetResult(Page("restarted.dng", false, null, 0, 1, "database:100:abcDEF012-_x"));
+            await session.LoadMoreTimelineAsync();
+            await Wait(() => handler.Queries.Count == 10 && !session.IsLibraryLoading);
+            Require(handler.Queries[8].Contains("page=1")
+                && handler.Queries[8].Contains("rankPin=in-process%3A100%3AabcDEF012-_x"),
+                "the next page did not send its predecessor's rank pin");
+            Require(handler.Queries[9].Contains("page=0") && !handler.Queries[9].Contains("rankPin="),
+                "an engine change did not restart at an unpinned page 0");
+            Require(session.Photos.Count == 1 && session.Photos[0].FileName == "restarted.dng",
+                "the restart appended to the old ranking instead of replacing it");
             var requestsBeforeClose = handler.Queries.Count;
             session.SearchText = "abandoned query";
             session.Dispose();

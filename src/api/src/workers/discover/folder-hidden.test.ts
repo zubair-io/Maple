@@ -73,7 +73,7 @@ describe('folder .hidden marker — hide pass', () => {
     using library = await createDiscoverLibrary('maple-folder-hidden-');
     writeFileSync(join(library.root, '.hidden'), '');
     writeFileSync(join(library.root, 'a.dng'), 'x');
-    const visibleId = record(library, '', 'a.dng', { stages: ['meili'] });
+    const visibleId = record(library, '', 'a.dng');
 
     await frontier.seedRoot(library.folderId, library.root, 1);
     const cleanupCalls: HidableAsset[][] = [];
@@ -82,8 +82,6 @@ describe('folder .hidden marker — hide pass', () => {
     const row = assetRow(library.db, visibleId)!;
     expect(row.hidden).toBe(1);
     expect(row.hidden_reason).toBe('folder');
-    // Meilisearch must re-project the hidden flag.
-    expect(stageRow(library.db, visibleId, 'meili')!.version).toBe(0);
     // The R2 mirror comes down for the newly hidden asset.
     expect(cleanupCalls.flat().map((asset) => asset._id.toHexString())).toEqual([visibleId]);
   });
@@ -123,7 +121,7 @@ describe('folder .hidden marker — un-hide pass', () => {
     const folderHiddenId = record(library, '', 'a.dng', {
       hidden: true,
       hiddenReason: 'folder',
-      stages: ['cf-thumb-sync', 'meili'],
+      stages: ['cf-thumb-sync'],
     });
     library.db.run(`UPDATE stage_state SET version = 3 WHERE asset_id = ?`, [folderHiddenId]);
     const manualId = record(library, '', 'manual.dng', { hidden: true, hiddenReason: 'manual' });
@@ -135,7 +133,6 @@ describe('folder .hidden marker — un-hide pass', () => {
     expect(unhidden.hidden).toBe(0);
     expect(unhidden.hidden_reason).toBeNull();
     expect(stageRow(library.db, folderHiddenId, 'cf-thumb-sync')!.version).toBe(0);
-    expect(stageRow(library.db, folderHiddenId, 'meili')!.version).toBe(0);
     const manual = assetRow(library.db, manualId)!;
     expect(manual.hidden).toBe(1);
     expect(manual.hidden_reason).toBe('manual');

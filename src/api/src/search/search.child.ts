@@ -58,10 +58,7 @@ async function pollOnce(
   opened: SearchEngine,
 ): Promise<void> {
   if ((await follower.poll()) === 0) return;
-  writeIndexState(config.stateFile, {
-    version: SEARCH_INDEX_VERSION,
-    textWatermark: follower.textWatermark,
-  });
+  writeIndexState(config.stateFile, { version: SEARCH_INDEX_VERSION, ...follower.watermarks });
   report(await readyState(opened, model, true));
 }
 

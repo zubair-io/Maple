@@ -364,14 +364,9 @@ describe('countMigration + runMigrationCountsPass', () => {
     ...overrides,
   });
 
-  it('records remaining (+ failedPermanently when the migration tracks one)', async () => {
+  it('records the remaining count and when it was taken', async () => {
     const at = '2026-09-11T00:00:00.000Z';
     expect(await countMigration(fake({}), at)).toEqual({ remaining: 5, remaining_at: at });
-    expect(await countMigration(fake({ countFailedPermanently: async () => 2 }), at)).toEqual({
-      remaining: 5,
-      remaining_at: at,
-      failed_permanently: 2,
-    });
   });
 
   it('a failing count leaves the previous value alone instead of writing a fake 0', async () => {

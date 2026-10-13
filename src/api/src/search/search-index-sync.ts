@@ -3,47 +3,47 @@
  *
  * 1. Boot: every vector is read in `maple_id` order into one preallocated buffer and handed to
  *    the engine in a single call; the keyword text is rendered for the same ids.
- * 2. Afterwards the child polls: rows whose `embedded_at` is newer than a watermark are re-read and
- *    upserted (vector and text together, since the `embed` stage rewrites the row whenever the text
- *    it renders changes).
+ * 2. Afterwards the child polls two stamps on `asset_vectors`, each from its own watermark
+ *    ({@link ChangeFeed}). Rows whose `embedded_at` is newer are re-read and upserted, vector and
+ *    text together, since the `embed` stage rewrites the row whenever the template it renders
+ *    changes. Rows whose `text_changed_at` is newer had their `search_blob` rewritten with the
+ *    template unchanged (a new vision tag), so only their text is re-read (#4512).
  * 3. When the engine holds a different number of vectors than the table, the full id list is
  *    compared and the difference applied — that is how a deleted asset leaves the index.
- *
- * The watermark trails the newest stamp seen by {@link CHANGE_OVERLAP_MS}. `embedded_at` is taken
- * when the stage handler finishes, before its transaction commits, so with a thousand concurrent
- * handlers a row can land after a newer-stamped one; the overlap re-reads that window and the
- * `applied` map skips the rows already taken.
  */
 
 import {
   allSearchVectorIds,
   countSearchVectors,
   SEARCH_VECTOR_DIMS,
+  searchTextChangesSince,
   searchVectorChangesSince,
   searchVectorsAfter,
   searchVectorsFor,
   type StoredVectorRow,
-  type VectorChangeRow,
 } from '../db/repos/asset-vectors.search.ts';
 import type { SearchEngine } from './search-engine-ffi.ts';
 import { searchTextsFor } from './search-documents.ts';
+import { ChangeFeed } from './search-change-feed.ts';
 
 export type SearchEngineOps = Pick<
   SearchEngine,
   'loadVectors' | 'upsert' | 'delete' | 'clearText' | 'commit' | 'counts'
 >;
 
-export const CHANGE_OVERLAP_MS = 60_000;
 export const RECONCILE_INTERVAL_MS = 60_000;
+
+/**
+ * How far each change feed has been applied: `textWatermark` follows `embedded_at`, and
+ * `blobWatermark` follows `text_changed_at`. Persisted so a restart can catch up from them.
+ */
+export interface FollowerWatermarks {
+  textWatermark: string;
+  blobWatermark: string;
+}
 const ROW_BYTES = SEARCH_VECTOR_DIMS * 4;
 const LOAD_BATCH = 2_000;
-const CHANGE_BATCH = 5_000;
 const TEXT_BATCH = 500;
-
-export function isoBefore(iso: string | number, ms: number): string {
-  const at = typeof iso === 'number' ? iso : Date.parse(iso);
-  return new Date(at - ms).toISOString();
-}
 
 /** A row's bytes as f32, copied so the view is aligned whatever offset SQLite handed back. */
 function floats(bytes: Uint8Array): Float32Array {
@@ -101,23 +101,24 @@ export async function rebuildText(engine: SearchEngineOps, ids: readonly string[
 }
 
 export class VectorFollower {
-  private watermark: string;
-  private readonly applied = new Map<string, string>();
+  private readonly vectorFeed: ChangeFeed;
+  private readonly textFeed: ChangeFeed;
   private lastReconcileAt = Number.NEGATIVE_INFINITY;
 
   constructor(
     private readonly engine: SearchEngineOps,
     private readonly held: Set<string>,
-    since: string,
+    since: FollowerWatermarks,
     private readonly model: string,
     private readonly now: () => number = Date.now,
   ) {
-    this.watermark = since;
+    this.vectorFeed = new ChangeFeed(searchVectorChangesSince, model, since.textWatermark);
+    this.textFeed = new ChangeFeed(searchTextChangesSince, model, since.blobWatermark);
   }
 
-  /** Everything older than this is in the engine; persisted so a restart can catch up from it. */
-  get textWatermark(): string {
-    return this.watermark;
+  /** Everything each feed stamped before its watermark is in the engine. */
+  get watermarks(): FollowerWatermarks {
+    return { textWatermark: this.vectorFeed.since, blobWatermark: this.textFeed.since };
   }
 
   get heldCount(): number {
@@ -126,30 +127,14 @@ export class VectorFollower {
 
   /** Applies whatever changed since the last poll; returns how many ids it touched. */
   async poll(): Promise<number> {
-    const { touched, newest } = await this.applyChanges();
+    const vectors = await this.vectorFeed.drain((ids) => this.upsert(ids));
+    const texts = await this.textFeed.drain((ids) => this.upsertText(ids));
     const reconciled = await this.reconcileIfDrifted();
-    if (touched + reconciled > 0) this.engine.commit();
-    this.advance(newest);
-    return touched + reconciled;
-  }
-
-  private async applyChanges(): Promise<{ touched: number; newest: string | null }> {
-    let after: VectorChangeRow | null = null;
-    let touched = 0;
-    for (;;) {
-      const page: VectorChangeRow[] = await searchVectorChangesSince(
-        this.model,
-        this.watermark,
-        after,
-        CHANGE_BATCH,
-      );
-      if (page.length === 0) return { touched, newest: after?.embedded_at ?? null };
-      const fresh = page.filter((row) => this.applied.get(row.maple_id) !== row.embedded_at);
-      await this.upsert(fresh.map((row) => row.maple_id));
-      for (const row of fresh) this.applied.set(row.maple_id, row.embedded_at);
-      touched += fresh.length;
-      after = page[page.length - 1]!;
-    }
+    const touched = vectors.touched + texts.touched + reconciled;
+    if (touched > 0) this.engine.commit();
+    this.vectorFeed.advance(vectors.newest);
+    this.textFeed.advance(texts.newest);
+    return touched;
   }
 
   private async upsert(ids: readonly string[]): Promise<void> {
@@ -165,6 +150,14 @@ export class VectorFollower {
     }
   }
 
+  /** Text only, and only for held ids: one not held yet gets its text with its vector. */
+  private async upsertText(ids: readonly string[]): Promise<void> {
+    const held = ids.filter((id) => this.held.has(id));
+    for (const chunk of chunks(held, TEXT_BATCH)) {
+      for (const [id, text] of await searchTextsFor(chunk)) this.engine.upsert(id, null, text);
+    }
+  }
+
   private async reconcileIfDrifted(): Promise<number> {
     if (this.now() - this.lastReconcileAt < RECONCILE_INTERVAL_MS) return 0;
     if ((await countSearchVectors(this.model)) === this.held.size) return 0;
@@ -175,19 +168,10 @@ export class VectorFollower {
     for (const id of gone) {
       this.engine.delete(id);
       this.held.delete(id);
-      this.applied.delete(id);
+      this.vectorFeed.forget(id);
+      this.textFeed.forget(id);
     }
     await this.upsert(missing);
     return gone.length + missing.length;
-  }
-
-  private advance(newest: string | null): void {
-    if (newest === null) return;
-    const trailing = isoBefore(newest, CHANGE_OVERLAP_MS);
-    if (trailing <= this.watermark) return;
-    this.watermark = trailing;
-    for (const [id, stamp] of this.applied) {
-      if (stamp <= trailing) this.applied.delete(id);
-    }
   }
 }

@@ -131,7 +131,10 @@ test('legacy checkpoints are safely discarded and restarted in the current backu
   });
   expect(object.sha256).toBe(content.sha256);
   expect(store.files.get(object.locator)!.parents[0]).not.toBe(root);
-  expect(checkpoint?.state).toMatchObject({ parentId: expect.any(String), replace: false });
+  expect(checkpoint?.state).toMatchObject({
+    parentId: expect.any(String),
+    replace: false,
+  });
 });
 test('immutable key content mismatch never overwrites existing Google bytes', async () => {
   const store = googleStore();
@@ -281,7 +284,7 @@ test('cleanup of a corrupt reservation cannot delete another owned backup object
         session: null,
       },
     }),
-  ).rejects.toThrow('changed upload reservation');
+  ).rejects.toThrow('database object mapping does not match the backup marker');
   expect(store.files.has(object.locator)).toBe(true);
   expect(store.requests.some((request) => request.method === 'DELETE')).toBe(false);
 });
@@ -306,7 +309,10 @@ test('exact inspection queries a bounded public key hash and never enumerates un
       id: `unrelated-${index}`,
       parents: [root],
       properties: { mapleKeyHash: logicalKeyHash(otherKey) },
-      description: JSON.stringify({ ...JSON.parse(file.description), key: otherKey }),
+      description: JSON.stringify({
+        ...JSON.parse(file.description),
+        key: otherKey,
+      }),
     });
   }
   const beforeSearch = store.requests.length;
@@ -351,26 +357,6 @@ test('portable root listings and direct downloads do not depend on the searchabl
   expect(await provider.inspect(object.key, undefined, object.locator)).toBeNull();
 });
 
-test('cached photo folders are checked before reading them after a user moves one outside the root', async () => {
-  const store = googleStore();
-  const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
-  const target = await provider.objectTarget('mirror/library/2024/Wedding/IMG_0042.JPG');
-  const moved = store.files.get(target.parentId)!;
-  moved.parents = ['outside-root'];
-  const before = store.requests.length;
-
-  await expect(provider.inspect('mirror/library/2024/Wedding/IMG_0042.JPG')).rejects.toThrow(
-    'moved outside',
-  );
-
-  const folderQueries = store.requests
-    .slice(before)
-    .filter((request) => request.query?.includes(' in parents'));
-  expect(
-    folderQueries.some((request) => request.query?.includes(`'${target.parentId}' in parents`)),
-  ).toBe(false);
-});
-
 test('exact search rejects inconsistent public metadata and duplicates across result pages', async () => {
   const store = googleStore();
   const provider = new GoogleDriveProvider(root, async () => 'token', store.transport);
@@ -379,7 +365,10 @@ test('exact search rejects inconsistent public metadata and duplicates across re
   });
   const file = store.files.get(object.locator)!;
   const original = file.description;
-  file.description = JSON.stringify({ ...JSON.parse(original), key: 'blobs/wrong-key' });
+  file.description = JSON.stringify({
+    ...JSON.parse(original),
+    key: 'blobs/wrong-key',
+  });
   await expect(provider.inspect(object.key)).rejects.toThrow('search index');
   file.description = original;
   const paged: GoogleFetch = async (raw, init) => {
@@ -390,7 +379,12 @@ test('exact search rejects inconsistent public metadata and duplicates across re
     ) {
       expect(url.searchParams.get('q')).toContain(`value='${logicalKeyHash(object.key)}'`);
       return Response.json({
-        files: [{ ...file, id: url.searchParams.has('pageToken') ? 'duplicate-id' : file.id }],
+        files: [
+          {
+            ...file,
+            id: url.searchParams.has('pageToken') ? 'duplicate-id' : file.id,
+          },
+        ],
         ...(url.searchParams.has('pageToken') ? {} : { nextPageToken: 'second-page' }),
       });
     }

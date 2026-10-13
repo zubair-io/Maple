@@ -13,7 +13,7 @@
  *    time, so a refresh never starves real requests), and the result is written
  *    to the `worker_status` row.
  *  - `runMigrationCountsPass()` does the same for every migration's
- *    `remaining` (and `failedPermanently`), persisted on the migration state.
+ *    `remaining`, persisted on the migration state.
  *  - `startStatusCountsRefresher()` drives both on a demand-aware cadence: the
  *    API bumps `counts_wanted_until` while someone is looking at the page, and
  *    only then do the passes run quickly (backing off in proportion to how long
@@ -191,13 +191,6 @@ export async function countMigration(
     patch.remaining_at = nowIso;
   } catch (err) {
     log.warn({ migration: m.id, err }, 'countRemaining failed — leaving the last value');
-  }
-  if (m.countFailedPermanently) {
-    try {
-      patch.failed_permanently = await m.countFailedPermanently();
-    } catch (err) {
-      log.warn({ migration: m.id, err }, 'countFailedPermanently failed — leaving the last value');
-    }
   }
   return patch;
 }

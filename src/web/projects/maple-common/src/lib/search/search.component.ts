@@ -52,6 +52,7 @@ import {
   SearchParams,
   SearchResult,
   SearchService,
+  isRankEngineChanged,
   seekExhausted,
 } from '../api/search.service';
 import { FilesystemBrowseService } from '../api/filesystem-browse.service';
@@ -65,6 +66,7 @@ import { SearchTagPickerComponent, TagPick } from './search-tag-picker.component
 import { PhotoResultsSectionComponent } from './photo-results-section.component';
 import { RecentQueriesComponent } from './recent-queries.component';
 import { pushRecent, readRecents, writeRecents } from './search-types';
+import { appendPage } from './search-paging';
 import {
   ActiveFilterChip,
   EMPTY_FILTERS,
@@ -142,6 +144,10 @@ export class SearchComponent implements OnInit, AfterViewInit {
   protected readonly sort = signal<SearchSortOrder>('captured_desc');
   protected readonly results = signal<readonly SearchResult[]>([]);
   protected readonly total = signal<number>(0);
+  /** The server ranked a window of the text and had hits left past `total` (#4514). */
+  protected readonly more = signal<boolean>(false);
+  /** The window stopped at the server's 5,000-hit cap with matches left (#4514). */
+  protected readonly capped = signal<boolean>(false);
   protected readonly isStale = signal<boolean>(false);
   protected readonly recent = signal<readonly string[]>(readRecents());
   protected readonly page = signal<number>(0);
@@ -207,13 +213,18 @@ export class SearchComponent implements OnInit, AfterViewInit {
   protected readonly facetScope = computed(() => this.facets()?.scope ?? null);
 
   /** True when there are server-side results not yet loaded locally. */
-  protected readonly canLoadMore = computed(() => this.results().length < this.total());
+  protected readonly canLoadMore = computed(
+    () => this.results().length < this.total() || this.more(),
+  );
 
   /** Empty state — recents render only when nothing is being searched. */
   protected readonly showRecents = computed(() => !this.hasText() && !this.filtersActive());
 
+  private readonly openEnded = computed(() => this.more() || this.capped());
+
   protected readonly totalLabel = computed(
-    () => `${this.total().toLocaleString()} ${this.total() === 1 ? 'result' : 'results'}`,
+    () =>
+      `${this.total().toLocaleString()}${this.openEnded() ? '+' : ''} ${this.total() === 1 && !this.openEnded() ? 'result' : 'results'}`,
   );
 
   @ViewChild(SearchBarComponent) private searchBar?: SearchBarComponent;
@@ -224,6 +235,8 @@ export class SearchComponent implements OnInit, AfterViewInit {
   private inFlight: Subscription | null = null;
   private facetsInFlight: Subscription | null = null;
   private loadMoreSub: Subscription | null = null;
+  /** The ranking the rows held came from (#4542); sent with each further page. */
+  private rankPin: string | null = null;
   /** Lifetime blob-URL cache (id → URL) behind the `thumbUrls` signal, so
    * back-and-forth queries restore instantly. */
   private readonly thumbCache = new Map<string, string>();
@@ -250,6 +263,8 @@ export class SearchComponent implements OnInit, AfterViewInit {
       if (text.length === 0 && !hasActiveFilters(f)) {
         this.results.set([]);
         this.total.set(0);
+        this.more.set(false);
+        this.capped.set(false);
         this.page.set(0);
         this.nextCursor.set(null);
         this.appliedDates.set(undefined);
@@ -259,27 +274,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
       this.isStale.set(true);
       this.debounceTimer = setTimeout(() => {
         this.debounceTimer = null;
-        this.page.set(0);
-        this.nextCursor.set(null);
-        this.inFlight = this.searchService.search(this.buildParams({ page: 0 })).subscribe({
-          next: (res) => {
-            this.results.set(res.results);
-            this.nextCursor.set(res.nextCursor ?? null);
-            this.appliedDates.set(res.dateFilter);
-            this.total.set(seekExhausted(res) ? res.results.length : res.total);
-            this.isStale.set(false);
-            this.queueThumbs(res.results);
-            const scrollEl = this.mainScrollRef?.nativeElement;
-            if (scrollEl) {
-              scrollEl.scrollTo?.({ top: 0 });
-            }
-          },
-          error: () => {
-            // Non-fatal — stop dimming but leave existing results so a
-            // transient backend hiccup doesn't clobber the user's view.
-            this.isStale.set(false);
-          },
-        });
+        this.loadFirstPage();
       }, 250);
     });
 
@@ -297,20 +292,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
       this.facetsInFlight?.unsubscribe();
       this.facetsTimer = setTimeout(() => {
         this.facetsTimer = null;
-        const {
-          page: _page,
-          limit: _limit,
-          cursor: _cursor,
-          sort: _sort,
-          ...facetParams
-        } = this.buildParams({ page: 0 });
-        this.facetsInFlight = this.searchService.facets(facetParams).subscribe({
-          next: (f2) => this.facets.set(f2),
-          error: () => {
-            // Keep the last good facets — an aggregation hiccup shouldn't
-            // blank the pickers.
-          },
-        });
+        this.loadFacets(0);
       }, 400);
     });
 
@@ -347,7 +329,49 @@ export class SearchComponent implements OnInit, AfterViewInit {
     this.searchBar?.focus();
   }
 
-  private buildParams(paging: { page?: number; cursor?: string }): SearchParams {
+  /** Fetch page 0 of the current search, replacing the rows held. */
+  private loadFirstPage(): void {
+    this.inFlight?.unsubscribe();
+    // Holds `onLoadMore` off until page 0 lands, so no page of the old ranking is appended.
+    this.isStale.set(true);
+    this.page.set(0);
+    this.nextCursor.set(null);
+    this.rankPin = null;
+    this.inFlight = this.searchService.search(this.buildParams({ page: 0 })).subscribe({
+      next: (res) => {
+        this.results.set(res.results);
+        this.nextCursor.set(res.nextCursor ?? null);
+        this.rankPin = res.rankPin ?? null;
+        this.appliedDates.set(res.dateFilter);
+        this.total.set(seekExhausted(res) ? res.results.length : res.total);
+        this.more.set(res.more ?? false);
+        this.capped.set(res.capped ?? false);
+        this.isStale.set(false);
+        this.queueThumbs(res.results);
+        this.mainScrollRef?.nativeElement.scrollTo?.({ top: 0 });
+      },
+      error: () => {
+        // Non-fatal — stop dimming but leave existing results so a
+        // transient backend hiccup doesn't clobber the user's view.
+        this.isStale.set(false);
+      },
+    });
+  }
+
+  /** Facets for the list's window as of `page` (#4514) — the same window its `total` counts. */
+  private loadFacets(page: number): void {
+    this.facetsInFlight?.unsubscribe();
+    const { cursor: _cursor, sort: _sort, ...facetParams } = this.buildParams({ page });
+    this.facetsInFlight = this.searchService.facets(facetParams).subscribe({
+      next: (f2) => this.facets.set(f2),
+      error: () => {
+        // Keep the last good facets — an aggregation hiccup shouldn't
+        // blank the pickers.
+      },
+    });
+  }
+
+  private buildParams(paging: { page?: number; cursor?: string; rankPin?: string }): SearchParams {
     const text = this.effectiveText();
     return {
       // The box is the *content* search: the term routes to `placeQuery`
@@ -361,6 +385,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
       // server won't deliver.
       ...(text.length === 0 ? { sort: this.sort() } : {}),
       ...(paging.cursor !== undefined ? { cursor: paging.cursor } : { page: paging.page ?? 0 }),
+      ...(paging.rankPin !== undefined ? { rankPin: paging.rankPin } : {}),
       limit: 30,
     };
   }
@@ -488,23 +513,35 @@ export class SearchComponent implements OnInit, AfterViewInit {
     this.isLoadingMore.set(true);
     const cursor = this.nextCursor();
     const nextPage = this.page() + 1;
+    const rankPin = this.rankPin ?? undefined;
     const params =
-      cursor !== null ? this.buildParams({ cursor }) : this.buildParams({ page: nextPage });
+      cursor !== null
+        ? this.buildParams({ cursor })
+        : this.buildParams({ page: nextPage, rankPin });
     this.loadMoreSub?.unsubscribe();
     this.loadMoreSub = this.searchService.search(params).subscribe({
       next: (res) => {
-        const merged = [...this.results(), ...res.results];
-        this.results.set(merged);
-        this.nextCursor.set(res.nextCursor ?? null);
-        this.total.set(seekExhausted(res) || res.results.length === 0 ? merged.length : res.total);
+        const next = appendPage(this.results(), this.total(), res, this.hasText());
+        this.results.set(next.results);
+        this.nextCursor.set(next.nextCursor);
+        this.rankPin = res.rankPin ?? null;
+        this.total.set(next.total);
+        this.more.set(next.more);
+        this.capped.set(next.capped);
         // `page` is the skip-mode fallback counter — a seek request leaves
         // it alone rather than adopting the server's echoed `page: 0`.
         if (cursor === null) this.page.set(nextPage);
+        if (next.widened) this.loadFacets(nextPage);
         this.isLoadingMore.set(false);
         this.queueThumbs(res.results);
       },
-      error: () => {
+      error: (err: unknown) => {
         this.isLoadingMore.set(false);
+        // The engine that ranked the rows held is gone; another engine's next
+        // page would repeat and skip rows, so the search starts over (#4542).
+        if (!isRankEngineChanged(err)) return;
+        this.loadFirstPage();
+        this.loadFacets(0);
       },
     });
   }

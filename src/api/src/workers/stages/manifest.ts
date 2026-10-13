@@ -16,7 +16,7 @@ import faceDetectStage, { startFaceDetectStage } from './face-detect.ts';
 import faceEmbedStage, { startFaceEmbedStage } from './face-embed.ts';
 import describeStage, { startDescribeStage } from './describe.ts';
 import geocodeStage, { startGeocodeStage } from './geocode.ts';
-import meiliStage, { startMeiliStage } from './meili.ts';
+import searchBlobStage, { startSearchBlobStage } from './search-blob.ts';
 import sidecarMetadataIndexStage, {
   startSidecarMetadataIndexStage,
 } from './sidecar-metadata-index.ts';
@@ -38,7 +38,7 @@ export const stageRegistrations = {
   'face-embed': { definition: faceEmbedStage, start: startFaceEmbedStage },
   describe: { definition: describeStage, start: startDescribeStage },
   geocode: { definition: geocodeStage, start: startGeocodeStage },
-  meili: { definition: meiliStage, start: startMeiliStage },
+  'search-blob': { definition: searchBlobStage, start: startSearchBlobStage },
   'sidecar-metadata-index': {
     definition: sidecarMetadataIndexStage,
     start: startSidecarMetadataIndexStage,

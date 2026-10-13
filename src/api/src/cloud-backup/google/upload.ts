@@ -2,6 +2,7 @@ import type { BackupObject, PublishSource, UploadCheckpoint } from '../provider.
 import { isDriveStatus, logicalKeyHash } from './client.ts';
 import type { GoogleDriveProvider } from './provider.ts';
 import { verifiedGoogleObject } from './integrity.ts';
+import { assertObjectIdentity, ObjectIdentityError } from './object.ts';
 
 const CHUNK = 8 * 1024 * 1024;
 interface GoogleCheckpoint {
@@ -130,6 +131,7 @@ function confirmedOffset(response: Response, size: number): number {
 interface UploadOptions {
   signal?: AbortSignal;
   checkpoint?: UploadCheckpoint | null;
+  expected?: BackupObject | null;
   saveCheckpoint: (checkpoint: UploadCheckpoint) => Promise<void>;
 }
 interface UploadContext {
@@ -142,12 +144,28 @@ interface UploadContext {
 const save = (ctx: UploadContext, state: GoogleCheckpoint) =>
   ctx.options.saveCheckpoint(envelope(state));
 async function verify(ctx: UploadContext, state: GoogleCheckpoint): Promise<BackupObject> {
-  return verifiedGoogleObject(
+  const object = await verifiedGoogleObject(
     ctx.provider,
-    { key: state.key, locator: state.fileId, size: state.size, sha256: state.sha256 },
+    {
+      key: state.key,
+      locator: state.fileId,
+      size: state.size,
+      sha256: state.sha256,
+    },
     ctx.options.signal,
     () => save(ctx, state),
   );
+  assertObjectIdentity(
+    object,
+    {
+      key: state.key,
+      locator: state.fileId,
+      size: state.size,
+      sha256: state.sha256,
+    },
+    'Google upload read-back checksum mismatch.',
+  );
+  return object;
 }
 function contentType(source: PublishSource): string {
   const type = source.contentType ?? 'application/octet-stream';
@@ -174,6 +192,25 @@ async function savedCheckpoint(ctx: UploadContext): Promise<GoogleCheckpoint | n
     throw new Error('Upload checkpoint content changed.');
   return state;
 }
+function checkpointObject(state: GoogleCheckpoint): BackupObject {
+  return { key: state.key, locator: state.fileId, size: state.size, sha256: state.sha256 };
+}
+// An in-flight checkpoint names the file this upload is writing. A database
+// mapping left behind by an object that has since vanished from Drive must not
+// veto resuming it, or every retry rejects the completed replacement.
+function mappedObject(state: GoogleCheckpoint | null, expected?: BackupObject | null) {
+  return state ? checkpointObject(state) : (expected ?? undefined);
+}
+// A mirror checkpoint that reserved a different file than the database maps
+// may already have committed (final response lost). That file is the live
+// replacement at this path; reserving again would orphan it beside the mapped
+// one, and the exact-path discovery would then refuse the duplicate forever.
+function committedCheckpoint(ctx: UploadContext, state: GoogleCheckpoint) {
+  return ctx.provider.inspect(ctx.key, ctx.options.signal, {
+    locator: state.fileId,
+    expected: checkpointObject(state),
+  });
+}
 async function startSession(
   ctx: UploadContext,
   state: GoogleCheckpoint,
@@ -195,6 +232,8 @@ async function startSession(
         ...(!state.replace ? { id: state.fileId, parents: [state.parentId] } : {}),
         name: state.exactName ? state.name : displayName(ctx.key, ctx.source),
         mimeType: type,
+        // This metadata is a portable discovery hint for catalog listings.
+        // Database mappings, not this mutable marker, identify known mirror files.
         properties: { mapleKeyHash: logicalKeyHash(ctx.key) },
         description: JSON.stringify({
           mapleBackupObject: 1,
@@ -223,7 +262,15 @@ async function reconcileExpiredReplacement(
   state: GoogleCheckpoint,
   error: unknown,
 ): Promise<Progress> {
-  const current = await ctx.provider.inspect(state.key, ctx.options.signal, state.fileId);
+  const current = await ctx.provider.inspect(state.key, ctx.options.signal, {
+    locator: state.fileId,
+    expected: {
+      key: state.key,
+      locator: state.fileId,
+      size: state.size,
+      sha256: state.sha256,
+    },
+  });
   if (current) {
     if (current.sha256 === state.sha256 && current.size === state.size)
       return { state, next: 0, completed: current };
@@ -257,12 +304,19 @@ async function probeSession(ctx: UploadContext, state: GoogleCheckpoint): Promis
       state.session,
       {
         method: 'PUT',
-        headers: { 'Content-Length': '0', 'Content-Range': `bytes */${ctx.source.size}` },
+        headers: {
+          'Content-Length': '0',
+          'Content-Range': `bytes */${ctx.source.size}`,
+        },
       },
       ctx.options.signal,
     );
     if (response.status !== 308) return { state, next: 0, completed: await verify(ctx, state) };
-    return { state, next: confirmedOffset(response, ctx.source.size), completed: null };
+    return {
+      state,
+      next: confirmedOffset(response, ctx.source.size),
+      completed: null,
+    };
   } catch (error) {
     if (!isDriveStatus(error, 404, 410)) throw error;
     return reconcileExpired(ctx, state);
@@ -297,7 +351,9 @@ async function sendChunk(
         // for a session-status probe, not a completed empty media upload.
         // Google's official google-api-python-client omits this header too.
         ...(length > 0
-          ? { 'Content-Range': `bytes ${next}-${next + length - 1}/${ctx.source.size}` }
+          ? {
+              'Content-Range': `bytes ${next}-${next + length - 1}/${ctx.source.size}`,
+            }
           : {}),
       },
       body: await chunk(ctx.source, next, length),
@@ -382,7 +438,11 @@ export async function publishGoogleObject(
   const target = await provider.objectTarget(key, options.signal);
   const ctx = { provider, key, source, options, replace: false };
   const saved = await savedCheckpoint(ctx);
-  const existing = await provider.inspect(key, options.signal, saved?.fileId);
+  const expected = mappedObject(saved, options.expected);
+  const existing = await provider.inspect(key, options.signal, {
+    locator: saved?.fileId ?? expected?.locator,
+    expected,
+  });
   if (existing) {
     if (existing.sha256 !== source.sha256 || existing.size !== source.size)
       throw new Error('Immutable backup key conflicts with different content.');
@@ -409,6 +469,53 @@ export async function publishGoogleObject(
   return uploadChunks(ctx, ready.state, ready.next);
 }
 
+type Placement = 'placed' | 'displaced' | 'gone';
+async function mirrorPlacement(
+  ctx: UploadContext,
+  object: BackupObject,
+  target: { parentId: string; name: string },
+): Promise<Placement> {
+  try {
+    const file = await ctx.provider.client.metadata(object.locator, ctx.options.signal);
+    return file.name === target.name && file.parents?.[0] === target.parentId
+      ? 'placed'
+      : 'displaced';
+  } catch (error) {
+    if (isDriveStatus(error, 404)) return 'gone';
+    throw error;
+  }
+}
+// A displaced copy that changed or was trashed after inspection is no longer
+// Maple's to delete; everything else (network, auth) surfaces so the retry
+// converges.
+async function removeDisplacedCopy(ctx: UploadContext, copy: BackupObject): Promise<void> {
+  try {
+    await ctx.provider.remove(copy, ctx.options.signal);
+  } catch (error) {
+    if (!(error instanceof ObjectIdentityError)) throw error;
+  }
+}
+// Candidates are Maple's own locators only (the database mapping and the
+// checkpoint Maple reserved), never arbitrary files found at the path, so a
+// second candidate at the target is a copy Maple created and may retire.
+async function mirrorCandidates(
+  ctx: UploadContext,
+  target: { parentId: string; name: string },
+  candidates: BackupObject[],
+): Promise<{ existing: BackupObject | null; displaced: BackupObject[] }> {
+  const present: Array<{ candidate: BackupObject; placement: Placement }> = [];
+  for (const candidate of candidates) {
+    const placement = await mirrorPlacement(ctx, candidate, target);
+    if (placement !== 'gone') present.push({ candidate, placement });
+  }
+  const existing = present.find((entry) => entry.placement === 'placed')?.candidate ?? null;
+  return {
+    existing,
+    displaced: present
+      .filter((entry) => entry.candidate.locator !== existing?.locator)
+      .map((entry) => entry.candidate),
+  };
+}
 export async function publishGoogleMirrorFile(
   provider: GoogleDriveProvider,
   key: string,
@@ -420,9 +527,36 @@ export async function publishGoogleMirrorFile(
   if (target.name !== relativePath.split('/').at(-1))
     throw new Error('Invalid Google mirror path.');
   const ctx = { provider, key, source, options, replace: true };
-  const saved = await mirrorCheckpoint(ctx, target);
-  const existing = await provider.inspect(key, options.signal, saved?.fileId);
-  if (matchesSource(existing, source)) return existing;
-  const state = await mirrorState(ctx, target, saved, existing);
-  return uploadMirror(ctx, state);
+  const checkpoint = await mirrorCheckpoint(ctx, target);
+  // A checkpoint may outlive the DB mapping it was created from (for
+  // example, after another worker completed a replacement). Unless its file
+  // already committed, the DB locator wins: discard the stale resumable
+  // session and rebuild the mirror state against the mapped object instead of
+  // passing contradictory identities to inspect(). The abandoned Google
+  // session expires without mutating files.
+  const divergent = Boolean(
+    checkpoint && options.expected && checkpoint.fileId !== options.expected.locator,
+  );
+  const committed = divergent ? await committedCheckpoint(ctx, checkpoint!) : null;
+  const saved = divergent ? null : checkpoint;
+  const expected = mappedObject(saved, options.expected);
+  const mapped = await provider.inspect(key, options.signal, {
+    locator: saved?.fileId ?? expected?.locator,
+    expected,
+  });
+  // The mirror's contract is the library-relative path. A mapped or committed
+  // file that was renamed or moved inside the root, or a second copy left by
+  // an interrupted replacement, is removed once the file at the path is
+  // confirmed; the engine's key-based cleanup never sees those locators.
+  const { existing, displaced } = await mirrorCandidates(
+    ctx,
+    target,
+    [committed, mapped].filter((candidate): candidate is BackupObject => candidate !== null),
+  );
+  const resumable = saved && displaced.some((copy) => copy.locator === saved.fileId) ? null : saved;
+  const published = matchesSource(existing, source)
+    ? existing
+    : await uploadMirror(ctx, await mirrorState(ctx, target, resumable, existing));
+  for (const copy of displaced) await removeDisplacedCopy(ctx, copy);
+  return published;
 }

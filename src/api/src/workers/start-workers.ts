@@ -7,7 +7,7 @@
  *   - cache-gc sweep
  *   - FFI decode pool sizing
  *   - geocode / face / describe enrichment workers
- *   - Meilisearch stage-side config + index bootstrap
+ *   - worker-side enrichment config refresh
  *   - job runner
  *   - import runner
  *
@@ -158,7 +158,10 @@ export async function startWorkers(): Promise<void> {
     await refreshWorkerEnrichmentConfig(true);
     startWorkerEnrichmentConfigRefresh();
   } catch (err) {
-    log.warn({ err }, 'Meilisearch boot failed; search will fall back to the local text index');
+    log.warn(
+      { err },
+      'worker enrichment config refresh failed at boot; the periodic refresh retries',
+    );
     startWorkerEnrichmentConfigRefresh();
   }
 

@@ -7,7 +7,7 @@ export type EnrichmentKind =
   | 'geocode'
   | 'face-detect'
   | 'face-embed'
-  | 'meili';
+  | 'search';
 
 export interface StageMeta {
   readonly id: string;
@@ -124,12 +124,13 @@ export const STAGE_META: Record<string, StageMeta> = {
     description:
       'Embeds each asset’s caption, people, place, transcript and OCR text on the embedding model chosen in Settings → AI and stores the vector for semantic search. Starts paused — confirm the embedder there, then resume here.',
   },
-  meili: {
-    id: 'meili',
+  'search-blob': {
+    id: 'search-blob',
     group: 'Index',
     icon: 'search',
-    enrichment: 'meili',
-    description: 'Pushes enriched assets to Meilisearch so they show up in the library search.',
+    enrichment: 'search',
+    description:
+      'Builds each asset’s full-text search entry from its caption, people, place, transcript and OCR text. Keyword searches read it, and so do all searches while the search engine is still loading.',
   },
   'sidecar-metadata-index': {
     id: 'sidecar-metadata-index',

@@ -16,11 +16,8 @@
 import { Elysia } from 'elysia';
 import { ObjectId } from '../../db/object-id.ts';
 import { searchFacets } from '../../db/repos/search.repo.ts';
-import { FACET_TOP_MATCHES } from '../../db/repos/search.facets.ts';
-import { meiliFacetRanking } from './facets-meili.ts';
-import { inProcessFacetRanking } from './facets-in-process.ts';
-import { selectedSearchEngine } from '../../search/search-engine-selection.ts';
-import type { ExternalRanking, FacetOptions } from '../../db/repos/search.facets.ts';
+import type { FacetOptions } from '../../db/repos/search.facets.ts';
+import { firstEngine, requestWindow, windowNeed } from './ranked-window.ts';
 import { emailsForUserIds } from '../../db/repos/auth.users.repo.ts';
 import { namesForPersonIds } from '../../people/people-search-filter.repo.ts';
 import { SearchQueryT, type SearchQuery } from './query.ts';
@@ -34,24 +31,27 @@ function canonicalHex(id: string): string {
 }
 
 /**
- * The ranking options for a text search's facets, mirroring the list: the in-process engine when
- * selected, falling back to Meilisearch's ranking when the child cannot answer.
+ * A text search's facets count its request's ranked window — the one `requestWindow` serves the
+ * list with the same `page` and `limit`, from the same engine — so the facets describe exactly
+ * the photos the list's `total` counts (#4514).
  */
-async function facetRanking(query: SearchQuery): Promise<FacetOptions> {
-  const meili = meiliFacetRanking(query, FACET_TOP_MATCHES);
-  if ((await selectedSearchEngine()) !== 'in-process') return { ranking: meili };
+async function facetOptions(query: SearchQuery): Promise<FacetOptions> {
   const scope = await resolveRankedScope(query);
-  const inProcess = 'error' in scope ? undefined : inProcessFacetRanking(scope);
-  if (!inProcess) return { ranking: meili };
-  const fallback = async (): Promise<ExternalRanking | null> => {
-    const answer = meili ? await meili() : null;
-    return answer && { ...answer, rankedBy: 'meilisearch' };
+  if ('error' in scope || scope.childQuery === null) return {};
+  const { where, childQuery } = scope;
+  const need = windowNeed(query);
+  return {
+    need,
+    engine: firstEngine(),
+    window: async () => {
+      const window = await requestWindow({
+        where,
+        text: childQuery,
+        need,
+      });
+      return { rows: window.rows, preferred: window.preferred };
+    },
   };
-  const ranking = async (): Promise<ExternalRanking | null> => {
-    const answer = await inProcess();
-    return answer ? { ...answer, rankedBy: 'in-process' } : fallback();
-  };
-  return { ranking, rankedBy: 'in-process' };
 }
 
 export const facetsRoute = new Elysia().get(
@@ -60,10 +60,7 @@ export const facetsRoute = new Elysia().get(
     const where = await resolveSearchScope(query as SearchQuery);
     if (where instanceof Response) return where;
 
-    // A text search's most relevant matches are whichever engine ranks its
-    // list: the in-process engine or Meilisearch when it serves this query,
-    // the database otherwise.
-    const facets = await searchFacets(where, undefined, await facetRanking(query as SearchQuery));
+    const facets = await searchFacets(where, undefined, await facetOptions(query as SearchQuery));
 
     // Join the person-id buckets to display names; ids whose person is
     // hidden, merged away, or gone drop out (count order is preserved).

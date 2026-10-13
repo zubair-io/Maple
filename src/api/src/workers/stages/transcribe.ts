@@ -103,14 +103,14 @@ async function transcribeMedia(
     // The transcript and the search-stage re-arm go back to the runner rather
     // than being written here, which is what makes them atomic with this
     // stage's own success row. On Mongo they were one `$set` the handler issued
-    // itself — the transcript plus five `stages.meili.*` keys — and it returned
+    // itself — the transcript plus five `stages.search-blob.*` keys — and it returned
     // `{ wrote: true }` precisely because the runner refuses a patch that
     // touches stage bookkeeping. `invalidates` is that same re-arm expressed as
     // something the runner owns, so the handler no longer has to reach around
     // it.
     return {
       patch: [transcriptStatement(image._id.toHexString(), transcript)],
-      invalidates: ['meili', 'embed'],
+      invalidates: ['search-blob', 'embed'],
     };
   } finally {
     await unlink(wavPath).catch(() => {});

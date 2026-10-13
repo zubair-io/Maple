@@ -6,7 +6,7 @@
 // NOT bundle. Pattern matches `library-state.service.spec.ts`.
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { Observable, Subject } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -27,7 +27,7 @@ import { RECENT_QUERIES_KEY } from './search-types';
 class StubSearchService {
   readonly calls: SearchParams[] = [];
   readonly subjects: Subject<SearchResponse>[] = [];
-  readonly facetCalls: Array<Omit<SearchParams, 'page' | 'limit' | 'sort'>> = [];
+  readonly facetCalls: Array<Omit<SearchParams, 'sort' | 'cursor'>> = [];
   readonly facetSubjects: Subject<SearchFacets>[] = [];
   defaultResponse: SearchResponse = { total: 0, page: 0, limit: 30, results: [] };
   defaultFacets: SearchFacets = {
@@ -59,7 +59,7 @@ class StubSearchService {
     return subj.asObservable();
   }
 
-  facets(params: Omit<SearchParams, 'page' | 'limit' | 'sort'>): Observable<SearchFacets> {
+  facets(params: Omit<SearchParams, 'sort' | 'cursor'>): Observable<SearchFacets> {
     this.facetCalls.push(params);
     const subj = new Subject<SearchFacets>();
     this.facetSubjects.push(subj);
@@ -70,6 +70,10 @@ class StubSearchService {
     const subj = this.subjects[this.subjects.length - 1];
     subj.next(response ?? this.defaultResponse);
     subj.complete();
+  }
+
+  rejectLatest(err: unknown): void {
+    this.subjects[this.subjects.length - 1].error(err);
   }
 
   resolveLatestFacets(facets?: SearchFacets): void {
@@ -396,6 +400,156 @@ describe('SearchComponent (unified search)', () => {
     // Clamped to 30 so canLoadMore becomes false
     const searchComp = fixture.componentInstance as unknown as { canLoadMore: () => boolean };
     expect(searchComp.canLoadMore()).toBe(false);
+  });
+
+  it('keeps paging past a ranked window that has more, and labels its count open-ended', () => {
+    typeInput(fixture, 'city streets');
+    vi.advanceTimersByTime(250);
+    stub.resolveLatest({
+      total: 30,
+      more: true,
+      page: 0,
+      limit: 30,
+      results: Array.from({ length: 30 }, (_, i) => makeResult(`r${i}`, `r${i}.dng`)),
+    });
+    fixture.detectChanges();
+    const searchComp = fixture.componentInstance as unknown as {
+      canLoadMore: () => boolean;
+      onLoadMore(): void;
+    };
+    expect(searchComp.canLoadMore()).toBe(true);
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="search-result-count"]')?.textContent,
+    ).toContain('30+ results');
+    searchComp.onLoadMore();
+    expect(stub.calls[stub.calls.length - 1].page).toBe(1);
+    stub.resolveLatest({
+      total: 45,
+      more: false,
+      page: 1,
+      limit: 30,
+      results: Array.from({ length: 15 }, (_, i) => makeResult(`s${i}`, `s${i}.dng`)),
+    });
+    fixture.detectChanges();
+    expect(searchComp.canLoadMore()).toBe(false);
+  });
+
+  it('asks facets for the window of the page the list reached when paging widens it', () => {
+    typeInput(fixture, 'city streets');
+    vi.advanceTimersByTime(400);
+    expect(stub.facetCalls[stub.facetCalls.length - 1]).toMatchObject({ page: 0, limit: 30 });
+    stub.resolveLatest({
+      total: 30,
+      more: true,
+      page: 0,
+      limit: 30,
+      results: Array.from({ length: 30 }, (_, i) => makeResult(`r${i}`, `r${i}.dng`)),
+    });
+    stub.resolveLatestFacets();
+    fixture.detectChanges();
+    const facetRequests = stub.facetCalls.length;
+
+    (fixture.componentInstance as unknown as { onLoadMore(): void }).onLoadMore();
+    stub.resolveLatest({
+      total: 52,
+      more: false,
+      page: 1,
+      limit: 30,
+      results: Array.from({ length: 22 }, (_, i) => makeResult(`s${i}`, `s${i}.dng`)),
+    });
+
+    expect(stub.facetCalls.length).toBe(facetRequests + 1);
+    expect(stub.facetCalls[stub.facetCalls.length - 1]).toMatchObject({ page: 1, limit: 30 });
+  });
+
+  it('stops paging at a capped window and labels its count open-ended', () => {
+    typeInput(fixture, 'city streets');
+    vi.advanceTimersByTime(250);
+    stub.resolveLatest({
+      total: 5000,
+      more: false,
+      capped: true,
+      page: 0,
+      limit: 30,
+      results: Array.from({ length: 30 }, (_, i) => makeResult(`r${i}`, `r${i}.dng`)),
+    });
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="search-result-count"]')?.textContent,
+    ).toContain('5,000+ results');
+  });
+
+  describe('one ranking per search (#4542)', () => {
+    const page = (prefix: string, rankPin: string): SearchResponse => ({
+      total: 30,
+      more: true,
+      page: 0,
+      limit: 30,
+      rankPin,
+      results: Array.from({ length: 30 }, (_, i) =>
+        makeResult(`${prefix}${i}`, `${prefix}${i}.dng`),
+      ),
+    });
+    const component = () =>
+      fixture.componentInstance as unknown as {
+        onLoadMore(): void;
+        results: () => readonly SearchResult[];
+        page: () => number;
+      };
+
+    it('sends each page the pin of the page before it, never the first page', () => {
+      typeInput(fixture, 'city streets');
+      vi.advanceTimersByTime(250);
+      expect(stub.calls[stub.calls.length - 1].rankPin).toBeUndefined();
+      stub.resolveLatest(page('r', 'in-process:100'));
+
+      component().onLoadMore();
+      expect(stub.calls[stub.calls.length - 1]).toMatchObject({
+        page: 1,
+        rankPin: 'in-process:100',
+      });
+      stub.resolveLatest(page('s', 'in-process:100,400'));
+
+      component().onLoadMore();
+      expect(stub.calls[stub.calls.length - 1].rankPin).toBe('in-process:100,400');
+    });
+
+    it('restarts from page 0 when the engine that ranked the rows is gone', () => {
+      typeInput(fixture, 'city streets');
+      vi.advanceTimersByTime(250);
+      stub.resolveLatest(page('r', 'in-process:100'));
+
+      component().onLoadMore();
+      const facetRequests = stub.facetCalls.length;
+      stub.rejectLatest(
+        new HttpErrorResponse({ status: 409, error: { code: 'rank_engine_changed' } }),
+      );
+
+      const restart = stub.calls[stub.calls.length - 1];
+      expect(`${restart.page}:${restart.rankPin ?? 'unpinned'}`).toBe('0:unpinned');
+      expect(stub.facetCalls.length).toBe(facetRequests + 1);
+      component().onLoadMore();
+      expect(stub.calls[stub.calls.length - 1]).toBe(restart);
+      stub.resolveLatest(page('fresh', 'database:100'));
+      const names = Array.from(component().results(), (r) => r.filename);
+      expect([names.length, names[0], component().page()]).toEqual([30, 'fresh0.dng', 0]);
+
+      component().onLoadMore();
+      expect(stub.calls[stub.calls.length - 1].rankPin).toBe('database:100');
+    });
+
+    it('keeps the rows held on any other load-more failure', () => {
+      typeInput(fixture, 'city streets');
+      vi.advanceTimersByTime(250);
+      stub.resolveLatest(page('r', 'in-process:100'));
+      const requests = stub.calls.length;
+
+      component().onLoadMore();
+      stub.rejectLatest(new HttpErrorResponse({ status: 409, error: { error: 'other' } }));
+
+      expect(stub.calls.length).toBe(requests + 1);
+      expect(component().results()).toHaveLength(30);
+    });
   });
 
   it('persists recents on submit and restores the query on recent tap', () => {

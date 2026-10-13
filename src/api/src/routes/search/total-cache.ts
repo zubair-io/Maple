@@ -110,7 +110,7 @@ export function _resetCacheForTests(): void {
  * (the two are illegal together). The SQLite count composes the same `FROM`
  * and `WHERE` the page query does, from the same translated query, so there
  * is one plan and nothing to steer — and a facet total and a grid page cannot
- * disagree, which is the failure the Meilisearch branch shipped once.
+ * disagree, which is the failure a ranked branch once shipped.
  *
  * Note the predicate passed here is the *unpaged* one — the seek predicate a
  * cursor contributes must never reach the count, or `total` would shrink as

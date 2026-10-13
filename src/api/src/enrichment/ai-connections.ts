@@ -105,7 +105,7 @@ export function importAiConnections(
       },
       'semantic-search': {
         connection_ids: [connections[0]!.id],
-        model: cfg.meilisearch_embedder_model,
+        model: cfg.embedder_model,
       },
     },
   };

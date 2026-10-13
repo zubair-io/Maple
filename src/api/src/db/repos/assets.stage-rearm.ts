@@ -3,18 +3,14 @@
  *
  * Three mutations in this repository reset a stage as part of the same write
  * that changes something the stage's output depends on: the two metadata
- * overrides re-arm `meili` so the search document is rebuilt, and both trash
- * workflows re-arm `meili` plus the two path-keyed raster caches because
- * moving a file into or out of `.maple/trash/` is a relocate. The Mongo
- * originals were `MEILI_REARM_SET` and `relocateCacheStageResetSet`
- * (`db/relocate-cache-reset.ts`, and a people module now deleted); the lists
- * below mirror them exactly, including the one asymmetry — the meili re-arm
- * clears `processed_at` and the cache re-arm does not.
+ * overrides re-arm `search-blob` and `embed` so the search text is rebuilt,
+ * and both trash workflows re-arm `embed` plus the two path-keyed raster
+ * caches because moving a file into or out of `.maple/trash/` is a relocate.
+ * The search re-arms clear `processed_at` and the cache re-arm does not.
  *
  * ## Why an upsert and not an update
  *
- * `$set: { 'stages.meili.version': 0 }` creates the subdocument when it is
- * missing, so on Mongo a re-arm always lands. Stage rows here are seeded when
+ * A re-arm has to land even when the stage row is missing. Stage rows are seeded when
  * an asset is created, so the row normally exists — but "normally" is exactly
  * the assumption that produced #2177, where a stage silently never re-armed
  * because its bookkeeping was absent. `ON CONFLICT … DO UPDATE` makes the
@@ -25,10 +21,10 @@
 
 import type { SqlStatement } from '../sqlite/protocol.ts';
 
-/** The search-index stage: re-armed whenever an asset's indexed text changes. */
-export const MEILI_STAGE = 'meili';
+/** The stage that composes the full-text blob: re-armed whenever a source of the blob changes. */
+export const SEARCH_BLOB_STAGE = 'search-blob';
 
-/** The vector stage: re-armed together with `meili` because both read the same searchable text. */
+/** The vector stage: re-armed whenever an asset's embedded text changes. */
 export const EMBED_STAGE = 'embed';
 
 /**
@@ -51,12 +47,14 @@ const REARM_WITH_PROCESSED_AT = `${REARM_INSERT}
 const REARM_KEEPING_PROCESSED_AT = `${REARM_INSERT}
     version = 0, attempts = 0, last_error = NULL, dead = 0, next_attempt_at = NULL, claim_token = NULL`;
 
-/** Re-arm every stage that indexes an asset's searchable text: `meili` and `embed`. */
+/** Re-arm the stage that embeds an asset's searchable text. */
 export function searchRearmStatements(assetId: string): SqlStatement[] {
-  return [MEILI_STAGE, EMBED_STAGE].map((stage) => ({
-    sql: REARM_WITH_PROCESSED_AT,
-    params: [stage, assetId],
-  }));
+  return [{ sql: REARM_WITH_PROCESSED_AT, params: [EMBED_STAGE, assetId] }];
+}
+
+/** Re-arm the stage that recomposes an asset's full-text blob from every source. */
+export function searchBlobRearmStatements(assetId: string): SqlStatement[] {
+  return [{ sql: REARM_WITH_PROCESSED_AT, params: [SEARCH_BLOB_STAGE, assetId] }];
 }
 
 /**

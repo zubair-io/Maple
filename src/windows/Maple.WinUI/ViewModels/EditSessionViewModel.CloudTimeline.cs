@@ -16,6 +16,7 @@ namespace Maple.WinUI.ViewModels
         [ObservableProperty] private bool _canRetryCloudSearch;
         private string? _timelineCursor;
         private int _timelinePage;
+        private string? _timelineRankPin;
         private CloudSearchQuery? _timelineQuery;
         public bool IsServerSearch => _isCloudTimeline;
 
@@ -37,6 +38,7 @@ namespace Maple.WinUI.ViewModels
             ActiveSectionName = "Timeline";
             _timelineCursor = null;
             _timelinePage = 0;
+            _timelineRankPin = null;
             _timelineQuery = CurrentTimelineQuery();
             if (_cloud == null || !CloudConnected)
             {
@@ -71,7 +73,8 @@ namespace Maple.WinUI.ViewModels
             var client = _cloud!;
             try
             {
-                var page = await client.SearchAsync(_timelineQuery!, _timelinePage, _timelineCursor, owner.Token);
+                var page = await client.SearchAsync(_timelineQuery!, _timelinePage, _timelineCursor, owner.Token,
+                    rankPin: _timelinePage > 0 ? _timelineRankPin : null);
                 if (_libraryCts != owner || owner.IsCancellationRequested) return;
                 if (page == null) throw new InvalidOperationException("The server could not load the timeline.");
                 var items = page.NewPhotos(AllPhotos.Select(photo => photo.FilePath))
@@ -79,6 +82,7 @@ namespace Maple.WinUI.ViewModels
                 AllPhotos.AddRange(items);
                 _timelineCursor = page.CursorPaging ? page.NextCursor : null;
                 _timelinePage = page.Page + 1;
+                _timelineRankPin = page.RankPin;
                 HasMoreTimeline = page.CursorPaging ? !string.IsNullOrEmpty(_timelineCursor)
                     : page.Results.Length > 0 && (long)_timelinePage * page.Limit < page.Total;
                 ApplyFilters();
@@ -87,6 +91,14 @@ namespace Maple.WinUI.ViewModels
                 _ = Task.Run(() => HydrateCloudThumbnailsAsync(items, owner.Token), owner.Token);
             }
             catch (OperationCanceledException) when (owner.IsCancellationRequested) { }
+            catch (CloudRankEngineChangedException)
+            {
+                // The engine that ranked the rows held is gone; another engine's next page
+                // would repeat and skip rows, so the search starts over (#4542).
+                if (_libraryCts != owner || owner.IsCancellationRequested) return;
+                ClearTimelineResults();
+                await LoadTimelinePageAsync(owner);
+            }
             catch (HttpRequestException error)
             {
                 var message = error.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
@@ -143,8 +155,18 @@ namespace Maple.WinUI.ViewModels
             _libraryCts?.Cancel();
             var owner = _libraryCts = new CancellationTokenSource();
             _timelineQuery = query;
+            ClearTimelineResults();
+            IsLibraryLoading = true;
+            LibraryLoadStatus = "Searching Maple Cloud…";
+            _ = ReloadTimelineAfterDebounceAsync(owner);
+            return true;
+        }
+
+        private void ClearTimelineResults()
+        {
             _timelinePage = 0;
             _timelineCursor = null;
+            _timelineRankPin = null;
             HasMoreTimeline = false;
             CanRetryCloudSearch = false;
             SelectedPhoto = null;
@@ -153,10 +175,6 @@ namespace Maple.WinUI.ViewModels
             Photos.Clear();
             PhotoGroups.Clear();
             HasPhotos = false;
-            IsLibraryLoading = true;
-            LibraryLoadStatus = "Searching Maple Cloud…";
-            _ = ReloadTimelineAfterDebounceAsync(owner);
-            return true;
         }
 
         private async Task ReloadTimelineAfterDebounceAsync(CancellationTokenSource owner)

@@ -50,7 +50,7 @@ function makeDoc(absPath: string, libraryId: ObjectId, libraryRoot: string) {
       face: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
       describe: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
       geocode: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
-      meili: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
+      'search-blob': { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
     },
   };
 }

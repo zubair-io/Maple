@@ -1,9 +1,8 @@
 /**
  * `POST /api/search/assets` — the service-API search surface.
  *
- * Meilisearch is mocked through `setMeilisearchClientForTests`; the database
- * fallback beneath it runs for real against SQLite, installed as the
- * process-wide handle for each test.
+ * The in-process engine is faked through `setInProcessSearchForTests`; the database path
+ * beneath it runs for real against SQLite, installed as the process-wide handle for each test.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -12,15 +11,11 @@ import { createServiceApiKey } from '../src/auth/service-api-keys.ts';
 import { insertUser } from '../src/db/repos/auth.users.repo.ts';
 import { saveEnrichmentConfig } from '../src/enrichment/enrichment-config.repo.ts';
 import {
-  MeilisearchSearchError,
-  setMeilisearchClientForTests,
-  type MeilisearchClient,
-  type MeilisearchSearchOptions,
-} from '../src/enrichment/meilisearch-client.ts';
-import {
   _resetServiceSearchRateLimitsForTests,
   serviceAssetSearchRoutes,
 } from '../src/routes/service-asset-search.ts';
+import { setInProcessSearchForTests } from '../src/search/search-pool.ts';
+import { fakeInProcessSearch } from '../src/search/search.test-helpers.ts';
 import { seedSearchAsset } from '../src/db/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
@@ -32,46 +27,6 @@ import {
 let live: LiveTestDatabase;
 let libraryId: string;
 let serviceKey = '';
-
-function mockMeili(input: {
-  semantic?: boolean;
-  search: (
-    query: string,
-    options: MeilisearchSearchOptions,
-    call: number,
-  ) => ReturnType<MeilisearchClient['search']>;
-}): MeilisearchClient & { calls: Array<{ query: string; options: MeilisearchSearchOptions }> } {
-  const calls: Array<{ query: string; options: MeilisearchSearchOptions }> = [];
-  return {
-    calls,
-    isConfigured: () => true,
-    semanticConfigured: () => input.semantic ?? true,
-    health: async () => true,
-    ensureIndex: async () => {},
-    upsert: async () => {},
-    upsertOrThrow: async () => {},
-    tombstone: async () => {},
-    search: async (query, options = {}) => {
-      calls.push({ query, options });
-      return input.search(query, options, calls.length);
-    },
-  };
-}
-
-/** A Meilisearch client that reports itself unconfigured, forcing the
- * database fallback. */
-function unconfiguredMeili(): MeilisearchClient {
-  return {
-    isConfigured: () => false,
-    semanticConfigured: () => false,
-    health: async () => false,
-    ensureIndex: async () => {},
-    upsert: async () => {},
-    upsertOrThrow: async () => {},
-    tombstone: async () => {},
-    search: async () => ({ ids: [], estimatedTotal: 0 }),
-  };
-}
 
 function request(body: Record<string, unknown>, key = serviceKey): Promise<Response> {
   return new Elysia().use(serviceAssetSearchRoutes).handle(
@@ -98,69 +53,33 @@ beforeEach(async () => {
   });
   serviceKey = (await createServiceApiKey({ name: 'SugarMaple integration', createdBy })).key;
   _resetServiceSearchRateLimitsForTests();
-  setMeilisearchClientForTests(null);
 });
 
 afterEach(() => {
-  setMeilisearchClientForTests(null);
+  setInProcessSearchForTests(null);
   live.close();
 });
 
 describe('POST /api/search/assets', () => {
-  it('returns the concrete HVAC video from a hybrid conceptual query', async () => {
-    const meili = mockMeili({
-      search: async () => ({
-        ids: ['010045ca68ac1f7f7e8b3aa02f72ac80', 'lexical-only'],
-        estimatedTotal: 2,
-        scores: { '010045ca68ac1f7f7e8b3aa02f72ac80': 0.97 },
-      }),
+  it('reports the fallback when the engine cannot answer a hybrid request', async () => {
+    seedSearchAsset(live.db, libraryId, {
+      filename: 'hvac.mov',
+      path: '',
+      mapleId: 'hvac',
+      mediaKind: 'video',
+      searchBlob: 'hvac installation',
     });
-    setMeilisearchClientForTests(meili);
+    setInProcessSearchForTests(fakeInProcessSearch(null));
 
-    const response = await request({
-      query: 'HVAC air conditioning installation',
-      filters: { mediaTypes: ['video'] },
-    });
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as {
+    const body = (await (await request({ query: 'hvac installation' })).json()) as {
       modeUsed: string;
       fallbackReason: string | null;
-      results: Array<{ assetId: string; score: number | null }>;
+      results: Array<{ assetId: string }>;
     };
-    expect(body.modeUsed).toBe('hybrid');
-    expect(body.fallbackReason).toBeNull();
-    expect(body.results[0]).toEqual({
-      assetId: '010045ca68ac1f7f7e8b3aa02f72ac80',
-      score: 0.97,
-    });
-    // A document without a vector/ranking score is retained rather than
-    // silently disappearing during a partially complete vector backfill.
-    expect(body.results[1]).toEqual({ assetId: 'lexical-only', score: null });
-    expect(meili.calls[0]!.options).toMatchObject({
-      semantic: true,
-      mediaTypes: ['video'],
-      includeHidden: false,
-    });
-  });
 
-  it('passes an inclusive capture-date range to hybrid search', async () => {
-    const meili = mockMeili({
-      search: async () => ({ ids: [], estimatedTotal: 0 }),
-    });
-    setMeilisearchClientForTests(meili);
-
-    const response = await request({
-      query: 'HVAC air conditioning installation',
-      from: '2026-06-29',
-      to: '2026-07-29',
-    });
-
-    expect(response.status).toBe(200);
-    expect(meili.calls[0]!.options).toMatchObject({
-      semantic: true,
-      capturedFrom: '2026-06-29T00:00:00.000Z',
-      capturedBefore: '2026-07-30T00:00:00.000Z',
-    });
+    expect(body.modeUsed).toBe('lexical');
+    expect(body.fallbackReason).toBe('search_engine_unavailable');
+    expect(body.results.map((hit) => hit.assetId)).toEqual(['hvac']);
   });
 
   it('rejects invalid or reversed capture-date ranges', async () => {
@@ -168,98 +87,6 @@ describe('POST /api/search/assets', () => {
     expect((await request({ query: 'HVAC', from: '2026-07-30', to: '2026-07-29' })).status).toBe(
       400,
     );
-  });
-
-  it('retries lexical search and reports the fallback when embedding fails', async () => {
-    const meili = mockMeili({
-      search: async (_query, options) => {
-        if (options.semantic) {
-          throw new MeilisearchSearchError(
-            400,
-            JSON.stringify({
-              message: 'Cannot find embedder with name `caption`.',
-              code: 'invalid_search_embedder',
-              type: 'invalid_request',
-            }),
-          );
-        }
-        return {
-          ids: ['010045ca68ac1f7f7e8b3aa02f72ac80'],
-          estimatedTotal: 1,
-        };
-      },
-    });
-    setMeilisearchClientForTests(meili);
-
-    const response = await request({ query: 'EL16K-P1' });
-    const body = (await response.json()) as {
-      modeUsed: string;
-      fallbackReason: string | null;
-      fallbackDetails: {
-        status: number | null;
-        code: string | null;
-        type: string | null;
-        message: string;
-      } | null;
-      results: Array<{ assetId: string }>;
-    };
-    expect(response.status).toBe(200);
-    expect(body.modeUsed).toBe('lexical');
-    expect(body.fallbackReason).toBe('semantic_embedder_unavailable');
-    expect(body.fallbackDetails).toEqual({
-      status: 400,
-      code: 'invalid_search_embedder',
-      type: 'invalid_request',
-      message: 'Cannot find embedder with name `caption`.',
-    });
-    expect(body.results[0]!.assetId).toBe('010045ca68ac1f7f7e8b3aa02f72ac80');
-    expect(meili.calls.map((call) => call.options.semantic)).toEqual([true, false]);
-  });
-
-  it('reports the lexical failure when hybrid and lexical Meilisearch queries both fail', async () => {
-    const meili = mockMeili({
-      search: async (_query, options) => {
-        throw new MeilisearchSearchError(
-          options.semantic ? 400 : 503,
-          JSON.stringify(
-            options.semantic
-              ? {
-                  message: 'Cannot find embedder with name `caption`.',
-                  code: 'invalid_search_embedder',
-                  type: 'invalid_request',
-                }
-              : {
-                  message: 'Meilisearch is unavailable.',
-                  code: 'service_unavailable',
-                  type: 'internal',
-                },
-          ),
-        );
-      },
-    });
-    setMeilisearchClientForTests(meili);
-
-    const response = await request({ query: 'fallback diagnostics' });
-    const body = (await response.json()) as {
-      modeUsed: string;
-      fallbackReason: string | null;
-      fallbackDetails: {
-        status: number | null;
-        code: string | null;
-        type: string | null;
-        message: string;
-      } | null;
-    };
-    expect(response.status).toBe(200);
-    expect(body.modeUsed).toBe('lexical');
-    expect(body.fallbackReason).toBe('meilisearch_query_failed');
-    expect(body.fallbackDetails).toEqual({
-      status: 503,
-      code: 'service_unavailable',
-      type: 'internal',
-      message: 'Meilisearch is unavailable.',
-    });
-    expect(meili.calls.map((call) => call.options.semantic)).toEqual([true, false]);
   });
 
   it('preserves exact filename search during the database fallback', async () => {
@@ -291,7 +118,7 @@ describe('POST /api/search/assets', () => {
       path: '',
       filename: 'IMG_9999.MOV',
     });
-    setMeilisearchClientForTests(unconfiguredMeili());
+    setInProcessSearchForTests(fakeInProcessSearch(null));
 
     const response = await request({ query: 'IMG_4185.MOV', mode: 'hybrid' });
     const body = (await response.json()) as {
@@ -301,7 +128,7 @@ describe('POST /api/search/assets', () => {
     };
     expect(response.status).toBe(200);
     expect(body.modeUsed).toBe('lexical');
-    expect(body.fallbackReason).toBe('meilisearch_unavailable');
+    expect(body.fallbackReason).toBe('search_engine_unavailable');
     expect(body.results).toEqual([
       {
         assetId: '010045ca68ac1f7f7e8b3aa02f72ac80',
@@ -330,7 +157,7 @@ describe('POST /api/search/assets', () => {
         capturedAt,
       });
     }
-    setMeilisearchClientForTests(unconfiguredMeili());
+    setInProcessSearchForTests(fakeInProcessSearch(null));
 
     const idsFor = async (range: Record<string, unknown>) => {
       const body = (await (await request({ query: 'dated-2024.jpg', ...range })).json()) as {
@@ -358,6 +185,12 @@ describe('POST /api/search/assets', () => {
     expect(await empty.json()).toEqual({ error: 'query_must_not_be_empty' });
   });
 
+  it('rejects a query longer than the service search accepts, before ranking it (#4514)', async () => {
+    const tooLong = await request({ query: 'harbour '.repeat(70) });
+    expect(tooLong.status).toBe(400);
+    expect(await tooLong.json()).toEqual({ error: 'invalid_request_body' });
+  });
+
   it('authenticates before validating the request body', async () => {
     const response = await new Elysia().use(serviceAssetSearchRoutes).handle(
       new Request('http://localhost/api/search/assets', {
@@ -371,11 +204,6 @@ describe('POST /api/search/assets', () => {
 
   it('reads the per-key request budget from persisted enrichment settings', async () => {
     await saveEnrichmentConfig({ service_search_rate_limit_per_minute: 1 });
-    const meili = mockMeili({
-      search: async () => ({ ids: [], estimatedTotal: 0 }),
-    });
-    setMeilisearchClientForTests(meili);
-
     expect((await request({ query: 'first' })).status).toBe(200);
     const limited = await request({ query: 'second' });
     expect(limited.status).toBe(429);

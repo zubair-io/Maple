@@ -8,7 +8,7 @@
  */
 
 /** Person names from the comma-separated `people` param, trimmed and
- * de-blanked. Shared by the Meilisearch branch (which filters on the
+ * de-blanked. Shared by the in-process branch (which filters on the
  * `people` attribute directly) and the routes, which resolve the names to
  * person ids (`personIdsForNames`) for `buildFilter`'s Mongo clause. */
 export function peopleNames(raw: string | undefined): string[] {

@@ -61,7 +61,6 @@ describe('AI connections and assignments', () => {
     http.expectOne('/api/ai/connections/').flush(structuredClone(CONFIG));
     fixture.detectChanges();
     http.expectOne('/api/ai/search-engine/').flush({
-      engine: 'meilisearch',
       status: { phase: 'stopped', vectors: 0, texts: 0, textReady: false, restarts: 0 },
       modelCacheDir: '/data/.maple/models/fastembed',
     });

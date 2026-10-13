@@ -1,6 +1,7 @@
 /**
  * The reads the search child (#4463) keeps its engine current with: every vector once at boot,
- * then whatever the `embed` stage wrote since, then the full id list when the counts disagree.
+ * then whatever the `embed` stage wrote or the `search_blob` changed since, then the full id list
+ * when the counts disagree.
  *
  * Only vectors of the engine's dimension written by the configured embedding model are read. The
  * query vector comes from bge-m3, so a row from any other model would rank by a meaningless
@@ -21,9 +22,10 @@ export interface StoredVectorRow {
   embedded_at: string;
 }
 
+/** One changed row: `changed_at` is `embedded_at` or `text_changed_at`, by the feed it came from. */
 export interface VectorChangeRow {
   maple_id: string;
-  embedded_at: string;
+  changed_at: string;
 }
 
 const LATEST_TAG = ':latest';
@@ -84,23 +86,34 @@ export async function searchVectorsAfter(
   ]);
 }
 
-/** Ids and stamps of vectors written after `since`, oldest first, resuming after `after`. */
-export async function searchVectorChangesSince(
+type ChangeStamp = 'embedded_at' | 'text_changed_at';
+
+export type ChangeReader = (
   model: string,
   since: string,
   after: VectorChangeRow | null,
   limit: number,
   dbOverride?: SqliteDb,
-): Promise<VectorChangeRow[]> {
-  const resume = after ?? { embedded_at: since, maple_id: '' };
-  return sqliteDb(dbOverride).read<VectorChangeRow>(
-    `SELECT maple_id, embedded_at FROM asset_vectors
-      WHERE embedded_at > ? AND ${SEARCHABLE} AND (embedded_at, maple_id) > (?, ?)
-      ORDER BY embedded_at, maple_id
-      LIMIT ?`,
-    [since, ...modelSpellings(model), resume.embedded_at, resume.maple_id, limit],
-  );
+) => Promise<VectorChangeRow[]>;
+
+function changesSince(stamp: ChangeStamp): ChangeReader {
+  return async (model, since, after, limit, dbOverride) => {
+    const resume = after ?? { changed_at: since, maple_id: '' };
+    return sqliteDb(dbOverride).read<VectorChangeRow>(
+      `SELECT maple_id, ${stamp} AS changed_at FROM asset_vectors
+        WHERE ${stamp} > ? AND ${SEARCHABLE} AND (${stamp}, maple_id) > (?, ?)
+        ORDER BY ${stamp}, maple_id
+        LIMIT ?`,
+      [since, ...modelSpellings(model), resume.changed_at, resume.maple_id, limit],
+    );
+  };
 }
+
+/** Ids and stamps of vectors written after `since`, oldest first, resuming after `after`. */
+export const searchVectorChangesSince = changesSince('embedded_at');
+
+/** The same for vectors whose asset's `search_blob` changed after `since` (#4512). */
+export const searchTextChangesSince = changesSince('text_changed_at');
 
 export async function searchVectorsFor(
   model: string,

@@ -9,8 +9,13 @@ In-process hybrid search for the Self Hosted API — slice 2 of epic #4460
    handed over as bytes by the caller) are scored by dot product in parallel
    and the best 100 kept, ties broken by id. Exact, not approximate: 35 ms at
    335k vectors, with none of the recall loss an ANN index brings at this size.
-3. **Run the keyword leg** on a Tantivy 0.26 index (`en_stem`, BM25) built
-   from the same text blobs the API's SQLite full-text search uses. The query
+3. **Run the keyword leg** on a Tantivy 0.26 index (`en_stem`, BM25) with two
+   text fields per asset: the embedder template the vector was made from, and
+   the `search_blob` the API's SQLite full-text search uses, which adds the
+   vision subjects, setting, activity, objects and tags (#4512). Each field
+   keeps its own length normalisation; a term scores the template's BM25 plus
+   half the blob's (`BLOB_BOOST`), and a phrase must match inside one field.
+   The query
    is read by a port of the API's term parser
    (`src/api/src/db/repos/search.fts.ts`): bare words OR, quoted phrases are
    required, `-term` excludes, the 33 filler words drop unless nothing else is

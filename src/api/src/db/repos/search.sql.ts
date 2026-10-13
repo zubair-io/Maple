@@ -65,6 +65,15 @@ export interface BoundStatement {
  * the rowid wrapped it is not a constraint the virtual table can be handed, so
  * the inverted index is scanned once, first.
  *
+ * The `+` alone was not enough (#4514). Without planner statistics, a month,
+ * a library and dropped people led production's planner to put
+ * `assets_live_month` outermost and a plain scan of the inverted index inside
+ * it — the whole `MATCH` re-run per asset, over five minutes for one count.
+ * `CROSS JOIN` takes the order out of the planner's hands: SQLite never moves a
+ * table across one, so the inverted index is the outer loop whatever the
+ * statistics say. No request issues these combined statements for free text
+ * any more (see `search.ranked.ts`); this keeps any caller that does safe.
+ *
  * A text query no row can satisfy also leads with `assets`: there is no
  * expression to hand `MATCH`, the `WHERE` is the constant `0`, and joining an
  * inverted index to prove that is work for nothing.
@@ -72,8 +81,8 @@ export interface BoundStatement {
 export function fromClause(where: SearchWhere): string {
   if (where.match.kind !== 'match') return 'FROM assets';
   return `FROM assets_fts
-      JOIN asset_search ON asset_search.rowid = +assets_fts.rowid
-      JOIN assets ON assets.id = asset_search.asset_id`;
+      CROSS JOIN asset_search ON asset_search.rowid = +assets_fts.rowid
+      CROSS JOIN assets ON assets.id = asset_search.asset_id`;
 }
 
 /**
@@ -115,10 +124,10 @@ export function statement(
 
 /**
  * How many live assets match — the `total` on every search response, the facet
- * total, and the Meili branch's live count.
+ * total, and a ranked branch's live count.
  *
  * Counts exactly the `FROM` and `WHERE` the page query uses. That identity is
- * not a tidiness argument: the Meilisearch branch once post-filtered a single
+ * not a tidiness argument: a ranked branch once post-filtered a single
  * page and reported a count from a different predicate, which showed the user a
  * large number beside an empty grid. Sharing one composition makes the two
  * unable to disagree, and the tests hold every filter combination to it.
@@ -225,7 +234,7 @@ export function pageSql(
  * `MATERIALIZED` is what makes the scores computed once: inlined, `ranked`
  * would be planned twice and the inverted index scanned for each.
  */
-export function rankedPageSql(
+function rankedPageSql(
   where: SearchWhere,
   limit: number,
   offset: number,
@@ -247,37 +256,33 @@ export function rankedPageSql(
   };
 }
 
-/**
- * The assets behind one page of Meilisearch hits.
- *
- * Meilisearch answers with `maple_id`s ranked by relevance, and the row behind
- * each one still has to come from here — the sidecar holds an index, not the
- * source of truth. So this is the page query with the ordering, the limit and
- * the offset taken off it: Meilisearch already decided which assets and in what
- * order, and re-imposing a capture-date sort would throw that away.
- *
- * `maple_id` rides along in the projection because the caller has to put the
- * rows back into the sidecar's order, and the id is the only thing the two
- * sides share.
- *
- * The `where` arriving here never carries a text match — {@link searchByMapleIds}
- * strips it, for the reason that function records — so the `FROM` is the plain
- * `assets` one and the structured filters apply exactly as they do on the
- * database path.
- */
-export function mapleIdPageSql(where: SearchWhere, mapleIds: readonly string[]): BoundStatement {
-  return statement(`${PAGE_COLUMNS},\n           assets.maple_id`, where, '', {
-    sql: `assets.maple_id IN (${placeholders(mapleIds.length)})`,
-    params: [...mapleIds],
-  });
-}
-
-/** Rows for stored ids under the live filters; the text match is stripped as in {@link mapleIdPageSql}. */
+/** Rows for stored ids under the live filters; the text match is stripped, as an engine's ids already matched it. */
 export function idPageSql(where: SearchWhere, ids: readonly string[]): BoundStatement {
   return statement(PAGE_COLUMNS, { ...where, match: { kind: 'none' } }, '', {
     sql: `assets.id IN (${placeholders(ids.length)})`,
     params: [...ids],
   });
+}
+
+/**
+ * The columns of a ranked window's ids that still pass `where` but its text — the page's by
+ * default. The ids lead through `CROSS JOIN`, so `assets` is probed by key once per id: given the
+ * filters as a bare `WHERE`, the planner walks the live index instead.
+ */
+export function windowColumnsSql(
+  where: SearchWhere,
+  ids: readonly string[],
+  projection: string = PAGE_COLUMNS,
+): BoundStatement {
+  const filtered = statement(
+    projection,
+    { ...where, match: { kind: 'none' } },
+    '',
+    undefined,
+    [],
+    'FROM json_each(?) AS page\n      CROSS JOIN assets ON assets.id = page.value',
+  );
+  return { sql: filtered.sql, params: [JSON.stringify(ids), ...filtered.params] };
 }
 
 /**
@@ -378,20 +383,27 @@ export function phassetLinksByAssetIdsSql(count: number): string {
  * rather than the `/api/search` query string.
  *
  * It answers with `maple_id` rather than an asset id, because that is the
- * identifier the Meilisearch index it stands in for is keyed on. Assets with no
- * `maple_id` are dropped here rather than in the caller — the Mongo version
- * projects the field and filters out non-strings afterwards, which is the same
- * set.
+ * identifier the search engine's index is keyed on. Assets with no
+ * `maple_id` are dropped here rather than in the caller.
+ *
+ * The text is ranked on the inverted index alone and only its best `depth` hits
+ * are joined to `assets` and scoped (#4514): a broad query matches most of the
+ * library, and joining every match to sort it cost a row read per match.
  */
 export function serviceTextSearchSql(scope: string): string {
   return `
-  SELECT assets.maple_id AS maple_id, ${FTS_RANK_SQL}
-    FROM assets_fts
-    JOIN asset_search ON asset_search.rowid = +assets_fts.rowid
-    JOIN assets ON assets.id = asset_search.asset_id
-   WHERE assets_fts MATCH ?
-     AND ${QUALIFIED_LIVE_PREDICATE}
+  WITH hit AS MATERIALIZED (
+    SELECT assets_fts.rowid AS sr, ${FTS_RANK_SQL}
+      FROM assets_fts
+     WHERE assets_fts MATCH ?
+     ORDER BY ${FTS_RANK_ORDER}, assets_fts.rowid
+     LIMIT ?)
+  SELECT assets.maple_id AS maple_id
+    FROM hit
+    CROSS JOIN asset_search ON asset_search.rowid = hit.sr
+    CROSS JOIN assets ON assets.id = asset_search.asset_id
+   WHERE ${QUALIFIED_LIVE_PREDICATE}
      AND assets.maple_id IS NOT NULL AND assets.maple_id <> ''${scope}
-   ORDER BY ${FTS_RANK_ORDER}
+   ORDER BY hit.rank ASC, hit.sr ASC
    LIMIT ?`;
 }

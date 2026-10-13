@@ -277,7 +277,7 @@ bun run typecheck       # TypeScript strict check
 bun run lint            # oxlint (correctness + fs-import guardrail)
 ```
 
-Nothing needs to be running first. `src/db/sqlite/test-sqlite.test-helpers.ts` gives each test its own schema-applied database file and disposes of it when the test ends, so the suite is self-contained on a clean checkout. CI (`.github/workflows/api.yml`) adds a Meilisearch service for the one integration test that exercises a real Meilisearch instance, and nothing else. See [`docs/testing.md`](../../docs/testing.md).
+Nothing needs to be running first. `src/db/sqlite/test-sqlite.test-helpers.ts` gives each test its own schema-applied database file and disposes of it when the test ends, so the suite is self-contained on a clean checkout. CI (`.github/workflows/api.yml`) runs it the same way, with no service containers. See [`docs/testing.md`](../../docs/testing.md).
 
 ## Managed local HTTPS and IP fallback
 

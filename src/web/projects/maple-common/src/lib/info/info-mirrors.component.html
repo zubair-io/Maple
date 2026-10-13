@@ -1,0 +1,24 @@
+@if (rows().length > 0) {
+  <mui-collapsible label="Backups" storageKey="info-mirrors">
+    <ul class="m-0 list-none space-y-2 p-0 px-4 py-[5px]">
+      @for (row of rows(); track row.key) {
+        <li class="mirror-row flex flex-col gap-1" [attr.data-destination-id]="row.destinationId">
+          <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <mui-text variant="row-label">{{ row.name }}</mui-text>
+            <span class="flex flex-wrap items-center gap-2">
+              @for (status of row.statuses; track status.text) {
+                <mui-status-text [state]="status.state" [text]="status.text" />
+              }
+            </span>
+          </div>
+          <mui-text variant="body" color="muted" [block]="true">{{ row.path }}</mui-text>
+          @if (row.lastError; as lastError) {
+            <mui-text variant="body" color="muted" [block]="true" class="mirror-error">{{
+              lastError
+            }}</mui-text>
+          }
+        </li>
+      }
+    </ul>
+  </mui-collapsible>
+}

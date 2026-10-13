@@ -54,7 +54,7 @@ export interface SearchQuery {
    * only photographs, omitted shows everything. */
   isScreenshot?: string;
   /** Comma-separated person names for an explicit person picker. Passed to
-   * the Meilisearch `people` filterable attribute, and (#2864) filtered on
+   * the search text's people names, and (#2864) filtered on
    * the Mongo path via `faces.person_id` — the route resolves names to
    * person ids (`personIdsForNames`) and hands them to `buildFilter`.
    * OR within the field, AND against other filters (mirrors `subjects`).
@@ -99,6 +99,9 @@ export interface SearchQuery {
    * `captured_desc` / `captured_asc` sorts mint one; sending a cursor on
    * any other sort, or alongside a residual `placeQuery`, is a 400. */
   cursor?: string;
+  /** Opaque `rankPin` from the previous page of a free-text search (#4542): ranks this page with
+   * the same engine and window steps, or answers 409 `rank_engine_changed` when it cannot. */
+  rankPin?: string;
 }
 
 export const SearchQueryT = t.Object({
@@ -138,4 +141,5 @@ export const SearchQueryT = t.Object({
   limit: t.Optional(t.String()),
   sort: t.Optional(t.String()),
   cursor: t.Optional(t.String()),
+  rankPin: t.Optional(t.String()),
 });

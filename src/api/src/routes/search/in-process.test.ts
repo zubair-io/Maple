@@ -1,7 +1,7 @@
 /**
- * `GET /api/search` and its facets with the in-process engine selected (#4463): the child's fused
+ * `GET /api/search` and its facets with the in-process engine (#4463): the child's fused
  * candidates are filtered in SQL by every filter of the request, counted and paged from that one
- * list; with the engine down, or Meilisearch selected, the route answers exactly as before.
+ * list; with the engine down the route answers from the database's full-text path.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -15,13 +15,8 @@ import {
   insertFolder,
   type LiveTestDatabase,
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
-import {
-  resetSearchEngineSelectionForTests,
-  saveSearchEngine,
-} from '../../search/search-engine-selection.ts';
 import { setInProcessSearchForTests } from '../../search/search-pool.ts';
 import { fakeInProcessSearch } from '../../search/search.test-helpers.ts';
-import { setMeilisearchClientForTests } from '../../enrichment/meilisearch-client.ts';
 import { setSqliteHandleForTests } from '../../db/sqlite/index.ts';
 import { recordReadWaves } from '../../db/sqlite/read-waves.test-helpers.ts';
 
@@ -65,14 +60,10 @@ beforeEach(async () => {
     seedSearchAsset(live.db, libraryId, { ...seed, mapleId, filename: `${mapleId}.dng` });
   }
   _resetCacheForTests();
-  resetSearchEngineSelectionForTests();
-  await saveSearchEngine('in-process');
 });
 
 afterEach(() => {
   setInProcessSearchForTests(null);
-  setMeilisearchClientForTests(null);
-  resetSearchEngineSelectionForTests();
   _resetCacheForTests();
   live.close();
 });
@@ -94,11 +85,11 @@ function filenames(body: { results: Array<{ filename: string }> }): string[] {
 }
 
 describe('GET /api/search with the in-process engine', () => {
-  it('keeps the fused order, asks for 100 candidates and drops trashed, hidden and gone ids', async () => {
+  it('keeps the fused order, asks for the candidate window and drops trashed, hidden and gone ids', async () => {
     const engine = fakeInProcessSearch(RANKED);
     setInProcessSearchForTests(engine);
 
-    const body = await list('placeQuery=greyson');
+    const body = await list('placeQuery=greyson&limit=30');
 
     expect(engine.queries).toEqual([{ query: 'greyson', k: 100 }]);
     expect(filenames(body)).toEqual(['meadow.dng', 'dunes.dng', 'harbour.dng']);
@@ -106,13 +97,21 @@ describe('GET /api/search with the in-process engine', () => {
     expect(body.rankedBy).toEqual({ engine: 'in-process', semanticHits: 3 });
   });
 
-  it('applies filters Meilisearch could not push down, to the whole candidate list', async () => {
+  it('applies every filter of the request to the whole candidate list', async () => {
     setInProcessSearchForTests(fakeInProcessSearch(RANKED));
 
     const body = await list('placeQuery=greyson&rating=5&hidden=all');
 
     expect(filenames(body)).toEqual(['meadow.dng', 'hidden.dng', 'dunes.dng']);
     expect(body.total).toBe(3);
+  });
+
+  it('hidden=only keeps just the hidden candidates', async () => {
+    setInProcessSearchForTests(fakeInProcessSearch(RANKED));
+
+    const body = await list('placeQuery=greyson&hidden=only');
+
+    expect(filenames(body)).toEqual(['hidden.dng']);
   });
 
   it('pages through the filtered list with a stable total', async () => {
@@ -137,9 +136,20 @@ describe('GET /api/search with the in-process engine', () => {
     const phases = (res.headers.get('server-timing') ?? '')
       .split(', ')
       .map((entry) => entry.split(';')[0]);
-    expect(phases).toEqual(['scope', 'engine', 'rows', 'project', 'total']);
+    expect(phases).toEqual(['scope', 'engine', 'rows', 'total']);
     expect(((await res.json()) as { total: number }).total).toBe(3);
-    expect(recorded.waves.map((wave) => wave.length)).toEqual([2, 1, 3]);
+    // The third wave reads the window's survivors (#4545) beside the page and its side tables.
+    expect(recorded.waves.map((wave) => wave.length)).toEqual([2, 1, 5]);
+  });
+
+  it('names the phases of the database path in Server-Timing (#4503)', async () => {
+    const res = await new Elysia().use(listRoute).handle(new Request('http://localhost/?rating=0'));
+
+    const phases = (res.headers.get('server-timing') ?? '')
+      .split(', ')
+      .map((entry) => entry.split(';')[0]!)
+      .sort();
+    expect(phases).toEqual(['count', 'project', 'rows', 'scope', 'total']);
   });
 
   it('falls back to the database full-text path while the child is down', async () => {
@@ -149,16 +159,6 @@ describe('GET /api/search with the in-process engine', () => {
 
     expect(filenames(body)).toEqual(['harbour.dng']);
     expect(body.total).toBe(1);
-  });
-
-  it('never asks the child when Meilisearch is selected', async () => {
-    const engine = fakeInProcessSearch(RANKED);
-    setInProcessSearchForTests(engine);
-    await saveSearchEngine('meilisearch');
-
-    await list('placeQuery=greyson');
-
-    expect(engine.queries).toEqual([]);
   });
 
   it('leaves a search without free text on the database path', async () => {
@@ -210,29 +210,14 @@ describe('GET /api/search/facets with the in-process engine', () => {
     expect(listBody.total).toBe(2);
   });
 
-  it('never caches the Meilisearch stand-in for the in-process ranking', async () => {
-    const meiliCalls: string[] = [];
-    setMeilisearchClientForTests({
-      isConfigured: () => true,
-      semanticConfigured: () => false,
-      health: async () => true,
-      ensureIndex: async () => {},
-      upsert: async () => {},
-      upsertOrThrow: async () => {},
-      tombstone: async () => {},
-      search: async (q) => {
-        meiliCalls.push(q);
-        return { ids: ['meadow'], estimatedTotal: 1 };
-      },
-    });
+  it('never caches the database stand-in for the in-process ranking', async () => {
     setInProcessSearchForTests(fakeInProcessSearch(null));
-
     const whileLoading = await facets('placeQuery=greyson');
     const engine = fakeInProcessSearch(RANKED);
     setInProcessSearchForTests(engine);
+
     const onceReady = await facets('placeQuery=greyson');
 
-    expect(meiliCalls).toEqual(['greyson']);
     expect(whileLoading.total).toBe(1);
     expect(engine.queries.length).toBe(1);
     expect(onceReady.total).toBe(3);

@@ -383,12 +383,12 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
     }
   }
 
-  // `invalidates: ['meili', 'embed']` — meili depends on exif+thumb only, so for most
+  // `invalidates: ['search-blob', 'embed']` — search-blob depends on exif+thumb only, so for most
   // assets the search index was built long before this caption existed. The
-  // runner resets `stages.meili` in the same atomic write as the patch, so
+  // runner resets `stages.search-blob` in the same atomic write as the patch, so
   // every describe success (first run or post-retry-dead recovery, #2172)
-  // gets its caption/OCR reindexed into Meilisearch + the search blob.
-  return { patch, invalidates: ['meili', 'embed'] };
+  // gets its caption/OCR reindexed into the search blob and the embedder text.
+  return { patch, invalidates: ['search-blob', 'embed'] };
 }
 
 const describeStage = defineStage({

@@ -14,9 +14,8 @@ export interface WorkerConfig {
   maxAttempts: number;
   paused: boolean;
   last_seen_target_version: number;
-  /** Why the stage paused ITSELF — e.g. `meili` when Meilisearch's address
-   * policy rejects the embedding server (#3315). Absent/null for an operator
-   * pause; the server clears it on every resume. Read-only from the UI. */
+  /** Why the stage paused ITSELF. Absent/null for an operator pause; the
+   * server clears it on every resume. Read-only from the UI. */
   pause_reason?: string | null;
   /** Operator-assigned semver version string, e.g. "v0.2.1". */
   version?: string | null;
@@ -215,11 +214,6 @@ export interface MigrationInfo {
   remaining: number | null;
   /** ISO timestamp of that count, null until counted. */
   remaining_at: string | null;
-  /** Last counted size of this migration's own dead-letter queue (distinct
-   * from the cumulative `errors` counter, which never decreases). Only present
-   * for migrations that track one — e.g. the Meilisearch backfill's redrivable
-   * `meilisearch_backfill_failures` collection; null until counted. */
-  failedPermanently?: number | null;
   last_error: string | null;
   started_at: string | null;
   finished_at: string | null;

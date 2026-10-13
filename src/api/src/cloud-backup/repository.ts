@@ -12,6 +12,20 @@ export interface BackupDestination {
   rootId: string | null;
   accountId: string | null;
 }
+export interface BackupMirrorState {
+  destinationId: string;
+  destinationName: string;
+  provider: BackupDestination['kind'];
+  enabled: boolean;
+  path: string;
+  state: BackupEntry['state'];
+  status: 'synced' | 'pending' | 'error' | 'paused' | 'trash' | 'purged';
+  sequence: number;
+  verifiedSequence: number;
+  attempts: number;
+  retryAt: number;
+  lastError: string | null;
+}
 export interface BackupEntry {
   id: string;
   destination_id: string;
@@ -31,6 +45,21 @@ export interface BackupEntry {
 }
 const DESTINATION_COLUMNS = `id,library_id AS libraryId,kind,name,enabled,generation,
   path,root_id AS rootId,account_id AS accountId`;
+function mirrorStatus(row: {
+  state: BackupEntry['state'];
+  lastError: string | null;
+  enabled: number;
+  verifiedSequence: number;
+  sequence: number;
+}): BackupMirrorState['status'] {
+  // Lifecycle state outranks connection health; a recorded failure remains
+  // visible while paused so operators can distinguish retryable work.
+  if (row.state === 'purged') return 'purged';
+  if (row.state === 'trash') return 'trash';
+  if (row.lastError) return 'error';
+  if (!row.enabled) return 'paused';
+  return row.verifiedSequence === row.sequence ? 'synced' : 'pending';
+}
 export class BackupRepository {
   constructor(private readonly override?: SqliteDb) {}
   get db(): SqliteDb {
@@ -100,6 +129,52 @@ export class BackupRepository {
       `SELECT * FROM backup_entries WHERE destination_id=?${assetId ? ' AND asset_id=?' : ''}`,
       assetId ? [destinationId, assetId] : [destinationId],
     );
+  }
+  async mirrorsForAssets(assetIds: readonly string[]): Promise<Map<string, BackupMirrorState[]>> {
+    const result = new Map<string, BackupMirrorState[]>();
+    if (assetIds.length === 0) return result;
+    const placeholders = assetIds.map(() => '?').join(',');
+    const rows = await this.db.read<{
+      assetId: string;
+      destinationId: string;
+      destinationName: string;
+      provider: BackupDestination['kind'];
+      enabled: number;
+      path: string;
+      state: BackupEntry['state'];
+      sequence: number;
+      verifiedSequence: number;
+      attempts: number;
+      retryAt: number;
+      lastError: string | null;
+    }>(
+      `SELECT e.asset_id AS assetId,d.id AS destinationId,d.name AS destinationName,
+        d.kind AS provider,d.enabled,e.source_path AS path,e.state,e.sequence,
+        e.verified_sequence AS verifiedSequence,e.attempts,e.retry_at AS retryAt,e.last_error AS lastError
+      FROM backup_entries e JOIN backup_destinations d ON d.id=e.destination_id
+      WHERE e.asset_id IN (${placeholders}) ORDER BY d.name,e.ordinal`,
+      [...assetIds],
+    );
+    for (const row of rows) {
+      const mirror: BackupMirrorState = {
+        destinationId: row.destinationId,
+        destinationName: row.destinationName,
+        provider: row.provider,
+        enabled: Boolean(row.enabled),
+        path: row.path,
+        state: row.state,
+        status: mirrorStatus(row),
+        sequence: row.sequence,
+        verifiedSequence: row.verifiedSequence,
+        attempts: row.attempts,
+        retryAt: row.retryAt,
+        lastError: row.lastError,
+      };
+      const mirrors = result.get(row.assetId) ?? [];
+      mirrors.push(mirror);
+      result.set(row.assetId, mirrors);
+    }
+    return result;
   }
   async ensureEntry(
     destinationId: string,

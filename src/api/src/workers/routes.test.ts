@@ -123,7 +123,7 @@ describe('GET /api/workers/status', () => {
 
   it('surfaces every stage the worker wrote, plus the statically known workers', async () => {
     using _live = await createLiveTestDatabase();
-    const names = ['exif', 'thumb', 'preview', 'face-detect', 'describe', 'geocode', 'meili'];
+    const names = ['exif', 'thumb', 'preview', 'face-detect', 'describe', 'geocode', 'search-blob'];
     await writeWorkerStatus(snapshotOf(names), Date.now());
 
     const body = await status();
@@ -361,16 +361,16 @@ describe('pause and resume', () => {
   it('clears a self-imposed pause reason on resume', async () => {
     using _live = await createLiveTestDatabase();
     const repo = new WorkerConfigRepo();
-    await repo.patch('meili', {
+    await repo.patch('search-blob', {
       paused: true,
       pause_reason: 'embedder address rejected',
     });
 
-    await post('meili/resume');
+    await post('search-blob/resume');
 
     // The reason describes the pause it arrived with, so a resume drops it —
     // cleared to NULL in the row, which reads back as an absent key.
-    const cfg = await repo.load('meili');
+    const cfg = await repo.load('search-blob');
     expect(cfg?.paused).toBe(false);
     expect(cfg?.pause_reason ?? null).toBeNull();
   });

@@ -82,15 +82,12 @@ const HIDE_PREDICATE = `a.deleted_at IS NULL AND a.hidden = 0
 const UNHIDE_PREDICATE = `a.deleted_at IS NULL AND a.hidden_reason = 'folder'
   AND ${LIVE_IN_DIR} AND ${OVERRIDE_NOT_HIDDEN}`;
 
-/** The stage the hidden flag invalidates: it is a Meilisearch filter value. */
-const HIDE_REARM = ['meili'] as const;
-
 /**
  * Un-hiding also re-arms the R2 mirror. Its `{ skip: 'hidden' }` marked itself
  * done, so without the reset an un-hidden asset would never re-mirror — the
  * same rationale as the un-hide path in `sidecar-metadata-index`.
  */
-const UNHIDE_REARM = ['meili', 'cf-thumb-sync'] as const;
+const UNHIDE_REARM = ['cf-thumb-sync'] as const;
 
 async function loadCandidates(
   db: SqliteDb,
@@ -182,7 +179,7 @@ async function applyVisibility(
 }
 
 /**
- * Hide the named assets, and re-arm the search index for them.
+ * Hide the named assets.
  *
  * Folder hides are operator-initiated — the operator created the file — so
  * `hidden_ack` is deliberately not set and the assets stay out of the AI-review
@@ -201,11 +198,11 @@ export function hideAssetsInFolder(
     HIDE_PREDICATE,
     libraryId,
     path,
-    HIDE_REARM,
+    [],
   );
 }
 
-/** Un-hide the named assets, and re-arm search plus the R2 mirror. */
+/** Un-hide the named assets, and re-arm the R2 mirror. */
 export function unhideAssetsInFolder(
   ids: readonly ObjectId[],
   libraryId: ObjectId,

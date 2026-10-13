@@ -23,6 +23,10 @@ public final class SearchViewModel {
   public private(set) var results: [SearchAsset] = []
   public private(set) var facets: SearchFacets?
   public private(set) var total: Int = 0
+  /// `total` is a free-text window with hits left past it; a deeper page widens it (#4514).
+  public private(set) var moreBeyondTotal: Bool = false
+  /// The window stopped at the server's 5,000-hit cap with matches left (#4514).
+  public private(set) var cappedAtTotal: Bool = false
   public private(set) var isLoading: Bool = false
   public private(set) var isLoadingMore: Bool = false
   public private(set) var loadError: Error?
@@ -47,6 +51,8 @@ public final class SearchViewModel {
       results = []
       facets = nil
       total = 0
+      moreBeyondTotal = false
+      cappedAtTotal = false
       page = 0
       nextCursor = nil
       appliedDates = nil
@@ -77,9 +83,8 @@ public final class SearchViewModel {
   /// redundant round-trip when nothing actually changed (e.g. the filter
   /// popover closes without an edit).
   private var lastSubmittedParams: SearchParams?
-  /// Set while the results are a generated-search collection (#4410): further
-  /// pages come from the collection's own endpoint, whose order (newest
-  /// first) differs from a relevance-ranked search. Any submit clears it.
+  /// Set while the results are a generated-search collection (#4410); any
+  /// submit clears it.
   private var collectionPager: CollectionPager?
   /// True from showing a collection's snapshot until its live first page
   /// lands. Pagination waits: offsets only mean something against the live
@@ -88,17 +93,31 @@ public final class SearchViewModel {
   private var liveFirstPageGeneration: Int?
   private var pendingLiveFirstPage: (() async -> GeneratedSearchAssetPage?)?
 
-  /// In-memory result cache so re-issuing an identical query (clear-then-
-  /// reapply, popover round-trips, toggling a sort back) serves from memory
-  /// instead of re-hitting the network — mirrors the web search cache.
-  /// Pages key on the full param set + page index; facets on the param set
-  /// alone. Lives for the VM's lifetime (session-scoped, like the web cache).
+  /// In-memory result cache so re-issuing an identical query serves from
+  /// memory (session-scoped, like the web cache). Pages key on the params,
+  /// page index and the rank pin they continue (#4542); facets on `FacetKey`.
   private var pageCache: [PageKey: SearchResponse] = [:]
-  private var facetCache: [SearchParams: SearchFacets] = [:]
+  /// The ranking the pages held came from (#4542); sent with each further page.
+  private var rankPin: String?
+  private var facetCache: [FacetKey: SearchFacets] = [:]
 
   private struct PageKey: Hashable {
     let params: SearchParams
     let page: Int
+    let rankPin: String?
+  }
+
+  /// Facets are cached per query and window step (#4514): every page within a
+  /// step of the server's window ladder, the first included, shares one key.
+  private struct FacetKey: Hashable {
+    let params: SearchParams
+    let step: Int
+  }
+
+  private func facetKey(_ params: SearchParams, page listPage: Int) -> FacetKey {
+    let hasText = !params.placeQuery.trimmingCharacters(in: .whitespaces).isEmpty
+    let step = hasText ? Self.windowStep(reaching: (listPage + 1) * limit) : 0
+    return FacetKey(params: params, step: step)
   }
 
   public init(
@@ -118,7 +137,10 @@ public final class SearchViewModel {
   }
 
   /// True while more pages remain for the current result set.
-  public var canLoadMore: Bool { results.count < total }
+  public var canLoadMore: Bool { results.count < total || moreBeyondTotal }
+
+  /// True when `total` is a lower bound on the matches, so a count reads "N+".
+  public var totalIsLowerBound: Bool { moreBeyondTotal || cappedAtTotal }
 
   /// True when any structured filter is set (drives the "filters" dot).
   public var hasActiveFilters: Bool { params.hasActiveFilters }
@@ -181,23 +203,29 @@ public final class SearchViewModel {
     page = 0
     isLoadingMore = false
     nextCursor = nil
+    rankPin = nil
     lastSubmittedParams = params
     let requested = params
-    let pageKey = PageKey(params: requested, page: 0)
+    let pageKey = PageKey(params: requested, page: 0, rankPin: nil)
 
     // Serve an identical query (results + facets) from the in-memory cache —
     // no spinner, no network round-trip. Only short-circuit when BOTH are
     // cached so a prior facet failure still triggers a refetch.
-    if let cachedPage = pageCache[pageKey], let cachedFacets = facetCache[requested] {
+    if let cachedPage = pageCache[pageKey],
+      let cachedFacets = facetCache[facetKey(requested, page: 0)]
+    {
       loadError = nil
       results = cachedPage.results
       nextCursor = cachedPage.nextCursor
+      rankPin = cachedPage.rankPin
       // Must be refreshed here too, not only on the network path: leaving the
       // previous query's value behind makes the chip claim a date filter this
       // query does not carry — the false filter state the chip exists to
       // prevent (#2960).
       appliedDates = cachedPage.dateFilter
       total = cachedPage.seekExhausted ? cachedPage.results.count : cachedPage.total
+      moreBeyondTotal = cachedPage.more ?? false
+      cappedAtTotal = cachedPage.capped ?? false
       facets = cachedFacets
       return
     }
@@ -210,7 +238,7 @@ public final class SearchViewModel {
     // failure must not blank the results, so it's awaited best-effort. The
     // child task is awaited in both branches so it isn't implicitly
     // cancelled mid-flight when `search` throws.
-    async let facetResp = searchClient.facets(requested)
+    async let facetResp = searchClient.facets(requested, page: 0, limit: limit)
     do {
       let resp = try await searchClient.search(requested, page: 0, limit: limit)
       guard g == generation else {
@@ -220,19 +248,22 @@ public final class SearchViewModel {
       pageCache[pageKey] = resp
       results = resp.results
       nextCursor = resp.nextCursor
+      rankPin = resp.rankPin
       appliedDates = resp.dateFilter
       // An exhausted seek chain means the rows we hold ARE the result set —
       // see `SearchResponse.seekExhausted`. Believing a stale cached `total`
       // instead would keep `canLoadMore` true and drop `loadMore()` back to
       // deep page-based SKIP pagination.
       total = resp.seekExhausted ? resp.results.count : resp.total
+      moreBeyondTotal = resp.more ?? false
+      cappedAtTotal = resp.capped ?? false
       // Results publish before facets: the facet aggregation is the slower
       // request and only feeds the filter panel, so it must not hold the grid.
       isLoading = false
       let facetsResult = try? await facetResp
       guard g == generation else { return }
       if let facetsResult {
-        facetCache[requested] = facetsResult
+        facetCache[facetKey(requested, page: 0)] = facetsResult
         facets = facetsResult
       }
     } catch {
@@ -245,6 +276,8 @@ public final class SearchViewModel {
       loadError = error
       results = []
       total = 0
+      moreBeyondTotal = false
+      cappedAtTotal = false
       // Keep the last good facets (mirrors the web client): an aggregation
       // hiccup shouldn't blank the People / Places pickers, and nothing is
       // scheduled to refill them — `loadFacetsIfNeeded()` treats non-nil
@@ -270,6 +303,8 @@ public final class SearchViewModel {
     collectionPager = nextPage
     results = firstPage.results
     total = firstPage.total
+    moreBeyondTotal = firstPage.more
+    cappedAtTotal = firstPage.capped
     page = 0
     nextCursor = nil
     appliedDates = nil
@@ -300,6 +335,11 @@ public final class SearchViewModel {
     guard g == generation, let live else { return }
     results = live.results
     total = live.total
+    moreBeyondTotal = live.more
+    cappedAtTotal = live.capped
+    // Still the stored preview: the server's engine is loading (#4514). Keep
+    // the live page pending so the next `loadMore()` asks again.
+    guard !live.isPending else { return }
     pendingLiveFirstPage = nil
     isRefreshingCollection = false
   }
@@ -317,7 +357,8 @@ public final class SearchViewModel {
   public func loadFacetsIfNeeded() async {
     guard facets == nil, !isLoadingFacets else { return }
     let requested = params
-    if let cached = facetCache[requested] {
+    let key = facetKey(requested, page: page)
+    if let cached = facetCache[key] {
       facets = cached
       return
     }
@@ -326,7 +367,8 @@ public final class SearchViewModel {
     defer { isLoadingFacets = false }
     // Best-effort: a facet failure is not a search failure, so it must not
     // raise the error banner over the (perfectly fine) Recents list.
-    guard let loaded = try? await searchClient.facets(requested) else { return }
+    guard let loaded = try? await searchClient.facets(requested, page: page, limit: limit)
+    else { return }
     guard g == generation else {
       // A reset superseded this load; the panel may already be open on the
       // new params, so fetch those now rather than leaving it empty.
@@ -334,8 +376,31 @@ public final class SearchViewModel {
       await loadFacetsIfNeeded()
       return
     }
-    facetCache[requested] = loaded
+    facetCache[key] = loaded
     facets = loaded
+  }
+
+  /// A deeper page widened a free-text search's ranked window (#4514):
+  /// refetch the facets for that window, keeping the current ones on screen
+  /// until the new ones land.
+  private func refreshFacetsForWindow(page windowPage: Int, generation g: Int) async {
+    let requested = params
+    let key = facetKey(requested, page: windowPage)
+    if let cached = facetCache[key] {
+      facets = cached
+      return
+    }
+    guard let loaded = try? await searchClient.facets(requested, page: windowPage, limit: limit),
+      g == generation
+    else { return }
+    facetCache[key] = loaded
+    facets = loaded
+  }
+
+  /// Whether a page that just landed widened the window a free-text total counts.
+  private func widensWindow(_ response: SearchResponse, over previousTotal: Int) -> Bool {
+    !params.placeQuery.trimmingCharacters(in: .whitespaces).isEmpty
+      && !response.results.isEmpty && response.total != previousTotal
   }
 
   /// Re-run the search only if `params` changed since the last submit.
@@ -369,6 +434,8 @@ public final class SearchViewModel {
         page += 1
         results.append(contentsOf: more.results)
         total = more.results.isEmpty ? results.count : more.total
+        moreBeyondTotal = !more.results.isEmpty && more.more
+        cappedAtTotal = more.capped
       } catch {
         if Self.isCancellation(error) { return }
         guard g == generation else { return }
@@ -379,43 +446,55 @@ public final class SearchViewModel {
 
     let next = page + 1
     let requested = params
-    let pageKey = PageKey(params: requested, page: next)
+    let pageKey = PageKey(params: requested, page: next, rankPin: rankPin)
     // Seek past the last row we hold when the server minted a cursor; the
     // page index still advances so it can key the cache and cover the
     // skip-pagination fallback (see `nextCursor`).
     let seek = nextCursor
 
+    let previousTotal = total
     if let cached = pageCache[pageKey] {
       guard g == generation else { return }
       page = next
       results.append(contentsOf: cached.results)
       nextCursor = cached.nextCursor
+      rankPin = cached.rankPin
       total = cached.seekExhausted ? results.count : cached.total
+      moreBeyondTotal = !cached.results.isEmpty && (cached.more ?? false)
+      cappedAtTotal = cached.capped ?? false
+      if widensWindow(cached, over: previousTotal) {
+        Task { [weak self] in await self?.refreshFacetsForWindow(page: next, generation: g) }
+      }
       return
     }
 
     do {
-      let resp = try await searchClient.search(requested, page: next, limit: limit, cursor: seek)
+      let resp = try await searchClient.search(
+        requested, page: next, limit: limit, cursor: seek, rankPin: rankPin)
       guard g == generation else { return }
       pageCache[pageKey] = resp
       page = next
       results.append(contentsOf: resp.results)
       nextCursor = resp.nextCursor
+      rankPin = resp.rankPin
       total = resp.seekExhausted ? results.count : resp.total
+      moreBeyondTotal = !resp.results.isEmpty && (resp.more ?? false)
+      cappedAtTotal = resp.capped ?? false
+      if widensWindow(resp, over: previousTotal) {
+        Task { [weak self] in await self?.refreshFacetsForWindow(page: next, generation: g) }
+      }
     } catch {
       if Self.isCancellation(error) { return }
       guard g == generation else { return }
+      // The engine that ranked the pages held is gone: another engine's next
+      // page would repeat and skip rows, so start the search over (#4542).
+      if error as? SearchPagingError == .rankEngineChanged {
+        pageCache = pageCache.filter { $0.key.params != requested }
+        await submit()
+        return
+      }
       loadError = error
     }
-  }
-
-  /// True when `error` is a request/task cancellation (debounce superseded
-  /// this search) rather than a genuine network/decode failure.
-  private static func isCancellation(_ error: Error) -> Bool {
-    if error is CancellationError { return true }
-    if let urlError = error as? URLError, urlError.code == .cancelled { return true }
-    let ns = error as NSError
-    return ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
   }
 
   /// Reset every structured filter (keeping the free-text query + sort)
@@ -445,6 +524,8 @@ public final class SearchViewModel {
     lastSubmittedParams = fresh
     results = []
     total = 0
+    moreBeyondTotal = false
+    cappedAtTotal = false
     page = 0
     nextCursor = nil
     appliedDates = nil
@@ -456,41 +537,11 @@ public final class SearchViewModel {
     facets = nil
   }
 
-  // MARK: - Preview
-
-  public enum PreviewState: Sendable {
-    case empty
-    case loading
-    case loaded
-  }
-
-  /// Sample VM for SwiftUI `#Preview` blocks. Points at an unreachable
-  /// server so any live request fails fast, then stages the requested
-  /// case directly.
-  public static func preview(_ state: PreviewState = .loaded) -> SearchViewModel {
-    let server = URL(string: "https://preview.maple.invalid")!
-    let vm = SearchViewModel(
-      server: server,
-      libraryID: "preview-library",
-      searchClient: CloudSearchClient.preview(server: server))
-    switch state {
-    case .empty:
-      break
-    case .loading:
-      vm.isLoading = true
-    case .loaded:
-      vm.total = 2
-      vm.results = [
-        SearchAsset(
-          id: "fs:/photos/IMG_0001.dng", folder_id: "lib",
-          abs_path: "/photos/IMG_0001.dng", filename: "IMG_0001.dng",
-          rating: 4),
-        SearchAsset(
-          id: "fs:/photos/IMG_0002.dng", folder_id: "lib",
-          abs_path: "/photos/IMG_0002.dng", filename: "IMG_0002.dng"),
-      ]
-    }
-    return vm
+  /// Stages a preview's state; see `SearchViewModel+Preview.swift`.
+  func _stagePreview(loading: Bool, results assets: [SearchAsset]) {
+    isLoading = loading
+    results = assets
+    total = assets.count
   }
 
   // MARK: - Test-only internal setters

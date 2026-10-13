@@ -5,7 +5,8 @@
  * Endpoints:
  *   GET /api/generated-searches                — the day's collections
  *   GET /api/generated-searches/:id/assets     — the collection's photos: the stored
- *                                                first page, else a live search
+ *                                                first page, else a live page of its
+ *                                                ranked window (`generated-searches.page.ts`)
  *
  * Both consumers (the Apple widget, the Maple TV shelf) call the second, so
  * query semantics live in exactly one place and cannot drift between
@@ -25,14 +26,11 @@ import {
 } from '../db/repos/generated-searches.repo.ts';
 import type { GeneratedSearchDoc } from '../workers/generated-search/repo.ts';
 import { buildSearchWhere } from '../db/repos/search.where.ts';
-import { searchCount, searchPage } from '../db/repos/search.page.ts';
 import { toSearchQuery } from '../workers/generated-search/execute.ts';
-import { loadLibraryRoots, loadLibraryIdToSlug } from '../indexer/libraries.cache.ts';
 import { clampInt, extractDatesFromQuery, peopleNames } from './search/query.ts';
 import { personIdsToDrop } from '../db/repos/people.visibility.ts';
 import { personIdsForNames } from '../db/repos/people.search-filter.ts';
-import { meiliPage } from './search/list-meili.ts';
-import { projectAssets } from './search/project.ts';
+import { collectionPage } from './generated-searches.page.ts';
 import { canServeStoredPage, storedPage } from './generated-searches.stored-page.ts';
 
 /** Wire shape for a collection card. The stored `query` rides along so a
@@ -92,8 +90,8 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
       // Paged rather than capped. A collection can hold more photos than any
       // one response should carry, and a client that could only ever see the
       // first page silently disagreed with the `result_count` on its own card.
-      // `total` is already returned by both legs below, so a caller pages
-      // until it has that many rows.
+      // Every page carries `total` (and `more` on a ranked collection), so a
+      // caller pages until it has that many rows.
       const offset = clampInt(query.offset, 0, 100_000, 0);
 
       // The stored first page is a preview, never page 1 of a paginated
@@ -104,31 +102,7 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
         return storedPage(doc, where);
       }
 
-      const meili = await meiliPage({
-        where,
-        resolved,
-        libraryId: doc.library_id,
-        skip: offset,
-        limit,
-      });
-      if (meili !== null) {
-        return { total: meili.total, results: meili.results };
-      }
-
-      // The database leg. The page and the total are composed from the same
-      // `SearchWhere`, which is what stops a card claiming more photos than its
-      // own grid can show.
-      const [docs, total, libs, idToSlug] = await Promise.all([
-        searchPage(where, { sort: 'captured_desc', limit, skip: offset }),
-        searchCount(where),
-        loadLibraryRoots().catch(() => new Map<string, string>()),
-        loadLibraryIdToSlug().catch(() => new Map<string, string>()),
-      ]);
-
-      return {
-        total,
-        results: projectAssets(docs, libs, idToSlug),
-      };
+      return collectionPage({ doc, where, resolved, offset, limit });
     },
     {
       query: t.Object({

@@ -47,7 +47,7 @@ final class WorkerStatusDecodingTests: XCTestCase {
   func test_decode_nullConfigAndLastError() throws {
     // Uncounted frames zero the counts and null the config.
     let json = """
-      {"name":"meili","status":"paused","inFlight":0,"configured":1,"pending":0,
+      {"name":"search-blob","status":"paused","inFlight":0,"configured":1,"pending":0,
        "ready":0,"blocked":0,"dead":0,"throughput":0,"lastError":"boom",
        "config":null,"batchSize":1}
       """
@@ -103,11 +103,11 @@ final class StageCatalogTests: XCTestCase {
   }
 
   func test_grouped_ordersIngestEnrichIndexAndKeepsEmptyGroups() {
-    let grouped = StageCatalog.grouped([stage("thumb"), stage("meili")])
+    let grouped = StageCatalog.grouped([stage("thumb"), stage("search-blob")])
     XCTAssertEqual(grouped.map(\.group), [.ingest, .enrich, .index])
     XCTAssertEqual(grouped[0].rows.map(\.name), ["thumb"])
     XCTAssertTrue(grouped[1].rows.isEmpty)
-    XCTAssertEqual(grouped[2].rows.map(\.name), ["meili"])
+    XCTAssertEqual(grouped[2].rows.map(\.name), ["search-blob"])
   }
 
   func test_grouped_unknownStageLandsInIngest() {

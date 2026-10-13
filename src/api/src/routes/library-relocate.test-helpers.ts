@@ -106,7 +106,7 @@ export interface SeededAsset {
  * and the stage bookkeeping — with the library-roots cache wired to resolve it
  * by id and by slug.
  *
- * `thumb`, `preview` and `meili` are seeded at version 1 rather than left
+ * `thumb`, `preview` and `embed` are seeded at version 1 rather than left
  * absent, because a relocate re-arms all three and a test that cannot see them
  * move would not notice if it stopped.
  */
@@ -140,7 +140,7 @@ export function seedRelocatableAsset(db: Database, options: SeedAssetOptions): S
   insertStageState(db, assetId, SIDECAR_METADATA_INDEX_STAGE_NAME, {
     version: options.sidecarStageVersion ?? SIDECAR_METADATA_INDEX_VERSION,
   });
-  for (const stage of ['thumb', 'preview', 'meili']) {
+  for (const stage of ['thumb', 'preview', 'embed']) {
     insertStageState(db, assetId, stage, { version: 1 });
   }
 

@@ -80,7 +80,7 @@ export async function findLiveOccupantAssetId(
  * it: keeping a reason for a tag that is no longer set is how a stale
  * explanation outlives the condition it described.
  *
- * The three re-arms are the same ones trash uses, for the same reason. `meili`
+ * The three re-arms are the same ones trash uses, for the same reason. `embed`
  * rebuilds the search document; `thumb` and `preview` are keyed on the file's
  * path, so without the reset the row keeps claiming a thumbnail at a path the
  * file no longer occupies (`docs/caching.md`). The expensive per-image stages

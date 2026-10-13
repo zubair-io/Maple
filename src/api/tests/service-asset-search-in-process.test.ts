@@ -1,17 +1,13 @@
 /**
- * `POST /api/search/assets` with the in-process engine selected (#4463): a hybrid request takes
- * the child's fused candidates through the request's own scope; a lexical one, or any request
- * while the child is down, answers exactly as before.
+ * `POST /api/search/assets` with the in-process engine (#4463): a hybrid request takes the child's
+ * fused candidates through the request's own scope; a lexical one, or any request while the child
+ * is down, answers from the database's full-text path.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { createServiceApiKey } from '../src/auth/service-api-keys.ts';
 import { insertUser } from '../src/db/repos/auth.users.repo.ts';
-import {
-  setMeilisearchClientForTests,
-  type MeilisearchClient,
-} from '../src/enrichment/meilisearch-client.ts';
 import {
   _resetServiceSearchRateLimitsForTests,
   serviceAssetSearchRoutes,
@@ -22,26 +18,11 @@ import {
   insertFolder,
   type LiveTestDatabase,
 } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
-import {
-  resetSearchEngineSelectionForTests,
-  saveSearchEngine,
-} from '../src/search/search-engine-selection.ts';
 import { setInProcessSearchForTests } from '../src/search/search-pool.ts';
 import { fakeInProcessSearch } from '../src/search/search.test-helpers.ts';
 
 let live: LiveTestDatabase;
 let serviceKey = '';
-
-const UNCONFIGURED_MEILI: MeilisearchClient = {
-  isConfigured: () => false,
-  semanticConfigured: () => false,
-  health: async () => false,
-  ensureIndex: async () => {},
-  upsert: async () => {},
-  upsertOrThrow: async () => {},
-  tombstone: async () => {},
-  search: async () => ({ ids: [], estimatedTotal: 0 }),
-};
 
 function request(body: Record<string, unknown>): Promise<Response> {
   return new Elysia().use(serviceAssetSearchRoutes).handle(
@@ -83,15 +64,10 @@ beforeEach(async () => {
     searchBlob: 'furnace',
   });
   _resetServiceSearchRateLimitsForTests();
-  setMeilisearchClientForTests(UNCONFIGURED_MEILI);
-  resetSearchEngineSelectionForTests();
-  await saveSearchEngine('in-process');
 });
 
 afterEach(() => {
   setInProcessSearchForTests(null);
-  setMeilisearchClientForTests(null);
-  resetSearchEngineSelectionForTests();
   live.close();
 });
 
@@ -101,7 +77,12 @@ describe('POST /api/search/assets with the in-process engine', () => {
 
     const body = await (await request({ query: 'heating repair', limit: 1 })).json();
 
-    expect(body).toMatchObject({ modeRequested: 'hybrid', modeUsed: 'hybrid', total: 2 });
+    expect(body).toMatchObject({
+      modeRequested: 'hybrid',
+      modeUsed: 'hybrid',
+      total: 1,
+      more: true,
+    });
     expect(body.fallbackReason).toBeNull();
     expect(body.results).toEqual([{ assetId: 'still', score: 1 / 62 }]);
   });
@@ -118,7 +99,20 @@ describe('POST /api/search/assets with the in-process engine', () => {
     expect(july2.results.map((hit: { assetId: string }) => hit.assetId)).toEqual(['still']);
   });
 
-  it('leaves a lexical request and a down child on the existing fallback path', async () => {
+  it('returns a hidden asset only when includeHidden is set', async () => {
+    setInProcessSearchForTests(fakeInProcessSearch(['private', 'still']));
+
+    const hiddenOut = await (await request({ query: 'furnace' })).json();
+    const hiddenIn = await (await request({ query: 'furnace', includeHidden: true })).json();
+
+    expect(hiddenOut.results.map((hit: { assetId: string }) => hit.assetId)).toEqual(['still']);
+    expect(hiddenIn.results.map((hit: { assetId: string }) => hit.assetId)).toEqual([
+      'private',
+      'still',
+    ]);
+  });
+
+  it('answers a lexical request, and any request while the child is down, from the database', async () => {
     const engine = fakeInProcessSearch(['clip']);
     setInProcessSearchForTests(engine);
     const lexical = await (await request({ query: 'furnace', mode: 'lexical' })).json();
@@ -126,14 +120,103 @@ describe('POST /api/search/assets with the in-process engine', () => {
     const down = await (await request({ query: 'furnace' })).json();
 
     expect(engine.queries).toEqual([]);
-    expect(lexical).toMatchObject({
+    expect(lexical).toMatchObject({ modeUsed: 'lexical', fallbackReason: null });
+    expect(down).not.toHaveProperty('more');
+    expect(down).not.toHaveProperty('capped');
+    expect(down).toMatchObject({
       modeUsed: 'lexical',
-      fallbackReason: 'meilisearch_unavailable',
+      fallbackReason: 'search_engine_unavailable',
     });
-    expect(down).toMatchObject({ modeUsed: 'lexical', fallbackReason: 'meilisearch_unavailable' });
     expect(down.results.map((hit: { assetId: string }) => hit.assetId).sort()).toEqual([
       'clip',
       'still',
     ]);
+  });
+
+  describe('the ranked window', () => {
+    const fillers = (count: number, prefix = 'filler') =>
+      Array.from({ length: count }, (_, index) => `${prefix}-${index}`);
+    const ids = (body: { results: Array<{ assetId: string }> }) =>
+      body.results.map((hit) => hit.assetId);
+
+    it('finds scoped matches the child ranks between 150 and 2,000', async () => {
+      const ranking = [...fillers(150), 'clip', ...fillers(1849, 'late'), 'still'];
+      setInProcessSearchForTests(fakeInProcessSearch(ranking));
+
+      const body = await (
+        await request({ query: 'furnace', filters: { mediaTypes: ['video'] } })
+      ).json();
+      const dated = await (await request({ query: 'furnace', from: '2025-07-02' })).json();
+
+      expect(ids(body)).toEqual(['clip']);
+      expect(body).toMatchObject({ total: 1, more: false, capped: false });
+      expect(ids(dated)).toEqual(['still']);
+    });
+
+    async function seededBulk(count: number): Promise<string[]> {
+      const libraryId = insertFolder(live.db, { path: '/bulk', slug: 'bulk' });
+      const bulk = fillers(count, 'bulk');
+      bulk.forEach((mapleId) =>
+        seedSearchAsset(live.db, libraryId, { mapleId, filename: `${mapleId}.dng` }),
+      );
+      return bulk;
+    }
+
+    it('says there is no more when exactly the limit survives a full window', async () => {
+      const bulk = await seededBulk(20);
+      setInProcessSearchForTests(fakeInProcessSearch([...bulk, ...fillers(300)]));
+
+      const body = await (await request({ query: 'furnace', limit: 20 })).json();
+
+      expect(body.results).toHaveLength(20);
+      expect(body).toMatchObject({ total: 20, more: false });
+    });
+
+    it('says there is more when one survivor exceeds the limit', async () => {
+      const bulk = await seededBulk(21);
+      setInProcessSearchForTests(fakeInProcessSearch([...bulk, ...fillers(300)]));
+
+      const body = await (await request({ query: 'furnace', limit: 20 })).json();
+
+      expect(body.results).toHaveLength(20);
+      expect(body).toMatchObject({ total: 20, more: true, capped: false });
+    });
+
+    it('never reports a total larger than the results it delivers', async () => {
+      const bulk = await seededBulk(150);
+      setInProcessSearchForTests(fakeInProcessSearch(bulk));
+
+      const body = await (await request({ query: 'furnace', limit: 20 })).json();
+
+      expect(body.results).toHaveLength(20);
+      expect(body).toMatchObject({ total: 20, more: true });
+    });
+
+    it('ranks once when the first 100 hits already hold the limit', async () => {
+      const bulk = await seededBulk(30);
+      const engine = fakeInProcessSearch([...bulk, ...fillers(300)]);
+      setInProcessSearchForTests(engine);
+
+      const body = await (await request({ query: 'furnace', limit: 20 })).json();
+
+      expect(body.results).toHaveLength(20);
+      expect(engine.queries).toHaveLength(1);
+    });
+
+    it('says capped when the child still had hits past the deepest window', async () => {
+      setInProcessSearchForTests(fakeInProcessSearch(fillers(5_200)));
+
+      const body = await (
+        await request({ query: 'furnace', filters: { mediaTypes: ['video'] } })
+      ).json();
+
+      expect(body).toMatchObject({ results: [], total: 0, more: false, capped: true });
+    });
+
+    it('still refuses a query over 500 characters', async () => {
+      setInProcessSearchForTests(fakeInProcessSearch(['clip']));
+
+      expect((await request({ query: 'x'.repeat(501) })).status).toBe(400);
+    });
   });
 });

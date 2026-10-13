@@ -22,16 +22,40 @@ export interface PublishSource {
   open: (offset: number) => ReadableStream<Uint8Array>;
 }
 
+export interface BackupInspectOptions {
+  locator?: string;
+  expected?: BackupObject;
+  /**
+   * Renews the caller's lease while verification runs. During mirror drift,
+   * the callback describes the candidate before its bytes are hashed; use it
+   * only for lease renewal, not as a verified object identity.
+   */
+  heartbeat?: (candidate: BackupObject) => Promise<void>;
+}
+
 export interface BackupProvider {
   probe(signal?: AbortSignal): Promise<void>;
   list(prefix: string, signal?: AbortSignal): AsyncIterable<BackupObject>;
-  inspect(key: string, signal?: AbortSignal, locator?: string): Promise<BackupObject | null>;
+  /** Preferred options form; explicit fields avoid positional API shifts. */
+  inspect(
+    key: string,
+    signal?: AbortSignal,
+    options?: BackupInspectOptions,
+  ): Promise<BackupObject | null>;
+  /** Backward-compatible locator form, including the historical heartbeat argument. */
+  inspect(
+    key: string,
+    signal?: AbortSignal,
+    locator?: string,
+    heartbeat?: (candidate: BackupObject) => Promise<void>,
+  ): Promise<BackupObject | null>;
   publish(
     key: string,
     source: PublishSource,
     options: {
       signal?: AbortSignal;
       checkpoint?: UploadCheckpoint | null;
+      expected?: BackupObject | null;
       saveCheckpoint: (checkpoint: UploadCheckpoint) => Promise<void>;
     },
   ): Promise<BackupObject>;
@@ -43,6 +67,7 @@ export interface BackupProvider {
     options: {
       signal?: AbortSignal;
       checkpoint?: UploadCheckpoint | null;
+      expected?: BackupObject | null;
       saveCheckpoint: (checkpoint: UploadCheckpoint) => Promise<void>;
     },
   ): Promise<BackupObject>;

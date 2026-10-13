@@ -2,7 +2,7 @@
  * Assets repository — trash, purge and restore.
  *
  * The SQLite counterparts of `db/assets.trash.ts`. These are the multi-step
- * workflows the trash route used to inline; the filesystem, Meilisearch and
+ * workflows the trash route used to inline; the filesystem and
  * change-feed orchestration stays in the route, because this layer takes no
  * dependency on any of them.
  *
@@ -17,13 +17,11 @@
  *
  * ## The re-arms are the correctness mechanism, not a nicety
  *
- * Both workflows reset `meili` in the same transaction that stamps or clears
+ * Both workflows reset `embed` in the same transaction that stamps or clears
  * `deleted_at`. The rewritten trash entry is still *live* by the per-entry
- * definition — only the asset's own `deleted_at` is stamped — so the meili
- * stage's claim query would never re-pick the row on its own, and the route's
- * inline Meilisearch call is a best-effort fast path that a transient outage
- * defeats. Resetting the stage makes the row claimable, so the stage rebuilds
- * the full search document on its next tick.
+ * definition — only the asset's own `deleted_at` is stamped — so the embed
+ * stage's claim query would never re-pick the row on its own. Resetting the
+ * stage makes the row claimable, so it rebuilds the vector on its next tick.
  *
  * They also reset `thumb` and `preview`. Trash is a relocate — the bytes move
  * under `.maple/trash/` — and those two caches are keyed on the file's path,

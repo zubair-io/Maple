@@ -201,7 +201,7 @@ MaskRasterAlphaTests
 MaskRasterStoreTests
 MaskRemapRasterTests
 MaskRemapTests
-MeilisearchSettingsFormTests
+ServiceSearchSettingsFormTests
 MergedTimelineSourceTests
 MirrorConfigClientTests
 
@@ -225,6 +225,7 @@ SavedFolderStoreTests
 SceneLinearChainF32BandingTests
 SearchAssetAddressTests
 SearchCursorPaginationTests
+SearchRankPinTests
 SearchParamsTests
 SearchViewModelTests
 SearchViewModelCollectionTests

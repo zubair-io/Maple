@@ -34,6 +34,7 @@
  *   - `search.sql.ts`      every statement, with the index each one uses
  *   - `search.facets.ts`   the twelve facet aggregations
  *   - `search.page.ts`     one page of the grid, and the total beside it
+ *   - `search.ranked.ts`   the ranked window every free-text request is served from
  *   - `search.buckets.ts`  the Timeline histogram
  *   - `search.service.ts`  the service route's ranked lexical fallback
  *   - `search.repo.ts`     the entry point (this file)
@@ -55,16 +56,8 @@ export type { SearchWhere } from './search.where.ts';
 
 export { searchFacets } from './search.facets.ts';
 
-export {
-  mapleIdsMatching,
-  rankedMapleIdPage,
-  searchByIds,
-  searchByMapleIds,
-  searchCount,
-  searchPage,
-  type SearchDoc,
-} from './search.page.ts';
+export { searchByIds, searchCount, searchPage, type SearchDoc } from './search.page.ts';
 
-export { searchBuckets } from './search.buckets.ts';
+export { searchBuckets, windowBuckets } from './search.buckets.ts';
 
 export { serviceLexicalSearch } from './search.service.ts';

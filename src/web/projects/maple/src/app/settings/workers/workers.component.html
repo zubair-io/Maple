@@ -310,14 +310,6 @@
                           >{{ m.errors | number }} errors</span
                         >
                       }
-                      @if (m.failedPermanently) {
-                        <span
-                          class="is-error text-[var(--s-err)]"
-                          [attr.data-testid]="'migration-failed-permanently-' + m.id"
-                        >
-                          {{ m.failedPermanently | number }} dead-lettered
-                        </span>
-                      }
                       @if (m.processed > 0 || m.status !== 'idle') {
                         <mui-button
                           variant="ghost"
@@ -412,7 +404,7 @@
                     @case ('face-embed') {
                       Face recognition
                     }
-                    @case ('meili') {
+                    @case ('search') {
                       Search index
                     }
                   }
@@ -678,122 +670,8 @@
                     </div>
                   }
 
-                  @case ('meili') {
+                  @case ('search') {
                     <div class="grid-2col grid grid-cols-2 gap-4 gap-x-6 max-[767px]:grid-cols-1">
-                      <div class="field field-wide set-field">
-                        <div class="field-label">Meilisearch URL</div>
-                        <div class="text-input set-text-input mono">
-                          <mui-input
-                            [value]="enrichmentValue(s, 'meilisearch_url')"
-                            (valueChange)="setEnrichment(s, 'meilisearch_url', $event)"
-                            placeholder="(empty falls back to env / disables)"
-                            ariaLabel="Meilisearch URL"
-                          />
-                          <mui-button
-                            variant="ghost"
-                            size="sm"
-                            [loading]="testState(s).kind === 'testing'"
-                            (pressed)="testConnection(s)"
-                          >
-                            <maple-settings-icon name="test" [size]="12" />
-                            Test connection
-                          </mui-button>
-                        </div>
-                        <div class="field-hint">
-                          Base URL of a Meilisearch sidecar for typo-tolerant search. Empty falls
-                          back to the <span class="mono set-mono">MAPLE_MEILISEARCH_URL</span> env
-                          var (or disables the sidecar — search then uses the server's own full-text
-                          index).
-                        </div>
-                        @if (testState(s).kind === 'ok') {
-                          <div class="test-result set-test-result ok">
-                            <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'" />
-                            Meilisearch responded.
-                          </div>
-                        } @else if (testState(s).kind === 'error') {
-                          <div class="test-result set-test-result err">
-                            {{ $any(testState(s)).message }}
-                          </div>
-                        }
-                      </div>
-                      <div class="field set-field">
-                        <div class="field-label">API key</div>
-                        <div class="text-input set-text-input mono">
-                          <mui-input
-                            [masked]="true"
-                            autocomplete="off"
-                            [value]="enrichmentValue(s, 'meilisearch_api_key')"
-                            (valueChange)="setEnrichment(s, 'meilisearch_api_key', $event)"
-                            [placeholder]="
-                              enrichmentConfig()?.meilisearch_api_key_set
-                                ? '•••••••• (saved — blank keeps it)'
-                                : '(optional)'
-                            "
-                            ariaLabel="API key"
-                          />
-                        </div>
-                        <div class="field-hint">
-                          Master or search key for the instance, sent as a bearer token and stored
-                          in the database. Leave blank to keep the saved key. With no saved key,
-                          falls back to
-                          <span class="mono set-mono">MAPLE_MEILISEARCH_API_KEY</span>.
-                        </div>
-                      </div>
-                      <div class="field field-wide set-field">
-                        <mui-checkbox
-                          label="Enable hybrid semantic search"
-                          [checked]="enrichmentValue(s, 'meilisearch_semantic_enabled')"
-                          (checkedChange)="setEnrichment(s, 'meilisearch_semantic_enabled', $event)"
-                          data-testid="meilisearch-semantic-enabled"
-                        />
-                        <div class="field-hint">
-                          Combines keyword relevance with vector similarity. Saving applies the
-                          change immediately; existing assets still need the semantic-vector
-                          migration to become searchable by meaning. On an index that already holds
-                          documents, a new or changed embedder waits for Apply to index below,
-                          because Meilisearch then re-embeds every document.
-                        </div>
-                      </div>
-                      <maple-ai-worker-summary worker="semantic-search" />
-                      <maple-meilisearch-embedder-drift [config]="enrichmentConfig()" />
-                      <div class="field set-field">
-                        <div class="field-label">Semantic blend</div>
-                        <div class="num-input set-num-input">
-                          <mui-input
-                            variant="numeric"
-                            [min]="0"
-                            [max]="1"
-                            [step]="0.05"
-                            [value]="enrichmentValue(s, 'meilisearch_semantic_ratio')"
-                            (valueChange)="setEnrichment(s, 'meilisearch_semantic_ratio', $event)"
-                            ariaLabel="Semantic blend"
-                            data-testid="meilisearch-semantic-ratio"
-                          />
-                        </div>
-                        <div class="field-hint">
-                          0 uses keyword ranking only; 1 uses vector similarity only. Default: 0.5.
-                        </div>
-                      </div>
-                      <div class="field set-field">
-                        <div class="field-label">Index task timeout</div>
-                        <div class="num-input set-num-input">
-                          <mui-input
-                            variant="numeric"
-                            [min]="30"
-                            [max]="3600"
-                            [value]="enrichmentValue(s, 'meilisearch_task_timeout_seconds')"
-                            (valueChange)="
-                              setEnrichment(s, 'meilisearch_task_timeout_seconds', $event)
-                            "
-                            ariaLabel="Index task timeout"
-                          />
-                          <span class="unit">sec</span>
-                        </div>
-                        <div class="field-hint">
-                          Maximum wait for a Meilisearch indexing or embedding task. Increase this
-                          for slower Ollama hosts.
-                        </div>
-                      </div>
                       <div class="field set-field">
                         <div class="field-label">Service search requests / minute</div>
                         <div class="num-input set-num-input">

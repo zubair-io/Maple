@@ -110,8 +110,8 @@ describe('central AI connections', () => {
     expect(assignedAi(resolved.ai_connections, 'generated-search')?.primary.url).toBe(
       'http://gpu2:11434',
     );
-    expect(resolved.meilisearch_embedder_url).toBe('http://gpu2:11434');
-    expect(resolved.meilisearch_embedder_model).toBe('embedding-model');
+    expect(resolved.embedder_url).toBe('http://gpu2:11434');
+    expect(resolved.embedder_model).toBe('embedding-model');
     const oldFingerprint = workerEnrichmentFingerprint(resolved);
     c.assignments['video-describe'].model = 'new-video-model';
     await request('PUT', c);
@@ -211,8 +211,8 @@ describe('central AI connections', () => {
     expect(resolveEnrichmentConfig(await loadEnrichmentConfig())).toMatchObject({
       embedder_url: 'http://gpu3:11434',
       embedder_model: 'qwen3-embedding',
-      meilisearch_embedder_url: 'http://gpu1:11434',
-      meilisearch_embedder_model: 'bge-m3',
+      embedder_default_url: 'http://gpu1:11434',
+      embedder_default_model: 'bge-m3',
     });
 
     await request('PUT', { ...c, embedder: { url: '', model: '' } });

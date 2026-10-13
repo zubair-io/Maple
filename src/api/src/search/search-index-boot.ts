@@ -5,13 +5,13 @@
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { EMBEDDER_TEMPLATE_SHAPE_VERSION } from '../enrichment/meilisearch-embedder-template.ts';
+import { EMBEDDER_TEMPLATE_SHAPE_VERSION } from '../enrichment/embedder-document.ts';
+import { CHANGE_OVERLAP_MS, isoBefore } from './search-change-feed.ts';
 import {
-  CHANGE_OVERLAP_MS,
-  isoBefore,
   loadAllVectors,
   rebuildText,
   VectorFollower,
+  type FollowerWatermarks,
   type SearchEngineOps,
 } from './search-index-sync.ts';
 import type { SearchChildState } from './search-protocol.ts';
@@ -21,19 +21,24 @@ import {
   normalisedModel,
 } from '../db/repos/asset-vectors.search.ts';
 
-/** The template shape the text is rendered with, then this layout's own revision. */
-export const SEARCH_INDEX_VERSION = `${EMBEDDER_TEMPLATE_SHAPE_VERSION}.1`;
+/**
+ * The template shape the text is rendered with, then this layout's own revision: `.2` added the
+ * `search_blob` field (#4512).
+ */
+export const SEARCH_INDEX_VERSION = `${EMBEDDER_TEMPLATE_SHAPE_VERSION}.2`;
 
-export interface SearchIndexState {
+export interface SearchIndexState extends FollowerWatermarks {
   version: string;
-  textWatermark: string;
 }
 
 export function readIndexState(stateFile: string): SearchIndexState | null {
   try {
     const parsed = JSON.parse(readFileSync(stateFile, 'utf-8')) as Partial<SearchIndexState>;
-    return typeof parsed.version === 'string' && typeof parsed.textWatermark === 'string'
-      ? { version: parsed.version, textWatermark: parsed.textWatermark }
+    const { version, textWatermark, blobWatermark } = parsed;
+    return typeof version === 'string' &&
+      typeof textWatermark === 'string' &&
+      typeof blobWatermark === 'string'
+      ? { version, textWatermark, blobWatermark }
       : null;
   } catch {
     return null;
@@ -126,17 +131,17 @@ export async function bootSearchIndex(
   const follower = new VectorFollower(
     engine,
     held,
-    saved ? earlier(saved.textWatermark, since) : since,
+    {
+      textWatermark: saved ? earlier(saved.textWatermark, since) : since,
+      blobWatermark: saved ? earlier(saved.blobWatermark, since) : since,
+    },
     model,
   );
   if (!saved) await rebuildText(engine, [...held]);
   await follower.poll();
   if (counts().texts !== follower.heldCount) await rebuildText(engine, [...held]);
 
-  writeIndexState(stateFile, {
-    version: SEARCH_INDEX_VERSION,
-    textWatermark: follower.textWatermark,
-  });
+  writeIndexState(stateFile, { version: SEARCH_INDEX_VERSION, ...follower.watermarks });
   report(await readyState(engine, model, true));
   return follower;
 }

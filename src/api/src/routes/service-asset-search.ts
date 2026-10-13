@@ -1,52 +1,38 @@
 /**
  * `POST /api/search/assets` — the service-API search surface.
  *
- * When Settings → AI selects the in-process engine, a hybrid request asks it
- * first (`service-asset-search-in-process.ts`) and falls through when it
- * cannot answer. Otherwise Meilisearch answers first (hybrid, then lexical)
- * and is untouched by the
- * SQLite cutover (#3787): it is a separate service, and only the database
- * half of this route moved. What moved is the fallback that runs when the
- * sidecar is absent, unconfigured or failing — `serviceLexicalSearch` in
- * `db/repos/search.service.ts`, an exact-filename pass followed by a
- * ranked FTS5 pass.
+ * A hybrid request asks the in-process engine first (`service-asset-search-in-process.ts`) and
+ * falls back to the database when it cannot answer: `serviceLexicalSearch` in
+ * `db/repos/search.service.ts`, an exact-filename pass followed by a ranked FTS5 pass. A lexical
+ * request goes straight to the database.
  *
- * The fallback answers two questions better than the query it replaces.
- * Media type is a stored column set by the indexer from the actual file,
- * rather than a regex over the extension lists matched against a filename —
- * so a `.mov` renamed to `.mp4` is no longer classified by its name. And a
- * malformed query can no longer throw: every term is quoted into the FTS5
- * expression, so there is no syntax error left to swallow and report as
- * "exact filename matches only".
+ * The database path answers two questions better than the query it replaced. Media type is a
+ * stored column set by the indexer from the actual file, rather than a regex over the extension
+ * lists matched against a filename — so a `.mov` renamed to `.mp4` is no longer classified by
+ * its name. And a malformed query can no longer throw: every term is quoted into the FTS5
+ * expression, so there is no syntax error left to swallow.
  */
 
 import { Elysia } from 'elysia';
 import { authenticateServiceApiKey, type ServiceApiIdentity } from '../auth/service-api-keys.ts';
 import { serviceLexicalSearch } from '../db/repos/search.repo.ts';
-import {
-  MeilisearchSearchError,
-  meilisearchClient,
-  type MeilisearchFailureDetails,
-  type MeilisearchMediaType,
-  type MeilisearchSearchResult,
-} from '../enrichment/meilisearch-client.ts';
+import type { ServiceMediaType } from '../db/repos/search.service.ts';
 import {
   consumeServiceSearchRateLimit,
   resetServiceSearchRateLimitsForTests,
 } from '../enrichment/service-search-rate-limit.ts';
 import { child as childLogger } from '../log.ts';
-import { inProcessServiceSearch } from './service-asset-search-in-process.ts';
+import {
+  inProcessServiceSearch,
+  type ServiceSearchResult,
+} from './service-asset-search-in-process.ts';
 
 const log = childLogger('service-search');
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
 type SearchMode = 'hybrid' | 'lexical';
-type FallbackReason =
-  | 'semantic_not_configured'
-  | 'semantic_embedder_unavailable'
-  | 'meilisearch_unavailable'
-  | 'meilisearch_query_failed';
+type FallbackReason = 'search_engine_unavailable';
 
 interface SearchRequestBody {
   query: string;
@@ -55,7 +41,7 @@ interface SearchRequestBody {
   includeHidden?: boolean;
   from?: string;
   to?: string;
-  filters?: { mediaTypes?: MeilisearchMediaType[] };
+  filters?: { mediaTypes?: ServiceMediaType[] };
 }
 
 function validMode(value: unknown): value is SearchMode | undefined {
@@ -135,13 +121,13 @@ export function _resetServiceSearchRateLimitsForTests(): void {
  * `SearchContext` satisfies this structurally. */
 interface DatabaseFilterScope {
   includeHidden: boolean;
-  mediaTypes: MeilisearchMediaType[] | undefined;
+  mediaTypes: ServiceMediaType[] | undefined;
   capturedFrom: string | undefined;
   capturedBefore: string | undefined;
 }
 
 /**
- * The database fallback, in the shape the rest of this route expects.
+ * The database search, in the shape the rest of this route expects.
  *
  * `estimatedTotal` is the number of ids returned, exactly as it was before:
  * the fallback never counted past the page it built, and reporting a
@@ -151,12 +137,12 @@ async function databaseLexicalSearch(
   scope: DatabaseFilterScope,
   query: string,
   limit: number,
-): Promise<MeilisearchSearchResult & { exactIds: Set<string> }> {
+): Promise<ServiceSearchResult & { exactIds: Set<string> }> {
   const hits = await serviceLexicalSearch(scope, query, limit);
   return { ids: hits.ids, estimatedTotal: hits.ids.length, exactIds: hits.exactIds };
 }
 
-function responseHits(result: MeilisearchSearchResult, exactIds: ReadonlySet<string> = new Set()) {
+function responseHits(result: ServiceSearchResult, exactIds: ReadonlySet<string> = new Set()) {
   return result.ids.map((assetId) => ({
     assetId,
     score: result.scores?.[assetId] ?? null,
@@ -190,8 +176,7 @@ function finishSearch(
   modeRequested: SearchMode,
   modeUsed: SearchMode,
   fallbackReason: FallbackReason | null,
-  result: MeilisearchSearchResult,
-  fallbackDetails: MeilisearchFailureDetails | null = null,
+  result: ServiceSearchResult,
   exactIds: ReadonlySet<string> = new Set(),
 ) {
   audit(identity, {
@@ -205,20 +190,18 @@ function finishSearch(
     modeRequested,
     modeUsed,
     fallbackReason,
-    fallbackDetails,
     results: responseHits(result, exactIds),
     total: result.estimatedTotal,
+    ...(result.more === undefined ? {} : { more: result.more, capped: result.capped }),
   };
 }
-
-type CompletedSearch = ReturnType<typeof finishSearch>;
 
 interface SearchContext {
   query: string;
   modeRequested: SearchMode;
   limit: number;
   includeHidden: boolean;
-  mediaTypes: MeilisearchMediaType[] | undefined;
+  mediaTypes: ServiceMediaType[] | undefined;
   capturedFrom: string | undefined;
   capturedBefore: string | undefined;
 }
@@ -238,137 +221,17 @@ function searchContext(request: SearchRequestBody): SearchContext {
   };
 }
 
-function meiliOptions(context: SearchContext, semantic: boolean) {
-  return {
-    semantic,
-    limit: context.limit,
-    includeHidden: context.includeHidden,
-    mediaTypes: context.mediaTypes,
-    capturedFrom: context.capturedFrom,
-    capturedBefore: context.capturedBefore,
-  };
-}
-
-async function tryHybridSearch(
-  meili: ReturnType<typeof meilisearchClient>,
-  context: SearchContext,
-  identity: ServiceApiIdentity,
-  startedAt: number,
-): Promise<{
-  response: CompletedSearch | null;
-  fallback: FallbackReason | null;
-  details: MeilisearchFailureDetails | null;
-}> {
-  if (context.modeRequested !== 'hybrid') {
-    return { response: null, fallback: null, details: null };
-  }
-  if (!meili.semanticConfigured()) {
-    return { response: null, fallback: 'semantic_not_configured', details: null };
-  }
-  try {
-    const result = await meili.search(context.query, meiliOptions(context, true));
-    return {
-      response: finishSearch(identity, startedAt, context.modeRequested, 'hybrid', null, result),
-      fallback: null,
-      details: null,
-    };
-  } catch (error) {
-    log.warn(
-      { keyId: identity.keyId, err: error instanceof Error ? error.message : String(error) },
-      'hybrid query failed; retrying lexical',
-    );
-    const details =
-      error instanceof MeilisearchSearchError
-        ? error.details
-        : {
-            status: null,
-            code: null,
-            type: null,
-            message: error instanceof Error ? error.message : String(error),
-          };
-    return { response: null, fallback: 'semantic_embedder_unavailable', details };
-  }
-}
-
-async function tryMeilisearchLexical(
-  meili: ReturnType<typeof meilisearchClient>,
-  context: SearchContext,
-  identity: ServiceApiIdentity,
-  startedAt: number,
-  fallback: FallbackReason | null,
-  fallbackDetails: MeilisearchFailureDetails | null,
-): Promise<{
-  response: CompletedSearch | null;
-  fallback: FallbackReason | null;
-  details: MeilisearchFailureDetails | null;
-}> {
-  try {
-    const result = await meili.search(context.query, meiliOptions(context, false));
-    return {
-      response: finishSearch(
-        identity,
-        startedAt,
-        context.modeRequested,
-        'lexical',
-        fallback,
-        result,
-        fallbackDetails,
-      ),
-      fallback,
-      details: fallbackDetails,
-    };
-  } catch (error) {
-    log.warn(
-      { keyId: identity.keyId, err: error instanceof Error ? error.message : String(error) },
-      'meilisearch lexical query failed; falling back to the database',
-    );
-    const details =
-      error instanceof MeilisearchSearchError
-        ? error.details
-        : {
-            status: null,
-            code: null,
-            type: null,
-            message: error instanceof Error ? error.message : String(error),
-          };
-    return { response: null, fallback: 'meilisearch_query_failed', details };
-  }
-}
-
 async function executeSearch(
   request: SearchRequestBody,
   identity: ServiceApiIdentity,
   startedAt: number,
 ) {
   const context = searchContext(request);
-  const inProcess =
-    context.modeRequested === 'hybrid'
-      ? await inProcessServiceSearch(context, context.query, context.limit)
-      : null;
+  const hybrid = context.modeRequested === 'hybrid';
+  const inProcess = hybrid
+    ? await inProcessServiceSearch(context, context.query, context.limit)
+    : null;
   if (inProcess) return finishSearch(identity, startedAt, 'hybrid', 'hybrid', null, inProcess);
-  const meili = meilisearchClient();
-  let fallbackReason: FallbackReason | null = null;
-  let fallbackDetails: MeilisearchFailureDetails | null = null;
-
-  if (meili.isConfigured()) {
-    const hybrid = await tryHybridSearch(meili, context, identity, startedAt);
-    if (hybrid.response) return hybrid.response;
-    fallbackReason = hybrid.fallback;
-    fallbackDetails = hybrid.details;
-    const lexical = await tryMeilisearchLexical(
-      meili,
-      context,
-      identity,
-      startedAt,
-      fallbackReason,
-      fallbackDetails,
-    );
-    if (lexical.response) return lexical.response;
-    fallbackReason = lexical.fallback;
-    fallbackDetails = lexical.details;
-  } else {
-    fallbackReason = 'meilisearch_unavailable';
-  }
 
   const result = await databaseLexicalSearch(context, context.query, context.limit);
   return finishSearch(
@@ -376,9 +239,8 @@ async function executeSearch(
     startedAt,
     context.modeRequested,
     'lexical',
-    fallbackReason,
+    hybrid ? 'search_engine_unavailable' : null,
     result,
-    fallbackDetails,
     result.exactIds,
   );
 }

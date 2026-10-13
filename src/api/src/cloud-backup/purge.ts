@@ -208,7 +208,10 @@ async function publishPurgeMarker(
   const source = jsonSource(record);
   const key = `purges/${record.entryId}.json`;
   const savedRecord = await engine.repo.object(destination.id, key);
-  const existing = await provider.inspect(key, signal, savedRecord.object?.locator);
+  const existing = await provider.inspect(key, signal, {
+    locator: savedRecord.object?.locator,
+    expected: savedRecord.object ?? undefined,
+  });
   signal?.throwIfAborted();
   if (!existing) {
     const object = await provider.publish(key, source, {

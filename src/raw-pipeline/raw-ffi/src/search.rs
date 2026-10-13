@@ -17,7 +17,7 @@
 //! the query is not cached, so the retry searches again).
 
 use crate::error::{catch_panic_rc, set_last_error};
-use maple_search::{FusedHit, SearchConfig, SearchEngine, DIM};
+use maple_search::{FusedHit, SearchConfig, SearchEngine, SearchText, DIM};
 use std::ffi::{c_char, CStr};
 
 const RC_INVALID_ARGUMENT: i32 = 1;
@@ -176,12 +176,14 @@ pub unsafe extern "C" fn maple_search_query_vector(
 }
 
 /// Inserts or replaces `id`. A null `vector` leaves its vector untouched,
-/// otherwise it must hold `dim` (1024) f32; a null `text` leaves its text
-/// untouched. Vectors apply at once, text on `maple_search_commit`. API-only.
+/// otherwise it must hold `dim` (1024) f32. A null `text` leaves the keyword
+/// document untouched; otherwise `text` (the embedder template) and `blob`
+/// (the `search_blob`, null for none) replace it together. Vectors apply at
+/// once, text on `maple_search_commit`. API-only.
 ///
 /// # Safety
-/// `id` and a non-null `text` must be NUL-terminated strings; a non-null
-/// `vector` must be valid for `dim` f32.
+/// `id`, a non-null `text` and a non-null `blob` must be NUL-terminated
+/// strings; a non-null `vector` must be valid for `dim` f32.
 #[no_mangle]
 pub unsafe extern "C" fn maple_search_upsert(
     handle: *const MapleSearchHandle,
@@ -189,6 +191,7 @@ pub unsafe extern "C" fn maple_search_upsert(
     vector: *const f32,
     dim: usize,
     text: *const c_char,
+    blob: *const c_char,
 ) -> i32 {
     catch_panic_rc("maple_search_upsert", || {
         rc(engine(handle).and_then(|engine| {
@@ -201,7 +204,15 @@ pub unsafe extern "C" fn maple_search_upsert(
             let text = if text.is_null() {
                 None
             } else {
-                Some(utf8(text, "text")?)
+                let blob = if blob.is_null() {
+                    ""
+                } else {
+                    utf8(blob, "blob")?
+                };
+                Some(SearchText {
+                    template: utf8(text, "text")?,
+                    blob,
+                })
             };
             engine_result(engine.upsert(id, vector, text))
         }))

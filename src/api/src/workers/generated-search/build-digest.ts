@@ -18,7 +18,6 @@
  * the storage engine is.
  */
 
-import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
 import { capturedYearCounts } from '../../db/repos/assets.sweeps.ts';
 import { recentGeneratedSearchThemes } from '../../db/repos/generated-searches.repo.ts';
 import { indexableRosterNames } from '../../db/repos/people.search-filter.ts';
@@ -67,8 +66,8 @@ export async function buildDigest(libraryId: string, now: Date): Promise<PromptD
     coverageYears: [...credible].sort((a, b) => a - b),
     onThisMonthByYear: thisMonth.filter(({ year }) => credible.has(year)),
     recentThemes: themes,
-    // Read fresh each run, not cached: an operator can flip semantic search
-    // on from Settings and the next run's prompt should switch with it.
-    semanticSearch: meilisearchClient().semanticConfigured(),
+    // The in-process engine ranks by caption vectors, reached from this worker through the API
+    // process (#4510).
+    semanticSearch: true,
   };
 }

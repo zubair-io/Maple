@@ -1,8 +1,13 @@
-import type { BackupObject, BackupProvider, PublishSource, UploadCheckpoint } from '../provider.ts';
+import type {
+  BackupInspectOptions,
+  BackupObject,
+  BackupProvider,
+  PublishSource,
+  UploadCheckpoint,
+} from '../provider.ts';
 import {
   DriveClient,
   DRIVE_API,
-  logicalKeyHash,
   isDriveStatus,
   isOwnedMyDriveFile,
   validateGoogleRoot,
@@ -10,6 +15,7 @@ import {
 } from './client.ts';
 import { publishGoogleObject, publishGoogleMirrorFile, parseCheckpoint } from './upload.ts';
 import type { GoogleFetch } from './oauth.ts';
+import { inspectGoogleObject } from './inspect.ts';
 import { verifiedGoogleObject } from './integrity.ts';
 
 import { objectMarker, backupObject, assertObjectIdentity } from './object.ts';
@@ -83,6 +89,16 @@ export class GoogleDriveProvider implements BackupProvider {
     const parts = relativePath.split('/');
     const name = parts.pop()!;
     return { parentId: await this.ensureFolders(parts, signal), name };
+  }
+  async findObjectTarget(
+    key: string,
+    signal?: AbortSignal,
+  ): Promise<{ parentId: string; name: string } | null> {
+    validKey(key);
+    const parts = this.objectPath(key).split('/');
+    const name = parts.pop()!;
+    const parentId = await this.findFolders(parts, signal);
+    return parentId ? { parentId, name } : null;
   }
   private objectPath(key: string): string {
     const mirrorParts = key.split('/');
@@ -275,61 +291,16 @@ export class GoogleDriveProvider implements BackupProvider {
   async inspect(
     key: string,
     signal?: AbortSignal,
-    locator?: string,
-    heartbeat?: (object: BackupObject) => Promise<void>,
+    locatorOrOptions?: string | BackupInspectOptions,
+    legacyHeartbeat?: (candidate: BackupObject) => Promise<void>,
   ): Promise<BackupObject | null> {
+    const options =
+      typeof locatorOrOptions === 'string'
+        ? { locator: locatorOrOptions, heartbeat: legacyHeartbeat }
+        : (locatorOrOptions ?? { heartbeat: legacyHeartbeat });
     validKey(key);
     await this.probe(signal);
-    const match = locator
-      ? await this.inspectLocator(key, locator, signal)
-      : await this.inspectIndex(key, signal);
-    if (!match) return null;
-    return verifiedGoogleObject(
-      this,
-      match,
-      signal,
-      heartbeat ? () => heartbeat(match) : undefined,
-    );
-  }
-  private async inspectLocator(
-    key: string,
-    locator: string,
-    signal?: AbortSignal,
-  ): Promise<BackupObject | null> {
-    try {
-      const object = backupObject(await this.client.metadata(locator, signal), this.rootId);
-      if (object.key !== key) throw new Error('Backup object identity changed.');
-      await this.assertWithinRoot(await this.client.metadata(locator, signal), signal);
-      return object;
-    } catch (error) {
-      if (isDriveStatus(error, 404)) return null;
-      throw error;
-    }
-  }
-  private async inspectIndex(key: string, signal?: AbortSignal): Promise<BackupObject | null> {
-    const hash = logicalKeyHash(key);
-    const matches: BackupObject[] = [];
-    const relativePath = this.objectPath(key).split('/');
-    relativePath.pop();
-    const parentId = await this.findFolders(relativePath, signal);
-    if (!parentId) return null;
-    // 76 UTF-8 bytes total, below Drive's 124-byte public-property limit.
-    // https://developers.google.com/workspace/drive/api/guides/search-files
-    const query = `'${parentId}' in parents and trashed = false and properties has { key='mapleKeyHash' and value='${hash}' }`;
-    for await (const file of this.client.list(query, signal)) {
-      const object = backupObject(file, this.rootId);
-      try {
-        await this.assertWithinRoot(file, signal);
-      } catch {
-        continue;
-      }
-      if (object.key !== key || file.properties?.['mapleKeyHash'] !== hash)
-        throw new Error('Google backup search index does not match its portable object identity.');
-      matches.push(object);
-      if (matches.length > 1)
-        throw new Error('Conflicting immutable backup objects require operator review.');
-    }
-    return matches[0] ?? null;
+    return inspectGoogleObject(this, key, options, signal);
   }
   async publish(
     key: string,
@@ -337,6 +308,7 @@ export class GoogleDriveProvider implements BackupProvider {
     options: {
       signal?: AbortSignal;
       checkpoint?: UploadCheckpoint | null;
+      expected?: BackupObject | null;
       saveCheckpoint: (checkpoint: UploadCheckpoint) => Promise<void>;
     },
   ): Promise<BackupObject> {
@@ -357,6 +329,7 @@ export class GoogleDriveProvider implements BackupProvider {
     options: {
       signal?: AbortSignal;
       checkpoint?: UploadCheckpoint | null;
+      expected?: BackupObject | null;
       saveCheckpoint: (checkpoint: UploadCheckpoint) => Promise<void>;
     },
   ): Promise<BackupObject> {
@@ -373,20 +346,37 @@ export class GoogleDriveProvider implements BackupProvider {
     await this.probe(options.signal);
     return publishGoogleMirrorFile(this, key, relativePath, source, options);
   }
-  private async currentObject(
+  private async currentObjectMetadata(
     object: BackupObject,
     errorMessage: string,
     signal?: AbortSignal,
+    hashWithoutNativeChecksum = false,
   ): Promise<BackupObject> {
     const file = await this.client.metadata(object.locator, signal);
     await this.assertWithinRoot(file, signal);
-    const current = backupObject(file, this.rootId);
-    assertObjectIdentity(current, object, errorMessage);
-    return current;
+    const current = backupObject(file, this.rootId, object);
+    // Drive's native checksum is the cheap drift detector. When it is absent
+    // and the caller is about to destroy the object, hash the bytes instead of
+    // trusting the database value alone.
+    if (!file.sha256Checksum && hashWithoutNativeChecksum) {
+      const actual = await verifiedGoogleObject(this, object, signal);
+      assertObjectIdentity(actual, object, errorMessage);
+      return actual;
+    }
+    const metadataIdentity = {
+      ...current,
+      size: Number(file.size),
+      sha256: file.sha256Checksum ?? object.sha256,
+    };
+    assertObjectIdentity(metadataIdentity, object, errorMessage);
+    return metadataIdentity;
   }
   async download(object: BackupObject, signal?: AbortSignal): Promise<ReadableStream<Uint8Array>> {
     await this.probe(signal);
-    await this.currentObject(object, 'Backup object identity changed.', signal);
+    // Consumers hash while streaming (catalog reads are bounded; restore
+    // writes verify before publication). Avoid downloading the same bytes once
+    // here and again for the caller when Drive omits its native checksum.
+    await this.currentObjectMetadata(object, 'Backup object identity changed.', signal);
     const response = await this.client.request(
       `${DRIVE_API}/files/${object.locator}?alt=media`,
       {},
@@ -398,7 +388,12 @@ export class GoogleDriveProvider implements BackupProvider {
   async remove(object: BackupObject, signal?: AbortSignal) {
     await this.probe(signal);
     try {
-      await this.currentObject(object, 'Refusing removal of changed backup object.', signal);
+      await this.currentObjectMetadata(
+        object,
+        'Refusing removal of changed backup object.',
+        signal,
+        true,
+      );
       await this.client.request(
         `${DRIVE_API}/files/${object.locator}`,
         { method: 'DELETE' },
@@ -413,7 +408,22 @@ export class GoogleDriveProvider implements BackupProvider {
     await this.probe(signal);
     await this.cancelSession(state.session, signal);
     if (state.replace) {
-      const current = await this.inspect(state.key, signal, state.fileId);
+      const current = await this.inspect(state.key, signal, {
+        locator: state.fileId,
+        ...(state.key.startsWith('mirror/')
+          ? {
+              // A mirror checkpoint is local DB state. Use its locator to
+              // inspect markerless files while checking whether the upload
+              // completed before cancellation.
+              expected: {
+                key: state.key,
+                locator: state.fileId,
+                sha256: state.sha256,
+                size: state.size,
+              },
+            }
+          : {}),
+      });
       return current?.sha256 === state.sha256 && current.size === state.size ? current : null;
     }
     // Cancellation precedes cleanup: a final chunk racing cancellation can
@@ -443,6 +453,7 @@ export class GoogleDriveProvider implements BackupProvider {
       const object = backupObject(
         await this.client.metadata(expected.locator, signal),
         this.rootId,
+        expected,
       );
       await this.assertWithinRoot(await this.client.metadata(expected.locator, signal), signal);
       assertObjectIdentity(object, expected, 'Refusing cleanup of a changed upload reservation.');
