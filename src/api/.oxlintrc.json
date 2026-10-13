@@ -216,6 +216,12 @@
         "src/routes/pano.resolve.test.ts",
         "src/routes/pano.test.ts",
         "src/routes/pano.ts",
+        // #4580: preview artifacts and the fake maple-cli live only under os.tmpdir().
+        "src/pano/pano-previews.ts",
+        "src/job-runner/handlers/pano-preview.ts",
+        "src/job-runner/handlers/pano-preview.test.ts",
+        "src/job-runner/handlers/pano-fake-cli.test-helpers.ts",
+        "src/routes/pano-preview.test.ts",
         "src/routes/preview.ts",
         "src/routes/preview.test.ts",
         "src/routes/xmp.ts",

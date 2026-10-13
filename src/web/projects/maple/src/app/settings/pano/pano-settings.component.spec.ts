@@ -14,6 +14,7 @@ const CONFIG: PanoConfig = {
   matcher: 'ml',
   strategy_supported: false,
   features_engine_supported: true,
+  preview_supported: false,
   source: {
     maple_cli_path: 'db',
     models_dir: 'db',

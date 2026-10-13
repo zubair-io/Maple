@@ -7,7 +7,7 @@
     (click)="onBackdropClick()"
   >
     <div
-      class="flex w-full max-w-[480px] flex-col overflow-hidden rounded-lg border-[0.5px] border-border bg-surface shadow-[0_16px_48px_rgba(0,0,0,0.4)]"
+      class="flex w-full max-w-[640px] flex-col overflow-hidden rounded-lg border-[0.5px] border-border bg-surface shadow-[0_16px_48px_rgba(0,0,0,0.4)]"
       (click)="$event.stopPropagation()"
     >
       <!-- Header -->
@@ -44,6 +44,46 @@
           <p class="m-0 text-[12px] text-text-main">
             Stitch {{ assetCount() }} frames into one panorama.
           </p>
+
+          <!-- Quick preview (#4580) -->
+          @if (previewSupported()) {
+            <div class="flex flex-col gap-1.5" data-testid="pano-preview">
+              @let image = preview.image();
+              @let run = preview.run();
+              @if (image) {
+                <img
+                  class="max-h-[240px] w-full rounded-[5px] bg-black object-contain transition-opacity duration-200"
+                  [class.opacity-50]="run.kind === 'running'"
+                  [src]="image.url"
+                  alt="Panorama preview"
+                />
+              }
+              @if (run.kind === 'running') {
+                <p class="m-0 text-[11px] text-text-muted">Preview — {{ previewLabel() }}</p>
+                <div
+                  class="relative h-1 overflow-hidden rounded-sm bg-border"
+                  role="progressbar"
+                  [attr.aria-label]="'Preview: ' + previewLabel()"
+                >
+                  @let fraction = previewFraction();
+                  @if (fraction !== null) {
+                    <div
+                      class="h-full rounded-sm bg-[color:var(--color-accent,#0066cc)] transition-[width] duration-[400ms] ease-in-out"
+                      [style.width.%]="fraction * 100"
+                    ></div>
+                  } @else {
+                    <div
+                      class="h-full w-[40%] animate-[pano-slide_1.4s_ease-in-out_infinite] rounded-sm bg-[color:var(--color-accent,#0066cc)]"
+                    ></div>
+                  }
+                </div>
+              } @else if (run.kind === 'failed') {
+                <p class="m-0 text-[11px] leading-[1.5] text-text-muted">
+                  Preview unavailable: {{ run.message }}
+                </p>
+              }
+            </div>
+          }
 
           <!-- Retention -->
           <div class="flex flex-col gap-1">
@@ -124,7 +164,7 @@
           class="flex shrink-0 items-center justify-end gap-2 border-t-[0.5px] border-border px-4 py-3"
         >
           <mui-button variant="ghost" (pressed)="onCancel()">Cancel</mui-button>
-          <mui-button variant="primary" (pressed)="onSubmit()">Stitch</mui-button>
+          <mui-button variant="primary" (pressed)="onSubmit()">Create panorama</mui-button>
         </div>
       }
 
@@ -146,11 +186,11 @@
             role="progressbar"
             [attr.aria-label]="progressLabel()"
           >
-            @let j = job();
-            @if (j && j.progress.total > 0) {
+            @let stitchFraction = progressFraction();
+            @if (stitchFraction !== null) {
               <div
                 class="h-full rounded-sm bg-[color:var(--color-accent,#0066cc)] transition-[width] duration-[400ms] ease-in-out"
-                [style.width.%]="(j.progress.current / j.progress.total) * 100"
+                [style.width.%]="stitchFraction * 100"
               ></div>
             } @else {
               <div

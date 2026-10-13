@@ -1,7 +1,9 @@
 /**
  * Which optional `maple-cli pano stitch` flags the configured binary accepts,
  * read from its `--help`. Cached per path + mtime, so rebuilding the binary in
- * place is picked up on the next request without a restart.
+ * place is picked up on the next request without a restart. A binary without a
+ * flag degrades the feature it backs (no strategy picker, no preview, ML-only
+ * matching) instead of failing a job.
  */
 
 import { stat } from 'node:fs/promises';
@@ -15,9 +17,15 @@ export interface PanoCliCapabilities {
   strategy: boolean;
   /** `--features-engine` (#4523). A binary without it is ML-only. */
   featuresEngine: boolean;
+  /** `--preview-out` / `--alignment-in` / `--alignment-out` (#4578). */
+  preview: boolean;
 }
 
-const NO_CAPABILITIES: PanoCliCapabilities = { strategy: false, featuresEngine: false };
+const NO_CAPABILITIES: PanoCliCapabilities = {
+  strategy: false,
+  featuresEngine: false,
+  preview: false,
+};
 
 let cached: { key: string; capabilities: PanoCliCapabilities } | null = null;
 
@@ -55,6 +63,7 @@ export async function probePanoCli(cliPath: string): Promise<PanoCliCapabilities
     .then((help) => ({
       strategy: help.includes('--strategy'),
       featuresEngine: help.includes('--features-engine'),
+      preview: help.includes('--preview-out') && help.includes('--alignment-in'),
     }))
     .catch(() => NO_CAPABILITIES);
   cached = { key, capabilities };
