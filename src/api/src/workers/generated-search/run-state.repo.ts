@@ -15,7 +15,8 @@
  * backoff instead of calling the model again at boot).
  */
 
-import { patchAppSettings, readAppSettings } from '../../db/repos/app-settings.repo.ts';
+import { jsonPath, patchAppSettings, readAppSettings } from '../../db/repos/app-settings.repo.ts';
+import { sqliteDb } from '../../db/repos/db-handle.ts';
 
 const DOC_ID = 'generated_search_runs';
 
@@ -57,4 +58,45 @@ export async function loadLatestRunRecord(): Promise<LibraryRunRecord | null> {
 
 export async function saveRunRecord(record: LibraryRunRecord): Promise<void> {
   await patchAppSettings(DOC_ID, { [`libraries.${record.library_id}`]: record });
+}
+
+/** A pass makes minutes of LLM calls; one claimed for longer than this died
+ * with its process, and its claim may be taken over. */
+export const STALE_RUNNING_MS = 2 * 60 * 60_000;
+
+/**
+ * Who may take a library's claim:
+ * - `force` (Run now) wins unless another pass holds a live claim;
+ * - `expectedStartedAt` (the schedule) also requires the record to be the one
+ *   it read when it decided the pass was owed — `null` meaning it saw none —
+ *   so a pass that started and finished in between cannot be repeated.
+ */
+export type ClaimMode = { force: true } | { force: false; expectedStartedAt: string | null };
+
+/**
+ * Atomically write `claim` (a `running` record) as the library's marker, or do
+ * nothing. One upsert decides it inside SQLite's single writer, so of two
+ * callers racing — Run now in the API process and the schedule in the worker
+ * process — exactly one sees `true`; the in-process guards cannot do that
+ * across processes.
+ */
+export async function claimLibraryRun(
+  claim: LibraryRunRecord,
+  mode: ClaimMode,
+  now: Date,
+): Promise<boolean> {
+  const path = jsonPath(`libraries.${claim.library_id}`);
+  const value = JSON.stringify(claim);
+  const staleBefore = new Date(now.getTime() - STALE_RUNNING_MS).toISOString();
+  const casClause = mode.force ? '' : `AND json_extract(doc, ? || '.started_at') IS ?`;
+  const casParams = mode.force ? [] : [path, mode.expectedStartedAt];
+  const result = await sqliteDb().write(
+    `INSERT INTO app_settings (id, doc) VALUES (?, json_set('{}', ?, json(?)))
+     ON CONFLICT (id) DO UPDATE SET doc = json_set(doc, ?, json(?))
+      WHERE NOT (json_extract(doc, ? || '.outcome') IS 'running'
+                 AND json_extract(doc, ? || '.started_at') > ?)
+        ${casClause}`,
+    [DOC_ID, path, value, path, value, path, path, staleBefore, ...casParams],
+  );
+  return result.changes > 0;
 }

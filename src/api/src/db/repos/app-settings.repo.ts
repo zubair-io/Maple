@@ -78,7 +78,7 @@ const SELECT_SQL = `SELECT doc FROM app_settings WHERE id = ?`;
  * contains either character, so this is defence rather than a fix for a live
  * call site.
  */
-function jsonPath(dotted: string): string {
+export function jsonPath(dotted: string): string {
   const segments = dotted
     .split('.')
     .map((segment) => `"${segment.replace(/[\\"]/g, (char) => `\\${char}`)}"`);
