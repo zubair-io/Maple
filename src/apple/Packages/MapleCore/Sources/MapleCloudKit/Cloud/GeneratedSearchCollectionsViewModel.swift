@@ -67,6 +67,9 @@ public final class GeneratedSearchCollectionsViewModel {
   private let coverWarmer: (@Sendable (SearchAsset) async -> Bool)?
   private let now: @Sendable () -> Date
   private var generation: Int = 0
+  /// The cache epoch the pages on screen were checked against. When the
+  /// cache's epoch has moved past it, a photo was trashed since.
+  private var seenEpoch: Int?
 
   /// How old a cached set's covers may be and still render before the
   /// server has re-applied its visibility filters.
@@ -124,6 +127,8 @@ public final class GeneratedSearchCollectionsViewModel {
       if collections.isEmpty { show(cached) }
     }
     let epoch = await cache?.epoch(host: cacheHost)
+    guard g == generation else { return }
+    seenEpoch = epoch
 
     let loaded: [GeneratedSearchCard]
     do {
@@ -185,6 +190,20 @@ public final class GeneratedSearchCollectionsViewModel {
     let surviving = await cache.read(libraryID: libraryID, host: cacheHost)?.firstPages ?? [:]
     guard g == generation else { return }
     firstPages = firstPages.filter { surviving[$0.key] == $0.value }
+    await load()
+  }
+
+  /// For a surface that keeps this view model across appearances (the
+  /// iPhone Search tab): if a photo was trashed since the cards were last
+  /// checked, take the trashed covers down now, then refresh for their
+  /// replacements.
+  public func dropTrashedCovers() async {
+    guard let cache else { return }
+    let current = await cache.epoch(host: cacheHost)
+    guard let seenEpoch, current != seenEpoch else { return }
+    let surviving = await cache.read(libraryID: libraryID, host: cacheHost)?.firstPages ?? [:]
+    firstPages = firstPages.filter { surviving[$0.key] == $0.value }
+    self.seenEpoch = current
     await load()
   }
 

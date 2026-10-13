@@ -148,9 +148,14 @@
         // them here so the panel is usable without a query (#2879).
         Task { await viewModel?.loadFacetsIfNeeded() }
       }
-      // Once per page lifetime: a tab re-appearance keeps today's cards.
+      // Once per page lifetime: a tab re-appearance keeps today's cards,
+      // minus any cover the user trashed elsewhere in the meantime.
       .task {
-        guard let collections, collections.collections.isEmpty else { return }
+        guard let collections else { return }
+        guard collections.collections.isEmpty else {
+          await collections.dropTrashedCovers()
+          return
+        }
         await collections.load()
       }
       .onDisappear {
