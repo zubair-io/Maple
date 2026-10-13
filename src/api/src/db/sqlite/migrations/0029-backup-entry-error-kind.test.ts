@@ -19,3 +19,20 @@ test('backup entries gain a nullable error_kind column', async () => {
   expect(columns).toHaveLength(1);
   expect(columns[0]).toMatchObject({ name: 'error_kind', notnull: 0, dflt_value: null });
 });
+
+test('the reconnect sweep probes the partial connection-failure index, not the table', async () => {
+  using handle = createBlankTestDatabase('file');
+  await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+  const plan = (
+    handle.db
+      .query(
+        `EXPLAIN QUERY PLAN SELECT EXISTS(SELECT 1 FROM backup_entries
+          WHERE destination_id=? AND error_kind='connection'
+          AND (lease_owner IS NULL OR lease_until<=?)) AS found`,
+      )
+      .all('dest', 0) as Array<{ detail: string }>
+  )
+    .map((row) => row.detail)
+    .join(' | ');
+  expect(plan).toContain('INDEX backup_entries_connection_failures');
+});
