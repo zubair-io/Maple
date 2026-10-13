@@ -12,6 +12,7 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { BackupRepository } from './repository.ts';
 import { GoogleConnectionError } from './google/config.ts';
+import { GoogleDriveError } from './google/client.ts';
 import { BackupEngine, entryPrefix } from './engine.ts';
 import { assetInventory } from './inventory.ts';
 import { createTestProvider } from './test-provider.test-helpers.ts';
@@ -383,4 +384,27 @@ test('a healthy connection rearms sibling connection failures but keeps other er
     error_kind: 'connection',
     lease_owner: 'active-worker',
   });
+});
+
+test('Drive transport and credential failures are recorded as connection failures; object failures are not', async () => {
+  using live = await createLiveTestDatabase();
+  const { assetId, destination, repo, provider, engine } = await setup(live);
+  const cases: Array<[Error, 'connection' | null]> = [
+    [new GoogleDriveError(0, null), 'connection'],
+    [new GoogleDriveError(401, null), 'connection'],
+    [new GoogleDriveError(403, null), 'connection'],
+    [new GoogleDriveError(503, 1000), 'connection'],
+    [new GoogleDriveError(404, null), null],
+    [new Error('Backup immutable object integrity mismatch'), null],
+  ];
+  for (const [failure, kind] of cases) {
+    provider.probe = () => Promise.reject(failure);
+    const entry = (await repo.entries(destination.id, assetId))[0];
+    if (entry) await repo.db.write('UPDATE backup_entries SET retry_at=0 WHERE id=?', [entry.id]);
+    expect(await engine.backupAsset(assetId)).toBe(false);
+    expect((await repo.entries(destination.id, assetId))[0]).toMatchObject({
+      last_error: failure.message,
+      error_kind: kind,
+    });
+  }
 });

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { GoogleConnectionError } from './google/config.ts';
+import { isDriveConnectionFailure } from './google/client.ts';
 import * as path from 'node:path';
 import { BackupRepository, type BackupDestination, type BackupEntry } from './repository.ts';
 import {
@@ -113,6 +114,9 @@ async function removeStaleEntryObject(
   if (stillOwned?.entryId !== entry.id || !sameObjectIdentity(stillOwned.object, expected)) return;
   await provider.remove(current!, signal);
   await repo.forgetObject(destination.id, current!.key, current!.locator);
+}
+function connectionFailure(error: unknown): boolean {
+  return error instanceof GoogleConnectionError || isDriveConnectionFailure(error);
 }
 export class BackupEngine {
   constructor(
@@ -362,7 +366,7 @@ export class BackupEngine {
         initial,
         owner,
         error instanceof Error ? error.message : 'Backup transfer failed',
-        error instanceof GoogleConnectionError ? 'connection' : null,
+        connectionFailure(error) ? 'connection' : null,
       );
       return false;
     } finally {
