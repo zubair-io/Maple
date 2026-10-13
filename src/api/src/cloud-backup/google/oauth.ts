@@ -26,6 +26,13 @@ import { relayTicket } from './oauth-routing.ts';
 
 export type GoogleFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
 const timeout = () => AbortSignal.timeout(30_000);
+// A rejected fetch (DNS, TLS, timeout) says nothing about the credentials;
+// surface it as a connection failure so a reconnect sweep can rearm it.
+function reachable(request: Promise<Response>): Promise<Response> {
+  return request.catch(() => {
+    throw new GoogleConnectionError('Google is unreachable; retry shortly.');
+  });
+}
 const hashCookie = (cookie: string) => createHash('sha256').update(cookie).digest('hex');
 const cache = new Map<string, { epoch: number; token: string; expires: number }>();
 
@@ -39,13 +46,15 @@ async function ownerStillAuthorized(id: string) {
 
 /** Google failures are classified without reflecting response bodies or secrets. */
 async function tokenRequest(params: URLSearchParams, transport: GoogleFetch) {
-  const response = await transport('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    redirect: 'error',
-    signal: timeout(),
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params,
-  });
+  const response = await reachable(
+    transport('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      redirect: 'error',
+      signal: timeout(),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params,
+    }),
+  );
   return tokenResponse(response);
 }
 
@@ -57,15 +66,17 @@ async function verifyScopes(
   // Matches Google's official Node OAuth2Client.getTokenInfo: POST + Bearer,
   // so tokens never enter URLs. Always verify effective scopes, even if omitted
   // from the token exchange response.
-  const metadata = await transport('https://oauth2.googleapis.com/tokeninfo', {
-    method: 'POST',
-    redirect: 'error',
-    signal: timeout(),
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-  });
+  const metadata = await reachable(
+    transport('https://oauth2.googleapis.com/tokeninfo', {
+      method: 'POST',
+      redirect: 'error',
+      signal: timeout(),
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    }),
+  );
   if (!metadata.ok)
     throw new GoogleConnectionError('Google token verification failed; reconnect Google Drive.');
   const info = (await metadata.json()) as {
@@ -88,13 +99,12 @@ async function verifyToken(accessToken: string, clientId: string, transport: Goo
   return loadGoogleAccount(accessToken, transport);
 }
 async function loadGoogleAccount(accessToken: string, transport: GoogleFetch) {
-  const account = await transport(
-    'https://www.googleapis.com/drive/v3/about?fields=user(permissionId,emailAddress)',
-    {
+  const account = await reachable(
+    transport('https://www.googleapis.com/drive/v3/about?fields=user(permissionId,emailAddress)', {
       redirect: 'error',
       signal: timeout(),
       headers: { Authorization: `Bearer ${accessToken}` },
-    },
+    }),
   );
   if (!account.ok)
     throw new GoogleConnectionError(
