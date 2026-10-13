@@ -23,6 +23,7 @@ interface Route {
   readonly report: string;
   readonly gpu: boolean;
   readonly workerRoute: string;
+  readonly readyReply: string;
   readonly canvas: string;
 }
 
@@ -32,6 +33,7 @@ const ROUTES: readonly Route[] = [
     report: 'WebGPU present',
     gpu: true,
     workerRoute: 'render-session',
+    readyReply: 'open-session-success',
     canvas: 'canvas[data-gpu-live]',
   },
   {
@@ -39,12 +41,19 @@ const ROUTES: readonly Route[] = [
     report: 'WASM CPU + real 2D draw',
     gpu: false,
     workerRoute: 'decode',
+    readyReply: 'decode-success',
     canvas: 'editor-image-canvas .canvas-wrap > canvas:not([data-gpu-live])',
   },
 ];
 
 const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 const canvasSha = async (canvas: Locator) => sha256(await canvas.screenshot({ type: 'png' }));
+
+async function waitForWorkerReply(page: Page, type: string): Promise<void> {
+  const replied = async () =>
+    (await highlightsChronology(page)).some((row) => row['type'] === type);
+  await expect.poll(replied, { timeout: SETTLE_TIMEOUT_MS }).toBe(true);
+}
 
 async function openEditor(page: Page, route: Route): Promise<{ slider: Locator; canvas: Locator }> {
   await page.setViewportSize({ width: 1920, height: 1280 });
@@ -59,6 +68,7 @@ async function openEditor(page: Page, route: Route): Promise<{ slider: Locator; 
   const canvas = page.locator(route.canvas);
   await expect(canvas).toBeVisible({ timeout: SETTLE_TIMEOUT_MS });
   if (!route.gpu) await expect(page.getByText(/reduced-performance path/i)).toBeVisible();
+  await waitForWorkerReply(page, route.readyReply);
   return { slider, canvas };
 }
 
@@ -79,9 +89,10 @@ async function pressAndSettle(page: Page, slider: Locator, key: string): Promise
   return (await highlightTicks(page)).find(matches)!;
 }
 
+// Only move away from 0: a default-valued Highlights tick carries no encoded
+// field to match, so the drive never crosses back through the default.
 async function measureTicks(page: Page, slider: Locator, route: Route): Promise<HighlightTick[]> {
   await slider.focus();
-  await pressAndSettle(page, slider, 'ArrowLeft');
   const rows: HighlightTick[] = [];
   for (let tick = 0; tick < WARMUP_TICKS + MEASURED_TICKS; tick++) {
     const row = await pressAndSettle(page, slider, 'ArrowRight');
