@@ -12,7 +12,7 @@
 import { Injectable, OnDestroy, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { EMPTY, Observable, Subject, defer, of, timer } from 'rxjs';
-import { catchError, debounceTime, map, switchMap, takeWhile, tap } from 'rxjs/operators';
+import { catchError, debounceTime, map, switchMap, takeUntil, takeWhile } from 'rxjs/operators';
 import {
   PanoService,
   type PanoJobProgress,
@@ -34,6 +34,11 @@ type PanoPreviewRun =
   | { kind: 'idle' }
   | { kind: 'running'; progress: PanoJobProgress | null }
   | { kind: 'failed'; message: string };
+
+interface PreviewTicket {
+  req: PanoStitchRequest;
+  generation: number;
+}
 
 type Step = { run: PanoPreviewRun } | { image: Omit<PanoPreviewImage, 'url'>; blob: Blob };
 
@@ -58,25 +63,29 @@ export class PanoPreviewStore implements OnDestroy {
   readonly run = signal<PanoPreviewRun>({ kind: 'idle' });
   readonly image = signal<PanoPreviewImage | null>(null);
 
-  private readonly requests = new Subject<PanoStitchRequest | null>();
+  private readonly requests = new Subject<PreviewTicket>();
+  private readonly cancels = new Subject<void>();
+  private generation = 0;
   private inFlightJobId: string | null = null;
 
   private readonly subscription = this.requests
     .pipe(
       debounceTime(PREVIEW_DEBOUNCE_MS),
-      switchMap((req) => (req === null ? EMPTY : this.preview(req))),
+      switchMap((ticket) => (ticket.generation === this.generation ? this.preview(ticket) : EMPTY)),
     )
     .subscribe((step) => this.apply(step));
 
   /** Preview this request once the options stop changing. */
   request(req: PanoStitchRequest): void {
     this.run.set({ kind: 'running', progress: null });
-    this.requests.next(req);
+    this.generation += 1;
+    this.requests.next({ req, generation: this.generation });
   }
 
   /** Stop the in-flight preview (server job included); a finished one stays. */
   cancel(): void {
-    this.requests.next(null);
+    this.generation += 1;
+    this.cancels.next();
     if (this.inFlightJobId !== null) this.pano.cancelJob(this.inFlightJobId).subscribe();
     this.inFlightJobId = null;
     this.run.set({ kind: 'idle' });
@@ -97,16 +106,38 @@ export class PanoPreviewStore implements OnDestroy {
     this.subscription.unsubscribe();
   }
 
-  private preview(req: PanoStitchRequest): Observable<Step> {
+  private preview({ req, generation }: PreviewTicket): Observable<Step> {
     const alignmentFrom = this.alignmentFrom();
-    return this.pano.preview({ ...req, ...(alignmentFrom ? { alignmentFrom } : {}) }).pipe(
-      tap(({ id }) => (this.inFlightJobId = id)),
-      switchMap(({ id }) => this.poll(id)),
+    const created = new Observable<string>((subscriber) => {
+      // Deliberately not torn down with this stream: a job id that arrives
+      // after its request was cancelled or superseded is cancelled
+      // server-side by `adopt`, instead of being lost with an aborted POST.
+      this.pano.preview({ ...req, ...(alignmentFrom ? { alignmentFrom } : {}) }).subscribe({
+        next: ({ id }) => {
+          const adopted = this.adopt(id, generation);
+          if (adopted !== null) subscriber.next(adopted);
+          subscriber.complete();
+        },
+        error: (err: unknown) =>
+          generation === this.generation ? subscriber.error(err) : subscriber.complete(),
+      });
+    });
+    return created.pipe(
+      switchMap((id) => this.poll(id).pipe(takeUntil(this.cancels))),
       catchError((err: unknown) => {
         this.inFlightJobId = null;
         return of<Step>({ run: { kind: 'failed', message: failureMessage(err) } });
       }),
     );
+  }
+
+  private adopt(jobId: string, generation: number): string | null {
+    if (generation !== this.generation) {
+      this.pano.cancelJob(jobId).subscribe();
+      return null;
+    }
+    this.inFlightJobId = jobId;
+    return jobId;
   }
 
   private poll(jobId: string): Observable<Step> {
