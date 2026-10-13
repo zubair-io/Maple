@@ -63,6 +63,7 @@ public final class GeneratedSearchCollectionsViewModel {
   private let sessionOrder: ForYouSessionOrder
   private var random: AnyRandomNumberGenerator
   private let cache: ForYouCache?
+  private let cacheHost: String
   private let coverWarmer: (@Sendable (SearchAsset) async -> Bool)?
   private let now: @Sendable () -> Date
   private var generation: Int = 0
@@ -74,6 +75,8 @@ public final class GeneratedSearchCollectionsViewModel {
   /// - Parameters:
   ///   - cache: Where the rendered set persists between visits and launches;
   ///     nil keeps it in memory only.
+  ///   - cacheHost: The server's `cacheHostKey`, so two servers sharing a
+  ///     library id never share a cached set.
   ///   - coverWarmer: Fetches and decodes a new cover's thumbnail into the
   ///     surface's decoded-image cache, so the card swaps straight from the
   ///     old picture to the new one. Returns false when it couldn't, and the
@@ -82,6 +85,7 @@ public final class GeneratedSearchCollectionsViewModel {
     libraryID: String,
     client: GeneratedSearchClient,
     cache: ForYouCache? = nil,
+    cacheHost: String = "",
     coverWarmer: (@Sendable (SearchAsset) async -> Bool)? = nil,
     sessionOrder: ForYouSessionOrder = .shared,
     random: some RandomNumberGenerator = SystemRandomNumberGenerator(),
@@ -90,6 +94,7 @@ public final class GeneratedSearchCollectionsViewModel {
     self.libraryID = libraryID
     self.client = client
     self.cache = cache
+    self.cacheHost = cacheHost
     self.coverWarmer = coverWarmer
     self.now = now
     self.sessionOrder = sessionOrder
@@ -106,7 +111,7 @@ public final class GeneratedSearchCollectionsViewModel {
     isLoading = true
     defer { if g == generation { isLoading = false } }
 
-    if collections.isEmpty, let cached = await cache?.read(libraryID: libraryID) {
+    if collections.isEmpty, let cached = await cache?.read(libraryID: libraryID, host: cacheHost) {
       guard g == generation else { return }
       if collections.isEmpty { show(cached) }
     }
@@ -158,7 +163,7 @@ public final class GeneratedSearchCollectionsViewModel {
     guard g == generation else { return }
     await cache?.write(
       ForYouSnapshot(collections: collections, firstPages: firstPages, savedAt: now()),
-      libraryID: libraryID)
+      libraryID: libraryID, host: cacheHost)
   }
 
   private func show(_ cached: ForYouSnapshot) {

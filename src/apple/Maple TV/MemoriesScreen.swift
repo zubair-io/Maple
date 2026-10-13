@@ -56,6 +56,7 @@ struct MemoriesScreen: View {
         libraryID: libraryID,
         client: session.generatedSearchClient,
         cache: .shared,
+        cacheHost: server.cacheHostKey,
         coverWarmer: { cover in
           await TVRemoteImage.prefetchThumb(
             server: server, absPath: cover.abs_path, thumbClient: thumbClient,

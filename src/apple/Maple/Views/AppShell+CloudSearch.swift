@@ -181,6 +181,7 @@ extension AppShell {
             libraryID: $0,
             client: GeneratedSearchClient(server: effectiveServer, httpClient: httpClient),
             cache: .shared,
+            cacheHost: host,
             coverWarmer: { cover in
               await SearchGeneratedCollections.warmCover(cover, host: host, provider: coverProvider)
             })
