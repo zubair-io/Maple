@@ -50,6 +50,7 @@ import { assetVectorsPollIndexMigration } from './0025-asset-vectors-poll-index.
 import { removeMeilisearchMigration } from './0026-remove-meilisearch.ts';
 import { peopleFlagIndexesMigration } from './0027-people-flag-indexes.ts';
 import { vectorTextChangedMigration } from './0028-vector-text-changed.ts';
+import { backupEntryErrorKindMigration } from './0029-backup-entry-error-kind.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -80,4 +81,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   removeMeilisearchMigration,
   peopleFlagIndexesMigration,
   vectorTextChangedMigration,
+  backupEntryErrorKindMigration,
 ];

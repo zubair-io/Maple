@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { GoogleConnectionError } from './google/config.ts';
 import * as path from 'node:path';
 import { BackupRepository, type BackupDestination, type BackupEntry } from './repository.ts';
 import {
@@ -351,6 +352,7 @@ export class BackupEngine {
         throw new Error('Backup configuration or lifecycle changed');
       const provider = await this.provider(destination);
       await provider.probe(lease.signal);
+      if (initial.error_kind === 'connection') await this.rearmConnectionFailures(destination);
       const ctx = { destination, entry, owner, provider, signal: lease.signal };
       const objects = await this.publishFiles(ctx, files);
       await this.validateCurrentInventory(ctx, location, files);
@@ -360,11 +362,22 @@ export class BackupEngine {
         initial,
         owner,
         error instanceof Error ? error.message : 'Backup transfer failed',
+        error instanceof GoogleConnectionError ? 'connection' : null,
       );
       return false;
     } finally {
       lease.stop();
       if (files) await releaseCapture(files);
+    }
+  }
+  // This entry was failing on the connection and its probe just succeeded, so
+  // its siblings' connection errors are resolved too. Cleanup is best effort:
+  // a failure here must not turn a healthy transfer into a recorded error.
+  private async rearmConnectionFailures(destination: BackupDestination): Promise<void> {
+    try {
+      await this.repo.clearResolvedConnectionErrors(destination.id);
+    } catch {
+      return;
     }
   }
   async backupAsset(assetId: string, signal?: AbortSignal): Promise<boolean> {
