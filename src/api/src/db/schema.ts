@@ -1223,6 +1223,7 @@ export function normaliseEnrichment(raw: Partial<Enrichment> | undefined | null)
 export type JobKind =
   | 'batch_jpeg_export'
   | 'pano_stitch'
+  | 'pano_preview'
   | 'batch_adjustment_sync'
   | 'batch_recipe_export'
   | 'cloud_backup_restore';
