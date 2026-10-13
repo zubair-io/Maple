@@ -364,6 +364,10 @@ test('a healthy connection rearms sibling connection failures but keeps other er
   connectionDown = false;
   await repo.db.write('UPDATE backup_entries SET retry_at=0 WHERE id=?', [failed.id]);
   expect(await engine.backupAsset(assetId)).toBe(true);
+  expect((await repo.entries(destination.id, assetId))[0]).toMatchObject({
+    last_error: null,
+    error_kind: null,
+  });
 
   expect((await repo.entries(destination.id, sibling))[0]).toMatchObject({
     last_error: null,

@@ -277,7 +277,7 @@ export class BackupRepository {
   ): Promise<boolean> {
     const result = await this.db.write(
       `UPDATE backup_entries SET manifest=?,verified_sequence=?,source_path=?,
-      state=?,attempts=0,retry_at=0,last_error=NULL,lease_owner=NULL,lease_until=0
+      state=?,attempts=0,retry_at=0,last_error=NULL,error_kind=NULL,lease_owner=NULL,lease_until=0
       WHERE id=? AND sequence=? AND lease_owner=? AND lease_until>? AND state!='purged'
       AND EXISTS (SELECT 1 FROM backup_destinations WHERE id=? AND enabled=1 AND generation=?)
       AND NOT EXISTS (SELECT 1 FROM backup_lifecycle WHERE asset_id=backup_entries.asset_id
@@ -450,7 +450,7 @@ export class BackupRepository {
   }
   async retry(id: string): Promise<void> {
     await this.db.write(
-      `UPDATE backup_entries SET retry_at=0,attempts=0,last_error=NULL WHERE destination_id=?`,
+      `UPDATE backup_entries SET retry_at=0,attempts=0,last_error=NULL,error_kind=NULL WHERE destination_id=?`,
       [id],
     );
     const destination = await this.destination(id);
