@@ -113,12 +113,12 @@ pub(super) fn suppress_false_colour(
         ((gc - mean).abs() / mag).min(1.0)
     };
 
-    // A negative reconstructed chroma means AMaZE's directional kernel
-    // extrapolated the colour difference past green at a luminance edge, so
-    // the hue path carries no estimate there. Where every measured R and B
-    // sample in the 5×5 window shares one chromaticity, the surface colour
-    // follows green exactly: transport the nearest same-colour samples by
-    // their ratio to green. Otherwise (a colour edge, or noise dominating the
+    // A negative opposite chroma at an R/B site means AMaZE's directional
+    // kernel extrapolated the colour difference past green at a luminance
+    // edge, so the hue path carries no estimate there. Where every measured R
+    // and B sample in the 5×5 window shares one chromaticity, the surface
+    // colour follows green exactly: transport the four diagonal samples of
+    // that colour by their ratio to green. Otherwise (a colour edge, or noise dominating the
     // ratios) there is no supported hue and the existing value blend from a
     // zero floor stands. Without this, that blend imports the bright side's
     // mean into the dark side as a magenta/green fringe (#4123).
@@ -148,12 +148,7 @@ pub(super) fn suppress_false_colour(
                 return None;
             }
         }
-        let ring: [(isize, isize); 4] = if color_at(x, y) == 1 {
-            [(-1, 0), (1, 0), (0, -1), (0, 1)]
-        } else {
-            [(-1, -1), (1, -1), (-1, 1), (1, 1)]
-        };
-        let (colour, guide) = ring
+        let (colour, guide) = [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)]
             .iter()
             .map(|&(dx, dy)| ((x as isize + dx) as usize, (y as isize + dy) as usize))
             .filter(|&(nx, ny)| color_at(nx, ny) == t)
