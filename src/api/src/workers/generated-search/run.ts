@@ -105,7 +105,7 @@ async function runForLibrary(
 type LibraryPass = (libraryId: string) => Promise<readonly GeneratedSearchInput[]>;
 
 export interface RunOptions {
-  /** Run now: bypass the pause gate. */
+  /** Run now: bypass the pause gate and claim any library without a live pass. */
   force?: boolean;
   /** Only these libraries; every registered library when omitted. */
   libraries?: readonly string[];
@@ -113,8 +113,8 @@ export interface RunOptions {
   /** Stamps each run record; the schedule's tests inject theirs. */
   clock?: () => Date;
   /** The records the schedule read when it decided these libraries were owed.
-   * Each claim then requires the record to be unchanged; without it (Run now)
-   * a claim only has to find no live pass in flight. */
+   * Unless `force` (Run now, which only has to find no live pass in flight),
+   * each claim requires the record to be unchanged since that read. */
   observed?: ReadonlyMap<string, LibraryRunRecord>;
   /** Test seam replacing the digest → LLM → persist pass for one library. */
   runLibrary?: LibraryPass;
@@ -215,9 +215,9 @@ export async function runGeneratedSearchOnce(
   const day = dayKey(now);
   const records = opts.observed ?? (await loadRunRecords());
   const claimMode = (libraryId: string): ClaimMode =>
-    opts.observed === undefined
+    opts.force === true
       ? { force: true }
-      : { force: false, expectedStartedAt: opts.observed.get(libraryId)?.started_at ?? null };
+      : { force: false, expectedStartedAt: records.get(libraryId)?.started_at ?? null };
   const attemptsToday = (libraryId: string): number => {
     const record = records.get(libraryId);
     return record?.day === day ? record.attempts : 0;

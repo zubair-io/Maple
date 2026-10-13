@@ -8,11 +8,12 @@
  * whose result is published, not what the model would propose.
  */
 
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, spyOn } from 'bun:test';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
+import * as configRepo from './config.repo.ts';
 import { saveGeneratedSearchConfig } from './config.repo.ts';
 import type { GeneratedSearchInput } from './repo.ts';
 import { dayKey, runGeneratedSearchOnce } from './run.ts';
@@ -234,6 +235,25 @@ describe('generated-search schedule — operator controls', () => {
     await h.tick();
     expect(h.calls()).toBe(0);
     expect(await loadLatestRunRecord()).toBeNull();
+  });
+
+  it('only prunes on a paused check, even if the job is enabled mid-check', async () => {
+    using live = await createLiveTestDatabase();
+    seedCollection(live, '2026-01-01T00:00:00.000Z');
+    const paused = await configRepo.loadGeneratedSearchConfig();
+    const flip = spyOn(configRepo, 'loadGeneratedSearchConfig')
+      .mockResolvedValueOnce(paused)
+      .mockResolvedValue({ ...paused, paused: false });
+    try {
+      const h = harness('2026-10-12T06:00:00.000Z');
+      await h.tick();
+      expect(h.calls()).toBe(0);
+      expect(await loadLatestRunRecord()).toBeNull();
+      expect(storedThemes(live)).toEqual([]);
+      expect(flip).toHaveBeenCalledTimes(1);
+    } finally {
+      flip.mockRestore();
+    }
   });
 
   it('counts a dry run as the day only while dry run stays on', async () => {

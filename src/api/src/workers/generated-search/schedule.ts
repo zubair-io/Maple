@@ -30,7 +30,10 @@
  */
 
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { librariesWithSetFor } from '../../db/repos/generated-searches.repo.ts';
+import {
+  librariesWithSetFor,
+  pruneGeneratedSearches,
+} from '../../db/repos/generated-searches.repo.ts';
 import { child as childLogger } from '../../log.ts';
 import { loadGeneratedSearchConfig, type GeneratedSearchConfig } from './config.repo.ts';
 import { dayKey, runGeneratedSearchOnce, type RunOptions } from './run.ts';
@@ -105,15 +108,17 @@ const defaultDeps: ScheduleDeps = {
 };
 
 /**
- * One schedule check. Paused still goes through `runGeneratedSearchOnce`,
- * which prunes and returns without calling the model, so retention keeps
- * running while the job is off.
+ * One schedule check. Paused only prunes, so retention keeps running while
+ * the job is off. It prunes directly rather than through
+ * `runGeneratedSearchOnce`: that re-reads the config, and an operator enabling
+ * the job in between would turn this paused check into a pass that never
+ * consulted today's set or run record.
  */
 export async function generatedSearchTick(deps: ScheduleDeps = defaultDeps): Promise<string[]> {
   const now = deps.now();
   const config = await loadGeneratedSearchConfig();
   if (config.paused) {
-    await runGeneratedSearchOnce(now);
+    await pruneGeneratedSearches(config.retention_days, now);
     return [];
   }
   const records = await loadRunRecords();
