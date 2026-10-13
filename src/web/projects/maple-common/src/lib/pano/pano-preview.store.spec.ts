@@ -235,4 +235,73 @@ describe('PanoPreviewStore', () => {
     vi.advanceTimersByTime(PREVIEW_POLL_MS * 3);
     http.expectNone('/api/pano/jobs/p1');
   });
+
+  it('serializes preview creation so a newer request waits for an in-flight POST to finish', () => {
+    store.request(REQUEST);
+    vi.advanceTimersByTime(PREVIEW_DEBOUNCE_MS);
+    const first = http.expectOne('/api/pano/preview');
+
+    // Newer request arrives and its debounce expires while first POST is still in flight:
+    store.request(REQUEST);
+    vi.advanceTimersByTime(PREVIEW_DEBOUNCE_MS);
+
+    // The second POST must NOT be sent yet (preventing reordering on the server):
+    http.expectNone('/api/pano/preview');
+
+    // First POST returns:
+    first.flush({ id: 'old' }, { status: 201, statusText: 'Created' });
+    vi.advanceTimersByTime(0);
+
+    // Old job is deleted:
+    expect(http.expectOne('/api/pano/jobs/old').request.method).toBe('DELETE');
+
+    // Now the second POST is emitted:
+    const second = http.expectOne('/api/pano/preview');
+    second.flush({ id: 'new' }, { status: 201, statusText: 'Created' });
+    vi.advanceTimersByTime(0);
+
+    // Second job is polled:
+    http.expectOne('/api/pano/jobs/new').flush(job('new', {}));
+    expect(store.run().kind).toBe('running');
+  });
+
+  it('does not send a queued preview POST if cancelled while waiting for an in-flight POST', () => {
+    store.request(REQUEST);
+    vi.advanceTimersByTime(PREVIEW_DEBOUNCE_MS);
+    const first = http.expectOne('/api/pano/preview');
+
+    store.request(REQUEST);
+    vi.advanceTimersByTime(PREVIEW_DEBOUNCE_MS);
+    http.expectNone('/api/pano/preview');
+
+    // User cancels while waiting:
+    store.cancel();
+
+    // First POST finishes:
+    first.flush({ id: 'old' }, { status: 201, statusText: 'Created' });
+    vi.advanceTimersByTime(0);
+    expect(http.expectOne('/api/pano/jobs/old').request.method).toBe('DELETE');
+
+    // Second POST is never emitted:
+    http.expectNone('/api/pano/preview');
+    expect(store.run().kind).toBe('idle');
+  });
+
+  it('allows the newer request to proceed if the older in-flight POST fails', () => {
+    store.request(REQUEST);
+    vi.advanceTimersByTime(PREVIEW_DEBOUNCE_MS);
+    const first = http.expectOne('/api/pano/preview');
+
+    store.request(REQUEST);
+    vi.advanceTimersByTime(PREVIEW_DEBOUNCE_MS);
+
+    first.flush('error', { status: 500, statusText: 'Server Error' });
+    vi.advanceTimersByTime(0);
+
+    const second = http.expectOne('/api/pano/preview');
+    second.flush({ id: 'new' }, { status: 201, statusText: 'Created' });
+    vi.advanceTimersByTime(0);
+    http.expectOne('/api/pano/jobs/new').flush(job('new', {}));
+    expect(store.run().kind).toBe('running');
+  });
 });

@@ -11,7 +11,7 @@
 
 import { Injectable, OnDestroy, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { EMPTY, Observable, Subject, defer, of, timer } from 'rxjs';
+import { AsyncSubject, EMPTY, Observable, Subject, defer, of, timer } from 'rxjs';
 import { catchError, debounceTime, map, switchMap, takeUntil, takeWhile } from 'rxjs/operators';
 import {
   PanoService,
@@ -67,6 +67,7 @@ export class PanoPreviewStore implements OnDestroy {
   private readonly cancels = new Subject<void>();
   private generation = 0;
   private inFlightJobId: string | null = null;
+  private inFlightPost$: Observable<void> | null = null;
 
   private readonly subscription = this.requests
     .pipe(
@@ -107,19 +108,41 @@ export class PanoPreviewStore implements OnDestroy {
   }
 
   private preview({ req, generation }: PreviewTicket): Observable<Step> {
+    const waitForInFlight = this.inFlightPost$ ?? of(undefined);
+    return waitForInFlight.pipe(
+      takeUntil(this.cancels),
+      switchMap(() => {
+        if (generation !== this.generation) return EMPTY;
+        return this.startPreview(req, generation);
+      }),
+    );
+  }
+
+  private startPreview(req: PanoStitchRequest, generation: number): Observable<Step> {
     const alignmentFrom = this.alignmentFrom();
     const created = new Observable<string>((subscriber) => {
+      const postDone = new AsyncSubject<void>();
+      this.inFlightPost$ = postDone.asObservable();
+
       // Deliberately not torn down with this stream: a job id that arrives
       // after its request was cancelled or superseded is cancelled
       // server-side by `adopt`, instead of being lost with an aborted POST.
       this.pano.preview({ ...req, ...(alignmentFrom ? { alignmentFrom } : {}) }).subscribe({
         next: ({ id }) => {
+          this.inFlightPost$ = null;
+          postDone.next();
+          postDone.complete();
           const adopted = this.adopt(id, generation);
           if (adopted !== null) subscriber.next(adopted);
           subscriber.complete();
         },
-        error: (err: unknown) =>
-          generation === this.generation ? subscriber.error(err) : subscriber.complete(),
+        error: (err: unknown) => {
+          this.inFlightPost$ = null;
+          postDone.next();
+          postDone.complete();
+          if (generation === this.generation) subscriber.error(err);
+          else subscriber.complete();
+        },
       });
     });
     return created.pipe(
