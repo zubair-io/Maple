@@ -29,8 +29,8 @@ fn sampled(pattern: CfaPattern, i: usize) -> usize {
 }
 
 /// Runs FCS on a frame whose reconstructed chroma is `truth` except at the
-/// pixels `collapse` selects, which carry `fill` × green — negative where
-/// the AMaZE kernel extrapolated past zero.
+/// R/B sites `collapse` selects, whose opposite chroma carries `fill` ×
+/// green — negative where the AMaZE kernel extrapolated past zero.
 fn suppress(
     pattern: CfaPattern,
     truth: &[[f32; 3]],
@@ -50,7 +50,7 @@ fn suppress(
         .map(|(i, p)| {
             let c = sampled(pattern, i);
             let mut q = *p;
-            if collapse(i) {
+            if collapse(i) && c != 1 {
                 for t in [0, 2].into_iter().filter(|&t| t != c) {
                     q[t] = fill * p[1];
                 }
@@ -99,7 +99,8 @@ fn collapsed_chroma_at_a_luminance_edge_follows_the_surface_chromaticity() {
                 let out = suppress(pattern, &truth, |i| near_edge(direction, i), -0.5);
                 for (i, (actual, expected)) in out.pixels.iter().zip(&truth).enumerate() {
                     let (x, y) = (i % SIDE, i / SIDE);
-                    if x < 3 || y < 3 || x + 3 >= SIDE || y + 3 >= SIDE {
+                    let c = sampled(pattern, i);
+                    if c == 1 || x < 3 || y < 3 || x + 3 >= SIDE || y + 3 >= SIDE {
                         continue;
                     }
                     for t in 0..3 {
@@ -193,7 +194,7 @@ fn step_mosaic(cfa: CfaPattern, size: u32, vertical: bool, split: f32, flip: boo
 }
 
 #[test]
-fn amaze_step_between_equal_chromaticity_surfaces_gains_no_false_chroma() {
+fn amaze_step_between_equal_chromaticity_surfaces_keeps_opposite_chroma_hue() {
     const SIZE: u32 = 48;
     for cfa in PATTERNS {
         for vertical in [true, false] {
@@ -202,15 +203,18 @@ fn amaze_step_between_equal_chromaticity_surfaces_gains_no_false_chroma() {
                     let out = amaze(&step_mosaic(cfa, SIZE, vertical, split, flip), cfa);
                     for y in 8..SIZE - 8 {
                         for x in 8..SIZE - 8 {
-                            let p = out.pixels[(y * SIZE + x) as usize];
-                            for t in [0usize, 2] {
-                                let ratio = (p[t] / p[1]) / (CHROMA[t] / CHROMA[1]);
-                                assert!(
-                                    (1.0 / 1.5..=1.5).contains(&ratio),
-                                    "{cfa:?} vertical={vertical} flip={flip} split={split} \
-                                     ({x},{y}) channel {t}: {p:?} is {ratio:.3}x the surface ratio"
-                                );
+                            let c = cfa.color_at(x, y) as usize;
+                            if c == 1 {
+                                continue;
                             }
+                            let t = 2 - c;
+                            let p = out.pixels[(y * SIZE + x) as usize];
+                            let ratio = (p[t] / p[1]) / (CHROMA[t] / CHROMA[1]);
+                            assert!(
+                                (1.0 / 1.5..=1.5).contains(&ratio),
+                                "{cfa:?} vertical={vertical} flip={flip} split={split} \
+                                 ({x},{y}) channel {t}: {p:?} is {ratio:.3}x the surface ratio"
+                            );
                         }
                     }
                 }
