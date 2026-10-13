@@ -130,6 +130,7 @@ describe('GeneratedSearchSettingsComponent', () => {
       { ...paused, paused: false },
       {
         library_id: 'lib',
+        claim_id: 'claim',
         day: '2026-10-12',
         attempts: 1,
         started_at: '2026-10-12T06:00:00.000Z',
