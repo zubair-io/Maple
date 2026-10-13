@@ -21,7 +21,10 @@
 //   * A load renders the library's cached set first (`ForYouCache`, #4595)
 //     and revalidates behind it. A card's cover changes only when the server
 //     names a different first photo, and only once that photo's thumbnail is
-//     decoded (`coverWarmer`), so a cover never blanks or flickers.
+//     decoded (`coverWarmer`), so a cover never blanks or flickers. A cached
+//     set older than `maxCoverAge` shows its cards without covers: a cover
+//     is a photo the server's hidden-people and screenshot filters chose,
+//     and a stale one may no longer pass them.
 //
 // Generation-counter staleness guard: bump
 // before any `await`, re-check after every suspension point, so a library
@@ -60,27 +63,35 @@ public final class GeneratedSearchCollectionsViewModel {
   private let sessionOrder: ForYouSessionOrder
   private var random: AnyRandomNumberGenerator
   private let cache: ForYouCache?
-  private let coverWarmer: (@Sendable (SearchAsset) async -> Void)?
+  private let coverWarmer: (@Sendable (SearchAsset) async -> Bool)?
+  private let now: @Sendable () -> Date
   private var generation: Int = 0
+
+  /// How old a cached set's covers may be and still render before the
+  /// server has re-applied its visibility filters.
+  nonisolated static let maxCoverAge: TimeInterval = 3 * 24 * 60 * 60
 
   /// - Parameters:
   ///   - cache: Where the rendered set persists between visits and launches;
   ///     nil keeps it in memory only.
   ///   - coverWarmer: Fetches and decodes a new cover's thumbnail into the
   ///     surface's decoded-image cache, so the card swaps straight from the
-  ///     old picture to the new one.
+  ///     old picture to the new one. Returns false when it couldn't, and the
+  ///     card then keeps its old cover.
   public init(
     libraryID: String,
     client: GeneratedSearchClient,
     cache: ForYouCache? = nil,
-    coverWarmer: (@Sendable (SearchAsset) async -> Void)? = nil,
+    coverWarmer: (@Sendable (SearchAsset) async -> Bool)? = nil,
     sessionOrder: ForYouSessionOrder = .shared,
-    random: some RandomNumberGenerator = SystemRandomNumberGenerator()
+    random: some RandomNumberGenerator = SystemRandomNumberGenerator(),
+    now: @escaping @Sendable () -> Date = Date.init
   ) {
     self.libraryID = libraryID
     self.client = client
     self.cache = cache
     self.coverWarmer = coverWarmer
+    self.now = now
     self.sessionOrder = sessionOrder
     self.random = AnyRandomNumberGenerator(random)
   }
@@ -121,18 +132,22 @@ public final class GeneratedSearchCollectionsViewModel {
     firstPages = firstPages.filter { loadedIDs.contains($0.key) }
 
     // One snapshot fetch per collection (there are a handful per day), run
-    // concurrently. A failure keeps whatever the card already shows.
+    // concurrently. A failed fetch, or a replacement cover that couldn't be
+    // decoded, keeps whatever the card already shows. An empty page is an
+    // answer, not a failure: the old cover no longer passes the filters.
     let shownCoverIDs = covers.mapValues(\.id)
     await withTaskGroup(of: (String, GeneratedSearchAssetPage?).self) { group in
       for collection in loaded {
         let shownCoverID = shownCoverIDs[collection.id]
         group.addTask { [client, coverWarmer] in
-          let page = try? await client.assets(
-            collectionID: collection.id, limit: Self.firstPageSize, snapshot: true)
-          if let cover = page?.results.first, cover.id != shownCoverID {
-            await coverWarmer?(cover)
-          }
-          return (collection.id, page)
+          guard
+            let page = try? await client.assets(
+              collectionID: collection.id, limit: Self.firstPageSize, snapshot: true)
+          else { return (collection.id, nil) }
+          guard let cover = page.results.first, cover.id != shownCoverID, let coverWarmer
+          else { return (collection.id, page) }
+          let warmed = await coverWarmer(cover)
+          return (collection.id, warmed || shownCoverID == nil ? page : nil)
         }
       }
       for await (id, page) in group {
@@ -142,11 +157,13 @@ public final class GeneratedSearchCollectionsViewModel {
     }
     guard g == generation else { return }
     await cache?.write(
-      ForYouSnapshot(collections: collections, firstPages: firstPages), libraryID: libraryID)
+      ForYouSnapshot(collections: collections, firstPages: firstPages, savedAt: now()),
+      libraryID: libraryID)
   }
 
   private func show(_ cached: ForYouSnapshot) {
     collections = arrangeForSession(cached.collections)
+    guard now().timeIntervalSince(cached.savedAt) <= Self.maxCoverAge else { return }
     let ids = Set(cached.collections.map(\.id))
     firstPages = cached.firstPages.filter { ids.contains($0.key) }
   }

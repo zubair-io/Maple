@@ -133,6 +133,7 @@ extension AppShell {
         do {
             switch try await remote.deleteAsset(assetID: assetID, intent: .trash) {
             case .ok:
+                await ForYouCache.shared.forgetAssets(absPaths: [catalog.absPath])
                 return .trashed(destination: .cloudTrash)
             case .stateMismatch:
                 return .failed("This photo is already in the Cloud trash.")

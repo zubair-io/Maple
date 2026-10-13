@@ -60,6 +60,8 @@ struct MemoriesScreen: View {
           await TVRemoteImage.prefetchThumb(
             server: server, absPath: cover.abs_path, thumbClient: thumbClient,
             thumbCache: thumbCache)
+          return await TVRemoteImage.cachedImage(
+            server: server, absPath: cover.abs_path, kind: .thumb) != nil
         }
       ))
   }
