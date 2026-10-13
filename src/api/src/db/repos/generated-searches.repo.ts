@@ -152,6 +152,23 @@ export async function listGeneratedSearches(
 }
 
 /**
+ * The libraries that already hold a set for `generatedFor` — the daily
+ * schedule's first answer to "is today's pass still owed?" (#4602). The rows
+ * themselves are the truth here, so a set written by Run now, or by a build
+ * from before the run marker existed, still counts.
+ */
+export async function librariesWithSetFor(
+  generatedFor: string,
+  dbOverride?: SqliteDb,
+): Promise<Set<string>> {
+  const rows = await sqliteDb(dbOverride).read<{ library_id: string }>(
+    `SELECT DISTINCT library_id FROM generated_searches WHERE generated_for = ?`,
+    [generatedFor],
+  );
+  return new Set(rows.map((row) => row.library_id));
+}
+
+/**
  * One collection by its id, for `GET /api/generated-searches/:id/assets`.
  *
  * That route reads the collection inline through `getDb()` today rather than

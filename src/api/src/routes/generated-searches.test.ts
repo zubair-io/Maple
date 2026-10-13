@@ -30,6 +30,7 @@ import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { generatedSearchesRoutes } from './generated-searches.ts';
 import { generatedSearchConfigRoutes } from '../workers/generated-search/routes.ts';
 import { _resetRunNowForTests, _awaitRunNowForTests } from '../workers/generated-search/run-now.ts';
+import { saveRunRecord } from '../workers/generated-search/run-state.repo.ts';
 
 const app = new Elysia().use(generatedSearchesRoutes).use(generatedSearchConfigRoutes);
 
@@ -355,5 +356,38 @@ describe('POST /api/workers/generated-search/run', () => {
     release();
     await _awaitRunNowForTests();
     _resetRunNowForTests();
+  });
+});
+
+describe('GET /api/workers/generated-search/last-run', () => {
+  it('answers null before any attempt', async () => {
+    expect((await get('/api/workers/generated-search/last-run')).body).toEqual({ last_run: null });
+  });
+
+  it('answers the most recently started attempt across libraries', async () => {
+    const base = {
+      day: '2026-10-12',
+      attempts: 1,
+      finished_at: null,
+      saved: 0,
+      error: null,
+      trigger: 'schedule' as const,
+    };
+    await saveRunRecord({
+      ...base,
+      library_id: 'older',
+      started_at: '2026-10-12T01:00:00.000Z',
+      outcome: 'saved',
+    });
+    await saveRunRecord({
+      ...base,
+      library_id: 'newer',
+      started_at: '2026-10-12T05:00:00.000Z',
+      outcome: 'failed',
+      error: 'ollama unreachable',
+    });
+
+    const { body } = await get('/api/workers/generated-search/last-run');
+    expect(body.last_run).toMatchObject({ library_id: 'newer', outcome: 'failed' });
   });
 });

@@ -3,10 +3,15 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { API_BASE_URL, type GeneratedSearchConfig } from '@maple-common';
+import {
+  API_BASE_URL,
+  type GeneratedSearchConfig,
+  type GeneratedSearchLastRun,
+} from '@maple-common';
 import { GeneratedSearchSettingsComponent } from './generated-search-settings.component';
 
 const CONFIG_URL = '/api/workers/generated-search/config';
+const LAST_RUN_URL = '/api/workers/generated-search/last-run';
 
 const paused: GeneratedSearchConfig = {
   collections_per_day: 4,
@@ -47,9 +52,13 @@ describe('GeneratedSearchSettingsComponent', () => {
   /** Flush the initial GET and let the component's async `reload()` settle.
    * Without the `whenStable()` the assertions run before the awaited
    * promise resolves and every readout is still in its loading state. */
-  async function flushConfig(config: GeneratedSearchConfig = paused): Promise<void> {
+  async function flushConfig(
+    config: GeneratedSearchConfig = paused,
+    lastRun: GeneratedSearchLastRun | null = null,
+  ): Promise<void> {
     http.expectOne(CONFIG_URL).flush(config);
     await fixture.whenStable();
+    http.expectOne(LAST_RUN_URL).flush({ last_run: lastRun });
     // The panel resolves which library to read collections for; with no
     // folders registered it stops there and never asks for collections.
     for (const r of http.match('/api/folders')) r.flush([]);
@@ -109,6 +118,37 @@ describe('GeneratedSearchSettingsComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('running');
   });
 
+  it('says the job has never run before its first attempt', async () => {
+    await flushConfig({ ...paused, paused: false });
+    expand();
+    const line = fixture.nativeElement.querySelector('[data-testid="gs-last-run"]');
+    expect(line.textContent).toContain('never run');
+  });
+
+  it('shows a failed last run in the row and the panel so a stall is visible', async () => {
+    await flushConfig(
+      { ...paused, paused: false },
+      {
+        library_id: 'lib',
+        day: '2026-10-12',
+        attempts: 1,
+        started_at: '2026-10-12T06:00:00.000Z',
+        finished_at: '2026-10-12T06:01:00.000Z',
+        outcome: 'failed',
+        saved: 0,
+        error: 'ollama unreachable',
+        trigger: 'schedule',
+      },
+    );
+    const summary = fixture.nativeElement.querySelector('[data-testid="gs-summary"]');
+    expect(summary.textContent).toContain('last run failed');
+
+    expand();
+    const line = fixture.nativeElement.querySelector('[data-testid="gs-last-run"]');
+    expect(line.textContent).toContain('failed: ollama unreachable');
+    expect(line.textContent).toContain(new Date('2026-10-12T06:00:00.000Z').toLocaleString());
+  });
+
   it('surfaces a config load failure instead of rendering an empty panel', async () => {
     http.expectOne(CONFIG_URL).flush('nope', { status: 500, statusText: 'Server Error' });
     await fixture.whenStable();
@@ -149,6 +189,7 @@ describe('GeneratedSearchSettingsComponent — Run now', () => {
   it('POSTs the run endpoint and disables the button while in flight', async () => {
     http.expectOne(CONFIG_URL).flush(paused);
     await fixture.whenStable();
+    http.expectOne(LAST_RUN_URL).flush({ last_run: null });
     for (const r of http.match('/api/folders')) r.flush([]);
     await fixture.whenStable();
     fixture.detectChanges();
@@ -170,6 +211,7 @@ describe('GeneratedSearchSettingsComponent — Run now', () => {
     await new Promise((r) => setTimeout(r, 0));
     for (const r of http.match((rq) => rq.url.includes('/api/generated-searches')))
       r.flush({ results: [] });
+    for (const r of http.match(LAST_RUN_URL)) r.flush({ last_run: null });
     await fixture.whenStable();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeNull();
