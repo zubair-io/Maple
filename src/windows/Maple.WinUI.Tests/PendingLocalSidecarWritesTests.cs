@@ -75,6 +75,23 @@ public sealed class PendingLocalSidecarWritesTests : IDisposable
     }
 
     [Fact]
+    public void PendingReadRetainsBrushDiscardAndRestoreActions()
+    {
+        var path = Path.Combine(_root, "pending-brush.dng");
+        var original = new XmpSidecarDocument();
+        original.PassthroughNodes.Add("<papp:BrushCorrections xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" />");
+        var restore = XmpBrushCorrections.PassthroughContainers(original)!;
+        var queue = new PendingLocalSidecarWrites();
+        queue.Stage(path, new AdjustmentState(), 0, "none", null,
+            discardBrushCorrections: true, restoreBrushCorrections: restore);
+
+        var pending = queue.ReadPendingSnapshot(path)!;
+        Assert.True(pending.DiscardBrushCorrections);
+        Assert.Same(restore, pending.RestoreBrushCorrections);
+        Assert.Equal(0, pending.Document.Adjustments.Exposure);
+    }
+
+    [Fact]
     public void ResetWriteRemovesParsedBrushCorrectionsAndKeepsOtherPassthrough()
     {
         XNamespace papp = "http://ns.justmaple.app/photo/1.0/";
