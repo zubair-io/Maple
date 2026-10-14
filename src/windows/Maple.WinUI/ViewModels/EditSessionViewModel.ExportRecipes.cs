@@ -29,6 +29,10 @@ public partial class EditSessionViewModel
             Captured = p.CaptureDate?.ToString("yyyy:MM:dd HH:mm:ss", CultureInfo.InvariantCulture),
             IsOpen = ReferenceEquals(p, open),
             Pending = p.IsCloud ? null : _localMetadataWrites.ReadPending(p.FilePath),
+            DiscardBrushCorrections = ReferenceEquals(p, open) && ShouldDiscardBrushCorrectionsFor(p.FilePath),
+            RestoreBrushCorrections = ReferenceEquals(p, open)
+                ? BrushCorrectionsToRestoreFor(p.FilePath, adjustments)
+                : null,
         }).ToArray();
         return Task.Run<IReadOnlyList<ExportInput>>(async () =>
         {
@@ -61,7 +65,9 @@ public partial class EditSessionViewModel
                     if (p.IsOpen && p.IsCloud && !useActive && dirty)
                         throw new IOException("Cloud edits were still loading when this photo was changed. Wait for its edits to load before exporting.");
                     snapshots.Add(new ExportInput(path, ExportSnapshot.Serialize(xml,
-                        useActive ? adjustments : p.Pending?.Adjustments), p.Stem, p.Captured));
+                        useActive ? adjustments : p.Pending?.Adjustments,
+                        p.DiscardBrushCorrections,
+                        p.RestoreBrushCorrections), p.Stem, p.Captured));
                 }
                 catch (Exception error) when (error is not OperationCanceledException and not OutOfMemoryException)
                 { throw new IOException($"Cannot queue {p.Stem}: {error.Message}", error); }
