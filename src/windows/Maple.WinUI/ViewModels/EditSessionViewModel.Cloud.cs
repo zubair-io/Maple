@@ -348,6 +348,8 @@ namespace Maple.WinUI.ViewModels
             var restoreBrushCorrections = BrushCorrectionsToRestoreFor(photo.FilePath, Adjustments);
             if (!discardBrushCorrections && restoreBrushCorrections is not null)
                 Services.Xmp.XmpBrushCorrections.RestorePassthroughContainers(doc, restoreBrushCorrections);
+            if (discardBrushCorrections) _brushDiscardGeneration++;
+            var discardGeneration = _brushDiscardGeneration;
             doc.Rating = photo.Rating;
             doc.Flag = photo.FlagStatus;
             doc.ColorLabel = photo.ColorLabel;
@@ -364,6 +366,10 @@ namespace Maple.WinUI.ViewModels
                     restoreBrushCorrections);
                 await OnUiAcknowledgedAsync(() =>
                 {
+                    if (discardBrushCorrections && _brushDiscardGeneration == discardGeneration &&
+                        _discardBrushCorrectionsForPhotoPath is { } discardedPath &&
+                        string.Equals(discardedPath, serverPath, StringComparison.OrdinalIgnoreCase))
+                        SetBrushCorrectionDiscardPath(null);
                     if (publication != null)
                     {
                         if (!_disposed && version == _photoOpenVersion && ReferenceEquals(photo, SelectedPhoto))

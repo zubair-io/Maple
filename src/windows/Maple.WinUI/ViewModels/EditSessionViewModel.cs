@@ -75,6 +75,7 @@ namespace Maple.WinUI.ViewModels
         private Timer? _sidecarTimer;
         private Timer? _undoTimer;
         private string? _discardBrushCorrectionsForPhotoPath;
+        private long _brushDiscardGeneration;
         private readonly Dictionary<string, BrushCorrectionRestoreSnapshot> _brushCorrectionsRemovedByReset =
             new(StringComparer.OrdinalIgnoreCase);
         /// <summary>Shared by <see cref="_decodeCancel"/> and
@@ -451,7 +452,7 @@ namespace Maple.WinUI.ViewModels
                 {
                     if (_discardBrushCorrectionsForPhotoPath is { } discardedPath &&
                         string.Equals(discardedPath, result.Path, StringComparison.OrdinalIgnoreCase))
-                        _discardBrushCorrectionsForPhotoPath = null;
+                        SetBrushCorrectionDiscardPath(null);
                     if (string.Equals(result.Path, photo?.FilePath, StringComparison.OrdinalIgnoreCase))
                         _lastSidecarWriteText = result.Xml;
                     OnUi(() => SidecarSaved?.Invoke());

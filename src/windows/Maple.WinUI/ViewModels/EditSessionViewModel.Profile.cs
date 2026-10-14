@@ -65,10 +65,10 @@ namespace Maple.WinUI.ViewModels
                 var beforeHadBrush = before.LocalAdjustments.Any(layer => layer.Mask is BrushMask);
                 var currentHasBrush = Adjustments.LocalAdjustments.Any(layer => layer.Mask is BrushMask);
                 if (beforeHadBrush && !currentHasBrush)
-                    _discardBrushCorrectionsForPhotoPath = photo.FilePath;
+                    SetBrushCorrectionDiscardPath(photo.FilePath);
                 else if (currentHasBrush && _discardBrushCorrectionsForPhotoPath is { } path &&
                     string.Equals(path, photo.FilePath, StringComparison.OrdinalIgnoreCase))
-                    _discardBrushCorrectionsForPhotoPath = null;
+                    SetBrushCorrectionDiscardPath(null);
             }
             ReleaseBrushRasters();
             SyncSlidersFromModel();
