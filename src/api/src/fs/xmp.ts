@@ -427,9 +427,10 @@ export async function writeXmpWithPrecondition(
         if (ifMtimeMatchesEpoch !== null) {
           let onDiskEpoch: number | null = null;
           try {
-            const st = await fs.stat(sidecar);
+            const st = await waitForAbortable(fs.stat(sidecar), signal);
             onDiskEpoch = Math.floor(st.mtimeMs / 1000);
           } catch {
+            signal?.throwIfAborted();
             onDiskEpoch = null;
           }
           if (onDiskEpoch !== ifMtimeMatchesEpoch) return writeConflictCopy();
