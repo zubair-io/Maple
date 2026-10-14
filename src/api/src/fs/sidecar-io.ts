@@ -65,14 +65,32 @@ async function stageSidecarTemp(
   content: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  signal?.throwIfAborted();
-  await fs.mkdir(path.dirname(destPath), { recursive: true });
-  const fh = await fs.open(tmpPath, 'w');
+  const staging = (async () => {
+    signal?.throwIfAborted();
+    await fs.mkdir(path.dirname(destPath), { recursive: true });
+    signal?.throwIfAborted();
+    const fh = await fs.open(tmpPath, 'w');
+    try {
+      signal?.throwIfAborted();
+      await fh.writeFile(content, 'utf-8');
+      signal?.throwIfAborted();
+      await fh.datasync();
+      signal?.throwIfAborted();
+    } finally {
+      await fh.close();
+    }
+  })();
+
   try {
-    await fh.writeFile(content, 'utf-8');
-    await fh.datasync();
-  } finally {
-    await fh.close();
+    await waitForAbortable(staging, signal);
+  } catch (error) {
+    if (signal?.aborted) {
+      void staging.then(
+        () => removeTemporarySidecar(tmpPath),
+        () => removeTemporarySidecar(tmpPath),
+      );
+    }
+    throw error;
   }
 }
 

@@ -398,7 +398,7 @@ export async function writeXmpWithPrecondition(
         signal?.throwIfAborted();
         const writeConflictCopy = async (): Promise<XmpWriteOutcome> => {
           signal?.throwIfAborted();
-          const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName);
+          const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName, signal);
           signal?.throwIfAborted();
           const written = await writeSidecarAtomic(
             conflictPath,

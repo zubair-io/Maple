@@ -231,7 +231,8 @@
         "src/fs/sidecar-write-order.ts",
         // #4574: serializer test owns only disposable temp fixtures.
         "src/fs/sidecar-write-order.test.ts",
-        // #4616: alias and cancellation regressions own disposable os.tmpdir fixtures only.
+        // #4616: sidecar ordering, alias, and cancellation regressions use disposable temp fixtures only.
+        "src/fs/sidecar-io.test.ts",
         "src/fs/sidecar-write-order.alias.test.ts",
         "src/fs/xmp.read-cancel.test.ts",
         // #4317: primary-only baseline reads; publications use mirrored sidecar primitives.

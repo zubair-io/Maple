@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { computeBodyETag } from '../runtime/http-etag';
 import * as mirroredFs from './mirrored.ts';
+import { conflictCopyPath } from './xmp-conflict.ts';
 import { serializeSidecarWrite } from './sidecar-write-order';
 import { writeXmpIfUnchanged } from './xmp-conditional.ts';
 import {
@@ -257,6 +258,68 @@ test('cancelling a stalled mtime precondition stat releases the write barrier', 
       ),
     ).resolves.toMatchObject({ kind: 'ok' });
     expect(sidecarStats).toBeGreaterThan(1);
+  } finally {
+    statSpy.mockRestore();
+    releaseStalledStat();
+  }
+});
+
+test('cancelling a conflict-path probe releases the write barrier', async () => {
+  const rawPath = join(root, 'stalled-conflict-probe.dng');
+  const sidecar = join(root, 'stalled-conflict-probe.xmp');
+  const conflictPath = conflictCopyPath(rawPath, 'test-device');
+  const original = '<x:xmpmeta />';
+  await writeFile(rawPath, Buffer.from([1, 2, 3]));
+  await writeFile(sidecar, original);
+
+  const realStat = mirroredFs.stat.bind(mirroredFs);
+  const { promise: stalledStat, resolve: releaseStalledStat } = Promise.withResolvers<void>();
+  const { promise: statStarted, resolve: markStatStarted } = Promise.withResolvers<void>();
+  let conflictStats = 0;
+  const statSpy = spyOn(mirroredFs, 'stat').mockImplementation((async (
+    ...args: Parameters<typeof mirroredFs.stat>
+  ) => {
+    if (String(args[0]) === conflictPath && conflictStats++ === 0) {
+      markStatStarted();
+      await stalledStat;
+    }
+    return realStat(...args);
+  }) as never);
+  const controller = new AbortController();
+
+  try {
+    const cancelled = writeXmpWithPrecondition(
+      rawPath,
+      '<x:xmpmeta><conflict /></x:xmpmeta>',
+      Number.MAX_SAFE_INTEGER,
+      'test-device',
+      false,
+      root,
+      controller.signal,
+    );
+    await statStarted;
+    controller.abort();
+    await expect(
+      Promise.race([
+        cancelled,
+        Bun.sleep(100).then(() => {
+          throw new Error('conflict path probe did not return after cancellation');
+        }),
+      ]),
+    ).resolves.toMatchObject({ kind: 'error' });
+
+    await expect(
+      writeXmpWithPrecondition(
+        rawPath,
+        '<x:xmpmeta><next-save /></x:xmpmeta>',
+        null,
+        'test-device',
+        false,
+        root,
+      ),
+    ).resolves.toMatchObject({ kind: 'ok' });
+    expect(await readFile(sidecar, 'utf8')).toContain('next-save');
+    await expect(lstat(conflictPath)).rejects.toMatchObject({ code: 'ENOENT' });
   } finally {
     statSpy.mockRestore();
     releaseStalledStat();
