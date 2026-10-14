@@ -66,6 +66,12 @@ namespace Maple.WinUI.ViewModels
                     continue;
                 }
                 model.LocalAdjustments[entry.Index] = model.LocalAdjustments[entry.Index] with { Mask = entry.Mask };
+                if (current.RasterId != 0 &&
+                    current.RasterId != entry.Mask.RasterId &&
+                    _brushRasterIds.Remove(current.RasterId))
+                {
+                    RawFfi.maple_mask_raster_release(current.RasterId);
+                }
                 _brushRasterIds.Add(entry.Mask.RasterId);
             }
             return complete;
