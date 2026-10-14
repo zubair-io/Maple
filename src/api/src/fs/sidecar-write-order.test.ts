@@ -136,6 +136,75 @@ describe('serializeSidecarWrite', () => {
     }
   });
 
+  test('keeps the lexical destination locked while its parent is replaced', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-parent-replaced-'));
+    try {
+      const parent = path.join(root, 'photos');
+      const movedParent = path.join(root, 'photos-old');
+      const destination = path.join(parent, 'photo.xmp');
+      await fs.mkdir(parent);
+      const started = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const order: string[] = [];
+      const first = serializeSidecarWrite(
+        destination,
+        async () => {
+          started.resolve();
+          await release.promise;
+          order.push('first');
+        },
+        { admissionScope: root },
+      );
+      await started.promise;
+
+      await fs.rename(parent, movedParent);
+      await fs.mkdir(parent);
+      let secondStarted = false;
+      const second = serializeSidecarWrite(
+        destination,
+        async () => {
+          secondStarted = true;
+          order.push('second');
+        },
+        { admissionScope: root },
+      );
+
+      await Bun.sleep(10);
+      expect(secondStarted).toBe(false);
+      release.resolve();
+      await Promise.all([first, second]);
+      expect(order).toEqual(['first', 'second']);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('aborted destination resolution releases its library admission turn', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-aborted-resolution-'));
+    try {
+      const destination = path.join(root, 'photo.xmp');
+      const controller = new AbortController();
+      const started = Promise.withResolvers<void>();
+      const abandoned = serializeSidecarWrite(destination, async () => 'abandoned', {
+        admissionScope: root,
+        signal: controller.signal,
+        resolveDestination: async () => {
+          started.resolve();
+          return new Promise<string>(() => undefined);
+        },
+      });
+
+      await started.promise;
+      controller.abort();
+      await expect(abandoned).rejects.toMatchObject({ name: 'AbortError' });
+      await expect(
+        serializeSidecarWrite(destination, async () => 'next', { admissionScope: root }),
+      ).resolves.toBe('next');
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('different file symlink names preserve FIFO after resolving to one sidecar', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-file-alias-'));
     try {
