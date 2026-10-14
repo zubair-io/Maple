@@ -929,30 +929,12 @@ fn rawler_illuminant_to_core(r: &RawlerIlluminant) -> CoreIlluminant {
 /// HDR headroom before the `u16::MAX` ceiling.
 const FLOAT_WHITE_ANCHOR: u32 = 16_384;
 
-/// Requantize float-format DNG samples into the u16 buffer the decode pipeline
-/// expects, preserving float precision AND over-white HDR headroom (#1917).
-///
-/// Float DNGs — e.g. ACR/Lightroom HDR-Merge output (#459) — are scene-linear
-/// floats whose nominal white is `white_level` (DNG spec default 1.0) and which
-/// legitimately carry over-white HDR headroom. The pre-#1917 code scaled by the
-/// raw metadata `white_level` and rounded to u16: for the float-default white of
-/// 1.0 (→ u32 1) that collapsed the whole image onto ~2 integer levels — 0.18
-/// mid-gray and 0.5 both round to 0 — annihilating float precision and the HDR
-/// headroom this format exists to carry, contradicting the scene-referred
-/// invariant ("nothing before the view transform clips").
-///
-/// Fix: anchor nominal white at [`FLOAT_WHITE_ANCHOR`] via an integer boost that
-/// only ever *raises* precision (never below the metadata white), and return
-/// that anchored value as the effective `white_level` so downstream
-/// `sensor_linearize` still maps nominal white → scene-linear 1.0. Values above
-/// nominal white are retained up to `u16::MAX` (~4× / 2 stops) rather than
-/// clipped at the white point.
-///
-/// Note: fully unbounded >1.0 headroom into the scene-linear buffer additionally
-/// requires relaxing the generic `linearize` `[0, 1]` clamp for float sources
-/// (and, for arbitrary headroom, an f32 raw lane — the u16 buffer caps in-lane
-/// headroom at 65535 regardless); that is out of scope for this decode-boundary
-/// fix, which eliminates the precision/headroom destruction at import.
+/// Infer a lower effective sensor white when a large RAW shows repeated
+/// clipping below its declared level. Dense midrange plateaus must occupy at
+/// least 16 32px tiles, which rejects a localized flat chart patch; sparse
+/// plateaus are accepted only near declared white. The scalar result is the
+/// highest qualifying Bayer-position plateau so another channel's highlights
+/// are not clipped by a lower saturation code.
 fn effective_white_level(
     data: &[u16],
     width: u32,
@@ -969,40 +951,92 @@ fn effective_white_level(
     if data.len() < w.saturating_mul(h) {
         return declared;
     }
-    let mut maxv = [0u32; 4];
-    let mut cnt = [0usize; 4];
+    let mut histogram = vec![[0u32; 4]; usize::from(u16::MAX) + 1];
     for y in 0..h {
+        let y_base = (y & 1) * 2;
         for x in 0..w {
-            let p = (y % 2) * 2 + (x % 2);
-            let v = data[y * w + x] as u32;
-            if v > maxv[p] {
-                maxv[p] = v;
-                cnt[p] = 1;
-            } else if v == maxv[p] {
-                cnt[p] += 1;
+            let p = y_base + (x & 1);
+            histogram[data[y * w + x] as usize][p] += 1;
+        }
+    }
+    let mut candidates = [None; 4];
+    for p in 0..4 {
+        candidates[p] = histogram
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(value, counts)| {
+                let count = counts[p];
+                if count < 32 {
+                    return None;
+                }
+                let value = value as u32;
+                let denom = (declared as f64 - black_level[p] as f64).max(1.0);
+                let frac = (value as f64 - black_level[p] as f64) / denom;
+                // A modest pile-up below 96% can be a uniform chart patch rather
+                // than sensor clipping. The lower-range fixture clips have a much
+                // larger pile-up; near-declared clips can remain sparse.
+                let is_sparse_near_declared_white = (0.96..0.995).contains(&frac);
+                let is_dense_sub_declared_white = (0.90..0.96).contains(&frac) && count >= 1024;
+                (is_sparse_near_declared_white || is_dense_sub_declared_white)
+                    .then_some((value, is_dense_sub_declared_white))
+            });
+    }
+
+    // A dense midrange plateau can also be a flat chart patch. Require it to
+    // occur across separated image tiles; actual clipped highlights span
+    // multiple regions, while a single uniform patch does not. Near-declared
+    // plateaus keep their sparse path because small clipped highlights are
+    // common there.
+    let needs_spatial_support = candidates
+        .iter()
+        .any(|candidate| candidate.is_some_and(|(_, dense)| dense));
+    let spatial_support = if needs_spatial_support {
+        let tiles_w = w.div_ceil(32);
+        let mut occupied = vec![[false; 4]; tiles_w * h.div_ceil(32)];
+        for y in 0..h {
+            let y_base = (y & 1) * 2;
+            for x in 0..w {
+                let p = y_base + (x & 1);
+                if let Some((value, true)) = candidates[p] {
+                    if data[y * w + x] as u32 == value {
+                        occupied[(y / 32) * tiles_w + x / 32][p] = true;
+                    }
+                }
             }
         }
-    }
-    let mut best: Option<u32> = None;
-    for p in 0..4 {
-        if cnt[p] < 32 {
-            continue;
-        }
-        let denom = (declared as f64 - black_level[p] as f64).max(1.0);
-        let frac = (maxv[p] as f64 - black_level[p] as f64) / denom;
-        // A modest pile-up below 96% can be a uniform chart patch rather
-        // than sensor clipping. The lower-range fixture clips have a much
-        // larger pile-up; near-declared clips can remain sparse.
-        let is_sparse_near_declared_white = (0.96..0.995).contains(&frac) && cnt[p] >= 32;
-        let is_dense_sub_declared_white = (0.90..0.96).contains(&frac) && cnt[p] >= 1024;
-        if is_sparse_near_declared_white || is_dense_sub_declared_white {
-            best = Some(best.map_or(maxv[p], |b: u32| b.min(maxv[p])));
-        }
-    }
+        (0..4)
+            .map(|p| occupied.iter().filter(|tile| tile[p]).count() >= 16)
+            .collect::<Vec<_>>()
+    } else {
+        vec![true; 4]
+    };
+    // A single scalar normalization ceiling must not clip a Bayer position
+    // whose valid saturation plateau is higher than another position's.
+    let best = candidates
+        .into_iter()
+        .enumerate()
+        .filter_map(|(p, candidate)| match candidate {
+            Some((value, false)) => Some(value),
+            Some((value, true)) if spatial_support[p] => Some(value),
+            _ => None,
+        })
+        .max();
     best.filter(|&b| b > black_level.iter().max().copied().unwrap_or(0))
         .unwrap_or(declared)
 }
 
+/// Requantize float-format DNG samples into the u16 buffer the decode pipeline
+/// expects, preserving float precision and over-white HDR headroom (#1917).
+///
+/// Float DNGs are scene-linear and can legitimately carry values above nominal
+/// white. Anchor nominal white at [`FLOAT_WHITE_ANCHOR`] via an integer boost
+/// that only raises precision, then return that anchored value so downstream
+/// `sensor_linearize` maps nominal white to scene-linear 1.0. Values above
+/// nominal white are retained up to `u16::MAX` (~4× / 2 stops) rather than
+/// clipped at the white point. Fully unbounded headroom requires relaxing the
+/// generic `linearize` `[0, 1]` clamp and an f32 raw lane, outside this decode
+/// boundary fix.
 fn requantize_float_samples(fdata: &[f32], white_level: u32) -> (Vec<u16>, u32) {
     let white = white_level.max(1);
     let boost = (FLOAT_WHITE_ANCHOR / white).max(1);
@@ -1139,6 +1173,42 @@ mod tests {
     }
 
     #[test]
+    fn effective_white_keeps_highest_qualifying_bayer_position() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in (0..h).step_by(2) {
+            for x in (0..w).step_by(2) {
+                data[y * w + x] = 62000;
+            }
+        }
+        for y in (0..16).step_by(2) {
+            for x in (1..9).step_by(2) {
+                data[y * w + x] = 63000;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            63000
+        );
+    }
+
+    #[test]
+    fn effective_white_ignores_isolated_hot_pixel_above_clipping_plateau() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in (0..h).step_by(2) {
+            for x in (0..w).step_by(2) {
+                data[y * w + x] = 62193;
+            }
+        }
+        data[0] = u16::MAX;
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            62193
+        );
+    }
+
+    #[test]
     fn effective_white_keeps_declared_for_dark_frame() {
         let data = vec![4000u16; 512 * 512];
         assert_eq!(
@@ -1175,6 +1245,43 @@ mod tests {
     }
 
     #[test]
+    fn effective_white_rejects_a_localized_flat_midrange_patch() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in 0..64 {
+            for x in 0..64 {
+                data[y * w + x] = 62206;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_detects_dense_clipping_across_separated_tiles() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for tile_y in 0..4 {
+            for tile_x in 0..4 {
+                for y in (tile_y * 64..tile_y * 64 + 16).step_by(2) {
+                    for x in (tile_x * 64..tile_x * 64 + 16).step_by(2) {
+                        data[y * w + x] = 62206;
+                        data[y * w + x + 1] = 62206;
+                        data[(y + 1) * w + x] = 62206;
+                        data[(y + 1) * w + x + 1] = 62206;
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            62206
+        );
+    }
+
+    #[test]
     fn effective_white_detects_sparse_clipping_near_declared_white() {
         let (w, h) = (512usize, 512usize);
         let mut data = vec![1000u16; w * h];
@@ -1193,7 +1300,7 @@ mod tests {
     #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn fixture_sub_declared_saturation_is_detected() {
         for (name, want) in [
-            ("test_0004.fff", 63416u32),
+            ("test_0004.fff", 64856u32),
             ("test_0018.dng", 62193),
             ("test_0019.dng", 62206),
         ] {
