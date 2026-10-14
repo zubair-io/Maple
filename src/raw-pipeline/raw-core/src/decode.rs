@@ -1198,9 +1198,10 @@ impl EffectiveWhiteScan {
 /// dense midrange plateaus must occupy 12. Each threshold must hold on four
 /// 128px grids offset by half a cell, so a small stripe or frame-local patch
 /// cannot qualify just because it crosses grid boundaries. A lower scalar
-/// ceiling is also rejected when another Bayer position has supported samples
-/// above it but no qualifying plateau of its own, or when a Bayer position
-/// contains a dense brighter population that may be a localized real highlight.
+/// ceiling is also rejected when another Bayer position has one populated
+/// brighter source-code bin with distributed support but no qualifying
+/// plateau of its own, or when a Bayer position contains a dense brighter
+/// population that may be a localized real highlight.
 fn effective_white_level(
     data: &[u16],
     width: u32,
@@ -1346,26 +1347,6 @@ fn effective_white_level(
     let Some(best) = best.filter(|&b| b > black_level.iter().max().copied().unwrap_or(0)) else {
         return declared;
     };
-    let regions_w = (w + 64).div_ceil(128);
-    let mut brighter_regions: [[EffectiveWhiteRegions; 4]; 4] =
-        std::array::from_fn(|_| std::array::from_fn(|_| EffectiveWhiteRegions::default()));
-    let mut brighter_bounds = [EffectiveWhiteBounds::default(); 4];
-    for (position, position_candidates) in candidates_by_position.iter().enumerate() {
-        for &candidate_index in position_candidates {
-            let candidate = &candidates[candidate_index];
-            if u32::from(candidate.value) <= best {
-                continue;
-            }
-            brighter_bounds[position].merge(candidate.spatial_bounds);
-            for grid in 0..4 {
-                brighter_regions[position][grid].merge(
-                    &candidate.occupied_regions[grid],
-                    regions_w,
-                    EFFECTIVE_WHITE_MAX_REGIONS,
-                );
-            }
-        }
-    }
     let unprotected_bayer_highlights = (0..4).any(|position| {
         let sample_count = histogram
             .iter()
@@ -1376,15 +1357,16 @@ fn effective_white_level(
         // Dense brighter populations preserve the declared ceiling even if
         // they are localized. Some packed RAW encodings also expand one valid
         // source code into only a handful of samples, so the frame-span and
-        // four-grid checks retain sparse, distributed highlights while
-        // rejecting isolated defects.
+        // four-grid checks retain one sparse, distributed source-code bin
+        // while rejecting unrelated isolated defects.
         let densely_populated_brighter_highlights = sample_count >= 1024;
-        sample_count >= 6
-            && (densely_populated_brighter_highlights
-                || (brighter_bounds[position].spans_frame(width, height)
-                    && brighter_regions[position]
-                        .iter()
-                        .all(|regions| regions.has_two_dimensional_support(6))))
+        let distributed_sparse_highlight = candidates_by_position[position].iter().any(|index| {
+            let candidate = &candidates[*index];
+            u32::from(candidate.value) > best
+                && candidate.sample_count >= 6
+                && candidate.has_spatial_support(6, width, height)
+        });
+        sample_count >= 6 && (densely_populated_brighter_highlights || distributed_sparse_highlight)
     });
     if unprotected_bayer_highlights {
         declared
@@ -1856,6 +1838,35 @@ mod tests {
     }
 
     #[test]
+    fn effective_white_does_not_aggregate_distinct_isolated_defects() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in (0..h).step_by(2) {
+            for x in (0..w).step_by(2) {
+                data[y * w + x] = 64_856;
+            }
+        }
+        for (index, (x, y)) in [
+            (10, 10),
+            (300, 10),
+            (10, 200),
+            (300, 200),
+            (10, 400),
+            (400, 400),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            data[y * w + x] = 65_000 + index as u16;
+        }
+
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            64_856
+        );
+    }
+
+    #[test]
     fn effective_white_detects_dense_clipping_across_separated_tiles() {
         let (w, h) = (512usize, 512usize);
         let mut data = vec![1000u16; w * h];
@@ -2018,12 +2029,15 @@ mod tests {
                 data[(y + 2) * w + x + 2] = 64856;
             }
         }
-        for sample in 0..64usize {
-            let region = sample / 4;
-            let within = sample % 4;
-            let y = (region / 4) * 128 + 20 + (within / 2) * 2;
-            let x = (region % 4) * 128 + 21 + (within % 2) * 2;
-            data[y * w + x] = 64857 + sample as u16;
+        for (x, y) in [
+            (21, 20),
+            (301, 20),
+            (21, 200),
+            (301, 200),
+            (21, 400),
+            (401, 400),
+        ] {
+            data[y * w + x] = 64857;
         }
         assert_eq!(
             effective_white_level(&data, 512, 512, &[0; 4], 65535),
@@ -2043,12 +2057,15 @@ mod tests {
                 data[(y + 2) * w + x + 2] = 64856;
             }
         }
-        for sample in 0..64usize {
-            let region = sample / 4;
-            let within = sample % 4;
-            let y = (region / 4) * 128 + 20 + (within / 2) * 2;
-            let x = (region % 4) * 128 + 20 + (within % 2) * 2;
-            data[y * w + x] = 64857 + sample as u16;
+        for (x, y) in [
+            (20, 20),
+            (300, 20),
+            (20, 200),
+            (300, 200),
+            (20, 400),
+            (400, 400),
+        ] {
+            data[y * w + x] = 64857;
         }
         assert_eq!(
             effective_white_level(&data, 512, 512, &[0; 4], 65535),
