@@ -99,6 +99,7 @@ export const xmpPathRoutes = new Elysia()
               destination,
               conversion.value,
               'Workflow write failed',
+              request.signal,
             );
             if (!outcome.ok) {
               set.status = 500;

@@ -138,7 +138,12 @@ export async function createWorkflowVariant(
   if (source === null)
     throw new WorkflowVariantError(409, 'Commit the source adjustments before creating a variant.');
   const output = await nativeValue('workflowEmbedXmp', [JSON.stringify(workflow), source], signal);
-  const outcome = await writeSidecarCreateOnly(destination, output, 'Variant create failed');
+  const outcome = await writeSidecarCreateOnly(
+    destination,
+    output,
+    'Variant create failed',
+    signal,
+  );
   if (!outcome.ok)
     throw new WorkflowVariantError(
       'exists' in outcome ? 409 : 500,
@@ -158,6 +163,7 @@ export async function writeWorkflowVariant(
   return serializeSidecarWrite(
     admissionDestination(rawPath, id),
     async (destination) => {
+      signal?.throwIfAborted();
       const existing = await readWorkflowVariant(rawPath, id, signal);
       const oldRecord = existing === null ? null : await record(existing, signal);
       const nextRecord = await record(xml, signal);
@@ -175,7 +181,7 @@ export async function writeWorkflowVariant(
               signal,
             )
           : xml;
-      const outcome = await writeSidecarAtomic(destination, output, 'Variant write failed');
+      const outcome = await writeSidecarAtomic(destination, output, 'Variant write failed', signal);
       if (!outcome.ok) throw new WorkflowVariantError(500, outcome.error);
       return output;
     },
@@ -271,6 +277,7 @@ async function mutateVariant(
   return serializeSidecarWrite(
     admissionDestination(rawPath, id),
     async (destination) => {
+      signal?.throwIfAborted();
       const current = await readWorkflowVariant(rawPath, id, signal);
       if (current !== expectedXmp)
         throw new WorkflowVariantError(
@@ -281,8 +288,13 @@ async function mutateVariant(
       requireIdentity(await record(output, signal), id, path.basename(destination));
       const result =
         current === null
-          ? await writeSidecarCreateOnly(destination, output, 'Workflow action write failed')
-          : await writeSidecarAtomic(destination, output, 'Workflow action write failed');
+          ? await writeSidecarCreateOnly(
+              destination,
+              output,
+              'Workflow action write failed',
+              signal,
+            )
+          : await writeSidecarAtomic(destination, output, 'Workflow action write failed', signal);
       if (!result.ok)
         throw new WorkflowVariantError(
           'exists' in result ? 409 : 500,

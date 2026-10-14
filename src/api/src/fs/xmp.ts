@@ -121,9 +121,11 @@ async function publishPrimarySidecar(
   xmlContent: string,
   signal?: AbortSignal,
 ): Promise<OpResult<string>> {
+  signal?.throwIfAborted();
   const prepared = await preparePrimarySidecarWrite(destination, xmlContent, signal);
   if (!prepared.ok) return prepared;
-  const result = await writeSidecarAtomic(destination, prepared.data, 'XMP write failed');
+  signal?.throwIfAborted();
+  const result = await writeSidecarAtomic(destination, prepared.data, 'XMP write failed', signal);
   return result.ok ? { ok: true, data: prepared.data } : { ok: false, error: result.error };
 }
 
@@ -393,6 +395,7 @@ export async function writeXmpWithPrecondition(
             conflictPath,
             xmlContent,
             'Conflict-copy write failed',
+            signal,
           );
           return written.ok
             ? { kind: 'conflict', conflictPath, conflictMtime: written.mtime }
@@ -400,7 +403,12 @@ export async function writeXmpWithPrecondition(
         };
 
         if (requireAbsent) {
-          const created = await writeSidecarCreateOnly(sidecar, xmlContent, 'XMP write failed');
+          const created = await writeSidecarCreateOnly(
+            sidecar,
+            xmlContent,
+            'XMP write failed',
+            signal,
+          );
           if ('exists' in created) return writeConflictCopy();
           return created.ok
             ? { kind: 'ok', mtime: created.mtime }
@@ -425,7 +433,7 @@ export async function writeXmpWithPrecondition(
             error: prepared.error ?? 'Workflow validation failed',
           };
         signal?.throwIfAborted();
-        const result = await writeSidecarAtomic(sidecar, prepared.data, 'XMP write failed');
+        const result = await writeSidecarAtomic(sidecar, prepared.data, 'XMP write failed', signal);
         return result.ok
           ? { kind: 'ok', mtime: result.mtime }
           : { kind: 'error', error: result.error };

@@ -159,10 +159,11 @@ export async function writeConflictSidecarAtomic(
   rawAbsPath: string,
   conflictBasename: string,
   xmlContent: string,
+  signal?: AbortSignal,
 ): Promise<{ ok: true; mtime: Date } | { ok: false; error: string }> {
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
   if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
-  return writeSidecarAtomic(sidecar, xmlContent, 'Conflict sidecar write failed');
+  return writeSidecarAtomic(sidecar, xmlContent, 'Conflict sidecar write failed', signal);
 }
 
 /**

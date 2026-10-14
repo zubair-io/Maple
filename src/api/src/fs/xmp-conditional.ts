@@ -23,26 +23,35 @@ export async function writeXmpIfUnchanged(
       xmpSidecarPath(rawPath),
       async (destination) => {
         try {
+          signal?.throwIfAborted();
           const current = await fs.readFile(destination, 'utf8').catch((error: unknown) => {
             if (isMissingSidecar(error)) return null;
             throw error;
           });
+          signal?.throwIfAborted();
           const actualEtag = current === null ? null : computeBodyETag(current);
           if (actualEtag !== expectedEtag) return { kind: 'conflict' };
           const prepared = await preparePrimarySidecarWrite(destination, xml, signal);
           if (!prepared.ok) return { kind: 'error', error: prepared.error };
+          signal?.throwIfAborted();
           if (expectedEtag === null) {
             const created = await writeSidecarCreateOnly(
               destination,
               prepared.data,
               'XMP write failed',
+              signal,
             );
             if ('exists' in created) return { kind: 'conflict' };
             return created.ok
               ? { kind: 'ok', data: prepared.data }
               : { kind: 'error', error: created.error };
           }
-          const written = await writeSidecarAtomic(destination, prepared.data, 'XMP write failed');
+          const written = await writeSidecarAtomic(
+            destination,
+            prepared.data,
+            'XMP write failed',
+            signal,
+          );
           return written.ok
             ? { kind: 'ok', data: prepared.data }
             : { kind: 'error', error: written.error };

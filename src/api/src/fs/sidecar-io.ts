@@ -52,12 +52,14 @@ export async function writeSidecarAtomic(
   destPath: string,
   content: string,
   failureLabel: string,
+  signal?: AbortSignal,
 ): Promise<{ ok: true; mtime: Date } | { ok: false; error: string }> {
   const allowed = await safeWriteAllowed(destPath);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Path not allowed' };
 
   const tmp = `${destPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
   try {
+    signal?.throwIfAborted();
     // Ensure the directory exists (it should, but be defensive).
     await fs.mkdir(path.dirname(destPath), { recursive: true });
     const fh = await fs.open(tmp, 'w');
@@ -67,6 +69,7 @@ export async function writeSidecarAtomic(
     } finally {
       await fh.close();
     }
+    signal?.throwIfAborted();
     await fs.rename(tmp, destPath);
     const st = await fs.stat(destPath);
     return { ok: true, mtime: st.mtime };
@@ -93,12 +96,14 @@ export async function writeSidecarCreateOnly(
   destPath: string,
   content: string,
   failureLabel: string,
+  signal?: AbortSignal,
 ): Promise<{ ok: true; mtime: Date } | { ok: false; exists: true } | { ok: false; error: string }> {
   const allowed = await safeWriteAllowed(destPath);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Path not allowed' };
 
   const tmp = `${destPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
   try {
+    signal?.throwIfAborted();
     // Ensure the directory exists (it should, but be defensive).
     await fs.mkdir(path.dirname(destPath), { recursive: true });
     const fh = await fs.open(tmp, 'w');
@@ -113,6 +118,7 @@ export async function writeSidecarCreateOnly(
     // EEXIST without touching whatever is already at `destPath`. There is no
     // window between "check" and "act" for a concurrent writer to land in —
     // unlike `stat` followed by `rename`, which are two separate operations.
+    signal?.throwIfAborted();
     await fs.link(tmp, destPath);
     const st = await fs.stat(destPath);
     return { ok: true, mtime: st.mtime };
