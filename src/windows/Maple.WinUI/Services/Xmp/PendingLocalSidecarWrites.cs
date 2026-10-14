@@ -10,18 +10,19 @@ namespace Maple.WinUI.Services.Xmp;
 /// dialogs drain these writes before reading their selection (#3878).</summary>
 public sealed class PendingLocalSidecarWrites
 {
-    private sealed record PendingWrite(XmpSidecarDocument Document, bool DiscardBrushCorrections);
+    private sealed record PendingWrite(XmpSidecarDocument Document, bool DiscardBrushCorrections,
+        IReadOnlyList<string> RestoreBrushCorrections);
 
     private readonly object _gate = new();
     private readonly Dictionary<string, PendingWrite> _pending = new(StringComparer.OrdinalIgnoreCase);
 
     public void Stage(string path, AdjustmentState adjustments, int rating, string flag, string? label,
-        bool discardBrushCorrections = false)
+        bool discardBrushCorrections = false, IReadOnlyList<string>? restoreBrushCorrections = null)
     {
         lock (_gate) _pending[path] = new PendingWrite(new XmpSidecarDocument
         {
             Adjustments = adjustments.Clone(), Rating = rating, Flag = flag, ColorLabel = label,
-        }, discardBrushCorrections);
+        }, discardBrushCorrections, restoreBrushCorrections?.ToArray() ?? Array.Empty<string>());
     }
 
     public XmpSidecarDocument? ReadPending(string path)
@@ -53,6 +54,8 @@ public sealed class PendingLocalSidecarWrites
                     {
                         if (pending.DiscardBrushCorrections)
                             XmpBrushCorrections.RemovePassthroughContainers(doc);
+                        else
+                            XmpBrushCorrections.RestorePassthroughContainers(doc, pending.RestoreBrushCorrections);
                         doc.Adjustments = pending.Document.Adjustments.Clone();
                         doc.Rating = pending.Document.Rating;
                         doc.Flag = pending.Document.Flag;

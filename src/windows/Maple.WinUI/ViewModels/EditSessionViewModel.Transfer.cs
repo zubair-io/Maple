@@ -88,8 +88,6 @@ public partial class EditSessionViewModel
             _undoTimer?.Dispose(); _undoTimer = null;
             ReleaseBrushRasters();
             Adjustments = doc.Adjustments;
-            if (!RenderEngine.DecodeInputsChanged(before, Adjustments))
-                RehydrateCurrentBrushRasters(Adjustments);
             if (!recordUndo) { _undoStack.Clear(); _redoStack.Clear(); }
             _undoBaseline = Adjustments.Clone();
             SyncSlidersFromModel();

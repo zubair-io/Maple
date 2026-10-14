@@ -342,10 +342,12 @@ namespace Maple.WinUI.ViewModels
                 return;
             var doc = _cloudDoc ?? new Services.Xmp.XmpSidecarDocument();
             doc.Adjustments = Adjustments.Clone();
-            var discardBrushCorrections = _discardBrushCorrectionsOnWrite &&
-                !Adjustments.LocalAdjustments.Any(layer => layer.Mask is BrushMask);
+            var discardBrushCorrections = ShouldDiscardBrushCorrectionsFor(photo.FilePath);
             if (discardBrushCorrections)
                 Services.Xmp.XmpBrushCorrections.RemovePassthroughContainers(doc);
+            var restoreBrushCorrections = BrushCorrectionsToRestoreFor(photo.FilePath, Adjustments);
+            if (!discardBrushCorrections && restoreBrushCorrections is not null)
+                Services.Xmp.XmpBrushCorrections.RestorePassthroughContainers(doc, restoreBrushCorrections);
             doc.Rating = photo.Rating;
             doc.Flag = photo.FlagStatus;
             doc.ColorLabel = photo.ColorLabel;
@@ -358,7 +360,8 @@ namespace Maple.WinUI.ViewModels
                 ? new CloudPreviewPublication(client, serverPath, original, Services.Xmp.XmpWriter.Serialize(doc)) : null;
             TrackCloudMetadataWrite(async () =>
             {
-                await client.UpdateDevelopSidecarAsync(serverPath, snapshot, discardBrushCorrections);
+                await client.UpdateDevelopSidecarAsync(serverPath, snapshot, discardBrushCorrections,
+                    restoreBrushCorrections);
                 await OnUiAcknowledgedAsync(() =>
                 {
                     if (publication != null)

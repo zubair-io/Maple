@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
+using Maple.WinUI.Generated;
 using Maple.WinUI.Models;
 
 namespace Maple.WinUI.Services.Xmp
@@ -17,6 +18,8 @@ namespace Maple.WinUI.Services.Xmp
         private static readonly XNamespace Papp = XmpSchema.PappNs;
         private static readonly XNamespace PappLegacy = XmpSchema.PappNsLegacy;
         private static readonly XNamespace Rdf = XmpSchema.RdfNs;
+        private const int MaxDabsTextLength = 256 * 1024;
+        private const int MaxBrushDabCount = 4096;
 
         private static string? Attr(XElement e, XName name) =>
             (e.Attribute(name) ?? (name.Namespace == Papp ? e.Attribute(PappLegacy + name.LocalName) : null))?.Value;
@@ -24,17 +27,22 @@ namespace Maple.WinUI.Services.Xmp
         public static IReadOnlyList<LocalAdjustment> Parse(XElement container)
         {
             var result = new List<LocalAdjustment>();
-            var corrections = container.Descendants(Rdf + "Description").ToList();
+            var corrections = XmpLayerOrder.ContainerItems(container).Elements(Rdf + "Description").ToList();
             if (corrections.Count == 0) return result;
             foreach (var description in corrections)
             {
                 var isActive = XmpLocalAdjustments.XmpBool(Attr(description, Crs + "CorrectionActive")) ?? true;
                 var masks = description.Elements(Crs + "CorrectionMasks").FirstOrDefault();
-                var leaf = masks?.Descendants(Rdf + "li").FirstOrDefault(e => Attr(e, Crs + "What") == "Mask/Paint");
-                if (leaf == null || Attr(leaf, Papp + "BrushVersion") != "1") return Array.Empty<LocalAdjustment>();
+                var leaf = masks?.Elements(Rdf + "Seq").Elements(Rdf + "li")
+                    .FirstOrDefault(e => Attr(e, Crs + "What") == "Mask/Paint");
+                if (leaf == null || Attr(leaf, Papp + "BrushVersion") != LocalMaskWire.BRUSH_VERSION.ToString(CultureInfo.InvariantCulture))
+                    return Array.Empty<LocalAdjustment>();
                 var dabs = ParseDabs(Attr(leaf, Papp + "Dabs"));
                 if (dabs == null) return Array.Empty<LocalAdjustment>();
-                if (!isActive) continue;
+                // The canonical Rust parser rejects the whole brush container
+                // when any correction is inactive; keep the Windows live
+                // model aligned with exports and the other hosts.
+                if (!isActive) return Array.Empty<LocalAdjustment>();
                 var amount = Number(description, Crs + "CorrectionAmount") ?? 1;
                 var a = new PartialAdjustments();
                 foreach (var item in SliderAttrs)
@@ -87,7 +95,33 @@ namespace Maple.WinUI.Services.Xmp
                 if (newIndex >= 0) childOrder.Add(ChildSlot.ForPassthrough(newIndex));
             }
             document.ChildOrder = childOrder;
+            RebuildVerbatimLayerOrders(document);
+        }
+
+        internal static IReadOnlyList<string> PassthroughContainers(XmpSidecarDocument? document) =>
+            document?.PassthroughNodes.Where(IsBrushContainer).ToArray() ?? Array.Empty<string>();
+
+        internal static void RestorePassthroughContainers(XmpSidecarDocument document,
+            IReadOnlyList<string> containers)
+        {
+            if (containers.Count == 0 || document.PassthroughNodes.Any(IsBrushContainer)) return;
+            foreach (var container in containers)
+            {
+                if (!IsBrushContainer(container)) continue;
+                document.PassthroughNodes.Add(container);
+                document.ChildOrder.Add(ChildSlot.ForPassthrough(document.PassthroughNodes.Count - 1));
+            }
+            RebuildVerbatimLayerOrders(document);
+        }
+
+        private static void RebuildVerbatimLayerOrders(XmpSidecarDocument document)
+        {
+            var orders = document.PassthroughNodes
+                .Where(IsBrushContainer)
+                .SelectMany(xml => XmpLayerOrder.Keys(XmpLayerOrder.ContainerItems(XElement.Parse(xml))))
+                .ToArray();
             document.VerbatimLayerOrders.Clear();
+            document.VerbatimLayerOrders.AddRange(orders);
         }
 
         private static bool IsBrushContainer(string xml)
@@ -158,8 +192,9 @@ namespace Maple.WinUI.Services.Xmp
         private static IReadOnlyList<BrushDab>? ParseDabs(string? raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return Array.Empty<BrushDab>();
+            if (raw.Length > MaxDabsTextLength || HasTooManyTokens(raw, MaxBrushDabCount * 6)) return null;
             var tokens = raw.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            if (tokens.Length % 6 != 0) return null;
+            if (tokens.Length % 6 != 0 || tokens.Length / 6 > MaxBrushDabCount) return null;
             var dabs = new List<BrushDab>(tokens.Length / 6);
             for (var i = 0; i < tokens.Length; i += 6)
             {
@@ -171,6 +206,24 @@ namespace Maple.WinUI.Services.Xmp
                 dabs.Add(new BrushDab(new MaskPoint(v[0],v[1]),v[2],v[3],v[4],tokens[i+5]=="1"));
             }
             return dabs;
+        }
+
+        private static bool HasTooManyTokens(string value, int maximum)
+        {
+            var count = 0;
+            var inToken = false;
+            foreach (var character in value)
+            {
+                if (char.IsWhiteSpace(character))
+                {
+                    inToken = false;
+                    continue;
+                }
+                if (inToken) continue;
+                if (++count > maximum) return true;
+                inToken = true;
+            }
+            return false;
         }
 
         private static string Digest(IReadOnlyList<BrushDab> dabs)

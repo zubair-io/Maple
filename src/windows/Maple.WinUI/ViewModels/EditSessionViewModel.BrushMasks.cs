@@ -1,4 +1,8 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Maple.WinUI.Models;
 using Maple.WinUI.Native;
 using Maple.WinUI.Services;
@@ -9,19 +13,37 @@ namespace Maple.WinUI.ViewModels
     {
         private readonly List<uint> _brushRasterIds = new();
 
+        private bool ShouldDiscardBrushCorrectionsFor(string photoPath) =>
+            _discardBrushCorrectionsForPhotoPath is { } path &&
+            string.Equals(path, photoPath, StringComparison.OrdinalIgnoreCase) &&
+            !Adjustments.LocalAdjustments.Any(layer => layer.Mask is BrushMask);
+
+        private IReadOnlyList<string>? BrushCorrectionsToRestoreFor(string photoPath, AdjustmentState model) =>
+            model.LocalAdjustments.Any(layer => layer.Mask is BrushMask) &&
+            _brushCorrectionsRemovedByReset.TryGetValue(photoPath, out var containers)
+                ? containers
+                : null;
+
         private readonly record struct RegisteredBrush(int Index, string Digest, BrushMask? Mask);
 
         private List<RegisteredBrush> RegisterBrushRasters(AdjustmentState model, int width, int height)
         {
             var registered = new List<RegisteredBrush>();
-            for (var i = 0; i < model.LocalAdjustments.Count; i++)
+            try
             {
-                if (model.LocalAdjustments[i].Mask is not BrushMask brush
-                    || (brush.RasterId != 0 && _brushRasterIds.Contains(brush.RasterId))) continue;
-                registered.Add(new RegisteredBrush(i, brush.Digest,
-                    BrushMaskRasterizer.Register(brush with { RasterId = 0 }, width, height)));
+                for (var i = 0; i < model.LocalAdjustments.Count; i++)
+                {
+                    if (model.LocalAdjustments[i].Mask is not BrushMask brush) continue;
+                    registered.Add(new RegisteredBrush(i, brush.Digest,
+                        BrushMaskRasterizer.Register(brush with { RasterId = 0 }, width, height)));
+                }
+                return registered;
             }
-            return registered;
+            catch
+            {
+                ReleaseRegisteredBrushes(registered);
+                throw;
+            }
         }
 
         private bool ApplyBrushRasters(AdjustmentState model, IReadOnlyList<RegisteredBrush> registered)
@@ -55,7 +77,7 @@ namespace Maple.WinUI.ViewModels
                     return;
                 }
                 ApplyBrushRasters(Adjustments, registered);
-                _decodedImage = decoded;
+                _decodedImageSize = (decoded.Width, decoded.Height);
                 ApplyDecodedState(generation, photo, decoded);
                 ScheduleAmazeUpgrade(generation, photo, model, decoded);
             });
@@ -70,10 +92,36 @@ namespace Maple.WinUI.ViewModels
             _brushRasterIds.Clear();
         }
 
-        private void RehydrateCurrentBrushRasters(AdjustmentState model)
+        private void RehydrateCurrentBrushRasters(AdjustmentState model, Action? completion = null)
         {
-            if (_decodedImage is null) return;
-            ApplyBrushRasters(model, RegisterBrushRasters(model, _decodedImage.Width, _decodedImage.Height));
+            if (_decodedImageSize is not { } size)
+            {
+                completion?.Invoke();
+                return;
+            }
+
+            var generation = Volatile.Read(ref _decodeGeneration);
+            var snapshot = model.Clone();
+            _ = Task.Run(() => RegisterBrushRasters(snapshot, size.Width, size.Height))
+                .ContinueWith(task => OnUi(() =>
+                {
+                    if (_disposed || generation != _decodeGeneration || !ReferenceEquals(model, Adjustments))
+                    {
+                        if (task.IsCompletedSuccessfully) ReleaseRegisteredBrushes(task.Result);
+                        return;
+                    }
+                    if (task.IsCompletedSuccessfully)
+                        ApplyBrushRasters(model, task.Result);
+                    else
+                        DiagLog.Write($"[brush] rehydrate failed: {task.Exception?.GetBaseException().Message}");
+                    completion?.Invoke();
+                }), TaskScheduler.Default);
+        }
+
+        private static void ReleaseRegisteredBrushes(IEnumerable<RegisteredBrush> registered)
+        {
+            foreach (var entry in registered)
+                if (entry.Mask is { } mask) RawFfi.maple_mask_raster_release(mask.RasterId);
         }
     }
 }
