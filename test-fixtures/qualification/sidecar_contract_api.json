@@ -5,9 +5,9 @@
   "executed_cases": 3,
   "expected_cases": 3,
   "failed_cases": 0,
-  "git_sha": "34fd3f7e492114d3092b3d3e931a708317a35dd7",
+  "git_sha": "4593ed36f4233936a71d265ec7dbb8e5bf4e18fa",
   "pipeline_version": 20,
-  "recorded_at": "2026-10-14T04:23:54Z",
+  "recorded_at": "2026-10-14T09:38:10Z",
   "schema_version": 5,
   "skipped_cases": 0,
   "source": "sidecar_contract_api"
