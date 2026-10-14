@@ -32,6 +32,7 @@ namespace Maple.WinUI
     {
         private bool _maskArmed;
         private int _selectedMaskIndex = -1;
+        private System.Collections.Generic.List<int> _editableMaskIndexes = new();
 
         private void BuildMaskPanel()
         {
@@ -41,8 +42,8 @@ namespace Maple.WinUI
             MaskOverlay.GestureStarted += (sender, _) => ViewModel.BeginAdjustmentGesture(sender!);
             MaskOverlay.GestureCompleted += (sender, _) => ViewModel.EndAdjustmentGesture(sender!);
             MaskPanel.AddRadialRequested += (_, _) => AddMaskLayer(linear: false);
-            MaskPanel.LayerSelected += (_, index) => SelectMaskLayer(index);
-            MaskPanel.LayerDeleteRequested += (_, index) => DeleteMaskLayer(index);
+            MaskPanel.LayerSelected += (_, index) => SelectMaskLayer(ModelMaskIndexForPanelIndex(index));
+            MaskPanel.LayerDeleteRequested += (_, index) => DeleteMaskLayer(ModelMaskIndexForPanelIndex(index));
             MaskPanel.FeatherChanged += (_, value) => EditSelectedMask(l => MaskGroupEditing.WithLeaf(l, _selectedMaskComponentIndex, mask => WithFeather(mask, value / 100.0)));
             MaskPanel.InvertChanged += (_, value) =>
                 EditMaskComposition(l => l.Mask is RadialMask r ? l with { Mask = r with { Invert = value } } : l, true);
@@ -56,15 +57,15 @@ namespace Maple.WinUI
         {
             _maskArmed = true;
             var layers = ViewModel.Adjustments.LocalAdjustments;
-            if (_selectedMaskIndex < 0 || _selectedMaskIndex >= layers.Count)
-                _selectedMaskIndex = layers.Count > 0 ? 0 : -1;
+            if (!IsEditableMaskIndex(_selectedMaskIndex))
+                _selectedMaskIndex = layers.FindIndex(IsEditableMaskLayer);
             ResetZoom();                              // overlay math assumes fit, same as Crop
             SyncMaskFromModel();
         }
 
         private void SelectMaskLayer(int index)
         {
-            if (index < 0 || index >= ViewModel.Adjustments.LocalAdjustments.Count) return;
+            if (!IsEditableMaskIndex(index)) return;
             MaskOverlay.CancelDrag();
             ViewModel.EndAdjustmentGesture();
             _selectedMaskIndex = index;
@@ -90,11 +91,27 @@ namespace Maple.WinUI
             MaskOverlay.CancelDrag();
             ViewModel.EndAdjustmentGesture();
             var layers = ViewModel.Adjustments.LocalAdjustments;
-            if (_selectedMaskIndex >= layers.Count)
-                _selectedMaskIndex = layers.Count > 0 ? layers.Count - 1 : -1;
-            MaskPanel.Layers = layers.Select((layer, i) => ToRow(layer, i, layers)).ToList();
+            _editableMaskIndexes = layers.Select((layer, index) => (layer, index))
+                .Where(entry => IsEditableMaskLayer(entry.layer))
+                .Select(entry => entry.index)
+                .ToList();
+            if (!_editableMaskIndexes.Contains(_selectedMaskIndex))
+                _selectedMaskIndex = _editableMaskIndexes.Count > 0 ? _editableMaskIndexes[0] : -1;
+            MaskPanel.Layers = _editableMaskIndexes.Select(index => ToRow(layers[index], index, layers)).ToList();
             if (_maskArmed)
                 UpdateMaskDisplay();
+        }
+
+        private int ModelMaskIndexForPanelIndex(int panelIndex) =>
+            panelIndex >= 0 && panelIndex < _editableMaskIndexes.Count ? _editableMaskIndexes[panelIndex] : -1;
+
+        private static bool IsEditableMaskLayer(LocalAdjustment layer) =>
+            layer.Mask is LinearMask or RadialMask or MaskGroup;
+
+        private bool IsEditableMaskIndex(int index)
+        {
+            var layers = ViewModel.Adjustments.LocalAdjustments;
+            return index >= 0 && index < layers.Count && IsEditableMaskLayer(layers[index]);
         }
 
         private void UpdateMaskDisplay()
@@ -179,7 +196,7 @@ namespace Maple.WinUI
         private void DeleteMaskLayer(int index)
         {
             var layers = ViewModel.Adjustments.LocalAdjustments;
-            if (index < 0 || index >= layers.Count)
+            if (!IsEditableMaskIndex(index))
                 return;
             ViewModel.CommitPendingAdjustmentGesture();
             if (index == _selectedMaskIndex) _selectedMaskComponentIndex = 0;
@@ -226,14 +243,14 @@ namespace Maple.WinUI
         private void EditSelectedMask(Func<LocalAdjustment, LocalAdjustment> edit)
         {
             var layers = ViewModel.Adjustments.LocalAdjustments;
-            if (_selectedMaskIndex < 0 || _selectedMaskIndex >= layers.Count)
+            if (!IsEditableMaskIndex(_selectedMaskIndex))
                 return;
             var before = layers[_selectedMaskIndex];
             var after = edit(before);
             if (after == before) return;
             layers[_selectedMaskIndex] = after;
             ViewModel.NotifyAdjustmentEdited();
-            MaskPanel.Layers = layers.Select((layer, i) => ToRow(layer, i, layers)).ToList();
+            MaskPanel.Layers = _editableMaskIndexes.Select(index => ToRow(layers[index], index, layers)).ToList();
             SyncMaskComposition(after);
         }
 

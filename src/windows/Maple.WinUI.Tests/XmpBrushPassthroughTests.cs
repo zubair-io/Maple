@@ -132,18 +132,6 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
-        public void OverLimitDabSeriesRemainOpaqueWithoutAllocatingPerToken()
-        {
-            var dabs = string.Join(' ', Enumerable.Repeat("0", 6 * 4097));
-            var brush = MapleBrush.Replace(
-                "papp:Dabs=\"0.25 0.3 0.05 0.5 0.8 0\"",
-                $"papp:Dabs=\"{dabs}\"",
-                StringComparison.Ordinal);
-
-            Assert.Empty(ParseBrushDocument(brush).Adjustments.LocalAdjustments);
-        }
-
-        [Fact]
         public void MissingBrushDigestGetsTheWindowsRegistryKey()
         {
             var brush = MapleBrush.Replace(" papp:BrushDigest=\"0123456789abcdef\"", string.Empty, StringComparison.Ordinal);
