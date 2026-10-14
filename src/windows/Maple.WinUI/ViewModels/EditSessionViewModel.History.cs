@@ -130,9 +130,9 @@ namespace Maple.WinUI.ViewModels
                 if (containers is not null)
                     _brushCorrectionsRemovedByReset[photo.FilePath] = containers;
             }
-            _discardBrushCorrectionsForPhotoPath = before.LocalAdjustments.Any(layer => layer.Mask is BrushMask)
+            SetBrushCorrectionDiscardPath(before.LocalAdjustments.Any(layer => layer.Mask is BrushMask)
                 ? SelectedPhoto?.FilePath
-                : null;
+                : null);
             _undoStack.Add(Adjustments.Clone());
             _redoStack.Clear();
             Adjustments = DefaultAdjustments();

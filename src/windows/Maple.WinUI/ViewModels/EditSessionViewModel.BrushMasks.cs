@@ -14,6 +14,12 @@ namespace Maple.WinUI.ViewModels
     {
         private readonly List<uint> _brushRasterIds = new();
 
+        private void SetBrushCorrectionDiscardPath(string? path)
+        {
+            _discardBrushCorrectionsForPhotoPath = path;
+            _brushDiscardGeneration++;
+        }
+
         private bool ShouldDiscardBrushCorrectionsFor(string photoPath) =>
             _discardBrushCorrectionsForPhotoPath is { } path &&
             string.Equals(path, photoPath, StringComparison.OrdinalIgnoreCase) &&

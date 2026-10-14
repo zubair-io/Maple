@@ -205,7 +205,8 @@ namespace Maple.WinUI.Services.Xmp
         /// </summary>
         private static string BuildChildren(XmpSidecarDocument doc)
         {
-            var layerOrders = XmpLayerOrder.Assign(doc.Adjustments.LocalAdjustments, doc.VerbatimLayerOrders);
+            var layerOrders = XmpLayerOrder.Assign(doc.Adjustments.LocalAdjustments, doc.VerbatimLayerOrders,
+                preservePassthroughBrushPositions: true);
             var modeledBlocks = XmpSchema.ToneCurveElements
                 .Select(e => (e.Tag, Block: ToneCurveBlock(e.Tag, e.Curve(doc.Adjustments))))
                 .Concat(XmpMaskGroupTemplate.Blocks(doc, layerOrders, ChildIndent))
@@ -216,6 +217,7 @@ namespace Maple.WinUI.Services.Xmp
             var recordedTags = new HashSet<string>();
             var visitedPassthroughIndexes = new HashSet<int>();
             var blocks = new List<string>();
+            var lastBrushBlockPosition = -1;
             foreach (var slot in doc.ChildOrder)
             {
                 if (slot.ModeledTag is { } tag)
@@ -241,6 +243,8 @@ namespace Maple.WinUI.Services.Xmp
                     // the canonical ladder, interior whitespace kept as
                     // authored.
                     blocks.Add($"{ChildIndent}{doc.PassthroughNodes[slot.PassthroughIndex]}");
+                    if (XmpLayerOrder.IsBrushContainer(doc.PassthroughNodes[slot.PassthroughIndex]))
+                        lastBrushBlockPosition = blocks.Count - 1;
                 }
             }
 
@@ -251,6 +255,8 @@ namespace Maple.WinUI.Services.Xmp
                 if (!visitedPassthroughIndexes.Contains(i))
                 {
                     blocks.Add($"{ChildIndent}{doc.PassthroughNodes[i]}");
+                    if (XmpLayerOrder.IsBrushContainer(doc.PassthroughNodes[i]))
+                        lastBrushBlockPosition = blocks.Count - 1;
                 }
             }
 
@@ -259,7 +265,25 @@ namespace Maple.WinUI.Services.Xmp
                 .Select(b => b.Block)
                 .Where(b => b is not null)
                 .Select(b => b!);
-            blocks.InsertRange(0, freshBlocks);
+            var (beforeBrush, afterBrush) = freshBlocks.Aggregate(
+                (Before: new List<string>(), After: new List<string>()), (result, block) =>
+                {
+                    var tag = modeledBlocks.First(entry => entry.Block == block).Tag;
+                    if (XmpLayerOrder.FreshBlockFollowsUnkeyedBrushes(
+                        doc.Adjustments.LocalAdjustments, doc.VerbatimLayerOrders, tag))
+                        result.After.Add(block);
+                    else
+                        result.Before.Add(block);
+                    return result;
+                });
+            blocks.InsertRange(0, beforeBrush);
+            var orderedAfterBrush = afterBrush
+                .OrderBy(block => layerOrders.Where(entry => XmpLayerOrder.ContainerTagFor(entry.Layer.Mask) ==
+                        modeledBlocks.First(candidate => candidate.Block == block).Tag)
+                    .Select(entry => entry.Order).OfType<double>().DefaultIfEmpty(double.MaxValue).Min())
+                .ToArray();
+            blocks.InsertRange(lastBrushBlockPosition < 0 ? 0 : lastBrushBlockPosition + 1 + beforeBrush.Count,
+                orderedAfterBrush);
 
             return string.Join("\n", blocks);
         }
