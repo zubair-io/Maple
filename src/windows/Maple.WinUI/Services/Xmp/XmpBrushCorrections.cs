@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Xml;
 using System.Xml.Linq;
 using Maple.WinUI.Models;
 
@@ -27,9 +28,7 @@ namespace Maple.WinUI.Services.Xmp
             if (corrections.Count == 0) return result;
             foreach (var description in corrections)
             {
-                if (Attr(description, Crs + "What") != "Correction") return Array.Empty<LocalAdjustment>();
-                var active = Attr(description, Crs + "CorrectionActive");
-                var isActive = active == null || !active.Trim().Equals("false", StringComparison.OrdinalIgnoreCase);
+                var isActive = XmpLocalAdjustments.XmpBool(Attr(description, Crs + "CorrectionActive")) ?? true;
                 var masks = description.Elements(Crs + "CorrectionMasks").FirstOrDefault();
                 var leaf = masks?.Descendants(Rdf + "li").FirstOrDefault(e => Attr(e, Crs + "What") == "Mask/Paint");
                 if (leaf == null || Attr(leaf, Papp + "BrushVersion") != "1") return Array.Empty<LocalAdjustment>();
@@ -53,6 +52,48 @@ namespace Maple.WinUI.Services.Xmp
                 });
             }
             return result;
+        }
+
+        internal static void RemovePassthroughContainers(XmpSidecarDocument document)
+        {
+            var keptNodes = new List<string>(document.PassthroughNodes.Count);
+            var remappedIndexes = new int[document.PassthroughNodes.Count];
+            Array.Fill(remappedIndexes, -1);
+            var removedBrush = false;
+            for (var index = 0; index < document.PassthroughNodes.Count; index++)
+            {
+                var node = document.PassthroughNodes[index];
+                if (IsBrushContainer(node))
+                {
+                    removedBrush = true;
+                    continue;
+                }
+                remappedIndexes[index] = keptNodes.Count;
+                keptNodes.Add(node);
+            }
+            if (!removedBrush) return;
+
+            document.PassthroughNodes = keptNodes;
+            var childOrder = new List<ChildSlot>(document.ChildOrder.Count);
+            foreach (var slot in document.ChildOrder)
+            {
+                if (slot.ModeledTag is not null || slot.PassthroughIndex < 0 ||
+                    slot.PassthroughIndex >= remappedIndexes.Length)
+                {
+                    childOrder.Add(slot);
+                    continue;
+                }
+                var newIndex = remappedIndexes[slot.PassthroughIndex];
+                if (newIndex >= 0) childOrder.Add(ChildSlot.ForPassthrough(newIndex));
+            }
+            document.ChildOrder = childOrder;
+            document.VerbatimLayerOrders.Clear();
+        }
+
+        private static bool IsBrushContainer(string xml)
+        {
+            try { return XmpLayerOrder.IsBrushContainer(XElement.Parse(xml)); }
+            catch (XmlException) { return false; }
         }
 
         public static string RenderFingerprint(AdjustmentState model)
@@ -124,7 +165,8 @@ namespace Maple.WinUI.Services.Xmp
             {
                 var v = new double[5];
                 for (var j = 0; j < 5; j++)
-                    if (!double.TryParse(tokens[i+j], NumberStyles.Float, CultureInfo.InvariantCulture, out v[j]) || !double.IsFinite(v[j])) return null;
+                    if (!double.TryParse(tokens[i+j], NumberStyles.Float, CultureInfo.InvariantCulture, out v[j]) ||
+                        !double.IsFinite(v[j]) || !float.IsFinite((float)v[j])) return null;
                 if (tokens[i+5] is not ("0" or "1")) return null;
                 dabs.Add(new BrushDab(new MaskPoint(v[0],v[1]),v[2],v[3],v[4],tokens[i+5]=="1"));
             }

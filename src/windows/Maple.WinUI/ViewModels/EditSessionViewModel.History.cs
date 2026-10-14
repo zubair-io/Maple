@@ -123,6 +123,7 @@ namespace Maple.WinUI.ViewModels
         {
             if (!AdjustmentsReady) return;
             var before = Adjustments;
+            _discardBrushCorrectionsOnWrite = before.LocalAdjustments.Any(layer => layer.Mask is BrushMask);
             _undoStack.Add(Adjustments.Clone());
             _redoStack.Clear();
             Adjustments = DefaultAdjustments();

@@ -74,6 +74,7 @@ namespace Maple.WinUI.ViewModels
         private AdjustmentState? _undoBaseline;
         private Timer? _sidecarTimer;
         private Timer? _undoTimer;
+        private bool _discardBrushCorrectionsOnWrite;
         /// <summary>Shared by <see cref="_decodeCancel"/> and
         /// <see cref="_amazeCancel"/> (#3417 Jules review): a signal
         /// (<see cref="CancelActiveDecode"/>) and a free (a decode task's
@@ -430,7 +431,8 @@ namespace Maple.WinUI.ViewModels
                 _sidecarDirty = false;
                 if (photo.IsCloud) PushCloudSidecar(photo);
                 else _localMetadataWrites.Stage(photo.FilePath, Adjustments,
-                    photo.Rating, photo.FlagStatus, photo.ColorLabel);
+                    photo.Rating, photo.FlagStatus, photo.ColorLabel,
+                    _discardBrushCorrectionsOnWrite && !Adjustments.LocalAdjustments.Any(layer => layer.Mask is BrushMask));
             }
             _localMetadataError = null;
             var failures = new List<string>();

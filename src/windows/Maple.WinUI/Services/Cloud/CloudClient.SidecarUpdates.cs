@@ -15,7 +15,8 @@ public sealed partial class CloudClient
     // write API: this does not claim protection against another client's edits.
     private readonly SemaphoreSlim _sidecarWriteGate = new(1, 1);
 
-    public async Task UpdateDevelopSidecarAsync(string path, AdjustmentState adjustments)
+    public async Task UpdateDevelopSidecarAsync(string path, AdjustmentState adjustments,
+        bool discardBrushCorrections = false)
     {
         var snapshot = adjustments.Clone();
         await _sidecarWriteGate.WaitAsync();
@@ -23,6 +24,8 @@ public sealed partial class CloudClient
         {
             var xml = await ReadMetadataXmpAsync(path, CancellationToken.None);
             var document = ParseEditableSidecar(xml);
+            if (discardBrushCorrections)
+                XmpBrushCorrections.RemovePassthroughContainers(document);
             // Culling and keywords belong to metadata writes. Reusing the
             // document captured when editing opened would erase newer values.
             document.Adjustments = snapshot;
