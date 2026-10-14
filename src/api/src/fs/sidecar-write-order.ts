@@ -73,6 +73,11 @@ export async function serializeSidecarWrite<T>(
     .then(() => options.resolveDestination?.() ?? destination)
     .then((resolved) => path.resolve(resolved));
   const canonicalKeyPromise = destinationPromise.then(canonicalKey);
+  // A later admission can be waiting behind a slow earlier resolution while
+  // its own destination is rejected. Attach a handler now so Bun/Node do not
+  // report that expected request failure as an unhandled rejection before the
+  // FIFO turn reaches Promise.all below.
+  void canonicalKeyPromise.catch(() => undefined);
 
   let next: Promise<T>;
   let settled: Promise<void>;
