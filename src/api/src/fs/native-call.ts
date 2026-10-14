@@ -138,41 +138,42 @@ function enqueueRetry(
   });
 }
 
+async function retryWaitingCall(call: WorkflowCall, item: WaitingCall): Promise<void> {
+  if (item.settled) {
+    removeWaitingCall(item);
+    return;
+  }
+  if (item.signal?.aborted) {
+    rejectWaitingCall(item, abortError(item.signal));
+    return;
+  }
+  const remaining = item.deadline - performance.now();
+  if (remaining <= 0) {
+    rejectWaitingCall(item, item.lastOverload);
+    return;
+  }
+  try {
+    const result = await callWithAbort(call, item.method, item.args, item.signal);
+    resolveWaitingCall(item, result);
+  } catch (error) {
+    if (item.settled) return;
+    if (!isPoolOverload(error)) {
+      rejectWaitingCall(item, error);
+      return;
+    }
+    item.lastOverload = error;
+    const delay = Math.min(item.delayMs, item.deadline - performance.now());
+    item.delayMs = Math.min(item.delayMs * 2, 100);
+    await waitForRetry(delay, item.signal);
+  }
+}
+
 async function drainWaitingCalls(): Promise<void> {
   if (draining) return;
   draining = true;
   const call = callNative as unknown as WorkflowCall;
   try {
-    while (waitingCalls.length > 0) {
-      const item = waitingCalls[0];
-      if (item.settled) {
-        removeWaitingCall(item);
-        continue;
-      }
-      if (item.signal?.aborted) {
-        rejectWaitingCall(item, abortError(item.signal));
-        continue;
-      }
-      const remaining = item.deadline - performance.now();
-      if (remaining <= 0) {
-        rejectWaitingCall(item, item.lastOverload);
-        continue;
-      }
-      try {
-        const result = await callWithAbort(call, item.method, item.args, item.signal);
-        resolveWaitingCall(item, result);
-      } catch (error) {
-        if (item.settled) continue;
-        if (!isPoolOverload(error)) {
-          rejectWaitingCall(item, error);
-          continue;
-        }
-        item.lastOverload = error;
-        const delay = Math.min(item.delayMs, item.deadline - performance.now());
-        item.delayMs = Math.min(item.delayMs * 2, 100);
-        await waitForRetry(delay, item.signal);
-      }
-    }
+    while (waitingCalls.length > 0) await retryWaitingCall(call, waitingCalls[0]);
   } finally {
     draining = false;
     if (waitingCalls.length > 0) void drainWaitingCalls();
