@@ -105,7 +105,7 @@ export const xmpRoutes = new Elysia()
     // Pre-existing PUT-handler complexity; this PR only swaps the post-write
     // `setHasXmp` for `recordSidecarEdit` (one call, no new branches).
     // fallow-ignore-next-line complexity
-    async ({ params, body, headers, query, set }) => {
+    async ({ params, body, headers, query, set, request }) => {
       markDeprecated(set);
       const resolved = await resolveAssetLocationOrRespond(params.id, set);
       if ('error' in resolved) return resolved;
@@ -156,6 +156,7 @@ export const xmpRoutes = new Elysia()
         deviceName,
         requireAbsent,
         writeScope,
+        request.signal,
       );
 
       if (outcome.kind === 'error') {

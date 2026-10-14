@@ -316,6 +316,10 @@
         // it never performs a durable filesystem write.
         "src/job-runner/batch-scope.ts",
         "src/routes/xmp-path-auth.ts",
+        // #4574: write-order and cancellation regressions use only disposable temp-library fixtures.
+        "src/fs/xmp.write.test.ts",
+        "src/routes/assets/xmp.cancellation.test.ts",
+        "src/routes/xmp-path-auth.test.ts",
 
         // #3787. Four reads-only / temp-path callers, three of them scaffolding
         // split out of a file already on this list when a suite outgrew the

@@ -71,13 +71,11 @@ export async function resolveAndAuthorizePath(
     };
   }
 
-  const libraryRoot = normalizedLibRoots
+  // Use the broadest matching root so nested registrations share the same
+  // FIFO admission scope for a sidecar, whichever root the caller addressed.
+  const writeScope = allRoots
     .filter((root) => isWithinRoot(root, normalized))
-    .sort((left, right) => right.length - left.length)[0];
-  const configuredRoot = envRoots
-    .filter((root) => isWithinRoot(root, normalized))
-    .sort((left, right) => right.length - left.length)[0];
-  const writeScope = libraryRoot ?? configuredRoot;
+    .sort((left, right) => left.length - right.length)[0];
   if (writeScope)
     return {
       ok: true,
