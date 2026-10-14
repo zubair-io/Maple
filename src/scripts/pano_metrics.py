@@ -82,7 +82,7 @@ StitchReport passthrough
     With --report, mean/max reprojection error (px) and horizon tilt (deg)
     are read from the StitchReport JSON written by `maple-cli pano stitch`
     (tech-spec section 6 keys: mean_reproj_error_px, max_reproj_error_px,
-    horizon_tilt_deg). Keys absent from the report come back as null and are
+    horizon_tilt_deg, horizon_tilt_rms_deg). Keys absent from the report come back as null and are
     listed in "missing_keys". Without --report the block is
     {"available": false, "reason": "unavailable: no report"} — never
     fabricated.
