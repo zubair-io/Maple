@@ -23,7 +23,7 @@ use crate::ba::{self, BaOptions};
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, CanvasSpec, ProjectionMode};
 use crate::composite::composite_tiled_frames;
-use crate::gain::{solve_exposure_field, solve_photometry, GainOptions};
+use crate::gain::{solve_exposure_field, solve_photometry, GainMode, GainOptions};
 use crate::ingest::PlanarImage;
 use crate::leveling;
 use crate::local_align::LocalCorrection;
@@ -235,7 +235,10 @@ fn rotation_preview(
         &frames,
         &cameras,
         &alignment.lenses.for_frames(&kept_inputs),
-        &GainOptions::default(),
+        &GainOptions {
+            mode: GainMode::PerChannel,
+            ..GainOptions::default()
+        },
     )
     .map_err(to_err)?
     .frames;
