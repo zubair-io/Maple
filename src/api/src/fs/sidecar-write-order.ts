@@ -31,32 +31,30 @@ export function waitForAbortable<T>(promise: Promise<T>, signal?: AbortSignal): 
 
 export class SidecarWritePathDeniedError extends Error {}
 
-function canonicalKeys(destination: string): Promise<string[]> {
-  const existing = inFlightKeys.get(destination);
+function isMissingPathError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+  );
+}
+
+function canonicalKeys(destination: string, allowMissingParent: boolean): Promise<string[]> {
+  const cacheKey = JSON.stringify([destination, allowMissingParent]);
+  const existing = inFlightKeys.get(cacheKey);
   if (existing) return existing;
   const pending = (async () => {
     const lexicalDestination = path.resolve(destination);
     const resolvedDestination = await fs.realpath(lexicalDestination).catch((error: unknown) => {
-      if (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        (error.code === 'ENOENT' || error.code === 'ENOTDIR')
-      ) {
-        return null;
-      }
+      if (isMissingPathError(error)) return null;
       throw error;
     });
     const canonicalDestination =
       resolvedDestination ??
       path.join(
         await fs.realpath(path.dirname(lexicalDestination)).catch((error: unknown) => {
-          if (
-            typeof error === 'object' &&
-            error !== null &&
-            'code' in error &&
-            (error.code === 'ENOENT' || error.code === 'ENOTDIR')
-          ) {
+          if (isMissingPathError(error)) {
             return path.dirname(lexicalDestination);
           }
           throw error;
@@ -73,22 +71,25 @@ function canonicalKeys(destination: string): Promise<string[]> {
     // case-insensitive network or removable volume even when the API host is not.
     // realpath folds existing file symlinks; stat follows parent symlinks and
     // gives missing sidecars the same directory identity as their aliases.
-    // Do not fall back to a lexical key if stat fails. Once the filesystem
-    // recovers, the same destination would switch to an inode key and bypass
-    // a write that is still queued under the fallback spelling.
-    const parentStat = await fs.stat(parent, { bigint: true });
+    // A missing parent may be an invalid destination whose resolver will reject
+    // it. Keep its lexical key reserved until that validation finishes. Direct
+    // writes still require a real parent; other stat failures always surface.
+    const parentStat = await fs.stat(parent, { bigint: true }).catch((error: unknown) => {
+      if (allowMissingParent && isMissingPathError(error)) return null;
+      throw error;
+    });
     return [
       lexicalKey(canonicalDestination),
-      `inode:${parentStat.dev}:${parentStat.ino}:${basename}`,
+      ...(parentStat ? [`inode:${parentStat.dev}:${parentStat.ino}:${basename}`] : []),
     ];
   })();
-  inFlightKeys.set(destination, pending);
+  inFlightKeys.set(cacheKey, pending);
   void pending.then(
     () => {
-      if (inFlightKeys.get(destination) === pending) inFlightKeys.delete(destination);
+      if (inFlightKeys.get(cacheKey) === pending) inFlightKeys.delete(cacheKey);
     },
     () => {
-      if (inFlightKeys.get(destination) === pending) inFlightKeys.delete(destination);
+      if (inFlightKeys.get(cacheKey) === pending) inFlightKeys.delete(cacheKey);
     },
   );
   return pending;
@@ -105,8 +106,13 @@ function destinationKeys(
   return canonicalRequest.then((keys) => [...new Set([lexicalKey(destination), ...keys])]);
 }
 
-function discardCanonicalKey(destination: string, pending: Promise<string[]>): void {
-  if (inFlightKeys.get(destination) === pending) inFlightKeys.delete(destination);
+function discardCanonicalKey(
+  destination: string,
+  pending: Promise<string[]>,
+  allowMissingParent: boolean,
+): void {
+  const cacheKey = JSON.stringify([destination, allowMissingParent]);
+  if (inFlightKeys.get(cacheKey) === pending) inFlightKeys.delete(cacheKey);
 }
 
 export async function serializeSidecarWrite<T>(
@@ -140,7 +146,7 @@ export async function serializeSidecarWrite<T>(
 
   try {
     await waitForAbortable(previousAdmission, options.signal);
-    canonicalKeyRequest = canonicalKeys(destination);
+    canonicalKeyRequest = canonicalKeys(destination, options.resolveDestination !== undefined);
     void canonicalKeyRequest.catch(() => undefined);
     reservedKeys = await waitForAbortable(
       destinationKeys(destination, canonicalKeyRequest),
@@ -166,7 +172,10 @@ export async function serializeSidecarWrite<T>(
       actualDestination === path.resolve(destination)
         ? reservedKeys
         : await waitForAbortable(
-            destinationKeys(actualDestination, canonicalKeys(actualDestination)),
+            destinationKeys(
+              actualDestination,
+              canonicalKeys(actualDestination, options.resolveDestination !== undefined),
+            ),
             options.signal,
           );
     // A shared lexical or inode key already protects this write from aliases.
@@ -185,7 +194,11 @@ export async function serializeSidecarWrite<T>(
     return await write(actualDestination);
   } finally {
     if (options.signal?.aborted && canonicalKeyRequest) {
-      discardCanonicalKey(destination, canonicalKeyRequest);
+      discardCanonicalKey(
+        destination,
+        canonicalKeyRequest,
+        options.resolveDestination !== undefined,
+      );
     }
     releaseAdmission();
     if (admissionTails.get(admissionScope) === currentAdmission) {
