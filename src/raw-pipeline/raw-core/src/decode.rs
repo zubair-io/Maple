@@ -245,6 +245,9 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // All four positions share the same white level in practice; we take the max
     // to be conservative (never over-clip).
     let mut white_level = wl.iter().cloned().fold(f32::NEG_INFINITY, f32::max).round() as u32;
+    let mut has_uniform_declared_white_level = wl
+        .iter()
+        .all(|&position_white| position_white.round() as u32 == white_level);
 
     // ── 4a. RawTherapee camconst.json override ────────────────────────────
     let iso: u32 = decoder
@@ -262,6 +265,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
             }
             if let Some(wl_bucket) = lin.white_for_iso(iso) {
                 white_level = wl_bucket.scalar_conservative();
+                has_uniform_declared_white_level = true;
             }
         }
     }
@@ -306,6 +310,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         height,
         &black_level,
         white_level,
+        has_uniform_declared_white_level,
         cfa,
         source_is_float,
     );
@@ -1384,10 +1389,12 @@ fn effective_white_level_for_source_data(
     height: u32,
     black_level: &[u32; 4],
     declared: u32,
+    has_uniform_declared_white_level: bool,
     cfa: crate::image::CfaPattern,
     source_is_float: bool,
 ) -> u32 {
-    if source_is_float
+    if !has_uniform_declared_white_level
+        || source_is_float
         || !matches!(
             cfa,
             crate::image::CfaPattern::Rggb
@@ -1558,6 +1565,7 @@ mod tests {
                 512,
                 &[0; 4],
                 16_384,
+                true,
                 cfa,
                 source_is_float,
             )
@@ -1565,6 +1573,29 @@ mod tests {
 
         assert_eq!(infer(true), 16_384);
         assert_eq!(infer(false), 16_300);
+    }
+
+    #[test]
+    fn effective_white_keeps_distinct_declared_bayer_levels() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in (0..h).step_by(2) {
+            for x in (0..w).step_by(2) {
+                data[y * w + x] = 62193;
+            }
+        }
+        let cfa = crate::image::CfaPattern::Rggb;
+
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            62193
+        );
+        assert_eq!(
+            effective_white_level_for_source_data(
+                &data, 512, 512, &[0; 4], 65535, false, cfa, false,
+            ),
+            65535
+        );
     }
 
     #[test]
