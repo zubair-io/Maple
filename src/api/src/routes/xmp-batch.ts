@@ -57,12 +57,13 @@ async function processEntry(entry: BatchEntry, signal: AbortSignal): Promise<Ent
     const msg = err instanceof Error ? err.message : String(err);
     return { address: entry.address, ok: false, error: msg };
   }
-<<<<<<< HEAD
   const isVideo = isVideoFilename(path.basename(absPath));
-  const writeResult = await updateXmpAtomic(absPath, (existingXml) =>
-    mergeMetadataIntoXmp(existingXml, entry.metadata, {
-      metadataOnly: existingXml.trim().length === 0 && isVideo,
-    }),
+  const writeResult = await updateXmpAtomic(
+    absPath,
+    (existingXml) =>
+      mergeMetadataIntoXmp(existingXml, entry.metadata, {
+        metadataOnly: existingXml.trim().length === 0 && isVideo,
+      }),
     signal,
   );
   if (!writeResult.ok) {

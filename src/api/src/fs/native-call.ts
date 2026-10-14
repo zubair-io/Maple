@@ -1,4 +1,4 @@
-import { callNative, MapleWorkerPoolOverloadedError } from 'maple';
+import { callNative, getMapleConcurrency, MapleWorkerPoolOverloadedError } from 'maple';
 
 export function isPoolOverload(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
@@ -31,6 +31,7 @@ interface WaitingCall {
 const MAX_WAITING_CALLS = 32;
 const RETRY_DEADLINE_MS = 60_000;
 const waitingCalls: WaitingCall[] = [];
+const activeRetries = new Set<WaitingCall>();
 let draining = false;
 
 function abortError(signal: AbortSignal): Error {
@@ -93,6 +94,7 @@ function rejectWaitingCall(item: WaitingCall, error: unknown): void {
   item.settled = true;
   removeWaitingCall(item);
   item.reject(error instanceof Error ? error : new Error(String(error)));
+  drainWaitingCalls();
 }
 
 function resolveWaitingCall(
@@ -139,44 +141,51 @@ function enqueueRetry(
 }
 
 async function retryWaitingCall(call: WorkflowCall, item: WaitingCall): Promise<void> {
-  if (item.settled) {
-    removeWaitingCall(item);
-    return;
-  }
-  if (item.signal?.aborted) {
-    rejectWaitingCall(item, abortError(item.signal));
-    return;
-  }
-  const remaining = item.deadline - performance.now();
-  if (remaining <= 0) {
-    rejectWaitingCall(item, item.lastOverload);
-    return;
-  }
-  try {
-    const result = await callWithAbort(call, item.method, item.args, item.signal);
-    resolveWaitingCall(item, result);
-  } catch (error) {
-    if (item.settled) return;
-    if (!isPoolOverload(error)) {
-      rejectWaitingCall(item, error);
+  while (!item.settled) {
+    if (item.signal?.aborted) {
+      rejectWaitingCall(item, abortError(item.signal));
       return;
     }
-    item.lastOverload = error;
-    const delay = Math.min(item.delayMs, item.deadline - performance.now());
-    item.delayMs = Math.min(item.delayMs * 2, 100);
-    await waitForRetry(delay, item.signal);
+    const remaining = item.deadline - performance.now();
+    if (remaining <= 0) {
+      rejectWaitingCall(item, item.lastOverload);
+      return;
+    }
+    try {
+      const result = await callWithAbort(call, item.method, item.args, item.signal);
+      resolveWaitingCall(item, result);
+      return;
+    } catch (error) {
+      if (item.settled) return;
+      if (!isPoolOverload(error)) {
+        rejectWaitingCall(item, error);
+        return;
+      }
+      item.lastOverload = error;
+      const delay = Math.min(item.delayMs, item.deadline - performance.now());
+      item.delayMs = Math.min(item.delayMs * 2, 100);
+      await waitForRetry(delay, item.signal);
+    }
   }
 }
 
-async function drainWaitingCalls(): Promise<void> {
+function drainWaitingCalls(): void {
   if (draining) return;
   draining = true;
   const call = callNative as unknown as WorkflowCall;
   try {
-    while (waitingCalls.length > 0) await retryWaitingCall(call, waitingCalls[0]);
+    const concurrency = getMapleConcurrency();
+    while (activeRetries.size < concurrency) {
+      const item = waitingCalls.find((candidate) => !activeRetries.has(candidate));
+      if (!item) break;
+      activeRetries.add(item);
+      void retryWaitingCall(call, item).finally(() => {
+        activeRetries.delete(item);
+        drainWaitingCalls();
+      });
+    }
   } finally {
     draining = false;
-    if (waitingCalls.length > 0) void drainWaitingCalls();
   }
 }
 
