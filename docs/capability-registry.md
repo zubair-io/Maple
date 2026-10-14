@@ -27,10 +27,10 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — recorded on pipeline v19, current is v20
-  - `synthetic_grey` — recorded on pipeline v19, current is v20
-  - `grey_dcp` — recorded on pipeline v19, current is v20
-  - `color_chart` — recorded on pipeline v19, current is v20
+  - `grey_adjustments` — satisfied
+  - `synthetic_grey` — satisfied
+  - `grey_dcp` — satisfied
+  - `color_chart` — satisfied
   - `color_harness` — no record
   - `gpu_chain_parity_metal` — recorded on pipeline v19, current is v20
   - `apple_canvas_golden` — no record
@@ -50,10 +50,10 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — recorded on pipeline v19, current is v20
-  - `synthetic_grey` — recorded on pipeline v19, current is v20
-  - `grey_dcp` — recorded on pipeline v19, current is v20
-  - `color_chart` — recorded on pipeline v19, current is v20
+  - `grey_adjustments` — satisfied
+  - `synthetic_grey` — satisfied
+  - `grey_dcp` — satisfied
+  - `color_chart` — satisfied
   - `color_harness` — no record
   - `gpu_chain_parity_metal` — recorded on pipeline v19, current is v20
   - `apple_canvas_golden` — no record
@@ -73,10 +73,10 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — recorded on pipeline v19, current is v20
-  - `synthetic_grey` — recorded on pipeline v19, current is v20
-  - `grey_dcp` — recorded on pipeline v19, current is v20
-  - `color_chart` — recorded on pipeline v19, current is v20
+  - `grey_adjustments` — satisfied
+  - `synthetic_grey` — satisfied
+  - `grey_dcp` — satisfied
+  - `color_chart` — satisfied
   - `color_harness` — no record
   - `gpu_chain_parity_metal` — recorded on pipeline v19, current is v20
   - `apple_canvas_golden` — no record
@@ -96,10 +96,10 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — recorded on pipeline v19, current is v20
-  - `synthetic_grey` — recorded on pipeline v19, current is v20
-  - `grey_dcp` — recorded on pipeline v19, current is v20
-  - `color_chart` — recorded on pipeline v19, current is v20
+  - `grey_adjustments` — satisfied
+  - `synthetic_grey` — satisfied
+  - `grey_dcp` — satisfied
+  - `color_chart` — satisfied
   - `color_harness` — no record
   - `gpu_chain_parity_metal` — recorded on pipeline v19, current is v20
   - `apple_canvas_golden` — no record
@@ -119,7 +119,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — recorded on pipeline v19, current is v20
+  - `grey_adjustments` — satisfied
   - `gpu_chain_parity_metal` — recorded on pipeline v19, current is v20
   - `apple_canvas_golden` — no record
 
@@ -260,7 +260,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 41
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_adjustments.rs`, `src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs`, `src/raw-pipeline/raw-core/tests/grey_adjustments_wb.rs`, `src/raw-pipeline/raw-core/tests/whites_anchor_develop.rs`
-- Record: recorded on pipeline v19, current is v20 — 41 of 41 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v19, schema v5, commit `873587cba9710e16f83e404091952fe689d4d30a`, recorded 2026-10-12T23:17:53Z
+- Record: satisfied — 41 of 41 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v20, schema v5, commit `9c9289c91b8b18f53971aff9bb41484cfbf83452`, recorded 2026-10-14T06:16:16Z
 
 ### `synthetic_grey`
 
@@ -269,7 +269,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 6
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_invariants.rs`
-- Record: recorded on pipeline v19, current is v20 — 6 of 6 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v19, schema v5, commit `873587cba9710e16f83e404091952fe689d4d30a`, recorded 2026-10-12T23:17:45Z
+- Record: satisfied — 6 of 6 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v20, schema v5, commit `9c9289c91b8b18f53971aff9bb41484cfbf83452`, recorded 2026-10-14T06:16:09Z
 
 ### `grey_dcp`
 
@@ -278,7 +278,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 5
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_dcp_phase1.rs`
-- Record: recorded on pipeline v19, current is v20 — 5 of 5 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v19, schema v5, commit `873587cba9710e16f83e404091952fe689d4d30a`, recorded 2026-10-12T23:17:54Z
+- Record: satisfied — 5 of 5 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v20, schema v5, commit `9c9289c91b8b18f53971aff9bb41484cfbf83452`, recorded 2026-10-14T06:16:17Z
 
 ### `color_chart`
 
@@ -287,7 +287,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 7
 - Corpus: `src/raw-pipeline/raw-core/tests/color_chart_invariants.rs`
-- Record: recorded on pipeline v19, current is v20 — 7 of 7 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v19, schema v5, commit `873587cba9710e16f83e404091952fe689d4d30a`, recorded 2026-10-12T23:17:46Z
+- Record: satisfied — 7 of 7 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v20, schema v5, commit `9c9289c91b8b18f53971aff9bb41484cfbf83452`, recorded 2026-10-14T06:16:10Z
 
 ### `color_harness`
 
