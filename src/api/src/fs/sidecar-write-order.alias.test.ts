@@ -1,0 +1,159 @@
+import { expect, spyOn, test } from 'bun:test';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { serializeSidecarWrite } from './sidecar-write-order';
+
+test('file symlink aliases preserve FIFO across different library scopes', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-cross-library-alias-'));
+  try {
+    const firstLibrary = path.join(root, 'first-library');
+    const secondLibrary = path.join(root, 'second-library');
+    const destination = path.join(root, 'target.xmp');
+    const firstAlias = path.join(firstLibrary, 'photo.xmp');
+    const secondAlias = path.join(secondLibrary, 'alias.xmp');
+    await Promise.all([
+      fs.mkdir(firstLibrary),
+      fs.mkdir(secondLibrary),
+      fs.writeFile(destination, ''),
+    ]);
+    await Promise.all([fs.symlink(destination, firstAlias), fs.symlink(destination, secondAlias)]);
+
+    const { promise: releaseFirstResolution, resolve: resolveFirstResolution } =
+      Promise.withResolvers<void>();
+    const { promise: secondResolutionFinished, resolve: markSecondResolutionFinished } =
+      Promise.withResolvers<void>();
+    const order: string[] = [];
+    const first = serializeSidecarWrite(
+      firstAlias,
+      async () => {
+        order.push('first');
+        return 'first';
+      },
+      {
+        admissionScope: firstLibrary,
+        resolveDestination: async () => {
+          await releaseFirstResolution;
+          return fs.realpath(firstAlias);
+        },
+      },
+    );
+    const second = serializeSidecarWrite(
+      secondAlias,
+      async () => {
+        order.push('second');
+        return 'second';
+      },
+      {
+        admissionScope: secondLibrary,
+        resolveDestination: async () => {
+          const resolved = await fs.realpath(secondAlias);
+          markSecondResolutionFinished();
+          return resolved;
+        },
+      },
+    );
+
+    await secondResolutionFinished;
+    expect(order).toEqual([]);
+    resolveFirstResolution();
+    await expect(Promise.all([first, second])).resolves.toEqual(['first', 'second']);
+    expect(order).toEqual(['first', 'second']);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('canonical destination spelling keeps an aliased path locked after parent replacement', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-parent-alias-'));
+  try {
+    const parent = path.join(root, 'photos');
+    const oldParent = path.join(root, 'photos-old');
+    const aliasParent = path.join(root, 'photos-alias');
+    const aliasedDestination = path.join(aliasParent, 'photo.xmp');
+    const directDestination = path.join(parent, 'photo.xmp');
+    await fs.mkdir(parent);
+    await fs.symlink(parent, aliasParent, 'dir');
+
+    const { promise: firstStarted, resolve: markFirstStarted } = Promise.withResolvers<void>();
+    const { promise: releaseFirst, resolve: releaseFirstWrite } = Promise.withResolvers<void>();
+    const order: string[] = [];
+    const first = serializeSidecarWrite(
+      aliasedDestination,
+      async () => {
+        markFirstStarted();
+        await releaseFirst;
+        order.push('first');
+      },
+      {
+        resolveDestination: async () => {
+          const realParent = await fs.realpath(path.dirname(aliasedDestination));
+          return path.join(realParent, path.basename(aliasedDestination));
+        },
+      },
+    );
+    await firstStarted;
+
+    await fs.rename(parent, oldParent);
+    await fs.mkdir(parent);
+    let secondStarted = false;
+    const second = serializeSidecarWrite(
+      directDestination,
+      async () => {
+        secondStarted = true;
+        order.push('second');
+      },
+      {
+        resolveDestination: async () => {
+          const realParent = await fs.realpath(path.dirname(directDestination));
+          return path.join(realParent, path.basename(directDestination));
+        },
+      },
+    );
+
+    await Bun.sleep(10);
+    expect(secondStarted).toBe(false);
+    releaseFirstWrite();
+    await Promise.all([first, second]);
+    expect(order).toEqual(['first', 'second']);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('aborting a stalled canonical lookup lets the next save recalculate its key', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-aborted-stat-'));
+  const destination = path.join(root, 'photo.xmp');
+  const realStat = fs.stat.bind(fs);
+  const { promise: stalledStat, resolve: releaseStalledStat } = Promise.withResolvers<void>();
+  const { promise: statStarted, resolve: markStatStarted } = Promise.withResolvers<void>();
+  let statCalls = 0;
+  const statSpy = spyOn(fs, 'stat').mockImplementation((async (
+    ...args: Parameters<typeof fs.stat>
+  ) => {
+    statCalls++;
+    if (statCalls === 1) {
+      markStatStarted();
+      await stalledStat;
+    }
+    return realStat(...args);
+  }) as never);
+  const controller = new AbortController();
+
+  try {
+    const abandoned = serializeSidecarWrite(destination, async () => 'should not write', {
+      signal: controller.signal,
+    });
+    await statStarted;
+    controller.abort();
+    await expect(abandoned).rejects.toMatchObject({ name: 'AbortError' });
+
+    await expect(serializeSidecarWrite(destination, async () => 'saved')).resolves.toBe('saved');
+    expect(statCalls).toBe(2);
+  } finally {
+    statSpy.mockRestore();
+    releaseStalledStat();
+    await Bun.sleep(0);
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

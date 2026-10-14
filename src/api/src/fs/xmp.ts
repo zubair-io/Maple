@@ -27,7 +27,11 @@ import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
 import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 import { prepareWorkflowWrite } from '../xmp/workflow-write.ts';
-import { serializeSidecarWrite, SidecarWritePathDeniedError } from './sidecar-write-order';
+import {
+  serializeSidecarWrite,
+  SidecarWritePathDeniedError,
+  waitForAbortable,
+} from './sidecar-write-order';
 
 /**
  * First 16 hex chars of sha256(text) — the cache-key stem used for
@@ -85,10 +89,12 @@ export async function preparePrimarySidecarWrite(
   const allowed = await authorizeUnlessAborted(sidecar, signal);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
   try {
-    const existing = await fs.readFile(sidecar, 'utf8').catch((error: unknown) => {
-      if (isMissingSidecar(error)) return null;
-      throw error;
-    });
+    const existing = await waitForAbortable(fs.readFile(sidecar, 'utf8'), signal).catch(
+      (error: unknown) => {
+        if (isMissingSidecar(error)) return null;
+        throw error;
+      },
+    );
     return {
       ok: true,
       data: await prepareWorkflowWrite(existing, xmlContent, signal),
@@ -168,7 +174,7 @@ export async function updateXmpAtomic(
     return await serializeSidecarWrite(
       xmpSidecarPath(rawAbsPath),
       async (destination) => {
-        const existing = await readFileWithFailover(destination).then(
+        const existing = await waitForAbortable(readFileWithFailover(destination), signal).then(
           (xml): OpResult<string> => ({ ok: true, data: xml }),
           (error: unknown): OpResult<string> =>
             isMissingSidecar(error)
@@ -469,7 +475,7 @@ export async function deleteXmpSidecar(
       xmpSidecarPath(rawAbsPath),
       async (destination) => {
         signal?.throwIfAborted();
-        const existed = await fs.lstat(destination).then(
+        const existed = await waitForAbortable(fs.lstat(destination), signal).then(
           () => true,
           (error: unknown) => {
             if (isMissingSidecar(error)) return false;

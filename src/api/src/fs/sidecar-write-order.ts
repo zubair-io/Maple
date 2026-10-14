@@ -64,6 +64,10 @@ function canonicalKey(destination: string): Promise<string> {
   return pending;
 }
 
+function discardCanonicalKey(destination: string, pending: Promise<string>): void {
+  if (inFlightKeys.get(destination) === pending) inFlightKeys.delete(destination);
+}
+
 export async function serializeSidecarWrite<T>(
   destination: string,
   write: (resolvedDestination: string) => Promise<T>,
@@ -74,7 +78,6 @@ export async function serializeSidecarWrite<T>(
   // preserve FIFO for two names that resolve to the same sidecar. This global
   // admission queue only orders destination registration; actual writes to
   // different canonical destinations still run concurrently below.
-  const resolvedDestination = path.resolve(destination);
   // The lexical filename cannot identify every alias: two different file
   // symlinks may resolve to the same sidecar. Admit path resolution in request
   // arrival order, then serialize writes only by the canonical destination.
@@ -84,10 +87,19 @@ export async function serializeSidecarWrite<T>(
     releaseAdmission = resolve;
   });
   admissionTail = currentAdmission;
+  let canonicalDestination: string | undefined;
+  let canonicalKeyRequest: Promise<string> | undefined;
   const destinationPromise = Promise.resolve()
     .then(() => options.resolveDestination?.() ?? destination)
-    .then((resolved) => path.resolve(resolved));
-  const canonicalKeyPromise = destinationPromise.then(canonicalKey);
+    .then((resolved) => {
+      canonicalDestination = path.resolve(resolved);
+      return canonicalDestination;
+    });
+  const canonicalKeyPromise = destinationPromise.then((resolved) => {
+    options.signal?.throwIfAborted();
+    canonicalKeyRequest = canonicalKey(resolved);
+    return canonicalKeyRequest;
+  });
   // A later admission can be waiting behind a slow earlier resolution while
   // its own destination is rejected. Attach a handler now so Bun/Node do not
   // report that expected request failure as an unhandled rejection before the
@@ -96,7 +108,7 @@ export async function serializeSidecarWrite<T>(
   const destinationKeysPromise = Promise.all([destinationPromise, canonicalKeyPromise]).then(
     ([actualDestination, inodeKey]) => {
       const lexicalKey = `path:${path
-        .resolve(resolvedDestination)
+        .resolve(actualDestination)
         .normalize('NFC')
         .toLowerCase()
         .normalize('NFC')}`;
@@ -122,6 +134,9 @@ export async function serializeSidecarWrite<T>(
     );
     for (const key of keys) pendingWrites.set(key, settled);
   } finally {
+    if (options.signal?.aborted && canonicalDestination && canonicalKeyRequest) {
+      discardCanonicalKey(canonicalDestination, canonicalKeyRequest);
+    }
     releaseAdmission();
     if (admissionTail === currentAdmission) admissionTail = undefined;
   }
