@@ -18,8 +18,6 @@ namespace Maple.WinUI.Services.Xmp
         private static readonly XNamespace Papp = XmpSchema.PappNs;
         private static readonly XNamespace PappLegacy = XmpSchema.PappNsLegacy;
         private static readonly XNamespace Rdf = XmpSchema.RdfNs;
-        private const int MaxDabsTextLength = 256 * 1024;
-        private const int MaxBrushDabCount = 4096;
 
         private static string? Attr(XElement e, XName name) =>
             (e.Attribute(name) ?? (name.Namespace == Papp ? e.Attribute(PappLegacy + name.LocalName) : null))?.Value;
@@ -95,33 +93,93 @@ namespace Maple.WinUI.Services.Xmp
                 if (newIndex >= 0) childOrder.Add(ChildSlot.ForPassthrough(newIndex));
             }
             document.ChildOrder = childOrder;
-            RebuildVerbatimLayerOrders(document);
         }
 
-        internal static IReadOnlyList<string> PassthroughContainers(XmpSidecarDocument? document) =>
-            document?.PassthroughNodes.Where(IsBrushContainer).ToArray() ?? Array.Empty<string>();
+        internal static BrushCorrectionRestoreSnapshot? PassthroughContainers(XmpSidecarDocument? document)
+        {
+            if (document == null) return null;
+            var containers = document.PassthroughNodes.Where(IsBrushContainer).ToArray();
+            return containers.Length == 0 ? null : new BrushCorrectionRestoreSnapshot(
+                containers,
+                document.PassthroughNodes.ToArray(),
+                document.ChildOrder.ToArray(),
+                document.MaskGroups.ToArray(),
+                document.VerbatimLayerOrders.ToArray());
+        }
 
         internal static void RestorePassthroughContainers(XmpSidecarDocument document,
-            IReadOnlyList<string> containers)
+            BrushCorrectionRestoreSnapshot snapshot)
         {
-            if (containers.Count == 0 || document.PassthroughNodes.Any(IsBrushContainer)) return;
-            foreach (var container in containers)
-            {
-                if (!IsBrushContainer(container)) continue;
-                document.PassthroughNodes.Add(container);
-                document.ChildOrder.Add(ChildSlot.ForPassthrough(document.PassthroughNodes.Count - 1));
-            }
-            RebuildVerbatimLayerOrders(document);
-        }
+            if (snapshot.Containers.Count == 0 || document.PassthroughNodes.Any(IsBrushContainer)) return;
 
-        private static void RebuildVerbatimLayerOrders(XmpSidecarDocument document)
-        {
-            var orders = document.PassthroughNodes
-                .Where(IsBrushContainer)
-                .SelectMany(xml => XmpLayerOrder.Keys(XmpLayerOrder.ContainerItems(XElement.Parse(xml))))
-                .ToArray();
+            var restoredIndexes = new Dictionary<int, int>();
+            for (var sourceIndex = 0; sourceIndex < snapshot.PassthroughNodes.Count; sourceIndex++)
+            {
+                var node = snapshot.PassthroughNodes[sourceIndex];
+                if (!IsBrushContainer(node)) continue;
+                restoredIndexes[sourceIndex] = document.PassthroughNodes.Count;
+                document.PassthroughNodes.Add(node);
+            }
+
+            var currentOrder = document.ChildOrder.ToArray();
+            document.MaskGroups.Clear();
+            document.MaskGroups.AddRange(snapshot.MaskGroups);
             document.VerbatimLayerOrders.Clear();
-            document.VerbatimLayerOrders.AddRange(orders);
+            document.VerbatimLayerOrders.AddRange(snapshot.VerbatimLayerOrders);
+
+            var indexesByXml = document.PassthroughNodes
+                .Select((xml, index) => (xml, index))
+                .GroupBy(entry => entry.xml, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => new Queue<int>(group.Select(entry => entry.index)), StringComparer.Ordinal);
+            var restoredOrder = new List<ChildSlot>(snapshot.ChildOrder.Count + currentOrder.Length);
+            var usedTags = new HashSet<string>(StringComparer.Ordinal);
+            var usedIndexes = new HashSet<int>();
+
+            void AddModeled(string tag)
+            {
+                if (usedTags.Add(tag)) restoredOrder.Add(ChildSlot.ForModeled(tag));
+            }
+
+            void AddPassthrough(int index)
+            {
+                if (usedIndexes.Add(index)) restoredOrder.Add(ChildSlot.ForPassthrough(index));
+            }
+
+            foreach (var slot in snapshot.ChildOrder)
+            {
+                if (slot.ModeledTag is { } tag)
+                {
+                    AddModeled(tag);
+                    continue;
+                }
+                if (slot.PassthroughIndex < 0 || slot.PassthroughIndex >= snapshot.PassthroughNodes.Count) continue;
+                if (restoredIndexes.TryGetValue(slot.PassthroughIndex, out var restoredIndex))
+                {
+                    AddPassthrough(restoredIndex);
+                    continue;
+                }
+                var originalXml = snapshot.PassthroughNodes[slot.PassthroughIndex];
+                if (!indexesByXml.TryGetValue(originalXml, out var indexes)) continue;
+                while (indexes.Count > 0)
+                {
+                    var currentIndex = indexes.Dequeue();
+                    if (!usedIndexes.Contains(currentIndex))
+                    {
+                        AddPassthrough(currentIndex);
+                        break;
+                    }
+                }
+            }
+
+            foreach (var slot in currentOrder)
+            {
+                if (slot.ModeledTag is { } tag) AddModeled(tag);
+                else if (slot.PassthroughIndex >= 0 && slot.PassthroughIndex < document.PassthroughNodes.Count)
+                    AddPassthrough(slot.PassthroughIndex);
+            }
+            foreach (var index in restoredIndexes.Values) AddPassthrough(index);
+
+            document.ChildOrder = restoredOrder;
         }
 
         private static bool IsBrushContainer(string xml)
@@ -192,9 +250,8 @@ namespace Maple.WinUI.Services.Xmp
         private static IReadOnlyList<BrushDab>? ParseDabs(string? raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return Array.Empty<BrushDab>();
-            if (raw.Length > MaxDabsTextLength || HasTooManyTokens(raw, MaxBrushDabCount * 6)) return null;
             var tokens = raw.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            if (tokens.Length % 6 != 0 || tokens.Length / 6 > MaxBrushDabCount) return null;
+            if (tokens.Length % 6 != 0) return null;
             var dabs = new List<BrushDab>(tokens.Length / 6);
             for (var i = 0; i < tokens.Length; i += 6)
             {
@@ -206,24 +263,6 @@ namespace Maple.WinUI.Services.Xmp
                 dabs.Add(new BrushDab(new MaskPoint(v[0],v[1]),v[2],v[3],v[4],tokens[i+5]=="1"));
             }
             return dabs;
-        }
-
-        private static bool HasTooManyTokens(string value, int maximum)
-        {
-            var count = 0;
-            var inToken = false;
-            foreach (var character in value)
-            {
-                if (char.IsWhiteSpace(character))
-                {
-                    inToken = false;
-                    continue;
-                }
-                if (inToken) continue;
-                if (++count > maximum) return true;
-                inToken = true;
-            }
-            return false;
         }
 
         private static string Digest(IReadOnlyList<BrushDab> dabs)

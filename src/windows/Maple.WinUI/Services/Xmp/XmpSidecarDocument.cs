@@ -40,6 +40,32 @@ namespace Maple.WinUI.Services.Xmp
         public static ChildSlot ForPassthrough(int index) => new(null, index);
     }
 
+    /// <summary>Passthrough brush XML plus the original child ordering needed
+    /// to restore an undoable Reset All without moving brush layers.</summary>
+    public sealed class BrushCorrectionRestoreSnapshot
+    {
+        internal BrushCorrectionRestoreSnapshot(
+            IReadOnlyList<string> containers,
+            IReadOnlyList<string> passthroughNodes,
+            IReadOnlyList<ChildSlot> childOrder,
+            IReadOnlyList<XmpMaskGroupTemplate> maskGroups,
+            IReadOnlyList<double> verbatimLayerOrders)
+        {
+            Containers = containers;
+            PassthroughNodes = passthroughNodes;
+            ChildOrder = childOrder;
+            MaskGroups = maskGroups;
+            VerbatimLayerOrders = verbatimLayerOrders;
+        }
+
+        public IReadOnlyList<string> Containers { get; }
+        internal IReadOnlyList<string> PassthroughNodes { get; }
+        internal IReadOnlyList<ChildSlot> ChildOrder { get; }
+        internal IReadOnlyList<XmpMaskGroupTemplate> MaskGroups { get; }
+        internal IReadOnlyList<double> VerbatimLayerOrders { get; }
+
+    }
+
     /// <summary>
     /// One parsed sidecar. Fields Maple models live in <see cref="Adjustments"/>
     /// and the culling properties; everything else the source document carried

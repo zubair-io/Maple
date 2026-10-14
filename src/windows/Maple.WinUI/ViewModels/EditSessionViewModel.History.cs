@@ -127,7 +127,7 @@ namespace Maple.WinUI.ViewModels
             {
                 var source = photo.IsCloud ? _cloudDoc : SidecarStore.Load(photo.FilePath);
                 var containers = XmpBrushCorrections.PassthroughContainers(source);
-                if (containers.Count > 0)
+                if (containers is not null)
                     _brushCorrectionsRemovedByReset[photo.FilePath] = containers;
             }
             _discardBrushCorrectionsForPhotoPath = before.LocalAdjustments.Any(layer => layer.Mask is BrushMask)
