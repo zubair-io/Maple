@@ -143,7 +143,9 @@
 ///   diagonal witnesses disagree with the centre/cardinal surface (#4596).
 /// - 23 — AMaZE validates collapsed-hue support within each CFA color plane,
 ///   without comparing their different channel-to-green ratios (#4596).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 23;
+/// - 24 — AMaZE bounds unsupported collapsed-chroma value overshoot only when
+///   the centre has interpolated same-colour surface support (#4596).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 24;
 
 #[cfg(test)]
 mod tests {

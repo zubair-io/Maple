@@ -369,3 +369,6 @@ fn amaze_step_between_equal_chromaticity_surfaces_keeps_opposite_chroma_hue() {
         }
     }
 }
+
+#[path = "tests_fcs_ceiling.rs"]
+mod ceiling;
