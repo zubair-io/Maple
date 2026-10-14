@@ -201,7 +201,7 @@ export const xmpRoutes = new Elysia()
     const result =
       conflict !== null
         ? await deleteConflictSidecar(absPath, conflict)
-          : await deleteXmpSidecar(absPath, writeScope);
+        : await deleteXmpSidecar(absPath, writeScope);
     if (!result.ok) {
       set.status = 400;
       return { error: result.error };
