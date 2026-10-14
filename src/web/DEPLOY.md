@@ -8,7 +8,7 @@ ng build maple --configuration=production
 # or: npm run build
 ```
 
-Output: `dist/maple/browser/` with hash-named JS/CSS bundles, `raw_wasm_bg.wasm`,
+Output: `dist/maple/browser/` with hash-named JS/CSS bundles, `pkg/raw_wasm_bg.wasm`,
 `ngsw-worker.js`, `ngsw.json`, `index.html`, `manifest.webmanifest`.
 
 ---
@@ -16,7 +16,7 @@ Output: `dist/maple/browser/` with hash-named JS/CSS bundles, `raw_wasm_bg.wasm`
 ## Requirements for every host
 
 1. **SPA fallback** — unknown paths (`/browse`, `/edit/:id`) must return `index.html` with HTTP 200 (not 404).
-2. **WASM MIME type** — `raw_wasm_bg.wasm` must be served as `application/wasm`. Most hosts handle this automatically; see per-host notes below.
+2. **WASM MIME type** — `pkg/raw_wasm_bg.wasm` must be served as `application/wasm`. Most hosts handle this automatically; see per-host notes below.
 3. **Service worker scope** — serve from the root path `/`. Sub-path deployments require adjusting `<base href>` in `index.html` and the `ngsw-config.json` paths.
 
 ---

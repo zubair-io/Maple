@@ -19,6 +19,7 @@ import init, {
   render_bytes_sized,
   render_bytes_sized_with_film,
 } from '../../projects/maple-common/src/lib/raw-pipeline/pkg/raw_wasm';
+import { RAW_WASM_URL } from '../../projects/maple-common/src/lib/raw-pipeline/wasm-asset-url';
 
 interface Options {
   raw: number[];
@@ -130,7 +131,7 @@ async function rejection(resolver: HostedPreviewResolver, fixture: Fixture) {
 
 async function evidence(fixture: Fixture, blob: Blob, withFilm: boolean) {
   const { rawBytes, xml, folder, album } = fixture;
-  await init();
+  await init({ module_or_path: RAW_WASM_URL });
   const film = withFilm
     ? new Uint8Array(
         await (await fetch('/film-luts/color_negative_kodak_portra_400.mlut')).arrayBuffer(),
