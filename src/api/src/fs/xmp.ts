@@ -378,13 +378,17 @@ export async function writeXmpWithPrecondition(
   deviceName: string,
   requireAbsent: boolean = false,
   admissionScope?: string,
+  signal?: AbortSignal,
 ): Promise<XmpWriteOutcome> {
   try {
     return await serializeSidecarWrite(
       xmpSidecarPath(rawAbsPath),
       async (sidecar) => {
+        signal?.throwIfAborted();
         const writeConflictCopy = async (): Promise<XmpWriteOutcome> => {
+          signal?.throwIfAborted();
           const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName);
+          signal?.throwIfAborted();
           const written = await writeSidecarAtomic(
             conflictPath,
             xmlContent,
@@ -414,12 +418,13 @@ export async function writeXmpWithPrecondition(
           if (onDiskEpoch !== ifMtimeMatchesEpoch) return writeConflictCopy();
         }
 
-        const prepared = await preparePrimarySidecarWrite(sidecar, xmlContent);
+        const prepared = await preparePrimarySidecarWrite(sidecar, xmlContent, signal);
         if (!prepared.ok)
           return {
             kind: 'error',
             error: prepared.error ?? 'Workflow validation failed',
           };
+        signal?.throwIfAborted();
         const result = await writeSidecarAtomic(sidecar, prepared.data, 'XMP write failed');
         return result.ok
           ? { kind: 'ok', mtime: result.mtime }
@@ -450,7 +455,7 @@ export async function deleteXmpSidecar(
     return await serializeSidecarWrite(
       xmpSidecarPath(rawAbsPath),
       async (destination) => {
-        const existed = await fs.stat(destination).then(
+        const existed = await fs.lstat(destination).then(
           () => true,
           (error: unknown) => {
             if (isMissingSidecar(error)) return false;
