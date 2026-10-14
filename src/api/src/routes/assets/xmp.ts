@@ -49,6 +49,7 @@ import {
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { setHasXmp, recordSidecarEdit } from '../../db/assets.repo.ts';
 import { resolveAssetLocationOrRespond } from './_shared.ts';
+import { resolveAndAuthorizePath } from '../xmp-path-auth.ts';
 
 export const xmpRoutes = new Elysia()
   // Read XMP sidecar
@@ -109,8 +110,13 @@ export const xmpRoutes = new Elysia()
       markDeprecated(set);
       const resolved = await resolveAssetLocationOrRespond(params.id, set);
       if ('error' in resolved) return resolved;
-      const { id, info, absPath, libs } = resolved;
-      const writeScope = info.folder_id ? libs.get(info.folder_id.toHexString()) : undefined;
+      const { id, info, absPath } = resolved;
+      const authorized = await resolveAndAuthorizePath(absPath);
+      if (!authorized.ok) {
+        set.status = authorized.status;
+        return { error: authorized.error };
+      }
+      const writeScope = authorized.writeScope;
 
       const xmlContent =
         typeof body === 'string'
@@ -201,8 +207,13 @@ export const xmpRoutes = new Elysia()
     markDeprecated(set);
     const resolved = await resolveAssetLocationOrRespond(params.id, set);
     if ('error' in resolved) return resolved;
-    const { id, info, absPath, libs } = resolved;
-    const writeScope = info.folder_id ? libs.get(info.folder_id.toHexString()) : undefined;
+    const { id, info, absPath } = resolved;
+    const authorized = await resolveAndAuthorizePath(absPath);
+    if (!authorized.ok) {
+      set.status = authorized.status;
+      return { error: authorized.error };
+    }
+    const writeScope = authorized.writeScope;
     const conflict = typeof query.conflict === 'string' ? query.conflict : null;
     const result =
       conflict !== null
