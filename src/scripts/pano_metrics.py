@@ -111,6 +111,8 @@ import os
 import sys
 
 import numpy as np
+
+from pano_seam_metrics import seam_step
 from PIL import Image
 
 # Pano canvases (e.g. the 18189x6464 pano_01 reference) trip Pillow's
@@ -225,6 +227,20 @@ def report_block(report_path) -> dict:
     return out
 
 
+def _load_owner(owner_path, size) -> np.ndarray:
+    with Image.open(owner_path) as im:
+        arr = np.asarray(im)
+    if arr.ndim == 3:
+        arr = arr[..., 0]
+    owner = arr.astype(np.int64) - 1
+    if (owner.shape[1], owner.shape[0]) != size:
+        im2 = Image.fromarray(
+            (np.clip(owner + 1, 0, 65535)).astype(np.uint16), mode="I;16")
+        im2 = im2.resize(size, Image.NEAREST)
+        owner = np.asarray(im2).astype(np.int64) - 1
+    return owner
+
+
 def _metrics_from_images(
     cand_im: Image.Image,
     ref_im: Image.Image,
@@ -233,6 +249,8 @@ def _metrics_from_images(
     long_edge: int = DEFAULT_LONG_EDGE,
     seam_percentile: float = DEFAULT_SEAM_PERCENTILE,
     edge_strip: int = EDGE_STRIP_PX,
+    owner_path=None,
+    owner: np.ndarray = None,
 ) -> dict:
     cand_im = cand_im.convert("RGB")
     ref_im = ref_im.convert("RGB")
@@ -250,6 +268,15 @@ def _metrics_from_images(
 
     cand = np.asarray(cand_n, dtype=np.float32) / 255.0
     ref = np.asarray(ref_n, dtype=np.float32) / 255.0
+
+    owner_arr = owner
+    if owner_arr is None and owner_path:
+        owner_arr = _load_owner(owner_path, cand_n.size)
+    step = seam_step(cand, owner_arr) if owner_arr is not None else {
+        "seam_step_hard": None, "seam_step_lowpass": None,
+        "seam_step_hard_raw": None, "seam_step_lowpass_raw": None,
+        "seam_step_control": None,
+        "seam_step_r": None, "seam_step_g": None, "seam_step_b": None}
 
     sq = (cand - ref) ** 2
     per_channel = np.sqrt(sq.mean(axis=(0, 1)))
@@ -271,6 +298,14 @@ def _metrics_from_images(
         "rmse_valid": rmse_valid,
         "n_ref_valid": n_ref_valid,
         "seam_energy": seam_energy(cand, ref, seam_percentile),
+        "seam_step_hard": step["seam_step_hard"],
+        "seam_step_lowpass": step["seam_step_lowpass"],
+        "seam_step_hard_raw": step["seam_step_hard_raw"],
+        "seam_step_lowpass_raw": step["seam_step_lowpass_raw"],
+        "seam_step_control": step["seam_step_control"],
+        "seam_step_r": step["seam_step_r"],
+        "seam_step_g": step["seam_step_g"],
+        "seam_step_b": step["seam_step_b"],
         "seam_excess_percentile": float(seam_percentile),
         "wrap_closure_px": wrap["px"],
         "wrap_closure_ncc": wrap["ncc"],
@@ -292,6 +327,7 @@ def diff(
     long_edge: int = DEFAULT_LONG_EDGE,
     seam_percentile: float = DEFAULT_SEAM_PERCENTILE,
     edge_strip: int = EDGE_STRIP_PX,
+    owner_path=None,
 ) -> dict:
     """Full metric set for a candidate/reference pair. See module doc."""
     with Image.open(cand_path) as cand_im, Image.open(ref_path) as ref_im:
@@ -302,6 +338,7 @@ def diff(
             long_edge=long_edge,
             seam_percentile=seam_percentile,
             edge_strip=edge_strip,
+            owner_path=owner_path,
         )
 
 
@@ -454,6 +491,23 @@ def self_test(fixture_root=None) -> int:
         f"ncc={m_shear['wrap_closure_ncc']:.3f})",
     )
 
+    # (e) seam-step: planted log-luma step at an owner boundary must read
+    # large; the same image with a single owner must read ~zero.
+    syn = np.full((120, 200, 3), 0.4, dtype=np.float32)
+    syn[:, 100:, :] = 0.4 * np.exp(0.25)
+    syn_owner = np.zeros((120, 200), dtype=np.int64)
+    syn_owner[:, 100:] = 1
+    s_step = seam_step(syn, syn_owner)
+    check("seam-step-detects",
+          s_step["seam_step_hard"] is not None
+          and s_step["seam_step_hard"] > 0.15,
+          f"seam_step_hard={s_step['seam_step_hard']} (> 0.15 planted)")
+    s_flat = seam_step(syn, np.zeros((120, 200), dtype=np.int64))
+    check("seam-step-flat",
+          s_flat["seam_step_hard"] is None
+          or abs(s_flat["seam_step_hard"]) < 0.02,
+          f"seam_step_hard={s_flat['seam_step_hard']} (single owner)")
+
     # Report passthrough contract: absent report must say so, not fake.
     rb = report_block(None)
     check(
@@ -511,6 +565,8 @@ def main() -> int:
         help="test-fixtures root for --self-test (default: "
         "resolved relative to this script)",
     )
+    p.add_argument("--owner", help="owner-map PNG from maple-cli pano stitch "
+                                   "(frame index + 1 per pixel, 0 = uncovered)")
     args = p.parse_args()
 
     if args.self_test:
@@ -525,6 +581,7 @@ def main() -> int:
             report_path=args.report,
             long_edge=args.long_edge,
             seam_percentile=args.seam_percentile,
+            owner_path=args.owner,
         )
         if args.ghost_evidence:
             from pano_ghost_metrics import measure

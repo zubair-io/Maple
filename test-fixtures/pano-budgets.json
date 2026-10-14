@@ -9,6 +9,8 @@
         "coverage": 0.92,
         "rmse": 0.24,
         "seam_energy": 0.00094,
+        "seam_step_hard": 0.011,
+        "seam_step_lowpass": 0.002,
         "mean_reproj_px": 1.2,
         "max_reproj_px": 6.4,
         "horizon_tilt_deg": 0.4

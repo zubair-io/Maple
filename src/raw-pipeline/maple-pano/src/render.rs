@@ -260,6 +260,27 @@ pub fn write_frame_png(
     Ok(())
 }
 
+pub fn write_owner_png(
+    path: &Path,
+    width: u32,
+    height: u32,
+    owner: &[u16],
+) -> Result<(), PanoError> {
+    debug_assert_eq!(owner.len(), width as usize * height as usize);
+    let file = std::fs::File::create(path).map_err(|e| PanoError::io(path, e))?;
+    let mut info = png::Info::with_size(width, height);
+    info.color_type = png::ColorType::Grayscale;
+    info.bit_depth = png::BitDepth::Sixteen;
+    let enc = png::Encoder::with_info(std::io::BufWriter::new(file), info)?;
+    let mut writer = enc.write_header()?;
+    let mut bytes = Vec::with_capacity(owner.len() * 2);
+    for &v in owner {
+        bytes.extend_from_slice(&v.to_be_bytes());
+    }
+    writer.write_image_data(&bytes)?;
+    Ok(())
+}
+
 /// What to render from.
 #[derive(Debug, Clone)]
 pub enum SourceKind {
