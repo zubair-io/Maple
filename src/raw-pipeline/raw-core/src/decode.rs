@@ -927,6 +927,7 @@ fn rawler_illuminant_to_core(r: &RawlerIlluminant) -> CoreIlluminant {
 /// precision through the u16 requantization and leaves ~2 stops of over-white
 /// HDR headroom before the `u16::MAX` ceiling.
 const FLOAT_WHITE_ANCHOR: u32 = 16_384;
+const NEARBY_CODE_WINDOW: usize = 16;
 
 /// Infer a lower effective sensor white when a large RAW shows repeated
 /// clipping below its declared level. Near-white plateaus must occupy at least
@@ -962,49 +963,76 @@ fn effective_white_level(
     struct PlateauCandidate {
         value: u16,
         required_tiles: usize,
+        nearest_higher_count: u32,
         occupied_tiles: Vec<usize>,
     }
     let mut candidates = Vec::<PlateauCandidate>::new();
     let mut candidates_by_position: [Vec<usize>; 4] = std::array::from_fn(|_| Vec::new());
     let mut candidate_lookup = vec![[-1i32; 4]; usize::from(u16::MAX) + 1];
     for p in 0..4 {
+        let mut nearest_higher_count = 0;
+        let mut nearest_higher_value = None;
         for (value, counts) in histogram.iter().enumerate().rev() {
             let count = counts[p];
-            if count < 32 {
-                continue;
+            if count >= 32 {
+                let value_u32 = value as u32;
+                let denom = (declared as f64 - black_level[p] as f64).max(1.0);
+                let frac = (value_u32 as f64 - black_level[p] as f64) / denom;
+                // A modest pile-up below 96% can be a uniform chart patch rather
+                // than sensor clipping. The lower-range fixture clips have a much
+                // larger pile-up; near-declared clips can remain sparse.
+                let is_sparse_near_declared_white = (0.96..0.995).contains(&frac);
+                let is_dense_sub_declared_white = (0.90..0.96).contains(&frac) && count >= 1024;
+                if is_sparse_near_declared_white || is_dense_sub_declared_white {
+                    let required_tiles = if is_dense_sub_declared_white { 16 } else { 6 };
+                    let candidate_index = candidates.len();
+                    candidates.push(PlateauCandidate {
+                        value: value as u16,
+                        required_tiles,
+                        nearest_higher_count: nearest_higher_value
+                            .filter(|higher| higher - value <= NEARBY_CODE_WINDOW)
+                            .map_or(0, |_| nearest_higher_count),
+                        occupied_tiles: Vec::with_capacity(required_tiles),
+                    });
+                    candidates_by_position[p].push(candidate_index);
+                    candidate_lookup[value][p] = candidate_index as i32;
+                }
             }
-            let value_u32 = value as u32;
-            let denom = (declared as f64 - black_level[p] as f64).max(1.0);
-            let frac = (value_u32 as f64 - black_level[p] as f64) / denom;
-            // A modest pile-up below 96% can be a uniform chart patch rather
-            // than sensor clipping. The lower-range fixture clips have a much
-            // larger pile-up; near-declared clips can remain sparse.
-            let is_sparse_near_declared_white = (0.96..0.995).contains(&frac);
-            let is_dense_sub_declared_white = (0.90..0.96).contains(&frac) && count >= 1024;
-            if !is_sparse_near_declared_white && !is_dense_sub_declared_white {
-                continue;
+            if count > 0 {
+                // Some RAW decoders expand lower-bit-depth samples onto a
+                // sparse u16 grid (for example, 14-bit IIQ values are shifted
+                // left by two). Remember the nearest populated code rather than
+                // treating empty bins as evidence of a peak.
+                nearest_higher_count = count;
+                nearest_higher_value = Some(value);
             }
+        }
+    }
 
-            // Require a visible peak over both neighboring codes. Broad smooth
-            // highlight distributions can have many occupied bins, but those
-            // bins are not evidence that the sensor clipped at one code value.
-            let adjacent_count = value
-                .checked_sub(1)
-                .map_or(0, |neighbor| histogram[neighbor][p])
-                .max(histogram.get(value + 1).map_or(0, |neighbor| neighbor[p]));
-            if count < adjacent_count.saturating_mul(4) {
-                continue;
+    // Compare each candidate with its nearest populated lower code as well as
+    // the higher code recorded above. This preserves the peak gate on expanded
+    // quantized data while rejecting a smooth highlight distribution whose
+    // populated values simply skip the empty u16 bins between source codes.
+    for p in 0..4 {
+        let mut nearest_lower_count = 0u32;
+        let mut nearest_lower_value = None;
+        for (value, counts) in histogram.iter().enumerate() {
+            let candidate_index = candidate_lookup[value][p];
+            if candidate_index >= 0 {
+                let candidate = &candidates[candidate_index as usize];
+                let nearby_lower_count = nearest_lower_value
+                    .filter(|lower| value - lower <= NEARBY_CODE_WINDOW)
+                    .map_or(0, |_| nearest_lower_count);
+                if counts[p] < nearby_lower_count.saturating_mul(4)
+                    || counts[p] < candidate.nearest_higher_count.saturating_mul(4)
+                {
+                    candidate_lookup[value][p] = -1;
+                }
             }
-
-            let required_tiles = if is_dense_sub_declared_white { 16 } else { 6 };
-            let candidate_index = candidates.len();
-            candidates.push(PlateauCandidate {
-                value: value as u16,
-                required_tiles,
-                occupied_tiles: Vec::with_capacity(required_tiles),
-            });
-            candidates_by_position[p].push(candidate_index);
-            candidate_lookup[value][p] = candidate_index as i32;
+            if counts[p] > 0 {
+                nearest_lower_count = counts[p];
+                nearest_lower_value = Some(value);
+            }
         }
     }
 
@@ -1315,6 +1343,41 @@ mod tests {
         assert_eq!(
             effective_white_level(&data, 512, 512, &[0; 4], 65535),
             65535
+        );
+    }
+
+    #[test]
+    fn effective_white_rejects_broad_near_white_histogram_on_four_code_grid() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for value_offset in 0..65usize {
+            for sample in 0..32usize {
+                let tile = sample % 16;
+                let repeat = sample / 16;
+                let local_slot = value_offset * 2 + repeat;
+                let x = (tile % 4) * 32 + (local_slot % 16) * 2;
+                let y = (tile / 4) * 32 + (local_slot / 16) * 2;
+                data[y * w + x] = 63_000 + (value_offset * 4) as u16;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_detects_clipping_plateau_on_four_code_grid() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in (0..h).step_by(2) {
+            for x in (0..w).step_by(2) {
+                data[y * w + x] = 62_192;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            62_192
         );
     }
 
