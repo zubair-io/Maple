@@ -951,16 +951,11 @@ fn effective_white_level(
         return declared;
     }
     let mut histogram = vec![[0u32; 4]; usize::from(u16::MAX) + 1];
-    for y in 0..h {
-        let y_base = (y & 1) * 2;
-        for x in 0..w {
-            let p = y_base + (x & 1);
-            histogram[data[y * w + x] as usize][p] += 1;
-        }
-    }
     struct PlateauCandidate {
         value: u16,
+        position: usize,
         sample_count: u32,
+        in_highlight_range: bool,
         eligible: bool,
         required_regions: usize,
         occupied_regions: [Vec<usize>; 4],
@@ -968,68 +963,84 @@ fn effective_white_level(
     let mut candidates = Vec::<PlateauCandidate>::new();
     let mut candidates_by_position: [Vec<usize>; 4] = std::array::from_fn(|_| Vec::new());
     let mut candidate_lookup = vec![[-1i32; 4]; usize::from(u16::MAX) + 1];
-    for p in 0..4 {
-        for (value, counts) in histogram.iter().enumerate().rev() {
-            let count = counts[p];
-            if count == 0 {
+    let regions_w = (w + 64).div_ceil(128);
+    let x_offsets = [0, 64, 0, 64];
+    let y_offsets = [0, 0, 64, 64];
+    let minimum_tracked_value = (0..4)
+        .map(|position| {
+            let denom = (declared as f64 - black_level[position] as f64).max(1.0);
+            (black_level[position] as f64 + denom * 0.90).ceil() as u32
+        })
+        .min()
+        .unwrap_or(u32::MAX);
+
+    // Build the histogram and per-code spatial evidence in one frame pass.
+    // Track every populated bin in the highlight range, not only bins which
+    // later qualify as plateaus: this also lets the final Bayer-position guard
+    // reuse the spatial evidence for brighter samples without another scan.
+    for y in 0..h {
+        let y_base = (y & 1) * 2;
+        for x in 0..w {
+            let position = y_base + (x & 1);
+            let value = data[y * w + x];
+            histogram[usize::from(value)][position] += 1;
+            if u32::from(value) < minimum_tracked_value {
                 continue;
             }
-            let value_u32 = value as u32;
-            let denom = (declared as f64 - black_level[p] as f64).max(1.0);
-            let frac = (value_u32 as f64 - black_level[p] as f64) / denom;
-            // Track the whole highlight range so neighboring source codes can
-            // be compared even when a decoder's linearization curve spaces them
-            // hundreds of u16 values apart (IIQ-S). Only near-white peaks and
-            // dense lower-range peaks can become white-level candidates.
-            let is_sparse_near_declared_white = (0.96..0.995).contains(&frac);
-            let is_dense_sub_declared_white = (0.90..0.96).contains(&frac) && count >= 1024;
-            if frac >= 0.90 {
-                let eligible =
-                    count >= 32 && (is_sparse_near_declared_white || is_dense_sub_declared_white);
-                let required_regions = if is_dense_sub_declared_white { 12 } else { 6 };
+
+            let candidate_index = if candidate_lookup[usize::from(value)][position] < 0 {
+                let denom = (declared as f64 - black_level[position] as f64).max(1.0);
+                let fraction = (u32::from(value) as f64 - black_level[position] as f64) / denom;
+                let in_highlight_range = fraction >= 0.90;
+                let region_capacity = if (0.90..0.96).contains(&fraction) {
+                    12
+                } else {
+                    6
+                };
                 let candidate_index = candidates.len();
                 candidates.push(PlateauCandidate {
-                    value: value as u16,
-                    sample_count: count,
-                    eligible,
-                    required_regions,
-                    occupied_regions: std::array::from_fn(|_| Vec::with_capacity(required_regions)),
+                    value,
+                    position,
+                    sample_count: 0,
+                    in_highlight_range,
+                    eligible: false,
+                    required_regions: region_capacity,
+                    occupied_regions: std::array::from_fn(|_| Vec::with_capacity(region_capacity)),
                 });
-                candidates_by_position[p].push(candidate_index);
-                candidate_lookup[value][p] = candidate_index as i32;
+                candidates_by_position[position].push(candidate_index);
+                candidate_lookup[usize::from(value)][position] = candidate_index as i32;
+                candidate_index
+            } else {
+                candidate_lookup[usize::from(value)][position] as usize
+            };
+
+            let candidate = &mut candidates[candidate_index];
+            for grid in 0..4 {
+                let occupied = &mut candidate.occupied_regions[grid];
+                let region =
+                    ((y + y_offsets[grid]) / 128) * regions_w + (x + x_offsets[grid]) / 128;
+                if occupied.len() < candidate.required_regions && !occupied.contains(&region) {
+                    occupied.push(region);
+                }
             }
         }
     }
 
-    // Any plateau can be a flat chart patch, including a near-white patch with
-    // enough exact samples to pass the sparse histogram threshold. Track spatial
-    // support for every histogram peak so a localized higher code cannot hide a
-    // lower, genuinely distributed clipping plateau.
-    if !candidates.is_empty() {
-        let regions_w = (w + 64).div_ceil(128);
-        let x_offsets = [0, 64, 0, 64];
-        let y_offsets = [0, 0, 64, 64];
-        for y in 0..h {
-            let y_base = (y & 1) * 2;
-            for x in 0..w {
-                let p = y_base + (x & 1);
-                let value = data[y * w + x] as usize;
-                let candidate_index = candidate_lookup[value][p];
-                if candidate_index >= 0 {
-                    let candidate = &mut candidates[candidate_index as usize];
-                    for grid in 0..4 {
-                        let occupied = &mut candidate.occupied_regions[grid];
-                        let region =
-                            ((y + y_offsets[grid]) / 128) * regions_w + (x + x_offsets[grid]) / 128;
-                        if occupied.len() < candidate.required_regions
-                            && !occupied.contains(&region)
-                        {
-                            occupied.push(region);
-                        }
-                    }
-                }
-            }
-        }
+    for candidate in &mut candidates {
+        let count = histogram[usize::from(candidate.value)][candidate.position];
+        let denom = (declared as f64 - black_level[candidate.position] as f64).max(1.0);
+        let fraction =
+            (u32::from(candidate.value) as f64 - black_level[candidate.position] as f64) / denom;
+        let is_sparse_near_declared_white = (0.96..0.995).contains(&fraction);
+        let is_dense_sub_declared_white = (0.90..0.96).contains(&fraction) && count >= 1024;
+        candidate.sample_count = count;
+        candidate.eligible =
+            count >= 32 && (is_sparse_near_declared_white || is_dense_sub_declared_white);
+        candidate.required_regions = if is_dense_sub_declared_white { 12 } else { 6 };
+    }
+    for position_candidates in &mut candidates_by_position {
+        position_candidates
+            .sort_unstable_by_key(|&index| std::cmp::Reverse(candidates[index].value));
     }
 
     // Compare each candidate with the nearest spatially distributed highlight
@@ -1041,8 +1052,11 @@ fn effective_white_level(
     for position_candidates in &candidates_by_position {
         let mut higher_count = 0;
         for &candidate_index in position_candidates {
-            nearest_higher_count[candidate_index] = higher_count;
             let candidate = &candidates[candidate_index];
+            if !candidate.in_highlight_range {
+                continue;
+            }
+            nearest_higher_count[candidate_index] = higher_count;
             if candidate
                 .occupied_regions
                 .iter()
@@ -1053,8 +1067,11 @@ fn effective_white_level(
         }
         let mut lower_count = 0;
         for &candidate_index in position_candidates.iter().rev() {
-            nearest_lower_count[candidate_index] = lower_count;
             let candidate = &candidates[candidate_index];
+            if !candidate.in_highlight_range {
+                continue;
+            }
+            nearest_lower_count[candidate_index] = lower_count;
             if candidate
                 .occupied_regions
                 .iter()
@@ -1090,22 +1107,21 @@ fn effective_white_level(
     };
     let mut brighter_regions: [[Vec<usize>; 4]; 4] =
         std::array::from_fn(|_| std::array::from_fn(|_| Vec::with_capacity(6)));
-    let regions_w = (w + 64).div_ceil(128);
-    let x_offsets = [0, 64, 0, 64];
-    let y_offsets = [0, 0, 64, 64];
-    for y in 0..h {
-        let y_base = (y & 1) * 2;
-        for x in 0..w {
-            let position = y_base + (x & 1);
-            if u32::from(data[y * w + x]) <= best {
+    for (position, position_candidates) in candidates_by_position.iter().enumerate() {
+        for &candidate_index in position_candidates {
+            let candidate = &candidates[candidate_index];
+            if u32::from(candidate.value) <= best {
                 continue;
             }
             for grid in 0..4 {
-                let occupied = &mut brighter_regions[position][grid];
-                let region =
-                    ((y + y_offsets[grid]) / 128) * regions_w + (x + x_offsets[grid]) / 128;
-                if occupied.len() < 6 && !occupied.contains(&region) {
-                    occupied.push(region);
+                let brighter = &mut brighter_regions[position][grid];
+                for &region in &candidate.occupied_regions[grid] {
+                    if brighter.len() >= 6 {
+                        break;
+                    }
+                    if !brighter.contains(&region) {
+                        brighter.push(region);
+                    }
                 }
             }
         }
