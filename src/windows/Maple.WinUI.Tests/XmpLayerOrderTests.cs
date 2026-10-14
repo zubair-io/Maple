@@ -119,7 +119,7 @@ namespace Maple.WinUI.Tests
         /// bitmap(0.3), linear(0.4), radial(0.5): one container per kind, each
         /// correction stamped with its model index. `keys` overrides them.
         /// </summary>
-        private static string AppleInterleaved(int?[] keys) => XmpLocalAdjustmentsTests.Sidecar(string.Join("\n", new[]
+        internal static string AppleInterleaved(int?[] keys) => XmpLocalAdjustmentsTests.Sidecar(string.Join("\n", new[]
         {
             Container("crs:GradientBasedCorrections", Correction(keys[3], 0.4, LinearLeaf)),
             Container("crs:CircularGradientBasedCorrections",
@@ -130,7 +130,7 @@ namespace Maple.WinUI.Tests
                     "crs:CorrectionActive=\"True\" papp:MaskGroupVersion=\"1\" papp:MaskGroupOpacity=\"1\" papp:MaskGroupInverted=\"False\"")),
         }));
 
-        private static readonly int?[] ModelIndexes = { 0, 1, 2, 3, 4 };
+        internal static readonly int?[] ModelIndexes = { 0, 1, 2, 3, 4 };
 
         private XmpSidecarDocument Load(string xml)
         {
@@ -381,39 +381,6 @@ namespace Maple.WinUI.Tests
             var first = Save(doc);
             Assert.Equal(first, Save(doc));
             Assert.Contains(PassthroughOrderBlock + "\n", first);
-        }
-
-        [Fact]
-        public void UndoAfterResetRestoresBrushBeforeTheOriginalMaskGroupSlot()
-        {
-            File.WriteAllText(SidecarPath, AppleInterleaved(ModelIndexes));
-            var original = Assert.IsType<XmpSidecarDocument>(SidecarStore.Load(Raw));
-            var snapshot = XmpBrushCorrections.PassthroughContainers(original)!;
-            var writes = new PendingLocalSidecarWrites();
-
-            writes.Stage(Raw, new AdjustmentState(), 0, "none", null, discardBrushCorrections: true);
-            Assert.Null(Assert.Single(writes.Flush()).Error);
-            Assert.DoesNotContain("<papp:BrushCorrections", File.ReadAllText(SidecarPath));
-
-            writes.Stage(Raw, original.Adjustments, 0, "none", null, restoreBrushCorrections: snapshot);
-            Assert.Null(Assert.Single(writes.Flush()).Error);
-            var restored = File.ReadAllText(SidecarPath);
-            var brushIndex = restored.IndexOf("<papp:BrushCorrections", StringComparison.Ordinal);
-            var groupIndex = restored.IndexOf("<crs:MaskGroupBasedCorrections", StringComparison.Ordinal);
-            Assert.True(brushIndex >= 0 && groupIndex > brushIndex,
-                "Reset undo must restore the brush container before the original mask-group slot.");
-        }
-
-        [Fact]
-        public void BrushParserAcceptsMoreThan4096Dabs()
-        {
-            var dabs = string.Join(' ', Enumerable.Repeat("0.25 0.3 0.05 0.5 0.8 0", 5000));
-            var brush = $"<rdf:li crs:What=\"Mask/Paint\" crs:MaskValue=\"1\" papp:BrushVersion=\"1\" papp:BrushDigest=\"0123456789abcdef\" papp:Dabs=\"{dabs}\"/>";
-            var xml = XmpLocalAdjustmentsTests.Sidecar(Container("papp:BrushCorrections", Correction(null, 0.1, brush)));
-
-            var parsed = Assert.IsType<XmpSidecarDocument>(XmpParser.Parse(xml));
-            var mask = Assert.IsType<BrushMask>(Assert.Single(parsed.Adjustments.LocalAdjustments).Mask);
-            Assert.Equal(5000, mask.Dabs.Count);
         }
 
         [Fact]
