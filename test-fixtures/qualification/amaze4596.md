@@ -64,8 +64,8 @@ The unfiltered harness is run through `tools/qualification/record.sh`, with
 the pinned v24 CLI and temporary output on the mounted Projects volume.
 The recorder hashes the complete input corpus before and after execution.
 
-Early diagnostics of 111 rendered neutral cases found 15 budget breaches.
-Independent renders of the exact main revision reproduce all 15 failures.
+Early diagnostics of 136 rendered neutral cases found 17 budget breaches.
+Independent renders of the exact main revision reproduce all 17 failures.
 The table shows six examples; `amaze4596-diagnostic-audit.json` preserves
 all measurements and binary identities. These results do not waive any gate:
 
