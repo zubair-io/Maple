@@ -340,37 +340,70 @@ class MainCITests(GitFixture):
         ):
             control.require_release_validation(self.main)
 
-    def workflow(self, name, conclusion="success", status="completed"):
+    def workflow(
+        self,
+        name,
+        conclusion="success",
+        status="completed",
+        updated_at="2026-01-01T00:00:00Z",
+    ):
         return {
             "name": name,
             "conclusion": conclusion,
             "status": status,
             "html_url": "https://example.test/run",
+            "head_sha": "a" * 40,
+            "updated_at": updated_at,
         }
 
     def runs(self):
         return [
             self.workflow(name)
-            for name in ["API tests", "cross", "web", "windows", "Maple package types"]
+            for name in [
+                "API tests",
+                "apple",
+                "cloudflare",
+                "cross",
+                "face-clustering",
+                "linux",
+                "Maple package types",
+                "publish-package",
+                "raw-pipeline",
+                "web",
+                "windows",
+            ]
         ]
 
     def test_green_main_and_latest_run_wins(self):
-        runs = self.runs() + [self.workflow("cross", "failure")]
+        runs = self.runs() + [
+            self.workflow("cross", "failure", updated_at="2025-12-31T23:59:00Z")
+        ]
         with patch.object(
             control, "run", return_value=json.dumps([{"workflow_runs": runs}])
-        ):
+        ), patch.object(control, "api", return_value={"tree": {"sha": "same-tree"}}):
             control.require_green_main("owner/repo", self.main)
 
     def test_missing_red_or_pending_main_blocks_release(self):
         for runs in [
             self.runs()[:-1],
-            [self.workflow("cross", "failure"), *self.runs()],
-            [self.workflow("apple", None, "in_progress"), *self.runs()],
+            [
+                self.workflow("cross", "failure", updated_at="2026-01-02T00:00:00Z"),
+                *self.runs(),
+            ],
+            [
+                self.workflow(
+                    "apple", None, "in_progress", updated_at="2026-01-02T00:00:00Z"
+                ),
+                *self.runs(),
+            ],
         ]:
             with (
                 self.subTest(runs=runs),
                 patch.object(
                     control, "run", return_value=json.dumps([{"workflow_runs": runs}])
+                ),
+                patch.object(
+                    control, "api", return_value={"tree": {"sha": "same-tree"}}
                 ),
                 self.assertRaises(ValueError),
             ):

@@ -77,7 +77,12 @@ class ClassificationTests(unittest.TestCase):
     def test_union_and_empty(self):
         result, _ = ci.classify_paths(["docs/testing.md", "src/web/a", "src/windows/b"])
         self.assertEqual(
-            {key for key, value in result.items() if value}, {"api", "web", "windows"}
+            {
+                key
+                for key, value in result.items()
+                if value and key in ci.CONSUMERS
+            },
+            {"api", "web", "windows"},
         )
         self.assertTrue(all(ci.classify_paths([])[0].values()))
 
