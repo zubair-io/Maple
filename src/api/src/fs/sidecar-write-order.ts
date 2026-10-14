@@ -5,6 +5,7 @@ import * as path from 'node:path';
 const pendingWrites = new Map<string, Promise<void>>();
 const inFlightKeys = new Map<string, Promise<string>>();
 const caseInsensitivePaths = process.platform === 'darwin' || process.platform === 'win32';
+let admissionTail: Promise<void> = Promise.resolve();
 
 function canonicalKey(destination: string): Promise<string> {
   const existing = inFlightKeys.get(destination);
@@ -31,14 +32,32 @@ export async function serializeSidecarWrite<T>(
   destination: string,
   write: () => Promise<T>,
 ): Promise<T> {
-  const key = await canonicalKey(destination);
-  const previous = pendingWrites.get(key) ?? Promise.resolve();
-  const next = previous.then(write);
-  const settled = next.then(
-    () => undefined,
-    () => undefined,
-  );
-  pendingWrites.set(key, settled);
+  const previousAdmission = admissionTail;
+  let releaseAdmission!: () => void;
+  admissionTail = new Promise<void>((resolve) => {
+    releaseAdmission = resolve;
+  });
+  await previousAdmission;
+
+  let next: Promise<T>;
+  let settled: Promise<void>;
+  let key: string;
+  try {
+    // Admit writes in call order before yielding the key to the per-file queue.
+    // Different aliases can resolve their parents at different speeds; without
+    // this short admission gate, the later call may register first.
+    key = await canonicalKey(destination);
+    const previous = pendingWrites.get(key) ?? Promise.resolve();
+    next = previous.then(write);
+    settled = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    pendingWrites.set(key, settled);
+  } finally {
+    releaseAdmission();
+  }
+
   return next.finally(() => {
     if (pendingWrites.get(key) === settled) pendingWrites.delete(key);
   });
