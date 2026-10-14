@@ -300,10 +300,18 @@ final class BoundedAsyncSemaphoreTests: XCTestCase {
     // `true` result from an observer that completed uncancelled is correct.
     for _ in 0..<50 {
       let observerTask = Task {
-        await semaphore.waitForQueue(atLeast: 1, timeout: .seconds(60))
+        await semaphore.waitForQueue(atLeast: 1, timeout: .seconds(5))
       }
-      while await semaphore.queueObserverCount == 0 {
+      for _ in 0..<1_000 {
+        if await semaphore.queueObserverCount > 0 { break }
         await Task.yield()
+      }
+      guard await semaphore.queueObserverCount > 0 else {
+        observerTask.cancel()
+        _ = await observerTask.value
+        await semaphore.release()
+        XCTFail("queue observer was never registered")
+        return
       }
       observerTask.cancel()
       let producerTask = Task {
