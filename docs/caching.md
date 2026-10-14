@@ -30,7 +30,7 @@ Previews have their own agreed parameters: **1280 px long edge, AVIF quality ~0.
 
 ## Pipeline output version
 
-`PIPELINE_OUTPUT_VERSION` (`src/raw-pipeline/raw-core/src/version.rs`, currently **20**) is the single monotonic counter for the develop pipeline described in [pipeline](pipeline.md). It answers one question: "the pipeline now produces different pixels for the same RAW + sidecar — how does every derived artifact know it's stale?". A raw-core change bumps it by one whenever it alters develop output for any input, or silently reinterprets an already-stored slider value with no load-time converter. Adding a slider at its identity default, or fixing a non-output-visible bug, does not bump it.
+`PIPELINE_OUTPUT_VERSION` (`src/raw-pipeline/raw-core/src/version.rs`, currently **21**) is the single monotonic counter for the develop pipeline described in [pipeline](pipeline.md). It answers one question: "the pipeline now produces different pixels for the same RAW + sidecar — how does every derived artifact know it's stale?". A raw-core change bumps it by one whenever it alters develop output for any input, or silently reinterprets an already-stored slider value with no load-time converter. Adding a slider at its identity default, or fixing a non-output-visible bug, does not bump it.
 
 The `codegen` crate (`tools/codegen.sh`) emits the mirrors, and the `codegen-drift` CI job fails if a hand edit makes them diverge:
 
@@ -42,7 +42,7 @@ The counter reaches every shared derivative reader and writer through generated 
 - **Apple's `RenderedPreviewCache`** includes it in its local key (`pv<N>`).
 - **Shared thumb and preview filenames** include `.v<N>` before the actual format extension. Web's JPEG/WebP/PNG fallback artifacts and their preview descriptors and source identities carry the same version. The old `.v` text markers are retired; their presence cannot make an old artifact current.
 - **HTTP clients** request `?pv=<N>`. The origin rejects an explicitly incompatible version with `409`, includes `X-Maple-Pipeline-Version` on successful derivative responses, and versions thumbnail ETags. Preview uploads require the same version header before any cache publication.
-- **Server stages and derivative audit** share `THUMB_TARGET_VERSION` and `PREVIEW_TARGET_VERSION`, each `4 + PIPELINE_OUTPUT_VERSION` (currently 24). A pipeline bump re-arms generation and edge synchronization.
+- **Server stages and derivative audit** share `THUMB_TARGET_VERSION` and `PREVIEW_TARGET_VERSION`, each `4 + PIPELINE_OUTPUT_VERSION` (currently 25). A pipeline bump re-arms generation and edge synchronization.
 
 The cache sweep retires legacy and older-version derivatives, including their markers, while preserving current and newer versions for live originals. Keeping newer files prevents an older app from destroying a newer client's cache. Exact-source cleanup on removal reclaims all recognized versions without matching another filename that shares a prefix.
 

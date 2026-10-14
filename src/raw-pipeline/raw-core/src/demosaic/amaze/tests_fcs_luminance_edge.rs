@@ -193,6 +193,42 @@ fn collapsed_chroma_rejects_diagonals_without_centre_surface_support() {
 }
 
 #[test]
+fn collapsed_chroma_rejects_background_diagonals_around_a_plus_shaped_surface() {
+    for pattern in PATTERNS {
+        let centre = (10..14)
+            .flat_map(|y| (10..14).map(move |x| y * SIDE + x))
+            .find(|&i| sampled(pattern, i) != 1)
+            .expect("Bayer tile contains red and blue sites");
+        let sampled_channel = sampled(pattern, centre);
+        let opposite_channel = 2 - sampled_channel;
+        let mut truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
+            .map(|_| CHROMA.map(|ratio| ratio * 0.25))
+            .collect();
+
+        // A one-pixel-wide plus in the sampled-channel lattice belongs to a
+        // different surface; the opposite-colour diagonals remain background.
+        for support in [
+            centre,
+            centre - 2,
+            centre + 2,
+            centre - 2 * SIDE,
+            centre + 2 * SIDE,
+        ] {
+            truth[support][sampled_channel] = 0.9 * truth[support][1];
+        }
+        truth[centre][opposite_channel] = 0.0;
+
+        let collapsed = suppress(pattern, &truth, |i| i == centre, -0.5);
+        let zero_floor = suppress(pattern, &truth, |i| i == centre, 0.0);
+        assert_eq!(
+            collapsed.pixels[centre][opposite_channel],
+            zero_floor.pixels[centre][opposite_channel],
+            "{pattern:?}: diagonal background hue must not be transported into a plus-shaped surface"
+        );
+    }
+}
+
+#[test]
 fn suppression_never_emits_negative_chroma() {
     let truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
         .map(|i| {
