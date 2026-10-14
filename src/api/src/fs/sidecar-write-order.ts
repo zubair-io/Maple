@@ -12,7 +12,7 @@ function canonicalKey(destination: string): Promise<string> {
   const pending = (async () => {
     const resolvedDestination = path.resolve(destination);
     const parent = path.dirname(resolvedDestination);
-    const basename = path.basename(resolvedDestination).toLowerCase();
+    const basename = path.basename(resolvedDestination).normalize('NFC').toLowerCase().normalize('NFC');
     // Fold conservatively on every host: the destination may live on a
     // case-insensitive network or removable volume even when the API host is not.
     // stat follows parent symlinks and gives aliases the same directory
@@ -20,7 +20,7 @@ function canonicalKey(destination: string): Promise<string> {
     const parentStat = await fs.stat(parent, { bigint: true }).catch(() => null);
     return parentStat
       ? `inode:${parentStat.dev}:${parentStat.ino}:${basename}`
-      : path.join(parent, basename).toLowerCase();
+      : path.join(parent, basename).normalize('NFC').toLowerCase().normalize('NFC');
   })();
   inFlightKeys.set(destination, pending);
   void pending.then(
@@ -42,8 +42,10 @@ export async function serializeSidecarWrite<T>(
   // before their canonical parent identity is known. This gate covers only one
   // parent stat; the write chain itself is keyed by parent inode, so unrelated
   // sibling libraries never serialize their actual writes.
-  const parent = path.dirname(path.resolve(destination));
-  const admissionKey = path.join(path.dirname(parent), path.basename(destination)).toLowerCase();
+  const resolvedDestination = path.resolve(destination);
+  const parent = path.dirname(resolvedDestination);
+  const basename = path.basename(resolvedDestination).normalize('NFC').toLowerCase().normalize('NFC');
+  const admissionKey = path.join(path.dirname(parent), basename).normalize('NFC').toLowerCase().normalize('NFC');
   const previousAdmission = admissionTails.get(admissionKey) ?? Promise.resolve();
   let releaseAdmission!: () => void;
   const currentAdmission = new Promise<void>((resolve) => {
