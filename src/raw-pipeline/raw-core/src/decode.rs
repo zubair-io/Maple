@@ -936,6 +936,10 @@ const EFFECTIVE_WHITE_MAX_REGIONS: usize = 12;
 struct EffectiveWhiteRegions {
     values: [u64; EFFECTIVE_WHITE_MAX_REGIONS],
     len: usize,
+    rows: [u32; 2],
+    row_count: u8,
+    columns: [u32; 2],
+    column_count: u8,
 }
 
 impl Default for EffectiveWhiteRegions {
@@ -943,30 +947,55 @@ impl Default for EffectiveWhiteRegions {
         Self {
             values: [0; EFFECTIVE_WHITE_MAX_REGIONS],
             len: 0,
+            rows: [0; 2],
+            row_count: 0,
+            columns: [0; 2],
+            column_count: 0,
         }
     }
 }
 
 impl EffectiveWhiteRegions {
-    fn len(&self) -> usize {
-        self.len
-    }
-
     fn iter(&self) -> impl Iterator<Item = &u64> {
         self.values[..self.len].iter()
     }
 
-    fn insert(&mut self, region: u64, limit: usize) {
-        if self.len >= limit || self.values[..self.len].contains(&region) {
+    fn insert(&mut self, region: u64, row: u32, column: u32, limit: usize) {
+        if self.len < limit && self.values[..self.len].contains(&region) {
+            return;
+        }
+        Self::insert_axis(&mut self.rows, &mut self.row_count, row);
+        Self::insert_axis(&mut self.columns, &mut self.column_count, column);
+        if self.len >= limit {
             return;
         }
         self.values[self.len] = region;
         self.len += 1;
     }
 
-    fn merge(&mut self, other: &Self, limit: usize) {
+    fn merge(&mut self, other: &Self, regions_w: usize, limit: usize) {
         for &region in other.iter() {
-            self.insert(region, limit);
+            let row = (region / regions_w as u64) as u32;
+            let column = (region % regions_w as u64) as u32;
+            self.insert(region, row, column, limit);
+        }
+        for &row in &other.rows[..usize::from(other.row_count)] {
+            Self::insert_axis(&mut self.rows, &mut self.row_count, row);
+        }
+        for &column in &other.columns[..usize::from(other.column_count)] {
+            Self::insert_axis(&mut self.columns, &mut self.column_count, column);
+        }
+    }
+
+    fn has_two_dimensional_support(&self, required_regions: usize) -> bool {
+        self.len >= required_regions && self.row_count >= 2 && self.column_count >= 2
+    }
+
+    fn insert_axis(values: &mut [u32; 2], count: &mut u8, value: u32) {
+        let len = usize::from(*count);
+        if len < values.len() && !values[..len].contains(&value) {
+            values[len] = value;
+            *count += 1;
         }
     }
 }
@@ -1049,15 +1078,22 @@ impl EffectiveWhiteScan {
 
                 let candidate = &mut self.candidates[candidate_index];
                 for grid in 0..4 {
-                    let region = (((y + y_offsets[grid]) / 128) * regions_w
-                        + (x + x_offsets[grid]) / 128) as u64;
-                    candidate.occupied_regions[grid].insert(region, candidate.required_regions);
+                    let row = (y + y_offsets[grid]) / 128;
+                    let column = (x + x_offsets[grid]) / 128;
+                    let region = (row * regions_w + column) as u64;
+                    candidate.occupied_regions[grid].insert(
+                        region,
+                        row as u32,
+                        column as u32,
+                        candidate.required_regions,
+                    );
                 }
             }
         }
     }
 
-    fn merge(mut self, other: Self) -> Self {
+    fn merge(mut self, other: Self, width: usize) -> Self {
+        let regions_w = (width + 64).div_ceil(128);
         for (target, source) in self.histogram.iter_mut().zip(other.histogram) {
             for position in 0..4 {
                 target[position] += source[position];
@@ -1077,8 +1113,11 @@ impl EffectiveWhiteScan {
 
             let target = &mut self.candidates[existing as usize];
             for grid in 0..4 {
-                target.occupied_regions[grid]
-                    .merge(&candidate.occupied_regions[grid], target.required_regions);
+                target.occupied_regions[grid].merge(
+                    &candidate.occupied_regions[grid],
+                    regions_w,
+                    target.required_regions,
+                );
             }
         }
         self
@@ -1087,11 +1126,12 @@ impl EffectiveWhiteScan {
 
 /// Infer a lower effective sensor white when a large RAW shows repeated
 /// clipping below its declared level. Near-white plateaus must occupy at least
-/// six 128px regions; dense midrange plateaus must occupy 12. Each threshold
-/// must hold on four 128px grids offset by half a cell, so a contiguous patch
-/// cannot qualify just because it crosses one grid's boundaries. A lower
-/// scalar ceiling is also rejected when another Bayer position has supported
-/// samples above it but no qualifying plateau of its own.
+/// six 128px regions and span two rows and columns; dense midrange plateaus
+/// must occupy 12. Each threshold must hold on four 128px grids offset by half
+/// a cell, so a stripe or contiguous patch cannot qualify just because it
+/// crosses one grid's boundaries. A lower scalar ceiling is also rejected when
+/// another Bayer position has supported samples above it but no qualifying
+/// plateau of its own.
 fn effective_white_level(
     data: &[u16],
     width: u32,
@@ -1162,7 +1202,7 @@ fn effective_white_level(
     let mut partial_iter = partial_scans.into_iter();
     let mut scan = partial_iter.next().unwrap_or_else(EffectiveWhiteScan::new);
     for partial in partial_iter {
-        scan = scan.merge(partial);
+        scan = scan.merge(partial, w);
     }
     let histogram = scan.histogram;
     let mut candidates = scan.candidates;
@@ -1202,7 +1242,7 @@ fn effective_white_level(
             if candidate
                 .occupied_regions
                 .iter()
-                .all(|regions| regions.len() >= 6)
+                .all(|regions| regions.has_two_dimensional_support(6))
             {
                 higher_count = candidate.sample_count;
             }
@@ -1217,7 +1257,7 @@ fn effective_white_level(
             if candidate
                 .occupied_regions
                 .iter()
-                .all(|regions| regions.len() >= 6)
+                .all(|regions| regions.has_two_dimensional_support(6))
             {
                 lower_count = candidate.sample_count;
             }
@@ -1234,7 +1274,7 @@ fn effective_white_level(
                 let has_required_support = candidate
                     .occupied_regions
                     .iter()
-                    .all(|regions| regions.len() >= candidate.required_regions);
+                    .all(|regions| regions.has_two_dimensional_support(candidate.required_regions));
                 let is_histogram_peak = candidate.sample_count
                     >= nearest_higher_count[candidate_index].saturating_mul(4)
                     && candidate.sample_count
@@ -1247,8 +1287,9 @@ fn effective_white_level(
     let Some(best) = best.filter(|&b| b > black_level.iter().max().copied().unwrap_or(0)) else {
         return declared;
     };
-    let mut brighter_regions: [[Vec<u64>; 4]; 4] =
-        std::array::from_fn(|_| std::array::from_fn(|_| Vec::with_capacity(6)));
+    let regions_w = (w + 64).div_ceil(128);
+    let mut brighter_regions: [[EffectiveWhiteRegions; 4]; 4] =
+        std::array::from_fn(|_| std::array::from_fn(|_| EffectiveWhiteRegions::default()));
     for (position, position_candidates) in candidates_by_position.iter().enumerate() {
         for &candidate_index in position_candidates {
             let candidate = &candidates[candidate_index];
@@ -1256,15 +1297,11 @@ fn effective_white_level(
                 continue;
             }
             for grid in 0..4 {
-                let brighter = &mut brighter_regions[position][grid];
-                for &region in candidate.occupied_regions[grid].iter() {
-                    if brighter.len() >= 6 {
-                        break;
-                    }
-                    if !brighter.contains(&region) {
-                        brighter.push(region);
-                    }
-                }
+                brighter_regions[position][grid].merge(
+                    &candidate.occupied_regions[grid],
+                    regions_w,
+                    EFFECTIVE_WHITE_MAX_REGIONS,
+                );
             }
         }
     }
@@ -1278,7 +1315,7 @@ fn effective_white_level(
         sample_count >= 32
             && brighter_regions[position]
                 .iter()
-                .all(|regions| regions.len() >= 6)
+                .all(|regions| regions.has_two_dimensional_support(6))
     });
     if unprotected_bayer_highlights {
         declared
@@ -1756,6 +1793,27 @@ mod tests {
             effective_white_level(&data, 512, 512, &[0; 4], 65535),
             65535
         );
+    }
+
+    #[test]
+    fn effective_white_rejects_horizontal_and_vertical_near_white_stripes() {
+        let (w, h) = (1024usize, 1024usize);
+        let stripe_value = 64856;
+        let mut horizontal = vec![1000u16; w * h];
+        for x in 0..w {
+            horizontal[256 * w + x] = stripe_value;
+        }
+        let mut vertical = vec![1000u16; w * h];
+        for y in 0..h {
+            vertical[y * w + 256] = stripe_value;
+        }
+
+        for data in [&horizontal, &vertical] {
+            assert_eq!(
+                effective_white_level(data, w as u32, h as u32, &[0; 4], 65535),
+                65535
+            );
+        }
     }
 
     #[test]
