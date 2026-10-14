@@ -88,6 +88,7 @@ pub struct StitchOptions {
     /// ALIKED + LightGlue when `ml`/`ml-static` is built in, else to the
     /// classical Harris + gradient-histogram path.
     pub feature_engine: super::FeatureEngine,
+    pub capture_owner: bool,
 }
 
 impl Default for StitchOptions {
@@ -114,6 +115,7 @@ impl Default for StitchOptions {
             seam_constraints: Vec::new(),
             grid: None,
             feature_engine: super::FeatureEngine::default(),
+            capture_owner: false,
         }
     }
 }

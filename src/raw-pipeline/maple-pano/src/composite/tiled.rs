@@ -362,7 +362,7 @@ fn voronoi_blend(
     tile_rows: u32,
     warp_strip: impl FnMut(usize, u32, u32) -> Result<PlanarImage, PanoError>,
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
-    let survey = strips::survey(cameras, local_corrections, canvas, tile_rows, true);
+    let mut survey = strips::survey(cameras, local_corrections, canvas, tile_rows, true);
     let owner = survey.owner.as_deref().expect("survey kept the owner map");
     let cw = canvas.width as usize;
     let levels = levels_for_overlap_width(survey.min_overlap_px);
@@ -390,6 +390,7 @@ fn voronoi_blend(
         min_overlap_width_px: survey.min_overlap_px,
         seam_strategy: SeamStrategy::Voronoi,
         exposure_field: None,
+        owner: survey.owner.take(),
     };
     Ok((blended, report))
 }

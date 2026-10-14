@@ -93,6 +93,7 @@ pub struct CompositeReport {
     pub seam_strategy: SeamStrategy,
     /// The residual exposure field the tiled path applied, if any (#4521).
     pub exposure_field: Option<ExposureFieldSummary>,
+    pub owner: Option<Vec<u16>>,
 }
 
 /// Composite posed frames onto an automatically constructed canvas.
@@ -187,6 +188,7 @@ pub fn composite(
             min_overlap_width_px: min_overlap,
             seam_strategy: opts.seam_strategy,
             exposure_field: None,
+            owner: None,
         },
     ))
 }

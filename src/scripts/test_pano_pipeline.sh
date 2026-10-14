@@ -110,35 +110,35 @@ err() { printf "test_pano_pipeline: %s\n" "$*" >&2; }
 # NORM_LONG_EDGE feeds int(...) in the python gate — validate up front so a
 # bad override fails with a clear message instead of a traceback mid-run.
 case "$NORM_LONG_EDGE" in
-  '' | *[!0-9]*)
-    err "NORM_LONG_EDGE must be a positive integer (got '$NORM_LONG_EDGE')"
-    exit 2
-    ;;
+'' | *[!0-9]*)
+	err "NORM_LONG_EDGE must be a positive integer (got '$NORM_LONG_EDGE')"
+	exit 2
+	;;
 esac
 if [[ "$NORM_LONG_EDGE" -le 0 ]]; then
-  err "NORM_LONG_EDGE must be a positive integer (got '$NORM_LONG_EDGE')"
-  exit 2
+	err "NORM_LONG_EDGE must be a positive integer (got '$NORM_LONG_EDGE')"
+	exit 2
 fi
 
 require_cmd() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    err "required command not found: $1"
-    exit 2
-  fi
+	if ! command -v "$1" >/dev/null 2>&1; then
+		err "required command not found: $1"
+		exit 2
+	fi
 }
 
 require_cmd python3
 
 if [[ ! -f "$METRICS_PY" ]]; then
-  err "pano_metrics.py not found at $METRICS_PY"
-  exit 2
+	err "pano_metrics.py not found at $METRICS_PY"
+	exit 2
 fi
 
 # ----- 1. Budgets validation (always) --------------------------------------
 if [[ ! -f "$BUDGETS" ]]; then
-  echo "test_pano_pipeline: budgets file not found at $BUDGETS — skipping"
-  echo "test_pano_pipeline: (test-fixtures/pano-budgets.json is tracked; restore it from git)"
-  exit 0
+	echo "test_pano_pipeline: budgets file not found at $BUDGETS — skipping"
+	echo "test_pano_pipeline: (test-fixtures/pano-budgets.json is tracked; restore it from git)"
+	exit 0
 fi
 
 python3 - "$BUDGETS" <<'PY'
@@ -180,9 +180,9 @@ PY
 # ----- workspace ------------------------------------------------------------
 WORKDIR="$(mktemp -d -t maple-pano-XXXXXX)"
 if [[ -z "${KEEP_TMP:-}" ]]; then
-  trap 'rm -rf "$WORKDIR"' EXIT
+	trap 'rm -rf "$WORKDIR"' EXIT
 else
-  echo "test_pano_pipeline: KEEP_TMP set — workdir at $WORKDIR"
+	echo "test_pano_pipeline: KEEP_TMP set — workdir at $WORKDIR"
 fi
 EFFECTIVE_MANIFEST="$WORKDIR/pano-manifest.json"
 CANDIDATES_DIR="$WORKDIR/candidates"
@@ -266,14 +266,14 @@ N_SETS="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["c
 # ----- 3. Metrics self-test (always-on validation) --------------------------
 echo ""
 if ! python3 -c "import numpy, PIL" >/dev/null 2>&1; then
-  if [[ "$N_SETS" -gt 0 ]]; then
-    err "pano fixtures are present but the metric deps (numpy, Pillow) are not installed"
-    err "install them (see src/scripts/requirements.txt) to run the gates"
-    exit 2
-  fi
-  echo "test_pano_pipeline: python deps (numpy, Pillow) not available — skipping metrics self-test"
-  echo "test_pano_pipeline: (fixture-less environment; CI without fixtures is a soft pass)"
-  exit 0
+	if [[ "$N_SETS" -gt 0 ]]; then
+		err "pano fixtures are present but the metric deps (numpy, Pillow) are not installed"
+		err "install them (see src/scripts/requirements.txt) to run the gates"
+		exit 2
+	fi
+	echo "test_pano_pipeline: python deps (numpy, Pillow) not available — skipping metrics self-test"
+	echo "test_pano_pipeline: (fixture-less environment; CI without fixtures is a soft pass)"
+	exit 0
 fi
 
 echo "test_pano_pipeline: running coherent-source ghosting controls ..."
@@ -281,57 +281,57 @@ python3 -m unittest discover -s "$SCRIPT_DIR" -p test_pano_ghost_metrics.py
 
 echo "test_pano_pipeline: running metrics self-test (pano_metrics.py --self-test) ..."
 if ! python3 "$METRICS_PY" --self-test --fixture-root "$REPO_ROOT/test-fixtures"; then
-  err "metrics self-test FAILED"
-  exit 1
+	err "metrics self-test FAILED"
+	exit 1
 fi
 
 # ----- 4. Skip-pass when there is nothing to stitch -------------------------
 if [[ "$N_SETS" -eq 0 ]]; then
-  echo ""
-  if [[ -n "$FILTER" ]]; then
-    echo "test_pano_pipeline: no pano sets match FILTER=$FILTER — skipping candidate gates"
-  else
-    echo "test_pano_pipeline: no pano fixture sets under $RAWS_DIR/pano_*/ — skipping candidate gates"
-    echo "test_pano_pipeline: (gitignored corpus; CI without fixtures is a soft pass)"
-  fi
-  exit 0
+	echo ""
+	if [[ -n "$FILTER" ]]; then
+		echo "test_pano_pipeline: no pano sets match FILTER=$FILTER — skipping candidate gates"
+	else
+		echo "test_pano_pipeline: no pano fixture sets under $RAWS_DIR/pano_*/ — skipping candidate gates"
+		echo "test_pano_pipeline: (gitignored corpus; CI without fixtures is a soft pass)"
+	fi
+	exit 0
 fi
 
 # ----- 5. Candidate generator probe (activation gate — see header) ----------
 MAPLE_CLI="${MAPLE_CLI:-$MAPLE_CLI_RELEASE}"
 if [[ ! -x "$MAPLE_CLI" ]]; then
-  if ! command -v cargo >/dev/null 2>&1; then
-    echo ""
-    echo "test_pano_pipeline: no prebuilt maple-cli at $MAPLE_CLI and cargo is not"
-    echo "test_pano_pipeline: installed — skipping candidate gates (install Rust or"
-    echo "test_pano_pipeline: point MAPLE_CLI at a prebuilt binary)"
-    exit 0
-  fi
-  echo ""
-  echo "test_pano_pipeline: building maple-cli (release) ..."
-  ( cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli --features pano >/dev/null )
-  MAPLE_CLI="$MAPLE_CLI_RELEASE"
+	if ! command -v cargo >/dev/null 2>&1; then
+		echo ""
+		echo "test_pano_pipeline: no prebuilt maple-cli at $MAPLE_CLI and cargo is not"
+		echo "test_pano_pipeline: installed — skipping candidate gates (install Rust or"
+		echo "test_pano_pipeline: point MAPLE_CLI at a prebuilt binary)"
+		exit 0
+	fi
+	echo ""
+	echo "test_pano_pipeline: building maple-cli (release) ..."
+	(cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli --features pano >/dev/null)
+	MAPLE_CLI="$MAPLE_CLI_RELEASE"
 fi
 
 # The ML environment gates candidate generation the way fixtures gate
 # discovery: absent on CI runners (skip-pass), present on dev machines
 # (gates bite). The CLI itself hard-errors without it by design.
 if [[ -z "${MAPLE_PANO_MODELS:-}" ]]; then
-  echo ""
-  echo "test_pano_pipeline: MAPLE_PANO_MODELS not set — skipping candidate gates"
-  echo "test_pano_pipeline: (the ML detector/matcher needs the SHA-pinned models;"
-  echo "test_pano_pipeline:  see maple-pano/models.toml. CI without models is a"
-  echo "test_pano_pipeline:  soft pass, mirroring the fixtures skip.)"
-  exit 0
+	echo ""
+	echo "test_pano_pipeline: MAPLE_PANO_MODELS not set — skipping candidate gates"
+	echo "test_pano_pipeline: (the ML detector/matcher needs the SHA-pinned models;"
+	echo "test_pano_pipeline:  see maple-pano/models.toml. CI without models is a"
+	echo "test_pano_pipeline:  soft pass, mirroring the fixtures skip.)"
+	exit 0
 fi
 
 if ! "$MAPLE_CLI" pano --help >/dev/null 2>&1; then
-  echo ""
-  echo "test_pano_pipeline: candidate generator not available — skipping candidate gates"
-  echo "test_pano_pipeline: (maple-cli has no 'pano' subcommand yet; the gates activate"
-  echo "test_pano_pipeline:  automatically once 'maple-cli pano stitch' lands — activation"
-  echo "test_pano_pipeline:  contract in this script's header)"
-  exit 0
+	echo ""
+	echo "test_pano_pipeline: candidate generator not available — skipping candidate gates"
+	echo "test_pano_pipeline: (maple-cli has no 'pano' subcommand yet; the gates activate"
+	echo "test_pano_pipeline:  automatically once 'maple-cli pano stitch' lands — activation"
+	echo "test_pano_pipeline:  contract in this script's header)"
+	exit 0
 fi
 
 # ----- 6. Generate candidates ------------------------------------------------
@@ -398,10 +398,13 @@ for case in sorted(manifest["cases"], key=lambda c: c["name"]):
         errors += 1
         continue
 
+    owner = os.path.join(cand_dir, f"{name}.owner.png")
+    owner = owner if os.path.exists(owner) else None
     try:
         if case.get("reference"):
             m = pano_metrics.diff(cand, case["reference"],
-                                  report_path=report, long_edge=long_edge)
+                                  report_path=report, long_edge=long_edge,
+                                  owner_path=owner)
         else:
             # No reference for this set (by design — e.g. pano_00): pixel
             # metrics are unavailable; wrap closure (candidate-only) and the
@@ -409,6 +412,7 @@ for case in sorted(manifest["cases"], key=lambda c: c["name"]):
             with Image.open(cand) as im:
                 wc = pano_metrics.wrap_closure(im.convert("RGB"))
             m = {"rmse": None, "coverage": None, "seam_energy": None,
+                 "seam_step_hard": None, "seam_step_lowpass": None,
                  "wrap_closure_px": wc["px"], "wrap_closure_ncc": wc["ncc"],
                  "report": pano_metrics.report_block(report)}
     except Exception as e:
@@ -485,6 +489,6 @@ sys.exit(1 if (errors > 0 or breach_count > 0) else 0)
 PY
 
 if [[ "$gate_exit" -ne 0 ]]; then
-  exit 1
+	exit 1
 fi
 exit 0

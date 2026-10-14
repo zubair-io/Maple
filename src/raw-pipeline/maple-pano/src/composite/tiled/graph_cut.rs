@@ -186,6 +186,7 @@ fn graph_cut_blend(
         min_overlap_width_px: survey.min_overlap_px,
         seam_strategy: seam::SeamStrategy::GraphCut,
         exposure_field: None,
+        owner: None,
     };
     Ok((blended, report))
 }

@@ -30,7 +30,7 @@ pub(super) fn composite(
     let exposure_field =
         solve_exposure_field_streaming(paths, cameras, photometry, local_corrections, canvas)
             .map_err(failed)?;
-    composite_tiled(
+    let (image, mut report) = composite_tiled(
         paths,
         cameras,
         photometry,
@@ -41,5 +41,9 @@ pub(super) fn composite(
         opts.seam_strategy,
         seam_constraints,
     )
-    .map_err(seam_gate::composite_error)
+    .map_err(seam_gate::composite_error)?;
+    if !opts.capture_owner {
+        report.owner = None;
+    }
+    Ok((image, report))
 }

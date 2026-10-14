@@ -237,6 +237,7 @@ fn stitch_options(args: &StitchArgs, gate_budgets: (f64, f64)) -> Result<StitchO
         seam_constraints: seam_constraints::load(args.seam_constraints.as_deref())?,
         grid: args.grid_layout(),
         feature_engine: args.features_engine.to_engine(),
+        capture_owner: true,
     })
 }
 
@@ -329,6 +330,29 @@ fn stitch_set(
                 outcome.image.height(),
                 t0.elapsed().as_secs_f64()
             );
+
+            if let Some(owner) = &outcome.comp_report.owner {
+                if let Some(report_path) = &outs.report {
+                    let owner_path = report_path.with_file_name(
+                        report_path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .replace(".report.json", ".owner.png"),
+                    );
+                    let data: Vec<u16> = owner
+                        .iter()
+                        .map(|&o| if o == u16::MAX { 0 } else { o + 1 })
+                        .collect();
+                    maple_pano::render::write_owner_png(
+                        &owner_path,
+                        outcome.image.width(),
+                        outcome.image.height(),
+                        &data,
+                    )
+                    .map_err(|e| format!("{}: {e}", owner_path.display()))?;
+                }
+            }
 
             let [decode_s, features_s, graph_s, refine_s, solve_s, composite_s] =
                 outcome.stage_timings_s;
