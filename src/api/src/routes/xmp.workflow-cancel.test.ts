@@ -61,17 +61,14 @@ const post = (body: string) =>
 
 const variantRequest = (route: string, body: unknown, signal?: AbortSignal) =>
   app.handle(
-    new Request(
-      `http://localhost/api/xmp/${route}`,
-      {
-        method: route.startsWith('variants?') ? 'POST' : 'PUT',
-        headers: {
-          'Content-Type': route.startsWith('variants?') ? 'application/json' : 'application/xml',
-        },
-        body: route.startsWith('variants?') ? JSON.stringify(body) : String(body),
-        signal,
+    new Request(`http://localhost/api/xmp/${route}`, {
+      method: route.startsWith('variants?') ? 'POST' : 'PUT',
+      headers: {
+        'Content-Type': route.startsWith('variants?') ? 'application/json' : 'application/xml',
       },
-    ),
+      body: route.startsWith('variants?') ? JSON.stringify(body) : String(body),
+      signal,
+    }),
   );
 
 const variantQuery = () => 'path=' + encodeURIComponent(join(directory, 'photo.dng'));
