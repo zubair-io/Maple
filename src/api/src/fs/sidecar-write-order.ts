@@ -1,6 +1,7 @@
 /** Scoped admission and canonical-path sequencing for sidecar writes (#4051). */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { resolveRealPath } from './root.ts';
 
 const pendingWrites = new Map<string, Promise<void>>();
 const inFlightKeys = new Map<string, Promise<string[]>>();
@@ -50,14 +51,16 @@ function canonicalKeys(destination: string, allowMissingParent: boolean): Promis
   if (existing) return existing;
   const pending = (async () => {
     const lexicalDestination = path.resolve(destination);
-    const resolvedDestination = await fs.realpath(lexicalDestination).catch((error: unknown) => {
-      if (isMissingPathError(error)) return null;
-      throw error;
-    });
+    const resolvedDestination = await resolveRealPath(lexicalDestination).catch(
+      (error: unknown) => {
+        if (isMissingPathError(error)) return null;
+        throw error;
+      },
+    );
     const canonicalDestination =
       resolvedDestination ??
       path.join(
-        await fs.realpath(path.dirname(lexicalDestination)).catch((error: unknown) => {
+        await resolveRealPath(path.dirname(lexicalDestination)).catch((error: unknown) => {
           if (isMissingPathError(error)) {
             return path.dirname(lexicalDestination);
           }
