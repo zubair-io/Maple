@@ -7,7 +7,9 @@ import { serializeSidecarWrite } from './sidecar-write-order';
 import { isMissingSidecar, writeSidecarAtomic, writeSidecarCreateOnly } from './sidecar-io';
 
 export type ConditionalXmpResult =
-  { kind: 'ok'; data: string } | { kind: 'conflict' } | { kind: 'error'; error: string };
+  | { kind: 'ok'; data: string }
+  | { kind: 'conflict' }
+  | { kind: 'error'; error: string };
 
 export async function writeXmpIfUnchanged(
   rawPath: string,
