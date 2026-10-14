@@ -13,7 +13,7 @@ The Sony baseline parsed as Neutral with auto-exposure **On**, exposure 0, and c
 
 Both native renders were 9504×6336. The comparator was `baseline-native-pair-lanczos`; the .0113 bias ceiling was unchanged. On was pixel/metric-identical to the prior control. Turning Off reversed the dark-neutral-mask residual from approximately +.134 to −.057 and worsened full-image mean and bias. Disabling the stage was therefore rejected as a fix.
 
-For an additional diagnostic, nearly neutral, spatially flat pixels were selected from the same reduced pair: candidate channel spread ≤5 codes; reference spread ≤3; all channels between 10 and 245; each image differed from its four cardinal neighbors by ≤3 codes. Up to 1,000 deterministic samples per reference-code band were used. The existing Rust `display_u8_to_scene_linear` inverse was applied on both sides with contrast and whites at 0, then log2(reference-scene-luma / candidate-scene-luma) was computed. This estimates the exposure change the same fixed AgX curve would require to reproduce each reference pixel; it does not claim these inverse values are Adobe's internal scene values.
+For an additional diagnostic, nearly neutral, spatially flat pixels were selected from the same reduced pair: candidate channel spread ≤5 codes; reference spread ≤3; all channels between 10 and 245; each image differed from its four cardinal neighbors by ≤3 codes. The reference band is `floor((R + G + B) / 3)` in half-open ranges 10–30, 30–60, and 60–90. Up to 1,000 deterministic samples per band were selected by ascending fixed SplitMix64 score of `(x, y, band)`, with `(y, x)` as the tie-break. The existing Rust `display_u8_to_scene_linear` inverse was applied on both sides with contrast and whites at 0, then log2(reference-scene-luma / candidate-scene-luma) was computed. This estimates the exposure change the same fixed AgX curve would require to reproduce each reference pixel; it does not claim these inverse values are Adobe's internal scene values.
 
 | Reference mean code band | Eligible pixels | Median required EV | Median ±1-code bounds |
 | --- | ---: | ---: | --- |
@@ -29,16 +29,16 @@ Neutral's AgX appearance and Auto as the default are explicit product requiremen
 
 ### Reproducing the diagnostics
 
-From `src/raw-pipeline`, pass the appropriate local RAW/XMP/reference inputs and a path to a **new** output directory:
+From `src/raw-pipeline`, pass the appropriate local RAW/XMP/reference inputs. For the AgX attribution, use the candidate and reference PNGs at the same comparison resolution as the `baseline-native-pair-lanczos` protocol:
 
 ```sh
 cargo run --release -p raw-core --example sony-anchor-probe -- RAW XMP NEW_OUTPUT_DIRECTORY
-cargo run --release -p raw-core --example agx-pair-attribution -- PAIRS_JSON
+cargo run --release -p raw-core --example agx-pair-attribution -- CANDIDATE_PNG REFERENCE_PNG
 cargo run --release -p raw-core --example sony-sensor-probe -- RAW NEW_OUTPUT_DIRECTORY
 cargo run --release -p raw-core --example sony-decoder-render-probe -- RAW XMP LIBRAW_U16LE NEW_OUTPUT_DIRECTORY
 cargo run --release -p raw-core --example sized-open-probe -- RAW preview 1600
 ```
 
-The Sony-specific probes assert the expected ILCE-7RM4 model and dimensions where applicable. `sony-sensor-probe` writes raw samples and metadata; `sony-decoder-render-probe` writes a rendered PNG; `sony-anchor-probe` writes rendered PNGs; the AgX attribution probe reads a pairs JSON file and prints diagnostic JSON to stdout; the sized-open probe reports timing, output dimensions, and a deterministic pixel hash. Output-producing probes require a new output directory. Use locally supplied inputs; no private machine paths or generated result files are part of this record. The sized-open and AgX attribution examples write no files.
+The Sony-specific probes assert the expected ILCE-7RM4 model and dimensions where applicable. `sony-sensor-probe` writes raw samples and metadata; `sony-decoder-render-probe` writes a rendered PNG; `sony-anchor-probe` writes rendered PNGs; the AgX attribution probe reads the equal-size candidate/reference PNG pair, applies the documented channel-spread, code-range, and cardinal-neighbor filters, selects up to 1,000 pixels per reference-mean-code band by a fixed coordinate hash, and prints eligible counts, median EV bounds, and each sampled pixel to JSON on stdout. The sized-open probe reports timing, output dimensions, and a deterministic pixel hash. Output-producing probes require a new output directory. Use locally supplied inputs; no private machine paths or generated result files are part of this record. The sized-open and AgX attribution examples write no files.
 
 Four Rayon threads were used for the original measurements. Those timing observations are not performance claims.
