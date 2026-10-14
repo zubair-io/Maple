@@ -415,7 +415,7 @@ function applyMerge(xml: string, meta: XmpMetadataInput): string {
  */
 function contradictsAuthoredAdobeLabel(xml: string, meta: XmpMetadataInput): boolean {
   if (!('colorLabel' in meta)) return false;
-  const authoredWord = /\sxmp:Label="([^"]*)"/.exec(xml)?.[1];
+  const authoredWord = /\sxmp:Label=(["'])(.*?)\1/.exec(xml)?.[2];
   if (authoredWord === undefined || adobeLabelColor(authoredWord) === undefined) return false;
   return (meta.colorLabel || null) !== (parseXmpMetadata(xml).colorLabel ?? null);
 }
