@@ -297,6 +297,18 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         }
     };
 
+    let white_level = if matches!(
+        cfa,
+        crate::image::CfaPattern::Rggb
+            | crate::image::CfaPattern::Bggr
+            | crate::image::CfaPattern::Grbg
+            | crate::image::CfaPattern::Gbrg
+    ) {
+        effective_white_level(&raw_data, width, height, &black_level, white_level)
+    } else {
+        white_level
+    };
+
     // ── 6. White balance ──────────────────────────────────────────────────
     // rawler's `wb_coeffs` are WB *multipliers* (the gains that balance
     // camera RGB to neutral). Confirmed by reading the DNG decoder at
@@ -941,6 +953,49 @@ const FLOAT_WHITE_ANCHOR: u32 = 16_384;
 /// (and, for arbitrary headroom, an f32 raw lane — the u16 buffer caps in-lane
 /// headroom at 65535 regardless); that is out of scope for this decode-boundary
 /// fix, which eliminates the precision/headroom destruction at import.
+fn effective_white_level(
+    data: &[u16],
+    width: u32,
+    height: u32,
+    black_level: &[u32; 4],
+    declared: u32,
+) -> u32 {
+    if declared == 0 || width < 2 || height < 2 {
+        return declared;
+    }
+    let (w, h) = (width as usize, height as usize);
+    if data.len() < w.saturating_mul(h) {
+        return declared;
+    }
+    let mut maxv = [0u32; 4];
+    let mut cnt = [0usize; 4];
+    for y in 0..h {
+        for x in 0..w {
+            let p = (y % 2) * 2 + (x % 2);
+            let v = data[y * w + x] as u32;
+            if v > maxv[p] {
+                maxv[p] = v;
+                cnt[p] = 1;
+            } else if v == maxv[p] {
+                cnt[p] += 1;
+            }
+        }
+    }
+    let mut best: Option<u32> = None;
+    for p in 0..4 {
+        if cnt[p] < 32 {
+            continue;
+        }
+        let denom = (declared as f64 - black_level[p] as f64).max(1.0);
+        let frac = (maxv[p] as f64 - black_level[p] as f64) / denom;
+        if (0.85..0.995).contains(&frac) {
+            best = Some(best.map_or(maxv[p], |b: u32| b.min(maxv[p])));
+        }
+    }
+    best.filter(|&b| b > black_level.iter().max().copied().unwrap_or(0))
+        .unwrap_or(declared)
+}
+
 fn requantize_float_samples(fdata: &[f32], white_level: u32) -> (Vec<u16>, u32) {
     let white = white_level.max(1);
     let boost = (FLOAT_WHITE_ANCHOR / white).max(1);
@@ -1061,6 +1116,47 @@ mod tests {
     /// through to D65, and code 22 was mislabeled D55 instead of D75 —
     /// both corrupt the reciprocal-CCT interpolation weight. The correct
     /// EXIF LightSource mapping is 17=A, 20=D55, 21=D65, 22=D75, 23=D50.
+    #[test]
+    fn effective_white_detects_sub_declared_saturation() {
+        let (w, h) = (64usize, 64usize);
+        let mut data = vec![1000u16; w * h];
+        for i in 0..200 {
+            data[i * 7 % (w * h)] = 62193;
+        }
+        assert_eq!(effective_white_level(&data, 64, 64, &[0; 4], 65535), 62193);
+    }
+
+    #[test]
+    fn effective_white_keeps_declared_for_dark_frame() {
+        let data = vec![4000u16; 64 * 64];
+        assert_eq!(effective_white_level(&data, 64, 64, &[0; 4], 65535), 65535);
+    }
+
+    #[test]
+    fn effective_white_keeps_declared_without_spike() {
+        let (w, h) = (64usize, 64usize);
+        let mut data = vec![1000u16; w * h];
+        data[0] = 62193;
+        data[1] = 62193;
+        assert_eq!(effective_white_level(&data, 64, 64, &[0; 4], 65535), 65535);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
+    fn fixture_sub_declared_saturation_is_detected() {
+        for (name, want) in [("test_0018.dng", 62193u32), ("test_0019.dng", 62206)] {
+            let path = require_raw(name);
+            let raw = decode_path(&path).expect("decode fixture");
+            assert_eq!(raw.white_level, want, "{name} effective white level");
+            let clipped = raw
+                .raw_data
+                .iter()
+                .filter(|&&v| (v as f64) / (raw.white_level as f64) >= 0.995)
+                .count();
+            assert!(clipped > 0, "{name}: clip mask must be non-empty");
+        }
+    }
+
     #[test]
     fn exif_illuminant_codes_map_to_correct_illuminant() {
         assert_eq!(exif_illuminant_to_core(17), CoreIlluminant::StdA);
