@@ -960,7 +960,9 @@ fn effective_white_level(
     black_level: &[u32; 4],
     declared: u32,
 ) -> u32 {
-    if declared == 0 || width < 2 || height < 2 {
+    // Tiny synthesized DNGs cannot distinguish a sensor clipping plateau
+    // from a deliberately flat chart patch, so retain their declared level.
+    if declared == 0 || width < 256 || height < 256 {
         return declared;
     }
     let (w, h) = (width as usize, height as usize);
@@ -988,7 +990,12 @@ fn effective_white_level(
         }
         let denom = (declared as f64 - black_level[p] as f64).max(1.0);
         let frac = (maxv[p] as f64 - black_level[p] as f64) / denom;
-        if (0.85..0.995).contains(&frac) {
+        // A modest pile-up below 96% can be a uniform chart patch rather
+        // than sensor clipping. The lower-range fixture clips have a much
+        // larger pile-up; near-declared clips can remain sparse.
+        let is_sparse_near_declared_white = (0.96..0.995).contains(&frac) && cnt[p] >= 32;
+        let is_dense_sub_declared_white = (0.90..0.96).contains(&frac) && cnt[p] >= 1024;
+        if is_sparse_near_declared_white || is_dense_sub_declared_white {
             best = Some(best.map_or(maxv[p], |b: u32| b.min(maxv[p])));
         }
     }
@@ -1118,33 +1125,78 @@ mod tests {
     /// EXIF LightSource mapping is 17=A, 20=D55, 21=D65, 22=D75, 23=D50.
     #[test]
     fn effective_white_detects_sub_declared_saturation() {
-        let (w, h) = (64usize, 64usize);
+        let (w, h) = (512usize, 512usize);
         let mut data = vec![1000u16; w * h];
-        for i in 0..200 {
-            data[i * 7 % (w * h)] = 62193;
+        for y in (0..h).step_by(2) {
+            for x in (0..w).step_by(2) {
+                data[y * w + x] = 62193;
+            }
         }
-        assert_eq!(effective_white_level(&data, 64, 64, &[0; 4], 65535), 62193);
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            62193
+        );
     }
 
     #[test]
     fn effective_white_keeps_declared_for_dark_frame() {
-        let data = vec![4000u16; 64 * 64];
-        assert_eq!(effective_white_level(&data, 64, 64, &[0; 4], 65535), 65535);
+        let data = vec![4000u16; 512 * 512];
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
     }
 
     #[test]
     fn effective_white_keeps_declared_without_spike() {
-        let (w, h) = (64usize, 64usize);
+        let (w, h) = (512usize, 512usize);
         let mut data = vec![1000u16; w * h];
         data[0] = 62193;
         data[1] = 62193;
-        assert_eq!(effective_white_level(&data, 64, 64, &[0; 4], 65535), 65535);
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_ignores_repeated_midrange_chart_patch() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in 0..32 {
+            for x in 0..40 {
+                data[y * w + x] = 62206;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_detects_sparse_clipping_near_declared_white() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in (0..16).step_by(2) {
+            for x in (0..16).step_by(2) {
+                data[y * w + x] = 64856;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            64856
+        );
     }
 
     #[test]
     #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn fixture_sub_declared_saturation_is_detected() {
-        for (name, want) in [("test_0018.dng", 62193u32), ("test_0019.dng", 62206)] {
+        for (name, want) in [
+            ("test_0004.fff", 63416u32),
+            ("test_0018.dng", 62193),
+            ("test_0019.dng", 62206),
+        ] {
             let path = require_raw(name);
             let raw = decode_path(&path).expect("decode fixture");
             assert_eq!(raw.white_level, want, "{name} effective white level");

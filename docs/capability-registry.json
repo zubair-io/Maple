@@ -43,8 +43,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -142,8 +142,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -268,8 +268,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -371,8 +371,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -453,8 +453,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -516,8 +516,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "status": "satisfied",
+          "detail": "satisfied"
         }
       ],
       "qualification": [
@@ -542,8 +542,8 @@
       "integration": [
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "status": "satisfied",
+          "detail": "satisfied"
         }
       ],
       "qualification": []
@@ -633,8 +633,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -685,8 +685,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "status": "satisfied",
+          "detail": "satisfied"
         }
       ],
       "qualification": [
@@ -697,8 +697,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "status": "satisfied",
+          "detail": "satisfied"
         }
       ]
     },
@@ -878,18 +878,18 @@
       "expected_cases": 3,
       "corpus": ["src/api/src/routes/xmp.sidecar-contract.test.ts"],
       "corpus_hash": "blake3:a9ed184663114494494af5c644866d163d987ceae7dda1c7a7fd9e78b5f480b6",
-      "status": "stale_pipeline",
+      "status": "satisfied",
       "record": {
         "backend": "bun",
-        "pipeline_version": 19,
+        "pipeline_version": 20,
         "schema_version": 5,
         "corpus_hash": "blake3:a9ed184663114494494af5c644866d163d987ceae7dda1c7a7fd9e78b5f480b6",
         "expected_cases": 3,
         "executed_cases": 3,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "873587cba9710e16f83e404091952fe689d4d30a",
-        "recorded_at": "2026-10-12T23:18:23Z",
+        "git_sha": "34fd3f7e492114d3092b3d3e931a708317a35dd7",
+        "recorded_at": "2026-10-14T04:23:54Z",
         "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts\\ --timeout\\ 30000"
       }
     },
