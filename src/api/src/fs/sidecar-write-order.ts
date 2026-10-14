@@ -10,12 +10,17 @@ function canonicalKey(destination: string): Promise<string> {
   const existing = inFlightKeys.get(destination);
   if (existing) return existing;
   const pending = (async () => {
-    const parent = path.dirname(destination);
-    const realParent = await fs.realpath(parent).catch(() => parent);
-    const basename = path.basename(destination);
+    const resolvedDestination = path.resolve(destination);
+    const parent = path.dirname(resolvedDestination);
+    const basename = path.basename(resolvedDestination).toLowerCase();
     // Fold conservatively on every host: the destination may live on a
     // case-insensitive network or removable volume even when the API host is not.
-    return path.join(realParent, basename).toLowerCase();
+    // stat follows parent symlinks and gives aliases the same directory
+    // identity without resolving every path component through realpath.
+    const parentStat = await fs.stat(parent, { bigint: true }).catch(() => null);
+    return parentStat
+      ? `inode:${parentStat.dev}:${parentStat.ino}:${basename}`
+      : path.join(parent, basename).toLowerCase();
   })();
   inFlightKeys.set(destination, pending);
   void pending.then(
@@ -33,12 +38,10 @@ export async function serializeSidecarWrite<T>(
   destination: string,
   write: () => Promise<T>,
 ): Promise<T> {
-  // Parent-sibling aliases (a real directory and a symlink beside it) must
-  // register in call order, while libraries in separate directory trees with
-  // a reused filename get independent admission. The canonical write chain
-  // below joins aliases after resolution; this short-lived key only orders the
-  // candidate sibling paths during that lookup. Folding includes case-only
-  // aliases on every host.
+  // Calls that may be parent-sibling aliases must register in invocation order
+  // before their canonical parent identity is known. This gate covers only one
+  // parent stat; the write chain itself is keyed by parent inode, so unrelated
+  // sibling libraries never serialize their actual writes.
   const parent = path.dirname(path.resolve(destination));
   const admissionKey = path.join(path.dirname(parent), path.basename(destination)).toLowerCase();
   const previousAdmission = admissionTails.get(admissionKey) ?? Promise.resolve();
