@@ -87,5 +87,39 @@ namespace Maple.WinUI.Tests
             var parsed = Assert.IsType<XmpSidecarDocument>(XmpParser.Parse(source.ToString()));
             Assert.Empty(parsed.Adjustments.LocalAdjustments);
         }
+
+        [Fact]
+        public void BrushFingerprintTracksRenderedContentButIgnoresRuntimeRasterId()
+        {
+            var xml = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"" + Rdf.NamespaceName + "\">" +
+                "<rdf:Description xmlns:crs=\"" + Crs.NamespaceName + "\">" + MapleBrush +
+                "</rdf:Description></rdf:RDF></x:xmpmeta>";
+            var model = Assert.IsType<XmpSidecarDocument>(XmpParser.Parse(xml)).Adjustments;
+            var originalXmp = XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = model });
+            var originalFingerprint = XmpWriter.Fingerprint(model);
+
+            var withRuntimeRaster = model.Clone();
+            var originalLayer = withRuntimeRaster.LocalAdjustments[0];
+            var originalBrush = Assert.IsType<BrushMask>(originalLayer.Mask);
+            withRuntimeRaster.LocalAdjustments[0] = originalLayer with
+            {
+                Mask = originalBrush with { RasterId = 91 },
+            };
+            Assert.Equal(originalFingerprint, XmpWriter.Fingerprint(withRuntimeRaster));
+
+            var changedBrushModel = model.Clone();
+            var changedLayer = changedBrushModel.LocalAdjustments[0];
+            var changedBrush = Assert.IsType<BrushMask>(changedLayer.Mask);
+            changedBrushModel.LocalAdjustments[0] = changedLayer with
+            {
+                Mask = changedBrush with
+                {
+                    Dabs = new[] { changedBrush.Dabs[0] with { Weight = 0.3 } },
+                },
+                Adjustments = changedLayer.Adjustments with { Exposure = 1.25 },
+            };
+            Assert.Equal(originalXmp, XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = changedBrushModel }));
+            Assert.NotEqual(originalFingerprint, XmpWriter.Fingerprint(changedBrushModel));
+        }
     }
 }

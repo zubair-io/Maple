@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Maple.WinUI.Services;
 using Maple.WinUI.Services.Transfer;
 using Maple.WinUI.Services.Xmp;
 
@@ -69,10 +70,9 @@ public partial class EditSessionViewModel
                 _cloudDoc = doc;
                 RequestSavedCloudPreview(photo, doc.Adjustments.Clone(), cloud, version);
             }
-            var changed = XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = before }) !=
-                XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = doc.Adjustments });
-            var recordUndo = undoBefore != null && XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = undoBefore }) !=
-                XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = doc.Adjustments });
+            var changed = XmpWriter.Fingerprint(before) != XmpWriter.Fingerprint(doc.Adjustments);
+            var recordUndo = undoBefore != null && XmpWriter.Fingerprint(undoBefore) !=
+                XmpWriter.Fingerprint(doc.Adjustments);
             if (recordUndo)
             {
                 _undoTimer?.Dispose(); _undoTimer = null;
@@ -86,7 +86,10 @@ public partial class EditSessionViewModel
                 return;
             }
             _undoTimer?.Dispose(); _undoTimer = null;
+            ReleaseBrushRasters();
             Adjustments = doc.Adjustments;
+            if (!RenderEngine.DecodeInputsChanged(before, Adjustments))
+                RehydrateCurrentBrushRasters(Adjustments);
             if (!recordUndo) { _undoStack.Clear(); _redoStack.Clear(); }
             _undoBaseline = Adjustments.Clone();
             SyncSlidersFromModel();

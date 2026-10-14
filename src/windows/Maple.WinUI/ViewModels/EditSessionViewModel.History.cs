@@ -55,8 +55,8 @@ namespace Maple.WinUI.ViewModels
         private void CommitUndoBoundary()
         {
             AdjustmentSettled?.Invoke();
-            if (_undoBaseline == null || XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = _undoBaseline }) ==
-                XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = Adjustments }))
+            if (_undoBaseline == null || XmpWriter.Fingerprint(_undoBaseline) ==
+                XmpWriter.Fingerprint(Adjustments))
                 return;
             _undoStack.Add(_undoBaseline);
             if (_undoStack.Count > UndoDepth)
@@ -70,8 +70,8 @@ namespace Maple.WinUI.ViewModels
         {
             _undoTimer?.Dispose();
             _undoTimer = null;
-            if (_undoBaseline is not null && XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = _undoBaseline }) !=
-                XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = Adjustments })) CommitUndoBoundary();
+            if (_undoBaseline is not null && XmpWriter.Fingerprint(_undoBaseline) !=
+                XmpWriter.Fingerprint(Adjustments)) CommitUndoBoundary();
         }
 
         public void EndAdjustmentGesture()
@@ -87,8 +87,8 @@ namespace Maple.WinUI.ViewModels
             _adjustmentGesture = null;
             _undoTimer?.Dispose();
             _undoTimer = null;
-            if (_undoBaseline != null && XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = _undoBaseline }) !=
-                XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = Adjustments }))
+            if (_undoBaseline != null && XmpWriter.Fingerprint(_undoBaseline) !=
+                XmpWriter.Fingerprint(Adjustments))
                 CommitUndoBoundary();
             if (_undoStack.Count == 0)
                 return;

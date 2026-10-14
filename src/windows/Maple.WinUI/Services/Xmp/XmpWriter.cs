@@ -347,5 +347,19 @@ namespace Maple.WinUI.Services.Xmp
             lines.Add("<?xpacket end=\"w\"?>");
             return string.Join("\n", lines);
         }
+
+        /// <summary>
+        /// Stable identity for model comparisons and rendered derivatives.
+        /// Windows keeps Maple brush XML passthrough-owned, so its source
+        /// container is intentionally absent from a synthetic document built
+        /// from an AdjustmentState. Include the brush render model separately
+        /// without changing the bytes written back to the sidecar.
+        /// </summary>
+        public static string Fingerprint(AdjustmentState model)
+        {
+            var xml = Serialize(new XmpSidecarDocument { Adjustments = model });
+            var brushes = XmpBrushCorrections.RenderFingerprint(model);
+            return brushes.Length == 0 ? xml : xml + "\n" + brushes;
+        }
     }
 }
