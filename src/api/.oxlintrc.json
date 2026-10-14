@@ -225,6 +225,10 @@
         "src/routes/preview.ts",
         "src/routes/preview.test.ts",
         "src/routes/xmp.ts",
+        // #4574: canonical barrier key realpaths the parent only; writes still go through mirrored primitives.
+        "src/fs/sidecar-write-order.ts",
+        // #4574: serializer test owns only disposable temp fixtures.
+        "src/fs/sidecar-write-order.test.ts",
         // #4317: primary-only baseline reads; publications use mirrored sidecar primitives.
         "src/fs/xmp-conditional.ts",
         // #4317: real-file conditional transaction tests own only disposable temp fixtures.

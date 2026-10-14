@@ -1,6 +1,6 @@
 /** Portable sibling storage; originals are never opened for writing (#4040). */
 import * as path from 'node:path';
-import { callNative } from 'maple';
+import { callNativeRetrying } from './native-call';
 import * as fs from './mirrored';
 import { primarySidecarDestination, xmpSidecarPath } from './xmp';
 import { serializeSidecarWrite } from './sidecar-write-order';
@@ -40,7 +40,7 @@ async function nativeValue(
     | 'workflowRestoreXmp',
   args: [string] | [string, string],
 ): Promise<string> {
-  const result = await callNative(method, args);
+  const result = await callNativeRetrying(method, args);
   if (!result.ok) throw new WorkflowVariantError(422, result.error);
   return result.value;
 }
