@@ -144,10 +144,8 @@ describe('serializeSidecarWrite', () => {
     try {
       const destination = path.join(root, 'year', 'month', 'photo.xmp');
       await fs.mkdir(path.dirname(destination), { recursive: true });
-      const {
-        promise: releaseResolution,
-        resolve: resolveResolution,
-      } = Promise.withResolvers<void>();
+      const { promise: releaseResolution, resolve: resolveResolution } =
+        Promise.withResolvers<void>();
       const order: string[] = [];
       const first = serializeSidecarWrite(
         destination,
@@ -185,10 +183,8 @@ describe('serializeSidecarWrite', () => {
     try {
       const destination = path.join(root, 'a', 'b', 'photo.xmp');
       await fs.mkdir(path.dirname(destination), { recursive: true });
-      const {
-        promise: releaseResolution,
-        resolve: resolveResolution,
-      } = Promise.withResolvers<void>();
+      const { promise: releaseResolution, resolve: resolveResolution } =
+        Promise.withResolvers<void>();
       const first = serializeSidecarWrite(destination, async () => 'first', {
         admissionScope: root,
         resolveDestination: async () => {
