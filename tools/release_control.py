@@ -193,15 +193,17 @@ def require_green_main(repo, sha):
     # Merge-group validation is the integration proof for the exact tree that
     # reached main. Main-push test workflows are intentionally disabled so a
     # successful merge does not repeat the same suite after queue validation.
-    pages = json.loads(
+    # Only the most recent page is needed: queued merge groups run immediately
+    # before the commits they validate reach main. Paginating here would scan
+    # the repository's entire merge-group history on every release check.
+    response = json.loads(
         run(
             "gh",
             "api",
-            "--paginate",
-            "--slurp",
             f"repos/{repo}/actions/runs?event=merge_group&per_page=100",
         )
     )
+    pages = response if isinstance(response, list) else [response]
     runs_by_sha = {}
     for page in pages:
         for workflow in page["workflow_runs"]:
