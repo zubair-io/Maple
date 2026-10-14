@@ -24,20 +24,30 @@ async function readSidecar(path: string): Promise<{ xml: string; mtime: number |
   if (!info) return { xml: '', mtime: null };
   const read = await safeReadFile(sidecar);
   if (!read.ok || !read.data) throw new Error(read.error ?? 'Could not read sidecar');
-  return { xml: read.data.toString('utf8'), mtime: Math.floor(info.mtimeMs / 1000) };
+  return {
+    xml: read.data.toString('utf8'),
+    mtime: Math.floor(info.mtimeMs / 1000),
+  };
 }
 
-async function authorizedPath(target: SyncTarget): Promise<string> {
+async function authorizedPath(target: SyncTarget): Promise<{ path: string; writeScope: string }> {
   const authorized = await resolveAndAuthorizePath(target.path);
   if (!authorized.ok) throw new Error(authorized.error);
   const allowed = await safeWriteAllowed(authorized.data);
   if (!allowed.ok) throw new Error(allowed.error ?? 'Photo is outside the library');
   if (!(await stat(authorized.data)).isFile()) throw new Error('Photo is not a file');
-  return authorized.data;
+  return { path: authorized.data, writeScope: authorized.writeScope };
 }
 
 export type PreparedTarget =
-  | { action: 'write'; path: string; xml: string; mtime: number | null; entry: SyncEntry }
+  | {
+      action: 'write';
+      path: string;
+      writeScope: string;
+      xml: string;
+      mtime: number | null;
+      entry: SyncEntry;
+    }
   | { action: 'publish'; path: string; entry: SyncEntry }
   | { action: 'none'; entry: SyncEntry };
 
@@ -48,13 +58,18 @@ export async function prepareTarget(
   correction?: WhiteBalanceCorrection,
 ): Promise<PreparedTarget> {
   try {
-    const path = await authorizedPath(target);
+    const authorized = await authorizedPath(target);
+    const path = authorized.path;
     const current = await readSidecar(path);
     const currentHash = hash(current.xml);
     // An unacknowledged write is already durable. Publish its invalidation again,
     // then acknowledge; never apply a relative correction to the written result.
     if (saved?.afterHash === currentHash)
-      return { action: 'publish', path, entry: { ...saved, status: 'prepared' } };
+      return {
+        action: 'publish',
+        path,
+        entry: { ...saved, status: 'prepared' },
+      };
     if (saved && saved.beforeHash !== currentHash)
       throw new Error(
         'Sidecar changed while the operation was interrupted; review this photo before retrying',
@@ -71,12 +86,24 @@ export async function prepareTarget(
     };
     return xml === current.xml
       ? { action: 'none', entry }
-      : { action: 'write', path, xml, mtime: current.mtime, entry };
+      : {
+          action: 'write',
+          path,
+          writeScope: authorized.writeScope,
+          xml,
+          mtime: current.mtime,
+          entry,
+        };
   } catch (error) {
     // Retain a frozen relative patch when the filesystem changes during recovery.
     return {
       action: 'none',
-      entry: { ...(saved ?? {}), id: target.id, status: 'failed', reason: errorMessage(error) },
+      entry: {
+        ...(saved ?? {}),
+        id: target.id,
+        status: 'failed',
+        reason: errorMessage(error),
+      },
     };
   }
 }
@@ -91,9 +118,13 @@ export async function commitTarget(prepared: Extract<PreparedTarget, { action: '
       prepared.mtime,
       'Maple batch sync',
       prepared.mtime === null,
+      prepared.writeScope,
     );
     if (result.kind === 'ok') return { ok: true };
-    return { ok: false, error: result.kind === 'conflict' ? changed : result.error };
+    return {
+      ok: false,
+      error: result.kind === 'conflict' ? changed : result.error,
+    };
   } catch (error) {
     return { ok: false, error: errorMessage(error) };
   }

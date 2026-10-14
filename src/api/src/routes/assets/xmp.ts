@@ -109,7 +109,8 @@ export const xmpRoutes = new Elysia()
       markDeprecated(set);
       const resolved = await resolveAssetLocationOrRespond(params.id, set);
       if ('error' in resolved) return resolved;
-      const { id, info, absPath } = resolved;
+      const { id, info, absPath, libs } = resolved;
+      const writeScope = info.folder_id ? libs.get(info.folder_id.toHexString()) : undefined;
 
       const xmlContent =
         typeof body === 'string'
@@ -154,6 +155,7 @@ export const xmpRoutes = new Elysia()
         ifMtimeMatchesEpoch,
         deviceName,
         requireAbsent,
+        writeScope,
       );
 
       if (outcome.kind === 'error') {
@@ -193,12 +195,13 @@ export const xmpRoutes = new Elysia()
     markDeprecated(set);
     const resolved = await resolveAssetLocationOrRespond(params.id, set);
     if ('error' in resolved) return resolved;
-    const { id, info, absPath } = resolved;
+    const { id, info, absPath, libs } = resolved;
+    const writeScope = info.folder_id ? libs.get(info.folder_id.toHexString()) : undefined;
     const conflict = typeof query.conflict === 'string' ? query.conflict : null;
     const result =
       conflict !== null
         ? await deleteConflictSidecar(absPath, conflict)
-        : await deleteXmpSidecar(absPath);
+          : await deleteXmpSidecar(absPath, writeScope);
     if (!result.ok) {
       set.status = 400;
       return { error: result.error };

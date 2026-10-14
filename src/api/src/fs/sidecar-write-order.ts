@@ -6,6 +6,15 @@ const pendingWrites = new Map<string, Promise<void>>();
 const inFlightKeys = new Map<string, Promise<string>>();
 const admissionTails = new Map<string, Promise<void>>();
 
+export interface SidecarWriteOrderOptions {
+  /** Stable library identity shared by lexical and symlinked paths. */
+  admissionScope?: string;
+  /** Resolve and authorize the path after its FIFO admission has been registered. */
+  resolveDestination?: () => Promise<string>;
+}
+
+export class SidecarWritePathDeniedError extends Error {}
+
 function canonicalKey(destination: string): Promise<string> {
   const existing = inFlightKeys.get(destination);
   if (existing) return existing;
@@ -40,21 +49,23 @@ function canonicalKey(destination: string): Promise<string> {
 
 export async function serializeSidecarWrite<T>(
   destination: string,
-  write: () => Promise<T>,
+  write: (resolvedDestination: string) => Promise<T>,
+  options: SidecarWriteOrderOptions = {},
 ): Promise<T> {
-  // Calls that may be parent-sibling aliases must register in invocation order
-  // before their canonical parent identity is known. This gate covers only one
-  // parent stat; the write chain itself is keyed by parent inode, so unrelated
-  // sibling libraries never serialize their actual writes.
+  // Register arrival before any asynchronous authorization or canonicalization.
+  // The library scope groups aliases at different directory depths while
+  // keeping same-named files in sibling libraries independent.
   const resolvedDestination = path.resolve(destination);
-  const parent = path.dirname(resolvedDestination);
-  const basename = path
+  const admissionScope = path.resolve(
+    options.admissionScope ?? path.dirname(path.dirname(resolvedDestination)),
+  );
+  const admissionName = path
     .basename(resolvedDestination)
     .normalize('NFC')
     .toLowerCase()
     .normalize('NFC');
   const admissionKey = path
-    .join(path.dirname(parent), basename)
+    .join(admissionScope, admissionName)
     .normalize('NFC')
     .toLowerCase()
     .normalize('NFC');
@@ -64,18 +75,22 @@ export async function serializeSidecarWrite<T>(
     releaseAdmission = resolve;
   });
   admissionTails.set(admissionKey, currentAdmission);
-  const canonicalKeyPromise = canonicalKey(destination);
+  const destinationPromise = Promise.resolve()
+    .then(() => options.resolveDestination?.() ?? destination)
+    .then((resolved) => path.resolve(resolved));
+  const canonicalKeyPromise = destinationPromise.then(canonicalKey);
 
   let next: Promise<T>;
   let settled: Promise<void>;
   let key: string;
+  let actualDestination: string;
   try {
     await previousAdmission;
-    // Resolve parent paths concurrently; wait for earlier same-basename calls
-    // before registering so a faster alias cannot overtake an earlier one.
-    key = await canonicalKeyPromise;
+    // Resolve paths concurrently, but register their canonical write chains in
+    // admission order so a faster alias cannot overtake an earlier save.
+    [actualDestination, key] = await Promise.all([destinationPromise, canonicalKeyPromise]);
     const previous = pendingWrites.get(key) ?? Promise.resolve();
-    next = previous.then(write);
+    next = previous.then(() => write(actualDestination));
     settled = next.then(
       () => undefined,
       () => undefined,
