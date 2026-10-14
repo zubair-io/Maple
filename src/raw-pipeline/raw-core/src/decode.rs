@@ -927,8 +927,6 @@ fn rawler_illuminant_to_core(r: &RawlerIlluminant) -> CoreIlluminant {
 /// precision through the u16 requantization and leaves ~2 stops of over-white
 /// HDR headroom before the `u16::MAX` ceiling.
 const FLOAT_WHITE_ANCHOR: u32 = 16_384;
-const NEARBY_CODE_WINDOW: usize = 16;
-
 /// Infer a lower effective sensor white when a large RAW shows repeated
 /// clipping below its declared level. Near-white plateaus must occupy at least
 /// six 128px regions; dense midrange plateaus must occupy 12. Each threshold
@@ -962,78 +960,43 @@ fn effective_white_level(
     }
     struct PlateauCandidate {
         value: u16,
+        sample_count: u32,
+        eligible: bool,
         required_regions: usize,
-        nearest_higher_count: u32,
         occupied_regions: [Vec<usize>; 4],
     }
     let mut candidates = Vec::<PlateauCandidate>::new();
     let mut candidates_by_position: [Vec<usize>; 4] = std::array::from_fn(|_| Vec::new());
     let mut candidate_lookup = vec![[-1i32; 4]; usize::from(u16::MAX) + 1];
     for p in 0..4 {
-        let mut nearest_higher_count = 0;
-        let mut nearest_higher_value = None;
         for (value, counts) in histogram.iter().enumerate().rev() {
             let count = counts[p];
-            if count >= 32 {
-                let value_u32 = value as u32;
-                let denom = (declared as f64 - black_level[p] as f64).max(1.0);
-                let frac = (value_u32 as f64 - black_level[p] as f64) / denom;
-                // A modest pile-up below 96% can be a uniform chart patch rather
-                // than sensor clipping. The lower-range fixture clips have a much
-                // larger pile-up; near-declared clips can remain sparse.
-                let is_sparse_near_declared_white = (0.96..0.995).contains(&frac);
-                let is_dense_sub_declared_white = (0.90..0.96).contains(&frac) && count >= 1024;
-                if is_sparse_near_declared_white || is_dense_sub_declared_white {
-                    let required_regions = if is_dense_sub_declared_white { 12 } else { 6 };
-                    let candidate_index = candidates.len();
-                    candidates.push(PlateauCandidate {
-                        value: value as u16,
-                        required_regions,
-                        nearest_higher_count: nearest_higher_value
-                            .filter(|higher| higher - value <= NEARBY_CODE_WINDOW)
-                            .map_or(0, |_| nearest_higher_count),
-                        occupied_regions: std::array::from_fn(|_| {
-                            Vec::with_capacity(required_regions)
-                        }),
-                    });
-                    candidates_by_position[p].push(candidate_index);
-                    candidate_lookup[value][p] = candidate_index as i32;
-                }
+            if count == 0 {
+                continue;
             }
-            if count > 0 {
-                // Some RAW decoders expand lower-bit-depth samples onto a
-                // sparse u16 grid (for example, 14-bit IIQ values are shifted
-                // left by two). Remember the nearest populated code rather than
-                // treating empty bins as evidence of a peak.
-                nearest_higher_count = count;
-                nearest_higher_value = Some(value);
-            }
-        }
-    }
-
-    // Compare each candidate with its nearest populated lower code as well as
-    // the higher code recorded above. This preserves the peak gate on expanded
-    // quantized data while rejecting a smooth highlight distribution whose
-    // populated values simply skip the empty u16 bins between source codes.
-    for p in 0..4 {
-        let mut nearest_lower_count = 0u32;
-        let mut nearest_lower_value = None;
-        for (value, counts) in histogram.iter().enumerate() {
-            let candidate_index = candidate_lookup[value][p];
-            if candidate_index >= 0 {
-                let candidate = &candidates[candidate_index as usize];
-                let nearby_lower_count = nearest_lower_value
-                    .filter(|lower| value - lower <= NEARBY_CODE_WINDOW)
-                    .map_or(0, |_| nearest_lower_count);
-                if counts[p] < nearby_lower_count.saturating_mul(4)
-                    || counts[p] < candidate.nearest_higher_count.saturating_mul(4)
-                {
-                    candidate_lookup[value][p] = -1;
-                }
-            }
-            if counts[p] > 0 {
-                nearest_lower_count = counts[p];
-                nearest_lower_value = Some(value);
+            let value_u32 = value as u32;
+            let denom = (declared as f64 - black_level[p] as f64).max(1.0);
+            let frac = (value_u32 as f64 - black_level[p] as f64) / denom;
+            // Track the whole highlight range so neighboring source codes can
+            // be compared even when a decoder's linearization curve spaces them
+            // hundreds of u16 values apart (IIQ-S). Only near-white peaks and
+            // dense lower-range peaks can become white-level candidates.
+            let is_sparse_near_declared_white = (0.96..0.995).contains(&frac);
+            let is_dense_sub_declared_white = (0.90..0.96).contains(&frac) && count >= 1024;
+            if frac >= 0.90 {
+                let eligible =
+                    count >= 32 && (is_sparse_near_declared_white || is_dense_sub_declared_white);
+                let required_regions = if is_dense_sub_declared_white { 12 } else { 6 };
+                let candidate_index = candidates.len();
+                candidates.push(PlateauCandidate {
+                    value: value as u16,
+                    sample_count: count,
+                    eligible,
+                    required_regions,
+                    occupied_regions: std::array::from_fn(|_| Vec::with_capacity(required_regions)),
+                });
+                candidates_by_position[p].push(candidate_index);
+                candidate_lookup[value][p] = candidate_index as i32;
             }
         }
     }
@@ -1069,6 +1032,39 @@ fn effective_white_level(
         }
     }
 
+    // Compare each candidate with the nearest spatially distributed highlight
+    // bins on either side. This uses the decoded source grid rather than an
+    // arbitrary u16 distance, while localized defect plateaus cannot hide a
+    // lower genuine saturation plateau.
+    let mut nearest_higher_count = vec![0u32; candidates.len()];
+    let mut nearest_lower_count = vec![0u32; candidates.len()];
+    for position_candidates in &candidates_by_position {
+        let mut higher_count = 0;
+        for &candidate_index in position_candidates {
+            nearest_higher_count[candidate_index] = higher_count;
+            let candidate = &candidates[candidate_index];
+            if candidate
+                .occupied_regions
+                .iter()
+                .all(|regions| regions.len() >= 6)
+            {
+                higher_count = candidate.sample_count;
+            }
+        }
+        let mut lower_count = 0;
+        for &candidate_index in position_candidates.iter().rev() {
+            nearest_lower_count[candidate_index] = lower_count;
+            let candidate = &candidates[candidate_index];
+            if candidate
+                .occupied_regions
+                .iter()
+                .all(|regions| regions.len() >= 6)
+            {
+                lower_count = candidate.sample_count;
+            }
+        }
+    }
+
     // A single scalar normalization ceiling must not clip a Bayer position
     // whose valid saturation plateau is higher than another position's.
     let best = candidates_by_position
@@ -1076,10 +1072,15 @@ fn effective_white_level(
         .filter_map(|position_candidates| {
             position_candidates.iter().find_map(|&candidate_index| {
                 let candidate = &candidates[candidate_index];
-                candidate
+                let has_required_support = candidate
                     .occupied_regions
                     .iter()
-                    .all(|regions| regions.len() >= candidate.required_regions)
+                    .all(|regions| regions.len() >= candidate.required_regions);
+                let is_histogram_peak = candidate.sample_count
+                    >= nearest_higher_count[candidate_index].saturating_mul(4)
+                    && candidate.sample_count
+                        >= nearest_lower_count[candidate_index].saturating_mul(4);
+                (candidate.eligible && has_required_support && is_histogram_peak)
                     .then_some(u32::from(candidate.value))
             })
         })
@@ -1409,6 +1410,33 @@ mod tests {
                 let x = (tile % 4) * 32 + (local_slot % 16) * 2;
                 let y = (tile / 4) * 32 + (local_slot / 16) * 2;
                 data[y * w + x] = 63_000 + (value_offset * 4) as u16;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_compares_nonlinearly_spaced_highlight_codes() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for tile_y in 0..4 {
+            for tile_x in 0..4 {
+                let y = tile_y * 128;
+                let x = tile_x * 128;
+                data[(y + 20) * w + x + 20] = 64_508;
+                data[(y + 22) * w + x + 22] = 64_508;
+                data[(y + 24) * w + x + 24] = 65_020;
+                data[(y + 26) * w + x + 26] = 65_020;
+            }
+        }
+        // A brighter but localized plateau should not obscure the distributed
+        // adjacent source codes, even when the decoder expands them far apart.
+        for offset in (80..88).step_by(2) {
+            for x_offset in (80..88).step_by(2) {
+                data[offset * w + x_offset] = 65_532;
             }
         }
         assert_eq!(
