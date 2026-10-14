@@ -66,6 +66,10 @@ async function barrierPath(rawPath: string, id: string, signal?: AbortSignal): P
   if (!primary.ok) throw new WorkflowVariantError(403, primary.error);
   return primary.data;
 }
+function admissionDestination(rawPath: string, id: string): string {
+  const primary = xmpSidecarPath(rawPath);
+  return id === PRIMARY_VARIANT_ID ? primary : `${primary}.variant-${id}`;
+}
 async function record(xml: string, signal?: AbortSignal): Promise<SidecarWorkflow | null> {
   const value: unknown = JSON.parse(await nativeValue('workflowReadXmp', [xml], signal));
   return value === null ? null : parseSidecarWorkflow(value);
@@ -149,27 +153,37 @@ export async function writeWorkflowVariant(
   id: string,
   xml: string,
   signal?: AbortSignal,
+  admissionScope?: string,
 ): Promise<string> {
-  const destination = await barrierPath(rawPath, id, signal);
-  return serializeSidecarWrite(destination, async () => {
-    const existing = await readWorkflowVariant(rawPath, id, signal);
-    const oldRecord = existing === null ? null : await record(existing, signal);
-    const nextRecord = await record(xml, signal);
-    requireIdentity(nextRecord ?? oldRecord, id, path.basename(destination));
-    // Ordinary saves can carry a cached record from before a snapshot or
-    // semantic commit. The current sidecar owns workflow metadata (#4063).
-    const output =
-      oldRecord !== null
-        ? await nativeValue(
-            'workflowEmbedXmp',
-            [JSON.stringify(oldRecord), await nativeValue('workflowCheckpointXmp', [xml], signal)],
-            signal,
-          )
-        : xml;
-    const outcome = await writeSidecarAtomic(destination, output, 'Variant write failed');
-    if (!outcome.ok) throw new WorkflowVariantError(500, outcome.error);
-    return output;
-  });
+  return serializeSidecarWrite(
+    admissionDestination(rawPath, id),
+    async (destination) => {
+      const existing = await readWorkflowVariant(rawPath, id, signal);
+      const oldRecord = existing === null ? null : await record(existing, signal);
+      const nextRecord = await record(xml, signal);
+      requireIdentity(nextRecord ?? oldRecord, id, path.basename(destination));
+      // Ordinary saves can carry a cached record from before a snapshot or
+      // semantic commit. The current sidecar owns workflow metadata (#4063).
+      const output =
+        oldRecord !== null
+          ? await nativeValue(
+              'workflowEmbedXmp',
+              [
+                JSON.stringify(oldRecord),
+                await nativeValue('workflowCheckpointXmp', [xml], signal),
+              ],
+              signal,
+            )
+          : xml;
+      const outcome = await writeSidecarAtomic(destination, output, 'Variant write failed');
+      if (!outcome.ok) throw new WorkflowVariantError(500, outcome.error);
+      return output;
+    },
+    {
+      admissionScope,
+      resolveDestination: () => barrierPath(rawPath, id, signal),
+    },
+  );
 }
 
 /** Cooperating HTTP writers share a resolved-sidecar chain, including ordinary saves. */
@@ -180,6 +194,7 @@ export function commitWorkflowVariant(
   xmp: string,
   entry: WorkflowHistoryEntry,
   signal?: AbortSignal,
+  admissionScope?: string,
 ): Promise<string> {
   return mutateVariant(
     rawPath,
@@ -195,6 +210,7 @@ export function commitWorkflowVariant(
       return nativeValue('workflowCommitXmp', [candidate, JSON.stringify(entry)], signal);
     },
     signal,
+    admissionScope,
   );
 }
 export function snapshotWorkflowVariant(
@@ -204,6 +220,7 @@ export function snapshotWorkflowVariant(
   snapshot: WorkflowSnapshot,
   initialXmp?: string,
   signal?: AbortSignal,
+  admissionScope?: string,
 ): Promise<string> {
   return mutateVariant(
     rawPath,
@@ -219,6 +236,7 @@ export function snapshotWorkflowVariant(
       return nativeValue('workflowSnapshotXmp', [source, JSON.stringify(snapshot)], signal);
     },
     signal,
+    admissionScope,
   );
 }
 export function restoreWorkflowVariant(
@@ -227,6 +245,7 @@ export function restoreWorkflowVariant(
   expectedXmp: string,
   entry: WorkflowHistoryEntry,
   signal?: AbortSignal,
+  admissionScope?: string,
 ): Promise<string> {
   return mutateVariant(
     rawPath,
@@ -238,6 +257,7 @@ export function restoreWorkflowVariant(
       return nativeValue('workflowRestoreXmp', [current, JSON.stringify(entry)], signal);
     },
     signal,
+    admissionScope,
   );
 }
 async function mutateVariant(
@@ -246,23 +266,35 @@ async function mutateVariant(
   expectedXmp: string | null,
   convert: (current: string | null) => Promise<string>,
   signal?: AbortSignal,
+  admissionScope?: string,
 ): Promise<string> {
-  const destination = await barrierPath(rawPath, id, signal);
-  return serializeSidecarWrite(destination, async () => {
-    const current = await readWorkflowVariant(rawPath, id, signal);
-    if (current !== expectedXmp)
-      throw new WorkflowVariantError(409, 'Variant changed. Reopen it before saving this action.');
-    const output = await convert(current);
-    requireIdentity(await record(output, signal), id, path.basename(destination));
-    const result =
-      current === null
-        ? await writeSidecarCreateOnly(destination, output, 'Workflow action write failed')
-        : await writeSidecarAtomic(destination, output, 'Workflow action write failed');
-    if (!result.ok)
-      throw new WorkflowVariantError(
-        'exists' in result ? 409 : 500,
-        'exists' in result ? 'Variant changed. Reopen it before saving this action.' : result.error,
-      );
-    return output;
-  });
+  return serializeSidecarWrite(
+    admissionDestination(rawPath, id),
+    async (destination) => {
+      const current = await readWorkflowVariant(rawPath, id, signal);
+      if (current !== expectedXmp)
+        throw new WorkflowVariantError(
+          409,
+          'Variant changed. Reopen it before saving this action.',
+        );
+      const output = await convert(current);
+      requireIdentity(await record(output, signal), id, path.basename(destination));
+      const result =
+        current === null
+          ? await writeSidecarCreateOnly(destination, output, 'Workflow action write failed')
+          : await writeSidecarAtomic(destination, output, 'Workflow action write failed');
+      if (!result.ok)
+        throw new WorkflowVariantError(
+          'exists' in result ? 409 : 500,
+          'exists' in result
+            ? 'Variant changed. Reopen it before saving this action.'
+            : result.error,
+        );
+      return output;
+    },
+    {
+      admissionScope,
+      resolveDestination: () => barrierPath(rawPath, id, signal),
+    },
+  );
 }

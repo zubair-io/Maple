@@ -40,7 +40,7 @@ import * as fs from 'node:fs/promises';
 import { xmpSidecarPath, writeXmpAtomic, deleteXmpSidecar } from '../fs/xmp.ts';
 import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
 import { publishSidecarChange } from './xmp-change';
-import { serializeSidecarWrite } from '../fs/sidecar-write-order';
+import { serializeSidecarWrite, SidecarWritePathDeniedError } from '../fs/sidecar-write-order';
 import { safeWriteAllowed } from '../fs/root';
 import { writeSidecarAtomic } from '../fs/sidecar-io';
 import { xmpVariantRoutes } from './xmp-variants';
@@ -62,12 +62,13 @@ export const xmpPathRoutes = new Elysia()
     return {
       rawPath: authorized.data,
       sidecar: xmpSidecarPath(authorized.data),
+      writeScope: authorized.writeScope,
     };
   })
   // Workflow authoring records share the authorized primary sidecar path.
   .patch(
     '/api/xmp/workflow',
-    async ({ rawPath, sidecar, body, set, request }) => {
+    async ({ rawPath, sidecar, writeScope, body, set, request }) => {
       try {
         // Wire validation reports 422; filesystem publication reports 500.
         // Select each boundary's status before invoking the operation that can throw.
@@ -78,41 +79,48 @@ export const xmpPathRoutes = new Elysia()
           return status(422, {
             error: 'Variant identity does not match the primary sidecar.',
           });
-        const allowed = await safeWriteAllowed(sidecar);
-        if (!allowed.ok)
-          return status(403, {
-            error: allowed.error ?? 'Sidecar path not allowed',
-          });
-        const destination = allowed.data ?? sidecar;
-        return await serializeSidecarWrite(destination, async () => {
-          const existing = await fs.readFile(destination, 'utf8').catch((error: unknown) => {
-            if (isMissingSidecar(error)) return mergeMetadataIntoXmp('', {});
-            throw error;
-          });
-          const conversion = await callNativeRetrying(
-            'workflowEmbedXmp',
-            [JSON.stringify(workflow), existing],
-            request.signal,
-          );
-          if (!conversion.ok) {
-            set.status = 422;
-            return { error: conversion.error };
-          }
-          const outcome = await writeSidecarAtomic(
-            destination,
-            conversion.value,
-            'Workflow write failed',
-          );
-          if (!outcome.ok) {
-            set.status = 500;
-            return { error: outcome.error };
-          }
-          await publishSidecarChange(rawPath, true);
-          set.headers['Content-Type'] = 'application/xml';
-          set.status = 200;
-          return conversion.value;
-        });
+        return await serializeSidecarWrite(
+          sidecar,
+          async (destination) => {
+            const existing = await fs.readFile(destination, 'utf8').catch((error: unknown) => {
+              if (isMissingSidecar(error)) return mergeMetadataIntoXmp('', {});
+              throw error;
+            });
+            const conversion = await callNativeRetrying(
+              'workflowEmbedXmp',
+              [JSON.stringify(workflow), existing],
+              request.signal,
+            );
+            if (!conversion.ok) {
+              set.status = 422;
+              return { error: conversion.error };
+            }
+            const outcome = await writeSidecarAtomic(
+              destination,
+              conversion.value,
+              'Workflow write failed',
+            );
+            if (!outcome.ok) {
+              set.status = 500;
+              return { error: outcome.error };
+            }
+            await publishSidecarChange(rawPath, true);
+            set.headers['Content-Type'] = 'application/xml';
+            set.status = 200;
+            return conversion.value;
+          },
+          {
+            admissionScope: writeScope,
+            resolveDestination: async () => {
+              const allowed = await safeWriteAllowed(sidecar);
+              if (!allowed.ok)
+                throw new SidecarWritePathDeniedError(allowed.error ?? 'Sidecar path not allowed');
+              return allowed.data ?? sidecar;
+            },
+          },
+        );
       } catch (error) {
+        if (error instanceof SidecarWritePathDeniedError) set.status = 403;
         return {
           error: error instanceof Error ? error.message : String(error),
         };
@@ -166,7 +174,7 @@ export const xmpPathRoutes = new Elysia()
   // -- Write -------------------------------------------------------------
   .post(
     '/api/xmp',
-    async ({ rawPath, body, set, request }) => {
+    async ({ rawPath, writeScope, body, set, request }) => {
       const xmlContent =
         typeof body === 'string'
           ? body
@@ -185,7 +193,13 @@ export const xmpPathRoutes = new Elysia()
         });
       }
       if (match !== null || absent !== null) {
-        const conditional = await writeXmpIfUnchanged(rawPath, xmlContent, match, request.signal);
+        const conditional = await writeXmpIfUnchanged(
+          rawPath,
+          xmlContent,
+          match,
+          request.signal,
+          writeScope,
+        );
         if (conditional.kind === 'conflict')
           return status(412, { error: 'XMP changed; reload before saving.' });
         if (conditional.kind === 'error') return status(500, { error: conditional.error });
@@ -195,7 +209,7 @@ export const xmpPathRoutes = new Elysia()
         set.headers['X-Maple-Xmp-Preconditions'] = 'content-etag-v1';
         return conditional.data;
       }
-      const outcome = await writeXmpAtomic(rawPath, xmlContent, request.signal);
+      const outcome = await writeXmpAtomic(rawPath, xmlContent, request.signal, writeScope);
       if (!outcome.ok) {
         // Includes failed durable writes and unsupported workflow metadata;
         // either failure leaves the existing sidecar untouched.
@@ -236,26 +250,15 @@ export const xmpPathRoutes = new Elysia()
   // -- Delete ------------------------------------------------------------
   .delete(
     '/api/xmp',
-    async ({ rawPath, sidecar, set }) => {
-      // Distinguish "didn't exist" (404) from "existed and was deleted"
-      // (204). `deleteXmpSidecar` collapses both to ok:true for the
-      // id-keyed route, so check existence ourselves.
-      let existed = true;
-      try {
-        await fs.stat(sidecar);
-      } catch (err: unknown) {
-        if (isMissingSidecar(err)) {
-          existed = false;
-        }
-      }
-      if (!existed) {
-        set.status = 404;
-        return { error: 'No XMP sidecar at this path' };
-      }
-      const outcome = await deleteXmpSidecar(rawPath);
+    async ({ rawPath, writeScope, set }) => {
+      const outcome = await deleteXmpSidecar(rawPath, writeScope);
       if (!outcome.ok) {
         set.status = 500;
         return { error: outcome.error };
+      }
+      if (!outcome.existed) {
+        set.status = 404;
+        return { error: 'No XMP sidecar at this path' };
       }
       await publishSidecarChange(rawPath, false);
       set.status = 204;

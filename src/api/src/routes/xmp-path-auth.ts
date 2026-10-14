@@ -29,7 +29,9 @@ import type { SqliteDb } from '../db/repos/db-handle.ts';
 export async function resolveAndAuthorizePath(
   raw: string | undefined,
   dbOverride?: SqliteDb,
-): Promise<{ ok: true; data: string } | { ok: false; status: number; error: string }> {
+): Promise<
+  { ok: true; data: string; writeScope: string } | { ok: false; status: number; error: string }
+> {
   if (typeof raw !== 'string' || raw.length === 0) {
     return { ok: false, status: 400, error: 'Missing required path' };
   }
@@ -37,7 +39,11 @@ export async function resolveAndAuthorizePath(
   try {
     if (/%[0-9A-Fa-f]{2}/.test(raw)) decoded = decodeURIComponent(raw);
   } catch {
-    return { ok: false, status: 400, error: 'Path is not a valid URL-encoded string' };
+    return {
+      ok: false,
+      status: 400,
+      error: 'Path is not a valid URL-encoded string',
+    };
   }
   if (!path.isAbsolute(decoded)) {
     return { ok: false, status: 400, error: 'Path must be absolute' };
@@ -48,13 +54,14 @@ export async function resolveAndAuthorizePath(
 
   const normalized = path.resolve(decoded);
 
-  const envRoots = parseRootList(process.env.MAPLE_ROOTS);
+  const envRoots = parseRootList(process.env.MAPLE_ROOTS).map((root) => path.resolve(root));
   const libRoots = dbOverride
     ? (await listLibraryRoots(dbOverride)).map((root) => root.path)
     : [...(await loadLibraryRoots()).values()];
+  const normalizedLibRoots = libRoots.map((root) => path.resolve(root));
   // Normalize each root with path.resolve (strips any trailing separator,
   // cross-platform) so the containment check below is separator-correct.
-  const allRoots = [...envRoots, ...libRoots].map((r) => path.resolve(r));
+  const allRoots = [...envRoots, ...normalizedLibRoots];
 
   if (allRoots.length === 0) {
     return {
@@ -64,11 +71,19 @@ export async function resolveAndAuthorizePath(
     };
   }
 
-  for (const root of allRoots) {
-    if (isWithinRoot(root, normalized)) {
-      return { ok: true, data: normalized };
-    }
-  }
+  const libraryRoot = normalizedLibRoots
+    .filter((root) => isWithinRoot(root, normalized))
+    .sort((left, right) => right.length - left.length)[0];
+  const configuredRoot = envRoots
+    .filter((root) => isWithinRoot(root, normalized))
+    .sort((left, right) => right.length - left.length)[0];
+  const writeScope = libraryRoot ?? configuredRoot;
+  if (writeScope)
+    return {
+      ok: true,
+      data: normalized,
+      writeScope,
+    };
   return {
     ok: false,
     status: 403,
