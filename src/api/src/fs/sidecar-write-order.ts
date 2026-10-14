@@ -119,6 +119,112 @@ function discardCanonicalKey(
   if (inFlightKeys.get(cacheKey) === pending) inFlightKeys.delete(cacheKey);
 }
 
+interface WriteAdmission {
+  previous: Promise<void>;
+  acquired: boolean;
+  release(): void;
+  releaseAfterPrevious(): void;
+}
+
+function reserveAdmission(scope: string): WriteAdmission {
+  const previous = admissionTails.get(scope) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  admissionTails.set(scope, current);
+  let released = false;
+  const releaseCurrent = () => {
+    if (released) return;
+    released = true;
+    release();
+    if (admissionTails.get(scope) === current) admissionTails.delete(scope);
+  };
+  return {
+    previous,
+    acquired: false,
+    release: releaseCurrent,
+    releaseAfterPrevious: () => void previous.then(releaseCurrent, releaseCurrent),
+  };
+}
+
+interface WriteReservation {
+  keys: string[];
+  barrier: Promise<void>;
+  prerequisites: Promise<void>;
+  release: () => void;
+}
+
+function registerReservation(keys: string[]): {
+  reservation: WriteReservation;
+  previousWrites: Promise<void[]>;
+} {
+  const previousWrites = Promise.all(
+    keys.map((key) => pendingWrites.get(key) ?? Promise.resolve()),
+  );
+  let release!: () => void;
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const reservation = {
+    keys: [...keys],
+    barrier,
+    prerequisites: previousWrites.then(() => undefined),
+    release,
+  };
+  for (const key of keys) pendingWrites.set(key, barrier);
+  return { reservation, previousWrites };
+}
+
+function extendReservation(reservation: WriteReservation, keys: string[]): Promise<void[]> {
+  const sharesKey = keys.some((key) => reservation.keys.includes(key));
+  const missingKeys = sharesKey ? [] : keys.filter((key) => !reservation.keys.includes(key));
+  if (missingKeys.length === 0) return Promise.resolve([]);
+
+  const previousWrites = Promise.all(
+    missingKeys.map((key) => pendingWrites.get(key) ?? Promise.resolve()),
+  );
+  reservation.prerequisites = Promise.all([
+    reservation.prerequisites,
+    previousWrites.then(() => undefined),
+  ]).then(() => undefined);
+  for (const key of missingKeys) pendingWrites.set(key, reservation.barrier);
+  reservation.keys = [...reservation.keys, ...missingKeys];
+  return previousWrites;
+}
+
+function releaseReservation(reservation: WriteReservation, waitForPrerequisites: boolean): void {
+  const release = () => {
+    reservation.release();
+    for (const key of reservation.keys) {
+      if (pendingWrites.get(key) === reservation.barrier) pendingWrites.delete(key);
+    }
+  };
+  if (waitForPrerequisites) {
+    void reservation.prerequisites.then(release, release);
+  } else {
+    release();
+  }
+}
+
+async function reserveActualDestinationKeys(
+  destination: string,
+  resolvedDestination: string,
+  allowMissingParent: boolean,
+  reservation: WriteReservation,
+  signal?: AbortSignal,
+): Promise<void> {
+  const actualDestination = path.resolve(resolvedDestination);
+  if (actualDestination === path.resolve(destination)) return;
+
+  const actualKeys = await waitForAbortable(
+    destinationKeys(actualDestination, canonicalKeys(actualDestination, allowMissingParent)),
+    signal,
+  );
+  const previousActualWrites = extendReservation(reservation, actualKeys);
+  await waitForAbortable(previousActualWrites, signal);
+}
+
 export async function serializeSidecarWrite<T>(
   destination: string,
   write: (resolvedDestination: string) => Promise<T>,
@@ -131,84 +237,39 @@ export async function serializeSidecarWrite<T>(
     options.admissionScope === undefined
       ? '\0unscoped'
       : path.resolve(options.admissionScope).normalize('NFC').toLowerCase().normalize('NFC');
-  const previousAdmission = admissionTails.get(admissionScope) ?? Promise.resolve();
-  let releaseAdmission!: () => void;
-  const currentAdmission = new Promise<void>((resolve) => {
-    releaseAdmission = resolve;
-  });
-  admissionTails.set(admissionScope, currentAdmission);
-  let admissionAcquired = false;
-  let admissionReleased = false;
-  const releaseCurrentAdmission = () => {
-    if (admissionReleased) return;
-    admissionReleased = true;
-    releaseAdmission();
-    if (admissionTails.get(admissionScope) === currentAdmission) {
-      admissionTails.delete(admissionScope);
-    }
-  };
+  const admission = reserveAdmission(admissionScope);
   let canonicalKeyRequest: Promise<string[]> | undefined;
-  let releaseReservation: (() => void) | undefined;
-  let reservation: Promise<void> | undefined;
-  let reservedKeys: string[] = [];
-  let reservationRegistered = false;
-  let reservationPrerequisites: Promise<void> | undefined;
+  let reservation: WriteReservation | undefined;
   const destinationPromise = Promise.resolve().then(
     () => options.resolveDestination?.() ?? destination,
   );
   void destinationPromise.catch(() => undefined);
 
   try {
-    await waitForAbortable(previousAdmission, options.signal);
-    admissionAcquired = true;
+    await waitForAbortable(admission.previous, options.signal);
+    admission.acquired = true;
     canonicalKeyRequest = canonicalKeys(destination, options.resolveDestination !== undefined);
     void canonicalKeyRequest.catch(() => undefined);
-    reservedKeys = await waitForAbortable(
+    const reservedKeys = await waitForAbortable(
       destinationKeys(destination, canonicalKeyRequest),
       options.signal,
     );
-    const previousWrites = Promise.all(
-      reservedKeys.map((key) => pendingWrites.get(key) ?? Promise.resolve()),
-    );
-    reservationPrerequisites = previousWrites.then(() => undefined);
-    const settled = new Promise<void>((resolve) => {
-      releaseReservation = resolve;
-    });
-    reservation = settled;
-    for (const key of reservedKeys) pendingWrites.set(key, settled);
-    reservationRegistered = true;
-    releaseCurrentAdmission();
-    await waitForAbortable(previousWrites, options.signal);
+    const registered = registerReservation(reservedKeys);
+    reservation = registered.reservation;
+    admission.release();
+    await waitForAbortable(registered.previousWrites, options.signal);
     const resolvedDestination = await waitForAbortable(destinationPromise, options.signal);
-    const actualDestination = path.resolve(resolvedDestination);
-    const actualKeys =
-      actualDestination === path.resolve(destination)
-        ? reservedKeys
-        : await waitForAbortable(
-            destinationKeys(
-              actualDestination,
-              canonicalKeys(actualDestination, options.resolveDestination !== undefined),
-            ),
-            options.signal,
-          );
     // A shared lexical or inode key already protects this write from aliases.
     // Avoid extending a held reservation with a second key: another alias may
     // have reserved that key while waiting on ours, which would form a cycle.
-    const sharesKey = actualKeys.some((key) => reservedKeys.includes(key));
-    const missingKeys = sharesKey ? [] : actualKeys.filter((key) => !reservedKeys.includes(key));
-    if (missingKeys.length > 0) {
-      const previousActualWrites = Promise.all(
-        missingKeys.map((key) => pendingWrites.get(key) ?? Promise.resolve()),
-      );
-      reservationPrerequisites = Promise.all([
-        reservationPrerequisites,
-        previousActualWrites.then(() => undefined),
-      ]).then(() => undefined);
-      for (const key of missingKeys) pendingWrites.set(key, settled);
-      reservedKeys = [...reservedKeys, ...missingKeys];
-      await waitForAbortable(previousActualWrites, options.signal);
-    }
-    return await write(actualDestination);
+    await reserveActualDestinationKeys(
+      destination,
+      resolvedDestination,
+      options.resolveDestination !== undefined,
+      reservation,
+      options.signal,
+    );
+    return await write(path.resolve(resolvedDestination));
   } finally {
     if (options.signal?.aborted && canonicalKeyRequest) {
       discardCanonicalKey(
@@ -217,28 +278,14 @@ export async function serializeSidecarWrite<T>(
         options.resolveDestination !== undefined,
       );
     }
-    if (options.signal?.aborted && !admissionAcquired) {
+    if (options.signal?.aborted && !admission.acquired) {
       // A canceled waiter still holds its queue position. Releasing it before
       // its predecessor registers canonical keys can let a later alias pass
       // that predecessor and publish first.
-      void previousAdmission.then(releaseCurrentAdmission, releaseCurrentAdmission);
+      admission.releaseAfterPrevious();
     } else {
-      releaseCurrentAdmission();
+      admission.release();
     }
-    if (reservationRegistered && releaseReservation) {
-      const release = () => {
-        releaseReservation?.();
-        for (const key of reservedKeys) {
-          if (pendingWrites.get(key) === reservation) pendingWrites.delete(key);
-        }
-      };
-      if (options.signal?.aborted && reservationPrerequisites) {
-        // An aborted middle write still represents its place in the chain.
-        // Let earlier reservations finish before waking the following writer.
-        void reservationPrerequisites.then(release, release);
-      } else {
-        release();
-      }
-    }
+    if (reservation) releaseReservation(reservation, options.signal?.aborted === true);
   }
 }
