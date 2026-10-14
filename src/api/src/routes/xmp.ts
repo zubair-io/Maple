@@ -32,21 +32,24 @@
  * note on #193.
  */
 
-import { Elysia, status, t } from 'elysia';
-import { callNativeRetrying } from '../fs/native-call';
-import { parseSidecarWorkflow, PRIMARY_VARIANT_ID } from '../generated/workflow.generated.ts';
-import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
-import * as fs from 'node:fs/promises';
-import { xmpSidecarPath, writeXmpAtomic, deleteXmpSidecar } from '../fs/xmp.ts';
-import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
-import { publishSidecarChange } from './xmp-change';
-import { serializeSidecarWrite } from '../fs/sidecar-write-order';
-import { safeWriteAllowed } from '../fs/root';
-import { writeSidecarAtomic } from '../fs/sidecar-io';
-import { xmpVariantRoutes } from './xmp-variants';
-import { isMissingSidecar } from '../fs/sidecar-io';
-import { writeXmpIfUnchanged } from '../fs/xmp-conditional';
-import { computeBodyETag } from '../runtime/http-etag';
+import { Elysia, status, t } from "elysia";
+import { callNativeRetrying } from "../fs/native-call";
+import {
+  parseSidecarWorkflow,
+  PRIMARY_VARIANT_ID,
+} from "../generated/workflow.generated.ts";
+import { mergeMetadataIntoXmp } from "../xmp/metadata-serializer.ts";
+import * as fs from "node:fs/promises";
+import { xmpSidecarPath, writeXmpAtomic, deleteXmpSidecar } from "../fs/xmp.ts";
+import { resolveAndAuthorizePath } from "./xmp-path-auth.ts";
+import { publishSidecarChange } from "./xmp-change";
+import { serializeSidecarWrite } from "../fs/sidecar-write-order";
+import { safeWriteAllowed } from "../fs/root";
+import { writeSidecarAtomic } from "../fs/sidecar-io";
+import { xmpVariantRoutes } from "./xmp-variants";
+import { isMissingSidecar } from "../fs/sidecar-io";
+import { writeXmpIfUnchanged } from "../fs/xmp-conditional";
+import { computeBodyETag } from "../runtime/http-etag";
 
 // Note: we deliberately bypass `readXmp` from `../fs/xmp.ts` and call
 // `fs.readFile` directly so we can distinguish "no sidecar" (404) from
@@ -58,7 +61,8 @@ export const xmpPathRoutes = new Elysia()
   // All four operations use the same authorized, normalized path (#4036).
   .resolve(async ({ query }) => {
     const authorized = await resolveAndAuthorizePath(query.path);
-    if (!authorized.ok) return status(authorized.status, { error: authorized.error });
+    if (!authorized.ok)
+      return status(authorized.status, { error: authorized.error });
     return {
       rawPath: authorized.data,
       sidecar: xmpSidecarPath(authorized.data),
@@ -66,7 +70,7 @@ export const xmpPathRoutes = new Elysia()
   })
   // Workflow authoring records share the authorized primary sidecar path.
   .patch(
-    '/api/xmp/workflow',
+    "/api/xmp/workflow",
     async ({ rawPath, sidecar, body, set, request }) => {
       try {
         // Wire validation reports 422; filesystem publication reports 500.
@@ -76,21 +80,23 @@ export const xmpPathRoutes = new Elysia()
         set.status = 500;
         if (workflow.variantId !== PRIMARY_VARIANT_ID)
           return status(422, {
-            error: 'Variant identity does not match the primary sidecar.',
+            error: "Variant identity does not match the primary sidecar.",
           });
         const allowed = await safeWriteAllowed(sidecar);
         if (!allowed.ok)
           return status(403, {
-            error: allowed.error ?? 'Sidecar path not allowed',
+            error: allowed.error ?? "Sidecar path not allowed",
           });
         const destination = allowed.data ?? sidecar;
         return await serializeSidecarWrite(destination, async () => {
-          const existing = await fs.readFile(destination, 'utf8').catch((error: unknown) => {
-            if (isMissingSidecar(error)) return mergeMetadataIntoXmp('', {});
-            throw error;
-          });
+          const existing = await fs
+            .readFile(destination, "utf8")
+            .catch((error: unknown) => {
+              if (isMissingSidecar(error)) return mergeMetadataIntoXmp("", {});
+              throw error;
+            });
           const conversion = await callNativeRetrying(
-            'workflowEmbedXmp',
+            "workflowEmbedXmp",
             [JSON.stringify(workflow), existing],
             request.signal,
           );
@@ -101,14 +107,14 @@ export const xmpPathRoutes = new Elysia()
           const outcome = await writeSidecarAtomic(
             destination,
             conversion.value,
-            'Workflow write failed',
+            "Workflow write failed",
           );
           if (!outcome.ok) {
             set.status = 500;
             return { error: outcome.error };
           }
           await publishSidecarChange(rawPath, true);
-          set.headers['Content-Type'] = 'application/xml';
+          set.headers["Content-Type"] = "application/xml";
           set.status = 200;
           return conversion.value;
         });
@@ -122,25 +128,25 @@ export const xmpPathRoutes = new Elysia()
       query: t.Object({ path: t.String() }),
       body: t.Any(),
       detail: {
-        summary: 'Commit shared workflow metadata to a primary sidecar',
-        tags: ['xmp'],
+        summary: "Commit shared workflow metadata to a primary sidecar",
+        tags: ["xmp"],
       },
     },
   )
   // -- Read --------------------------------------------------------------
   .get(
-    '/api/xmp',
+    "/api/xmp",
     async ({ sidecar, set }) => {
-      set.headers['X-Maple-Xmp-Preconditions'] = 'content-etag-v1';
+      set.headers["X-Maple-Xmp-Preconditions"] = "content-etag-v1";
       try {
-        const body = await fs.readFile(sidecar, 'utf-8');
-        set.headers['Content-Type'] = 'application/xml';
-        set.headers['ETag'] = computeBodyETag(body);
+        const body = await fs.readFile(sidecar, "utf-8");
+        set.headers["Content-Type"] = "application/xml";
+        set.headers["ETag"] = computeBodyETag(body);
         return body;
       } catch (err: unknown) {
         if (isMissingSidecar(err)) {
           set.status = 404;
-          return { error: 'No XMP sidecar at this path' };
+          return { error: "No XMP sidecar at this path" };
         }
         set.status = 500;
         const msg = err instanceof Error ? err.message : String(err);
@@ -151,48 +157,54 @@ export const xmpPathRoutes = new Elysia()
       query: t.Object({
         path: t.String({
           description:
-            'Absolute filesystem path to the source asset. The sidecar lives at the same path with the extension replaced by `.xmp`.',
+            "Absolute filesystem path to the source asset. The sidecar lives at the same path with the extension replaced by `.xmp`.",
         }),
       }),
       detail: {
-        summary: 'Read a path-keyed XMP sidecar',
+        summary: "Read a path-keyed XMP sidecar",
         description:
-          'Returns the XMP document at the `.xmp` sibling of the given path, or 404 if no sidecar exists. The path must live inside a registered library root; otherwise 403.',
-        tags: ['xmp'],
+          "Returns the XMP document at the `.xmp` sibling of the given path, or 404 if no sidecar exists. The path must live inside a registered library root; otherwise 403.",
+        tags: ["xmp"],
       },
     },
   )
 
   // -- Write -------------------------------------------------------------
   .post(
-    '/api/xmp',
+    "/api/xmp",
     async ({ rawPath, body, set, request }) => {
       const xmlContent =
-        typeof body === 'string'
+        typeof body === "string"
           ? body
           : (body as unknown) instanceof Uint8Array
             ? new TextDecoder().decode(body as unknown as Uint8Array)
             : String(body);
-      const match = request.headers.get('If-Match');
-      const absent = request.headers.get('If-None-Match');
+      const match = request.headers.get("If-Match");
+      const absent = request.headers.get("If-None-Match");
       if (
         (match !== null && absent !== null) ||
         (match !== null && !/^"[0-9a-f]{40}"$/.test(match)) ||
-        (absent !== null && absent !== '*')
+        (absent !== null && absent !== "*")
       ) {
         return status(400, {
-          error: 'Use one strong If-Match ETag or If-None-Match: *.',
+          error: "Use one strong If-Match ETag or If-None-Match: *.",
         });
       }
       if (match !== null || absent !== null) {
-        const conditional = await writeXmpIfUnchanged(rawPath, xmlContent, match, request.signal);
-        if (conditional.kind === 'conflict')
-          return status(412, { error: 'XMP changed; reload before saving.' });
-        if (conditional.kind === 'error') return status(500, { error: conditional.error });
+        const conditional = await writeXmpIfUnchanged(
+          rawPath,
+          xmlContent,
+          match,
+          request.signal,
+        );
+        if (conditional.kind === "conflict")
+          return status(412, { error: "XMP changed; reload before saving." });
+        if (conditional.kind === "error")
+          return status(500, { error: conditional.error });
         await publishSidecarChange(rawPath, true);
-        set.headers['Content-Type'] = 'application/xml';
-        set.headers['ETag'] = computeBodyETag(conditional.data);
-        set.headers['X-Maple-Xmp-Preconditions'] = 'content-etag-v1';
+        set.headers["Content-Type"] = "application/xml";
+        set.headers["ETag"] = computeBodyETag(conditional.data);
+        set.headers["X-Maple-Xmp-Preconditions"] = "content-etag-v1";
         return conditional.data;
       }
       const outcome = await writeXmpAtomic(rawPath, xmlContent, request.signal);
@@ -203,7 +215,7 @@ export const xmpPathRoutes = new Elysia()
         return { error: outcome.error };
       }
       await publishSidecarChange(rawPath, true);
-      set.headers['Content-Type'] = 'application/xml';
+      set.headers["Content-Type"] = "application/xml";
       return outcome.data;
     },
     {
@@ -216,26 +228,26 @@ export const xmpPathRoutes = new Elysia()
       // urlencoded parser (both share `charCodeAt(12) === 'x'`), the body
       // arrived as a garbage object, and `t.String()` validation 422'd every
       // live editor write (#2406).
-      parse: 'text',
+      parse: "text",
       body: t.String({
         description:
-          'Complete adjustment/metadata XML; retains current Workflow authoring records. Use confirmed variant operations to change history or snapshots.',
+          "Complete adjustment/metadata XML; retains current Workflow authoring records. Use confirmed variant operations to change history or snapshots.",
       }),
       query: t.Object({
         path: t.String(),
       }),
       detail: {
-        summary: 'Write a path-keyed XMP sidecar',
+        summary: "Write a path-keyed XMP sidecar",
         description:
-          'Writes the given XMP document to the `.xmp` sibling of the path. Atomic (writes to `.tmp` then renames). Returns the written document on success.',
-        tags: ['xmp'],
+          "Writes the given XMP document to the `.xmp` sibling of the path. Atomic (writes to `.tmp` then renames). Returns the written document on success.",
+        tags: ["xmp"],
       },
     },
   )
 
   // -- Delete ------------------------------------------------------------
   .delete(
-    '/api/xmp',
+    "/api/xmp",
     async ({ rawPath, sidecar, set }) => {
       // Distinguish "didn't exist" (404) from "existed and was deleted"
       // (204). `deleteXmpSidecar` collapses both to ok:true for the
@@ -250,7 +262,7 @@ export const xmpPathRoutes = new Elysia()
       }
       if (!existed) {
         set.status = 404;
-        return { error: 'No XMP sidecar at this path' };
+        return { error: "No XMP sidecar at this path" };
       }
       const outcome = await deleteXmpSidecar(rawPath);
       if (!outcome.ok) {
@@ -266,10 +278,10 @@ export const xmpPathRoutes = new Elysia()
         path: t.String(),
       }),
       detail: {
-        summary: 'Delete a path-keyed XMP sidecar',
+        summary: "Delete a path-keyed XMP sidecar",
         description:
-          'Removes the `.xmp` sibling of the path. 204 on success, 404 if the sidecar did not exist.',
-        tags: ['xmp'],
+          "Removes the `.xmp` sibling of the path. 204 on success, 404 if the sidecar did not exist.",
+        tags: ["xmp"],
       },
     },
   );

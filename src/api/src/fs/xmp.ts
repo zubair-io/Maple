@@ -5,28 +5,28 @@
  * .maple/ directories are created lazily under each library folder.
  */
 
-import * as path from 'node:path';
+import * as path from "node:path";
 // Mirror-aware drop-in: durable writes/moves replicate to the library's
 // configured backup root(s). Same `fs/promises` surface — see `mirrored.ts`.
-import * as fs from './mirrored.ts';
-import { readFileWithFailover } from './mirror-read.ts';
+import * as fs from "./mirrored.ts";
+import { readFileWithFailover } from "./mirror-read.ts";
 import {
   deleteSidecar,
   writeSidecarAtomic,
   writeSidecarCreateOnly,
   isMissingSidecar,
-} from './sidecar-io.ts';
+} from "./sidecar-io.ts";
 // Conflict-copy sidecars (`<base> (conflict from <device>).xmp`) live in their
 // own module; the precondition write below is their only producer here.
-import { pickFreeConflictPath } from './xmp-conflict.ts';
-import { createHash } from 'node:crypto';
-import { safeWriteAllowed, type OpResult } from './root.ts';
-import type { AssetDoc } from '../db/schema.ts';
-import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
-import { isVideoFilename } from '../indexer/media-types.ts';
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
-import { prepareWorkflowWrite } from '../xmp/workflow-write.ts';
-import { serializeSidecarWrite } from './sidecar-write-order';
+import { pickFreeConflictPath } from "./xmp-conflict.ts";
+import { createHash } from "node:crypto";
+import { safeWriteAllowed, type OpResult } from "./root.ts";
+import type { AssetDoc } from "../db/schema.ts";
+import { assetPrimaryFileInfo } from "../indexer/images.repo.ts";
+import { isVideoFilename } from "../indexer/media-types.ts";
+import { PIPELINE_OUTPUT_VERSION } from "../generated/adjustment-fields.generated.ts";
+import { prepareWorkflowWrite } from "../xmp/workflow-write.ts";
+import { serializeSidecarWrite } from "./sidecar-write-order";
 
 /**
  * First 16 hex chars of sha256(text) — the cache-key stem used for
@@ -36,7 +36,7 @@ import { serializeSidecarWrite } from './sidecar-write-order';
  * once Apple migrates to a filename-keyed hash too).
  */
 export function sha256Prefix16(text: string): string {
-  return createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16);
+  return createHash("sha256").update(text, "utf8").digest("hex").slice(0, 16);
 }
 
 /**
@@ -53,9 +53,9 @@ export function sha256Prefix16(text: string): string {
  * changes.
  */
 export function xmpSidecarPath(rawAbsPath: string): string {
-  if (isVideoFilename(rawAbsPath)) return rawAbsPath + '.xmp';
+  if (isVideoFilename(rawAbsPath)) return rawAbsPath + ".xmp";
   const ext = path.extname(rawAbsPath);
-  return rawAbsPath.slice(0, -ext.length) + '.xmp';
+  return rawAbsPath.slice(0, -ext.length) + ".xmp";
 }
 
 /**
@@ -82,12 +82,15 @@ export async function preparePrimarySidecarWrite(
   signal?: AbortSignal,
 ): Promise<{ ok: true; data: string } | { ok: false; error: string }> {
   const allowed = await safeWriteAllowed(sidecar);
-  if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
+  if (!allowed.ok)
+    return { ok: false, error: allowed.error ?? "Sidecar path not allowed" };
   try {
-    const existing = await fs.readFile(sidecar, 'utf8').catch((error: unknown) => {
-      if (isMissingSidecar(error)) return null;
-      throw error;
-    });
+    const existing = await fs
+      .readFile(sidecar, "utf8")
+      .catch((error: unknown) => {
+        if (isMissingSidecar(error)) return null;
+        throw error;
+      });
     return {
       ok: true,
       data: await prepareWorkflowWrite(existing, xmlContent, signal),
@@ -107,7 +110,7 @@ export async function primarySidecarDestination(
   const allowed = await safeWriteAllowed(sidecar);
   return allowed.ok
     ? { ok: true, data: allowed.data ?? sidecar }
-    : { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
+    : { ok: false, error: allowed.error ?? "Sidecar path not allowed" };
 }
 
 async function publishPrimarySidecar(
@@ -115,10 +118,20 @@ async function publishPrimarySidecar(
   xmlContent: string,
   signal?: AbortSignal,
 ): Promise<OpResult<string>> {
-  const prepared = await preparePrimarySidecarWrite(destination, xmlContent, signal);
+  const prepared = await preparePrimarySidecarWrite(
+    destination,
+    xmlContent,
+    signal,
+  );
   if (!prepared.ok) return prepared;
-  const result = await writeSidecarAtomic(destination, prepared.data, 'XMP write failed');
-  return result.ok ? { ok: true, data: prepared.data } : { ok: false, error: result.error };
+  const result = await writeSidecarAtomic(
+    destination,
+    prepared.data,
+    "XMP write failed",
+  );
+  return result.ok
+    ? { ok: true, data: prepared.data }
+    : { ok: false, error: result.error };
 }
 
 /** Atomic primary-sidecar publication with workflow preservation and a root jail. */
@@ -151,14 +164,18 @@ export async function updateXmpAtomic(
       (xml): OpResult<string> => ({ ok: true, data: xml }),
       (error: unknown): OpResult<string> =>
         isMissingSidecar(error)
-          ? { ok: true, data: '' }
+          ? { ok: true, data: "" }
           : {
               ok: false,
               error: `XMP read failed: ${error instanceof Error ? error.message : String(error)}`,
             },
     );
     if (!existing.ok) return existing;
-    return publishPrimarySidecar(destination, merge(existing.data ?? ''), signal);
+    return publishPrimarySidecar(
+      destination,
+      merge(existing.data ?? ""),
+      signal,
+    );
   });
 }
 
@@ -180,17 +197,22 @@ export function resolveThumbPath(rawAbsPath: string): string {
   const folder = path.dirname(rawAbsPath);
   const basename = path.basename(rawAbsPath);
   const key = sha256Prefix16(basename);
-  return path.join(folder, '.maple', 'thumbs', `${key}.v${PIPELINE_OUTPUT_VERSION}.avif`);
+  return path.join(
+    folder,
+    ".maple",
+    "thumbs",
+    `${key}.v${PIPELINE_OUTPUT_VERSION}.avif`,
+  );
 }
 
 /** Trailing args of the `cachePathFor*` resolvers — which derived artefact
  * (`thumbs` = thumbnail, `previews` = display-resolution render) plus, for
  * previews only, its `suffix`. One tuple rather than a `kind` + optional
  * `suffix` pair so the requirement is expressed in a single signature. */
-type CacheKindArgs = ['thumbs'] | ['previews', string];
+type CacheKindArgs = ["thumbs"] | ["previews", string];
 
 function previewCacheFilename(filename: string, suffix: string): string {
-  return suffix === 'avif'
+  return suffix === "avif"
     ? `${filename}.v${PIPELINE_OUTPUT_VERSION}.avif`
     : `${filename}.${suffix}`;
 }
@@ -213,13 +235,21 @@ function previewCacheFilename(filename: string, suffix: string): string {
  * (`'full.jpg'` stays in `preview-cache-cleanup.ts`'s `KNOWN_EXACT_SUFFIXES` —
  * older files must stay reclaimable.) Ignored for `thumbs`: one fixed tier.
  */
-export function cachePathFor(assetAbsPath: string, ...[kind, suffix]: CacheKindArgs): string {
-  if (kind === 'thumbs') {
+export function cachePathFor(
+  assetAbsPath: string,
+  ...[kind, suffix]: CacheKindArgs
+): string {
+  if (kind === "thumbs") {
     return resolveThumbPath(assetAbsPath);
   }
   const folder = path.dirname(assetAbsPath);
   const filename = path.basename(assetAbsPath);
-  return path.join(folder, '.maple', 'previews', previewCacheFilename(filename, suffix));
+  return path.join(
+    folder,
+    ".maple",
+    "previews",
+    previewCacheFilename(filename, suffix),
+  );
 }
 
 /**
@@ -235,14 +265,14 @@ export function cachePathFor(assetAbsPath: string, ...[kind, suffix]: CacheKindA
  * map (e.g. the library was unregistered).
  */
 function resolvePrimaryLocation(
-  asset: Pick<AssetDoc, 'fileinfo'>,
+  asset: Pick<AssetDoc, "fileinfo">,
   libraries: ReadonlyMap<string, string>,
 ): { root: string; segments: string[]; filename: string } | null {
   const primary = assetPrimaryFileInfo(asset);
   if (!primary) return null;
   const root = libraries.get(primary.library_id.toHexString());
   if (!root) return null;
-  const segments = primary.path === '' ? [] : primary.path.split('/');
+  const segments = primary.path === "" ? [] : primary.path.split("/");
   return { root, segments, filename: primary.filename };
 }
 
@@ -266,7 +296,7 @@ function resolvePrimaryLocation(
  * `library_id` isn't in the `libraries` map (an unregistered library).
  */
 export function resolveThumbPathForAsset(
-  asset: Pick<AssetDoc, 'fileinfo'>,
+  asset: Pick<AssetDoc, "fileinfo">,
   libraries: ReadonlyMap<string, string>,
 ): string | null {
   const loc = resolvePrimaryLocation(asset, libraries);
@@ -292,11 +322,11 @@ export function resolveThumbPathForAsset(
  * `resolveThumbPathForAsset` respectively.
  */
 export function cachePathForAsset(
-  asset: Pick<AssetDoc, 'fileinfo'>,
+  asset: Pick<AssetDoc, "fileinfo">,
   libraries: ReadonlyMap<string, string>,
   ...[kind, suffix]: CacheKindArgs
 ): string | null {
-  if (kind === 'thumbs') {
+  if (kind === "thumbs") {
     return resolveThumbPathForAsset(asset, libraries);
   }
   const loc = resolvePrimaryLocation(asset, libraries);
@@ -304,16 +334,16 @@ export function cachePathForAsset(
   return path.join(
     loc.root,
     ...loc.segments,
-    '.maple',
-    'previews',
+    ".maple",
+    "previews",
     previewCacheFilename(loc.filename, suffix),
   );
 }
 
 export type XmpWriteOutcome =
-  | { kind: 'ok'; mtime: Date }
-  | { kind: 'conflict'; conflictPath: string; conflictMtime: Date }
-  | { kind: 'error'; error: string };
+  | { kind: "ok"; mtime: Date }
+  | { kind: "conflict"; conflictPath: string; conflictMtime: Date }
+  | { kind: "error"; error: string };
 
 /**
  * Atomic XMP write with an optional mtime precondition, or a create-only
@@ -351,7 +381,7 @@ export async function writeXmpWithPrecondition(
   requireAbsent: boolean = false,
 ): Promise<XmpWriteOutcome> {
   const allowed = await primarySidecarDestination(rawAbsPath);
-  if (!allowed.ok) return { kind: 'error', error: allowed.error };
+  if (!allowed.ok) return { kind: "error", error: allowed.error };
   const sidecar = allowed.data;
   return serializeSidecarWrite(sidecar, async () => {
     const writeConflictCopy = async (): Promise<XmpWriteOutcome> => {
@@ -359,19 +389,23 @@ export async function writeXmpWithPrecondition(
       const written = await writeSidecarAtomic(
         conflictPath,
         xmlContent,
-        'Conflict-copy write failed',
+        "Conflict-copy write failed",
       );
       return written.ok
-        ? { kind: 'conflict', conflictPath, conflictMtime: written.mtime }
-        : { kind: 'error', error: written.error };
+        ? { kind: "conflict", conflictPath, conflictMtime: written.mtime }
+        : { kind: "error", error: written.error };
     };
 
     if (requireAbsent) {
-      const created = await writeSidecarCreateOnly(sidecar, xmlContent, 'XMP write failed');
-      if ('exists' in created) return writeConflictCopy();
+      const created = await writeSidecarCreateOnly(
+        sidecar,
+        xmlContent,
+        "XMP write failed",
+      );
+      if ("exists" in created) return writeConflictCopy();
       return created.ok
-        ? { kind: 'ok', mtime: created.mtime }
-        : { kind: 'error', error: created.error };
+        ? { kind: "ok", mtime: created.mtime }
+        : { kind: "error", error: created.error };
     }
 
     if (ifMtimeMatchesEpoch !== null) {
@@ -388,11 +422,17 @@ export async function writeXmpWithPrecondition(
     const prepared = await preparePrimarySidecarWrite(sidecar, xmlContent);
     if (!prepared.ok)
       return {
-        kind: 'error',
-        error: prepared.error ?? 'Workflow validation failed',
+        kind: "error",
+        error: prepared.error ?? "Workflow validation failed",
       };
-    const result = await writeSidecarAtomic(sidecar, prepared.data, 'XMP write failed');
-    return result.ok ? { kind: 'ok', mtime: result.mtime } : { kind: 'error', error: result.error };
+    const result = await writeSidecarAtomic(
+      sidecar,
+      prepared.data,
+      "XMP write failed",
+    );
+    return result.ok
+      ? { kind: "ok", mtime: result.mtime }
+      : { kind: "error", error: result.error };
   });
 }
 
@@ -404,5 +444,7 @@ export async function deleteXmpSidecar(rawAbsPath: string): Promise<OpResult> {
   const allowed = await primarySidecarDestination(rawAbsPath);
   if (!allowed.ok) return allowed;
   const destination = allowed.data;
-  return serializeSidecarWrite(destination, () => deleteSidecar(destination, 'XMP delete failed'));
+  return serializeSidecarWrite(destination, () =>
+    deleteSidecar(destination, "XMP delete failed"),
+  );
 }
