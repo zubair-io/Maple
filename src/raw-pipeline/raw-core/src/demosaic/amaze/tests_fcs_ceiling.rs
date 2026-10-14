@@ -44,3 +44,47 @@ fn collapsed_chroma_bounds_value_overshoot_on_a_varying_surface() {
         }
     }
 }
+
+#[test]
+fn collapsed_chroma_keeps_fallback_without_interpolated_surface_support() {
+    for pattern in PATTERNS {
+        let centre = (10..14)
+            .flat_map(|y| (10..14).map(move |x| y * SIDE + x))
+            .find(|&i| sampled(pattern, i) != 1)
+            .unwrap();
+        let (cx, cy) = (centre % SIDE, centre / SIDE);
+        let c = sampled(pattern, centre);
+        let t = 2 - c;
+        // An interior ratio can still belong to another colour surface;
+        // endpoint ratios can represent a plateau despite agreeing with the
+        // mean. Neither supplies an interpolated centre for the ceiling.
+        for (centre_ratio, surface_ratios) in [
+            (0.9, [0.1, 1.0, 0.2, 0.3]),
+            (0.5, [0.5, 0.5, 0.5, 0.55]),
+            (0.5, [0.45, 0.5, 0.5, 0.5]),
+        ] {
+            let mut truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
+                .map(|i| {
+                    let (x, y) = (i % SIDE, i / SIDE);
+                    let level = if x < cx { 0.75 } else { 0.045 };
+                    let mut pixel = [level; 3];
+                    pixel[c] = 0.5 * level;
+                    pixel[t] = if y < cy { 0.4 } else { 0.6 } * level;
+                    pixel
+                })
+                .collect();
+            truth[centre][c] = centre_ratio * truth[centre][1];
+            for ((dx, dy), ratio) in [(-2_isize, -2_isize), (2, -2), (-2, 2), (2, 2)]
+                .into_iter()
+                .zip(surface_ratios)
+            {
+                let i = (centre as isize + dy * SIDE as isize + dx) as usize;
+                truth[i][c] = ratio * truth[i][1];
+            }
+            let collapsed = suppress(pattern, &truth, |i| i == centre, -0.5);
+            let fallback = suppress(pattern, &truth, |i| i == centre, 0.0);
+            assert!(fallback.pixels[centre][t] > 2.0 * truth[centre][1] * 0.6);
+            assert_eq!(collapsed.pixels, fallback.pixels);
+        }
+    }
+}

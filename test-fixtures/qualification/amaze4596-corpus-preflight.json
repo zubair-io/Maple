@@ -1,0 +1,14 @@
+{
+  "before_sha256": "f3cbda4df895288494d11c2c7828f3b27aea365009acc4b5715e0be4b2ca93cd",
+  "after_sha256": "d19126e60a1224ccc4742f6b1d14080fca98ecee7c81f4a7090eb51cd6a854d6",
+  "neutral_cases": 776,
+  "auto_baselines": 20,
+  "expected_budget_cells": 796,
+  "removed_unbudgeted_extra": ["test_0006/local_gradient_radial"],
+  "missing_required_cases": [],
+  "required_inputs_exist": true,
+  "source_revision": "ad6da34066fb8b30621c7b6bd16090b379ac3254",
+  "contract": "raw-core capability registry ColorHarness expected count equals every budgets.json cell",
+  "raw_and_reference_changes": false,
+  "note": "The local, gitignored manifest had an unbudgeted experimental mask case. The qualification manifest covers every committed budget exactly: 776 neutral cases and 20 Auto baselines. The original manifest and unfinished row were preserved under /tmp/maple-pr4596-probe; this audit does not attest to test results."
+}
