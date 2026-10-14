@@ -110,6 +110,7 @@ jobs:
             MERGE_BASE="$(git merge-base "origin/${BASE_REF}" HEAD)"
             git diff --name-only --diff-filter=ACMR "${MERGE_BASE}" HEAD > /tmp/changed.txt
           elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            git fetch --no-tags origin "${MERGE_GROUP_BASE_SHA}"
             git diff --name-only --diff-filter=ACMR "${MERGE_GROUP_BASE_SHA}" "${AFTER_SHA}" > /tmp/changed.txt
           else
             # push to main: format only files touched in that push. Fall back
@@ -738,6 +739,7 @@ jobs:
             # from the base ref — i.e. this PR's own new commits.
             RANGE="origin/${BASE_REF}..HEAD"
           elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            git fetch --no-tags origin "${MERGE_GROUP_BASE_SHA}"
             RANGE="${MERGE_GROUP_BASE_SHA}..${AFTER_SHA}"
           else
             # push: scan the pushed range. Fall back to HEAD~1..HEAD if `before`
