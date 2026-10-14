@@ -84,11 +84,17 @@ export async function resolveAndAuthorizePath(
     };
   }
   const canonicalPath = await canonicalPathForAdmission(normalized);
+  // Canonicalize roots that could contain either spelling. Unrelated roots may
+  // be on slow or unavailable network volumes and cannot affect this path's
+  // admission scope.
+  const relevantRoots = allRoots.filter(
+    (root) => isWithinRoot(root, normalized) || isWithinRoot(root, canonicalPath),
+  );
   const canonicalRoots = await Promise.all(
-    allRoots.map((root) => realpath(root).catch(() => path.resolve(root))),
+    relevantRoots.map((root) => realpath(root).catch(() => path.resolve(root))),
   );
   const canonicalMatchingRoots = canonicalRoots.filter((root) => isWithinRoot(root, canonicalPath));
-  const lexicallyMatchingCanonicalRoots = allRoots.flatMap((root, index) =>
+  const lexicallyMatchingCanonicalRoots = relevantRoots.flatMap((root, index) =>
     lexicallyMatchingRoots.includes(root) ? [canonicalRoots[index]] : [],
   );
   const scopeCandidates =
