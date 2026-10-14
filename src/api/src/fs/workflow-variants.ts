@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { callNativeRetrying } from './native-call';
 import * as fs from './mirrored';
 import { primarySidecarDestination, xmpSidecarPath } from './xmp';
-import { serializeSidecarWrite } from './sidecar-write-order';
+import { serializeSidecarWrite, waitForAbortable } from './sidecar-write-order';
 import { safeWriteAllowed } from './root';
 import { writeSidecarAtomic, writeSidecarCreateOnly, isMissingSidecar } from './sidecar-io';
 import {
@@ -53,7 +53,7 @@ async function variantPath(rawPath: string, id: string, signal?: AbortSignal): P
     signal,
   );
   const destination = path.join(path.dirname(primary), filename);
-  const allowed = await safeWriteAllowed(destination);
+  const allowed = await waitForAbortable(safeWriteAllowed(destination), signal);
   if (!allowed.ok) throw new WorkflowVariantError(403, allowed.error ?? 'Sidecar path not allowed');
   return allowed.data ?? destination;
 }
@@ -87,10 +87,12 @@ export async function readWorkflowVariant(
   signal?: AbortSignal,
 ): Promise<string | null> {
   const destination = await variantPath(rawPath, id, signal);
-  const xml = await fs.readFile(destination, 'utf8').catch((error: unknown) => {
-    if (isMissingSidecar(error)) return null;
-    throw error;
-  });
+  const xml = await waitForAbortable(fs.readFile(destination, 'utf8'), signal).catch(
+    (error: unknown) => {
+      if (isMissingSidecar(error)) return null;
+      throw error;
+    },
+  );
   if (xml === null && id !== PRIMARY_VARIANT_ID)
     throw new WorkflowVariantError(
       404,

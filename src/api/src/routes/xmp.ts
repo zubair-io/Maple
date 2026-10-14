@@ -40,7 +40,11 @@ import * as fs from 'node:fs/promises';
 import { xmpSidecarPath, writeXmpAtomic, deleteXmpSidecar } from '../fs/xmp.ts';
 import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
 import { publishSidecarChange } from './xmp-change';
-import { serializeSidecarWrite, SidecarWritePathDeniedError } from '../fs/sidecar-write-order';
+import {
+  serializeSidecarWrite,
+  SidecarWritePathDeniedError,
+  waitForAbortable,
+} from '../fs/sidecar-write-order';
 import { safeWriteAllowed } from '../fs/root';
 import { writeSidecarAtomic } from '../fs/sidecar-io';
 import { xmpVariantRoutes } from './xmp-variants';
@@ -82,7 +86,10 @@ export const xmpPathRoutes = new Elysia()
         return await serializeSidecarWrite(
           sidecar,
           async (destination) => {
-            const existing = await fs.readFile(destination, 'utf8').catch((error: unknown) => {
+            const existing = await waitForAbortable(
+              fs.readFile(destination, 'utf8'),
+              request.signal,
+            ).catch((error: unknown) => {
               if (isMissingSidecar(error)) return mergeMetadataIntoXmp('', {});
               throw error;
             });

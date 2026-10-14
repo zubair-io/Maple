@@ -7,7 +7,11 @@ const inFlightKeys = new Map<string, Promise<string[]>>();
 const admissionTails = new Map<string, Promise<void>>();
 
 export interface SidecarWriteOrderOptions {
-  /** Library root used to keep slow destination checks from blocking other libraries. */
+  /**
+   * Canonical library root used to keep slow destination checks from blocking
+   * other libraries. Omitted scopes share one conservative lane because
+   * lexical parent paths alone cannot distinguish symlink aliases.
+   */
   admissionScope?: string;
   /** Resolve and authorize the destination before invoking the write callback. */
   resolveDestination?: () => Promise<string>;
@@ -123,11 +127,10 @@ export async function serializeSidecarWrite<T>(
   // Keep admission ordered within a library, while reserving canonical path
   // keys before potentially slow authorization. This lets aliases queue in
   // arrival order without making unrelated libraries wait for path checks.
-  const admissionScope = path
-    .resolve(options.admissionScope ?? path.dirname(destination))
-    .normalize('NFC')
-    .toLowerCase()
-    .normalize('NFC');
+  const admissionScope =
+    options.admissionScope === undefined
+      ? '\0unscoped'
+      : path.resolve(options.admissionScope).normalize('NFC').toLowerCase().normalize('NFC');
   const previousAdmission = admissionTails.get(admissionScope) ?? Promise.resolve();
   let releaseAdmission!: () => void;
   const currentAdmission = new Promise<void>((resolve) => {
@@ -139,6 +142,7 @@ export async function serializeSidecarWrite<T>(
   let reservation: Promise<void> | undefined;
   let reservedKeys: string[] = [];
   let reservationRegistered = false;
+  let reservationPrerequisites: Promise<void> | undefined;
   const destinationPromise = Promise.resolve().then(
     () => options.resolveDestination?.() ?? destination,
   );
@@ -155,6 +159,7 @@ export async function serializeSidecarWrite<T>(
     const previousWrites = Promise.all(
       reservedKeys.map((key) => pendingWrites.get(key) ?? Promise.resolve()),
     );
+    reservationPrerequisites = previousWrites.then(() => undefined);
     const settled = new Promise<void>((resolve) => {
       releaseReservation = resolve;
     });
@@ -187,6 +192,10 @@ export async function serializeSidecarWrite<T>(
       const previousActualWrites = Promise.all(
         missingKeys.map((key) => pendingWrites.get(key) ?? Promise.resolve()),
       );
+      reservationPrerequisites = Promise.all([
+        reservationPrerequisites,
+        previousActualWrites.then(() => undefined),
+      ]).then(() => undefined);
       for (const key of missingKeys) pendingWrites.set(key, settled);
       reservedKeys = [...reservedKeys, ...missingKeys];
       await waitForAbortable(previousActualWrites, options.signal);
@@ -205,9 +214,18 @@ export async function serializeSidecarWrite<T>(
       admissionTails.delete(admissionScope);
     }
     if (reservationRegistered && releaseReservation) {
-      releaseReservation();
-      for (const key of reservedKeys) {
-        if (pendingWrites.get(key) === reservation) pendingWrites.delete(key);
+      const release = () => {
+        releaseReservation?.();
+        for (const key of reservedKeys) {
+          if (pendingWrites.get(key) === reservation) pendingWrites.delete(key);
+        }
+      };
+      if (options.signal?.aborted && reservationPrerequisites) {
+        // An aborted middle write still represents its place in the chain.
+        // Let earlier reservations finish before waking the following writer.
+        void reservationPrerequisites.then(release, release);
+      } else {
+        release();
       }
     }
   }

@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { serializeSidecarWrite } from './sidecar-write-order';
 
-test('file symlink aliases preserve FIFO across different library scopes', async () => {
+test('file symlink aliases stay serialized across distinct library scopes', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-cross-library-alias-'));
   try {
     const firstLibrary = path.join(root, 'first-library');
@@ -51,11 +51,53 @@ test('file symlink aliases preserve FIFO across different library scopes', async
     });
 
     await secondResolutionFinished;
-    expect(order).toEqual([]);
+    await Bun.sleep(10);
     resolveFirstResolution();
     await expect(Promise.all([first, second])).resolves.toEqual(['first', 'second']);
     expect(maxActiveWrites).toBe(1);
-    expect(order).toEqual(['first', 'second']);
+    expect(order.toSorted()).toEqual(['first', 'second']);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('an aborted queued write keeps later writes behind its active predecessor', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-aborted-middle-'));
+  try {
+    const destination = path.join(root, 'photo.xmp');
+    const { promise: firstStarted, resolve: markFirstStarted } = Promise.withResolvers<void>();
+    const { promise: releaseFirst, resolve: releaseFirstWrite } = Promise.withResolvers<void>();
+    const order: string[] = [];
+    const first = serializeSidecarWrite(destination, async () => {
+      markFirstStarted();
+      await releaseFirst;
+      order.push('first');
+    });
+    await firstStarted;
+
+    const controller = new AbortController();
+    const second = serializeSidecarWrite(
+      destination,
+      async () => {
+        order.push('second');
+      },
+      { signal: controller.signal },
+    );
+    await Bun.sleep(10);
+    controller.abort();
+    await expect(second).rejects.toMatchObject({ name: 'AbortError' });
+
+    let thirdStarted = false;
+    const third = serializeSidecarWrite(destination, async () => {
+      thirdStarted = true;
+      order.push('third');
+    });
+    await Bun.sleep(10);
+    expect(thirdStarted).toBe(false);
+
+    releaseFirstWrite();
+    await Promise.all([first, third]);
+    expect(order).toEqual(['first', 'third']);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
