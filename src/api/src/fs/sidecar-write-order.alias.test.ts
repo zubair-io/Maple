@@ -198,6 +198,24 @@ test('a stalled parent stat in one library does not block another library', asyn
   }
 });
 
+test('a resolver classifies a missing destination before parent stat failure leaks', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-missing-resolver-'));
+  try {
+    const missingDestination = path.join(root, 'missing', 'photo.xmp');
+    const denied = new Error('destination was rejected');
+    await expect(
+      serializeSidecarWrite(missingDestination, async () => 'unreachable', {
+        admissionScope: root,
+        resolveDestination: async () => {
+          throw denied;
+        },
+      }),
+    ).rejects.toBe(denied);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('a stalled destination resolver in one library does not block another library', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-stalled-library-'));
   try {
