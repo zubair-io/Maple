@@ -932,6 +932,7 @@ const FLOAT_WHITE_ANCHOR: u32 = 16_384;
 const EFFECTIVE_WHITE_MAX_SCAN_SHARDS: usize = 2;
 const EFFECTIVE_WHITE_MAX_REGIONS: usize = 12;
 const EFFECTIVE_WHITE_MIN_SPATIAL_SPAN: u32 = 128;
+const EFFECTIVE_WHITE_MIN_FRAME_SPAN_DIVISOR: u32 = 4;
 
 #[derive(Clone, Copy)]
 struct EffectiveWhiteRegions {
@@ -1038,9 +1039,13 @@ impl EffectiveWhiteBounds {
         self.max_y = self.max_y.max(other.max_y);
     }
 
-    fn spans_both_axes(&self) -> bool {
+    fn spans_frame(&self, frame_width: u32, frame_height: u32) -> bool {
         self.max_x.saturating_sub(self.min_x) >= EFFECTIVE_WHITE_MIN_SPATIAL_SPAN
             && self.max_y.saturating_sub(self.min_y) >= EFFECTIVE_WHITE_MIN_SPATIAL_SPAN
+            && self.max_x.saturating_sub(self.min_x)
+                >= frame_width.div_ceil(EFFECTIVE_WHITE_MIN_FRAME_SPAN_DIVISOR)
+            && self.max_y.saturating_sub(self.min_y)
+                >= frame_height.div_ceil(EFFECTIVE_WHITE_MIN_FRAME_SPAN_DIVISOR)
     }
 }
 
@@ -1056,8 +1061,13 @@ struct EffectiveWhiteCandidate {
 }
 
 impl EffectiveWhiteCandidate {
-    fn has_spatial_support(&self, required_regions: usize) -> bool {
-        self.spatial_bounds.spans_both_axes()
+    fn has_spatial_support(
+        &self,
+        required_regions: usize,
+        frame_width: u32,
+        frame_height: u32,
+    ) -> bool {
+        self.spatial_bounds.spans_frame(frame_width, frame_height)
             && self
                 .occupied_regions
                 .iter()
@@ -1184,10 +1194,10 @@ impl EffectiveWhiteScan {
 
 /// Infer a lower effective sensor white when a large RAW shows repeated
 /// clipping below its declared level. Near-white plateaus must occupy at least
-/// six 128px regions and span at least 128px on both axes; dense midrange
-/// plateaus must occupy 12. Each threshold must hold on four 128px grids offset
-/// by half a cell, so a stripe or contiguous patch cannot qualify just because
-/// it crosses one grid's boundaries. A lower scalar ceiling is also rejected
+/// six 128px regions and span at least one quarter of the frame on both axes;
+/// dense midrange plateaus must occupy 12. Each threshold must hold on four
+/// 128px grids offset by half a cell, so a small stripe or frame-local patch
+/// cannot qualify just because it crosses grid boundaries. A lower scalar ceiling is also rejected
 /// when another Bayer position has supported samples above it but no
 /// qualifying plateau of its own.
 fn effective_white_level(
@@ -1297,7 +1307,7 @@ fn effective_white_level(
                 continue;
             }
             nearest_higher_count[candidate_index] = higher_count;
-            if candidate.has_spatial_support(6) {
+            if candidate.has_spatial_support(6, width, height) {
                 higher_count = candidate.sample_count;
             }
         }
@@ -1308,7 +1318,7 @@ fn effective_white_level(
                 continue;
             }
             nearest_lower_count[candidate_index] = lower_count;
-            if candidate.has_spatial_support(6) {
+            if candidate.has_spatial_support(6, width, height) {
                 lower_count = candidate.sample_count;
             }
         }
@@ -1322,7 +1332,7 @@ fn effective_white_level(
             position_candidates.iter().find_map(|&candidate_index| {
                 let candidate = &candidates[candidate_index];
                 let has_required_support =
-                    candidate.has_spatial_support(candidate.required_regions);
+                    candidate.has_spatial_support(candidate.required_regions, width, height);
                 let is_histogram_peak = candidate.sample_count
                     >= nearest_higher_count[candidate_index].saturating_mul(4)
                     && candidate.sample_count
@@ -1363,7 +1373,7 @@ fn effective_white_level(
             .map(|(_, counts)| counts[position])
             .sum::<u32>();
         sample_count >= 32
-            && brighter_bounds[position].spans_both_axes()
+            && brighter_bounds[position].spans_frame(width, height)
             && brighter_regions[position]
                 .iter()
                 .all(|regions| regions.has_two_dimensional_support(6))
@@ -1842,6 +1852,22 @@ mod tests {
         }
         assert_eq!(
             effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_rejects_a_frame_localized_near_white_patch() {
+        let (w, h) = (2048usize, 2048usize);
+        let mut data = vec![1000u16; w * h];
+        for y in 800..1184 {
+            for x in 832..1216 {
+                data[y * w + x] = 64856;
+            }
+        }
+
+        assert_eq!(
+            effective_white_level(&data, w as u32, h as u32, &[0; 4], 65535),
             65535
         );
     }
