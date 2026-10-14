@@ -4,6 +4,7 @@ import * as path from 'node:path';
 
 const pendingWrites = new Map<string, Promise<void>>();
 const inFlightKeys = new Map<string, Promise<string>>();
+const caseInsensitivePaths = process.platform === 'darwin' || process.platform === 'win32';
 
 function canonicalKey(destination: string): Promise<string> {
   const existing = inFlightKeys.get(destination);
@@ -11,7 +12,8 @@ function canonicalKey(destination: string): Promise<string> {
   const pending = (async () => {
     const parent = path.dirname(destination);
     const realParent = await fs.realpath(parent).catch(() => parent);
-    return path.join(realParent, path.basename(destination));
+    const basename = path.basename(destination);
+    return path.join(realParent, caseInsensitivePaths ? basename.toLowerCase() : basename);
   })();
   inFlightKeys.set(destination, pending);
   void pending.then(
