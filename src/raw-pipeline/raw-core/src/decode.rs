@@ -931,11 +931,11 @@ const NEARBY_CODE_WINDOW: usize = 16;
 
 /// Infer a lower effective sensor white when a large RAW shows repeated
 /// clipping below its declared level. Near-white plateaus must occupy at least
-/// six 64px regions; dense midrange plateaus must occupy 16. Each threshold
-/// must hold on four 64px grids offset by half a cell, so a localized patch
-/// cannot qualify just because it crosses one grid's boundaries. The scalar
-/// result is the highest qualifying Bayer-position plateau so another
-/// channel's highlights are not clipped by a lower saturation code.
+/// six 128px regions; dense midrange plateaus must occupy 12. Each threshold
+/// must hold on four 128px grids offset by half a cell, so a contiguous patch
+/// cannot qualify just because it crosses one grid's boundaries. A lower
+/// scalar ceiling is also rejected when another Bayer position has supported
+/// samples above it but no qualifying plateau of its own.
 fn effective_white_level(
     data: &[u16],
     width: u32,
@@ -962,9 +962,9 @@ fn effective_white_level(
     }
     struct PlateauCandidate {
         value: u16,
-        required_tiles: usize,
+        required_regions: usize,
         nearest_higher_count: u32,
-        occupied_tiles: [Vec<usize>; 4],
+        occupied_regions: [Vec<usize>; 4],
     }
     let mut candidates = Vec::<PlateauCandidate>::new();
     let mut candidates_by_position: [Vec<usize>; 4] = std::array::from_fn(|_| Vec::new());
@@ -984,15 +984,17 @@ fn effective_white_level(
                 let is_sparse_near_declared_white = (0.96..0.995).contains(&frac);
                 let is_dense_sub_declared_white = (0.90..0.96).contains(&frac) && count >= 1024;
                 if is_sparse_near_declared_white || is_dense_sub_declared_white {
-                    let required_tiles = if is_dense_sub_declared_white { 16 } else { 6 };
+                    let required_regions = if is_dense_sub_declared_white { 12 } else { 6 };
                     let candidate_index = candidates.len();
                     candidates.push(PlateauCandidate {
                         value: value as u16,
-                        required_tiles,
+                        required_regions,
                         nearest_higher_count: nearest_higher_value
                             .filter(|higher| higher - value <= NEARBY_CODE_WINDOW)
                             .map_or(0, |_| nearest_higher_count),
-                        occupied_tiles: std::array::from_fn(|_| Vec::with_capacity(required_tiles)),
+                        occupied_regions: std::array::from_fn(|_| {
+                            Vec::with_capacity(required_regions)
+                        }),
                     });
                     candidates_by_position[p].push(candidate_index);
                     candidate_lookup[value][p] = candidate_index as i32;
@@ -1041,9 +1043,9 @@ fn effective_white_level(
     // support for every histogram peak so a localized higher code cannot hide a
     // lower, genuinely distributed clipping plateau.
     if !candidates.is_empty() {
-        let tiles_w = (w + 32).div_ceil(64);
-        let x_offsets = [0, 32, 0, 32];
-        let y_offsets = [0, 0, 32, 32];
+        let regions_w = (w + 64).div_ceil(128);
+        let x_offsets = [0, 64, 0, 64];
+        let y_offsets = [0, 0, 64, 64];
         for y in 0..h {
             let y_base = (y & 1) * 2;
             for x in 0..w {
@@ -1053,11 +1055,13 @@ fn effective_white_level(
                 if candidate_index >= 0 {
                     let candidate = &mut candidates[candidate_index as usize];
                     for grid in 0..4 {
-                        let occupied = &mut candidate.occupied_tiles[grid];
-                        let tile =
-                            ((y + y_offsets[grid]) / 64) * tiles_w + (x + x_offsets[grid]) / 64;
-                        if occupied.len() < candidate.required_tiles && !occupied.contains(&tile) {
-                            occupied.push(tile);
+                        let occupied = &mut candidate.occupied_regions[grid];
+                        let region =
+                            ((y + y_offsets[grid]) / 128) * regions_w + (x + x_offsets[grid]) / 128;
+                        if occupied.len() < candidate.required_regions
+                            && !occupied.contains(&region)
+                        {
+                            occupied.push(region);
                         }
                     }
                 }
@@ -1073,15 +1077,41 @@ fn effective_white_level(
             position_candidates.iter().find_map(|&candidate_index| {
                 let candidate = &candidates[candidate_index];
                 candidate
-                    .occupied_tiles
+                    .occupied_regions
                     .iter()
-                    .all(|tiles| tiles.len() >= candidate.required_tiles)
+                    .all(|regions| regions.len() >= candidate.required_regions)
                     .then_some(u32::from(candidate.value))
             })
         })
         .max();
-    best.filter(|&b| b > black_level.iter().max().copied().unwrap_or(0))
-        .unwrap_or(declared)
+    let Some(best) = best.filter(|&b| b > black_level.iter().max().copied().unwrap_or(0)) else {
+        return declared;
+    };
+    let unprotected_bayer_highlights = (0..4).any(|position| {
+        let position_has_best = candidates_by_position[position]
+            .iter()
+            .any(|&candidate_index| {
+                let candidate = &candidates[candidate_index];
+                u32::from(candidate.value) == best
+                    && candidate
+                        .occupied_regions
+                        .iter()
+                        .all(|regions| regions.len() >= candidate.required_regions)
+            });
+        !position_has_best
+            && histogram
+                .iter()
+                .enumerate()
+                .filter(|(value, _)| *value as u32 > best)
+                .map(|(_, counts)| counts[position])
+                .sum::<u32>()
+                >= 32
+    });
+    if unprotected_bayer_highlights {
+        declared
+    } else {
+        best
+    }
 }
 
 fn effective_white_level_for_source_data(
@@ -1284,8 +1314,8 @@ mod tests {
         }
         for tile_y in 0..4 {
             for tile_x in 0..4 {
-                let y = tile_y * 64;
-                let x = tile_x * 64 + 1;
+                let y = tile_y * 128;
+                let x = tile_x * 128 + 1;
                 data[y * w + x] = 63000;
                 data[(y + 2) * w + x + 2] = 63000;
             }
@@ -1397,8 +1427,8 @@ mod tests {
             let tile_y = tile / 4;
             for dy in (0..4).step_by(2) {
                 for dx in (0..4).step_by(2) {
-                    let x = tile_x * 64 + dx;
-                    let y = tile_y * 64 + dy;
+                    let x = tile_x * 128 + dx;
+                    let y = tile_y * 128 + dy;
                     data[y * w + x] = 64_856;
                 }
             }
@@ -1408,8 +1438,8 @@ mod tests {
             let tile_y = tile / 4;
             for dy in (0..8).step_by(2) {
                 for dx in (0..4).step_by(2) {
-                    let x = tile_x * 64 + dx;
-                    let y = tile_y * 64 + dy;
+                    let x = tile_x * 128 + dx;
+                    let y = tile_y * 128 + dy;
                     data[y * w + x] = 65_200;
                 }
             }
@@ -1456,8 +1486,8 @@ mod tests {
         let mut data = vec![1000u16; w * h];
         for tile_y in 0..4 {
             for tile_x in 0..4 {
-                for y in (tile_y * 64..tile_y * 64 + 16).step_by(2) {
-                    for x in (tile_x * 64..tile_x * 64 + 16).step_by(2) {
+                for y in (tile_y * 128..tile_y * 128 + 16).step_by(2) {
+                    for x in (tile_x * 128..tile_x * 128 + 16).step_by(2) {
                         data[y * w + x] = 62206;
                         data[y * w + x + 1] = 62206;
                         data[(y + 1) * w + x] = 62206;
@@ -1478,8 +1508,8 @@ mod tests {
         let mut data = vec![1000u16; w * h];
         for tile_y in 0..4 {
             for tile_x in 0..4 {
-                let y = tile_y * 64;
-                let x = tile_x * 64;
+                let y = tile_y * 128;
+                let x = tile_x * 128;
                 data[y * w + x] = 64856;
                 data[(y + 2) * w + x + 2] = 64856;
             }
@@ -1494,8 +1524,8 @@ mod tests {
     fn effective_white_rejects_a_localized_flat_near_white_patch() {
         let (w, h) = (512usize, 512usize);
         let mut data = vec![1000u16; w * h];
-        // 32 samples on one CFA position, all inside a 64×64 patch (one
-        // 64px region). The count alone resembles clipping, but is localized.
+        // 32 samples on one CFA position, all inside a 64×64 patch. The count
+        // alone resembles clipping, but is localized to fewer than six regions.
         for tile_y in 0..2 {
             for tile_x in 0..2 {
                 for dy in (0..4).step_by(2) {
@@ -1542,6 +1572,44 @@ mod tests {
             for x in 31..95 {
                 data[y * w + x] = 64856;
             }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_rejects_a_boundary_crossing_128x192_near_white_patch() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in 31..223 {
+            for x in 31..159 {
+                data[y * w + x] = 64856;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_keeps_declared_when_another_bayer_position_has_highlights() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for tile_y in 0..4 {
+            for tile_x in 0..4 {
+                let y = tile_y * 128;
+                let x = tile_x * 128;
+                data[y * w + x] = 64856;
+                data[(y + 2) * w + x + 2] = 64856;
+            }
+        }
+        for sample in 0..64usize {
+            let y = (sample / 16) * 2;
+            let x = (sample % 16) * 2 + 1;
+            data[y * w + x] = 64857 + sample as u16;
         }
         assert_eq!(
             effective_white_level(&data, 512, 512, &[0; 4], 65535),
