@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use crate::camera::Camera;
 use crate::gain::{
-    solve_photometry_streaming, FramePhotometry, GainOptions, LensFalloff, LensGroups,
+    solve_photometry_streaming, FramePhotometry, GainMode, GainOptions, LensFalloff, LensGroups,
 };
 
 use super::StitchError;
@@ -28,7 +28,10 @@ pub(super) fn solve_kept_photometry(
         kept_paths,
         kept_cams,
         &lenses.for_frames(kept_inputs),
-        &GainOptions::default(),
+        &GainOptions {
+            mode: GainMode::PerChannel,
+            ..GainOptions::default()
+        },
     )
     .map_err(|e| StitchError::Composite(e.to_string()))?;
     let falloff = solved
