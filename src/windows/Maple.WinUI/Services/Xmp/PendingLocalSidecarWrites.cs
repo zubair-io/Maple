@@ -10,22 +10,26 @@ namespace Maple.WinUI.Services.Xmp;
 /// dialogs drain these writes before reading their selection (#3878).</summary>
 public sealed class PendingLocalSidecarWrites
 {
-    private readonly object _gate = new();
-    private readonly Dictionary<string, XmpSidecarDocument> _pending = new(StringComparer.OrdinalIgnoreCase);
+    private sealed record PendingWrite(XmpSidecarDocument Document, bool DiscardBrushCorrections);
 
-    public void Stage(string path, AdjustmentState adjustments, int rating, string flag, string? label)
+    private readonly object _gate = new();
+    private readonly Dictionary<string, PendingWrite> _pending = new(StringComparer.OrdinalIgnoreCase);
+
+    public void Stage(string path, AdjustmentState adjustments, int rating, string flag, string? label,
+        bool discardBrushCorrections = false)
     {
-        lock (_gate) _pending[path] = new XmpSidecarDocument
+        lock (_gate) _pending[path] = new PendingWrite(new XmpSidecarDocument
         {
             Adjustments = adjustments.Clone(), Rating = rating, Flag = flag, ColorLabel = label,
-        };
+        }, discardBrushCorrections);
     }
 
     public XmpSidecarDocument? ReadPending(string path)
     {
         lock (_gate)
         {
-            if (!_pending.TryGetValue(path, out var value)) return null;
+            if (!_pending.TryGetValue(path, out var pending)) return null;
+            var value = pending.Document;
             return new XmpSidecarDocument
             {
                 Adjustments = value.Adjustments.Clone(), Rating = value.Rating,
@@ -41,16 +45,18 @@ public sealed class PendingLocalSidecarWrites
         lock (_gate)
         {
             var results = new List<LocalSidecarWriteResult>();
-            foreach (var (path, snapshot) in _pending.ToArray())
+            foreach (var (path, pending) in _pending.ToArray())
             {
                 try
                 {
                     var xml = SidecarStore.Update(path, doc =>
                     {
-                        doc.Adjustments = snapshot.Adjustments.Clone();
-                        doc.Rating = snapshot.Rating;
-                        doc.Flag = snapshot.Flag;
-                        doc.ColorLabel = snapshot.ColorLabel;
+                        if (pending.DiscardBrushCorrections)
+                            XmpBrushCorrections.RemovePassthroughContainers(doc);
+                        doc.Adjustments = pending.Document.Adjustments.Clone();
+                        doc.Rating = pending.Document.Rating;
+                        doc.Flag = pending.Document.Flag;
+                        doc.ColorLabel = pending.Document.ColorLabel;
                     });
                     _pending.Remove(path);
                     results.Add(new(path, xml, null));

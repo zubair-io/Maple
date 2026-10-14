@@ -88,6 +88,37 @@ namespace Maple.WinUI.Tests
             Assert.Empty(parsed.Adjustments.LocalAdjustments);
         }
 
+        [Theory]
+        [InlineData("crs:What=\"Other\"", "crs:CorrectionActive=\"True\"", true)]
+        [InlineData("crs:What=\"Correction\"", "crs:CorrectionActive=\"0\"", false)]
+        [InlineData("crs:What=\"Correction\"", "crs:CorrectionActive=\"Off\"", false)]
+        [InlineData("crs:What=\"Correction\"", "crs:CorrectionActive=\"false\"", false)]
+        [InlineData("crs:What=\"Correction\"", "crs:CorrectionActive=\"unknown\"", true)]
+        public void CorrectionBookkeepingAndAdobeBooleanSpellingsAreHandled(string what, string active, bool expectedActive)
+        {
+            var brush = MapleBrush
+                .Replace("crs:What=\"Correction\"", what, StringComparison.Ordinal)
+                .Replace("crs:CorrectionActive=\"True\"", active, StringComparison.Ordinal);
+            var parsed = ParseBrushDocument(brush);
+            Assert.Equal(expectedActive, parsed.Adjustments.LocalAdjustments.Count == 1);
+        }
+
+        [Fact]
+        public void DabValuesThatOverflowTheNativeFloatWireKeepTheContainerOpaque()
+        {
+            var brush = MapleBrush.Replace(
+                "papp:Dabs=\"0.25 0.3 0.05 0.5 0.8 0\"",
+                "papp:Dabs=\"1e100 0.3 0.05 0.5 0.8 0\"",
+                StringComparison.Ordinal);
+
+            Assert.Empty(ParseBrushDocument(brush).Adjustments.LocalAdjustments);
+        }
+
+        private static XmpSidecarDocument ParseBrushDocument(string brush) => Assert.IsType<XmpSidecarDocument>(
+            XmpParser.Parse("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"" + Rdf.NamespaceName +
+                "\"><rdf:Description xmlns:crs=\"" + Crs.NamespaceName + "\">" + brush +
+                "</rdf:Description></rdf:RDF></x:xmpmeta>"));
+
         [Fact]
         public void BrushFingerprintTracksRenderedContentButIgnoresRuntimeRasterId()
         {
