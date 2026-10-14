@@ -749,8 +749,8 @@
         "executed_cases": 41,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "1d19a5e162ae3fa67f6fdcc27aed85325314e575",
-        "recorded_at": "2026-10-14T13:15:49Z",
+        "git_sha": "599f097f45963d38a70701ac0b94593a7eca9015",
+        "recorded_at": "2026-10-14T13:47:48Z",
         "command": "bash src/scripts/test_grey_adjustments.sh"
       }
     },
@@ -772,8 +772,8 @@
         "executed_cases": 6,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "1d19a5e162ae3fa67f6fdcc27aed85325314e575",
-        "recorded_at": "2026-10-14T13:15:51Z",
+        "git_sha": "599f097f45963d38a70701ac0b94593a7eca9015",
+        "recorded_at": "2026-10-14T13:47:50Z",
         "command": "bash src/scripts/test_synthetic_grey.sh"
       }
     },
@@ -795,8 +795,8 @@
         "executed_cases": 5,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "1d19a5e162ae3fa67f6fdcc27aed85325314e575",
-        "recorded_at": "2026-10-14T13:15:52Z",
+        "git_sha": "599f097f45963d38a70701ac0b94593a7eca9015",
+        "recorded_at": "2026-10-14T13:47:52Z",
         "command": "bash src/scripts/test_grey_dcp.sh"
       }
     },
@@ -818,8 +818,8 @@
         "executed_cases": 7,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "1d19a5e162ae3fa67f6fdcc27aed85325314e575",
-        "recorded_at": "2026-10-14T13:15:42Z",
+        "git_sha": "599f097f45963d38a70701ac0b94593a7eca9015",
+        "recorded_at": "2026-10-14T13:47:41Z",
         "command": "bash src/scripts/test_synthetic_color_chart.sh"
       }
     },
