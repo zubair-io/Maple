@@ -5,9 +5,9 @@
   "main_revision": "3c4e4a25ff3f202b11d85ccd325b8219d888c781",
   "candidate_cli_sha256": "dae26398da05dfcbd6de0b67001ed20ff83bba1047cc621440f28a873ccefd2a",
   "main_cli_sha256": "e41c6f970b30abde6e10fe7df8d551746201a3decedff3660ed7ad44559a7bda",
-  "compared_early_candidates": 111,
-  "early_passed": 96,
-  "early_failed": 15,
+  "compared_early_candidates": 136,
+  "early_passed": 119,
+  "early_failed": 17,
   "all_early_failures_reproduce_on_main": true,
   "comparisons": [
     {
@@ -782,6 +782,138 @@
         "reference": "bfc83d0eae033f0112f1329b0a34cceabf853a9c9b1dc732cfd7438b0f0f903f",
         "candidate_png": "fd8da8153eebee5458d69d1b3994789b866850eacf73feb8290228881b1ae756",
         "main_png": "2152436de28fa271bae54d4b40342a2090884d9f13ee7780f99cc07981aec858"
+      }
+    },
+    {
+      "case": "test_0002/tint_max",
+      "main": {
+        "case": "test_0002/tint_max",
+        "resolution": "down",
+        "violations": {
+          "mean": [
+            35.01842852054557,
+            25.8
+          ],
+          "p95": [
+            39.81960288668632,
+            31.1
+          ],
+          "max": [
+            52.13490267699079,
+            42.6
+          ]
+        },
+        "metrics": {
+          "mean_deltaE": 35.01842852054557,
+          "p95_deltaE": 39.81960288668632,
+          "max_deltaE": 52.13490267699079,
+          "bias_r": -0.21047908067703247,
+          "bias_g": -0.35694605112075806,
+          "bias_b": 0.06204456090927124,
+          "n_pixels": 12000000,
+          "reference_protocol": "legacy-direct-reference"
+        }
+      },
+      "candidate": {
+        "case": "test_0002/tint_max",
+        "resolution": "down",
+        "violations": {
+          "mean": [
+            35.01842799711114,
+            25.8
+          ],
+          "p95": [
+            39.81960288668632,
+            31.1
+          ],
+          "max": [
+            52.13490267699079,
+            42.6
+          ]
+        },
+        "metrics": {
+          "mean_deltaE": 35.01842799711114,
+          "p95_deltaE": 39.81960288668632,
+          "max_deltaE": 52.13490267699079,
+          "bias_r": -0.2104795277118683,
+          "bias_g": -0.35694605112075806,
+          "bias_b": 0.062044452875852585,
+          "n_pixels": 12000000,
+          "reference_protocol": "legacy-direct-reference"
+        }
+      },
+      "input_sha256": {
+        "raw": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+        "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+        "reference": "84e2235b447f97f15a2eaafd2aee57379db986eab5171c72a4d03d2c2b18bb6b",
+        "candidate_png": "87528cf67acc6722138bf60ca26c01bc917042ca4c033376214c38a3fb3b0a97",
+        "main_png": "d84eaf09e1f81733597afe82802cdd1dc9154e8728708782fe363c83aa7e4da4"
+      }
+    },
+    {
+      "case": "test_0002/whites_min",
+      "main": {
+        "case": "test_0002/whites_min",
+        "resolution": "down",
+        "violations": {
+          "mean": [
+            11.301936053572208,
+            9.4
+          ],
+          "p95": [
+            12.178154867387775,
+            11.3
+          ],
+          "bias_r": [
+            -0.15765485167503357,
+            0.1458
+          ]
+        },
+        "metrics": {
+          "mean_deltaE": 11.301936053572208,
+          "p95_deltaE": 12.178154867387775,
+          "max_deltaE": 37.69154356857474,
+          "bias_r": -0.15765485167503357,
+          "bias_g": -0.13457125425338745,
+          "bias_b": -0.10801614820957184,
+          "n_pixels": 12000000,
+          "reference_protocol": "legacy-direct-reference"
+        }
+      },
+      "candidate": {
+        "case": "test_0002/whites_min",
+        "resolution": "down",
+        "violations": {
+          "mean": [
+            11.301918958384157,
+            9.4
+          ],
+          "p95": [
+            12.178154867387775,
+            11.3
+          ],
+          "bias_r": [
+            -0.15765537321567535,
+            0.1458
+          ]
+        },
+        "metrics": {
+          "mean_deltaE": 11.301918958384157,
+          "p95_deltaE": 12.178154867387775,
+          "max_deltaE": 37.69154356857474,
+          "bias_r": -0.15765537321567535,
+          "bias_g": -0.13457122445106506,
+          "bias_b": -0.1080162525177002,
+          "n_pixels": 12000000,
+          "reference_protocol": "legacy-direct-reference"
+        }
+      },
+      "input_sha256": {
+        "raw": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+        "canonical_xmp": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+        "reference": "98818109e5135a8c7cfbca61c0d37f4ca6d24ddd528936440f71ba22c1c15621",
+        "candidate_png": "728eeb8e6f8bdd4f73bd520c6f86f08cb72026a85241e56bc54e098d9b73bf42",
+        "main_png": "c03e345ffbdcafc88605392f1b9f5da211c874b558561ecf2bf751d7874168d7"
       }
     }
   ],
