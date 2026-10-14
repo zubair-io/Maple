@@ -46,4 +46,21 @@ public sealed class ExportSnapshotTests
         Assert.Contains(reopened.PassthroughAttributes, a => a.Name == "custom:delivery" && a.Value == "retain");
         Assert.Equal(0.25f, XmpParser.Parse(xml)!.Adjustments.Exposure);
     }
+
+    [Fact]
+    public void Active_snapshot_applies_pending_brush_reset_and_undo_to_passthrough()
+    {
+        var source = XmpParser.Parse(XmpLayerOrderTests.AppleInterleaved(XmpLayerOrderTests.ModelIndexes))!;
+        var restore = XmpBrushCorrections.PassthroughContainers(source)!;
+
+        var reset = ExportSnapshot.Serialize(XmpWriter.Serialize(source), new AdjustmentState(),
+            discardBrushCorrections: true);
+        Assert.DoesNotContain("<papp:BrushCorrections", reset);
+
+        var undone = ExportSnapshot.Serialize(reset, source.Adjustments,
+            restoreBrushCorrections: restore);
+        Assert.Contains("<papp:BrushCorrections", undone);
+        Assert.Single(XmpParser.Parse(undone)!.Adjustments.LocalAdjustments,
+            layer => layer.Mask is Maple.WinUI.Models.BrushMask);
+    }
 }

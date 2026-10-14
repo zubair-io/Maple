@@ -17,11 +17,17 @@ public static class ExportSnapshot
         return await response.Content.ReadAsStringAsync(cancellation);
     }
 
-    public static string Serialize(string? xml, AdjustmentState? activeModel = null)
+    public static string Serialize(string? xml, AdjustmentState? activeModel = null,
+        bool discardBrushCorrections = false,
+        BrushCorrectionRestoreSnapshot? restoreBrushCorrections = null)
     {
         var document = xml == null ? new XmpSidecarDocument() : XmpParser.Parse(xml)
             ?? throw new InvalidDataException("Cannot parse the photo's XMP sidecar. Repair it before exporting.");
         if (activeModel != null) document.Adjustments = activeModel.Clone();
+        if (discardBrushCorrections)
+            XmpBrushCorrections.RemovePassthroughContainers(document);
+        else if (restoreBrushCorrections is { } restore)
+            XmpBrushCorrections.RestorePassthroughContainers(document, restore);
         return XmpWriter.Serialize(document);
     }
 }
