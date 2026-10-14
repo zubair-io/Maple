@@ -26,9 +26,10 @@ use rayon::prelude::*;
 /// strength.
 pub(super) const FALSE_COLOUR_SUPPRESS_STRENGTH: f32 = 5.0;
 
-/// AMaZE's own ratio-trust threshold (`green.rs`, `diag.rs`): a colour ratio
-/// within this relative distance of its reference is treated as the same hue.
-const ARTHRESH: f32 = 0.75;
+/// A collapsed chroma estimate is only safe when its four contributing
+/// samples have nearly the same channel-to-green ratio. A wider spread can
+/// mean the diagonal crosses a real colour edge.
+const MAX_COLLAPSED_RATIO_SPREAD: f32 = 0.15;
 
 /// `green` is the final reconstructed green plane; `cfa_flat` the flattened
 /// mosaic (raw sensor sample per site). Operates in place on the
@@ -121,46 +122,44 @@ pub(super) fn suppress_false_colour(
 
     // A negative opposite chroma at an R/B site means AMaZE's directional
     // kernel extrapolated the colour difference past green at a luminance
-    // edge, so the hue path carries no estimate there. Where every measured R
-    // and B sample in the 5×5 window shares one chromaticity, the surface
-    // colour follows green exactly: transport the four diagonal samples of
-    // that colour by their ratio to green. Otherwise (a colour edge, or noise dominating the
-    // ratios) there is no supported hue and the existing value blend from a
-    // zero floor stands. Without this, that blend imports the bright side's
-    // mean into the dark side as a magenta/green fringe (#4123).
+    // edge, so the hue path carries no estimate there. The four diagonal
+    // samples used by the estimate must agree closely in their channel-to-
+    // green ratios. A broader neighborhood average can accept distinct
+    // surfaces across a real colour edge and import one side's hue into the
+    // other (#4123).
     let collapsed_estimate = |x: usize, y: usize, t: usize| -> Option<f32> {
         let centre = green[y * w + x];
         if centre <= 0.0 {
             return None;
         }
-        let ratio_at = |nx: usize, ny: usize| {
-            let (g, v) = (green[ny * w + nx], cfa_flat[ny * w + nx]);
-            (g > 0.0 && v >= 0.0).then(|| v / g)
-        };
-        for k in [0usize, 2] {
-            let mut ratios = [0.0_f32; 9];
-            let mut n = 0;
-            for ny in y - 2..=y + 2 {
-                for nx in x - 2..=x + 2 {
-                    if color_at(nx, ny) == k {
-                        ratios[n] = ratio_at(nx, ny)?;
-                        n += 1;
-                    }
-                }
+        let mut min_ratio = f32::INFINITY;
+        let mut max_ratio = f32::NEG_INFINITY;
+        let mut ratio_sum = 0.0_f32;
+        let (mut colour, mut guide, mut n) = (0.0_f32, 0.0_f32, 0usize);
+        for (dx, dy) in [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)] {
+            let (nx, ny) = ((x as isize + dx) as usize, (y as isize + dy) as usize);
+            if color_at(nx, ny) != t {
+                continue;
             }
-            let ratios = &ratios[..n];
-            let mean = ratios.iter().sum::<f32>() / n as f32;
-            if !(mean > 0.0) || ratios.iter().any(|r| (1.0 - r / mean).abs() >= ARTHRESH) {
+            let (sample, g) = (cfa_flat[ny * w + nx], green[ny * w + nx]);
+            if sample < 0.0 || g <= 0.0 {
                 return None;
             }
+            let ratio = sample / g;
+            min_ratio = min_ratio.min(ratio);
+            max_ratio = max_ratio.max(ratio);
+            ratio_sum += ratio;
+            colour += sample;
+            guide += g;
+            n += 1;
         }
-        let (colour, guide) = [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)]
-            .iter()
-            .map(|&(dx, dy)| ((x as isize + dx) as usize, (y as isize + dy) as usize))
-            .filter(|&(nx, ny)| color_at(nx, ny) == t)
-            .fold((0.0_f32, 0.0_f32), |(c, g), (nx, ny)| {
-                (c + cfa_flat[ny * w + nx], g + green[ny * w + nx])
-            });
+        if n == 0 {
+            return None;
+        }
+        let mean_ratio = ratio_sum / n as f32;
+        if mean_ratio <= 0.0 || (max_ratio - min_ratio) / mean_ratio > MAX_COLLAPSED_RATIO_SPREAD {
+            return None;
+        }
         Some(centre * colour / guide)
     };
 
