@@ -1,7 +1,7 @@
 {
   "generator": "tools/codegen.sh (codegen --schema capability-registry --target json)",
   "build": {
-    "pipeline_output_version": 20,
+    "pipeline_output_version": 23,
     "schema_version": 5
   },
   "capabilities": [
@@ -39,12 +39,12 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v19, current is v23"
         },
         {
           "source": "sidecar_contract_api",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -56,22 +56,22 @@
         {
           "source": "grey_adjustments",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "synthetic_grey",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "grey_dcp",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "color_chart",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "color_harness",
@@ -81,7 +81,7 @@
         {
           "source": "gpu_chain_parity_metal",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v19, current is v23"
         },
         {
           "source": "apple_canvas_golden",
@@ -138,12 +138,12 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v19, current is v23"
         },
         {
           "source": "sidecar_contract_api",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -155,22 +155,22 @@
         {
           "source": "grey_adjustments",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "synthetic_grey",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "grey_dcp",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "color_chart",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "color_harness",
@@ -180,7 +180,7 @@
         {
           "source": "gpu_chain_parity_metal",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v19, current is v23"
         },
         {
           "source": "apple_canvas_golden",
@@ -264,12 +264,12 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v19, current is v23"
         },
         {
           "source": "sidecar_contract_api",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -281,22 +281,22 @@
         {
           "source": "grey_adjustments",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "synthetic_grey",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "grey_dcp",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "color_chart",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "color_harness",
@@ -306,7 +306,7 @@
         {
           "source": "gpu_chain_parity_metal",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v19, current is v23"
         },
         {
           "source": "apple_canvas_golden",
@@ -367,12 +367,12 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v19, current is v23"
         },
         {
           "source": "sidecar_contract_api",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -384,22 +384,22 @@
         {
           "source": "grey_adjustments",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "synthetic_grey",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "grey_dcp",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "color_chart",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "color_harness",
@@ -409,7 +409,7 @@
         {
           "source": "gpu_chain_parity_metal",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v19, current is v23"
         },
         {
           "source": "apple_canvas_golden",
@@ -449,12 +449,12 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v19, current is v23"
         },
         {
           "source": "sidecar_contract_api",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -466,12 +466,12 @@
         {
           "source": "grey_adjustments",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "gpu_chain_parity_metal",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v19, current is v23"
         },
         {
           "source": "apple_canvas_golden",
@@ -512,12 +512,12 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v19, current is v23"
         },
         {
           "source": "sidecar_contract_api",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         }
       ],
       "qualification": [
@@ -543,7 +543,7 @@
         {
           "source": "sidecar_contract_api",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         }
       ],
       "qualification": []
@@ -629,12 +629,12 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v19, current is v23"
         },
         {
           "source": "sidecar_contract_api",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -681,24 +681,24 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v19, current is v23"
         },
         {
           "source": "sidecar_contract_api",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         }
       ],
       "qualification": [
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v19, current is v23"
         },
         {
           "source": "sidecar_contract_api",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v20"
+          "detail": "recorded on pipeline v20, current is v23"
         }
       ]
     },
@@ -772,8 +772,8 @@
         "executed_cases": 6,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "599f097f45963d38a70701ac0b94593a7eca9015",
-        "recorded_at": "2026-10-14T13:47:50Z",
+        "git_sha": "4593ed36f4233936a71d265ec7dbb8e5bf4e18fa",
+        "recorded_at": "2026-10-14T09:37:59Z",
         "command": "bash src/scripts/test_synthetic_grey.sh"
       }
     },
@@ -888,8 +888,8 @@
         "executed_cases": 3,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "34fd3f7e492114d3092b3d3e931a708317a35dd7",
-        "recorded_at": "2026-10-14T04:23:54Z",
+        "git_sha": "4593ed36f4233936a71d265ec7dbb8e5bf4e18fa",
+        "recorded_at": "2026-10-14T09:38:10Z",
         "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts\\ --timeout\\ 30000"
       }
     },
