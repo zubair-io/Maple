@@ -74,7 +74,9 @@ namespace Maple.WinUI.ViewModels
         private AdjustmentState? _undoBaseline;
         private Timer? _sidecarTimer;
         private Timer? _undoTimer;
-        private bool _discardBrushCorrectionsOnWrite;
+        private string? _discardBrushCorrectionsForPhotoPath;
+        private readonly Dictionary<string, IReadOnlyList<string>> _brushCorrectionsRemovedByReset =
+            new(StringComparer.OrdinalIgnoreCase);
         /// <summary>Shared by <see cref="_decodeCancel"/> and
         /// <see cref="_amazeCancel"/> (#3417 Jules review): a signal
         /// (<see cref="CancelActiveDecode"/>) and a free (a decode task's
@@ -100,7 +102,7 @@ namespace Maple.WinUI.ViewModels
         /// <summary>The photo the scene-linear decode has run (or is running)
         /// for — decode is lazy and only starts on Edit entry.</summary>
         private PhotoItem? _decodedPhoto;
-        private DecodedImage? _decodedImage;
+        private (int Width, int Height)? _decodedImageSize;
 
         [ObservableProperty]
         private PhotoItem? _selectedPhoto;
@@ -181,7 +183,7 @@ namespace Maple.WinUI.ViewModels
             else
             {
                 _photoOpenVersion++;
-                _decodedImage = null;
+                _decodedImageSize = null;
                 AdjustmentsReady = false;
                 HasSidecarLoadError = false;
                 IsDecoding = false;
@@ -208,7 +210,7 @@ namespace Maple.WinUI.ViewModels
             _asShotTint = 0;
             _sidecarDirty = false;
             _decodedPhoto = null;
-            _decodedImage = null;
+            _decodedImageSize = null;
             Interlocked.Increment(ref _decodeGeneration);
             CancelActiveDecode();
             // Never let a stale image produce frames for the new photo; the
@@ -432,7 +434,8 @@ namespace Maple.WinUI.ViewModels
                 if (photo.IsCloud) PushCloudSidecar(photo);
                 else _localMetadataWrites.Stage(photo.FilePath, Adjustments,
                     photo.Rating, photo.FlagStatus, photo.ColorLabel,
-                    _discardBrushCorrectionsOnWrite && !Adjustments.LocalAdjustments.Any(layer => layer.Mask is BrushMask));
+                    ShouldDiscardBrushCorrectionsFor(photo.FilePath),
+                    BrushCorrectionsToRestoreFor(photo.FilePath, Adjustments));
             }
             _localMetadataError = null;
             var failures = new List<string>();
@@ -478,7 +481,6 @@ namespace Maple.WinUI.ViewModels
                     var before = Adjustments;
                     ReleaseBrushRasters();
                     Adjustments = doc.Adjustments;
-                    RehydrateCurrentBrushRasters(Adjustments);
                     photo.Rating = doc.Rating ?? 0;
                     photo.FlagStatus = doc.Flag ?? "none";
                     photo.ColorLabel = doc.ColorLabel;

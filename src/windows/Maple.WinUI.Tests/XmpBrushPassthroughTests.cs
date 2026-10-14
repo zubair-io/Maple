@@ -90,14 +90,16 @@ namespace Maple.WinUI.Tests
 
         [Theory]
         [InlineData("crs:What=\"Other\"", "crs:CorrectionActive=\"True\"", true)]
+        [InlineData("", "crs:CorrectionActive=\"True\"", true)]
         [InlineData("crs:What=\"Correction\"", "crs:CorrectionActive=\"0\"", false)]
         [InlineData("crs:What=\"Correction\"", "crs:CorrectionActive=\"Off\"", false)]
         [InlineData("crs:What=\"Correction\"", "crs:CorrectionActive=\"false\"", false)]
         [InlineData("crs:What=\"Correction\"", "crs:CorrectionActive=\"unknown\"", true)]
         public void CorrectionBookkeepingAndAdobeBooleanSpellingsAreHandled(string what, string active, bool expectedActive)
         {
-            var brush = MapleBrush
-                .Replace("crs:What=\"Correction\"", what, StringComparison.Ordinal)
+            var brush = (what.Length == 0
+                    ? MapleBrush.Replace("crs:What=\"Correction\"", string.Empty, StringComparison.Ordinal)
+                    : MapleBrush.Replace("crs:What=\"Correction\"", what, StringComparison.Ordinal))
                 .Replace("crs:CorrectionActive=\"True\"", active, StringComparison.Ordinal);
             var parsed = ParseBrushDocument(brush);
             Assert.Equal(expectedActive, parsed.Adjustments.LocalAdjustments.Count == 1);
@@ -112,6 +114,42 @@ namespace Maple.WinUI.Tests
                 StringComparison.Ordinal);
 
             Assert.Empty(ParseBrushDocument(brush).Adjustments.LocalAdjustments);
+        }
+
+        [Fact]
+        public void OneInactiveCorrectionDropsTheEntireBrushContainer()
+        {
+            const string inactiveCorrection =
+                "<rdf:li><rdf:Description crs:CorrectionActive=\"False\"><crs:CorrectionMasks><rdf:Seq>" +
+                "<rdf:li crs:What=\"Mask/Paint\" papp:BrushVersion=\"1\" papp:Dabs=\"0.25 0.3 0.05 0.5 0.8 0\"/>" +
+                "</rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li>";
+            var mixed = MapleBrush.Replace(
+                "</rdf:li></rdf:Seq></papp:BrushCorrections>",
+                "</rdf:li>" + inactiveCorrection + "</rdf:Seq></papp:BrushCorrections>",
+                StringComparison.Ordinal);
+
+            Assert.Empty(ParseBrushDocument(mixed).Adjustments.LocalAdjustments);
+        }
+
+        [Fact]
+        public void OverLimitDabSeriesRemainOpaqueWithoutAllocatingPerToken()
+        {
+            var dabs = string.Join(' ', Enumerable.Repeat("0", 6 * 4097));
+            var brush = MapleBrush.Replace(
+                "papp:Dabs=\"0.25 0.3 0.05 0.5 0.8 0\"",
+                $"papp:Dabs=\"{dabs}\"",
+                StringComparison.Ordinal);
+
+            Assert.Empty(ParseBrushDocument(brush).Adjustments.LocalAdjustments);
+        }
+
+        [Fact]
+        public void MissingBrushDigestGetsTheWindowsRegistryKey()
+        {
+            var brush = MapleBrush.Replace(" papp:BrushDigest=\"0123456789abcdef\"", string.Empty, StringComparison.Ordinal);
+
+            Assert.Equal("fd119d40ee8103ea", Assert.IsType<BrushMask>(
+                Assert.Single(ParseBrushDocument(brush).Adjustments.LocalAdjustments).Mask).Digest);
         }
 
         private static XmpSidecarDocument ParseBrushDocument(string brush) => Assert.IsType<XmpSidecarDocument>(

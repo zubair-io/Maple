@@ -61,8 +61,6 @@ namespace Maple.WinUI.ViewModels
         private void AfterModelReplaced(AdjustmentState before)
         {
             ReleaseBrushRasters();
-            if (!RenderEngine.DecodeInputsChanged(before, Adjustments))
-                RehydrateCurrentBrushRasters(Adjustments);
             SyncSlidersFromModel();
             ScheduleSidecarWrite();
             RefreshRenderAfterModelChange(before);
@@ -77,6 +75,11 @@ namespace Maple.WinUI.ViewModels
                 // Repair-only changes keep that calibration valid while the
                 // new repair pixels are prepared on the decode worker.
                 DecodeCurrent(photo, preserveCurrentBase: RenderEngine.OnlyRepairDecodeInputsChanged(before, Adjustments));
+                return;
+            }
+            if (Adjustments.LocalAdjustments.Any(layer => layer.Mask is BrushMask))
+            {
+                RehydrateCurrentBrushRasters(Adjustments, () => Renderer.RequestRender(Adjustments.Clone()));
                 return;
             }
             Renderer.RequestRender(Adjustments.Clone());

@@ -123,7 +123,16 @@ namespace Maple.WinUI.ViewModels
         {
             if (!AdjustmentsReady) return;
             var before = Adjustments;
-            _discardBrushCorrectionsOnWrite = before.LocalAdjustments.Any(layer => layer.Mask is BrushMask);
+            if (before.LocalAdjustments.Any(layer => layer.Mask is BrushMask) && SelectedPhoto is { } photo)
+            {
+                var source = photo.IsCloud ? _cloudDoc : SidecarStore.Load(photo.FilePath);
+                var containers = XmpBrushCorrections.PassthroughContainers(source);
+                if (containers.Count > 0)
+                    _brushCorrectionsRemovedByReset[photo.FilePath] = containers;
+            }
+            _discardBrushCorrectionsForPhotoPath = before.LocalAdjustments.Any(layer => layer.Mask is BrushMask)
+                ? SelectedPhoto?.FilePath
+                : null;
             _undoStack.Add(Adjustments.Clone());
             _redoStack.Clear();
             Adjustments = DefaultAdjustments();

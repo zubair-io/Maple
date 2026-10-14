@@ -98,5 +98,37 @@ public sealed class PendingLocalSidecarWritesTests : IDisposable
         Assert.Equal("retained", Assert.Single(written.Descendants(vendor + "keep")).Value);
     }
 
+    [Fact]
+    public void UndoAfterResetRestoresBrushContainerAndKeepsOtherPassthrough()
+    {
+        XNamespace papp = "http://ns.justmaple.app/photo/1.0/";
+        XNamespace vendor = "urn:test";
+        var path = Path.Combine(_root, "undo-photo.dng");
+        var sidecar = SidecarStore.SidecarPathFor(path);
+        File.WriteAllText(sidecar, """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:papp="http://ns.justmaple.app/photo/1.0/" xmlns:vendor="urn:test">
+              <vendor:keep>retained</vendor:keep>
+              <papp:BrushCorrections><rdf:Seq><rdf:li><rdf:Description crs:CorrectionActive="True"><crs:CorrectionMasks><rdf:Seq><rdf:li crs:What="Mask/Paint" papp:BrushVersion="1" papp:Dabs="0.25 0.3 0.05 0.5 0.8 0"/></rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li></rdf:Seq></papp:BrushCorrections>
+            </rdf:Description></rdf:RDF></x:xmpmeta>
+            """);
+
+        var original = SidecarStore.Load(path)!;
+        var brushContainers = XmpBrushCorrections.PassthroughContainers(original);
+        Assert.Single(original.Adjustments.LocalAdjustments);
+        Assert.Single(brushContainers);
+        var queue = new PendingLocalSidecarWrites();
+        queue.Stage(path, new AdjustmentState(), 0, "none", null, discardBrushCorrections: true);
+        Assert.Null(Assert.Single(queue.Flush()).Error);
+        Assert.Empty(XDocument.Load(sidecar).Descendants(papp + "BrushCorrections"));
+
+        queue.Stage(path, original.Adjustments, 0, "none", null, restoreBrushCorrections: brushContainers);
+        Assert.Null(Assert.Single(queue.Flush()).Error);
+        var restored = SidecarStore.Load(path)!;
+        Assert.Single(restored.Adjustments.LocalAdjustments);
+        Assert.Single(XDocument.Load(sidecar).Descendants(papp + "BrushCorrections"));
+        Assert.Equal("retained", Assert.Single(XDocument.Load(sidecar).Descendants(vendor + "keep")).Value);
+    }
+
     public void Dispose() => Directory.Delete(_root, true);
 }

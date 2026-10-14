@@ -16,7 +16,7 @@ public sealed partial class CloudClient
     private readonly SemaphoreSlim _sidecarWriteGate = new(1, 1);
 
     public async Task UpdateDevelopSidecarAsync(string path, AdjustmentState adjustments,
-        bool discardBrushCorrections = false)
+        bool discardBrushCorrections = false, IReadOnlyList<string>? restoreBrushCorrections = null)
     {
         var snapshot = adjustments.Clone();
         await _sidecarWriteGate.WaitAsync();
@@ -26,6 +26,8 @@ public sealed partial class CloudClient
             var document = ParseEditableSidecar(xml);
             if (discardBrushCorrections)
                 XmpBrushCorrections.RemovePassthroughContainers(document);
+            else if (restoreBrushCorrections is not null)
+                XmpBrushCorrections.RestorePassthroughContainers(document, restoreBrushCorrections);
             // Culling and keywords belong to metadata writes. Reusing the
             // document captured when editing opened would erase newer values.
             document.Adjustments = snapshot;
