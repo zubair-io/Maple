@@ -100,6 +100,34 @@ describe('serializeSidecarWrite', () => {
     }
   });
 
+  test('does not admit a destination while its parent identity is unavailable', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-stat-failure-'));
+    try {
+      const parent = path.join(root, 'offline');
+      const destination = path.join(parent, 'photo.xmp');
+      let writes = 0;
+
+      await expect(
+        serializeSidecarWrite(destination, async () => {
+          writes++;
+          return 'written';
+        }, { admissionScope: root }),
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(writes).toBe(0);
+
+      await fs.mkdir(parent);
+      await expect(
+        serializeSidecarWrite(destination, async () => {
+          writes++;
+          return 'written';
+        }, { admissionScope: root }),
+      ).resolves.toBe('written');
+      expect(writes).toBe(1);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('different file symlink names preserve FIFO after resolving to one sidecar', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-file-alias-'));
     try {
