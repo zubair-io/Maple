@@ -102,4 +102,31 @@ describe('serializeSidecarWrite', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  test('same filename in different libraries can write concurrently', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-libraries-'));
+    try {
+      const firstLibrary = path.join(root, 'first');
+      const secondLibrary = path.join(root, 'second');
+      await Promise.all([fs.mkdir(firstLibrary), fs.mkdir(secondLibrary)]);
+      let started = 0;
+      let releaseWrites!: () => void;
+      const bothStarted = new Promise<void>((resolve) => {
+        releaseWrites = resolve;
+      });
+      const write = async () => {
+        started++;
+        if (started === 2) releaseWrites();
+        await bothStarted;
+      };
+
+      await Promise.all([
+        serializeSidecarWrite(path.join(firstLibrary, 'IMG_0001.xmp'), write),
+        serializeSidecarWrite(path.join(secondLibrary, 'IMG_0001.xmp'), write),
+      ]);
+      expect(started).toBe(2);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });

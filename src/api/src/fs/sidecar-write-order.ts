@@ -33,11 +33,14 @@ export async function serializeSidecarWrite<T>(
   destination: string,
   write: () => Promise<T>,
 ): Promise<T> {
-  // A canonical alias must preserve call order, but a slow realpath on a
-  // disconnected library must not stop writes for unrelated filenames.
-  // Parent symlink aliases and case-only aliases still have the same folded
-  // basename, so only those requests share this short registration queue.
-  const admissionKey = path.basename(destination).toLowerCase();
+  // Parent-sibling aliases (a real directory and a symlink beside it) must
+  // register in call order, while libraries in separate directory trees with
+  // a reused filename get independent admission. The canonical write chain
+  // below joins aliases after resolution; this short-lived key only orders the
+  // candidate sibling paths during that lookup. Folding includes case-only
+  // aliases on every host.
+  const parent = path.dirname(path.resolve(destination));
+  const admissionKey = path.join(path.dirname(parent), path.basename(destination)).toLowerCase();
   const previousAdmission = admissionTails.get(admissionKey) ?? Promise.resolve();
   let releaseAdmission!: () => void;
   const currentAdmission = new Promise<void>((resolve) => {
