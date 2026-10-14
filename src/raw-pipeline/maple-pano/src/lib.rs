@@ -63,6 +63,7 @@ pub mod error;
 pub mod exif_embed;
 pub mod gt;
 pub mod math;
+pub mod png_output;
 pub mod prng;
 pub mod project;
 pub mod render;

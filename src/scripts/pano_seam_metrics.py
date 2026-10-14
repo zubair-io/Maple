@@ -3,6 +3,7 @@ for the file-size budget). Pure numpy; see pano_metrics for the harness."""
 from __future__ import annotations
 
 import numpy as np
+from PIL import Image
 
 
 def _luma(rgb: np.ndarray) -> np.ndarray:
@@ -74,3 +75,33 @@ def seam_step(cand: np.ndarray, owner: np.ndarray,
     }
 
 
+def load_owner(owner_path, size) -> np.ndarray:
+    with Image.open(owner_path) as im:
+        arr = np.asarray(im)
+    if arr.ndim == 3:
+        arr = arr[..., 0]
+    owner = arr.astype(np.int64) - 1
+    if (owner.shape[1], owner.shape[0]) != size:
+        im2 = Image.fromarray(
+            (np.clip(owner + 1, 0, 65535)).astype(np.uint16), mode="I;16")
+        im2 = im2.resize(size, Image.NEAREST)
+        owner = np.asarray(im2).astype(np.int64) - 1
+    return owner
+
+
+
+def seam_step_checks(check) -> None:
+    syn = np.full((120, 200, 3), 0.4, dtype=np.float32)
+    syn[:, 100:, :] = 0.4 * np.exp(0.25)
+    syn_owner = np.zeros((120, 200), dtype=np.int64)
+    syn_owner[:, 100:] = 1
+    s_step = seam_step(syn, syn_owner)
+    check("seam-step-detects",
+          s_step["seam_step_hard"] is not None
+          and s_step["seam_step_hard"] > 0.15,
+          f"seam_step_hard={s_step['seam_step_hard']} (> 0.15 planted)")
+    s_flat = seam_step(syn, np.zeros((120, 200), dtype=np.int64))
+    check("seam-step-flat",
+          s_flat["seam_step_hard"] is None
+          or abs(s_flat["seam_step_hard"]) < 0.02,
+          f"seam_step_hard={s_flat['seam_step_hard']} (single owner)")
