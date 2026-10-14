@@ -166,19 +166,29 @@ namespace Maple.WinUI.Tests
             ("CircularGradientBasedCorrections", "0.5"),
         };
 
+        // Brush corrections hydrate into the render model, but their source
+        // container and layer-order keys remain passthrough-owned by XMP.
+        private static LocalAdjustment[] WritableLayers(XmpSidecarDocument doc) =>
+            doc.Adjustments.LocalAdjustments.Where(layer => layer.Mask is not BrushMask).ToArray();
+
+        private static int WritableIndex(XmpSidecarDocument doc, int writableIndex) =>
+            doc.Adjustments.LocalAdjustments.Select((layer, index) => (layer, index))
+                .Where(entry => entry.layer.Mask is not BrushMask)
+                .ElementAt(writableIndex).index;
+
         [Fact]
         public void InterleavedStackWithPassthroughSurvivesSaveReopenSave()
         {
             var doc = Load(AppleInterleaved(ModelIndexes));
             Assert.Equal(new[] { Radial(0.2) with { XmpLayerOrder = 1 }, Linear(0.4) with { XmpLayerOrder = 3 },
-                Radial(0.5) with { XmpLayerOrder = 4 } }, doc.Adjustments.LocalAdjustments);
+                Radial(0.5) with { XmpLayerOrder = 4 } }, WritableLayers(doc));
 
             var first = Save(doc);
             Assert.Equal(AppleStack, StackByKey(first));
             Assert.Equal(5, Regex.Matches(first, "papp:LayerOrder=").Count);
 
             var reopened = Assert.IsType<XmpSidecarDocument>(SidecarStore.Load(Raw));
-            Assert.Equal(doc.Adjustments.LocalAdjustments, reopened.Adjustments.LocalAdjustments);
+            Assert.Equal(WritableLayers(doc), WritableLayers(reopened));
             Assert.Equal(first, Save(reopened));
         }
 
@@ -186,14 +196,14 @@ namespace Maple.WinUI.Tests
         public void DeletingALayerKeepsTheRestInPlaceAroundPassthroughCorrections()
         {
             var doc = Load(AppleInterleaved(ModelIndexes));
-            doc.Adjustments.LocalAdjustments.RemoveAt(0);
+            doc.Adjustments.LocalAdjustments.RemoveAt(WritableIndex(doc, 0));
 
             var first = Save(doc);
             Assert.Equal(AppleStack.Where(entry => entry.Item2 != "0.2"), StackByKey(first));
 
             var reopened = Assert.IsType<XmpSidecarDocument>(SidecarStore.Load(Raw));
             Assert.Equal(new[] { Linear(0.4) with { XmpLayerOrder = 3 }, Radial(0.5) with { XmpLayerOrder = 4 } },
-                reopened.Adjustments.LocalAdjustments);
+                WritableLayers(reopened));
             Assert.Contains("papp:LayerOrder=\"0\"", first);
             Assert.Contains("papp:LayerOrder=\"2\"", first);
             Assert.Equal(first, Save(reopened));
@@ -211,7 +221,7 @@ namespace Maple.WinUI.Tests
             Assert.Equal(first, Save(doc));
 
             var later = Assert.IsType<XmpSidecarDocument>(SidecarStore.Load(Raw));
-            later.Adjustments.LocalAdjustments.Insert(2, Radial(0.8));
+            later.Adjustments.LocalAdjustments.Insert(WritableIndex(later, 2), Radial(0.8));
             var second = Save(later);
             Assert.Contains("papp:LayerOrder=\"1.5\"", second);
             Assert.Equal(new[]
@@ -349,7 +359,7 @@ namespace Maple.WinUI.Tests
             var untouched = Brush(Save(Load(PassthroughInput())));
             var doc = Load(PassthroughInput());
             Assert.Equal(new[] { Linear(0.4) with { XmpLayerOrder = 0 }, Radial(0.2) with { XmpLayerOrder = 2 } },
-                doc.Adjustments.LocalAdjustments);
+                WritableLayers(doc));
             doc.Adjustments.LocalAdjustments.Insert(0, Linear(0.1));
 
             var first = Save(doc);
@@ -359,7 +369,7 @@ namespace Maple.WinUI.Tests
 
             var reopened = Assert.IsType<XmpSidecarDocument>(SidecarStore.Load(Raw));
             Assert.Equal(new[] { Linear(0.1) with { XmpLayerOrder = -1 }, Linear(0.4) with { XmpLayerOrder = 0 },
-                Radial(0.2) with { XmpLayerOrder = 2 } }, reopened.Adjustments.LocalAdjustments);
+                Radial(0.2) with { XmpLayerOrder = 2 } }, WritableLayers(reopened));
             Assert.Equal(first, Save(reopened));
         }
 
@@ -377,7 +387,7 @@ namespace Maple.WinUI.Tests
         public void PassthroughLiteralDeletingTheLinearKeepsEveryOtherKey()
         {
             var doc = Load(PassthroughInput());
-            doc.Adjustments.LocalAdjustments.RemoveAt(0);
+            doc.Adjustments.LocalAdjustments.RemoveAt(WritableIndex(doc, 0));
 
             var first = Save(doc);
             Assert.True(XNode.DeepEquals(BrushElement(XmpLocalAdjustmentsTests.Sidecar(BrushV2Block)), BrushElement(first)));
@@ -385,7 +395,7 @@ namespace Maple.WinUI.Tests
             Assert.Equal(new[] { ("BrushCorrections", "0.3"), ("CircularGradientBasedCorrections", "0.2") }, StackByKey(first));
 
             var reopened = Assert.IsType<XmpSidecarDocument>(SidecarStore.Load(Raw));
-            Assert.Equal(new[] { Radial(0.2) with { XmpLayerOrder = 2 } }, reopened.Adjustments.LocalAdjustments);
+            Assert.Equal(new[] { Radial(0.2) with { XmpLayerOrder = 2 } }, WritableLayers(reopened));
             Assert.Equal(first, Save(reopened));
             Assert.Equal(first, Save(doc));
         }
@@ -414,7 +424,7 @@ namespace Maple.WinUI.Tests
             var linear = CanonicalOrderBlock[..(CanonicalOrderBlock.IndexOf("</crs:GradientBasedCorrections>", StringComparison.Ordinal)
                 + "</crs:GradientBasedCorrections>".Length)].Replace("papp:LayerOrder=\"1\"", "papp:LayerOrder=\"0\"");
             var doc = Load(XmpLocalAdjustmentsTests.Sidecar(string.Join("\n", linear, BrushV2Block)));
-            Assert.Equal(new[] { Linear(0.4) with { XmpLayerOrder = 0 } }, doc.Adjustments.LocalAdjustments);
+            Assert.Equal(new[] { Linear(0.4) with { XmpLayerOrder = 0 } }, WritableLayers(doc));
             doc.Adjustments.LocalAdjustments.AddRange(Enumerable.Repeat(Linear(0.1), 25));
 
             var first = Save(doc);
@@ -425,9 +435,9 @@ namespace Maple.WinUI.Tests
 
             var reopened = Assert.IsType<XmpSidecarDocument>(SidecarStore.Load(Raw));
             Assert.Equal(new[] { 0.4 }.Concat(Enumerable.Repeat(0.1, 25)),
-                reopened.Adjustments.LocalAdjustments.Select(layer => layer.Adjustments.Exposure!.Value));
+                WritableLayers(reopened).Select(layer => layer.Adjustments.Exposure!.Value));
             Assert.Equal(Enumerable.Range(-25, 26).Select(key => (double?)key),
-                reopened.Adjustments.LocalAdjustments.Select(layer => layer.XmpLayerOrder));
+                WritableLayers(reopened).Select(layer => layer.XmpLayerOrder));
             Assert.Equal(first, Save(reopened));
         }
 
@@ -486,7 +496,7 @@ namespace Maple.WinUI.Tests
         public void UnkeyedLegacySidecarLoadsInContainerOrderAndResavesByteIdentically()
         {
             var legacy = Load(AppleInterleaved(new int?[5]));
-            Assert.Equal(new[] { Linear(0.4), Radial(0.2), Radial(0.5) }, legacy.Adjustments.LocalAdjustments);
+            Assert.Equal(new[] { Linear(0.4), Radial(0.2), Radial(0.5) }, WritableLayers(legacy));
             var first = Save(legacy);
             Assert.DoesNotContain("papp:LayerOrder", first);
             Assert.Equal(first, Save(Assert.IsType<XmpSidecarDocument>(SidecarStore.Load(Raw))));
@@ -503,12 +513,12 @@ namespace Maple.WinUI.Tests
         {
             var doc = Load(AppleInterleaved(new int?[] { 0, 1, 2, 3, null }));
             Assert.Equal(new[] { Linear(0.4) with { XmpLayerOrder = 3 }, Radial(0.2) with { XmpLayerOrder = 1 }, Radial(0.5) },
-                doc.Adjustments.LocalAdjustments);
+                WritableLayers(doc));
 
             var first = Save(doc);
             var reopened = Assert.IsType<XmpSidecarDocument>(SidecarStore.Load(Raw));
             Assert.Equal(new[] { Linear(0.4) with { XmpLayerOrder = -1 }, Radial(0.2) with { XmpLayerOrder = 1 },
-                Radial(0.5) with { XmpLayerOrder = 1.5 } }, reopened.Adjustments.LocalAdjustments);
+                Radial(0.5) with { XmpLayerOrder = 1.5 } }, WritableLayers(reopened));
             Assert.Equal(first, Save(reopened));
         }
 
@@ -521,7 +531,7 @@ namespace Maple.WinUI.Tests
         {
             var doc = Load(AppleInterleaved(ModelIndexes).Replace("papp:LayerOrder=\"3\"", $"papp:LayerOrder=\"{raw}\""));
             Assert.Equal(new[] { Linear(0.4), Radial(0.2) with { XmpLayerOrder = 1 }, Radial(0.5) with { XmpLayerOrder = 4 } },
-                doc.Adjustments.LocalAdjustments);
+                WritableLayers(doc));
         }
 
         [Fact]

@@ -64,17 +64,23 @@ namespace Maple.WinUI.Services.Xmp
         internal static IReadOnlyList<(LocalAdjustment Layer, double? Order)> Assign(
             IReadOnlyList<LocalAdjustment> layers, IReadOnlyList<double> verbatim)
         {
+            // Brush corrections hydrate into the live render model, but their
+            // XMP container remains passthrough-owned. Its keys are already in
+            // `verbatim`; assigning the hydrated brush layers as well would
+            // give those keys two owners and can force every modeled layer to
+            // be respaced around a duplicate key.
+            var writableLayers = layers.Where(layer => layer.Mask is not BrushMask).ToArray();
             if (verbatim.Count == 0)
             {
-                var ranks = layers.Select(layer => ContainerRank(layer.Mask)).ToArray();
+                var ranks = writableLayers.Select(layer => ContainerRank(layer.Mask)).ToArray();
                 var interleaved = ranks.Zip(ranks.Skip(1)).Any(pair => pair.First > pair.Second);
-                return layers.Select((layer, index) => (layer, interleaved ? index : (double?)null)).ToArray();
+                return writableLayers.Select((layer, index) => (layer, interleaved ? index : (double?)null)).ToArray();
             }
-            var kept = KeptIndexes(layers.Select(layer => layer.XmpLayerOrder).ToArray());
-            var keys = layers.Select((layer, index) => (layer, index)).Aggregate(new List<double>(), (assigned, entry) =>
+            var kept = KeptIndexes(writableLayers.Select(layer => layer.XmpLayerOrder).ToArray());
+            var keys = writableLayers.Select((layer, index) => (layer, index)).Aggregate(new List<double>(), (assigned, entry) =>
             {
                 double? lower = assigned.Count == 0 ? null : assigned[^1];
-                var bounds = kept.Where(index => index > entry.index).Select(index => layers[index].XmpLayerOrder!.Value)
+                var bounds = kept.Where(index => index > entry.index).Select(index => writableLayers[index].XmpLayerOrder!.Value)
                     .Concat(verbatim.Where(key => lower is null || key > lower));
                 double? upper = bounds.Any() ? bounds.Min() : null;
                 assigned.Add(kept.Contains(entry.index) ? entry.layer.XmpLayerOrder!.Value : (lower, upper) switch
@@ -87,7 +93,7 @@ namespace Maple.WinUI.Services.Xmp
                 return assigned;
             });
             var written = Representable(keys, verbatim) ? keys : Respaced(keys, verbatim);
-            return layers.Zip(written, (layer, key) => (layer, (double?)key)).ToArray();
+            return writableLayers.Zip(written, (layer, key) => (layer, (double?)key)).ToArray();
         }
 
         private static double Written(double key) => double.Parse(Format(key), CultureInfo.InvariantCulture);
