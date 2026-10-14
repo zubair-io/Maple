@@ -76,3 +76,24 @@ test('symlink-equivalent library roots share a canonical write admission scope',
     writeScope: root,
   });
 });
+
+test('a nested alias shares the broad enclosing root scope with its direct path', async () => {
+  aliasRoot = join(dirname(root), `${basename(root)}-nested-alias`);
+  await symlink(nested, aliasRoot, 'dir');
+  process.env.MAPLE_ROOTS = root;
+  setLibraryRootsForTests(new Map([['nested-alias', aliasRoot]]));
+
+  const direct = await resolveAndAuthorizePath(join(nested, 'photo.dng'));
+  const aliased = await resolveAndAuthorizePath(join(aliasRoot, 'photo.dng'));
+
+  expect(direct).toEqual({
+    ok: true,
+    data: join(nested, 'photo.dng'),
+    writeScope: root,
+  });
+  expect(aliased).toEqual({
+    ok: true,
+    data: join(aliasRoot, 'photo.dng'),
+    writeScope: root,
+  });
+});

@@ -112,6 +112,7 @@ export const xmpPathRoutes = new Elysia()
           },
           {
             admissionScope: writeScope,
+            signal: request.signal,
             resolveDestination: async () => {
               const allowed = await safeWriteAllowed(sidecar);
               if (!allowed.ok)
@@ -251,8 +252,8 @@ export const xmpPathRoutes = new Elysia()
   // -- Delete ------------------------------------------------------------
   .delete(
     '/api/xmp',
-    async ({ rawPath, writeScope, set }) => {
-      const outcome = await deleteXmpSidecar(rawPath, writeScope);
+    async ({ rawPath, writeScope, set, request }) => {
+      const outcome = await deleteXmpSidecar(rawPath, writeScope, request.signal);
       if (!outcome.ok) {
         set.status = 500;
         return { error: outcome.error };

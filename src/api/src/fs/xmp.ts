@@ -142,6 +142,7 @@ export async function writeXmpAtomic(
       (destination) => publishPrimarySidecar(destination, xmlContent, signal),
       {
         admissionScope,
+        signal,
         resolveDestination: () => requirePrimarySidecarDestination(rawAbsPath),
       },
     );
@@ -181,6 +182,7 @@ export async function updateXmpAtomic(
       },
       {
         admissionScope,
+        signal,
         resolveDestination: () => requirePrimarySidecarDestination(rawAbsPath),
       },
     );
@@ -440,6 +442,7 @@ export async function writeXmpWithPrecondition(
       },
       {
         admissionScope,
+        signal,
         resolveDestination: () => requirePrimarySidecarDestination(rawAbsPath),
       },
     );
@@ -458,6 +461,7 @@ export async function writeXmpWithPrecondition(
 export async function deleteXmpSidecar(
   rawAbsPath: string,
   admissionScope?: string,
+  signal?: AbortSignal,
 ): Promise<OpResult & { existed?: boolean }> {
   try {
     return await serializeSidecarWrite(
@@ -476,6 +480,7 @@ export async function deleteXmpSidecar(
       },
       {
         admissionScope,
+        signal,
         resolveDestination: () => requirePrimarySidecarDestination(rawAbsPath),
       },
     );

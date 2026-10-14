@@ -203,7 +203,7 @@ export const xmpRoutes = new Elysia()
   )
 
   // Delete XMP sidecar (idempotent).
-  .delete('/:id/xmp', async ({ params, query, set }) => {
+  .delete('/:id/xmp', async ({ params, query, set, request }) => {
     markDeprecated(set);
     const resolved = await resolveAssetLocationOrRespond(params.id, set);
     if ('error' in resolved) return resolved;
@@ -218,7 +218,7 @@ export const xmpRoutes = new Elysia()
     const result =
       conflict !== null
         ? await deleteConflictSidecar(absPath, conflict)
-        : await deleteXmpSidecar(absPath, writeScope);
+        : await deleteXmpSidecar(absPath, writeScope, request.signal);
     if (!result.ok) {
       set.status = 400;
       return { error: result.error };

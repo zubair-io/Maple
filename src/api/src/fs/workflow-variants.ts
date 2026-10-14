@@ -187,6 +187,7 @@ export async function writeWorkflowVariant(
     },
     {
       admissionScope,
+      signal,
       resolveDestination: () => barrierPath(rawPath, id, signal),
     },
   );
@@ -306,6 +307,7 @@ async function mutateVariant(
     },
     {
       admissionScope,
+      signal,
       resolveDestination: () => barrierPath(rawPath, id, signal),
     },
   );

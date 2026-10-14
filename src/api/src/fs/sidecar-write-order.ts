@@ -11,6 +11,22 @@ export interface SidecarWriteOrderOptions {
   admissionScope?: string;
   /** Resolve and authorize the path after its FIFO admission has been registered. */
   resolveDestination?: () => Promise<string>;
+  /** Stop waiting for destination admission when its request is aborted. */
+  signal?: AbortSignal;
+}
+
+function waitForAbortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  signal.throwIfAborted();
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () =>
+      reject(signal.reason ?? new DOMException('The operation was aborted', 'AbortError'));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  return Promise.race([promise, aborted]).finally(() => {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  });
 }
 
 export class SidecarWritePathDeniedError extends Error {}
@@ -79,29 +95,42 @@ export async function serializeSidecarWrite<T>(
   // report that expected request failure as an unhandled rejection before the
   // FIFO turn reaches Promise.all below.
   void canonicalKeyPromise.catch(() => undefined);
+  const destinationKeysPromise = Promise.all([destinationPromise, canonicalKeyPromise]).then(
+    ([actualDestination, inodeKey]) => {
+      const lexicalKey = `path:${path
+        .resolve(resolvedDestination)
+        .normalize('NFC')
+        .toLowerCase()
+        .normalize('NFC')}`;
+      return { actualDestination, keys: [...new Set([lexicalKey, inodeKey])] };
+    },
+  );
+  void destinationKeysPromise.catch(() => undefined);
 
   let next: Promise<T>;
   let settled: Promise<void>;
-  let key: string;
-  let actualDestination: string;
+  let keys: string[];
   try {
     await previousAdmission;
     // Resolve paths concurrently, but register their canonical write chains in
     // admission order so a faster alias cannot overtake an earlier save.
-    [actualDestination, key] = await Promise.all([destinationPromise, canonicalKeyPromise]);
-    const previous = pendingWrites.get(key) ?? Promise.resolve();
-    next = previous.then(() => write(actualDestination));
+    const result = await waitForAbortable(destinationKeysPromise, options.signal);
+    keys = result.keys;
+    const previous = Promise.all(keys.map((key) => pendingWrites.get(key) ?? Promise.resolve()));
+    next = previous.then(() => write(result.actualDestination));
     settled = next.then(
       () => undefined,
       () => undefined,
     );
-    pendingWrites.set(key, settled);
+    for (const key of keys) pendingWrites.set(key, settled);
   } finally {
     releaseAdmission();
     if (admissionTails.get(admissionKey) === currentAdmission) admissionTails.delete(admissionKey);
   }
 
   return next.finally(() => {
-    if (pendingWrites.get(key) === settled) pendingWrites.delete(key);
+    for (const key of keys) {
+      if (pendingWrites.get(key) === settled) pendingWrites.delete(key);
+    }
   });
 }

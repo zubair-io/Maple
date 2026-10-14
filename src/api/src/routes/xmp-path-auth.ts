@@ -71,25 +71,55 @@ export async function resolveAndAuthorizePath(
     };
   }
 
-  // Use the broadest matching root so nested registrations share the same
-  // FIFO admission scope for a sidecar, whichever root the caller addressed.
-  const writeScope = allRoots
-    .filter((root) => isWithinRoot(root, normalized))
-    .sort((left, right) => left.length - right.length)[0];
-  if (writeScope)
+  // Keep lexical authorization so callers can continue using their registered
+  // symlink path. Canonicalize before selecting the admission scope: a request
+  // through a nested alias and the same file through an enclosing MAPLE_ROOTS
+  // path must share the broadest physical root.
+  const lexicallyMatchingRoots = allRoots.filter((root) => isWithinRoot(root, normalized));
+  if (lexicallyMatchingRoots.length === 0) {
     return {
-      ok: true,
-      data: normalized,
-      // Aliased registrations of the same library must share the same FIFO
-      // admission queue. The authorized request path stays lexical, but the
-      // scope uses the root's canonical filesystem identity.
-      writeScope: await realpath(writeScope),
+      ok: false,
+      status: 403,
+      error: 'Path is not inside any registered library root',
     };
-  return {
-    ok: false,
-    status: 403,
-    error: 'Path is not inside any registered library root',
-  };
+  }
+  const canonicalPath = await canonicalPathForAdmission(normalized);
+  const canonicalRoots = await Promise.all(
+    allRoots.map((root) => realpath(root).catch(() => path.resolve(root))),
+  );
+  const canonicalMatchingRoots = canonicalRoots.filter((root) => isWithinRoot(root, canonicalPath));
+  const lexicallyMatchingCanonicalRoots = allRoots.flatMap((root, index) =>
+    lexicallyMatchingRoots.includes(root) ? [canonicalRoots[index]] : [],
+  );
+  const scopeCandidates =
+    canonicalMatchingRoots.length > 0 ? canonicalMatchingRoots : lexicallyMatchingCanonicalRoots;
+  const writeScope = scopeCandidates.sort((left, right) => left.length - right.length)[0];
+  if (!writeScope) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'Path is not inside any registered library root',
+    };
+  }
+  return { ok: true, data: normalized, writeScope };
+}
+
+/** Resolve an existing path or preserve its missing tail below a real parent. */
+async function canonicalPathForAdmission(filePath: string): Promise<string> {
+  let candidate = path.resolve(filePath);
+  const missingSegments: string[] = [];
+  while (true) {
+    try {
+      return path.join(await realpath(candidate), ...missingSegments);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
+      const parent = path.dirname(candidate);
+      if (parent === candidate) throw error;
+      missingSegments.unshift(path.basename(candidate));
+      candidate = parent;
+    }
+  }
 }
 
 export async function safeWriteAllowedForPath(filePath: string, dbOverride?: SqliteDb) {
