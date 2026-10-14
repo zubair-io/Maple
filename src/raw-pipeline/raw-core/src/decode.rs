@@ -1197,9 +1197,10 @@ impl EffectiveWhiteScan {
 /// six 128px regions and span at least one quarter of the frame on both axes;
 /// dense midrange plateaus must occupy 12. Each threshold must hold on four
 /// 128px grids offset by half a cell, so a small stripe or frame-local patch
-/// cannot qualify just because it crosses grid boundaries. A lower scalar ceiling is also rejected
-/// when another Bayer position has supported samples above it but no
-/// qualifying plateau of its own.
+/// cannot qualify just because it crosses grid boundaries. A lower scalar
+/// ceiling is also rejected when another Bayer position has supported samples
+/// above it but no qualifying plateau of its own, or when a Bayer position
+/// contains a dense brighter population that may be a localized real highlight.
 fn effective_white_level(
     data: &[u16],
     width: u32,
@@ -1372,15 +1373,18 @@ fn effective_white_level(
             .filter(|(value, _)| *value as u32 > best)
             .map(|(_, counts)| counts[position])
             .sum::<u32>();
-        // Some packed RAW encodings expand one valid source code into a
-        // decoded value with only a handful of samples. The frame-span and
-        // four-grid checks below reject isolated defects without requiring
-        // the expanded code to reach the plateau's 32-sample threshold.
+        // Dense brighter populations preserve the declared ceiling even if
+        // they are localized. Some packed RAW encodings also expand one valid
+        // source code into only a handful of samples, so the frame-span and
+        // four-grid checks retain sparse, distributed highlights while
+        // rejecting isolated defects.
+        let densely_populated_brighter_highlights = sample_count >= 1024;
         sample_count >= 6
-            && brighter_bounds[position].spans_frame(width, height)
-            && brighter_regions[position]
-                .iter()
-                .all(|regions| regions.has_two_dimensional_support(6))
+            && (densely_populated_brighter_highlights
+                || (brighter_bounds[position].spans_frame(width, height)
+                    && brighter_regions[position]
+                        .iter()
+                        .all(|regions| regions.has_two_dimensional_support(6))))
     });
     if unprotected_bayer_highlights {
         declared
@@ -1821,6 +1825,30 @@ mod tests {
                 data[y * w + x] = 62206;
             }
         }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_preserves_declared_for_dense_localized_brighter_highlights() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for tile_y in 0..4 {
+            for tile_x in 0..4 {
+                let y = tile_y * 128;
+                let x = tile_x * 128;
+                data[y * w + x] = 64_856;
+                data[(y + 2) * w + x + 2] = 64_856;
+            }
+        }
+        for y in 256..356 {
+            for x in 256..356 {
+                data[y * w + x] = 65_000;
+            }
+        }
+
         assert_eq!(
             effective_white_level(&data, 512, 512, &[0; 4], 65535),
             65535
