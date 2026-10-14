@@ -38,7 +38,7 @@ import { safeWriteAllowed } from './root.ts';
 import type { OpResult } from './root.ts';
 import { waitForAbortable } from './sidecar-write-order.ts';
 
-async function authorizeUnlessAborted(destPath: string, signal?: AbortSignal) {
+export async function authorizeUnlessAborted(destPath: string, signal?: AbortSignal) {
   try {
     return await waitForAbortable(safeWriteAllowed(destPath), signal);
   } catch (error) {

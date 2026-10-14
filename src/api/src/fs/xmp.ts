@@ -11,6 +11,7 @@ import * as path from 'node:path';
 import * as fs from './mirrored.ts';
 import { readFileWithFailover } from './mirror-read.ts';
 import {
+  authorizeUnlessAborted,
   deleteSidecar,
   writeSidecarAtomic,
   writeSidecarCreateOnly,
@@ -81,7 +82,7 @@ export async function preparePrimarySidecarWrite(
   xmlContent: string,
   signal?: AbortSignal,
 ): Promise<{ ok: true; data: string } | { ok: false; error: string }> {
-  const allowed = await safeWriteAllowed(sidecar);
+  const allowed = await authorizeUnlessAborted(sidecar, signal);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
   try {
     const existing = await fs.readFile(sidecar, 'utf8').catch((error: unknown) => {
