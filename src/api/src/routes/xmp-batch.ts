@@ -48,7 +48,7 @@ interface EntryResult {
   absPath?: string;
 }
 
-async function processEntry(entry: BatchEntry): Promise<EntryResult> {
+async function processEntry(entry: BatchEntry, signal: AbortSignal): Promise<EntryResult> {
   let absPath: string;
   try {
     const resolved = await resolveAddressString(entry.address);
@@ -57,11 +57,13 @@ async function processEntry(entry: BatchEntry): Promise<EntryResult> {
     const msg = err instanceof Error ? err.message : String(err);
     return { address: entry.address, ok: false, error: msg };
   }
+<<<<<<< HEAD
   const isVideo = isVideoFilename(path.basename(absPath));
   const writeResult = await updateXmpAtomic(absPath, (existingXml) =>
     mergeMetadataIntoXmp(existingXml, entry.metadata, {
       metadataOnly: existingXml.trim().length === 0 && isVideo,
     }),
+    signal,
   );
   if (!writeResult.ok) {
     return { address: entry.address, ok: false, error: writeResult.error };
@@ -143,7 +145,7 @@ const BatchBodySchema = t.Object({
 
 export const xmpBatchRoutes = new Elysia().post(
   '/api/xmp/batch',
-  async ({ body, set }) => {
+  async ({ body, set, request }) => {
     const entries = body.entries;
     if (!Array.isArray(entries) || entries.length === 0) {
       set.status = 400;
@@ -159,7 +161,9 @@ export const xmpBatchRoutes = new Elysia().post(
     const results: EntryResult[] = [];
     for (let i = 0; i < entries.length; i += CONCURRENCY) {
       const batch = entries.slice(i, i + CONCURRENCY);
-      const batchResults = await Promise.all(batch.map((e) => processEntry(e as BatchEntry)));
+      const batchResults = await Promise.all(
+        batch.map((e) => processEntry(e as BatchEntry, request.signal)),
+      );
       results.push(...batchResults);
     }
 

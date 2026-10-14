@@ -79,6 +79,7 @@ export async function readXmp(rawAbsPath: string): Promise<OpResult<string>> {
 export async function preparePrimarySidecarWrite(
   sidecar: string,
   xmlContent: string,
+  signal?: AbortSignal,
 ): Promise<{ ok: true; data: string } | { ok: false; error: string }> {
   const allowed = await safeWriteAllowed(sidecar);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
@@ -87,9 +88,15 @@ export async function preparePrimarySidecarWrite(
       if (isMissingSidecar(error)) return null;
       throw error;
     });
-    return { ok: true, data: await prepareWorkflowWrite(existing, xmlContent) };
+    return {
+      ok: true,
+      data: await prepareWorkflowWrite(existing, xmlContent, signal),
+    };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -106,8 +113,9 @@ export async function primarySidecarDestination(
 async function publishPrimarySidecar(
   destination: string,
   xmlContent: string,
+  signal?: AbortSignal,
 ): Promise<OpResult<string>> {
-  const prepared = await preparePrimarySidecarWrite(destination, xmlContent);
+  const prepared = await preparePrimarySidecarWrite(destination, xmlContent, signal);
   if (!prepared.ok) return prepared;
   const result = await writeSidecarAtomic(destination, prepared.data, 'XMP write failed');
   return result.ok ? { ok: true, data: prepared.data } : { ok: false, error: result.error };
@@ -117,11 +125,14 @@ async function publishPrimarySidecar(
 export async function writeXmpAtomic(
   rawAbsPath: string,
   xmlContent: string,
+  signal?: AbortSignal,
 ): Promise<OpResult<string>> {
   const allowed = await primarySidecarDestination(rawAbsPath);
   if (!allowed.ok) return allowed;
   const destination = allowed.data;
-  return serializeSidecarWrite(destination, () => publishPrimarySidecar(destination, xmlContent));
+  return serializeSidecarWrite(destination, () =>
+    publishPrimarySidecar(destination, xmlContent, signal),
+  );
 }
 
 /** Read-merge-write of the primary sidecar inside the same per-sidecar barrier as
@@ -130,6 +141,7 @@ export async function writeXmpAtomic(
 export async function updateXmpAtomic(
   rawAbsPath: string,
   merge: (existingXml: string) => string,
+  signal?: AbortSignal,
 ): Promise<OpResult<string>> {
   const allowed = await primarySidecarDestination(rawAbsPath);
   if (!allowed.ok) return allowed;
@@ -146,7 +158,7 @@ export async function updateXmpAtomic(
             },
     );
     if (!existing.ok) return existing;
-    return publishPrimarySidecar(destination, merge(existing.data ?? ''));
+    return publishPrimarySidecar(destination, merge(existing.data ?? ''), signal);
   });
 }
 
@@ -375,7 +387,10 @@ export async function writeXmpWithPrecondition(
 
     const prepared = await preparePrimarySidecarWrite(sidecar, xmlContent);
     if (!prepared.ok)
-      return { kind: 'error', error: prepared.error ?? 'Workflow validation failed' };
+      return {
+        kind: 'error',
+        error: prepared.error ?? 'Workflow validation failed',
+      };
     const result = await writeSidecarAtomic(sidecar, prepared.data, 'XMP write failed');
     return result.ok ? { kind: 'ok', mtime: result.mtime } : { kind: 'error', error: result.error };
   });

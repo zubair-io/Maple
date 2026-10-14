@@ -33,7 +33,7 @@
  */
 
 import { Elysia, status, t } from 'elysia';
-import { callNative } from 'maple';
+import { callNativeRetrying } from '../fs/native-call';
 import { parseSidecarWorkflow, PRIMARY_VARIANT_ID } from '../generated/workflow.generated.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
 import * as fs from 'node:fs/promises';
@@ -59,12 +59,15 @@ export const xmpPathRoutes = new Elysia()
   .resolve(async ({ query }) => {
     const authorized = await resolveAndAuthorizePath(query.path);
     if (!authorized.ok) return status(authorized.status, { error: authorized.error });
-    return { rawPath: authorized.data, sidecar: xmpSidecarPath(authorized.data) };
+    return {
+      rawPath: authorized.data,
+      sidecar: xmpSidecarPath(authorized.data),
+    };
   })
   // Workflow authoring records share the authorized primary sidecar path.
   .patch(
     '/api/xmp/workflow',
-    async ({ rawPath, sidecar, body, set }) => {
+    async ({ rawPath, sidecar, body, set, request }) => {
       try {
         // Wire validation reports 422; filesystem publication reports 500.
         // Select each boundary's status before invoking the operation that can throw.
@@ -72,19 +75,25 @@ export const xmpPathRoutes = new Elysia()
         const workflow = parseSidecarWorkflow(body);
         set.status = 500;
         if (workflow.variantId !== PRIMARY_VARIANT_ID)
-          return status(422, { error: 'Variant identity does not match the primary sidecar.' });
+          return status(422, {
+            error: 'Variant identity does not match the primary sidecar.',
+          });
         const allowed = await safeWriteAllowed(sidecar);
-        if (!allowed.ok) return status(403, { error: allowed.error ?? 'Sidecar path not allowed' });
+        if (!allowed.ok)
+          return status(403, {
+            error: allowed.error ?? 'Sidecar path not allowed',
+          });
         const destination = allowed.data ?? sidecar;
         return await serializeSidecarWrite(destination, async () => {
           const existing = await fs.readFile(destination, 'utf8').catch((error: unknown) => {
             if (isMissingSidecar(error)) return mergeMetadataIntoXmp('', {});
             throw error;
           });
-          const conversion = await callNative('workflowEmbedXmp', [
-            JSON.stringify(workflow),
-            existing,
-          ]);
+          const conversion = await callNativeRetrying(
+            'workflowEmbedXmp',
+            [JSON.stringify(workflow), existing],
+            request.signal,
+          );
           if (!conversion.ok) {
             set.status = 422;
             return { error: conversion.error };
@@ -104,13 +113,18 @@ export const xmpPathRoutes = new Elysia()
           return conversion.value;
         });
       } catch (error) {
-        return { error: error instanceof Error ? error.message : String(error) };
+        return {
+          error: error instanceof Error ? error.message : String(error),
+        };
       }
     },
     {
       query: t.Object({ path: t.String() }),
       body: t.Any(),
-      detail: { summary: 'Commit shared workflow metadata to a primary sidecar', tags: ['xmp'] },
+      detail: {
+        summary: 'Commit shared workflow metadata to a primary sidecar',
+        tags: ['xmp'],
+      },
     },
   )
   // -- Read --------------------------------------------------------------
@@ -166,10 +180,12 @@ export const xmpPathRoutes = new Elysia()
         (match !== null && !/^"[0-9a-f]{40}"$/.test(match)) ||
         (absent !== null && absent !== '*')
       ) {
-        return status(400, { error: 'Use one strong If-Match ETag or If-None-Match: *.' });
+        return status(400, {
+          error: 'Use one strong If-Match ETag or If-None-Match: *.',
+        });
       }
       if (match !== null || absent !== null) {
-        const conditional = await writeXmpIfUnchanged(rawPath, xmlContent, match);
+        const conditional = await writeXmpIfUnchanged(rawPath, xmlContent, match, request.signal);
         if (conditional.kind === 'conflict')
           return status(412, { error: 'XMP changed; reload before saving.' });
         if (conditional.kind === 'error') return status(500, { error: conditional.error });
@@ -179,7 +195,7 @@ export const xmpPathRoutes = new Elysia()
         set.headers['X-Maple-Xmp-Preconditions'] = 'content-etag-v1';
         return conditional.data;
       }
-      const outcome = await writeXmpAtomic(rawPath, xmlContent);
+      const outcome = await writeXmpAtomic(rawPath, xmlContent, request.signal);
       if (!outcome.ok) {
         // Includes failed durable writes and unsupported workflow metadata;
         // either failure leaves the existing sidecar untouched.

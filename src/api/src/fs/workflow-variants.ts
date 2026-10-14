@@ -39,14 +39,19 @@ async function nativeValue(
     | 'workflowSnapshotXmp'
     | 'workflowRestoreXmp',
   args: [string] | [string, string],
+  signal?: AbortSignal,
 ): Promise<string> {
-  const result = await callNativeRetrying(method, args);
+  const result = await callNativeRetrying(method, args, signal);
   if (!result.ok) throw new WorkflowVariantError(422, result.error);
   return result.value;
 }
-async function variantPath(rawPath: string, id: string): Promise<string> {
+async function variantPath(rawPath: string, id: string, signal?: AbortSignal): Promise<string> {
   const primary = xmpSidecarPath(rawPath);
-  const filename = await nativeValue('workflowVariantFilename', [path.basename(primary), id]);
+  const filename = await nativeValue(
+    'workflowVariantFilename',
+    [path.basename(primary), id],
+    signal,
+  );
   const destination = path.join(path.dirname(primary), filename);
   const allowed = await safeWriteAllowed(destination);
   if (!allowed.ok) throw new WorkflowVariantError(403, allowed.error ?? 'Sidecar path not allowed');
@@ -55,14 +60,14 @@ async function variantPath(rawPath: string, id: string): Promise<string> {
 /** The primary's barrier key comes from the resolver ordinary saves use. No
  *  native call precedes the barrier, so a burst of commits cannot fill the
  *  worker pool ahead of a queued save; the in-barrier read still validates. */
-async function barrierPath(rawPath: string, id: string): Promise<string> {
-  if (id !== PRIMARY_VARIANT_ID) return variantPath(rawPath, id);
+async function barrierPath(rawPath: string, id: string, signal?: AbortSignal): Promise<string> {
+  if (id !== PRIMARY_VARIANT_ID) return variantPath(rawPath, id, signal);
   const primary = await primarySidecarDestination(rawPath);
   if (!primary.ok) throw new WorkflowVariantError(403, primary.error);
   return primary.data;
 }
-async function record(xml: string): Promise<SidecarWorkflow | null> {
-  const value: unknown = JSON.parse(await nativeValue('workflowReadXmp', [xml]));
+async function record(xml: string, signal?: AbortSignal): Promise<SidecarWorkflow | null> {
+  const value: unknown = JSON.parse(await nativeValue('workflowReadXmp', [xml], signal));
   return value === null ? null : parseSidecarWorkflow(value);
 }
 function requireIdentity(value: SidecarWorkflow | null, id: string, filename: string): void {
@@ -72,8 +77,12 @@ function requireIdentity(value: SidecarWorkflow | null, id: string, filename: st
       `Variant identity does not match ${filename}. Repair the sidecar before editing.`,
     );
 }
-export async function readWorkflowVariant(rawPath: string, id: string): Promise<string | null> {
-  const destination = await variantPath(rawPath, id);
+export async function readWorkflowVariant(
+  rawPath: string,
+  id: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const destination = await variantPath(rawPath, id, signal);
   const xml = await fs.readFile(destination, 'utf8').catch((error: unknown) => {
     if (isMissingSidecar(error)) return null;
     throw error;
@@ -83,44 +92,48 @@ export async function readWorkflowVariant(rawPath: string, id: string): Promise<
       404,
       `Variant sidecar is missing: ${path.basename(destination)}. Restore it before editing.`,
     );
-  if (xml !== null) requireIdentity(await record(xml), id, path.basename(destination));
+  if (xml !== null) requireIdentity(await record(xml, signal), id, path.basename(destination));
   return xml;
 }
-async function inspect(rawPath: string, id: string): Promise<VariantSidecar> {
-  const destination = await variantPath(rawPath, id);
-  const xml = await readWorkflowVariant(rawPath, id);
+async function inspect(rawPath: string, id: string, signal?: AbortSignal): Promise<VariantSidecar> {
+  const destination = await variantPath(rawPath, id, signal);
+  const xml = await readWorkflowVariant(rawPath, id, signal);
   return {
     variantId: id,
     filename: path.basename(destination),
-    workflow: xml === null ? null : await record(xml),
+    workflow: xml === null ? null : await record(xml, signal),
     exists: xml !== null,
   };
 }
-export async function listWorkflowVariants(rawPath: string): Promise<VariantSidecar[]> {
-  const primary = await variantPath(rawPath, PRIMARY_VARIANT_ID);
+export async function listWorkflowVariants(
+  rawPath: string,
+  signal?: AbortSignal,
+): Promise<VariantSidecar[]> {
+  const primary = await variantPath(rawPath, PRIMARY_VARIANT_ID, signal);
   const prefix = path.basename(primary, '.xmp') + '.v';
   const files = (await fs.readdir(path.dirname(primary))).sort();
   const candidates = files.filter((name) => name.startsWith(prefix) && name.endsWith('.xmp'));
   const ids = candidates
     .map((name) => name.slice(prefix.length, -4))
     .filter((id) => id.length === 36);
-  return Promise.all([PRIMARY_VARIANT_ID, ...ids].map((id) => inspect(rawPath, id)));
+  return Promise.all([PRIMARY_VARIANT_ID, ...ids].map((id) => inspect(rawPath, id, signal)));
 }
 export async function createWorkflowVariant(
   rawPath: string,
   workflow: SidecarWorkflow,
   sourceId = PRIMARY_VARIANT_ID,
+  signal?: AbortSignal,
 ): Promise<VariantSidecar> {
   if (workflow.variantId === PRIMARY_VARIANT_ID)
     throw new WorkflowVariantError(
       409,
       'Create a new variant identity; the primary already exists.',
     );
-  const destination = await variantPath(rawPath, workflow.variantId);
-  const source = await readWorkflowVariant(rawPath, sourceId);
+  const destination = await variantPath(rawPath, workflow.variantId, signal);
+  const source = await readWorkflowVariant(rawPath, sourceId, signal);
   if (source === null)
     throw new WorkflowVariantError(409, 'Commit the source adjustments before creating a variant.');
-  const output = await nativeValue('workflowEmbedXmp', [JSON.stringify(workflow), source]);
+  const output = await nativeValue('workflowEmbedXmp', [JSON.stringify(workflow), source], signal);
   const outcome = await writeSidecarCreateOnly(destination, output, 'Variant create failed');
   if (!outcome.ok)
     throw new WorkflowVariantError(
@@ -129,27 +142,29 @@ export async function createWorkflowVariant(
         ? 'Variant identity already exists. Choose a new identity.'
         : outcome.error,
     );
-  return inspect(rawPath, workflow.variantId);
+  return inspect(rawPath, workflow.variantId, signal);
 }
 export async function writeWorkflowVariant(
   rawPath: string,
   id: string,
   xml: string,
+  signal?: AbortSignal,
 ): Promise<string> {
-  const destination = await barrierPath(rawPath, id);
+  const destination = await barrierPath(rawPath, id, signal);
   return serializeSidecarWrite(destination, async () => {
-    const existing = await readWorkflowVariant(rawPath, id);
-    const oldRecord = existing === null ? null : await record(existing);
-    const nextRecord = await record(xml);
+    const existing = await readWorkflowVariant(rawPath, id, signal);
+    const oldRecord = existing === null ? null : await record(existing, signal);
+    const nextRecord = await record(xml, signal);
     requireIdentity(nextRecord ?? oldRecord, id, path.basename(destination));
     // Ordinary saves can carry a cached record from before a snapshot or
     // semantic commit. The current sidecar owns workflow metadata (#4063).
     const output =
       oldRecord !== null
-        ? await nativeValue('workflowEmbedXmp', [
-            JSON.stringify(oldRecord),
-            await nativeValue('workflowCheckpointXmp', [xml]),
-          ])
+        ? await nativeValue(
+            'workflowEmbedXmp',
+            [JSON.stringify(oldRecord), await nativeValue('workflowCheckpointXmp', [xml], signal)],
+            signal,
+          )
         : xml;
     const outcome = await writeSidecarAtomic(destination, output, 'Variant write failed');
     if (!outcome.ok) throw new WorkflowVariantError(500, outcome.error);
@@ -164,16 +179,23 @@ export function commitWorkflowVariant(
   expectedXmp: string | null,
   xmp: string,
   entry: WorkflowHistoryEntry,
+  signal?: AbortSignal,
 ): Promise<string> {
-  return mutateVariant(rawPath, id, expectedXmp, async (current) => {
-    const checkpoint = await nativeValue('workflowCheckpointXmp', [xmp]);
-    const existing = current === null ? null : await record(current);
-    const candidate =
-      existing === null
-        ? checkpoint
-        : await nativeValue('workflowEmbedXmp', [JSON.stringify(existing), checkpoint]);
-    return nativeValue('workflowCommitXmp', [candidate, JSON.stringify(entry)]);
-  });
+  return mutateVariant(
+    rawPath,
+    id,
+    expectedXmp,
+    async (current) => {
+      const checkpoint = await nativeValue('workflowCheckpointXmp', [xmp], signal);
+      const existing = current === null ? null : await record(current, signal);
+      const candidate =
+        existing === null
+          ? checkpoint
+          : await nativeValue('workflowEmbedXmp', [JSON.stringify(existing), checkpoint], signal);
+      return nativeValue('workflowCommitXmp', [candidate, JSON.stringify(entry)], signal);
+    },
+    signal,
+  );
 }
 export function snapshotWorkflowVariant(
   rawPath: string,
@@ -181,42 +203,57 @@ export function snapshotWorkflowVariant(
   expectedXmp: string | null,
   snapshot: WorkflowSnapshot,
   initialXmp?: string,
+  signal?: AbortSignal,
 ): Promise<string> {
-  return mutateVariant(rawPath, id, expectedXmp, async (current) => {
-    const source = current ?? initialXmp;
-    if (source === undefined)
-      throw new WorkflowVariantError(
-        409,
-        'Commit the source adjustments before creating a snapshot.',
-      );
-    return nativeValue('workflowSnapshotXmp', [source, JSON.stringify(snapshot)]);
-  });
+  return mutateVariant(
+    rawPath,
+    id,
+    expectedXmp,
+    async (current) => {
+      const source = current ?? initialXmp;
+      if (source === undefined)
+        throw new WorkflowVariantError(
+          409,
+          'Commit the source adjustments before creating a snapshot.',
+        );
+      return nativeValue('workflowSnapshotXmp', [source, JSON.stringify(snapshot)], signal);
+    },
+    signal,
+  );
 }
 export function restoreWorkflowVariant(
   rawPath: string,
   id: string,
   expectedXmp: string,
   entry: WorkflowHistoryEntry,
+  signal?: AbortSignal,
 ): Promise<string> {
-  return mutateVariant(rawPath, id, expectedXmp, async (current) => {
-    if (current === null)
-      throw new WorkflowVariantError(404, 'The sidecar is missing. Restore it before editing.');
-    return nativeValue('workflowRestoreXmp', [current, JSON.stringify(entry)]);
-  });
+  return mutateVariant(
+    rawPath,
+    id,
+    expectedXmp,
+    async (current) => {
+      if (current === null)
+        throw new WorkflowVariantError(404, 'The sidecar is missing. Restore it before editing.');
+      return nativeValue('workflowRestoreXmp', [current, JSON.stringify(entry)], signal);
+    },
+    signal,
+  );
 }
 async function mutateVariant(
   rawPath: string,
   id: string,
   expectedXmp: string | null,
   convert: (current: string | null) => Promise<string>,
+  signal?: AbortSignal,
 ): Promise<string> {
-  const destination = await barrierPath(rawPath, id);
+  const destination = await barrierPath(rawPath, id, signal);
   return serializeSidecarWrite(destination, async () => {
-    const current = await readWorkflowVariant(rawPath, id);
+    const current = await readWorkflowVariant(rawPath, id, signal);
     if (current !== expectedXmp)
       throw new WorkflowVariantError(409, 'Variant changed. Reopen it before saving this action.');
     const output = await convert(current);
-    requireIdentity(await record(output), id, path.basename(destination));
+    requireIdentity(await record(output, signal), id, path.basename(destination));
     const result =
       current === null
         ? await writeSidecarCreateOnly(destination, output, 'Workflow action write failed')

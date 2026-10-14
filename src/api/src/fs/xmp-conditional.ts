@@ -15,6 +15,7 @@ export async function writeXmpIfUnchanged(
   rawPath: string,
   xml: string,
   expectedEtag: string | null,
+  signal?: AbortSignal,
 ): Promise<ConditionalXmpResult> {
   const allowed = await primarySidecarDestination(rawPath);
   if (!allowed.ok) return { kind: 'error', error: allowed.error };
@@ -27,7 +28,7 @@ export async function writeXmpIfUnchanged(
       });
       const actualEtag = current === null ? null : computeBodyETag(current);
       if (actualEtag !== expectedEtag) return { kind: 'conflict' };
-      const prepared = await preparePrimarySidecarWrite(destination, xml);
+      const prepared = await preparePrimarySidecarWrite(destination, xml, signal);
       if (!prepared.ok) return { kind: 'error', error: prepared.error };
       if (expectedEtag === null) {
         const created = await writeSidecarCreateOnly(
@@ -45,7 +46,10 @@ export async function writeXmpIfUnchanged(
         ? { kind: 'ok', data: prepared.data }
         : { kind: 'error', error: written.error };
     } catch (error) {
-      return { kind: 'error', error: error instanceof Error ? error.message : String(error) };
+      return {
+        kind: 'error',
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   });
 }
