@@ -1,12 +1,16 @@
-import { callNative, getMapleConcurrency, MapleWorkerPoolOverloadedError } from 'maple';
+import {
+  callNative,
+  getMapleConcurrency,
+  MapleWorkerPoolOverloadedError,
+} from "maple";
 
 export function isPoolOverload(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false;
+  if (typeof error !== "object" || error === null) return false;
   const e = error as { code?: unknown; name?: unknown; message?: unknown };
   return (
-    e.code === 'MAPLE_WORKER_POOL_OVERLOADED' ||
-    e.name === 'MapleWorkerPoolOverloadedError' ||
-    (typeof e.message === 'string' && e.message.includes('worker pool is full'))
+    e.code === "MAPLE_WORKER_POOL_OVERLOADED" ||
+    e.name === "MapleWorkerPoolOverloadedError" ||
+    (typeof e.message === "string" && e.message.includes("worker pool is full"))
   );
 }
 
@@ -22,7 +26,9 @@ interface WaitingCall {
   deadline: number;
   delayMs: number;
   lastOverload: unknown;
-  resolve: (value: { ok: true; value: string } | { ok: false; error: string }) => void;
+  resolve: (
+    value: { ok: true; value: string } | { ok: false; error: string },
+  ) => void;
   reject: (error: Error) => void;
   settled: boolean;
   onAbort?: () => void;
@@ -37,9 +43,9 @@ let draining = false;
 function abortError(signal: AbortSignal): Error {
   if (signal.reason instanceof Error) return signal.reason;
   const error = new Error(
-    typeof signal.reason === 'string' ? signal.reason : 'Native call aborted.',
+    typeof signal.reason === "string" ? signal.reason : "Native call aborted.",
   );
-  error.name = 'AbortError';
+  error.name = "AbortError";
   return error;
 }
 
@@ -63,8 +69,12 @@ function callWithAbort(
   );
 }
 
-function waitForRetry(milliseconds: number, signal?: AbortSignal): Promise<void> {
-  if (!signal) return new Promise((resolve) => setTimeout(resolve, milliseconds));
+function waitForRetry(
+  milliseconds: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!signal)
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
   if (signal.aborted) return Promise.resolve();
   let timer: ReturnType<typeof setTimeout>;
   const delay = new Promise<void>((resolve) => {
@@ -72,7 +82,7 @@ function waitForRetry(milliseconds: number, signal?: AbortSignal): Promise<void>
   });
   const cleanup = new AbortController();
   const aborted = new Promise<void>((resolve) => {
-    signal.addEventListener('abort', () => resolve(), {
+    signal.addEventListener("abort", () => resolve(), {
       once: true,
       signal: cleanup.signal,
     });
@@ -86,7 +96,8 @@ function waitForRetry(milliseconds: number, signal?: AbortSignal): Promise<void>
 function removeWaitingCall(item: WaitingCall): void {
   const index = waitingCalls.indexOf(item);
   if (index >= 0) waitingCalls.splice(index, 1);
-  if (item.signal && item.onAbort) item.signal.removeEventListener('abort', item.onAbort);
+  if (item.signal && item.onAbort)
+    item.signal.removeEventListener("abort", item.onAbort);
 }
 
 function rejectWaitingCall(item: WaitingCall, error: unknown): void {
@@ -133,14 +144,17 @@ function enqueueRetry(
       item.onAbort = () => {
         rejectWaitingCall(item, abortError(signal));
       };
-      signal.addEventListener('abort', item.onAbort, { once: true });
+      signal.addEventListener("abort", item.onAbort, { once: true });
     }
     waitingCalls.push(item);
     drainWaitingCalls();
   });
 }
 
-async function retryWaitingCall(call: WorkflowCall, item: WaitingCall): Promise<void> {
+async function retryWaitingCall(
+  call: WorkflowCall,
+  item: WaitingCall,
+): Promise<void> {
   while (!item.settled) {
     if (item.signal?.aborted) {
       rejectWaitingCall(item, abortError(item.signal));
@@ -152,7 +166,12 @@ async function retryWaitingCall(call: WorkflowCall, item: WaitingCall): Promise<
       return;
     }
     try {
-      const result = await callWithAbort(call, item.method, item.args, item.signal);
+      const result = await callWithAbort(
+        call,
+        item.method,
+        item.args,
+        item.signal,
+      );
       resolveWaitingCall(item, result);
       return;
     } catch (error) {
@@ -176,7 +195,9 @@ function drainWaitingCalls(): void {
   try {
     const concurrency = getMapleConcurrency();
     while (activeRetries.size < concurrency) {
-      const item = waitingCalls.find((candidate) => !activeRetries.has(candidate));
+      const item = waitingCalls.find(
+        (candidate) => !activeRetries.has(candidate),
+      );
       if (!item) break;
       activeRetries.add(item);
       void retryWaitingCall(call, item).finally(() => {
@@ -197,7 +218,12 @@ export async function callNativeRetrying(
   const call = callNative as unknown as WorkflowCall;
   if (signal?.aborted) throw abortError(signal);
   if (waitingCalls.length > 0)
-    return enqueueRetry(method, args, signal, new MapleWorkerPoolOverloadedError());
+    return enqueueRetry(
+      method,
+      args,
+      signal,
+      new MapleWorkerPoolOverloadedError(),
+    );
   try {
     return await callWithAbort(call, method, args, signal);
   } catch (error) {
