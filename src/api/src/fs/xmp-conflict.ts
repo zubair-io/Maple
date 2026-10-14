@@ -20,6 +20,7 @@ import * as path from 'node:path';
 import * as fs from './mirrored.ts';
 import { readFileWithFailover } from './mirror-read.ts';
 import { deleteSidecar, writeSidecarAtomic } from './sidecar-io.ts';
+import { waitForAbortable } from './sidecar-write-order.ts';
 import type { OpResult } from './root.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
 import { workflowSidecarBase } from './workflow-sidecar-pairing';
@@ -69,11 +70,13 @@ export function conflictCopyPath(rawAbsPath: string, deviceName: string): string
 export async function pickFreeConflictPath(
   rawAbsPath: string,
   deviceName: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const base = conflictCopyPath(rawAbsPath, deviceName);
   try {
-    await fs.stat(base);
+    await waitForAbortable(fs.stat(base), signal);
   } catch {
+    signal?.throwIfAborted();
     return base; // No collision.
   }
   // base ends in ".xmp" — strip and append " (N).xmp".
@@ -81,8 +84,9 @@ export async function pickFreeConflictPath(
   for (let n = 2; n <= 1000; n++) {
     const candidate = `${stem} (${n}).xmp`;
     try {
-      await fs.stat(candidate);
+      await waitForAbortable(fs.stat(candidate), signal);
     } catch {
+      signal?.throwIfAborted();
       return candidate;
     }
   }

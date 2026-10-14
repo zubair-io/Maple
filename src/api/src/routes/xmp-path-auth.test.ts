@@ -1,14 +1,17 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+import * as nodeFs from 'node:fs/promises';
 import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
+import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
 import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
 
 let oldRoots: string | undefined;
 let root: string;
 let nested: string;
 let aliasRoot: string | undefined;
+let enclosingAliasRoot: string | undefined;
 
 beforeEach(async () => {
   oldRoots = process.env.MAPLE_ROOTS;
@@ -29,18 +32,20 @@ afterEach(async () => {
   else process.env.MAPLE_ROOTS = oldRoots;
   setLibraryRootsForTests(null);
   if (aliasRoot) await rm(aliasRoot, { force: true });
+  if (enclosingAliasRoot) await rm(enclosingAliasRoot, { force: true });
   await rm(root, { recursive: true, force: true });
   aliasRoot = undefined;
+  enclosingAliasRoot = undefined;
 });
 
-test('nested registered paths use the broadest matching library for write admission', async () => {
+test('nested registered paths scope admission to their canonical destination folder', async () => {
   const filePath = join(nested, 'photo.dng');
   const result = await resolveAndAuthorizePath(filePath);
 
   expect(result).toEqual({
     ok: true,
     data: filePath,
-    writeScope: root,
+    writeScope: nested,
   });
 });
 
@@ -53,7 +58,7 @@ test('enclosing MAPLE_ROOTS paths share admission with nested registered librari
   expect(result).toEqual({
     ok: true,
     data: filePath,
-    writeScope: enclosingRoot,
+    writeScope: nested,
   });
 });
 
@@ -77,7 +82,7 @@ test('symlink-equivalent library roots share a canonical write admission scope',
   });
 });
 
-test('a nested alias shares the broad enclosing root scope with its direct path', async () => {
+test('a nested alias shares its canonical destination folder scope with its direct path', async () => {
   aliasRoot = join(dirname(root), `${basename(root)}-nested-alias`);
   await symlink(nested, aliasRoot, 'dir');
   process.env.MAPLE_ROOTS = root;
@@ -89,11 +94,78 @@ test('a nested alias shares the broad enclosing root scope with its direct path'
   expect(direct).toEqual({
     ok: true,
     data: join(nested, 'photo.dng'),
-    writeScope: root,
+    writeScope: nested,
   });
   expect(aliased).toEqual({
     ok: true,
     data: join(aliasRoot, 'photo.dng'),
-    writeScope: root,
+    writeScope: nested,
   });
+});
+
+test('nested and enclosing symlink roots share admission for one destination folder', async () => {
+  const innerAlias = join(dirname(root), `${basename(root)}-inner-alias`);
+  const outerAlias = join(dirname(root), `${basename(root)}-outer-alias`);
+  aliasRoot = innerAlias;
+  enclosingAliasRoot = outerAlias;
+  await symlink(nested, innerAlias, 'dir');
+  await symlink(root, outerAlias, 'dir');
+  setLibraryRootsForTests(
+    new Map([
+      ['inner-alias', innerAlias],
+      ['outer-alias', outerAlias],
+    ]),
+  );
+
+  const throughInner = await resolveAndAuthorizePath(join(innerAlias, 'photo.dng'));
+  const throughOuter = await resolveAndAuthorizePath(join(outerAlias, 'nested', 'photo.dng'));
+
+  expect(throughInner.ok).toBe(true);
+  expect(throughOuter.ok).toBe(true);
+  if (!throughInner.ok || !throughOuter.ok) throw new Error('registered alias roots were rejected');
+  expect(throughInner.writeScope).toBe(nested);
+  expect(throughOuter.writeScope).toBe(throughInner.writeScope);
+
+  const firstDestination = join(innerAlias, 'photo.xmp');
+  const secondDestination = join(outerAlias, 'nested', 'photo.xmp');
+  const realRealpath = nodeFs.realpath.bind(nodeFs);
+  const { promise: firstLookup, resolve: markFirstLookup } = Promise.withResolvers<void>();
+  const { promise: releaseLookup, resolve: resumeLookup } = Promise.withResolvers<void>();
+  const order: string[] = [];
+  const realpathSpy = spyOn(nodeFs, 'realpath').mockImplementation((async (
+    ...args: Parameters<typeof nodeFs.realpath>
+  ) => {
+    if (String(args[0]) === firstDestination) {
+      markFirstLookup();
+      await releaseLookup;
+    }
+    return realRealpath(...args);
+  }) as never);
+
+  try {
+    const firstWrite = serializeSidecarWrite(
+      firstDestination,
+      async () => {
+        order.push('inner-root');
+      },
+      { admissionScope: throughInner.writeScope },
+    );
+    await firstLookup;
+    const secondWrite = serializeSidecarWrite(
+      secondDestination,
+      async () => {
+        order.push('outer-root');
+      },
+      { admissionScope: throughOuter.writeScope },
+    );
+    await Bun.sleep(10);
+    expect(order).toEqual([]);
+
+    resumeLookup();
+    await Promise.all([firstWrite, secondWrite]);
+    expect(order).toEqual(['inner-root', 'outer-root']);
+  } finally {
+    resumeLookup();
+    realpathSpy.mockRestore();
+  }
 });

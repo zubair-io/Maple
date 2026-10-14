@@ -72,11 +72,10 @@ export async function resolveAndAuthorizePath(
   }
 
   // Keep lexical authorization so callers can continue using their registered
-  // symlink path. Canonicalize before selecting the admission scope: a request
-  // through a nested alias and the same file through an enclosing MAPLE_ROOTS
-  // path must share the broadest physical root.
-  const lexicallyMatchingRoots = allRoots.filter((root) => isWithinRoot(root, normalized));
-  if (lexicallyMatchingRoots.length === 0) {
+  // symlink path. Scope admission by the physical parent directory so nested
+  // and enclosing symlink roots that reach one destination enter the same lane
+  // without probing unrelated library mounts.
+  if (!allRoots.some((root) => isWithinRoot(root, normalized))) {
     return {
       ok: false,
       status: 403,
@@ -84,30 +83,7 @@ export async function resolveAndAuthorizePath(
     };
   }
   const canonicalPath = await canonicalPathForAdmission(normalized);
-  // Canonicalize roots that could contain either spelling. Unrelated roots may
-  // be on slow or unavailable network volumes and cannot affect this path's
-  // admission scope.
-  const relevantRoots = allRoots.filter(
-    (root) => isWithinRoot(root, normalized) || isWithinRoot(root, canonicalPath),
-  );
-  const canonicalRoots = await Promise.all(
-    relevantRoots.map((root) => realpath(root).catch(() => path.resolve(root))),
-  );
-  const canonicalMatchingRoots = canonicalRoots.filter((root) => isWithinRoot(root, canonicalPath));
-  const lexicallyMatchingCanonicalRoots = relevantRoots.flatMap((root, index) =>
-    lexicallyMatchingRoots.includes(root) ? [canonicalRoots[index]] : [],
-  );
-  const scopeCandidates =
-    canonicalMatchingRoots.length > 0 ? canonicalMatchingRoots : lexicallyMatchingCanonicalRoots;
-  const writeScope = scopeCandidates.sort((left, right) => left.length - right.length)[0];
-  if (!writeScope) {
-    return {
-      ok: false,
-      status: 403,
-      error: 'Path is not inside any registered library root',
-    };
-  }
-  return { ok: true, data: normalized, writeScope };
+  return { ok: true, data: normalized, writeScope: path.dirname(canonicalPath) };
 }
 
 /** Resolve an existing path or preserve its missing tail below a real parent. */
