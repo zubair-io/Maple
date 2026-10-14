@@ -108,19 +108,27 @@ describe('serializeSidecarWrite', () => {
       let writes = 0;
 
       await expect(
-        serializeSidecarWrite(destination, async () => {
-          writes++;
-          return 'written';
-        }, { admissionScope: root }),
+        serializeSidecarWrite(
+          destination,
+          async () => {
+            writes++;
+            return 'written';
+          },
+          { admissionScope: root },
+        ),
       ).rejects.toMatchObject({ code: 'ENOENT' });
       expect(writes).toBe(0);
 
       await fs.mkdir(parent);
       await expect(
-        serializeSidecarWrite(destination, async () => {
-          writes++;
-          return 'written';
-        }, { admissionScope: root }),
+        serializeSidecarWrite(
+          destination,
+          async () => {
+            writes++;
+            return 'written';
+          },
+          { admissionScope: root },
+        ),
       ).resolves.toBe('written');
       expect(writes).toBe(1);
     } finally {
