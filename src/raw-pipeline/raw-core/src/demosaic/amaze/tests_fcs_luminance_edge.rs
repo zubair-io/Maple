@@ -168,6 +168,31 @@ fn collapsed_chroma_rejects_moderate_colour_edges() {
 }
 
 #[test]
+fn collapsed_chroma_rejects_diagonals_without_centre_surface_support() {
+    for pattern in PATTERNS {
+        let centre = (10..14)
+            .flat_map(|y| (10..14).map(move |x| y * SIDE + x))
+            .find(|&i| sampled(pattern, i) != 1)
+            .expect("Bayer tile contains red and blue sites");
+        let sampled_channel = sampled(pattern, centre);
+        let opposite_channel = 2 - sampled_channel;
+        let mut truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
+            .map(|_| CHROMA.map(|ratio| ratio * 0.25))
+            .collect();
+        // The centre's measured colour is a one-pixel feature; its four
+        // opposite-colour diagonals remain on the uniform background.
+        truth[centre][sampled_channel] = 0.9 * truth[centre][1];
+        truth[centre][opposite_channel] = 0.0;
+
+        let out = suppress(pattern, &truth, |i| i == centre, -0.5);
+        assert_eq!(
+            out.pixels[centre][opposite_channel], 0.0,
+            "{pattern:?}: unsupported diagonal hue must not be transported into an isolated feature"
+        );
+    }
+}
+
+#[test]
 fn suppression_never_emits_negative_chroma() {
     let truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
         .map(|i| {
