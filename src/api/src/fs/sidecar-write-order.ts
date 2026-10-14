@@ -220,10 +220,19 @@ async function reserveActualDestinationKeys(
   const actualDestination = path.resolve(resolvedDestination);
   if (actualDestination === path.resolve(destination)) return;
 
-  const actualKeys = await waitForAbortable(
-    destinationKeys(actualDestination, canonicalKeys(actualDestination, allowMissingParent)),
-    signal,
-  );
+  const actualCanonicalKeyRequest = canonicalKeys(actualDestination, allowMissingParent);
+  let actualKeys: string[];
+  try {
+    actualKeys = await waitForAbortable(
+      destinationKeys(actualDestination, actualCanonicalKeyRequest),
+      signal,
+    );
+  } catch (error) {
+    if (signal?.aborted) {
+      discardCanonicalKey(actualDestination, actualCanonicalKeyRequest, allowMissingParent);
+    }
+    throw error;
+  }
   const previousActualWrites = extendReservation(reservation, actualKeys);
   await waitForAbortable(previousActualWrites, signal);
 }
