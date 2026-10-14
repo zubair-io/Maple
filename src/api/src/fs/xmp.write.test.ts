@@ -1,8 +1,10 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+import * as nativeFs from 'node:fs/promises';
 import { lstat, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { computeBodyETag } from '../runtime/http-etag';
+import * as mirroredFs from './mirrored.ts';
 import { serializeSidecarWrite } from './sidecar-write-order';
 import { writeXmpIfUnchanged } from './xmp-conditional.ts';
 import {
@@ -141,6 +143,124 @@ test('conditional writes stop when cancelled while queued', async () => {
 
   expect((await write).kind).toBe('error');
   expect(await readFile(sidecar, 'utf8')).toBe(original);
+});
+
+test('cancelling a stalled conditional precondition read releases the write barrier', async () => {
+  const rawPath = join(root, 'stalled-conditional-read.dng');
+  const sidecar = join(root, 'stalled-conditional-read.xmp');
+  const original = '<x:xmpmeta />';
+  await writeFile(rawPath, Buffer.from([1, 2, 3]));
+  await writeFile(sidecar, original);
+
+  const realRead = nativeFs.readFile.bind(nativeFs);
+  const { promise: stalledRead, resolve: releaseStalledRead } = Promise.withResolvers<void>();
+  const { promise: readStarted, resolve: markReadStarted } = Promise.withResolvers<void>();
+  let sidecarReads = 0;
+  const readSpy = spyOn(nativeFs, 'readFile').mockImplementation((async (
+    ...args: Parameters<typeof nativeFs.readFile>
+  ) => {
+    if (String(args[0]) === sidecar && sidecarReads++ === 0) {
+      markReadStarted();
+      await stalledRead;
+    }
+    return realRead(...args);
+  }) as never);
+  const controller = new AbortController();
+
+  try {
+    const cancelled = writeXmpIfUnchanged(
+      rawPath,
+      '<x:xmpmeta><updated /></x:xmpmeta>',
+      computeBodyETag(original),
+      controller.signal,
+      root,
+    );
+    await readStarted;
+    controller.abort();
+    await expect(
+      Promise.race([
+        cancelled,
+        Bun.sleep(100).then(() => {
+          throw new Error('conditional write did not return after cancellation');
+        }),
+      ]),
+    ).resolves.toMatchObject({ kind: 'error' });
+
+    await expect(
+      writeXmpIfUnchanged(
+        rawPath,
+        '<x:xmpmeta><next-save /></x:xmpmeta>',
+        computeBodyETag(original),
+        undefined,
+        root,
+      ),
+    ).resolves.toMatchObject({ kind: 'ok' });
+    expect(sidecarReads).toBeGreaterThan(1);
+  } finally {
+    readSpy.mockRestore();
+    releaseStalledRead();
+  }
+});
+
+test('cancelling a stalled mtime precondition stat releases the write barrier', async () => {
+  const rawPath = join(root, 'stalled-mtime-stat.dng');
+  const sidecar = join(root, 'stalled-mtime-stat.xmp');
+  const original = '<x:xmpmeta />';
+  await writeFile(rawPath, Buffer.from([1, 2, 3]));
+  await writeFile(sidecar, original);
+
+  const realStat = mirroredFs.stat.bind(mirroredFs);
+  const expectedEpoch = Math.floor((await realStat(sidecar)).mtimeMs / 1000);
+  const { promise: stalledStat, resolve: releaseStalledStat } = Promise.withResolvers<void>();
+  const { promise: statStarted, resolve: markStatStarted } = Promise.withResolvers<void>();
+  let sidecarStats = 0;
+  const statSpy = spyOn(mirroredFs, 'stat').mockImplementation((async (
+    ...args: Parameters<typeof mirroredFs.stat>
+  ) => {
+    if (String(args[0]) === sidecar && sidecarStats++ === 0) {
+      markStatStarted();
+      await stalledStat;
+    }
+    return realStat(...args);
+  }) as never);
+  const controller = new AbortController();
+
+  try {
+    const cancelled = writeXmpWithPrecondition(
+      rawPath,
+      '<x:xmpmeta><updated /></x:xmpmeta>',
+      expectedEpoch,
+      'test-device',
+      false,
+      root,
+      controller.signal,
+    );
+    await statStarted;
+    controller.abort();
+    await expect(
+      Promise.race([
+        cancelled,
+        Bun.sleep(100).then(() => {
+          throw new Error('mtime precondition did not return after cancellation');
+        }),
+      ]),
+    ).resolves.toMatchObject({ kind: 'error' });
+
+    await expect(
+      writeXmpWithPrecondition(
+        rawPath,
+        '<x:xmpmeta><next-save /></x:xmpmeta>',
+        expectedEpoch,
+        'test-device',
+        false,
+        root,
+      ),
+    ).resolves.toMatchObject({ kind: 'ok' });
+    expect(sidecarStats).toBeGreaterThan(1);
+  } finally {
+    statSpy.mockRestore();
+    releaseStalledStat();
+  }
 });
 
 test('deletes stop when cancelled while queued', async () => {

@@ -3,7 +3,7 @@
 import * as fs from 'node:fs/promises';
 import { computeBodyETag } from '../runtime/http-etag';
 import { primarySidecarDestination, preparePrimarySidecarWrite, xmpSidecarPath } from './xmp';
-import { serializeSidecarWrite } from './sidecar-write-order';
+import { serializeSidecarWrite, waitForAbortable } from './sidecar-write-order';
 import { isMissingSidecar, writeSidecarAtomic, writeSidecarCreateOnly } from './sidecar-io';
 
 export type ConditionalXmpResult =
@@ -24,10 +24,12 @@ export async function writeXmpIfUnchanged(
       async (destination) => {
         try {
           signal?.throwIfAborted();
-          const current = await fs.readFile(destination, 'utf8').catch((error: unknown) => {
-            if (isMissingSidecar(error)) return null;
-            throw error;
-          });
+          const current = await waitForAbortable(fs.readFile(destination, 'utf8'), signal).catch(
+            (error: unknown) => {
+              if (isMissingSidecar(error)) return null;
+              throw error;
+            },
+          );
           signal?.throwIfAborted();
           const actualEtag = current === null ? null : computeBodyETag(current);
           if (actualEtag !== expectedEtag) return { kind: 'conflict' };
