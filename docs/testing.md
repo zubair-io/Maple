@@ -8,20 +8,20 @@ The rule that shapes everything colour-related: **no eyeballing**. A screenshot 
 
 ## CI workflows
 
-The table below summarizes test and review workflows in [`.github/workflows/`](../.github/workflows/); release and version-management workflows also live there. Workflow definitions describe execution, not the current GitHub branch-protection settings. The repository merge contract requires green checks **on the current tip of `main`**: a branch whose base has moved needs a rebase and fresh checks. Optional jobs are identified explicitly below; a successful workflow summary alone does not prove that every suite executed.
+The table below summarizes test and review workflows in [`.github/workflows/`](../.github/workflows/); release and version-management workflows also live there. The `Main` ruleset keeps strict required checks and requires the GitHub merge queue. The queue validates each queued commit against the latest `main` and earlier queued changes, so contributors do not need to update a stale branch manually. CI runs on PRs and merge groups; the main push does not repeat those suites. Optional jobs are identified explicitly below; a successful workflow summary alone does not prove that every suite executed.
 
 | Workflow              | Job(s)                                                                                                                    | What it actually runs                                                                                                                                                                                      | Trigger                                                                                   |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `cross.yml`           | Repo tooling, release/CI regression tests, selection and result jobs                                                      | prettier, oxlint, file budgets, budget ratchets, codegen drift, dead-code audits, secret scan, UI contract docs, editor parity manifest                                                                    | every push to `main` + every PR; expensive jobs selected by dependencies                  |
-| `web.yml`             | `build-wasm`, `web-build`, `web-test`, `web-test-common`, `web-webgpu-smoke`, `web-workflow-acceptance`, selection/result | One shared WASM build; Angular builds and unit suites, artifact/capability/adoption checks and Playwright; optional fixture-gated WebGPU smoke                                                             | every push to `main` + every PR; jobs selected by dependencies                            |
-| `maple-types.yml`     | `maple-typecheck`                                                                                                         | Strict package source and test typechecks using the frozen API dependency lock; no native library or image fixtures required                                                                               | every push to `main` + every PR + `workflow_dispatch`                                     |
-| `api.yml`             | `api-typecheck`, `api-tests`                                                                                              | `bun run typecheck` for source and tests, then `bun test --timeout 30000` with no database service                                                                                                         | every push to `main` + every PR + `workflow_dispatch`                                     |
-| `raw-pipeline.yml`    | `build-raw-ffi`, `raw-gpu`, `raw-gpu-metal`, `rust-tests`, `color-pipeline`, `pano-pipeline`                              | FFI compile+test, GPU/WGSL parity on software Vulkan, GPU/WGSL parity on real Metal (non-required, #2315), fixture-free Rust tests + synthetic gates, the ACR colour harness, the pano harness             | pushes/PRs touching `src/raw-pipeline/**`, the harness scripts, or the budget JSONs       |
-| `apple.yml`           | `swift-build`, `swift-regressions`, `swift-regressions-coverage`                                                          | MapleCore compile gate, executable regressions against a real host Rust archive, and the run/excluded class-list gate                                                                                      | pushes/PRs touching `src/apple/**` or `src/raw-pipeline/**`                               |
-| `windows.yml`         | Wrapper contract, build/tests, selection/result                                                                           | Supported Windows wrapper build, raw-core tests, WinUI XMP/FFI-layout tests and real window-lifecycle smoke                                                                                                | every push to `main` + every PR; jobs selected by dependencies                            |
-| `linux.yml`           | Native build/tests and archive                                                                                            | All-target Clippy, native library/integration tests serially on required software Vulkan, release binary and local-prefix archive; committed small fixtures, no physical-GPU or real-account qualification | Linux/shared Rust, film assets, native fixtures/icon or workflow changes; manual dispatch |
-| `cloudflare.yml`      | `cloudflare-test`, `cloudflare-ssr-test`, `cloudflare-drive-connect-test`                                                 | Typecheck and Vitest for the thumbnail cache, Hosted SSR and Google Drive callback Workers                                                                                                                 | pushes/PRs touching `src/cloudflare/**` or this workflow                                  |
-| `face-clustering.yml` | `face-clustering-quality`                                                                                                 | `src/scripts/test_face_clustering.sh`                                                                                                                                                                      | pushes/PRs touching `src/api/src/people/**`, the script, or its fixtures                  |
+| `cross.yml`           | Repo tooling, release/CI regression tests, selection and result jobs                                                      | prettier, oxlint, file budgets, budget ratchets, codegen drift, dead-code audits, secret scan, UI contract docs, editor parity manifest                                                                    | every PR and merge group; expensive jobs selected by dependencies                        |
+| `web.yml`             | `build-wasm`, `web-build`, `web-test`, `web-test-common`, `web-webgpu-smoke`, `web-workflow-acceptance`, selection/result | One shared WASM build; Angular builds and unit suites, artifact/capability/adoption checks and Playwright; optional fixture-gated WebGPU smoke                                                             | every PR and merge group; jobs selected by dependencies                                  |
+| `maple-types.yml`     | `maple-typecheck`                                                                                                         | Strict package source and test typechecks using the frozen API dependency lock; no native library or image fixtures required                                                                               | every PR and merge group + `workflow_dispatch`                                            |
+| `api.yml`             | `api-typecheck`, `api-tests`                                                                                              | `bun run typecheck` for source and tests, then `bun test --timeout 30000` with no database service                                                                                                         | every PR and merge group + `workflow_dispatch`                                            |
+| `raw-pipeline.yml`    | `build-raw-ffi`, `raw-gpu`, `raw-gpu-metal`, `rust-tests`, `color-pipeline`, `pano-pipeline`                              | FFI compile+test, GPU/WGSL parity on software Vulkan, GPU/WGSL parity on real Metal (non-required, #2315), fixture-free Rust tests + synthetic gates, the ACR colour harness, the pano harness             | PR path filters and merge groups; scoped jobs selected from the merge-group diff          |
+| `apple.yml`           | `swift-build`, `swift-regressions`, `swift-regressions-coverage`                                                          | MapleCore compile gate, executable regressions against a real host Rust archive, and the run/excluded class-list gate                                                                                      | PR path filters and merge groups; Apple jobs selected from the merge-group diff          |
+| `windows.yml`         | Wrapper contract, build/tests, selection/result                                                                           | Supported Windows wrapper build, raw-core tests, WinUI XMP/FFI-layout tests and real window-lifecycle smoke                                                                                                | every PR and merge group; jobs selected by dependencies                                  |
+| `linux.yml`           | Native build/tests and archive                                                                                            | All-target Clippy, native library/integration tests serially on required software Vulkan, release binary and local-prefix archive; committed small fixtures, no physical-GPU or real-account qualification | PR path filters, merge groups, and manual dispatch; merge-group work is path selected     |
+| `cloudflare.yml`      | `cloudflare-test`, `cloudflare-ssr-test`, `cloudflare-drive-connect-test`                                                 | Typecheck and Vitest for the thumbnail cache, Hosted SSR and Google Drive callback Workers                                                                                                                 | PR path filters and merge groups; merge-group work is path selected                     |
+| `face-clustering.yml` | `face-clustering-quality`                                                                                                 | `src/scripts/test_face_clustering.sh`                                                                                                                                                                      | PR path filters and merge groups; merge-group work is path selected                     |
 | `deploy-hosted.yml`   | `build-and-deploy`                                                                                                        | Builds `maple-syrup` and uploads it to Azure Blob. **Publishing, not gating**                                                                                                                              | pushes to `main` touching `src/web/**` or `src/raw-pipeline/**`; `workflow_dispatch`      |
 | `jules-pr-review.yml` | `review`                                                                                                                  | Third-party automated reviewer. Skipped for PRs that touch only `CLAUDE.md` / `AGENTS.md` / plan-and-spec directories, and for forks                                                                       | PR opened / synchronized / reopened / ready-for-review against `main`                     |
 
@@ -29,7 +29,7 @@ The table below summarizes test and review workflows in [`.github/workflows/`](.
 
 API, Web, Windows, Maple typechecks and expensive cross jobs use the reusable
 `ci-changes.yml` workflow and `tools/ci_changes.py`. Their workflows still start
-on every PR/main push; only unrelated jobs skip. Web selection includes API
+on every PR and merge group; only unrelated jobs skip. Web selection includes API
 types, Maple packages, shared Rust, and cross-tree assets rather than just
 `src/web/`. Web source changes also select API tests because the API imports
 Web's shared ID parser and checks its preset/adjustment data. Apple brand assets,
@@ -37,11 +37,13 @@ canonical presets, calibration fixtures and shipped component documentation
 select their consumers too. Unknown paths run all optimized suites. Generated files select the
 codegen drift check, even when the generator itself did not change.
 
-PR selection uses the event's immutable base/head merge base; main pushes use
-the entire before/after range. Deletes and both sides of renames count. Missing
-history, invalid events and empty diffs conservatively run everything. Manual
-runs and `release/next-v*` PRs retain full coverage. The eight workflow names
-polled by Release readiness remain unchanged; no branch protections are changed.
+PR selection uses the event's immutable base/head merge base; merge-group
+selection uses its base/head SHA range. Deletes and both sides of renames count.
+Missing history, invalid events and empty diffs conservatively run everything.
+Manual runs and `release/next-v*` PRs retain full coverage. Release readiness
+waits for all CI workflows to finish on merge-group commits; subsystem jobs
+skip when their paths are unrelated. The queue gate checks the trusted release
+handoff status for each queued PR before allowing its merge-group check to pass.
 
 Each optimized workflow has an always-running result job using
 `tools/ci_result.py`: selection must succeed, every selected required job must
@@ -79,7 +81,8 @@ not producer identity: GitHub cache scoping and the write restriction provide
 the trust boundary. Initial runs rebuild until normal main validation populates
 a matching entry; image/toolchain changes and cache eviction cause safe misses.
 
-`raw-pipeline.yml` and `apple.yml` retain their existing path-filtered coverage.
+`raw-pipeline.yml` and `apple.yml` retain path-filtered PR coverage and use the
+same path selection for merge groups.
 Release validation, tag publishing, Hosted deployment and Xcode Cloud are not
 short-circuited by this selector. No tests are selected solely by their filename.
 
@@ -90,7 +93,9 @@ python3 -m pip install PyYAML==6.0.2
 python3 -m unittest discover -s tools -p 'test_ci_*.py'
 ```
 
-Concurrency policies vary by workflow. The Apple, Rust and cross-cutting gates preserve pushes to `main` while cancelling superseded PR runs. A cancelled run is not passing evidence; use the current head’s completed results.
+Concurrency policies vary by workflow. Merge-group checks are keyed to their
+queue refs; superseded PR runs can be cancelled. A cancelled run is not passing
+evidence; the merge queue waits for completed checks on the current group.
 
 ---
 
@@ -554,7 +559,7 @@ Which physical fixture is which body — its lookup key, the resolver branch it 
 
 ## Repo tooling gates
 
-These are the twelve `cross.yml` jobs. Fallow checks introduced findings in changed files; it does not certify the existing codebase free of duplication or dead code. UI contract and parity-manifest checks validate declared structure, not runtime interaction or visual parity. The separate `web-build` adoption check covers its declared component scopes, not every control in every application. Everything here runs on every push to `main` and every PR, with no path filter; two are PR-only because they need a merge base to diff against.
+These are the twelve `cross.yml` jobs. Fallow checks introduced findings in changed files; it does not certify the existing codebase free of duplication or dead code. UI contract and parity-manifest checks validate declared structure, not runtime interaction or visual parity. The separate `web-build` adoption check covers its declared component scopes, not every control in every application. Everything here runs on every PR and merge group, with no path filter; two are PR-only because they need PR metadata to diff against.
 
 | Job                                | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

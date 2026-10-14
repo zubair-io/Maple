@@ -26,49 +26,9 @@
 name: raw-pipeline
 
 on:
-  push:
+  merge_group:
+    types: [checks_requested]
     branches: [main]
-    paths:
-      - 'src/raw-pipeline/**'
-      - 'test-fixtures/budgets.json'
-      - 'test-fixtures/pano-budgets.json'
-      - 'src/scripts/test_color_pipeline.sh'
-      - 'src/scripts/test_lensfun_vs_lcp.sh'
-      - 'src/scripts/lens_warp_diff.py'
-      - 'test-fixtures/qualification/lensfun-vs-lcp.json'
-      - 'src/scripts/check_wgsl.sh'
-      - 'src/scripts/compare_images.py'
-      - 'src/scripts/compare_images_test.py'
-      - 'src/scripts/test_pano_pipeline.sh'
-      - 'src/scripts/pano_metrics.py'
-      - 'src/scripts/test_synthetic_grey.sh'
-      - 'src/scripts/test_synthetic_color_chart.sh'
-      - 'src/scripts/test_grey_adjustments.sh'
-      - 'src/scripts/test_tone_exposure.sh'
-      - 'src/scripts/test_tone_whites.sh'
-      - 'tools/tone_whites_gate.py'
-      - 'tools/test_tone_whites_gate.py'
-      - 'test-fixtures/tone-whites/**'
-      - 'src/scripts/acr-reference/**'
-      - 'tools/tone_exposure_gate.py'
-      - 'tools/tone_sprint_report.py'
-      - 'test-fixtures/tone-exposure/**'
-      - 'src/scripts/test_grey_dcp.sh'
-      - 'src/scripts/test_banding.sh'
-      - 'src/scripts/banding_check.py'
-      - 'src/scripts/banding_check_test.py'
-      - 'src/scripts/halo_check.py'
-      - 'src/scripts/hue_stability.py'
-      - 'src/scripts/halo_check_test.py'
-      - 'src/scripts/test_diagnostic_evidence.py'
-      - 'src/scripts/test_halo_detection.sh'
-      - 'src/scripts/test_hue_stability.sh'
-      - 'src/scripts/stage_stats*.py'
-      - 'src/scripts/stage_diff*.py'
-      - 'test-fixtures/banding_budgets.json'
-      - 'test-fixtures/qualification/**'
-      - 'tools/qualification/**'
-      - '.github/workflows/raw-pipeline.yml'
   pull_request:
     paths:
       - 'src/raw-pipeline/**'
@@ -117,6 +77,9 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  changes:
+    uses: ./.github/workflows/ci-changes.yml
+
   # Cheap, unconditional compile gate for the Apple FFI crate. This does NOT
   # need fixtures or the color harness — it exists to catch the "raw-ffi
   # doesn't compile against raw-core" failure class (e.g. an unresolved
@@ -131,6 +94,8 @@ jobs:
   # after assembling the xcframework (see src/apple/scripts/build-xcframework.sh).
   build-raw-ffi:
     name: build-raw-ffi (host compile gate)
+    needs: changes
+    if: needs.changes.outputs.raw_pipeline == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -341,6 +306,8 @@ jobs:
   # reproduced locally on this Mac; the diagnosis above is from the CI log
   # evidence and a source review of `present_chain.rs`, not a local repro.
   raw-gpu:
+    needs: changes
+    if: needs.changes.outputs.raw_pipeline == 'true'
     name: raw-gpu (gpu build + WGSL validate + raw-core↔GPU parity)
     runs-on: ubuntu-latest
     env:
@@ -481,6 +448,8 @@ jobs:
   # what actually keeps a red run here from reading as a blocking failure
   # while the job is unproven.
   raw-gpu-metal:
+    needs: changes
+    if: needs.changes.outputs.raw_pipeline == 'true'
     name: raw-gpu-metal (raw-core↔WGSL parity on Metal, macOS)
     runs-on: macos-latest
     continue-on-error: true
@@ -528,6 +497,8 @@ jobs:
   #     per-predictor tables land in the CI log; the compile cache is shared
   #     with the cargo-test step, so the duplication costs seconds.
   rust-tests:
+    needs: changes
+    if: needs.changes.outputs.raw_pipeline == 'true'
     name: rust-tests (cargo test -p raw-core + grey gates)
     runs-on: ubuntu-latest
     steps:
@@ -621,6 +592,8 @@ jobs:
         run: python3 src/scripts/compare_images_test.py
 
   color-pipeline:
+    needs: changes
+    if: needs.changes.outputs.raw_pipeline == 'true'
     name: color-pipeline (test_color_pipeline.sh)
     runs-on: ubuntu-latest
     steps:
@@ -705,6 +678,8 @@ jobs:
   #     the harness prints "candidate generator not available" and exits 0
   #     until Maple Pano M1+ lands the subcommand).
   pano-pipeline:
+    needs: changes
+    if: needs.changes.outputs.raw_pipeline == 'true'
     name: pano-pipeline (test_pano_pipeline.sh)
     runs-on: ubuntu-latest
     steps:

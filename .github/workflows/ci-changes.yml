@@ -13,6 +13,18 @@ on:
         value: ${{ jobs.select.outputs.maple }}
       codegen:
         value: ${{ jobs.select.outputs.codegen }}
+      apple:
+        value: ${{ jobs.select.outputs.apple }}
+      linux:
+        value: ${{ jobs.select.outputs.linux }}
+      raw_pipeline:
+        value: ${{ jobs.select.outputs.raw_pipeline }}
+      publish_package:
+        value: ${{ jobs.select.outputs.publish_package }}
+      cloudflare:
+        value: ${{ jobs.select.outputs.cloudflare }}
+      face_clustering:
+        value: ${{ jobs.select.outputs.face_clustering }}
 
 permissions:
   contents: read
@@ -26,6 +38,12 @@ jobs:
       windows: ${{ steps.changes.outputs.windows }}
       maple: ${{ steps.changes.outputs.maple }}
       codegen: ${{ steps.changes.outputs.codegen }}
+      apple: ${{ steps.changes.outputs.apple }}
+      linux: ${{ steps.changes.outputs.linux }}
+      raw_pipeline: ${{ steps.changes.outputs.raw_pipeline }}
+      publish_package: ${{ steps.changes.outputs.publish_package }}
+      cloudflare: ${{ steps.changes.outputs.cloudflare }}
+      face_clustering: ${{ steps.changes.outputs.face_clustering }}
     steps:
       - uses: actions/checkout@v4
         with:

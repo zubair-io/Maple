@@ -45,6 +45,7 @@ bash tools/check-budget-headroom.sh --self-test  # exercise the checker itself
 
 - **Conventional Commits** for the first line: `type(scope)?: description`. Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`. Enforced by the `commit-msg` hook in `lefthook.yml`.
 - **Rebase and merge only.** No merge commits on `main`; keep feature branches linear (`git rebase origin/main`, never `git merge origin/main`). See `CLAUDE.md` § Conventions for the full rule.
+- **Use the Main merge queue.** After PR checks and review are ready, add the PR to the queue; do not manually update a branch just because `main` advanced. The queue runs the changed CI suites on the queued commit plus the latest `main`, then merges with rebase. Validation workflows run on PRs and merge groups, so they do not repeat on the resulting `main` push.
 - **No `--amend` after pushing.** Make a new commit; the diff in review is the diff that lands.
 - **No `--no-verify`.** If the hook fails, fix it. The hook is the contract.
 - **Commit under your own Git identity.** Before committing, inspect `git var GIT_AUTHOR_IDENT`

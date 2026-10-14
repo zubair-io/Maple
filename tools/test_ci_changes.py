@@ -260,7 +260,12 @@ class GitTests(unittest.TestCase):
 
     def assert_selected(self, result, expected):
         self.assertEqual(
-            {key for key, value in result[0].items() if value}, set(expected)
+            {
+                key
+                for key, value in result[0].items()
+                if value and key in ci.CONSUMERS
+            },
+            set(expected),
         )
 
     def test_push_entire_multicommit_range(self):
@@ -351,7 +356,7 @@ class GitTests(unittest.TestCase):
         )
         self.assertEqual(
             output.read_text(),
-            "existing=true\n" + "".join(f"{key}=false\n" for key in ci.CONSUMERS),
+            "existing=true\n" + "".join(f"{key}=false\n" for key in ci.ALL_OUTPUTS),
         )
         self.assertIn("Earlier summary\n", summary.read_text())
         self.assertIn("Classified 1 changed paths", summary.read_text())
@@ -366,7 +371,7 @@ class GitTests(unittest.TestCase):
             )
             self.assertTrue(
                 output.read_text().endswith(
-                    "".join(f"{key}=true\n" for key in ci.CONSUMERS)
+                    "".join(f"{key}=true\n" for key in ci.ALL_OUTPUTS)
                 )
             )
         event_path.unlink()

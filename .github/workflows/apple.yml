@@ -30,24 +30,9 @@ on:
       validated_sha:
         description: 'Revision that passed every Apple gate'
         value: ${{ jobs.validation-result.outputs.sha }}
-  push:
+  merge_group:
+    types: [checks_requested]
     branches: [main]
-    paths:
-      - 'src/apple/**'
-      - 'src/api/**'
-      - 'src/raw-pipeline/**'
-      - '.github/workflows/apple.yml'
-      - '.github/swift-regressions/**'
-      - 'tools/check-swift-regressions-coverage.py'
-      - 'src/scripts/test_export_recipe_interchange.sh'
-      - 'src/scripts/qualification/recipe-interchange.swift'
-      - 'test-fixtures/export-recipes/interchange-cases.json'
-      - 'src/web/e2e/recipe-interchange/**'
-      - 'src/web/playwright.recipe-interchange.config.ts'
-      - 'src/web/projects/maple-common/src/lib/export/export-recipe-store.ts'
-      - 'src/web/projects/maple-common/src/lib/generated/export-recipe.generated.ts'
-      - 'src/web/package.json'
-      - 'src/web/bun.lock'
   pull_request:
     paths:
       - 'src/apple/**'
@@ -66,8 +51,8 @@ on:
       - 'src/web/package.json'
       - 'src/web/bun.lock'
 
-# Cancel in-progress runs on non-main refs (PRs, feature branches). Pushes to
-# main always run to completion so the protected-branch signal stays accurate.
+# Cancel superseded runs on PR and queue refs so stale validation cannot delay
+# the current revision.
 concurrency:
   group: apple-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
@@ -78,8 +63,12 @@ env:
   CBINDGEN_VERSION: '0.29.2'
 
 jobs:
+  changes:
+    uses: ./.github/workflows/ci-changes.yml
+
   validation-result:
-    needs: [swift-build, swift-ui, swift-regressions-coverage, swift-regressions]
+    needs: [changes, swift-build, swift-ui, swift-regressions-coverage, swift-regressions]
+    if: needs.changes.outputs.apple == 'true'
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.revision.outputs.sha }}
@@ -89,6 +78,8 @@ jobs:
 
   swift-build:
     name: swift-build (MapleCore compile gate)
+    needs: changes
+    if: needs.changes.outputs.apple == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -166,6 +157,8 @@ jobs:
 
   swift-ui:
     name: swift-ui (MapleUI tests)
+    needs: changes
+    if: needs.changes.outputs.apple == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -193,6 +186,8 @@ jobs:
 
   swift-regressions-coverage:
     name: swift-regressions-coverage (every test class is run or excluded on purpose)
+    needs: changes
+    if: needs.changes.outputs.apple == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -201,6 +196,8 @@ jobs:
 
   swift-regressions:
     name: swift-regressions (MapleCore execution gate)
+    needs: changes
+    if: needs.changes.outputs.apple == 'true'
     runs-on: macos-latest
     timeout-minutes: 60
     env:

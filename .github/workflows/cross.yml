@@ -1,6 +1,7 @@
 # .github/workflows/cross.yml
 #
-# Cross-cutting CI that runs on every PR and push to `main`. Per #114.
+# Cross-cutting CI runs on PRs and merge groups. Merge groups validate the
+# combined changes before they reach main, so main pushes do not repeat CI.
 #
 # Jobs:
 #   * format-check          — Prettier --check on the tracked source tree.
@@ -37,15 +38,15 @@
 name: cross
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
 
-# Cancel in-progress runs on non-main refs (PRs, feature branches). Pushes to
-# main always run to completion so the protected-branch signal stays accurate.
+# Cancel stale PR runs. Merge-group runs remain isolated by their queue ref.
 concurrency:
   group: cross-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
@@ -89,7 +90,7 @@ jobs:
         with:
           bun-version: latest
 
-      # Scope prettier to files changed in this push / PR. The gate's purpose
+      # Scope prettier to files changed in this push, PR, or merge group. Its purpose
       # is "don't regress formatting in new code" — whole-repo reformat is a
       # separate concern, tracked elsewhere.
       - name: Compute changed files
@@ -97,6 +98,7 @@ jobs:
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BEFORE_SHA: ${{ github.event.before }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           AFTER_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -107,6 +109,8 @@ jobs:
             git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
             MERGE_BASE="$(git merge-base "origin/${BASE_REF}" HEAD)"
             git diff --name-only --diff-filter=ACMR "${MERGE_BASE}" HEAD > /tmp/changed.txt
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            git diff --name-only --diff-filter=ACMR "${MERGE_GROUP_BASE_SHA}" "${AFTER_SHA}" > /tmp/changed.txt
           else
             # push to main: format only files touched in that push. Fall back
             # to HEAD~1..HEAD if `before` is unavailable (e.g. force-push,
@@ -370,7 +374,7 @@ jobs:
           rm -f "$base_tmp"
 
           failed=0
-          for ext in $(sed -E 's/^.*\.([A-Za-z0-9]+)$/\1/' "$head_paths" | sort -u); do
+          while IFS= read -r ext; do
             if extension_already_gated "$ext"; then
               while read -r new_path; do
                 [ -n "$new_path" ] || continue
@@ -383,7 +387,7 @@ jobs:
                 echo "::notice::.${ext} entries (${new_count}) are new in this PR — allowed once as day-0 seeding for a language newly brought under the file-budget gate. Any further growth of .${ext} is append-forbidden starting now."
               fi
             fi
-          done
+          done < <(sed -E 's/^.*\.([A-Za-z0-9]+)$/\1/' "$head_paths" | sort -u)
           rm -f "$head_paths" "$base_paths" "$gate_script_tmp"
 
           if [ "$failed" -ne 0 ]; then
@@ -712,7 +716,7 @@ jobs:
           sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
           gitleaks version
 
-      # Scan only the commits this PR/push introduces — never the full repo
+      # Scan only commits introduced by this PR, push, or merge group — never the full repo
       # history. This still catches any secret a change *introduces* (the
       # security value), but won't re-flag pre-existing deep-history findings
       # that are out of this change's scope (#839). The range is passed to the
@@ -721,6 +725,7 @@ jobs:
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BEFORE_SHA: ${{ github.event.before }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           AFTER_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -732,6 +737,8 @@ jobs:
             # origin/<base>..HEAD selects commits reachable from HEAD but not
             # from the base ref — i.e. this PR's own new commits.
             RANGE="origin/${BASE_REF}..HEAD"
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            RANGE="${MERGE_GROUP_BASE_SHA}..${AFTER_SHA}"
           else
             # push: scan the pushed range. Fall back to HEAD~1..HEAD if `before`
             # is unavailable (force-push, branch-create, or the all-zeros

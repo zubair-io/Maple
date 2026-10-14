@@ -25,6 +25,9 @@ on:
         description: 'Dry run (validate builds and packaging without publishing to npm)'
         type: boolean
         default: true
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
   pull_request:
     paths:
       - 'src/maple/**'
@@ -39,8 +42,12 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v') }}
 
 jobs:
+  changes:
+    uses: ./.github/workflows/ci-changes.yml
+
   validation-result:
-    needs: [build-linux, build-macos, build-windows, publish, node-22-acceptance]
+    needs: [changes, build-linux, build-macos, build-windows, publish, node-22-acceptance]
+    if: needs.changes.outputs.publish_package == 'true'
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.revision.outputs.sha }}
@@ -50,6 +57,8 @@ jobs:
 
   build-linux:
     name: build-linux (${{ matrix.pkg_name }})
+    needs: changes
+    if: needs.changes.outputs.publish_package == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -182,6 +191,8 @@ jobs:
 
   build-macos:
     name: build-macos (${{ matrix.pkg_name }})
+    needs: changes
+    if: needs.changes.outputs.publish_package == 'true'
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -283,6 +294,8 @@ jobs:
 
   build-windows:
     name: build-windows (maple-win32-x64-msvc)
+    needs: changes
+    if: needs.changes.outputs.publish_package == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

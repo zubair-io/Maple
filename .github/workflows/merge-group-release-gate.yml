@@ -1,0 +1,40 @@
+name: merge-group-release-gate
+
+on:
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: read
+
+jobs:
+  release-handoff-complete:
+    name: release-handoff-complete
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the queued PR's release handoff status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_GROUP_REF: ${{ github.event.merge_group.head_ref }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$MERGE_GROUP_REF" =~ ^refs/heads/gh-readonly-queue/main/pr-([0-9]+)-[0-9a-fA-F]{40,64}$ ]]; then
+            pr_number="${BASH_REMATCH[1]}"
+          else
+            echo "::error::Unexpected Main merge-group ref: $MERGE_GROUP_REF"
+            exit 1
+          fi
+
+          pr_head="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number" --jq '.head.sha')"
+          state="$(gh api "repos/$GITHUB_REPOSITORY/commits/$pr_head/status?per_page=100" \
+            --jq '[.statuses[] | select(.context == "release-handoff-complete")][0].state // ""')"
+          if [ "$state" != "success" ]; then
+            echo "::error::PR #$pr_number release handoff status is '$state'."
+            exit 1
+          fi
+
+          echo "PR #$pr_number passed release handoff on $pr_head."

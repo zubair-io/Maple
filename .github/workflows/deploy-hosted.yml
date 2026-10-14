@@ -87,8 +87,8 @@ jobs:
         with:
           version: latest
 
-      # Same key as web.yml's jobs — on a push to main the gate populates it,
-      # and this job restores rather than rebuilds.
+      # Same key as web.yml so any cache visible from the default branch can
+      # avoid rebuilding the standard library. A cache miss is safe.
       - name: Cache cargo registry + raw-pipeline target
         uses: actions/cache@v4
         with:

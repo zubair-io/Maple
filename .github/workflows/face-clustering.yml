@@ -21,27 +21,28 @@
 name: face-clustering
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/api/src/people/**'
-      - 'src/scripts/test_face_clustering.sh'
-      - 'test-fixtures/face-clustering/**'
-      - '.github/workflows/face-clustering.yml'
   pull_request:
     paths:
       - 'src/api/src/people/**'
       - 'src/scripts/test_face_clustering.sh'
       - 'test-fixtures/face-clustering/**'
       - '.github/workflows/face-clustering.yml'
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
 
 concurrency:
   group: face-clustering-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  changes:
+    uses: ./.github/workflows/ci-changes.yml
+
   face-clustering-quality:
     name: face-clustering (test_face_clustering.sh)
+    needs: changes
+    if: needs.changes.outputs.face_clustering == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

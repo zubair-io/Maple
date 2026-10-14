@@ -1,9 +1,10 @@
 name: Maple package types
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:

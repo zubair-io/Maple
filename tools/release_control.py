@@ -190,31 +190,70 @@ def require_release_validation(sha):
 
 
 def require_green_main(repo, sha):
-    # Apple and native-package validation run as pinned reusable prerequisites
-    # of create-release; these are the remaining main-push checks.
+    # Merge-group validation is the integration proof for the exact tree that
+    # reached main. Main-push test workflows are intentionally disabled so a
+    # successful merge does not repeat the same suite after queue validation.
     pages = json.loads(
         run(
             "gh",
             "api",
             "--paginate",
             "--slurp",
-            f"repos/{repo}/actions/runs?head_sha={sha}&event=push&per_page=100",
+            f"repos/{repo}/actions/runs?event=merge_group&per_page=100",
         )
     )
-    latest = {}
+    runs_by_sha = {}
     for page in pages:
         for workflow in page["workflow_runs"]:
-            latest.setdefault(workflow["name"], workflow)
-    expected = {"API tests", "cross", "web", "windows", "Maple package types"}
+            head_sha = workflow.get("head_sha")
+            if not head_sha:
+                continue
+            latest = runs_by_sha.setdefault(head_sha, {})
+            previous = latest.get(workflow["name"])
+            if not previous or workflow["updated_at"] > previous["updated_at"]:
+                latest[workflow["name"]] = workflow
+
+    target_tree = api(repo, f"git/commits/{sha}")["tree"]["sha"]
+    matching_shas = [head_sha for head_sha in runs_by_sha if head_sha == sha]
+    if not matching_shas:
+        matching_shas = [
+            head_sha
+            for head_sha in runs_by_sha
+            if api(repo, f"git/commits/{head_sha}")["tree"]["sha"] == target_tree
+        ]
+    if not matching_shas:
+        raise ValueError(f"No successful merge-group validation matches main {sha}")
+    validated = max(
+        matching_shas,
+        key=lambda head_sha: max(
+            workflow["updated_at"] for workflow in runs_by_sha[head_sha].values()
+        ),
+    )
+    latest = runs_by_sha[validated]
+    expected = {
+        "API tests",
+        "apple",
+        "cloudflare",
+        "cross",
+        "face-clustering",
+        "linux",
+        "Maple package types",
+        "publish-package",
+        "raw-pipeline",
+        "web",
+        "windows",
+    }
     missing = expected - latest.keys()
     if missing:
-        raise ValueError(f"Missing main CI: {sorted(missing)}")
+        raise ValueError(f"Missing merge-group CI: {sorted(missing)}")
     for name, workflow in latest.items():
-        # This controller can itself be the current push-triggered run.
-        if name == "release-handoff":
-            continue
-        if workflow["status"] != "completed" or workflow["conclusion"] != "success":
-            raise ValueError(f"main CI is not green: {name}: {workflow['html_url']}")
+        if name in expected and (
+            workflow["status"] != "completed"
+            or workflow["conclusion"] not in {"success", "skipped"}
+        ):
+            raise ValueError(
+                f"merge-group CI is not green: {name}: {workflow['html_url']}"
+            )
 
 
 def handoff_issue(repo, tag):

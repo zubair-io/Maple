@@ -15,6 +15,9 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
 
 permissions:
   contents: read
@@ -22,7 +25,7 @@ permissions:
 jobs:
   release-readiness:
     name: Release readiness
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -30,33 +33,51 @@ jobs:
       pull-requests: read
     env:
       GH_TOKEN: ${{ github.token }}
-      HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      HEAD_BRANCH: ${{ github.event.pull_request.head.ref || '' }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
+      CI_EVENT: ${{ github.event_name }}
     steps:
       - name: Wait for the complete release CI suite
         run: |
           set -euo pipefail
 
-          if ! [[ "$HEAD_BRANCH" =~ ^release/next-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Not a stable release PR; release readiness does not apply."
-            exit 0
+          if [ "$CI_EVENT" = "merge_group" ]; then
+            expected_workflows=(
+              "API tests"
+              "apple"
+              "cloudflare"
+              "cross"
+              "face-clustering"
+              "linux"
+              "Maple package types"
+              "publish-package"
+              "raw-pipeline"
+              "web"
+              "windows"
+            )
+            run_event="merge_group"
+          else
+            if ! [[ "$HEAD_BRANCH" =~ ^release/next-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Not a stable release PR; release readiness does not apply."
+              exit 0
+            fi
+            expected_workflows=(
+              "API tests"
+              "apple"
+              "cross"
+              "Jules PR Review"
+              "Maple package types"
+              "publish-package"
+              "web"
+              "windows"
+            )
+            run_event="pull_request"
           fi
-
-          expected_workflows=(
-            "API tests"
-            "apple"
-            "cross"
-            "Jules PR Review"
-            "Maple package types"
-            "publish-package"
-            "web"
-            "windows"
-          )
           deadline=$((SECONDS + 7200))
 
           while (( SECONDS < deadline )); do
             runs="$(gh api --paginate --slurp \
-              "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100")"
+              "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$HEAD_SHA&event=$run_event&per_page=100")"
             waiting=()
 
             for workflow in "${expected_workflows[@]}"; do
