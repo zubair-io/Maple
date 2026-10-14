@@ -449,6 +449,9 @@ namespace Maple.WinUI.ViewModels
                 }
                 else
                 {
+                    if (_discardBrushCorrectionsForPhotoPath is { } discardedPath &&
+                        string.Equals(discardedPath, result.Path, StringComparison.OrdinalIgnoreCase))
+                        _discardBrushCorrectionsForPhotoPath = null;
                     if (string.Equals(result.Path, photo?.FilePath, StringComparison.OrdinalIgnoreCase))
                         _lastSidecarWriteText = result.Xml;
                     OnUi(() => SidecarSaved?.Invoke());

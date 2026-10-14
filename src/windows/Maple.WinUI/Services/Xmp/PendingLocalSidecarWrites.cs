@@ -25,19 +25,21 @@ public sealed class PendingLocalSidecarWrites
         }, discardBrushCorrections, restoreBrushCorrections);
     }
 
-    public XmpSidecarDocument? ReadPending(string path)
+    public PendingLocalSidecarWriteSnapshot? ReadPendingSnapshot(string path)
     {
         lock (_gate)
         {
             if (!_pending.TryGetValue(path, out var pending)) return null;
             var value = pending.Document;
-            return new XmpSidecarDocument
+            return new PendingLocalSidecarWriteSnapshot(new XmpSidecarDocument
             {
                 Adjustments = value.Adjustments.Clone(), Rating = value.Rating,
                 Flag = value.Flag, ColorLabel = value.ColorLabel,
-            };
+            }, pending.DiscardBrushCorrections, pending.RestoreBrushCorrections);
         }
     }
+
+    public XmpSidecarDocument? ReadPending(string path) => ReadPendingSnapshot(path)?.Document;
 
     public bool Contains(string path) { lock (_gate) return _pending.ContainsKey(path); }
 
@@ -70,5 +72,8 @@ public sealed class PendingLocalSidecarWrites
         }
     }
 }
+
+public sealed record PendingLocalSidecarWriteSnapshot(XmpSidecarDocument Document,
+    bool DiscardBrushCorrections, BrushCorrectionRestoreSnapshot? RestoreBrushCorrections);
 
 public sealed record LocalSidecarWriteResult(string Path, string? Xml, Exception? Error);
