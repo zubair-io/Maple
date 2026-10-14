@@ -137,7 +137,9 @@
 /// - 20 — detect sub-declared sensor saturation as the effective white level
 ///   (#4592), so clipped photosites below the declared WhiteLevel linearize
 ///   to 1.0 and reach highlight recovery.
-pub const PIPELINE_OUTPUT_VERSION: u32 = 20;
+/// - 21 — AMaZE keeps signed opposite chroma at R/B sites and uses a
+///   supported constant-ratio estimate for negative directional extrapolation (#4123).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 21;
 
 #[cfg(test)]
 mod tests {
