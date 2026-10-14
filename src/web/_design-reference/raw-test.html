@@ -73,7 +73,9 @@
       async function ensureWasm() {
         if (wasmReady) return;
         $status.textContent = 'Loading WASM…';
-        await init({ module_or_path: new URL('pkg/raw_wasm_bg.wasm', document.baseURI) });
+        // This standalone page imports the glue beside the generated WASM
+        // package, so wasm-bindgen's module-relative default is correct.
+        await init();
         wasmReady = true;
       }
 
