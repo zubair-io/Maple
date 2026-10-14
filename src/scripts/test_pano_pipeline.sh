@@ -59,7 +59,9 @@
 #   wrap_closure_px   360° wrap-edge closure error, native px  (360 sets only)
 #   mean_reproj_px    StitchReport passthrough
 #   max_reproj_px     StitchReport passthrough
-#   horizon_tilt_deg  StitchReport passthrough, gated on |deg|
+#   horizon_tilt_deg  StitchReport passthrough (worst single camera; triage only)
+#   horizon_tilt_rms_deg  StitchReport passthrough, RMS tilt over solved
+#                     cameras, gated on |deg| (#4533)
 #   dropped_frames    StitchReport passthrough (len(dropped_images))
 # Only keys present in an entry gate. A set with NO entry FAILS with
 # "no-budget-entry" and the observed numbers printed, so ceilings can be
@@ -364,7 +366,7 @@ with open(budgets_path) as f:
     budgets = json.load(f).get("fixtures", {})
 
 CASE_LABEL = "stitch"
-# Keys a budget entry may gate on. horizon_tilt_deg gates on |value|.
+# Keys a budget entry may gate on. Both horizon tilt keys gate on |value|.
 # FLOOR_KEYS breach when the observed value is BELOW the budget (coverage
 # is a completeness fraction — more is better); everything else is a
 # ceiling.
@@ -382,7 +384,7 @@ def fmt(v, spec):
 
 print(f"{'verd':<4} {'set':<12} {'frames':>6}  {'rmse':>8} {'cover':>6} "
       f"{'seam':>10} {'wrap_px':>8}  {'reproj_m':>8} {'reproj_M':>8} "
-      f"{'tilt_deg':>8}")
+      f"{'tilt_rms':>8}")
 print("-" * 103)
 
 rows = []
@@ -472,7 +474,7 @@ for case in sorted(manifest["cases"], key=lambda c: c["name"]):
           f"{fmt(observed['wrap_closure_px'], '8.2f'):>8}  "
           f"{fmt(observed['mean_reproj_px'], '8.2f'):>8} "
           f"{fmt(observed['max_reproj_px'], '8.2f'):>8} "
-          f"{fmt(observed['horizon_tilt_deg'], '8.2f'):>8}{extra}")
+          f"{fmt(observed['horizon_tilt_rms_deg'], '8.2f'):>8}{extra}")
 
 print("-" * 103)
 breach_count = sum(1 for r in rows if r["breach"])
