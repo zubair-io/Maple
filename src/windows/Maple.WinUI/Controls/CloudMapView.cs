@@ -25,6 +25,7 @@ public sealed class CloudMapView : Grid, IDisposable
     private CloudSearchQuery _query;
     private CloudMapViewport? _viewport;
     private CloudMapCell[] _cells = Array.Empty<CloudMapCell>();
+    private long _cellsGeneration;
     private CancellationTokenSource? _request;
     private readonly CancellationTokenSource _lifetime = new();
     private long _generation;
@@ -189,7 +190,7 @@ public sealed class CloudMapView : Grid, IDisposable
                     break;
                 case "select":
                     var index = root.GetProperty("index").GetInt32();
-                    if (root.GetProperty("generation").GetInt64() == _generation && index >= 0 && index < _cells.Length)
+                    if (root.GetProperty("generation").GetInt64() == _cellsGeneration && index >= 0 && index < _cells.Length)
                         CellSelected?.Invoke(_cells[index]);
                     break;
                 case "tileError":
@@ -221,7 +222,6 @@ public sealed class CloudMapView : Grid, IDisposable
         _loading = true;
         _retry.IsEnabled = false;
         RecordQualificationDiagnostic("request-started");
-        _cells = Array.Empty<CloudMapCell>();
         _results.IsEnabled = false;
         // Keep an existing error and Retry visible while recovering. Removing
         // Retry here changes the canvas bounds and starts another viewport
@@ -236,6 +236,7 @@ public sealed class CloudMapView : Grid, IDisposable
             var cells = await _client.GetMapClustersAsync(viewport, _query, owner.Token);
             if (_disposed || _request != owner || owner.IsCancellationRequested) return;
             _cells = cells;
+            _cellsGeneration = generation;
             _browser.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "cells", cells, generation }));
             _results.Items.Clear();
             foreach (var cell in cells)
