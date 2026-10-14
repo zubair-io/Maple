@@ -43,7 +43,13 @@ pub(super) fn suppress_false_colour(
     strength: f32,
 ) {
     if strength <= 0.0 || w < 9 || h < 9 {
-        clamp_signed_chroma(out);
+        out.pixels
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(i, pixel)| {
+                let (x, y) = (i % w, i / w);
+                clamp_signed_opposite_chroma(pixel, pattern.color_at(x as u32, y as u32) as usize);
+            });
         return;
     }
     const EPS: f32 = 1e-6;
@@ -165,11 +171,11 @@ pub(super) fn suppress_false_colour(
         .enumerate()
         .for_each(|(y, row)| {
             for x in 0..w {
+                let c = color_at(x, y);
                 if x < 3 || y < 3 || x + 3 >= w || y + 3 >= h {
-                    row[x] = row[x].map(|v| v.max(0.0));
+                    clamp_signed_opposite_chroma(&mut row[x], c);
                     continue;
                 }
-                let c = color_at(x, y);
                 let ghf = green_hf(x, y);
                 let mut px = row[x];
                 for t in 0..3usize {
@@ -205,8 +211,11 @@ pub(super) fn suppress_false_colour(
         });
 }
 
-fn clamp_signed_chroma(out: &mut Image) {
-    out.pixels
-        .par_iter_mut()
-        .for_each(|p| *p = p.map(|v| v.max(0.0)));
+fn clamp_signed_opposite_chroma(pixel: &mut [f32; 3], sampled_color: usize) {
+    let opposite_color = match sampled_color {
+        0 => 2,
+        2 => 0,
+        _ => return,
+    };
+    pixel[opposite_color] = pixel[opposite_color].max(0.0);
 }

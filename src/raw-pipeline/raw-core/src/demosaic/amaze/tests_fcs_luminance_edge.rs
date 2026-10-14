@@ -162,18 +162,74 @@ fn suppression_never_emits_negative_chroma() {
             "{pattern:?}"
         );
     }
-    let mut disabled = Image::new(SIDE as u32, SIDE as u32, ColorSpace::CameraNativeLinearRgb);
-    disabled.pixels = vec![[-0.1, 0.2, -0.3]; SIDE * SIDE];
-    fcs::suppress_false_colour(
-        &mut disabled,
-        &vec![0.2; SIDE * SIDE],
-        &vec![0.2; SIDE * SIDE],
-        SIDE,
-        SIDE,
-        CfaPattern::Rggb,
-        0.0,
-    );
-    assert!(disabled.pixels.iter().flatten().all(|v| *v >= 0.0));
+}
+
+#[test]
+fn disabled_suppression_and_frame_ring_only_clamp_signed_opposite_chroma() {
+    const W: usize = 24;
+    const H: usize = 24;
+    for pattern in PATTERNS {
+        let pixels: Vec<[f32; 3]> = (0..H)
+            .flat_map(|y| {
+                (0..W).map(
+                    move |x| match pattern.color_at(x as u32, y as u32) as usize {
+                        0 => [0.2, -0.2, -0.3],
+                        2 => [-0.1, -0.2, 0.3],
+                        _ => [-0.1, -0.2, -0.3],
+                    },
+                )
+            })
+            .collect();
+        let expected_pixel = |mut pixel: [f32; 3], x: usize, y: usize| {
+            match pattern.color_at(x as u32, y as u32) as usize {
+                0 => pixel[2] = 0.0,
+                2 => pixel[0] = 0.0,
+                _ => {}
+            }
+            pixel
+        };
+
+        let run = |strength: f32| {
+            let mut image = Image::new(W as u32, H as u32, ColorSpace::CameraNativeLinearRgb);
+            image.pixels.clone_from(&pixels);
+            fcs::suppress_false_colour(
+                &mut image,
+                &vec![0.2; W * H],
+                &vec![-0.2; W * H],
+                W,
+                H,
+                pattern,
+                strength,
+            );
+            image
+        };
+
+        let disabled = run(0.0);
+        for y in 0..H {
+            for x in 0..W {
+                let i = y * W + x;
+                assert_eq!(
+                    disabled.pixels[i],
+                    expected_pixel(pixels[i], x, y),
+                    "disabled {pattern:?} ({x},{y})"
+                );
+            }
+        }
+
+        let enabled = run(1.0);
+        for y in 0..H {
+            for x in 0..W {
+                if x < 3 || y < 3 || x + 3 >= W || y + 3 >= H {
+                    let i = y * W + x;
+                    assert_eq!(
+                        enabled.pixels[i],
+                        expected_pixel(pixels[i], x, y),
+                        "frame ring {pattern:?} ({x},{y})"
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// Area-sampled axis-aligned edge between two surfaces of the same
