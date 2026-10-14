@@ -65,8 +65,9 @@ the pinned v24 CLI and temporary output on the mounted Projects volume.
 The recorder hashes the complete input corpus before and after execution.
 
 Early diagnostics of 111 rendered neutral cases found 15 budget breaches.
-Independent renders of the exact main revision reproduce the following
-failures; the table does not waive any gate:
+Independent renders of the exact main revision reproduce all 15 failures.
+The table shows six examples; `amaze4596-diagnostic-audit.json` preserves
+all measurements and binary identities. These results do not waive any gate:
 
 | Case                       | Metric            |       main |         PR | Ceiling |
 | -------------------------- | ----------------- | ---------: | ---------: | ------: |
@@ -80,3 +81,24 @@ failures; the table does not waive any gate:
 The original defect is corrected, but these measurements do not establish
 a passing complete colour gate. Do not infer physical qualification from
 fixture-free CI success or from the focused improvements.
+
+## Adobe reference audit
+
+An audit of all 776 neutral cases found 36 tint cases whose authored
+Temperature/Tint differ from the effective settings embedded in the reference
+PNG. This check compares authored controls; it does not certify omitted defaults.
+
+Photoshop 2026 / Camera Raw 18.7 reproduced the partial-white-balance issue on
+owned copies of `test_0001/tint_max`: the authored custom Tint 150 with omitted
+Temperature saved as Tint 10. Completing the Adobe-only pair with Temperature
+4450 from the recorded baseline As Shot metadata made Adobe honor Tint 150.
+Both newly rendered diagnostic PNGs pass the repository settings audit.
+
+Against the corrected diagnostic reference, mean Delta E falls from 43.83 to
+14.20, but maximum Delta E remains 84.52 against the unchanged 74.7 ceiling.
+This is evidence of a reference-generation defect, not a passing qualification.
+The original RAW, canonical XMP, canonical references and budgets were preserved.
+
+The unbudgeted local-gradient/radial case was also rendered through Adobe on
+owned copies. Adobe drops some authored local controls, so those images are
+diagnostic artifacts rather than qualified references for that unfinished case.
