@@ -931,11 +931,11 @@ const NEARBY_CODE_WINDOW: usize = 16;
 
 /// Infer a lower effective sensor white when a large RAW shows repeated
 /// clipping below its declared level. Near-white plateaus must occupy at least
-/// six 32px tiles; dense midrange plateaus must occupy 16. This rejects small
-/// localized flat patches while retaining sparse highlight clipping in the
-/// fixture set. The scalar result is the highest qualifying Bayer-position
-/// plateau so another channel's highlights are not clipped by a lower
-/// saturation code.
+/// six 64px regions; dense midrange plateaus must occupy 16. Each threshold
+/// must hold on four 64px grids offset by half a cell, so a localized patch
+/// cannot qualify just because it crosses one grid's boundaries. The scalar
+/// result is the highest qualifying Bayer-position plateau so another
+/// channel's highlights are not clipped by a lower saturation code.
 fn effective_white_level(
     data: &[u16],
     width: u32,
@@ -964,11 +964,7 @@ fn effective_white_level(
         value: u16,
         required_tiles: usize,
         nearest_higher_count: u32,
-        occupied_tiles: Vec<usize>,
-        min_x: usize,
-        min_y: usize,
-        max_x: usize,
-        max_y: usize,
+        occupied_tiles: [Vec<usize>; 4],
     }
     let mut candidates = Vec::<PlateauCandidate>::new();
     let mut candidates_by_position: [Vec<usize>; 4] = std::array::from_fn(|_| Vec::new());
@@ -996,11 +992,7 @@ fn effective_white_level(
                         nearest_higher_count: nearest_higher_value
                             .filter(|higher| higher - value <= NEARBY_CODE_WINDOW)
                             .map_or(0, |_| nearest_higher_count),
-                        occupied_tiles: Vec::with_capacity(required_tiles),
-                        min_x: w,
-                        min_y: h,
-                        max_x: 0,
-                        max_y: 0,
+                        occupied_tiles: std::array::from_fn(|_| Vec::with_capacity(required_tiles)),
                     });
                     candidates_by_position[p].push(candidate_index);
                     candidate_lookup[value][p] = candidate_index as i32;
@@ -1049,7 +1041,9 @@ fn effective_white_level(
     // support for every histogram peak so a localized higher code cannot hide a
     // lower, genuinely distributed clipping plateau.
     if !candidates.is_empty() {
-        let tiles_w = w.div_ceil(32);
+        let tiles_w = (w + 32).div_ceil(64);
+        let x_offsets = [0, 32, 0, 32];
+        let y_offsets = [0, 0, 32, 32];
         for y in 0..h {
             let y_base = (y & 1) * 2;
             for x in 0..w {
@@ -1058,15 +1052,13 @@ fn effective_white_level(
                 let candidate_index = candidate_lookup[value][p];
                 if candidate_index >= 0 {
                     let candidate = &mut candidates[candidate_index as usize];
-                    candidate.min_x = candidate.min_x.min(x);
-                    candidate.min_y = candidate.min_y.min(y);
-                    candidate.max_x = candidate.max_x.max(x);
-                    candidate.max_y = candidate.max_y.max(y);
-                    let tile = (y / 32) * tiles_w + x / 32;
-                    if candidate.occupied_tiles.len() < candidate.required_tiles
-                        && !candidate.occupied_tiles.contains(&tile)
-                    {
-                        candidate.occupied_tiles.push(tile);
+                    for grid in 0..4 {
+                        let occupied = &mut candidate.occupied_tiles[grid];
+                        let tile =
+                            ((y + y_offsets[grid]) / 64) * tiles_w + (x + x_offsets[grid]) / 64;
+                        if occupied.len() < candidate.required_tiles && !occupied.contains(&tile) {
+                            occupied.push(tile);
+                        }
                     }
                 }
             }
@@ -1080,24 +1072,11 @@ fn effective_white_level(
         .filter_map(|position_candidates| {
             position_candidates.iter().find_map(|&candidate_index| {
                 let candidate = &candidates[candidate_index];
-                let support_area = candidate
-                    .max_x
-                    .saturating_sub(candidate.min_x)
-                    .saturating_add(1)
-                    .saturating_mul(
-                        candidate
-                            .max_y
-                            .saturating_sub(candidate.min_y)
-                            .saturating_add(1),
-                    );
-                // Tile counts alone depend on where a small patch crosses the
-                // fixed 32px grid. Require a matching minimum pixel footprint
-                // as well, so translating the same patch cannot turn four
-                // occupied tiles into nine units of evidence. One quarter of
-                // each supported tile is enough for sparse Bayer samples.
-                (candidate.occupied_tiles.len() >= candidate.required_tiles
-                    && support_area >= candidate.required_tiles.saturating_mul(256))
-                .then_some(u32::from(candidate.value))
+                candidate
+                    .occupied_tiles
+                    .iter()
+                    .all(|tiles| tiles.len() >= candidate.required_tiles)
+                    .then_some(u32::from(candidate.value))
             })
         })
         .max();
@@ -1418,8 +1397,8 @@ mod tests {
             let tile_y = tile / 4;
             for dy in (0..4).step_by(2) {
                 for dx in (0..4).step_by(2) {
-                    let x = tile_x * 32 + dx;
-                    let y = tile_y * 32 + dy;
+                    let x = tile_x * 64 + dx;
+                    let y = tile_y * 64 + dy;
                     data[y * w + x] = 64_856;
                 }
             }
@@ -1429,8 +1408,8 @@ mod tests {
             let tile_y = tile / 4;
             for dy in (0..8).step_by(2) {
                 for dx in (0..4).step_by(2) {
-                    let x = tile_x * 32 + dx;
-                    let y = tile_y * 32 + dy;
+                    let x = tile_x * 64 + dx;
+                    let y = tile_y * 64 + dy;
                     data[y * w + x] = 65_200;
                 }
             }
@@ -1515,8 +1494,8 @@ mod tests {
     fn effective_white_rejects_a_localized_flat_near_white_patch() {
         let (w, h) = (512usize, 512usize);
         let mut data = vec![1000u16; w * h];
-        // 32 samples on one CFA position, all inside a 64×64 patch (four
-        // 32px tiles). The count alone resembles clipping, but is localized.
+        // 32 samples on one CFA position, all inside a 64×64 patch (one
+        // 64px region). The count alone resembles clipping, but is localized.
         for tile_y in 0..2 {
             for tile_x in 0..2 {
                 for dy in (0..4).step_by(2) {
@@ -1547,6 +1526,21 @@ mod tests {
                         data[y * w + x] = 64856;
                     }
                 }
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_rejects_a_boundary_crossing_64px_near_white_patch() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in 31..95 {
+            for x in 31..95 {
+                data[y * w + x] = 64856;
             }
         }
         assert_eq!(
