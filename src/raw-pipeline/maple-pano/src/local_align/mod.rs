@@ -236,6 +236,12 @@ impl LocalCorrection {
         (px + dx, py + dy)
     }
 
+    #[inline]
+    pub fn sample_point(&self, px: f64, py: f64) -> (f64, f64) {
+        let (dx, dy) = self.displacement(px, py);
+        (px - dx, py - dy)
+    }
+
     /// Displacement magnitude at `(px, py)`.
     #[inline]
     pub(crate) fn displacement_at(&self, px: f64, py: f64) -> f64 {

@@ -67,7 +67,7 @@ fn tile_depths(
                     };
                     // Apply local correction before bounds test.
                     if let Some(la) = la {
-                        (sx, sy_src) = la.apply(sx, sy_src);
+                        (sx, sy_src) = la.sample_point(sx, sy_src);
                     }
                     // Require corrected projection to be within frame bounds.
                     if sx < 0.0
