@@ -1357,12 +1357,15 @@ fn effective_white_level(
         // Dense brighter populations preserve the declared ceiling even if
         // they are localized. Some packed RAW encodings also expand one valid
         // source code into only a handful of samples, so the frame-span and
-        // four-grid checks retain one sparse, distributed source-code bin
-        // while rejecting unrelated isolated defects.
+        // four-grid checks retain one sparse, distributed decoded source-code
+        // bin while rejecting unrelated isolated defects. The all-ones u16
+        // ceiling is not useful source-code evidence: hot/stuck photosites can
+        // hit it without representing a real highlight population.
         let densely_populated_brighter_highlights = sample_count >= 1024;
         let distributed_sparse_highlight = candidates_by_position[position].iter().any(|index| {
             let candidate = &candidates[*index];
             u32::from(candidate.value) > best
+                && candidate.value < u16::MAX
                 && candidate.sample_count >= 6
                 && candidate.has_spatial_support(6, width, height)
         });
@@ -1858,6 +1861,32 @@ mod tests {
         .enumerate()
         {
             data[y * w + x] = 65_000 + index as u16;
+        }
+
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            64_856
+        );
+    }
+
+    #[test]
+    fn effective_white_rejects_distributed_all_ones_stuck_pixels() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for y in (0..h).step_by(2) {
+            for x in (0..w).step_by(2) {
+                data[y * w + x] = 64_856;
+            }
+        }
+        for (x, y) in [
+            (20, 20),
+            (148, 20),
+            (276, 20),
+            (404, 20),
+            (20, 148),
+            (148, 148),
+        ] {
+            data[y * w + x] = u16::MAX;
         }
 
         assert_eq!(
