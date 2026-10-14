@@ -959,63 +959,90 @@ fn effective_white_level(
             histogram[data[y * w + x] as usize][p] += 1;
         }
     }
-    let mut candidates = [None; 4];
+    struct PlateauCandidate {
+        value: u16,
+        required_tiles: usize,
+        occupied_tiles: Vec<usize>,
+    }
+    let mut candidates = Vec::<PlateauCandidate>::new();
+    let mut candidates_by_position: [Vec<usize>; 4] = std::array::from_fn(|_| Vec::new());
+    let mut candidate_lookup = vec![[-1i32; 4]; usize::from(u16::MAX) + 1];
     for p in 0..4 {
-        candidates[p] = histogram
-            .iter()
-            .enumerate()
-            .rev()
-            .find_map(|(value, counts)| {
-                let count = counts[p];
-                if count < 32 {
-                    return None;
-                }
-                let value = value as u32;
-                let denom = (declared as f64 - black_level[p] as f64).max(1.0);
-                let frac = (value as f64 - black_level[p] as f64) / denom;
-                // A modest pile-up below 96% can be a uniform chart patch rather
-                // than sensor clipping. The lower-range fixture clips have a much
-                // larger pile-up; near-declared clips can remain sparse.
-                let is_sparse_near_declared_white = (0.96..0.995).contains(&frac);
-                let is_dense_sub_declared_white = (0.90..0.96).contains(&frac) && count >= 1024;
-                (is_sparse_near_declared_white || is_dense_sub_declared_white)
-                    .then_some((value, is_dense_sub_declared_white))
+        for (value, counts) in histogram.iter().enumerate().rev() {
+            let count = counts[p];
+            if count < 32 {
+                continue;
+            }
+            let value_u32 = value as u32;
+            let denom = (declared as f64 - black_level[p] as f64).max(1.0);
+            let frac = (value_u32 as f64 - black_level[p] as f64) / denom;
+            // A modest pile-up below 96% can be a uniform chart patch rather
+            // than sensor clipping. The lower-range fixture clips have a much
+            // larger pile-up; near-declared clips can remain sparse.
+            let is_sparse_near_declared_white = (0.96..0.995).contains(&frac);
+            let is_dense_sub_declared_white = (0.90..0.96).contains(&frac) && count >= 1024;
+            if !is_sparse_near_declared_white && !is_dense_sub_declared_white {
+                continue;
+            }
+
+            // Require a visible peak over both neighboring codes. Broad smooth
+            // highlight distributions can have many occupied bins, but those
+            // bins are not evidence that the sensor clipped at one code value.
+            let adjacent_count = value
+                .checked_sub(1)
+                .map_or(0, |neighbor| histogram[neighbor][p])
+                .max(histogram.get(value + 1).map_or(0, |neighbor| neighbor[p]));
+            if count < adjacent_count.saturating_mul(4) {
+                continue;
+            }
+
+            let required_tiles = if is_dense_sub_declared_white { 16 } else { 6 };
+            let candidate_index = candidates.len();
+            candidates.push(PlateauCandidate {
+                value: value as u16,
+                required_tiles,
+                occupied_tiles: Vec::with_capacity(required_tiles),
             });
+            candidates_by_position[p].push(candidate_index);
+            candidate_lookup[value][p] = candidate_index as i32;
+        }
     }
 
     // Any plateau can be a flat chart patch, including a near-white patch with
-    // enough exact samples to pass the sparse histogram threshold. Require
-    // spatial evidence for every candidate; small localized patches cannot
-    // safely lower the scalar white level.
-    let needs_spatial_support = candidates.iter().any(Option::is_some);
-    let spatial_support = if needs_spatial_support {
+    // enough exact samples to pass the sparse histogram threshold. Track spatial
+    // support for every histogram peak so a localized higher code cannot hide a
+    // lower, genuinely distributed clipping plateau.
+    if !candidates.is_empty() {
         let tiles_w = w.div_ceil(32);
-        let mut occupied = vec![[false; 4]; tiles_w * h.div_ceil(32)];
         for y in 0..h {
             let y_base = (y & 1) * 2;
             for x in 0..w {
                 let p = y_base + (x & 1);
-                if let Some((value, _)) = candidates[p] {
-                    if data[y * w + x] as u32 == value {
-                        occupied[(y / 32) * tiles_w + x / 32][p] = true;
+                let value = data[y * w + x] as usize;
+                let candidate_index = candidate_lookup[value][p];
+                if candidate_index >= 0 {
+                    let candidate = &mut candidates[candidate_index as usize];
+                    let tile = (y / 32) * tiles_w + x / 32;
+                    if candidate.occupied_tiles.len() < candidate.required_tiles
+                        && !candidate.occupied_tiles.contains(&tile)
+                    {
+                        candidate.occupied_tiles.push(tile);
                     }
                 }
             }
         }
-        (0..4)
-            .map(|p| occupied.iter().filter(|tile| tile[p]).count())
-            .collect::<Vec<_>>()
-    } else {
-        vec![usize::MAX; 4]
-    };
+    }
+
     // A single scalar normalization ceiling must not clip a Bayer position
     // whose valid saturation plateau is higher than another position's.
-    let best = candidates
-        .into_iter()
-        .enumerate()
-        .filter_map(|(p, candidate)| match candidate {
-            Some((value, dense)) if spatial_support[p] >= if dense { 16 } else { 6 } => Some(value),
-            _ => None,
+    let best = candidates_by_position
+        .iter()
+        .filter_map(|position_candidates| {
+            position_candidates.iter().find_map(|&candidate_index| {
+                let candidate = &candidates[candidate_index];
+                (candidate.occupied_tiles.len() >= candidate.required_tiles)
+                    .then_some(u32::from(candidate.value))
+            })
         })
         .max();
     best.filter(|&b| b > black_level.iter().max().copied().unwrap_or(0))
@@ -1268,6 +1295,58 @@ mod tests {
         assert_eq!(
             effective_white_level(&data, 512, 512, &[0; 4], 65535),
             65535
+        );
+    }
+
+    #[test]
+    fn effective_white_rejects_broad_near_white_histogram_without_a_peak() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for value_offset in 0..64usize {
+            for sample in 0..32usize {
+                let tile = sample % 16;
+                let repeat = sample / 16;
+                let local_slot = value_offset * 2 + repeat;
+                let x = (tile % 4) * 32 + (local_slot % 16) * 2;
+                let y = (tile / 4) * 32 + (local_slot / 16) * 2;
+                data[y * w + x] = 63_000 + value_offset as u16;
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_continues_after_localized_higher_spike() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for tile in 0..8usize {
+            let tile_x = tile % 4;
+            let tile_y = tile / 4;
+            for dy in (0..4).step_by(2) {
+                for dx in (0..4).step_by(2) {
+                    let x = tile_x * 32 + dx;
+                    let y = tile_y * 32 + dy;
+                    data[y * w + x] = 64_856;
+                }
+            }
+        }
+        for tile in 8..12usize {
+            let tile_x = tile % 4;
+            let tile_y = tile / 4;
+            for dy in (0..8).step_by(2) {
+                for dx in (0..4).step_by(2) {
+                    let x = tile_x * 32 + dx;
+                    let y = tile_y * 32 + dy;
+                    data[y * w + x] = 65_200;
+                }
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            64_856
         );
     }
 
