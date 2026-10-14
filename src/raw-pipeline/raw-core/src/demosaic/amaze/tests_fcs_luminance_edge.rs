@@ -86,29 +86,34 @@ fn collapsed_chroma_at_a_luminance_edge_follows_the_surface_chromaticity() {
     for pattern in PATTERNS {
         for direction in 0..3 {
             for exposure in [0.01_f32, 1.0, 16.0] {
-                let truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
-                    .map(|i| {
-                        let level = if edge_side(direction, i % SIDE, i / SIDE) {
-                            0.75
-                        } else {
-                            0.045
-                        };
-                        CHROMA.map(|k| k * level * exposure)
-                    })
-                    .collect();
-                let out = suppress(pattern, &truth, |i| near_edge(direction, i), -0.5);
-                for (i, (actual, expected)) in out.pixels.iter().zip(&truth).enumerate() {
-                    let (x, y) = (i % SIDE, i / SIDE);
-                    let c = sampled(pattern, i);
-                    if c == 1 || x < 3 || y < 3 || x + 3 >= SIDE || y + 3 >= SIDE {
-                        continue;
-                    }
-                    for t in 0..3 {
-                        assert!(
-                            (actual[t] - expected[t]).abs() <= 1e-5 * expected[t],
-                            "{pattern:?} direction={direction} exposure={exposure} ({x},{y}) \
-                             channel {t}: {actual:?} != {expected:?}"
-                        );
+                // Include a saturated hue whose R/G and B/G ratios differ by
+                // far more than the support threshold. They still describe
+                // one surface and must not be rejected as unlike channels.
+                for chroma in [CHROMA, [0.12, 1.0, 0.85]] {
+                    let truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
+                        .map(|i| {
+                            let level = if edge_side(direction, i % SIDE, i / SIDE) {
+                                0.75
+                            } else {
+                                0.045
+                            };
+                            chroma.map(|k| k * level * exposure)
+                        })
+                        .collect();
+                    let out = suppress(pattern, &truth, |i| near_edge(direction, i), -0.5);
+                    for (i, (actual, expected)) in out.pixels.iter().zip(&truth).enumerate() {
+                        let (x, y) = (i % SIDE, i / SIDE);
+                        let c = sampled(pattern, i);
+                        if c == 1 || x < 3 || y < 3 || x + 3 >= SIDE || y + 3 >= SIDE {
+                            continue;
+                        }
+                        for t in 0..3 {
+                            assert!(
+                                (actual[t] - expected[t]).abs() <= 1e-5 * expected[t],
+                                "{pattern:?} direction={direction} exposure={exposure} ({x},{y}) \
+                                 channel {t}: {actual:?} != {expected:?}"
+                            );
+                        }
                     }
                 }
             }
