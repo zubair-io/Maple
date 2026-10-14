@@ -104,7 +104,7 @@ async function publishStagedSidecar(
   await stageSidecarTemp(destPath, tmpPath, content, signal);
   signal?.throwIfAborted();
   await publish(tmpPath, destPath);
-  const st = await fs.stat(destPath);
+  const st = await waitForAbortable(fs.stat(destPath), signal);
   return st.mtime;
 }
 
@@ -136,7 +136,8 @@ export async function writeSidecarAtomic(
     const mtime = await publishStagedSidecar(destPath, tmp, content, signal, fs.rename);
     return { ok: true, mtime };
   } catch (err) {
-    await removeTemporarySidecar(tmp);
+    if (signal?.aborted) void removeTemporarySidecar(tmp);
+    else await removeTemporarySidecar(tmp);
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, error: `${failureLabel}: ${msg}` };
   }
@@ -180,7 +181,8 @@ export async function writeSidecarCreateOnly(
     // The tmp file is redundant once `link` has published its content under
     // `destPath` (they're the same inode) — and it's still just clutter on
     // any failure path. Best-effort: it never existed, or it's already gone.
-    await removeTemporarySidecar(tmp);
+    if (signal?.aborted) void removeTemporarySidecar(tmp);
+    else await removeTemporarySidecar(tmp);
   }
 }
 
