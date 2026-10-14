@@ -16,7 +16,7 @@ public sealed partial class CloudClient
     private readonly SemaphoreSlim _sidecarWriteGate = new(1, 1);
 
     public async Task UpdateDevelopSidecarAsync(string path, AdjustmentState adjustments,
-        bool discardBrushCorrections = false, IReadOnlyList<string>? restoreBrushCorrections = null)
+        bool discardBrushCorrections = false, BrushCorrectionRestoreSnapshot? restoreBrushCorrections = null)
     {
         var snapshot = adjustments.Clone();
         await _sidecarWriteGate.WaitAsync();

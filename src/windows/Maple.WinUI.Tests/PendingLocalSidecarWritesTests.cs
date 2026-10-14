@@ -114,9 +114,9 @@ public sealed class PendingLocalSidecarWritesTests : IDisposable
             """);
 
         var original = SidecarStore.Load(path)!;
-        var brushContainers = XmpBrushCorrections.PassthroughContainers(original);
+        var brushContainers = XmpBrushCorrections.PassthroughContainers(original)!;
         Assert.Single(original.Adjustments.LocalAdjustments);
-        Assert.Single(brushContainers);
+        Assert.Single(brushContainers.Containers);
         var queue = new PendingLocalSidecarWrites();
         queue.Stage(path, new AdjustmentState(), 0, "none", null, discardBrushCorrections: true);
         Assert.Null(Assert.Single(queue.Flush()).Error);

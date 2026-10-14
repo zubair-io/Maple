@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Maple.WinUI.Models;
 using Maple.WinUI.Native;
 using Maple.WinUI.Services;
+using Maple.WinUI.Services.Xmp;
 
 namespace Maple.WinUI.ViewModels
 {
@@ -18,7 +19,7 @@ namespace Maple.WinUI.ViewModels
             string.Equals(path, photoPath, StringComparison.OrdinalIgnoreCase) &&
             !Adjustments.LocalAdjustments.Any(layer => layer.Mask is BrushMask);
 
-        private IReadOnlyList<string>? BrushCorrectionsToRestoreFor(string photoPath, AdjustmentState model) =>
+        private BrushCorrectionRestoreSnapshot? BrushCorrectionsToRestoreFor(string photoPath, AdjustmentState model) =>
             model.LocalAdjustments.Any(layer => layer.Mask is BrushMask) &&
             _brushCorrectionsRemovedByReset.TryGetValue(photoPath, out var containers)
                 ? containers

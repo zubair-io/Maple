@@ -75,7 +75,7 @@ namespace Maple.WinUI.ViewModels
         private Timer? _sidecarTimer;
         private Timer? _undoTimer;
         private string? _discardBrushCorrectionsForPhotoPath;
-        private readonly Dictionary<string, IReadOnlyList<string>> _brushCorrectionsRemovedByReset =
+        private readonly Dictionary<string, BrushCorrectionRestoreSnapshot> _brushCorrectionsRemovedByReset =
             new(StringComparer.OrdinalIgnoreCase);
         /// <summary>Shared by <see cref="_decodeCancel"/> and
         /// <see cref="_amazeCancel"/> (#3417 Jules review): a signal

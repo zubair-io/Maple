@@ -11,7 +11,9 @@ namespace Maple.WinUI.Services
     {
         public static BrushMask? Register(BrushMask mask, int imageWidth, int imageHeight)
         {
-            if (mask.RasterId != 0) return mask;
+            // Raster IDs are process-local registry handles. A mask may carry
+            // an ID released by a previous decode, so always build a fresh
+            // raster for this registration lifetime.
             if (mask.Digest.Length != 16 || mask.Digest.Any(c => !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))))
                 return null;
             var sourceWidth = Math.Max(1, imageWidth);
