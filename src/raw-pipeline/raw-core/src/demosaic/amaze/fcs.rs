@@ -197,7 +197,11 @@ pub(super) fn suppress_false_colour(
             return None;
         }
         let mean_ratio = ratio_sum / n as f32;
-        if mean_ratio <= 0.0 || (max_ratio - min_ratio) / mean_ratio > MAX_COLLAPSED_RATIO_SPREAD {
+        if mean_ratio <= 0.0
+            || (max_ratio - min_ratio) / mean_ratio > MAX_COLLAPSED_RATIO_SPREAD
+            || (mean_ratio - mean_surface_ratio).abs() / mean_surface_ratio
+                > MAX_COLLAPSED_RATIO_SPREAD
+        {
             return None;
         }
         Some(centre * colour / guide)
