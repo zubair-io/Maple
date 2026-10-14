@@ -929,6 +929,47 @@ fn rawler_illuminant_to_core(r: &RawlerIlluminant) -> CoreIlluminant {
 /// precision through the u16 requantization and leaves ~2 stops of over-white
 /// HDR headroom before the `u16::MAX` ceiling.
 const FLOAT_WHITE_ANCHOR: u32 = 16_384;
+const EFFECTIVE_WHITE_MAX_SCAN_SHARDS: usize = 2;
+const EFFECTIVE_WHITE_MAX_REGIONS: usize = 12;
+
+#[derive(Clone, Copy)]
+struct EffectiveWhiteRegions {
+    values: [u64; EFFECTIVE_WHITE_MAX_REGIONS],
+    len: usize,
+}
+
+impl Default for EffectiveWhiteRegions {
+    fn default() -> Self {
+        Self {
+            values: [0; EFFECTIVE_WHITE_MAX_REGIONS],
+            len: 0,
+        }
+    }
+}
+
+impl EffectiveWhiteRegions {
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &u64> {
+        self.values[..self.len].iter()
+    }
+
+    fn insert(&mut self, region: u64, limit: usize) {
+        if self.len >= limit || self.values[..self.len].contains(&region) {
+            return;
+        }
+        self.values[self.len] = region;
+        self.len += 1;
+    }
+
+    fn merge(&mut self, other: &Self, limit: usize) {
+        for &region in other.iter() {
+            self.insert(region, limit);
+        }
+    }
+}
 
 struct EffectiveWhiteCandidate {
     value: u16,
@@ -937,7 +978,7 @@ struct EffectiveWhiteCandidate {
     in_highlight_range: bool,
     eligible: bool,
     required_regions: usize,
-    occupied_regions: [Vec<usize>; 4],
+    occupied_regions: [EffectiveWhiteRegions; 4],
 }
 
 struct EffectiveWhiteScan {
@@ -997,9 +1038,7 @@ impl EffectiveWhiteScan {
                         in_highlight_range,
                         eligible: false,
                         required_regions: region_capacity,
-                        occupied_regions: std::array::from_fn(|_| {
-                            Vec::with_capacity(region_capacity)
-                        }),
+                        occupied_regions: [EffectiveWhiteRegions::default(); 4],
                     });
                     self.candidates_by_position[position].push(candidate_index);
                     self.candidate_lookup[value_index][position] = candidate_index as i32;
@@ -1010,12 +1049,9 @@ impl EffectiveWhiteScan {
 
                 let candidate = &mut self.candidates[candidate_index];
                 for grid in 0..4 {
-                    let occupied = &mut candidate.occupied_regions[grid];
-                    let region =
-                        ((y + y_offsets[grid]) / 128) * regions_w + (x + x_offsets[grid]) / 128;
-                    if occupied.len() < candidate.required_regions && !occupied.contains(&region) {
-                        occupied.push(region);
-                    }
+                    let region = (((y + y_offsets[grid]) / 128) * regions_w
+                        + (x + x_offsets[grid]) / 128) as u64;
+                    candidate.occupied_regions[grid].insert(region, candidate.required_regions);
                 }
             }
         }
@@ -1041,15 +1077,8 @@ impl EffectiveWhiteScan {
 
             let target = &mut self.candidates[existing as usize];
             for grid in 0..4 {
-                let occupied = &mut target.occupied_regions[grid];
-                for region in candidate.occupied_regions[grid].iter().copied() {
-                    if occupied.len() >= target.required_regions {
-                        break;
-                    }
-                    if !occupied.contains(&region) {
-                        occupied.push(region);
-                    }
-                }
+                target.occupied_regions[grid]
+                    .merge(&candidate.occupied_regions[grid], target.required_regions);
             }
         }
         self
@@ -1099,11 +1128,17 @@ fn effective_white_level(
     }
 
     // Spatial and histogram evidence are accumulated together on parallel
-    // row bands. Sparse per-band state keeps candidate-region sets bounded;
-    // the reduction merges only the first 6/12 regions each test needs.
+    // row bands. Fixed-size region sets bound per-code evidence, and the
+    // reduction merges only the first 6/12 regions each test needs.
     const ROWS_PER_SCAN_CHUNK: usize = 128;
     let chunk_count = h.div_ceil(ROWS_PER_SCAN_CHUNK);
-    let shard_count = rayon::current_num_threads().min(chunk_count).max(1);
+    // Candidate state is fixed-size, but a very large pool would still
+    // multiply the histogram, lookup table, and candidate arrays. Two scan
+    // shards retain useful parallelism while bounding this temporary memory.
+    let shard_count = rayon::current_num_threads()
+        .min(chunk_count)
+        .min(EFFECTIVE_WHITE_MAX_SCAN_SHARDS)
+        .max(1);
     let next_chunk = AtomicUsize::new(0);
     let mut partial_scans = (0..shard_count)
         .map(|_| EffectiveWhiteScan::new())
@@ -1212,7 +1247,7 @@ fn effective_white_level(
     let Some(best) = best.filter(|&b| b > black_level.iter().max().copied().unwrap_or(0)) else {
         return declared;
     };
-    let mut brighter_regions: [[Vec<usize>; 4]; 4] =
+    let mut brighter_regions: [[Vec<u64>; 4]; 4] =
         std::array::from_fn(|_| std::array::from_fn(|_| Vec::with_capacity(6)));
     for (position, position_candidates) in candidates_by_position.iter().enumerate() {
         for &candidate_index in position_candidates {
@@ -1222,7 +1257,7 @@ fn effective_white_level(
             }
             for grid in 0..4 {
                 let brighter = &mut brighter_regions[position][grid];
-                for &region in &candidate.occupied_regions[grid] {
+                for &region in candidate.occupied_regions[grid].iter() {
                     if brighter.len() >= 6 {
                         break;
                     }
@@ -1517,6 +1552,21 @@ mod tests {
         }
         assert_eq!(
             effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_bounds_state_for_broad_16_bit_highlights() {
+        let (w, h) = (512usize, 512usize);
+        let first_highlight = 58_982u16;
+        let highlight_codes = usize::from(u16::MAX - first_highlight) + 1;
+        let data = (0..w * h)
+            .map(|index| first_highlight + (index % highlight_codes) as u16)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            effective_white_level(&data, w as u32, h as u32, &[0; 4], 65535),
             65535
         );
     }
