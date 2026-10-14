@@ -27,8 +27,9 @@ use rayon::prelude::*;
 pub(super) const FALSE_COLOUR_SUPPRESS_STRENGTH: f32 = 5.0;
 
 /// A collapsed chroma estimate is only safe when its four contributing
-/// samples have nearly the same channel-to-green ratio. A wider spread can
-/// mean the diagonal crosses a real colour edge.
+/// samples have nearly the same channel-to-green ratio. The fallback limiter
+/// uses the same tolerance to check the centre against its sampled-colour
+/// neighbourhood. A wider disagreement can mean a real colour edge.
 const MAX_COLLAPSED_RATIO_SPREAD: f32 = 0.15;
 
 /// `green` is the final reconstructed green plane; `cfa_flat` the flattened
@@ -256,11 +257,66 @@ pub(super) fn suppress_false_colour(
                     // estimate-disagreement term, both in [0,1]. Zero unless
                     // BOTH fire.
                     let alpha = (strength * ghf * disagree).clamp(0.0, 1.0);
-                    px[t] = ((1.0 - alpha) * c_hue + alpha * c_val).max(0.0);
+                    let blended = ((1.0 - alpha) * c_hue + alpha * c_val).max(0.0);
+                    px[t] = if px[t] < 0.0 {
+                        supported_chroma_ceiling(x, y, w, cfa_flat, green)
+                            .map_or(blended, |ceiling| blended.min(ceiling))
+                    } else {
+                        blended
+                    };
                 }
                 row[x] = px;
             }
         });
+}
+
+/// A rejected constant-hue fit does not justify importing the bright side's
+/// absolute sensor value into a dark centre. Bound only that fallback's
+/// overshoot by the largest measured target/green ratio, without selecting
+/// one hue or raising a collapsed channel away from zero.
+///
+/// The centre's sampled ratio must agree with the same-colour diagonal
+/// neighbourhood and lie strictly inside its range. A centre at an endpoint
+/// may be a distinct colour plateau rather than an interpolated surface.
+/// This rejects colour edges, isolated pixels and plus-shaped features, while allowing local variation
+/// that prevents a constant-hue fit across the entire neighbourhood.
+fn supported_chroma_ceiling(
+    x: usize,
+    y: usize,
+    w: usize,
+    cfa: &[f32],
+    green: &[f32],
+) -> Option<f32> {
+    let i = y * w + x;
+    if green[i] <= 0.0 || cfa[i] < 0.0 {
+        return None;
+    }
+    let centre_ratio = cfa[i] / green[i];
+    let mut min_surface = f32::INFINITY;
+    let mut max_surface = f32::NEG_INFINITY;
+    let mut surface_sum = 0.0_f32;
+    let mut max_target = 0.0_f32;
+    for (dx, dy) in [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)] {
+        let offset = dy * w as isize + dx;
+        let surface = (i as isize + 2 * offset) as usize;
+        let target = (i as isize + offset) as usize;
+        if green[surface] <= 0.0 || green[target] <= 0.0 || cfa[surface] < 0.0 || cfa[target] < 0.0
+        {
+            return None;
+        }
+        let ratio = cfa[surface] / green[surface];
+        min_surface = min_surface.min(ratio);
+        max_surface = max_surface.max(ratio);
+        surface_sum += ratio;
+        max_target = max_target.max(cfa[target] / green[target]);
+    }
+    let mean_surface = surface_sum * 0.25;
+    let ratio_roundoff = f32::EPSILON * max_surface;
+    (min_surface + ratio_roundoff < centre_ratio
+        && centre_ratio < max_surface - ratio_roundoff
+        && mean_surface > 0.0
+        && (centre_ratio - mean_surface).abs() / mean_surface <= MAX_COLLAPSED_RATIO_SPREAD)
+        .then_some(green[i] * max_target)
 }
 
 fn clamp_signed_opposite_chroma(pixel: &mut [f32; 3], sampled_color: usize) {
