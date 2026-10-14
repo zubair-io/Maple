@@ -24,12 +24,14 @@
 //! - CCT: rawler 0.7 does not expose CCT directly; `as_shot_cct` is `None`.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rawler::decoders::{RawDecodeParams, WellKnownIFD};
 use rawler::imgop::xyz::Illuminant as RawlerIlluminant;
 use rawler::rawimage::{RawImageData, RawPhotometricInterpretation};
 use rawler::rawsource::RawSource;
 use rawler::tags::DngTag;
+use rayon::prelude::*;
 
 use crate::color::illuminant::Illuminant as CoreIlluminant;
 use crate::error::Error;
@@ -927,6 +929,133 @@ fn rawler_illuminant_to_core(r: &RawlerIlluminant) -> CoreIlluminant {
 /// precision through the u16 requantization and leaves ~2 stops of over-white
 /// HDR headroom before the `u16::MAX` ceiling.
 const FLOAT_WHITE_ANCHOR: u32 = 16_384;
+
+struct EffectiveWhiteCandidate {
+    value: u16,
+    position: usize,
+    sample_count: u32,
+    in_highlight_range: bool,
+    eligible: bool,
+    required_regions: usize,
+    occupied_regions: [Vec<usize>; 4],
+}
+
+struct EffectiveWhiteScan {
+    histogram: Vec<[u32; 4]>,
+    candidates: Vec<EffectiveWhiteCandidate>,
+    candidates_by_position: [Vec<usize>; 4],
+    candidate_lookup: Vec<[i32; 4]>,
+}
+
+impl EffectiveWhiteScan {
+    fn new() -> Self {
+        Self {
+            histogram: vec![[0; 4]; usize::from(u16::MAX) + 1],
+            candidates: Vec::new(),
+            candidates_by_position: std::array::from_fn(|_| Vec::new()),
+            candidate_lookup: vec![[-1; 4]; usize::from(u16::MAX) + 1],
+        }
+    }
+
+    fn accumulate_rows(
+        &mut self,
+        pixels: &[u16],
+        start_y: usize,
+        width: usize,
+        black_level: &[u32; 4],
+        declared: u32,
+        minimum_tracked_value: u32,
+    ) {
+        let regions_w = (width + 64).div_ceil(128);
+        let x_offsets = [0, 64, 0, 64];
+        let y_offsets = [0, 0, 64, 64];
+        for (row_offset, row) in pixels.chunks_exact(width).enumerate() {
+            let y = start_y + row_offset;
+            let y_base = (y & 1) * 2;
+            for (x, &value) in row.iter().enumerate() {
+                let position = y_base + (x & 1);
+                self.histogram[usize::from(value)][position] += 1;
+                if u32::from(value) < minimum_tracked_value {
+                    continue;
+                }
+
+                let value_index = usize::from(value);
+                let candidate_index = if self.candidate_lookup[value_index][position] < 0 {
+                    let denom = (declared as f64 - black_level[position] as f64).max(1.0);
+                    let fraction = (u32::from(value) as f64 - black_level[position] as f64) / denom;
+                    let in_highlight_range = fraction >= 0.90;
+                    let region_capacity = if (0.90..0.96).contains(&fraction) {
+                        12
+                    } else {
+                        6
+                    };
+                    let candidate_index = self.candidates.len();
+                    self.candidates.push(EffectiveWhiteCandidate {
+                        value,
+                        position,
+                        sample_count: 0,
+                        in_highlight_range,
+                        eligible: false,
+                        required_regions: region_capacity,
+                        occupied_regions: std::array::from_fn(|_| {
+                            Vec::with_capacity(region_capacity)
+                        }),
+                    });
+                    self.candidates_by_position[position].push(candidate_index);
+                    self.candidate_lookup[value_index][position] = candidate_index as i32;
+                    candidate_index
+                } else {
+                    self.candidate_lookup[value_index][position] as usize
+                };
+
+                let candidate = &mut self.candidates[candidate_index];
+                for grid in 0..4 {
+                    let occupied = &mut candidate.occupied_regions[grid];
+                    let region =
+                        ((y + y_offsets[grid]) / 128) * regions_w + (x + x_offsets[grid]) / 128;
+                    if occupied.len() < candidate.required_regions && !occupied.contains(&region) {
+                        occupied.push(region);
+                    }
+                }
+            }
+        }
+    }
+
+    fn merge(mut self, other: Self) -> Self {
+        for (target, source) in self.histogram.iter_mut().zip(other.histogram) {
+            for position in 0..4 {
+                target[position] += source[position];
+            }
+        }
+        for candidate in other.candidates {
+            let value_index = usize::from(candidate.value);
+            let position = candidate.position;
+            let existing = self.candidate_lookup[value_index][position];
+            if existing < 0 {
+                let index = self.candidates.len();
+                self.candidates_by_position[position].push(index);
+                self.candidate_lookup[value_index][position] = index as i32;
+                self.candidates.push(candidate);
+                continue;
+            }
+
+            let target = &mut self.candidates[existing as usize];
+            for grid in 0..4 {
+                let occupied = &mut target.occupied_regions[grid];
+                for region in candidate.occupied_regions[grid].iter().copied() {
+                    if occupied.len() >= target.required_regions {
+                        break;
+                    }
+                    if !occupied.contains(&region) {
+                        occupied.push(region);
+                    }
+                }
+            }
+        }
+        self
+    }
+}
+
 /// Infer a lower effective sensor white when a large RAW shows repeated
 /// clipping below its declared level. Near-white plateaus must occupy at least
 /// six 128px regions; dense midrange plateaus must occupy 12. Each threshold
@@ -950,22 +1079,7 @@ fn effective_white_level(
     if data.len() < w.saturating_mul(h) {
         return declared;
     }
-    let mut histogram = vec![[0u32; 4]; usize::from(u16::MAX) + 1];
-    struct PlateauCandidate {
-        value: u16,
-        position: usize,
-        sample_count: u32,
-        in_highlight_range: bool,
-        eligible: bool,
-        required_regions: usize,
-        occupied_regions: [Vec<usize>; 4],
-    }
-    let mut candidates = Vec::<PlateauCandidate>::new();
-    let mut candidates_by_position: [Vec<usize>; 4] = std::array::from_fn(|_| Vec::new());
-    let mut candidate_lookup = vec![[-1i32; 4]; usize::from(u16::MAX) + 1];
-    let regions_w = (w + 64).div_ceil(128);
-    let x_offsets = [0, 64, 0, 64];
-    let y_offsets = [0, 0, 64, 64];
+    let pixel_data = &data[..w * h];
     let minimum_tracked_value = (0..4)
         .map(|position| {
             let denom = (declared as f64 - black_level[position] as f64).max(1.0);
@@ -973,58 +1087,51 @@ fn effective_white_level(
         })
         .min()
         .unwrap_or(u32::MAX);
-
-    // Build the histogram and per-code spatial evidence in one frame pass.
-    // Track every populated bin in the highlight range, not only bins which
-    // later qualify as plateaus: this also lets the final Bayer-position guard
-    // reuse the spatial evidence for brighter samples without another scan.
-    for y in 0..h {
-        let y_base = (y & 1) * 2;
-        for x in 0..w {
-            let position = y_base + (x & 1);
-            let value = data[y * w + x];
-            histogram[usize::from(value)][position] += 1;
-            if u32::from(value) < minimum_tracked_value {
-                continue;
-            }
-
-            let candidate_index = if candidate_lookup[usize::from(value)][position] < 0 {
-                let denom = (declared as f64 - black_level[position] as f64).max(1.0);
-                let fraction = (u32::from(value) as f64 - black_level[position] as f64) / denom;
-                let in_highlight_range = fraction >= 0.90;
-                let region_capacity = if (0.90..0.96).contains(&fraction) {
-                    12
-                } else {
-                    6
-                };
-                let candidate_index = candidates.len();
-                candidates.push(PlateauCandidate {
-                    value,
-                    position,
-                    sample_count: 0,
-                    in_highlight_range,
-                    eligible: false,
-                    required_regions: region_capacity,
-                    occupied_regions: std::array::from_fn(|_| Vec::with_capacity(region_capacity)),
-                });
-                candidates_by_position[position].push(candidate_index);
-                candidate_lookup[usize::from(value)][position] = candidate_index as i32;
-                candidate_index
-            } else {
-                candidate_lookup[usize::from(value)][position] as usize
-            };
-
-            let candidate = &mut candidates[candidate_index];
-            for grid in 0..4 {
-                let occupied = &mut candidate.occupied_regions[grid];
-                let region =
-                    ((y + y_offsets[grid]) / 128) * regions_w + (x + x_offsets[grid]) / 128;
-                if occupied.len() < candidate.required_regions && !occupied.contains(&region) {
-                    occupied.push(region);
-                }
-            }
-        }
+    // Most frames contain no values near white. A parallel max reduction
+    // rejects those without allocating histograms or candidate state.
+    if pixel_data
+        .par_iter()
+        .copied()
+        .max()
+        .map_or(true, |maximum| u32::from(maximum) < minimum_tracked_value)
+    {
+        return declared;
     }
+
+    // Spatial and histogram evidence are accumulated together on parallel
+    // row bands. Sparse per-band state keeps candidate-region sets bounded;
+    // the reduction merges only the first 6/12 regions each test needs.
+    const ROWS_PER_SCAN_CHUNK: usize = 128;
+    let chunk_count = h.div_ceil(ROWS_PER_SCAN_CHUNK);
+    let shard_count = rayon::current_num_threads().min(chunk_count).max(1);
+    let next_chunk = AtomicUsize::new(0);
+    let mut partial_scans = (0..shard_count)
+        .map(|_| EffectiveWhiteScan::new())
+        .collect::<Vec<_>>();
+    partial_scans.par_iter_mut().for_each(|scan| loop {
+        let chunk_index = next_chunk.fetch_add(1, Ordering::Relaxed);
+        if chunk_index >= chunk_count {
+            break;
+        }
+        let start_y = chunk_index * ROWS_PER_SCAN_CHUNK;
+        let end_y = (start_y + ROWS_PER_SCAN_CHUNK).min(h);
+        scan.accumulate_rows(
+            &pixel_data[start_y * w..end_y * w],
+            start_y,
+            w,
+            black_level,
+            declared,
+            minimum_tracked_value,
+        );
+    });
+    let mut partial_iter = partial_scans.into_iter();
+    let mut scan = partial_iter.next().unwrap_or_else(EffectiveWhiteScan::new);
+    for partial in partial_iter {
+        scan = scan.merge(partial);
+    }
+    let histogram = scan.histogram;
+    let mut candidates = scan.candidates;
+    let mut candidates_by_position = scan.candidates_by_position;
 
     for candidate in &mut candidates {
         let count = histogram[usize::from(candidate.value)][candidate.position];
