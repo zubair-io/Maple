@@ -930,11 +930,12 @@ fn rawler_illuminant_to_core(r: &RawlerIlluminant) -> CoreIlluminant {
 const FLOAT_WHITE_ANCHOR: u32 = 16_384;
 
 /// Infer a lower effective sensor white when a large RAW shows repeated
-/// clipping below its declared level. Dense midrange plateaus must occupy at
-/// least 16 32px tiles, which rejects a localized flat chart patch; sparse
-/// plateaus are accepted only near declared white. The scalar result is the
-/// highest qualifying Bayer-position plateau so another channel's highlights
-/// are not clipped by a lower saturation code.
+/// clipping below its declared level. Near-white plateaus must occupy at least
+/// six 32px tiles; dense midrange plateaus must occupy 16. This rejects small
+/// localized flat patches while retaining sparse highlight clipping in the
+/// fixture set. The scalar result is the highest qualifying Bayer-position
+/// plateau so another channel's highlights are not clipped by a lower
+/// saturation code.
 fn effective_white_level(
     data: &[u16],
     width: u32,
@@ -983,14 +984,11 @@ fn effective_white_level(
             });
     }
 
-    // A dense midrange plateau can also be a flat chart patch. Require it to
-    // occur across separated image tiles; actual clipped highlights span
-    // multiple regions, while a single uniform patch does not. Near-declared
-    // plateaus keep their sparse path because small clipped highlights are
-    // common there.
-    let needs_spatial_support = candidates
-        .iter()
-        .any(|candidate| candidate.is_some_and(|(_, dense)| dense));
+    // Any plateau can be a flat chart patch, including a near-white patch with
+    // enough exact samples to pass the sparse histogram threshold. Require
+    // spatial evidence for every candidate; small localized patches cannot
+    // safely lower the scalar white level.
+    let needs_spatial_support = candidates.iter().any(Option::is_some);
     let spatial_support = if needs_spatial_support {
         let tiles_w = w.div_ceil(32);
         let mut occupied = vec![[false; 4]; tiles_w * h.div_ceil(32)];
@@ -998,7 +996,7 @@ fn effective_white_level(
             let y_base = (y & 1) * 2;
             for x in 0..w {
                 let p = y_base + (x & 1);
-                if let Some((value, true)) = candidates[p] {
+                if let Some((value, _)) = candidates[p] {
                     if data[y * w + x] as u32 == value {
                         occupied[(y / 32) * tiles_w + x / 32][p] = true;
                     }
@@ -1006,10 +1004,10 @@ fn effective_white_level(
             }
         }
         (0..4)
-            .map(|p| occupied.iter().filter(|tile| tile[p]).count() >= 16)
+            .map(|p| occupied.iter().filter(|tile| tile[p]).count())
             .collect::<Vec<_>>()
     } else {
-        vec![true; 4]
+        vec![usize::MAX; 4]
     };
     // A single scalar normalization ceiling must not clip a Bayer position
     // whose valid saturation plateau is higher than another position's.
@@ -1017,8 +1015,7 @@ fn effective_white_level(
         .into_iter()
         .enumerate()
         .filter_map(|(p, candidate)| match candidate {
-            Some((value, false)) => Some(value),
-            Some((value, true)) if spatial_support[p] => Some(value),
+            Some((value, dense)) if spatial_support[p] >= if dense { 16 } else { 6 } => Some(value),
             _ => None,
         })
         .max();
@@ -1181,9 +1178,12 @@ mod tests {
                 data[y * w + x] = 62000;
             }
         }
-        for y in (0..16).step_by(2) {
-            for x in (1..9).step_by(2) {
+        for tile_y in 0..4 {
+            for tile_x in 0..4 {
+                let y = tile_y * 64;
+                let x = tile_x * 64 + 1;
                 data[y * w + x] = 63000;
+                data[(y + 2) * w + x + 2] = 63000;
             }
         }
         assert_eq!(
@@ -1285,14 +1285,40 @@ mod tests {
     fn effective_white_detects_sparse_clipping_near_declared_white() {
         let (w, h) = (512usize, 512usize);
         let mut data = vec![1000u16; w * h];
-        for y in (0..16).step_by(2) {
-            for x in (0..16).step_by(2) {
+        for tile_y in 0..4 {
+            for tile_x in 0..4 {
+                let y = tile_y * 64;
+                let x = tile_x * 64;
                 data[y * w + x] = 64856;
+                data[(y + 2) * w + x + 2] = 64856;
             }
         }
         assert_eq!(
             effective_white_level(&data, 512, 512, &[0; 4], 65535),
             64856
+        );
+    }
+
+    #[test]
+    fn effective_white_rejects_a_localized_flat_near_white_patch() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        // 32 samples on one CFA position, all inside a 64×64 patch (four
+        // 32px tiles). The count alone resembles clipping, but is localized.
+        for tile_y in 0..2 {
+            for tile_x in 0..2 {
+                for dy in (0..4).step_by(2) {
+                    for dx in (0..8).step_by(2) {
+                        let y = tile_y * 32 + dy;
+                        let x = tile_x * 32 + dx;
+                        data[y * w + x] = 64856;
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
         );
     }
 
