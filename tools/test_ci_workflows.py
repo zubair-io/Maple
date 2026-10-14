@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 import yaml
-from ci_changes import CONSUMERS
+from ci_changes import ALL_OUTPUTS, CONSUMERS
 from ci_result import validate
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,9 +76,9 @@ class WorkflowTests(unittest.TestCase):
         # PyYAML's YAML 1.1 loader interprets the unquoted Actions 'on' as True.
         public = config[True]["workflow_call"]["outputs"]
         internal = config["jobs"]["select"]["outputs"]
-        self.assertEqual(set(public), set(CONSUMERS))
-        self.assertEqual(set(internal), set(CONSUMERS))
-        for component in CONSUMERS:
+        self.assertEqual(set(public), set(ALL_OUTPUTS))
+        self.assertEqual(set(internal), set(ALL_OUTPUTS))
+        for component in ALL_OUTPUTS:
             self.assertIn(
                 f"jobs.select.outputs.{component}", public[component]["value"]
             )
@@ -139,17 +139,22 @@ class WorkflowTests(unittest.TestCase):
 
     def test_release_names_and_native_trigger_coverage(self):
         for name in ("api", "windows", "web", "maple-types", "cross"):
-            self.assertIn("pull_request", workflow(name)[True])
-            self.assertIsNone(workflow(name)[True]["pull_request"])
+            triggers = workflow(name)[True]
+            self.assertIsNone(triggers["pull_request"])
+            self.assertEqual(triggers["merge_group"]["branches"], ["main"])
+            self.assertEqual(triggers["merge_group"]["types"], ["checks_requested"])
+            self.assertNotIn("push", triggers)
         paths = workflow("publish-package")[True]["pull_request"]["paths"]
         self.assertIn("src/raw-pipeline/**", paths)
         self.assertIn("src/maple/**", paths)
         self.assertIn("src/apple/MapleUITests/Goldens/.calibration/**", paths)
-        for event in ("push", "pull_request"):
-            self.assertIn(
-                ".github/workflows/cloudflare.yml",
-                workflow("cloudflare")[True][event]["paths"],
-            )
+        cloudflare = workflow("cloudflare")[True]
+        self.assertIn(
+            ".github/workflows/cloudflare.yml", cloudflare["pull_request"]["paths"]
+        )
+        self.assertEqual(cloudflare["merge_group"]["branches"], ["main"])
+        self.assertEqual(cloudflare["merge_group"]["types"], ["checks_requested"])
+        self.assertNotIn("push", cloudflare)
 
 
 if __name__ == "__main__":

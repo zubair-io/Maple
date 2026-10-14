@@ -87,7 +87,11 @@ class NativeWorkflowTests(unittest.TestCase):
     def test_restore_is_exact_and_only_for_ordinary_pull_requests(self):
         for job in BUILD_JOBS:
             with self.subTest(job=job):
-                self.assertNotIn("if", self.jobs[job])
+                self.assertEqual(self.jobs[job]["needs"], "changes")
+                self.assertEqual(
+                    self.jobs[job]["if"],
+                    "needs.changes.outputs.publish_package == 'true'",
+                )
                 restore = self.one_step(job, uses="actions/cache/restore@v4")
                 self.assertEqual(restore["id"], "native-cache")
                 self.assertIs(restore["continue-on-error"], True)
@@ -114,6 +118,7 @@ class NativeWorkflowTests(unittest.TestCase):
                 for event, head, outcome, key, hit in itertools.product(
                     (
                         "pull_request",
+                        "merge_group",
                         "push",
                         "workflow_dispatch",
                         "workflow_call",
@@ -314,9 +319,12 @@ class NativeWorkflowTests(unittest.TestCase):
         )
         gate = self.jobs["validation-result"]
         self.assertEqual(
-            set(gate["needs"]), {*BUILD_JOBS, "publish", "node-22-acceptance"}
+            set(gate["needs"]),
+            {*BUILD_JOBS, "changes", "publish", "node-22-acceptance"},
         )
-        self.assertNotIn("if", gate)
+        self.assertEqual(
+            gate["if"], "needs.changes.outputs.publish_package == 'true'"
+        )
         for job in ("publish", "node-22-acceptance"):
             for step in self.jobs[job]["steps"]:
                 self.assertNotIn("if", step)
