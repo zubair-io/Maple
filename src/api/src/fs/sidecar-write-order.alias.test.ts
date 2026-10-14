@@ -24,40 +24,37 @@ test('file symlink aliases preserve FIFO across different library scopes', async
     const { promise: secondResolutionFinished, resolve: markSecondResolutionFinished } =
       Promise.withResolvers<void>();
     const order: string[] = [];
-    const first = serializeSidecarWrite(
-      firstAlias,
-      async () => {
-        order.push('first');
-        return 'first';
+    let activeWrites = 0;
+    let maxActiveWrites = 0;
+    const write = (label: string) => async () => {
+      activeWrites++;
+      maxActiveWrites = Math.max(maxActiveWrites, activeWrites);
+      await Bun.sleep(5);
+      order.push(label);
+      activeWrites--;
+      return label;
+    };
+    const first = serializeSidecarWrite(firstAlias, write('first'), {
+      admissionScope: firstLibrary,
+      resolveDestination: async () => {
+        await releaseFirstResolution;
+        return fs.realpath(firstAlias);
       },
-      {
-        admissionScope: firstLibrary,
-        resolveDestination: async () => {
-          await releaseFirstResolution;
-          return fs.realpath(firstAlias);
-        },
+    });
+    const second = serializeSidecarWrite(secondAlias, write('second'), {
+      admissionScope: secondLibrary,
+      resolveDestination: async () => {
+        const resolved = await fs.realpath(secondAlias);
+        markSecondResolutionFinished();
+        return resolved;
       },
-    );
-    const second = serializeSidecarWrite(
-      secondAlias,
-      async () => {
-        order.push('second');
-        return 'second';
-      },
-      {
-        admissionScope: secondLibrary,
-        resolveDestination: async () => {
-          const resolved = await fs.realpath(secondAlias);
-          markSecondResolutionFinished();
-          return resolved;
-        },
-      },
-    );
+    });
 
     await secondResolutionFinished;
     expect(order).toEqual([]);
     resolveFirstResolution();
     await expect(Promise.all([first, second])).resolves.toEqual(['first', 'second']);
+    expect(maxActiveWrites).toBe(1);
     expect(order).toEqual(['first', 'second']);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
@@ -154,6 +151,97 @@ test('aborting a stalled canonical lookup lets the next save recalculate its key
     statSpy.mockRestore();
     releaseStalledStat();
     await Bun.sleep(0);
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a stalled parent stat in one library does not block another library', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-stalled-stat-'));
+  const offlineLibrary = path.join(root, 'offline');
+  const healthyLibrary = path.join(root, 'healthy');
+  await Promise.all([fs.mkdir(offlineLibrary), fs.mkdir(healthyLibrary)]);
+  const realStat = fs.stat.bind(fs);
+  const { promise: stalledStat, resolve: releaseStalledStat } = Promise.withResolvers<void>();
+  const { promise: statStarted, resolve: markStatStarted } = Promise.withResolvers<void>();
+  let statCalls = 0;
+  const statSpy = spyOn(fs, 'stat').mockImplementation((async (
+    ...args: Parameters<typeof fs.stat>
+  ) => {
+    statCalls++;
+    if (statCalls === 1) {
+      markStatStarted();
+      await stalledStat;
+    }
+    return realStat(...args);
+  }) as never);
+  let first: Promise<void> | undefined;
+
+  try {
+    first = serializeSidecarWrite(path.join(offlineLibrary, 'offline.xmp'), async () => undefined, {
+      admissionScope: offlineLibrary,
+    });
+    await statStarted;
+
+    await expect(
+      serializeSidecarWrite(path.join(healthyLibrary, 'healthy.xmp'), async () => 'healthy', {
+        admissionScope: healthyLibrary,
+      }),
+    ).resolves.toBe('healthy');
+
+    releaseStalledStat();
+    await first;
+  } finally {
+    releaseStalledStat();
+    statSpy.mockRestore();
+    await first?.catch(() => undefined);
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a stalled destination resolver in one library does not block another library', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-stalled-library-'));
+  try {
+    const firstLibrary = path.join(root, 'offline');
+    const secondLibrary = path.join(root, 'healthy');
+    await Promise.all([fs.mkdir(firstLibrary), fs.mkdir(secondLibrary)]);
+    const firstDestination = path.join(firstLibrary, 'first.xmp');
+    const secondDestination = path.join(secondLibrary, 'second.xmp');
+    const { promise: releaseResolution, resolve: resolveResolution } =
+      Promise.withResolvers<void>();
+    const { promise: firstResolutionStarted, resolve: markResolutionStarted } =
+      Promise.withResolvers<void>();
+    const order: string[] = [];
+    const first = serializeSidecarWrite(
+      firstDestination,
+      async () => {
+        order.push('offline');
+      },
+      {
+        admissionScope: firstLibrary,
+        resolveDestination: async () => {
+          markResolutionStarted();
+          await releaseResolution;
+          return firstDestination;
+        },
+      },
+    );
+    await firstResolutionStarted;
+
+    await expect(
+      serializeSidecarWrite(
+        secondDestination,
+        async () => {
+          order.push('healthy');
+        },
+        { admissionScope: secondLibrary },
+      ),
+    ).resolves.toBeUndefined();
+    expect(order).toEqual(['healthy']);
+
+    resolveResolution();
+    await first;
+    expect(order).toEqual(['healthy', 'offline']);
+  } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
 });
