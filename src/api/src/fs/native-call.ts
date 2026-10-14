@@ -51,16 +51,38 @@ function callWithAbort(
 ): Promise<{ ok: true; value: string } | { ok: false; error: string }> {
   if (!signal) return call(method, args);
   if (signal.aborted) return Promise.reject(abortError(signal));
-  return call(method, args).then(
-    (value) => {
-      if (signal.aborted) throw abortError(signal);
-      return value;
-    },
-    (error: unknown) => {
-      if (signal.aborted) throw abortError(signal);
-      throw error;
-    },
-  );
+  const pendingCall = Promise.resolve().then(() => call(method, args));
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => signal.removeEventListener('abort', onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(abortError(signal));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    void pendingCall.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (signal.aborted) reject(abortError(signal));
+        else resolve(value);
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (signal.aborted) reject(abortError(signal));
+        else reject(error);
+      },
+    );
+  });
 }
 
 function waitForRetry(milliseconds: number, signal?: AbortSignal): Promise<void> {

@@ -83,6 +83,23 @@ describe('callNativeRetrying', () => {
     await expect(waiting).rejects.toMatchObject({ name: 'AbortError' });
   });
 
+  test('cancels an accepted native call while it is still pending', async () => {
+    let resolveNative!: (value: { ok: true; value: string }) => void;
+    callNativeSpy = spyOn(maple, 'callNative').mockImplementation(
+      (async () =>
+        await new Promise<{ ok: true; value: string }>((resolve) => {
+          resolveNative = resolve;
+        })) as never,
+    );
+    const controller = new AbortController();
+    const waiting = callNativeRetrying('save', [], controller.signal);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+
+    await expect(waiting).rejects.toMatchObject({ name: 'AbortError' });
+    resolveNative({ ok: true, value: 'completed after abort' });
+  });
+
   test('bounds the number of retained retry requests', async () => {
     callNativeSpy = spyOn(maple, 'callNative').mockImplementation((async () => {
       throw Object.assign(new Error('worker pool is full'), {
