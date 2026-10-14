@@ -108,15 +108,9 @@ export const xmpRoutes = new Elysia()
     // fallow-ignore-next-line complexity
     async ({ params, body, headers, query, set, request }) => {
       markDeprecated(set);
-      const resolved = await resolveAssetLocationOrRespond(params.id, set);
+      const resolved = await resolveWritableAssetOrRespond(params.id, set);
       if ('error' in resolved) return resolved;
-      const { id, info, absPath } = resolved;
-      const authorized = await resolveAndAuthorizePath(absPath);
-      if (!authorized.ok) {
-        set.status = authorized.status;
-        return { error: authorized.error };
-      }
-      const writeScope = authorized.writeScope;
+      const { id, info, absPath, writeScope } = resolved;
 
       const xmlContent =
         typeof body === 'string'
@@ -205,15 +199,9 @@ export const xmpRoutes = new Elysia()
   // Delete XMP sidecar (idempotent).
   .delete('/:id/xmp', async ({ params, query, set, request }) => {
     markDeprecated(set);
-    const resolved = await resolveAssetLocationOrRespond(params.id, set);
+    const resolved = await resolveWritableAssetOrRespond(params.id, set);
     if ('error' in resolved) return resolved;
-    const { id, info, absPath } = resolved;
-    const authorized = await resolveAndAuthorizePath(absPath);
-    if (!authorized.ok) {
-      set.status = authorized.status;
-      return { error: authorized.error };
-    }
-    const writeScope = authorized.writeScope;
+    const { id, info, absPath, writeScope } = resolved;
     const conflict = typeof query.conflict === 'string' ? query.conflict : null;
     const result =
       conflict !== null
@@ -239,6 +227,18 @@ export const xmpRoutes = new Elysia()
     }).catch(() => {});
     return;
   });
+
+async function resolveWritableAssetOrRespond(idParam: string, set: { status?: number | string }) {
+  const resolved = await resolveAssetLocationOrRespond(idParam, set);
+  if ('error' in resolved) return resolved;
+
+  const authorized = await resolveAndAuthorizePath(resolved.absPath);
+  if (!authorized.ok) {
+    set.status = authorized.status;
+    return { error: authorized.error };
+  }
+  return { ...resolved, writeScope: authorized.writeScope };
+}
 
 /**
  * Escape a string for safe inclusion inside an XML attribute value.

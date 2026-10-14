@@ -55,6 +55,49 @@ export function isMissingSidecar(error: unknown): boolean {
   return !!error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT';
 }
 
+function temporarySidecarPath(destPath: string): string {
+  return `${destPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
+}
+
+async function stageSidecarTemp(
+  destPath: string,
+  tmpPath: string,
+  content: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  signal?.throwIfAborted();
+  await fs.mkdir(path.dirname(destPath), { recursive: true });
+  const fh = await fs.open(tmpPath, 'w');
+  try {
+    await fh.writeFile(content, 'utf-8');
+    await fh.datasync();
+  } finally {
+    await fh.close();
+  }
+}
+
+async function publishStagedSidecar(
+  destPath: string,
+  tmpPath: string,
+  content: string,
+  signal: AbortSignal | undefined,
+  publish: (tmpPath: string, destPath: string) => Promise<void>,
+): Promise<Date> {
+  await stageSidecarTemp(destPath, tmpPath, content, signal);
+  signal?.throwIfAborted();
+  await publish(tmpPath, destPath);
+  const st = await fs.stat(destPath);
+  return st.mtime;
+}
+
+async function removeTemporarySidecar(tmpPath: string): Promise<void> {
+  try {
+    await fs.unlink(tmpPath);
+  } catch {
+    /* temp never created, or already gone */
+  }
+}
+
 /**
  * Atomically publish `content` at `destPath`, returning the published file's
  * mtime — callers hand that back to clients as the precondition token for the
@@ -70,28 +113,12 @@ export async function writeSidecarAtomic(
   const allowed = await authorizeUnlessAborted(destPath, signal);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Path not allowed' };
 
-  const tmp = `${destPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
+  const tmp = temporarySidecarPath(destPath);
   try {
-    signal?.throwIfAborted();
-    // Ensure the directory exists (it should, but be defensive).
-    await fs.mkdir(path.dirname(destPath), { recursive: true });
-    const fh = await fs.open(tmp, 'w');
-    try {
-      await fh.writeFile(content, 'utf-8');
-      await fh.datasync();
-    } finally {
-      await fh.close();
-    }
-    signal?.throwIfAborted();
-    await fs.rename(tmp, destPath);
-    const st = await fs.stat(destPath);
-    return { ok: true, mtime: st.mtime };
+    const mtime = await publishStagedSidecar(destPath, tmp, content, signal, fs.rename);
+    return { ok: true, mtime };
   } catch (err) {
-    try {
-      await fs.unlink(tmp);
-    } catch {
-      /* temp never created, or already gone */
-    }
+    await removeTemporarySidecar(tmp);
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, error: `${failureLabel}: ${msg}` };
   }
@@ -114,27 +141,15 @@ export async function writeSidecarCreateOnly(
   const allowed = await authorizeUnlessAborted(destPath, signal);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Path not allowed' };
 
-  const tmp = `${destPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
+  const tmp = temporarySidecarPath(destPath);
   try {
-    signal?.throwIfAborted();
-    // Ensure the directory exists (it should, but be defensive).
-    await fs.mkdir(path.dirname(destPath), { recursive: true });
-    const fh = await fs.open(tmp, 'w');
-    try {
-      await fh.writeFile(content, 'utf-8');
-      await fh.datasync();
-    } finally {
-      await fh.close();
-    }
     // `link` is the atomic "create only if absent" primitive: it either
     // creates `destPath` pointing at the same inode as `tmp`, or fails with
     // EEXIST without touching whatever is already at `destPath`. There is no
     // window between "check" and "act" for a concurrent writer to land in —
     // unlike `stat` followed by `rename`, which are two separate operations.
-    signal?.throwIfAborted();
-    await fs.link(tmp, destPath);
-    const st = await fs.stat(destPath);
-    return { ok: true, mtime: st.mtime };
+    const mtime = await publishStagedSidecar(destPath, tmp, content, signal, fs.link);
+    return { ok: true, mtime };
   } catch (err) {
     const alreadyExists = isEexist(err);
     return alreadyExists
@@ -147,11 +162,7 @@ export async function writeSidecarCreateOnly(
     // The tmp file is redundant once `link` has published its content under
     // `destPath` (they're the same inode) — and it's still just clutter on
     // any failure path. Best-effort: it never existed, or it's already gone.
-    try {
-      await fs.unlink(tmp);
-    } catch {
-      /* temp never created, or already gone */
-    }
+    await removeTemporarySidecar(tmp);
   }
 }
 

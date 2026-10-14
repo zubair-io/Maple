@@ -29,6 +29,14 @@ async function publishedVariant(
   return new Response(xml, { headers: { 'Content-Type': 'application/xml' } });
 }
 
+function publishVariantMutation(
+  rawPath: string,
+  variantId: string,
+  mutation: Promise<string>,
+): Promise<Response> {
+  return mutation.then((xml) => publishedVariant(rawPath, variantId, xml));
+}
+
 export const xmpVariantRoutes = new Elysia()
   .onError(({ error }) => {
     if (error instanceof WorkflowVariantError)
@@ -118,18 +126,20 @@ export const xmpVariantRoutes = new Elysia()
   )
   .post(
     '/api/xmp/variant/commit',
-    async ({ rawPath, writeScope, query, body, request }) => {
-      const output = await commitWorkflowVariant(
+    ({ rawPath, writeScope, query, body, request }) =>
+      publishVariantMutation(
         rawPath,
         query.variantId,
-        body.expectedXmp,
-        body.xmp,
-        body.entry,
-        request.signal,
-        writeScope,
-      );
-      return publishedVariant(rawPath, query.variantId, output);
-    },
+        commitWorkflowVariant(
+          rawPath,
+          query.variantId,
+          body.expectedXmp,
+          body.xmp,
+          body.entry,
+          request.signal,
+          writeScope,
+        ),
+      ),
     {
       query: t.Object({ path: t.String(), variantId: t.String() }),
       body: t.Object({
@@ -145,18 +155,20 @@ export const xmpVariantRoutes = new Elysia()
   )
   .post(
     '/api/xmp/variant/snapshot',
-    async ({ rawPath, writeScope, query, body, request }) => {
-      const output = await snapshotWorkflowVariant(
+    ({ rawPath, writeScope, query, body, request }) =>
+      publishVariantMutation(
         rawPath,
         query.variantId,
-        body.expectedXmp,
-        body.snapshot,
-        body.initialXmp,
-        request.signal,
-        writeScope,
-      );
-      return publishedVariant(rawPath, query.variantId, output);
-    },
+        snapshotWorkflowVariant(
+          rawPath,
+          query.variantId,
+          body.expectedXmp,
+          body.snapshot,
+          body.initialXmp,
+          request.signal,
+          writeScope,
+        ),
+      ),
     {
       query: t.Object({ path: t.String(), variantId: t.String() }),
       body: t.Object({
@@ -184,17 +196,19 @@ export const xmpVariantRoutes = new Elysia()
   )
   .post(
     '/api/xmp/variant/restore',
-    async ({ rawPath, writeScope, query, body, request }) => {
-      const output = await restoreWorkflowVariant(
+    ({ rawPath, writeScope, query, body, request }) =>
+      publishVariantMutation(
         rawPath,
         query.variantId,
-        body.expectedXmp,
-        body.entry,
-        request.signal,
-        writeScope,
-      );
-      return publishedVariant(rawPath, query.variantId, output);
-    },
+        restoreWorkflowVariant(
+          rawPath,
+          query.variantId,
+          body.expectedXmp,
+          body.entry,
+          request.signal,
+          writeScope,
+        ),
+      ),
     {
       query: t.Object({ path: t.String(), variantId: t.String() }),
       body: t.Object({ expectedXmp: t.String(), entry: t.Any() }),
