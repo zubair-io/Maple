@@ -137,6 +137,16 @@ export async function serializeSidecarWrite<T>(
     releaseAdmission = resolve;
   });
   admissionTails.set(admissionScope, currentAdmission);
+  let admissionAcquired = false;
+  let admissionReleased = false;
+  const releaseCurrentAdmission = () => {
+    if (admissionReleased) return;
+    admissionReleased = true;
+    releaseAdmission();
+    if (admissionTails.get(admissionScope) === currentAdmission) {
+      admissionTails.delete(admissionScope);
+    }
+  };
   let canonicalKeyRequest: Promise<string[]> | undefined;
   let releaseReservation: (() => void) | undefined;
   let reservation: Promise<void> | undefined;
@@ -150,6 +160,7 @@ export async function serializeSidecarWrite<T>(
 
   try {
     await waitForAbortable(previousAdmission, options.signal);
+    admissionAcquired = true;
     canonicalKeyRequest = canonicalKeys(destination, options.resolveDestination !== undefined);
     void canonicalKeyRequest.catch(() => undefined);
     reservedKeys = await waitForAbortable(
@@ -166,10 +177,7 @@ export async function serializeSidecarWrite<T>(
     reservation = settled;
     for (const key of reservedKeys) pendingWrites.set(key, settled);
     reservationRegistered = true;
-    releaseAdmission();
-    if (admissionTails.get(admissionScope) === currentAdmission) {
-      admissionTails.delete(admissionScope);
-    }
+    releaseCurrentAdmission();
     await waitForAbortable(previousWrites, options.signal);
     const resolvedDestination = await waitForAbortable(destinationPromise, options.signal);
     const actualDestination = path.resolve(resolvedDestination);
@@ -209,9 +217,13 @@ export async function serializeSidecarWrite<T>(
         options.resolveDestination !== undefined,
       );
     }
-    releaseAdmission();
-    if (admissionTails.get(admissionScope) === currentAdmission) {
-      admissionTails.delete(admissionScope);
+    if (options.signal?.aborted && !admissionAcquired) {
+      // A canceled waiter still holds its queue position. Releasing it before
+      // its predecessor registers canonical keys can let a later alias pass
+      // that predecessor and publish first.
+      void previousAdmission.then(releaseCurrentAdmission, releaseCurrentAdmission);
+    } else {
+      releaseCurrentAdmission();
     }
     if (reservationRegistered && releaseReservation) {
       const release = () => {

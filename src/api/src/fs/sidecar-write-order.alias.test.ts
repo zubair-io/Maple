@@ -103,6 +103,74 @@ test('an aborted queued write keeps later writes behind its active predecessor',
   }
 });
 
+test('an aborted admission waiter stays behind a predecessor resolving an alias', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-aborted-admission-'));
+  try {
+    const library = path.join(root, 'library');
+    const destination = path.join(library, 'photo.xmp');
+    await fs.mkdir(library);
+
+    const realpath = fs.realpath.bind(fs);
+    const { promise: parentLookupStarted, resolve: markParentLookupStarted } =
+      Promise.withResolvers<void>();
+    const { promise: releaseParentLookup, resolve: releaseStalledLookup } =
+      Promise.withResolvers<void>();
+    let stalled = false;
+    const realpathSpy = spyOn(fs, 'realpath').mockImplementation((async (
+      ...args: Parameters<typeof fs.realpath>
+    ) => {
+      if (!stalled && args[0] === library) {
+        stalled = true;
+        markParentLookupStarted();
+        await releaseParentLookup;
+      }
+      return realpath(...args);
+    }) as never);
+
+    try {
+      const order: string[] = [];
+      const first = serializeSidecarWrite(
+        destination,
+        async () => {
+          order.push('first');
+        },
+        { admissionScope: library },
+      );
+      await parentLookupStarted;
+
+      const controller = new AbortController();
+      const second = serializeSidecarWrite(
+        destination,
+        async () => {
+          order.push('second');
+        },
+        { admissionScope: library, signal: controller.signal },
+      );
+      controller.abort();
+      await expect(second).rejects.toMatchObject({ name: 'AbortError' });
+
+      const third = serializeSidecarWrite(
+        destination,
+        async () => {
+          order.push('third');
+        },
+        { admissionScope: library },
+      );
+      await Bun.sleep(10);
+      expect(order).toEqual([]);
+
+      releaseStalledLookup();
+      await Promise.all([first, third]);
+      expect(order).toEqual(['first', 'third']);
+    } finally {
+      releaseStalledLookup();
+      realpathSpy.mockRestore();
+    }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('canonical destination spelling keeps an aliased path locked after parent replacement', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-parent-alias-'));
   try {
