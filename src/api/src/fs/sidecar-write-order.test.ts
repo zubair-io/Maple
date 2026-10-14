@@ -28,9 +28,9 @@ describe('serializeSidecarWrite', () => {
         serializeSidecarWrite(path.join(linkDir, 'a.xmp'), job('link-1')),
         serializeSidecarWrite(path.join(realDir, 'a.xmp'), job('real-2')),
       ]);
-      expect(results.toSorted()).toEqual(['link-1', 'real-1', 'real-2']);
+      expect(results).toEqual(['real-1', 'link-1', 'real-2']);
       expect(maxActive).toBe(1);
-      expect(order.toSorted()).toEqual(['link-1', 'real-1', 'real-2']);
+      expect(order).toEqual(['real-1', 'link-1', 'real-2']);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -76,6 +76,30 @@ describe('serializeSidecarWrite', () => {
       ]);
       expect(results).toEqual(['first', 'second', 'third']);
       expect(order).toEqual(['first', 'second', 'third']);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('different destinations can write concurrently', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-parallel-'));
+    try {
+      let started = 0;
+      let releaseWrites!: () => void;
+      const bothStarted = new Promise<void>((resolve) => {
+        releaseWrites = resolve;
+      });
+      const write = async () => {
+        started++;
+        if (started === 2) releaseWrites();
+        await bothStarted;
+      };
+
+      await Promise.all([
+        serializeSidecarWrite(path.join(root, 'a.xmp'), write),
+        serializeSidecarWrite(path.join(root, 'b.xmp'), write),
+      ]);
+      expect(started).toBe(2);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
