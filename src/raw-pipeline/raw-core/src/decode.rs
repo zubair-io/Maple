@@ -1372,7 +1372,11 @@ fn effective_white_level(
             .filter(|(value, _)| *value as u32 > best)
             .map(|(_, counts)| counts[position])
             .sum::<u32>();
-        sample_count >= 32
+        // Some packed RAW encodings expand one valid source code into a
+        // decoded value with only a handful of samples. The frame-span and
+        // four-grid checks below reject isolated defects without requiring
+        // the expanded code to reach the plateau's 32-sample threshold.
+        sample_count >= 6
             && brighter_bounds[position].spans_frame(width, height)
             && brighter_regions[position]
                 .iter()
@@ -1710,6 +1714,36 @@ mod tests {
                 data[offset * w + x_offset] = 65_532;
             }
         }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_preserves_sparse_distributed_code_255_highlights() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+
+        // A broad code-254 plateau is a plausible lower white level, but a
+        // sparse, frame-wide code-255 population can still contain real
+        // sensor samples after IIQ-S source-code expansion.
+        for tile_y in 0..4 {
+            for tile_x in 0..4 {
+                let y = tile_y * 128;
+                let x = tile_x * 128;
+                data[(y + 20) * w + x + 20] = 65_020;
+                data[(y + 22) * w + x + 22] = 65_020;
+            }
+        }
+        for tile_y in 0..4 {
+            for tile_x in 0..2 {
+                let y = tile_y * 128;
+                let x = tile_x * 128;
+                data[(y + 8) * w + x + 8] = 65_532;
+            }
+        }
+
         assert_eq!(
             effective_white_level(&data, 512, 512, &[0; 4], 65535),
             65535
