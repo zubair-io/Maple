@@ -1,15 +1,15 @@
-/** One sequencing barrier for actual writes to a canonical allowed sidecar path (#4051). */
+/** Scoped admission and canonical-path sequencing for sidecar writes (#4051). */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 const pendingWrites = new Map<string, Promise<void>>();
-const inFlightKeys = new Map<string, Promise<string>>();
-let admissionTail: Promise<void> | undefined;
+const inFlightKeys = new Map<string, Promise<string[]>>();
+const admissionTails = new Map<string, Promise<void>>();
 
 export interface SidecarWriteOrderOptions {
-  /** Caller root retained for compatibility; admission coordinates aliases globally. */
+  /** Library root used to keep slow destination checks from blocking other libraries. */
   admissionScope?: string;
-  /** Resolve and authorize the path after its FIFO admission has been registered. */
+  /** Resolve and authorize the destination before invoking the write callback. */
   resolveDestination?: () => Promise<string>;
   /** Stop waiting for destination admission when its request is aborted. */
   signal?: AbortSignal;
@@ -31,26 +31,56 @@ export function waitForAbortable<T>(promise: Promise<T>, signal?: AbortSignal): 
 
 export class SidecarWritePathDeniedError extends Error {}
 
-function canonicalKey(destination: string): Promise<string> {
+function canonicalKeys(destination: string): Promise<string[]> {
   const existing = inFlightKeys.get(destination);
   if (existing) return existing;
   const pending = (async () => {
-    const resolvedDestination = path.resolve(destination);
-    const parent = path.dirname(resolvedDestination);
+    const lexicalDestination = path.resolve(destination);
+    const resolvedDestination = await fs.realpath(lexicalDestination).catch((error: unknown) => {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+      ) {
+        return null;
+      }
+      throw error;
+    });
+    const canonicalDestination =
+      resolvedDestination ??
+      path.join(
+        await fs.realpath(path.dirname(lexicalDestination)).catch((error: unknown) => {
+          if (
+            typeof error === 'object' &&
+            error !== null &&
+            'code' in error &&
+            (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+          ) {
+            return path.dirname(lexicalDestination);
+          }
+          throw error;
+        }),
+        path.basename(lexicalDestination),
+      );
+    const parent = path.dirname(canonicalDestination);
     const basename = path
-      .basename(resolvedDestination)
+      .basename(canonicalDestination)
       .normalize('NFC')
       .toLowerCase()
       .normalize('NFC');
     // Fold conservatively on every host: the destination may live on a
     // case-insensitive network or removable volume even when the API host is not.
-    // stat follows parent symlinks and gives aliases the same directory
-    // identity without resolving every path component through realpath.
+    // realpath folds existing file symlinks; stat follows parent symlinks and
+    // gives missing sidecars the same directory identity as their aliases.
     // Do not fall back to a lexical key if stat fails. Once the filesystem
     // recovers, the same destination would switch to an inode key and bypass
     // a write that is still queued under the fallback spelling.
     const parentStat = await fs.stat(parent, { bigint: true });
-    return `inode:${parentStat.dev}:${parentStat.ino}:${basename}`;
+    return [
+      lexicalKey(canonicalDestination),
+      `inode:${parentStat.dev}:${parentStat.ino}:${basename}`,
+    ];
   })();
   inFlightKeys.set(destination, pending);
   void pending.then(
@@ -64,7 +94,18 @@ function canonicalKey(destination: string): Promise<string> {
   return pending;
 }
 
-function discardCanonicalKey(destination: string, pending: Promise<string>): void {
+function lexicalKey(destination: string): string {
+  return `path:${path.resolve(destination).normalize('NFC').toLowerCase().normalize('NFC')}`;
+}
+
+function destinationKeys(
+  destination: string,
+  canonicalRequest: Promise<string[]>,
+): Promise<string[]> {
+  return canonicalRequest.then((keys) => [...new Set([lexicalKey(destination), ...keys])]);
+}
+
+function discardCanonicalKey(destination: string, pending: Promise<string[]>): void {
   if (inFlightKeys.get(destination) === pending) inFlightKeys.delete(destination);
 }
 
@@ -73,77 +114,88 @@ export async function serializeSidecarWrite<T>(
   write: (resolvedDestination: string) => Promise<T>,
   options: SidecarWriteOrderOptions = {},
 ): Promise<T> {
-  // Register arrival before any asynchronous authorization or canonicalization.
-  // File symlinks can cross library boundaries, so a per-library queue cannot
-  // preserve FIFO for two names that resolve to the same sidecar. This global
-  // admission queue only orders destination registration; actual writes to
-  // different canonical destinations still run concurrently below.
-  // The lexical filename cannot identify every alias: two different file
-  // symlinks may resolve to the same sidecar. Admit path resolution in request
-  // arrival order, then serialize writes only by the canonical destination.
-  const previousAdmission = admissionTail ?? Promise.resolve();
+  // Keep admission ordered within a library, while reserving canonical path
+  // keys before potentially slow authorization. This lets aliases queue in
+  // arrival order without making unrelated libraries wait for path checks.
+  const admissionScope = path
+    .resolve(options.admissionScope ?? path.dirname(destination))
+    .normalize('NFC')
+    .toLowerCase()
+    .normalize('NFC');
+  const previousAdmission = admissionTails.get(admissionScope) ?? Promise.resolve();
   let releaseAdmission!: () => void;
   const currentAdmission = new Promise<void>((resolve) => {
     releaseAdmission = resolve;
   });
-  admissionTail = currentAdmission;
-  let canonicalDestination: string | undefined;
-  let canonicalKeyRequest: Promise<string> | undefined;
-  const destinationPromise = Promise.resolve()
-    .then(() => options.resolveDestination?.() ?? destination)
-    .then((resolved) => {
-      canonicalDestination = path.resolve(resolved);
-      return canonicalDestination;
-    });
-  const canonicalKeyPromise = destinationPromise.then((resolved) => {
-    options.signal?.throwIfAborted();
-    canonicalKeyRequest = canonicalKey(resolved);
-    return canonicalKeyRequest;
-  });
-  // A later admission can be waiting behind a slow earlier resolution while
-  // its own destination is rejected. Attach a handler now so Bun/Node do not
-  // report that expected request failure as an unhandled rejection before the
-  // FIFO turn reaches Promise.all below.
-  void canonicalKeyPromise.catch(() => undefined);
-  const destinationKeysPromise = Promise.all([destinationPromise, canonicalKeyPromise]).then(
-    ([actualDestination, inodeKey]) => {
-      const lexicalKey = `path:${path
-        .resolve(actualDestination)
-        .normalize('NFC')
-        .toLowerCase()
-        .normalize('NFC')}`;
-      return { actualDestination, keys: [...new Set([lexicalKey, inodeKey])] };
-    },
+  admissionTails.set(admissionScope, currentAdmission);
+  let canonicalKeyRequest: Promise<string[]> | undefined;
+  let releaseReservation: (() => void) | undefined;
+  let reservation: Promise<void> | undefined;
+  let reservedKeys: string[] = [];
+  let reservationRegistered = false;
+  const destinationPromise = Promise.resolve().then(
+    () => options.resolveDestination?.() ?? destination,
   );
-  void destinationKeysPromise.catch(() => undefined);
+  void destinationPromise.catch(() => undefined);
 
-  let next: Promise<T>;
-  let settled: Promise<void>;
-  let keys: string[];
   try {
-    await previousAdmission;
-    // Resolve paths concurrently, but register their canonical write chains in
-    // admission order so a faster alias cannot overtake an earlier save.
-    const result = await waitForAbortable(destinationKeysPromise, options.signal);
-    keys = result.keys;
-    const previous = Promise.all(keys.map((key) => pendingWrites.get(key) ?? Promise.resolve()));
-    next = previous.then(() => write(result.actualDestination));
-    settled = next.then(
-      () => undefined,
-      () => undefined,
+    await waitForAbortable(previousAdmission, options.signal);
+    canonicalKeyRequest = canonicalKeys(destination);
+    void canonicalKeyRequest.catch(() => undefined);
+    reservedKeys = await waitForAbortable(
+      destinationKeys(destination, canonicalKeyRequest),
+      options.signal,
     );
-    for (const key of keys) pendingWrites.set(key, settled);
+    const previousWrites = Promise.all(
+      reservedKeys.map((key) => pendingWrites.get(key) ?? Promise.resolve()),
+    );
+    const settled = new Promise<void>((resolve) => {
+      releaseReservation = resolve;
+    });
+    reservation = settled;
+    for (const key of reservedKeys) pendingWrites.set(key, settled);
+    reservationRegistered = true;
+    releaseAdmission();
+    if (admissionTails.get(admissionScope) === currentAdmission) {
+      admissionTails.delete(admissionScope);
+    }
+    await waitForAbortable(previousWrites, options.signal);
+    const resolvedDestination = await waitForAbortable(destinationPromise, options.signal);
+    const actualDestination = path.resolve(resolvedDestination);
+    const actualKeys =
+      actualDestination === path.resolve(destination)
+        ? reservedKeys
+        : await waitForAbortable(
+            destinationKeys(actualDestination, canonicalKeys(actualDestination)),
+            options.signal,
+          );
+    // A shared lexical or inode key already protects this write from aliases.
+    // Avoid extending a held reservation with a second key: another alias may
+    // have reserved that key while waiting on ours, which would form a cycle.
+    const sharesKey = actualKeys.some((key) => reservedKeys.includes(key));
+    const missingKeys = sharesKey ? [] : actualKeys.filter((key) => !reservedKeys.includes(key));
+    if (missingKeys.length > 0) {
+      const previousActualWrites = Promise.all(
+        missingKeys.map((key) => pendingWrites.get(key) ?? Promise.resolve()),
+      );
+      for (const key of missingKeys) pendingWrites.set(key, settled);
+      reservedKeys = [...reservedKeys, ...missingKeys];
+      await waitForAbortable(previousActualWrites, options.signal);
+    }
+    return await write(actualDestination);
   } finally {
-    if (options.signal?.aborted && canonicalDestination && canonicalKeyRequest) {
-      discardCanonicalKey(canonicalDestination, canonicalKeyRequest);
+    if (options.signal?.aborted && canonicalKeyRequest) {
+      discardCanonicalKey(destination, canonicalKeyRequest);
     }
     releaseAdmission();
-    if (admissionTail === currentAdmission) admissionTail = undefined;
-  }
-
-  return next.finally(() => {
-    for (const key of keys) {
-      if (pendingWrites.get(key) === settled) pendingWrites.delete(key);
+    if (admissionTails.get(admissionScope) === currentAdmission) {
+      admissionTails.delete(admissionScope);
     }
-  });
+    if (reservationRegistered && releaseReservation) {
+      releaseReservation();
+      for (const key of reservedKeys) {
+        if (pendingWrites.get(key) === reservation) pendingWrites.delete(key);
+      }
+    }
+  }
 }

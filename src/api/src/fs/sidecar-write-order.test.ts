@@ -198,7 +198,9 @@ describe('serializeSidecarWrite', () => {
       controller.abort();
       await expect(abandoned).rejects.toMatchObject({ name: 'AbortError' });
       await expect(
-        serializeSidecarWrite(destination, async () => 'next', { admissionScope: root }),
+        serializeSidecarWrite(destination, async () => 'next', {
+          admissionScope: root,
+        }),
       ).resolves.toBe('next');
     } finally {
       await fs.rm(root, { recursive: true, force: true });
