@@ -20,12 +20,13 @@ export async function callNativeRetrying(
   args: string[],
 ): Promise<{ ok: true; value: string } | { ok: false; error: string }> {
   const call = callNative as unknown as WorkflowCall;
+  const deadlineMs = Date.now() + 60_000;
   let delayMs = 5;
-  for (let attempt = 0; ; attempt++) {
+  for (;;) {
     try {
       return await call(method, args);
     } catch (error) {
-      if (!isPoolOverload(error) || attempt >= 60) throw error;
+      if (!isPoolOverload(error) || Date.now() >= deadlineMs) throw error;
       await new Promise((resolve) => setTimeout(resolve, delayMs));
       delayMs = Math.min(delayMs * 2, 100);
     }

@@ -35,4 +35,26 @@ describe('serializeSidecarWrite', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  test('same destination preserves strict FIFO order', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-fifo-'));
+    try {
+      const destination = path.join(root, 'a.xmp');
+      const order: string[] = [];
+      const job = (label: string) => async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        order.push(label);
+        return label;
+      };
+      const results = await Promise.all([
+        serializeSidecarWrite(destination, job('first')),
+        serializeSidecarWrite(destination, job('second')),
+        serializeSidecarWrite(destination, job('third')),
+      ]);
+      expect(results).toEqual(['first', 'second', 'third']);
+      expect(order).toEqual(['first', 'second', 'third']);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });
