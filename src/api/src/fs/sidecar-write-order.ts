@@ -59,16 +59,10 @@ export async function serializeSidecarWrite<T>(
   const admissionScope = path.resolve(
     options.admissionScope ?? path.dirname(path.dirname(resolvedDestination)),
   );
-  const admissionName = path
-    .basename(resolvedDestination)
-    .normalize('NFC')
-    .toLowerCase()
-    .normalize('NFC');
-  const admissionKey = path
-    .join(admissionScope, admissionName)
-    .normalize('NFC')
-    .toLowerCase()
-    .normalize('NFC');
+  // The lexical filename cannot identify every alias: two different file
+  // symlinks may resolve to the same sidecar. Admit path resolution in library
+  // arrival order, then serialize writes only by the canonical destination.
+  const admissionKey = admissionScope.normalize('NFC').toLowerCase().normalize('NFC');
   const previousAdmission = admissionTails.get(admissionKey) ?? Promise.resolve();
   let releaseAdmission!: () => void;
   const currentAdmission = new Promise<void>((resolve) => {

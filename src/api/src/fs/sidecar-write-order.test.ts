@@ -100,6 +100,45 @@ describe('serializeSidecarWrite', () => {
     }
   });
 
+  test('different file symlink names preserve FIFO after resolving to one sidecar', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-file-alias-'));
+    try {
+      const destination = path.join(root, 'target.xmp');
+      const firstAlias = path.join(root, 'photo.xmp');
+      const secondAlias = path.join(root, 'alias.xmp');
+      await fs.writeFile(destination, '');
+      await Promise.all([
+        fs.symlink(destination, firstAlias, 'file'),
+        fs.symlink(destination, secondAlias, 'file'),
+      ]);
+
+      const order: string[] = [];
+      const write = (label: string) => async () => {
+        order.push(label);
+        return label;
+      };
+      const resolveDestination = (alias: string, delayMs: number) => async () => {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        return fs.realpath(alias);
+      };
+
+      const results = await Promise.all([
+        serializeSidecarWrite(firstAlias, write('first'), {
+          admissionScope: root,
+          resolveDestination: resolveDestination(firstAlias, 20),
+        }),
+        serializeSidecarWrite(secondAlias, write('second'), {
+          admissionScope: root,
+          resolveDestination: resolveDestination(secondAlias, 0),
+        }),
+      ]);
+      expect(results).toEqual(['first', 'second']);
+      expect(order).toEqual(['first', 'second']);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('different destinations can write concurrently', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-parallel-'));
     try {
