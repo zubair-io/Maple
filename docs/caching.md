@@ -186,7 +186,7 @@ There is **no deep-zoom tile cache on web**. The editor renders a full-frame can
 
 Two configurations: `src/web/ngsw-config.json` for the `maple` app, `src/web/ngsw-config.hosted.json` for `maple-syrup`. Both register only in production builds, via `provideServiceWorker('ngsw-worker.js', { enabled: !isDevMode(), registrationStrategy: 'registerWhenStable:30000' })`.
 
-Asset groups are identical in both: `app` (prefetch — `index.html`, `favicon.ico`, the web manifest, all CSS and JS), `raw-wasm` (lazy install, prefetch update — `raw_wasm_bg.wasm` and `/pkg/**`), `fonts` (lazy install, prefetch update), `images` (fully lazy). `navigationUrls` excludes `/api/**`.
+Asset groups are identical in both: `app` (prefetch — `index.html`, `favicon.ico`, the web manifest, all CSS and JS), `raw-wasm` (lazy install, prefetch update — `/pkg/raw_wasm_bg.wasm` and `/pkg/**`), `fonts` (lazy install, prefetch update), `images` (fully lazy). `navigationUrls` excludes `/api/**`.
 
 Data groups exist **only in the self-hosted config** — Hosted is browser-only with no API to cache:
 
