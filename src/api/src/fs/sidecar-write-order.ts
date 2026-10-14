@@ -1,6 +1,6 @@
 /** One sequencing barrier for actual writes to a canonical allowed sidecar path (#4051). */
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 
 const pendingWrites = new Map<string, Promise<void>>();
 const inFlightKeys = new Map<string, Promise<string>>();
@@ -14,33 +14,25 @@ function canonicalKey(destination: string): Promise<string> {
     const parent = path.dirname(resolvedDestination);
     const basename = path
       .basename(resolvedDestination)
-      .normalize("NFC")
+      .normalize('NFC')
       .toLowerCase()
-      .normalize("NFC");
+      .normalize('NFC');
     // Fold conservatively on every host: the destination may live on a
     // case-insensitive network or removable volume even when the API host is not.
     // stat follows parent symlinks and gives aliases the same directory
     // identity without resolving every path component through realpath.
-    const parentStat = await fs
-      .stat(parent, { bigint: true })
-      .catch(() => null);
+    const parentStat = await fs.stat(parent, { bigint: true }).catch(() => null);
     return parentStat
       ? `inode:${parentStat.dev}:${parentStat.ino}:${basename}`
-      : path
-          .join(parent, basename)
-          .normalize("NFC")
-          .toLowerCase()
-          .normalize("NFC");
+      : path.join(parent, basename).normalize('NFC').toLowerCase().normalize('NFC');
   })();
   inFlightKeys.set(destination, pending);
   void pending.then(
     () => {
-      if (inFlightKeys.get(destination) === pending)
-        inFlightKeys.delete(destination);
+      if (inFlightKeys.get(destination) === pending) inFlightKeys.delete(destination);
     },
     () => {
-      if (inFlightKeys.get(destination) === pending)
-        inFlightKeys.delete(destination);
+      if (inFlightKeys.get(destination) === pending) inFlightKeys.delete(destination);
     },
   );
   return pending;
@@ -58,16 +50,15 @@ export async function serializeSidecarWrite<T>(
   const parent = path.dirname(resolvedDestination);
   const basename = path
     .basename(resolvedDestination)
-    .normalize("NFC")
+    .normalize('NFC')
     .toLowerCase()
-    .normalize("NFC");
+    .normalize('NFC');
   const admissionKey = path
     .join(path.dirname(parent), basename)
-    .normalize("NFC")
+    .normalize('NFC')
     .toLowerCase()
-    .normalize("NFC");
-  const previousAdmission =
-    admissionTails.get(admissionKey) ?? Promise.resolve();
+    .normalize('NFC');
+  const previousAdmission = admissionTails.get(admissionKey) ?? Promise.resolve();
   let releaseAdmission!: () => void;
   const currentAdmission = new Promise<void>((resolve) => {
     releaseAdmission = resolve;
@@ -92,8 +83,7 @@ export async function serializeSidecarWrite<T>(
     pendingWrites.set(key, settled);
   } finally {
     releaseAdmission();
-    if (admissionTails.get(admissionKey) === currentAdmission)
-      admissionTails.delete(admissionKey);
+    if (admissionTails.get(admissionKey) === currentAdmission) admissionTails.delete(admissionKey);
   }
 
   return next.finally(() => {
