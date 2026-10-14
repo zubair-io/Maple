@@ -149,9 +149,15 @@ function isEexist(err: unknown): boolean {
 }
 
 /** Delete a sidecar. Idempotent — a file that was already gone is success. */
-export async function deleteSidecar(destPath: string, failureLabel: string): Promise<OpResult> {
+export async function deleteSidecar(
+  destPath: string,
+  failureLabel: string,
+  signal?: AbortSignal,
+): Promise<OpResult> {
+  signal?.throwIfAborted();
   const allowed = await safeWriteAllowed(destPath);
   if (!allowed.ok) return { ok: false, error: allowed.error };
+  signal?.throwIfAborted();
   try {
     await fs.unlink(destPath);
     return { ok: true };

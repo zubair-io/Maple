@@ -467,6 +467,7 @@ export async function deleteXmpSidecar(
     return await serializeSidecarWrite(
       xmpSidecarPath(rawAbsPath),
       async (destination) => {
+        signal?.throwIfAborted();
         const existed = await fs.lstat(destination).then(
           () => true,
           (error: unknown) => {
@@ -475,7 +476,8 @@ export async function deleteXmpSidecar(
           },
         );
         if (!existed) return { ok: true, existed };
-        const deleted = await deleteSidecar(destination, 'XMP delete failed');
+        signal?.throwIfAborted();
+        const deleted = await deleteSidecar(destination, 'XMP delete failed', signal);
         return { ...deleted, existed };
       },
       {
