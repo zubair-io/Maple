@@ -30,10 +30,11 @@ function canonicalKey(destination: string): Promise<string> {
     // case-insensitive network or removable volume even when the API host is not.
     // stat follows parent symlinks and gives aliases the same directory
     // identity without resolving every path component through realpath.
-    const parentStat = await fs.stat(parent, { bigint: true }).catch(() => null);
-    return parentStat
-      ? `inode:${parentStat.dev}:${parentStat.ino}:${basename}`
-      : path.join(parent, basename).normalize('NFC').toLowerCase().normalize('NFC');
+    // Do not fall back to a lexical key if stat fails. Once the filesystem
+    // recovers, the same destination would switch to an inode key and bypass
+    // a write that is still queued under the fallback spelling.
+    const parentStat = await fs.stat(parent, { bigint: true });
+    return `inode:${parentStat.dev}:${parentStat.ino}:${basename}`;
   })();
   inFlightKeys.set(destination, pending);
   void pending.then(

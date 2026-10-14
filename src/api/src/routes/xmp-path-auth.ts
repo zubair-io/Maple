@@ -80,7 +80,10 @@ export async function resolveAndAuthorizePath(
     return {
       ok: true,
       data: normalized,
-      writeScope,
+      // Aliased registrations of the same library must share the same FIFO
+      // admission queue. The authorized request path stays lexical, but the
+      // scope uses the root's canonical filesystem identity.
+      writeScope: await realpath(writeScope),
     };
   return {
     ok: false,
