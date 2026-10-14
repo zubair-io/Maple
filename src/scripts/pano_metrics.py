@@ -208,6 +208,7 @@ def report_block(report_path) -> dict:
         ("mean_reproj_error_px", "mean_reproj_px"),
         ("max_reproj_error_px", "max_reproj_px"),
         ("horizon_tilt_deg", "horizon_tilt_deg"),
+        ("horizon_tilt_rms_deg", "horizon_tilt_rms_deg"),
     ):
         if src_key in data and data[src_key] is not None:
             out[out_key] = float(data[src_key])

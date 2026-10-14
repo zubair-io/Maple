@@ -84,6 +84,7 @@ pub(super) fn rotation_tail(
     .map_err(|e| StitchError::BaSolve(e.to_string()))?;
     let leveled = leveling::apply(&mut solution);
     let horizon_tilt_deg = leveled.then(|| leveling::horizon_tilt_deg(&solution));
+    let horizon_tilt_rms_deg = leveled.then(|| leveling::horizon_tilt_rms_deg(&solution));
     let t_solve = t4.elapsed().as_secs_f64();
     progress(4, 1.0);
 
@@ -163,6 +164,7 @@ pub(super) fn rotation_tail(
         match_graph,
         leveled,
         horizon_tilt_deg,
+        horizon_tilt_rms_deg,
         stage_timings_s: [
             head_timings[0],
             head_timings[1],

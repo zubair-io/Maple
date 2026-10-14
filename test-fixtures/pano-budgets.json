@@ -4,7 +4,7 @@
   "fixtures": {
     "pano_01": {
       "stitch": {
-        "_comment": "Well-shot 21-frame DJI gimbal sweep with reference. The acceptance set. Re-encoded 2026-06-12 post-#1225 at the measured all-21 default-flags result; rmse/max_reproj re-baselined 2026-09-02 post-#3162 (#3181) now that auto strategy reliably reaches rotation on this set — see the top-level note for both owner decisions.",
+        "_comment": "Well-shot 21-frame DJI gimbal sweep with reference. The acceptance set. Re-encoded 2026-06-12 post-#1225 at the measured all-21 default-flags result; rmse/max_reproj re-baselined 2026-09-02 post-#3162 (#3181) now that auto strategy reliably reaches rotation on this set — see the top-level note for both owner decisions. 2026-10-13 (#4533): horizon gate re-encoded from worst-single-camera horizon_tilt_deg (owned by one motion-degraded pose at 0.4369 deg while the leveled plane renders level) to horizon_tilt_rms_deg, the RMS x-axis tilt over solved cameras (measured 0.2068 deg, ceiling 0.23 at observed+~11%); horizon_tilt_deg remains in the report as triage, ungated.",
         "dropped_frames": 0,
         "coverage": 0.92,
         "rmse": 0.24,
@@ -13,7 +13,7 @@
         "seam_step_lowpass": 0.002,
         "mean_reproj_px": 1.2,
         "max_reproj_px": 6.4,
-        "horizon_tilt_deg": 0.4
+        "horizon_tilt_rms_deg": 0.23
       }
     },
     "pano_00": {

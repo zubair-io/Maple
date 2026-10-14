@@ -24,6 +24,7 @@ pub(super) struct ReportContext<'a> {
     pub match_graph: &'a GraphSummary,
     pub leveled: bool,
     pub horizon_tilt_deg: Option<f64>,
+    pub horizon_tilt_rms_deg: Option<f64>,
     /// `(mean_budget_px, max_budget_px)` the §5.3 gate ran at.
     pub gate_budgets: (f64, f64),
     /// Frame-retention policy + local-alignment mode the solve ran with
@@ -120,7 +121,7 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
             "step_rms_after": f.step_rms_after,
         })
     });
-    serde_json::json!({
+    let mut report = serde_json::json!({
         "inputs": ctx.inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
         "retention": ctx.retention,
         "local_align": ctx.local_align,
@@ -204,7 +205,14 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         "seam_strategy": comp_report.seam_strategy.label(),
         "exposure_field": exposure_field,
         "timings_s": timings,
-    })
+    });
+    if let Some(obj) = report.as_object_mut() {
+        obj.insert(
+            "horizon_tilt_rms_deg".into(),
+            serde_json::json!(ctx.horizon_tilt_rms_deg),
+        );
+    }
+    report
 }
 
 /// Quantize the composite to 16-bit PNG. `srgb` applies the IEC 61966
