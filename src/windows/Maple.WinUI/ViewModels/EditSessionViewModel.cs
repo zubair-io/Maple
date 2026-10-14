@@ -50,8 +50,7 @@ namespace Maple.WinUI.ViewModels
         public bool HasNonDefaultEdits()
         {
             var defaults = DefaultAdjustments();
-            return XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = Adjustments }) !=
-                XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = defaults });
+            return XmpWriter.Fingerprint(Adjustments) != XmpWriter.Fingerprint(defaults);
         }
         public List<AdjustmentSectionViewModel> Sections { get; }
         public List<HslBandViewModel> HslBands { get; }

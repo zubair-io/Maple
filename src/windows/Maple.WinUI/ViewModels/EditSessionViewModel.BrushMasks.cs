@@ -16,9 +16,10 @@ namespace Maple.WinUI.ViewModels
             var registered = new List<RegisteredBrush>();
             for (var i = 0; i < model.LocalAdjustments.Count; i++)
             {
-                if (model.LocalAdjustments[i].Mask is not BrushMask { RasterId: 0 } brush) continue;
+                if (model.LocalAdjustments[i].Mask is not BrushMask brush
+                    || (brush.RasterId != 0 && _brushRasterIds.Contains(brush.RasterId))) continue;
                 registered.Add(new RegisteredBrush(i, brush.Digest,
-                    BrushMaskRasterizer.Register(brush, width, height)));
+                    BrushMaskRasterizer.Register(brush with { RasterId = 0 }, width, height)));
             }
             return registered;
         }

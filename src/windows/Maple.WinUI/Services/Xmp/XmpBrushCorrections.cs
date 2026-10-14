@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Xml.Linq;
 using Maple.WinUI.Models;
 
@@ -53,6 +54,46 @@ namespace Maple.WinUI.Services.Xmp
             }
             return result;
         }
+
+        public static string RenderFingerprint(AdjustmentState model)
+        {
+            var fingerprint = new StringBuilder();
+            for (var index = 0; index < model.LocalAdjustments.Count; index++)
+            {
+                var layer = model.LocalAdjustments[index];
+                if (layer.Mask is not BrushMask brush) continue;
+                fingerprint.Append(index).Append(':').Append(brush.Digest).Append(':');
+                foreach (var dab in brush.Dabs)
+                {
+                    Append(fingerprint, dab.Center.X); Append(fingerprint, dab.Center.Y);
+                    Append(fingerprint, dab.Radius); Append(fingerprint, dab.Feather);
+                    Append(fingerprint, dab.Weight); fingerprint.Append(dab.Erase ? '1' : '0').Append(';');
+                }
+                var a = layer.Adjustments;
+                foreach (var value in new double?[]
+                {
+                    a.Exposure, a.Contrast, a.Highlights, a.Shadows, a.Whites, a.Blacks,
+                    a.Saturation, a.Vibrance, a.Temperature, a.Tint, a.Hue,
+                    a.Texture, a.Clarity, a.Dehaze, a.Sharpness, a.LuminanceNoise, a.Defringe,
+                })
+                    Append(fingerprint, value);
+                if (layer.Range is { } range)
+                {
+                    Append(fingerprint, range.HueDeg); Append(fingerprint, range.HueHalfWidthDeg);
+                    Append(fingerprint, range.ChromaMin); Append(fingerprint, range.LMin);
+                    Append(fingerprint, range.LMax); Append(fingerprint, range.Feather);
+                }
+                else fingerprint.Append("no-range;");
+                fingerprint.Append('|');
+            }
+            return fingerprint.ToString();
+        }
+
+        private static void Append(StringBuilder target, double value) =>
+            target.Append(value.ToString("R", CultureInfo.InvariantCulture)).Append(';');
+
+        private static void Append(StringBuilder target, double? value) =>
+            target.Append(value?.ToString("R", CultureInfo.InvariantCulture) ?? "unset").Append(';');
 
         private static readonly (XName Name, double Scale, Func<PartialAdjustments,double,PartialAdjustments> Set)[] SliderAttrs =
         {

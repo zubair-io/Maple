@@ -20,8 +20,7 @@ namespace Maple.WinUI.ViewModels
             _undoTimer = null;
             var before = Adjustments.Clone();
             if (_undoBaseline != null
-                && XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = _undoBaseline })
-                    != XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = before }))
+                && XmpWriter.Fingerprint(_undoBaseline) != XmpWriter.Fingerprint(before))
                 CommitUndoBoundary();
 
             Adjustments.Profile = profile;
@@ -51,8 +50,7 @@ namespace Maple.WinUI.ViewModels
             // Close any earlier quiet-timer edit first, so this gesture is its
             // own undo entry rather than merging with whatever preceded it.
             if (_undoBaseline != null
-                && XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = _undoBaseline })
-                    != XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = before }))
+                && XmpWriter.Fingerprint(_undoBaseline) != XmpWriter.Fingerprint(before))
                 CommitUndoBoundary();
 
             apply(Adjustments);
@@ -62,6 +60,9 @@ namespace Maple.WinUI.ViewModels
 
         private void AfterModelReplaced(AdjustmentState before)
         {
+            ReleaseBrushRasters();
+            if (!RenderEngine.DecodeInputsChanged(before, Adjustments))
+                RehydrateCurrentBrushRasters(Adjustments);
             SyncSlidersFromModel();
             ScheduleSidecarWrite();
             RefreshRenderAfterModelChange(before);
