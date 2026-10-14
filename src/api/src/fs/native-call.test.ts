@@ -1,5 +1,13 @@
-import { describe, expect, test } from 'bun:test';
-import { isPoolOverload } from './native-call';
+import { afterEach, describe, expect, spyOn, test } from 'bun:test';
+import * as maple from 'maple';
+import { callNativeRetrying, isPoolOverload } from './native-call';
+
+let callNativeSpy: { mockRestore(): void } | null = null;
+
+afterEach(() => {
+  callNativeSpy?.mockRestore();
+  callNativeSpy = null;
+});
 
 describe('isPoolOverload', () => {
   test('recognizes the maple worker pool overload signal', () => {
@@ -15,5 +23,64 @@ describe('isPoolOverload', () => {
     expect(isPoolOverload(new Error('Variant changed'))).toBe(false);
     expect(isPoolOverload(null)).toBe(false);
     expect(isPoolOverload('worker pool is full')).toBe(false);
+  });
+});
+
+describe('callNativeRetrying', () => {
+  test('retries queued calls one at a time in FIFO order', async () => {
+    const attempts: string[] = [];
+    let firstOverloads = 0;
+    callNativeSpy = spyOn(maple, 'callNative').mockImplementation((async (method: string) => {
+      attempts.push(method);
+      if (method === 'first' && firstOverloads < 3) {
+        firstOverloads++;
+        throw Object.assign(new Error('worker pool is full'), {
+          code: 'MAPLE_WORKER_POOL_OVERLOADED',
+        });
+      }
+      return { ok: true, value: method };
+    }) as never);
+
+    const first = callNativeRetrying('first', []);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const second = callNativeRetrying('second', []);
+
+    await expect(first).resolves.toEqual({ ok: true, value: 'first' });
+    await expect(second).resolves.toEqual({ ok: true, value: 'second' });
+    expect(attempts).toEqual(['first', 'first', 'first', 'first', 'second']);
+  });
+
+  test('cancels a waiting retry when its request is aborted', async () => {
+    callNativeSpy = spyOn(maple, 'callNative').mockImplementation((async () => {
+      throw Object.assign(new Error('worker pool is full'), {
+        code: 'MAPLE_WORKER_POOL_OVERLOADED',
+      });
+    }) as never);
+    const controller = new AbortController();
+    const waiting = callNativeRetrying('save', [], controller.signal);
+    setTimeout(() => controller.abort(), 20);
+
+    await expect(waiting).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  test('bounds the number of retained retry requests', async () => {
+    callNativeSpy = spyOn(maple, 'callNative').mockImplementation((async () => {
+      throw Object.assign(new Error('worker pool is full'), {
+        code: 'MAPLE_WORKER_POOL_OVERLOADED',
+      });
+    }) as never);
+    const controller = new AbortController();
+    const waiting = Array.from({ length: 40 }, (_, index) =>
+      callNativeRetrying(`save-${index}`, [], controller.signal),
+    );
+    const settled = Promise.allSettled(waiting);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+
+    const results = await settled;
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(40);
+    expect(
+      results.filter((result) => result.status === 'rejected' && isPoolOverload(result.reason)),
+    ).toHaveLength(8);
   });
 });

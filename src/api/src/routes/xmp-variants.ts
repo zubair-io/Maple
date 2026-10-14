@@ -39,14 +39,18 @@ export const xmpVariantRoutes = new Elysia()
     if (!authorized.ok) throw new WorkflowVariantError(authorized.status, authorized.error);
     return { rawPath: authorized.data };
   })
-  .get('/api/xmp/variants', ({ rawPath }) => listWorkflowVariants(rawPath), {
-    query: t.Object({ path: t.String() }),
-    detail: { tags: ['xmp'], summary: 'Discover portable sibling variants' },
-  })
+  .get(
+    '/api/xmp/variants',
+    ({ rawPath, request }) => listWorkflowVariants(rawPath, request.signal),
+    {
+      query: t.Object({ path: t.String() }),
+      detail: { tags: ['xmp'], summary: 'Discover portable sibling variants' },
+    },
+  )
   .get(
     '/api/xmp/variant',
-    async ({ rawPath, query, set }) => {
-      const xml = await readWorkflowVariant(rawPath, query.variantId);
+    async ({ rawPath, query, set, request }) => {
+      const xml = await readWorkflowVariant(rawPath, query.variantId, request.signal);
       if (xml === null) return status(404, { error: 'No primary XMP sidecar at this path' });
       set.headers['Content-Type'] = 'application/xml';
       return xml;
@@ -58,7 +62,7 @@ export const xmpVariantRoutes = new Elysia()
   )
   .post(
     '/api/xmp/variants',
-    async ({ rawPath, query, body, set }) => {
+    async ({ rawPath, query, body, set, request }) => {
       const workflow = (() => {
         try {
           return parseSidecarWorkflow(body);
@@ -73,12 +77,16 @@ export const xmpVariantRoutes = new Elysia()
         rawPath,
         workflow,
         query.sourceVariantId ?? PRIMARY_VARIANT_ID,
+        request.signal,
       );
       set.status = 201;
       return variant;
     },
     {
-      query: t.Object({ path: t.String(), sourceVariantId: t.Optional(t.String()) }),
+      query: t.Object({
+        path: t.String(),
+        sourceVariantId: t.Optional(t.String()),
+      }),
       body: t.Any(),
       detail: {
         tags: ['xmp'],
@@ -88,26 +96,30 @@ export const xmpVariantRoutes = new Elysia()
   )
   .put(
     '/api/xmp/variant',
-    async ({ rawPath, query, body }) => {
-      const xml = await writeWorkflowVariant(rawPath, query.variantId, body);
+    async ({ rawPath, query, body, request }) => {
+      const xml = await writeWorkflowVariant(rawPath, query.variantId, body, request.signal);
       return publishedVariant(rawPath, query.variantId, xml);
     },
     {
       query: t.Object({ path: t.String(), variantId: t.String() }),
       body: t.String(),
       parse: 'text',
-      detail: { tags: ['xmp'], summary: 'Atomically save one selected variant' },
+      detail: {
+        tags: ['xmp'],
+        summary: 'Atomically save one selected variant',
+      },
     },
   )
   .post(
     '/api/xmp/variant/commit',
-    async ({ rawPath, query, body }) => {
+    async ({ rawPath, query, body, request }) => {
       const output = await commitWorkflowVariant(
         rawPath,
         query.variantId,
         body.expectedXmp,
         body.xmp,
         body.entry,
+        request.signal,
       );
       return publishedVariant(rawPath, query.variantId, output);
     },
@@ -118,18 +130,22 @@ export const xmpVariantRoutes = new Elysia()
         xmp: t.String(),
         entry: t.Any(),
       }),
-      detail: { tags: ['xmp'], summary: 'Confirm a selected variant semantic adjustment commit' },
+      detail: {
+        tags: ['xmp'],
+        summary: 'Confirm a selected variant semantic adjustment commit',
+      },
     },
   )
   .post(
     '/api/xmp/variant/snapshot',
-    async ({ rawPath, query, body }) => {
+    async ({ rawPath, query, body, request }) => {
       const output = await snapshotWorkflowVariant(
         rawPath,
         query.variantId,
         body.expectedXmp,
         body.snapshot,
         body.initialXmp,
+        request.signal,
       );
       return publishedVariant(rawPath, query.variantId, output);
     },
@@ -139,8 +155,15 @@ export const xmpVariantRoutes = new Elysia()
         expectedXmp: t.Union([t.String(), t.Null()]),
         snapshot: t.Object({
           id: t.String({ pattern: `^${WORKFLOW_UUID_PATTERN}$` }),
-          name: t.String({ minLength: 1, maxLength: WORKFLOW_MAX_BYTES, pattern: '\\S' }),
-          createdAtMs: t.Integer({ minimum: 0, maximum: WORKFLOW_MAX_TIMESTAMP_MS }),
+          name: t.String({
+            minLength: 1,
+            maxLength: WORKFLOW_MAX_BYTES,
+            pattern: '\\S',
+          }),
+          createdAtMs: t.Integer({
+            minimum: 0,
+            maximum: WORKFLOW_MAX_TIMESTAMP_MS,
+          }),
           adjustmentXmp: t.String({ maxLength: WORKFLOW_MAX_BYTES }),
         }),
         initialXmp: t.Optional(t.String()),
@@ -153,18 +176,22 @@ export const xmpVariantRoutes = new Elysia()
   )
   .post(
     '/api/xmp/variant/restore',
-    async ({ rawPath, query, body }) => {
+    async ({ rawPath, query, body, request }) => {
       const output = await restoreWorkflowVariant(
         rawPath,
         query.variantId,
         body.expectedXmp,
         body.entry,
+        request.signal,
       );
       return publishedVariant(rawPath, query.variantId, output);
     },
     {
       query: t.Object({ path: t.String(), variantId: t.String() }),
       body: t.Object({ expectedXmp: t.String(), entry: t.Any() }),
-      detail: { tags: ['xmp'], summary: 'Confirm a recorded snapshot or history restore' },
+      detail: {
+        tags: ['xmp'],
+        summary: 'Confirm a recorded snapshot or history restore',
+      },
     },
   );
