@@ -36,7 +36,7 @@ afterEach(async () => {
   else process.env.MAPLE_ROOTS = oldRoots;
   await rm(directory, { recursive: true, force: true });
 });
-const patch = (body: unknown) =>
+const patch = (body: unknown, signal?: AbortSignal) =>
   app.handle(
     new Request(
       'http://localhost/api/xmp/workflow?path=' + encodeURIComponent(join(directory, 'photo.dng')),
@@ -44,6 +44,7 @@ const patch = (body: unknown) =>
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal,
       },
     ),
   );
@@ -154,7 +155,12 @@ test('API creates a workflow sidecar when none exists without touching the origi
   expect(await readFile(join(directory, 'photo.dng'))).toEqual(Buffer.from([1, 0, 255, 42]));
 });
 
-const variantRequest = (route: string, method: 'GET' | 'POST' | 'PUT', body?: unknown) => {
+const variantRequest = (
+  route: string,
+  method: 'GET' | 'POST' | 'PUT',
+  body?: unknown,
+  signal?: AbortSignal,
+) => {
   const url = `http://localhost/api/xmp/${route}`;
   const request =
     method === 'GET'
@@ -163,6 +169,7 @@ const variantRequest = (route: string, method: 'GET' | 'POST' | 'PUT', body?: un
           method: method === 'POST' ? 'POST' : 'PUT',
           headers: { 'Content-Type': method === 'POST' ? 'application/json' : 'application/xml' },
           body: method === 'POST' ? JSON.stringify(body) : String(body),
+          signal,
         });
   return app.handle(request);
 };
