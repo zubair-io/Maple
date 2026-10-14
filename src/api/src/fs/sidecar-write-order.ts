@@ -4,8 +4,7 @@ import * as path from 'node:path';
 
 const pendingWrites = new Map<string, Promise<void>>();
 const inFlightKeys = new Map<string, Promise<string>>();
-const caseInsensitivePaths = process.platform === 'darwin' || process.platform === 'win32';
-let admissionTail: Promise<void> = Promise.resolve();
+const admissionTails = new Map<string, Promise<void>>();
 
 function canonicalKey(destination: string): Promise<string> {
   const existing = inFlightKeys.get(destination);
@@ -14,7 +13,9 @@ function canonicalKey(destination: string): Promise<string> {
     const parent = path.dirname(destination);
     const realParent = await fs.realpath(parent).catch(() => parent);
     const basename = path.basename(destination);
-    return path.join(realParent, caseInsensitivePaths ? basename.toLowerCase() : basename);
+    // Fold conservatively on every host: the destination may live on a
+    // case-insensitive network or removable volume even when the API host is not.
+    return path.join(realParent, basename).toLowerCase();
   })();
   inFlightKeys.set(destination, pending);
   void pending.then(
@@ -32,21 +33,27 @@ export async function serializeSidecarWrite<T>(
   destination: string,
   write: () => Promise<T>,
 ): Promise<T> {
-  const previousAdmission = admissionTail;
+  // A canonical alias must preserve call order, but a slow realpath on a
+  // disconnected library must not stop writes for unrelated filenames.
+  // Parent symlink aliases and case-only aliases still have the same folded
+  // basename, so only those requests share this short registration queue.
+  const admissionKey = path.basename(destination).toLowerCase();
+  const previousAdmission = admissionTails.get(admissionKey) ?? Promise.resolve();
   let releaseAdmission!: () => void;
-  admissionTail = new Promise<void>((resolve) => {
+  const currentAdmission = new Promise<void>((resolve) => {
     releaseAdmission = resolve;
   });
-  await previousAdmission;
+  admissionTails.set(admissionKey, currentAdmission);
+  const canonicalKeyPromise = canonicalKey(destination);
 
   let next: Promise<T>;
   let settled: Promise<void>;
   let key: string;
   try {
-    // Admit writes in call order before yielding the key to the per-file queue.
-    // Different aliases can resolve their parents at different speeds; without
-    // this short admission gate, the later call may register first.
-    key = await canonicalKey(destination);
+    await previousAdmission;
+    // Resolve parent paths concurrently; wait for earlier same-basename calls
+    // before registering so a faster alias cannot overtake an earlier one.
+    key = await canonicalKeyPromise;
     const previous = pendingWrites.get(key) ?? Promise.resolve();
     next = previous.then(write);
     settled = next.then(
@@ -56,6 +63,7 @@ export async function serializeSidecarWrite<T>(
     pendingWrites.set(key, settled);
   } finally {
     releaseAdmission();
+    if (admissionTails.get(admissionKey) === currentAdmission) admissionTails.delete(admissionKey);
   }
 
   return next.finally(() => {

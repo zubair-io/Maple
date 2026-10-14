@@ -36,9 +36,7 @@ describe('serializeSidecarWrite', () => {
     }
   });
 
-  test('case-only sidecar aliases share a chain on case-insensitive platforms', async () => {
-    if (process.platform !== 'darwin' && process.platform !== 'win32') return;
-
+  test('case-only sidecar aliases share a chain on every host', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-case-'));
     try {
       let active = 0;
