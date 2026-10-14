@@ -49,14 +49,15 @@ interface EntryResult {
 }
 
 async function processEntry(entry: BatchEntry, signal: AbortSignal): Promise<EntryResult> {
-  let absPath: string;
-  try {
-    const resolved = await resolveAddressString(entry.address);
-    absPath = resolved.absPath;
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { address: entry.address, ok: false, error: msg };
-  }
+  const resolution = await resolveAddressString(entry.address).then(
+    (resolved) => ({ ok: true as const, resolved }),
+    (error: unknown) => ({
+      ok: false as const,
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  );
+  if (!resolution.ok) return { address: entry.address, ok: false, error: resolution.error };
+  const { absPath, libraryRoot } = resolution.resolved;
   const isVideo = isVideoFilename(path.basename(absPath));
   const writeResult = await updateXmpAtomic(
     absPath,
@@ -65,6 +66,7 @@ async function processEntry(entry: BatchEntry, signal: AbortSignal): Promise<Ent
         metadataOnly: existingXml.trim().length === 0 && isVideo,
       }),
     signal,
+    libraryRoot,
   );
   if (!writeResult.ok) {
     return { address: entry.address, ok: false, error: writeResult.error };

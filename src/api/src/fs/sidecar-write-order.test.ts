@@ -139,6 +139,97 @@ describe('serializeSidecarWrite', () => {
     }
   });
 
+  test('nested sidecar writers share FIFO when scoped to their library root', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-nested-library-'));
+    try {
+      const destination = path.join(root, 'year', 'month', 'photo.xmp');
+      await fs.mkdir(path.dirname(destination), { recursive: true });
+      const {
+        promise: releaseResolution,
+        resolve: resolveResolution,
+      } = Promise.withResolvers<void>();
+      const order: string[] = [];
+      const first = serializeSidecarWrite(
+        destination,
+        async () => {
+          order.push('full-sidecar');
+        },
+        {
+          admissionScope: root,
+          resolveDestination: async () => {
+            await releaseResolution;
+            return destination;
+          },
+        },
+      );
+      const second = serializeSidecarWrite(
+        destination,
+        async () => {
+          order.push('batch-merge');
+        },
+        { admissionScope: root, resolveDestination: async () => destination },
+      );
+
+      await Bun.sleep(10);
+      expect(order).toEqual([]);
+      resolveResolution();
+      await Promise.all([first, second]);
+      expect(order).toEqual(['full-sidecar', 'batch-merge']);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('a rejected destination stays handled while waiting for its FIFO turn', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-rejected-destination-'));
+    try {
+      const destination = path.join(root, 'a', 'b', 'photo.xmp');
+      await fs.mkdir(path.dirname(destination), { recursive: true });
+      const {
+        promise: releaseResolution,
+        resolve: resolveResolution,
+      } = Promise.withResolvers<void>();
+      const first = serializeSidecarWrite(destination, async () => 'first', {
+        admissionScope: root,
+        resolveDestination: async () => {
+          await releaseResolution;
+          return destination;
+        },
+      });
+      const observedUnhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown) => {
+        if (reason instanceof Error && reason.message === 'destination denied')
+          observedUnhandled.push(reason);
+      };
+      process.on('unhandledRejection', onUnhandled);
+      try {
+        const second = serializeSidecarWrite(destination, async () => 'second', {
+          admissionScope: root,
+          resolveDestination: async () => {
+            throw new Error('destination denied');
+          },
+        });
+        const secondError = second.then(
+          () => null,
+          (error: unknown) => error,
+        );
+
+        await Bun.sleep(30);
+        resolveResolution();
+        await expect(first).resolves.toBe('first');
+        const error = await secondError;
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe('destination denied');
+        await Bun.sleep(20);
+        expect(observedUnhandled).toEqual([]);
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('different destinations can write concurrently', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-parallel-'));
     try {
