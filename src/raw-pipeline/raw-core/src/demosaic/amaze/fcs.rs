@@ -147,22 +147,31 @@ pub(super) fn suppress_false_colour(
         let mut max_surface_ratio = centre_ratio;
         let mut surface_ratio_sum = centre_ratio;
         let mut surface_ratio_count = 1usize;
-        for (dx, dy) in [(-2_isize, 0_isize), (2, 0), (0, -2), (0, 2)] {
-            let nx = (x as isize + dx) as usize;
-            let ny = (y as isize + dy) as usize;
-            if color_at(nx, ny) != sampled_colour {
-                continue;
+        // Check the full 3x3 neighborhood on the sampled channel's Bayer
+        // lattice. The diagonal sites catch a plus-shaped feature whose
+        // cardinal support alone looks uniform, while every comparison stays
+        // within this one color channel.
+        for dy in [-2_isize, 0, 2] {
+            for dx in [-2_isize, 0, 2] {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let nx = (x as isize + dx) as usize;
+                let ny = (y as isize + dy) as usize;
+                if color_at(nx, ny) != sampled_colour {
+                    continue;
+                }
+                let neighbour_index = ny * w + nx;
+                let (sample, guide) = (cfa_flat[neighbour_index], green[neighbour_index]);
+                if sample < 0.0 || guide <= 0.0 {
+                    return None;
+                }
+                let ratio = sample / guide;
+                min_surface_ratio = min_surface_ratio.min(ratio);
+                max_surface_ratio = max_surface_ratio.max(ratio);
+                surface_ratio_sum += ratio;
+                surface_ratio_count += 1;
             }
-            let neighbour_index = ny * w + nx;
-            let (sample, guide) = (cfa_flat[neighbour_index], green[neighbour_index]);
-            if sample < 0.0 || guide <= 0.0 {
-                return None;
-            }
-            let ratio = sample / guide;
-            min_surface_ratio = min_surface_ratio.min(ratio);
-            max_surface_ratio = max_surface_ratio.max(ratio);
-            surface_ratio_sum += ratio;
-            surface_ratio_count += 1;
         }
         let mean_surface_ratio = surface_ratio_sum / surface_ratio_count as f32;
         if mean_surface_ratio <= 0.0
@@ -197,11 +206,11 @@ pub(super) fn suppress_false_colour(
             return None;
         }
         let mean_ratio = ratio_sum / n as f32;
-        if mean_ratio <= 0.0
-            || (max_ratio - min_ratio) / mean_ratio > MAX_COLLAPSED_RATIO_SPREAD
-            || (mean_ratio - mean_surface_ratio).abs() / mean_surface_ratio
-                > MAX_COLLAPSED_RATIO_SPREAD
-        {
+        // The center and target are different CFA colors: their absolute
+        // channel-to-green ratios encode hue and can differ widely on the
+        // same physical surface. Validate each color's local support within
+        // its own plane; never compare those unlike ratios directly.
+        if mean_ratio <= 0.0 || (max_ratio - min_ratio) / mean_ratio > MAX_COLLAPSED_RATIO_SPREAD {
             return None;
         }
         Some(centre * colour / guide)

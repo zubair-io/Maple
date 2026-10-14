@@ -141,7 +141,9 @@
 ///   supported constant-ratio estimate for negative directional extrapolation (#4123).
 /// - 22 — AMaZE rejects a collapsed opposite-colour estimate when its
 ///   diagonal witnesses disagree with the centre/cardinal surface (#4596).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 22;
+/// - 23 — AMaZE validates collapsed-hue support within each CFA color plane,
+///   without comparing their different channel-to-green ratios (#4596).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 23;
 
 #[cfg(test)]
 mod tests {
