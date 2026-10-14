@@ -121,7 +121,12 @@ export const xmpRoutes = new Elysia()
 
       const conflict = typeof query.conflict === 'string' ? query.conflict : null;
       if (conflict !== null) {
-        const outcome = await writeConflictSidecarAtomic(absPath, conflict, xmlContent);
+        const outcome = await writeConflictSidecarAtomic(
+          absPath,
+          conflict,
+          xmlContent,
+          request.signal,
+        );
         if (!outcome.ok) {
           set.status = 400;
           return { error: outcome.error };

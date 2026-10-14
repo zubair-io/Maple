@@ -21,6 +21,7 @@ import { Elysia, t } from 'elysia';
 import { COLOR_LABELS } from '../xmp/color-label.ts';
 import * as path from 'node:path';
 import { resolveAddressString } from '../library/address.ts';
+import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
 import { updateXmpAtomic } from '../fs/xmp.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
@@ -57,16 +58,18 @@ async function processEntry(entry: BatchEntry, signal: AbortSignal): Promise<Ent
     }),
   );
   if (!resolution.ok) return { address: entry.address, ok: false, error: resolution.error };
-  const { absPath, libraryRoot } = resolution.resolved;
+  const { absPath } = resolution.resolved;
+  const authorized = await resolveAndAuthorizePath(absPath);
+  if (!authorized.ok) return { address: entry.address, ok: false, error: authorized.error };
   const isVideo = isVideoFilename(path.basename(absPath));
   const writeResult = await updateXmpAtomic(
-    absPath,
+    authorized.data,
     (existingXml) =>
       mergeMetadataIntoXmp(existingXml, entry.metadata, {
         metadataOnly: existingXml.trim().length === 0 && isVideo,
       }),
     signal,
-    libraryRoot,
+    authorized.writeScope,
   );
   if (!writeResult.ok) {
     return { address: entry.address, ok: false, error: writeResult.error };

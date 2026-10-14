@@ -2,7 +2,15 @@ import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { lstat, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { deleteXmpSidecar, writeXmpWithPrecondition } from './xmp.ts';
+import { computeBodyETag } from '../runtime/http-etag';
+import { serializeSidecarWrite } from './sidecar-write-order';
+import { writeXmpIfUnchanged } from './xmp-conditional.ts';
+import {
+  deleteXmpSidecar,
+  updateXmpAtomic,
+  writeXmpAtomic,
+  writeXmpWithPrecondition,
+} from './xmp.ts';
 
 let oldRoots: string | undefined;
 let root: string;
@@ -18,6 +26,22 @@ afterEach(async () => {
   else process.env.MAPLE_ROOTS = oldRoots;
   await rm(root, { recursive: true, force: true });
 });
+
+async function holdSidecarWrite(sidecar: string) {
+  const { promise: entered, resolve: signalEntered } = Promise.withResolvers<void>();
+  const { promise: released, resolve: releaseWrite } = Promise.withResolvers<void>();
+  const inFlight = serializeSidecarWrite(
+    sidecar,
+    async () => {
+      signalEntered();
+      await released;
+      return 'held';
+    },
+    { admissionScope: root, resolveDestination: async () => sidecar },
+  );
+  await entered;
+  return { inFlight, releaseWrite };
+}
 
 test('idempotent delete removes a dangling sidecar symlink without touching the original', async () => {
   const rawPath = join(root, 'dangling.dng');
@@ -50,4 +74,71 @@ test('precondition writes stop after request cancellation without changing the s
 
   expect(result.kind).toBe('error');
   expect(await readFile(join(root, 'photo.xmp'), 'utf8')).toBe(original);
+});
+
+test('plain path-keyed writes stop when cancelled while queued', async () => {
+  const rawPath = join(root, 'queued.dng');
+  const sidecar = join(root, 'queued.xmp');
+  const original = '<x:xmpmeta />';
+  await writeFile(rawPath, Buffer.from([1, 2, 3]));
+  await writeFile(sidecar, original);
+  const held = await holdSidecarWrite(sidecar);
+  const controller = new AbortController();
+  const write = writeXmpAtomic(
+    rawPath,
+    '<x:xmpmeta><updated /></x:xmpmeta>',
+    controller.signal,
+    root,
+  );
+  controller.abort();
+  held.releaseWrite();
+  await held.inFlight;
+
+  expect((await write).ok).toBe(false);
+  expect(await readFile(sidecar, 'utf8')).toBe(original);
+});
+
+test('read-merge-write saves stop when cancelled while queued', async () => {
+  const rawPath = join(root, 'queued-update.dng');
+  const sidecar = join(root, 'queued-update.xmp');
+  const original = '<x:xmpmeta>before</x:xmpmeta>';
+  await writeFile(rawPath, Buffer.from([1, 2, 3]));
+  await writeFile(sidecar, original);
+  const held = await holdSidecarWrite(sidecar);
+  const controller = new AbortController();
+  const update = updateXmpAtomic(
+    rawPath,
+    (existing) => existing.replace('before', 'after'),
+    controller.signal,
+    root,
+  );
+  controller.abort();
+  held.releaseWrite();
+  await held.inFlight;
+
+  expect((await update).ok).toBe(false);
+  expect(await readFile(sidecar, 'utf8')).toBe(original);
+});
+
+test('conditional writes stop when cancelled while queued', async () => {
+  const rawPath = join(root, 'queued-conditional.dng');
+  const sidecar = join(root, 'queued-conditional.xmp');
+  const original = '<x:xmpmeta />';
+  await writeFile(rawPath, Buffer.from([1, 2, 3]));
+  await writeFile(sidecar, original);
+  const held = await holdSidecarWrite(sidecar);
+  const controller = new AbortController();
+  const write = writeXmpIfUnchanged(
+    rawPath,
+    '<x:xmpmeta><updated /></x:xmpmeta>',
+    computeBodyETag(original),
+    controller.signal,
+    root,
+  );
+  controller.abort();
+  held.releaseWrite();
+  await held.inFlight;
+
+  expect((await write).kind).toBe('error');
+  expect(await readFile(sidecar, 'utf8')).toBe(original);
 });
