@@ -1087,25 +1087,39 @@ fn effective_white_level(
     let Some(best) = best.filter(|&b| b > black_level.iter().max().copied().unwrap_or(0)) else {
         return declared;
     };
+    let mut brighter_regions: [[Vec<usize>; 4]; 4] =
+        std::array::from_fn(|_| std::array::from_fn(|_| Vec::with_capacity(6)));
+    let regions_w = (w + 64).div_ceil(128);
+    let x_offsets = [0, 64, 0, 64];
+    let y_offsets = [0, 0, 64, 64];
+    for y in 0..h {
+        let y_base = (y & 1) * 2;
+        for x in 0..w {
+            let position = y_base + (x & 1);
+            if u32::from(data[y * w + x]) <= best {
+                continue;
+            }
+            for grid in 0..4 {
+                let occupied = &mut brighter_regions[position][grid];
+                let region =
+                    ((y + y_offsets[grid]) / 128) * regions_w + (x + x_offsets[grid]) / 128;
+                if occupied.len() < 6 && !occupied.contains(&region) {
+                    occupied.push(region);
+                }
+            }
+        }
+    }
     let unprotected_bayer_highlights = (0..4).any(|position| {
-        let position_has_best = candidates_by_position[position]
+        let sample_count = histogram
             .iter()
-            .any(|&candidate_index| {
-                let candidate = &candidates[candidate_index];
-                u32::from(candidate.value) == best
-                    && candidate
-                        .occupied_regions
-                        .iter()
-                        .all(|regions| regions.len() >= candidate.required_regions)
-            });
-        !position_has_best
-            && histogram
+            .enumerate()
+            .filter(|(value, _)| *value as u32 > best)
+            .map(|(_, counts)| counts[position])
+            .sum::<u32>();
+        sample_count >= 32
+            && brighter_regions[position]
                 .iter()
-                .enumerate()
-                .filter(|(value, _)| *value as u32 > best)
-                .map(|(_, counts)| counts[position])
-                .sum::<u32>()
-                >= 32
+                .all(|regions| regions.len() >= 6)
     });
     if unprotected_bayer_highlights {
         declared
@@ -1607,8 +1621,35 @@ mod tests {
             }
         }
         for sample in 0..64usize {
-            let y = (sample / 16) * 2;
-            let x = (sample % 16) * 2 + 1;
+            let region = sample / 4;
+            let within = sample % 4;
+            let y = (region / 4) * 128 + 20 + (within / 2) * 2;
+            let x = (region % 4) * 128 + 21 + (within % 2) * 2;
+            data[y * w + x] = 64857 + sample as u16;
+        }
+        assert_eq!(
+            effective_white_level(&data, 512, 512, &[0; 4], 65535),
+            65535
+        );
+    }
+
+    #[test]
+    fn effective_white_keeps_declared_when_plateau_position_has_highlights() {
+        let (w, h) = (512usize, 512usize);
+        let mut data = vec![1000u16; w * h];
+        for tile_y in 0..4 {
+            for tile_x in 0..4 {
+                let y = tile_y * 128;
+                let x = tile_x * 128;
+                data[y * w + x] = 64856;
+                data[(y + 2) * w + x + 2] = 64856;
+            }
+        }
+        for sample in 0..64usize {
+            let region = sample / 4;
+            let within = sample % 4;
+            let y = (region / 4) * 128 + 20 + (within / 2) * 2;
+            let x = (region % 4) * 128 + 20 + (within % 2) * 2;
             data[y * w + x] = 64857 + sample as u16;
         }
         assert_eq!(
