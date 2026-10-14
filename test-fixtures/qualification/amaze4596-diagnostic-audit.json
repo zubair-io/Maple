@@ -51,6 +51,13 @@
           "n_pixels": 10668000,
           "reference_protocol": "legacy-direct-reference"
         }
+      },
+      "input_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "db6894a2e12a8b6f87c39eb0cf9a9e623d56ec438ce0ee129d021a4c424a0f03",
+        "reference": "c5d15e13114c59d42b49d62c111b5777b6d3cf6ff762a664845a51fca69511d2",
+        "candidate_png": "97d52c0aa6f2a38b840f413e1a94bc188faa91e6544bae8aa0ae198178f84c01",
+        "main_png": "7feaaaf1aa2f0633072d7e7dc88feebe322c7836f384f6433fa44a283670f65f"
       }
     },
     {
@@ -94,6 +101,13 @@
           "n_pixels": 10668000,
           "reference_protocol": "legacy-direct-reference"
         }
+      },
+      "input_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "65fa852fcc489e5775bca5595f027fb9c858f049866d8c3529ad59fc37431c61",
+        "reference": "40e12bf2b24bb86fbf5eb9471e791500c447b7b3ea4666fa36a0c03d251bb7a6",
+        "candidate_png": "8ca0cb05c962a43123a8fcacd8d428e68d2b2ee3499aa981427b05d6a4492b5c",
+        "main_png": "a8bf9a4ba7a31a49a57f03be31738529991c2ee29414f6e335bdbc475f6e3c91"
       }
     },
     {
@@ -137,6 +151,13 @@
           "n_pixels": 10668000,
           "reference_protocol": "legacy-direct-reference"
         }
+      },
+      "input_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "2b08fdb317e7410211747bcd7d3fb38b72aa3d2a8f6f50c49efdc44e9f8bf7ab",
+        "reference": "1ddb107e5f0fac8b2410723f2d9ec7d361daa15d0dc873fc8b9027fc85c29aed",
+        "candidate_png": "2b50046c3eb264794eeae9ea0ceb1063a44982b0cf12bb5b9accd320a3d61f75",
+        "main_png": "561aa3d6e4407eaf5c6b0990d45edbf706c343e38051941c6aeaf38e91674c42"
       }
     },
     {
@@ -180,6 +201,13 @@
           "n_pixels": 100663296,
           "reference_protocol": "legacy-direct-reference"
         }
+      },
+      "input_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "c40bbf2092e346759d2a54e715b7424948a8598a1c637f0f0077481b29663f30",
+        "reference": "9a732ae5d4207d86910fedfe576cb5ac9a4fef51489186ec0e5b312180ad6c55",
+        "candidate_png": "5702db75ec8a0a033ae0276205ee358e50b5dc3b90e8182d48504a16f47d84a6",
+        "main_png": "9bddfb87ba365d94f394bb3ec77ce349a304c4af54d62c40194cfa1d064da911"
       }
     },
     {
@@ -223,6 +251,13 @@
           "n_pixels": 100663296,
           "reference_protocol": "legacy-direct-reference"
         }
+      },
+      "input_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "76058bd011775822f60dc156f876e12b18cd8a61ab374dfff0b07799f1e5141b",
+        "reference": "739c1cd530a605263131609283ac20d0d7ec917301b57b9401b5fcd410791257",
+        "candidate_png": "67d0a91bd63f9e21ac39c7f1e3280c113fd2df65f9ffe706c2137c18872a4b63",
+        "main_png": "a705a96468746073cdea80cfb881b9252e1f990c8ff242e6a7c8e08571ea0b43"
       }
     },
     {
@@ -266,6 +301,13 @@
           "n_pixels": 10668000,
           "reference_protocol": "legacy-direct-reference"
         }
+      },
+      "input_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "54c6ecedbdc6466ec0db6a7dd89b286b07d44afce3ef585e53a0dc8224289f4d",
+        "reference": "949514a0784c81b0fef87c745afe2bf7e4c9ad460bf9cde94fed8a0afe473745",
+        "candidate_png": "347013616e894a7a40f4238a5da51c5a922816fef96137f1f0fefc82d4c45a7d",
+        "main_png": "fd50ec44f6fac55065c7d9b609f227ee3ca4cc0104f856c8c07b1e0dcafeced2"
       }
     },
     {
@@ -309,6 +351,13 @@
           "n_pixels": 100663296,
           "reference_protocol": "legacy-direct-reference"
         }
+      },
+      "input_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "20a0372f6f785e4a1a9cd0a2b27457141e03f70a63d5ebc7bf9ffeecc32963a2",
+        "reference": "f3fbe5ce34413558d53b0acabbabaf09bf23878b94db85f09010f1d5f33c64c0",
+        "candidate_png": "ba3699267a6ec3e91eaff03aba1c88defbeada2d8ff9f687f4cd1b7ca39eff57",
+        "main_png": "9bbfe2a9f27ba2a69232e2f6f0518824a74eacd9474e827f64bd800ebe4d1d7a"
       }
     },
     {
@@ -352,6 +401,13 @@
           "n_pixels": 100663296,
           "reference_protocol": "legacy-direct-reference"
         }
+      },
+      "input_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "bcb08781519df6c6bfc00105c025aac5b2225f93de77999bbb989e0db1f9bf96",
+        "reference": "57f3fc9b9224ba8a6f531a5c8c2da1cf90e465b4b5f93fb16215deca55ae9478",
+        "candidate_png": "ba3699267a6ec3e91eaff03aba1c88defbeada2d8ff9f687f4cd1b7ca39eff57",
+        "main_png": "9bbfe2a9f27ba2a69232e2f6f0518824a74eacd9474e827f64bd800ebe4d1d7a"
       }
     },
     {
@@ -395,6 +451,13 @@
           "n_pixels": 100663296,
           "reference_protocol": "legacy-direct-reference"
         }
+      },
+      "input_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "ecdff2f1b5ebca2df31b1f5a5b1a30e0f8f725d710d7d9257e3c17294f6f3d31",
+        "reference": "8de3dcb9c484c36e11b0fed7f22be9e8a24bf8815e82950dcb73a27a4808a51b",
+        "candidate_png": "35d80fe100f616ba429dcd95b5d960594e19ecaaf40f2951c799e32d2000b78b",
+        "main_png": "e4ae611071b3db0db12f7c0fae27136fb0caf69f97878b622634729cf8050fb7"
       }
     },
     {
@@ -438,6 +501,13 @@
           "n_pixels": 100663296,
           "reference_protocol": "legacy-direct-reference"
         }
+      },
+      "input_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "66831a4d1dbf4e8a13f7e3cd3f12c6343f82d9efff76f23b1d09f99102d7220e",
+        "reference": "4e3da44d55c58fa04afb7a564790ba42061f92d053fe73e1e71603b6524e6b94",
+        "candidate_png": "0704019527b0aeb863108ef4ea36b667f86c8ee77fa5715316169b1d7aedf502",
+        "main_png": "567e88d44f16eb4c277aaa6c19c7d0dd522b5500b97473ea99db3d7c7fc5c53c"
       }
     },
     {
@@ -481,6 +551,13 @@
           "n_pixels": 10668000,
           "reference_protocol": "legacy-direct-reference"
         }
+      },
+      "input_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "c763ee45fe20cfde582ec3394f02775c1f9115cf07ce60f8e864169ad414cf9e",
+        "reference": "19fd7751bb6e92fed139522bb0c8ea0dae802d3b4af41545d65fe12ad8f73102",
+        "candidate_png": "b3ab3adacca7f40168f30656696b2205127cd1148c3c24cedc2f2809fdbddc11",
+        "main_png": "6b603ccf38baf307071429a5ae2ad734beb5513e24376aa64689ce4af28a1865"
       }
     },
     {
@@ -524,6 +601,13 @@
           "n_pixels": 10668000,
           "reference_protocol": "legacy-direct-reference"
         }
+      },
+      "input_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "4e83a149b86cd884ddc5212f931bfbc453ef3c60d86432dc2ef64e90d283953b",
+        "reference": "ad2621850089db91a88ddbd89b06b2546018ba886a4f27eac563c644dd10c447",
+        "candidate_png": "5259e6095db030d90695b6d5e1774a3f55224a3675fbbebb7d64a6de235232aa",
+        "main_png": "13548ef014dd89dd66d8db0945677265962baa3e2194f7af58c040e6ce62fe81"
       }
     },
     {
@@ -567,6 +651,13 @@
           "n_pixels": 10668000,
           "reference_protocol": "legacy-direct-reference"
         }
+      },
+      "input_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "40a4bc4f42ed9bd023ace403507f4c81effddeae1d0bbd3e88cbc35f1972e555",
+        "reference": "7b125387b2d5292560506ef8277844b33045b85e69e4695ef397f2ba39e7f349",
+        "candidate_png": "1c1fcbabe4669597b5dbd2eda9e642adc299e84c1b13f7db82910a4c4d3abcf0",
+        "main_png": "60cc7348f3d4fff6e41f28c9c9f2f27374fef32539856e12b6d62ec07c152d46"
       }
     },
     {
@@ -610,6 +701,13 @@
           "n_pixels": 10668000,
           "reference_protocol": "legacy-direct-reference"
         }
+      },
+      "input_sha256": {
+        "raw": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "canonical_xmp": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+        "reference": "163c39d6ca5bc4b8e2440ea0bb765722f04aecb63be9a56a218c63bd8b78c5ee",
+        "candidate_png": "9958b41f2b23af5829606f84ed7609a099bdc56421fe459ba4c5d9e619251fec",
+        "main_png": "4a14bc91a4e52a072a39ce5f485fe957e60ac22189bab792235cd4d832282e58"
       }
     },
     {
@@ -677,6 +775,13 @@
           "n_pixels": 9000000,
           "reference_protocol": "legacy-direct-reference"
         }
+      },
+      "input_sha256": {
+        "raw": "c4aebea165cf2e782ac976ebafb986f356fdb7fa05834392ad7a8169cbeaf184",
+        "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+        "reference": "bfc83d0eae033f0112f1329b0a34cceabf853a9c9b1dc732cfd7438b0f0f903f",
+        "candidate_png": "fd8da8153eebee5458d69d1b3994789b866850eacf73feb8290228881b1ae756",
+        "main_png": "2152436de28fa271bae54d4b40342a2090884d9f13ee7780f99cc07981aec858"
       }
     }
   ],
@@ -696,7 +801,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "2ec42955a29b2a1275f5385966649de31e6c323ae30caf3fe5ce9c93c7190fac",
+          "reference": "1eea9e583dcf684fd2c96f160f8b465af4b816aa8889b8e6ed9222b1800cf1b0"
+        }
       },
       {
         "case": "test_0000/tint_min",
@@ -711,7 +820,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "9bc0ca2a976f9019ecadb5a02ef6dc871219a4bb68a7cba9ac4bd3d709ad0768",
+          "reference": "3fda984aef373d33119f97516ae9b6742f2a8919613b2d063e5c2064d146ff6f"
+        }
       },
       {
         "case": "test_0001/tint_max",
@@ -722,7 +835,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "bfc83d0eae033f0112f1329b0a34cceabf853a9c9b1dc732cfd7438b0f0f903f"
+        }
       },
       {
         "case": "test_0001/tint_min",
@@ -733,7 +850,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "39c24600921cbb8c494b7d31a51f4c8b877db533e9ef31df43fe9c04f7920052"
+        }
       },
       {
         "case": "test_0002/tint_max",
@@ -744,7 +865,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "84e2235b447f97f15a2eaafd2aee57379db986eab5171c72a4d03d2c2b18bb6b"
+        }
       },
       {
         "case": "test_0002/tint_min",
@@ -755,7 +880,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "5e04e18bf2fd805ad57ba36ec4278026002850673a983046de475dd3d5ab1c12"
+        }
       },
       {
         "case": "test_0003/tint_max",
@@ -766,7 +895,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "74be9cab05547cab66299b575f611959e30f2dd8d8eca3476fcf239a3d2d5eb8"
+        }
       },
       {
         "case": "test_0003/tint_min",
@@ -777,7 +910,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "dc226ed13b01fb1ea3e87fbf129e89b1a10f4abddeb84acd828ed1905ad42db9"
+        }
       },
       {
         "case": "test_0004/tint_max",
@@ -788,7 +925,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "0766801269145e37be631e3a6f341a06f28b077a338a6ed3797036e6937b869f"
+        }
       },
       {
         "case": "test_0004/tint_min",
@@ -799,7 +940,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "5d4d2923df8dc4cac72a147a6601704ee1e24a1494e27135bdfff072a3a5d00f"
+        }
       },
       {
         "case": "test_0005/tint_max",
@@ -810,7 +955,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": true
+        "acr_xmp_present": true,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "5a4ae8ac79f40462771df01ebec51c0a49108a1bc72c8544d72dafe1ea398534"
+        }
       },
       {
         "case": "test_0005/tint_min",
@@ -821,7 +970,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": true
+        "acr_xmp_present": true,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "432d0e4c4f645f783c127514ae57d1df4be787b8e8b407f53b27a95a1905aee2"
+        }
       },
       {
         "case": "test_0006/tint_max",
@@ -832,7 +985,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "593792ebaed6afb51bbeaaa4deb45f102ec5ad52552d0c68bd3462fc6c51d6e5"
+        }
       },
       {
         "case": "test_0006/tint_min",
@@ -843,7 +1000,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "f13ee4438780cd457d89962d539a09ada1f1e50847d23358e4d5afffc0fb702c"
+        }
       },
       {
         "case": "test_0007/tint_max",
@@ -854,7 +1015,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "882343054e8ff8e913f43bffb5b17ecacaec1a2ba16586f4bdd8462d6c36de0f"
+        }
       },
       {
         "case": "test_0007/tint_min",
@@ -865,7 +1030,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "73cde93da1196ba5f85480e37d621a55de0c3244b0f7aca2b50e896ca4357b56"
+        }
       },
       {
         "case": "test_0008/tint_max",
@@ -876,7 +1045,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": true
+        "acr_xmp_present": true,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "64833dcb2754aa15ede3e077f8e3293f6a6a88507ea704aa90d238babde0874d"
+        }
       },
       {
         "case": "test_0008/tint_min",
@@ -887,7 +1060,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": true
+        "acr_xmp_present": true,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "43f7de32f8d08c5adec7e0ab240c2d4ea18c11cca12a394b4a90a96c690aca45"
+        }
       },
       {
         "case": "test_0009/tint_max",
@@ -898,7 +1075,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "0da3ec2850b24e565131b719d4b47168f5e90fe4892f66874fb65206ab04472a"
+        }
       },
       {
         "case": "test_0009/tint_min",
@@ -909,7 +1090,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "272a14577d1e77137f050bef4a446d95092a63bbd879f127f436cda6eaa37b07"
+        }
       },
       {
         "case": "test_0010/tint_max",
@@ -920,7 +1105,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "7ea25b24432ecb88fc01ee0e955ce75708e01aea633e967840ccdb884a9f2bbd"
+        }
       },
       {
         "case": "test_0010/tint_min",
@@ -931,7 +1120,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "3fac0086795d9ce5f6b22a1ad0f4535c4444f99f6d551567a4f606c8e2dc5507"
+        }
       },
       {
         "case": "test_0011/tint_max",
@@ -942,7 +1135,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": true
+        "acr_xmp_present": true,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "f1b5cfcd2e91d606869858cc8cb6dc6446b6cd9c681d8044cfcbaabb8f82b77d"
+        }
       },
       {
         "case": "test_0011/tint_min",
@@ -953,7 +1150,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": true
+        "acr_xmp_present": true,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "9f72fe0623cae18702d3098e6bb043f6ba94176eb5d63b07f1285f59f5ad6341"
+        }
       },
       {
         "case": "test_0012/tint_max",
@@ -964,7 +1165,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": true
+        "acr_xmp_present": true,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "7c1b8e7fa4bffc8c04a6b35bd403a7baba8a5e1ff4b95dede3efc523d960983a"
+        }
       },
       {
         "case": "test_0012/tint_min",
@@ -975,7 +1180,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": true
+        "acr_xmp_present": true,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "843609233bf6481dea69486abb5f1f49a020d362917206f713c89c9358ca8623"
+        }
       },
       {
         "case": "test_0013/tint_max",
@@ -986,7 +1195,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "c9c259c94dca270cd5f24a8fa5348fd228a3418642f7754b40017b740c1f8037"
+        }
       },
       {
         "case": "test_0013/tint_min",
@@ -997,7 +1210,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "9f95f7728b8608ed58e2fd41272990e3f8c29bd2829419a5b09df569c7dadc37"
+        }
       },
       {
         "case": "test_0014/tint_max",
@@ -1008,7 +1225,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "e2c55854b9120c6dbf9f8c2598b8efe5e91359e5364aef864f604057d276be68"
+        }
       },
       {
         "case": "test_0014/tint_min",
@@ -1019,7 +1240,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "d0617b3ceda577b8e795735de8c7da4d6713a1cfe1974c46ca7c8f8f2265aa96"
+        }
       },
       {
         "case": "test_0015/tint_max",
@@ -1030,7 +1255,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": true
+        "acr_xmp_present": true,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "73bbddf4d285d1259c47aafe9e04e01507d7448481cc7541add58fdc66378e8c"
+        }
       },
       {
         "case": "test_0015/tint_min",
@@ -1041,7 +1270,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": true
+        "acr_xmp_present": true,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "c0331318f3921d4e289ca6ef5e530cf192ad78cd728ccf67d8dc85f09fd6fd99"
+        }
       },
       {
         "case": "test_0017/tint_max",
@@ -1052,7 +1285,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": true
+        "acr_xmp_present": true,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "43202829b114e862abb89625032ac4f82e85ee655d78ed9972c77dc409e37965"
+        }
       },
       {
         "case": "test_0017/tint_min",
@@ -1063,7 +1300,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": true
+        "acr_xmp_present": true,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "affa09e37be64db79614b6198e79a4647177c34357fec1097162634e31eb7974"
+        }
       },
       {
         "case": "test_0018/tint_max",
@@ -1074,7 +1315,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+          "reference": "9e62e41033d695c9a97dec40f85fd82235f63153cb27aebfe333f7659d829d2a"
+        }
       },
       {
         "case": "test_0018/tint_min",
@@ -1085,7 +1330,11 @@
             "reference": "+10"
           }
         },
-        "acr_xmp_present": false
+        "acr_xmp_present": false,
+        "input_sha256": {
+          "canonical_xmp": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+          "reference": "8def4d254ba5ea3dbe908f1aa170864dfa579df83723a843647b9325577e69a4"
+        }
       }
     ],
     "scope": "Authored CRS controls versus effective PNG XMP; omitted controls are not audited. Dormant detail subcontrols follow verify_settings.py."
@@ -1116,5 +1365,7 @@
     },
     "canonical_references_changed": false,
     "budgets_changed": false
-  }
+  },
+  "later_main_revision": "00165b847c61ca9be94f0a98ef540144e8cb3826",
+  "later_main_raw_pipeline_scripts_and_budgets_unchanged": true
 }
