@@ -36,6 +36,19 @@ import { randomBytes } from 'node:crypto';
 import * as fs from './mirrored.ts';
 import { safeWriteAllowed } from './root.ts';
 import type { OpResult } from './root.ts';
+import { waitForAbortable } from './sidecar-write-order.ts';
+
+async function authorizeUnlessAborted(destPath: string, signal?: AbortSignal) {
+  try {
+    return await waitForAbortable(safeWriteAllowed(destPath), signal);
+  } catch (error) {
+    if (!signal?.aborted) throw error;
+    return {
+      ok: false as const,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
 
 /** Only ENOENT means absence; permission and I/O errors must remain failures. */
 export function isMissingSidecar(error: unknown): boolean {
@@ -54,7 +67,7 @@ export async function writeSidecarAtomic(
   failureLabel: string,
   signal?: AbortSignal,
 ): Promise<{ ok: true; mtime: Date } | { ok: false; error: string }> {
-  const allowed = await safeWriteAllowed(destPath);
+  const allowed = await authorizeUnlessAborted(destPath, signal);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Path not allowed' };
 
   const tmp = `${destPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
@@ -98,7 +111,7 @@ export async function writeSidecarCreateOnly(
   failureLabel: string,
   signal?: AbortSignal,
 ): Promise<{ ok: true; mtime: Date } | { ok: false; exists: true } | { ok: false; error: string }> {
-  const allowed = await safeWriteAllowed(destPath);
+  const allowed = await authorizeUnlessAborted(destPath, signal);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Path not allowed' };
 
   const tmp = `${destPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
@@ -155,7 +168,7 @@ export async function deleteSidecar(
   signal?: AbortSignal,
 ): Promise<OpResult> {
   signal?.throwIfAborted();
-  const allowed = await safeWriteAllowed(destPath);
+  const allowed = await authorizeUnlessAborted(destPath, signal);
   if (!allowed.ok) return { ok: false, error: allowed.error };
   signal?.throwIfAborted();
   try {

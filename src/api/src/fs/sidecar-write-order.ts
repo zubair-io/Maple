@@ -4,10 +4,10 @@ import * as path from 'node:path';
 
 const pendingWrites = new Map<string, Promise<void>>();
 const inFlightKeys = new Map<string, Promise<string>>();
-const admissionTails = new Map<string, Promise<void>>();
+let admissionTail: Promise<void> | undefined;
 
 export interface SidecarWriteOrderOptions {
-  /** Stable library identity shared by lexical and symlinked paths. */
+  /** Caller root retained for compatibility; admission coordinates aliases globally. */
   admissionScope?: string;
   /** Resolve and authorize the path after its FIFO admission has been registered. */
   resolveDestination?: () => Promise<string>;
@@ -15,7 +15,7 @@ export interface SidecarWriteOrderOptions {
   signal?: AbortSignal;
 }
 
-function waitForAbortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+export function waitForAbortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return promise;
   signal.throwIfAborted();
   let onAbort: (() => void) | undefined;
@@ -70,22 +70,20 @@ export async function serializeSidecarWrite<T>(
   options: SidecarWriteOrderOptions = {},
 ): Promise<T> {
   // Register arrival before any asynchronous authorization or canonicalization.
-  // The library scope groups aliases at different directory depths while
-  // keeping same-named files in sibling libraries independent.
+  // File symlinks can cross library boundaries, so a per-library queue cannot
+  // preserve FIFO for two names that resolve to the same sidecar. This global
+  // admission queue only orders destination registration; actual writes to
+  // different canonical destinations still run concurrently below.
   const resolvedDestination = path.resolve(destination);
-  const admissionScope = path.resolve(
-    options.admissionScope ?? path.dirname(path.dirname(resolvedDestination)),
-  );
   // The lexical filename cannot identify every alias: two different file
-  // symlinks may resolve to the same sidecar. Admit path resolution in library
+  // symlinks may resolve to the same sidecar. Admit path resolution in request
   // arrival order, then serialize writes only by the canonical destination.
-  const admissionKey = admissionScope.normalize('NFC').toLowerCase().normalize('NFC');
-  const previousAdmission = admissionTails.get(admissionKey) ?? Promise.resolve();
+  const previousAdmission = admissionTail ?? Promise.resolve();
   let releaseAdmission!: () => void;
   const currentAdmission = new Promise<void>((resolve) => {
     releaseAdmission = resolve;
   });
-  admissionTails.set(admissionKey, currentAdmission);
+  admissionTail = currentAdmission;
   const destinationPromise = Promise.resolve()
     .then(() => options.resolveDestination?.() ?? destination)
     .then((resolved) => path.resolve(resolved));
@@ -125,7 +123,7 @@ export async function serializeSidecarWrite<T>(
     for (const key of keys) pendingWrites.set(key, settled);
   } finally {
     releaseAdmission();
-    if (admissionTails.get(admissionKey) === currentAdmission) admissionTails.delete(admissionKey);
+    if (admissionTail === currentAdmission) admissionTail = undefined;
   }
 
   return next.finally(() => {

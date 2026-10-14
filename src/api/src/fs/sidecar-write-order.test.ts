@@ -244,6 +244,69 @@ describe('serializeSidecarWrite', () => {
     }
   });
 
+  test('file symlink aliases preserve FIFO across different library scopes', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-cross-library-alias-'));
+    try {
+      const firstLibrary = path.join(root, 'first-library');
+      const secondLibrary = path.join(root, 'second-library');
+      const destination = path.join(root, 'target.xmp');
+      const firstAlias = path.join(firstLibrary, 'photo.xmp');
+      const secondAlias = path.join(secondLibrary, 'alias.xmp');
+      await Promise.all([
+        fs.mkdir(firstLibrary),
+        fs.mkdir(secondLibrary),
+        fs.writeFile(destination, ''),
+      ]);
+      await Promise.all([
+        fs.symlink(destination, firstAlias),
+        fs.symlink(destination, secondAlias),
+      ]);
+
+      const { promise: releaseFirstResolution, resolve: resolveFirstResolution } =
+        Promise.withResolvers<void>();
+      const { promise: secondResolutionFinished, resolve: markSecondResolutionFinished } =
+        Promise.withResolvers<void>();
+      const order: string[] = [];
+      const first = serializeSidecarWrite(
+        firstAlias,
+        async () => {
+          order.push('first');
+          return 'first';
+        },
+        {
+          admissionScope: firstLibrary,
+          resolveDestination: async () => {
+            await releaseFirstResolution;
+            return fs.realpath(firstAlias);
+          },
+        },
+      );
+      const second = serializeSidecarWrite(
+        secondAlias,
+        async () => {
+          order.push('second');
+          return 'second';
+        },
+        {
+          admissionScope: secondLibrary,
+          resolveDestination: async () => {
+            const resolved = await fs.realpath(secondAlias);
+            markSecondResolutionFinished();
+            return resolved;
+          },
+        },
+      );
+
+      await secondResolutionFinished;
+      expect(order).toEqual([]);
+      resolveFirstResolution();
+      await expect(Promise.all([first, second])).resolves.toEqual(['first', 'second']);
+      expect(order).toEqual(['first', 'second']);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('nested sidecar writers share FIFO when scoped to their library root', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-nested-library-'));
     try {
