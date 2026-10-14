@@ -128,10 +128,50 @@ pub(super) fn suppress_false_colour(
     // surfaces across a real colour edge and import one side's hue into the
     // other (#4123).
     let collapsed_estimate = |x: usize, y: usize, t: usize| -> Option<f32> {
-        let centre = green[y * w + x];
+        let centre_index = y * w + x;
+        let centre = green[centre_index];
         if centre <= 0.0 {
             return None;
         }
+
+        // The diagonal target samples must belong to the centre surface, not
+        // just agree with one another. An isolated R/B sample can sit inside
+        // a flat background whose four opposite-colour diagonals all report
+        // the same ratio; transporting that ratio would paint background hue
+        // into the centre even though AMaZE's zero-clamped fallback is safer.
+        // Check that the centre's sampled colour agrees with its nearest
+        // same-colour cardinal neighbours before trusting the opposite plane.
+        let sampled_colour = color_at(x, y);
+        let centre_ratio = cfa_flat[centre_index] / centre;
+        let mut min_surface_ratio = centre_ratio;
+        let mut max_surface_ratio = centre_ratio;
+        let mut surface_ratio_sum = centre_ratio;
+        let mut surface_ratio_count = 1usize;
+        for (dx, dy) in [(-2_isize, 0_isize), (2, 0), (0, -2), (0, 2)] {
+            let nx = (x as isize + dx) as usize;
+            let ny = (y as isize + dy) as usize;
+            if color_at(nx, ny) != sampled_colour {
+                continue;
+            }
+            let neighbour_index = ny * w + nx;
+            let (sample, guide) = (cfa_flat[neighbour_index], green[neighbour_index]);
+            if sample < 0.0 || guide <= 0.0 {
+                return None;
+            }
+            let ratio = sample / guide;
+            min_surface_ratio = min_surface_ratio.min(ratio);
+            max_surface_ratio = max_surface_ratio.max(ratio);
+            surface_ratio_sum += ratio;
+            surface_ratio_count += 1;
+        }
+        let mean_surface_ratio = surface_ratio_sum / surface_ratio_count as f32;
+        if mean_surface_ratio <= 0.0
+            || (max_surface_ratio - min_surface_ratio) / mean_surface_ratio
+                > MAX_COLLAPSED_RATIO_SPREAD
+        {
+            return None;
+        }
+
         let mut min_ratio = f32::INFINITY;
         let mut max_ratio = f32::NEG_INFINITY;
         let mut ratio_sum = 0.0_f32;
