@@ -156,6 +156,7 @@ pub struct StitchOutcome {
     pub leveled: bool,
     /// Horizon tilt in degrees when leveling was applied.
     pub horizon_tilt_deg: Option<f64>,
+    pub horizon_tilt_rms_deg: Option<f64>,
     /// Stage wall-clock timings (seconds). Indices are stage ordinals above.
     /// Entry 5 = composite; entry 6 = not used (write is the caller's job).
     pub stage_timings_s: [f64; 6],

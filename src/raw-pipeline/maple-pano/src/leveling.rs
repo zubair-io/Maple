@@ -27,6 +27,7 @@
 //! statistic are untouched.
 
 use crate::ba::BaSolution;
+use crate::camera::Camera;
 use crate::eigen::eigen_symmetric;
 use crate::math::{axis_angle_to_matrix, Mat3, Vec3};
 
@@ -112,19 +113,38 @@ pub fn apply(solution: &mut BaSolution) -> bool {
     }
 }
 
+fn camera_tilt_deg(cam: &Camera) -> f64 {
+    let x = cam.rotation.mul_vec(Vec3 {
+        x: 1.0,
+        y: 0.0,
+        z: 0.0,
+    });
+    x.dot(WORLD_UP).abs().asin().to_degrees()
+}
+
 /// The spec §7 horizon metric: the largest tilt of any solved camera's
 /// x-axis out of the horizontal plane, in degrees.
 pub fn horizon_tilt_deg(solution: &BaSolution) -> f64 {
-    let mut worst = 0.0_f64;
+    solution
+        .cameras
+        .iter()
+        .flatten()
+        .map(camera_tilt_deg)
+        .fold(0.0_f64, f64::max)
+}
+
+pub fn horizon_tilt_rms_deg(solution: &BaSolution) -> f64 {
+    let (mut sum_sq, mut n) = (0.0_f64, 0_usize);
     for cam in solution.cameras.iter().flatten() {
-        let x = cam.rotation.mul_vec(Vec3 {
-            x: 1.0,
-            y: 0.0,
-            z: 0.0,
-        });
-        worst = worst.max(x.dot(WORLD_UP).abs().asin().to_degrees());
+        let t = camera_tilt_deg(cam);
+        sum_sq += t * t;
+        n += 1;
     }
-    worst
+    if n == 0 {
+        0.0
+    } else {
+        (sum_sq / n as f64).sqrt()
+    }
 }
 
 /// Minimal rotation taking unit vector `from` onto unit vector `to`
@@ -221,6 +241,20 @@ mod tests {
         assert!(horizon_tilt_deg(&solution) < 1e-9);
         let g = leveling_rotation(&solution).expect("observable");
         assert!(g.max_abs_diff(&Mat3::identity()) < 1e-9);
+    }
+
+    #[test]
+    fn rms_tilt_ignores_single_outlier_pose() {
+        let mut rots: Vec<Mat3> = (0..8)
+            .map(|i| Mat3::rotation_y(i as f64 * std::f64::consts::TAU / 8.0))
+            .collect();
+        rots[0] = rots[0].mul_mat(&Mat3::rotation_z(4.0_f64.to_radians()));
+        let solution = solution_from_rotations(&rots);
+        let worst = horizon_tilt_deg(&solution);
+        let rms = horizon_tilt_rms_deg(&solution);
+        assert!(worst > 3.0, "worst {worst}");
+        assert!(rms < worst / 2.0, "rms {rms} vs worst {worst}");
+        assert!(rms > 0.5, "rms {rms} should still register the outlier");
     }
 
     /// A ring tilted by a known global rotation levels back to < 1e-6°.

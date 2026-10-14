@@ -366,6 +366,7 @@ fn stitch_set(
                 match_graph: &outcome.match_graph,
                 leveled: outcome.leveled,
                 horizon_tilt_deg: outcome.horizon_tilt_deg,
+                horizon_tilt_rms_deg: outcome.horizon_tilt_rms_deg,
                 gate_budgets,
                 retention: args.retention.label(),
                 local_align: args.local_align.label(),

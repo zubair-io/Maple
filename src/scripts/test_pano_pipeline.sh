@@ -371,8 +371,8 @@ CASE_LABEL = "stitch"
 GATE_KEYS = ("rmse", "coverage", "seam_energy", "seam_step_hard",
              "seam_step_lowpass", "wrap_closure_px",
              "mean_reproj_px", "max_reproj_px", "horizon_tilt_deg",
-             "dropped_frames")
-ABS_KEYS = {"horizon_tilt_deg"}
+             "horizon_tilt_rms_deg", "dropped_frames")
+ABS_KEYS = {"horizon_tilt_deg", "horizon_tilt_rms_deg"}
 FLOOR_KEYS = {"coverage"}
 
 
@@ -432,6 +432,7 @@ for case in sorted(manifest["cases"], key=lambda c: c["name"]):
         "mean_reproj_px": rep.get("mean_reproj_px") if rep.get("available") else None,
         "max_reproj_px": rep.get("max_reproj_px") if rep.get("available") else None,
         "horizon_tilt_deg": rep.get("horizon_tilt_deg") if rep.get("available") else None,
+        "horizon_tilt_rms_deg": rep.get("horizon_tilt_rms_deg") if rep.get("available") else None,
         "dropped_frames": rep.get("dropped_frames") if rep.get("available") else None,
     }
 
