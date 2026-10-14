@@ -368,7 +368,8 @@ CASE_LABEL = "stitch"
 # FLOOR_KEYS breach when the observed value is BELOW the budget (coverage
 # is a completeness fraction — more is better); everything else is a
 # ceiling.
-GATE_KEYS = ("rmse", "coverage", "seam_energy", "wrap_closure_px",
+GATE_KEYS = ("rmse", "coverage", "seam_energy", "seam_step_hard",
+             "seam_step_lowpass", "wrap_closure_px",
              "mean_reproj_px", "max_reproj_px", "horizon_tilt_deg",
              "dropped_frames")
 ABS_KEYS = {"horizon_tilt_deg"}
@@ -425,6 +426,8 @@ for case in sorted(manifest["cases"], key=lambda c: c["name"]):
         "rmse": m.get("rmse"),
         "coverage": m.get("coverage"),
         "seam_energy": m.get("seam_energy"),
+        "seam_step_hard": m.get("seam_step_hard"),
+        "seam_step_lowpass": m.get("seam_step_lowpass"),
         "wrap_closure_px": m.get("wrap_closure_px"),
         "mean_reproj_px": rep.get("mean_reproj_px") if rep.get("available") else None,
         "max_reproj_px": rep.get("max_reproj_px") if rep.get("available") else None,
