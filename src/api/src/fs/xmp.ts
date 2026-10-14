@@ -135,7 +135,7 @@ export async function updateXmpAtomic(
   if (!allowed.ok) return allowed;
   const destination = allowed.data;
   return serializeSidecarWrite(destination, async () => {
-    const existing = await fs.readFile(destination, 'utf8').then(
+    const existing = await readFileWithFailover(destination).then(
       (xml): OpResult<string> => ({ ok: true, data: xml }),
       (error: unknown): OpResult<string> =>
         isMissingSidecar(error)
