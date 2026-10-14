@@ -143,6 +143,31 @@ fn collapsed_chroma_at_a_colour_edge_keeps_the_existing_value_blend() {
 }
 
 #[test]
+fn collapsed_chroma_rejects_moderate_colour_edges() {
+    for pattern in PATTERNS {
+        for direction in 0..3 {
+            let truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
+                .map(|i| {
+                    let bright = edge_side(direction, i % SIDE, i / SIDE);
+                    let level = if bright { 0.75 } else { 0.045 };
+                    let (red_ratio, blue_ratio) = if bright { (1.0, 0.5) } else { (0.5, 1.0) };
+                    [red_ratio * level, level, blue_ratio * level]
+                })
+                .collect();
+            let collapsed = suppress(pattern, &truth, |i| near_edge(direction, i), -0.5);
+            let zero_floor = suppress(pattern, &truth, |i| near_edge(direction, i), 0.0);
+            for i in (0..SIDE * SIDE).filter(|&i| within(direction, i, 1)) {
+                assert_eq!(
+                    collapsed.pixels[i], zero_floor.pixels[i],
+                    "{pattern:?} direction={direction} pixel {i}: a 0.5-to-1.0 surface-ratio \
+                     change is a colour edge and must reject the collapsed hue estimate"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn suppression_never_emits_negative_chroma() {
     let truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
         .map(|i| {
