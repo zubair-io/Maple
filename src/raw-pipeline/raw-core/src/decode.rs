@@ -265,6 +265,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     }
 
     // ── 5. Raw pixel data ─────────────────────────────────────────────────
+    let source_is_float = matches!(&raw.data, RawImageData::Float(_));
     let raw_data: Vec<u16> = match raw.data {
         RawImageData::Integer(data) => data,
         RawImageData::Float(fdata) => {
@@ -297,17 +298,15 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         }
     };
 
-    let white_level = if matches!(
+    let white_level = effective_white_level_for_source_data(
+        &raw_data,
+        width,
+        height,
+        &black_level,
+        white_level,
         cfa,
-        crate::image::CfaPattern::Rggb
-            | crate::image::CfaPattern::Bggr
-            | crate::image::CfaPattern::Grbg
-            | crate::image::CfaPattern::Gbrg
-    ) {
-        effective_white_level(&raw_data, width, height, &black_level, white_level)
-    } else {
-        white_level
-    };
+        source_is_float,
+    );
 
     // ── 6. White balance ──────────────────────────────────────────────────
     // rawler's `wb_coeffs` are WB *multipliers* (the gains that balance
@@ -1023,6 +1022,29 @@ fn effective_white_level(
         .unwrap_or(declared)
 }
 
+fn effective_white_level_for_source_data(
+    data: &[u16],
+    width: u32,
+    height: u32,
+    black_level: &[u32; 4],
+    declared: u32,
+    cfa: crate::image::CfaPattern,
+    source_is_float: bool,
+) -> u32 {
+    if source_is_float
+        || !matches!(
+            cfa,
+            crate::image::CfaPattern::Rggb
+                | crate::image::CfaPattern::Bggr
+                | crate::image::CfaPattern::Grbg
+                | crate::image::CfaPattern::Gbrg
+        )
+    {
+        return declared;
+    }
+    effective_white_level(data, width, height, black_level, declared)
+}
+
 /// Requantize float-format DNG samples into the u16 buffer the decode pipeline
 /// expects, preserving float precision and over-white HDR headroom (#1917).
 ///
@@ -1167,6 +1189,26 @@ mod tests {
             effective_white_level(&data, 512, 512, &[0; 4], 65535),
             62193
         );
+    }
+
+    #[test]
+    fn effective_white_inference_skips_requantized_float_samples() {
+        let data = vec![16_300u16; 512 * 512];
+        let cfa = crate::image::CfaPattern::Rggb;
+        let infer = |source_is_float| {
+            effective_white_level_for_source_data(
+                &data,
+                512,
+                512,
+                &[0; 4],
+                16_384,
+                cfa,
+                source_is_float,
+            )
+        };
+
+        assert_eq!(infer(true), 16_384);
+        assert_eq!(infer(false), 16_300);
     }
 
     #[test]
