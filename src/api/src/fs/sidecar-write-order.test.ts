@@ -36,6 +36,29 @@ describe('serializeSidecarWrite', () => {
     }
   });
 
+  test('case-only sidecar aliases share a chain on case-insensitive platforms', async () => {
+    if (process.platform !== 'darwin' && process.platform !== 'win32') return;
+
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-case-'));
+    try {
+      let active = 0;
+      let maxActive = 0;
+      const job = async () => {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        active--;
+      };
+      await Promise.all([
+        serializeSidecarWrite(path.join(root, 'photo.xmp'), job),
+        serializeSidecarWrite(path.join(root, 'PHOTO.xmp'), job),
+      ]);
+      expect(maxActive).toBe(1);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('same destination preserves strict FIFO order', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-serialize-fifo-'));
     try {
