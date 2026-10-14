@@ -139,7 +139,9 @@
 ///   to 1.0 and reach highlight recovery.
 /// - 21 — AMaZE keeps signed opposite chroma at R/B sites and uses a
 ///   supported constant-ratio estimate for negative directional extrapolation (#4123).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 21;
+/// - 22 — AMaZE rejects a collapsed opposite-colour estimate when its
+///   diagonal witnesses disagree with the centre/cardinal surface (#4596).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 22;
 
 #[cfg(test)]
 mod tests {
