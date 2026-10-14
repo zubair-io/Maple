@@ -342,7 +342,7 @@ pub fn warp_to_canvas(
                         // Stage F: apply per-frame local alignment correction
                         // in a SINGLE resample — no extra pass.
                         if let Some(la) = local_align {
-                            (fx, fy) = la.apply(fx, fy);
+                            (fx, fy) = la.sample_point(fx, fy);
                         }
                         // Footprint test: the sample point must land on
                         // the source frame.
@@ -458,7 +458,7 @@ pub fn warp_to_canvas_strip(
                         continue;
                     };
                     if let Some(la) = local_align {
-                        (fx, fy) = la.apply(fx, fy);
+                        (fx, fy) = la.sample_point(fx, fy);
                     }
                     if fx < 0.0 || fx > src_w || fy < 0.0 || fy > src_h {
                         continue;

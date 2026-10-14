@@ -74,6 +74,28 @@ fn identity_warp_reproduces_source_near_exactly() {
 }
 
 #[test]
+fn local_correction_samples_at_observed_point_not_predicted_plus() {
+    use crate::gain::FramePhotometry;
+    use crate::local_align::{LocalCorrection, GRID_COLS, GRID_ROWS};
+    let cam = Camera::new([0.0; 3], 100.0, 0.0, 0.0, 32, 24);
+    let src = planar_from_fn(32, 24, |x, _| [x as f32, 0.0, 0.0]);
+    let mut corr = LocalCorrection::identity(32.0, 24.0);
+    corr.nodes = vec![[2.0, 0.0]; GRID_COLS * GRID_ROWS];
+    let out = warp_to_canvas(
+        &src,
+        &cam,
+        &aligned_canvas(&cam),
+        FramePhotometry::IDENTITY,
+        Some(&corr),
+    );
+    for x in 6..26usize {
+        let got = out.r[12 * 32 + x] as f64;
+        let want = x as f64 - 2.0;
+        assert!((got - want).abs() < 1e-4, "x={x}: got {got}, want {want}");
+    }
+}
+
+#[test]
 fn gain_and_bias_are_folded_into_the_warp() {
     let cam = Camera::new([0.0; 3], 100.0, 0.0, 0.0, 32, 24);
     let src = planar_from_fn(32, 24, |_, _| [0.25, 0.5, 0.125]);
