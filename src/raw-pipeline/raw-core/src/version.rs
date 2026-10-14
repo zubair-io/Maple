@@ -134,7 +134,10 @@
 ///   frame on the sensor-framed Linux and Web one-shot prefixes (#4479).
 /// - 19 — highlight recovery treats demosaic ripple beside a clipped channel
 ///   as clipped instead of as a chromaticity witness (#4582).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 19;
+/// - 20 — detect sub-declared sensor saturation as the effective white level
+///   (#4592), so clipped photosites below the declared WhiteLevel linearize
+///   to 1.0 and reach highlight recovery.
+pub const PIPELINE_OUTPUT_VERSION: u32 = 20;
 
 #[cfg(test)]
 mod tests {
