@@ -64,6 +64,7 @@ export async function writeXmpIfUnchanged(
       },
       {
         admissionScope,
+        signal,
         resolveDestination: async () => {
           const allowed = await primarySidecarDestination(rawPath);
           if (!allowed.ok) throw new Error(allowed.error);

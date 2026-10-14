@@ -142,3 +142,21 @@ test('conditional writes stop when cancelled while queued', async () => {
   expect((await write).kind).toBe('error');
   expect(await readFile(sidecar, 'utf8')).toBe(original);
 });
+
+test('deletes stop when cancelled while queued', async () => {
+  const rawPath = join(root, 'queued-delete.dng');
+  const sidecar = join(root, 'queued-delete.xmp');
+  const original = '<x:xmpmeta />';
+  await writeFile(rawPath, Buffer.from([1, 2, 3]));
+  await writeFile(sidecar, original);
+  const held = await holdSidecarWrite(sidecar);
+  const controller = new AbortController();
+  const deletion = deleteXmpSidecar(rawPath, root, controller.signal);
+  await Bun.sleep(10);
+  controller.abort();
+  held.releaseWrite();
+  await held.inFlight;
+
+  expect(await deletion).toMatchObject({ ok: false });
+  expect(await readFile(sidecar, 'utf8')).toBe(original);
+});
