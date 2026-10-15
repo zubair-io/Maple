@@ -116,6 +116,12 @@ pub unsafe extern "C" fn maple_android_values(handle: *mut c_void) -> *mut c_cha
                 })
                 .collect();
         let (temperature, tint) = session.white_balance_values();
+        let (shot_temperature, shot_tint) = session.as_shot_white_balance_values();
+        values.insert(
+            "_shot_temperature".into(),
+            serde_json::json!(shot_temperature),
+        );
+        values.insert("_shot_tint".into(), serde_json::json!(shot_tint));
         values.insert("temperature".into(), serde_json::json!(temperature));
         values.insert("tint".into(), serde_json::json!(tint));
         values.insert(

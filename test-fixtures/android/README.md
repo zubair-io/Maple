@@ -25,3 +25,22 @@ cargo run --locked --manifest-path src/android/native/Cargo.toml --example gener
 ```
 
 SHA-256: `f9d2478df21b9265de7b07f3259b963b3d61fc45b27400ce64c581d48ba852f8`.
+
+`large-48mp.heic` is a genuine 8000×6000 Display P3 HEIF with a flat RGB
+field, encoded by macOS ImageIO at quality 0.8. Its small compressed size keeps
+the fixture portable; the full RGBA bitmap would require at least 192 MB before
+float TIFF staging. The Android test checks that 512- and 2048-pixel staging stay
+bounded and do not create a full-resolution TIFF during live-preview requests.
+The existing small 10-bit AVIF fixtures separately gate precision and gamut.
+This is a decoder/allocation regression, not a color reference or hardware
+qualification. An untiled 8000×6000 AVIF was rejected at codec configuration by
+the API 36 emulator (its AV1 component caps dimensions at 4096); this HEIF uses
+ImageIO's image grid and exercises the real high-resolution phone-image path.
+
+Regenerate on macOS from the repository root:
+
+```sh
+swift src/android/scripts/generate-large-heif.swift test-fixtures/android/large-48mp.heic
+```
+
+SHA-256: `5c83a43378e24fc74fec47c308be80326727e0cd1f8549b237d698c1b2800826`.

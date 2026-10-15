@@ -59,6 +59,29 @@ private constructor(
 
     fun withAttribute(name: String, value: String?) = XmpDocument(source, changes + (name to value))
 
+    fun withoutWhiteBalance(): XmpDocument =
+        listOf(
+                "crs:Temperature",
+                "crs:Tint",
+                "crs:WhiteBalance",
+                "papp:WbSource",
+                "papp:WbScaleVersion",
+                "papp:WbAlgorithmVersion",
+                "papp:WbSampleX",
+                "papp:WbSampleY",
+            )
+            .fold(this) { document, key -> document.withAttribute(key, null) }
+
+    fun resetFields(fields: List<AdjustmentField>): XmpDocument {
+        val scalar =
+            fields
+                .filterNot { it.name == "temperature" || it.name == "tint" }
+                .fold(this) { document, field -> document.withField(field, field.initial) }
+        return if (fields.any { it.name == "temperature" || it.name == "tint" })
+            scalar.withoutWhiteBalance()
+        else scalar
+    }
+
     fun withoutRawOnlySliders(): XmpDocument =
         AdjustmentFields.all
             .filter { !it.rasterSupported && it.xmp.isNotEmpty() }

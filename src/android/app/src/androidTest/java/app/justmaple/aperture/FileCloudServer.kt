@@ -37,6 +37,7 @@ internal class FileCloudServer(private val directory: File) : Closeable {
     @Volatile var loadEntered: java.util.concurrent.CountDownLatch? = null
     @Volatile var releaseLoad: java.util.concurrent.CountDownLatch? = null
     @Volatile var sidecarLengthHeader = true
+    @Volatile var derivativesAvailable = true
     @Volatile var previewPendingResponses = 0
     @Volatile var previewCount = 0
     @Volatile var previewSuccesses = 0
@@ -117,6 +118,10 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                 .put("refresh_token", refresh)
                 .put("user", JSONObject().put("id", "fixture-user").put("file_access", true))
         fun derivativeResponse() {
+            if (!derivativesAvailable) {
+                respond(404)
+                return
+            }
             val bytes = (derivative.takeIf { it.isFile } ?: original).readBytes()
             val etag =
                 "\"" +

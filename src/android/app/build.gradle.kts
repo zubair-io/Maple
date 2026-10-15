@@ -35,7 +35,9 @@ android {
 abstract class StageTestFixtures : DefaultTask() {
     @get:InputFiles abstract val fixtures: ConfigurableFileCollection
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
-    @TaskAction fun stage() {
+
+    @TaskAction
+    fun stage() {
         val directory = outputDirectory.get().asFile
         directory.deleteRecursively()
         directory.mkdirs()
@@ -43,21 +45,26 @@ abstract class StageTestFixtures : DefaultTask() {
     }
 }
 
-val stageTestFixtures by tasks.registering(StageTestFixtures::class) {
-    fixtures.from(
-        rootProject.file("../../test-fixtures/batch-transfer/source.dng"),
-        rootProject.file("../../test-fixtures/android/portrait.dng"),
-        rootProject.file("../apple/MapleUITests/Fixtures/layout/rgb-gradient.png"),
-        rootProject.file("../../test-fixtures/raster-metadata/avif-validation/srgb-rgb.avif"),
-        rootProject.file("../../test-fixtures/android/wide-p3.avif"),
-        rootProject.file("../../test-fixtures/raster-metadata/avif-10.avif"),
-    )
-    outputDirectory.set(layout.buildDirectory.dir("generated/test-fixtures"))
-}
+val stageTestFixtures by
+    tasks.registering(StageTestFixtures::class) {
+        fixtures.from(
+            rootProject.file("../../test-fixtures/batch-transfer/source.dng"),
+            rootProject.file("../../test-fixtures/android/portrait.dng"),
+            rootProject.file("../apple/MapleUITests/Fixtures/layout/rgb-gradient.png"),
+            rootProject.file("../../test-fixtures/raster-metadata/avif-validation/srgb-rgb.avif"),
+            rootProject.file("../../test-fixtures/android/wide-p3.avif"),
+            rootProject.file("../../test-fixtures/android/large-48mp.heic"),
+            rootProject.file("../../test-fixtures/raster-metadata/avif-10.avif"),
+        )
+        outputDirectory.set(layout.buildDirectory.dir("generated/test-fixtures"))
+    }
 
 androidComponents.onVariants { variant ->
     variant.deviceTests.values.forEach { test ->
-        test.sources.assets?.addGeneratedSourceDirectory(stageTestFixtures, StageTestFixtures::outputDirectory)
+        test.sources.assets?.addGeneratedSourceDirectory(
+            stageTestFixtures,
+            StageTestFixtures::outputDirectory,
+        )
     }
 }
 

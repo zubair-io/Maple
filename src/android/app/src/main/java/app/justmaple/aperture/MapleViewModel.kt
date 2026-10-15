@@ -13,8 +13,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-private data class EditSnapshot(val values: Map<String, Float>, val document: XmpDocument)
-
 private data class DrawRequest(
     val generation: Int,
     val revision: Int,
@@ -43,9 +41,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     private var baseline: String? = null
     private var saveJob: Job? = null
     private val saveLock = kotlinx.coroutines.sync.Mutex()
-    private val undo = ArrayDeque<EditSnapshot>()
-    private val redo = ArrayDeque<EditSnapshot>()
-    private var gesture: EditSnapshot? = null
+    private val history = EditHistory()
     private val draws = Channel<DrawRequest>(Channel.CONFLATED)
 
     init {
@@ -67,16 +63,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     fun report(failure: Throwable) = fail(failure)
 
     private fun fail(failure: Throwable, operation: String = "Operation failed") {
-        val message = failure.operationMessage(operation)
-        mutable.update {
-            it.copy(
-                error = message,
-                canResetRawOnlySliders = false,
-                loading = false,
-                rendering = false,
-                saving = false,
-            )
-        }
+        mutable.update { it.failed(failure, operation) }
     }
 
     fun clearError() {
@@ -234,9 +221,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                 error = null,
             )
         }
-        undo.clear()
-        redo.clear()
-        gesture = null
+        history.clear()
         try {
             renderer.shutdown()
             val loaded = library.loadSidecar(photo)
@@ -276,7 +261,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         try {
             renderXml = snapshot.document.serialize()
             val values =
-                library.withOriginal(photo) { input ->
+                library.withPreview(photo, 2048) { input ->
                     renderer.open(input.absolutePath, renderXml, 2048, token)
                 }
             if (token == generation)
@@ -327,7 +312,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun beginGesture() {
-        if (gesture == null) gesture = snapshot()
+        history.begin(snapshot())
     }
 
     private fun framePresented(epoch: Int) {
@@ -366,20 +351,14 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun commitGesture() {
-        val before = gesture ?: return
-        gesture = null
-        if (before != snapshot()) {
-            undo.addLast(before)
-            while (undo.size > 32) undo.removeFirst()
-            redo.clear()
-            historyState()
-        }
+        history.commit(snapshot())
+        historyState()
     }
 
     private fun snapshot() = EditSnapshot(state.value.values, state.value.document)
 
     private fun historyState() {
-        mutable.update { it.copy(canUndo = undo.isNotEmpty(), canRedo = redo.isNotEmpty()) }
+        mutable.update { it.copy(canUndo = history.canUndo, canRedo = history.canRedo) }
     }
 
     private fun restore(value: EditSnapshot) {
@@ -394,30 +373,37 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     fun undo() {
         if (!state.value.canEdit) return
         commitGesture()
-        if (undo.isNotEmpty()) {
-            redo.addLast(snapshot())
-            restore(undo.removeLast())
-        }
+        history.undo(snapshot())?.let(::restore)
     }
 
     fun redo() {
         if (!state.value.canEdit) return
-        if (redo.isNotEmpty()) {
-            undo.addLast(snapshot())
-            restore(redo.removeLast())
-        }
+        history.redo(snapshot())?.let(::restore)
     }
 
     fun resetFields(names: List<String>) {
-        names.forEach { name -> AdjustmentFields.byName[name]?.let { setField(name, it.initial) } }
+        val current = state.value
+        if (!current.canEdit) return
+        val fields =
+            names.mapNotNull(AdjustmentFields.byName::get).filter {
+                current.values["_raw"] == 1f || it.rasterSupported
+            }
+        if (fields.isEmpty()) return
+        val scalar = current.values + fields.associate { it.name to it.initial }
+        val values =
+            if (fields.any { it.name == "temperature" || it.name == "tint" })
+                scalar +
+                    mapOf(
+                        "temperature" to current.values.getValue("_shot_temperature"),
+                        "tint" to current.values.getValue("_shot_tint"),
+                    )
+            else scalar
+        beginGesture()
+        restore(EditSnapshot(values, current.document.resetFields(fields)))
         commitGesture()
     }
 
-    fun resetField(name: String) {
-        beginGesture()
-        AdjustmentFields.byName[name]?.let { setField(name, it.initial) }
-        commitGesture()
-    }
+    fun resetField(name: String) = resetFields(listOf(name))
 
     fun attribute(name: String, value: String?) {
         if (!state.value.canChangeMetadata) return
@@ -446,9 +432,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                 renderer.invalidateDraws()
                 renderer.shutdown()
                 baseline = loaded.baseline
-                undo.clear()
-                redo.clear()
-                gesture = null
+                history.clear()
                 mutable.update {
                     it.copy(
                         document = loaded.document,
