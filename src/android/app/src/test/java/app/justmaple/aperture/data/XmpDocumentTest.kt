@@ -11,6 +11,31 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class XmpDocumentTest {
     @Test
+    fun globalEditsNeverReadOrRewriteNestedLocalAdjustments() {
+        val local =
+            "<crs:MaskGroup><rdf:Description crs:Exposure2012='-2' papp:Profile='Neutral' xmp:Rating='1'><crs:Masks><rdf:Seq><rdf:li><rdf:Description crs:Exposure2012='-3' /></rdf:li></rdf:Seq></crs:Masks></rdf:Description></crs:MaskGroup>"
+        val source =
+            XmpDocument.EMPTY.replace(
+                "rdf:about=\"\" />",
+                "rdf:about=\"\" xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\" xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" crs:Exposure2012='1' papp:Profile='Auto' xmp:Rating='4'>$local</rdf:Description>",
+            )
+        assertEquals("1", XmpDocument(source).attribute("crs:Exposure2012"))
+        assertEquals("Auto", XmpDocument(source).attribute("papp:Profile"))
+        val edited =
+            roundTrip(
+                XmpDocument(source)
+                    .withField(AdjustmentFields.byName.getValue("exposure"), .75f)
+                    .withAttribute("xmp:Rating", "5")
+            )
+        assertEquals("0.75", edited.attribute("crs:Exposure2012"))
+        assertEquals("5", edited.attribute("xmp:Rating"))
+        assertTrue(edited.original.contains(local))
+        val reset = roundTrip(edited.withField(AdjustmentFields.byName.getValue("exposure"), 0f))
+        assertNull(reset.attribute("crs:Exposure2012"))
+        assertTrue(reset.original.contains(local))
+    }
+
+    @Test
     fun legacyNamespaceIsCanonicalizedWithoutEditingCdata() {
         val foreign =
             "<foreign:data xmlns:foreign=\"urn:foreign\"><![CDATA[<rdf:Description papp:Profile='Keep me'>]]></foreign:data>"

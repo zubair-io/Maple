@@ -292,31 +292,53 @@ class PhotoLibrary(private val context: Context) {
                             "application/rdf+xml",
                             ".maple-${UUID.randomUUID()}.xmp",
                         ) ?: error("Cannot create sidecar")
-                    val temp =
-                        DocumentFile.fromSingleUri(context, temporaryUri)
-                            ?: error("Cannot read new sidecar")
                     val previous = sidecar(photo)
                     val backup = ".maple-${UUID.randomUUID()}.backup.xmp"
+                    var backupUri: Uri? = null
+                    var published = false
                     try {
-                        context.contentResolver.openOutputStream(temp.uri, "wt")?.use {
+                        context.contentResolver.openOutputStream(temporaryUri, "wt")?.use {
                             it.write(xml.toByteArray(Charsets.UTF_8))
                             it.flush()
                         } ?: error("Cannot write sidecar")
                         check(readSidecar(photo) == baseline) { "The sidecar changed while saving" }
-                        if (previous != null)
-                            check(previous.renameTo(backup)) { "Cannot replace sidecar safely" }
-                        if (!temp.renameTo(photo.sidecarName)) {
-                            previous?.renameTo(photo.sidecarName)
-                            error("Could not publish sidecar")
+                        if (previous != null) backupUri = renameSidecar(previous.uri, backup)
+                        try {
+                            renameSidecar(temporaryUri, photo.sidecarName)
+                            published = true
+                        } catch (failure: Exception) {
+                            backupUri?.let {
+                                try {
+                                    renameSidecar(it, photo.sidecarName)
+                                } catch (rollback: Exception) {
+                                    failure.addSuppressed(rollback)
+                                    throw java.io.IOException(
+                                        "Could not publish sidecar. Previous edits are preserved in $backup",
+                                        failure,
+                                    )
+                                }
+                            }
+                            throw failure
                         }
-                        previous?.delete()
+                        backupUri?.let(::deleteSidecar)
                     } finally {
-                        if (temp.name != photo.sidecarName) temp.delete()
+                        if (!published) deleteSidecar(temporaryUri)
                     }
                 }
                 LoadedSidecar(XmpDocument(xml), xml)
             }
         }
+
+    // SingleDocumentFile.renameTo always throws UnsupportedOperationException.
+    // The provider can change IDs on rename, so retain its returned URI.
+    private fun renameSidecar(uri: Uri, name: String): Uri =
+        DocumentsContract.renameDocument(context.contentResolver, uri, name)
+            ?: error("Storage provider could not rename the sidecar to $name")
+
+    private fun deleteSidecar(uri: Uri) {
+        runCatching { check(DocumentsContract.deleteDocument(context.contentResolver, uri)) }
+            .onFailure { android.util.Log.w("Maple", "Could not remove a temporary sidecar", it) }
+    }
 
     companion object {
         val EXTENSIONS =

@@ -83,8 +83,11 @@ written into the user's photo folder.
 
 ## Cloud connections
 
-Use **Add Maple Cloud server** in Sources or Settings → Cloud. Maple opens the
-server’s HTTPS domain in the system browser for passkey sign-in. A one-time
+Use **Add Maple Cloud server** in Sources or Settings → Cloud for hosted and
+self-hosted servers; they use the same connection protocol. Maple opens the
+server’s HTTPS domain in the system browser for passkey sign-in. Android also
+polls the PKCE claim endpoint so an existing browser session can finish sign-in
+when the browser blocks an automatic custom-scheme callback. A one-time
 PKCE code returns through `maple-app://auth-success`; tokens never appear in
 callback URLs. Access/refresh tokens and pending verifier/state are encrypted
 with an Android Keystore key, and expired access tokens refresh once before
@@ -116,3 +119,11 @@ as complete groups. The walkthrough test captures Library, Preview, Edit, and
 Settings and checks that rating/Edit buttons remain inside the window without
 overlap. The current tablet inspector/header and Settings composition still
 differ from iPad’s floating glass surfaces; exact visual parity remains #4623.
+
+Portrait canvases fit both viewport axes, including when error banners change
+the available height. `PortraitCanvasTest` checks the real oriented RAW surface
+bounds and captures its frames. `SafSidecarTest` grants access through the system
+folder picker, creates and replaces adjacent XMP sidecars through the Android
+external-storage provider, rejects stale baselines, and verifies the RAW bytes.
+Provider renames use `DocumentsContract` and retain changed document IDs.
+Failures identify the operation and exception and retain a stack trace in logcat.

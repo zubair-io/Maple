@@ -5,6 +5,8 @@
 # See docs/testing.md and test-fixtures/references/REFERENCES.md
 # for how to regenerate or fetch these locally.
 test-fixtures/*
+# Tiny oriented RAW fixture for Android canvas and document-provider regressions (#4623).
+!test-fixtures/android/
 # Tiny synthetic header metadata fixtures and their Sharp oracle (#3590).
 !test-fixtures/raster-metadata/
 # Exception: the per-case ΔE budget table IS committed (it's the CI ratchet).
