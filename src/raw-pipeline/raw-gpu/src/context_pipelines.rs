@@ -66,7 +66,26 @@ impl GpuContext {
             compile_with_matrices(
                 &self.device,
                 "hue-sat-map",
-                include_str!("hue_sat_map.wgsl"),
+                &format!(
+                    "{}\n{}",
+                    include_str!("hue_sat_map/math.wgsl"),
+                    include_str!("hue_sat_map.wgsl")
+                ),
+            )
+        })
+    }
+
+    /// Camera-native WB and DCP colorimetry, sharing the exact HSM kernel (#4629).
+    pub fn dcp_colorimetry_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.dcp_colorimetry_pipeline.get_or_init(|| {
+            compile_with_matrices(
+                &self.device,
+                "dcp-colorimetry",
+                &format!(
+                    "{}\n{}",
+                    include_str!("hue_sat_map/math.wgsl"),
+                    include_str!("dcp_colorimetry.wgsl")
+                ),
             )
         })
     }

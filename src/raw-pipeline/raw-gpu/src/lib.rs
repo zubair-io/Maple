@@ -269,6 +269,7 @@ mod present_web;
 // OffscreenCanvas` is wgpu-gated on `#[cfg(any(webgpu, webgl))]`. Shares
 // `present_chain.wgsl` + `present_chain_pipeline` with the Apple path.
 mod color_grade;
+mod dcp_colorimetry;
 mod grain;
 mod hsl;
 mod hue_sat_map;
@@ -299,6 +300,7 @@ pub use chain::{CancelToken, ChainRunner, Pass};
 pub use clarity::{apply_clarity, ClarityPass, CLARITY_GUIDED_RADIUS};
 pub use color_grade::{apply_color_grade, ColorGradePass, ColorGradeSliders};
 pub use context::GpuContext;
+pub use dcp_colorimetry::DcpColorimetryPass;
 pub use defringe::{DefringeInputs, DefringePass};
 pub use dehaze::{apply_dehaze, compute_airlight, AirlightSource, DehazePass};
 pub use display_encode::{apply_display_encode, DisplayEncodePass};

@@ -302,10 +302,19 @@ fn soft_floor(p: [f32; 3]) -> [f32; 3] {
 /// shares the exact dispatch `apply_with_post_pro` renders with — a second
 /// hand-rolled copy of this match would drift.
 pub(crate) fn camera_to_prophoto_matrix(profile: &DcpProfile) -> crate::Result<Matrix3> {
+    camera_to_prophoto_with_forward(profile, profile.forward_matrix)
+}
+
+/// Borrow the resident profile while substituting the WB-resolved FM (#4629).
+/// This avoids cloning the calibration tables for every GPU slider update.
+pub(crate) fn camera_to_prophoto_with_forward(
+    profile: &DcpProfile,
+    forward_matrix: Option<Matrix3>,
+) -> crate::Result<Matrix3> {
     let inv_pro = M_PRO_TO_XYZ_D50
         .inverse()
         .expect("ProPhoto matrix is invertible");
-    match (profile.forward_matrix, profile.wb_already_baked) {
+    match (forward_matrix, profile.wb_already_baked) {
         (Some(fm), true) => Ok(inv_pro.mul_mat(&fm)),
         _ => {
             // Non-FM / pre-gain-skipped path: invert CM here (lazily — the

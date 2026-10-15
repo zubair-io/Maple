@@ -33,6 +33,18 @@ pub struct HueSatMapPass<'a> {
     pub data: &'a [f32],
 }
 
+impl HueSatMapPass<'_> {
+    pub(crate) fn validate(&self) {
+        assert!(self.dims.iter().all(|&n| n > 0), "empty HueSatMap axis");
+        let expected = self.dims.iter().try_fold(3_u32, |n, &d| n.checked_mul(d));
+        assert_eq!(
+            expected.map(|n| n as usize),
+            Some(self.data.len()),
+            "invalid HueSatMap table length"
+        );
+    }
+}
+
 impl Pass for HueSatMapPass<'_> {
     fn encode(
         &self,
@@ -42,13 +54,7 @@ impl Pass for HueSatMapPass<'_> {
         dst: &wgpu::Buffer,
         dims: (u32, u32),
     ) {
-        assert!(self.dims.iter().all(|&n| n > 0), "empty HueSatMap axis");
-        let expected = self.dims.iter().try_fold(3_u32, |n, &d| n.checked_mul(d));
-        assert_eq!(
-            expected.map(|n| n as usize),
-            Some(self.data.len()),
-            "invalid HueSatMap table length"
-        );
+        self.validate();
         let count = dims.0 * dims.1;
         let params = Params {
             dims: self.dims,

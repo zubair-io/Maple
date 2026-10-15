@@ -518,20 +518,30 @@ pub fn retargeted_render_profile(
     temperature: f32,
     tint: f32,
 ) -> DcpProfile {
-    let Some(e) = profile.cm_endpoints else {
-        return profile; // single-calibration render profile: nothing to re-interpolate
-    };
-    if is_as_shot_target(frame, temperature, tint) {
-        return profile;
-    }
-    let target_neutral = camera_neutral_for(frame.cm_for_cct(temperature), temperature, tint);
-    let render_cct =
-        dcp::compute_as_shot_cct(target_neutral, e.m_cold, e.cct_cold, e.m_warm, e.cct_warm);
-    let forward_matrix = profile.forward_matrix_for_cct(render_cct);
+    let forward_matrix = retargeted_forward_matrix(frame, &profile, temperature, tint);
     DcpProfile {
         forward_matrix,
         ..profile
     }
+}
+
+/// Matrix half of `retargeted_render_profile`, borrowing its resident tables.
+pub(crate) fn retargeted_forward_matrix(
+    frame: &SliderFrame,
+    profile: &DcpProfile,
+    temperature: f32,
+    tint: f32,
+) -> Option<Matrix3> {
+    let Some(e) = profile.cm_endpoints else {
+        return profile.forward_matrix;
+    };
+    if is_as_shot_target(frame, temperature, tint) {
+        return profile.forward_matrix;
+    }
+    let target_neutral = camera_neutral_for(frame.cm_for_cct(temperature), temperature, tint);
+    let render_cct =
+        dcp::compute_as_shot_cct(target_neutral, e.m_cold, e.cct_cold, e.m_warm, e.cct_warm);
+    profile.forward_matrix_for_cct(render_cct)
 }
 
 #[cfg(test)]

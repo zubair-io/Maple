@@ -57,6 +57,7 @@ pub struct GpuContext {
     pub(crate) white_balance_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Camera-profile trilinear HueSatMap (#4629).
     pub(crate) hue_sat_map_pipeline: OnceCell<wgpu::ComputePipeline>,
+    pub(crate) dcp_colorimetry_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled scene-tone-controls compute pipeline
     /// (`scene_tone_controls.wgsl`). A P2 scene-linear stage (#990); five
     /// luma-coupled tone steps, no Oklab, so no generated color matrices. Built
@@ -412,6 +413,7 @@ impl GpuContext {
             vibrance_pipeline: OnceCell::new(),
             white_balance_pipeline: OnceCell::new(),
             hue_sat_map_pipeline: OnceCell::new(),
+            dcp_colorimetry_pipeline: OnceCell::new(),
             scene_tone_controls_pipeline: OnceCell::new(),
             vignette_pipeline: OnceCell::new(),
             local_adjustments_pipeline: OnceCell::new(),

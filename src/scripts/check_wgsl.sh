@@ -79,9 +79,25 @@ fail=0
 checked=0
 # Every hand-written kernel plus the generated headers.
 while IFS= read -r kernel; do
+	# The shared HSM body has caller-owned bindings; validate it in BOTH real
+	# modules below, assembled exactly like context_pipelines.rs (#4629).
+	if [[ "$kernel" == "$WGSL_DIR/hue_sat_map/math.wgsl" ]]; then
+		continue
+	fi
 	checked=$((checked + 1))
 	base="$(basename "$kernel")"
 	assembled="$TMP/assembled.wgsl"
+	if [[ "$base" == "hue_sat_map.wgsl" || "$base" == "dcp_colorimetry.wgsl" ]]; then
+		cat "$COLOR_MATRICES" "$WGSL_DIR/hue_sat_map/math.wgsl" "$kernel" >"$assembled"
+		if validate "$assembled"; then
+			echo "PASS  $base  (+color_matrices+HSM math)"
+		else
+			echo "FAIL  $base — assembled HSM module does not validate:" >&2
+			sed 's/^/    /' "$TMP/err" >&2
+			fail=$((fail + 1))
+		fi
+		continue
+	fi
 
 	# Rung (a): standalone.
 	cp "$kernel" "$assembled"
