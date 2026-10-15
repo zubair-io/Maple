@@ -438,6 +438,6 @@ mod frame_pool_tests;
 #[path = "frame_pool_data_tests.rs"]
 mod frame_pool_data_tests;
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "frame_pool_lifetime_tests.rs"]
 mod lifetime_tests;
