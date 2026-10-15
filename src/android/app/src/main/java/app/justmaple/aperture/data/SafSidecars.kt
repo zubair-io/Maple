@@ -22,8 +22,7 @@ internal class SafSidecars(private val context: Context, private val documents: 
     fun read(photo: Photo, fresh: Boolean = false): String? {
         recover(photo)
         val folder = photo.parent ?: error("Missing sidecar folder")
-        val uri =
-            documents.list(folder, fresh).find { it.name == photo.sidecarName }?.uri ?: return null
+        val uri = find(documents.list(folder, fresh), photo.sidecarName)?.uri ?: return null
         return try {
             text(uri)
         } catch (failure: java.io.FileNotFoundException) {
@@ -38,7 +37,8 @@ internal class SafSidecars(private val context: Context, private val documents: 
         check(read(photo, fresh = true) == baseline) {
             "The sidecar changed outside Maple. Reopen the photo before saving."
         }
-        val previous = documents.list(folder).find { it.name == photo.sidecarName }
+        val previous = find(documents.list(folder), photo.sidecarName)
+        val targetName = previous?.name ?: photo.sidecarName
         val id = UUID.randomUUID().toString()
         val requestedName = ".maple-$id.xmp"
         val backupName = ".maple-$id.backup.xmp"
@@ -59,7 +59,7 @@ internal class SafSidecars(private val context: Context, private val documents: 
                 JSONObject()
                     .put("id", id)
                     .put("folder", folder.toString())
-                    .put("target", photo.sidecarName)
+                    .put("target", targetName)
                     .put("temp", tempName)
                     .put("backup", backupName)
                     .put("previous", previous != null)
@@ -78,7 +78,7 @@ internal class SafSidecars(private val context: Context, private val documents: 
             }
             recorded = true
             previous?.let { rename(it.uri, backupName) }
-            rename(temp, photo.sidecarName)
+            rename(temp, targetName)
             documents.invalidate(folder)
             recover(photo)
         } catch (failure: Exception) {
@@ -88,7 +88,7 @@ internal class SafSidecars(private val context: Context, private val documents: 
                 } catch (recovery: Exception) {
                     failure.addSuppressed(recovery)
                     throw IOException(
-                        "Sidecar replacement was interrupted. Previous edits remain in $backupName; reopen the photo to recover them.",
+                        "Sidecar replacement was interrupted. Recovery files were preserved in this folder; reopen the photo to retry.",
                         failure,
                     )
                 }
@@ -107,22 +107,25 @@ internal class SafSidecars(private val context: Context, private val documents: 
         val tempName = transaction.getString("temp")
         val backupName = transaction.getString("backup")
         val id = transaction.getString("id")
+        val targetName = transaction.getString("target")
         require(
             UUID.fromString(id).toString() == id &&
                 transaction.getString("folder") == folder.toString() &&
-                transaction.getString("target") == photo.sidecarName &&
-                tempName.matches(Regex("\\.maple-$id\\.xmp(?:\\.[A-Za-z0-9]+)*")) &&
+                targetName.equals(photo.sidecarName, ignoreCase = true) &&
+                tempName.matches(
+                    Regex("\\.maple-$id\\.xmp(?:\\.[A-Za-z0-9]+)*", RegexOption.IGNORE_CASE)
+                ) &&
                 backupName == ".maple-$id.backup.xmp"
         ) {
             "Invalid sidecar recovery record"
         }
-        val entries = documents.list(folder, fresh = true).associateBy { it.name }
-        val canonical = entries[photo.sidecarName]
-        val backup = entries[backupName]
-        val temp = entries[tempName]
-        if (canonical != null && backup != null)
+        val entries = documents.list(folder, fresh = true)
+        val canonical = find(entries, targetName)
+        val backup = find(entries, backupName)
+        val temp = find(entries, tempName)
+        if (canonical != null && (backup != null || !transaction.getBoolean("previous")))
             check(PhotoLibrary.digest(text(canonical.uri)) == transaction.getString("digest")) {
-                "The sidecar changed during recovery. Previous edits remain in $backupName."
+                "The sidecar changed during recovery. Recovery files were preserved in this folder."
             }
         if (canonical == null) {
             when {
@@ -132,7 +135,7 @@ internal class SafSidecars(private val context: Context, private val documents: 
                     ) {
                         "The recovery sidecar changed outside Maple"
                     }
-                    rename(backup.uri, photo.sidecarName)
+                    rename(backup.uri, targetName)
                 }
                 !transaction.getBoolean("previous") && temp != null -> {
                     val xml = text(temp.uri)
@@ -140,7 +143,7 @@ internal class SafSidecars(private val context: Context, private val documents: 
                         "Incomplete sidecar recovery file"
                     }
                     XmpDocument(xml).serialize()
-                    rename(temp.uri, photo.sidecarName)
+                    rename(temp.uri, targetName)
                 }
                 else ->
                     error(
@@ -149,11 +152,11 @@ internal class SafSidecars(private val context: Context, private val documents: 
             }
         }
         // Re-query because document IDs may change during a provider rename.
-        val restored = documents.list(folder, fresh = true).associateBy { it.name }
-        check(restored.containsKey(photo.sidecarName)) {
+        val restored = documents.list(folder, fresh = true)
+        check(find(restored, targetName) != null) {
             "Storage provider did not restore the sidecar"
         }
-        listOf(tempName, backupName).mapNotNull(restored::get).forEach { remove(it.uri) }
+        listOf(tempName, backupName).mapNotNull { find(restored, it) }.forEach { remove(it.uri) }
         check(record.delete()) { "Could not finish sidecar recovery" }
         documents.invalidate(folder)
     }
@@ -161,6 +164,14 @@ internal class SafSidecars(private val context: Context, private val documents: 
     private fun text(uri: Uri): String =
         resolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
             ?: error("Cannot read sidecar")
+
+    private fun find(entries: List<LocalDocument>, name: String): LocalDocument? {
+        val matches = entries.filter { !it.directory && it.name.equals(name, ignoreCase = true) }
+        check(matches.size <= 1) {
+            "Multiple sidecars match $name; resolve the duplicate files before editing"
+        }
+        return matches.singleOrNull()
+    }
 
     private fun rename(uri: Uri, name: String): Uri =
         DocumentsContract.renameDocument(resolver, uri, name)

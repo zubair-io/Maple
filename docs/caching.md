@@ -331,6 +331,9 @@ Single-file edits persist in `filesDir/sidecars/` under the SHA-256 of
 `private-sidecar-v2:` plus `Photo.key` (URI, original size and modification time).
 These durable XMPs have an explicit export. Earlier URI-only private sidecars
 remain untouched; their asset identity cannot be safely inferred for migration.
+Original and derivative cache hits update recency without enumerating the cache.
+Eviction runs after new bytes are published; the original's lease serializes
+staging and use so its file stays protected while Rust reads it.
 
 The navigation tree keeps activity-scoped child-folder listings by URI, fetched
 only when expanded (cloud server library groups load when connected). The current
