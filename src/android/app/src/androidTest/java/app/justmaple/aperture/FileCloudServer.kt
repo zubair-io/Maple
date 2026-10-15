@@ -76,6 +76,7 @@ internal class FileCloudServer(private val directory: File) : Closeable {
             }
         }
         val request = line().split(' ')
+        require(request.size >= 2 && request[1].isNotEmpty()) { "Malformed HTTP request line" }
         val headers = buildMap {
             while (true) {
                 val next = line()
@@ -83,7 +84,16 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                 put(next.substringBefore(':').lowercase(), next.substringAfter(':').trim())
             }
         }
-        val body = ByteArray(headers["content-length"]?.toInt() ?: 0)
+        val length =
+            headers["content-length"]?.let { value ->
+                requireNotNull(value.toIntOrNull()) { "Malformed Content-Length" }
+                    .also {
+                        require(it in 0..128 * 1024 * 1024) {
+                            "Test request exceeds the XMP body limit"
+                        }
+                    }
+            } ?: 0
+        val body = ByteArray(length)
         var read = 0
         while (read < body.size) {
             val count = input.read(body, read, body.size - read)

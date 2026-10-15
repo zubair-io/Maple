@@ -158,25 +158,28 @@ class FolderNavigationTest {
             resolver.openInputStream(media)!!.use { assertArrayEquals(original, it.readBytes()) }
             assertNull(model.state.value.error)
         } finally {
-            root?.let { folder ->
-                val preferences = context.getSharedPreferences("maple-library", 0)
-                preferences
-                    .edit()
-                    .putStringSet(
-                        "sources",
-                        preferences
-                            .getStringSet("sources", emptySet())
-                            .orEmpty()
-                            .filterNot {
-                                DocumentsContract.getTreeDocumentId(Uri.parse(it)) ==
-                                    DocumentsContract.getTreeDocumentId(folder.uri)
-                            }
-                            .toSet(),
-                    )
-                    .commit()
-                DocumentsContract.deleteDocument(resolver, folder.uri)
+            try {
+                root?.let { folder ->
+                    val preferences = context.getSharedPreferences("maple-library", 0)
+                    preferences
+                        .edit()
+                        .putStringSet(
+                            "sources",
+                            preferences
+                                .getStringSet("sources", emptySet())
+                                .orEmpty()
+                                .filterNot {
+                                    DocumentsContract.getTreeDocumentId(Uri.parse(it)) ==
+                                        DocumentsContract.getTreeDocumentId(folder.uri)
+                                }
+                                .toSet(),
+                        )
+                        .commit()
+                    DocumentsContract.deleteDocument(resolver, folder.uri)
+                }
+            } finally {
+                resolver.delete(media, null, null)
             }
-            resolver.delete(media, null, null)
         }
     }
 
