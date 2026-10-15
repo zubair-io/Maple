@@ -46,6 +46,7 @@ class PhotoLibrary(private val context: Context) {
     private val local = LocalDocuments(context)
     private val saf = SafSidecars(context, local)
     private val originals = Mutex()
+    private val derivatives = CloudDerivativeCache(cloud, File(context.cacheDir, "thumbnails"))
     val sources: List<Folder>
         get() =
             preferences
@@ -179,25 +180,10 @@ class PhotoLibrary(private val context: Context) {
         withContext(Dispatchers.IO) {
             val folder = File(context.cacheDir, "thumbnails").apply { mkdirs() }
             if (CloudLibrary.isCloud(photo.uri) && android.os.Build.VERSION.SDK_INT >= 31) {
-                val bytes = cloud.derivative(photo, edge)
-                if (bytes != null) {
-                    val remote =
-                        File(
-                            folder,
-                            "${MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }}.avif",
-                        )
-                    if (!remote.exists()) {
-                        val temporary = File.createTempFile("cloud-", ".tmp", folder)
-                        try {
-                            temporary.writeBytes(bytes)
-                            check(temporary.renameTo(remote))
-                        } finally {
-                            temporary.delete()
-                        }
-                        trim(folder, 64L * 1024 * 1024, remote)
-                    }
-                    remote.setLastModified(System.currentTimeMillis())
-                    return@withContext remote
+                val remote = derivatives.load(photo, edge)
+                if (remote != null) {
+                    if (remote.inserted) trim(folder, 64L * 1024 * 1024, remote.file)
+                    return@withContext remote.file
                 }
             }
             val sidecar = io.withLock { readSidecar(photo) }

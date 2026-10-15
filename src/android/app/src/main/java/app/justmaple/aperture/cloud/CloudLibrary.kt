@@ -97,27 +97,24 @@ class CloudLibrary(context: Context) {
     fun copyOriginal(photo: Photo, output: OutputStream) =
         http.download(photo.uri.host!!, mediaPath("image", photo.uri), output)
 
-    fun derivative(photo: Photo, edge: Int): ByteArray? {
-        val response =
+    internal fun derivative(photo: Photo, edge: Int, etag: String?): CloudResponse? {
+        fun get(route: String) =
             http.request(
                 photo.uri.host!!,
-                mediaPath(if (edge > 512) "preview" else "thumb", photo.uri) +
-                    "?pv=${AdjustmentFields.pipelineOutputVersion}",
+                mediaPath(route, photo.uri) + "?pv=${AdjustmentFields.pipelineOutputVersion}",
+                headers = etag?.let { mapOf("If-None-Match" to it) } ?: emptyMap(),
             )
+        val primary = get(if (edge > 512) "preview" else "thumb")
+        val response = if (primary.status == 404 && edge > 512) get("thumb") else primary
         if (response.status == 202) {
             val seconds = response.retryAfter?.toLongOrNull()?.coerceIn(1, 60) ?: 2
             throw CloudDerivativePending(seconds * 1_000)
         }
-        if (response.status == 404) {
-            if (edge <= 512) return null
-            val thumb =
-                http.request(
-                    photo.uri.host!!,
-                    mediaPath("thumb", photo.uri) + "?pv=${AdjustmentFields.pipelineOutputVersion}",
-                )
-            return if (thumb.status == 404) null else thumb.requireSuccess().body
+        return when (response.status) {
+            404 -> null
+            304 -> response
+            else -> response.requireSuccess()
         }
-        return response.requireSuccess().body
     }
 
     private fun sidecar(uri: Uri): CloudResponse = http.request(uri.host!!, xmpPath(uri))
