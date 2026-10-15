@@ -1,5 +1,12 @@
 use super::*;
 
+// Closed-form support for two known channels normalized to mean 1. Their
+// deviations sum to zero, so squared distance is twice either squared
+// deviation. Pins the existing bilateral K=34.7 independently of its helper.
+fn pair_support(witness_first: f32, target_first: f32) -> f32 {
+    (1.0 + 69.4 * (witness_first - target_first).powi(2)).powi(-2)
+}
+
 #[test]
 fn deeply_negative_baseline_preserves_black_and_unclipped_pixels() {
     for baseline in [-8.0_f32, -16.0] {
@@ -60,7 +67,8 @@ fn negative_baseline_exposure_recovers_sensor_clipped_green() {
     assert_eq!(recovered[0], original[0]);
     assert_eq!(recovered[2], original[2]);
     assert!(recovered[1] > original[1]);
-    let expected = 1.6 + 48.0 / 49.0 * (1.3 - 1.6);
+    let confidence = 48.0 * pair_support(1.0, 1.6 / 1.3) / 49.0;
+    let expected = 1.6 + confidence * (1.3 - 1.6);
     assert!((recovered[1] / gain - expected).abs() < 1e-6);
 }
 
@@ -276,7 +284,8 @@ fn g_clipped_pixel_loses_magenta_under_daylight_wb() {
 fn g_clipped_with_neutral_neighbors_uses_both_known_channels() {
     // A neutral witness has missing-G / mean(known R,B) = 1. Both known
     // channels must contribute: R=1.6 and B=1.0 cannot simultaneously match
-    // R/G=B/G=1 while remaining fixed. The supported estimate uses their mean, blended with the prior.
+    // R/G=B/G=1 while remaining fixed. The supported estimate uses their mean,
+    // with reduced confidence because their known chromaticity differs.
     let mut img = Image::new(11, 11, ColorSpace::CameraNativeLinearRgb);
     for p in &mut img.pixels {
         *p = [0.9, 0.9, 0.9];
@@ -294,7 +303,8 @@ fn g_clipped_with_neutral_neighbors_uses_both_known_channels() {
     );
     let p = img.pixels[cy * 11 + cx];
     let out_rg = p[0] / p[1];
-    let expected = 1.6 + 48.0 / 49.0 * (1.3 - 1.6);
+    let confidence = 48.0 * pair_support(1.0, 1.6 / 1.3) / 49.0;
+    let expected = 1.6 + confidence * (1.3 - 1.6);
     assert!((p[1] - expected).abs() < 1e-6, "got {p:?}");
     assert_eq!(p[0], 1.6);
     assert_eq!(p[2], 1.0);
@@ -472,7 +482,8 @@ fn conflicting_known_channel_edges_are_combined_without_privileging_green() {
             0.0,
         );
         let output = img.pixels[index];
-        let expected = 1.8 + 48.0 / 49.0 * (1.3 * 2.4 - 1.8);
+        let confidence = 48.0 * pair_support(0.45 / 0.375, 1.8 / 1.3) / 49.0;
+        let expected = 1.8 + confidence * (1.3 * 2.4 - 1.8);
         assert!((output[clipped] - expected).abs() < 1e-5, "{output:?}");
         for c in 0..3 {
             if c != clipped {
@@ -498,7 +509,8 @@ fn recovered_neighbors_never_become_chromaticity_witnesses() {
     );
     // All three windows contain the same 46 original witnesses. The first
     // reconstructed red falls below threshold, but must not join later windows.
-    let expected = 0.5 + 46.0 / 49.0 * (0.375 * 0.25 - 0.5);
+    let confidence = 46.0 * pair_support(0.5 / 0.4, 0.25 / 0.375) / 49.0;
+    let expected = 0.5 + confidence * (0.375 * 0.25 - 0.5);
     for index in targets {
         assert!((img.pixels[index][0] - expected).abs() < 1e-6);
         assert_eq!(img.pixels[index], img.pixels[targets[0]]);

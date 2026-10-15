@@ -143,7 +143,10 @@ fn either_known_channel_can_supply_energy_across_a_dark_edge() {
             image.pixels[4 * 9 + 4] = observed;
             recover(&mut image, [1.0; 3], 0.0);
             let clipped = order.iter().position(|c| *c == 0).unwrap();
-            let expected = 0.5 + 48.0 / 49.0 * ((green + 0.5) / 2.0 * (4.0 / 3.0) - 0.5);
+            let known_mean = (green + 0.5) / 2.0;
+            let deviation = 2.0 / 3.0 - green / known_mean;
+            let weight = (1.0 + 69.4 * deviation * deviation).powi(-2);
+            let expected = 0.5 + 48.0 * weight / 49.0 * (known_mean * (4.0 / 3.0) - 0.5);
             assert!((image.pixels[4 * 9 + 4][clipped] - expected).abs() < 1e-6);
             assert!(image.pixels[4 * 9 + 4][clipped] > 0.0);
             for c in 0..3 {

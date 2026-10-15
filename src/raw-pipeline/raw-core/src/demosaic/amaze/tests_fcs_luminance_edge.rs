@@ -82,6 +82,38 @@ fn near_edge(direction: usize, i: usize) -> bool {
 }
 
 #[test]
+fn positive_chroma_at_a_luminance_edge_retains_the_surface_hue() {
+    for pattern in PATTERNS {
+        for direction in 0..3 {
+            for exposure in [0.01_f32, 1.0, 16.0] {
+                for chroma in [CHROMA, [0.12, 1.0, 0.85]] {
+                    let truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
+                        .map(|i| {
+                            let level = if edge_side(direction, i % SIDE, i / SIDE) {
+                                0.75
+                            } else {
+                                0.045
+                            };
+                            chroma.map(|k| k * level * exposure)
+                        })
+                        .collect();
+                    // The original positive estimate is correct everywhere.
+                    // A high green gradient alone must not change its hue by
+                    // importing the opposite side's absolute sensor values.
+                    let out = suppress(pattern, &truth, |_| false, 0.0);
+                    for (i, (actual, expected)) in out.pixels.iter().zip(&truth).enumerate() {
+                        for t in 0..3 {
+                            assert!((actual[t] - expected[t]).abs() <= 1e-5 * expected[t],
+                                "{pattern:?} direction={direction} exposure={exposure} pixel {i} channel {t}: {actual:?} != {expected:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn collapsed_chroma_at_a_luminance_edge_follows_the_surface_chromaticity() {
     for pattern in PATTERNS {
         for direction in 0..3 {

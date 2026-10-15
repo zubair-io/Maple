@@ -136,7 +136,13 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
             // below bails before any downstream stage runs either way.
             stage("demosaic", || {
                 let algo = crate::pipeline::bayer_kernel(quality, model, raw);
-                demosaic::demosaic_cancellable(algo, &mosaic, raw.cfa, cancel)
+                demosaic::demosaic_camera_cancellable(
+                    algo,
+                    &mosaic,
+                    raw.cfa,
+                    raw.as_shot_neutral,
+                    cancel,
+                )
             })
         }
     };

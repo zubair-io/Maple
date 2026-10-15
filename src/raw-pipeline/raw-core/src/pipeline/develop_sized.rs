@@ -203,7 +203,13 @@ pub(super) fn develop_sized_prefix(
                     return demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel);
                 }
                 let algo = crate::pipeline::bayer_kernel(quality, model, raw);
-                demosaic::demosaic_cancellable(algo, &mosaic, raw.cfa, cancel)
+                demosaic::demosaic_camera_cancellable(
+                    algo,
+                    &mosaic,
+                    raw.cfa,
+                    raw.as_shot_neutral,
+                    cancel,
+                )
             })
         }
     };
