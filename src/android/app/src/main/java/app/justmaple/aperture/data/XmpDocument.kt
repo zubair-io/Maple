@@ -8,10 +8,31 @@ import java.util.Locale
 import org.xmlpull.v1.XmlPullParser
 
 /** A lexical patch preserves all unedited XML bytes, including foreign data. */
-data class XmpDocument(
-    val original: String = EMPTY,
-    val changes: Map<String, String?> = emptyMap(),
+class XmpDocument
+private constructor(
+    private val source: ParsedSource,
+    val changes: Map<String, String?>,
 ) {
+    constructor(
+        original: String = EMPTY,
+        changes: Map<String, String?> = emptyMap(),
+    ) : this(ParsedSource(original), changes)
+
+    val original: String
+        get() = source.xml
+
+    // Scalar revisions share the immutable parse, including across undo/redo.
+    private class ParsedSource(val xml: String) {
+        val tags = validate(xml).let { descriptions(xml) }
+        val attributes = buildMap { tags.forEach { putAll(it.second.attributes) } }
+    }
+
+    override fun equals(other: Any?): Boolean =
+        this === other ||
+            (other is XmpDocument && original == other.original && changes == other.changes)
+
+    override fun hashCode(): Int = 31 * original.hashCode() + changes.hashCode()
+
     fun withField(field: AdjustmentField, value: Float): XmpDocument {
         require(value.isFinite() && value in field.minimum..field.maximum)
         require(field.xmp.isNotEmpty()) { "No scalar XMP representation for ${field.name}" }
@@ -26,7 +47,7 @@ data class XmpDocument(
                     "papp:WbSource" to "Manual",
                 )
             else emptyMap()
-        return copy(changes = changes + additions + wb)
+        return XmpDocument(source, changes + additions + wb)
     }
 
     val rating: Int
@@ -36,7 +57,7 @@ data class XmpDocument(
                 ?.takeIf { it.isFinite() && it in -1.0..5.0 && it == it.toInt().toDouble() }
                 ?.toInt() ?: 0
 
-    fun withAttribute(name: String, value: String?) = copy(changes = changes + (name to value))
+    fun withAttribute(name: String, value: String?) = XmpDocument(source, changes + (name to value))
 
     fun withoutRawOnlySliders(): XmpDocument =
         AdjustmentFields.all
@@ -45,14 +66,11 @@ data class XmpDocument(
 
     fun attribute(name: String): String? {
         if (changes.containsKey(name)) return changes[name]
-        return descriptions(original)
-            .mapNotNull { (_, scope) -> scope.attributes[name] }
-            .lastOrNull()
+        return source.attributes[name]
     }
 
     fun serialize(): String {
-        validate(original)
-        val tags = descriptions(original)
+        val tags = source.tags
         require(tags.isNotEmpty()) { "XMP has no RDF description" }
         val profile =
             attribute("papp:Profile")

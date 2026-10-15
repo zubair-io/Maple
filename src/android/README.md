@@ -85,6 +85,8 @@ remove their older spelling. If a canonical prefix belongs to a foreign
 namespace, writes reuse an owned alias or declare a nonconflicting prefix without
 rebinding the foreign XML. A disposable namespace-normalized copy feeds every
 native preview/editor/validation/export entry; persisted XML remains lexical.
+Each immutable source is parsed once, and scalar/metadata revisions share its
+namespace-resolved attributes, so UI lookups do not scan opaque XML on slider ticks.
 Unstamped imported temperature/tint keep their foreign or legacy Maple scale
 when unrelated edits add Maple metadata, so rating or picking cannot change color.
 Local sidecar reads detect BOM/XML-declared encodings, retain the source byte
@@ -102,7 +104,9 @@ ETag validation; unchanged loads reuse their image body, and missing cache files
 are rebuilt. Back clears a pending open’s loading state before returning to Browse.
 The stop-time flush remains active through ViewModel teardown, including waits
 behind an earlier save. Cloud XMP responses use the server’s 128 MiB body limit;
-other JSON responses remain bounded at 16 MiB.
+other JSON responses remain bounded at 16 MiB. UTF-8 validation uses a fixed-size
+scratch buffer. Incoming Open/Share navigation changes only after pending edits
+save successfully; a conflict retains the current folder, filmstrip and document.
 Failed sidecar loads block metadata, editing and export
 until a successful reload confirms that photo’s save baseline. SAF replacement writes a
 temporary sibling before publishing and retains the previous sidecar until the

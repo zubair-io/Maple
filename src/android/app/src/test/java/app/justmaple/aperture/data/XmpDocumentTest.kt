@@ -10,6 +10,51 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class XmpDocumentTest {
+    @Test(timeout = 30_000)
+    fun scalarRevisionsAndMetadataLookupsStayIndependentOfOpaqueSidecarSize() {
+        val directory = Files.createTempDirectory("maple-large-xmp-").toFile()
+        val opaque = "<!--" + "x".repeat(8 * 1024 * 1024) + "-->"
+        try {
+            val file = File(directory, "photo.xmp")
+            file.writeText(
+                XmpDocument.EMPTY.replace(
+                    "rdf:about=\"\" />",
+                    "rdf:about=\"\" xmlns:c='http://ns.adobe.com/camera-raw-settings/1.0/' xmlns:m='http://ns.justmaple.app/photo/1.0/' xmlns:xmp='http://ns.adobe.com/xap/1.0/' c:Exposure2012='1' m:Profile='Neutral' xmp:Rating='4'>$opaque</rdf:Description>",
+                )
+            )
+            val document = XmpDocument(file.readText())
+            val field = AdjustmentFields.byName.getValue("exposure")
+            val started = System.nanoTime()
+            repeat(256) {
+                val revision = document.withField(field, .75f).withAttribute("xmp:Rating", "5")
+                assertEquals("0.75", revision.attribute("crs:Exposure2012"))
+                assertEquals("Neutral", revision.attribute("papp:Profile"))
+                assertEquals(5, revision.rating)
+                assertNull(revision.attribute("xmp:Label"))
+                assertEquals("1", document.attribute("crs:Exposure2012"))
+                assertEquals(4, document.rating)
+            }
+            // A broad regression bound catches source scans, not a device frame-time qualification.
+            assertTrue(
+                "Metadata lookups rescanned the opaque XML",
+                System.nanoTime() - started < 5_000_000_000L,
+            )
+            val edited = document.withField(field, .75f).withAttribute("xmp:Rating", "5")
+            assertEquals(edited, XmpDocument(document.original, edited.changes))
+            assertEquals(
+                edited.hashCode(),
+                XmpDocument(document.original, edited.changes).hashCode(),
+            )
+            val saved = roundTrip(edited)
+            assertTrue(saved.original.contains(opaque))
+            assertEquals("Neutral", saved.attribute("papp:Profile"))
+            assertEquals("0.75", saved.attribute("crs:Exposure2012"))
+            assertEquals(4, document.rating)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test
     fun authoredDecimalRatingsAreIntegralFiniteAndInRange() {
         for ((input, expected) in
