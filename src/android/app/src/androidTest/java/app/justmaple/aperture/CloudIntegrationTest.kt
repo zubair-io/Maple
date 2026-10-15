@@ -252,6 +252,35 @@ class CloudIntegrationTest {
                     compose.waitForIdle()
                     compose.waitUntil(30_000) { !model.state.value.rendering }
                 }
+                compose.runOnIdle { model.back() }
+                compose.waitUntil(30_000) { model.state.value.mode == PhotoMode.Preview }
+                val abandonedLoad = java.util.concurrent.CountDownLatch(1)
+                val releaseAbandoned = java.util.concurrent.CountDownLatch(1)
+                server.loadEntered = abandonedLoad
+                server.releaseLoad = releaseAbandoned
+                try {
+                    compose.runOnIdle { model.open(photo) }
+                    assertTrue(abandonedLoad.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                    compose.runOnIdle { model.back() }
+                    compose.waitUntil(30_000) { model.state.value.mode == PhotoMode.Browse }
+                    assertFalse("Back must clear the abandoned spinner", model.state.value.loading)
+                    assertTrue(model.state.value.photos.contains(photo))
+                } finally {
+                    releaseAbandoned.countDown()
+                    server.loadEntered = null
+                    server.releaseLoad = null
+                }
+                compose.runOnIdle { model.open(photo) }
+                compose.waitUntil(30_000) {
+                    !model.state.value.loading && model.state.value.mode == PhotoMode.Preview
+                }
+                assertNull(model.state.value.error)
+                compose.runOnIdle { model.edit() }
+                compose.waitUntil(60_000) {
+                    model.state.value.values.isNotEmpty() && !model.state.value.rendering
+                }
+                compose.waitForIdle()
+                compose.waitUntil(30_000) { !model.state.value.rendering }
                 val baseline = runBlocking { library.loadSidecar(photo) }
                 val external =
                     server.sidecar

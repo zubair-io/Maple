@@ -310,6 +310,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     mode = if (it.mode == PhotoMode.Edit) PhotoMode.Preview else PhotoMode.Browse,
                     rendering = false,
+                    loading = false,
                 )
             }
         }
