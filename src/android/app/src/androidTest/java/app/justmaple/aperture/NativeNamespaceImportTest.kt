@@ -41,9 +41,11 @@ class NativeNamespaceImportTest {
                 assertEquals("pick", saved.document.attribute("papp:Flag"))
                 assertTrue(saved.document.original.contains("c:Exposure2012=\"0.75\""))
                 val loaded = saved.document.original
-                val handle = NativeBridge.open(original.absolutePath, loaded, 512)
-                assertNotEquals(0L, handle)
+                val renderer = NativeBridge.createRenderer()
+                var handle = 0L
                 try {
+                    handle = NativeBridge.open(original.absolutePath, loaded, 512, renderer)
+                    assertNotEquals(0L, handle)
                     assertEquals(
                         .75,
                         JSONObject(NativeBridge.values(handle)).getDouble("exposure"),
@@ -56,7 +58,8 @@ class NativeNamespaceImportTest {
                         .0001,
                     )
                 } finally {
-                    NativeBridge.close(handle)
+                    if (handle != 0L) NativeBridge.close(handle)
+                    NativeBridge.closeRenderer(renderer)
                 }
                 assertFalse(
                     NativeBridge.rasterCompatible(

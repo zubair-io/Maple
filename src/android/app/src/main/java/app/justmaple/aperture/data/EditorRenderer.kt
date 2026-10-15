@@ -16,6 +16,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
             }
             .asCoroutineDispatcher()
     private var handle = 0L
+    private var renderer = 0L
 
     data class SurfaceBinding(val surface: Surface?, val width: Int, val height: Int)
 
@@ -44,7 +45,8 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
         withContext(dispatcher) {
             release()
             epoch = generation
-            handle = NativeBridge.open(path, document, edge)
+            if (renderer == 0L) renderer = NativeBridge.createRenderer()
+            handle = NativeBridge.open(path, document, edge, renderer)
             modelXml = document
             values = readValues()
             applySurface(currentSurface)
@@ -147,7 +149,14 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
 
     override fun close() {
         // Enqueue teardown behind any native call; never close a rendering handle.
-        dispatcher.executor.execute { release() }
+        dispatcher.executor.execute {
+            try {
+                release()
+            } finally {
+                if (renderer != 0L) NativeBridge.closeRenderer(renderer)
+                renderer = 0L
+            }
+        }
         dispatcher.close()
     }
 }

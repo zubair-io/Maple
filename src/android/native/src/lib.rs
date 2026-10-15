@@ -12,6 +12,7 @@ use std::{
     ffi::{c_char, c_void, CStr, CString},
     panic::{catch_unwind, AssertUnwindSafe},
     ptr,
+    rc::Rc,
 };
 
 thread_local! { static ERROR: RefCell<CString> = RefCell::new(CString::new("").unwrap()); }
@@ -53,13 +54,41 @@ pub extern "C" fn maple_android_error() -> *const c_char {
 }
 
 #[no_mangle]
+pub extern "C" fn maple_android_create_renderer() -> *mut c_void {
+    guarded(ptr::null_mut(), || {
+        Ok(Box::into_raw(Box::new(Rc::new(raw_gpu::GpuContext::new_blocking()?))).cast())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_close_renderer(context: *mut c_void) {
+    if !context.is_null() {
+        guarded((), || {
+            drop(Box::from_raw(context.cast::<Rc<raw_gpu::GpuContext>>()));
+            Ok(())
+        });
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn maple_android_open(
+    context: *mut c_void,
     path: *const c_char,
     xml: *const c_char,
     edge: u32,
 ) -> *mut c_void {
     guarded(ptr::null_mut(), || {
-        Ok(Box::into_raw(Box::new(Session::open(text(path)?, text(xml)?, edge)?)).cast())
+        let context = context
+            .cast::<Rc<raw_gpu::GpuContext>>()
+            .as_ref()
+            .ok_or("Closed renderer")?;
+        Ok(Box::into_raw(Box::new(Session::open_with_context(
+            Rc::clone(context),
+            text(path)?,
+            text(xml)?,
+            edge,
+        )?))
+        .cast())
     })
 }
 

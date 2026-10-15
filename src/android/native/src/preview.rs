@@ -8,9 +8,10 @@ use raw_core::{
     ExifOrientation, RawImage,
 };
 use raw_gpu::{CancelToken, FullChainInputs, GpuContext, LiveSession, PresentGeometry};
+use std::rc::Rc;
 
 pub struct Session {
-    pub ctx: GpuContext,
+    pub ctx: Rc<GpuContext>,
     pub model: AdjustmentModel,
     raw: Option<RawImage>,
     bytes: Vec<u8>,
@@ -69,9 +70,47 @@ mod tests {
         std::fs::remove_file(path).unwrap();
     }
 
+    #[test]
+    fn photo_switch_retains_worker_context_and_replaces_live_image() {
+        let directory =
+            std::env::temp_dir().join(format!("maple-worker-gpu-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let first = directory.join("first.png");
+        let second = directory.join("second.png");
+        image::RgbImage::from_pixel(64, 48, image::Rgb([80, 120, 200]))
+            .save(&first)
+            .unwrap();
+        image::RgbImage::from_pixel(32, 24, image::Rgb([200, 80, 120]))
+            .save(&second)
+            .unwrap();
+        let xml = "<rdf:Description xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>";
+        let first_session = Session::open(first.to_str().unwrap(), xml, 2048).unwrap();
+        let context = Rc::clone(&first_session.ctx);
+        first_session
+            .live
+            .render_to_buffer(&context, &first_session.inputs, &CancelToken::new())
+            .unwrap()
+            .unwrap();
+        drop(first_session);
+        let second_session =
+            Session::open_with_context(Rc::clone(&context), second.to_str().unwrap(), xml, 2048)
+                .unwrap();
+        assert!(
+            Rc::ptr_eq(&context, &second_session.ctx),
+            "photo changes must retain the device and its caches"
+        );
+        assert_eq!(second_session.live.dims(), (32, 24));
+        // The warm device must still render this different image against the CPU reference.
+        check_session_raster_parity(second_session);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
     fn check_raster_parity(path: &std::path::Path) {
         let xml = "<rdf:Description xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>";
-        let mut session = Session::open(path.to_str().unwrap(), xml, 2048).unwrap();
+        check_session_raster_parity(Session::open(path.to_str().unwrap(), xml, 2048).unwrap());
+    }
+
+    fn check_session_raster_parity(mut session: Session) {
         for exposure in [0.0, 1.25, -1.5] {
             let field = raw_core::types::ADJUSTMENT_SCHEMA
                 .iter()
@@ -232,7 +271,17 @@ impl Session {
         let crop = raw_core::stages::crop::CropPresentation::new(&self.model.crop, w, h);
         crop.dims.0 as f32 / crop.dims.1.max(1) as f32
     }
+    #[cfg(test)]
     pub fn open(path: &str, xml: &str, edge: u32) -> Result<Self, String> {
+        Self::open_with_context(Rc::new(GpuContext::new_blocking()?), path, xml, edge)
+    }
+
+    pub fn open_with_context(
+        ctx: Rc<GpuContext>,
+        path: &str,
+        xml: &str,
+        edge: u32,
+    ) -> Result<Self, String> {
         let model = crate::xmp::parse(xml)?;
         let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
         let ext = std::path::Path::new(path)
@@ -240,7 +289,6 @@ impl Session {
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
-        let ctx = GpuContext::new_blocking()?;
         let edge = edge.clamp(1, ctx.device.limits().max_texture_dimension_2d);
         let raw = if is_raw(&ext) {
             Some(raw_core::decode::decode_bytes(&bytes, &ext).map_err(|e| e.to_string())?)
