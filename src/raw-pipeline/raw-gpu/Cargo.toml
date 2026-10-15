@@ -53,4 +53,5 @@ web-sys = { version = "0.3", features = ["HtmlCanvasElement", "OffscreenCanvas"]
 # its optional `gpu` feature, which stays disabled here. Dev-deps don't enter the
 # normal build graph, so raw-core / raw-wasm default + `gpu` trees are unchanged.
 [dev-dependencies]
+half = "=2.7.1"
 raw-core = { path = "../raw-core", default-features = false }

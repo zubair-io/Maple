@@ -77,7 +77,10 @@ internal fun PhotoCanvas(
                                     width: Int,
                                     height: Int,
                                 ) {
-                                    model.surface(holder.surface, width, height)
+                                    val wide =
+                                        canvas.resources.configuration.isScreenWideColorGamut &&
+                                            canvas.display?.isWideColorGamut == true
+                                    model.surface(holder.surface, width, height, wide)
                                     surfaceVersion++
                                 }
 

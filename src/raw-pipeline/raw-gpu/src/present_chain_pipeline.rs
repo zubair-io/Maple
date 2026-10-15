@@ -97,6 +97,22 @@ pub(crate) fn pick_surface_format(caps: &wgpu::SurfaceCapabilities) -> wgpu::Tex
         .unwrap_or_else(|| caps.formats[0])
 }
 
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn pick_android_surface_format(
+    caps: &wgpu::SurfaceCapabilities,
+    wide: bool,
+) -> Result<wgpu::TextureFormat, String> {
+    use wgpu::TextureFormat::*;
+    if wide && caps.formats.contains(&Rgba16Float) {
+        return Ok(Rgba16Float);
+    }
+    caps.formats
+        .iter()
+        .copied()
+        .find(|format| matches!(format, Bgra8Unorm | Rgba8Unorm))
+        .ok_or_else(|| "Android surface has no matching display format".into())
+}
+
 /// Build the chain-present render pipeline on `ctx.device` for `format`. Lays out
 /// a 3-binding group (params @0, f32 chain @1, blue-noise ranks @3) and a fullscreen
 /// vertex+fragment from `present_chain.wgsl`. Each persistent surface retains
@@ -105,11 +121,22 @@ pub(crate) fn build_present_pipeline(
     ctx: &GpuContext,
     format: wgpu::TextureFormat,
 ) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
+    let scrgb = format == wgpu::TextureFormat::Rgba16Float;
+    let source = if scrgb {
+        format!(
+            "{}\n{}\n{}",
+            include_str!("generated/color_matrices.wgsl"),
+            include_str!("present_chain.wgsl"),
+            include_str!("present_scrgb.wgsl")
+        )
+    } else {
+        include_str!("present_chain.wgsl").to_owned()
+    };
     let shader = ctx
         .device
         .create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("present-chain"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("present_chain.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
         });
     let bind_group_layout = ctx
         .device
@@ -168,7 +195,7 @@ pub(crate) fn build_present_pipeline(
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some(if scrgb { "fs_scrgb" } else { "fs_main" }),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: None,

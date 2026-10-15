@@ -38,6 +38,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     val state = mutable.asStateFlow()
     internal var initialIntentHandled = false
     private var generation = 0
+    private var singleRequest = 0
     private var renderXml = ""
     private var baseline: String? = null
     private var saveJob: Job? = null
@@ -194,14 +195,15 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openSingle(uri: Uri) = viewModelScope.launch {
-        if (!flush()) return@launch
-        val token = ++generation
+        val request = ++singleRequest
+        if (!flush() || request != singleRequest) return@launch
+        val token = generation
         mutable.update { it.copy(loading = true, error = null) }
         try {
             val photo = library.single(uri)
-            if (token == generation) open(photo, single = true)
+            if (token == generation && request == singleRequest) open(photo, single = true)
         } catch (failure: Exception) {
-            if (token == generation) fail(failure)
+            if (token == generation && request == singleRequest) fail(failure)
         }
     }
 
@@ -312,8 +314,8 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun surface(surface: Surface?, width: Int, height: Int) {
-        val binding = renderer.recordSurface(surface, width, height)
+    fun surface(surface: Surface?, width: Int, height: Int, wideColor: Boolean = false) {
+        val binding = renderer.recordSurface(surface, width, height, wideColor)
         if (state.value.mode == PhotoMode.Edit) mutable.update { it.copy(rendering = true) }
         viewModelScope.launch {
             try {

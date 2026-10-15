@@ -24,7 +24,13 @@ object NativeBridge {
 
     external fun rasterCompatible(xml: String): Boolean
 
-    external fun attach(handle: Long, surface: Surface?, width: Int, height: Int)
+    external fun attach(
+        handle: Long,
+        surface: Surface?,
+        width: Int,
+        height: Int,
+        wideColor: Boolean,
+    )
 
     external fun render(handle: Long)
 

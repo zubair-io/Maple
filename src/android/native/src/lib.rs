@@ -176,6 +176,7 @@ pub unsafe extern "C" fn maple_android_surface(
     window: *mut c_void,
     width: u32,
     height: u32,
+    wide_color: bool,
 ) -> i32 {
     guarded(-1, || {
         let session = handle.cast::<Session>().as_mut().ok_or("Closed editor")?;
@@ -187,9 +188,22 @@ pub unsafe extern "C" fn maple_android_surface(
                 window,
                 width,
                 height,
+                wide_color,
             )?);
+            session.target_primaries = session.surface.as_ref().unwrap().target_primaries();
         }
         Ok(0)
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_output_primaries(handle: *mut c_void) -> u32 {
+    guarded(0, || {
+        Ok(handle
+            .cast::<Session>()
+            .as_ref()
+            .ok_or("Closed editor")?
+            .target_primaries)
     })
 }
 

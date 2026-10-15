@@ -16,6 +16,8 @@
 use super::*;
 use crate::context::GpuContext;
 use std::sync::Arc;
+#[path = "tests/android_color.rs"]
+mod android_color;
 
 #[test]
 fn invalidation_releases_all_retired_session_bindings() {

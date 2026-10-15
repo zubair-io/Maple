@@ -18,7 +18,12 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
     private var handle = 0L
     private var renderer = 0L
 
-    data class SurfaceBinding(val surface: Surface?, val width: Int, val height: Int)
+    data class SurfaceBinding(
+        val surface: Surface?,
+        val width: Int,
+        val height: Int,
+        val wideColor: Boolean = false,
+    )
 
     @Volatile private var currentSurface = SurfaceBinding(null, 0, 0)
     private var attachedSurface: SurfaceBinding? = null
@@ -55,8 +60,8 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
 
     // Called synchronously inside SurfaceHolder callbacks, before Android can
     // abandon the old BufferQueue. Pending worker jobs see the new identity.
-    fun recordSurface(next: Surface?, w: Int, h: Int): SurfaceBinding =
-        SurfaceBinding(next, w, h).also {
+    fun recordSurface(next: Surface?, w: Int, h: Int, wideColor: Boolean = false): SurfaceBinding =
+        SurfaceBinding(next, w, h, wideColor).also {
             currentSurface = it
             hasPresented = false
         }
@@ -74,7 +79,13 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
         )
             return
         try {
-            NativeBridge.attach(handle, binding.surface, binding.width, binding.height)
+            NativeBridge.attach(
+                handle,
+                binding.surface,
+                binding.width,
+                binding.height,
+                binding.wideColor,
+            )
             attachedSurface = binding.takeIf { it.surface != null }
             renderCurrent()
         } catch (failure: Exception) {

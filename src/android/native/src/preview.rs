@@ -24,6 +24,7 @@ pub struct Session {
     edge: u32,
     auto_fit: bool,
     profile: raw_core::types::Profile,
+    pub target_primaries: u32,
     #[cfg(target_os = "android")]
     pub surface: Option<raw_gpu::AndroidPresentSurface>,
 }
@@ -127,7 +128,11 @@ mod tests {
                 &session.bytes,
                 &session.model,
                 None,
-                raw_core::view::encode::TargetPrimaries::Srgb,
+                if session.target_primaries == 1 {
+                    raw_core::view::encode::TargetPrimaries::P3
+                } else {
+                    raw_core::view::encode::TargetPrimaries::Srgb
+                },
                 raw_core::pipeline::ExportDepth::Eight,
                 None,
             )
@@ -147,6 +152,36 @@ mod tests {
                 "Raster CPU/GPU byte difference {worst}, exposure {exposure}"
             );
         }
+    }
+
+    #[test]
+    fn p3_android_target_matches_cpu_export() {
+        let path =
+            std::env::temp_dir().join(format!("maple-android-p3-{}.tiff", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let pixels: Vec<u8> = (0..64 * 48)
+            .flat_map(|i| [(i % 64) as f32 / 63.0, (i / 64) as f32 / 47.0, 0.05, 1.0])
+            .flat_map(|value| half::f16::from_f32(value).to_bits().to_ne_bytes())
+            .collect();
+        crate::platform_raster::stage(
+            &pixels,
+            64,
+            48,
+            64 * 8,
+            9,
+            &crate::platform_raster::test_profile(moxcms::ColorProfile::new_display_p3(), true),
+            &path,
+        )
+        .unwrap();
+        let mut session = Session::open(
+            path.to_str().unwrap(),
+            "<rdf:Description xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>",
+            2048,
+        )
+        .unwrap();
+        session.target_primaries = 1;
+        check_session_raster_parity(session);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
@@ -355,6 +390,7 @@ impl Session {
             edge,
             auto_fit,
             profile,
+            target_primaries: 0,
             #[cfg(target_os = "android")]
             surface: None,
         })
@@ -401,7 +437,7 @@ impl Session {
             wb.apply(&self.model, &mut self.inputs);
         }
         self.inputs.nr_sampling_scale = self.sampling;
-        self.inputs.target_primaries = 0;
+        self.inputs.target_primaries = self.target_primaries;
         self.live
             .render_chain_to_f32(&self.ctx, &self.inputs, &CancelToken::new())?
             .ok_or_else(|| "Render cancelled".into())

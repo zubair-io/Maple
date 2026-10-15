@@ -145,8 +145,7 @@ fn warped_chain_sample(px: u32, py: u32, sw: u32, sh: u32) -> vec4<f32> {
     return sample_chain_warped(sx, sy, sw, sh);
 }
 
-@fragment
-fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+fn present_color(in: VsOut) -> vec4<f32> {
     // Framebuffer-space pixel (top-left origin, y down) → the row-major f32 index.
     let px = u32(in.pos.x);
     let py = u32(in.pos.y);
@@ -204,4 +203,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         quantized_channel(c.b, off),
         1.0,
     );
+}
+
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    return present_color(in);
 }
