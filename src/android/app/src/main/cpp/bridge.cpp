@@ -28,7 +28,7 @@ public:
     // JNI's GetStringUTFChars uses modified UTF-8, which Rust correctly rejects
     // for supplementary characters. Convert Java UTF-16 to standard UTF-8.
     Utf8(JNIEnv *env, jstring input) {
-        if (!input) return;
+        if (!input || env->ExceptionCheck()) return;
         const jchar *chars = env->GetStringChars(input, nullptr);
         if (!chars) return;
         const jsize length = env->GetStringLength(input);
@@ -74,6 +74,7 @@ Editor *editor(jlong handle) { return reinterpret_cast<Editor *>(handle); }
 
 extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_open(JNIEnv *env, jobject, jstring path, jstring xml, jint edge) {
     Utf8 p(env, path), x(env, xml);
+    if (env->ExceptionCheck()) return 0;
     void *core = maple_android_open(p.get(), x.get(), edge);
     if (!core) { check(env, -1); return 0; }
     return reinterpret_cast<jlong>(new Editor(core));
@@ -88,10 +89,14 @@ extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBrid
 }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_setField(JNIEnv *env, jobject, jlong handle, jint index, jfloat value) { check(env, maple_android_set(editor(handle)->core, index, value)); }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_setModel(JNIEnv *env, jobject, jlong handle, jstring xml) {
-    Utf8 x(env, xml); check(env, maple_android_model(editor(handle)->core, x.get()));
+    Utf8 x(env, xml);
+    if (env->ExceptionCheck()) return;
+    check(env, maple_android_model(editor(handle)->core, x.get()));
 }
 extern "C" JNIEXPORT jboolean JNICALL Java_app_justmaple_aperture_data_NativeBridge_rasterCompatible(JNIEnv *env, jobject, jstring xml) {
-    Utf8 x(env, xml); return maple_android_raster_compatible(x.get()) ? JNI_TRUE : JNI_FALSE;
+    Utf8 x(env, xml);
+    if (env->ExceptionCheck()) return JNI_FALSE;
+    return maple_android_raster_compatible(x.get()) ? JNI_TRUE : JNI_FALSE;
 }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_attach(JNIEnv *env, jobject, jlong handle, jobject surface, jint width, jint height) {
     Editor *e = editor(handle);
@@ -106,8 +111,12 @@ extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_
 }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_render(JNIEnv *env, jobject, jlong handle) { check(env, maple_android_render(editor(handle)->core)); }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_thumbnail(JNIEnv *env, jobject, jstring path, jstring destination, jstring xml, jint edge) {
-    Utf8 p(env, path), d(env, destination), x(env, xml); check(env, maple_android_thumbnail(p.get(), d.get(), x.get(), edge));
+    Utf8 p(env, path), d(env, destination), x(env, xml);
+    if (env->ExceptionCheck()) return;
+    check(env, maple_android_thumbnail(p.get(), d.get(), x.get(), edge));
 }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_export(JNIEnv *env, jobject, jstring path, jstring xml, jstring destination) {
-    Utf8 p(env, path), x(env, xml), d(env, destination); check(env, maple_android_export(p.get(), x.get(), d.get()));
+    Utf8 p(env, path), x(env, xml), d(env, destination);
+    if (env->ExceptionCheck()) return;
+    check(env, maple_android_export(p.get(), x.get(), d.get()));
 }
