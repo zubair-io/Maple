@@ -87,8 +87,10 @@ foreign bytes, resolves RDF and owned attributes by namespace, and rejects
 external-write conflicts. Legacy Maple namespace aliases are read and owned edits
 remove their older spelling. If a canonical prefix belongs to a foreign
 namespace, writes reuse an owned alias or declare a nonconflicting prefix without
-rebinding the foreign XML. A disposable namespace-normalized copy feeds every
-native preview/editor/validation/export entry; persisted XML remains lexical.
+rebinding the foreign XML. A shared-core namespace-aware event reader feeds every
+native preview/editor/validation/export entry without a DOM or full-document
+normalization copy; persisted XML remains lexical. Opaque subtrees are validated
+as a borrowed stream and never retained by the adjustment reader.
 Each immutable source is parsed once, and scalar/metadata revisions share its
 namespace-resolved attributes, so UI lookups do not scan opaque XML on slider ticks.
 Unstamped imported temperature/tint keep their foreign or legacy Maple scale
@@ -129,6 +131,9 @@ Cache readers open a descriptor atomically with publication/eviction and keep it
 through bitmap decoding, including conditional revalidation and cancellation.
 Eviction can unlink a path without invalidating an active reader; network and
 decoding work remain concurrent. Original-cache leases also span library instances.
+
+As documented for the shared editor in `docs/pipeline.md`, transparency and CMYK
+inputs are rejected before output creation; the editor does not flatten them.
 
 The live canvas negotiates managed wide-color display support and Vulkan's float
 surface capability. On that path the shared chain targets Display P3 and the
