@@ -241,6 +241,11 @@ mod present;
 // present paths live behind `#[cfg]`s, so the helpers are only referenced from
 // one of them per target.
 mod present_chain_pipeline;
+
+#[cfg(target_os = "android")]
+mod present_android;
+#[cfg(target_os = "android")]
+pub use present_android::AndroidPresentSurface;
 // Chain-output present (P4b-apple / #1028): the live chain's final f32 buffer →
 // a display surface (Apple `CAMetalLayer`) or, for the host parity gate, an
 // offscreen `Bgra8Unorm` texture. Native-only (the offscreen readback + its CPU

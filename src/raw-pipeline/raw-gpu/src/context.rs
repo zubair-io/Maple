@@ -365,13 +365,20 @@ impl GpuContext {
         // surface only carries a DX12 handle, and wgpu's default enumeration
         // order (Vulkan first) would otherwise hand back a Vulkan adapter whose
         // `get_capabilities` on that surface is empty — no present possible.
-        // Every other target keeps wgpu's default backend selection.
+        // Apple and Web keep wgpu's default backend selection.
         #[cfg(target_os = "windows")]
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::DX12,
             ..Default::default()
         });
-        #[cfg(not(target_os = "windows"))]
+        // Android's live canvas presents through Vulkan (#4623). Keep the
+        // instance and its adapter on the same native presentation backend.
+        #[cfg(target_os = "android")]
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::VULKAN,
+            ..Default::default()
+        });
+        #[cfg(not(any(target_os = "windows", target_os = "android")))]
         let instance = wgpu::Instance::default();
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions::default())

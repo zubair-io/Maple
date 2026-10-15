@@ -88,6 +88,9 @@ cargo build --release \
 	-p codegen
 
 BIN="src/raw-pipeline/target/release/codegen"
+
+cargo run --release --manifest-path src/raw-pipeline/Cargo.toml -p codegen --bin android-codegen
+rustfmt --edition 2021 src/android/native/src/fields.rs
 if [ -f "${BIN}.exe" ]; then
 	BIN="${BIN}.exe"
 fi

@@ -19,6 +19,16 @@ pub struct GpuWhiteBalance {
 }
 
 impl GpuWhiteBalance {
+    /// Camera-anchored values in the current slider scale, including imported
+    /// legacy-pair conversion. Hosts use these when first displaying the sliders.
+    pub fn slider_values(&self, model: &AdjustmentModel) -> (f32, f32) {
+        if let Some((profile, frame, _)) = &self.calibration {
+            wb_camera::resolve_target_versioned(model, frame, profile, self.as_shot_neutral)
+        } else {
+            white_balance::resolve_wb(model)
+        }
+    }
+
     pub fn resolve(raw: &RawImage) -> Result<Self, String> {
         let (profile, source) = dcp::profile_for_with_source(raw).map_err(|e| e.to_string())?;
         let fallback = matches!(source, ProfileSource::RawlerFallback)
@@ -37,9 +47,8 @@ impl GpuWhiteBalance {
     }
 
     pub fn apply(&self, model: &AdjustmentModel, inputs: &mut raw_gpu::FullChainInputs<'_>) {
-        if let Some((profile, frame, export)) = &self.calibration {
-            let target =
-                wb_camera::resolve_target_versioned(model, frame, profile, self.as_shot_neutral);
+        if let Some((_, _, export)) = &self.calibration {
+            let target = self.slider_values(model);
             let anchor = (export.scene_cct, export.as_shot_tint);
             inputs.wb_matrix = export.rec2020_delta_matrix(target, anchor).0;
             // The GPU gate is expressed relative to its 6500/0 identity; the

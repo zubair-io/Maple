@@ -1,0 +1,27 @@
+[package]
+name = "maple-android"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "Proprietary"
+
+[workspace]
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+raw-core = { path = "../../raw-pipeline/raw-core", features = ["gpu", "avif"] }
+raw-gpu = { path = "../../raw-pipeline/raw-gpu" }
+serde_json = "1"
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
+
+[profile.release]
+debug = 0
+
+[patch.crates-io]
+rav1d = { path = "../../raw-pipeline/third_party/rav1d" }
+zune-jpeg = { path = "../../raw-pipeline/third_party/zune-jpeg" }
+avif-parse = { path = "../../raw-pipeline/third_party/avif-parse" }
+ravif = { path = "../../raw-pipeline/third_party/ravif" }
+avif-serialize = { path = "../../raw-pipeline/third_party/avif-serialize" }
