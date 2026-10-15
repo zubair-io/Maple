@@ -82,7 +82,7 @@ data class XmpDocument(
                     when {
                         attributeName(match.groupValues[1], scope.bindings) in owned -> ""
                         match.groupValues[1] == "xmlns:papp" &&
-                            match.groupValues[3] in LEGACY_PAPP ->
+                            scope.bindings["papp"] in LEGACY_PAPP ->
                             match.value.replace(match.groupValues[3], NAMESPACES.getValue("papp"))
                         else -> match.value
                     }
@@ -91,15 +91,10 @@ data class XmpDocument(
             val extra =
                 if (tag == tags.last().first)
                     buildString {
-                        for ((prefix, uri) in NAMESPACES) {
+                        val prefixes = outputPrefixes(scope.bindings)
+                        for ((canonical, uri) in NAMESPACES) {
+                            val prefix = prefixes.getValue(canonical)
                             val declared = scope.bindings[prefix]
-                            require(
-                                declared == null ||
-                                    declared == uri ||
-                                    (prefix == "papp" && declared in LEGACY_PAPP)
-                            ) {
-                                "Conflicting $prefix namespace"
-                            }
                             val local =
                                 ATTRIBUTE.findAll(tag.value).any {
                                     it.groupValues[1] == "xmlns:$prefix"
@@ -110,7 +105,11 @@ data class XmpDocument(
                         owned.entries
                             .sortedWith(compareBy({ priority(it.key) }, { it.key }))
                             .forEach { (key, value) ->
-                                if (value != null) append("\n      $key=\"${escape(value)}\"")
+                                val prefix = key.substringBefore(':')
+                                val name =
+                                    if (':' !in key) key
+                                    else "${prefixes[prefix] ?: prefix}:${key.substringAfter(':')}"
+                                if (value != null) append("\n      $name=\"${escape(value)}\"")
                             }
                     }
                 else ""
@@ -153,6 +152,22 @@ data class XmpDocument(
             val attributes: Map<String, String>,
             val primary: Boolean,
         )
+
+        private fun outputPrefixes(bindings: Map<String, String>): Map<String, String> =
+            NAMESPACES.mapValues { (canonical, uri) ->
+                val declared = bindings[canonical]
+                if (
+                    declared == null ||
+                        declared == uri ||
+                        (canonical == "papp" && declared in LEGACY_PAPP)
+                )
+                    canonical
+                else
+                    bindings.entries.firstOrNull { it.value == uri }?.key
+                        ?: generateSequence(0) { it + 1 }
+                            .map { if (it == 0) "maple_$canonical" else "maple_${canonical}_$it" }
+                            .first { it !in bindings }
+            }
 
         private fun attributeName(name: String, scope: Map<String, String>): String {
             if (':' !in name) return name
