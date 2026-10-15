@@ -79,9 +79,9 @@ fn fallback_metadata(raw: &raw_core::RawImage) -> serde_json::Value {
 pub fn register_lens_profile(xml: &str) -> Result<String, JsError> {
     let registered = raw_core::lens_profile::register(xml)
         .map(|value| value.to_string())
-        .map_err(|e| JsError::new(&e));
+        .map_err(|e| JsError::new(&e))?;
     REGISTRY_GENERATION.fetch_add(1, Ordering::Relaxed);
-    registered
+    Ok(registered)
 }
 
 /// Whether `xml` would fit the process cache. The worker clears the cache
@@ -97,9 +97,9 @@ pub fn lens_profile_cache_has_room(xml: &str) -> Result<bool, JsError> {
 /// render needs; its own restore memo is reset alongside.
 #[wasm_bindgen(js_name = clearLensProfiles)]
 pub fn clear_lens_profiles() -> Result<(), JsError> {
-    let cleared = raw_core::lens_profile::clear_cache().map_err(|e| JsError::new(&e));
+    raw_core::lens_profile::clear_cache().map_err(|e| JsError::new(&e))?;
     REGISTRY_GENERATION.fetch_add(1, Ordering::Relaxed);
-    cleared
+    Ok(())
 }
 
 /// The profile reference a sidecar selects, through the canonical parser,
