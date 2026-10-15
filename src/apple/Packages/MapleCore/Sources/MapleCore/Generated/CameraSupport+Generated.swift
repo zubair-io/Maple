@@ -114,7 +114,7 @@ public struct SupportedCamera: Sendable {
 
 public enum CameraSupportRegistry {
   public static let schemaVersion: UInt32 = 1
-  public static let pipelineOutputVersion: UInt32 = 24
+  public static let pipelineOutputVersion: UInt32 = 25
   /// Camera bodies the bundled profile table covers. Each is at
   /// least `.profiled`; the full list is in docs/camera-support.json.
   public static let bundledModelCount: Int = 1406
@@ -137,7 +137,7 @@ public enum CameraSupportRegistry {
       qualification: [
         CameraQualificationEvidence(
           source: "color_harness",
-          status: "failed",
+          status: "stale_pipeline",
           record: CameraEvidenceRecord(
             gitSha: "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             corpusHash: "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -159,7 +159,7 @@ public enum CameraSupportRegistry {
       qualification: [
         CameraQualificationEvidence(
           source: "color_harness",
-          status: "failed",
+          status: "stale_pipeline",
           record: CameraEvidenceRecord(
             gitSha: "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             corpusHash: "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -181,7 +181,7 @@ public enum CameraSupportRegistry {
       qualification: [
         CameraQualificationEvidence(
           source: "color_harness",
-          status: "failed",
+          status: "stale_pipeline",
           record: CameraEvidenceRecord(
             gitSha: "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             corpusHash: "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -203,7 +203,7 @@ public enum CameraSupportRegistry {
       qualification: [
         CameraQualificationEvidence(
           source: "color_harness",
-          status: "failed",
+          status: "stale_pipeline",
           record: CameraEvidenceRecord(
             gitSha: "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             corpusHash: "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -225,7 +225,7 @@ public enum CameraSupportRegistry {
       qualification: [
         CameraQualificationEvidence(
           source: "color_harness",
-          status: "failed",
+          status: "stale_pipeline",
           record: CameraEvidenceRecord(
             gitSha: "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             corpusHash: "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -247,7 +247,7 @@ public enum CameraSupportRegistry {
       qualification: [
         CameraQualificationEvidence(
           source: "color_harness",
-          status: "failed",
+          status: "stale_pipeline",
           record: CameraEvidenceRecord(
             gitSha: "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             corpusHash: "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -269,7 +269,7 @@ public enum CameraSupportRegistry {
       qualification: [
         CameraQualificationEvidence(
           source: "color_harness",
-          status: "failed",
+          status: "stale_pipeline",
           record: CameraEvidenceRecord(
             gitSha: "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             corpusHash: "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -291,7 +291,7 @@ public enum CameraSupportRegistry {
       qualification: [
         CameraQualificationEvidence(
           source: "color_harness",
-          status: "failed",
+          status: "stale_pipeline",
           record: CameraEvidenceRecord(
             gitSha: "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             corpusHash: "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -313,7 +313,7 @@ public enum CameraSupportRegistry {
       qualification: [
         CameraQualificationEvidence(
           source: "color_harness",
-          status: "failed",
+          status: "stale_pipeline",
           record: CameraEvidenceRecord(
             gitSha: "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             corpusHash: "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -335,7 +335,7 @@ public enum CameraSupportRegistry {
       qualification: [
         CameraQualificationEvidence(
           source: "color_harness",
-          status: "failed",
+          status: "stale_pipeline",
           record: CameraEvidenceRecord(
             gitSha: "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             corpusHash: "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -357,7 +357,7 @@ public enum CameraSupportRegistry {
       qualification: [
         CameraQualificationEvidence(
           source: "color_harness",
-          status: "failed",
+          status: "stale_pipeline",
           record: CameraEvidenceRecord(
             gitSha: "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             corpusHash: "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -379,7 +379,7 @@ public enum CameraSupportRegistry {
       qualification: [
         CameraQualificationEvidence(
           source: "color_harness",
-          status: "failed",
+          status: "stale_pipeline",
           record: CameraEvidenceRecord(
             gitSha: "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             corpusHash: "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -401,7 +401,7 @@ public enum CameraSupportRegistry {
       qualification: [
         CameraQualificationEvidence(
           source: "color_harness",
-          status: "failed",
+          status: "stale_pipeline",
           record: CameraEvidenceRecord(
             gitSha: "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             corpusHash: "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -433,7 +433,7 @@ public enum CameraSupportRegistry {
       qualification: [
         CameraQualificationEvidence(
           source: "color_harness",
-          status: "failed",
+          status: "stale_pipeline",
           record: CameraEvidenceRecord(
             gitSha: "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             corpusHash: "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -455,7 +455,7 @@ public enum CameraSupportRegistry {
       qualification: [
         CameraQualificationEvidence(
           source: "color_harness",
-          status: "failed",
+          status: "stale_pipeline",
           record: CameraEvidenceRecord(
             gitSha: "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             corpusHash: "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",

@@ -1,5 +1,6 @@
 #include <jni.h>
 #include <android/native_window_jni.h>
+#include <android/bitmap.h>
 #include <android/data_space.h>
 #include <memory>
 #include <string>
@@ -18,6 +19,7 @@ int maple_android_surface(void *, void *, uint32_t, uint32_t);
 int maple_android_render(void *);
 int maple_android_thumbnail(const char *, const char *, const char *, uint32_t);
 int maple_android_export(const char *, const char *, const char *);
+int maple_android_stage_bitmap(const uint8_t *, uint32_t, uint32_t, size_t, uint32_t, const float *, const char *);
 }
 
 namespace {
@@ -119,4 +121,29 @@ extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_
     Utf8 p(env, path), x(env, xml), d(env, destination);
     if (env->ExceptionCheck()) return;
     check(env, maple_android_export(p.get(), x.get(), d.get()));
+}
+
+extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_stageBitmap(JNIEnv *env, jobject, jobject bitmap, jstring destination, jfloatArray profile) {
+    Utf8 path(env, destination);
+    if (env->ExceptionCheck()) return;
+    if (!profile || env->GetArrayLength(profile) != 16) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Missing RGB color profile");
+        return;
+    }
+    float color[16];
+    env->GetFloatArrayRegion(profile, 0, 16, color);
+    if (env->ExceptionCheck()) return;
+    AndroidBitmapInfo info{};
+    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        if (!env->ExceptionCheck()) env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Cannot inspect the decoded bitmap");
+        return;
+    }
+    void *pixels = nullptr;
+    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        if (!env->ExceptionCheck()) env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Cannot read the decoded bitmap");
+        return;
+    }
+    const int result = maple_android_stage_bitmap(static_cast<const uint8_t *>(pixels), info.width, info.height, info.stride, info.format, color, path.get());
+    AndroidBitmap_unlockPixels(env, bitmap);
+    check(env, result);
 }

@@ -188,10 +188,12 @@ fn input_transform(profile: &[u8]) -> Result<std::sync::Arc<moxcms::TransformF32
         return Err(unsupported("input ICC profile must describe RGB pixels"));
     }
     let mut destination = ColorProfile::new_bt2020();
-    let linear = Some(ToneReprCurve::Parametric(vec![1.0]));
+    let linear = Some(ToneReprCurve::Lut(vec![]));
     destination.red_trc = linear.clone();
     destination.green_trc = linear.clone();
     destination.blue_trc = linear;
+    // The destination is scene-linear, not the constructor's BT.2020 transfer.
+    destination.cicp = None;
     source
         .create_transform_f32(
             Layout::Rgba,
@@ -199,6 +201,7 @@ fn input_transform(profile: &[u8]) -> Result<std::sync::Arc<moxcms::TransformF32
             Layout::Rgba,
             TransformOptions {
                 prefer_fixed_point: false,
+                allow_extended_range_rgb_xyz: true,
                 ..Default::default()
             },
         )
@@ -210,6 +213,9 @@ mod tests;
 
 #[cfg(test)]
 mod bounds_tests;
+
+#[cfg(test)]
+mod linear_input_tests;
 
 pub fn render_export_raster(
     bytes: &[u8],

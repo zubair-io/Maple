@@ -2,9 +2,6 @@ package app.justmaple.aperture.data
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.ColorSpace
-import android.graphics.ImageDecoder
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import app.justmaple.aperture.cloud.CloudLibrary
@@ -128,8 +125,9 @@ class PhotoLibrary(private val context: Context) {
         withContext(Dispatchers.IO) {
             val folder = File(context.cacheDir, "originals").apply { mkdirs() }
             val platformDecode = photo.extension in setOf("heic", "heif", "avif")
-            val extension = if (platformDecode) "png" else photo.extension
-            val file = File(folder, "${digest(photo.key)}.$extension")
+            val extension = if (platformDecode) "tiff" else photo.extension
+            val identity = if (platformDecode) "platform-rgb-v1:${photo.key}" else photo.key
+            val file = File(folder, "${digest(identity)}.$extension")
             if (!file.exists()) {
                 val temporary = File.createTempFile("import-", ".tmp", folder)
                 try {
@@ -140,25 +138,12 @@ class PhotoLibrary(private val context: Context) {
                             temporary.outputStream().use(input::copyTo)
                         } ?: error("Read permission was revoked for ${photo.name}")
                     if (platformDecode) {
-                        val bitmap =
-                            ImageDecoder.decodeBitmap(ImageDecoder.createSource(temporary)) {
-                                decoder,
-                                _,
-                                _ ->
-                                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                                decoder.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB))
-                            }
-                        val converted = File.createTempFile("convert-", ".tmp", folder)
+                        val converted = File(folder, "convert-${java.util.UUID.randomUUID()}.tiff")
                         try {
-                            converted.outputStream().use { output ->
-                                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
-                                    "Cannot decode ${photo.name}"
-                                }
-                            }
+                            PlatformRasterStage.write(temporary, converted)
                             check(converted.renameTo(file)) { "Could not stage ${photo.name}" }
                         } finally {
                             converted.delete()
-                            bitmap.recycle()
                         }
                     } else check(temporary.renameTo(file)) { "Could not stage ${photo.name}" }
                 } finally {

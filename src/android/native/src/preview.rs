@@ -40,9 +40,39 @@ mod tests {
         })
         .save(&path)
         .unwrap();
+        check_raster_parity(&path);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn staged_float_raster_android_binding_matches_cpu_export() {
+        let path = std::env::temp_dir().join(format!(
+            "maple-android-float-parity-{}.tiff",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let pixels: Vec<u8> = (0..64 * 48)
+            .flat_map(|i| [1.2 + (i % 64) as f32 / 128.0, -0.1, 0.3005, 1.0])
+            .flat_map(|v| half::f16::from_f32(v).to_bits().to_ne_bytes())
+            .collect();
+        crate::platform_raster::stage(
+            &pixels,
+            64,
+            48,
+            64 * 8,
+            9,
+            &crate::platform_raster::test_profile(moxcms::ColorProfile::new_srgb(), true),
+            &path,
+        )
+        .unwrap();
+        check_raster_parity(&path);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    fn check_raster_parity(path: &std::path::Path) {
         let xml = "<rdf:Description xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>";
         let mut session = Session::open(path.to_str().unwrap(), xml, 2048).unwrap();
-        for exposure in [0.0, 1.25] {
+        for exposure in [0.0, 1.25, -1.5] {
             let field = raw_core::types::ADJUSTMENT_SCHEMA
                 .iter()
                 .position(|f| f.name == "exposure")
@@ -78,7 +108,6 @@ mod tests {
                 "Raster CPU/GPU byte difference {worst}, exposure {exposure}"
             );
         }
-        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

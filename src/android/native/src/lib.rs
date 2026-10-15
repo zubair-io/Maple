@@ -1,6 +1,7 @@
 //! Android native binding. Colour and geometry remain in raw-core/raw-gpu.
 mod fields;
 mod film;
+mod platform_raster;
 mod preview;
 mod transfer;
 mod xmp;
@@ -197,6 +198,41 @@ pub unsafe extern "C" fn maple_android_export(
 ) -> i32 {
     guarded(-1, || {
         transfer::export(text(path)?, text(xml)?, text(destination)?)?;
+        Ok(0)
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_stage_bitmap(
+    pixels: *const u8,
+    width: u32,
+    height: u32,
+    stride: usize,
+    format: u32,
+    profile: *const f32,
+    destination: *const c_char,
+) -> i32 {
+    guarded(-1, || {
+        if pixels.is_null() || profile.is_null() {
+            return Err("Missing decoded pixels or color profile".into());
+        }
+        let row = (width as usize)
+            .checked_mul(platform_raster::pixel_bytes(format)?)
+            .ok_or("Invalid bitmap width")?;
+        let size = (height as usize)
+            .checked_sub(1)
+            .and_then(|h| h.checked_mul(stride))
+            .and_then(|offset| offset.checked_add(row))
+            .ok_or("Invalid bitmap size")?;
+        platform_raster::stage(
+            std::slice::from_raw_parts(pixels, size),
+            width,
+            height,
+            stride,
+            format,
+            &std::slice::from_raw_parts(profile, 16).try_into().unwrap(),
+            std::path::Path::new(text(destination)?),
+        )?;
         Ok(0)
     })
 }
