@@ -64,8 +64,34 @@ candidates, comparison logs and complete-case accounting.
 - GPU binding: 19 passed, 0 failed, 1 physical fixture test ignored.
 - Synthetic gray, gray adjustments and gray DCP scripts all pass.
 
+## Extended physical regression set
+
+The same candidate executable completed 33 additional required comparisons:
+22 pass, 11 fail, none are missing, and all 122 input hashes remain unchanged.
+The evidence is in `fcs-surface-regression-probe/` under the durable root above.
+
+All 12 native-resolution detail comparisons pass. This retains the six original
+100MP detail fixes and clears the six native detail regressions observed during
+the repair. Both Auto controls also pass. The 19 down-resolution comparisons
+still contain 11 failures; this subset is not a full-corpus failure count.
+
+The failing `test_0000/contrast_min` maximum was attributed separately with
+matched physical controls and unchanged inputs:
+
+| Source | Maximum ΔE2000 | Ceiling | Result |
+| --- | ---: | ---: | --- |
+| `1d68d656` / version 28 | 37.27 | 39.00 | Pass |
+| `24d9cdc2` / version 29 | 39.26 | 39.00 | Fail |
+| Surface-support candidate / version 30 runtime | 39.54 | 39.00 | Fail |
+
+The version-29 highlight-confidence change introduced this failed case. The
+surface-support correction worsens its maximum further; it does not introduce
+a newly failing case here. Archives: `hr-contrast-v28-control/` and
+`fcs-contrast-v29-control/`, each with five unchanged input hashes.
+
 The ignored physical GPU white-balance test has a separately reproduced
 failure in the ongoing color-gate investigation; these binding tests do not
-waive it. The full physical color gate, original 100MP detail checks, broader
-regression set, and final performance qualification remain required before
-merge. This report does not authorize a gate exception.
+waive it. A complete 796-cell physical color gate on committed version 30 is
+running separately. Its final result, remaining regression repairs, and final
+performance qualification remain required before merge. This report does not
+authorize a gate exception.
