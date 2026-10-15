@@ -21,7 +21,7 @@
 //! re-exported here so call sites that say `raw_core::pipeline::stage`,
 //! `raw_core::pipeline::RenderQuality`, etc. continue to compile unchanged.
 
-mod capture_sharpening_helper;
+pub(crate) mod capture_sharpening_helper;
 mod develop;
 mod develop_sized;
 mod downsample;

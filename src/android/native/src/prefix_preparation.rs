@@ -8,41 +8,57 @@ pub struct Preparation {
     ext: String,
     model: AdjustmentModel,
     edge: u32,
+    prepare_fast: bool,
     result: Option<Prepared>,
 }
 
-struct Prepared {
+struct FrameData {
     pixels: Vec<f32>,
     width: u32,
     height: u32,
     prefix: AdjustmentModel,
     inputs: FullChainInputs<'static>,
     sampling: f32,
+}
+struct Prepared {
+    full: FrameData,
+    fast: Option<FrameData>,
     auto_fit: bool,
 }
 
 impl Session {
-    pub fn preparation(&self) -> Option<Preparation> {
-        let raw = self.raw.as_ref()?;
-        let ae = if self.auto_fit && self.model.profile == raw_core::types::Profile::Auto {
+    fn effective_ae(&self) -> raw_core::types::adjustment::AutoExposureMode {
+        if self.auto_fit && self.model.profile == raw_core::types::Profile::Auto {
             raw_core::types::adjustment::AutoExposureMode::Off
         } else {
             self.model.auto_exposure
-        };
-        if self.model.profile == self.profile && pixel_prefix_matches(&self.model, &self.prefix, ae)
-        {
+        }
+    }
+    pub fn needs_preparation(&self) -> bool {
+        self.raw.is_some()
+            && (self.model.profile != self.profile
+                || !pixel_prefix_matches(&self.model, &self.prefix, self.effective_ae()))
+    }
+    pub fn preparation(&self) -> Option<Preparation> {
+        if !self.needs_preparation() {
             return None;
         }
+        let raw = self.raw.as_ref()?;
+        let fast_model = without_capture(&self.model);
+        let prepare_fast = self.model.profile != self.profile
+            || self.fast.as_ref().is_none_or(|fast| {
+                !pixel_prefix_matches(&fast_model, &fast.prefix, self.effective_ae())
+            });
         Some(Preparation {
             raw: Arc::clone(raw),
             bytes: Arc::clone(&self.bytes),
             ext: self.ext.clone(),
             model: self.model.clone(),
             edge: self.edge,
+            prepare_fast,
             result: None,
         })
     }
-
     pub fn apply_preparation(
         &mut self,
         preparation: &mut Preparation,
@@ -61,59 +77,106 @@ impl Session {
         let Some(prepared) = preparation.result.take() else {
             return Ok(false);
         };
-        let live = LiveSession::new(&self.ctx, &prepared.pixels, prepared.width, prepared.height)?;
+        let full = prepared.full;
+        let live = LiveSession::new(&self.ctx, &full.pixels, full.width, full.height)?;
+        let fast = prepared
+            .fast
+            .map(|fast| {
+                FastPreview::new(
+                    &self.ctx,
+                    &fast.pixels,
+                    fast.width,
+                    fast.height,
+                    fast.prefix,
+                    fast.inputs,
+                    fast.sampling,
+                )
+            })
+            .transpose()?;
         if cancel.is_cancelled() {
             return Ok(false);
         }
         self.live = live;
-        self.inputs = prepared.inputs;
-        self.prefix = prepared.prefix;
-        self.sampling = prepared.sampling;
+        self.inputs = full.inputs;
+        self.prefix = full.prefix;
+        self.sampling = full.sampling;
         self.auto_fit = prepared.auto_fit;
         self.profile = self.model.profile;
+        if let Some(fast) = fast {
+            self.fast = Some(fast);
+        }
+        self.active_fast = false;
         Ok(true)
     }
 }
 
 impl Preparation {
-    pub fn run(&mut self, cancel: &CancelToken) -> Result<bool, String> {
-        if cancel.is_cancelled() {
-            return Ok(false);
-        }
-        let prepared = develop_prefix_rgba_cancellable(
+    fn frame(
+        &self,
+        model: &AdjustmentModel,
+        edge: u32,
+        cancel: &CancelToken,
+    ) -> Result<FrameData, String> {
+        let (pixels, width, height, prefix, anchor, sampling) = develop_prefix_rgba_cancellable(
             &self.raw,
             &self.bytes,
             &self.ext,
-            &self.model,
-            self.edge,
+            model,
+            edge,
             raw_core::CancelToken::new(cancel.flag()),
-        );
+        )?;
         if cancel.is_cancelled() {
-            return Ok(false);
+            return Err("Preparation cancelled".into());
         }
-        let (pixels, width, height, prefix, anchor, sampling) = prepared?;
-        let film = crate::film::resolve(&self.model.film_look)?;
+        let film = crate::film::resolve(&model.film_look)?;
         let inputs = chain_inputs_with_status(
             &self.raw,
             &self.bytes,
             &self.ext,
-            &self.model,
+            model,
             film.map(|f| f.0),
             film.map_or(0, |f| f.1),
             anchor,
         )
         .0;
-        if cancel.is_cancelled() {
-            return Ok(false);
-        }
-        let auto_fit = auto_will_fit(&self.model, &self.bytes, &self.ext);
-        self.result = Some(Prepared {
+        Ok(FrameData {
             pixels,
             width,
             height,
             prefix,
             inputs,
             sampling,
+        })
+    }
+    pub fn run(&mut self, cancel: &CancelToken) -> Result<bool, String> {
+        if cancel.is_cancelled() {
+            return Ok(false);
+        }
+        let fast = if self.prepare_fast {
+            let frame = self.frame(
+                &without_capture(&self.model),
+                fast_preview::FAST_EDGE.min(self.edge),
+                cancel,
+            );
+            if cancel.is_cancelled() {
+                return Ok(false);
+            }
+            Some(frame?)
+        } else {
+            None
+        };
+        let full = self.frame(&self.model, self.edge, cancel);
+        if cancel.is_cancelled() {
+            return Ok(false);
+        }
+        let full = full?;
+        let auto_fit = auto_will_fit(&self.model, &self.bytes, &self.ext);
+        if cancel.is_cancelled() {
+            return Ok(false);
+        }
+        self.result = Some(Prepared {
+            full,
+            fast,
             auto_fit,
         });
         Ok(true)

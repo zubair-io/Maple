@@ -91,6 +91,8 @@ rebinding the foreign XML. A shared-core namespace-aware event reader feeds ever
 native preview/editor/validation/export entry without a DOM or full-document
 normalization copy; persisted XML remains lexical. Opaque subtrees are validated
 as a borrowed stream and never retained by the adjustment reader.
+Loading validates the immutable source and its RDF description without
+serializing a throwaway document; serialization occurs only for a real consumer.
 Each immutable source is parsed once, and scalar/metadata revisions share its
 namespace-resolved attributes, so UI lookups do not scan opaque XML on slider ticks.
 Unstamped imported temperature/tint keep their foreign or legacy Maple scale
@@ -135,6 +137,12 @@ decoding work remain concurrent. Original-cache leases also span library instanc
 Slider ticks replay the resident GPU image (up to 2048 pixels) without CPU
 preparation. HSL, B&W, defringe, parametric splits and present geometry are GPU
 owned, so their controls do not re-develop the sensor or apply a stage twice.
+Capture sharpening immediately uses the existing GPU pass on a separate,
+prewarmed 512-pixel zero-capture upload. Amount/sigma changes update pooled
+uniforms and a fixed-capacity kernel buffer. This small preview is an
+interactive approximation; the final preview uses capture-before-AE CPU order
+and disables GPU capture, so a stage is never applied twice. Clearing capture
+returns to the untouched fast upload immediately.
 CPU prefix changes such as capture sharpening and lens corrections refine after
 150 ms of quiet on a separate serial CPU worker. Preparation holds immutable
 source Arcs, shares the host cancellation signal with the core, and transfers

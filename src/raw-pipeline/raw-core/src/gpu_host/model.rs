@@ -37,6 +37,22 @@ struct InputStorage {
 
 pub use super::prefix::{prefix_matches, stripped_prefix_model};
 
+/// The existing GPU pass uses the same model mapping and limits as CPU develop.
+/// Hosts must enable it only on a prefix that has not baked capture sharpening.
+pub fn capture_sharpening_inputs(
+    model: &AdjustmentModel,
+) -> Option<raw_gpu::CaptureSharpeningParams> {
+    crate::pipeline::capture_sharpening_helper::capture_sharpening_params_from_model(model).map(
+        |p| raw_gpu::CaptureSharpeningParams {
+            sigma: p.sigma,
+            strength: p.strength,
+            iterations: p.iterations,
+            highlight_threshold: p.highlight_threshold,
+            noise_floor: p.noise_floor,
+        },
+    )
+}
+
 /// The decoded frame's noise characterisation, carried from `RawImage` into the
 /// GPU chain (#1714). The NR stages' per-pixel modulation is a function of these
 /// two plus the pixel's own luminance, so the GPU chain has to see exactly what
