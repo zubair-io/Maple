@@ -44,6 +44,9 @@ internal class FileCloudServer(private val directory: File) : Closeable {
     private var refresh = "fixture-refresh-1"
     val original = File(directory, "photo #😀.png")
     val sidecar = File(directory, "photo #😀.xmp")
+    val derivative = File(directory, "rendered.png")
+    @Volatile var derivativeTransfers = 0
+    @Volatile var derivativeNotModified = 0
 
     init {
         worker.submit {
@@ -110,6 +113,28 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                 .put("access_token", access)
                 .put("refresh_token", refresh)
                 .put("user", JSONObject().put("id", "fixture-user").put("file_access", true))
+        fun derivativeResponse() {
+            val bytes = (derivative.takeIf { it.isFile } ?: original).readBytes()
+            val etag =
+                "\"" +
+                    MessageDigest.getInstance("SHA-256")
+                        .digest(path.path.orEmpty().toByteArray() + bytes)
+                        .joinToString("") { "%02x".format(it) } +
+                    "\""
+            val extra =
+                mapOf(
+                    "ETag" to etag,
+                    "Content-Type" to "image/png",
+                    "Cache-Control" to "must-revalidate",
+                )
+            if (headers["if-none-match"] == etag) {
+                derivativeNotModified++
+                respond(304, extra = extra)
+            } else {
+                derivativeTransfers++
+                respond(200, bytes, extra)
+            }
+        }
         when (path.path) {
             "/api/auth/native-code/claim" -> {
                 val data = JSONObject(body.toString(Charsets.UTF_8))
@@ -217,7 +242,7 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                     "/api/image/photos/2026/" + original.name -> respond(200, original.readBytes())
                     "/api/thumb/photos/2026/" + original.name -> {
                         thumbCount++
-                        respond(200, original.readBytes(), mapOf("Content-Type" to "image/png"))
+                        derivativeResponse()
                     }
                     "/api/preview/photos/2026/" + original.name -> {
                         previewCount++
@@ -226,7 +251,7 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                             respond(202, extra = mapOf("Retry-After" to "1"))
                         } else {
                             previewSuccesses++
-                            respond(200, original.readBytes(), mapOf("Content-Type" to "image/png"))
+                            derivativeResponse()
                         }
                     }
                     "/api/xmp" -> {

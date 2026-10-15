@@ -323,7 +323,7 @@ and `LocalDocuments.kt` own the following state:
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Staged original           | SHA-256 of URI, original size and mtime; OS-decoded HEIF/AVIF stages use PNG                                              | 512 MiB plus the currently leased original; lease prevents eviction while Rust reads it                                                                |
 | Local thumbnail / preview | Pipeline output version, Android thumbnail version 3, original identity, requested edge and complete current sidecar text | 64 MiB shared LRU; metadata-only RAW sidecars reuse the embedded preview                                                                               |
-| Cloud derivative          | SHA-256 of response bytes, requested through the versioned server routes                                                  | Same 64 MiB bound; server checks original/sidecar freshness                                                                                            |
+| Cloud derivative          | Pipeline output version, original identity and edge → atomic ETag/content-hash index → immutable payload                  | Same 64 MiB bound; conditional authenticated GET revalidates each load, 304 reuses bytes, changed validators replace the index                         |
 | Folder snapshot           | One parent URI → names, document URIs, types, sizes and mtimes from one provider query                                    | Replaced on folder listing/photo open; refreshed during baseline checks; invalidated after XMP publication/recovery. Sidecar contents are never cached |
 | Decoded RAW / GPU session | Current editor session                                                                                                    | Serialized worker owns one active image; closed on source/photo change or teardown                                                                     |
 
@@ -332,6 +332,7 @@ Single-file edits persist in `filesDir/sidecars/` under the SHA-256 of
 These durable XMPs have an explicit export. Earlier URI-only private sidecars
 remain untouched; their asset identity cannot be safely inferred for migration.
 Original and derivative cache hits update recency without enumerating the cache.
+Cloud derivative indexes pair validators with immutable payloads so concurrent responses cannot mismatch an ETag and image. Missing/evicted bodies trigger an unconditional fetch; previews and thumbnails have separate entries.
 Eviction runs after new bytes are published; the original's lease serializes
 staging and use so its file stays protected while Rust reads it.
 
