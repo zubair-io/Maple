@@ -2,7 +2,7 @@
 use super::*;
 
 #[test]
-fn local_witness_color_disagreement_reduces_fit_and_confidence() {
+fn local_witness_color_disagreement_weights_the_ratio() {
     // Half of the local witnesses match the target's surviving R:G=2:1;
     // half belong to a different surface, with R:G=1:30 and much more blue
     // per unit of surviving-channel energy. Averaging all ratios equally
@@ -18,7 +18,7 @@ fn local_witness_color_disagreement_reduces_fit_and_confidence() {
     let support = 24.0 + 24.0 * weight_other;
     let ratio =
         (24.0 * same[2] / mean_same + 24.0 * weight_other * other[2] / mean_other) / support;
-    let expected = 0.6 + support / 49.0 * (mean_target * ratio - 0.6);
+    let expected = 0.6 + 48.0 / 49.0 * (mean_target * ratio - 0.6);
     let unweighted = 0.6
         + 48.0 / 49.0 * (mean_target * (same[2] / mean_same + other[2] / mean_other) * 0.5 - 0.6);
     assert!(expected < 1.2 && unweighted > 1.8);
@@ -65,5 +65,28 @@ fn local_witness_color_disagreement_reduces_fit_and_confidence() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn uniform_ratio_support_does_not_collapse_toward_neutral() {
+    // Each surround has 48 observations of missing-B / mean(R,G) = 2.
+    // Their different surviving R:G ratios give different common weights,
+    // which cancel in the normalized fit. Confidence still counts the same
+    // 48 observations; it must not manufacture a different blue estimate.
+    let target = [0.6_f32, 0.3, 1.0];
+    let expected = 0.6 + 48.0 / 49.0 * (0.45 * 2.0 - 0.6);
+    for witness in [[0.4, 0.2, 0.6], [0.3, 0.3, 0.6], [0.45, 0.15, 0.6]] {
+        let mut image = Image::new(9, 9, ColorSpace::CameraNativeLinearRgb);
+        image.pixels.fill(witness);
+        image.pixels[40] = target;
+        apply(
+            &mut image,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            [1.0; 3],
+            0.0,
+        );
+        assert!((image.pixels[40][2] - expected).abs() < 1e-6);
+        assert_eq!(image.pixels[40][..2], target[..2]);
     }
 }

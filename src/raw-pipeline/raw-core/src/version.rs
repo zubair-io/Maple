@@ -154,7 +154,9 @@
 ///   the Adobe SDK and all three language bindings (#4630).
 /// - 28 — DNG HueSatMap uses independent-axis trilinear interpolation
 ///   instead of subdividing each cell into tetrahedra (#4631).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 28;
+/// - 29 — retain chromaticity-weighted local highlight ratios while restoring
+///   observation-count confidence; common weight scaling preserves the fit (#4628).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 29;
 
 #[cfg(test)]
 mod tests {

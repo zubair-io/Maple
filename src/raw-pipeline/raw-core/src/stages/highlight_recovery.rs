@@ -9,7 +9,7 @@
 //! Reject negative or non-finite witnesses without changing their pixels.
 //! Average the missing-channel ratios with the same surviving-chromaticity
 //! weights as the wider gather (#4628), then multiply by the target's known
-//! mean. Blend with the brightest-known neutral fallback at summed-weight/49
+//! mean. Blend with the brightest-known neutral fallback at count/49
 //! confidence (<4 witnesses means zero local confidence). This treats channel permutations equally
 //! and avoids both a preferred green denominator and ratios of averaged ratios.
 //! Fully clipped pixels retain the existing neutral saturation-white fallback.
@@ -414,14 +414,15 @@ fn apply_chromatic_adaptation(
                 }
             }
             if count >= 4 && weight_sum > 0.0 {
-                // Unrelated witnesses lower confidence as well as their
-                // contribution to the fit. Uniform support still gives the
-                // original count/49 formula exactly.
+                // Chromaticity weights select the ratio, while the number of
+                // usable observations sets the original local confidence.
+                // Scaling every weight equally must not change a supported
+                // ratio into the neutral fallback (#4628).
                 let neutral_level = (0..3)
                     .filter(|c| (m >> c) & 1 == 0)
                     .map(|c| p_in[c])
                     .fold(f32::NEG_INFINITY, f32::max);
-                let confidence = weight_sum / NEIGHBOR_WINDOW_AREA;
+                let confidence = count as f32 / NEIGHBOR_WINDOW_AREA;
                 let mut p_out = p_in;
                 for c in 0..3 {
                     if (m >> c) & 1 == 1 {
