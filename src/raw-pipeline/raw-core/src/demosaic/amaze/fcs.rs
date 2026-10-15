@@ -125,6 +125,9 @@ pub(super) fn suppress_false_colour(
     // centre even when the positive hue estimate was already valid (#4627).
     // Bound that blend by the nearest measured target/green ratios transported
     // to the centre, extending the interval to retain the original estimate.
+    // Apply this only when both CFA planes support one surface. A real colour
+    // boundary needs the value-domain correction; transporting its distinct
+    // ratios to the centre would suppress true detail (#4627).
     // This limits the correction, not scene range or the sampled channels.
     let bounded_positive_blend = |x: usize, y: usize, target: usize, hue: f32, blended: f32| {
         let centre = green[y * w + x];
@@ -133,6 +136,8 @@ pub(super) fn suppress_false_colour(
         }
         let mut low = f32::INFINITY;
         let mut high = f32::NEG_INFINITY;
+        let mut ratio_sum = 0.0;
+        let mut count = 0;
         for (dx, dy) in [
             (-1_isize, 0_isize),
             (1, 0),
@@ -155,9 +160,20 @@ pub(super) fn suppress_false_colour(
             let ratio = sample / guide;
             low = low.min(ratio);
             high = high.max(ratio);
+            ratio_sum += ratio;
+            count += 1;
         }
-        if low.is_finite() && high.is_finite() {
-            blended.clamp((centre * low).min(hue), (centre * high).max(hue))
+        let mean_ratio = ratio_sum / count as f32;
+        if !low.is_finite()
+            || !high.is_finite()
+            || mean_ratio <= 0.0
+            || (high - low) / mean_ratio > MAX_COLLAPSED_RATIO_SPREAD
+        {
+            return blended;
+        }
+        let bounded = blended.clamp((centre * low).min(hue), (centre * high).max(hue));
+        if bounded != blended && sampled_surface_support(x, y, w, cfa_flat, green) {
+            bounded
         } else {
             blended
         }
@@ -177,50 +193,7 @@ pub(super) fn suppress_false_colour(
             return None;
         }
 
-        // The diagonal target samples must belong to the centre surface, not
-        // just agree with one another. An isolated R/B sample can sit inside
-        // a flat background whose four opposite-colour diagonals all report
-        // the same ratio; transporting that ratio would paint background hue
-        // into the centre even though AMaZE's zero-clamped fallback is safer.
-        // Check that the centre's sampled colour agrees with its nearest
-        // same-colour cardinal neighbours before trusting the opposite plane.
-        let sampled_colour = color_at(x, y);
-        let centre_ratio = cfa_flat[centre_index] / centre;
-        let mut min_surface_ratio = centre_ratio;
-        let mut max_surface_ratio = centre_ratio;
-        let mut surface_ratio_sum = centre_ratio;
-        let mut surface_ratio_count = 1usize;
-        // Check the full 3x3 neighborhood on the sampled channel's Bayer
-        // lattice. The diagonal sites catch a plus-shaped feature whose
-        // cardinal support alone looks uniform, while every comparison stays
-        // within this one color channel.
-        for dy in [-2_isize, 0, 2] {
-            for dx in [-2_isize, 0, 2] {
-                if dx == 0 && dy == 0 {
-                    continue;
-                }
-                let nx = (x as isize + dx) as usize;
-                let ny = (y as isize + dy) as usize;
-                if color_at(nx, ny) != sampled_colour {
-                    continue;
-                }
-                let neighbour_index = ny * w + nx;
-                let (sample, guide) = (cfa_flat[neighbour_index], green[neighbour_index]);
-                if sample < 0.0 || guide <= 0.0 {
-                    return None;
-                }
-                let ratio = sample / guide;
-                min_surface_ratio = min_surface_ratio.min(ratio);
-                max_surface_ratio = max_surface_ratio.max(ratio);
-                surface_ratio_sum += ratio;
-                surface_ratio_count += 1;
-            }
-        }
-        let mean_surface_ratio = surface_ratio_sum / surface_ratio_count as f32;
-        if mean_surface_ratio <= 0.0
-            || (max_surface_ratio - min_surface_ratio) / mean_surface_ratio
-                > MAX_COLLAPSED_RATIO_SPREAD
-        {
+        if !sampled_surface_support(x, y, w, cfa_flat, green) {
             return None;
         }
 
@@ -311,6 +284,37 @@ pub(super) fn suppress_false_colour(
                 row[x] = px;
             }
         });
+}
+
+/// Check the centre against the full 3x3 lattice of its measured CFA colour.
+/// Opposite-colour neighbours can agree with each other while surrounding an
+/// isolated feature or a plus-shaped surface. Ratios are compared only within
+/// one colour plane, so a saturated uniform surface remains valid.
+fn sampled_surface_support(x: usize, y: usize, w: usize, cfa: &[f32], green: &[f32]) -> bool {
+    let centre_index = y * w + x;
+    let centre_ratio = cfa[centre_index] / green[centre_index];
+    let mut low = centre_ratio;
+    let mut high = centre_ratio;
+    let mut sum = centre_ratio;
+    for dy in [-2_isize, 0, 2] {
+        for dx in [-2_isize, 0, 2] {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            // A two-pixel offset preserves the sampled colour in every Bayer phase.
+            let i = (y as isize + dy) as usize * w + (x as isize + dx) as usize;
+            let (sample, guide) = (cfa[i], green[i]);
+            if sample < 0.0 || guide <= 0.0 {
+                return false;
+            }
+            let ratio = sample / guide;
+            low = low.min(ratio);
+            high = high.max(ratio);
+            sum += ratio;
+        }
+    }
+    let mean = sum / 9.0;
+    mean > 0.0 && (high - low) / mean <= MAX_COLLAPSED_RATIO_SPREAD
 }
 
 /// A rejected constant-hue fit does not justify importing the bright side's

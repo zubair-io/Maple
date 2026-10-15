@@ -156,7 +156,9 @@
 ///   instead of subdividing each cell into tetrahedra (#4631).
 /// - 29 — retain chromaticity-weighted local highlight ratios while restoring
 ///   observation-count confidence; common weight scaling preserves the fit (#4628).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 29;
+/// - 30 — positive AMaZE chroma bounds require coherent target and sampled
+///   surface support, preserving value-domain correction at colour edges (#4627).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 30;
 
 #[cfg(test)]
 mod tests {

@@ -55,6 +55,8 @@ mod scratch;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_fcs_colour_edge;
+#[cfg(test)]
 mod tests_fcs_luminance_edge;
 #[cfg(test)]
 mod tests_white_balance;
