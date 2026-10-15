@@ -134,28 +134,14 @@ extension AppShell {
   private func renameSMBAsset(_ asset: AssetRef, to newFilename: String) async throws -> AssetRef {
     guard let source = browseVM.currentSource as? SMBSource,
       let mapleID = asset.stableID,
-      let bytesProvider = asset.bytesProvider
+      asset.bytesProvider != nil
     else {
       throw FileOperationError.sourceMissing("SMB share is not connected")
     }
     let ref = ImageRef(id: mapleID, displayName: asset.displayName, url: nil)
-    _ = try await source.renameAsset(ref, to: newFilename)
-    let ext = (newFilename as NSString).pathExtension.lowercased()
-    // Reuse the OLD `bytesProvider` verbatim: it closes over the SAME
-    // `ImageRef` (maple_id, unchanged by a rename) and resolves the
-    // share-relative path at CALL time via `SMBSource.path(for:)` —
-    // which `renameAsset` above just updated — so it already points at
-    // the new location without rebuilding anything.
-    return AssetRef(
-      displayName: newFilename,
-      hintExtension: ext.isEmpty ? nil : ext,
-      stableID: mapleID,
-      captureDate: asset.captureDate,
-      explicitIsRaw: asset.explicitIsRaw,
-      thumbnailProvenance: asset.thumbnailProvenance,
-      displayPreviewProvider: asset.displayPreviewProvider,
-      bytesProvider: bytesProvider
-    )
+    let path = try await source.renameAsset(ref, to: newFilename)
+    // Keep decode routing and bind drag-out to the confirmed new path.
+    return try asset.renamedSMB(to: newFilename, at: path, source: source)
   }
 
   // MARK: - Cloud
@@ -163,7 +149,7 @@ extension AppShell {
   private func renameCloudAsset(_ asset: AssetRef, to newFilename: String) async throws -> AssetRef
   {
     guard let catalog = asset.catalog, let assetID = asset.stableID,
-      let bytesProvider = asset.bytesProvider
+      asset.bytesProvider != nil
     else {
       throw FileOperationError.unsupportedSource(
         "This photo hasn't finished indexing on the server yet — rename isn't available until it has."
@@ -175,24 +161,10 @@ extension AppShell {
     let result = try await remote.renameAsset(assetID: assetID, newFilename: newFilename)
     switch result {
     case .ok(let response):
-      let ext = (newFilename as NSString).pathExtension.lowercased()
-      return AssetRef(
-        displayName: newFilename,
-        hintExtension: ext.isEmpty ? nil : ext,
-        stableID: assetID,
-        captureDate: asset.captureDate,
-        explicitIsRaw: asset.explicitIsRaw,
-        thumbnailProvenance: asset.thumbnailProvenance,
-        displayPreviewProvider: asset.displayPreviewProvider,
-        // The server response has no fresh `address` (slug:relPath)
-        // for the new location — nil is the CORRECT value here, not
-        // a regression: `InfoPanelView.loadEnrichment` already falls
-        // back to a by-fspath lookup when `catalog.address` is nil.
-        catalog: CatalogRef(
-          serverID: catalog.serverID, folderID: catalog.folderID,
-          absPath: response.newAbsPath, address: nil),
-        bytesProvider: bytesProvider
+      let source = CloudSource(
+        server: effectiveServer, folderID: catalog.folderID, libraryPath: "", httpClient: httpClient
       )
+      return try asset.renamedCloud(to: newFilename, at: response.newAbsPath, source: source)
     case .skipped:
       throw FileOperationError.destinationExists(newFilename)
     case .invalid(let message):

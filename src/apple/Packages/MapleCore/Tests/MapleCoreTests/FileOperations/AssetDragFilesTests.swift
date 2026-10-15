@@ -125,6 +125,17 @@ final class AssetDragFilesTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: destination), fixture.original)
     XCTAssertEqual(try Data(contentsOf: fixture.raw), fixture.original)
     XCTAssertEqual(try Data(contentsOf: sidecar), edits)
+    // The inline rename entry point supplies an ID-only reference.
+    let ref = ImageRef(id: try XCTUnwrap(asset.stableID), displayName: asset.displayName)
+    let path = try await fixture.source.renameAsset(ref, to: "renamed.dng")
+    let renamed = try asset.renamedSMB(to: "renamed.dng", at: path, source: fixture.source)
+    let renamedDestination = root.appendingPathComponent(AssetDragFiles.fileName(for: renamed))
+    try await AssetDragFiles.shared.writeOriginal(renamed, to: renamedDestination)
+    XCTAssertEqual(renamedDestination.lastPathComponent, "renamed.dng")
+    XCTAssertEqual(try Data(contentsOf: renamedDestination), fixture.original)
+    XCTAssertEqual(
+      try Data(contentsOf: fixture.share.appendingPathComponent("renamed.dng")), fixture.original)
+    XCTAssertEqual(try Data(contentsOf: fixture.share.appendingPathComponent("renamed.xmp")), edits)
     await fixture.close()
   }
 
