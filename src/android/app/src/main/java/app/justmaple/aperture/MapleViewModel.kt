@@ -36,6 +36,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
             )
         )
     val state = mutable.asStateFlow()
+    internal var initialIntentHandled = false
     private var generation = 0
     private var renderXml = ""
     private var baseline: String? = null
@@ -224,6 +225,10 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                     canResetRawOnlySliders = false,
                     loading = true,
                     rendering = false,
+                    document = XmpDocument(),
+                    values = emptyMap(),
+                    canUndo = false,
+                    canRedo = false,
                     dirty = false,
                     error = null,
                 )
@@ -253,6 +258,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun edit() {
+        if (state.value.loading) return
         viewModelScope.launch {
             mutable.update { it.copy(mode = PhotoMode.Edit) }
             startEditor(generation)
@@ -333,7 +339,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         val field = AdjustmentFields.byName[name] ?: return
         val next = value.coerceIn(field.minimum, field.maximum)
         val current = state.value
-        if (current.rendering || current.values.isEmpty() || current.values[name] == next) return
+        if (!current.canEdit || current.values[name] == next) return
         if (current.values["_raw"] == 0f && !field.rasterSupported) return
         beginGesture()
         val manualWb = name == "temperature" || name == "tint"
@@ -384,6 +390,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun undo() {
+        if (!state.value.canEdit) return
         commitGesture()
         if (undo.isNotEmpty()) {
             redo.addLast(snapshot())
@@ -392,6 +399,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun redo() {
+        if (!state.value.canEdit) return
         if (redo.isNotEmpty()) {
             undo.addLast(snapshot())
             restore(redo.removeLast())
@@ -410,9 +418,11 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun attribute(name: String, value: String?) {
-        beginGesture()
+        if (state.value.loading || state.value.rendering || state.value.selected == null) return
+        val editing = state.value.mode == PhotoMode.Edit && state.value.values.isNotEmpty()
+        if (editing) beginGesture()
         mutable.update { it.copy(document = it.document.withAttribute(name, value), dirty = true) }
-        commitGesture()
+        if (editing) commitGesture()
         scheduleSave()
         if (state.value.mode == PhotoMode.Edit) {
             renderXml = state.value.document.serialize()
@@ -427,6 +437,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
             saveLock.lock()
             try {
                 val photo = state.value.selected ?: return@launch
+                mutable.update { it.copy(loading = true) }
                 val loaded = library.loadSidecar(photo)
                 val token = ++generation
                 renderer.invalidateDraws()
@@ -438,6 +449,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                 mutable.update {
                     it.copy(
                         document = loaded.document,
+                        loading = false,
                         dirty = false,
                         error = null,
                         canUndo = false,
@@ -537,6 +549,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun export(destination: Uri, xmp: Boolean) {
         check(flush()) { "Save the sidecar before exporting" }
         val snapshot = state.value
+        check(!snapshot.loading) { "Wait for the photo to finish loading before exporting" }
         val photo = snapshot.selected ?: error("Choose a photo")
         PhotoExport(getApplication(), library).write(photo, snapshot.document, destination, xmp)
     }

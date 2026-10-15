@@ -114,7 +114,11 @@ class EditorIntegrationTest {
         compose.waitUntil(30_000) {
             model.state.value.selected != null && !model.state.value.loading
         }
-        compose.runOnIdle { model.attribute("xmp:Label", "Sunset 🌅") }
+        compose.runOnIdle {
+            model.attribute("xmp:Label", "Sunset 🌅")
+            model.attribute("xmp:Rating", "3")
+            assertFalse(model.state.value.canUndo)
+        }
         compose.onNodeWithContentDescription("Edit").performClick()
         compose.waitUntil(120_000) {
             model.state.value.mode == PhotoMode.Edit && !model.state.value.rendering
@@ -122,6 +126,8 @@ class EditorIntegrationTest {
         assertNull(model.state.value.error)
         assertTrue(model.state.value.values.isNotEmpty())
         compose.runOnIdle {
+            model.undo()
+            assertTrue(model.state.value.values.isNotEmpty())
             model.setField("exposure", 1.25f)
             model.commitGesture()
         }
@@ -130,6 +136,7 @@ class EditorIntegrationTest {
         val saved = runBlocking { model.library.loadSidecar(photo) }
         assertEquals("1.25", saved.document.attribute("crs:Exposure2012"))
         assertEquals("Sunset 🌅", saved.document.attribute("xmp:Label"))
+        assertEquals("3", saved.document.attribute("xmp:Rating"))
         compose.runOnIdle { model.undo() }
         compose.waitUntil(30_000) { !model.state.value.dirty && !model.state.value.saving }
         val restored = runBlocking { model.library.loadSidecar(photo) }

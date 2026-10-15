@@ -23,12 +23,18 @@ internal fun PreviewActions(model: MapleViewModel, state: MapleState) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             val picked = state.document.attribute("papp:Flag") == "pick"
-            MuiIconButton("Pick photo", Icons.Outlined.Flag, selected = picked) {
+            MuiIconButton(
+                "Pick photo",
+                Icons.Outlined.Flag,
+                enabled = !state.loading,
+                selected = picked,
+            ) {
                 model.attribute("papp:Flag", if (picked) null else "pick")
             }
             for (rating in 1..5) MuiIconButton(
                 "Rate $rating stars",
                 Icons.Outlined.Star,
+                enabled = !state.loading,
                 selected = state.document.rating >= rating,
             ) {
                 model.attribute(

@@ -117,7 +117,7 @@ internal fun ControlsInspector(
                         onChange = { model.setField(field.name, it) },
                         onCommit = model::commitGesture,
                         enabled =
-                            !state.rendering &&
+                            state.canEdit &&
                                 (field.name != "film_strength" || filmId.isNotEmpty()) &&
                                 (!field.name.startsWith("gray_mixer_") || monochrome),
                     )

@@ -79,7 +79,7 @@ internal fun FloatingPhotoHeader(
                     MuiIconButton(
                         "Undo",
                         Icons.AutoMirrored.Outlined.Undo,
-                        enabled = state.canUndo,
+                        enabled = state.canUndo && state.canEdit,
                         onClick = model::undo,
                     )
                 else
@@ -100,6 +100,7 @@ internal fun FloatingPhotoHeader(
                                     else "Auto"
                             for (option in listOf("Auto", "Neutral")) DropdownMenuItem(
                                 text = { Text("Profile · $option") },
+                                enabled = state.canEdit,
                                 modifier = Modifier.semantics { selected = profile == option },
                                 onClick = {
                                     menu = false
@@ -111,7 +112,7 @@ internal fun FloatingPhotoHeader(
                             DropdownMenuItem(
                                 text = { Text("Redo") },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Redo, null) },
-                                enabled = state.canRedo,
+                                enabled = state.canRedo && state.canEdit,
                                 onClick = {
                                     menu = false
                                     model.redo()

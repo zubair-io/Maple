@@ -29,7 +29,10 @@ data class MapleState(
     val showFilmstrip: Boolean = true,
     val cloudSigningIn: Boolean = false,
     val cloudConnectionsVersion: Int = 0,
-)
+) {
+    val canEdit: Boolean
+        get() = mode == PhotoMode.Edit && !loading && !rendering && values.isNotEmpty()
+}
 
 /** Breadcrumbs come from actual provider listings; document IDs can be opaque. */
 internal fun MapleState.trailTo(folder: Folder, ancestors: List<Folder>?): List<Folder> {
