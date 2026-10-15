@@ -76,6 +76,7 @@ ApnsDeviceRegistrationClientTests
 ApnsPushRegistrarTests
 AssetChangeRelativePathTests
 AssetDropCollisionResolverTests
+AssetDragFilesTests
 AssetRefCatalogTests
 AssetRefStableIDTests
 AssetRefStubAudioTests

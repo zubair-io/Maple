@@ -48,7 +48,10 @@
       try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
       defer { try? FileManager.default.removeItem(at: root) }
       let bytes = Data([0xFF, 0xD8, 0, 0xFF, 0xD9])
-      let asset = AssetRef(displayName: "Remote photo.jpg", hintExtension: "jpg") { bytes }
+      let asset = AssetRef(
+        displayName: "Remote photo.jpg", hintExtension: "jpg",
+        originalFileWriter: { try bytes.write(to: $0) },
+        bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
       let item = MacAssetDragItem(asset: asset)
       let pasteboard = NSPasteboard.withUniqueName()
       defer { pasteboard.releaseGlobally() }

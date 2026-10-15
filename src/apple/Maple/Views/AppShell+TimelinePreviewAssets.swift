@@ -181,6 +181,7 @@ extension AppShell {
       // sibling on a different server 404'd, never upgrading past its
       // grid thumbnail.
       displayPreviewProvider: { try await source.preview(for: imageRef) },
+      originalFileWriter: { try await source.writeOriginal(for: imageRef, to: $0) },
       bytesProvider: { try await source.rawBytes(for: imageRef) }
     )
   }
