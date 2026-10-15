@@ -32,7 +32,21 @@ object NativeBridge {
         wideColor: Boolean,
     )
 
-    external fun render(handle: Long)
+    external fun createCancellation(): Long
+
+    external fun setCancellation(flag: Long, value: Boolean)
+
+    external fun closeCancellation(flag: Long)
+
+    external fun render(handle: Long, flag: Long): Boolean
+
+    external fun createPreparation(handle: Long): Long
+
+    external fun runPreparation(work: Long, flag: Long): Boolean
+
+    external fun applyPreparation(handle: Long, work: Long, flag: Long): Boolean
+
+    external fun closePreparation(work: Long)
 
     external fun thumbnail(path: String, destination: String, xml: String, edge: Int)
 

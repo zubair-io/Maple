@@ -19,7 +19,14 @@ int maple_android_model(void *, const char *);
 bool maple_android_raster_compatible(const char *);
 int maple_android_surface(void *, void *, uint32_t, uint32_t, bool);
 uint32_t maple_android_output_primaries(void *);
-int maple_android_render(void *);
+int maple_android_render(void *, const void *);
+int maple_android_preparation_new(void *, void **);
+int maple_android_preparation_run(void *, const void *);
+int maple_android_preparation_apply(void *, void *, const void *);
+void maple_android_preparation_free(void *);
+void *maple_android_cancel_new();
+void maple_android_cancel_set(const void *, bool);
+void maple_android_cancel_free(void *);
 int maple_android_thumbnail(const char *, const char *, const char *, uint32_t);
 int maple_android_export(const char *, const char *, const char *);
 int maple_android_stage_bitmap(const uint8_t *, uint32_t, uint32_t, size_t, uint32_t, const float *, const char *);
@@ -124,7 +131,30 @@ extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_
     if (ANativeWindow_setBuffersDataSpace(e->window, space) != 0)
         env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Android rejected the canvas color space");
 }
-extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_render(JNIEnv *env, jobject, jlong handle) { check(env, maple_android_render(editor(handle)->core)); }
+extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_createCancellation(JNIEnv *, jobject) { return reinterpret_cast<jlong>(maple_android_cancel_new()); }
+extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_setCancellation(JNIEnv *, jobject, jlong flag, jboolean value) { maple_android_cancel_set(reinterpret_cast<void *>(flag), value == JNI_TRUE); }
+extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_closeCancellation(JNIEnv *, jobject, jlong flag) { maple_android_cancel_free(reinterpret_cast<void *>(flag)); }
+extern "C" JNIEXPORT jboolean JNICALL Java_app_justmaple_aperture_data_NativeBridge_render(JNIEnv *env, jobject, jlong handle, jlong flag) {
+    const int result = maple_android_render(editor(handle)->core, reinterpret_cast<void *>(flag));
+    if (result < 0) check(env, result);
+    return result == 0 ? JNI_TRUE : JNI_FALSE;
+}
+extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_createPreparation(JNIEnv *env, jobject, jlong handle) {
+    void *work = nullptr;
+    check(env, maple_android_preparation_new(editor(handle)->core, &work));
+    return reinterpret_cast<jlong>(work);
+}
+extern "C" JNIEXPORT jboolean JNICALL Java_app_justmaple_aperture_data_NativeBridge_runPreparation(JNIEnv *env, jobject, jlong work, jlong flag) {
+    const int result = maple_android_preparation_run(reinterpret_cast<void *>(work), reinterpret_cast<void *>(flag));
+    if (result < 0) check(env, result);
+    return result == 0 ? JNI_TRUE : JNI_FALSE;
+}
+extern "C" JNIEXPORT jboolean JNICALL Java_app_justmaple_aperture_data_NativeBridge_applyPreparation(JNIEnv *env, jobject, jlong handle, jlong work, jlong flag) {
+    const int result = maple_android_preparation_apply(editor(handle)->core, reinterpret_cast<void *>(work), reinterpret_cast<void *>(flag));
+    if (result < 0) check(env, result);
+    return result == 0 ? JNI_TRUE : JNI_FALSE;
+}
+extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_closePreparation(JNIEnv *, jobject, jlong work) { maple_android_preparation_free(reinterpret_cast<void *>(work)); }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_thumbnail(JNIEnv *env, jobject, jstring path, jstring destination, jstring xml, jint edge) {
     Utf8 p(env, path), d(env, destination), x(env, xml);
     if (env->ExceptionCheck()) return;

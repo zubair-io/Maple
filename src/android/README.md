@@ -132,6 +132,18 @@ through bitmap decoding, including conditional revalidation and cancellation.
 Eviction can unlink a path without invalidating an active reader; network and
 decoding work remain concurrent. Original-cache leases also span library instances.
 
+Slider ticks replay the resident GPU image (up to 2048 pixels) without CPU
+preparation. HSL, B&W, defringe, parametric splits and present geometry are GPU
+owned, so their controls do not re-develop the sensor or apply a stage twice.
+CPU prefix changes such as capture sharpening and lens corrections refine after
+150 ms of quiet on a separate serial CPU worker. Preparation holds immutable
+source Arcs, shares the host cancellation signal with the core, and transfers
+only a completed current result back to the GPU owner. New edits, navigation
+and teardown cancel refinement; source identity, model and revision guards
+reject stale uploads. Live GPU requests keep their own cancellation signal,
+so a new frame cannot clear an older CPU job's cancellation. Physical frame-time
+qualification remains tracked under #4623.
+
 As documented for the shared editor in `docs/pipeline.md`, transparency and CMYK
 inputs are rejected before output creation; the editor does not flatten them.
 
