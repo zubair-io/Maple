@@ -9,7 +9,7 @@
 
 use super::gpu_live_tests::{
     direct_raw_gpu, make_params, nonidentity_curve, nonidentity_lut, owned_arrays,
-    scene_linear_rgba,
+    scene_linear_rgba, TEST_ISO,
 };
 use super::*;
 use raw_core::types::WbMethod;
@@ -199,9 +199,9 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
             target_primaries: 1,
             input_shape: raw_gpu::InputShape::PostDcpRec2020Fp16,
             // Auto/AgX view tail (#1722 default, value 0).
-            // No DNG NoiseProfile in this fixture — the flat NLM filter (#1714).
+            // Same absent-profile ISO fallback as the FFI params.
             noise_profile: Vec::new(),
-            iso: 0,
+            iso: TEST_ISO,
             // No film look in this fixture (epic #2683 default: off).
             film_strength: 0.0,
             film_lut_size: 0,

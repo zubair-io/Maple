@@ -34,6 +34,7 @@ use raw_core::xmp::AdjustmentModel;
 // `super::gpu_live_tests::{..}` imports.
 pub(super) use super::gpu_live_test_support::{
     make_params, nonidentity_curve, nonidentity_lut, owned_arrays, scene_linear_rgba, OwnedArrays,
+    TEST_ISO,
 };
 
 pub(super) fn cpu_reference(
@@ -77,8 +78,13 @@ pub(super) fn cpu_reference(
         model.sharpen_detail,
         model.sharpen_masking,
     );
-    raw_core::stages::noise_reduction::apply_luminance(&mut img, model.nr_luminance, None, 100);
-    raw_core::stages::noise_reduction::apply_color(&mut img, model.nr_color, None, 100);
+    raw_core::stages::noise_reduction::apply_luminance(
+        &mut img,
+        model.nr_luminance,
+        None,
+        TEST_ISO,
+    );
+    raw_core::stages::noise_reduction::apply_color(&mut img, model.nr_color, None, TEST_ISO);
 
     // View tail: agx → rec2020_to_srgb → srgb_gamma_encode → curve → LUT.
     raw_core::view::agx::apply(&mut img, model.contrast, model.whites);
@@ -455,9 +461,9 @@ pub(super) fn direct_raw_gpu(
         // RAW shape — full chain including WB (pre-#1331 default).
         input_shape: raw_gpu::InputShape::PostDcpRec2020Fp16,
         // Auto/AgX view tail (#1722 default, value 0).
-        // No DNG NoiseProfile in this fixture — the flat NLM filter (#1714).
+        // Same absent-profile ISO fallback as the FFI params and CPU oracle.
         noise_profile: Vec::new(),
-        iso: 0,
+        iso: TEST_ISO,
         // No film look in this fixture (epic #2683 default: off).
         film_strength: 0.0,
         film_lut_size: 0,

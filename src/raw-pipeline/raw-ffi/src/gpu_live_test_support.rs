@@ -11,6 +11,9 @@ use raw_core::view::auto_profile::curve::{ChannelCurve, ProfileCurve};
 use raw_core::view::auto_profile::lut::ColorLut;
 use raw_core::xmp::AdjustmentModel;
 
+// No DNG NoiseProfile: CPU and GPU must use the same ISO fallback (#4638).
+pub(super) const TEST_ISO: u32 = 100;
+
 /// A structured scene-linear Rec.2020 RGBA fixture (the kind post-DCP develop
 /// produces). Mirrors the raw-gpu oracle's fixture so the two crates' parity
 /// gates exercise the same content.
@@ -179,11 +182,10 @@ pub(super) fn make_params(
         color_grade_global_hue: model.color_grade_global_hue,
         color_grade_global_saturation: model.color_grade_global_saturation,
         color_grade_global_luminance: model.color_grade_global_luminance,
-        // No DNG NoiseProfile in the marshalling fixtures (#1714): a null
-        // pointer is the "no profile" encoding, i.e. the flat NLM filter.
+        // No DNG NoiseProfile: use the same ISO fallback as the CPU oracle.
         noise_profile_ptr: std::ptr::null(),
         noise_profile_len: 0,
-        iso: 0,
+        iso: TEST_ISO,
         // HSL 8-band adjustments (#1112) — pass through from the model.
         hsl_hue_red: model.hue_adjustment_red,
         hsl_hue_orange: model.hue_adjustment_orange,
