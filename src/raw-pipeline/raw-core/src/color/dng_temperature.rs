@@ -40,6 +40,7 @@ struct TempTableEntry {
 
 /// The Robertson 1968 correlated-color-temperature table, as shipped in
 /// Adobe DNG SDK's `dng_temperature.cpp`. 31 rows, `r` from 0 to 600 mired.
+#[rustfmt::skip]
 const TEMP_TABLE: [TempTableEntry; 31] = [
     TempTableEntry { r: 0.0, u: 0.18006, v: 0.26352, t: -0.24341 },
     TempTableEntry { r: 10.0, u: 0.18066, v: 0.26589, t: -0.25479 },
@@ -154,7 +155,11 @@ pub fn xy_to_temp_tint(x: f32, y: f32) -> (f32, f32) {
             let uu3 = uu3_raw / len3;
             let vv3 = vv3_raw / len3;
 
-            let tint = (uu * uu3 + vv * vv3) * TINT_SCALE;
+            // SDK Set_xy_coord measures tint from the interpolated locus,
+            // not either bounding table row (#4630).
+            let locus_u = TEMP_TABLE[index - 1].u * f + TEMP_TABLE[index].u * (1.0 - f);
+            let locus_v = TEMP_TABLE[index - 1].v * f + TEMP_TABLE[index].v * (1.0 - f);
+            let tint = ((u - locus_u) * uu3 + (v - locus_v) * vv3) * TINT_SCALE;
 
             return (temperature as f32, tint as f32);
         }
@@ -233,10 +238,7 @@ mod tests {
     #[test]
     fn d65_xy_recovers_6502k() {
         let (temp, tint) = xy_to_temp_tint(0.31271, 0.32902);
-        assert!(
-            (temp - 6502.0).abs() < 30.0,
-            "expected ~6502K, got {temp}"
-        );
+        assert!((temp - 6502.0).abs() < 30.0, "expected ~6502K, got {temp}");
         assert!(
             (tint - 10.5).abs() < 3.0,
             "expected tint near +10.5 (D65's known offset from the \
@@ -248,10 +250,7 @@ mod tests {
     #[test]
     fn std_a_xy_recovers_2856k() {
         let (temp, tint) = xy_to_temp_tint(0.44757, 0.40745);
-        assert!(
-            (temp - 2856.0).abs() < 20.0,
-            "expected ~2856K, got {temp}"
-        );
+        assert!((temp - 2856.0).abs() < 20.0, "expected ~2856K, got {temp}");
         assert!(tint.abs() < 1.5, "expected near-zero tint, got {tint}");
     }
 
@@ -334,7 +333,14 @@ mod tests {
     /// meaningful bound that a `NaN`/`Inf`/negative result would fail.
     #[test]
     fn degenerate_temperature_stays_finite_and_in_gamut() {
-        for &temp in &[0.0_f32, -1.0, -6500.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        for &temp in &[
+            0.0_f32,
+            -1.0,
+            -6500.0,
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+        ] {
             for &tint in &[-120.0_f32, 0.0, 120.0] {
                 let (x, y) = temp_tint_to_xy(temp, tint);
                 assert!(
@@ -377,11 +383,11 @@ mod tests {
         let (x, y) = temp_tint_to_xy(4539.8, -53.1);
         let (temp, tint) = xy_to_temp_tint(x, y);
 
+        assert!((temp - 4539.8).abs() < 2.0, "expected ~4539.8K, got {temp}");
         assert!(
-            (temp - 4539.8).abs() < 2.0,
-            "expected ~4539.8K, got {temp}"
+            (tint - -53.1).abs() < 2.0,
+            "expected ~-53.1 tint, got {tint}"
         );
-        assert!((tint - -53.1).abs() < 2.0, "expected ~-53.1 tint, got {tint}");
     }
 
     /// Not a correctness assertion — this test ALWAYS passes. It exists to
@@ -399,9 +405,9 @@ mod tests {
     ///   feeding each sample's own `(x, y)` back through `xy_to_temp_tint`
     ///   — so a port can validate both directions against the same grid
     ///   without needing a second, independently-chosen set of xy inputs.
-    /// - `authored_pair_to_v5`: 12 `(version, temperature, tint)` →
+    /// - `authored_pair_to_v5`: 24 `(version, temperature, tint)` →
     ///   `(out_temperature, out_tint)` samples, the 4 legacy versions ×
-    ///   3 pairs the design comment specifies, covering the joint
+    ///   6 pairs (including the #4630 parser regressions), covering the joint
     ///   legacy-locus → Robertson conversion every TS/Swift parser must
     ///   also implement so a V1–V4 sidecar load-normalizes identically to
     ///   Rust's `xmp::parse`.
@@ -412,7 +418,9 @@ mod tests {
     /// not a value re-rounded to fewer significant digits.
     #[test]
     fn golden_vectors_for_cross_language_ports() {
-        let temps: [f32; 8] = [2200.0, 2856.0, 4000.0, 5000.0, 6500.0, 8000.0, 12000.0, 20000.0];
+        let temps: [f32; 8] = [
+            2200.0, 2856.0, 4000.0, 5000.0, 6500.0, 8000.0, 12000.0, 20000.0,
+        ];
         let tints: [f32; 3] = [-90.0, 0.0, 40.0];
 
         let mut forward = Vec::new();
@@ -448,7 +456,14 @@ mod tests {
             ("V3", WbScaleVersion::V3),
             ("V4", WbScaleVersion::V4),
         ];
-        let pairs: [(f32, f32); 3] = [(6500.0, 0.0), (5000.0, 10.0), (3200.0, -44.0)];
+        let pairs: [(f32, f32); 6] = [
+            (6500.0, 0.0),
+            (5000.0, 10.0),
+            (3200.0, -44.0),
+            (5700.0, 50.0),
+            (5520.0, -144.0),
+            (5520.0, -53.0),
+        ];
         let mut authored = Vec::new();
         for &(label, version) in &versions {
             for &(temp, tint) in &pairs {
@@ -475,3 +490,7 @@ mod tests {
         .expect("write /tmp/wb_v5_golden_vectors.json");
     }
 }
+
+#[cfg(test)]
+#[path = "dng_temperature_sdk_tests.rs"]
+mod sdk_tests;

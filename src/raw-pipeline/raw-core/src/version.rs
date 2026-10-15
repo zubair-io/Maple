@@ -150,7 +150,9 @@
 ///   chromaticity weights and weighted confidence (#4628).
 /// - 26 — apply declared lossy-DNG per-plane polynomial linearization and
 ///   use the ordinary camera white-balance path for those samples (#4629).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 26;
+/// - 27 — Robertson tint is measured from the interpolated locus, matching
+///   the Adobe SDK and all three language bindings (#4630).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 27;
 
 #[cfg(test)]
 mod tests {
