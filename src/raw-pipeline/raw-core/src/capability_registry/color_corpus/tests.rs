@@ -91,6 +91,10 @@ fn protocol_changes_and_adobe_authoring_sidecars_count() {
     value["cases"][0]["outputs"][0]["long_edge"] = json!(2048);
     write_manifest(dir.path(), &value);
     assert_ne!(before, hash(dir.path()).unwrap());
+    let legacy = hash(dir.path()).unwrap();
+    value["cases"][0]["reference_protocol"] = json!("native-pair-lanczos-v1");
+    write_manifest(dir.path(), &value);
+    assert_ne!(legacy, hash(dir.path()).unwrap());
     value["cases"][0]["acr_xmp"] = json!("model.xmp");
     write_manifest(dir.path(), &value);
     let with_adobe = hash(dir.path()).unwrap();

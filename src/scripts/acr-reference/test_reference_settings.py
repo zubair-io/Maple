@@ -8,11 +8,13 @@ import unittest
 from pathlib import Path
 
 from PIL import Image, PngImagePlugin
-from run import recorded_camera_profile
+from run import recorded_as_shot, recorded_camera_profile
 from verify_settings import verify_manifest, verify_png
 from write_xmp import (
     REFERENCE_DEFAULTS,
     REFERENCE_KEYS,
+    complete_custom_white_balance,
+    copy_case_xmp,
     explicit_reference_defaults,
     reference_settings,
 )
@@ -123,12 +125,15 @@ class ReferenceSettingsTests(unittest.TestCase):
                     b"crs:Unknown=",
                     b'crs:WhiteBalance="Custom" ' + axes + b"crs:Unknown=",
                 )
-                authored = explicit_reference_defaults(source)
+                authored = complete_custom_white_balance(
+                    explicit_reference_defaults(source),
+                    {"WhiteBalance": "As Shot", "Temperature": "5200", "Tint": "7"},
+                )
                 expected = reference_settings(authored)
                 self.assertIn(axes, authored)
                 self.assertEqual(
                     {key for key in expected if key in {"Temperature", "Tint"}},
-                    {key for key in ("Temperature", "Tint") if key.encode() in axes},
+                    {"Temperature", "Tint"},
                 )
                 path = Path(temp) / "reference.png"
 
@@ -156,6 +161,56 @@ class ReferenceSettingsTests(unittest.TestCase):
                         save(authored.replace(attribute, wrong))
                         with self.assertRaisesRegex(ValueError, f"effective {key}="):
                             verify_png(path, expected)
+
+    def test_partial_custom_wb_requires_recorded_axes_without_changing_source(self):
+        source = MINIMAL.replace(
+            b"crs:Unknown=", b'crs:WhiteBalance="Custom" crs:Tint="-150" crs:Unknown='
+        )
+        as_shot = {"WhiteBalance": "As Shot", "Temperature": "4875", "Tint": "9"}
+        with tempfile.TemporaryDirectory() as temp:
+            original, adobe = Path(temp) / "maple.xmp", Path(temp) / "adobe.xmp"
+            original.write_bytes(source)
+            copy_case_xmp(original, adobe, as_shot=as_shot)
+            self.assertEqual(original.read_bytes(), source)
+            settings = reference_settings(adobe.read_bytes())
+            self.assertEqual(settings["Tint"], "-150")
+            self.assertEqual(settings["Temperature"], "4875")
+            self.assertEqual(
+                complete_custom_white_balance(adobe.read_bytes(), None),
+                adobe.read_bytes(),
+            )
+            for invalid in (
+                None,
+                {},
+                as_shot | {"WhiteBalance": "Custom"},
+                {"WhiteBalance": "As Shot", "Tint": "9"},
+                as_shot | {"Temperature": "NaN"},
+                as_shot | {"Temperature": "-1"},
+            ):
+                with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                    complete_custom_white_balance(source, invalid)
+            with self.assertRaisesRegex(ValueError, "Temperature and Tint"):
+                verify_png(
+                    Path(temp) / "not-opened.png",
+                    reference_settings(explicit_reference_defaults(source)),
+                )
+        self.assertEqual(complete_custom_white_balance(MINIMAL, None), MINIMAL)
+
+    def test_recorded_as_shot_uses_effective_png_axes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "down").mkdir()
+            (root / "acr-xmp").mkdir()
+            (root / "acr-xmp" / "baseline.xmp").write_bytes(MINIMAL)
+            info = PngImagePlugin.PngInfo()
+            metadata = MINIMAL.replace(
+                b"crs:Unknown=",
+                b'crs:WhiteBalance="As Shot" crs:Temperature="4875" crs:Tint="9" crs:Unknown=',
+            )
+            info.add_itxt("XML:com.adobe.xmp", metadata.decode())
+            Image.new("RGB", (2, 2)).save(root / "down" / "baseline.png", pnginfo=info)
+            self.assertEqual(recorded_as_shot(root)["Temperature"], "4875")
+            self.assertEqual(recorded_as_shot(root)["Tint"], "9")
 
     def test_profile_reused_from_effective_baseline_then_recorded_sidecar(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -208,6 +263,51 @@ class ReferenceSettingsTests(unittest.TestCase):
             )
             with self.assertRaises(FileNotFoundError):
                 verify_manifest(manifest_path)
+
+    def test_tint_batch_uses_recorded_baseline_and_preserves_maple_input(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "test_0000" / "xmp"
+            source.mkdir(parents=True)
+            sidecar = source / "tint_min.xmp"
+            authored = MINIMAL.replace(
+                b"crs:Unknown=",
+                b'crs:WhiteBalance="Custom" crs:Tint="-150" crs:Unknown=',
+            )
+            sidecar.write_bytes(authored)
+            raw = root / "test_0000.dng"
+            raw.write_bytes(b"not opened by manifest preparation")
+            command = [
+                sys.executable,
+                str(Path(__file__).with_name("run.py")),
+                "--raws",
+                str(raw),
+                "--out",
+                str(root),
+                "--cases-filter",
+                "tint_min",
+            ]
+            missing = subprocess.run(command, check=False, capture_output=True)
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn(b"recorded As Shot", missing.stderr)
+            self.assertFalse((root / "manifest.json").exists())
+            down = root / "test_0000" / "down"
+            down.mkdir()
+            info = PngImagePlugin.PngInfo()
+            info.add_itxt(
+                "XML:com.adobe.xmp",
+                MINIMAL.replace(
+                    b"crs:Unknown=",
+                    b'crs:WhiteBalance="As Shot" crs:Temperature="4875" crs:Tint="9" crs:Unknown=',
+                ).decode(),
+            )
+            Image.new("RGB", (2, 2)).save(down / "baseline.png", pnginfo=info)
+            subprocess.run(command, check=True, capture_output=True)
+            self.assertEqual(sidecar.read_bytes(), authored)
+            case = json.loads((root / "manifest.json").read_text())["cases"][0]
+            settings = reference_settings(Path(case["acr_xmp"]).read_bytes())
+            self.assertEqual(settings["Temperature"], "4875")
+            self.assertEqual(settings["Tint"], "-150")
 
 
 if __name__ == "__main__":

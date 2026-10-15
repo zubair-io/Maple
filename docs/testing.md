@@ -174,6 +174,24 @@ It builds `maple-cli` in release (unconditionally — cargo's own fingerprint is
 
 The metric, from [`compare_images.py`](../src/scripts/compare_images.py): mean / p95 / max CIEDE2000 plus per-channel bias (`bias_r`, `bias_g`, `bias_b`). `--zones` adds a shadow/mid/highlight breakdown keyed on the reference's L\*; `--hue-bins N` adds per-hue-angle deltas with low-chroma pixels routed to a neutral bucket. Python deps are pinned in `src/scripts/requirements.txt` (numpy, Pillow, colour-science, scipy, tifffile).
 
+**Explicit nonbaseline migration (#3678).** A qualified case can declare
+`"reference_protocol": "native-pair-lanczos-v1"` in its manifest entry. This
+requires an `acr_xmp` Adobe authoring sidecar with every audited default explicit,
+matching effective settings in the saved PNGs, a native `full` reference, native
+candidate dimensions, and compatible full/down geometry. Unknown protocol names,
+missing native pixels, and ignored Adobe settings fail the comparison. Merely
+installing a full PNG does not switch a legacy case. Full-resolution detail still
+compares every native pixel. The corpus identity includes the protocol declaration,
+authoring bytes, reference bytes, and comparison implementation. Capture
+qualification and old/new physical measurements remain prerequisites for adopting
+this declaration; support for the declaration does not qualify the existing corpus.
+
+Adobe's `Custom` white balance requires both `Temperature` and `Tint`. Reference
+preparation completes a missing axis only from the same fixture's recorded
+effective `As Shot` baseline PNG. It preserves authored axes and Maple's canonical
+XMP bytes. A missing baseline or an incomplete Custom pair fails preparation or
+verification; the generator never substitutes a universal camera white balance.
+
 Useful environment overrides: `MAPLE_CLI` (use a prebuilt binary, skipping the build), `MANIFEST`, `BUDGETS`, `KEEP_TMP`, and `ALLOW_MISSING_BUDGET` (by default a case with no budget entry **fails**, which is what forces new cases to be budgeted).
 
 ### The one-way ratchet

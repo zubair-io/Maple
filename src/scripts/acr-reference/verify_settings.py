@@ -39,6 +39,13 @@ def verify_png(path: Path, expected: dict) -> None:
         raise ValueError(
             "reference XMP must explicitly author all neutral tone/lens controls"
         )
+    if (
+        expected.get("WhiteBalance", "").casefold() == "custom"
+        and not OPTIONAL_REFERENCE_KEYS <= expected.keys()
+    ):
+        raise ValueError(
+            "Custom reference XMP must explicitly author Temperature and Tint"
+        )
     with Image.open(path) as image:
         metadata = image.info.get("XML:com.adobe.xmp") or image.info.get("xmp")
     if not metadata:

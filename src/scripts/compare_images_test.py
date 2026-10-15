@@ -241,6 +241,123 @@ def test_nonbaseline_down_only_retains_legacy_comparison():
                 raise AssertionError(f"{label} accepted a down-only reference")
 
 
+def _qualified_native_pair(directory):
+    sys.path.insert(0, str(Path(__file__).parent / "acr-reference"))
+    from write_xmp import explicit_reference_defaults
+
+    authored = explicit_reference_defaults(
+        b'<x xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" '
+        b'xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        b'<rdf:Description crs:CameraProfile="Adobe Standard" '
+        b'crs:WhiteBalance="Custom" crs:Temperature="6500" crs:Tint="150"/></x>'
+    )
+    metadata = PngImagePlugin.PngInfo()
+    metadata.add_itxt("XML:com.adobe.xmp", authored.decode())
+    full, down, sidecar = [
+        Path(directory) / name for name in ("full.png", "down.png", "reference.xmp")
+    ]
+    pixels = np.zeros((96, 128, 3), dtype=np.uint8)
+    pixels[:, 43:47] = (255, 180, 60)
+    Image.fromarray(pixels).save(full, pnginfo=metadata)
+    with Image.open(full) as image:
+        image.resize((37, 28), Image.Resampling.BICUBIC).save(down, pnginfo=metadata)
+    sidecar.write_bytes(authored)
+    outputs = [
+        {"resolution": "full", "png": str(full)},
+        {"resolution": "down", "png": str(down)},
+    ]
+    return full, down, sidecar, outputs
+
+
+def test_explicit_nonbaseline_migration_matches_reduction_and_keeps_full_pixels():
+    with tempfile.TemporaryDirectory() as directory:
+        full, _down, sidecar, outputs = _qualified_native_pair(directory)
+        for label in ("exposure_max", "tint_min", "sharpen_detail_max"):
+            for resolution, pixels in (("down", 37 * 28), ("full", 128 * 96)):
+                result = ci.diff_manifest_case(
+                    str(full),
+                    outputs,
+                    resolution,
+                    case_label=label,
+                    reference_xmp=str(sidecar),
+                    reference_protocol="native-pair-lanczos-v1",
+                )
+                assert result["reference_protocol"] == "native-pair-lanczos-v1"
+                assert result["max_deltaE"] == 0.0
+                assert result["n_pixels"] == pixels
+        legacy = ci.diff_manifest_case(
+            str(full),
+            outputs,
+            "down",
+            case_label="exposure_max",
+            reference_xmp=str(sidecar),
+        )
+        assert legacy["reference_protocol"] == "legacy-direct-reference"
+        assert legacy["max_deltaE"] > 1.0
+
+
+def test_explicit_migration_fails_closed_on_unknown_protocol_or_missing_authoring():
+    with tempfile.TemporaryDirectory() as directory:
+        full, _down, sidecar, outputs = _qualified_native_pair(directory)
+        for options, expected in (
+            (
+                {"reference_protocol": "native-pair-lanczos"},
+                "unknown reference protocol",
+            ),
+            (
+                {"reference_protocol": "native-pair-lanczos-v1"},
+                "explicit Adobe authoring",
+            ),
+        ):
+            try:
+                ci.diff_manifest_case(
+                    str(full), outputs, "down", case_label="tint_max", **options
+                )
+            except ValueError as error:
+                assert expected in str(error)
+            else:
+                raise AssertionError("invalid migration accepted")
+        try:
+            ci.diff_manifest_case(
+                str(full),
+                outputs[1:],
+                "down",
+                case_label="tint_max",
+                reference_xmp=str(sidecar),
+                reference_protocol="native-pair-lanczos-v1",
+            )
+        except FileNotFoundError:
+            pass
+        else:
+            raise AssertionError("migrated case fell back to down pixels")
+
+
+def test_explicit_migration_rejects_ignored_adobe_tint():
+    with tempfile.TemporaryDirectory() as directory:
+        full, down, sidecar, outputs = _qualified_native_pair(directory)
+        metadata = PngImagePlugin.PngInfo()
+        metadata.add_itxt(
+            "XML:com.adobe.xmp",
+            sidecar.read_text().replace('crs:Tint="150"', 'crs:Tint="10"'),
+        )
+        with Image.open(down) as image:
+            pixels = image.copy()
+        pixels.save(down, pnginfo=metadata)
+        try:
+            ci.diff_manifest_case(
+                str(full),
+                outputs,
+                "down",
+                case_label="tint_max",
+                reference_xmp=str(sidecar),
+                reference_protocol="native-pair-lanczos-v1",
+            )
+        except ValueError as error:
+            assert "Tint" in str(error)
+        else:
+            raise AssertionError("migrated case accepted Adobe's ignored tint")
+
+
 def test_chunking_preserves_all_statistics_and_roi():
     from unittest.mock import patch
 
