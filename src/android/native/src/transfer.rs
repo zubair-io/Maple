@@ -5,7 +5,7 @@ use raw_core::{
 use std::path::Path;
 
 pub fn thumbnail(path: &str, destination: &str, xml: &str, edge: u32) -> Result<(), String> {
-    if !xml.is_empty() {
+    if needs_develop(xml)? {
         return render_jpeg(path, xml, destination, Some(edge));
     }
     let extension = Path::new(path)
@@ -26,6 +26,36 @@ pub fn thumbnail(path: &str, destination: &str, xml: &str, edge: u32) -> Result<
     // Raster previews must use the core's ICC-aware ingestion, not image::open
     // followed by untagged JPEG output. The RAW-without-preview fallback shares it.
     render_jpeg(path, "", destination, Some(edge))
+}
+
+fn needs_develop(xml: &str) -> Result<bool, String> {
+    if xml.is_empty() {
+        return Ok(false);
+    }
+    let model = raw_core::xmp::parse(xml).map_err(|e| e.to_string())?;
+    Ok(model != raw_core::types::AdjustmentModel::default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::needs_develop;
+
+    #[test]
+    fn culling_sidecars_keep_the_embedded_preview_path() {
+        fn xml(attributes: &str) -> String {
+            format!(
+                r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:papp="http://ns.justmaple.app/photo/1.0/" {attributes} /></rdf:RDF></x:xmpmeta>"#
+            )
+        }
+        assert!(!needs_develop(&xml(r#"xmp:Rating="3.0" papp:Flag="pick" xmp:Label="Red" papp:Profile="Auto" crs:HasSettings="True" crs:ProcessVersion="11.0""#)).unwrap());
+        for pixel_edit in [
+            r#"crs:Exposure2012="0.5""#,
+            r#"papp:Profile="Neutral""#,
+            r#"crs:Temperature="6500""#,
+        ] {
+            assert!(needs_develop(&xml(pixel_edit)).unwrap(), "{pixel_edit}");
+        }
+    }
 }
 
 pub fn export(path: &str, xml: &str, destination: &str) -> Result<(), String> {

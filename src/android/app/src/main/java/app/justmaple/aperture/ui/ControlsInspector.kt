@@ -28,21 +28,32 @@ internal fun ControlsInspector(
     val filmId = state.document.attribute("papp:FilmLook").orEmpty()
     val bw = state.document.attribute("crs:ConvertToGrayscale")
     val monochrome = bw == "1" || bw.equals("True", ignoreCase = true)
-    val effectiveProfile =
-        state.document.attribute("papp:Profile")
-            ?: if (state.document.attribute("papp:Look") == "Neutral") "Neutral" else "Auto"
-    Column(modifier.background(MapleColors.surface)) {
-        if (state.values["_raw"] != 0f)
-            MuiSection("Profile") {
-                Row {
-                    for (profile in listOf("Auto", "Neutral")) FilterChip(
-                        selected = effectiveProfile == profile,
-                        onClick = { model.attribute("papp:Profile", profile) },
-                        label = { Text(profile) },
-                        modifier = Modifier.padding(end = 8.dp),
-                    )
-                }
+    Column(modifier) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "ADJUSTMENTS",
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.labelMedium,
+                color = MapleColors.muted,
+            )
+            TextButton(
+                { model.resetFields(group.fields.filter(state::supportsField).map { it.name }) },
+                enabled = !state.rendering,
+            ) {
+                Text("Reset ${group.label}")
             }
+        }
+        HorizontalDivider(color = MapleColors.border, thickness = .5.dp)
+        Text(
+            group.label.uppercase(),
+            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            color = MapleColors.muted,
+            style = MaterialTheme.typography.labelMedium,
+        )
+
         if (group == EditorGroup.Color)
             Row(
                 Modifier.padding(horizontal = 16.dp),
@@ -86,13 +97,18 @@ internal fun ControlsInspector(
             }
         LazyColumn(Modifier.weight(1f)) {
             items(group.fields.filter(state::supportsField), key = { it.name }) { field ->
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                     Row {
-                        Text(fieldLabel(field), Modifier.weight(1f))
+                        Text(
+                            fieldLabel(field),
+                            Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                         Text(
                             displayValue(field, state.values[field.name] ?: field.initial),
                             color = MapleColors.muted,
                             fontFamily = FontFamily.Monospace,
+                            style = MaterialTheme.typography.labelMedium,
                         )
                     }
                     AdjustmentSlider(

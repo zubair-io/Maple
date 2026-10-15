@@ -71,7 +71,7 @@ class SafSidecarTest {
             compose.waitUntil(30_000) {
                 model.state.value.selected != null && !model.state.value.loading
             }
-            compose.onNodeWithText("Edit", useUnmergedTree = true).performClick()
+            compose.onNodeWithContentDescription("Edit").performClick()
             compose.waitUntil(60_000) {
                 model.state.value.values.isNotEmpty() && !model.state.value.rendering
             }
@@ -129,6 +129,12 @@ class SafSidecarTest {
                         buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
                     }
             assertEquals(setOf("portrait.dng", "portrait.xmp"), names.toSet())
+            // Replay both process-death boundaries using real provider files and
+            // the persisted journal, then read through a fresh library instance.
+            for (published in listOf(false, true)) recoverInterruptedReplacement(photo, published)
+            context.contentResolver.openInputStream(photo.uri)!!.use {
+                assertArrayEquals(original, it.readBytes())
+            }
         } finally {
             folder?.let { selected ->
                 val preferences = context.getSharedPreferences("maple-library", 0)
@@ -150,6 +156,94 @@ class SafSidecarTest {
             }
             context.contentResolver.delete(media, null, null)
         }
+    }
+
+    private fun recoverInterruptedReplacement(
+        photo: app.justmaple.aperture.data.Photo,
+        published: Boolean,
+    ) {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val library = app.justmaple.aperture.data.PhotoLibrary(context)
+        val baseline = runBlocking { library.loadSidecar(photo) }.baseline!!
+        val xml =
+            XmpDocument(baseline).withAttribute("xmp:Label", "Recovered $published").serialize()
+        val folder = photo.parent!!
+        val id = UUID.randomUUID()
+        val requestedName = ".maple-$id.xmp"
+        val backupName = ".maple-$id.backup.xmp"
+        val resolver = context.contentResolver
+        val temp =
+            DocumentsContract.createDocument(
+                resolver,
+                folder,
+                "application/rdf+xml",
+                requestedName,
+            )!!
+        resolver.openOutputStream(temp, "wt")!!.use { it.write(xml.toByteArray()) }
+        val tempName =
+            androidx.documentfile.provider.DocumentFile.fromSingleUri(context, temp)!!.name!!
+        val journal =
+            java.io.File(
+                java.io.File(context.filesDir, "sidecar-transactions").apply { mkdirs() },
+                app.justmaple.aperture.data.PhotoLibrary.digest(photo.uri.toString()) + ".json",
+            )
+        journal.writeText(
+            org.json
+                .JSONObject()
+                .put("id", id.toString())
+                .put("folder", folder.toString())
+                .put("target", photo.sidecarName)
+                .put("temp", tempName)
+                .put("backup", backupName)
+                .put("previous", true)
+                .put("digest", app.justmaple.aperture.data.PhotoLibrary.digest(xml))
+                .put("baseline", app.justmaple.aperture.data.PhotoLibrary.digest(baseline))
+                .toString()
+        )
+        val children =
+            DocumentsContract.buildChildDocumentsUriUsingTree(
+                folder,
+                DocumentsContract.getDocumentId(folder),
+            )
+        val previous =
+            resolver
+                .query(
+                    children,
+                    arrayOf(
+                        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    ),
+                    null,
+                    null,
+                    null,
+                )!!
+                .use { cursor ->
+                    var uri: android.net.Uri? = null
+                    while (cursor.moveToNext()) if (cursor.getString(1) == photo.sidecarName)
+                        uri =
+                            DocumentsContract.buildDocumentUriUsingTree(folder, cursor.getString(0))
+                    uri!!
+                }
+        DocumentsContract.renameDocument(resolver, previous, backupName)!!
+        if (published) DocumentsContract.renameDocument(resolver, temp, photo.sidecarName)!!
+        val recovered = runBlocking {
+            app.justmaple.aperture.data.PhotoLibrary(context).loadSidecar(photo)
+        }
+        assertEquals(if (published) xml else baseline, recovered.baseline)
+        assertFalse(journal.exists())
+        val leftovers =
+            resolver
+                .query(
+                    children,
+                    arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                    null,
+                    null,
+                    null,
+                )!!
+                .use { cursor ->
+                    buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
+                }
+        assertEquals(setOf(photo.name, photo.sidecarName), leftovers.toSet())
     }
 
     private fun clickSystem(matches: (AccessibilityNodeInfo) -> Boolean) {

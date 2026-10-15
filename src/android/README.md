@@ -113,17 +113,38 @@ incompatible numeric sidecar from the initial build after confirmation. AVIF
 originals are converted through the OS decoder on Android 12+; older versions
 do not advertise AVIF originals. HEIC/HEIF use the same staging path.
 
-Tablet editing keeps its inspector and right tool rail; phone controls stay on
-phones. Sources collapse into a drawer below 1000 dp, and preview actions wrap
-as complete groups. The walkthrough test captures Library, Preview, Edit, and
-Settings and checks that rating/Edit buttons remain inside the window without
-overlap. The current tablet inspector/header and Settings composition still
-differ from iPad’s floating glass surfaces; exact visual parity remains #4623.
+Tablet editing now uses a floating capsule header, centered collapsible filmstrip,
+a translucent trailing inspector and tool dock over a bounded full canvas. Phone
+controls use the compact bottom surface; the same editor state survives panel
+changes and activity recreation. The header RGB histogram samples the presented
+surface after 300 ms idle through Android PixelCopy, with one reusable 256×128
+bitmap, outside the Rust render loop. See [PixelCopy](https://developer.android.com/reference/android/view/PixelCopy).
+The inspector can be hidden, and resetting its current slider group creates one
+undo step. Auto/Neutral profiles remain available under More photo actions.
+
+Library uses floating source/action controls and a page title. Settings is a
+centered grouped sheet with working General, Cloud, Sources and About panes.
+The walkthrough captures Library, Preview, Edit, Settings and Cloud Settings;
+it verifies capsule/inspector separation, panel collapse/reopen, real histogram
+readiness, ratings (including authored decimals), reset/undo and nested navigation.
+Advanced editor tools, remaining Settings destinations, canvas gestures and exact
+platform glass treatment remain tracked in #4623.
 
 Portrait canvases fit both viewport axes, including when error banners change
 the available height. `PortraitCanvasTest` checks the real oriented RAW surface
 bounds and captures its frames. `SafSidecarTest` grants access through the system
-folder picker, creates and replaces adjacent XMP sidecars through the Android
-external-storage provider, rejects stale baselines, and verifies the RAW bytes.
-Provider renames use `DocumentsContract` and retain changed document IDs.
+folder picker, creates/replaces adjacent XMP, replays interruption before/after
+publication through a fresh library instance, rejects stale baselines and verifies
+original RAW bytes. A synced app-private transaction journal records the staged,
+backup and canonical names before any replacement rename. Recovery restores old
+edits or adopts the completed publication, preserving provider-assigned names and
+changed document IDs. Providers must support create, rename and delete.
 Failures identify the operation and exception and retain a stack trace in logcat.
+
+A single batched folder query populates local names/URIs/metadata. Thumbnail
+sidecar lookups reuse that snapshot; open/save/list/recovery refresh or invalidate
+it, while XMP contents are always read fresh. Metadata-only RAW sidecars keep the
+embedded-preview fast path. The local thumbnail cache key includes Android
+thumbnail version 2 to retire earlier unnecessarily developed culling previews.
+Incoming Open/Share MIME filters advertise supported formats only, with an
+Android 12+ AVIF alias; file-picker inputs are validated before opening.

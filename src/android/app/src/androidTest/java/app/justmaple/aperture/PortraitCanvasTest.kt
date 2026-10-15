@@ -1,6 +1,7 @@
 package app.justmaple.aperture
 
 import android.net.Uri
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
@@ -36,7 +37,7 @@ class PortraitCanvasTest {
         compose.waitUntil(30_000) {
             !model.state.value.loading && model.state.value.selected != null
         }
-        compose.onNodeWithText("Edit", useUnmergedTree = true).performClick()
+        compose.onNodeWithContentDescription("Edit").performClick()
         compose.waitUntil(60_000) {
             model.state.value.values.isNotEmpty() && !model.state.value.rendering
         }
@@ -46,6 +47,12 @@ class PortraitCanvasTest {
             model.state.value.values.getValue("_aspect") < 1,
         )
         assertInsideViewport()
+        compose.waitUntil(30_000) {
+            compose
+                .onNodeWithContentDescription("RGB histogram")
+                .fetchSemanticsNode()
+                .config[SemanticsProperties.StateDescription] == "Ready"
+        }
         capture(model, "portrait-edit.png")
         compose.runOnIdle { model.report(UnsupportedOperationException()) }
         compose

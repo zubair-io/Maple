@@ -29,6 +29,13 @@ data class XmpDocument(
         return copy(changes = changes + additions + wb)
     }
 
+    val rating: Int
+        get() =
+            attribute("xmp:Rating")
+                ?.toDoubleOrNull()
+                ?.takeIf { it.isFinite() && it in -1.0..5.0 && it == it.toInt().toDouble() }
+                ?.toInt() ?: 0
+
     fun withAttribute(name: String, value: String?) = copy(changes = changes + (name to value))
 
     fun attribute(name: String): String? {

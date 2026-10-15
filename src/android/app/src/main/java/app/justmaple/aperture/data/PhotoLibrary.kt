@@ -6,13 +6,11 @@ import android.graphics.Bitmap
 import android.graphics.ColorSpace
 import android.graphics.ImageDecoder
 import android.net.Uri
-import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import app.justmaple.aperture.cloud.CloudLibrary
 import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.File
 import java.security.MessageDigest
-import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -45,6 +43,8 @@ class PhotoLibrary(private val context: Context) {
     val cloud = CloudLibrary(context)
     private val preferences = context.getSharedPreferences("maple-library", Context.MODE_PRIVATE)
     private val io = Mutex()
+    private val local = LocalDocuments(context)
+    private val saf = SafSidecars(context, local)
     private val originals = Mutex()
     val sources: List<Folder>
         get() =
@@ -75,18 +75,19 @@ class PhotoLibrary(private val context: Context) {
     suspend fun list(folder: Uri): LibraryListing =
         withContext(Dispatchers.IO) {
             if (CloudLibrary.isCloud(folder)) return@withContext cloud.list(folder)
-            val entries = children(folder)
+            val entries = local.list(folder, fresh = true)
             LibraryListing(
                 entries
-                    .filter { it.isDirectory }
-                    .map { Folder(it.uri, it.name ?: "Folder") }
+                    .filter { it.directory }
+                    .map { Folder(it.uri, it.name) }
                     .sortedBy { it.name.lowercase() },
                 entries
                     .filter {
-                        it.isFile && it.name?.substringAfterLast('.', "")?.lowercase() in EXTENSIONS
+                        !it.directory &&
+                            it.name.substringAfterLast('.', "").lowercase() in EXTENSIONS
                     }
                     .map {
-                        Photo(it.uri, it.name ?: "Photo", it.length(), it.lastModified(), folder)
+                        Photo(it.uri, it.name, it.size, it.modified, folder)
                     }
                     .sortedBy { it.name.lowercase() },
             )
@@ -98,7 +99,22 @@ class PhotoLibrary(private val context: Context) {
                 if (uri.scheme == "file")
                     DocumentFile.fromFile(File(uri.path ?: error("Missing photo path")))
                 else DocumentFile.fromSingleUri(context, uri) ?: error("Photo is unavailable")
-            Photo(uri, document.name ?: "Photo", document.length(), document.lastModified(), null)
+            val displayName = document.name ?: "Photo"
+            val inferred =
+                context.contentResolver
+                    .getType(uri)
+                    ?.takeIf { it.startsWith("image/") }
+                    ?.substringAfterLast('-')
+                    ?.substringAfter('/')
+                    ?.let { if (it == "dcraw") "raw" else it }
+                    ?.takeIf { it in EXTENSIONS }
+            val name =
+                if (!displayName.contains('.') && inferred != null) "$displayName.$inferred"
+                else displayName
+            require(name.substringAfterLast('.', "").lowercase() in EXTENSIONS) {
+                "Maple cannot open $name. Choose a supported photo format."
+            }
+            Photo(uri, name, document.length(), document.lastModified(), null)
         }
 
     private suspend fun materialize(photo: Photo): File =
@@ -180,11 +196,11 @@ class PhotoLibrary(private val context: Context) {
                     return@withContext remote
                 }
             }
-            val sidecar = readSidecar(photo)
+            val sidecar = io.withLock { readSidecar(photo) }
             val file =
                 File(
                     folder,
-                    "${digest("${AdjustmentFields.pipelineOutputVersion}:${photo.key}:$edge:${sidecar.orEmpty()}")}.jpg",
+                    "${digest("${AdjustmentFields.pipelineOutputVersion}:android-thumb-v2:${photo.key}:$edge:${sidecar.orEmpty()}")}.jpg",
                 )
             if (!file.exists()) {
                 val temporary = File.createTempFile("thumb-", ".jpg", folder)
@@ -227,51 +243,29 @@ class PhotoLibrary(private val context: Context) {
             "${digest(photo.uri.toString())}.xmp",
         )
 
-    private fun children(folder: Uri): List<DocumentFile> {
-        val id = DocumentsContract.getDocumentId(folder)
-        val query = DocumentsContract.buildChildDocumentsUriUsingTree(folder, id)
-        return context.contentResolver
-            .query(query, arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID), null, null, null)
-            ?.use { cursor ->
-                buildList {
-                    while (cursor.moveToNext()) {
-                        val uri =
-                            DocumentsContract.buildDocumentUriUsingTree(folder, cursor.getString(0))
-                        DocumentFile.fromSingleUri(context, uri)?.let(::add)
-                    }
-                }
-            } ?: error("Folder permission is unavailable")
-    }
-
-    private fun sidecar(photo: Photo): DocumentFile? =
-        photo.parent?.let { children(it).find { entry -> entry.name == photo.sidecarName } }
-
-    private fun readSidecar(photo: Photo): String? =
+    private fun readSidecar(photo: Photo, fresh: Boolean = false): String? =
         if (CloudLibrary.isCloud(photo.uri)) cloud.readSidecar(photo)
         else if (photo.parent == null) privateSidecar(photo).takeIf { it.exists() }?.readText()
-        else
-            sidecar(photo)?.let { document ->
-                context.contentResolver.openInputStream(document.uri)?.bufferedReader()?.use {
-                    it.readText()
-                } ?: error("Cannot read sidecar")
-            }
+        else saf.read(photo, fresh)
 
-    suspend fun loadSidecar(photo: Photo): LoadedSidecar =
+    suspend fun loadSidecar(photo: Photo): LoadedSidecar = io.withLock {
         withContext(Dispatchers.IO) {
-            val xml = readSidecar(photo)
+            val xml = readSidecar(photo, fresh = true)
             LoadedSidecar(XmpDocument(xml ?: XmpDocument.EMPTY).also { it.serialize() }, xml)
         }
+    }
 
     suspend fun save(photo: Photo, document: XmpDocument, baseline: String?): LoadedSidecar =
         io.withLock {
             withContext(Dispatchers.IO) {
                 if (CloudLibrary.isCloud(photo.uri))
                     return@withContext cloud.save(photo, document, baseline)
-                check(readSidecar(photo) == baseline) {
-                    "The sidecar changed outside Maple. Reopen the photo before saving."
-                }
                 val xml = document.serialize()
-                if (photo.parent == null) {
+                if (photo.parent != null) saf.save(photo, xml, baseline)
+                else {
+                    check(readSidecar(photo) == baseline) {
+                        "The sidecar changed outside Maple. Reopen the photo before saving."
+                    }
                     val target = privateSidecar(photo)
                     val temp = File.createTempFile("sidecar-", ".xmp", target.parentFile)
                     try {
@@ -280,65 +274,10 @@ class PhotoLibrary(private val context: Context) {
                     } finally {
                         temp.delete()
                     }
-                } else {
-                    val root =
-                        DocumentFile.fromSingleUri(context, photo.parent)
-                            ?: error("Folder is unavailable")
-                    check(root.canWrite()) { "Folder is read-only" }
-                    val temporaryUri =
-                        DocumentsContract.createDocument(
-                            context.contentResolver,
-                            root.uri,
-                            "application/rdf+xml",
-                            ".maple-${UUID.randomUUID()}.xmp",
-                        ) ?: error("Cannot create sidecar")
-                    val previous = sidecar(photo)
-                    val backup = ".maple-${UUID.randomUUID()}.backup.xmp"
-                    var backupUri: Uri? = null
-                    var published = false
-                    try {
-                        context.contentResolver.openOutputStream(temporaryUri, "wt")?.use {
-                            it.write(xml.toByteArray(Charsets.UTF_8))
-                            it.flush()
-                        } ?: error("Cannot write sidecar")
-                        check(readSidecar(photo) == baseline) { "The sidecar changed while saving" }
-                        if (previous != null) backupUri = renameSidecar(previous.uri, backup)
-                        try {
-                            renameSidecar(temporaryUri, photo.sidecarName)
-                            published = true
-                        } catch (failure: Exception) {
-                            backupUri?.let {
-                                try {
-                                    renameSidecar(it, photo.sidecarName)
-                                } catch (rollback: Exception) {
-                                    failure.addSuppressed(rollback)
-                                    throw java.io.IOException(
-                                        "Could not publish sidecar. Previous edits are preserved in $backup",
-                                        failure,
-                                    )
-                                }
-                            }
-                            throw failure
-                        }
-                        backupUri?.let(::deleteSidecar)
-                    } finally {
-                        if (!published) deleteSidecar(temporaryUri)
-                    }
                 }
                 LoadedSidecar(XmpDocument(xml), xml)
             }
         }
-
-    // SingleDocumentFile.renameTo always throws UnsupportedOperationException.
-    // The provider can change IDs on rename, so retain its returned URI.
-    private fun renameSidecar(uri: Uri, name: String): Uri =
-        DocumentsContract.renameDocument(context.contentResolver, uri, name)
-            ?: error("Storage provider could not rename the sidecar to $name")
-
-    private fun deleteSidecar(uri: Uri) {
-        runCatching { check(DocumentsContract.deleteDocument(context.contentResolver, uri)) }
-            .onFailure { android.util.Log.w("Maple", "Could not remove a temporary sidecar", it) }
-    }
 
     companion object {
         val EXTENSIONS =

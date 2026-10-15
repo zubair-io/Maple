@@ -12,7 +12,30 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:mimeType="image/*" />
+                <data android:mimeType="image/jpeg" />
+                <data android:mimeType="image/png" />
+                <data android:mimeType="image/webp" />
+                <data android:mimeType="image/tiff" />
+                <data android:mimeType="image/heic" />
+                <data android:mimeType="image/heif" />
+                <data android:mimeType="image/x-adobe-dng" />
+                <data android:mimeType="image/x-canon-cr2" />
+                <data android:mimeType="image/x-canon-cr3" />
+                <data android:mimeType="image/x-canon-crw" />
+                <data android:mimeType="image/x-nikon-nef" />
+                <data android:mimeType="image/x-sony-arw" />
+                <data android:mimeType="image/x-fuji-raf" />
+                <data android:mimeType="image/x-olympus-orf" />
+                <data android:mimeType="image/x-panasonic-rw2" />
+                <data android:mimeType="image/x-pentax-pef" />
+                <data android:mimeType="image/x-samsung-srw" />
+                <data android:mimeType="image/x-sigma-x3f" />
+                <data android:mimeType="image/x-hasselblad-3fr" />
+                <data android:mimeType="image/x-hasselblad-fff" />
+                <data android:mimeType="image/x-minolta-mrw" />
+                <data android:mimeType="image/x-mamiya-mef" />
+                <data android:mimeType="image/x-epson-erf" />
+                <data android:mimeType="image/x-dcraw" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -23,8 +46,35 @@
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="image/*" />
+                <data android:mimeType="image/jpeg" />
+                <data android:mimeType="image/png" />
+                <data android:mimeType="image/webp" />
+                <data android:mimeType="image/tiff" />
+                <data android:mimeType="image/heic" />
+                <data android:mimeType="image/heif" />
+                <data android:mimeType="image/x-adobe-dng" />
+                <data android:mimeType="image/x-canon-cr2" />
+                <data android:mimeType="image/x-canon-cr3" />
+                <data android:mimeType="image/x-canon-crw" />
+                <data android:mimeType="image/x-nikon-nef" />
+                <data android:mimeType="image/x-sony-arw" />
+                <data android:mimeType="image/x-fuji-raf" />
+                <data android:mimeType="image/x-olympus-orf" />
+                <data android:mimeType="image/x-panasonic-rw2" />
+                <data android:mimeType="image/x-pentax-pef" />
+                <data android:mimeType="image/x-samsung-srw" />
+                <data android:mimeType="image/x-sigma-x3f" />
+                <data android:mimeType="image/x-hasselblad-3fr" />
+                <data android:mimeType="image/x-hasselblad-fff" />
+                <data android:mimeType="image/x-minolta-mrw" />
+                <data android:mimeType="image/x-mamiya-mef" />
+                <data android:mimeType="image/x-epson-erf" />
+                <data android:mimeType="image/x-dcraw" />
             </intent-filter>
         </activity>
+        <activity-alias android:name=".AvifOpenActivity" android:targetActivity=".MainActivity" android:enabled="@bool/supports_avif" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:mimeType="image/avif" /></intent-filter>
+            <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="image/avif" /></intent-filter>
+        </activity-alias>
     </application>
 </manifest>

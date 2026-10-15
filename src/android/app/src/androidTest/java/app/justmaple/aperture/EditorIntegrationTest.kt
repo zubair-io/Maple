@@ -30,7 +30,7 @@ class EditorIntegrationTest {
         compose.waitUntil(30_000) {
             model.state.value.selected != null && !model.state.value.loading
         }
-        compose.onNodeWithText("Edit", useUnmergedTree = true).performClick()
+        compose.onNodeWithContentDescription("Edit").performClick()
         compose.waitUntil(120_000) {
             !model.state.value.rendering && model.state.value.mode == PhotoMode.Edit
         }
@@ -67,20 +67,12 @@ class EditorIntegrationTest {
         // capturing the SurfaceView's initial black buffer; colour parity is
         // tested separately against the Rust CPU reference.
         compose.waitUntil(30_000) {
-            val frame = instrumentation.uiAutomation.takeScreenshot()
-            try {
-                val pixel =
-                    frame.getPixel(
-                        canvas.center.x.toInt().coerceIn(0, frame.width - 1),
-                        canvas.center.y.toInt().coerceIn(0, frame.height - 1),
-                    )
-                android.graphics.Color.red(pixel) > 80 &&
-                    android.graphics.Color.green(pixel) > 80 &&
-                    android.graphics.Color.blue(pixel) > 80
-            } finally {
-                frame.recycle()
-            }
+            val pixel = renderedPixel(compose.activity)
+            android.graphics.Color.red(pixel) > 80 &&
+                android.graphics.Color.green(pixel) > 80 &&
+                android.graphics.Color.blue(pixel) > 80
         }
+
         val kind =
             if (context.resources.configuration.smallestScreenWidthDp >= 600) "tablet" else "phone"
         val values =
@@ -123,7 +115,7 @@ class EditorIntegrationTest {
             model.state.value.selected != null && !model.state.value.loading
         }
         compose.runOnIdle { model.attribute("xmp:Label", "Sunset 🌅") }
-        compose.onNodeWithText("Edit", useUnmergedTree = true).performClick()
+        compose.onNodeWithContentDescription("Edit").performClick()
         compose.waitUntil(120_000) {
             model.state.value.mode == PhotoMode.Edit && !model.state.value.rendering
         }
