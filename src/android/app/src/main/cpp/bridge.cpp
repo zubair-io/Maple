@@ -17,7 +17,8 @@ void maple_android_free_string(char *);
 int maple_android_set(void *, size_t, float);
 int maple_android_model(void *, const char *);
 bool maple_android_raster_compatible(const char *);
-int maple_android_surface(void *, void *, uint32_t, uint32_t);
+int maple_android_surface(void *, void *, uint32_t, uint32_t, bool);
+uint32_t maple_android_output_primaries(void *);
 int maple_android_render(void *);
 int maple_android_thumbnail(const char *, const char *, const char *, uint32_t);
 int maple_android_export(const char *, const char *, const char *);
@@ -110,16 +111,18 @@ extern "C" JNIEXPORT jboolean JNICALL Java_app_justmaple_aperture_data_NativeBri
     if (env->ExceptionCheck()) return JNI_FALSE;
     return maple_android_raster_compatible(x.get()) ? JNI_TRUE : JNI_FALSE;
 }
-extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_attach(JNIEnv *env, jobject, jlong handle, jobject surface, jint width, jint height) {
+extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_attach(JNIEnv *env, jobject, jlong handle, jobject surface, jint width, jint height, jboolean wideColor) {
     Editor *e = editor(handle);
-    check(env, maple_android_surface(e->core, nullptr, 0, 0));
+    check(env, maple_android_surface(e->core, nullptr, 0, 0, false));
     if (e->window) { ANativeWindow_release(e->window); e->window = nullptr; }
     if (!surface || env->ExceptionCheck()) return;
     e->window = ANativeWindow_fromSurface(env, surface);
     if (!e->window) { env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Android surface is unavailable"); return; }
-    // raw-core's target_primaries=0 emits display-encoded sRGB bytes.
-    ANativeWindow_setBuffersDataSpace(e->window, ADATASPACE_SRGB);
-    check(env, maple_android_surface(e->core, e->window, width, height));
+    check(env, maple_android_surface(e->core, e->window, width, height, wideColor == JNI_TRUE));
+    if (env->ExceptionCheck()) return;
+    const int32_t space = maple_android_output_primaries(e->core) == 1 ? ADATASPACE_SCRGB_LINEAR : ADATASPACE_SRGB;
+    if (ANativeWindow_setBuffersDataSpace(e->window, space) != 0)
+        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Android rejected the canvas color space");
 }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_render(JNIEnv *env, jobject, jlong handle) { check(env, maple_android_render(editor(handle)->core)); }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_thumbnail(JNIEnv *env, jobject, jstring path, jstring destination, jstring xml, jint edge) {

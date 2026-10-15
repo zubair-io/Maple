@@ -1,6 +1,6 @@
 //! Android SurfaceView presentation of the existing WGSL chain. No readback.
 use crate::present_chain_pipeline::{
-    build_present_pipeline, encode_present_pass, pick_surface_format, PresentDispatchCache,
+    build_present_pipeline, encode_present_pass, pick_android_surface_format, PresentDispatchCache,
 };
 use crate::{GpuContext, LiveSession, PresentGeometry};
 use raw_window_handle::{
@@ -24,6 +24,7 @@ impl AndroidPresentSurface {
         window: NonNull<c_void>,
         width: u32,
         height: u32,
+        wide_color: bool,
     ) -> Result<Self, String> {
         if width == 0 || height == 0 {
             return Err("Empty Android surface".into());
@@ -39,7 +40,7 @@ impl AndroidPresentSurface {
         if caps.formats.is_empty() {
             return Err("Android surface has no compatible Vulkan format".into());
         }
-        let format = pick_surface_format(&caps);
+        let format = pick_android_surface_format(&caps, wide_color)?;
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
@@ -59,6 +60,11 @@ impl AndroidPresentSurface {
             layout,
             dispatch: PresentDispatchCache::new(),
         })
+    }
+
+    /// The shared chain targets P3 only when Vulkan granted the float scRGB surface.
+    pub fn target_primaries(&self) -> u32 {
+        u32::from(self.config.format == wgpu::TextureFormat::Rgba16Float)
     }
 
     pub fn resize(&mut self, ctx: &GpuContext, width: u32, height: u32) {

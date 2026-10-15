@@ -114,6 +114,15 @@ save successfully; a conflict retains the current folder, filmstrip and document
 HTTP responses transfer their bounded byte buffer without cloning it; XML, JSON,
 hashing and derivative publication consume only its received range. Oversized
 declared lengths fail before body allocation.
+Requests count UTF-8 bytes before streaming through a bounded character encoder,
+including supplementary characters split across encoder buffers.
+
+The live canvas negotiates managed wide-color display support and Vulkan's float
+surface capability. On that path the shared chain targets Display P3 and the
+present pass transports it as unclipped linear scRGB in an RGBA16F surface with a
+matching Android dataspace; generated core matrices and numeric CPU/GPU gates
+cover the conversion. Other surfaces use sRGB. Physical display and performance
+qualification remain under #4623.
 Failed sidecar loads block metadata, editing and export
 until a successful reload confirms that photo’s save baseline. SAF replacement writes a
 temporary sibling before publishing and retains the previous sidecar until the

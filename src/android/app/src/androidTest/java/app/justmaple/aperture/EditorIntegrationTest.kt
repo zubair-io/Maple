@@ -128,6 +128,9 @@ class EditorIntegrationTest {
         }
         assertNull(model.state.value.error)
         assertTrue(model.state.value.values.isNotEmpty())
+        // Model readiness can precede Compose's final aspect-ratio resize.
+        compose.waitForIdle()
+        compose.waitUntil(120_000) { model.state.value.canEdit }
         compose.runOnIdle {
             assertTrue("Waited for an editable canvas", model.state.value.canEdit)
             model.undo()
@@ -146,6 +149,15 @@ class EditorIntegrationTest {
         compose.waitUntil(30_000) { !model.state.value.dirty && !model.state.value.saving }
         val restored = runBlocking { model.library.loadSidecar(photo) }
         assertNull(restored.document.attribute("crs:Exposure2012"))
+        // A failed incoming read keeps this renderer's presentation epoch alive.
+        val missing = File(context.filesDir, "absent-${java.util.UUID.randomUUID()}.png")
+        compose.runOnIdle { model.openSingle(Uri.fromFile(missing)) }
+        compose.waitUntil(30_000) { model.state.value.error != null && !model.state.value.loading }
+        assertEquals(photo, model.state.value.selected)
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
+        compose.waitUntil(30_000) { !model.state.value.rendering && model.state.value.canEdit }
+        compose.runOnIdle { model.clearError() }
         val destination = File(context.filesDir, "android-export.jpg")
         runBlocking { model.export(Uri.fromFile(destination), false) }
         assertTrue(destination.length() > 0)
