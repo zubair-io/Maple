@@ -37,11 +37,10 @@ internal class PhotoExport(private val context: Context, private val library: Ph
                 ) {
                     "Originals cannot be overwritten"
                 }
-            if (xmp)
-                writeVerified(photo, destination) {
-                    it.write(document.serialize().toByteArray(Charsets.UTF_8))
-                }
-            else {
+            if (xmp) {
+                val bytes = XmpEncoding.encode(document.serialize())
+                writeVerified(photo, destination) { it.write(bytes) }
+            } else {
                 val temp = File(context.cacheDir, "export-${UUID.randomUUID()}.jpg")
                 try {
                     library.withOriginal(photo) { source ->

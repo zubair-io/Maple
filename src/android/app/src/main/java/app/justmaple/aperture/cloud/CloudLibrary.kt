@@ -7,6 +7,8 @@ import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.OutputStream
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -40,7 +42,7 @@ class CloudLibrary(context: Context) {
             http.disconnect(id)
         }
 
-    fun list(uri: Uri): LibraryListing {
+    suspend fun list(uri: Uri): LibraryListing {
         val id = uri.host ?: error("Invalid cloud source")
         if (uri.getQueryParameter("address") == null) {
             val libraries = JSONArray(http.request(id, "/api/folders").requireSuccess().text())
@@ -60,38 +62,63 @@ class CloudLibrary(context: Context) {
                 emptyList(),
             )
         }
-        val listing = JSONObject(http.request(id, mediaPath("folder", uri)).requireSuccess().text())
         fun entry(value: JSONObject): Uri =
             address(id, value.getString("address"), value.getString("path"))
-        val directories = listing.getJSONArray("folders")
-        val images = listing.getJSONArray("images")
-        val parentAddress = listing.optString("parent").takeIf { it.isNotEmpty() && it != "null" }
-        val parent =
-            if (parentAddress != null) address(id, parentAddress, listing.getString("parentPath"))
-            else root(id)
-        val folders =
-            listOf(Folder(parent, "..")) +
-                (0 until directories.length()).map {
-                    val value = directories.getJSONObject(it)
+        fun entries(page: JSONObject, key: String): List<JSONObject> {
+            val values = page.getJSONArray(key)
+            return (0 until values.length()).map { values.getJSONObject(it) }
+        }
+        val folders = mutableListOf<Folder>()
+        val photos = mutableListOf<Photo>()
+        val seen = mutableSetOf<String>()
+        var parent: Folder? = null
+        var cursor: String? = null
+        do {
+            currentCoroutineContext().ensureActive()
+            val query = "?limit=500" + (cursor?.let { "&cursor=${Uri.encode(it)}" } ?: "")
+            val page =
+                JSONObject(
+                    http.request(id, mediaPath("folder", uri) + query).requireSuccess().text()
+                )
+            if (parent == null) {
+                val parentAddress =
+                    page.optString("parent").takeIf { it.isNotEmpty() && it != "null" }
+                parent =
+                    Folder(
+                        if (parentAddress != null)
+                            address(id, parentAddress, page.getString("parentPath"))
+                        else root(id),
+                        "..",
+                    )
+            }
+            folders +=
+                entries(page, "folders").map { value ->
                     Folder(entry(value), value.getString("name"))
                 }
-        val photos =
-            (0 until images.length())
-                .map { images.getJSONObject(it) }
-                .filter {
-                    it.getString("name").substringAfterLast('.', "").lowercase() in
-                        PhotoLibrary.EXTENSIONS
-                }
-                .map { value ->
-                    Photo(
-                        entry(value),
-                        value.getString("name"),
-                        value.getLong("size"),
-                        Instant.parse(value.getString("mtime")).toEpochMilli(),
-                        uri,
-                    )
-                }
-        return LibraryListing(folders, photos)
+            photos +=
+                entries(page, "images")
+                    .filter { value ->
+                        value.getString("name").substringAfterLast('.', "").lowercase() in
+                            PhotoLibrary.EXTENSIONS
+                    }
+                    .map { value ->
+                        Photo(
+                            entry(value),
+                            value.getString("name"),
+                            value.getLong("size"),
+                            Instant.parse(value.getString("mtime")).toEpochMilli(),
+                            uri,
+                        )
+                    }
+            // Discard the page's ordinary files/sidecars before requesting another.
+            val next = page.optString("next_cursor").takeIf { it.isNotEmpty() && it != "null" }
+            check(next == null || seen.add(next)) { "Cloud folder returned a repeated page cursor" }
+            cursor = next
+        } while (cursor != null)
+        return LibraryListing(
+            listOfNotNull(parent) + folders.distinctBy { it.uri },
+            photos.distinctBy { it.uri },
+        )
     }
 
     fun copyOriginal(photo: Photo, output: OutputStream) =
@@ -121,12 +148,15 @@ class CloudLibrary(context: Context) {
 
     fun readSidecar(photo: Photo): String? {
         val response = sidecar(photo.uri)
-        return if (response.status == 404) null else response.requireSuccess().text()
+        return if (response.status == 404) null
+        else XmpEncoding.forCloud(XmpEncoding.decode(response.requireSuccess().body))
     }
 
     fun save(photo: Photo, document: XmpDocument, baseline: String?): LoadedSidecar {
         val current = sidecar(photo.uri)
-        val xml = if (current.status == 404) null else current.requireSuccess().text()
+        val xml =
+            if (current.status == 404) null
+            else XmpEncoding.forCloud(XmpEncoding.decode(current.requireSuccess().body))
         check(xml == baseline) {
             "The cloud sidecar changed outside Maple. Reopen the photo before saving."
         }
@@ -143,7 +173,7 @@ class CloudLibrary(context: Context) {
                 }
                 mapOf("If-Match" to etag)
             }
-        val serialized = document.serialize()
+        val serialized = XmpEncoding.forCloud(document.serialize())
         http
             .request(
                 photo.uri.host!!,

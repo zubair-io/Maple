@@ -51,7 +51,7 @@ internal class SafSidecars(private val context: Context, private val documents: 
         var recorded = false
         try {
             resolver.openOutputStream(temp, "wt")?.use {
-                it.write(xml.toByteArray(Charsets.UTF_8))
+                it.write(XmpEncoding.encode(xml))
                 it.flush()
             } ?: error("Cannot write sidecar")
             check(read(photo, fresh = true) == baseline) { "The sidecar changed while saving" }
@@ -162,7 +162,7 @@ internal class SafSidecars(private val context: Context, private val documents: 
     }
 
     private fun text(uri: Uri): String =
-        resolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        resolver.openInputStream(uri)?.use { XmpEncoding.decode(it.readBytes()) }
             ?: error("Cannot read sidecar")
 
     private fun find(entries: List<LocalDocument>, name: String): LocalDocument? {

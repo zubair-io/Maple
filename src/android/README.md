@@ -87,6 +87,16 @@ rebinding the foreign XML. A disposable namespace-normalized copy feeds every
 native preview/editor/validation/export entry; persisted XML remains lexical.
 Unstamped imported temperature/tint keep their foreign or legacy Maple scale
 when unrelated edits add Maple metadata, so rating or picking cannot change color.
+Local sidecar reads detect BOM/XML-declared encodings, retain the source byte
+order on save/recovery/XMP export, and reject malformed or unrepresentable
+metadata before publication. The byte order is made explicit in the XML
+declaration; unknown child text stays verbatim. Cloud responses are decoded
+by their XML encoding and cloud writes follow the server’s UTF-8 text API.
+Existing servers still require stored sidecars to be UTF-8. See the
+[XML encoding detection rules](https://www.w3.org/TR/xml/#sec-guessing).
+Cloud folder browsing follows bounded cursor pages, including empty media pages,
+filters before retaining entries, deduplicates returned addresses and rejects
+repeated cursors.
 Cloud derivatives use persistent identity/edge/pipeline indexes and conditional
 ETag validation; unchanged loads reuse their image body, and missing cache files
 are rebuilt. Back clears a pending open’s loading state before returning to Browse.
