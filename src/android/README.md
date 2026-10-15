@@ -81,7 +81,9 @@ to a photo whose identity cannot be verified. Folder-adjacent sidecars are unaff
 The XMP writer patches owned attributes in the original XML, retaining untouched
 foreign bytes, resolves RDF and owned attributes by namespace, and rejects
 external-write conflicts. Legacy Maple namespace aliases are read and owned edits
-remove their older spelling. A disposable namespace-normalized copy feeds every
+remove their older spelling. If a canonical prefix belongs to a foreign
+namespace, writes reuse an owned alias or declare a nonconflicting prefix without
+rebinding the foreign XML. A disposable namespace-normalized copy feeds every
 native preview/editor/validation/export entry; persisted XML remains lexical.
 Unstamped imported temperature/tint keep their foreign or legacy Maple scale
 when unrelated edits add Maple metadata, so rating or picking cannot change color.

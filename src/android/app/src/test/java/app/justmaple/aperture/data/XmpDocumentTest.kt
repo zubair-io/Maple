@@ -189,6 +189,56 @@ class XmpDocumentTest {
         assertFalse(saved.original.contains("色:Exposure2012="))
     }
 
+    @Test
+    fun shadowedCanonicalPrefixesReuseOwnedAliasesWithoutChangingForeignXml() {
+        val foreign =
+            "<crs:opaque xmp:Rating='foreign rating' papp:Profile='foreign profile'>untouched</crs:opaque>"
+        val source =
+            """<r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:crs="urn:foreign-crs" xmlns:papp="urn:foreign-papp" xmlns:xmp="urn:foreign-xmp" xmlns:c="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:m="http://ns.justmaple.app/photo/1.0/" xmlns:a="http://ns.adobe.com/xap/1.0/"><r:Description crs:Exposure2012="foreign exposure" papp:Profile="foreign profile" xmp:Rating="foreign rating" c:Exposure2012="1" m:Profile="Neutral" a:Rating="3">$foreign</r:Description></r:RDF>"""
+        val result =
+            roundTrip(
+                XmpDocument(source)
+                    .withField(AdjustmentFields.byName.getValue("exposure"), .75f)
+                    .withAttribute("xmp:Rating", "5")
+            )
+        assertEquals("0.75", result.attribute("crs:Exposure2012"))
+        assertEquals("Neutral", result.attribute("papp:Profile"))
+        assertEquals(5, result.rating)
+        for (prefix in listOf("crs", "papp", "xmp")) assertTrue(
+            result.original.contains("xmlns:$prefix=\"urn:foreign-$prefix\"")
+        )
+        assertTrue(result.original.contains(foreign))
+        assertTrue(result.original.contains("crs:Exposure2012=\"foreign exposure\""))
+        assertTrue(result.original.contains("papp:Profile=\"foreign profile\""))
+        assertTrue(result.original.contains("xmp:Rating=\"foreign rating\""))
+        assertTrue(result.original.contains("c:Exposure2012=\"0.75\""))
+        assertTrue(result.original.contains("m:Profile=\"Neutral\""))
+        assertTrue(result.original.contains("a:Rating=\"5\""))
+    }
+
+    @Test
+    fun shadowedPrefixesAllocateUnboundAliasesWithoutRebindingForeignNames() {
+        val source =
+            """<r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:crs="urn:foreign-crs" xmlns:papp="urn:foreign-papp" xmlns:xmp="urn:foreign-xmp" xmlns:maple_crs="urn:collision-crs" xmlns:maple_papp="urn:collision-papp" xmlns:maple_xmp="urn:collision-xmp"><r:Description crs:Exposure2012="foreign exposure" xmp:Rating="foreign rating" papp:Profile="foreign profile" /></r:RDF>"""
+        val result =
+            roundTrip(
+                XmpDocument(source)
+                    .withField(AdjustmentFields.byName.getValue("exposure"), 1.25f)
+                    .withAttribute("xmp:Rating", "4")
+            )
+        assertEquals("1.25", result.attribute("crs:Exposure2012"))
+        assertEquals(4, result.rating)
+        assertEquals("Auto", result.attribute("papp:Profile"))
+        for (prefix in listOf("crs", "papp", "xmp")) {
+            assertTrue(result.original.contains("xmlns:$prefix=\"urn:foreign-$prefix\""))
+            assertTrue(result.original.contains("xmlns:maple_$prefix=\"urn:collision-$prefix\""))
+            assertTrue(result.original.contains("xmlns:maple_${prefix}_1="))
+        }
+        assertTrue(result.original.contains("crs:Exposure2012=\"foreign exposure\""))
+        assertTrue(result.original.contains("xmp:Rating=\"foreign rating\""))
+        assertTrue(result.original.contains("papp:Profile=\"foreign profile\""))
+    }
+
     private fun roundTrip(document: XmpDocument): XmpDocument {
         val folder = Files.createTempDirectory("maple-xmp-").toFile()
         return try {

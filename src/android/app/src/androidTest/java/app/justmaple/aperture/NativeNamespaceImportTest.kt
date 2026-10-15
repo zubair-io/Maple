@@ -18,7 +18,7 @@ class NativeNamespaceImportTest {
         val context = instrumentation.targetContext
         val library = PhotoLibrary(context)
         val alias =
-            """<r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:c="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:maple="https://maple.app/ns/1.0/"><r:Description c:Exposure2012="0.75" maple:Profile="Neutral" maple:Flag="pick"/></r:RDF>"""
+            """<r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:c="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:maple="https://maple.app/ns/1.0/" xmlns:crs="urn:foreign-crs" xmlns:xmp="urn:foreign-xmp" xmlns:papp="urn:foreign-papp"><r:Description crs:Exposure2012="foreign exposure" papp:Profile="foreign profile" xmp:Rating="foreign rating" c:Exposure2012="0.75" maple:Profile="Neutral" maple:Flag="pick"/></r:RDF>"""
         val canonical =
             XmpDocument()
                 .withAttribute("crs:Exposure2012", "0.75")
@@ -39,6 +39,11 @@ class NativeNamespaceImportTest {
                 val photo = library.single(Uri.fromFile(original))
                 val saved = library.save(photo, XmpDocument(alias), null)
                 assertEquals("pick", saved.document.attribute("papp:Flag"))
+                assertTrue(
+                    saved.document.original.contains("crs:Exposure2012=\"foreign exposure\"")
+                )
+                assertTrue(saved.document.original.contains("papp:Profile=\"foreign profile\""))
+                assertTrue(saved.document.original.contains("xmp:Rating=\"foreign rating\""))
                 assertTrue(saved.document.original.contains("c:Exposure2012=\"0.75\""))
                 val loaded = saved.document.original
                 val renderer = NativeBridge.createRenderer()
