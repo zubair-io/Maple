@@ -53,7 +53,8 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                     renderer.draw(request.values, request.revision, request.xml)
                 } catch (failure: Exception) {
                     if (failure is CancellationException) throw failure
-                    fail(failure, "Could not render photo")
+                    if (request.generation == generation && request.revision == renderer.revision)
+                        fail(failure, "Could not render photo")
                 }
             }
         }
@@ -302,12 +303,14 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
 
     fun surface(surface: Surface?, width: Int, height: Int, wideColor: Boolean = false) {
         val binding = renderer.recordSurface(surface, width, height, wideColor)
+        val token = generation
         if (state.value.mode == PhotoMode.Edit) mutable.update { it.copy(rendering = true) }
         viewModelScope.launch {
             try {
                 renderer.attach(binding)
             } catch (failure: Exception) {
-                fail(failure)
+                if (failure is CancellationException) throw failure
+                if (token == generation) fail(failure)
             }
         }
     }

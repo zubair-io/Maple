@@ -234,6 +234,11 @@ class CloudIntegrationTest {
                             compose
                                 .onNodeWithContentDescription("Rate 5 stars")
                                 .assertIsNotEnabled()
+                        compose.onNodeWithContentDescription("More photo actions").performClick()
+                        compose.onNodeWithText("Photo Info").performClick()
+                        compose.onNodeWithText("Export XMP sidecar…").assertIsNotEnabled()
+                        compose.onNodeWithContentDescription("More photo actions").performClick()
+                        compose.onNodeWithText("Photo Info").performClick()
                     } finally {
                         release.countDown()
                     }

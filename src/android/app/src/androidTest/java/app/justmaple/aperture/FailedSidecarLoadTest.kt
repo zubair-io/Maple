@@ -68,6 +68,9 @@ class FailedSidecarLoadTest {
                 compose.onNodeWithContentDescription("Rate 5 stars").assertIsNotEnabled()
                 compose.onNodeWithContentDescription("Pick photo").assertIsNotEnabled()
                 compose.onNodeWithContentDescription("Edit").assertIsNotEnabled()
+                compose.onNodeWithContentDescription("More photo actions").performClick()
+                compose.onNodeWithText("Photo Info").performClick()
+                compose.onNodeWithText("Export XMP sidecar…").assertIsNotEnabled()
                 val destination = File(context.cacheDir, "failed-load-export.xmp")
                 assertTrue(
                     runCatching { runBlocking { model.export(Uri.fromFile(destination), true) } }
@@ -82,6 +85,9 @@ class FailedSidecarLoadTest {
                 }
                 assertEquals("0.75", model.state.value.document.attribute("crs:Exposure2012"))
                 assertEquals("Same preset", model.state.value.document.attribute("xmp:Label"))
+                compose.onNodeWithText("Export XMP sidecar…").assertIsEnabled()
+                compose.onNodeWithContentDescription("More photo actions").performClick()
+                compose.onNodeWithText("Photo Info").performClick()
             }
             compose.runOnIdle { model.attribute("xmp:Rating", "4") }
             assertTrue(runBlocking { model.flush() })
