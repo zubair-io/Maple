@@ -129,9 +129,11 @@ class EditorIntegrationTest {
         assertNull(model.state.value.error)
         assertTrue(model.state.value.values.isNotEmpty())
         compose.runOnIdle {
+            assertTrue("Waited for an editable canvas", model.state.value.canEdit)
             model.undo()
             assertTrue(model.state.value.values.isNotEmpty())
             model.setField("exposure", 1.25f)
+            assertEquals(1.25f, model.state.value.values.getValue("exposure"), .001f)
             model.commitGesture()
         }
         compose.waitUntil(30_000) { !model.state.value.dirty && !model.state.value.saving }

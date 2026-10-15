@@ -40,6 +40,8 @@ internal class FileCloudServer(private val directory: File) : Closeable {
     @Volatile var previewCount = 0
     @Volatile var previewSuccesses = 0
     @Volatile var thumbCount = 0
+    @Volatile var folderPages: Map<String?, JSONObject>? = null
+    val folderCursors = java.util.Collections.synchronizedList(mutableListOf<String?>())
     @Volatile private var access = "fixture-access-1"
     private var refresh = "fixture-refresh-1"
     val original = File(directory, "photo #😀.png")
@@ -191,6 +193,32 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                     return
                 }
                 when (path.path) {
+                    "/api/folder/photos/2026" -> {
+                        val cursor = path.getQueryParameter("cursor")
+                        folderCursors += cursor
+                        val page =
+                            folderPages?.let {
+                                check(path.getQueryParameter("limit") == "500")
+                                it.getValue(cursor)
+                            }
+                                ?: JSONObject()
+                                    .put("parent", "photos:")
+                                    .put("parentPath", directory.path)
+                                    .put("folders", JSONArray())
+                                    .put(
+                                        "images",
+                                        JSONArray()
+                                            .put(
+                                                JSONObject()
+                                                    .put("name", original.name)
+                                                    .put("address", "photos:2026/" + original.name)
+                                                    .put("path", original.path)
+                                                    .put("size", original.length())
+                                                    .put("mtime", "2026-10-14T00:00:00.123Z")
+                                            ),
+                                    )
+                        json(200, page)
+                    }
                     "/api/folders" ->
                         json(
                             200,
@@ -218,26 +246,6 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                                         ),
                                 )
                                 .put("images", JSONArray()),
-                        )
-                    "/api/folder/photos/2026" ->
-                        json(
-                            200,
-                            JSONObject()
-                                .put("parent", "photos:")
-                                .put("parentPath", directory.path)
-                                .put("folders", JSONArray())
-                                .put(
-                                    "images",
-                                    JSONArray()
-                                        .put(
-                                            JSONObject()
-                                                .put("name", original.name)
-                                                .put("address", "photos:2026/" + original.name)
-                                                .put("path", original.path)
-                                                .put("size", original.length())
-                                                .put("mtime", "2026-10-14T00:00:00.123Z")
-                                        ),
-                                ),
                         )
                     "/api/image/photos/2026/" + original.name -> respond(200, original.readBytes())
                     "/api/thumb/photos/2026/" + original.name -> {

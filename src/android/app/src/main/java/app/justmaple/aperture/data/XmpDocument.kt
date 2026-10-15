@@ -193,7 +193,7 @@ data class XmpDocument(
         private fun descriptionBindings(xml: String): List<DescriptionScope> {
             val parser = Xml.newPullParser()
             parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
-            parser.setInput(StringReader(xml))
+            parser.setInput(StringReader(xml.removePrefix("\uFEFF")))
             var rdfDepth: Int? = null
             var insideRdf = false
             return buildList {
@@ -269,7 +269,7 @@ data class XmpDocument(
             require(!xml.contains("<!DOCTYPE", ignoreCase = true)) { "DTD is not supported in XMP" }
             val parser = Xml.newPullParser()
             parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
-            parser.setInput(StringReader(xml))
+            parser.setInput(StringReader(xml.removePrefix("\uFEFF")))
             while (parser.next() != XmlPullParser.END_DOCUMENT) {
                 /* Validate the entire document. */
             }

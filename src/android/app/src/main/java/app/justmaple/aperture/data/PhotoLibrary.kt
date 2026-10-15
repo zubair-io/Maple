@@ -222,7 +222,8 @@ class PhotoLibrary(private val context: Context) {
 
     private fun readSidecar(photo: Photo, fresh: Boolean = false): String? =
         if (CloudLibrary.isCloud(photo.uri)) cloud.readSidecar(photo)
-        else if (photo.parent == null) privateSidecar(photo).takeIf { it.exists() }?.readText()
+        else if (photo.parent == null)
+            privateSidecar(photo).takeIf { it.exists() }?.let { XmpEncoding.decode(it.readBytes()) }
         else saf.read(photo, fresh)
 
     suspend fun loadSidecar(photo: Photo): LoadedSidecar = io.withLock {
@@ -246,7 +247,7 @@ class PhotoLibrary(private val context: Context) {
                     val target = privateSidecar(photo)
                     val temp = File.createTempFile("sidecar-", ".xmp", target.parentFile)
                     try {
-                        temp.writeText(xml)
+                        temp.writeBytes(XmpEncoding.encode(xml))
                         check(temp.renameTo(target)) { "Could not save sidecar" }
                     } finally {
                         temp.delete()

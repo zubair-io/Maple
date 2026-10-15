@@ -10,6 +10,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import app.justmaple.aperture.data.XmpDocument
+import app.justmaple.aperture.data.XmpEncoding
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -81,7 +82,12 @@ class SafSidecarTest {
                     ".import-${UUID.randomUUID()}.xmp",
                 )!!
             context.contentResolver.openOutputStream(staged, "wt")!!.use {
-                it.write(imported.toByteArray())
+                it.write(
+                    byteArrayOf(-1, -2) +
+                        ("<?xml version=\"1.0\" encoding=\"UTF-16\"?>" + imported).toByteArray(
+                            java.nio.charset.Charset.forName("UTF-16LE")
+                        )
+                )
             }
             DocumentsContract.renameDocument(context.contentResolver, staged, canonicalName)!!
             compose.runOnIdle { model.open(photo) }
@@ -228,7 +234,7 @@ class SafSidecarTest {
                 "application/rdf+xml",
                 requestedName,
             )!!
-        resolver.openOutputStream(temp, "wt")!!.use { it.write(xml.toByteArray()) }
+        resolver.openOutputStream(temp, "wt")!!.use { it.write(XmpEncoding.encode(xml)) }
         val tempName =
             androidx.documentfile.provider.DocumentFile.fromSingleUri(context, temp)!!.name!!
         val journal =
