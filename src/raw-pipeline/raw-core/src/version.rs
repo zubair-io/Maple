@@ -152,7 +152,9 @@
 ///   use the ordinary camera white-balance path for those samples (#4629).
 /// - 27 — Robertson tint is measured from the interpolated locus, matching
 ///   the Adobe SDK and all three language bindings (#4630).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 27;
+/// - 28 — DNG HueSatMap uses independent-axis trilinear interpolation
+///   instead of subdividing each cell into tetrahedra (#4631).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 28;
 
 #[cfg(test)]
 mod tests {
