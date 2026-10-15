@@ -32,9 +32,7 @@ internal fun CloudConnectionDialog(
                     CircularProgressIndicator(color = MapleColors.primary)
                     Text("Complete sign-in in your browser, then return to Maple.")
                 } else {
-                    Text(
-                        "Enter your Maple Cloud or self-hosted server domain. Sign-in opens in your browser."
-                    )
+                    Text("Enter your Maple Cloud server domain. Sign-in opens in your browser.")
                     OutlinedTextField(
                         domain,
                         { domain = it },

@@ -6,91 +6,31 @@ import app.justmaple.aperture.data.*
 import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.OutputStream
 import java.time.Instant
-import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
 class CloudLibrary(context: Context) {
-    private val loginLock = Any()
-    private var loginEpoch = 0
     private val credentials = CloudCredentials(context)
     private val http = CloudHttp(credentials)
+    private val signIn = CloudSignIn(credentials)
+    val signingIn: Boolean
+        get() = signIn.pending
+
     val sources: List<Folder>
-        get() =
-            credentials.servers().map {
-                Folder(root(it.id), Uri.parse(it.origin).authority ?: it.origin)
-            }
+        get() = credentials.servers().map(::source)
 
-    fun begin(input: String): Uri =
-        synchronized(loginLock) {
-            val login = CloudLogin.create(input)
-            ++loginEpoch
-            credentials.pending(login)
-            login.browserUri()
-        }
+    fun begin(input: String): Uri = signIn.begin(input)
 
-    fun cancelLogin() =
-        synchronized(loginLock) {
-            ++loginEpoch
-            credentials.pending(null)
-        }
+    fun cancelLogin() = signIn.cancel()
 
-    suspend fun complete(callback: Uri): Folder =
-        withContext(Dispatchers.IO) {
-            val (pending, code, epoch) =
-                synchronized(loginLock) {
-                    val pending =
-                        credentials.pending()
-                            ?: error("No sign-in is pending. Please connect again.")
-                    val code = pending.validateCallback(callback)
-                    credentials.pending(null)
-                    Triple(pending, code, loginEpoch)
-                }
-            try {
-                val response =
-                    CloudHttp.publicPost(
-                            pending.origin,
-                            "/api/auth/native-code/redeem",
-                            JSONObject().put("code", code).put("code_verifier", pending.verifier),
-                        )
-                        .requireSuccess()
-                val result = JSONObject(response.text())
-                val existing = credentials.servers().find { it.origin == pending.origin }
-                val server =
-                    CloudServer(
-                        existing?.id ?: UUID.randomUUID().toString(),
-                        pending.origin,
-                        result.getString("access_token"),
-                        result.getString("refresh_token"),
-                    )
-                val committed =
-                    synchronized(loginLock) {
-                        if (epoch == loginEpoch) {
-                            credentials.save(server)
-                            true
-                        } else false
-                    }
-                if (!committed) {
-                    runCatching {
-                        CloudHttp.publicPost(
-                            pending.origin,
-                            "/api/auth/logout",
-                            JSONObject().put("refresh_token", server.refresh),
-                        )
-                    }
-                    throw kotlinx.coroutines.CancellationException("Sign-in was cancelled")
-                }
-                Folder(root(server.id), Uri.parse(server.origin).authority ?: server.origin)
-            } catch (failure: Exception) {
-                synchronized(loginLock) {
-                    if (epoch != loginEpoch)
-                        throw kotlinx.coroutines.CancellationException("Sign-in was cancelled")
-                }
-                throw failure
-            }
-        }
+    suspend fun complete(callback: Uri): Folder = source(signIn.complete(callback))
+
+    suspend fun pollSignIn(): Folder? = signIn.poll()?.let(::source)
+
+    private fun source(server: CloudServer) =
+        Folder(root(server.id), Uri.parse(server.origin).authority ?: server.origin)
 
     suspend fun disconnect(folder: Folder): Unit =
         withContext(Dispatchers.IO) {

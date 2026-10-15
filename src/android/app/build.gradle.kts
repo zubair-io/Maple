@@ -46,6 +46,7 @@ abstract class StageTestFixtures : DefaultTask() {
 val stageTestFixtures by tasks.registering(StageTestFixtures::class) {
     fixtures.from(
         rootProject.file("../../test-fixtures/batch-transfer/source.dng"),
+        rootProject.file("../../test-fixtures/android/portrait.dng"),
         rootProject.file("../apple/MapleUITests/Fixtures/layout/rgb-gradient.png"),
         rootProject.file("../../test-fixtures/raster-metadata/avif-validation/srgb-rgb.avif"),
     )

@@ -34,7 +34,7 @@ data class XmpDocument(
     fun attribute(name: String): String? {
         if (changes.containsKey(name)) return changes[name]
         return descriptions(original)
-            .flatMap { tag -> ATTRIBUTE.findAll(tag.value).toList() }
+            .flatMap { (tag, _) -> ATTRIBUTE.findAll(tag.value).toList() }
             .lastOrNull { it.groupValues[1] == name }
             ?.let { unescape(it.groupValues[3]) }
     }
@@ -42,9 +42,7 @@ data class XmpDocument(
     fun serialize(): String {
         validate(original)
         val tags = descriptions(original)
-        val scopes = descriptionBindings(original)
         require(tags.isNotEmpty()) { "XMP has no RDF description" }
-        require(tags.size == scopes.size) { "Unsupported RDF description syntax" }
         val profile =
             attribute("papp:Profile")
                 ?: if (attribute("papp:Look") == "Neutral") "Neutral" else "Auto"
@@ -57,7 +55,7 @@ data class XmpDocument(
                     "crs:ProcessVersion" to (attribute("crs:ProcessVersion") ?: "11.0"),
                 )
         val result = StringBuilder(original)
-        tags.zip(scopes).asReversed().forEach { (tag, scope) ->
+        tags.asReversed().forEach { (tag, scope) ->
             val stripped =
                 ATTRIBUTE.replace(tag.value) { match ->
                     when {
@@ -70,7 +68,7 @@ data class XmpDocument(
                 }
             val suffix = if (stripped.endsWith("/>")) "/>" else ">"
             val extra =
-                if (tag == tags.last())
+                if (tag == tags.last().first)
                     buildString {
                         for ((prefix, uri) in NAMESPACES) {
                             val declared = scope[prefix]
@@ -122,15 +120,38 @@ data class XmpDocument(
                 "xmp" to "http://ns.adobe.com/xap/1.0/",
             )
 
-        private fun descriptions(xml: String) =
-            DESCRIPTION.findAll(xml).filter { it.value.startsWith("<rdf:Description") }.toList()
+        private data class DescriptionScope(val bindings: Map<String, String>, val primary: Boolean)
 
-        private fun descriptionBindings(xml: String): List<Map<String, String>> {
+        private fun descriptions(xml: String): List<Pair<MatchResult, Map<String, String>>> {
+            val tags =
+                DESCRIPTION.findAll(xml).filter { it.value.startsWith("<rdf:Description") }.toList()
+            val scopes = descriptionBindings(xml)
+            require(tags.size == scopes.size) { "Unsupported RDF description syntax" }
+            return tags
+                .zip(scopes)
+                .filter { it.second.primary }
+                .map { it.first to it.second.bindings }
+        }
+
+        private fun descriptionBindings(xml: String): List<DescriptionScope> {
             val parser = Xml.newPullParser()
             parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
             parser.setInput(StringReader(xml))
+            var rdfDepth: Int? = null
+            var insideRdf = false
             return buildList {
                 while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                    if (
+                        rdfDepth == null &&
+                            parser.eventType == XmlPullParser.START_TAG &&
+                            parser.name == "RDF" &&
+                            parser.namespace == "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+                    ) {
+                        rdfDepth = parser.depth
+                        insideRdf = true
+                    }
+                    if (parser.eventType == XmlPullParser.END_TAG && parser.depth == rdfDepth)
+                        insideRdf = false
                     if (
                         parser.eventType == XmlPullParser.START_TAG &&
                             parser.prefix == "rdf" &&
@@ -140,13 +161,16 @@ data class XmpDocument(
                             "Conflicting RDF namespace"
                         }
                         add(
-                            buildMap {
-                                for (i in 0 until parser.getNamespaceCount(parser.depth)) {
-                                    parser.getNamespacePrefix(i)?.let {
-                                        put(it, parser.getNamespaceUri(i))
+                            DescriptionScope(
+                                buildMap {
+                                    for (i in 0 until parser.getNamespaceCount(parser.depth)) {
+                                        parser.getNamespacePrefix(i)?.let {
+                                            put(it, parser.getNamespaceUri(i))
+                                        }
                                     }
-                                }
-                            }
+                                },
+                                insideRdf && parser.depth == rdfDepth?.plus(1),
+                            )
                         )
                     }
                 }

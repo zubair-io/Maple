@@ -20,6 +20,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -82,8 +84,17 @@ fun PhotoSurface(
         Row(Modifier.weight(1f)) {
             if (tablet && state.showFilmstrip) Filmstrip(model, state, vertical = true)
             Column(Modifier.weight(1f)) {
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                BoxWithConstraints(
+                    Modifier.weight(1f).fillMaxWidth().clipToBounds().testTag("photo-viewport"),
+                    contentAlignment = Alignment.Center,
+                ) {
                     if (editing) {
+                        val aspect =
+                            state.values["_aspect"]?.takeIf { it.isFinite() && it > 0f }
+                                ?: (3f / 2f)
+                        // A width fixed before aspectRatio can exceed this viewport's height.
+                        // Fit both axes before sizing the separate SurfaceView layer.
+                        val canvasWidth = minOf(maxWidth * .94f, maxHeight * aspect)
                         AndroidView(
                             factory = { context ->
                                 SurfaceView(context).apply {
@@ -110,9 +121,9 @@ fun PhotoSurface(
                                 }
                             },
                             modifier =
-                                Modifier.fillMaxWidth(.94f)
-                                    .aspectRatio(state.values["_aspect"] ?: (3f / 2f))
-                                    .semantics { contentDescription = "Photo canvas" },
+                                Modifier.size(canvasWidth, canvasWidth / aspect).semantics {
+                                    contentDescription = "Photo canvas"
+                                },
                         )
                         Surface(
                             Modifier.align(Alignment.TopCenter).padding(top = 14.dp),

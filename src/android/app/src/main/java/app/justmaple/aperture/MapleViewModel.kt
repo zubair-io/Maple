@@ -14,33 +14,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-enum class PhotoMode {
-    Browse,
-    Preview,
-    Edit,
-}
-
-data class MapleState(
-    val sources: List<Folder> = emptyList(),
-    val folder: Folder? = null,
-    val folders: List<Folder> = emptyList(),
-    val photos: List<Photo> = emptyList(),
-    val selected: Photo? = null,
-    val mode: PhotoMode = PhotoMode.Browse,
-    val document: XmpDocument = XmpDocument(),
-    val values: Map<String, Float> = emptyMap(),
-    val loading: Boolean = false,
-    val rendering: Boolean = false,
-    val saving: Boolean = false,
-    val dirty: Boolean = false,
-    val error: String? = null,
-    val canUndo: Boolean = false,
-    val canRedo: Boolean = false,
-    val showFilmstrip: Boolean = true,
-    val cloudSigningIn: Boolean = false,
-    val cloudConnectionsVersion: Int = 0,
-)
-
 private data class EditSnapshot(val values: Map<String, Float>, val document: XmpDocument)
 
 private data class DrawRequest(
@@ -60,6 +33,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
             MapleState(
                 sources = library.sources,
                 showFilmstrip = preferences.getBoolean("filmstrip", true),
+                cloudSigningIn = library.cloud.signingIn,
             )
         )
     val state = mutable.asStateFlow()
@@ -81,19 +55,21 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                     renderer.draw(request.values, request.revision, request.xml)
                 } catch (failure: Exception) {
                     if (failure is CancellationException) throw failure
-                    fail(failure)
+                    fail(failure, "Could not render photo")
                 }
             }
         }
         library.sources.firstOrNull()?.let(::browse)
+        if (library.cloud.signingIn) connectCloud { library.cloud.pollSignIn() }
     }
 
     fun report(failure: Throwable) = fail(failure)
 
-    private fun fail(failure: Throwable) {
+    private fun fail(failure: Throwable, operation: String = "Operation failed") {
+        val message = failure.operationMessage(operation)
         mutable.update {
             it.copy(
-                error = failure.message ?: "The operation failed",
+                error = message,
                 loading = false,
                 rendering = false,
                 saving = false,
@@ -108,7 +84,10 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     fun beginCloud(input: String): Uri? = runCatching {
         library.cloud.begin(input)
     }
-        .onSuccess { mutable.update { it.copy(cloudSigningIn = true, error = null) } }
+        .onSuccess {
+            mutable.update { it.copy(cloudSigningIn = true, error = null) }
+            connectCloud { library.cloud.pollSignIn() }
+        }
         .onFailure(::fail)
         .getOrNull()
 
@@ -117,10 +96,12 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         mutable.update { it.copy(cloudSigningIn = false) }
     }
 
-    fun completeCloud(callback: Uri) {
+    fun completeCloud(callback: Uri) = connectCloud { library.cloud.complete(callback) }
+
+    private fun connectCloud(connect: suspend () -> Folder?) {
         viewModelScope.launch {
             try {
-                val source = library.cloud.complete(callback)
+                val source = connect() ?: return@launch
                 mutable.update {
                     it.copy(
                         sources = library.sources,
@@ -131,8 +112,9 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                 browse(source)
             } catch (failure: Exception) {
                 if (failure is CancellationException) return@launch
+                library.cloud.cancelLogin()
                 mutable.update { it.copy(cloudSigningIn = false) }
-                fail(failure)
+                fail(failure, "Could not connect to Maple Cloud")
             }
         }
     }
@@ -501,7 +483,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
             }
             return true
         } catch (failure: Exception) {
-            fail(failure)
+            fail(failure, "Could not save edits")
             return false
         } finally {
             saveLock.unlock()

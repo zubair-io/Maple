@@ -16,6 +16,10 @@ internal class FileCloudServer(private val directory: File) : Closeable {
     private val worker = Executors.newCachedThreadPool()
     val origin = "http://127.0.0.1:${socket.localPort}"
     @Volatile var expectedChallenge = ""
+    @Volatile var expectedState = ""
+    @Volatile var claimReady = false
+    @Volatile var claimCount = 0
+    @Volatile var claimTransientStatus: Int? = null
     @Volatile
     var refreshCount = 0
         private set
@@ -97,6 +101,24 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                 .put("refresh_token", refresh)
                 .put("user", JSONObject().put("id", "fixture-user").put("file_access", true))
         when (path.path) {
+            "/api/auth/native-code/claim" -> {
+                val data = JSONObject(body.toString(Charsets.UTF_8))
+                claimCount++
+                val transient = claimTransientStatus
+                if (transient != null) {
+                    claimTransientStatus = null
+                    respond(transient)
+                } else if (
+                    !claimReady ||
+                        data.optString("state") != expectedState ||
+                        CloudLogin.challenge(data.optString("code_verifier")) != expectedChallenge
+                ) {
+                    respond(404)
+                } else {
+                    claimReady = false
+                    json(200, tokens())
+                }
+            }
             "/api/auth/native-code/redeem" -> {
                 val data = JSONObject(body.toString(Charsets.UTF_8))
                 if (
