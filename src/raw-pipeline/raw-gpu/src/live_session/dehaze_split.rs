@@ -43,7 +43,9 @@ impl LiveSession {
         airlight: [f32; 3],
     ) -> Option<usize> {
         let sig = crate::live_chain::chain_signature(inputs, self.image.dims(), self.session_id);
-        ctx.frame_pool.borrow_mut().begin_frame(sig);
+        ctx.frame_pool
+            .borrow_mut()
+            .begin_session_frame(sig, &self.pool_owner);
         let passes = crate::live_chain::build_live_chain(inputs, AirlightSource::Cpu(airlight));
         let mut encoder = ctx
             .device

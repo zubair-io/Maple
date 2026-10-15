@@ -99,6 +99,7 @@ pub struct LiveSession {
     /// [`NEXT_LIVE_SESSION_ID`] at construction; stable for the session's whole
     /// lifetime.
     session_id: u64,
+    pool_owner: std::sync::Arc<()>,
     /// The vectorscope scope-pass histogram, the RGB8 snapshot (#3251) and
     /// their double-buffered `MAP_READ` staging (#3272) — see
     /// `live_session/scope.rs`. Session-owned
@@ -154,6 +155,9 @@ impl LiveSession {
                 pixels.len()
             ));
         }
+        // Keep other live views warm; reclaim retired source resources before
+        // allocating this view. Session-salted signatures isolate their bindings.
+        ctx.frame_pool.borrow_mut().retire_sessions();
         let image = GpuImage::upload(ctx, pixels, width, height);
         let f32_byte_len = image.byte_len();
         let make_ping = |label: &str| {
@@ -184,14 +188,6 @@ impl LiveSession {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        // Drop any cache from a prior session on this ctx — its bind groups
-        // reference the OLD session's (now-dropped) ping-pong buffers (stale-
-        // reference safety; see `FramePool::reset`). This guards a CLOSED
-        // session's leftovers; it does NOT protect against a second session
-        // opening and rendering while this one is still alive (#1929) — that's
-        // what `session_id` (salted into every `chain_signature` this session
-        // computes) closes instead.
-        ctx.frame_pool.borrow_mut().reset();
         let session_id = NEXT_LIVE_SESSION_ID.fetch_add(1, Ordering::Relaxed);
         let ping_pong = [make_ping("live-ping-a"), make_ping("live-ping-b")];
         Ok(Self {
@@ -206,6 +202,7 @@ impl LiveSession {
             airlight_staging,
             airlight_readback_fallback,
             session_id,
+            pool_owner: std::sync::Arc::new(()),
             scope: scope::ScopeBuffers::new(ctx, (width, height)),
         })
     }
@@ -284,7 +281,9 @@ impl LiveSession {
         // so a same-signature re-render allocates ZERO new GPU resources.
         crate::live_chain::validate_curve_capacity(inputs)?;
         let sig = chain_signature(inputs, dims, self.session_id);
-        ctx.frame_pool.borrow_mut().begin_frame(sig);
+        ctx.frame_pool
+            .borrow_mut()
+            .begin_session_frame(sig, &self.pool_owner);
 
         let result = if self.airlight_readback_fallback && dehaze_is_active(inputs) {
             self.render_dehaze_split(ctx, inputs, cancel).await
@@ -389,7 +388,9 @@ impl LiveSession {
         crate::live_chain::validate_curve_capacity(inputs)?;
         let dims = self.image.dims();
         let sig = chain_signature(inputs, dims, self.session_id);
-        ctx.frame_pool.borrow_mut().begin_frame(sig);
+        ctx.frame_pool
+            .borrow_mut()
+            .begin_session_frame(sig, &self.pool_owner);
 
         let result = if self.airlight_readback_fallback && dehaze_is_active(inputs) {
             self.encode_chain_f32_dehaze_split(ctx, inputs, cancel)

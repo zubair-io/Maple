@@ -45,7 +45,6 @@
 use crate::chain::Pass;
 use crate::context::GpuContext;
 use crate::spatial::{alloc_plane, plane_byte_len};
-use wgpu::util::DeviceExt;
 
 /// Hard ceiling on the Gaussian sigma, in pixels — mirrors
 /// `raw_core::stages::capture_sharpening::MAX_SIGMA_PX_STAGE`. Above this the
@@ -88,6 +87,8 @@ impl Default for CaptureSharpeningParams {
     }
 }
 
+const MAX_KERNEL_LEN: usize = (6.0 * MAX_SIGMA_PX_STAGE) as usize + 1;
+
 /// Build a windowed, renormalized 1D Gaussian kernel — a bit-for-bit port of
 /// `raw_core::stages::blur::gaussian_kernel_1d` (moved there from
 /// capture_sharpening in #1083; the math is unchanged). `half =
@@ -103,25 +104,30 @@ impl Default for CaptureSharpeningParams {
 /// `pub(crate)`: the sharpen stage shares this builder (and the `gaussian_blur`
 /// WGSL entry point) for its sigma-faithful unsharp blur — see #1083.
 pub(crate) fn gaussian_kernel_1d(sigma: f32) -> Vec<f32> {
+    let mut kernel = [0.; MAX_KERNEL_LEN];
+    let len = gaussian_kernel_into(sigma, &mut kernel);
+    kernel[..len].to_vec()
+}
+
+fn gaussian_kernel_into(sigma: f32, kernel: &mut [f32; MAX_KERNEL_LEN]) -> usize {
     let sigma = if sigma.is_finite() && sigma > 0.0 {
         sigma.min(MAX_SIGMA_PX_STAGE)
     } else {
         1e-3
     };
     let half = (3.0 * sigma).ceil().max(1.0) as usize;
+    let len = 2 * half + 1;
     let two_sigma_sq = 2.0 * sigma * sigma;
-    let mut k: Vec<f32> = (0..=2 * half)
-        .map(|i| {
-            let x = i as f32 - half as f32;
-            (-(x * x) / two_sigma_sq).exp()
-        })
-        .collect();
-    let sum: f32 = k.iter().sum();
-    let inv = 1.0 / sum;
-    for v in &mut k {
-        *v *= inv;
+    for (i, value) in kernel[..len].iter_mut().enumerate() {
+        let x = i as f32 - half as f32;
+        *value = (-(x * x) / two_sigma_sq).exp();
     }
-    k
+    let sum: f32 = kernel[..len].iter().sum();
+    let inv = 1.0 / sum;
+    for value in &mut kernel[..len] {
+        *value *= inv;
+    }
+    len
 }
 
 /// `repr(C)` uniform shared by the count-only kernels (extract / ratio / multiply).
@@ -191,41 +197,7 @@ fn dispatch(args: DispatchArgs) {
         count,
         label,
     } = args;
-    let params_buf = ctx
-        .device
-        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(label),
-            contents: params_bytes,
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
-    let mut entries = Vec::with_capacity(buffers.len() + 1);
-    entries.push(wgpu::BindGroupEntry {
-        binding: 0,
-        resource: params_buf.as_entire_binding(),
-    });
-    for (k, buf) in buffers.iter().enumerate() {
-        entries.push(wgpu::BindGroupEntry {
-            binding: (k + 1) as u32,
-            resource: buf.as_entire_binding(),
-        });
-    }
-    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some(label),
-        layout: &pipeline.get_bind_group_layout(0),
-        entries: &entries,
-    });
-    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-        label: Some(label),
-        timestamp_writes: None,
-    });
-    pass.set_pipeline(pipeline);
-    pass.set_bind_group(0, &bind_group, &[]);
-    let groups = count.div_ceil(64);
-    let gx = groups.min(65535);
-    // Guard the empty dispatch: count==0 -> gx==0, and div_ceil(0) panics.
-    // (0,0,1) is a safe no-op (the original 1-D (0,1,1) was likewise). #1623
-    let gy = if gx == 0 { 0 } else { groups.div_ceil(gx) };
-    pass.dispatch_workgroups(gx, gy, 1);
+    crate::spatial::encode_simple(ctx, encoder, pipeline, params_bytes, buffers, count, label);
 }
 
 pub(crate) struct GaussArgs<'a> {
@@ -331,15 +303,12 @@ impl Pass for CaptureSharpeningPass {
         }
 
         // Upload the Gaussian kernel (built CPU-side, bit-identical to raw-core).
-        let kernel_vals = gaussian_kernel_1d(self.params.sigma);
-        let klen = kernel_vals.len() as u32;
-        let kernel_buf = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("cs-kernel"),
-                contents: bytemuck::cast_slice(&kernel_vals),
-                usage: wgpu::BufferUsages::STORAGE,
-            });
+        // A fixed-capacity lease keeps sigma changes inside the same resident
+        // binding shape. Only klen and the coefficient bytes change per tick.
+        let mut kernel_vals = [0.; MAX_KERNEL_LEN];
+        let klen = gaussian_kernel_into(self.params.sigma, &mut kernel_vals) as u32;
+        let kernel_buf =
+            crate::spatial::pool_data_storage(ctx, bytemuck::cast_slice(&kernel_vals), "cs-kernel");
 
         // 1. extract → `original` luma plane.
         let original = alloc_plane(ctx, width, height, "cs-original");
