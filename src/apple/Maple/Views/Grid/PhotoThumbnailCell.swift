@@ -407,7 +407,7 @@ private struct GridCellOverlayView: View {
 
 // MARK: - DragPayloadModifier
 
-/// Applies `.draggable(_:)` when `payload` is non-nil (#2646); a no-op
+/// Attaches a drag source when `payload` is non-nil (#2646); a no-op
 /// otherwise, so cells that never opt into dragging (`dragPayload` left at
 /// its `nil` default) don't pay for a drag-session gesture recognizer at
 /// all. The preview (#2779) is the dragged tile's thumbnail via
@@ -423,9 +423,13 @@ private struct DragPayloadModifier: ViewModifier {
 
   func body(content: Content) -> some View {
     if let payload {
-      content.draggable(payload) {
-        AssetDragPreview(thumbnail: thumbnail, count: payload.ids.count)
-      }
+      #if os(macOS)
+        content.background(MacAssetDragSource(payload: payload, thumbnail: thumbnail))
+      #else
+        content.draggable(payload) {
+          AssetDragPreview(thumbnail: thumbnail, count: payload.ids.count)
+        }
+      #endif
     } else {
       content
     }

@@ -346,20 +346,20 @@ struct BrowseGrid: View {
         // asset library re-ran millions of comparisons a frame. Build
         // the payload straight from the (already O(1)-membership) `Set`
         // of selected ids instead — O(selection size), not O(library
-        // size). Payload order is therefore selection-insertion order,
-        // not grid order; `AppShell+AssetDrop.swift`'s
-        // `performAssetDrop` restores grid order once, at drop time,
-        // from the already-materialized `browseVM.assets` array — not
-        // per cell here.
+        // size). Original files are resolved in grid order once, when
+        // the drag starts (#4632). Internal drop routing likewise
+        // restores grid order once in `performAssetDrop`.
         dragPayload: { asset in
           guard asset.thumbnailProvenance != .photoKit, !(vm.currentSource is PhotoKitSource) else {
             return nil
           }
           let active = vm.isSelecting ? vm.selectedIDs : (vm.selectedID.map { Set([$0]) } ?? [])
           guard active.contains(asset.id), active.count > 1 else {
-            return DraggedAssetPayload(ids: [asset.id])
+            return DraggedAssetPayload(ids: [asset.id], resolveAssets: { [asset] })
           }
-          return DraggedAssetPayload(ids: Array(active))
+          return DraggedAssetPayload(ids: Array(active)) {
+            vm.assets.filter { active.contains($0.id) }
+          }
         },
         contextMenuItems: { (asset: AssetRef) in
           // Reveal in Finder (#2658) rides in the same per-cell menu

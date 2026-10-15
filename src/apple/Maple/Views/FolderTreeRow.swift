@@ -143,22 +143,13 @@ struct FolderTreeRow: View {
       )
       // Drag-onto-source-tree (#2646). Default = move; the platform
       // copy-modifier (Option on macOS — see `MapleDragModifier`) =
-      // copy. `payloads.first` is safe: a `.draggable` drag session
-      // carries exactly one `DraggedAssetPayload` (itself a LIST of
-      // ids for a multi-select drag), never multiple payloads.
-      .dropDestination(
-        for: DraggedAssetPayload.self,
-        action: { payloads, _ in
-          guard let payload = payloads.first, !payload.ids.isEmpty else { return false }
-          onDropAssets(url, rootBookmark, Set(payload.ids), MapleDragModifier.isCopyRequested())
-          return true
-        }, isTargeted: { targeted in isDropTargeted = targeted }
+      // copy. Internal identity takes precedence over the outgoing file URL.
+      .assetOrFileDropDestination(
+        isTargeted: { targeted in isDropTargeted = targeted },
+        assets: { ids in
+          onDropAssets(url, rootBookmark, ids, MapleDragModifier.isCopyRequested())
+        }, files: onDropURLs
       )
-      // Second, same-view drop target for OS file/folder drops (#2649)
-      // — a distinct type from `DraggedAssetPayload` above, so this is
-      // an ADDITIONAL registered type on this same drop target, not a
-      // competing nested one; see `LibrarySidebar.onDropURLs`.
-      .urlDropDestination(perform: onDropURLs)
       .contextMenu {
         if selectedAssetCount > 0 {
           Button {

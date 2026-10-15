@@ -179,18 +179,14 @@ struct CloudFolderTreeRow: View {
       // Drag-onto-source-tree (#2646). See `FolderTreeRow`'s identical
       // modifier (`LibrarySidebar.swift`) for the payload/modifier-key
       // contract — this is its Cloud-row twin.
-      .dropDestination(
-        for: DraggedAssetPayload.self,
-        action: { payloads, _ in
-          guard let payload = payloads.first, !payload.ids.isEmpty else { return false }
+      .assetOrFileDropDestination(
+        isTargeted: { targeted in isDropTargeted = targeted },
+        assets: { ids in
           onDropAssets(
-            libraryFolderID, libraryRootPath, absPath, Set(payload.ids),
+            libraryFolderID, libraryRootPath, absPath, ids,
             MapleDragModifier.isCopyRequested())
-          return true
-        }, isTargeted: { targeted in isDropTargeted = targeted }
+        }, files: onDropURLs
       )
-      // Second, same-view drop target for OS file/folder drops (#2649).
-      .urlDropDestination(perform: onDropURLs)
       .contextMenu {
         if selectedAssetCount > 0 {
           Button {
