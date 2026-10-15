@@ -34,6 +34,7 @@ fn grey_raw(width: u32, height: u32) -> RawImage {
         crop_rect: None,
         iso: 100,
         noise_profile: None,
+        linearization_transfer: None,
         opcode_list3: None,
         aperture: None,
         focal_length: None,

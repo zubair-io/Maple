@@ -148,7 +148,9 @@
 /// - 25 — camera-balanced AMaZE interpolation and supported positive-chroma
 ///   correction (#4627); local highlight witnesses use surviving-channel
 ///   chromaticity weights and weighted confidence (#4628).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 25;
+/// - 26 — apply declared lossy-DNG per-plane polynomial linearization and
+///   use the ordinary camera white-balance path for those samples (#4629).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 26;
 
 #[cfg(test)]
 mod tests {

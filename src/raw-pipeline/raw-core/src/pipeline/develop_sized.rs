@@ -232,8 +232,7 @@ pub(super) fn develop_sized_prefix(
     dump_after("00a_baseline_exposure", &camera_rgb);
 
     // WB pre-gain (mirrors the unsized variant — see comment there).
-    let skip_pre_gain =
-        matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
+    let skip_pre_gain = raw.uses_legacy_lossy_linearraw();
     if !skip_pre_gain {
         stage("sized_white_balance::apply_pre_gain", || {
             white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)

@@ -3,7 +3,7 @@
 //! neither decodes metadata again nor adds another WASM round-trip.
 use crate::{
     color::dcp::{self, DcpProfile, ProfileSource},
-    image::{CfaPattern, RawImage},
+    image::RawImage,
     stages::{wb_camera, white_balance},
     types::WbMethod,
     xmp::AdjustmentModel,
@@ -31,8 +31,8 @@ impl GpuWhiteBalance {
 
     pub fn resolve(raw: &RawImage) -> Result<Self, String> {
         let (profile, source) = dcp::profile_for_with_source(raw).map_err(|e| e.to_string())?;
-        let fallback = matches!(source, ProfileSource::RawlerFallback)
-            || (matches!(raw.cfa, CfaPattern::LinearRgb) && raw.white_level <= 255);
+        let fallback =
+            matches!(source, ProfileSource::RawlerFallback) || raw.uses_legacy_lossy_linearraw();
         let calibration = if fallback {
             None
         } else {

@@ -120,6 +120,7 @@ fn fake_raw_with_opcodes(
     )>,
 ) -> RawImage {
     RawImage {
+        linearization_transfer: None,
         width: 4,
         height: 4,
         cfa: CfaPattern::Rggb,

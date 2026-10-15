@@ -47,8 +47,7 @@ pub unsafe extern "C" fn maple_resolve_imported_white_balance_file(
                 let (profile, source) = raw_core::color::dcp::profile_for_with_source(&raw)?;
                 let fallback =
                     matches!(source, raw_core::color::dcp::ProfileSource::RawlerFallback)
-                        || (matches!(raw.cfa, raw_core::image::CfaPattern::LinearRgb)
-                            && raw.white_level <= 255);
+                        || raw.uses_legacy_lossy_linearraw();
                 let pair = if fallback {
                     raw_core::stages::white_balance::resolve_wb(&model)
                 } else {

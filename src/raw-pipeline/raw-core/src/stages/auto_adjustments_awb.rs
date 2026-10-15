@@ -72,7 +72,9 @@
 //! counterpart in `raw-gpu`.
 
 use crate::color::dcp::{self, ProfileSource};
-use crate::image::{CfaPattern, ColorSpace, Image, RawImage};
+#[cfg(test)]
+use crate::image::CfaPattern;
+use crate::image::{ColorSpace, Image, RawImage};
 use crate::math::Matrix3;
 use crate::stages::wb_camera::{self, SliderFrame};
 use crate::stages::white_balance::neutral_to_temp_tint;
@@ -175,7 +177,7 @@ impl ProbeSpace {
     /// the generic space.
     pub(crate) fn resolve(raw: &RawImage, probe_model: &AdjustmentModel) -> Self {
         let neutral_clip = raw.baseline_exposure.exp2();
-        let skip_pre_gain = matches!(raw.cfa, CfaPattern::LinearRgb) && raw.white_level <= 255;
+        let skip_pre_gain = raw.uses_legacy_lossy_linearraw();
         let camera = if skip_pre_gain {
             None
         } else {

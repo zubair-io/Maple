@@ -436,8 +436,7 @@ pub(crate) fn wb_frame_export(
     raw: &raw_core::RawImage,
 ) -> raw_core::stages::wb_camera::SliderFrameExport {
     use raw_core::stages::wb_camera::SliderFrameExport;
-    let skip_pre_gain =
-        matches!(raw.cfa, raw_core::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
+    let skip_pre_gain = raw.uses_legacy_lossy_linearraw();
     if skip_pre_gain {
         return SliderFrameExport::ABSENT;
     }

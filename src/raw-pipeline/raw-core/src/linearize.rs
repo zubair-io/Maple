@@ -1,6 +1,9 @@
 use crate::image::{CfaPattern, ColorSpace, Image, RawImage};
 use rayon::prelude::*;
 
+mod polynomial;
+pub use polynomial::PolynomialTransfer;
+
 /// Sensor linearization per spec § 3.2.
 /// `linear = (raw - black) / (white - black)` clamped to [0, 1].
 /// Produces a three-channel `Image` where only the CFA-appropriate channel is
@@ -120,11 +123,11 @@ pub fn sensor_linearize_region(
 ///
 /// 1. **8-bit lossy linear DNG** (`Compression = LossyJPEG`,
 ///    `BitsPerSample = 8 8 8`, no `LinearizationTable`): the DNG
-///    Converter writes data with WB pre-applied AND a perceptually-
-///    uniform gamma curve (~2.4) before JPEG compression. We detect
-///    via `white_level <= 255` and invert: `linear = encoded^2.4`. The
-///    data stays WB-baked; DCP handles via `wb_already_baked = false`
-///    (legacy `inv(CM) · AsShotNeutral` path — see lossy_8bit comment).
+///    Converter declares its inverse encoding in OpcodeList2. Apply the
+///    parsed per-plane polynomial after normalization, producing linear
+///    camera RGB for the ordinary WB/DCP path (#4629). The historical
+///    gamma 2.4 / post-DCP-WB fallback remains only for files without a
+///    supported declared transfer; it does not override file metadata.
 ///
 /// 2. **High-bit-depth linear DNG / Canon sRaw / iPhone LinearRaw**:
 ///    data is in **camera-RGB space** — a neutral patch reads as
@@ -173,12 +176,9 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
     let denom_g = (wl - bl_g).max(1.0);
     let denom_b = (wl - bl_b).max(1.0);
 
-    // Distinguish 8-bit lossy (gamma-encoded) from high-bit-depth (linear).
-    // 8-bit white_level == 255 is the unambiguous signal: any DNG-Converter lossy
-    // linear DNG without a LinearizationTable lands here. High-bit-depth
-    // lossy DNGs go through rawler's `apply_linearization` and arrive
-    // already linearized at white_level = 65535 (or similar).
-    let lossy_8bit = raw.white_level <= 255;
+    // A declared inverse encoding takes precedence over the historical
+    // 8-bit heuristic. High-bit-depth data retains its existing path.
+    let lossy_8bit = raw.uses_legacy_lossy_linearraw();
 
     let mut img = Image::new(raw.width, raw.height, ColorSpace::CameraNativeLinearRgb);
     img.pixels.par_iter_mut().enumerate().for_each(|(idx, px)| {
@@ -204,6 +204,9 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
         };
         *px = [r, g, b];
     });
+    if let Some(transfer) = &raw.linearization_transfer {
+        transfer.apply(&mut img);
+    }
     Ok(img)
 }
 
@@ -236,6 +239,7 @@ mod tests {
             crop_rect: None,
             iso: 100,
             noise_profile: None,
+            linearization_transfer: None,
             opcode_list3: None,
             aperture: None,
             focal_length: None,
@@ -345,6 +349,7 @@ mod tests {
             crop_rect: None,
             iso: 100,
             noise_profile: None,
+            linearization_transfer: None,
             opcode_list3: None,
             aperture: None,
             focal_length: None,
@@ -428,6 +433,7 @@ mod tests {
             crop_rect: None,
             iso: 100,
             noise_profile: None,
+            linearization_transfer: None,
             opcode_list3: None,
             aperture: None,
             focal_length: None,
@@ -499,6 +505,7 @@ mod tests {
             crop_rect: None,
             iso: 100,
             noise_profile: None,
+            linearization_transfer: None,
             opcode_list3: None,
             aperture: None,
             focal_length: None,

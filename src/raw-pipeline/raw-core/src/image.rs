@@ -182,6 +182,9 @@ impl CfaPattern {
 
 #[derive(Clone, Debug)]
 pub struct RawImage {
+    /// Declared camera-sample transfer for 8-bit lossy LinearRaw DNG (#4629).
+    /// Runs after black/white normalization and before white balance.
+    pub linearization_transfer: Option<crate::linearize::PolynomialTransfer>,
     pub width: u32,
     pub height: u32,
     pub cfa: CfaPattern,
@@ -300,6 +303,15 @@ pub struct RawImage {
 }
 
 impl RawImage {
+    /// The historic gamma/WB fallback is needed only when an 8-bit
+    /// LinearRaw has no supported declared transfer. A parsed OpcodeList2
+    /// returns camera-native values and uses the ordinary pre-gain path.
+    pub fn uses_legacy_lossy_linearraw(&self) -> bool {
+        matches!(self.cfa, CfaPattern::LinearRgb)
+            && self.white_level <= 255
+            && self.linearization_transfer.is_none()
+    }
+
     /// Whether this RAW carries a parsed `OpcodeList3` at all — the signal
     /// the lens-correction inspector panel (#2231) uses to disable/hide
     /// itself when there is nothing for `lens_profile_enable` /

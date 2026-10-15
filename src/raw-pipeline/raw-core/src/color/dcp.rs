@@ -960,12 +960,12 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
 /// Maple's pipeline pre-gains by `AsShotNeutral` upstream of DCP for every
 /// path EXCEPT the 8-bit lossy LinearRaw escape hatch
 /// (`pipeline::develop::develop_scene_linear_from_raw_with_quality` —
-/// gamma-decoded camera RGB whose white_level fits in 8 bits).
+/// gamma-decoded camera RGB with no supported declared transfer).
 /// `wb_already_baked` mirrors that pre-gain decision so DCP's Bradford /
 /// FM dispatch picks the right neutral source.
 #[inline]
 fn is_lossy_linearraw(raw: &RawImage) -> bool {
-    matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255
+    raw.uses_legacy_lossy_linearraw()
 }
 
 /// Build a DcpProfile from whatever calibration matrices the source DNG
@@ -1298,6 +1298,7 @@ mod tests {
             crop_rect: None,
             iso: 100,
             noise_profile: None,
+            linearization_transfer: None,
             opcode_list3: None,
             aperture: None,
             focal_length: None,
@@ -1386,6 +1387,7 @@ mod tests {
             crop_rect: None,
             iso: 100,
             noise_profile: None,
+            linearization_transfer: None,
             opcode_list3: None,
             aperture: None,
             focal_length: None,
@@ -1965,6 +1967,7 @@ mod tests {
             crop_rect: None,
             iso: 100,
             noise_profile: None,
+            linearization_transfer: None,
             opcode_list3: None,
             aperture: None,
             focal_length: None,
@@ -2339,6 +2342,7 @@ mod tests {
             crop_rect: None,
             iso: 100,
             noise_profile: None,
+            linearization_transfer: None,
             opcode_list3: None,
             aperture: None,
             focal_length: None,

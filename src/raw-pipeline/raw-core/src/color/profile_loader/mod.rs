@@ -297,8 +297,7 @@ pub fn camera_key_for(raw: &RawImage) -> CameraKey {
 pub fn to_dcp_profile(profile: &MapleProfile, raw: &RawImage) -> Option<DcpProfile> {
     // Mirror dcp::profile_for's WB-baked decision so a neutral patch maps
     // cleanly to (1,1,1) going into DCP (Phase 1.2 pre-gain semantics).
-    let skip_pre_gain =
-        matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
+    let skip_pre_gain = raw.uses_legacy_lossy_linearraw();
     let wb_already_baked = !skip_pre_gain;
 
     let cold = profile.illum1.and_then(|i| profile.cm1.map(|m| (i, m)));

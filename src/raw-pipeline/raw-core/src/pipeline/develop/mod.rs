@@ -180,13 +180,11 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     // #371 was retired in #443.) See
     // .archived-plans/specs/2026-04-30-color-convergence-design.md.
     //
-    // Skipped for 8-bit lossy LinearRaw DNGs (DNG Converter's
-    // perceptually-encoded output) where WB stays baked through the linearize
-    // step and DCP must derive scene_white_xyz from `inv(CM) · AsShotNeutral`
-    // as the empirical (legacy) path. See linearize::linearraw_to_camera_rgb
-    // and dcp::profile_for for the matching wb_already_baked decision.
-    let skip_pre_gain =
-        matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
+    // The historical 8-bit LinearRaw fallback skips pre-gain only when
+    // there is no declared transfer. OpcodeList2-linearized samples are
+    // camera-native RGB and use ordinary pre-gain (#4629). DCP and the
+    // binding's WB-frame decision share this same predicate.
+    let skip_pre_gain = raw.uses_legacy_lossy_linearraw();
     if !skip_pre_gain {
         stage("white_balance::apply_pre_gain", || {
             white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
