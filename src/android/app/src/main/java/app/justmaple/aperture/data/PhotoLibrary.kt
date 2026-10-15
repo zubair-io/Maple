@@ -204,7 +204,7 @@ class PhotoLibrary(private val context: Context) {
             val file =
                 File(
                     folder,
-                    "${digest("${AdjustmentFields.pipelineOutputVersion}:android-thumb-v2:${photo.key}:$edge:${sidecar.orEmpty()}")}.jpg",
+                    "${digest("${AdjustmentFields.pipelineOutputVersion}:android-thumb-v3:${photo.key}:$edge:${sidecar.orEmpty()}")}.jpg",
                 )
             if (!file.exists()) {
                 val temporary = File.createTempFile("thumb-", ".jpg", folder)

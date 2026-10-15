@@ -32,7 +32,7 @@ fn needs_develop(xml: &str) -> Result<bool, String> {
     if xml.is_empty() {
         return Ok(false);
     }
-    let model = raw_core::xmp::parse(xml).map_err(|e| e.to_string())?;
+    let model = crate::xmp::parse(xml)?;
     Ok(model != raw_core::types::AdjustmentModel::default())
 }
 
@@ -69,7 +69,7 @@ fn render_jpeg(path: &str, xml: &str, destination: &str, edge: Option<u32>) -> R
     let model = if xml.is_empty() {
         raw_core::types::AdjustmentModel::default()
     } else {
-        raw_core::xmp::parse(xml).map_err(|e| e.to_string())?
+        crate::xmp::parse(xml)?
     };
     let film = crate::film::resolve(&model.film_look)?;
     let extension = Path::new(path)

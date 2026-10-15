@@ -115,6 +115,26 @@ class XmpDocumentTest {
         assertTrue(edited.original.contains(retained))
     }
 
+    @Test
+    fun legacyMapleFlagsCanBeUnpickedWithoutResurrectingAnOwnedAlias() {
+        for (uri in listOf("http://ns.justmaple.app/1.0/", "https://maple.app/ns/1.0/")) {
+            val source =
+                XmpDocument.EMPTY.replace(
+                    "rdf:about=\"\"",
+                    "rdf:about=\"\" xmlns:maple=\"$uri\" maple:Flag=\"pick\" maple:Keep=\"untouched\"",
+                )
+            assertEquals("pick", XmpDocument(source).attribute("papp:Flag"))
+            val unpicked = roundTrip(XmpDocument(source).withAttribute("papp:Flag", null))
+            assertNull(unpicked.attribute("papp:Flag"))
+            assertFalse(unpicked.original.contains("maple:Flag"))
+            assertTrue(unpicked.original.contains("maple:Keep=\"untouched\""))
+            val picked = roundTrip(unpicked.withAttribute("papp:Flag", "pick"))
+            assertEquals("pick", picked.attribute("papp:Flag"))
+            assertFalse(picked.original.contains("maple:Flag"))
+            assertNull(roundTrip(picked.withAttribute("papp:Flag", null)).attribute("papp:Flag"))
+        }
+    }
+
     private fun roundTrip(document: XmpDocument): XmpDocument {
         val folder = Files.createTempDirectory("maple-xmp-").toFile()
         return try {

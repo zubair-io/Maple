@@ -3,6 +3,7 @@ mod fields;
 mod film;
 mod preview;
 mod transfer;
+mod xmp;
 
 use preview::Session;
 use std::{
@@ -121,7 +122,7 @@ pub unsafe extern "C" fn maple_android_set(handle: *mut c_void, index: usize, va
 pub unsafe extern "C" fn maple_android_model(handle: *mut c_void, xml: *const c_char) -> i32 {
     guarded(-1, || {
         let session = handle.cast::<Session>().as_mut().ok_or("Closed editor")?;
-        let model = raw_core::xmp::parse(text(xml)?).map_err(|e| e.to_string())?;
+        let model = xmp::parse(text(xml)?)?;
         if !session.source_is_raw() {
             raw_core::pipeline::validate_raster_adjustments(&model).map_err(|e| e.to_string())?;
         }
@@ -133,7 +134,7 @@ pub unsafe extern "C" fn maple_android_model(handle: *mut c_void, xml: *const c_
 #[no_mangle]
 pub unsafe extern "C" fn maple_android_raster_compatible(xml: *const c_char) -> bool {
     guarded(false, || {
-        let model = raw_core::xmp::parse(text(xml)?).map_err(|e| e.to_string())?;
+        let model = xmp::parse(text(xml)?)?;
         Ok(raw_core::pipeline::validate_raster_adjustments(&model).is_ok())
     })
 }

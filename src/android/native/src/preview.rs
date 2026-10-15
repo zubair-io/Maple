@@ -204,7 +204,7 @@ impl Session {
         crop.dims.0 as f32 / crop.dims.1.max(1) as f32
     }
     pub fn open(path: &str, xml: &str, edge: u32) -> Result<Self, String> {
-        let model = raw_core::xmp::parse(xml).map_err(|e| e.to_string())?;
+        let model = crate::xmp::parse(xml)?;
         let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
         let ext = std::path::Path::new(path)
             .extension()

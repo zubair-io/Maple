@@ -73,7 +73,10 @@ Earlier URI-only private sidecars are retained and are not automatically assigne
 to a photo whose identity cannot be verified. Folder-adjacent sidecars are unaffected.
 The XMP writer patches owned attributes in the original XML, retaining untouched
 foreign bytes, resolves RDF and owned attributes by namespace, and rejects
-external-write conflicts. Failed sidecar loads block metadata, editing and export
+external-write conflicts. Legacy Maple namespace aliases are read and owned edits
+remove their older spelling. A disposable namespace-normalized copy feeds every
+native preview/editor/validation/export entry; persisted XML remains lexical.
+Failed sidecar loads block metadata, editing and export
 until a successful reload confirms that photo’s save baseline. SAF replacement writes a
 temporary sibling before publishing and retains the previous sidecar until the
 replacement succeeds. Provider rename semantics still need qualification on
