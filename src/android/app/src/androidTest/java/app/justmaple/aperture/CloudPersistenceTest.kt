@@ -105,6 +105,39 @@ class CloudPersistenceTest {
         }
 
     @Test
+    fun cloudUploadsKeepUnicodeAcrossEncoderBufferBoundaries() =
+        runBlocking<Unit> {
+            withCloud { server, photo ->
+                val prefix = XmpDocument.EMPTY.substringBefore("<rdf:Description").length
+                val padding = 4095 - prefix - "<!--".length
+                // Cover 1/2/3/4-byte UTF-8 and split a surrogate pair between writer chunks.
+                val opaque =
+                    "<!--" +
+                        "x".repeat(padding) +
+                        "😀 café Ελληνικά 中 \u0080\u0800" +
+                        "x".repeat(7000) +
+                        "-->"
+                server.sidecar.writeText(
+                    XmpDocument.EMPTY.replace("<rdf:Description", "$opaque<rdf:Description")
+                )
+                val original = server.original.readBytes()
+                val library = PhotoLibrary(context)
+                val loaded = library.loadSidecar(photo)
+                assertEquals(4095, loaded.document.original.indexOf("😀"))
+                val saved =
+                    library.save(
+                        photo,
+                        loaded.document.withAttribute("xmp:Rating", "4"),
+                        loaded.baseline,
+                    )
+                assertEquals(4, saved.document.rating)
+                assertTrue(server.sidecar.readText().contains(opaque))
+                assertEquals(saved.baseline, library.loadSidecar(photo).baseline)
+                assertArrayEquals(original, server.original.readBytes())
+            }
+        }
+
+    @Test
     fun oversizedDeclaredSidecarsFailBeforeAllocatingTheirBody() =
         runBlocking<Unit> {
             withCloud { server, photo ->
@@ -114,7 +147,8 @@ class CloudPersistenceTest {
                 }
                 val failure = runCatching {
                     PhotoLibrary(context).loadSidecar(photo)
-                }.exceptionOrNull()
+                }
+                    .exceptionOrNull()
                 assertTrue(failure?.message.orEmpty().contains("exceeded 128 MiB"))
                 assertArrayEquals(original, server.original.readBytes())
             }
