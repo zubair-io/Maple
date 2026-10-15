@@ -13,6 +13,9 @@ use std::{rc::Rc, sync::Arc};
 #[path = "prefix_preparation.rs"]
 mod preparation;
 pub use preparation::Preparation;
+#[path = "fast_preview.rs"]
+mod fast_preview;
+use fast_preview::{without_capture, FastPreview};
 
 pub struct Session {
     pub ctx: Rc<GpuContext>,
@@ -28,11 +31,16 @@ pub struct Session {
     edge: u32,
     auto_fit: bool,
     profile: raw_core::types::Profile,
+    fast: Option<FastPreview>,
+    active_fast: bool,
     pub target_primaries: u32,
     #[cfg(target_os = "android")]
     pub surface: Option<raw_gpu::AndroidPresentSurface>,
 }
 
+#[cfg(test)]
+#[path = "capture_preview_tests.rs"]
+mod capture_preview_tests;
 #[cfg(test)]
 #[path = "preview_interactive_tests.rs"]
 mod interactive_tests;
@@ -123,8 +131,9 @@ impl Session {
         } else {
             None
         };
+        let base_model = without_capture(&model);
         let (pixels, w, h, prefix, anchor, sampling) = if let Some(raw) = &raw {
-            develop_prefix_rgba(raw, &bytes, &ext, &model, edge)?
+            develop_prefix_rgba(raw, &bytes, &ext, &base_model, edge)?
         } else {
             raw_core::pipeline::validate_raster_adjustments(&model).map_err(|e| e.to_string())?;
             let (w, h, pixels) = raw_core::pipeline::decode_raster_base(
@@ -170,6 +179,22 @@ impl Session {
             .map(|raw| GpuWhiteBalance::resolve(raw))
             .transpose()?;
         let live = LiveSession::new(&ctx, &pixels, w, h)?;
+        let fast = raw
+            .as_ref()
+            .map(|raw| {
+                let inputs = chain_inputs_with_status(
+                    raw,
+                    &bytes,
+                    &ext,
+                    &base_model,
+                    film.map(|f| f.0),
+                    film.map_or(0, |f| f.1),
+                    anchor,
+                )
+                .0;
+                FastPreview::new(&ctx, &pixels, w, h, prefix.clone(), inputs, sampling)
+            })
+            .transpose()?;
         let auto_fit = auto_will_fit(&model, &bytes, &ext);
         let profile = model.profile;
         Ok(Self {
@@ -186,6 +211,8 @@ impl Session {
             edge,
             auto_fit,
             profile,
+            fast,
+            active_fast: false,
             target_primaries: 0,
             #[cfg(target_os = "android")]
             surface: None,
@@ -207,19 +234,40 @@ impl Session {
         if cancel.is_cancelled() {
             return Ok(None);
         }
-        update_chain_inputs(&self.model, &mut self.inputs);
-        let film = crate::film::resolve(&self.model.film_look)?;
-        self.inputs.film_lut_size = film.map_or(0, |f| f.0.size as u32);
-        self.inputs.film_lut_key = film.map_or(0, |f| f.1);
-        self.inputs.film_lut_data =
-            std::borrow::Cow::Borrowed(film.map_or(&[], |f| f.0.data.as_slice()));
-        if let Some(wb) = &self.wb {
-            wb.apply(&self.model, &mut self.inputs);
+        self.active_fast = self.needs_preparation() && self.fast.is_some();
+        if self.active_fast {
+            let fast = self.fast.as_mut().unwrap();
+            fast_preview::update_inputs(
+                &self.model,
+                &mut fast.inputs,
+                self.wb.as_ref(),
+                fast.sampling,
+                self.target_primaries,
+                true,
+            )?;
+            fast.live
+                .render_chain_to_f32(&self.ctx, &fast.inputs, cancel)
+        } else {
+            fast_preview::update_inputs(
+                &self.model,
+                &mut self.inputs,
+                self.wb.as_ref(),
+                self.sampling,
+                self.target_primaries,
+                false,
+            )?;
+            self.live
+                .render_chain_to_f32(&self.ctx, &self.inputs, cancel)
         }
-        self.inputs.nr_sampling_scale = self.sampling;
-        self.inputs.target_primaries = self.target_primaries;
-        self.live
-            .render_chain_to_f32(&self.ctx, &self.inputs, cancel)
+    }
+
+    pub fn frame_parts(&self) -> (&LiveSession, &FullChainInputs<'static>) {
+        if self.active_fast {
+            let fast = self.fast.as_ref().unwrap();
+            (&fast.live, &fast.inputs)
+        } else {
+            (&self.live, &self.inputs)
+        }
     }
 
     pub fn geometry(&self) -> PresentGeometry {
@@ -228,7 +276,7 @@ impl Session {
             .raw
             .as_ref()
             .map_or(ExifOrientation::Normal, |raw| raw.orientation);
-        let (w, h) = self.live.dims();
+        let (w, h) = self.frame_parts().0.dims();
         let (w, h) = if orientation.swaps_wh() {
             (h, w)
         } else {
@@ -255,7 +303,7 @@ impl Session {
         }
         self.surface.as_ref().ok_or("No Android surface")?.present(
             &self.ctx,
-            &self.live,
+            self.frame_parts().0,
             index,
             self.geometry(),
         )?;

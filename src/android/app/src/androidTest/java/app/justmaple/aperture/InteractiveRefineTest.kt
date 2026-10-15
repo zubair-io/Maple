@@ -27,7 +27,9 @@ class InteractiveRefineTest {
             compose.waitUntil(30_000) { model.state.value.canChangeMetadata }
             compose.onNodeWithContentDescription("Edit").performClick()
             compose.waitUntil(120_000) { model.state.value.canEdit }
-            compose.waitUntil(30_000) { Color.red(renderedPixel(compose.activity)) > 10 }
+            compose.waitUntil(30_000) {
+                (runCatching { Color.red(renderedPixel(compose.activity)) }.getOrNull() ?: 0) > 10
+            }
             val baseline = Color.red(renderedPixel(compose.activity))
             compose.runOnIdle {
                 for (amount in 5..50 step 5) model.setField(
@@ -41,7 +43,8 @@ class InteractiveRefineTest {
             compose.waitUntil(30_000) { !model.state.value.dirty && !model.state.value.saving }
             val saved = runBlocking {
                 model.library.loadSidecar(model.state.value.selected!!)
-            }.document
+            }
+                .document
             assertEquals("50", saved.attribute("papp:CaptureSharpeningAmount"))
             assertEquals("1.5", saved.attribute("crs:Exposure2012"))
             compose.runOnIdle { model.undo() }

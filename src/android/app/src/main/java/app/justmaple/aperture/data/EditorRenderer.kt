@@ -80,6 +80,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
             handle = NativeBridge.open(path, document, edge, renderer)
             modelXml = document
             values = readValues()
+            appliedRevision = revision
             applySurface(currentSurface)
             values
         }

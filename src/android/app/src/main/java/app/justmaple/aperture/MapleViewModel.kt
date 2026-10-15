@@ -262,8 +262,10 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                 library.withPreview(photo, 2048) { input ->
                     renderer.open(input.absolutePath, renderXml, 2048, token)
                 }
-            if (token == generation)
+            if (token == generation) {
                 mutable.update { it.copy(values = values, rendering = !renderer.hasPresented) }
+                scheduleRefine(DrawRequest(token, renderer.revision, values, renderXml))
+            }
         } catch (failure: Exception) {
             val canReset =
                 generateSequence<Throwable>(failure) { it.cause }
