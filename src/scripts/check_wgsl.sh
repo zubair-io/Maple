@@ -30,6 +30,7 @@
 #       (c) color_matrices + agx_coeffs + kernel
 #       (d) color_matrices + local_mask_wire + kernel
 #       (e) present_chain + kernel (display histogram shares the display quantizer)
+#       (f) color_matrices + present_chain + kernel (P3-to-scRGB presentation)
 #   A kernel PASSES if it validates under ANY rung (unused header helpers are
 #   legal WGSL), and FAILS only if a genuine syntax/type error makes every rung
 #   fail. The generated headers are themselves validated standalone (rung a).
@@ -114,6 +115,13 @@ while IFS= read -r kernel; do
 	cat "$WGSL_DIR/present_chain.wgsl" "$kernel" >"$assembled"
 	if validate "$assembled"; then
 		echo "PASS  $base  (+present_chain)"
+		continue
+	fi
+
+	# Rung (f): float presentation shares the quantizer and core color matrices.
+	cat "$COLOR_MATRICES" "$WGSL_DIR/present_chain.wgsl" "$kernel" >"$assembled"
+	if validate "$assembled"; then
+		echo "PASS  $base  (+color_matrices+present_chain)"
 		continue
 	fi
 
