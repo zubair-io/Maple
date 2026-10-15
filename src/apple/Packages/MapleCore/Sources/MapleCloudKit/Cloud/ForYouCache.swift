@@ -77,6 +77,13 @@ public actor ForYouCache {
     return snapshot
   }
 
+  /// `read` and `epoch` in one isolated step. Read separately, a forget that
+  /// lands between them pairs an unpruned snapshot with the newer epoch, and
+  /// the trashed cover it shows never looks stale.
+  func readWithEpoch(libraryID: String, host: String) -> (snapshot: ForYouSnapshot?, epoch: Int) {
+    (read(libraryID: libraryID, host: host), epoch(host: host))
+  }
+
   /// Persist a refresh unless something was forgotten on `host` since it
   /// began. False means the refresh is stale and must not be shown either.
   func commit(

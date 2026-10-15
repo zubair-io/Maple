@@ -120,14 +120,10 @@ public final class GeneratedSearchCollectionsViewModel {
     isLoading = true
     defer { if g == generation { isLoading = false } }
 
-    if collections.isEmpty,
-      let cached = await cache?.read(libraryID: libraryID, host: cacheHost)
-    {
-      guard g == generation else { return }
-      if collections.isEmpty { show(cached) }
-    }
-    let epoch = await cache?.epoch(host: cacheHost)
+    let cached = await cache?.readWithEpoch(libraryID: libraryID, host: cacheHost)
     guard g == generation else { return }
+    if collections.isEmpty, let snapshot = cached?.snapshot { show(snapshot) }
+    let epoch = cached?.epoch
     seenEpoch = epoch
 
     let loaded: [GeneratedSearchCard]
