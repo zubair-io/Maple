@@ -325,7 +325,7 @@ and `LocalDocuments.kt` own the following state:
 | Local thumbnail / preview | Pipeline output version, Android thumbnail version 3, original identity, requested edge and complete current sidecar text | 64 MiB shared LRU; metadata-only RAW sidecars reuse the embedded preview                                                                               |
 | Cloud derivative          | Pipeline output version, original identity and edge → atomic ETag/content-hash index → immutable payload                  | Same 64 MiB bound; conditional authenticated GET revalidates each load, 304 reuses bytes, changed validators replace the index                         |
 | Folder snapshot           | One parent URI → names, document URIs, types, sizes and mtimes from one provider query                                    | Replaced on folder listing/photo open; refreshed during baseline checks; invalidated after XMP publication/recovery. Sidecar contents are never cached |
-| Decoded RAW / GPU session | Current editor session                                                                                                    | Serialized worker owns one active image; closed on source/photo change or teardown                                                                     |
+| Decoded RAW / GPU session | Current photo session plus one GPU context per serial worker                                                              | Photo changes close the active image; worker teardown releases the device, shader caches and frame pool                                                |
 
 Single-file edits persist in `filesDir/sidecars/` under the SHA-256 of
 `private-sidecar-v2:` plus `Photo.key` (URI, original size and modification time).

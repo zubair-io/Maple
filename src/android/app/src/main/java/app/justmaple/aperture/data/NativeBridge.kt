@@ -8,7 +8,11 @@ object NativeBridge {
         System.loadLibrary("maple_jni")
     }
 
-    external fun open(path: String, xml: String, edge: Int): Long
+    external fun createRenderer(): Long
+
+    external fun closeRenderer(renderer: Long)
+
+    external fun open(path: String, xml: String, edge: Int, renderer: Long): Long
 
     external fun close(handle: Long)
 

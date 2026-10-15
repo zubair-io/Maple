@@ -8,7 +8,9 @@
 
 extern "C" {
 const char *maple_android_error();
-void *maple_android_open(const char *, const char *, uint32_t);
+void *maple_android_create_renderer();
+void maple_android_close_renderer(void *);
+void *maple_android_open(void *, const char *, const char *, uint32_t);
 void maple_android_close(void *);
 char *maple_android_values(void *);
 void maple_android_free_string(char *);
@@ -74,10 +76,18 @@ void check(JNIEnv *env, int result) {
 Editor *editor(jlong handle) { return reinterpret_cast<Editor *>(handle); }
 }
 
-extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_open(JNIEnv *env, jobject, jstring path, jstring xml, jint edge) {
+extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_createRenderer(JNIEnv *env, jobject) {
+    void *context = maple_android_create_renderer();
+    if (!context) check(env, -1);
+    return reinterpret_cast<jlong>(context);
+}
+extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_closeRenderer(JNIEnv *, jobject, jlong context) {
+    maple_android_close_renderer(reinterpret_cast<void *>(context));
+}
+extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_open(JNIEnv *env, jobject, jstring path, jstring xml, jint edge, jlong context) {
     Utf8 p(env, path), x(env, xml);
     if (env->ExceptionCheck()) return 0;
-    void *core = maple_android_open(p.get(), x.get(), edge);
+    void *core = maple_android_open(reinterpret_cast<void *>(context), p.get(), x.get(), edge);
     if (!core) { check(env, -1); return 0; }
     return reinterpret_cast<jlong>(new Editor(core));
 }

@@ -57,7 +57,11 @@ including wide-gamut and 10-bit AVIF fixtures. Cloud persistence tests retain a
 late edit through model teardown and round-trip a 17 MiB opaque sidecar.
 Host native tests check RAW and raster GPU output against the CPU reference
 (maximum two byte levels), generated field access, and stable GPU pool
-allocation. These are functional gates, not physical-device performance
+allocation. The serial renderer worker retains one GPU device and its shader
+caches across photo sessions, then closes photo resources and the device before
+its thread shuts down. Native tests render a replacement image through that
+same warm context and compare it with the CPU reference. These are functional
+gates, not physical-device performance
 qualification. The 16 ms / 100 MP release requirement remains unqualified.
 
 ## Shared design and persistence
