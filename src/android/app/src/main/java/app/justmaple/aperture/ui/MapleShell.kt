@@ -319,7 +319,9 @@ fun InfoPanel(state: MapleState, onExportSidecar: () -> Unit) {
                 else "Sidecar next to original",
                 color = MapleColors.muted,
             )
-            TextButton(onExportSidecar) { Text("Export XMP sidecar…") }
+            TextButton(onExportSidecar, enabled = state.canChangeMetadata) {
+                Text("Export XMP sidecar…")
+            }
         }
     }
 }
