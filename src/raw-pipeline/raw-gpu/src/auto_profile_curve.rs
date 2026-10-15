@@ -177,9 +177,19 @@ fn compress_input(x: f32) -> f32 {
     }
 }
 
-/// Evaluate a 32-anchor channel curve at `v` in `[0, 1]` from the flat buffer.
+// Equal-spacing monotone Hermite tangent. A flat or turning secant has zero
+// slope; otherwise the harmonic mean is shared by both adjacent segments.
+#[inline]
+fn curve_tangent(left: f32, right: f32) -> f32 {
+    if left * right <= 0.0 {
+        0.0
+    } else {
+        2.0 * left * right / (left + right)
+    }
+}
+
+/// Evaluate with the core's monotone Hermite rule.
 /// `base` is the channel's first flat index; outputs are at `base + 2*idx + 1`.
-/// Mirrors `curve::eval_channel`.
 #[inline]
 fn eval_channel(flat: &[f32], base: usize, v: f32) -> f32 {
     let v = v.clamp(0.0, 1.0);
@@ -189,7 +199,18 @@ fn eval_channel(flat: &[f32], base: usize, v: f32) -> f32 {
     let t = scaled - lo as f32;
     let lo_y = flat[base + 2 * lo + 1];
     let hi_y = flat[base + 2 * hi + 1];
-    lo_y + (hi_y - lo_y) * t
+    let delta = hi_y - lo_y;
+    let before = flat[base + 2 * lo.saturating_sub(1) + 1];
+    let after = flat[base + 2 * (hi + 1).min(ANCHORS - 1) + 1];
+    let left = if lo == 0 { delta } else { lo_y - before };
+    let right = if hi == ANCHORS - 1 {
+        delta
+    } else {
+        after - hi_y
+    };
+    let m0 = curve_tangent(left, delta);
+    let m1 = curve_tangent(delta, right);
+    lo_y + t * (m0 + t * ((3.0 * delta - 2.0 * m0 - m1) + t * (m0 + m1 - 2.0 * delta)))
 }
 
 /// Whether the flat curve's matrix slice is the identity matrix (skip the matmul).

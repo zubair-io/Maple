@@ -164,7 +164,9 @@
 ///   continuous exponential tails through binary32 underflow (#4638).
 /// - 33 — externally supplied film LUTs cannot contaminate the RAW-keyed
 ///   Auto fit; cold and warm film/no-film renders agree (#4640).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 33;
+/// - 34 — monotone Hermite Auto curves and confidence-preserving residual
+///   regularization remove fitted-curve banding without changing anchors (#4636).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 34;
 
 #[cfg(test)]
 mod tests {

@@ -8,6 +8,9 @@ use rayon::prelude::*;
 
 use crate::image::ExifOrientation;
 
+mod regularize;
+use regularize::smooth_final_residual;
+
 use super::lut::ColorLut;
 use super::pairs::DisplayPair;
 use super::preview::JpegColorSpace;
@@ -127,7 +130,23 @@ pub fn fit_lut_from_pairs(pairs: &[DisplayPair], size: usize, strength: f32) -> 
     // correction decays smoothly to identity over `FEATHER_RADIUS` cells instead
     // of dropping to zero in one step. Cells with no populated neighbour within
     // the radius are untouched (already zero).
-    feather_to_identity(&mut delta, &populated, n);
+    // Propagate the same confidence damping and smoothing as the residual.
+    // A uniform observed correction must remain uniform after division by
+    // this effective confidence, including sparsely sampled boundary cells.
+    let mut fit_confidence: Vec<[f32; 3]> = cnt
+        .iter()
+        .map(|&count| [count as f32 / (count as f32 + FIT_CONF_COUNT); 3])
+        .collect();
+    for _ in 0..FIT_SMOOTH_PASSES {
+        smooth3(&mut fit_confidence, &populated, n);
+    }
+    let mut confidence = feather_to_identity(&mut delta, &populated, n);
+    for (weight, fit) in confidence.iter_mut().zip(&fit_confidence) {
+        *weight *= fit[0];
+    }
+
+    // Preserve sample-weighted correction while regularizing the feathered field.
+    smooth_final_residual(&mut delta, &cnt, &confidence, n);
 
     let mut lut = id.clone();
     for i in 0..n * n * n {
@@ -165,8 +184,14 @@ pub fn fit_lut_from_preview(
     cs: JpegColorSpace,
     orientation: ExifOrientation,
 ) -> Option<ColorLut> {
-    let pairs =
-        super::pairs::sample_display_pairs(source_rgb, source_w, source_h, preview, cs, orientation);
+    let pairs = super::pairs::sample_display_pairs(
+        source_rgb,
+        source_w,
+        source_h,
+        preview,
+        cs,
+        orientation,
+    );
     if pairs.len() < MIN_LUT_PAIRS {
         return None;
     }
@@ -196,7 +221,8 @@ fn smooth3(delta: &mut [[f32; 3]], populated: &[bool], n: usize) {
                 let whi = if populated[hi] { 0.25 } else { 0.0 };
                 let wsum = wlo + 0.5 + whi;
                 for c in 0..3 {
-                    tmp[cu][c] = (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
+                    tmp[cu][c] =
+                        (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
                 }
             }
         }
@@ -216,7 +242,8 @@ fn smooth3(delta: &mut [[f32; 3]], populated: &[bool], n: usize) {
                 let whi = if populated[hi] { 0.25 } else { 0.0 };
                 let wsum = wlo + 0.5 + whi;
                 for c in 0..3 {
-                    tmp[cu][c] = (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
+                    tmp[cu][c] =
+                        (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
                 }
             }
         }
@@ -236,7 +263,8 @@ fn smooth3(delta: &mut [[f32; 3]], populated: &[bool], n: usize) {
                 let whi = if populated[hi] { 0.25 } else { 0.0 };
                 let wsum = wlo + 0.5 + whi;
                 for c in 0..3 {
-                    tmp[cu][c] = (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
+                    tmp[cu][c] =
+                        (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
                 }
             }
         }
@@ -283,10 +311,13 @@ fn smooth3(delta: &mut [[f32; 3]], populated: &[bool], n: usize) {
 /// synthetic line's interior as fully supported and a true isolated edge
 /// cell (the ticket's backlit-bokeh highlight, with no populated neighbours
 /// in any direction) as unsupported.
-fn feather_to_identity(delta: &mut [[f32; 3]], populated: &[bool], n: usize) {
+fn feather_to_identity(delta: &mut [[f32; 3]], populated: &[bool], n: usize) -> Vec<f32> {
     let radius = FEATHER_RADIUS as isize;
     if radius == 0 {
-        return;
+        return populated
+            .iter()
+            .map(|value| if *value { 1.0 } else { 0.0 })
+            .collect();
     }
     let ni = n as isize;
     let at = |r: isize, g: isize, b: isize| ((b * ni + g) * ni + r) as usize;
@@ -358,7 +389,7 @@ fn feather_to_identity(delta: &mut [[f32; 3]], populated: &[bool], n: usize) {
         t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
     };
 
-    let original = delta.to_vec();
+    let mut confidence = vec![0.0; delta.len()];
     for b in 0..ni {
         for g in 0..ni {
             for r in 0..ni {
@@ -367,10 +398,12 @@ fn feather_to_identity(delta: &mut [[f32; 3]], populated: &[bool], n: usize) {
                     continue;
                 }
                 let weight = smootherstep(best_line_density(r, g, b));
+                confidence[cu] = weight;
                 for c in 0..3 {
-                    delta[cu][c] = original[cu][c] * weight;
+                    delta[cu][c] *= weight;
                 }
             }
         }
     }
+    confidence
 }

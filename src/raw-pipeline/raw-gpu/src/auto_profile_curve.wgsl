@@ -140,6 +140,11 @@ fn compress_input(x_in: f32) -> f32 {
 
 // Evaluate a 32-anchor channel curve at v in [0,1]. Anchors are evenly spaced in
 // input, so the fractional anchor index is `v * (ANCHORS-1)` directly — no search.
+fn curve_tangent(left: f32, right: f32) -> f32 {
+    if (left * right <= 0.0) { return 0.0; }
+    return 2.0 * left * right / (left + right);
+}
+
 // Only the OUTPUT values are stored (interleaved as (input, output) in the flat
 // buffer); we read output at offset `base + 2*idx + 1`. Mirrors
 // raw_core::view::auto_profile::curve::eval_channel.
@@ -151,7 +156,14 @@ fn eval_channel(base: u32, v_in: f32) -> f32 {
     let t = scaled - f32(lo);
     let lo_y = curve[base + 2u * lo + 1u];
     let hi_y = curve[base + 2u * hi + 1u];
-    return lo_y + (hi_y - lo_y) * t;
+    let delta = hi_y - lo_y;
+    let before = curve[base + 2u * (max(lo, 1u) - 1u) + 1u];
+    let after = curve[base + 2u * min(hi + 1u, ANCHORS - 1u) + 1u];
+    let left = select(lo_y - before, delta, lo == 0u);
+    let right = select(after - hi_y, delta, hi == ANCHORS - 1u);
+    let m0 = curve_tangent(left, delta);
+    let m1 = curve_tangent(delta, right);
+    return lo_y + t * (m0 + t * ((3.0 * delta - 2.0 * m0 - m1) + t * (m0 + m1 - 2.0 * delta)));
 }
 
 @compute @workgroup_size(64)

@@ -275,3 +275,33 @@ fn identity_profile_curve_is_near_passthrough_on_gpu() {
         "identity ProfileCurve should be a near-passthrough; max diff {max_diff}"
     );
 }
+
+/// Probe both sides of every interpolation knot, including a flat shoulder.
+/// Ordinary branch vectors can miss the derivative join that caused #4636.
+#[test]
+fn hermite_knots_and_plateau_match_raw_core() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let mut curve = identity_matrix_curve();
+    for anchor in &mut curve.b.anchors {
+        anchor.1 = ((anchor.0 - 0.2) * 2.0).clamp(0.0, 1.0);
+    }
+    let input: Vec<f32> = (0..=31)
+        .flat_map(|i| [-1e-5, 0.0, 1e-5].map(move |offset| i as f32 / 31.0 + offset))
+        .flat_map(|v| [v, v, v, 0.625])
+        .collect();
+    let reference = raw_core_apply_curve(&input, &curve);
+    let image = GpuImage::upload(&ctx, &input, (input.len() / 4) as u32, 1);
+    let runner = ChainRunner::new(&ctx, &image);
+    let gpu = runner.run_blocking(&[&AutoProfileCurvePass {
+        flat_curve: curve.to_flat().into(),
+    }]);
+    let max_diff = reference
+        .iter()
+        .zip(&gpu)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0_f32, f32::max);
+    assert!(max_diff < 1e-4, "GPU knot error {max_diff}");
+    for pixel in gpu.chunks_exact(4) {
+        assert_eq!(pixel[3], 0.625);
+    }
+}

@@ -1,4 +1,4 @@
-//! Per-channel monotone piecewise-linear tone curve fit from source + target
+//! Per-channel monotone tone curve fit from source + target
 //! distributions. Pure functions; no I/O.
 //!
 //! The fit method (CDF matching):
@@ -12,8 +12,8 @@
 //! 3. Clamp tiny floating-point inversions back to monotone.
 //!
 //! Curves are stored as 32 evenly-spaced `(input, output)` anchor pairs so
-//! evaluation is a single multiply + floor + linear interpolation between
-//! adjacent anchors — no binary search.
+//! evaluation uses a uniform-cell lookup and monotone cubic Hermite
+//! interpolation with shared knot tangents — no binary search.
 
 const ANCHORS: usize = 32;
 const CDF_BINS: usize = 256;
@@ -28,7 +28,7 @@ const CDF_BINS: usize = 256;
 /// lightness_band_offsets (5), ab_band_offsets (10) = 220.
 pub const PROFILE_CURVE_FLAT_LEN: usize = 3 * ANCHORS * 2 + 9 + 1 + 2 + 1 + 5 + 10;
 
-/// 32-anchor monotone piecewise-linear curve per channel.
+/// 32-anchor monotone cubic Hermite curve per channel.
 ///
 /// Anchors are stored as `(input, output)` pairs sorted by input ascending.
 /// Input values are evenly spaced in `[0, 1]` at construction time, which
@@ -286,8 +286,20 @@ fn quantile_of(cdf: &[f32], v: f32) -> f32 {
     1.0
 }
 
-/// Evaluate a channel curve at `v` in `[0, 1]`. Linear interpolation
-/// between the two anchors bracketing `v`. Out-of-range `v` is clamped.
+// Equal-spacing monotone Hermite tangent. A flat or turning secant has zero
+// slope; otherwise the harmonic mean is shared by both adjacent segments.
+#[inline]
+fn curve_tangent(left: f32, right: f32) -> f32 {
+    if left * right <= 0.0 {
+        0.0
+    } else {
+        2.0 * left * right / (left + right)
+    }
+}
+
+/// Evaluate with monotone cubic Hermite interpolation between uniform anchors.
+/// Shared harmonic-mean tangents give continuous first derivatives without
+/// overshooting either endpoint (#4636). Out-of-range `v` is clamped.
 pub fn eval_channel(curve: &ChannelCurve, v: f32) -> f32 {
     let v = v.clamp(0.0, 1.0);
     // Anchors are evenly spaced in input — multiplying by `ANCHORS - 1`
@@ -298,5 +310,65 @@ pub fn eval_channel(curve: &ChannelCurve, v: f32) -> f32 {
     let t = scaled - lo as f32;
     let lo_y = curve.anchors[lo].1;
     let hi_y = curve.anchors[hi].1;
-    lo_y + (hi_y - lo_y) * t
+    let delta = hi_y - lo_y;
+    let before = curve.anchors[lo.saturating_sub(1)].1;
+    let after = curve.anchors[(hi + 1).min(ANCHORS - 1)].1;
+    let left = if lo == 0 { delta } else { lo_y - before };
+    let right = if hi == ANCHORS - 1 {
+        delta
+    } else {
+        after - hi_y
+    };
+    let m0 = curve_tangent(left, delta);
+    let m1 = curve_tangent(delta, right);
+    lo_y + t * (m0 + t * ((3.0 * delta - 2.0 * m0 - m1) + t * (m0 + m1 - 2.0 * delta)))
+}
+
+#[cfg(test)]
+mod smooth_curve_tests {
+    use super::*;
+
+    #[test]
+    fn derivative_is_continuous_at_flat_shoulder() {
+        let mut curve = ChannelCurve::identity();
+        for (i, anchor) in curve.anchors.iter_mut().enumerate() {
+            anchor.1 = (i as f32 / 16.0).min(1.0);
+        }
+        let x = 16.0 / 31.0;
+        let h = 0.001 / 31.0;
+        let y = eval_channel(&curve, x);
+        let left = (y - eval_channel(&curve, x - h)) / h;
+        let right = (eval_channel(&curve, x + h) - y) / h;
+        assert!((left - right).abs() < 0.01, "left={left}, right={right}");
+    }
+
+    #[test]
+    fn anchors_monotonicity_and_segment_bounds_are_retained() {
+        for shape in 0..3 {
+            let mut curve = ChannelCurve::identity();
+            for (i, anchor) in curve.anchors.iter_mut().enumerate() {
+                let x = i as f32 / 31.0;
+                anchor.1 = match shape {
+                    0 => x * x,
+                    1 => x.sqrt(),
+                    _ => ((x - 0.2) * 2.0).clamp(0.0, 1.0),
+                };
+            }
+            let mut previous = curve.anchors[0].1;
+            for i in 0..31 {
+                let low = curve.anchors[i].1;
+                let high = curve.anchors[i + 1].1;
+                for step in 0..=64 {
+                    let x = (i as f32 + step as f32 / 64.0) / 31.0;
+                    let actual = eval_channel(&curve, x);
+                    assert!(actual >= low - 2e-7 && actual <= high + 2e-7);
+                    assert!(actual >= previous - 2e-7);
+                    previous = actual;
+                }
+                assert!((eval_channel(&curve, i as f32 / 31.0) - low).abs() < 2e-7);
+            }
+            assert_eq!(eval_channel(&curve, -1.0), curve.anchors[0].1);
+            assert_eq!(eval_channel(&curve, 2.0), curve.anchors[31].1);
+        }
+    }
 }
