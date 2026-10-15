@@ -13,9 +13,21 @@ use quick_xml::reader::Reader;
 /// serialized without the other four crop edges — spec § 01 invariant 3).
 /// The parser does two passes per element so attribute order is irrelevant.
 pub fn parse(xml: &str) -> Result<AdjustmentModel> {
-    let mut model = AdjustmentModel::default();
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
+    parse_events(std::iter::from_fn(move || {
+        Some(
+            reader
+                .read_event()
+                .map_err(|error| Error::Xmp(error.to_string())),
+        )
+    }))
+}
+
+pub(super) fn parse_events<'a>(
+    events: impl Iterator<Item = Result<Event<'a>>>,
+) -> Result<AdjustmentModel> {
+    let mut model = AdjustmentModel::default();
 
     // WB scale versioning (#1780) — document-level state. `papp_seen`
     // records whether ANY element carries the Maple `papp:` namespace
@@ -49,8 +61,8 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     // `crs:RetouchInfo` string form it also accepts.
     let mut retouch = RetouchWalker::default();
 
-    loop {
-        match reader.read_event() {
+    for event in events {
+        match event {
             Ok(Event::Start(e)) => {
                 let name = element_name(&e)?.to_string();
                 if workflow_depth > 0 || name == "papp:Workflow" {
@@ -96,7 +108,7 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
                 curves.end(&name, &mut model);
             }
             Ok(Event::Eof) => break,
-            Err(e) => return Err(Error::Xmp(e.to_string())),
+            Err(error) => return Err(error),
             _ => {}
         }
     }

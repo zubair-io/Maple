@@ -9,6 +9,9 @@ use quick_xml::events::BytesStart;
 mod fields;
 mod reader;
 pub use reader::parse;
+mod import;
+mod import_validation;
+pub use import::parse_namespaced;
 mod local_adjustments;
 mod retouch;
 mod tone_curves;
@@ -419,6 +422,8 @@ mod tests_detail;
 mod tests_display_tone_curves;
 #[cfg(test)]
 mod tests_effects;
+#[cfg(test)]
+mod tests_import;
 #[cfg(test)]
 mod tests_lens;
 #[cfg(test)]
