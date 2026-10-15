@@ -348,7 +348,7 @@ class PhotoLibrary(private val context: Context) {
     suspend fun loadSidecar(photo: Photo): LoadedSidecar = io.withLock {
         withContext(Dispatchers.IO) {
             val xml = readSidecar(photo, fresh = true)
-            LoadedSidecar(XmpDocument(xml ?: XmpDocument.EMPTY).also { it.serialize() }, xml)
+            LoadedSidecar(XmpDocument(xml ?: XmpDocument.EMPTY), xml)
         }
     }
 
