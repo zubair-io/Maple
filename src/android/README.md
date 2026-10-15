@@ -76,6 +76,8 @@ foreign bytes, and rejects external-write conflicts. SAF replacement writes a
 temporary sibling before publishing and retains the previous sidecar until the
 replacement succeeds. Provider rename semantics still need qualification on
 real external/SMB document providers before a release.
+Canonical folder sidecars match names case-insensitively, retaining an existing
+file's casing through save and recovery. Ambiguous duplicate names stop edits.
 
 Native editor calls and surface ownership are serialized on one worker.
 `ANativeWindow` is retained until its wgpu surface is dropped. Only one decoded

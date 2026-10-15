@@ -67,6 +67,23 @@ class SafSidecarTest {
             assertNull(model.state.value.error)
             folder = model.state.value.folder!!
             val photo = model.state.value.photos.single()
+            val canonicalName = "PORTRAIT.XMP"
+            val imported =
+                XmpDocument()
+                    .withAttribute("crs:Exposure2012", "0.25")
+                    .withAttribute("xmp:Label", "From Windows")
+                    .serialize()
+            val staged =
+                DocumentsContract.createDocument(
+                    context.contentResolver,
+                    folder.uri,
+                    "application/rdf+xml",
+                    ".import-${UUID.randomUUID()}.xmp",
+                )!!
+            context.contentResolver.openOutputStream(staged, "wt")!!.use {
+                it.write(imported.toByteArray())
+            }
+            DocumentsContract.renameDocument(context.contentResolver, staged, canonicalName)!!
             compose.runOnIdle { model.open(photo) }
             compose.waitUntil(30_000) {
                 model.state.value.selected != null && !model.state.value.loading
@@ -77,6 +94,8 @@ class SafSidecarTest {
             }
             compose.waitForIdle()
             compose.waitUntil(30_000) { !model.state.value.rendering }
+            assertEquals(.25f, model.state.value.values.getValue("exposure"), .001f)
+            assertEquals("From Windows", model.state.value.document.attribute("xmp:Label"))
             for (exposure in listOf(.75f, 1.25f)) {
                 compose.runOnIdle {
                     model.setField("exposure", exposure)
@@ -93,6 +112,7 @@ class SafSidecarTest {
                     XmpDocument.format(exposure),
                     saved.document.attribute("crs:Exposure2012"),
                 )
+                assertEquals("From Windows", saved.document.attribute("xmp:Label"))
             }
             context.contentResolver.openInputStream(photo.uri)!!.use {
                 assertArrayEquals(original, it.readBytes())
@@ -128,10 +148,14 @@ class SafSidecarTest {
                     .use { cursor ->
                         buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
                     }
-            assertEquals(setOf("portrait.dng", "portrait.xmp"), names.toSet())
+            assertEquals(setOf("portrait.dng", canonicalName), names.toSet())
             // Replay both process-death boundaries using real provider files and
             // the persisted journal, then read through a fresh library instance.
-            for (published in listOf(false, true)) recoverInterruptedReplacement(photo, published)
+            for (published in listOf(false, true)) recoverInterruptedReplacement(
+                photo,
+                published,
+                canonicalName,
+            )
             context.contentResolver.openInputStream(photo.uri)!!.use {
                 assertArrayEquals(original, it.readBytes())
             }
@@ -185,6 +209,7 @@ class SafSidecarTest {
     private fun recoverInterruptedReplacement(
         photo: app.justmaple.aperture.data.Photo,
         published: Boolean,
+        canonicalName: String,
     ) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val library = app.justmaple.aperture.data.PhotoLibrary(context)
@@ -216,7 +241,7 @@ class SafSidecarTest {
                 .JSONObject()
                 .put("id", id.toString())
                 .put("folder", folder.toString())
-                .put("target", photo.sidecarName)
+                .put("target", canonicalName)
                 .put("temp", tempName)
                 .put("backup", backupName)
                 .put("previous", true)
@@ -243,13 +268,13 @@ class SafSidecarTest {
                 )!!
                 .use { cursor ->
                     var uri: android.net.Uri? = null
-                    while (cursor.moveToNext()) if (cursor.getString(1) == photo.sidecarName)
+                    while (cursor.moveToNext()) if (cursor.getString(1) == canonicalName)
                         uri =
                             DocumentsContract.buildDocumentUriUsingTree(folder, cursor.getString(0))
                     uri!!
                 }
         DocumentsContract.renameDocument(resolver, previous, backupName)!!
-        if (published) DocumentsContract.renameDocument(resolver, temp, photo.sidecarName)!!
+        if (published) DocumentsContract.renameDocument(resolver, temp, canonicalName)!!
         val recovered = runBlocking {
             app.justmaple.aperture.data.PhotoLibrary(context).loadSidecar(photo)
         }
@@ -267,7 +292,7 @@ class SafSidecarTest {
                 .use { cursor ->
                     buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
                 }
-        assertEquals(setOf(photo.name, photo.sidecarName), leftovers.toSet())
+        assertEquals(setOf(photo.name, canonicalName), leftovers.toSet())
     }
 
     private fun clickSystem(matches: (AccessibilityNodeInfo) -> Boolean) {

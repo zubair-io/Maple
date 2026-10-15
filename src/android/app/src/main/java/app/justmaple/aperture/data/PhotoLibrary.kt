@@ -163,18 +163,16 @@ class PhotoLibrary(private val context: Context) {
                 } finally {
                     temporary.delete()
                 }
+                trim(folder, 512L * 1024 * 1024, file)
             }
+            file.setLastModified(System.currentTimeMillis())
             file
         }
 
     suspend fun <T> withOriginal(photo: Photo, action: suspend (File) -> T): T =
         originals.withLock {
             val file = materialize(photo)
-            try {
-                action(file)
-            } finally {
-                withContext(Dispatchers.IO) { trim(file.parentFile!!, 512L * 1024 * 1024, file) }
-            }
+            action(file)
         }
 
     suspend fun thumbnail(photo: Photo, edge: Int = 512): File =
@@ -196,9 +194,9 @@ class PhotoLibrary(private val context: Context) {
                         } finally {
                             temporary.delete()
                         }
+                        trim(folder, 64L * 1024 * 1024, remote)
                     }
                     remote.setLastModified(System.currentTimeMillis())
-                    trim(folder, 64L * 1024 * 1024, remote)
                     return@withContext remote
                 }
             }
@@ -223,9 +221,9 @@ class PhotoLibrary(private val context: Context) {
                 } finally {
                     temporary.delete()
                 }
+                trim(folder, 64L * 1024 * 1024, file)
             }
             file.setLastModified(System.currentTimeMillis())
-            trim(folder, 64L * 1024 * 1024, file)
             file
         }
 
