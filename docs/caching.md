@@ -319,17 +319,22 @@ Android caches are app-private and reconstructible; they never write a derived
 image into the photo folder. `src/android/app/src/main/java/app/justmaple/aperture/data/PhotoLibrary.kt`
 and `LocalDocuments.kt` own the following state:
 
-| Cache                     | Key / identity                                                                                                            | Invalidation / bound                                                                                                                                   |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Staged original           | SHA-256 of URI, original size and mtime; HEIF/AVIF add `platform-rgb-v1` and stage source-gamut float TIFF                | 512 MiB plus the currently leased original; lease prevents eviction while Rust reads it                                                                |
-| Local thumbnail / preview | Pipeline output version, Android thumbnail version 3, original identity, requested edge and complete current sidecar text | 64 MiB shared LRU; metadata-only RAW sidecars reuse the embedded preview                                                                               |
-| Cloud derivative          | Pipeline output version, original identity and edge → atomic ETag/content-hash index → immutable payload                  | Same 64 MiB bound; conditional authenticated GET revalidates each load, 304 reuses bytes, changed validators replace the index                         |
-| Folder snapshot           | One parent URI → names, document URIs, types, sizes and mtimes from one provider query                                    | Replaced on folder listing/photo open; refreshed during baseline checks; invalidated after XMP publication/recovery. Sidecar contents are never cached |
-| Decoded RAW / GPU session | Current photo session plus one GPU context per serial worker                                                              | Photo changes close the active image; worker teardown releases the device, shader caches and frame pool                                                |
+| Cache                     | Key / identity                                                                                                                                                       | Invalidation / bound                                                                                                                                   |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Staged original           | SHA-256 of URI, original size and mtime, plus the verified content digest for single-file imports; HEIF/AVIF add `platform-rgb-v1` and stage source-gamut float TIFF | 512 MiB plus the currently leased original; lease prevents eviction while Rust reads it                                                                |
+| Local thumbnail / preview | Pipeline output version, Android thumbnail version 3, original identity, requested edge and complete current sidecar text                                            | 64 MiB shared LRU; metadata-only RAW sidecars reuse the embedded preview                                                                               |
+| Cloud derivative          | Pipeline output version, original identity and edge → atomic ETag/content-hash index → immutable payload                                                             | Same 64 MiB bound; conditional authenticated GET revalidates each load, 304 reuses bytes, changed validators replace the index                         |
+| Folder snapshot           | One parent URI → names, document URIs, types, sizes and mtimes from one provider query                                                                               | Replaced on folder listing/photo open; refreshed during baseline checks; invalidated after XMP publication/recovery. Sidecar contents are never cached |
+| Decoded RAW / GPU session | Current photo session plus one GPU context per serial worker                                                                                                         | Photo changes close the active image; worker teardown releases the device, shader caches and frame pool                                                |
 
 Single-file edits persist in `filesDir/sidecars/` under the SHA-256 of
-`private-sidecar-v2:` plus `Photo.key` (URI, original size and modification time).
-These durable XMPs have an explicit export. Earlier URI-only private sidecars
+`private-sidecar-v3:` plus `Photo.key` (URI, original size, modification time and
+SHA-256 of the imported bytes). A single-file open streams a fresh provider read
+into a temporary file and digest, then publishes that verified snapshot under
+the original-cache lease. Rendering uses those same bytes, including when the
+provider later replaces the URI. A lost snapshot requires reopening; it cannot
+silently read a replacement under the old identity. The import reports progress
+and checks cancellation. These durable XMPs have an explicit export. Earlier URI/metadata-only private sidecars
 remain untouched; their asset identity cannot be safely inferred for migration.
 Original and derivative cache hits update recency without enumerating the cache.
 Cloud derivative indexes pair validators with immutable payloads so concurrent responses cannot mismatch an ETag and image. Missing/evicted bodies trigger an unconditional fetch; previews and thumbnails have separate entries.

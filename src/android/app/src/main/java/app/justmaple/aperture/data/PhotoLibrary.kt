@@ -9,6 +9,8 @@ import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.File
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -19,6 +21,7 @@ data class Photo(
     val size: Long,
     val modified: Long,
     val parent: Uri?,
+    val contentDigest: String? = null,
 ) {
     val extension
         get() = name.substringAfterLast('.', "").lowercase()
@@ -27,7 +30,7 @@ data class Photo(
         get() = name.substringBeforeLast('.') + ".xmp"
 
     val key
-        get() = "$uri:$size:$modified"
+        get() = "$uri:$size:$modified" + (contentDigest?.let { ":sha256:$it" } ?: "")
 }
 
 data class Folder(val uri: Uri, val name: String)
@@ -118,8 +121,49 @@ class PhotoLibrary(private val context: Context) {
             require(name.substringAfterLast('.', "").lowercase() in EXTENSIONS) {
                 "Maple cannot open $name. Choose a supported photo format."
             }
-            Photo(uri, name, document.length(), document.lastModified(), null)
+            val folder = File(context.cacheDir, "originals").apply { mkdirs() }
+            val temporary = File.createTempFile("import-", ".tmp", folder)
+            try {
+                val hash = MessageDigest.getInstance("SHA-256")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    temporary.outputStream().use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                            hash.update(buffer, 0, count)
+                        }
+                    }
+                } ?: error("Read permission was revoked for $name")
+                val photo =
+                    Photo(
+                        uri,
+                        name,
+                        temporary.length(),
+                        document.lastModified(),
+                        null,
+                        hash.digest().joinToString("") { "%02x".format(it) },
+                    )
+                val staged = singleSnapshot(photo, folder)
+                originals.withLock {
+                    check(temporary.renameTo(staged)) { "Could not stage $name" }
+                    staged.setLastModified(System.currentTimeMillis())
+                    trim(folder, 512L * 1024 * 1024, staged)
+                }
+                photo
+            } finally {
+                temporary.delete()
+            }
         }
+
+    private fun singleSnapshot(photo: Photo, folder: File): File {
+        val identity =
+            if (photo.extension in setOf("heic", "heif", "avif")) "single-input:${photo.key}"
+            else photo.key
+        return File(folder, "${digest(identity)}.${photo.extension}")
+    }
 
     private suspend fun materialize(photo: Photo): File =
         withContext(Dispatchers.IO) {
@@ -131,7 +175,15 @@ class PhotoLibrary(private val context: Context) {
             if (!file.exists()) {
                 val temporary = File.createTempFile("import-", ".tmp", folder)
                 try {
-                    if (CloudLibrary.isCloud(photo.uri))
+                    if (photo.contentDigest != null) {
+                        val snapshot = singleSnapshot(photo, folder)
+                        check(snapshot.isFile) {
+                            "The imported photo cache was cleared. Reopen the photo."
+                        }
+                        snapshot.inputStream().use { input ->
+                            temporary.outputStream().use { input.copyTo(it) }
+                        }
+                    } else if (CloudLibrary.isCloud(photo.uri))
                         temporary.outputStream().use { cloud.copyOriginal(photo, it) }
                     else
                         context.contentResolver.openInputStream(photo.uri)?.use { input ->
@@ -215,9 +267,8 @@ class PhotoLibrary(private val context: Context) {
     private fun privateSidecar(photo: Photo) =
         File(
             File(context.filesDir, "sidecars").apply { mkdirs() },
-            // URI-only files from the initial #4623 pass remain untouched:
-            // their source identity cannot be safely inferred for migration.
-            "${digest("private-sidecar-v2:${photo.key}")}.xmp",
+            // Earlier URI/metadata-only identities remain untouched and unassigned.
+            "${digest("private-sidecar-v3:${photo.key}")}.xmp",
         )
 
     private fun readSidecar(photo: Photo, fresh: Boolean = false): String? =

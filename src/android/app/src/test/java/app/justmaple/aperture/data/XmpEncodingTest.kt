@@ -36,6 +36,8 @@ class XmpEncodingTest {
                 val edited = loaded.withAttribute("xmp:Rating", "4").serialize()
                 file.writeBytes(XmpEncoding.encode(edited))
                 val bytes = file.readBytes()
+                val padded = bytes.copyOf(bytes.size + 4096).apply { fill(-1, bytes.size) }
+                assertEquals(XmpEncoding.decode(bytes), XmpEncoding.decode(padded, bytes.size))
                 assertArrayEquals(name, bom, bytes.take(bom.size).toByteArray())
                 assertTrue(
                     name,

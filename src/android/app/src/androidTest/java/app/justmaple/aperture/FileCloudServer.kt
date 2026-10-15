@@ -36,6 +36,7 @@ internal class FileCloudServer(private val directory: File) : Closeable {
     @Volatile var saveCount = 0
     @Volatile var loadEntered: java.util.concurrent.CountDownLatch? = null
     @Volatile var releaseLoad: java.util.concurrent.CountDownLatch? = null
+    @Volatile var sidecarLengthHeader = true
     @Volatile var previewPendingResponses = 0
     @Volatile var previewCount = 0
     @Volatile var previewSuccesses = 0
@@ -290,8 +291,12 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                             if (!present) respond(404, extra = extra)
                             else {
                                 val output = client.getOutputStream()
+                                val length =
+                                    if (sidecarLengthHeader)
+                                        "Content-Length: ${sidecar.length()}\r\n"
+                                    else ""
                                 output.write(
-                                    ("HTTP/1.1 200 Fixture\r\nContent-Length: ${sidecar.length()}\r\nConnection: close\r\n" +
+                                    ("HTTP/1.1 200 Fixture\r\n${length}Connection: close\r\n" +
                                             extra.entries.joinToString("") {
                                                 "${it.key}: ${it.value}\r\n"
                                             } +

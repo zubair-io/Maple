@@ -3,6 +3,8 @@ package app.justmaple.aperture.data
 import app.justmaple.aperture.cloud.CloudLibrary
 import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.File
+import java.io.OutputStream
+import java.nio.ByteBuffer
 import java.security.MessageDigest
 import org.json.JSONObject
 
@@ -43,33 +45,39 @@ internal class CloudDerivativeCache(private val cloud: CloudLibrary, private val
             index.setLastModified(System.currentTimeMillis())
             return CachedDerivative(file, false)
         }
-        val bytes = response.requireSuccess().body
-        check(bytes.isNotEmpty()) { "Cloud derivative is empty" }
-        val content = digest(bytes)
+        response.requireSuccess()
+        check(response.size > 0) { "Cloud derivative is empty" }
+        val content = digest(response.bytes())
         val payload = File(folder, "cloud-$key-$content.avif")
-        if (!payload.isFile) publish(payload, bytes)
-        publish(
-            index,
-            JSONObject()
-                .put("content", content)
-                .put("etag", response.etag.orEmpty())
-                .toString()
-                .toByteArray(),
-        )
+        if (!payload.isFile) publish(payload, response::writeTo)
+        publish(index) { output ->
+            output.write(
+                JSONObject()
+                    .put("content", content)
+                    .put("etag", response.etag.orEmpty())
+                    .toString()
+                    .toByteArray()
+            )
+        }
         payload.setLastModified(System.currentTimeMillis())
         return CachedDerivative(payload, true)
     }
 
-    private fun publish(target: File, bytes: ByteArray) {
+    private fun publish(target: File, write: (OutputStream) -> Unit) {
         val temporary = File.createTempFile("cloud-", ".tmp", folder)
         try {
-            temporary.writeBytes(bytes)
+            temporary.outputStream().use(write)
             check(temporary.renameTo(target)) { "Could not cache cloud derivative" }
         } finally {
             temporary.delete()
         }
     }
 
-    private fun digest(bytes: ByteArray) =
-        MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+    private fun digest(bytes: ByteArray) = digest(ByteBuffer.wrap(bytes))
+
+    private fun digest(bytes: ByteBuffer) =
+        MessageDigest.getInstance("SHA-256")
+            .apply { update(bytes) }
+            .digest()
+            .joinToString("") { "%02x".format(it) }
 }
