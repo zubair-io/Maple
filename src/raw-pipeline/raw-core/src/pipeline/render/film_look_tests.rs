@@ -161,3 +161,78 @@ fn film_lut_identity_lattice_at_full_strength_matches_no_lut_within_mean_delta()
         "identity lattice at full strength: mean abs delta {mean_delta} exceeds the 1e-5 budget"
     );
 }
+
+/// A resolved film LUT is external to AdjustmentModel. It must not turn the
+/// current display buffer into a different producer of the RAW-keyed Auto fit.
+#[test]
+#[ignore = "requires physical RAW; explicit invocation fails if absent"]
+fn cold_film_render_cannot_change_the_shared_no_film_auto_result() {
+    use crate::view::auto_profile::cache;
+    let _guard = cache::test_lock();
+    let path = crate::test_support::fixtures::require_raw("test_0002.dng");
+    let bytes = std::fs::read(&path).expect("physical RAW");
+    let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode fixture");
+    let model = AdjustmentModel::default();
+    let render = |film: Option<&FilmLut>| {
+        render_from_raw_with_auto_fit(
+            &raw,
+            &model,
+            RenderQuality::Amaze,
+            Some(RawInput::Bytes {
+                bytes: &bytes,
+                ext: "dng",
+            }),
+            Some(768),
+            film,
+        )
+        .expect("display render")
+    };
+    cache::clear_for_test();
+    cache::clear_lut_for_test();
+    let baseline = render(None);
+    assert_eq!(baseline.3, Some(true), "physical Auto fit must engage");
+    let mut film = identity_lattice(17);
+    for pixel in film.data.chunks_exact_mut(3) {
+        pixel[0] *= 0.8;
+        pixel[1] *= 0.9;
+    }
+    let warm_film = render(Some(&film));
+    cache::clear_for_test();
+    cache::clear_lut_for_test();
+    let filmed = render(Some(&film));
+    assert_eq!(filmed.3, Some(true), "film must retain the real Auto fit");
+    let film_changed = warm_film
+        .2
+        .iter()
+        .zip(&filmed.2)
+        .filter(|(a, b)| a != b)
+        .count();
+    assert_eq!(film_changed, 0, "cold and warm film renders must agree");
+    let after_film = render(None);
+    let changed = baseline
+        .2
+        .iter()
+        .zip(&after_film.2)
+        .filter(|(a, b)| a != b)
+        .count();
+    let max_delta = baseline
+        .2
+        .iter()
+        .zip(&after_film.2)
+        .map(|(a, b)| a.abs_diff(*b))
+        .max()
+        .unwrap();
+    assert_eq!(
+        changed, 0,
+        "film-first cache altered {changed} no-film channels; max delta {max_delta}"
+    );
+    assert!(
+        baseline
+            .2
+            .iter()
+            .zip(filmed.2)
+            .any(|(a, b)| a.abs_diff(b) > 2),
+        "the film look must still affect output"
+    );
+    assert_eq!(std::fs::read(path).expect("original reread"), bytes);
+}

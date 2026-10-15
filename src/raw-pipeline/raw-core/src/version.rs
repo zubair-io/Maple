@@ -162,7 +162,9 @@
 ///   preserving the existing shadow/midtone ratio response (#4635).
 /// - 32 — absent noise profiles use the existing ISO fallback, and NLM keeps
 ///   continuous exponential tails through binary32 underflow (#4638).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 32;
+/// - 33 — externally supplied film LUTs cannot contaminate the RAW-keyed
+///   Auto fit; cold and warm film/no-film renders agree (#4640).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 33;
 
 #[cfg(test)]
 mod tests {

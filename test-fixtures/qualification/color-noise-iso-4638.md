@@ -106,7 +106,7 @@ Expanded binding tests exposed an additional oracle metadata mismatch: the C-FFI
 sampling test used ISO 0 while its ABI input used ISO 100. Its expected render now
 uses the input's declared ISO, preserving the 1e-6 tolerance. The full WASM suite
 also exposed a parallel empty-film identity failure; the same test passes in
-isolation. Its cache/fit attribution remains open and is not waived here.
+isolation. Its cache/fit defect is resolved and separately qualified in [#4640](color-film-auto-fit-4640.md).
 
 The complete physical corpus, current-source binding/parity checks, editor latency
 and fresh CI/review must pass before this repair branch can merge. The original
