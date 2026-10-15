@@ -194,11 +194,14 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openSingle(uri: Uri) = viewModelScope.launch {
+        if (!flush()) return@launch
+        val token = ++generation
+        mutable.update { it.copy(loading = true, error = null) }
         try {
             val photo = library.single(uri)
-            open(photo, single = true)
+            if (token == generation) open(photo, single = true)
         } catch (failure: Exception) {
-            fail(failure)
+            if (token == generation) fail(failure)
         }
     }
 

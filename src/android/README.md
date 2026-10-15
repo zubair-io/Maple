@@ -74,9 +74,13 @@ paths into Android vectors. The launcher icon is the existing Maple artwork.
 Original URIs are opened for reading only. Folder grants persist through the
 Storage Access Framework. Folder edits use adjacent stem-swapped XMP files;
 single-file/share intents use private sidecars with an explicit XMP export.
-Private sidecars include the source URI, size and modification time in their
-identity, so a reused share URI with changed metadata gets separate edits.
-Earlier URI-only private sidecars are retained and are not automatically assigned
+Single-file opens stream a fresh read into an atomic cache snapshot and SHA-256
+digest before choosing pixels or edits, with import progress and cancellation checks.
+Private sidecars include that digest, the source URI, size and modification time in
+their identity, so a reused URI with different bytes gets separate edits even when
+provider metadata is absent or unchanged. Rendering uses the hashed snapshot; if
+it is evicted, the user must reopen instead of reading new bytes under an old identity.
+Earlier URI/metadata-only private sidecars are retained and are not automatically assigned
 to a photo whose identity cannot be verified. Folder-adjacent sidecars are unaffected.
 The XMP writer patches owned attributes in the original XML, retaining untouched
 foreign bytes, resolves RDF and owned attributes by namespace, and rejects
@@ -107,6 +111,9 @@ behind an earlier save. Cloud XMP responses use the server’s 128 MiB body limi
 other JSON responses remain bounded at 16 MiB. UTF-8 validation uses a fixed-size
 scratch buffer. Incoming Open/Share navigation changes only after pending edits
 save successfully; a conflict retains the current folder, filmstrip and document.
+HTTP responses transfer their bounded byte buffer without cloning it; XML, JSON,
+hashing and derivative publication consume only its received range. Oversized
+declared lengths fail before body allocation.
 Failed sidecar loads block metadata, editing and export
 until a successful reload confirms that photo’s save baseline. SAF replacement writes a
 temporary sibling before publishing and retains the previous sidecar until the

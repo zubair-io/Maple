@@ -36,7 +36,7 @@ class EncodedSidecarTest {
                 val sidecar =
                     File(
                         File(context.filesDir, "sidecars").apply { mkdirs() },
-                        PhotoLibrary.digest("private-sidecar-v2:${photo.key}") + ".xmp",
+                        PhotoLibrary.digest("private-sidecar-v3:${photo.key}") + ".xmp",
                     )
                 val foreign =
                     "<f:opaque xmlns:f='urn:foreign'>café &amp; light\r\n unchanged</f:opaque>"

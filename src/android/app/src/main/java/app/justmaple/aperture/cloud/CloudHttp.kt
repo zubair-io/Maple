@@ -1,18 +1,27 @@
 package app.justmaple.aperture.cloud
 
+import app.justmaple.aperture.data.XmpEncoding
 import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.ByteBuffer
 import org.json.JSONObject
 
 internal data class CloudResponse(
     val status: Int,
-    val body: ByteArray,
+    private val body: ByteArray,
     val etag: String?,
     val preconditions: String?,
     val retryAfter: String? = null,
+    val size: Int = body.size,
 ) {
-    fun text() = body.toString(Charsets.UTF_8)
+    fun text() = String(body, 0, size, Charsets.UTF_8)
+
+    fun xmp() = XmpEncoding.decode(body, size)
+
+    fun bytes(): ByteBuffer = ByteBuffer.wrap(body, 0, size).slice().asReadOnlyBuffer()
+
+    fun writeTo(output: OutputStream) = output.write(body, 0, size)
 
     fun requireSuccess(): CloudResponse = apply {
         check(status in 200..299) {
@@ -178,27 +187,46 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
         private fun read(connection: HttpURLConnection, limitMiB: Int = 16): CloudResponse {
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val body =
-                stream?.use {
-                    val buffer = ByteArray(8192)
-                    val output = java.io.ByteArrayOutputStream()
-                    while (true) {
-                        val count = it.read(buffer)
-                        if (count < 0) break
-                        check(output.size() + count <= limitMiB * 1024 * 1024) {
-                            "Cloud response exceeded $limitMiB MiB"
-                        }
-                        output.write(buffer, 0, count)
+            val limit = limitMiB * 1024 * 1024
+            val declared = connection.contentLengthLong
+            check(declared <= limit) { "Cloud response exceeded $limitMiB MiB" }
+            val output = ResponseBuffer(if (declared >= 0) declared.toInt() else 8192, limit)
+            stream?.use {
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = it.read(buffer)
+                    if (count < 0) break
+                    check(output.size + count <= limit) {
+                        "Cloud response exceeded $limitMiB MiB"
                     }
-                    output.toByteArray()
-                } ?: ByteArray(0)
+                    output.write(buffer, count)
+                }
+            }
             return CloudResponse(
                 status,
-                body,
+                output.buffer,
                 connection.getHeaderField("ETag"),
                 connection.getHeaderField("X-Maple-Xmp-Preconditions"),
                 connection.getHeaderField("Retry-After"),
+                output.size,
             )
+        }
+
+        /** The response owns this bounded buffer; publication never clones it. */
+        private class ResponseBuffer(capacity: Int, private val limit: Int) {
+            var buffer = ByteArray(capacity)
+                private set
+
+            var size = 0
+                private set
+
+            fun write(input: ByteArray, count: Int) {
+                val required = size + count
+                if (required > buffer.size)
+                    buffer = buffer.copyOf(maxOf(required, minOf(limit, buffer.size * 2)))
+                input.copyInto(buffer, size, 0, count)
+                size = required
+            }
         }
     }
 }

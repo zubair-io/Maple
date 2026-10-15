@@ -83,9 +83,12 @@ class CloudPersistenceTest {
                 val source =
                     XmpDocument.EMPTY.replace("<rdf:Description", "$opaque<rdf:Description")
                 server.sidecar.writeText(source)
+                // Close-delimited bodies have spare buffer capacity; only received bytes are XML.
+                server.sidecarLengthHeader = false
                 val original = server.original.readBytes()
                 val library = PhotoLibrary(context)
                 val first = library.loadSidecar(photo)
+                server.sidecarLengthHeader = true
                 assertEquals(source, first.baseline)
                 val saved =
                     library.save(
@@ -97,6 +100,22 @@ class CloudPersistenceTest {
                 assertTrue(saved.document.original.contains(opaque))
                 assertTrue(server.sidecar.length() > 16 * 1024 * 1024)
                 assertEquals(saved.baseline, library.loadSidecar(photo).baseline)
+                assertArrayEquals(original, server.original.readBytes())
+            }
+        }
+
+    @Test
+    fun oversizedDeclaredSidecarsFailBeforeAllocatingTheirBody() =
+        runBlocking<Unit> {
+            withCloud { server, photo ->
+                val original = server.original.readBytes()
+                java.io.RandomAccessFile(server.sidecar, "rw").use {
+                    it.setLength(128L * 1024 * 1024 + 1)
+                }
+                val failure = runCatching {
+                    PhotoLibrary(context).loadSidecar(photo)
+                }.exceptionOrNull()
+                assertTrue(failure?.message.orEmpty().contains("exceeded 128 MiB"))
                 assertArrayEquals(original, server.original.readBytes())
             }
         }

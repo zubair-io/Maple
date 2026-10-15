@@ -149,14 +149,14 @@ class CloudLibrary(context: Context) {
     fun readSidecar(photo: Photo): String? {
         val response = sidecar(photo.uri)
         return if (response.status == 404) null
-        else XmpEncoding.forCloud(XmpEncoding.decode(response.requireSuccess().body))
+        else XmpEncoding.forCloud(response.requireSuccess().xmp())
     }
 
     fun save(photo: Photo, document: XmpDocument, baseline: String?): LoadedSidecar {
         val current = sidecar(photo.uri)
         val xml =
             if (current.status == 404) null
-            else XmpEncoding.forCloud(XmpEncoding.decode(current.requireSuccess().body))
+            else XmpEncoding.forCloud(current.requireSuccess().xmp())
         check(xml == baseline) {
             "The cloud sidecar changed outside Maple. Reopen the photo before saving."
         }

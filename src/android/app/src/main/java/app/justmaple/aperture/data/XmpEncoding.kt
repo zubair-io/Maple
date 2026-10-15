@@ -12,9 +12,10 @@ internal object XmpEncoding {
     private val declaration = Regex("^\\uFEFF?<\\?xml\\s[^?]*\\?>")
     private val encoding = Regex("\\bencoding\\s*=\\s*(['\"])([^'\"]+)\\1")
 
-    fun decode(bytes: ByteArray): String {
+    fun decode(bytes: ByteArray, length: Int = bytes.size): String {
+        require(length in 0..bytes.size)
         fun starts(vararg signature: Int) =
-            bytes.size >= signature.size &&
+            length >= signature.size &&
                 signature.indices.all { (bytes[it].toInt() and 255) == signature[it] }
         val marker =
             when {
@@ -36,7 +37,7 @@ internal object XmpEncoding {
                     bytes.getOrNull(5)?.toInt() in listOf(9, 10, 13, 32)
             ) {
                 val end =
-                    (6 until bytes.size).firstOrNull {
+                    (6 until length).firstOrNull {
                         bytes[it - 1] == 63.toByte() && bytes[it] == 62.toByte()
                     }
                 end?.let { bytes.copyOfRange(0, it + 1).toString(Charsets.ISO_8859_1) }
@@ -46,15 +47,15 @@ internal object XmpEncoding {
         val offset = marker?.second ?: 0
         val text =
             if (charset == Charsets.UTF_8) {
-                validateUtf8(bytes, offset)
-                String(bytes, offset, bytes.size - offset, charset)
+                validateUtf8(bytes, offset, length)
+                String(bytes, offset, length - offset, charset)
             } else
                 try {
                     charset
                         .newDecoder()
                         .onMalformedInput(CodingErrorAction.REPORT)
                         .onUnmappableCharacter(CodingErrorAction.REPORT)
-                        .decode(ByteBuffer.wrap(bytes, offset, bytes.size - offset))
+                        .decode(ByteBuffer.wrap(bytes, offset, length - offset))
                         .toString()
                 } catch (failure: CharacterCodingException) {
                     throw IOException(
@@ -75,12 +76,12 @@ internal object XmpEncoding {
         return if (charset == Charsets.UTF_8) document else withEncoding(document, charset.name())
     }
 
-    private fun validateUtf8(bytes: ByteArray, offset: Int) {
+    private fun validateUtf8(bytes: ByteArray, offset: Int, length: Int) {
         val decoder =
             Charsets.UTF_8.newDecoder()
                 .onMalformedInput(CodingErrorAction.REPORT)
                 .onUnmappableCharacter(CodingErrorAction.REPORT)
-        val input = ByteBuffer.wrap(bytes, offset, bytes.size - offset)
+        val input = ByteBuffer.wrap(bytes, offset, length - offset)
         val scratch = CharBuffer.allocate(4096)
         try {
             while (true) {
