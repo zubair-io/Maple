@@ -114,6 +114,62 @@ class ReviewRegressionTest {
         assertArrayEquals(bytes, original.readBytes())
     }
 
+    @Test
+    fun structuredRasterEditsNeverOfferOrPersistAPartialSliderReset() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val original = File.createTempFile("review-structured-", ".png", context.filesDir)
+        val bitmap =
+            android.graphics.Bitmap.createBitmap(32, 24, android.graphics.Bitmap.Config.ARGB_8888)
+        original.outputStream().use {
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+        }
+        bitmap.recycle()
+        val bytes = original.readBytes()
+        val model = ViewModelProvider(compose.activity)[MapleViewModel::class.java]
+        val photo = runBlocking { model.library.single(Uri.fromFile(original)) }
+        val removals =
+            """[{"schema":2,"kind":"removal","region":[0.25,0.1,0.5,0.4],"patch":"blake3:deadbeef","model":"lama-bigl-1","bake":{"temp":5500,"tint":4,"ev":0.3}}]"""
+        val repair =
+            """<crs:RetouchAreas><rdf:Seq><rdf:li><rdf:Description crs:SpotType="heal" crs:SourceX="0.75" crs:SourceY="0.5" crs:Opacity="1" crs:Feather="0.5"><crs:Masks><rdf:Seq><rdf:li crs:What="Mask/CircularGradient" crs:X="0.25" crs:Y="0.5" crs:Radius="0.05"/></rdf:Seq></crs:Masks></rdf:Description></rdf:li></rdf:Seq></crs:RetouchAreas>"""
+        val base =
+            XmpDocument()
+                .withAttribute("crs:Contrast2012", "20")
+                .withAttribute("crs:Exposure2012", "0.5")
+        val cases =
+            listOf(
+                base.withAttribute("papp:HotPixelSuppression", "On"),
+                base.withAttribute("crs:AutoLateralCA", "1"),
+                base.withAttribute("papp:Demosaic", "Amaze"),
+                base.withAttribute("papp:LensProfile", "lcp1:${"0".repeat(64)}"),
+                base.withAttribute("papp:InpaintRemovals", removals),
+                XmpDocument(
+                    base.serialize().replace("/></rdf:RDF>", ">$repair</rdf:Description></rdf:RDF>")
+                ),
+            )
+        for (document in cases) {
+            assertFalse(
+                app.justmaple.aperture.data.NativeBridge.rasterCompatible(
+                    document.withoutRawOnlySliders().serialize()
+                )
+            )
+            runBlocking {
+                model.library.save(photo, document, model.library.loadSidecar(photo).baseline)
+            }
+            val saved = runBlocking { model.library.loadSidecar(photo) }.document.original
+            compose.runOnIdle { model.openSingle(photo.uri) }
+            compose.waitUntil(30_000) {
+                !model.state.value.loading && model.state.value.selected != null
+            }
+            compose.runOnIdle { model.edit() }
+            compose.waitUntil(30_000) { model.state.value.error?.contains("raster image:") == true }
+            compose.onNodeWithText("Reset RAW-only sliders").assertDoesNotExist()
+            compose.runOnIdle { model.resetRawOnlySliders() }
+            assertFalse(model.state.value.dirty)
+            assertEquals(saved, runBlocking { model.library.loadSidecar(photo) }.document.original)
+            assertArrayEquals(bytes, original.readBytes())
+        }
+    }
+
     @androidx.test.filters.SdkSuppress(minSdkVersion = 31)
     @Test
     fun avifUsesThePlatformDecoderWithoutChangingItsOriginal() {

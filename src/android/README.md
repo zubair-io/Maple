@@ -114,7 +114,10 @@ and physical-device qualification remains outstanding.
 Numeric raster availability is generated from the Rust raster validator and
 cross-checked by the native test. RAW-only sliders are hidden for raster inputs
 and rejected by the native boundary. **Reset RAW-only sliders** recovers an
-incompatible numeric sidecar from the initial build after confirmation. AVIF
+incompatible numeric sidecar from the initial build after confirmation, only
+when the shared Rust validator accepts the full candidate. Sidecars with
+unsupported structured or enum edits keep their original XMP and error; numeric
+recovery is unavailable rather than saving a partial reset. AVIF
 originals are converted through the OS decoder on Android 12+; older versions
 do not advertise AVIF originals. HEIC/HEIF use the same staging path.
 

@@ -23,6 +23,7 @@ data class MapleState(
     val saving: Boolean = false,
     val dirty: Boolean = false,
     val error: String? = null,
+    val canResetRawOnlySliders: Boolean = false,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val showFilmstrip: Boolean = true,

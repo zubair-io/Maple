@@ -69,6 +69,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         mutable.update {
             it.copy(
                 error = message,
+                canResetRawOnlySliders = false,
                 loading = false,
                 rendering = false,
                 saving = false,
@@ -77,7 +78,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearError() {
-        mutable.update { it.copy(error = null) }
+        mutable.update { it.copy(error = null, canResetRawOnlySliders = false) }
     }
 
     fun beginCloud(input: String): Uri? = runCatching {
@@ -175,6 +176,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                     mode = PhotoMode.Browse,
                     selected = null,
                     error = null,
+                    canResetRawOnlySliders = false,
                 )
             }
             try {
@@ -219,6 +221,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     selected = photo,
                     mode = nextMode,
+                    canResetRawOnlySliders = false,
                     loading = true,
                     rendering = false,
                     dirty = false,
@@ -260,7 +263,9 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         renderer.invalidateDraws()
         val snapshot = state.value
         val photo = snapshot.selected ?: return
-        mutable.update { it.copy(rendering = true, values = emptyMap()) }
+        mutable.update {
+            it.copy(rendering = true, values = emptyMap(), canResetRawOnlySliders = false)
+        }
         try {
             renderXml = snapshot.document.serialize()
             val values =
@@ -270,7 +275,20 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
             if (token == generation)
                 mutable.update { it.copy(values = values, rendering = !renderer.hasPresented) }
         } catch (failure: Exception) {
-            if (token == generation) fail(failure)
+            val canReset =
+                generateSequence<Throwable>(failure) { it.cause }
+                    .any {
+                        it.message?.contains("raster image:") == true
+                    } &&
+                    withContext(Dispatchers.Default) {
+                        NativeBridge.rasterCompatible(
+                            snapshot.document.withoutRawOnlySliders().serialize()
+                        )
+                    }
+            if (token == generation) {
+                fail(failure)
+                mutable.update { it.copy(canResetRawOnlySliders = canReset) }
+            }
         }
     }
 
@@ -437,13 +455,19 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
 
     fun resetRawOnlySliders() {
         viewModelScope.launch {
-            val document =
-                AdjustmentFields.all
-                    .filter { !it.rasterSupported && it.xmp.isNotEmpty() }
-                    .fold(state.value.document) { doc, field ->
-                        doc.withField(field, field.initial)
-                    }
-            mutable.update { it.copy(document = document, dirty = true, error = null) }
+            if (!state.value.canResetRawOnlySliders) return@launch
+            val document = state.value.document.withoutRawOnlySliders()
+            // Imported structured edits must survive untouched. Only offer this
+            // numeric recovery when the core accepts the entire candidate XMP.
+            if (!NativeBridge.rasterCompatible(document.serialize())) return@launch
+            mutable.update {
+                it.copy(
+                    document = document,
+                    dirty = true,
+                    error = null,
+                    canResetRawOnlySliders = false,
+                )
+            }
             if (flush() && state.value.mode == PhotoMode.Edit) startEditor(generation)
         }
     }
