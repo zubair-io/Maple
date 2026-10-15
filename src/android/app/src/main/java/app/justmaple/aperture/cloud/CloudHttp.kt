@@ -2,6 +2,8 @@ package app.justmaple.aperture.cloud
 
 import app.justmaple.aperture.data.XmpEncoding
 import java.io.OutputStream
+import java.io.OutputStreamWriter
+import java.io.StringReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.ByteBuffer
@@ -172,16 +174,45 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
             headers.forEach(connection::setRequestProperty)
             try {
                 if (body != null) {
-                    val bytes = body.toByteArray(Charsets.UTF_8)
+                    val length = utf8Length(body)
                     connection.doOutput = true
-                    connection.setFixedLengthStreamingMode(bytes.size)
-                    connection.outputStream.use { it.write(bytes) }
+                    connection.setFixedLengthStreamingMode(length)
+                    StringReader(body).use { input ->
+                        OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { output ->
+                            input.copyTo(output, 4096)
+                        }
+                    }
                 }
                 return connection
             } catch (failure: Exception) {
                 connection.disconnect()
                 throw failure
             }
+        }
+
+        private fun utf8Length(text: String): Long {
+            var index = 0
+            var bytes = 0L
+            while (index < text.length) {
+                val character = text[index++]
+                bytes +=
+                    when {
+                        character.code < 0x80 -> 1
+                        character.code < 0x800 -> 2
+                        Character.isHighSurrogate(character) -> {
+                            require(
+                                index < text.length && Character.isLowSurrogate(text[index++])
+                            ) {
+                                "Invalid Unicode in cloud request"
+                            }
+                            4
+                        }
+                        Character.isLowSurrogate(character) ->
+                            error("Invalid Unicode in cloud request")
+                        else -> 3
+                    }
+            }
+            return bytes
         }
 
         private fun read(connection: HttpURLConnection, limitMiB: Int = 16): CloudResponse {
