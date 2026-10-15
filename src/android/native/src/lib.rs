@@ -87,6 +87,10 @@ pub unsafe extern "C" fn maple_android_values(handle: *mut c_void) -> *mut c_cha
         let (temperature, tint) = session.white_balance_values();
         values.insert("temperature".into(), serde_json::json!(temperature));
         values.insert("tint".into(), serde_json::json!(tint));
+        values.insert(
+            "_raw".into(),
+            serde_json::json!(if session.source_is_raw() { 1.0 } else { 0.0 }),
+        );
         values.insert("_aspect".into(), serde_json::json!(session.aspect()));
         Ok(CString::new(serde_json::Value::Object(values).to_string())
             .map_err(|e| e.to_string())?
@@ -105,6 +109,9 @@ pub unsafe extern "C" fn maple_android_free_string(value: *mut c_char) {
 pub unsafe extern "C" fn maple_android_set(handle: *mut c_void, index: usize, value: f32) -> i32 {
     guarded(-1, || {
         let session = handle.cast::<Session>().as_mut().ok_or("Closed editor")?;
+        if !session.source_is_raw() && !fields::raster_allowed(index) {
+            return Err("This adjustment requires a RAW source".into());
+        }
         fields::set(&mut session.model, index, value)?;
         Ok(0)
     })
@@ -114,7 +121,11 @@ pub unsafe extern "C" fn maple_android_set(handle: *mut c_void, index: usize, va
 pub unsafe extern "C" fn maple_android_model(handle: *mut c_void, xml: *const c_char) -> i32 {
     guarded(-1, || {
         let session = handle.cast::<Session>().as_mut().ok_or("Closed editor")?;
-        session.model = raw_core::xmp::parse(text(xml)?).map_err(|e| e.to_string())?;
+        let model = raw_core::xmp::parse(text(xml)?).map_err(|e| e.to_string())?;
+        if !session.source_is_raw() {
+            raw_core::pipeline::validate_raster_adjustments(&model).map_err(|e| e.to_string())?;
+        }
+        session.model = model;
         Ok(0)
     })
 }

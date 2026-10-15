@@ -82,3 +82,6 @@ enum class EditorGroup(val label: String, val tools: List<EditorTool>) {
 fun fieldLabel(field: AdjustmentField): String =
     EditorGroup.entries.flatMap { it.tools }.find { it.field == field.name }?.label
         ?: field.name.split('_').joinToString(" ") { it.replaceFirstChar(Char::uppercaseChar) }
+
+fun app.justmaple.aperture.MapleState.supportsField(field: AdjustmentField): Boolean =
+    values["_raw"] != 0f || (field.rasterSupported && !field.name.startsWith("capture_sharpening_"))

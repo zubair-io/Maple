@@ -21,7 +21,7 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
         setContent { MapleTheme { MapleShell(model) } }
-        if (savedInstanceState == null) openIntent(intent)
+        if (savedInstanceState == null || intent.data?.scheme == "maple-app") openIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -31,6 +31,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openIntent(intent: Intent) {
+        if (intent.action == Intent.ACTION_VIEW && intent.data?.scheme == "maple-app") {
+            model.completeCloud(intent.data!!)
+            setIntent(Intent(this, MainActivity::class.java))
+            return
+        }
         val uri =
             when (intent.action) {
                 Intent.ACTION_VIEW -> intent.data

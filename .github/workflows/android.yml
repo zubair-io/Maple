@@ -43,6 +43,16 @@ jobs:
       - name: Build native APK and test XMP contracts
         working-directory: src/android
         run: ./gradlew --no-daemon assembleDebug testDebugUnitTest lintDebug
+      - name: Install software Vulkan for native parity
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
+      - name: Gate Android native CPU/GPU parity
+        working-directory: src/android
+        env:
+          XDG_RUNTIME_DIR: /tmp/maple-android-runtime
+        run: |
+          mkdir -p "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          cargo test --locked --manifest-path native/Cargo.toml --lib
       - uses: actions/upload-artifact@v4
         with:
           name: maple-android-debug

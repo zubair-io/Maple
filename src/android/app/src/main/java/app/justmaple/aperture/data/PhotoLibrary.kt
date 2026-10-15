@@ -8,6 +8,7 @@ import android.graphics.ImageDecoder
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
+import app.justmaple.aperture.cloud.CloudLibrary
 import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.File
 import java.security.MessageDigest
@@ -41,6 +42,7 @@ data class LibraryListing(val folders: List<Folder>, val photos: List<Photo>)
 data class LoadedSidecar(val document: XmpDocument, val baseline: String?)
 
 class PhotoLibrary(private val context: Context) {
+    val cloud = CloudLibrary(context)
     private val preferences = context.getSharedPreferences("maple-library", Context.MODE_PRIVATE)
     private val io = Mutex()
     private val originals = Mutex()
@@ -54,7 +56,7 @@ class PhotoLibrary(private val context: Context) {
                         .getOrNull()
                         ?.let { Folder(it.uri, it.name ?: "Folder") }
                 }
-                .sortedBy { it.name.lowercase() }
+                .sortedBy { it.name.lowercase() } + cloud.sources
 
     fun remember(uri: Uri) {
         context.contentResolver.takePersistableUriPermission(
@@ -72,6 +74,7 @@ class PhotoLibrary(private val context: Context) {
 
     suspend fun list(folder: Uri): LibraryListing =
         withContext(Dispatchers.IO) {
+            if (CloudLibrary.isCloud(folder)) return@withContext cloud.list(folder)
             val entries = children(folder)
             LibraryListing(
                 entries
@@ -101,15 +104,18 @@ class PhotoLibrary(private val context: Context) {
     private suspend fun materialize(photo: Photo): File =
         withContext(Dispatchers.IO) {
             val folder = File(context.cacheDir, "originals").apply { mkdirs() }
-            val platformDecode = photo.extension in setOf("heic", "heif")
+            val platformDecode = photo.extension in setOf("heic", "heif", "avif")
             val extension = if (platformDecode) "png" else photo.extension
             val file = File(folder, "${digest(photo.key)}.$extension")
             if (!file.exists()) {
                 val temporary = File.createTempFile("import-", ".tmp", folder)
                 try {
-                    context.contentResolver.openInputStream(photo.uri)?.use { input ->
-                        temporary.outputStream().use(input::copyTo)
-                    } ?: error("Read permission was revoked for ${photo.name}")
+                    if (CloudLibrary.isCloud(photo.uri))
+                        temporary.outputStream().use { cloud.copyOriginal(photo, it) }
+                    else
+                        context.contentResolver.openInputStream(photo.uri)?.use { input ->
+                            temporary.outputStream().use(input::copyTo)
+                        } ?: error("Read permission was revoked for ${photo.name}")
                     if (platformDecode) {
                         val bitmap =
                             ImageDecoder.decodeBitmap(ImageDecoder.createSource(temporary)) {
@@ -152,6 +158,28 @@ class PhotoLibrary(private val context: Context) {
     suspend fun thumbnail(photo: Photo, edge: Int = 512): File =
         withContext(Dispatchers.IO) {
             val folder = File(context.cacheDir, "thumbnails").apply { mkdirs() }
+            if (CloudLibrary.isCloud(photo.uri) && android.os.Build.VERSION.SDK_INT >= 31) {
+                val bytes = cloud.derivative(photo, edge)
+                if (bytes != null) {
+                    val remote =
+                        File(
+                            folder,
+                            "${MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }}.avif",
+                        )
+                    if (!remote.exists()) {
+                        val temporary = File.createTempFile("cloud-", ".tmp", folder)
+                        try {
+                            temporary.writeBytes(bytes)
+                            check(temporary.renameTo(remote))
+                        } finally {
+                            temporary.delete()
+                        }
+                    }
+                    remote.setLastModified(System.currentTimeMillis())
+                    trim(folder, 64L * 1024 * 1024, remote)
+                    return@withContext remote
+                }
+            }
             val sidecar = readSidecar(photo)
             val file =
                 File(
@@ -219,7 +247,8 @@ class PhotoLibrary(private val context: Context) {
         photo.parent?.let { children(it).find { entry -> entry.name == photo.sidecarName } }
 
     private fun readSidecar(photo: Photo): String? =
-        if (photo.parent == null) privateSidecar(photo).takeIf { it.exists() }?.readText()
+        if (CloudLibrary.isCloud(photo.uri)) cloud.readSidecar(photo)
+        else if (photo.parent == null) privateSidecar(photo).takeIf { it.exists() }?.readText()
         else
             sidecar(photo)?.let { document ->
                 context.contentResolver.openInputStream(document.uri)?.bufferedReader()?.use {
@@ -236,6 +265,8 @@ class PhotoLibrary(private val context: Context) {
     suspend fun save(photo: Photo, document: XmpDocument, baseline: String?): LoadedSidecar =
         io.withLock {
             withContext(Dispatchers.IO) {
+                if (CloudLibrary.isCloud(photo.uri))
+                    return@withContext cloud.save(photo, document, baseline)
                 check(readSidecar(photo) == baseline) {
                     "The sidecar changed outside Maple. Reopen the photo before saving."
                 }
@@ -313,10 +344,9 @@ class PhotoLibrary(private val context: Context) {
                 "webp",
                 "tif",
                 "tiff",
-                "avif",
                 "heic",
                 "heif",
-            )
+            ) + if (android.os.Build.VERSION.SDK_INT >= 31) setOf("avif") else emptySet()
 
         fun digest(value: String) =
             MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") {
