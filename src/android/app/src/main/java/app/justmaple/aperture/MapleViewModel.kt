@@ -130,6 +130,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 browse(source)
             } catch (failure: Exception) {
+                if (failure is CancellationException) return@launch
                 mutable.update { it.copy(cloudSigningIn = false) }
                 fail(failure)
             }

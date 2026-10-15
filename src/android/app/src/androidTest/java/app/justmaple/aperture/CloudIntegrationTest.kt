@@ -30,6 +30,42 @@ class CloudIntegrationTest {
             val bytes = server.original.readBytes()
             val model = ViewModelProvider(compose.activity)[MapleViewModel::class.java]
             val library = model.library
+            val cancelledBrowser = library.cloud.begin(server.origin)
+            server.expectedChallenge = cancelledBrowser.getQueryParameter("code_challenge")!!
+            val cancelledCallback =
+                Uri.parse("maple-app://auth-success")
+                    .buildUpon()
+                    .appendQueryParameter("state", cancelledBrowser.getQueryParameter("state"))
+                    .appendQueryParameter("code", "fixture-code")
+                    .build()
+            val redeemEntered = java.util.concurrent.CountDownLatch(1)
+            val releaseRedeem = java.util.concurrent.CountDownLatch(1)
+            server.redeemEntered = redeemEntered
+            server.releaseRedeem = releaseRedeem
+            val signIn = java.util.concurrent.Executors.newSingleThreadExecutor()
+            try {
+                val cancelled =
+                    signIn.submit<app.justmaple.aperture.data.Folder> {
+                        runBlocking { library.cloud.complete(cancelledCallback) }
+                    }
+                assertTrue(redeemEntered.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                library.cloud.cancelLogin()
+                releaseRedeem.countDown()
+                assertTrue(
+                    runCatching { cancelled.get(30, java.util.concurrent.TimeUnit.SECONDS) }
+                        .isFailure
+                )
+                assertFalse(
+                    "Cancelled sign-in must not persist credentials",
+                    library.sources.any { it.name.startsWith("127.0.0.1:") },
+                )
+            } finally {
+                releaseRedeem.countDown()
+                signIn.shutdownNow()
+            }
+            server.redeemEntered = null
+            server.releaseRedeem = null
+            server.logoutEntered = java.util.concurrent.CountDownLatch(1)
             val browser = library.cloud.begin(server.origin)
             server.expectedChallenge = browser.getQueryParameter("code_challenge")!!
             val callback =
@@ -138,7 +174,26 @@ class CloudIntegrationTest {
                 }
                 assertNull(model.state.value.error)
                 assertEquals(external, server.sidecar.readText())
-                compose.runOnIdle { model.disconnectCloud(source) }
+                val refreshEntered = java.util.concurrent.CountDownLatch(1)
+                val releaseRefresh = java.util.concurrent.CountDownLatch(1)
+                server.refreshEntered = refreshEntered
+                server.releaseRefresh = releaseRefresh
+                server.forceRefresh = true
+                val network = java.util.concurrent.Executors.newSingleThreadExecutor()
+                try {
+                    val refresh = network.submit { runBlocking { library.list(source.uri) } }
+                    assertTrue(refreshEntered.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                    compose.runOnIdle { model.disconnectCloud(source) }
+                    assertFalse(
+                        "Logout must wait for the in-flight refresh",
+                        server.logoutEntered.await(250, java.util.concurrent.TimeUnit.MILLISECONDS),
+                    )
+                    releaseRefresh.countDown()
+                    refresh.get(30, java.util.concurrent.TimeUnit.SECONDS)
+                } finally {
+                    releaseRefresh.countDown()
+                    network.shutdownNow()
+                }
                 compose.waitUntil(30_000) {
                     model.state.value.sources.none { it.uri == source.uri }
                 }

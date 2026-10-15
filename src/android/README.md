@@ -98,7 +98,8 @@ require `content-etag-v1`, a strong `If-Match` or create-only `If-None-Match: *`
 A conflict retains unsaved edits; **Reload saved edits** asks before discarding
 them. Older servers without conditional saves must be upgraded before editing.
 The cloud device test exercises real HTTP, Keystore persistence, PKCE/state
-checks, refresh, nested Unicode paths, real XMP saves/conflicts, and original-byte
+checks, cancellation during redemption, refresh/disconnect ordering, nested Unicode
+paths, real XMP saves/conflicts, and original-byte
 preservation against a temporary fixture server. Live account/passkey-provider
 and physical-device qualification remains outstanding.
 

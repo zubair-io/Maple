@@ -13,7 +13,7 @@ import org.json.JSONObject
 /** Real HTTP and real sidecars for Android cloud contract tests. No original write route. */
 internal class FileCloudServer(private val directory: File) : Closeable {
     private val socket = ServerSocket(0, 20, java.net.InetAddress.getByName("127.0.0.1"))
-    private val worker = Executors.newSingleThreadExecutor()
+    private val worker = Executors.newCachedThreadPool()
     val origin = "http://127.0.0.1:${socket.localPort}"
     @Volatile var expectedChallenge = ""
     @Volatile
@@ -21,7 +21,12 @@ internal class FileCloudServer(private val directory: File) : Closeable {
         private set
 
     @Volatile var forceRefresh = false
-    private var access = "fixture-access-1"
+    @Volatile var refreshEntered: java.util.concurrent.CountDownLatch? = null
+    @Volatile var releaseRefresh: java.util.concurrent.CountDownLatch? = null
+    @Volatile var redeemEntered: java.util.concurrent.CountDownLatch? = null
+    @Volatile var releaseRedeem: java.util.concurrent.CountDownLatch? = null
+    @Volatile var logoutEntered = java.util.concurrent.CountDownLatch(1)
+    @Volatile private var access = "fixture-access-1"
     private var refresh = "fixture-refresh-1"
     val original = File(directory, "photo #😀.png")
     val sidecar = File(directory, "photo #😀.xmp")
@@ -30,7 +35,7 @@ internal class FileCloudServer(private val directory: File) : Closeable {
         worker.submit {
             while (!socket.isClosed) {
                 try {
-                    socket.accept().use(::serve)
+                    socket.accept().let { client -> worker.submit { client.use(::serve) } }
                 } catch (_: java.net.SocketException) {
                     if (!socket.isClosed) throw IllegalStateException("Fixture server stopped")
                 }
@@ -99,12 +104,18 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                         CloudLogin.challenge(data.getString("code_verifier")) != expectedChallenge
                 )
                     json(401, JSONObject())
-                else json(200, tokens())
+                else {
+                    redeemEntered?.countDown()
+                    check(releaseRedeem?.await(10, java.util.concurrent.TimeUnit.SECONDS) != false)
+                    json(200, tokens())
+                }
             }
             "/api/auth/refresh" -> {
                 if (JSONObject(body.toString(Charsets.UTF_8)).optString("refresh_token") != refresh)
                     json(401, JSONObject())
                 else {
+                    refreshEntered?.countDown()
+                    check(releaseRefresh?.await(10, java.util.concurrent.TimeUnit.SECONDS) != false)
                     refreshCount++
                     access = "fixture-access-${refreshCount + 1}"
                     refresh = "fixture-refresh-${refreshCount + 1}"
@@ -112,13 +123,16 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                     json(200, tokens())
                 }
             }
+            "/api/auth/logout" -> {
+                logoutEntered.countDown()
+                json(200, JSONObject().put("ok", true))
+            }
             else -> {
                 if (forceRefresh || headers["authorization"] != "Bearer $access") {
                     respond(401)
                     return
                 }
                 when (path.path) {
-                    "/api/auth/logout" -> json(200, JSONObject().put("ok", true))
                     "/api/folders" ->
                         json(
                             200,
