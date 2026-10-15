@@ -105,7 +105,7 @@ fun MapleShell(model: MapleViewModel) {
                     Text(message, Modifier.weight(1f), color = MapleColors.error)
                     if (state.dirty)
                         TextButton({ recovery = "reload" }) { Text("Reload saved edits") }
-                    if (message.contains("raster image:"))
+                    if (state.canResetRawOnlySliders)
                         TextButton({ recovery = "raster" }) { Text("Reset RAW-only sliders") }
                     TextButton(onClick = model::clearError) { Text("Dismiss") }
                 }

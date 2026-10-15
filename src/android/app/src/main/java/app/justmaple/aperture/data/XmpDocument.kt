@@ -38,6 +38,11 @@ data class XmpDocument(
 
     fun withAttribute(name: String, value: String?) = copy(changes = changes + (name to value))
 
+    fun withoutRawOnlySliders(): XmpDocument =
+        AdjustmentFields.all
+            .filter { !it.rasterSupported && it.xmp.isNotEmpty() }
+            .fold(this) { doc, field -> doc.withField(field, field.initial) }
+
     fun attribute(name: String): String? {
         if (changes.containsKey(name)) return changes[name]
         return descriptions(original)

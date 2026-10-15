@@ -13,6 +13,7 @@ char *maple_android_values(void *);
 void maple_android_free_string(char *);
 int maple_android_set(void *, size_t, float);
 int maple_android_model(void *, const char *);
+bool maple_android_raster_compatible(const char *);
 int maple_android_surface(void *, void *, uint32_t, uint32_t);
 int maple_android_render(void *);
 int maple_android_thumbnail(const char *, const char *, const char *, uint32_t);
@@ -88,6 +89,9 @@ extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBrid
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_setField(JNIEnv *env, jobject, jlong handle, jint index, jfloat value) { check(env, maple_android_set(editor(handle)->core, index, value)); }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_setModel(JNIEnv *env, jobject, jlong handle, jstring xml) {
     Utf8 x(env, xml); check(env, maple_android_model(editor(handle)->core, x.get()));
+}
+extern "C" JNIEXPORT jboolean JNICALL Java_app_justmaple_aperture_data_NativeBridge_rasterCompatible(JNIEnv *env, jobject, jstring xml) {
+    Utf8 x(env, xml); return maple_android_raster_compatible(x.get()) ? JNI_TRUE : JNI_FALSE;
 }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_attach(JNIEnv *env, jobject, jlong handle, jobject surface, jint width, jint height) {
     Editor *e = editor(handle);

@@ -130,6 +130,14 @@ pub unsafe extern "C" fn maple_android_model(handle: *mut c_void, xml: *const c_
     })
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_raster_compatible(xml: *const c_char) -> bool {
+    guarded(false, || {
+        let model = raw_core::xmp::parse(text(xml)?).map_err(|e| e.to_string())?;
+        Ok(raw_core::pipeline::validate_raster_adjustments(&model).is_ok())
+    })
+}
+
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub unsafe extern "C" fn maple_android_surface(
