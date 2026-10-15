@@ -121,4 +121,39 @@ final class CloudSourceOriginalHTTPTests: XCTestCase {
     XCTAssertEqual(
       try FileManager.default.contentsOfDirectory(atPath: root.path), [ref.displayName])
   }
+
+  func testRenamedCloudDragUsesNewPathAndFilename() async throws {
+    let fixture = try await CloudOriginalHTTPFixture.start()
+    defer { fixture.stop() }
+    let client = AuthenticatedHTTPClient(
+      server: fixture.url, urlSession: URLSession(configuration: .ephemeral),
+      tokensProvider: { AuthTokens(access: "original-token", refresh: "refresh-token") },
+      onTokensRefreshed: { _ in }, onSignOut: {})
+    let source = CloudSource(
+      server: fixture.url, folderID: "f1", libraryPath: "", httpClient: client)
+    let asset = AssetRef(
+      displayName: "a #?.dng", hintExtension: "dng", stableID: "fs:/old/path.dng",
+      thumbnailProvenance: .cloud(server: fixture.url),
+      catalog: CatalogRef(
+        serverID: fixture.url, folderID: "f1", absPath: "/old/path.dng", address: "library:old.dng"),
+      originalFileWriter: { _ in throw ImageSourceError.notFound("old path must not be used") },
+      bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
+    let path = "/srv/photos/Library/My Album/renamed #?.dng"
+    let renamed = try asset.renamedCloud(to: "renamed #?.dng", at: path, source: source)
+    XCTAssertEqual(renamed.catalog?.absPath, path)
+    XCTAssertNil(renamed.catalog?.address)
+    XCTAssertEqual(renamed.stableID, asset.stableID)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let destination = root.appendingPathComponent(AssetDragFiles.fileName(for: renamed))
+    try await AssetDragFiles.shared.writeOriginal(renamed, to: destination)
+    XCTAssertEqual(destination.lastPathComponent, "renamed #?.dng")
+    XCTAssertEqual(try Data(contentsOf: destination), fixture.original)
+    let originals = fixture.requests.filter { $0.hasPrefix("GET /maple/api/image/") }
+    XCTAssertEqual(originals.count, 1)
+    XCTAssertTrue(
+      try XCTUnwrap(originals.first).hasPrefix(
+        "GET /maple/api/image/library/My%20Album/renamed%20%23%3F.dng "))
+  }
 }
