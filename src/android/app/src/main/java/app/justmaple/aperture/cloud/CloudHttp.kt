@@ -10,6 +10,7 @@ internal data class CloudResponse(
     val body: ByteArray,
     val etag: String?,
     val preconditions: String?,
+    val retryAfter: String? = null,
 ) {
     fun text() = body.toString(Charsets.UTF_8)
 
@@ -192,6 +193,7 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
                 body,
                 connection.getHeaderField("ETag"),
                 connection.getHeaderField("X-Maple-Xmp-Preconditions"),
+                connection.getHeaderField("Retry-After"),
             )
         }
     }

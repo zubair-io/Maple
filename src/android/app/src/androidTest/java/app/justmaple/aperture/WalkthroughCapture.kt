@@ -15,7 +15,7 @@ internal fun AndroidComposeTestRule<*, MainActivity>.captureWalkthrough(name: St
     val display = "${size.screenWidthDp}x${size.screenHeightDp}"
     val values =
         ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, "$display-$name.png")
+            put(MediaStore.Downloads.DISPLAY_NAME, "$display-$name-${System.nanoTime()}.png")
             put(MediaStore.Downloads.MIME_TYPE, "image/png")
             put(MediaStore.Downloads.RELATIVE_PATH, "Download/MapleWalkthrough")
             put(MediaStore.Downloads.IS_PENDING, 1)

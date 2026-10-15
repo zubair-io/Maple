@@ -11,6 +11,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
+internal class CloudDerivativePending(val retryMillis: Long) : Exception("Cloud photo is indexing")
+
 class CloudLibrary(context: Context) {
     private val credentials = CloudCredentials(context)
     private val http = CloudHttp(credentials)
@@ -102,7 +104,11 @@ class CloudLibrary(context: Context) {
                 mediaPath(if (edge > 512) "preview" else "thumb", photo.uri) +
                     "?pv=${AdjustmentFields.pipelineOutputVersion}",
             )
-        if (response.status in setOf(202, 404)) {
+        if (response.status == 202) {
+            val seconds = response.retryAfter?.toLongOrNull()?.coerceIn(1, 60) ?: 2
+            throw CloudDerivativePending(seconds * 1_000)
+        }
+        if (response.status == 404) {
             if (edge <= 512) return null
             val thumb =
                 http.request(
