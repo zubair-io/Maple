@@ -24,6 +24,30 @@ pub struct GpuCameraColorimetry {
 }
 
 impl GpuCameraColorimetry {
+    /// Prepare the actual sized CPU camera prefix for one persistent session.
+    /// It ends before user WB/DCP; the caller must retain this image and run
+    /// the remaining stages in order. No live caller switches boundaries yet.
+    pub fn prepare(
+        raw: &RawImage,
+        model: &AdjustmentModel,
+        max_long_edge: u32,
+        cancel: crate::CancelToken<'_>,
+    ) -> crate::Result<(Self, crate::image::Image)> {
+        let mut camera = crate::pipeline::develop_camera_sized_from_raw(
+            raw,
+            model,
+            crate::pipeline::RenderQuality::Amaze,
+            max_long_edge,
+            cancel,
+        )?;
+        let calibration = Self::resolve(raw)?;
+        camera.whites_anchor_ev = Some(dcp::scene_white_anchor(&camera, &calibration.profile)?);
+        if cancel.is_cancelled() {
+            return Err(crate::Error::Cancelled);
+        }
+        Ok((calibration, camera))
+    }
+
     pub fn resolve(raw: &RawImage) -> crate::Result<Self> {
         let (profile, source) = dcp::profile_for_with_source(raw)?;
         let fallback =
@@ -92,3 +116,7 @@ impl GpuCameraColorimetry {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "colorimetry_tests.rs"]
 mod tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "camera_prepare_tests.rs"]
+mod camera_prepare_tests;

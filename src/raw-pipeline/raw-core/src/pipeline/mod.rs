@@ -21,6 +21,7 @@
 //! re-exported here so call sites that say `raw_core::pipeline::stage`,
 //! `raw_core::pipeline::RenderQuality`, etc. continue to compile unchanged.
 
+mod camera_sized;
 pub(crate) mod capture_sharpening_helper;
 mod develop;
 mod develop_sized;
@@ -43,6 +44,7 @@ pub use inpaint_store::{patch_from_bytes, patch_to_bytes, patches_from_blob, pat
 #[path = "inpaint_seam_tests.rs"]
 mod inpaint_seam_tests;
 
+pub(crate) use camera_sized::develop_camera_sized_from_raw;
 pub use develop::{
     develop_scene_linear_from_raw_with_quality,
     develop_scene_linear_from_raw_with_quality_cancellable,
