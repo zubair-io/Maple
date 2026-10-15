@@ -37,11 +37,18 @@ data class MapleState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val showFilmstrip: Boolean = true,
+    val cloudSigningIn: Boolean = false,
+    val cloudConnectionsVersion: Int = 0,
 )
 
 private data class EditSnapshot(val values: Map<String, Float>, val document: XmpDocument)
 
-private data class DrawRequest(val generation: Int, val values: Map<String, Float>)
+private data class DrawRequest(
+    val generation: Int,
+    val revision: Int,
+    val values: Map<String, Float>,
+    val xml: String,
+)
 
 /** Incremental Android parity work is tracked by #4623. No simulated sources. */
 class MapleViewModel(application: Application) : AndroidViewModel(application) {
@@ -57,6 +64,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         )
     val state = mutable.asStateFlow()
     private var generation = 0
+    private var renderXml = ""
     private var baseline: String? = null
     private var saveJob: Job? = null
     private val saveLock = kotlinx.coroutines.sync.Mutex()
@@ -70,7 +78,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
             for (request in draws) {
                 if (request.generation != generation) continue
                 try {
-                    renderer.draw(request.values)
+                    renderer.draw(request.values, request.revision, request.xml)
                 } catch (failure: Exception) {
                     if (failure is CancellationException) throw failure
                     fail(failure)
@@ -95,6 +103,64 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearError() {
         mutable.update { it.copy(error = null) }
+    }
+
+    fun beginCloud(input: String): Uri? = runCatching {
+        library.cloud.begin(input)
+    }
+        .onSuccess { mutable.update { it.copy(cloudSigningIn = true, error = null) } }
+        .onFailure(::fail)
+        .getOrNull()
+
+    fun cancelCloudLogin() {
+        library.cloud.cancelLogin()
+        mutable.update { it.copy(cloudSigningIn = false) }
+    }
+
+    fun completeCloud(callback: Uri) {
+        viewModelScope.launch {
+            try {
+                val source = library.cloud.complete(callback)
+                mutable.update {
+                    it.copy(
+                        sources = library.sources,
+                        cloudSigningIn = false,
+                        cloudConnectionsVersion = it.cloudConnectionsVersion + 1,
+                    )
+                }
+                browse(source)
+            } catch (failure: Exception) {
+                mutable.update { it.copy(cloudSigningIn = false) }
+                fail(failure)
+            }
+        }
+    }
+
+    fun disconnectCloud(source: Folder) {
+        viewModelScope.launch {
+            if (!flush()) return@launch
+            val active = state.value.folder?.uri?.host == source.uri.host
+            if (active) {
+                ++generation
+                renderer.shutdown()
+                mutable.update {
+                    it.copy(
+                        mode = PhotoMode.Browse,
+                        folder = null,
+                        photos = emptyList(),
+                        folders = emptyList(),
+                        selected = null,
+                    )
+                }
+            }
+            try {
+                library.cloud.disconnect(source)
+            } catch (failure: Exception) {
+                fail(failure)
+            } finally {
+                mutable.update { it.copy(sources = library.sources) }
+            }
+        }
     }
 
     fun remember(uri: Uri) {
@@ -198,13 +264,15 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun startEditor(token: Int) {
+        renderer.invalidateDraws()
         val snapshot = state.value
         val photo = snapshot.selected ?: return
         mutable.update { it.copy(rendering = true, values = emptyMap()) }
         try {
+            renderXml = snapshot.document.serialize()
             val values =
                 library.withOriginal(photo) { input ->
-                    renderer.open(input.absolutePath, snapshot.document.serialize(), 2048, token)
+                    renderer.open(input.absolutePath, renderXml, 2048, token)
                 }
             if (token == generation)
                 mutable.update { it.copy(values = values, rendering = !renderer.hasPresented) }
@@ -255,6 +323,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         val next = value.coerceIn(field.minimum, field.maximum)
         val current = state.value
         if (current.rendering || current.values.isEmpty() || current.values[name] == next) return
+        if (current.values["_raw"] == 0f && !field.rasterSupported) return
         beginGesture()
         val manualWb = name == "temperature" || name == "tint"
         val values =
@@ -273,7 +342,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         mutable.update {
             it.copy(values = values, document = document, dirty = true)
         }
-        draws.trySend(DrawRequest(generation, values))
+        draws.trySend(DrawRequest(generation, renderer.revision, values, renderXml))
         scheduleSave()
     }
 
@@ -296,14 +365,9 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun restore(value: EditSnapshot) {
         mutable.update { it.copy(values = value.values, document = value.document, dirty = true) }
-        viewModelScope.launch {
-            try {
-                renderer.model(value.document.serialize())
-                renderer.draw(value.values)
-            } catch (failure: Exception) {
-                fail(failure)
-            }
-        }
+        renderXml = value.document.serialize()
+        val revision = renderer.invalidateDraws()
+        draws.trySend(DrawRequest(generation, revision, value.values, renderXml))
         historyState()
         scheduleSave()
     }
@@ -334,14 +398,56 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         mutable.update { it.copy(document = it.document.withAttribute(name, value), dirty = true) }
         commitGesture()
         scheduleSave()
-        if (state.value.mode == PhotoMode.Edit)
-            viewModelScope.launch {
-                try {
-                    renderer.model(state.value.document.serialize())
-                } catch (failure: Exception) {
-                    fail(failure)
+        if (state.value.mode == PhotoMode.Edit) {
+            renderXml = state.value.document.serialize()
+            val revision = renderer.invalidateDraws()
+            draws.trySend(DrawRequest(generation, revision, state.value.values, renderXml))
+        }
+    }
+
+    fun reloadSavedEdits() {
+        viewModelScope.launch {
+            saveJob?.cancel()
+            saveLock.lock()
+            try {
+                val photo = state.value.selected ?: return@launch
+                val loaded = library.loadSidecar(photo)
+                val token = ++generation
+                renderer.invalidateDraws()
+                renderer.shutdown()
+                baseline = loaded.baseline
+                undo.clear()
+                redo.clear()
+                gesture = null
+                mutable.update {
+                    it.copy(
+                        document = loaded.document,
+                        dirty = false,
+                        error = null,
+                        canUndo = false,
+                        canRedo = false,
+                    )
                 }
+                if (state.value.mode == PhotoMode.Edit) startEditor(token)
+            } catch (failure: Exception) {
+                fail(failure)
+            } finally {
+                saveLock.unlock()
             }
+        }
+    }
+
+    fun resetRawOnlySliders() {
+        viewModelScope.launch {
+            val document =
+                AdjustmentFields.all
+                    .filter { !it.rasterSupported && it.xmp.isNotEmpty() }
+                    .fold(state.value.document) { doc, field ->
+                        doc.withField(field, field.initial)
+                    }
+            mutable.update { it.copy(document = document, dirty = true, error = null) }
+            if (flush() && state.value.mode == PhotoMode.Edit) startEditor(generation)
+        }
     }
 
     fun setFilmstrip(value: Boolean) {

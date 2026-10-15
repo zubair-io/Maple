@@ -26,6 +26,13 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
     var hasPresented = false
         private set
 
+    @Volatile
+    var revision = 0
+        private set
+
+    fun invalidateDraws(): Int = ++revision
+
+    private var modelXml = ""
     private var values = emptyMap<String, Float>()
 
     suspend fun open(
@@ -38,6 +45,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
             release()
             epoch = generation
             handle = NativeBridge.open(path, document, edge)
+            modelXml = document
             values = readValues()
             applySurface(currentSurface)
             values
@@ -88,9 +96,14 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
         }
     }
 
-    suspend fun draw(next: Map<String, Float>) =
+    suspend fun draw(next: Map<String, Float>, expectedRevision: Int, xml: String) =
         withContext(dispatcher) {
-            if (handle == 0L) return@withContext
+            if (handle == 0L || expectedRevision != revision) return@withContext
+            if (xml != modelXml) {
+                NativeBridge.setModel(handle, xml)
+                modelXml = xml
+                values = readValues()
+            }
             if (values["temperature"] != next["temperature"] || values["tint"] != next["tint"]) {
                 for (name in listOf("temperature", "tint")) {
                     next[name]?.let {
@@ -111,22 +124,17 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
             renderCurrent()
         }
 
-    suspend fun model(xml: String) =
-        withContext(dispatcher) {
-            if (handle != 0L) {
-                NativeBridge.setModel(handle, xml)
-                values = readValues()
-                renderCurrent()
-            }
-        }
-
     suspend fun shutdown() = withContext(dispatcher) { release() }
 
     private fun readValues(): Map<String, Float> {
         val objectValues = JSONObject(NativeBridge.values(handle))
         return AdjustmentFields.all.associate {
             it.name to objectValues.optDouble(it.name, it.initial.toDouble()).toFloat()
-        } + ("_aspect" to objectValues.optDouble("_aspect", 1.5).toFloat())
+        } +
+            mapOf(
+                "_aspect" to objectValues.optDouble("_aspect", 1.5).toFloat(),
+                "_raw" to objectValues.optDouble("_raw", 0.0).toFloat(),
+            )
     }
 
     private fun release() {

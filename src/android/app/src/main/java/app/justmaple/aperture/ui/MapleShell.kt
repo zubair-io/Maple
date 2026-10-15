@@ -30,6 +30,8 @@ fun MapleShell(model: MapleViewModel) {
     val state by model.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf("Library") }
     var query by rememberSaveable { mutableStateOf("") }
+    var recovery by rememberSaveable { mutableStateOf<String?>(null) }
+    var cloudDialog by rememberSaveable { mutableStateOf(false) }
     var info by rememberSaveable { mutableStateOf(false) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -54,7 +56,10 @@ fun MapleShell(model: MapleViewModel) {
             if (uri != null)
                 scope.launch { runCatching { model.export(uri, true) }.onFailure(model::report) }
         }
-    val tablet = LocalConfiguration.current.smallestScreenWidthDp >= 600
+    val configuration = LocalConfiguration.current
+    val tablet = configuration.smallestScreenWidthDp >= 600
+    val pinnedSources = tablet && configuration.screenWidthDp >= 1000
+    val inlineInfo = tablet && configuration.screenWidthDp >= 1000
     val browsing = state.mode == PhotoMode.Browse
     BackHandler(!browsing) { model.back() }
     val sidebar: @Composable () -> Unit = {
@@ -67,6 +72,7 @@ fun MapleShell(model: MapleViewModel) {
             },
             onFolder = { folderPicker.launch(null) },
             onPhoto = { photoPicker.launch(arrayOf("image/*", "application/octet-stream")) },
+            onCloud = { cloudDialog = true },
         )
     }
     val content: @Composable () -> Unit = {
@@ -79,11 +85,15 @@ fun MapleShell(model: MapleViewModel) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(message, Modifier.weight(1f), color = MapleColors.error)
+                    if (state.dirty)
+                        TextButton({ recovery = "reload" }) { Text("Reload saved edits") }
+                    if (message.contains("raster image:"))
+                        TextButton({ recovery = "raster" }) { Text("Reset RAW-only sliders") }
                     TextButton(onClick = model::clearError) { Text("Dismiss") }
                 }
             }
             Row(Modifier.weight(1f)) {
-                if (tablet)
+                if (pinnedSources)
                     Box(Modifier.width(220.dp).fillMaxHeight().background(MapleColors.sidebar)) {
                         sidebar()
                     }
@@ -92,7 +102,7 @@ fun MapleShell(model: MapleViewModel) {
                         MuiHeader(
                             if (tab == "Library") state.folder?.name ?: "Library" else tab,
                             leading = {
-                                if (!tablet)
+                                if (!pinnedSources)
                                     MuiIconButton("Sources", Icons.Outlined.Menu) {
                                         scope.launch { drawer.open() }
                                     }
@@ -145,6 +155,7 @@ fun MapleShell(model: MapleViewModel) {
                                     model,
                                     state,
                                     onFolder = { folderPicker.launch(null) },
+                                    onCloud = { cloudDialog = true },
                                 )
                             else ->
                                 BrowseGrid(
@@ -170,7 +181,7 @@ fun MapleShell(model: MapleViewModel) {
                         )
                     }
                 }
-                if (tablet && info && !browsing)
+                if (inlineInfo && info && !browsing)
                     Box(Modifier.width(280.dp).fillMaxHeight().background(MapleColors.surface)) {
                         InfoPanel(
                             state,
@@ -218,7 +229,41 @@ fun MapleShell(model: MapleViewModel) {
             }
         }
     }
-    if (tablet) content()
+    LaunchedEffect(state.cloudConnectionsVersion) {
+        if (state.cloudConnectionsVersion > 0) {
+            cloudDialog = false
+            tab = "Library"
+        }
+    }
+    if (recovery != null)
+        AlertDialog(
+            onDismissRequest = { recovery = null },
+            title = {
+                Text(if (recovery == "reload") "Reload saved edits?" else "Reset RAW-only sliders?")
+            },
+            text = {
+                Text(
+                    if (recovery == "reload")
+                        "Your unsaved adjustments will be discarded and the saved sidecar will be loaded."
+                    else
+                        "Unsupported numeric RAW adjustments will return to their defaults. Other edits and metadata are retained."
+                )
+            },
+            confirmButton = {
+                TextButton({
+                    if (recovery == "reload") model.reloadSavedEdits()
+                    else model.resetRawOnlySliders()
+                    recovery = null
+                }) {
+                    Text("Continue")
+                }
+            },
+            dismissButton = { TextButton({ recovery = null }) { Text("Cancel") } },
+            containerColor = MapleColors.surface,
+        )
+    if (cloudDialog || state.cloudSigningIn)
+        CloudConnectionDialog(model, state.cloudSigningIn) { cloudDialog = false }
+    if (pinnedSources) content()
     else
         ModalNavigationDrawer(
             drawerState = drawer,
@@ -234,7 +279,7 @@ fun MapleShell(model: MapleViewModel) {
         ) {
             content()
         }
-    if (info && !tablet && !browsing) {
+    if (info && !inlineInfo && !browsing) {
         @OptIn(ExperimentalMaterial3Api::class)
         ModalBottomSheet(
             onDismissRequest = { info = false },
@@ -254,6 +299,7 @@ private fun Sources(
     onSelect: (Folder) -> Unit,
     onFolder: () -> Unit,
     onPhoto: () -> Unit,
+    onCloud: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(vertical = 24.dp)) {
         Text(
@@ -279,8 +325,13 @@ private fun Sources(
                 Text("Add folder…")
             }
         }
+        TextButton(onCloud, Modifier.padding(horizontal = 8.dp)) {
+            Icon(Icons.Outlined.Cloud, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Add Maple Cloud server")
+        }
         Text(
-            "FOLDERS",
+            "SOURCES",
             style = MaterialTheme.typography.labelSmall,
             color = MapleColors.muted,
             modifier = Modifier.padding(20.dp),
@@ -299,7 +350,9 @@ private fun Sources(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
-                        Icons.Outlined.Folder,
+                        if (app.justmaple.aperture.cloud.CloudLibrary.isCloud(folder.uri))
+                            Icons.Outlined.Cloud
+                        else Icons.Outlined.Folder,
                         null,
                         tint = MapleColors.muted,
                         modifier = Modifier.size(18.dp),
@@ -378,7 +431,12 @@ private fun BrowseGrid(
 }
 
 @Composable
-private fun SettingsPanel(model: MapleViewModel, state: MapleState, onFolder: () -> Unit) {
+private fun SettingsPanel(
+    model: MapleViewModel,
+    state: MapleState,
+    onFolder: () -> Unit,
+    onCloud: () -> Unit,
+) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         MuiSection("Editor") {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -390,8 +448,21 @@ private fun SettingsPanel(model: MapleViewModel, state: MapleState, onFolder: ()
                 color = MapleColors.muted,
             )
         }
+        MuiSection("Cloud") {
+            state.sources
+                .filter { app.justmaple.aperture.cloud.CloudLibrary.isCloud(it.uri) }
+                .forEach { server ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(server.name, Modifier.weight(1f))
+                        TextButton({ model.disconnectCloud(server) }) { Text("Disconnect") }
+                    }
+                }
+            TextButton(onCloud) { Text("Add Maple Cloud server") }
+        }
         MuiSection("Sources") {
-            state.sources.forEach { Text(it.name, Modifier.padding(vertical = 8.dp)) }
+            state.sources
+                .filterNot { app.justmaple.aperture.cloud.CloudLibrary.isCloud(it.uri) }
+                .forEach { Text(it.name, Modifier.padding(vertical = 8.dp)) }
             TextButton(onFolder) { Text("Add folder…") }
         }
         MuiSection("About Maple") {

@@ -138,6 +138,17 @@ mod tests {
             crate::fields::set(&mut model, index, field.default_f32).unwrap();
             assert_eq!(crate::fields::get(&model, index), Some(field.default_f32));
             assert!(crate::fields::set(&mut model, index, f32::NAN).is_err());
+            let mut raster = AdjustmentModel::default();
+            let allowed = [field.range.0, field.range.1].into_iter().all(|value| {
+                crate::fields::set(&mut raster, index, value).unwrap();
+                raw_core::pipeline::validate_raster_adjustments(&raster).is_ok()
+            });
+            assert_eq!(
+                crate::fields::raster_allowed(index),
+                allowed,
+                "Raster availability: {}",
+                field.name
+            );
         }
         assert!(model.temperature_seen && model.tint_seen);
         assert_eq!(model.wb_source, raw_core::types::WbSource::Manual);
@@ -168,6 +179,9 @@ pub fn is_raw(ext: &str) -> bool {
 }
 
 impl Session {
+    pub fn source_is_raw(&self) -> bool {
+        self.raw.is_some()
+    }
     pub fn white_balance_values(&self) -> (f32, f32) {
         self.wb
             .as_ref()

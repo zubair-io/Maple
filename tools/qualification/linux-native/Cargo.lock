@@ -4093,6 +4093,7 @@ dependencies = [
  "futures-channel",
  "js-sys",
  "pollster",
+ "raw-window-handle",
  "wasm-bindgen",
  "web-sys",
  "wgpu",

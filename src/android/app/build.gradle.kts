@@ -29,11 +29,33 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     packaging { jniLibs.useLegacyPackaging = false }
-    sourceSets
-        .getByName("androidTest")
-        .assets
-        .srcDir(rootProject.file("../../test-fixtures/batch-transfer"))
     testOptions { unitTests.isIncludeAndroidResources = true }
+}
+
+abstract class StageTestFixtures : DefaultTask() {
+    @get:InputFiles abstract val fixtures: ConfigurableFileCollection
+    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+    @TaskAction fun stage() {
+        val directory = outputDirectory.get().asFile
+        directory.deleteRecursively()
+        directory.mkdirs()
+        fixtures.files.forEach { it.copyTo(directory.resolve(it.name), overwrite = true) }
+    }
+}
+
+val stageTestFixtures by tasks.registering(StageTestFixtures::class) {
+    fixtures.from(
+        rootProject.file("../../test-fixtures/batch-transfer/source.dng"),
+        rootProject.file("../apple/MapleUITests/Fixtures/layout/rgb-gradient.png"),
+        rootProject.file("../../test-fixtures/raster-metadata/avif-validation/srgb-rgb.avif"),
+    )
+    outputDirectory.set(layout.buildDirectory.dir("generated/test-fixtures"))
+}
+
+androidComponents.onVariants { variant ->
+    variant.deviceTests.values.forEach { test ->
+        test.sources.assets?.addGeneratedSourceDirectory(stageTestFixtures, StageTestFixtures::outputDirectory)
+    }
 }
 
 val buildRust by

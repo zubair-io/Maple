@@ -10,9 +10,11 @@ folders, previews images, rates/picks, develops the shared scalar adjustments,
 selects Auto/Neutral, supports undo/redo, persists XMP, and exports JPEG/XMP.
 Phone navigation is Library / Search / Settings with a sources drawer. Tablets
 use a sources column, image area, and controls or Info inspector, with a vertical
-filmstrip. Search currently searches names in the open folder. Maple Cloud/self-hosted connections,
-device-library backup, server search/map, and the remaining specialized editor
-surfaces are not implemented; the full port issue remains open. Android delegates
+filmstrip. Search currently searches names in the open folder. Maple Cloud/self-hosted
+connections support the iPad server-domain sign-in flow, registered libraries,
+nested folders, remote previews, and editing with conditional XMP saves. Device-library
+backup, server search/map/admin, and the remaining specialized editor surfaces
+are not implemented; the full port issue remains open. Android delegates
 SMB access to OS document providers through the existing folder picker; a direct
 SMB client and credential manager are outside the Android scope.
 
@@ -31,7 +33,7 @@ cd src/android
 Gradle builds the release Rust static library before linking the JNI library.
 The APK is `app/build/outputs/apk/debug/app-debug.apk`. Current packaging targets
 arm64 devices/emulators on Android 10 or later. The live editor requires a
-compatible GPU; initialization failures are reported in the app. No signing
+compatible Vulkan GPU; initialization failures are reported in the app. No signing
 credentials are committed.
 
 ```sh
@@ -78,3 +80,38 @@ pipeline output version, original URI, size, mtime, requested edge, and the comp
 An unedited thumbnail extracts the embedded JPEG, with real develop as fallback;
 an edited thumbnail/preview uses the canonical develop chain. No derivative is
 written into the user's photo folder.
+
+## Cloud connections
+
+Use **Add Maple Cloud server** in Sources or Settings → Cloud. Maple opens the
+server’s HTTPS domain in the system browser for passkey sign-in. A one-time
+PKCE code returns through `maple-app://auth-success`; tokens never appear in
+callback URLs. Access/refresh tokens and pending verifier/state are encrypted
+with an Android Keystore key, and expired access tokens refresh once before
+retrying. Loopback HTTP is supported for development. Disconnect revokes the
+server session when reachable and always removes this device’s credentials.
+
+Library reads use the unified folder/image/thumb/preview routes. Server
+derivatives are freshness-checked by the server; Android 10/11 use the shared
+original-based thumbnail path because the OS has no AVIF decoder. XMP writes
+require `content-etag-v1`, a strong `If-Match` or create-only `If-None-Match: *`.
+A conflict retains unsaved edits; **Reload saved edits** asks before discarding
+them. Older servers without conditional saves must be upgraded before editing.
+The cloud device test exercises real HTTP, Keystore persistence, PKCE/state
+checks, refresh, nested Unicode paths, real XMP saves/conflicts, and original-byte
+preservation against a temporary fixture server. Live account/passkey-provider
+and physical-device qualification remains outstanding.
+
+Numeric raster availability is generated from the Rust raster validator and
+cross-checked by the native test. RAW-only sliders are hidden for raster inputs
+and rejected by the native boundary. **Reset RAW-only sliders** recovers an
+incompatible numeric sidecar from the initial build after confirmation. AVIF
+originals are converted through the OS decoder on Android 12+; older versions
+do not advertise AVIF originals. HEIC/HEIF use the same staging path.
+
+Tablet editing keeps its inspector and right tool rail; phone controls stay on
+phones. Sources collapse into a drawer below 1000 dp, and preview actions wrap
+as complete groups. The walkthrough test captures Library, Preview, Edit, and
+Settings and checks that rating/Edit buttons remain inside the window without
+overlap. The current tablet inspector/header and Settings composition still
+differ from iPad’s floating glass surfaces; exact visual parity remains #4623.
