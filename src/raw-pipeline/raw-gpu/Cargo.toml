@@ -17,6 +17,9 @@ wgpu = "23"
 bytemuck.workspace = true
 futures-channel = "0.3"
 
+[target.'cfg(target_os = "android")'.dependencies]
+raw-window-handle = "0.6"
+
 # pollster (native block_on) is meaningless on wasm32, where callers await the
 # async core directly via wasm-bindgen-futures. Keep it off the wasm tree.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

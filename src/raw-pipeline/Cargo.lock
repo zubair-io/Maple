@@ -3413,6 +3413,7 @@ dependencies = [
  "js-sys",
  "pollster",
  "raw-core",
+ "raw-window-handle",
  "wasm-bindgen",
  "web-sys",
  "wgpu",
