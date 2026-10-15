@@ -139,4 +139,44 @@ final class AssetDragFilesTests: XCTestCase {
     let asset = AssetRef(displayName: "../../photo", hintExtension: "dng") { Data() }
     XCTAssertEqual(AssetDragFiles.fileName(for: asset), "photo.dng")
   }
+
+  func testLocalAndRemotePromisesCoordinateWithDestinationPresenter() async throws {
+    let source = root.appendingPathComponent("source.dng")
+    let destination = root.appendingPathComponent("presented.dng")
+    let original = Data([1, 2, 3])
+    let existing = Data([4, 5, 6])
+    try original.write(to: source)
+    try existing.write(to: destination)
+    for asset in [AssetRef(url: source), remoteAsset(name: "remote.dng", bytes: original)] {
+      let relinquished = expectation(description: "Destination presenter relinquishes to writer")
+      let presenter = DragDestinationPresenter(url: destination, relinquished: relinquished)
+      NSFileCoordinator.addFilePresenter(presenter)
+      defer { NSFileCoordinator.removeFilePresenter(presenter) }
+      do {
+        try await AssetDragFiles.shared.writeOriginal(asset, to: destination)
+        XCTFail("Coordinating must still refuse an occupied destination")
+      } catch {}
+      await fulfillment(of: [relinquished], timeout: 2)
+      XCTAssertEqual(try Data(contentsOf: destination), existing)
+    }
+    XCTAssertEqual(try Data(contentsOf: source), original)
+  }
+}
+
+private final class DragDestinationPresenter: NSObject, NSFilePresenter {
+  let presentedItemURL: URL?
+  let presentedItemOperationQueue = OperationQueue()
+  let relinquished: XCTestExpectation
+
+  init(url: URL, relinquished: XCTestExpectation) {
+    presentedItemURL = url
+    self.relinquished = relinquished
+    super.init()
+    presentedItemOperationQueue.maxConcurrentOperationCount = 1
+  }
+
+  func relinquishPresentedItem(toWriter writer: @escaping ((() -> Void)?) -> Void) {
+    relinquished.fulfill()
+    writer(nil)
+  }
 }
