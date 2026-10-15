@@ -30,6 +30,9 @@ internal class FileCloudServer(private val directory: File) : Closeable {
     @Volatile var redeemEntered: java.util.concurrent.CountDownLatch? = null
     @Volatile var releaseRedeem: java.util.concurrent.CountDownLatch? = null
     @Volatile var logoutEntered = java.util.concurrent.CountDownLatch(1)
+    @Volatile var saveEntered: java.util.concurrent.CountDownLatch? = null
+    @Volatile var releaseSave: java.util.concurrent.CountDownLatch? = null
+    @Volatile var saveCount = 0
     @Volatile private var access = "fixture-access-1"
     private var refresh = "fixture-refresh-1"
     val original = File(directory, "photo #😀.png")
@@ -230,7 +233,13 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                             (xml == null && headers["if-none-match"] == "*") ||
                                 (xml != null && headers["if-match"] == etag)
                         ) {
+                            saveEntered?.countDown()
+                            check(
+                                releaseSave?.await(10, java.util.concurrent.TimeUnit.SECONDS) !=
+                                    false
+                            )
                             sidecar.writeBytes(body)
+                            saveCount++
                             json(200, JSONObject().put("ok", true))
                         } else respond(412)
                     }

@@ -142,6 +142,57 @@ class CloudIntegrationTest {
                 }
                 compose.waitUntil(30_000) { !model.state.value.dirty && !model.state.value.saving }
                 assertTrue(server.sidecar.readText().contains("crs:Exposure2012=\"0.75\""))
+                for (back in listOf(true, false)) {
+                    compose.waitForIdle()
+                    compose.waitUntil(30_000) { !model.state.value.rendering }
+                    val entered = java.util.concurrent.CountDownLatch(1)
+                    val release = java.util.concurrent.CountDownLatch(1)
+                    val previousSaves = server.saveCount
+                    server.saveEntered = entered
+                    server.releaseSave = release
+                    try {
+                        compose.runOnIdle {
+                            model.setField("exposure", .5f)
+                            model.commitGesture()
+                            assertEquals(.5f, model.state.value.values.getValue("exposure"))
+                            assertTrue(model.state.value.dirty)
+                            if (back) model.back() else model.open(photo)
+                        }
+                        assertTrue(entered.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                        compose.runOnIdle {
+                            assertTrue(model.state.value.saving)
+                            model.setField("exposure", .75f)
+                            model.commitGesture()
+                            assertEquals(.75f, model.state.value.values.getValue("exposure"))
+                            assertTrue(model.state.value.dirty)
+                        }
+                    } finally {
+                        release.countDown()
+                    }
+                    compose.waitUntil(30_000) {
+                        !model.state.value.loading &&
+                            !model.state.value.saving &&
+                            model.state.value.mode ==
+                                if (back) PhotoMode.Preview else PhotoMode.Edit
+                    }
+                    assertTrue(
+                        "Navigation must save the late edit",
+                        server.sidecar.readText().contains("crs:Exposure2012=\"0.75\""),
+                    )
+                    assertEquals(previousSaves + 2, server.saveCount)
+                    assertFalse(model.state.value.dirty)
+                    assertNull(model.state.value.error)
+                    assertArrayEquals(bytes, server.original.readBytes())
+                    server.saveEntered = null
+                    server.releaseSave = null
+                    if (back) compose.runOnIdle { model.edit() }
+                    compose.waitUntil(60_000) {
+                        model.state.value.values.isNotEmpty() && !model.state.value.rendering
+                    }
+                    compose.waitForIdle()
+                    compose.waitUntil(30_000) { !model.state.value.rendering }
+                    assertEquals(.75f, model.state.value.values.getValue("exposure"))
+                }
                 val baseline = runBlocking { library.loadSidecar(photo) }
                 val external =
                     server.sidecar
@@ -156,9 +207,13 @@ class CloudIntegrationTest {
                 }
                 assertEquals(external, server.sidecar.readText())
                 assertArrayEquals(bytes, server.original.readBytes())
+                compose.waitForIdle()
+                compose.waitUntil(30_000) { !model.state.value.rendering }
                 compose.runOnIdle {
                     model.setField("exposure", 1.5f)
                     model.commitGesture()
+                    assertEquals(1.5f, model.state.value.values.getValue("exposure"))
+                    assertTrue(model.state.value.dirty)
                 }
                 compose.waitUntil(30_000) {
                     model.state.value.error?.contains("changed outside Maple") == true
