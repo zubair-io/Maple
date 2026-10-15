@@ -3,12 +3,14 @@ package app.justmaple.aperture.cloud
 import android.content.Context
 import android.net.Uri
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.net.URI
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.security.UnrecoverableKeyException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -99,23 +101,24 @@ internal data class CloudLogin(
 /** Tokens and pending PKCE secrets are encrypted by a non-exportable device key. */
 internal class CloudCredentials(context: Context) {
     private val preferences = context.getSharedPreferences("maple-cloud", Context.MODE_PRIVATE)
-    private val key: SecretKey by lazy {
-        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey(KEY, null) as? SecretKey)
-            ?: KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
-                .apply {
-                    init(
-                        KeyGenParameterSpec.Builder(
-                                KEY,
-                                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-                            )
-                            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                            .build()
-                    )
-                }
-                .generateKey()
-    }
+    private val key: SecretKey
+        get() {
+            val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            return (store.getKey(KEY, null) as? SecretKey)
+                ?: KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+                    .apply {
+                        init(
+                            KeyGenParameterSpec.Builder(
+                                    KEY,
+                                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                                )
+                                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                                .build()
+                        )
+                    }
+                    .generateKey()
+        }
 
     @Synchronized
     fun servers(): List<CloudServer> {
@@ -200,31 +203,63 @@ internal class CloudCredentials(context: Context) {
             )
     }
 
-    private fun write(name: String, value: String) {
-        val cipher =
-            Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key) }
-        val encrypted = cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8))
-        check(
-            preferences
-                .edit()
-                .putString(name, Base64.encodeToString(encrypted, Base64.NO_WRAP))
-                .commit()
-        ) {
-            "Could not store cloud credentials"
+    private fun write(name: String, value: String) =
+        synchronized(KEY_LOCK) {
+            val cipher =
+                Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key) }
+            val encrypted = cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+            check(
+                preferences
+                    .edit()
+                    .putString(name, Base64.encodeToString(encrypted, Base64.NO_WRAP))
+                    .commit()
+            ) {
+                "Could not store cloud credentials"
+            }
         }
-    }
 
     private fun read(name: String): String? =
-        preferences.getString(name, null)?.let {
-            val bytes = Base64.decode(it, Base64.NO_WRAP)
-            val cipher =
-                Cipher.getInstance("AES/GCM/NoPadding").apply {
-                    init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
-                }
-            String(cipher.doFinal(bytes.copyOfRange(12, bytes.size)), Charsets.UTF_8)
+        synchronized(KEY_LOCK) {
+            try {
+                val encoded = preferences.getString(name, null) ?: return@synchronized null
+                val bytes = Base64.decode(encoded, Base64.NO_WRAP)
+                require(bytes.size >= 28) { "Truncated cloud credentials" }
+                val cipher =
+                    Cipher.getInstance("AES/GCM/NoPadding").apply {
+                        init(
+                            Cipher.DECRYPT_MODE,
+                            key,
+                            GCMParameterSpec(128, bytes.copyOfRange(0, 12)),
+                        )
+                    }
+                String(cipher.doFinal(bytes.copyOfRange(12, bytes.size)), Charsets.UTF_8)
+            } catch (failure: Exception) {
+                val invalidKey =
+                    generateSequence<Throwable>(failure) { it.cause }
+                        .any {
+                            it is KeyPermanentlyInvalidatedException ||
+                                it is UnrecoverableKeyException
+                        }
+                if (invalidKey) {
+                    // Every payload encrypted by an invalidated key is unreadable.
+                    // Do not retain a stale SecretKey after rotating its alias.
+                    runCatching {
+                        KeyStore.getInstance("AndroidKeyStore")
+                            .apply { load(null) }
+                            .deleteEntry(KEY)
+                    }
+                    preferences.edit().remove("servers").remove("pending").apply()
+                } else preferences.edit().remove(name).apply()
+                android.util.Log.w(
+                    "Maple",
+                    "Unreadable cloud credentials removed; reconnect this server",
+                )
+                null
+            }
         }
 
     companion object {
-        private const val KEY = "maple-cloud-credentials-v1"
+        const val KEY = "maple-cloud-credentials-v1"
+        private val KEY_LOCK = Any()
     }
 }
