@@ -77,8 +77,8 @@ data class XmpDocument(
                     when {
                         attributeName(match.groupValues[1], scope) in owned -> ""
                         match.groupValues[1] == "xmlns:papp" &&
-                            match.groupValues[3] == LEGACY_PAPP ->
-                            match.value.replace(LEGACY_PAPP, NAMESPACES.getValue("papp"))
+                            match.groupValues[3] in LEGACY_PAPP ->
+                            match.value.replace(match.groupValues[3], NAMESPACES.getValue("papp"))
                         else -> match.value
                     }
                 }
@@ -91,7 +91,7 @@ data class XmpDocument(
                             require(
                                 declared == null ||
                                     declared == uri ||
-                                    (prefix == "papp" && declared == LEGACY_PAPP)
+                                    (prefix == "papp" && declared in LEGACY_PAPP)
                             ) {
                                 "Conflicting $prefix namespace"
                             }
@@ -99,7 +99,7 @@ data class XmpDocument(
                                 ATTRIBUTE.findAll(tag.value).any {
                                     it.groupValues[1] == "xmlns:$prefix"
                                 }
-                            if (declared == null || (declared == LEGACY_PAPP && !local))
+                            if (declared == null || (declared in LEGACY_PAPP && !local))
                                 append("\n      xmlns:$prefix=\"$uri\"")
                         }
                         owned.entries
@@ -123,7 +123,7 @@ data class XmpDocument(
             "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" /></rdf:RDF></x:xmpmeta>\n<?xpacket end=\"w\"?>"
         private val ATTRIBUTE =
             Regex("\\s+([\\w.-]+:[\\w.-]+)\\s*=\\s*(['\"])(.*?)\\2", RegexOption.DOT_MATCHES_ALL)
-        private const val LEGACY_PAPP = "http://ns.justmaple.app/1.0/"
+        private val LEGACY_PAPP = setOf("http://ns.justmaple.app/1.0/", "https://maple.app/ns/1.0/")
         private val DESCRIPTION =
             Regex(
                 "<!--.*?-->|<!\\[CDATA\\[.*?\\]\\]>|<\\?.*?\\?>|(<(?:[^\\s<>/!?=:\"']+:)?Description(?=[\\s/>])(?:[^>\"']|\"[^\"]*\"|'[^']*')*>)",
@@ -144,7 +144,7 @@ data class XmpDocument(
             val canonical =
                 NAMESPACES.entries
                     .firstOrNull {
-                        it.value == uri || (it.key == "papp" && uri == LEGACY_PAPP)
+                        it.value == uri || (it.key == "papp" && uri in LEGACY_PAPP)
                     }
                     ?.key
             return if (canonical != null) "$canonical:${name.substringAfter(':')}"
