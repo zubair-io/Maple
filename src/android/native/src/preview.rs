@@ -292,6 +292,15 @@ impl Session {
                 wb.slider_values(&self.model)
             })
     }
+
+    pub fn as_shot_white_balance_values(&self) -> (f32, f32) {
+        let as_shot = AdjustmentModel::default();
+        self.wb
+            .as_ref()
+            .map_or((as_shot.temperature, as_shot.tint), |wb| {
+                wb.slider_values(&as_shot)
+            })
+    }
     pub fn aspect(&self) -> f32 {
         let (w, h) = self.live.dims();
         let orientation = self

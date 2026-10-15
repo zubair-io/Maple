@@ -6,10 +6,24 @@ import java.io.File
 
 /** Decode without an sRGB/8-bit intermediate; the core owns scene conversion. */
 internal object PlatformRasterStage {
-    fun write(source: File, destination: File) {
+    fun write(source: File, destination: File, edge: Int? = null) {
+        require(edge == null || edge > 0)
         val bitmap =
-            ImageDecoder.decodeBitmap(ImageDecoder.createSource(source)) { decoder, _, _ ->
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(source)) { decoder, info, _ ->
                 decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                if (edge != null && maxOf(info.size.width, info.size.height) > edge) {
+                    var sample = 1
+                    while (
+                        (maxOf(info.size.width, info.size.height).toLong() + sample - 1) / sample >
+                            edge
+                    ) {
+                        check(sample <= Int.MAX_VALUE / 2) {
+                            "This photo cannot be sampled to the preview size"
+                        }
+                        sample *= 2
+                    }
+                    decoder.setTargetSampleSize(sample)
+                }
                 // Keep the decoder's source gamut/precision. AVIF's conversion to
                 // a requested extended-sRGB target can clip or mislabel its pixels.
                 decoder.setUnpremultipliedRequired(true)

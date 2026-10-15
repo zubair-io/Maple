@@ -7,7 +7,9 @@ import android.net.Uri
 import android.util.Half
 import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
+import app.justmaple.aperture.data.PhotoExport
 import app.justmaple.aperture.data.PhotoLibrary
+import app.justmaple.aperture.data.XmpDocument
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -40,6 +42,10 @@ class PlatformRasterTest {
                     ByteBuffer.allocate(bitmap.allocationByteCount).order(ByteOrder.nativeOrder())
                 bitmap.copyPixelsToBuffer(decoded)
                 val photo = library.single(Uri.fromFile(original))
+                library.withPreview(photo, 8) { preview ->
+                    val header = FloatTiff(preview.readBytes())
+                    assertTrue(header.values(256).single() <= 8 && header.values(257).single() <= 8)
+                }
                 library.withOriginal(photo) { staged ->
                     assertEquals("tiff", staged.extension)
                     val tiff = FloatTiff(staged.readBytes())
@@ -102,6 +108,19 @@ class PlatformRasterTest {
                         assertTrue("P3 source gamut must survive the OS decoder", rgb.isWideGamut)
                     assertTrue("Fixture must exercise more than eight-bit precision", finePrecision)
                 }
+                val exported =
+                    File.createTempFile("platform-full-export-", ".jpg", context.cacheDir)
+                try {
+                    PhotoExport(context, library)
+                        .write(photo, XmpDocument(), Uri.fromFile(exported), false)
+                    val dimensions =
+                        android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    android.graphics.BitmapFactory.decodeFile(exported.path, dimensions)
+                    assertEquals(bitmap.width, dimensions.outWidth)
+                    assertEquals(bitmap.height, dimensions.outHeight)
+                } finally {
+                    exported.delete()
+                }
                 assertArrayEquals(originalBytes, original.readBytes())
             } finally {
                 bitmap.recycle()
@@ -136,51 +155,6 @@ class PlatformRasterTest {
             android.os.Build.VERSION.SDK_INT >= 33 && bitmap.config == Bitmap.Config.RGBA_1010102 ->
                 ((bytes.getInt(offset) ushr (channel * 10)) and 1023) / 1023f
             else -> error("Unsupported bitmap ${bitmap.config}")
-        }
-    }
-
-    /** Read the real TIFF tags/strips rather than quantizing through another decoder. */
-    private class FloatTiff(data: ByteArray) {
-        val bytes =
-            ByteBuffer.wrap(data)
-                .order(
-                    if (data[0] == 'I'.code.toByte()) ByteOrder.LITTLE_ENDIAN
-                    else ByteOrder.BIG_ENDIAN
-                )
-        private val directory = bytes.getInt(4)
-        private val entries =
-            (0 until unsignedShort(directory)).associate { index ->
-                val offset = directory + 2 + index * 12
-                unsignedShort(offset) to offset
-            }
-
-        init {
-            assertEquals(42, unsignedShort(2))
-        }
-
-        private fun unsignedShort(offset: Int) = bytes.getShort(offset).toInt() and 0xffff
-
-        fun values(tag: Int): List<Int> {
-            val entry = entries.getValue(tag)
-            val type = unsignedShort(entry + 2)
-            val count = bytes.getInt(entry + 4)
-            val size =
-                when (type) {
-                    1,
-                    7 -> 1
-                    3 -> 2
-                    4 -> 4
-                    else -> error("TIFF type $type")
-                }
-            val start = if (size * count <= 4) entry + 8 else bytes.getInt(entry + 8)
-            return (0 until count).map { index ->
-                val offset = start + index * size
-                when (size) {
-                    1 -> bytes.get(offset).toInt() and 0xff
-                    2 -> unsignedShort(offset)
-                    else -> bytes.getInt(offset)
-                }
-            }
         }
     }
 }

@@ -45,3 +45,12 @@ internal fun MapleState.trailTo(folder: Folder, ancestors: List<Folder>?): List<
     val parent = ancestors ?: if (folders.any { it.uri == folder.uri }) folderTrail else emptyList()
     return parent + folder
 }
+
+internal fun MapleState.failed(failure: Throwable, operation: String): MapleState =
+    copy(
+        error = failure.operationMessage(operation),
+        canResetRawOnlySliders = false,
+        loading = false,
+        rendering = false,
+        saving = false,
+    )

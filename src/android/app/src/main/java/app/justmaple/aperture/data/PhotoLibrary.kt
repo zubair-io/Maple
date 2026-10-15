@@ -7,6 +7,9 @@ import androidx.documentfile.provider.DocumentFile
 import app.justmaple.aperture.cloud.CloudLibrary
 import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.File
+import java.io.OutputStream
+import java.io.OutputStreamWriter
+import java.io.StringReader
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -165,53 +168,68 @@ class PhotoLibrary(private val context: Context) {
         return File(folder, "${digest(identity)}.${photo.extension}")
     }
 
-    private suspend fun materialize(photo: Photo): File =
+    private suspend fun materialize(photo: Photo, edge: Int?): File =
         withContext(Dispatchers.IO) {
             val folder = File(context.cacheDir, "originals").apply { mkdirs() }
-            val platformDecode = photo.extension in setOf("heic", "heif", "avif")
-            val extension = if (platformDecode) "tiff" else photo.extension
-            val identity = if (platformDecode) "platform-rgb-v1:${photo.key}" else photo.key
-            val file = File(folder, "${digest(identity)}.$extension")
+            if (photo.extension !in setOf("heic", "heif", "avif"))
+                return@withContext sourceOriginal(photo, folder)
+            val file =
+                File(folder, "${digest("platform-rgb-v2:${edge ?: "full"}:${photo.key}")}.tiff")
             if (!file.exists()) {
-                val temporary = File.createTempFile("import-", ".tmp", folder)
+                val source = sourceOriginal(photo, folder)
+                val converted = File(folder, "convert-${java.util.UUID.randomUUID()}.tiff")
                 try {
-                    if (photo.contentDigest != null) {
-                        val snapshot = singleSnapshot(photo, folder)
-                        check(snapshot.isFile) {
-                            "The imported photo cache was cleared. Reopen the photo."
-                        }
-                        snapshot.inputStream().use { input ->
-                            temporary.outputStream().use { input.copyTo(it) }
-                        }
-                    } else if (CloudLibrary.isCloud(photo.uri))
-                        temporary.outputStream().use { cloud.copyOriginal(photo, it) }
-                    else
-                        context.contentResolver.openInputStream(photo.uri)?.use { input ->
-                            temporary.outputStream().use(input::copyTo)
-                        } ?: error("Read permission was revoked for ${photo.name}")
-                    if (platformDecode) {
-                        val converted = File(folder, "convert-${java.util.UUID.randomUUID()}.tiff")
-                        try {
-                            PlatformRasterStage.write(temporary, converted)
-                            check(converted.renameTo(file)) { "Could not stage ${photo.name}" }
-                        } finally {
-                            converted.delete()
-                        }
-                    } else check(temporary.renameTo(file)) { "Could not stage ${photo.name}" }
+                    PlatformRasterStage.write(source, converted, edge)
+                    check(converted.renameTo(file)) { "Could not stage ${photo.name}" }
                 } finally {
-                    temporary.delete()
+                    converted.delete()
                 }
-                trim(folder, 512L * 1024 * 1024, setOf(file))
+                trim(folder, 512L * 1024 * 1024, setOf(source, file))
             }
             file.setLastModified(System.currentTimeMillis())
             file
         }
 
-    suspend fun <T> withOriginal(photo: Photo, action: suspend (File) -> T): T =
-        originals.withLock {
-            val file = materialize(photo)
-            action(file)
+    private fun sourceOriginal(photo: Photo, folder: File): File {
+        val file =
+            if (photo.contentDigest != null) singleSnapshot(photo, folder)
+            else File(folder, "${digest(photo.key)}.${photo.extension}")
+        if (!file.exists()) {
+            check(photo.contentDigest == null) {
+                "The imported photo cache was cleared. Reopen the photo."
+            }
+            val temporary = File.createTempFile("import-", ".tmp", folder)
+            try {
+                if (CloudLibrary.isCloud(photo.uri))
+                    temporary.outputStream().use { cloud.copyOriginal(photo, it) }
+                else
+                    context.contentResolver.openInputStream(photo.uri)?.use { input ->
+                        temporary.outputStream().use(input::copyTo)
+                    } ?: error("Read permission was revoked for ${photo.name}")
+                check(temporary.renameTo(file)) { "Could not stage ${photo.name}" }
+            } finally {
+                temporary.delete()
+            }
+            trim(folder, 512L * 1024 * 1024, setOf(file))
         }
+        file.setLastModified(System.currentTimeMillis())
+        return file
+    }
+
+    suspend fun <T> withOriginal(photo: Photo, action: suspend (File) -> T): T =
+        withMaterialized(photo, null, action)
+
+    suspend fun <T> withPreview(photo: Photo, edge: Int, action: suspend (File) -> T): T =
+        withMaterialized(photo, edge, action)
+
+    private suspend fun <T> withMaterialized(
+        photo: Photo,
+        edge: Int?,
+        action: suspend (File) -> T,
+    ): T = originals.withLock {
+        val file = materialize(photo, edge)
+        action(file)
+    }
 
     suspend fun thumbnail(photo: Photo, edge: Int = 512): File =
         withContext(Dispatchers.IO) {
@@ -228,12 +246,12 @@ class PhotoLibrary(private val context: Context) {
             val file =
                 File(
                     folder,
-                    "${digest("${AdjustmentFields.pipelineOutputVersion}:android-thumb-v3:${photo.key}:$edge:${sidecar.orEmpty()}")}.jpg",
+                    "${digestParts("${AdjustmentFields.pipelineOutputVersion}:android-thumb-v4:${photo.key}:$edge:", sidecar.orEmpty())}.jpg",
                 )
             if (!file.exists()) {
                 val temporary = File.createTempFile("thumb-", ".jpg", folder)
                 try {
-                    withOriginal(photo) { input ->
+                    withPreview(photo, edge) { input ->
                         NativeBridge.thumbnail(
                             input.absolutePath,
                             temporary.absolutePath,
@@ -264,7 +282,8 @@ class PhotoLibrary(private val context: Context) {
                             ?: return@mapNotNull null
                     val content = runCatching {
                         org.json.JSONObject(file.readText()).getString("content")
-                    }.getOrNull()
+                    }
+                        .getOrNull()
                     if (content?.matches(Regex("[0-9a-f]{64}")) == true) key to content else null
                 }
                 .toMap()
@@ -367,9 +386,24 @@ class PhotoLibrary(private val context: Context) {
                 "heif",
             ) + if (android.os.Build.VERSION.SDK_INT >= 31) setOf("avif") else emptySet()
 
-        fun digest(value: String) =
-            MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") {
-                "%02x".format(it)
+        fun digest(value: String): String = digestParts(value)
+
+        internal fun digestParts(vararg parts: String): String {
+            val hash = MessageDigest.getInstance("SHA-256")
+            val sink =
+                object : OutputStream() {
+                    override fun write(value: Int) {
+                        hash.update(value.toByte())
+                    }
+
+                    override fun write(bytes: ByteArray, offset: Int, length: Int) {
+                        hash.update(bytes, offset, length)
+                    }
+                }
+            OutputStreamWriter(sink, Charsets.UTF_8).use { writer ->
+                for (part in parts) StringReader(part).use { it.copyTo(writer, 4096) }
             }
+            return hash.digest().joinToString("") { "%02x".format(it) }
+        }
     }
 }
