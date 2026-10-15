@@ -46,17 +46,8 @@ internal object XmpEncoding {
         val offset = marker?.second ?: 0
         val text =
             if (charset == Charsets.UTF_8) {
-                // Compact UTF-8 strings avoid a full UTF-16 scratch buffer for large sidecars.
-                val decoded = String(bytes, offset, bytes.size - offset, charset)
-                val check = decoded.toByteArray(charset)
-                require(
-                    check.size == bytes.size - offset &&
-                        (if (offset == 0) check.contentEquals(bytes)
-                        else check.indices.all { check[it] == bytes[offset + it] })
-                ) {
-                    "The XMP sidecar contains invalid UTF-8"
-                }
-                decoded
+                validateUtf8(bytes, offset)
+                String(bytes, offset, bytes.size - offset, charset)
             } else
                 try {
                     charset
@@ -82,6 +73,26 @@ internal object XmpEncoding {
             "The XMP encoding declaration does not match its bytes"
         }
         return if (charset == Charsets.UTF_8) document else withEncoding(document, charset.name())
+    }
+
+    private fun validateUtf8(bytes: ByteArray, offset: Int) {
+        val decoder =
+            Charsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+        val input = ByteBuffer.wrap(bytes, offset, bytes.size - offset)
+        val scratch = CharBuffer.allocate(4096)
+        try {
+            while (true) {
+                scratch.clear()
+                val result = decoder.decode(input, scratch, true)
+                if (result.isError) result.throwException()
+                if (result.isUnderflow) break
+            }
+            decoder.flush(scratch).takeIf { it.isError }?.throwException()
+        } catch (failure: CharacterCodingException) {
+            throw IOException("The XMP sidecar contains invalid UTF-8", failure)
+        }
     }
 
     fun encode(xml: String): ByteArray {

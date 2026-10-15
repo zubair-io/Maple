@@ -67,6 +67,12 @@ class XmpEncodingTest {
 
     @Test
     fun malformedEncodingAndUnrepresentableEditsFailWithoutReplacementCharacters() {
+        // Leave one scratch-buffer slot for a supplementary character that requires two.
+        val boundary = "<x>" + "a".repeat(8191 - 3) + "😀 café</x>"
+        assertEquals(boundary, XmpEncoding.decode(boundary.toByteArray(Charsets.UTF_8)))
+        assertThrows(Exception::class.java) {
+            XmpEncoding.decode("a".repeat(8191).toByteArray() + byteArrayOf(-16, -97, -104))
+        }
         assertThrows(Exception::class.java) { XmpEncoding.decode(byteArrayOf(60, -1, 62)) }
         assertThrows(Exception::class.java) {
             XmpEncoding.encode("<?xml version='1.0' encoding='ISO-8859-1'?><x>😀</x>")
