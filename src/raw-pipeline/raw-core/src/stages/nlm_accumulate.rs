@@ -76,6 +76,12 @@ pub(super) fn accumulate(
                 f32x4_ne(a, a),
             )
         }
+        unsafe fn load_f32x4(ptr: *const f32) -> v128 {
+            unsafe { ptr.cast::<v128>().read_unaligned() }
+        }
+        unsafe fn store_f32x4(ptr: *mut f32, val: v128) {
+            unsafe { ptr.cast::<v128>().write_unaligned(val) }
+        }
         let table = fast_exp_table();
         // SIMD128 is a shipping target feature. Equal-length guards above
         // bound every unaligned four-lane load/store; the tail stays scalar.
@@ -83,10 +89,7 @@ pub(super) fn accumulate(
             let zero = f32x4_splat(0.0);
             let norm = f32x4_splat(inv_norm);
             while start + 4 <= count {
-                let x = f32x4_mul(
-                    max_number(v128_load(sums.as_ptr().add(start).cast()), zero),
-                    norm,
-                );
+                let x = f32x4_mul(max_number(load_f32x4(sums.as_ptr().add(start)), zero), norm);
                 let bounded =
                     v128_bitselect(zero, f32x4_min(x, f32x4_splat(8.0)), f32x4_lt(x, zero));
                 let t = f32x4_mul(bounded, f32x4_splat(64.0));
@@ -99,29 +102,29 @@ pub(super) fn accumulate(
                 ];
                 let a = index.map(|i| table[i.clamp(0, 511) as usize]);
                 let b = index.map(|i| table[i.clamp(0, 511) as usize + 1]);
-                let av = v128_load(a.as_ptr().cast());
+                let av = load_f32x4(a.as_ptr());
                 let fraction = f32x4_sub(t, f32x4_convert_i32x4(indices));
                 // Separate multiply/add, matching scalar interpolation; no FMA.
                 let weight = f32x4_add(
                     av,
-                    f32x4_mul(f32x4_sub(v128_load(b.as_ptr().cast()), av), fraction),
+                    f32x4_mul(f32x4_sub(load_f32x4(b.as_ptr()), av), fraction),
                 );
                 let weight = v128_bitselect(zero, weight, f32x4_ge(x, f32x4_splat(8.0)));
                 let weight = v128_bitselect(f32x4_splat(1.0), weight, f32x4_lt(x, zero));
-                v128_store(
-                    acc.as_mut_ptr().add(start).cast(),
+                store_f32x4(
+                    acc.as_mut_ptr().add(start),
                     f32x4_add(
-                        v128_load(acc.as_ptr().add(start).cast()),
-                        f32x4_mul(weight, v128_load(shifted.as_ptr().add(start).cast())),
+                        load_f32x4(acc.as_ptr().add(start)),
+                        f32x4_mul(weight, load_f32x4(shifted.as_ptr().add(start))),
                     ),
                 );
-                v128_store(
-                    weights.as_mut_ptr().add(start).cast(),
-                    f32x4_add(v128_load(weights.as_ptr().add(start).cast()), weight),
+                store_f32x4(
+                    weights.as_mut_ptr().add(start),
+                    f32x4_add(load_f32x4(weights.as_ptr().add(start)), weight),
                 );
-                v128_store(
-                    maxima.as_mut_ptr().add(start).cast(),
-                    max_number(v128_load(maxima.as_ptr().add(start).cast()), weight),
+                store_f32x4(
+                    maxima.as_mut_ptr().add(start),
+                    max_number(load_f32x4(maxima.as_ptr().add(start)), weight),
                 );
                 start += 4;
             }
@@ -159,17 +162,23 @@ pub(super) fn accumulate_dynamic(
     #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
     {
         use std::arch::wasm32::*;
+        unsafe fn load_unaligned<T>(ptr: *const T) -> v128 {
+            unsafe { ptr.cast::<v128>().read_unaligned() }
+        }
+        unsafe fn store_f32x4(ptr: *mut f32, val: v128) {
+            unsafe { ptr.cast::<v128>().write_unaligned(val) }
+        }
         let table = fast_exp_table();
         unsafe {
             let zero = f32x4_splat(0.0);
             while start + 4 <= count {
-                let sum_lanes = v128_load(sums.as_ptr().add(start).cast());
+                let sum_lanes = load_unaligned(sums.as_ptr().add(start));
                 let clamped = v128_bitselect(
                     zero,
                     f32x4_max(sum_lanes, zero),
                     f32x4_ne(sum_lanes, sum_lanes),
                 );
-                let x = f32x4_mul(clamped, v128_load(norms.as_ptr().add(start).cast()));
+                let x = f32x4_mul(clamped, load_unaligned(norms.as_ptr().add(start)));
                 let bounded =
                     v128_bitselect(zero, f32x4_min(x, f32x4_splat(8.0)), f32x4_lt(x, zero));
                 let t = f32x4_mul(bounded, f32x4_splat(64.0));
@@ -182,21 +191,21 @@ pub(super) fn accumulate_dynamic(
                 ];
                 let a = index.map(|i| table[i.clamp(0, 511) as usize]);
                 let b = index.map(|i| table[i.clamp(0, 511) as usize + 1]);
-                let av = v128_load(a.as_ptr().cast());
+                let av = load_unaligned(a.as_ptr());
                 let frac = f32x4_sub(t, f32x4_convert_i32x4(indices));
                 let weight = f32x4_add(
                     av,
-                    f32x4_mul(f32x4_sub(v128_load(b.as_ptr().cast()), av), frac),
+                    f32x4_mul(f32x4_sub(load_unaligned(b.as_ptr()), av), frac),
                 );
                 let weight = v128_bitselect(zero, weight, f32x4_ge(x, f32x4_splat(8.0)));
                 let weight = v128_bitselect(f32x4_splat(1.0), weight, f32x4_lt(x, zero));
                 let enabled = i32x4_ge(
-                    v128_load(search.as_ptr().add(start).cast()),
+                    load_unaligned(search.as_ptr().add(start)),
                     i32x4_splat(distance as i32),
                 );
-                let old_acc = v128_load(acc.as_ptr().add(start).cast());
-                let old_weights = v128_load(weights.as_ptr().add(start).cast());
-                let old_max = v128_load(maxima.as_ptr().add(start).cast());
+                let old_acc = load_unaligned(acc.as_ptr().add(start));
+                let old_weights = load_unaligned(weights.as_ptr().add(start));
+                let old_max = load_unaligned(maxima.as_ptr().add(start));
                 if v128_any_true(v128_or(
                     f32x4_ne(old_acc, old_acc),
                     f32x4_ne(old_weights, old_weights),
@@ -218,25 +227,25 @@ pub(super) fn accumulate_dynamic(
                 }
                 // A pruned lane is not evaluated by the scalar caller. Select
                 // its original bits, rather than add zero (NaN/signed zero).
-                v128_store(
-                    acc.as_mut_ptr().add(start).cast(),
+                store_f32x4(
+                    acc.as_mut_ptr().add(start),
                     v128_bitselect(
                         f32x4_add(
                             old_acc,
-                            f32x4_mul(weight, v128_load(shifted.as_ptr().add(start).cast())),
+                            f32x4_mul(weight, load_unaligned(shifted.as_ptr().add(start))),
                         ),
                         old_acc,
                         enabled,
                     ),
                 );
-                v128_store(
-                    weights.as_mut_ptr().add(start).cast(),
+                store_f32x4(
+                    weights.as_mut_ptr().add(start),
                     v128_bitselect(f32x4_add(old_weights, weight), old_weights, enabled),
                 );
                 // The original dynamic path uses ordered `>`; numeric max
                 // would incorrectly replace a NaN maximum.
-                v128_store(
-                    maxima.as_mut_ptr().add(start).cast(),
+                store_f32x4(
+                    maxima.as_mut_ptr().add(start),
                     v128_bitselect(
                         weight,
                         old_max,
