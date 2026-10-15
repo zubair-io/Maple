@@ -83,14 +83,17 @@ fn tiled_partial_workgroups_preserve_profile_radius_gates() {
 }
 
 #[test]
-fn tiled_weight_lookup_preserves_interpolation_and_cutoff() {
+fn tiled_weight_lookup_preserves_interpolation_and_continuous_tail() {
     let ctx = GpuContext::new_blocking().expect("GPU required");
     let (width, height) = (19, 17);
     let params = chroma_params(25.0);
     let center = 8 * width + 8;
     // Odd shifts compare constant differences across the full patch, making
-    // SSD/(h²·area) land on both sides of interpolation knots and the x=8 cutoff.
-    for energy in [0.001f32, 0.015624, 0.015626, 3.999, 4.001, 7.999, 8.001] {
+    // SSD/(h²·area) straddle interpolation knots and exponential range boundaries.
+    for energy in [
+        0.001f32, 0.015624, 0.015626, 3.999, 4.001, 7.999, 8.001, 15.999, 16.001, 23.999, 24.001,
+        80.0,
+    ] {
         let amplitude = params.h * energy.sqrt();
         let plane: Vec<f32> = (0..width * height)
             .map(|i| 0.1 + if i % width % 2 == 0 { 0.0 } else { amplitude })
@@ -107,10 +110,17 @@ fn tiled_weight_lookup_preserves_interpolation_and_cutoff() {
         );
         let (error, index) = max_diff_at(&reference, &gpu);
         assert!(error < 1e-7, "energy={energy}: {error} at {index}");
-        if energy < 8.0 {
-            assert!(reference[center] - plane[center] > 1e-6);
-        } else {
-            assert!((gpu[center] - plane[center]).abs() < 1e-7);
-        }
+        // Independent closed-form NLM: 20 equal neighbors plus the center
+        // have weight 1; 28 opposite-stripe neighbors have exp(-energy).
+        // This also proves the positive tail rather than only CPU/GPU agreement.
+        let delta = (plane[center + 1] - plane[center]) as f64;
+        let distance = delta / params.h as f64;
+        let weight = (-distance * distance).exp();
+        let expected = plane[center] as f64 + delta * 28.0 * weight / (21.0 + 28.0 * weight);
+        assert!(
+            (gpu[center] as f64 - expected).abs() < 1e-7,
+            "energy={energy}: {} != {expected}",
+            gpu[center]
+        );
     }
 }

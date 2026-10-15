@@ -160,7 +160,9 @@
 ///   surface support, preserving value-domain correction at colour edges (#4627).
 /// - 31 — AgX rolls off common highlight chroma above diffuse white while
 ///   preserving the existing shadow/midtone ratio response (#4635).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 31;
+/// - 32 — absent noise profiles use the existing ISO fallback, and NLM keeps
+///   continuous exponential tails through binary32 underflow (#4638).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 32;
 
 #[cfg(test)]
 mod tests {

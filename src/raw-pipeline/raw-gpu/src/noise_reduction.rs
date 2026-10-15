@@ -1,7 +1,7 @@
 //! GPU non-local-means denoising in Oklab space (#991, #1714, #3363).
 //!
 //! The luma and color passes mirror raw-core's noise-reduction stages. Their
-//! plane and full-stage CPU oracle gates cover flat and DNG-profile-modulated
+//! plane and full-stage CPU oracle gates cover fixed, ISO-fallback and DNG-profile
 //! noise, border handling, strength, and the Oklab round-trip (max error 1e-4).
 //!
 //! One workgroup loads an 8×8 source tile plus the patch/search halo once.
@@ -53,8 +53,21 @@ fn luma_params(amount: f32) -> NlmParams {
 // Share the canonical bits without introducing a raw-core -> raw-gpu cycle.
 #[path = "../../raw-core/src/stages/nlm_exp_table.rs"]
 mod exp_table;
-fn fast_exp_table() -> &'static [f32; 513] {
-    &exp_table::VALUES
+fn fast_exp_table() -> &'static [f32; 526] {
+    const TABLE: [f32; 526] = {
+        let mut values = [0.0; 526];
+        let mut i = 0;
+        while i < 513 {
+            values[i] = exp_table::VALUES[i];
+            i += 1;
+        }
+        while i < 526 {
+            values[i] = exp_table::SCALES[i - 513];
+            i += 1;
+        }
+        values
+    };
+    &TABLE
 }
 
 /// Chroma NLM params for a slider `amount` — line-faithful to
@@ -80,21 +93,20 @@ fn chroma_params(amount: f32) -> NlmParams {
 pub(crate) struct NoiseModulation {
     s_coeff: f32,
     o_coeff: f32,
-    /// `noise_profile.is_some()` — matching raw-core's `use_dynamic`. Note this
-    /// is TRUE even at `iso == 0` (where both coefficients are zero and every
-    /// pixel lands on the `scale = 0.1` clamp), because that is what raw-core
-    /// does.
+    /// Engaged for a supplied profile or a known ISO. Without either, the
+    /// existing fixed-strength path remains unchanged. Supplied profiles keep
+    /// the legacy ISO0 behavior (zero coefficients, scale clamped to 0.1).
     dynamic: bool,
 }
 
 impl NoiseModulation {
     /// Mirror of `raw_core::stages::nlm::get_noise_params` + its `use_dynamic`
     /// flag. `is_chroma` selects the a/b channel combination (mean of the R and B
-    /// coefficients) over the luma one (BT.2020-weighted). A `None` profile is
-    /// the FLAT filter — `scale ≡ 1`, i.e. the classic constant-`h`, full-`S`
-    /// NLM, bit-identical to the pre-#1714 GPU behaviour.
+    /// coefficients) over the luma one (BT.2020-weighted). An absent profile
+    /// uses the existing ISO-only heuristic when ISO is known; absent profile
+    /// and unknown ISO retain constant strength and the full search radius.
     pub(crate) fn from_profile(profile: Option<&[f32]>, iso: u32, is_chroma: bool) -> Self {
-        let dynamic = profile.is_some();
+        let dynamic = profile.is_some() || iso > 0;
         let (s_coeff, o_coeff) = noise_params(profile, iso, is_chroma);
         Self {
             s_coeff,
@@ -144,7 +156,7 @@ fn fallback_noise_params(iso: u32) -> (f32, f32) {
 
 /// The passes carry the profile as a `Vec<f32>` (a C-FFI / WASM caller has no
 /// `Option`), so EMPTY is the "no profile" encoding — it maps to raw-core's
-/// `None`, i.e. the flat filter. A decoder that found a NoiseProfile always
+/// `None`, so known ISO selects the fallback. A decoder that found a NoiseProfile always
 /// yields at least one `(slope, offset)` pair, so no real profile is lost here.
 fn profile_slice(profile: &[f32]) -> Option<&[f32]> {
     (!profile.is_empty()).then_some(profile)
@@ -284,9 +296,8 @@ pub(crate) fn encode_nlm_on_plane(
 pub struct NlmLumaPass<'a> {
     pub nr_luminance: f32,
     /// The DNG NoiseProfile row(s) from `RawImage::noise_profile`, empty when the
-    /// file carries none. Drives the per-pixel modulation (#1714); empty means
-    /// the classic constant-`h` filter, matching raw-core at `noise_profile:
-    /// None`.
+    /// file carries none. Known ISO then selects the existing ISO-only
+    /// modulation heuristic; without ISO it retains constant strength.
     pub noise_profile: std::borrow::Cow<'a, [f32]>,
     /// `RawImage::iso`. Zero is raw-core's "unknown ISO" sentinel and zeroes both
     /// profile coefficients.

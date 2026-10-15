@@ -14,7 +14,7 @@ pub(super) fn prepare_scaling(
     is_chroma: bool,
 ) -> (Vec<isize>, Vec<f32>) {
     let p = params.patch_radius;
-    let use_dynamic = noise_profile.is_some();
+    let use_dynamic = noise_profile.is_some() || iso > 0;
     let (s_coeff, o_coeff) = if use_dynamic {
         get_noise_params(noise_profile, iso, is_chroma)
     } else {

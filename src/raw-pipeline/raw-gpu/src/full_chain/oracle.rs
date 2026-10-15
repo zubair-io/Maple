@@ -104,6 +104,9 @@ pub fn rc_capture(
     }
 }
 
+/// Shared per-image ISO for both composed-chain implementations.
+pub const CASE_ISO: u32 = 100;
+
 /// The one-source-of-truth case: an `AdjustmentModel` + per-image data. The GPU
 /// [`FullChainInputs`] (via [`Case::gpu_inputs`]) AND the CPU oracle (via
 /// [`cpu_oracle`]) both derive from this, so the two sides can never disagree on
@@ -283,14 +286,11 @@ impl Case {
             target_primaries: 0,
             // All oracle cases are RAW — the full chain.
             input_shape: crate::full_chain::InputShape::PostDcpRec2020Fp16,
-            // No DNG NoiseProfile — matching the `None` [`cpu_oracle`] passes to
-            // `apply_luminance` / `apply_color`, so both sides run the flat NLM.
-            // The PER-PIXEL modulation (#1714) is gated at the plane and stage
-            // level in `noise_reduction/tests_profile.rs`, where the reference can
-            // be driven with a profile without re-deriving one for the whole
-            // composed chain.
+            // The absent profile and known ISO match the CPU oracle. Both sides
+            // exercise the existing ISO fallback rather than comparing different
+            // per-image metadata. Explicit profile rows are covered separately.
             noise_profile: Vec::new(),
-            iso: 0,
+            iso: CASE_ISO,
             // Off by default (`film_lut: None`) — every case that doesn't set
             // it explicitly gets `film_lut_size: 0`, so `build_split` /
             // `build_live_split` omit `FilmLutPass` exactly as before this
@@ -425,9 +425,9 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
         &mut img,
         case.model.nr_luminance,
         None,
-        100,
+        CASE_ISO,
     );
-    raw_core::stages::noise_reduction::apply_color(&mut img, case.model.nr_color, None, 100);
+    raw_core::stages::noise_reduction::apply_color(&mut img, case.model.nr_color, None, CASE_ISO);
 
     // --- view tail (agx → rec2020_to_srgb → srgb_gamma_encode → curve → LUT,
     //     matching the GPU suffix AND raw-core's render tail exactly). ALWAYS

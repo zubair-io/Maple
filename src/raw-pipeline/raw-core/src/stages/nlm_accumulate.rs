@@ -5,6 +5,14 @@
 use super::fast_exp_table;
 use super::fast_neg_exp;
 
+/// Per-pixel strength and stencil reach for the current row and shift.
+#[derive(Clone, Copy)]
+pub(super) struct Modulation<'a> {
+    pub inv_norm: &'a [f32],
+    pub radii: &'a [u32],
+    pub shift: u32,
+}
+
 pub(super) fn accumulate(
     sums: &[f32],
     shifted: &[f32],
@@ -12,12 +20,38 @@ pub(super) fn accumulate(
     weights: &mut [f32],
     maxima: &mut [f32],
     inv_norm: f32,
+    modulation: Option<Modulation<'_>>,
+) {
+    if modulation.is_some() {
+        accumulate_impl::<true>(sums, shifted, acc, weights, maxima, inv_norm, modulation);
+    } else {
+        accumulate_impl::<false>(sums, shifted, acc, weights, maxima, inv_norm, modulation);
+    }
+}
+
+fn accumulate_impl<const DYNAMIC: bool>(
+    sums: &[f32],
+    shifted: &[f32],
+    acc: &mut [f32],
+    weights: &mut [f32],
+    maxima: &mut [f32],
+    inv_norm: f32,
+    modulation: Option<Modulation<'_>>,
 ) {
     let count = sums.len();
     assert_eq!(shifted.len(), count);
     assert_eq!(acc.len(), count);
     assert_eq!(weights.len(), count);
     assert_eq!(maxima.len(), count);
+    if let Some(m) = modulation {
+        assert_eq!(m.inv_norm.len(), count);
+        assert_eq!(m.radii.len(), count);
+    }
+    let modulation = modulation.unwrap_or(Modulation {
+        inv_norm: &[],
+        radii: &[],
+        shift: 0,
+    });
     #[allow(unused_mut)]
     let mut start = 0;
     #[cfg(target_arch = "aarch64")]
@@ -26,8 +60,13 @@ pub(super) fn accumulate(
         let table = fast_exp_table();
         // AArch64 guarantees NEON; every load/store stays inside these equal-length slices.
         unsafe {
-            let norm = vdupq_n_f32(inv_norm);
+            let constant_norm = vdupq_n_f32(inv_norm);
             while start + 4 <= count {
+                let norm = if DYNAMIC {
+                    vld1q_f32(modulation.inv_norm.as_ptr().add(start))
+                } else {
+                    constant_norm
+                };
                 let x = vmulq_f32(
                     vmaxnmq_f32(vld1q_f32(sums.as_ptr().add(start)), vdupq_n_f32(0.0)),
                     norm,
@@ -44,7 +83,35 @@ pub(super) fn accumulate(
                     av,
                     vmulq_f32(vsubq_f32(vld1q_f32(b.as_ptr()), av), fraction),
                 );
-                let weight = vbslq_f32(vcltq_f32(x, vdupq_n_f32(8.0)), weight, vdupq_n_f32(0.0));
+                // The common range retains the existing vector interpolation.
+                // Only lanes beyond it need range reduction through the tail.
+                let weight = if vmaxvq_f32(x) >= 8.0 {
+                    let mut distances = [0.0_f32; 4];
+                    let mut values = [0.0_f32; 4];
+                    vst1q_f32(distances.as_mut_ptr(), x);
+                    vst1q_f32(values.as_mut_ptr(), weight);
+                    for lane in 0..4 {
+                        if distances[lane] >= 8.0 {
+                            values[lane] = fast_neg_exp(distances[lane]);
+                        }
+                    }
+                    vld1q_f32(values.as_ptr())
+                } else {
+                    weight
+                };
+                let in_range = vcltq_f32(x, vdupq_n_f32(104.0));
+                let valid = if DYNAMIC {
+                    vandq_u32(
+                        in_range,
+                        vcgeq_u32(
+                            vld1q_u32(modulation.radii.as_ptr().add(start)),
+                            vdupq_n_u32(modulation.shift),
+                        ),
+                    )
+                } else {
+                    in_range
+                };
+                let weight = vbslq_f32(valid, weight, vdupq_n_f32(0.0));
                 vst1q_f32(
                     acc.as_mut_ptr().add(start),
                     vaddq_f32(
@@ -87,8 +154,13 @@ pub(super) fn accumulate(
         // bound every unaligned four-lane load/store; the tail stays scalar.
         unsafe {
             let zero = f32x4_splat(0.0);
-            let norm = f32x4_splat(inv_norm);
+            let constant_norm = f32x4_splat(inv_norm);
             while start + 4 <= count {
+                let norm = if DYNAMIC {
+                    load_f32x4(modulation.inv_norm.as_ptr().add(start))
+                } else {
+                    constant_norm
+                };
                 let x = f32x4_mul(max_number(load_f32x4(sums.as_ptr().add(start)), zero), norm);
                 let bounded =
                     v128_bitselect(zero, f32x4_min(x, f32x4_splat(8.0)), f32x4_lt(x, zero));
@@ -109,8 +181,19 @@ pub(super) fn accumulate(
                     av,
                     f32x4_mul(f32x4_sub(load_f32x4(b.as_ptr()), av), fraction),
                 );
-                let weight = v128_bitselect(zero, weight, f32x4_ge(x, f32x4_splat(8.0)));
+                let weight = extended_wasm_weight(x, weight);
                 let weight = v128_bitselect(f32x4_splat(1.0), weight, f32x4_lt(x, zero));
+                let weight = if DYNAMIC {
+                    let radii = modulation
+                        .radii
+                        .as_ptr()
+                        .add(start)
+                        .cast::<v128>()
+                        .read_unaligned();
+                    v128_bitselect(weight, zero, u32x4_ge(radii, u32x4_splat(modulation.shift)))
+                } else {
+                    weight
+                };
                 store_f32x4(
                     acc.as_mut_ptr().add(start),
                     f32x4_add(
@@ -131,11 +214,51 @@ pub(super) fn accumulate(
         }
     }
     for i in start..count {
-        let weight = fast_neg_exp(sums[i].max(0.0) * inv_norm);
+        let norm = if DYNAMIC {
+            modulation.inv_norm[i]
+        } else {
+            inv_norm
+        };
+        let weight = if DYNAMIC && modulation.radii[i] < modulation.shift {
+            0.0
+        } else {
+            fast_neg_exp(sums[i].max(0.0) * norm)
+        };
         acc[i] += weight * shifted[i];
         weights[i] += weight;
         maxima[i] = maxima[i].max(weight);
     }
+}
+
+// Keep the common SIMD interpolation, extending only lanes outside [0,8).
+// The scalar helper owns range reduction and underflow for every backend.
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+fn extended_wasm_weight(
+    x: std::arch::wasm32::v128,
+    weight: std::arch::wasm32::v128,
+) -> std::arch::wasm32::v128 {
+    use std::arch::wasm32::*;
+    if !v128_any_true(f32x4_ge(x, f32x4_splat(8.))) {
+        return weight;
+    }
+    let distance = [
+        f32x4_extract_lane::<0>(x),
+        f32x4_extract_lane::<1>(x),
+        f32x4_extract_lane::<2>(x),
+        f32x4_extract_lane::<3>(x),
+    ];
+    let mut values = [
+        f32x4_extract_lane::<0>(weight),
+        f32x4_extract_lane::<1>(weight),
+        f32x4_extract_lane::<2>(weight),
+        f32x4_extract_lane::<3>(weight),
+    ];
+    for lane in 0..4 {
+        if distance[lane] >= 8. {
+            values[lane] = fast_neg_exp(distance[lane]);
+        }
+    }
+    f32x4(values[0], values[1], values[2], values[3])
 }
 
 // Dynamic camera-noise rows already own norms/search radii in the NLM kernel.
@@ -197,7 +320,7 @@ pub(super) fn accumulate_dynamic(
                     av,
                     f32x4_mul(f32x4_sub(load_unaligned(b.as_ptr()), av), frac),
                 );
-                let weight = v128_bitselect(zero, weight, f32x4_ge(x, f32x4_splat(8.0)));
+                let weight = extended_wasm_weight(x, weight);
                 let weight = v128_bitselect(f32x4_splat(1.0), weight, f32x4_lt(x, zero));
                 let enabled = i32x4_ge(
                     load_unaligned(search.as_ptr().add(start)),
@@ -322,7 +445,15 @@ mod tests {
         let mut acc = vec![0.125; sums.len()];
         let mut weights = vec![0.25; sums.len()];
         let mut maxima = vec![0.375; sums.len()];
-        accumulate(&sums, &shifted, &mut acc, &mut weights, &mut maxima, 1.0);
+        accumulate(
+            &sums,
+            &shifted,
+            &mut acc,
+            &mut weights,
+            &mut maxima,
+            1.0,
+            None,
+        );
         for i in 0..sums.len() {
             let weight = fast_neg_exp(sums[i]);
             assert_eq!(
@@ -343,13 +474,69 @@ mod tests {
             let mut acc = vec![-0.125; count];
             let mut weights = vec![0.25; count];
             let mut maxima = vec![0.375; count];
-            accumulate(&sums, &shifted, &mut acc, &mut weights, &mut maxima, 1.0);
+            accumulate(
+                &sums,
+                &shifted,
+                &mut acc,
+                &mut weights,
+                &mut maxima,
+                1.0,
+                None,
+            );
             for i in 0..count {
                 let weight = fast_neg_exp(sums[i].max(0.0));
                 assert_eq!(acc[i].to_bits(), (-0.125 + weight * shifted[i]).to_bits());
                 assert_eq!(weights[i].to_bits(), (0.25 + weight).to_bits());
                 assert_eq!(maxima[i].to_bits(), 0.375f32.max(weight).to_bits());
             }
+        }
+    }
+
+    #[test]
+    fn modulated_vector_accumulation_matches_scalar_bits() {
+        let sums: Vec<f32> = (0..4103).map(|i| i as f32 / 512.0).collect();
+        let shifted: Vec<f32> = (0..sums.len()).map(|i| (i % 31) as f32 / 32.0).collect();
+        let norms: Vec<f32> = (0..sums.len())
+            .map(|i| 0.5 + (i % 17) as f32 / 8.0)
+            .collect();
+        let radii: Vec<u32> = (0..sums.len()).map(|i| 1 + (i % 3) as u32).collect();
+        let mut acc = vec![0.125; sums.len()];
+        let mut weights = vec![0.25; sums.len()];
+        let mut maxima = vec![0.375; sums.len()];
+        accumulate(
+            &sums,
+            &shifted,
+            &mut acc,
+            &mut weights,
+            &mut maxima,
+            1.0,
+            Some(Modulation {
+                inv_norm: &norms,
+                radii: &radii,
+                shift: 2,
+            }),
+        );
+        for i in 0..sums.len() {
+            let weight = if radii[i] < 2 {
+                0.0
+            } else {
+                fast_neg_exp(sums[i] * norms[i])
+            };
+            assert_eq!(
+                acc[i].to_bits(),
+                (0.125 + weight * shifted[i]).to_bits(),
+                "acc {i}"
+            );
+            assert_eq!(
+                weights[i].to_bits(),
+                (0.25 + weight).to_bits(),
+                "weight {i}"
+            );
+            assert_eq!(
+                maxima[i].to_bits(),
+                0.375_f32.max(weight).to_bits(),
+                "max {i}"
+            );
         }
     }
 }

@@ -516,3 +516,20 @@ pub(super) const VALUES: [f32; 513] = [
     f32::from_bits(0x39b2a613),
     f32::from_bits(0x39afe108),
 ];
+
+// Multipliers for range reduction through the binary32 exponential tail.
+pub(super) const SCALES: [f32; 13] = [
+    f32::from_bits(0x3f800000),
+    f32::from_bits(0x39afe108),
+    f32::from_bits(0x33f1aade),
+    f32::from_bits(0x2e26083c),
+    f32::from_bits(0x28642328),
+    f32::from_bits(0x229cbc92),
+    f32::from_bits(0x1cd75d5d),
+    f32::from_bits(0x1713f623),
+    f32::from_bits(0x114b4ea4),
+    f32::from_bits(0x0b8bad78),
+    f32::from_bits(0x05bfecba),
+    f32::from_bits(0x0041edc4),
+    f32::from_bits(0x000005a9),
+];

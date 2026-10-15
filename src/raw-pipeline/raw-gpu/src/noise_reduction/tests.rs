@@ -237,7 +237,7 @@ fn nlm_core_matches_denoise_plane_luma_params() {
         w as u32,
         h as u32,
         params,
-        NoiseModulation::from_profile(None, 100, false),
+        NoiseModulation::from_profile(None, 0, false),
     );
 
     let (max_diff, worst_i) = max_diff_at(&reference, &gpu);
@@ -271,7 +271,7 @@ fn nlm_core_matches_denoise_plane_chroma_params() {
         w as u32,
         h as u32,
         params,
-        NoiseModulation::from_profile(None, 100, false),
+        NoiseModulation::from_profile(None, 0, false),
     );
 
     let (max_diff, worst_i) = max_diff_at(&reference, &gpu);
@@ -300,7 +300,7 @@ fn nlm_core_matches_denoise_plane_half_strength() {
         w as u32,
         h as u32,
         params,
-        NoiseModulation::from_profile(None, 100, false),
+        NoiseModulation::from_profile(None, 0, false),
     );
     let (max_diff, _) = max_diff_at(&reference, &gpu);
     eprintln!("PLANE PARITY (amount=50): max abs diff = {max_diff:e}");
@@ -329,7 +329,7 @@ fn nlm_core_border_and_interior_coverage_non_vacuous() {
         w as u32,
         h as u32,
         params,
-        NoiseModulation::from_profile(None, 100, false),
+        NoiseModulation::from_profile(None, 0, false),
     );
 
     // Border strip: raw-core passes it through unchanged; GPU must agree AND

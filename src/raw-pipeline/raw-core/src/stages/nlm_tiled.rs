@@ -1,4 +1,7 @@
-use super::{accumulate::accumulate, CancelToken, NlmParams};
+use super::{
+    accumulate::{accumulate, Modulation},
+    CancelToken, NlmParams,
+};
 use rayon::prelude::*;
 
 pub(super) fn denoise(
@@ -7,6 +10,7 @@ pub(super) fn denoise(
     height: usize,
     params: NlmParams,
     cancel: CancelToken<'_>,
+    modulation: Option<(&[f32], f32, f32)>,
 ) -> Vec<f32> {
     debug_assert_eq!(params.patch_radius, 2);
     if cancel.is_cancelled() {
@@ -31,6 +35,8 @@ pub(super) fn denoise(
             let mut horizontal = vec![0.0; 256 * 36];
             let mut differences = vec![0.0; 260];
             let mut sums = vec![0.0; 256];
+            let mut local_params =
+                modulation.map(|_| (vec![0.0_f32; 256 * 32], vec![0_u32; 256 * 32]));
             for (band, out) in worker_out.chunks_mut(width * 32).enumerate() {
                 let y0 = worker * worker_rows + band * 32;
                 let y1 = y0 + out.len() / width;
@@ -44,6 +50,36 @@ pub(super) fn denoise(
                     acc[..count].fill(0.0);
                     weights[..count].fill(0.0);
                     maxima[..count].fill(0.0);
+                    if let (Some((guide, slope, offset)), Some(local)) =
+                        (modulation, local_params.as_mut())
+                    {
+                        for y in y0..y1 {
+                            for x in x0..x1 {
+                                let luminance = guide[y * width + x].clamp(0.0, 10.0);
+                                let sigma = (slope * luminance + offset).max(0.0).sqrt();
+                                let scale = (sigma / 0.002366).clamp(0.1, 10.0);
+                                let local_h = params.h * scale;
+                                let radius = (params.search_radius as f32 * scale).round() as isize;
+                                let i = (y - y0) * stride + x - x0;
+                                local.0[i] = 1.0 / (local_h * local_h * 25.0);
+                                local.1[i] = radius.clamp(1, params.search_radius as isize) as u32;
+                            }
+                        }
+                    }
+                    // Collapse only exactly equal strengths with the complete stencil.
+                    // This preserves every operation of the per-pixel kernel, including
+                    // tiles whose ISO heuristic reaches its existing upper clamp.
+                    let uniform_norm = local_params.as_ref().and_then(|(norms, radii)| {
+                        let first = norms[0];
+                        (norms[..count]
+                            .iter()
+                            .all(|v| v.to_bits() == first.to_bits())
+                            && radii[..count]
+                                .iter()
+                                .all(|&r| r == params.search_radius as u32))
+                        .then_some(first)
+                    });
+                    let tile_inv_norm = uniform_norm.unwrap_or(inv_norm);
                     let search = params.search_radius as isize;
                     for dy in -search..=search {
                         for dx in -search..=search {
@@ -100,13 +136,22 @@ pub(super) fn denoise(
                                     ((y as isize + dy) * width as isize + lo_x as isize + dx)
                                         as usize;
                                 let start = (y - y0) * stride + lo_x - x0;
+                                let modulation = local_params
+                                    .as_ref()
+                                    .filter(|_| uniform_norm.is_none())
+                                    .map(|(norms, radii)| Modulation {
+                                        inv_norm: &norms[start..start + columns],
+                                        radii: &radii[start..start + columns],
+                                        shift: dx.abs().max(dy.abs()) as u32,
+                                    });
                                 accumulate(
                                     &sums[..columns],
                                     &plane[shifted_start..shifted_start + columns],
                                     &mut acc[start..start + columns],
                                     &mut weights[start..start + columns],
                                     &mut maxima[start..start + columns],
-                                    inv_norm,
+                                    tile_inv_norm,
+                                    modulation,
                                 );
                             }
                         }
@@ -180,7 +225,7 @@ mod tests {
                         );
                     }
                 }
-                let got = denoise(&plane, w, h, params, CancelToken::never());
+                let got = denoise(&plane, w, h, params, CancelToken::never(), None);
                 for i in 0..n {
                     let mw = maxima[i].max(1e-12);
                     let expected = (acc[i] + mw * plane[i]) / (weights[i] + mw);

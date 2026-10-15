@@ -28,6 +28,12 @@
 //! gain. The old golden was reproduced exactly before the independently
 //! derived update; the tolerance and all ACR references stay unchanged.
 //!
+//! #4638 refreshes the synthetic golden for continuous NLM exponential tails.
+//! The prior renderer reproduced the old PNG exactly; an independent direct
+//! f64 patch-distance/exp/normalization implementation agrees with the new
+//! image within 1/65535 per channel. The 128-count tolerance is unchanged.
+//! See test-fixtures/qualification/color-noise-iso-4638.md.
+//!
 //! # Tolerance
 //!
 //! Per channel, 128 counts of 65535 (~2e-3). Tight enough that any real

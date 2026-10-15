@@ -62,7 +62,15 @@ pub extern "C" fn run() -> u32 {
                 let mut acc = vec![-0.125; count];
                 let mut weights = vec![0.25; count];
                 let mut maxima = vec![initial_max; count];
-                actual::accumulate(&sums, &shifted, &mut acc, &mut weights, &mut maxima, norm);
+                actual::accumulate(
+                    &sums,
+                    &shifted,
+                    &mut acc,
+                    &mut weights,
+                    &mut maxima,
+                    norm,
+                    None,
+                );
                 for i in 0..count {
                     let w = fast_neg_exp(std::hint::black_box(sums[i].max(0.) * norm));
                     let expected = [-0.125 + w * shifted[i], 0.25 + w, initial_max.max(w)];
@@ -104,6 +112,7 @@ pub extern "C" fn mismatched_length(which: u32) {
         if which == 2 { &mut [] } else { &mut weights },
         if which == 3 { &mut [] } else { &mut maxima },
         1.0,
+        None,
     );
 }
 
@@ -236,4 +245,73 @@ pub extern "C" fn mismatched_dynamic_length(which: u32) {
             1,
         ),
     );
+}
+
+// ISO-only tiled rows use per-lane modulation, including the positive tail.
+#[no_mangle]
+pub extern "C" fn run_modulated() -> u32 {
+    let edges = [
+        -1.,
+        0.,
+        0.1,
+        7.999,
+        8.,
+        16.,
+        32.,
+        103.999,
+        104.,
+        f32::INFINITY,
+        f32::NAN,
+    ];
+    for count in [0usize, 1, 3, 4, 5, 17, 4103] {
+        let sums: Vec<f32> = (0..count).map(|i| edges[i % edges.len()]).collect();
+        let shifted: Vec<f32> = (0..count).map(|i| (i as f32 - 13.) * 1024.).collect();
+        let norms: Vec<f32> = (0..count)
+            .map(|i| [0., 0.5, 1., 4., f32::INFINITY, f32::NAN][i % 6])
+            .collect();
+        let radii: Vec<u32> = (0..count).map(|i| [1, 3, 5][i % 3]).collect();
+        let mut acc = vec![-0.125; count];
+        let mut weights = vec![0.25; count];
+        let mut maxima = vec![0.375; count];
+        actual::accumulate(
+            &sums,
+            &shifted,
+            &mut acc,
+            &mut weights,
+            &mut maxima,
+            1.,
+            Some(actual::Modulation {
+                inv_norm: &norms,
+                radii: &radii,
+                shift: 3,
+            }),
+        );
+        for i in 0..count {
+            let w = if radii[i] < 3 {
+                0.
+            } else {
+                fast_neg_exp(std::hint::black_box(sums[i].max(0.) * norms[i]))
+            };
+            let expected = [-0.125 + w * shifted[i], 0.25 + w, 0.375f32.max(w)];
+            let got = [acc[i], weights[i], maxima[i]];
+            for field in 0..3 {
+                unsafe {
+                    CHECKS += 1;
+                }
+                if !same_bits(got[field], expected[field]) {
+                    unsafe {
+                        FAILURE = [
+                            count as u32,
+                            i as u32,
+                            field as u32,
+                            got[field].to_bits(),
+                            expected[field].to_bits(),
+                        ];
+                    }
+                    return 3;
+                }
+            }
+        }
+    }
+    0
 }

@@ -17,17 +17,17 @@ const FAST_EXP_RANGE: f32 = 8.0;
 const FAST_EXP_INV_STEP: f32 = 512.0 / 8.0; // TABLE_SIZE / RANGE
 
 fn fast_neg_exp(x: f32) -> f32 {
-    // x is always >= 0 (it's `ssd · inv_norm`, both non-negative). The `>=` bound
-    // mirrors raw-core (so the i+1 endpoint never runs past the table tail).
-    if (x >= FAST_EXP_RANGE) {
-        return 0.0;
-    }
-    let t = x * FAST_EXP_INV_STEP;
+    // Preserve the positive tail: NLM normalization makes an absolute cutoff
+    // at exp(-8) visible. 104 is the binary32 exponential underflow boundary.
+    if (x >= 104.0) { return 0.0; }
+    let block = floor(x / FAST_EXP_RANGE);
+    let reduced = x - block * FAST_EXP_RANGE;
+    let t = reduced * FAST_EXP_INV_STEP;
     let i = floor(t);
     let frac = t - i;
     let a = nlm_exp[u32(i)];
     let b = nlm_exp[u32(i) + 1u];
-    return a + (b - a) * frac;
+    return (a + (b - a) * frac) * nlm_exp[513u + u32(block)];
 }
 
 // ── Oklab round-trip (mirrors raw-core::color::oklab; concat'd matrices) ───────

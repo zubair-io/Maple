@@ -137,7 +137,7 @@ fn preset_cancel_returns_input_unchanged_before_any_shift() {
         CancelToken::new(&flag),
         &plane,
         None,
-        100,
+        0,
         false,
     );
     assert_eq!(
@@ -157,7 +157,7 @@ fn preset_cancel_returns_input_unchanged_before_any_shift() {
         CancelToken::new(&flag2),
         &plane,
         None,
-        100,
+        0,
         false,
     );
     assert!(
@@ -237,11 +237,9 @@ fn fast_neg_exp_weight_never_exceeds_one_for_any_input() {
     }
     // Zero is the ceiling itself.
     assert_eq!(fast_neg_exp(0.0), 1.0);
-    // Positive sweep across the LUT range and past FAST_EXP_RANGE = 8:
-    // bounded to [0, 1], non-increasing, and — inside the table range —
-    // within the LUT's linear-interpolation budget (~3e-5 per segment) of
-    // hardware exp. Past the range the function documents truncation to 0
-    // (drops the ≤ ~3.4e-4 tail).
+    // Positive sweep across the first table boundary: bounded to [0, 1],
+    // non-increasing and within the unchanged interpolation error budget.
+    // The independent tail test below also gates relative error through 88.
     let mut prev = 1.0f32;
     for i in 0..=4096 {
         let x = i as f32 * (10.0 / 4096.0);
@@ -251,14 +249,117 @@ fn fast_neg_exp_weight_never_exceeds_one_for_any_input() {
             w <= prev,
             "weight not non-increasing at x={x}: {w} > {prev}"
         );
-        if x < FAST_EXP_RANGE {
-            assert!(
-                (w - (-x).exp()).abs() < 1e-4,
-                "weight {w} deviates from exp(-x) at x={x} beyond the LUT budget",
-            );
-        } else {
-            assert_eq!(w, 0.0, "x={x} ≥ FAST_EXP_RANGE must truncate to 0");
-        }
+        assert!(
+            (w - (-x).exp()).abs() < 1e-4,
+            "weight {w} deviates from exp(-x) at x={x} beyond the LUT budget",
+        );
         prev = w;
     }
+}
+
+#[test]
+fn absent_profile_uses_the_existing_iso_fallback() {
+    for (w, h) in [(40, 32), (160, 128)] {
+        let plane: Vec<f32> = (0..w * h)
+            .map(|i| 0.04 * ((i * 17 + i / w * 11) % 13) as f32 / 12.0)
+            .collect();
+        let guide: Vec<f32> = (0..w * h)
+            .map(|i| 0.02 + 0.9 * (i % w) as f32 / w as f32)
+            .collect();
+        let params = NlmParams {
+            patch_radius: 2,
+            search_radius: 3,
+            h: 0.0125,
+        };
+        for iso in [100_u32, 1600] {
+            // Independent encoding of the published ISO fallback coefficients.
+            let ratio = iso as f32 / 100.0;
+            let profile = [0.00002 * ratio, 0.000002 * ratio * ratio];
+            let run = |noise| {
+                denoise_plane_cancellable(
+                    &plane,
+                    w,
+                    h,
+                    params,
+                    CancelToken::never(),
+                    &guide,
+                    noise,
+                    iso,
+                    true,
+                )
+            };
+            let expected = run(Some(&profile));
+            let actual = run(None);
+            let worst = actual
+                .iter()
+                .zip(&expected)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0_f32, f32::max);
+            assert!(
+                worst < 1e-7,
+                "{w}x{h} ISO{iso}: missing-profile difference {worst}"
+            );
+        }
+    }
+}
+
+#[test]
+fn uniform_iso_tile_matches_equivalent_fixed_strength_bits() {
+    let (w, h) = (257, 65);
+    let plane: Vec<f32> = (0..w * h)
+        .map(|i| 0.04 * ((i * 17 + i / w * 11) % 13) as f32 / 12.0)
+        .collect();
+    let guide = vec![0.5; w * h];
+    let params = NlmParams {
+        patch_radius: 2,
+        search_radius: 3,
+        h: 0.0125,
+    };
+    let dynamic = denoise_plane_cancellable(
+        &plane,
+        w,
+        h,
+        params,
+        CancelToken::never(),
+        &guide,
+        None,
+        1600,
+        true,
+    );
+    let fixed = denoise_plane(
+        &plane,
+        w,
+        h,
+        NlmParams {
+            h: params.h * 10.0,
+            ..params
+        },
+    );
+    for (i, (a, b)) in dynamic.iter().zip(&fixed).enumerate() {
+        assert_eq!(a.to_bits(), b.to_bits(), "pixel {i}");
+    }
+}
+
+#[test]
+fn exponential_tail_is_continuous_through_the_old_cutoff() {
+    let below = fast_neg_exp(8.0_f32 - 0.00001);
+    let above = fast_neg_exp(8.0_f32 + 0.00001);
+    assert!(
+        above > 0.0,
+        "exp(-8) is representable and must not disappear"
+    );
+    assert!(
+        (below - above).abs() < 1e-7,
+        "cutoff jump: {below} -> {above}"
+    );
+    for i in 0..=8800 {
+        let x = i as f32 / 100.0;
+        let expected = (-(x as f64)).exp();
+        let actual = fast_neg_exp(x) as f64;
+        assert!(
+            (actual / expected - 1.0).abs() < 0.00004,
+            "x={x}: {actual} vs {expected}"
+        );
+    }
+    assert_eq!(fast_neg_exp(f32::INFINITY), 0.0);
 }

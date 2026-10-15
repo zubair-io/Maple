@@ -50,7 +50,8 @@
 //!
 //! # Parallelism
 //!
-//! Constant-h five-tap patches on larger planes run in cache-local tiles;
+//! Five-tap patches without a supplied DNG profile use cache-local tiles,
+//! including the existing ISO fallback when ISO is known;
 //! shifts keep the reference addition order and ARM64 vectorizes accumulation.
 //! Other parameters retain the full-plane squared differences and parallel
 //! horizontal strips with periodically re-seeded running sums.
@@ -66,17 +67,11 @@ mod chroma;
 mod tiled;
 pub(crate) use chroma::denoise_chroma_pair_cancellable;
 
-/// Fast exp(-x) lookup. The NLM weight is `exp(-d²/(h²·area))` where the
-/// argument is always ≥ 0. For x ≥ `FAST_EXP_RANGE` the weight is ≤ ~3.4e-4
-/// — well below the noise floor of f32 accumulation across O(1000) pixels,
-/// so we clamp to 0. The bound is `≥` (not `>`) so that the `i+1` table
-/// lookup stays in range — at exactly `x = FAST_EXP_RANGE`, `i = TABLE_SIZE`
-/// and `table[i+1]` would be out of bounds. Inside the range we linearly
-/// interpolate a 512-entry table. Measured at ~0.6 ns per call on Apple
-/// Silicon (vs ~5 ns for hardware `expf`) — at 81 shifts × 2 MP, the
-/// saving is ~36 ms.
-const FAST_EXP_RANGE: f32 = 8.0;
-const FAST_EXP_TABLE_SIZE: usize = 512;
+#[path = "nlm_exp.rs"]
+mod exp;
+#[cfg(target_arch = "aarch64")]
+use exp::fast_exp_table;
+use exp::fast_neg_exp;
 
 /// Re-seed stride for the running box-sum windows (#1195). Both box-sum passes
 /// maintain a sliding window (`s += leading − trailing`) for O(1)-per-pixel
@@ -92,45 +87,8 @@ const FAST_EXP_TABLE_SIZE: usize = 512;
 const RESEED_STRIDE: usize = 256;
 
 /// Bound vertical running-sum drift and scratch size in the general kernel.
-/// Five-tap constant-h patches use cache-local tiles instead.
+/// Five-tap patches without a supplied profile use cache-local tiles instead.
 const VSTRIP_ROWS: usize = 256;
-
-#[inline(always)]
-fn fast_neg_exp(x: f32) -> f32 {
-    // Negative-input guard — defense layer 2 of 2 for #1086. Post-#1195 the
-    // box-sum patch SSD is a sum of squares over a LOCAL window and is ≥ 0 by
-    // construction (no global-prefix cancellation), so x = ssd·inv_norm ≥ 0 and
-    // layer 1 (the `.max(0.0)` clamp in `process_shift`) is belt-and-braces.
-    // This guard is kept as cheap insurance: unguarded, a negative x is silently
-    // catastrophic here — `t as usize` saturates to 0, `frac` goes negative, and
-    // the first table segment EXTRAPOLATES to ≈ 1 + |x|, a weight growing
-    // linearly in |x| instead of capping at 1, letting one shift dominate the
-    // average. exp(0) = 1
-    // is the correct limit for ssd → 0⁻, so return exactly 1.0.
-    if x < 0.0 {
-        return 1.0;
-    }
-    // exp(-x) ranges from 1.0 at x=0 down to ~3.4e-4 at x=8.
-    if x >= FAST_EXP_RANGE {
-        return 0.0;
-    }
-    let t = x * (FAST_EXP_TABLE_SIZE as f32 / FAST_EXP_RANGE);
-    let i = t as usize;
-    let frac = t - i as f32;
-    let table = fast_exp_table();
-    // SAFETY: i < FAST_EXP_TABLE_SIZE because x < FAST_EXP_RANGE.
-    // The table has FAST_EXP_TABLE_SIZE + 1 entries to make the
-    // i+1 lookup safe at the upper bound.
-    let a = table[i];
-    let b = table[i + 1];
-    a + (b - a) * frac
-}
-
-#[path = "nlm_exp_table.rs"]
-mod exp_table;
-fn fast_exp_table() -> &'static [f32; FAST_EXP_TABLE_SIZE + 1] {
-    &exp_table::VALUES
-}
 
 /// Filter parameters for a single NLM pass on one channel plane.
 #[derive(Clone, Copy, Debug)]
@@ -207,7 +165,11 @@ pub fn denoise_plane_cancellable(
     }
     let p = params.patch_radius;
     if p == 2 && noise_profile.is_none() && n >= 16384 {
-        return tiled::denoise(plane, w, h, params, cancel);
+        let modulation = (iso > 0).then(|| {
+            let (s, o) = get_noise_params(None, iso, is_chroma);
+            (l_plane, s, o)
+        });
+        return tiled::denoise(plane, w, h, params, cancel, modulation);
     }
 
     let (local_s_plane, local_inv_norm_plane) =
@@ -220,7 +182,7 @@ pub fn denoise_plane_cancellable(
         cancel,
         &local_s_plane,
         &local_inv_norm_plane,
-        noise_profile.is_some(),
+        noise_profile.is_some() || iso > 0,
     )
 }
 

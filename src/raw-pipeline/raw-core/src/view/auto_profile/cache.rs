@@ -54,8 +54,8 @@ use super::lut::ColorLut;
 
 /// Identity of the Auto curve/residual fitting model (#2441). Bump when
 /// fitting semantics change; both artifact caches share this version.
-// #4635 changes the AgX pixels supplied to both curve and residual fitting.
-pub const AUTO_FIT_MODEL_VERSION: u32 = 3;
+// #4638 changes the NR pixels supplied to both curve and residual fitting.
+pub const AUTO_FIT_MODEL_VERSION: u32 = 4;
 
 /// Shared capacity, in entries, of BOTH the curve and LUT caches. The two
 /// stores are touched with the same keys in the same order (a fit inserts
