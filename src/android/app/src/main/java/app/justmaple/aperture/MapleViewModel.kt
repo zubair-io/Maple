@@ -507,7 +507,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveOnStop() {
-        viewModelScope.launch { flush() }
+        viewModelScope.launch(NonCancellable) { flush() }
     }
 
     suspend fun flush(): Boolean {

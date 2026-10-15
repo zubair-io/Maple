@@ -256,14 +256,20 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                     }
                     "/api/xmp" -> {
                         check(path.getQueryParameter("path") == original.path)
-                        val xml = sidecar.takeIf { it.exists() }?.readText()
-                        val etag = xml?.let {
-                            "\"" +
-                                MessageDigest.getInstance("SHA-1")
-                                    .digest(it.toByteArray())
-                                    .joinToString("") { byte -> "%02x".format(byte) } +
-                                "\""
-                        }
+                        val present = sidecar.isFile
+                        val etag =
+                            if (present) {
+                                val hash = MessageDigest.getInstance("SHA-1")
+                                sidecar.inputStream().use { input ->
+                                    val chunk = ByteArray(8192)
+                                    while (true) {
+                                        val count = input.read(chunk)
+                                        if (count < 0) break
+                                        hash.update(chunk, 0, count)
+                                    }
+                                }
+                                "\"" + hash.digest().joinToString("") { "%02x".format(it) } + "\""
+                            } else null
                         val extra =
                             mapOf("X-Maple-Xmp-Preconditions" to "content-etag-v1") +
                                 if (etag == null) emptyMap() else mapOf("ETag" to etag)
@@ -273,14 +279,23 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                                 releaseLoad?.await(10, java.util.concurrent.TimeUnit.SECONDS) !=
                                     false
                             )
-                            respond(
-                                if (xml == null) 404 else 200,
-                                xml.orEmpty().toByteArray(),
-                                extra,
-                            )
+                            if (!present) respond(404, extra = extra)
+                            else {
+                                val output = client.getOutputStream()
+                                output.write(
+                                    ("HTTP/1.1 200 Fixture\r\nContent-Length: ${sidecar.length()}\r\nConnection: close\r\n" +
+                                            extra.entries.joinToString("") {
+                                                "${it.key}: ${it.value}\r\n"
+                                            } +
+                                            "\r\n")
+                                        .toByteArray()
+                                )
+                                sidecar.inputStream().use { it.copyTo(output) }
+                                output.flush()
+                            }
                         } else if (
-                            (xml == null && headers["if-none-match"] == "*") ||
-                                (xml != null && headers["if-match"] == etag)
+                            (!present && headers["if-none-match"] == "*") ||
+                                (present && headers["if-match"] == etag)
                         ) {
                             saveEntered?.countDown()
                             check(

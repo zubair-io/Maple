@@ -36,7 +36,9 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
         body: String? = null,
         headers: Map<String, String> = emptyMap(),
     ): CloudResponse =
-        authenticated(id, path, method, body, headers) { connection -> read(connection) }
+        authenticated(id, path, method, body, headers) { connection ->
+            read(connection, if (path.substringBefore('?') == "/api/xmp") 128 else 16)
+        }
 
     fun download(id: String, path: String, output: OutputStream) {
         authenticated(id, path, "GET", null, emptyMap()) { connection ->
@@ -161,8 +163,10 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
             headers.forEach(connection::setRequestProperty)
             try {
                 if (body != null) {
+                    val bytes = body.toByteArray(Charsets.UTF_8)
                     connection.doOutput = true
-                    connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                    connection.setFixedLengthStreamingMode(bytes.size)
+                    connection.outputStream.use { it.write(bytes) }
                 }
                 return connection
             } catch (failure: Exception) {
@@ -171,7 +175,7 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
             }
         }
 
-        private fun read(connection: HttpURLConnection): CloudResponse {
+        private fun read(connection: HttpURLConnection, limitMiB: Int = 16): CloudResponse {
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val body =
@@ -181,8 +185,8 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
                     while (true) {
                         val count = it.read(buffer)
                         if (count < 0) break
-                        check(output.size() + count <= 16 * 1024 * 1024) {
-                            "Cloud response exceeded 16 MiB"
+                        check(output.size() + count <= limitMiB * 1024 * 1024) {
+                            "Cloud response exceeded $limitMiB MiB"
                         }
                         output.write(buffer, 0, count)
                     }
