@@ -271,6 +271,7 @@ mod present_web;
 mod color_grade;
 mod grain;
 mod hsl;
+mod hue_sat_map;
 #[cfg(target_arch = "wasm32")]
 mod present_chain_web;
 #[cfg(target_arch = "wasm32")]
@@ -313,6 +314,7 @@ pub use full_chain::{
 };
 pub use grain::{apply_grain, GrainOptions, GrainPass};
 pub use hsl::{apply_hsl, HslPass};
+pub use hue_sat_map::HueSatMapPass;
 pub use image::GpuImage;
 pub use live_chain::{
     build_live_chain, build_live_split, chain_signature, dehaze_is_active, scene_tone_is_noop,

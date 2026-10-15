@@ -77,3 +77,6 @@ fn mul_srgb_to_rec2020(v: vec3<f32>) -> vec3<f32> {
 
 // Existing import-default maximum attenuation (#4112).
 const SHARPEN_PRESERVED_DARKENING: f32 = 0.4f;
+// Camera-profile HueSatMap guards from color/hsm.rs (#4629).
+const HSM_ACHROMATIC_SATURATION: f32 = 0.01f;
+const HSM_HSV_DELTA_EPSILON: f32 = 1e-9f;

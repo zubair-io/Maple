@@ -60,6 +60,17 @@ impl GpuContext {
         })
     }
 
+    /// The cached camera-profile HueSatMap kernel (#4629).
+    pub fn hue_sat_map_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.hue_sat_map_pipeline.get_or_init(|| {
+            compile_with_matrices(
+                &self.device,
+                "hue-sat-map",
+                include_str!("hue_sat_map.wgsl"),
+            )
+        })
+    }
+
     /// The cached scene-tone-controls POINT compute pipeline (epic #925 P2 /
     /// #990, reshaped at #1103).
     ///

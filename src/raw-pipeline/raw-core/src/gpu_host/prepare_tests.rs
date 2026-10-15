@@ -3,6 +3,66 @@ use super::prepare::{develop_prefix_rgba, prefix_model_for};
 use crate::types::adjustment::AdjustmentModel;
 
 #[test]
+fn one_shot_prefix_retains_wb_and_matches_the_cpu_stage_order() {
+    use super::prepare::develop_render_prefix_rgba;
+    use crate::pipeline::{develop_scene_linear_sized_from_raw_with_quality, RenderQuality};
+    use crate::types::adjustment::{AutoExposureMode, HighlightRecoveryMode, Profile};
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../test-fixtures/batch-transfer/source.dng");
+    let bytes = std::fs::read(&path).unwrap();
+    let raw = crate::decode::decode(&path).unwrap();
+    for wb_scale_version in [
+        crate::types::WbScaleVersion::V1,
+        crate::types::WbScaleVersion::V5,
+    ] {
+        for ae in [AutoExposureMode::Off, AutoExposureMode::On] {
+            for (temperature_seen, tint_seen) in [(true, true), (true, false), (false, true)] {
+                let model = AdjustmentModel {
+                    profile: Profile::Neutral,
+                    auto_exposure: ae,
+                    highlight_recovery: HighlightRecoveryMode::Off,
+                    temperature: 8500.,
+                    tint: -80.,
+                    temperature_seen,
+                    tint_seen,
+                    wb_scale_version,
+                    sharpen_amount: 0.,
+                    nr_color: 0.,
+                    ..Default::default()
+                };
+                let (rgba, w, h, prefix, anchor, scale) =
+                    develop_render_prefix_rgba(&raw, &bytes, "dng", &model, 32).unwrap();
+                assert_eq!(
+                    (prefix.temperature, prefix.tint),
+                    (model.temperature, model.tint)
+                );
+                assert_eq!(
+                    (prefix.temperature_seen, prefix.tint_seen),
+                    (temperature_seen, tint_seen)
+                );
+                assert_eq!(prefix.wb_scale_version, model.wb_scale_version);
+                assert_eq!(prefix.wb_method, model.wb_method);
+                let expected = develop_scene_linear_sized_from_raw_with_quality(
+                    &raw,
+                    &model,
+                    RenderQuality::Amaze,
+                    32,
+                )
+                .unwrap();
+                assert_eq!((w, h), (expected.width, expected.height));
+                assert_eq!(Some(anchor), expected.whites_anchor_ev);
+                assert_eq!(scale, expected.nr_sampling_scale);
+                for (actual, expected) in rgba.chunks_exact(4).zip(&expected.pixels) {
+                    assert_eq!(&actual[..3], expected);
+                    assert_eq!(actual[3], 1.);
+                }
+            }
+        }
+    }
+    assert_eq!(std::fs::read(path).unwrap(), bytes);
+}
+
+#[test]
 fn hot_controls_reuse_the_exact_prefix_and_source_bytes() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/batch-transfer/source.dng");

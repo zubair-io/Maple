@@ -166,7 +166,10 @@
 ///   Auto fit; cold and warm film/no-film renders agree (#4640).
 /// - 34 — monotone Hermite Auto curves and confidence-preserving residual
 ///   regularization remove fitted-curve banding without changing anchors (#4636).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 34;
+/// - 35 — constant-preserving HSM hue interpolation keeps signed half-turns
+///   from reversing under floating-point rounding; one-shot GPU renders apply
+///   camera WB before nonlinear DCP and auto exposure (#4629).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 35;
 
 #[cfg(test)]
 mod tests {

@@ -212,6 +212,11 @@ pub fn emit_wgsl() -> String {
         "// Existing import-default maximum attenuation (#4112).\nconst SHARPEN_PRESERVED_DARKENING: f32 = {};\n",
         wgsl_f(raw_core::stages::sharpen::PRESERVED_DARKENING),
     ));
+    out.push_str(&format!(
+        "// Camera-profile HueSatMap guards from color/hsm.rs (#4629).\nconst HSM_ACHROMATIC_SATURATION: f32 = {};\nconst HSM_HSV_DELTA_EPSILON: f32 = {};\n",
+        wgsl_f(raw_core::color::hsm::ACHROMATIC_SATURATION),
+        wgsl_f(raw_core::color::hsm::HSV_DELTA_EPSILON),
+    ));
     out
 }
 
@@ -346,6 +351,23 @@ mod tests {
     #[test]
     fn determinism_double_emit_is_identical() {
         assert_eq!(emit_wgsl(), emit_wgsl());
+    }
+
+    #[test]
+    fn hsm_guards_follow_core_constants() {
+        let output = emit_wgsl();
+        for (name, value) in [
+            (
+                "HSM_ACHROMATIC_SATURATION",
+                raw_core::color::hsm::ACHROMATIC_SATURATION,
+            ),
+            (
+                "HSM_HSV_DELTA_EPSILON",
+                raw_core::color::hsm::HSV_DELTA_EPSILON,
+            ),
+        ] {
+            assert!(output.contains(&format!("const {name}: f32 = {};", wgsl_f(value))));
+        }
     }
 
     /// The emitted row consts must equal `Matrix3::mul_vec` semantics: the

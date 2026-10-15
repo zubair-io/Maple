@@ -36,6 +36,12 @@
 use crate::image::{ColorSpace, Image};
 use rayon::prelude::*;
 
+/// Saturation at which the near-neutral hue/scale fade reaches full strength.
+/// Emitted to the GPU color header by codegen (#4629).
+pub const ACHROMATIC_SATURATION: f32 = 0.01;
+/// Chroma and channel-tie threshold in the shared RGB-to-HSV conversion.
+pub const HSV_DELTA_EPSILON: f32 = 1e-9;
+
 /// Encoding of the value (V) axis input. Default is Linear when the
 /// ProfileHueSatMapEncoding / ProfileLookTableEncoding tag is absent
 /// (DNG 1.6 § 6.6.4 / § 6.7.4).
@@ -184,7 +190,7 @@ pub fn apply_one(p: [f32; 3], table: &HsmTable) -> [f32; 3] {
 
     // Achromatic singularity blend: smoothly fade shifts to identity near zero saturation.
     // This prevents wild hue swings from introducing step discontinuities in brightness.
-    let w_chroma = (s / 0.01).clamp(0.0, 1.0);
+    let w_chroma = (s / ACHROMATIC_SATURATION).clamp(0.0, 1.0);
     let hd = hd * w_chroma;
     let ss = 1.0 + (ss - 1.0) * w_chroma;
     let vs = 1.0 + (vs - 1.0) * w_chroma;
@@ -253,11 +259,11 @@ pub fn rgb_to_hsv(rgb: [f32; 3]) -> (f32, f32, f32) {
 
     let s = if max > 0.0 { delta / max } else { 0.0 };
 
-    let h = if s <= 0.0 || delta < 1e-9 {
+    let h = if s <= 0.0 || delta < HSV_DELTA_EPSILON {
         0.0
-    } else if (max - r).abs() < 1e-9 {
+    } else if (max - r).abs() < HSV_DELTA_EPSILON {
         60.0 * ((g - b) / delta).rem_euclid(6.0)
-    } else if (max - g).abs() < 1e-9 {
+    } else if (max - g).abs() < HSV_DELTA_EPSILON {
         60.0 * (((b - r) / delta) + 2.0)
     } else {
         60.0 * (((r - g) / delta) + 4.0)
@@ -406,13 +412,24 @@ fn lookup(table: &HsmTable, hue: f32, sat: f32, val: f32) -> (f32, f32, f32) {
         };
 
         // DNG RefBaselineHueSatMap interpolates along each axis (#4631).
-        let lo0 = val000 * (1.0 - fx) + val100 * fx;
-        let lo1 = val010 * (1.0 - fx) + val110 * fx;
-        let hi0 = val001 * (1.0 - fx) + val101 * fx;
-        let hi1 = val011 * (1.0 - fx) + val111 * fx;
-        let low = lo0 * (1.0 - fy) + lo1 * fy;
-        let high = hi0 * (1.0 - fy) + hi1 * fy;
-        out[c] = low * (1.0 - fz) + high * fz;
+        // Preserve constant hue exactly (#4629): a weighted sum can round
+        // +180 above the signed-wrap boundary, reversing the subsequent
+        // achromatic fade. Difference-form interpolation has zero correction
+        // for equal endpoints. Keep the existing scale-channel arithmetic.
+        let lerp = |a: f32, b: f32, t: f32| {
+            if c == 0 {
+                a + (b - a) * t
+            } else {
+                a * (1.0 - t) + b * t
+            }
+        };
+        let lo0 = lerp(val000, val100, fx);
+        let lo1 = lerp(val010, val110, fx);
+        let hi0 = lerp(val001, val101, fx);
+        let hi1 = lerp(val011, val111, fx);
+        let low = lerp(lo0, lo1, fy);
+        let high = lerp(hi0, hi1, fy);
+        out[c] = lerp(low, high, fz);
     }
 
     // `out[0]` is the interpolated hueDelta (an *additive*, signed hue offset

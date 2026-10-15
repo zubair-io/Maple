@@ -17,17 +17,18 @@
 //!
 //! ## The decode boundary (why two develops, and where the split lands)
 //!
-//! The GPU chain re-applies `white_balance` → … → `nr_color` + the view tail, so
-//! its INPUT must be the post-`auto_exposure` (develop stage 05), pre-`white_balance`
-//! (stage 06) scene-linear Rec.2020 buffer. raw-core exposes no such split point,
+//! The one-shot GPU chain applies tone → … → `nr_color` + the view tail. Its
+//! input retains the requested WB through the CPU prefix, including camera WB
+//! before nonlinear DCP and the resulting auto-exposure statistic (#4629).
+//! A post-DCP matrix cannot reproduce that order. raw-core exposes no such split point,
 //! so we obtain it by developing through the EXISTING
 //! [`develop_scene_linear_sized_from_raw_with_quality`] with a STRIPPED model: the
-//! stages the GPU chain re-runs (WB / tone / vibrance / … / sharpen / nr) are set
+//! stages the GPU chain re-runs (tone / vibrance / … / sharpen / nr) are set
 //! to their no-op defaults so each `apply` short-circuits BIT-EXACTLY, while the
 //! upstream stages the GPU chain does NOT do (`highlight_recovery`,
 //! `capture_sharpening`, `profile`, the `auto_exposure` MODE) keep the real
 //! model's values. The develop output then IS the post-AE buffer (zero-drift —
-//! identical upstream math), and the GPU chain re-applies the real model's WB /
+//! identical upstream math), and the GPU chain applies the real model's
 //! tone / … absolutely. `capture_sharpening` is baked in this prefix, so the GPU
 //! chain gets `capture_sharpening: None` (the Apple decode-boundary contract).
 //!
@@ -48,6 +49,8 @@
 // `wasm_bindgen_futures`, a wasm-only dep.
 #[cfg(test)]
 use raw_core::gpu_host::prepare::auto_will_fit;
+#[cfg(any(target_arch = "wasm32", test))]
+use raw_core::gpu_host::prepare::develop_render_prefix_rgba;
 #[cfg(test)]
 pub(crate) use raw_core::gpu_host::prepare::fit_profile_artifacts_with_status;
 #[cfg(target_arch = "wasm32")]
@@ -108,10 +111,8 @@ pub(crate) fn effective_target_long_edge(requested: Option<u32>, ctx: &GpuContex
 
 #[cfg(test)]
 use raw_core::gpu_host::model::stripped_prefix_model;
-#[cfg(any(target_arch = "wasm32", test))]
-use raw_core::gpu_host::white_balance;
-#[cfg(any(target_arch = "wasm32", test))]
-pub(crate) use white_balance::GpuWhiteBalance;
+#[cfg(target_arch = "wasm32")]
+pub(crate) use raw_core::gpu_host::white_balance::GpuWhiteBalance;
 
 /// Select the display-encode `target_primaries` (`display_encode.wgsl`: 0 = sRGB,
 /// 1 = Display P3) that MATCHES the canvas colour-space tag the present surface
@@ -212,9 +213,10 @@ mod primaries_tests {
 ///
 /// This is the ONE-SHOT u8-readback path (the W1 parity gate + the gpu-off-bundle
 /// fallback). The persistent zero-readback path
-/// ([`crate::web_live_session::WebLiveSession`]) reuses the SAME
-/// [`develop_prefix_rgba`] / [`chain_inputs_with_status`] helpers but uploads once
-/// and presents to a surface instead of reading back.
+/// ([`crate::web_live_session::WebLiveSession`]) uses the cached As-Shot
+/// [`develop_prefix_rgba`] instead, uploads once, and presents to a surface.
+/// Its pre-DCP GPU migration remains tracked by #4629. Both paths share
+/// [`chain_inputs_with_status`] and the existing prefix-develop implementation.
 ///
 /// `max_long_edge` (#1080): optional viewport target from the JS caller, in real
 /// (backing-store) pixels. The develop is fit to it (aspect preserved, never
@@ -252,11 +254,15 @@ async fn render_gpu_core_with_status(
     let target = effective_target_long_edge(max_long_edge, &ctx);
 
     let (rgba, w, h, _prefix_model, whites_anchor_ev, nr_sampling_scale) =
-        develop_prefix_rgba(raw_img, raw, ext, model, target)?;
+        develop_render_prefix_rgba(raw_img, raw, ext, model, target)?;
     // Film looks are session-resident; one-shot renders have no uploaded LUT.
     let (mut inputs, auto_fit) =
         chain_inputs_with_status(raw_img, raw, ext, model, None, 0, whites_anchor_ev);
-    GpuWhiteBalance::resolve(raw_img)?.apply(model, &mut inputs);
+    // The one-shot prefix already applies WB before nonlinear DCP and AE.
+    // Applying a post-DCP matrix as well would double the adjustment (#4629).
+    inputs.wb_temperature = 6500.0;
+    inputs.wb_tint = 0.0;
+    inputs.wb_matrix = raw_core::math::Matrix3::IDENTITY.0;
     inputs.nr_sampling_scale = nr_sampling_scale;
 
     // Upload ONCE, run the gated live chain + the WGSL terminal dither, read the
@@ -281,8 +287,8 @@ async fn render_gpu_core_with_status(
 /// (epic #925, P4b-web / #1029) — the GPU-resident counterpart of
 /// [`crate::render_bytes`], returning the SAME [`MapleRender`] shape.
 ///
-/// Pipeline: decode → develop the STRIPPED prefix (post-`auto_exposure`,
-/// pre-`white_balance` scene-linear Rec.2020 buffer) → fit the Auto Profile
+/// Pipeline: decode → develop the stripped prefix at the requested WB
+/// (post-`auto_exposure` scene-linear Rec.2020 buffer) → fit the Auto Profile
 /// curve + residual LUT → upload to a [`LiveSession`] → drive the gated live
 /// chain + the WGSL terminal dither (async; wasm uses `GpuContext::new_async` +
 /// `LiveSession::render_async`) → EXIF-orient → u8 RGB.

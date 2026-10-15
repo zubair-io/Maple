@@ -64,3 +64,24 @@ fn trilinear_cells_retain_hdr_lookup_boundary() {
         lookup(&table, 22.5, 0.5, -0.5)
     );
 }
+
+#[test]
+fn constant_half_turn_retains_its_sign_at_every_fraction() {
+    // A weighted sum can round an exactly constant +180 to 180.000015 and
+    // fold it to -179.999985. The achromatic fade then turns this into the
+    // opposite rotation. Constant-preserving interpolation must keep the
+    // signed endpoint exact, including fractions created by sRGB encoding.
+    for hue in [-180., 180.] {
+        let table = HsmTable::new(
+            [7, 4, 5],
+            [hue, 1., 1.].repeat(7 * 4 * 5),
+            HsmEncoding::Linear,
+        )
+        .unwrap();
+        for i in 1..100 {
+            let s = i as f32 / 10_000.;
+            let (actual, _, _) = lookup(&table, i as f32 * 3.6, s, i as f32 / 100.);
+            assert_eq!(actual, hue, "hue {hue}, fraction {i}");
+        }
+    }
+}

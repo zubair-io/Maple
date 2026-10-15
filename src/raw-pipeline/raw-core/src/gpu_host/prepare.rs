@@ -110,6 +110,45 @@ pub fn develop_prefix_rgba_cancellable(
     }
     let ae_mode = effective_ae_mode(model, raw, ext);
     let prefix_model = stripped_prefix_model(model, ae_mode);
+    develop_prefix_model_rgba(raw_img, prefix_model, max_long_edge, cancel)
+}
+
+/// Prepare the one-shot GPU renderer's prefix at the requested white balance.
+/// It develops a fresh prefix on every call already, so camera WB, nonlinear
+/// DCP and WB-dependent AE can retain the CPU's order without another develop
+/// or upload. The GPU tail must omit WB because it is included here (#4629).
+/// Persistent live sessions keep their separate cached-prefix entry above;
+/// their pre-DCP GPU migration is still required under the same issue.
+pub fn develop_render_prefix_rgba(
+    raw_img: &crate::image::RawImage,
+    raw: &[u8],
+    ext: &str,
+    model: &AdjustmentModel,
+    max_long_edge: u32,
+) -> Result<(Vec<f32>, u32, u32, AdjustmentModel, f32, f32), String> {
+    let prefix_model = AdjustmentModel {
+        temperature: model.temperature,
+        tint: model.tint,
+        temperature_seen: model.temperature_seen,
+        tint_seen: model.tint_seen,
+        wb_scale_version: model.wb_scale_version,
+        wb_method: model.wb_method,
+        ..stripped_prefix_model(model, effective_ae_mode(model, raw, ext))
+    };
+    develop_prefix_model_rgba(
+        raw_img,
+        prefix_model,
+        max_long_edge,
+        crate::CancelToken::never(),
+    )
+}
+
+fn develop_prefix_model_rgba(
+    raw_img: &crate::image::RawImage,
+    prefix_model: AdjustmentModel,
+    max_long_edge: u32,
+    cancel: crate::CancelToken<'_>,
+) -> Result<(Vec<f32>, u32, u32, AdjustmentModel, f32, f32), String> {
     // AMaZE by default (#940): this develop runs at live-session open and
     // again only when a prefix-affecting field changes (highlight recovery,
     // pins, decode-upstream settings — see `WebLiveSession`'s prefix-model
