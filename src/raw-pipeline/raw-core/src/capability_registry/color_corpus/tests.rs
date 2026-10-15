@@ -201,3 +201,42 @@ fn decoder_extension_changes_identity_but_directory_locations_do_not() {
     write_manifest(dir.path(), &value);
     assert_ne!(before, hash(dir.path()).unwrap());
 }
+
+#[test]
+fn failed_physical_record_remains_failed_without_installed_corpus() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = EvidenceSource::ColorHarness;
+    let build = BuildIdentity::current();
+    let record = EvidenceRecord {
+        source,
+        backend: "cpu-reference".into(),
+        pipeline_version: build.pipeline_version,
+        schema_version: build.schema_version,
+        corpus_hash: format!("blake3:{}", "a".repeat(64)),
+        expected_cases: source.expected_cases(),
+        executed_cases: source.expected_cases(),
+        failed_cases: 92,
+        skipped_cases: 0,
+        git_sha: "0123456789012345678901234567890123456789".into(),
+        recorded_at: String::new(),
+        command: String::new(),
+    };
+    let records = dir.path().join("qualification");
+    std::fs::create_dir_all(&records).unwrap();
+    let path = records.join("color_harness.json");
+    std::fs::write(&path, record.to_json().to_string()).unwrap();
+    let evidence = Evidence::load(dir.path(), &records).unwrap();
+    assert_eq!(judge(source, &evidence), RecordStatus::Failed(92));
+    assert!(evidence.corpus_hashes.is_empty());
+    assert_eq!(evidence.records[&source].corpus_hash, record.corpus_hash);
+
+    // Changing the claimed result to pass must not bypass the missing inputs.
+    let passing = EvidenceRecord {
+        failed_cases: 0,
+        ..record
+    };
+    std::fs::write(&path, passing.to_json().to_string()).unwrap();
+    assert!(Evidence::load(dir.path(), &records)
+        .unwrap_err()
+        .contains("manifest.json"));
+}

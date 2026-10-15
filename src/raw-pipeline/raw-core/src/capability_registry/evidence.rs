@@ -149,9 +149,10 @@ pub struct Evidence {
 
 impl Evidence {
     /// Load every `<source>.json` under `dir` and hash the corpus (under
-    /// `repo_root`) of every source that has one. A missing directory is an
-    /// empty evidence set (every capability stays `Core`); an unparseable
-    /// record or an unhashable corpus is an error.
+    /// `repo_root`) of every source without an explicitly failed run. Failed
+    /// records cannot qualify and remain reportable without local fixtures.
+    /// A missing directory is an empty evidence set (every capability stays
+    /// `Core`); an unparseable record or unhashable nonfailed corpus is an error.
     pub fn load(repo_root: &Path, dir: &Path) -> Result<Self, String> {
         let mut records = BTreeMap::new();
         for source in EvidenceSource::ALL {
@@ -173,11 +174,13 @@ impl Evidence {
             records.insert(*source, record);
         }
         // A corpus hash is only ever compared against a record, so only the
-        // recorded sources are hashed — `tools/codegen.sh` loads evidence
-        // once per emitted target, and the corpora include binary fixtures.
+        // nonfailed recorded sources are hashed. A failed run cannot qualify
+        // on any corpus; retaining its failure and provenance must also work
+        // in CI checkouts without the gitignored physical-image corpus.
         let corpus_hashes = records
-            .keys()
-            .map(|s| s.corpus_hash(repo_root).map(|h| (*s, h)))
+            .iter()
+            .filter(|(_, record)| record.failed_cases == 0)
+            .map(|(s, _)| s.corpus_hash(repo_root).map(|h| (*s, h)))
             .collect::<Result<BTreeMap<_, _>, _>>()?;
         Ok(Self {
             records,
@@ -351,6 +354,11 @@ pub fn judge(source: EvidenceSource, evidence: &Evidence) -> RecordStatus {
             current: build.schema_version,
         };
     }
+    // Failure is conclusive even when the measured corpus is not installed.
+    // Passing records still require the complete current-corpus validation.
+    if record.failed_cases > 0 {
+        return RecordStatus::Failed(record.failed_cases);
+    }
     if evidence.corpus_hashes.get(&source) != Some(&record.corpus_hash) {
         return RecordStatus::StaleCorpus;
     }
@@ -369,9 +377,6 @@ pub fn judge(source: EvidenceSource, evidence: &Evidence) -> RecordStatus {
             expected,
             executed: record.executed_cases,
         };
-    }
-    if record.failed_cases > 0 {
-        return RecordStatus::Failed(record.failed_cases);
     }
     if record.skipped_cases > 0 {
         return RecordStatus::Skipped(record.skipped_cases);
