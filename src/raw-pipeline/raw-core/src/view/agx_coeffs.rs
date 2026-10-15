@@ -7,9 +7,8 @@
 //!     scene-linear Rec.2020
 //!         → AGX_INSET_MATRIX
 //!         → per-channel log2 encode + normalize
-//!         → ratio-preserving sigmoid: the sigmoid LUT (agx_lut.bin)
-//!           is evaluated on max(R,G,B), then RGB is scaled by
-//!           sigmoid_norm / norm so hue is invariant (post-#435)
+//!         → ratio-preserving sigmoid with common-highlight
+//!           chroma roll-off above diffuse white (#4635)
 //!         → AGX_OUTSET_MATRIX
 //!         → Oklab hue-preserving gamut compression to [0, 1] =
 //!           display-linear Rec.2020
@@ -78,4 +77,4 @@ pub const AGX_OUTSET_MATRIX: [[f32; 3]; 3] = [
 /// (due to coefficient edits or LUT recompute), bump this. It is
 /// propagated into RenderedPreviewCache's viewTransformVersion
 /// so every cached preview re-renders on the next cold open.
-pub const AGX_VERSION: u32 = 8;
+pub const AGX_VERSION: u32 = 9;

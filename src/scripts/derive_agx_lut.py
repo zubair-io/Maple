@@ -70,12 +70,12 @@ Usage:
 `--apple-bin` is optional but recommended: it writes the same bytes to the
 SwiftPM-bundled LUT consumed by `MetalKernels.swift` / Apple parity tests.
 """
+
 from __future__ import annotations
 
 import argparse
 import struct
 import sys
-import textwrap
 from pathlib import Path
 
 # WGSL emitter lives in a sibling leaf module to keep this file under the
@@ -83,21 +83,21 @@ from pathlib import Path
 # import is one-directional (`_agx_emit` imports no symbols back from here),
 # so the script run as `__main__` can't trip a circular import. Re-exported
 # below so any external `derive_agx_lut.emit_wgsl` reference still resolves.
-from _agx_emit import emit_wgsl  # noqa: E402  (kept with the other imports)
+from _agx_emit import emit_wgsl
 
 # ── Frozen coefficients (bump AGX_VERSION on any edit) ────────────────────
-MIN_EV       = -10.0
-MAX_EV       =  +6.5
-MID_GRAY     =  0.18          # scene-linear mid-gray, log-encode pivot
-LUT_SIZE     =  512           # table size (spec § 3.6a)
+MIN_EV = -10.0
+MAX_EV = +6.5
+MID_GRAY = 0.18  # scene-linear mid-gray, log-encode pivot
+LUT_SIZE = 512  # table size (spec § 3.6a)
 
 # Sigmoid parameters (Jed Smith equation_full_curve)
-EV_RANGE     = MAX_EV - MIN_EV                     # 16.5
-X_PIVOT      = abs(MIN_EV) / EV_RANGE              # ≈ 0.6060606
-Y_PIVOT      = 0.18                                # Maple photography-tuned
-SLOPE        = 2.4                                 # see feasibility note in docstring
-TOE_POWER    = 3.0                                 # Sobotka default
-SHOULDER_POWER = 3.25                              # Sobotka default
+EV_RANGE = MAX_EV - MIN_EV  # 16.5
+X_PIVOT = abs(MIN_EV) / EV_RANGE  # ≈ 0.6060606
+Y_PIVOT = 0.18  # Maple photography-tuned
+SLOPE = 2.4  # see feasibility note in docstring
+TOE_POWER = 3.0  # Sobotka default
+SHOULDER_POWER = 3.25  # Sobotka default
 
 # Inset compression (Sobotka AgX.py L17-50 `AgX_compressed_matrix`).
 # 0.20 = primaries pushed away from D65 by scale 1/(1-0.20) = 1.25 along
@@ -105,7 +105,7 @@ SHOULDER_POWER = 3.25                              # Sobotka default
 # by 25%. Used as an inset matrix (Rec.2020 → AgX-Base-Rec.2020), this
 # desaturates saturated Rec.2020 inputs because they're no longer at the
 # corners of the wider AgX-Base triangle. Matches AgX-S2O3 default.
-COMPRESSION  = 0.20
+COMPRESSION = 0.20
 
 # Version key. Bump whenever the LUT bytes or coefficients change.
 #  v5: Blender 4.x AgX_Default_Contrast polynomial fit (mid-gray → 0.50).
@@ -116,23 +116,24 @@ COMPRESSION  = 0.20
 #      generator to the value already shipped in agx_coeffs.rs (the .rs
 #      had been bumped to 8 without bumping the generator, so a regen
 #      would otherwise downgrade the live RenderedPreviewCache key).
-AGX_VERSION  = 8
+AGX_VERSION = 9
 
 
 # ── Sobotka / Jed Smith sigmoid (port of AgX-S2O3 AgX.py L122-L207) ───────
 # Pure float implementation — no numpy at runtime so the LUT generation is
 # byte-deterministic across Python implementations.
-def _equation_scale(x_pivot: float, y_pivot: float, slope: float, power: float) -> float:
+def _equation_scale(
+    x_pivot: float, y_pivot: float, slope: float, power: float
+) -> float:
     """Sobotka AgX.py `equation_scale`."""
     return (
-        ((slope * x_pivot) ** -power)
-        * (((slope * (x_pivot / y_pivot)) ** power) - 1.0)
+        ((slope * x_pivot) ** -power) * (((slope * (x_pivot / y_pivot)) ** power) - 1.0)
     ) ** (-1.0 / power)
 
 
 def _equation_hyperbolic(x: float, power: float) -> float:
     """Sobotka AgX.py `equation_hyperbolic`."""
-    return x / ((1.0 + x ** power) ** (1.0 / power))
+    return x / ((1.0 + x**power) ** (1.0 / power))
 
 
 def _equation_term(x: float, x_pivot: float, slope: float, scale: float) -> float:
@@ -169,10 +170,10 @@ def agx_sigmoid(x: float) -> float:
 # construction to Rec.2020 primaries so Maple's working space (linear
 # Rec.2020 D65) flows through AgX without an intermediate gamut conversion.
 
-REC2020_PRIMARIES = (   # (x, y) chromaticities
-    (0.708, 0.292),     # R
-    (0.170, 0.797),     # G
-    (0.131, 0.046),     # B
+REC2020_PRIMARIES = (  # (x, y) chromaticities
+    (0.708, 0.292),  # R
+    (0.170, 0.797),  # G
+    (0.131, 0.046),  # B
 )
 D65_WHITE = (0.3127, 0.3290)
 
@@ -184,8 +185,7 @@ def _xy_to_XYZ(xy: tuple[float, float], Y: float = 1.0) -> tuple[float, float, f
 
 def _mat3_mul(A: list[list[float]], B: list[list[float]]) -> list[list[float]]:
     return [
-        [sum(A[i][k] * B[k][j] for k in range(3)) for j in range(3)]
-        for i in range(3)
+        [sum(A[i][k] * B[k][j] for k in range(3)) for j in range(3)] for i in range(3)
     ]
 
 
@@ -199,9 +199,21 @@ def _mat3_inv(M: list[list[float]]) -> list[list[float]]:
     det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
     inv_det = 1.0 / det
     return [
-        [ (e * i - f * h) * inv_det, -(b * i - c * h) * inv_det,  (b * f - c * e) * inv_det],
-        [-(d * i - f * g) * inv_det,  (a * i - c * g) * inv_det, -(a * f - c * d) * inv_det],
-        [ (d * h - e * g) * inv_det, -(a * h - b * g) * inv_det,  (a * e - b * d) * inv_det],
+        [
+            (e * i - f * h) * inv_det,
+            -(b * i - c * h) * inv_det,
+            (b * f - c * e) * inv_det,
+        ],
+        [
+            -(d * i - f * g) * inv_det,
+            (a * i - c * g) * inv_det,
+            -(a * f - c * d) * inv_det,
+        ],
+        [
+            (d * h - e * g) * inv_det,
+            -(a * h - b * g) * inv_det,
+            (a * e - b * d) * inv_det,
+        ],
     ]
 
 
@@ -221,7 +233,9 @@ def _rgb_to_xyz_matrix(primaries: tuple, whitepoint: tuple) -> list[list[float]]
     return [[M[i][j] * S[j] for j in range(3)] for i in range(3)]
 
 
-def _matrix_rgb_to_rgb(src_primaries, src_white, dst_primaries, dst_white) -> list[list[float]]:
+def _matrix_rgb_to_rgb(
+    src_primaries, src_white, dst_primaries, dst_white
+) -> list[list[float]]:
     """src RGB → dst RGB via XYZ. Both whitepoints assumed D65 (no CAT)."""
     M_src = _rgb_to_xyz_matrix(src_primaries, src_white)
     M_dst = _rgb_to_xyz_matrix(dst_primaries, dst_white)
@@ -241,8 +255,7 @@ def _agx_compressed_primaries(primaries, whitepoint, compression=0.20):
     wx, wy = whitepoint
     scale = 1.0 / (1.0 - compression)
     return tuple(
-        ((px - wx) * scale + wx, (py - wy) * scale + wy)
-        for (px, py) in primaries
+        ((px - wx) * scale + wx, (py - wy) * scale + wy) for (px, py) in primaries
     )
 
 
@@ -273,8 +286,7 @@ def build_lut() -> list[float]:
     # The Jed Smith sigmoid is analytically monotone; this is just an
     # in-case-of-fp-rounding cumulative-max sweep.
     for i in range(1, LUT_SIZE):
-        if lut[i] < lut[i - 1]:
-            lut[i] = lut[i - 1]
+        lut[i] = max(lut[i], lut[i - 1])
     return lut
 
 
@@ -337,9 +349,8 @@ def emit_rs(path: Path) -> None:
         "//!     scene-linear Rec.2020\n"
         "//!         → AGX_INSET_MATRIX\n"
         "//!         → per-channel log2 encode + normalize\n"
-        "//!         → ratio-preserving sigmoid: the sigmoid LUT (agx_lut.bin)\n"
-        "//!           is evaluated on max(R,G,B), then RGB is scaled by\n"
-        "//!           sigmoid_norm / norm so hue is invariant (post-#435)\n"
+        "//!         → ratio-preserving sigmoid with common-highlight\n"
+        "//!           chroma roll-off above diffuse white (#4635)\n"
         "//!         → AGX_OUTSET_MATRIX\n"
         "//!         → Oklab hue-preserving gamut compression to [0, 1] =\n"
         "//!           display-linear Rec.2020\n"
@@ -418,6 +429,7 @@ def _apply_matrix(M: list[list[float]], v: tuple) -> list[float]:
 def _open_domain_to_normalized_log2(x: float) -> float:
     """Mirror of Sobotka AgX.py `open_domain_to_normalized_log2`."""
     import math
+
     if x <= 0.0:
         x = 2.2250738585072014e-308  # numpy.finfo(float).eps surrogate
     log_v = math.log2(x / MID_GRAY)
@@ -457,7 +469,7 @@ def sanity_check(lut: list[float]) -> None:
     # 4. Monotonicity (cumulative max is applied in build_lut; just verify).
     for i in range(1, LUT_SIZE):
         assert lut[i] >= lut[i - 1] - 1e-9, (
-            f"non-monotone LUT at {i}: {lut[i-1]:.6f} → {lut[i]:.6f}"
+            f"non-monotone LUT at {i}: {lut[i - 1]:.6f} → {lut[i]:.6f}"
         )
 
     # 5. INSET / OUTSET row-sum = 1 (neutral preservation). This is *the*
@@ -479,7 +491,7 @@ def main() -> int:
     # intentionally left to the existing AgX-derivation workflow — see the
     # codegen.sh note). At least one output flag is required (checked below).
     p.add_argument("--bin", default=None, help="output .bin path (Rust raw-core)")
-    p.add_argument("--rs",  default=None, help="output coeffs.rs path")
+    p.add_argument("--rs", default=None, help="output coeffs.rs path")
     p.add_argument(
         "--apple-bin",
         required=False,

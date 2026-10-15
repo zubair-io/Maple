@@ -158,7 +158,9 @@
 ///   observation-count confidence; common weight scaling preserves the fit (#4628).
 /// - 30 — positive AMaZE chroma bounds require coherent target and sampled
 ///   surface support, preserving value-domain correction at colour edges (#4627).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 30;
+/// - 31 — AgX rolls off common highlight chroma above diffuse white while
+///   preserving the existing shadow/midtone ratio response (#4635).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 31;
 
 #[cfg(test)]
 mod tests {
