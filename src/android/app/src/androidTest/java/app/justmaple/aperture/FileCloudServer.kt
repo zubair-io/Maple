@@ -30,6 +30,7 @@ internal class FileCloudServer(private val directory: File) : Closeable {
     @Volatile var redeemEntered: java.util.concurrent.CountDownLatch? = null
     @Volatile var releaseRedeem: java.util.concurrent.CountDownLatch? = null
     @Volatile var logoutEntered = java.util.concurrent.CountDownLatch(1)
+    @Volatile var releaseLogout: java.util.concurrent.CountDownLatch? = null
     @Volatile var saveEntered: java.util.concurrent.CountDownLatch? = null
     @Volatile var releaseSave: java.util.concurrent.CountDownLatch? = null
     @Volatile var saveCount = 0
@@ -156,6 +157,7 @@ internal class FileCloudServer(private val directory: File) : Closeable {
             }
             "/api/auth/logout" -> {
                 logoutEntered.countDown()
+                check(releaseLogout?.await(10, java.util.concurrent.TimeUnit.SECONDS) != false)
                 json(200, JSONObject().put("ok", true))
             }
             else -> {

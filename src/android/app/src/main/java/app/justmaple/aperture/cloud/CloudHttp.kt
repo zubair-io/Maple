@@ -48,22 +48,22 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
     }
 
     // Logout and refresh share a lane: a refresh cannot publish tokens after removal.
-    fun disconnect(id: String): Unit =
-        synchronized(refreshLock) {
-            val current = credentials.servers().find { it.id == id } ?: return@synchronized
-            try {
-                request(
-                        id,
-                        "/api/auth/logout",
-                        "POST",
-                        JSONObject().put("refresh_token", current.refresh).toString(),
-                        mapOf("Content-Type" to "application/json"),
-                    )
-                    .requireSuccess()
-            } finally {
+    fun disconnect(id: String) {
+        val current =
+            synchronized(refreshLock) {
+                val server = credentials.servers().find { it.id == id } ?: return
                 credentials.remove(id)
+                server
             }
-        }
+        // Removal waits for any in-flight refresh and prevents later refreshes
+        // from publishing. Revoking its latest token needs no global HTTP lock.
+        publicPost(
+                current.origin,
+                "/api/auth/logout",
+                JSONObject().put("refresh_token", current.refresh),
+            )
+            .requireSuccess()
+    }
 
     private fun <T> authenticated(
         id: String,
