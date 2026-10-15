@@ -86,7 +86,7 @@ internal fun FloatingPhotoHeader(
                     MuiIconButton(
                         "Edit",
                         Icons.Outlined.Edit,
-                        enabled = !state.loading,
+                        enabled = state.documentLoaded && !state.loading,
                         onClick = model::edit,
                     )
                 Box {
@@ -130,7 +130,7 @@ internal fun FloatingPhotoHeader(
                         DropdownMenuItem(
                             text = { Text("Export photo") },
                             leadingIcon = { Icon(Icons.Outlined.IosShare, null) },
-                            enabled = !state.loading && !state.rendering,
+                            enabled = state.canChangeMetadata,
                             onClick = {
                                 menu = false
                                 onExport()

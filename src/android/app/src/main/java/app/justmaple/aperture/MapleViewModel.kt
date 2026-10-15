@@ -218,9 +218,11 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
             val nextMode =
                 if (state.value.mode == PhotoMode.Edit) PhotoMode.Edit else PhotoMode.Preview
             val token = ++generation
+            baseline = null
             mutable.update {
                 it.copy(
                     selected = photo,
+                    documentLoaded = false,
                     mode = nextMode,
                     canResetRawOnlySliders = false,
                     loading = true,
@@ -244,6 +246,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                 mutable.update {
                     it.copy(
                         document = loaded.document,
+                        documentLoaded = true,
                         loading = false,
                         values = emptyMap(),
                         canUndo = false,
@@ -258,7 +261,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun edit() {
-        if (state.value.loading) return
+        if (!state.value.documentLoaded || state.value.loading) return
         viewModelScope.launch {
             mutable.update { it.copy(mode = PhotoMode.Edit) }
             startEditor(generation)
@@ -418,7 +421,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun attribute(name: String, value: String?) {
-        if (state.value.loading || state.value.rendering || state.value.selected == null) return
+        if (!state.value.canChangeMetadata) return
         val editing = state.value.mode == PhotoMode.Edit && state.value.values.isNotEmpty()
         if (editing) beginGesture()
         mutable.update { it.copy(document = it.document.withAttribute(name, value), dirty = true) }
@@ -437,7 +440,8 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
             saveLock.lock()
             try {
                 val photo = state.value.selected ?: return@launch
-                mutable.update { it.copy(loading = true) }
+                baseline = null
+                mutable.update { it.copy(loading = true, documentLoaded = false) }
                 val loaded = library.loadSidecar(photo)
                 val token = ++generation
                 renderer.invalidateDraws()
@@ -449,6 +453,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                 mutable.update {
                     it.copy(
                         document = loaded.document,
+                        documentLoaded = true,
                         loading = false,
                         dirty = false,
                         error = null,
@@ -521,6 +526,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
             val snapshot = state.value
             val photo = snapshot.selected ?: return true
             if (!snapshot.dirty) return true
+            check(snapshot.documentLoaded) { "Reload the photo before saving edits" }
             mutable.update { it.copy(saving = true) }
             withContext(NonCancellable) {
                 val result = library.save(photo, snapshot.document, baseline)
@@ -549,7 +555,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun export(destination: Uri, xmp: Boolean) {
         check(flush()) { "Save the sidecar before exporting" }
         val snapshot = state.value
-        check(!snapshot.loading) { "Wait for the photo to finish loading before exporting" }
+        check(snapshot.documentLoaded && !snapshot.loading) { "Load the photo before exporting" }
         val photo = snapshot.selected ?: error("Choose a photo")
         PhotoExport(getApplication(), library).write(photo, snapshot.document, destination, xmp)
     }

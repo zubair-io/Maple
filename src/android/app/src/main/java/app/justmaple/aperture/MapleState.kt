@@ -19,6 +19,7 @@ data class MapleState(
     val document: XmpDocument = XmpDocument(),
     val values: Map<String, Float> = emptyMap(),
     val loading: Boolean = false,
+    val documentLoaded: Boolean = false,
     val rendering: Boolean = false,
     val saving: Boolean = false,
     val dirty: Boolean = false,
@@ -30,8 +31,11 @@ data class MapleState(
     val cloudSigningIn: Boolean = false,
     val cloudConnectionsVersion: Int = 0,
 ) {
+    val canChangeMetadata: Boolean
+        get() = selected != null && documentLoaded && !loading && !rendering
+
     val canEdit: Boolean
-        get() = mode == PhotoMode.Edit && !loading && !rendering && values.isNotEmpty()
+        get() = mode == PhotoMode.Edit && canChangeMetadata && values.isNotEmpty()
 }
 
 /** Breadcrumbs come from actual provider listings; document IDs can be opaque. */
