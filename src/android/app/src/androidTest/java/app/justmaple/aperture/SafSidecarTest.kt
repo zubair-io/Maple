@@ -135,6 +135,30 @@ class SafSidecarTest {
             context.contentResolver.openInputStream(photo.uri)!!.use {
                 assertArrayEquals(original, it.readBytes())
             }
+            // MediaStore and DocumentsUI expose this same inode through different
+            // authorities. Neither JPEG nor XMP export may truncate either alias.
+            for (xmp in listOf(false, true)) {
+                val rejected =
+                    assertThrows(IllegalStateException::class.java) {
+                        runBlocking { model.export(media, xmp) }
+                    }
+                assertTrue(rejected.message.orEmpty().contains("Originals"))
+                context.contentResolver.openInputStream(media)!!.use {
+                    assertArrayEquals(original, it.readBytes())
+                }
+            }
+            compose.runOnIdle { model.openSingle(media) }
+            compose.waitUntil(30_000) {
+                model.state.value.selected?.uri == media && !model.state.value.loading
+            }
+            for (xmp in listOf(false, true)) {
+                assertThrows(IllegalStateException::class.java) {
+                    runBlocking { model.export(photo.uri, xmp) }
+                }
+                context.contentResolver.openInputStream(photo.uri)!!.use {
+                    assertArrayEquals(original, it.readBytes())
+                }
+            }
         } finally {
             folder?.let { selected ->
                 val preferences = context.getSharedPreferences("maple-library", 0)

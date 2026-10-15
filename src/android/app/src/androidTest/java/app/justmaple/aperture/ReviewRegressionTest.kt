@@ -25,6 +25,7 @@ class ReviewRegressionTest {
                     "image/jpeg" to true,
                     "image/png" to true,
                     "image/x-canon-cr2" to true,
+                    "image/x-canon-crw" to false,
                     "image/gif" to false,
                     "image/bmp" to false,
                     "image/svg+xml" to false,
@@ -48,7 +49,7 @@ class ReviewRegressionTest {
     @Test
     fun rasterRejectsRawSlidersAndRecoversAnOldIncompatibleSidecar() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val original = File(context.filesDir, "review-recovery.png")
+        val original = File.createTempFile("review-recovery-", ".png", context.filesDir)
         val bitmap =
             android.graphics.Bitmap.createBitmap(80, 60, android.graphics.Bitmap.Config.ARGB_8888)
         bitmap.eraseColor(android.graphics.Color.rgb(110, 135, 150))

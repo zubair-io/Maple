@@ -78,7 +78,7 @@ class PhotoLibrary(private val context: Context) {
             val entries = local.list(folder, fresh = true)
             LibraryListing(
                 entries
-                    .filter { it.directory }
+                    .filter { it.directory && !it.name.startsWith(".") }
                     .map { Folder(it.uri, it.name) }
                     .sortedBy { it.name.lowercase() },
                 entries
@@ -91,6 +91,12 @@ class PhotoLibrary(private val context: Context) {
                     }
                     .sortedBy { it.name.lowercase() },
             )
+        }
+
+    suspend fun folders(folder: Uri): List<Folder> =
+        withContext(Dispatchers.IO) {
+            if (CloudLibrary.isCloud(folder)) cloud.list(folder).folders.filter { it.name != ".." }
+            else local.folders(folder)
         }
 
     suspend fun single(uri: Uri): Photo =

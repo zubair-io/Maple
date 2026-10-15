@@ -11,6 +11,7 @@ enum class PhotoMode {
 data class MapleState(
     val sources: List<Folder> = emptyList(),
     val folder: Folder? = null,
+    val folderTrail: List<Folder> = emptyList(),
     val folders: List<Folder> = emptyList(),
     val photos: List<Photo> = emptyList(),
     val selected: Photo? = null,
@@ -28,3 +29,11 @@ data class MapleState(
     val cloudSigningIn: Boolean = false,
     val cloudConnectionsVersion: Int = 0,
 )
+
+/** Breadcrumbs come from actual provider listings; document IDs can be opaque. */
+internal fun MapleState.trailTo(folder: Folder, ancestors: List<Folder>?): List<Folder> {
+    val known = folderTrail.indexOfFirst { it.uri == folder.uri }
+    if (ancestors == null && known >= 0) return folderTrail.take(known + 1)
+    val parent = ancestors ?: if (folders.any { it.uri == folder.uri }) folderTrail else emptyList()
+    return parent + folder
+}

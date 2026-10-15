@@ -26,6 +26,19 @@ internal class LocalDocuments(private val context: Context) {
                 ?.let {
                     return it.second
                 }
+        val entries = query(folder)
+        snapshot = folder to entries
+        return entries
+    }
+
+    // Sidebar expansion must not evict the active grid's sibling snapshot.
+    fun folders(folder: Uri): List<Folder> =
+        query(folder)
+            .filter { it.directory && !it.name.startsWith(".") }
+            .map { Folder(it.uri, it.name) }
+            .sortedBy { it.name.lowercase() }
+
+    private fun query(folder: Uri): List<LocalDocument> {
         val columns =
             arrayOf(
                 DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -56,7 +69,6 @@ internal class LocalDocuments(private val context: Context) {
                     )
                 }
             } ?: error("Folder permission is unavailable")
-        snapshot = folder to entries
         return entries
     }
 

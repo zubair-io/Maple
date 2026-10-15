@@ -45,7 +45,12 @@ cargo test --manifest-path native/Cargo.toml --lib
 Device tests open a committed RAW and a real raster, render with Vulkan,
 change exposure/white balance, save and undo actual XMP files, recreate the
 activity, export JPEG, and check that original bytes are unchanged. They also
-cover supplementary Unicode and rejection of exports targeting an original.
+cover supplementary Unicode and rejection of exports targeting an original,
+including MediaStore/DocumentsUI aliases in both directions. Exports open a
+non-truncating read/write descriptor, compare device/inode identity, and only then
+truncate/write through that same descriptor. Providers without regular seekable
+descriptors are rejected before writing; JPEG rendering finishes before the
+export destination is touched. See Android’s [file-descriptor API](<https://developer.android.com/reference/android/content/ContentResolver#openFileDescriptor(android.net.Uri,%20java.lang.String)>).
 Editor screenshots are written to `Download/MapleVerification` on the test device.
 Host native tests check RAW and raster GPU output against the CPU reference
 (maximum two byte levels), generated field access, and stable GPU pool
@@ -122,11 +127,28 @@ bitmap, outside the Rust render loop. See [PixelCopy](https://developer.android.
 The inspector can be hidden, and resetting its current slider group creates one
 undo step. Auto/Neutral profiles remain available under More photo actions.
 
-Library uses floating source/action controls and a page title. Settings is a
+Library uses floating source/action controls and a page title. Folder browsing
+matches Maple’s 180×64 tiles (4 dp radius, Maple’s rounded primary folder glyph, 14 dp
+side padding and single-line Lato labels) in a separate wrapping block above
+the photo grid. Tile sizes stay fixed when photo thumbnail sizes change. The
+Folders navigation section uses lazy nested rows with 16 dp indentation,
+independent disclosure controls, active-row fill/2 dp primary border, and
+auto-reveals the selected folder after grid navigation. Parent navigation uses
+actual provider-listing ancestry, including providers with opaque document IDs.
+Hidden dot folders stay out of Browse and navigation. Local folders and cloud
+libraries share the tree; failed listings expose retry. The canonical rounded
+folder/chevron paths are exported from MapleUI’s bundled font by
+`scripts/sync-navigation-glyphs.py` (Python fontTools). Lato and icon licenses
+are bundled in the APK.
+
+Settings is a
 centered grouped sheet with working General, Cloud, Sources and About panes.
 The walkthrough captures Library, Preview, Edit, Settings and Cloud Settings;
 it verifies capsule/inspector separation, panel collapse/reopen, real histogram
 readiness, ratings (including authored decimals), reset/undo and nested navigation.
+`FolderNavigationTest` opens a real OS document folder, creates nested/hidden
+folders and long names, and verifies tile layout, selection/reveal, independent
+disclosure, parent/back navigation and original bytes.
 Advanced editor tools, remaining Settings destinations, canvas gestures and exact
 platform glass treatment remain tracked in #4623.
 

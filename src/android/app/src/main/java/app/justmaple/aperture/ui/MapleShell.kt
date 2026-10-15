@@ -5,12 +5,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -18,15 +12,10 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.justmaple.aperture.*
-import app.justmaple.aperture.data.Folder
-import app.justmaple.aperture.data.Photo
 import kotlinx.coroutines.launch
 
 @Composable
@@ -41,6 +30,12 @@ fun MapleShell(model: MapleViewModel) {
     var info by rememberSaveable { mutableStateOf(false) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val folderTree = remember(model.library, scope) { FolderTree(model.library, scope) }
+    LaunchedEffect(state.sources, state.folder, state.folderTrail, state.folders, state.loading) {
+        folderTree.syncSources(state.sources)
+        if (!state.loading) state.folder?.let { folderTree.seed(it, state.folders) }
+        folderTree.reveal(state.folderTrail)
+    }
     val folderPicker =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) {
             it?.let(model::remember)
@@ -68,12 +63,16 @@ fun MapleShell(model: MapleViewModel) {
     val inlineInfo = tablet && configuration.screenWidthDp >= 1000
     val browsing = state.mode == PhotoMode.Browse
     BackHandler(!browsing) { model.back() }
+    BackHandler(browsing && drawer.isClosed && state.folderTrail.size > 1) {
+        model.browse(state.folderTrail[state.folderTrail.lastIndex - 1])
+    }
     val sidebar: @Composable () -> Unit = {
-        Sources(
+        FolderSources(
             state,
+            folderTree,
             onSelect = {
                 tab = "Library"
-                model.browse(it)
+                model.browse(it.folder, it.ancestors)
                 scope.launch { drawer.close() }
             },
             onFolder = {
@@ -119,7 +118,9 @@ fun MapleShell(model: MapleViewModel) {
                 Column(Modifier.weight(1f)) {
                     if (browsing) {
                         LibraryHeader(
-                            if (tab == "Library") state.folder?.name ?: "Library" else tab,
+                            if (tab == "Library")
+                                state.folder?.let { "Library — ${it.name}" } ?: "Library"
+                            else tab,
                             tablet,
                             onSources = {
                                 if (tablet && configuration.screenWidthDp >= 1000)
@@ -301,158 +302,6 @@ fun MapleShell(model: MapleViewModel) {
         )
     if (cloudDialog || state.cloudSigningIn)
         CloudConnectionDialog(model, state.cloudSigningIn) { cloudDialog = false }
-}
-
-@Composable
-private fun Sources(
-    state: MapleState,
-    onSelect: (Folder) -> Unit,
-    onFolder: () -> Unit,
-    onPhoto: () -> Unit,
-    onCloud: () -> Unit,
-    onClose: () -> Unit,
-) {
-    Column(Modifier.fillMaxSize().padding(vertical = 24.dp)) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Maple", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-            MuiIconButton("Collapse sources", Icons.Outlined.Menu, onClick = onClose)
-        }
-        MuiSection("Library") {
-            Row(
-                Modifier.fillMaxWidth().clickable(onClick = onPhoto).padding(vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Outlined.Image, null)
-                Spacer(Modifier.width(12.dp))
-                Text("Open photo…")
-            }
-            Row(
-                Modifier.fillMaxWidth().clickable(onClick = onFolder).padding(vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Outlined.CreateNewFolder, null)
-                Spacer(Modifier.width(12.dp))
-                Text("Add folder…")
-            }
-        }
-        TextButton(onCloud, Modifier.padding(horizontal = 8.dp)) {
-            Icon(Icons.Outlined.Cloud, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Add Maple Cloud server")
-        }
-        Text(
-            "SOURCES",
-            style = MaterialTheme.typography.labelSmall,
-            color = MapleColors.muted,
-            modifier = Modifier.padding(20.dp),
-        )
-        LazyColumn {
-            items(state.sources, key = { it.uri.toString() }) { folder ->
-                Row(
-                    Modifier.fillMaxWidth()
-                        .background(
-                            if (folder.uri == state.folder?.uri) MapleColors.raised
-                            else MapleColors.sidebar
-                        )
-                        .drawBehind {
-                            if (folder.uri == state.folder?.uri)
-                                drawLine(
-                                    MapleColors.primary,
-                                    Offset.Zero,
-                                    Offset(0f, size.height),
-                                    2.dp.toPx(),
-                                )
-                        }
-                        .selectable(
-                            folder.uri == state.folder?.uri,
-                            role = Role.Tab,
-                            onClick = { onSelect(folder) },
-                        )
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        if (app.justmaple.aperture.cloud.CloudLibrary.isCloud(folder.uri))
-                            Icons.Outlined.Cloud
-                        else Icons.Outlined.Folder,
-                        null,
-                        tint = MapleColors.muted,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(folder.name)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BrowseGrid(
-    model: MapleViewModel,
-    state: MapleState,
-    photos: List<Photo>,
-    folders: List<Folder>,
-    folderPicker: () -> Unit,
-) {
-    var columns by rememberSaveable { mutableIntStateOf(3) }
-    if (state.loading)
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = MapleColors.primary)
-        }
-    else if (photos.isEmpty() && folders.isEmpty())
-        MuiEmptyState(
-            if (state.folder == null) "Your library, in Maple" else "No photos here",
-            "Open a folder of photos to browse, rate, and develop.",
-            "Open folder",
-            folderPicker,
-        )
-    else
-        Column {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("${photos.size} photos", Modifier.weight(1f), color = MapleColors.muted)
-                MuiIconButton("Larger thumbnails", Icons.Outlined.Add, enabled = columns > 1) {
-                    columns--
-                }
-                MuiIconButton("Smaller thumbnails", Icons.Outlined.Remove, enabled = columns < 7) {
-                    columns++
-                }
-            }
-            LazyVerticalGrid(
-                GridCells.Fixed(columns),
-                contentPadding = PaddingValues(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                items(folders, key = { it.uri.toString() }) { folder ->
-                    Column(
-                        Modifier.aspectRatio(1f)
-                            .background(MapleColors.raised)
-                            .clickable { model.browse(folder) }
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.Center,
-                    ) {
-                        Icon(Icons.Outlined.Folder, null)
-                        Spacer(Modifier.height(8.dp))
-                        Text(folder.name, maxLines = 2)
-                    }
-                }
-                items(photos, key = { it.uri.toString() }) { photo ->
-                    PhotoThumbnail(
-                        photo,
-                        model.library,
-                        Modifier.aspectRatio(1f).clickable { model.open(photo) },
-                        revision = state.document.original.takeIf { photo == state.selected },
-                    )
-                }
-            }
-        }
 }
 
 @Composable

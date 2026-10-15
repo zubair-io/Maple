@@ -7,7 +7,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.justmaple.aperture.data.*
 import app.justmaple.aperture.generated.AdjustmentFields
-import java.io.File
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -130,6 +129,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         mode = PhotoMode.Browse,
                         folder = null,
+                        folderTrail = emptyList(),
                         photos = emptyList(),
                         folders = emptyList(),
                         selected = null,
@@ -161,7 +161,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
             .onFailure(::fail)
     }
 
-    fun browse(folder: Folder) {
+    fun browse(folder: Folder, ancestors: List<Folder>? = null) {
         viewModelScope.launch {
             if (!flush()) return@launch
             val token = ++generation
@@ -169,6 +169,9 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     loading = true,
                     folder = folder,
+                    folderTrail = it.trailTo(folder, ancestors),
+                    folders = emptyList(),
+                    photos = emptyList(),
                     mode = PhotoMode.Browse,
                     selected = null,
                     error = null,
@@ -191,7 +194,14 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val photo = library.single(uri)
-                mutable.update { it.copy(photos = listOf(photo)) }
+                mutable.update {
+                    it.copy(
+                        photos = listOf(photo),
+                        folder = null,
+                        folderTrail = emptyList(),
+                        folders = emptyList(),
+                    )
+                }
                 open(photo)
             } catch (failure: Exception) {
                 fail(failure)
@@ -499,45 +509,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         check(flush()) { "Save the sidecar before exporting" }
         val snapshot = state.value
         val photo = snapshot.selected ?: error("Choose a photo")
-        check(destination != photo.uri) { "Choose an export destination other than the original" }
-        if (destination.scheme == "file" && photo.uri.scheme == "file") {
-            check(File(destination.path!!).canonicalPath != File(photo.uri.path!!).canonicalPath) {
-                "Originals cannot be overwritten"
-            }
-        }
-        if (
-            android.provider.DocumentsContract.isDocumentUri(getApplication(), destination) &&
-                android.provider.DocumentsContract.isDocumentUri(getApplication(), photo.uri)
-        ) {
-            check(
-                destination.authority != photo.uri.authority ||
-                    android.provider.DocumentsContract.getDocumentId(destination) !=
-                        android.provider.DocumentsContract.getDocumentId(photo.uri)
-            ) {
-                "Originals cannot be overwritten"
-            }
-        }
-        val context = getApplication<Application>()
-        withContext(Dispatchers.IO) {
-            context.contentResolver.openOutputStream(destination, "wt")?.use { output ->
-                if (xmp) output.write(snapshot.document.serialize().toByteArray(Charsets.UTF_8))
-                else {
-                    val temp = File(context.cacheDir, "export-${java.util.UUID.randomUUID()}.jpg")
-                    try {
-                        library.withOriginal(photo) { source ->
-                            NativeBridge.export(
-                                source.absolutePath,
-                                snapshot.document.serialize(),
-                                temp.absolutePath,
-                            )
-                        }
-                        temp.inputStream().use { it.copyTo(output) }
-                    } finally {
-                        temp.delete()
-                    }
-                }
-            } ?: error("Export destination is unavailable")
-        }
+        PhotoExport(getApplication(), library).write(photo, snapshot.document, destination, xmp)
     }
 
     override fun onCleared() {

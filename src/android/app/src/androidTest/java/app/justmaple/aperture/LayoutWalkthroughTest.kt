@@ -1,8 +1,6 @@
 package app.justmaple.aperture
 
-import android.content.ContentValues
 import android.net.Uri
-import android.provider.MediaStore
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
@@ -35,7 +33,7 @@ class LayoutWalkthroughTest {
         compose.waitUntil(30_000) {
             compose.onAllNodesWithContentDescription(source.name).fetchSemanticsNodes().isNotEmpty()
         }
-        capture("01-library")
+        compose.captureWalkthrough("01-library")
         compose.onNodeWithContentDescription(source.name).performClick()
         compose.onNodeWithContentDescription("Edit").assertIsDisplayed()
         val window = compose.onRoot().fetchSemanticsNode().boundsInRoot
@@ -57,7 +55,7 @@ class LayoutWalkthroughTest {
         compose.onNodeWithContentDescription("Rate 4 stars").assertIsNotSelected()
         compose.onNodeWithContentDescription("Rate 3 stars").performClick()
         compose.onNodeWithContentDescription("Rate 3 stars").assertIsNotSelected()
-        capture("02-preview")
+        compose.captureWalkthrough("02-preview")
         compose.onNodeWithContentDescription("Edit").performClick()
         compose.waitUntil(60_000) {
             model.state.value.mode == PhotoMode.Edit &&
@@ -72,7 +70,7 @@ class LayoutWalkthroughTest {
                 .fetchSemanticsNode()
                 .config[SemanticsProperties.StateDescription] == "Ready"
         }
-        capture("03-edit")
+        compose.captureWalkthrough("03-edit")
         if (context.resources.configuration.smallestScreenWidthDp >= 600) {
             val header = compose.onNodeWithTag("photo-header").fetchSemanticsNode().boundsInRoot
             val panel = compose.onNodeWithTag("adjustments-panel").fetchSemanticsNode().boundsInRoot
@@ -113,7 +111,7 @@ class LayoutWalkthroughTest {
         compose.onNodeWithContentDescription("Back").performClick()
         compose.onNodeWithContentDescription("Settings").performClick()
         compose.onNodeWithText("Cloud").assertIsDisplayed()
-        capture("04-settings")
+        compose.captureWalkthrough("04-settings")
         compose.onNode(hasText("General") and hasClickAction()).performClick()
         compose.onNodeWithText("Show filmstrip").assertIsDisplayed()
         compose.onNodeWithContentDescription("Back to Settings").performClick()
@@ -123,41 +121,9 @@ class LayoutWalkthroughTest {
                 hasText("Add Maple Cloud server") and hasAnyAncestor(hasTestTag("settings-sheet"))
             )
             .assertIsDisplayed()
-        capture("05-settings-cloud")
+        compose.captureWalkthrough("05-settings-cloud")
         compose.onNodeWithContentDescription("Close Settings").performClick()
         compose.onNodeWithTag("settings-sheet").assertDoesNotExist()
         assertFalse(model.state.value.dirty)
-    }
-
-    private fun capture(name: String) {
-        compose.waitForIdle()
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        instrumentation.uiAutomation.waitForIdle(350, 5_000)
-        val context = instrumentation.targetContext
-        val size = context.resources.configuration
-        val display = "${size.screenWidthDp}x${size.screenHeightDp}"
-        val values =
-            ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, "$display-$name.png")
-                put(MediaStore.Downloads.MIME_TYPE, "image/png")
-                put(MediaStore.Downloads.RELATIVE_PATH, "Download/MapleWalkthrough")
-                put(MediaStore.Downloads.IS_PENDING, 1)
-            }
-        val uri =
-            context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)!!
-        val frame = instrumentation.uiAutomation.takeScreenshot()
-        try {
-            context.contentResolver.openOutputStream(uri)!!.use {
-                assertTrue(frame.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it))
-            }
-            context.contentResolver.update(
-                uri,
-                ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) },
-                null,
-                null,
-            )
-        } finally {
-            frame.recycle()
-        }
     }
 }
