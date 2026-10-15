@@ -1,4 +1,5 @@
 //! Android native binding. Colour and geometry remain in raw-core/raw-gpu.
+mod cancellation;
 mod fields;
 mod film;
 mod platform_raster;
@@ -215,15 +216,76 @@ pub unsafe extern "C" fn maple_android_output_primaries(handle: *mut c_void) -> 
 
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub unsafe extern "C" fn maple_android_render(handle: *mut c_void) -> i32 {
+pub unsafe extern "C" fn maple_android_render(handle: *mut c_void, cancel: *const c_void) -> i32 {
     guarded(-1, || {
-        handle
+        let presented = handle
             .cast::<Session>()
             .as_mut()
             .ok_or("Closed editor")?
-            .render()?;
+            .render(cancellation::token(cancel)?)?;
+        Ok(if presented { 0 } else { 1 })
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_preparation_new(
+    handle: *mut c_void,
+    output: *mut *mut c_void,
+) -> i32 {
+    guarded(-1, || {
+        let session = handle.cast::<Session>().as_ref().ok_or("Closed editor")?;
+        *output = session
+            .preparation()
+            .map_or(ptr::null_mut(), |work| Box::into_raw(Box::new(work)).cast());
         Ok(0)
     })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_preparation_run(
+    handle: *mut c_void,
+    cancel: *const c_void,
+) -> i32 {
+    guarded(-1, || {
+        let work = handle
+            .cast::<preview::Preparation>()
+            .as_mut()
+            .ok_or("Closed preparation")?;
+        Ok(if work.run(cancellation::token(cancel)?)? {
+            0
+        } else {
+            1
+        })
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_preparation_apply(
+    session: *mut c_void,
+    work: *mut c_void,
+    cancel: *const c_void,
+) -> i32 {
+    guarded(-1, || {
+        let session = session.cast::<Session>().as_mut().ok_or("Closed editor")?;
+        let work = work
+            .cast::<preview::Preparation>()
+            .as_mut()
+            .ok_or("Closed preparation")?;
+        Ok(
+            if session.apply_preparation(work, cancellation::token(cancel)?)? {
+                0
+            } else {
+                1
+            },
+        )
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_preparation_free(handle: *mut c_void) {
+    if !handle.is_null() {
+        drop(Box::from_raw(handle.cast::<preview::Preparation>()));
+    }
 }
 
 #[no_mangle]

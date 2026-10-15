@@ -4,6 +4,8 @@ import android.view.Surface
 import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.Closeable
 import java.util.concurrent.Executors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -15,8 +17,17 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
                 Thread(null, task, "Maple render", 16L * 1024 * 1024)
             }
             .asCoroutineDispatcher()
+    private val preparationDispatcher =
+        Executors.newSingleThreadExecutor { task ->
+                Thread(null, task, "Maple refine", 16L * 1024 * 1024)
+            }
+            .asCoroutineDispatcher()
     private var handle = 0L
     private var renderer = 0L
+    private val drawLock = Any()
+    private var cancellation = NativeBridge.createCancellation()
+    private var refinementCancellation = 0L
+    private var appliedRevision = -1
 
     data class SurfaceBinding(
         val surface: Surface?,
@@ -36,7 +47,22 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
     var revision = 0
         private set
 
-    fun invalidateDraws(): Int = ++revision
+    fun invalidateDraws(): Int =
+        synchronized(drawLock) {
+            revision += 1
+            NativeBridge.setCancellation(cancellation, true)
+            NativeBridge.setCancellation(refinementCancellation, true)
+            revision
+        }
+
+    private fun beginDraw(expectedRevision: Int): Boolean =
+        synchronized(drawLock) {
+            if (cancellation == 0L || expectedRevision != revision) false
+            else {
+                NativeBridge.setCancellation(cancellation, false)
+                true
+            }
+        }
 
     private var modelXml = ""
     private var values = emptyMap<String, Float>()
@@ -87,7 +113,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
                 binding.wideColor,
             )
             attachedSurface = binding.takeIf { it.surface != null }
-            renderCurrent()
+            renderCurrent(revision)
         } catch (failure: Exception) {
             // A replaced SurfaceView can lose its queue during configuration.
             // Only that retired binding is discarded; current failures surface.
@@ -95,21 +121,31 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
         }
     }
 
-    private fun renderCurrent() {
+    private fun renderCurrent(expectedRevision: Int) {
         val binding = attachedSurface ?: return
         if (binding !== currentSurface || binding.surface?.isValid != true) return
+        if (!beginDraw(expectedRevision)) return
         try {
-            NativeBridge.render(handle)
-            if (binding === currentSurface && !hasPresented) {
+            val presented = NativeBridge.render(handle, cancellation)
+            if (
+                presented &&
+                    expectedRevision == revision &&
+                    binding === currentSurface &&
+                    !hasPresented
+            ) {
                 hasPresented = true
                 onPresented(epoch)
             }
         } catch (failure: Exception) {
-            if (binding === currentSurface) throw failure
+            if (expectedRevision == revision && binding === currentSurface) throw failure
         }
     }
 
-    suspend fun draw(next: Map<String, Float>, expectedRevision: Int, xml: String) =
+    suspend fun draw(
+        next: Map<String, Float>,
+        expectedRevision: Int,
+        xml: String,
+    ) =
         withContext(dispatcher) {
             if (handle == 0L || expectedRevision != revision) return@withContext
             if (xml != modelXml) {
@@ -134,8 +170,54 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
                 if (values[field.name] != value) NativeBridge.setField(handle, field.index, value)
             }
             values = next
-            renderCurrent()
+            appliedRevision = expectedRevision
+            renderCurrent(expectedRevision)
         }
+
+    suspend fun refine(expectedRevision: Int) {
+        var work = 0L
+        var flag = 0L
+        try {
+            withContext(dispatcher) {
+                if (
+                    handle != 0L &&
+                        expectedRevision == revision &&
+                        appliedRevision == expectedRevision
+                )
+                    work = NativeBridge.createPreparation(handle)
+            }
+            if (work == 0L) return
+            synchronized(drawLock) {
+                if (expectedRevision == revision && cancellation != 0L) {
+                    flag = NativeBridge.createCancellation()
+                    refinementCancellation = flag
+                }
+            }
+            if (flag == 0L) return
+            val ready =
+                withContext(preparationDispatcher) { NativeBridge.runPreparation(work, flag) }
+            if (ready)
+                withContext(dispatcher) {
+                    if (
+                        handle != 0L &&
+                            expectedRevision == revision &&
+                            appliedRevision == expectedRevision &&
+                            NativeBridge.applyPreparation(handle, work, flag)
+                    )
+                        renderCurrent(expectedRevision)
+                }
+        } finally {
+            // withContext does not leave a synchronous JNI call running behind
+            // this cleanup, including prompt coroutine cancellation on return.
+            withContext(NonCancellable + Dispatchers.Default) {
+                NativeBridge.closePreparation(work)
+                synchronized(drawLock) {
+                    if (refinementCancellation == flag) refinementCancellation = 0L
+                    NativeBridge.closeCancellation(flag)
+                }
+            }
+        }
+    }
 
     suspend fun shutdown() = withContext(dispatcher) { release() }
 
@@ -161,6 +243,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
     }
 
     override fun close() {
+        invalidateDraws()
         // Enqueue teardown behind any native call; never close a rendering handle.
         dispatcher.executor.execute {
             try {
@@ -168,8 +251,13 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
             } finally {
                 if (renderer != 0L) NativeBridge.closeRenderer(renderer)
                 renderer = 0L
+                synchronized(drawLock) {
+                    NativeBridge.closeCancellation(cancellation)
+                    cancellation = 0L
+                }
             }
         }
         dispatcher.close()
+        preparationDispatcher.close()
     }
 }

@@ -14,13 +14,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-private data class DrawRequest(
-    val generation: Int,
-    val revision: Int,
-    val values: Map<String, Float>,
-    val xml: String,
-)
-
 /** Incremental Android parity work is tracked by #4623. No simulated sources. */
 class MapleViewModel(application: Application) : AndroidViewModel(application) {
     val library = PhotoLibrary(application)
@@ -44,6 +37,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     private val saveLock = kotlinx.coroutines.sync.Mutex()
     private val history = EditHistory()
     private val draws = Channel<DrawRequest>(Channel.CONFLATED)
+    private var refineJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -51,6 +45,8 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
                 if (request.generation != generation) continue
                 try {
                     renderer.draw(request.values, request.revision, request.xml)
+                    if (request.generation == generation && request.revision == renderer.revision)
+                        scheduleRefine(request)
                 } catch (failure: Exception) {
                     if (failure is CancellationException) throw failure
                     if (request.generation == generation && request.revision == renderer.revision)
@@ -350,7 +346,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         mutable.update {
             it.copy(values = values, document = document, dirty = true)
         }
-        draws.trySend(DrawRequest(generation, renderer.revision, values, renderXml))
+        queueDraw(values)
         scheduleSave()
     }
 
@@ -368,8 +364,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     private fun restore(value: EditSnapshot) {
         mutable.update { it.copy(values = value.values, document = value.document, dirty = true) }
         renderXml = value.document.serialize()
-        val revision = renderer.invalidateDraws()
-        draws.trySend(DrawRequest(generation, revision, value.values, renderXml))
+        queueDraw(value.values)
         historyState()
         scheduleSave()
     }
@@ -414,8 +409,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         scheduleSave()
         if (state.value.mode == PhotoMode.Edit) {
             renderXml = state.value.document.serialize()
-            val revision = renderer.invalidateDraws()
-            draws.trySend(DrawRequest(generation, revision, state.value.values, renderXml))
+            queueDraw(state.value.values)
         }
     }
 
@@ -475,6 +469,24 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     fun setFilmstrip(value: Boolean) {
         preferences.edit().putBoolean("filmstrip", value).apply()
         mutable.update { it.copy(showFilmstrip = value) }
+    }
+
+    private fun queueDraw(values: Map<String, Float>) {
+        refineJob?.cancel()
+        draws.trySend(DrawRequest(generation, renderer.invalidateDraws(), values, renderXml))
+    }
+
+    private fun scheduleRefine(request: DrawRequest) {
+        refineJob = viewModelScope.launch {
+            delay(150)
+            try {
+                renderer.refine(request.revision)
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                if (request.generation == generation && request.revision == renderer.revision)
+                    fail(failure, "Could not refine photo")
+            }
+        }
     }
 
     private fun scheduleSave() {
@@ -544,6 +556,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        refineJob?.cancel()
         draws.close()
         renderer.close()
     }
