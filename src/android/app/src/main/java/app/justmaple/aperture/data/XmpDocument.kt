@@ -46,8 +46,12 @@ data class XmpDocument(
     fun attribute(name: String): String? {
         if (changes.containsKey(name)) return changes[name]
         return descriptions(original)
-            .flatMap { (tag, _) -> ATTRIBUTE.findAll(tag.value).toList() }
-            .lastOrNull { it.groupValues[1] == name }
+            .flatMap { (tag, scope) ->
+                ATTRIBUTE.findAll(tag.value)
+                    .filter { attributeName(it.groupValues[1], scope) == name }
+                    .toList()
+            }
+            .lastOrNull()
             ?.let { unescape(it.groupValues[3]) }
     }
 
@@ -71,7 +75,7 @@ data class XmpDocument(
             val stripped =
                 ATTRIBUTE.replace(tag.value) { match ->
                     when {
-                        match.groupValues[1] in owned -> ""
+                        attributeName(match.groupValues[1], scope) in owned -> ""
                         match.groupValues[1] == "xmlns:papp" &&
                             match.groupValues[3] == LEGACY_PAPP ->
                             match.value.replace(LEGACY_PAPP, NAMESPACES.getValue("papp"))
@@ -122,7 +126,7 @@ data class XmpDocument(
         private const val LEGACY_PAPP = "http://ns.justmaple.app/1.0/"
         private val DESCRIPTION =
             Regex(
-                "<!--.*?-->|<!\\[CDATA\\[.*?\\]\\]>|<\\?.*?\\?>|<rdf:Description\\b(?:[^>\"']|\"[^\"]*\"|'[^']*')*>",
+                "<!--.*?-->|<!\\[CDATA\\[.*?\\]\\]>|<\\?.*?\\?>|(<(?:[^\\s<>/!?=:\"']+:)?Description(?=[\\s/>])(?:[^>\"']|\"[^\"]*\"|'[^']*')*>)",
                 RegexOption.DOT_MATCHES_ALL,
             )
         private val NAMESPACES =
@@ -134,9 +138,21 @@ data class XmpDocument(
 
         private data class DescriptionScope(val bindings: Map<String, String>, val primary: Boolean)
 
+        private fun attributeName(name: String, scope: Map<String, String>): String {
+            val prefix = name.substringBefore(':')
+            val uri = scope[prefix]
+            val canonical =
+                NAMESPACES.entries
+                    .firstOrNull {
+                        it.value == uri || (it.key == "papp" && uri == LEGACY_PAPP)
+                    }
+                    ?.key
+            return if (canonical != null) "$canonical:${name.substringAfter(':')}"
+            else if (prefix in NAMESPACES) "" else name
+        }
+
         private fun descriptions(xml: String): List<Pair<MatchResult, Map<String, String>>> {
-            val tags =
-                DESCRIPTION.findAll(xml).filter { it.value.startsWith("<rdf:Description") }.toList()
+            val tags = DESCRIPTION.findAll(xml).filter { it.groupValues[1].isNotEmpty() }.toList()
             val scopes = descriptionBindings(xml)
             require(tags.size == scopes.size) { "Unsupported RDF description syntax" }
             return tags
@@ -165,13 +181,8 @@ data class XmpDocument(
                     if (parser.eventType == XmlPullParser.END_TAG && parser.depth == rdfDepth)
                         insideRdf = false
                     if (
-                        parser.eventType == XmlPullParser.START_TAG &&
-                            parser.prefix == "rdf" &&
-                            parser.name == "Description"
+                        parser.eventType == XmlPullParser.START_TAG && parser.name == "Description"
                     ) {
-                        require(parser.namespace == "http://www.w3.org/1999/02/22-rdf-syntax-ns#") {
-                            "Conflicting RDF namespace"
-                        }
                         add(
                             DescriptionScope(
                                 buildMap {
@@ -181,7 +192,10 @@ data class XmpDocument(
                                         }
                                     }
                                 },
-                                insideRdf && parser.depth == rdfDepth?.plus(1),
+                                insideRdf &&
+                                    parser.depth == rdfDepth?.plus(1) &&
+                                    parser.namespace ==
+                                        "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
                             )
                         )
                     }

@@ -80,6 +80,41 @@ class XmpDocumentTest {
         assertEquals("pick", result.attribute("papp:Flag"))
     }
 
+    @Test
+    fun namespaceAliasesRoundTripWithoutDuplicatingOwnedAttributes() {
+        val foreign =
+            "<f:Description xmlns:f='urn:foreign' xmp:Rating='1'>  untouched </f:Description>"
+        val nested = "<c:MaskGroup><r:Description c:Exposure2012='-2' /></c:MaskGroup>"
+        val source =
+            """<x:xmpmeta xmlns:x="adobe:ns:meta/"><r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:c="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:m="http://ns.justmaple.app/photo/1.0/" xmlns:xmp="http://ns.adobe.com/xap/1.0/"><r:Description c:Exposure2012="1" m:Profile="Neutral" xmp:Rating="4">$foreign$nested</r:Description></r:RDF></x:xmpmeta>"""
+        val imported = XmpDocument(source)
+        assertEquals("1", imported.attribute("crs:Exposure2012"))
+        assertEquals("Neutral", imported.attribute("papp:Profile"))
+        val edited =
+            roundTrip(imported.withField(AdjustmentFields.byName.getValue("exposure"), .75f))
+        assertEquals("0.75", edited.attribute("crs:Exposure2012"))
+        assertEquals("Neutral", edited.attribute("papp:Profile"))
+        assertEquals(4, edited.rating)
+        assertTrue(edited.original.contains(foreign))
+        assertTrue(edited.original.contains(nested))
+        assertFalse(edited.original.contains("c:Exposure2012=\"1\""))
+        val reset = roundTrip(edited.withField(AdjustmentFields.byName.getValue("exposure"), 0f))
+        assertNull(reset.attribute("crs:Exposure2012"))
+        assertTrue(reset.original.contains(nested))
+    }
+
+    @Test
+    fun defaultRdfNamespacePreservesLexicalDecoysAndForeignDescriptions() {
+        val retained =
+            "<!-- <Description xmp:Rating='1'/> --><![CDATA[<Description xmp:Rating='2'/>]]><f:Description xmlns:f='urn:foreign' xmp:Rating='3'/>"
+        val source =
+            """<RDF xmlns="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:xmp="http://ns.adobe.com/xap/1.0/"><Description xmp:Rating="4">$retained</Description></RDF>"""
+        assertEquals(4, XmpDocument(source).rating)
+        val edited = roundTrip(XmpDocument(source).withAttribute("xmp:Rating", "5"))
+        assertEquals(5, edited.rating)
+        assertTrue(edited.original.contains(retained))
+    }
+
     private fun roundTrip(document: XmpDocument): XmpDocument {
         val folder = Files.createTempDirectory("maple-xmp-").toFile()
         return try {

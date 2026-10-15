@@ -72,7 +72,9 @@ identity, so a reused share URI with changed metadata gets separate edits.
 Earlier URI-only private sidecars are retained and are not automatically assigned
 to a photo whose identity cannot be verified. Folder-adjacent sidecars are unaffected.
 The XMP writer patches owned attributes in the original XML, retaining untouched
-foreign bytes, and rejects external-write conflicts. SAF replacement writes a
+foreign bytes, resolves RDF and owned attributes by namespace, and rejects
+external-write conflicts. Failed sidecar loads block metadata, editing and export
+until a successful reload confirms that photo’s save baseline. SAF replacement writes a
 temporary sibling before publishing and retains the previous sidecar until the
 replacement succeeds. Provider rename semantics still need qualification on
 real external/SMB document providers before a release.

@@ -26,7 +26,7 @@ internal fun PreviewActions(model: MapleViewModel, state: MapleState) {
             MuiIconButton(
                 "Pick photo",
                 Icons.Outlined.Flag,
-                enabled = !state.loading,
+                enabled = state.canChangeMetadata,
                 selected = picked,
             ) {
                 model.attribute("papp:Flag", if (picked) null else "pick")
@@ -34,7 +34,7 @@ internal fun PreviewActions(model: MapleViewModel, state: MapleState) {
             for (rating in 1..5) MuiIconButton(
                 "Rate $rating stars",
                 Icons.Outlined.Star,
-                enabled = !state.loading,
+                enabled = state.canChangeMetadata,
                 selected = state.document.rating >= rating,
             ) {
                 model.attribute(
