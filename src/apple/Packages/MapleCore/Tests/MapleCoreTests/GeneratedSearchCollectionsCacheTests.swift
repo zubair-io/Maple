@@ -317,6 +317,35 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
     XCTAssertEqual(vm.covers["a"]?.id, "next-a", "the refresh brings the replacement")
   }
 
+  func test_aTrashLandingAsTheCacheRenders_isDroppedEvenWhenTheRefreshFails() async throws {
+    guard #available(macOS 26, iOS 26, tvOS 26, *) else {
+      throw XCTSkip("Task.immediate needs the OS 26 runtime")
+    }
+    let cache = ForYouCache(directory: directory)
+    await cache.write(
+      Self.snapshot(["a": "old-a", "b": "old-b"]), libraryID: Self.library, host: Self.host)
+    let vm = makeVM(CachedCardsStub(covers: [:]), cache: cache)
+    StubURLProtocol.responder = { _ in .failure(URLError(.notConnectedToInternet)) }
+    let host = Self.host
+    // Fires inside `show(cached)`. `Task.immediate` queues the forget on the
+    // cache actor before `load()` can make its next cache call, which is
+    // where a separate epoch read used to sit.
+    withObservationTracking {
+      _ = vm.collections
+    } onChange: {
+      Task.immediate {
+        await cache.forgetAsset(host: host, assetID: "old-a", absPath: "/p/old-a.dng")
+      }
+    }
+
+    await vm.load()
+    XCTAssertEqual(vm.covers["a"]?.id, "old-a", "the cache rendered before the trash landed")
+    await vm.dropTrashedCovers()
+
+    XCTAssertNil(vm.covers["a"], "the trashed cover is taken down although the server is down")
+    XCTAssertEqual(vm.covers["b"]?.id, "old-b")
+  }
+
   func test_aKeptViewModel_withNothingTrashed_doesNotRefetch() async {
     let cache = ForYouCache(directory: directory)
     let stub = CachedCardsStub(covers: ["a": "old-a"])
