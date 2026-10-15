@@ -232,10 +232,20 @@ fn clip_mask_with_ripple(
         .zip(hard)
         .enumerate()
         .map(|(i, (p, &h))| {
-            let band = channels_at_or_above(p, floors) & lowest_channels(p) & !h;
+            // Most pixels cannot acquire a ripple flag. Test that cheap
+            // condition before comparing channel order or deriving x/y;
+            // both are only needed for a possible new clipped channel.
+            let above_floor = channels_at_or_above(p, floors) & !h;
+            if above_floor == 0 {
+                return h;
+            }
+            let band = above_floor & lowest_channels(p);
+            if band == 0 {
+                return h;
+            }
             let (x, y) = (i as i32 % w, i as i32 / w);
             let inside = x >= left && x < right && y >= top && y < bottom;
-            if band == 0 || !inside {
+            if !inside {
                 h
             } else {
                 h | (band & near_hard(x, y))
