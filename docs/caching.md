@@ -313,6 +313,25 @@ On Apple, `LocalFileOperations.invalidateDerivedCaches` (and its SMB twin) remov
 
 **One deliberate cross-platform difference in mtime handling.** Apple's `copyVerified` explicitly restores the source's modification date onto the copy, because a plain move must not look like an edit to the mtime-keyed rendered-preview cache (or to the trash-date bookkeeping, which is why `TrashMarker` uses a companion `<basename>.trashed-YYYY-MM-DD` directory instead of repurposing the file's mtime). The API's `relocateFile` does **not** preserve mtime — its destination carries a fresh write time — and `src/api/src/library/cache-invalidation-on-move.test.ts` records that as expected and in fact desirable: a relocate always changes `primary_mtime`, so a stale-adjustment entry can never be served under a reused key. What that test pins as load-bearing is that the _content_ crossing to the new path is byte-for-byte identical.
 
+## Android
+
+Android caches are app-private and reconstructible; they never write a derived
+image into the photo folder. `src/android/app/src/main/java/app/justmaple/aperture/data/PhotoLibrary.kt`
+and `LocalDocuments.kt` own the following state:
+
+| Cache                     | Key / identity                                                                                                            | Invalidation / bound                                                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Staged original           | SHA-256 of URI, original size and mtime; OS-decoded HEIF/AVIF stages use PNG                                              | 512 MiB plus the currently leased original; lease prevents eviction while Rust reads it                                                                |
+| Local thumbnail / preview | Pipeline output version, Android thumbnail version 2, original identity, requested edge and complete current sidecar text | 64 MiB shared LRU; metadata-only RAW sidecars reuse the embedded preview                                                                               |
+| Cloud derivative          | SHA-256 of response bytes, requested through the versioned server routes                                                  | Same 64 MiB bound; server checks original/sidecar freshness                                                                                            |
+| Folder snapshot           | One parent URI → names, document URIs, types, sizes and mtimes from one provider query                                    | Replaced on folder listing/photo open; refreshed during baseline checks; invalidated after XMP publication/recovery. Sidecar contents are never cached |
+| Decoded RAW / GPU session | Current editor session                                                                                                    | Serialized worker owns one active image; closed on source/photo change or teardown                                                                     |
+
+The app-private `sidecar-transactions` journal is persistent edit-recovery state,
+not a cache. It is synced before moving an existing canonical XMP to a backup.
+An interrupted replacement is recovered before reads/writes; original photos
+are never modified or treated as disposable cache data.
+
 ## Windows
 
 `src/windows/Maple.WinUI/Services/ThumbnailService.cs` runs two tiers. The **512-px grid tier** writes the cross-app shared `.maple/thumbs/` cache via `ThumbCachePaths`, and reuses an entry only when it is newer than the original and its sidecar. A cold render develops a present sidecar through the Rust recipe renderer, including its selected film and restored lens profile; malformed XML or an unavailable LUT fails without publishing camera-original pixels. When the photo folder is unwritable (read-only media, a share without write permission), it falls back to a machine-local copy so thumbnails still work.

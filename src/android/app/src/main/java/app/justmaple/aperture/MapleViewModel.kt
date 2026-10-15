@@ -370,6 +370,11 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun resetFields(names: List<String>) {
+        names.forEach { name -> AdjustmentFields.byName[name]?.let { setField(name, it.initial) } }
+        commitGesture()
+    }
+
     fun resetField(name: String) {
         beginGesture()
         AdjustmentFields.byName[name]?.let { setField(name, it.initial) }

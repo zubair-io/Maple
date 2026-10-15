@@ -16,6 +16,36 @@ class ReviewRegressionTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
     @Test
+    fun openAndShareFiltersOfferOnlySupportedImageFormats() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        for (action in
+            listOf(android.content.Intent.ACTION_VIEW, android.content.Intent.ACTION_SEND)) {
+            for ((mime, supported) in
+                mapOf(
+                    "image/jpeg" to true,
+                    "image/png" to true,
+                    "image/x-canon-cr2" to true,
+                    "image/gif" to false,
+                    "image/bmp" to false,
+                    "image/svg+xml" to false,
+                    "image/avif" to (android.os.Build.VERSION.SDK_INT >= 31),
+                )) {
+                val intent =
+                    android.content
+                        .Intent(action)
+                        .setDataAndType(Uri.parse("content://format-fixture/photo"), mime)
+                        .setPackage(context.packageName)
+                val matches =
+                    context.packageManager.queryIntentActivities(
+                        intent,
+                        android.content.pm.PackageManager.MATCH_DEFAULT_ONLY,
+                    )
+                assertEquals("$action $mime", supported, matches.isNotEmpty())
+            }
+        }
+    }
+
+    @Test
     fun rasterRejectsRawSlidersAndRecoversAnOldIncompatibleSidecar() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val original = File(context.filesDir, "review-recovery.png")
@@ -43,7 +73,7 @@ class ReviewRegressionTest {
         compose.waitUntil(30_000) {
             !model.state.value.loading && model.state.value.selected != null
         }
-        compose.onNodeWithText("Edit", useUnmergedTree = true).performClick()
+        compose.onNodeWithContentDescription("Edit").performClick()
         compose.waitUntil(30_000) { model.state.value.error?.contains("raster image:") == true }
         compose.onNodeWithText("Reset RAW-only sliders").performClick()
         compose.onNodeWithText("Continue").performClick()
@@ -98,7 +128,7 @@ class ReviewRegressionTest {
         compose.waitUntil(30_000) {
             !model.state.value.loading && model.state.value.selected != null
         }
-        compose.onNodeWithText("Edit", useUnmergedTree = true).performClick()
+        compose.onNodeWithContentDescription("Edit").performClick()
         waitForFrame(model)
         val photo = model.state.value.selected!!
         assertTrue(runBlocking { model.library.thumbnail(photo) }.length() > 0)
@@ -117,14 +147,5 @@ class ReviewRegressionTest {
         assertNull(model.state.value.error)
     }
 
-    private fun pixel(): Int {
-        val frame = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
-        val bounds =
-            compose.onNodeWithContentDescription("Photo canvas").fetchSemanticsNode().boundsInRoot
-        return try {
-            frame.getPixel(bounds.center.x.toInt(), bounds.center.y.toInt())
-        } finally {
-            frame.recycle()
-        }
-    }
+    private fun pixel(): Int = renderedPixel(compose.activity)
 }

@@ -11,6 +11,24 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class XmpDocumentTest {
     @Test
+    fun authoredDecimalRatingsAreIntegralFiniteAndInRange() {
+        for ((input, expected) in
+            mapOf(
+                "3.0" to 3,
+                "5" to 5,
+                "-1.0" to -1,
+                "3.5" to 0,
+                "NaN" to 0,
+                "Infinity" to 0,
+                "6" to 0,
+            )) assertEquals(
+            input,
+            expected,
+            roundTrip(XmpDocument().withAttribute("xmp:Rating", input)).rating,
+        )
+    }
+
+    @Test
     fun globalEditsNeverReadOrRewriteNestedLocalAdjustments() {
         val local =
             "<crs:MaskGroup><rdf:Description crs:Exposure2012='-2' papp:Profile='Neutral' xmp:Rating='1'><crs:Masks><rdf:Seq><rdf:li><rdf:Description crs:Exposure2012='-3' /></rdf:li></rdf:Seq></crs:Masks></rdf:Description></crs:MaskGroup>"

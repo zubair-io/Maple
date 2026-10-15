@@ -1,7 +1,6 @@
 package app.justmaple.aperture.ui
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Star
@@ -30,11 +29,13 @@ internal fun PreviewActions(model: MapleViewModel, state: MapleState) {
             for (rating in 1..5) MuiIconButton(
                 "Rate $rating stars",
                 Icons.Outlined.Star,
-                selected = (state.document.attribute("xmp:Rating")?.toIntOrNull() ?: 0) >= rating,
+                selected = state.document.rating >= rating,
             ) {
-                model.attribute("xmp:Rating", rating.toString())
+                model.attribute(
+                    "xmp:Rating",
+                    if (state.document.rating == rating) null else rating.toString(),
+                )
             }
         }
-        Button(model::edit, shape = CircleShape, enabled = !state.loading) { Text("Edit") }
     }
 }

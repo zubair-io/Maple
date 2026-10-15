@@ -11,6 +11,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -26,15 +28,20 @@ fun MuiIconButton(
     label: String,
     icon: ImageVector,
     enabled: Boolean = true,
-    selected: Boolean = false,
+    selected: Boolean? = null,
     onClick: () -> Unit,
 ) {
-    IconButton(onClick, enabled = enabled, modifier = Modifier.size(44.dp)) {
+    val chosen = selected
+    IconButton(
+        onClick,
+        enabled = enabled,
+        modifier = Modifier.size(44.dp).semantics { if (chosen != null) this.selected = chosen },
+    ) {
         Icon(
             icon,
             label,
             tint =
-                if (selected) MapleColors.primary
+                if (selected == true) MapleColors.primary
                 else if (enabled) MapleColors.text else MapleColors.muted.copy(alpha = .35f),
             modifier = Modifier.size(20.dp),
         )

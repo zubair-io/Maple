@@ -37,10 +37,9 @@ class LayoutWalkthroughTest {
         }
         capture("01-library")
         compose.onNodeWithContentDescription(source.name).performClick()
-        compose.onNodeWithText("Edit", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Edit").assertIsDisplayed()
         val window = compose.onRoot().fetchSemanticsNode().boundsInRoot
-        val edit =
-            compose.onNodeWithText("Edit", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val edit = compose.onNodeWithContentDescription("Edit").fetchSemanticsNode().boundsInRoot
         for (rating in 1..5) {
             val button =
                 compose
@@ -53,8 +52,13 @@ class LayoutWalkthroughTest {
             )
             assertFalse("Edit and rating actions must not overlap", button.overlaps(edit))
         }
+        compose.runOnIdle { model.attribute("xmp:Rating", "3.0") }
+        compose.onNodeWithContentDescription("Rate 3 stars").assertIsSelected()
+        compose.onNodeWithContentDescription("Rate 4 stars").assertIsNotSelected()
+        compose.onNodeWithContentDescription("Rate 3 stars").performClick()
+        compose.onNodeWithContentDescription("Rate 3 stars").assertIsNotSelected()
         capture("02-preview")
-        compose.onNodeWithText("Edit", useUnmergedTree = true).performClick()
+        compose.onNodeWithContentDescription("Edit").performClick()
         compose.waitUntil(60_000) {
             model.state.value.mode == PhotoMode.Edit &&
                 model.state.value.values.isNotEmpty() &&
@@ -62,7 +66,26 @@ class LayoutWalkthroughTest {
         }
         assertNull(model.state.value.error)
         compose.onNodeWithContentDescription("Photo canvas").assertIsDisplayed()
+        compose.waitUntil(30_000) {
+            compose
+                .onNodeWithContentDescription("RGB histogram")
+                .fetchSemanticsNode()
+                .config[SemanticsProperties.StateDescription] == "Ready"
+        }
         capture("03-edit")
+        if (context.resources.configuration.smallestScreenWidthDp >= 600) {
+            val header = compose.onNodeWithTag("photo-header").fetchSemanticsNode().boundsInRoot
+            val panel = compose.onNodeWithTag("adjustments-panel").fetchSemanticsNode().boundsInRoot
+            assertTrue("Floating inspector must clear the header", panel.top >= header.bottom)
+            compose.onNodeWithContentDescription("Collapse filmstrip").performClick()
+            compose.onNodeWithContentDescription("Expand filmstrip").performClick()
+            compose.onNodeWithContentDescription("More photo actions").performClick()
+            compose.onNodeWithText("Hide adjustments").performClick()
+            compose.onNodeWithTag("adjustments-panel").assertDoesNotExist()
+            compose.onNodeWithContentDescription("More photo actions").performClick()
+            compose.onNodeWithText("Show adjustments").performClick()
+            compose.onNodeWithTag("adjustments-panel").assertIsDisplayed()
+        }
         compose.waitForIdle()
         compose.waitUntil(30_000) { !model.state.value.rendering }
         val sliderLabel =
@@ -77,20 +100,39 @@ class LayoutWalkthroughTest {
                 it(.25f)
             }
         assertEquals(.25f, model.state.value.values.getValue("exposure"))
+        if (context.resources.configuration.smallestScreenWidthDp >= 600) {
+            compose.onNodeWithText("Reset Light").performClick()
+            assertEquals(0f, model.state.value.values.getValue("exposure"))
+            compose.onNodeWithContentDescription("Undo").performClick()
+            assertEquals(.25f, model.state.value.values.getValue("exposure"))
+        }
         compose.onNodeWithContentDescription("Undo").performClick()
         assertEquals(0f, model.state.value.values.getValue("exposure"))
         compose.onNodeWithContentDescription("Back").performClick()
-        compose.onNodeWithText("Edit", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Edit").assertIsDisplayed()
         compose.onNodeWithContentDescription("Back").performClick()
         compose.onNodeWithContentDescription("Settings").performClick()
-        compose.onNodeWithText("Show filmstrip").assertIsDisplayed()
+        compose.onNodeWithText("Cloud").assertIsDisplayed()
         capture("04-settings")
+        compose.onNode(hasText("General") and hasClickAction()).performClick()
+        compose.onNodeWithText("Show filmstrip").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Back to Settings").performClick()
+        compose.onNodeWithText("Cloud").performClick()
+        compose
+            .onNode(
+                hasText("Add Maple Cloud server") and hasAnyAncestor(hasTestTag("settings-sheet"))
+            )
+            .assertIsDisplayed()
+        capture("05-settings-cloud")
+        compose.onNodeWithContentDescription("Close Settings").performClick()
+        compose.onNodeWithTag("settings-sheet").assertDoesNotExist()
         assertFalse(model.state.value.dirty)
     }
 
     private fun capture(name: String) {
         compose.waitForIdle()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.uiAutomation.waitForIdle(350, 5_000)
         val context = instrumentation.targetContext
         val size = context.resources.configuration
         val display = "${size.screenWidthDp}x${size.screenHeightDp}"

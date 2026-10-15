@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -17,7 +18,10 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.justmaple.aperture.*
@@ -32,6 +36,8 @@ fun MapleShell(model: MapleViewModel) {
     var query by rememberSaveable { mutableStateOf("") }
     var recovery by rememberSaveable { mutableStateOf<String?>(null) }
     var cloudDialog by rememberSaveable { mutableStateOf(false) }
+    var settingsOpen by rememberSaveable { mutableStateOf(false) }
+    var sourcesVisible by rememberSaveable { mutableStateOf(true) }
     var info by rememberSaveable { mutableStateOf(false) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -58,7 +64,7 @@ fun MapleShell(model: MapleViewModel) {
         }
     val configuration = LocalConfiguration.current
     val tablet = configuration.smallestScreenWidthDp >= 600
-    val pinnedSources = tablet && configuration.screenWidthDp >= 1000
+    val pinnedSources = tablet && configuration.screenWidthDp >= 1000 && sourcesVisible
     val inlineInfo = tablet && configuration.screenWidthDp >= 1000
     val browsing = state.mode == PhotoMode.Browse
     BackHandler(!browsing) { model.back() }
@@ -70,9 +76,22 @@ fun MapleShell(model: MapleViewModel) {
                 model.browse(it)
                 scope.launch { drawer.close() }
             },
-            onFolder = { folderPicker.launch(null) },
-            onPhoto = { photoPicker.launch(arrayOf("image/*", "application/octet-stream")) },
+            onFolder = {
+                scope.launch {
+                    drawer.close()
+                    folderPicker.launch(null)
+                }
+            },
+            onPhoto = {
+                scope.launch {
+                    drawer.close()
+                    photoPicker.launch(arrayOf("image/*", "application/octet-stream"))
+                }
+            },
             onCloud = { cloudDialog = true },
+            onClose = {
+                if (pinnedSources) sourcesVisible = false else scope.launch { drawer.close() }
+            },
         )
     }
     val content: @Composable () -> Unit = {
@@ -99,36 +118,17 @@ fun MapleShell(model: MapleViewModel) {
                     }
                 Column(Modifier.weight(1f)) {
                     if (browsing) {
-                        MuiHeader(
+                        LibraryHeader(
                             if (tab == "Library") state.folder?.name ?: "Library" else tab,
-                            leading = {
-                                if (!pinnedSources)
-                                    MuiIconButton("Sources", Icons.Outlined.Menu) {
-                                        scope.launch { drawer.open() }
-                                    }
+                            tablet,
+                            onSources = {
+                                if (tablet && configuration.screenWidthDp >= 1000)
+                                    sourcesVisible = !sourcesVisible
+                                else scope.launch { drawer.open() }
                             },
-                            actions = {
-                                if (tablet) {
-                                    MuiIconButton(
-                                        "Search",
-                                        Icons.Outlined.Search,
-                                        selected = tab == "Search",
-                                    ) {
-                                        tab = "Search"
-                                    }
-                                    MuiIconButton(
-                                        "Settings",
-                                        Icons.Outlined.Settings,
-                                        selected = tab == "Settings",
-                                    ) {
-                                        tab = "Settings"
-                                    }
-                                }
-                                if (tab == "Library")
-                                    MuiIconButton("Open folder", Icons.Outlined.CreateNewFolder) {
-                                        folderPicker.launch(null)
-                                    }
-                            },
+                            onSearch = { tab = "Search" },
+                            onSettings = { settingsOpen = true },
+                            onFolder = { folderPicker.launch(null) },
                         )
                         when (tab) {
                             "Search" -> {
@@ -150,13 +150,6 @@ fun MapleShell(model: MapleViewModel) {
                                     folderPicker = { folderPicker.launch(null) },
                                 )
                             }
-                            "Settings" ->
-                                SettingsPanel(
-                                    model,
-                                    state,
-                                    onFolder = { folderPicker.launch(null) },
-                                    onCloud = { cloudDialog = true },
-                                )
                             else ->
                                 BrowseGrid(
                                     model,
@@ -208,7 +201,11 @@ fun MapleShell(model: MapleViewModel) {
                             "Settings" to Icons.Outlined.Settings,
                         )) {
                         Column(
-                            Modifier.weight(1f).clickable { tab = label }.padding(10.dp),
+                            Modifier.weight(1f)
+                                .clickable {
+                                    if (label == "Settings") settingsOpen = true else tab = label
+                                }
+                                .padding(10.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             Icon(
@@ -233,6 +230,8 @@ fun MapleShell(model: MapleViewModel) {
         if (state.cloudConnectionsVersion > 0) {
             cloudDialog = false
             tab = "Library"
+            settingsOpen = false
+            drawer.close()
         }
     }
     if (recovery != null)
@@ -261,8 +260,6 @@ fun MapleShell(model: MapleViewModel) {
             dismissButton = { TextButton({ recovery = null }) { Text("Cancel") } },
             containerColor = MapleColors.surface,
         )
-    if (cloudDialog || state.cloudSigningIn)
-        CloudConnectionDialog(model, state.cloudSigningIn) { cloudDialog = false }
     if (pinnedSources) content()
     else
         ModalNavigationDrawer(
@@ -291,6 +288,19 @@ fun MapleShell(model: MapleViewModel) {
             )
         }
     }
+    if (settingsOpen)
+        SettingsSheet(
+            model,
+            state,
+            onFolder = {
+                settingsOpen = false
+                folderPicker.launch(null)
+            },
+            onCloud = { cloudDialog = true },
+            onDismiss = { settingsOpen = false },
+        )
+    if (cloudDialog || state.cloudSigningIn)
+        CloudConnectionDialog(model, state.cloudSigningIn) { cloudDialog = false }
 }
 
 @Composable
@@ -300,13 +310,16 @@ private fun Sources(
     onFolder: () -> Unit,
     onPhoto: () -> Unit,
     onCloud: () -> Unit,
+    onClose: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(vertical = 24.dp)) {
-        Text(
-            "Maple",
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(20.dp),
-        )
+        Row(
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Maple", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+            MuiIconButton("Collapse sources", Icons.Outlined.Menu, onClick = onClose)
+        }
         MuiSection("Library") {
             Row(
                 Modifier.fillMaxWidth().clickable(onClick = onPhoto).padding(vertical = 12.dp),
@@ -341,11 +354,23 @@ private fun Sources(
                 Row(
                     Modifier.fillMaxWidth()
                         .background(
-                            if (folder.uri == state.folder?.uri)
-                                MapleColors.primary.copy(alpha = .15f)
+                            if (folder.uri == state.folder?.uri) MapleColors.raised
                             else MapleColors.sidebar
                         )
-                        .clickable { onSelect(folder) }
+                        .drawBehind {
+                            if (folder.uri == state.folder?.uri)
+                                drawLine(
+                                    MapleColors.primary,
+                                    Offset.Zero,
+                                    Offset(0f, size.height),
+                                    2.dp.toPx(),
+                                )
+                        }
+                        .selectable(
+                            folder.uri == state.folder?.uri,
+                            role = Role.Tab,
+                            onClick = { onSelect(folder) },
+                        )
                         .padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -428,48 +453,6 @@ private fun BrowseGrid(
                 }
             }
         }
-}
-
-@Composable
-private fun SettingsPanel(
-    model: MapleViewModel,
-    state: MapleState,
-    onFolder: () -> Unit,
-    onCloud: () -> Unit,
-) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        MuiSection("Editor") {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Show filmstrip", Modifier.weight(1f))
-                Switch(state.showFilmstrip, model::setFilmstrip)
-            }
-            Text(
-                "Edits are saved automatically to XMP sidecars. Originals are always read-only.",
-                color = MapleColors.muted,
-            )
-        }
-        MuiSection("Cloud") {
-            state.sources
-                .filter { app.justmaple.aperture.cloud.CloudLibrary.isCloud(it.uri) }
-                .forEach { server ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(server.name, Modifier.weight(1f))
-                        TextButton({ model.disconnectCloud(server) }) { Text("Disconnect") }
-                    }
-                }
-            TextButton(onCloud) { Text("Add Maple Cloud server") }
-        }
-        MuiSection("Sources") {
-            state.sources
-                .filterNot { app.justmaple.aperture.cloud.CloudLibrary.isCloud(it.uri) }
-                .forEach { Text(it.name, Modifier.padding(vertical = 8.dp)) }
-            TextButton(onFolder) { Text("Add folder…") }
-        }
-        MuiSection("About Maple") {
-            Text("Maple for Android")
-            Text("One shared Rust image core · Auto profile", color = MapleColors.muted)
-        }
-    }
 }
 
 @Composable
