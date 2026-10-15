@@ -11,6 +11,7 @@ extension AssetRef {
     bytesProvider = asset.bytesProvider.map { _ in
       { try await source.bytes(for: asset) }
     }
+    originalFileWriter = asset.originalFileWriter
     displayPreviewProvider = asset.displayPreviewProvider
     stableID = asset.stableID
     captureDate = asset.captureDate

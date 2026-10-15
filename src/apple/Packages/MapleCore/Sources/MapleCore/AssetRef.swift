@@ -63,6 +63,10 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
   /// `@Sendable` closure so EditSession can call it from an actor hop.
   public typealias BytesProvider = @Sendable () async throws -> Data
 
+  /// Stream an original to an owned temporary destination for drag-out,
+  /// without loading the entire RAW or video into memory.
+  public typealias OriginalFileWriter = @Sendable (URL) async throws -> Void
+
   /// On-demand DISPLAY-PREVIEW fetch for sourceless assets — the 1280 px
   /// tier, not the full RAW `BytesProvider` returns. Optional result
   /// because a backend may legitimately have no preview for an asset
@@ -82,6 +86,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
   /// Closure used to fetch bytes on demand. `nil` means the asset lives on
   /// disk at `primaryURL`.
   public let bytesProvider: BytesProvider?
+  public let originalFileWriter: OriginalFileWriter?
   /// Closure used to fetch this asset's display-sized preview on demand
   /// (#2385). Set by adapters that build refs for a MIXED list, where the
   /// caller's one ambient `ImageSource` is only ever correct for a single
@@ -340,6 +345,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.displayNameOverride = nil
     self.hintExtension = url.pathExtension.isEmpty ? nil : url.pathExtension
     self.bytesProvider = nil
+    self.originalFileWriter = nil
     self.displayPreviewProvider = nil
     self.stableID = url.path
     self.captureDate = captureDate
@@ -375,6 +381,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     thumbnailProvenance: ThumbnailProvenance? = nil,
     displayPreviewProvider: DisplayPreviewProvider? = nil,
     catalog: CatalogRef? = nil,
+    originalFileWriter: OriginalFileWriter? = nil,
     bytesProvider: @escaping BytesProvider
   ) {
     self.id = UUID()
@@ -382,6 +389,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.displayNameOverride = displayName
     self.hintExtension = hintExtension
     self.bytesProvider = bytesProvider
+    self.originalFileWriter = originalFileWriter
     self.displayPreviewProvider = displayPreviewProvider
     self.stableID = stableID
     self.captureDate = captureDate

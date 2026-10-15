@@ -21,11 +21,8 @@
     final class DragView: NSView, NSDraggingSource {
       var payload: DraggedAssetPayload?
       var thumbnail: CGImage?
-      private var monitor: Any?
       private var mouseDown: NSEvent?
       private var items: [MacAssetDragItem] = []
-
-      deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
 
       // Keep the SwiftUI cell's click, double-click and context menu handling.
       override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -34,36 +31,31 @@
         super.viewDidMoveToWindow()
         stopMonitoring()
         guard window != nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(
-          matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
-        ) { [weak self] event in
-          guard let self else { return event }
-          return self.handle(event)
-        }
+        MacAssetDragMonitor.shared.register(self)
       }
 
       func stopMonitoring() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
+        MacAssetDragMonitor.shared.unregister(self)
         mouseDown = nil
       }
 
-      private func handle(_ event: NSEvent) -> NSEvent? {
+      func containsMouseDown(_ event: NSEvent) -> Bool {
+        guard event.window === window else { return false }
+        let point = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(point), visibleRect.contains(point) else { return false }
+        if let content = window?.contentView,
+          let hit = content.hitTest(content.convert(event.locationInWindow, from: nil)),
+          hit is NSTextView || hit is NSTextField
+        {
+          return false
+        }
+        return true
+      }
+
+      func handle(_ event: NSEvent) -> NSEvent? {
         guard event.window === window else { return event }
         switch event.type {
         case .leftMouseDown:
-          let point = convert(event.locationInWindow, from: nil)
-          guard bounds.contains(point), visibleRect.contains(point) else {
-            mouseDown = nil
-            return event
-          }
-          if let content = window?.contentView,
-            let hit = content.hitTest(content.convert(event.locationInWindow, from: nil)),
-            hit is NSTextView || hit is NSTextField
-          {
-            mouseDown = nil
-            return event
-          }
           mouseDown = event
         case .leftMouseUp:
           mouseDown = nil

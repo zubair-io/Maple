@@ -175,6 +175,11 @@ public final class BrowseViewModel {
           stableID: capturedRef.id,
           captureDate: capturedRef.captureDate,
           thumbnailProvenance: provenance,
+          originalFileWriter: (capturedSource as? SMBSource).map { smb in
+            { @Sendable destination in
+              try await smb.writeOriginal(for: capturedRef, to: destination)
+            }
+          },
           bytesProvider: { [capturedSource, capturedRef] in
             try await capturedSource.rawBytes(for: capturedRef)
           }
@@ -453,6 +458,9 @@ public final class BrowseViewModel {
             absPath: img.path,
             address: nil
           ),
+          originalFileWriter: { destination in
+            try await capturedSource.writeOriginal(for: capturedRef, to: destination)
+          },
           bytesProvider: { [capturedSource, capturedRef] in
             try await capturedSource.rawBytes(for: capturedRef)
           }

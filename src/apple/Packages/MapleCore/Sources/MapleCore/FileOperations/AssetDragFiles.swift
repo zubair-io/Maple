@@ -25,11 +25,16 @@ public actor AssetDragFiles {
       try FileManager.default.copyItem(at: source, to: destination)
       return
     }
-    guard let provider = asset.bytesProvider else {
+    guard let writer = asset.originalFileWriter else {
       throw ImageSourceError.notFound(asset.displayName)
     }
-    let bytes = try await provider()
+    let staging = destination.deletingLastPathComponent().appendingPathComponent(
+      ".maple-drag-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: staging) }
+    let temporary = staging.appendingPathComponent(Self.fileName(for: asset))
+    try await writer(temporary)
     try Task.checkCancellation()
-    try bytes.write(to: destination, options: .withoutOverwriting)
+    try FileManager.default.moveItem(at: temporary, to: destination)
   }
 }

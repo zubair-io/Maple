@@ -395,6 +395,7 @@ extension AppShell {
         absPath: asset.abs_path,
         address: asset.address
       ),
+      originalFileWriter: { try await source.writeOriginal(for: imageRef, to: $0) },
       bytesProvider: { try await downloadBox.bytes() }
     )
     if sessions[assetRef.id] == nil {

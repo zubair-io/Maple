@@ -136,6 +136,25 @@ extension CloudSource: ImageSource {
     return data
   }
 
+  /// Disk-backed original delivery for file promises; every auth attempt
+  /// owns and cleans its download, including a rejected 401 response.
+  public func writeOriginal(for ref: ImageRef, to destination: URL) async throws {
+    let rawURL = try await addresses.url(route: "image", absPath: Self.absPath(from: ref.id))
+    let (_, response) = try await httpClient.refreshIfNeededAndRetry(
+      request: URLRequest(url: rawURL)
+    ) { request in
+      let download = DownloadProgressDelegate(fallbackTotal: nil, onProgress: { _, _ in })
+      let (temporary, response) = try await download.download(for: request)
+      defer { try? FileManager.default.removeItem(at: temporary) }
+      if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+        try Task.checkCancellation()
+        try FileManager.default.copyItem(at: temporary, to: destination)
+      }
+      return ((), response)
+    }
+    try Self.checkOK(response, data: Data())
+  }
+
   /// Seekable streaming URL for AVPlayer. The endpoint self-authenticates via
   /// query token because AVPlayer cannot attach the bearer header.
   public func videoURL(for refID: String) async throws -> URL {

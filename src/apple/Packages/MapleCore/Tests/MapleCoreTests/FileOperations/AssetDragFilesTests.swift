@@ -30,7 +30,7 @@ final class AssetDragFilesTests: XCTestCase {
 
   func testRemoteDragWritesFullOriginalWithItsFilename() async throws {
     let bytes = Data([0xFF, 0xD8, 0, 0xFF, 0xD9])
-    let asset = AssetRef(displayName: "Remote photo.jpg", hintExtension: "jpg") { bytes }
+    let asset = remoteAsset(name: "Remote photo.jpg", bytes: bytes)
     let destination = root.appendingPathComponent(AssetDragFiles.fileName(for: asset))
 
     try await AssetDragFiles.shared.writeOriginal(asset, to: destination)
@@ -46,7 +46,7 @@ final class AssetDragFilesTests: XCTestCase {
     let existing = Data([4, 5, 6])
     try bytes.write(to: source)
     try existing.write(to: destination)
-    let remote = AssetRef(displayName: "remote.dng", hintExtension: "dng") { bytes }
+    let remote = remoteAsset(name: "remote.dng", bytes: bytes)
 
     for (asset, target) in [
       (AssetRef(url: source), destination), (remote, destination),
@@ -62,16 +62,77 @@ final class AssetDragFilesTests: XCTestCase {
   }
 
   func testRemoteFailureIsReportedWithoutCreatingAFile() async throws {
-    let asset = AssetRef(displayName: "offline.dng", hintExtension: "dng") {
-      throw ImageSourceError.notFound("offline")
-    }
+    let asset = AssetRef(
+      displayName: "offline.dng", hintExtension: "dng",
+      originalFileWriter: { destination in
+        try Data([1, 2]).write(to: destination)
+        throw ImageSourceError.notFound("offline")
+      }, bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
     let destination = root.appendingPathComponent("offline.dng")
     do {
       try await AssetDragFiles.shared.writeOriginal(asset, to: destination)
       XCTFail("A failed fetch must fail the file promise")
     } catch {
       XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+      XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: root.path).isEmpty)
     }
+  }
+
+  func testStreamingWriterDeliversChunksWithoutCallingBytesProvider() async throws {
+    let chunk = Data(repeating: 42, count: 64 * 1024)
+    let asset = AssetRef(
+      displayName: "large.dng", hintExtension: "dng",
+      originalFileWriter: { destination in
+        XCTAssertTrue(FileManager.default.createFile(atPath: destination.path, contents: nil))
+        let file = try FileHandle(forWritingTo: destination)
+        defer { try? file.close() }
+        for _ in 0..<32 { try file.write(contentsOf: chunk) }
+      }, bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
+    let destination = root.appendingPathComponent("large.dng")
+    try await AssetDragFiles.shared.writeOriginal(asset, to: destination)
+    XCTAssertEqual(try Data(contentsOf: destination), Data(repeating: 42, count: chunk.count * 32))
+    XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), ["large.dng"])
+  }
+
+  func testCancelledTransferRemovesPartialFileAndDoesNotPublishDestination() async throws {
+    let asset = AssetRef(
+      displayName: "cancelled.dng", hintExtension: "dng",
+      originalFileWriter: { destination in
+        try Data([1, 2]).write(to: destination)
+        withUnsafeCurrentTask { $0?.cancel() }
+      }, bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
+    let destination = root.appendingPathComponent("cancelled.dng")
+    let transfer = Task { try await AssetDragFiles.shared.writeOriginal(asset, to: destination) }
+    do {
+      try await transfer.value
+      XCTFail("A cancelled transfer must fail the promise")
+    } catch { XCTAssertTrue(error is CancellationError) }
+    XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: root.path).isEmpty)
+  }
+
+  @MainActor
+  func testSMBGridDragStreamsOriginalAndPreservesSourceAndSidecar() async throws {
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
+    let sidecar = fixture.share.appendingPathComponent("photo.xmp")
+    let edits = try Data(contentsOf: sidecar)
+    let browse = BrowseViewModel()
+    await browse.loadSource(fixture.source)
+    XCTAssertNil(browse.loadError)
+    let asset = try XCTUnwrap(browse.assets.first)
+    XCTAssertNotNil(asset.originalFileWriter)
+    let destination = root.appendingPathComponent("photo.dng")
+    try await AssetDragFiles.shared.writeOriginal(asset, to: destination)
+    XCTAssertEqual(try Data(contentsOf: destination), fixture.original)
+    XCTAssertEqual(try Data(contentsOf: fixture.raw), fixture.original)
+    XCTAssertEqual(try Data(contentsOf: sidecar), edits)
+    await fixture.close()
+  }
+
+  private func remoteAsset(name: String, bytes: Data) -> AssetRef {
+    AssetRef(
+      displayName: name, hintExtension: (name as NSString).pathExtension,
+      originalFileWriter: { try bytes.write(to: $0) },
+      bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
   }
 
   func testRemoteFilenameStaysInsideDropDestination() {
