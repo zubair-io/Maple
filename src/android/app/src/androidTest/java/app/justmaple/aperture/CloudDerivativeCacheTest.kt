@@ -8,6 +8,7 @@ import app.justmaple.aperture.cloud.CloudServer
 import app.justmaple.aperture.data.Photo
 import app.justmaple.aperture.data.PhotoLibrary
 import java.io.File
+import java.io.RandomAccessFile
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -56,8 +57,49 @@ class CloudDerivativeCacheTest {
                     assertNotEquals(first, preview)
                     assertArrayEquals(original, preview.readBytes())
                     assertEquals(2, server.derivativeTransfers)
+
+                    // A fresh full-budget file must not push the new image's index over the cut.
+                    val future =
+                        File(first.parentFile, "cache-boundary-${java.util.UUID.randomUUID()}.bin")
+                    val staleKey = PhotoLibrary.digest("stale-${java.util.UUID.randomUUID()}")
+                    val content = "a".repeat(64)
+                    val staleIndex = File(first.parentFile, "cloud-$staleKey.json")
+                    val stalePayload = File(first.parentFile, "cloud-$staleKey-$content.avif")
+                    try {
+                        RandomAccessFile(future, "rw").use { it.setLength(64L * 1024 * 1024) }
+                        assertTrue(future.setLastModified(System.currentTimeMillis() + 60_000))
+                        staleIndex.writeText(
+                            org.json.JSONObject().put("content", content).toString()
+                        )
+                        RandomAccessFile(stalePayload, "rw").use { it.setLength(65L * 1024 * 1024) }
+                        assertTrue(staleIndex.setLastModified(1))
+                        assertTrue(stalePayload.setLastModified(1))
+                        val bounded = library.thumbnail(photo, 1024)
+                        val index =
+                            File(
+                                bounded.parentFile,
+                                bounded.name.substringBeforeLast('-') + ".json",
+                            )
+                        assertTrue(bounded.isFile)
+                        assertTrue(index.isFile)
+                        assertFalse(future.exists())
+                        assertFalse(staleIndex.exists())
+                        assertFalse(stalePayload.exists())
+                        assertEquals(3, server.derivativeTransfers)
+                        assertEquals(bounded, PhotoLibrary(context).thumbnail(photo, 1024))
+                        assertEquals(
+                            "Reload must keep the validator paired with its image",
+                            3,
+                            server.derivativeTransfers,
+                        )
+                        assertTrue(index.isFile)
+                    } finally {
+                        future.delete()
+                        staleIndex.delete()
+                        stalePayload.delete()
+                    }
                     assertEquals(preview, library.thumbnail(photo, 2048))
-                    assertEquals(2, server.derivativeTransfers)
+                    assertEquals(3, server.derivativeTransfers)
 
                     val bitmap = Bitmap.createBitmap(11, 7, Bitmap.Config.ARGB_8888)
                     bitmap.eraseColor(android.graphics.Color.RED)
@@ -68,15 +110,15 @@ class CloudDerivativeCacheTest {
                     val changed = library.thumbnail(photo)
                     assertNotEquals(first, changed)
                     assertArrayEquals(server.derivative.readBytes(), changed.readBytes())
-                    assertEquals(3, server.derivativeTransfers)
+                    assertEquals(4, server.derivativeTransfers)
                     assertEquals(changed, library.thumbnail(photo))
-                    assertEquals(3, server.derivativeTransfers)
+                    assertEquals(4, server.derivativeTransfers)
                     assertTrue(changed.delete())
                     val repaired = PhotoLibrary(context).thumbnail(photo)
                     assertArrayEquals(server.derivative.readBytes(), repaired.readBytes())
-                    assertEquals(4, server.derivativeTransfers)
+                    assertEquals(5, server.derivativeTransfers)
                     assertEquals(repaired, library.thumbnail(photo))
-                    assertEquals(4, server.derivativeTransfers)
+                    assertEquals(5, server.derivativeTransfers)
                     assertArrayEquals(original, server.original.readBytes())
                 } finally {
                     credentials.remove(id)
