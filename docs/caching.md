@@ -327,6 +327,13 @@ and `LocalDocuments.kt` own the following state:
 | Folder snapshot           | One parent URI → names, document URIs, types, sizes and mtimes from one provider query                                    | Replaced on folder listing/photo open; refreshed during baseline checks; invalidated after XMP publication/recovery. Sidecar contents are never cached |
 | Decoded RAW / GPU session | Current editor session                                                                                                    | Serialized worker owns one active image; closed on source/photo change or teardown                                                                     |
 
+The navigation tree keeps activity-scoped child-folder listings by URI, fetched
+only when expanded (cloud server library groups load when connected). The current
+Browse listing refreshes its matching branch; changing registered sources clears
+the tree. UI teardown discards it. Sidebar enumeration uses a separate batched
+query and never evicts the active grid’s sibling snapshot. Folder ancestry is
+navigation state derived from actual listings, not a parsed document-ID path.
+
 The app-private `sidecar-transactions` journal is persistent edit-recovery state,
 not a cache. It is synced before moving an existing canonical XMP to a backup.
 An interrupted replacement is recovered before reads/writes; original photos

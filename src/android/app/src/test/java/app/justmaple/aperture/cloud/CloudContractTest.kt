@@ -25,6 +25,7 @@ class CloudContractTest {
                 "https://example.com?host=other",
                 "https://example.com#x",
                 "http://example.com",
+                "http://[::1]",
                 "file:///photos",
             )) {
             assertThrows("Unexpected accepted origin: $invalid", Exception::class.java) {

@@ -76,8 +76,7 @@ internal data class CloudLogin(
             val scheme = uri.scheme?.lowercase()
             require(
                 scheme == "https" ||
-                    (scheme == "http" &&
-                        uri.host in setOf("localhost", "127.0.0.1", "[::1]", "10.0.2.2"))
+                    (scheme == "http" && uri.host in setOf("localhost", "127.0.0.1", "10.0.2.2"))
             ) {
                 "Use the server's HTTPS address"
             }
