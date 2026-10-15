@@ -25,7 +25,6 @@ fn hot_controls_reuse_the_exact_prefix_and_source_bytes() {
         black_white: crate::types::BlackWhiteMode::On,
         gray_mixer_red: 25.0,
         defringe_purple_amount: 10.0,
-        perspective_rotate: 2.0,
         parametric_shadow_split: 10.0,
         film_look: "black_white_agfa_apx_100".into(),
         film_strength: 35.0,
@@ -377,4 +376,29 @@ fn fitted_identity_curve_remains_present() {
     let (curve, _, _, achieved) = flatten_profile_artifacts(Some(identity), None, Profile::Auto);
     assert_eq!(curve, expected);
     assert_eq!(achieved, Some(true));
+}
+
+#[test]
+fn geometry_metadata_stays_available_without_invalidating_pixel_preparation() {
+    use super::prefix::{pixel_prefix_matches, prefix_matches, stripped_prefix_model};
+    let base = AdjustmentModel::default();
+    let cached = stripped_prefix_model(&base, base.auto_exposure);
+    let changed = AdjustmentModel {
+        crop: crate::types::Crop {
+            left: 0.25,
+            right: 0.75,
+            ..base.crop
+        },
+        perspective_rotate: 2.0,
+        ..base
+    };
+    assert!(!prefix_matches(&changed, &cached, changed.auto_exposure));
+    assert!(pixel_prefix_matches(
+        &changed,
+        &cached,
+        changed.auto_exposure
+    ));
+    let carried = stripped_prefix_model(&changed, changed.auto_exposure);
+    assert_eq!(carried.crop, changed.crop);
+    assert_eq!(carried.perspective_rotate, changed.perspective_rotate);
 }
