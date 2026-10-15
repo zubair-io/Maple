@@ -46,6 +46,24 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
         }
     }
 
+    // Logout and refresh share a lane: a refresh cannot publish tokens after removal.
+    fun disconnect(id: String): Unit =
+        synchronized(refreshLock) {
+            val current = credentials.servers().find { it.id == id } ?: return@synchronized
+            try {
+                request(
+                        id,
+                        "/api/auth/logout",
+                        "POST",
+                        JSONObject().put("refresh_token", current.refresh).toString(),
+                        mapOf("Content-Type" to "application/json"),
+                    )
+                    .requireSuccess()
+            } finally {
+                credentials.remove(id)
+            }
+        }
+
     private fun <T> authenticated(
         id: String,
         path: String,

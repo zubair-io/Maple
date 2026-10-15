@@ -13,6 +13,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class CloudLibrary(context: Context) {
+    private val loginLock = Any()
+    private var loginEpoch = 0
     private val credentials = CloudCredentials(context)
     private val http = CloudHttp(credentials)
     val sources: List<Folder>
@@ -21,55 +23,79 @@ class CloudLibrary(context: Context) {
                 Folder(root(it.id), Uri.parse(it.origin).authority ?: it.origin)
             }
 
-    fun begin(input: String): Uri = CloudLogin.create(input).also(credentials::pending).browserUri()
+    fun begin(input: String): Uri =
+        synchronized(loginLock) {
+            val login = CloudLogin.create(input)
+            ++loginEpoch
+            credentials.pending(login)
+            login.browserUri()
+        }
 
-    fun cancelLogin() = credentials.pending(null)
+    fun cancelLogin() =
+        synchronized(loginLock) {
+            ++loginEpoch
+            credentials.pending(null)
+        }
 
     suspend fun complete(callback: Uri): Folder =
         withContext(Dispatchers.IO) {
-            val pending =
-                credentials.pending() ?: error("No sign-in is pending. Please connect again.")
-            val code = pending.validateCallback(callback)
-            // Consume before redeeming; duplicate callbacks cannot redeem or replace another
-            // session.
-            credentials.pending(null)
-            val response =
-                CloudHttp.publicPost(
+            val (pending, code, epoch) =
+                synchronized(loginLock) {
+                    val pending =
+                        credentials.pending()
+                            ?: error("No sign-in is pending. Please connect again.")
+                    val code = pending.validateCallback(callback)
+                    credentials.pending(null)
+                    Triple(pending, code, loginEpoch)
+                }
+            try {
+                val response =
+                    CloudHttp.publicPost(
+                            pending.origin,
+                            "/api/auth/native-code/redeem",
+                            JSONObject().put("code", code).put("code_verifier", pending.verifier),
+                        )
+                        .requireSuccess()
+                val result = JSONObject(response.text())
+                val existing = credentials.servers().find { it.origin == pending.origin }
+                val server =
+                    CloudServer(
+                        existing?.id ?: UUID.randomUUID().toString(),
                         pending.origin,
-                        "/api/auth/native-code/redeem",
-                        JSONObject().put("code", code).put("code_verifier", pending.verifier),
+                        result.getString("access_token"),
+                        result.getString("refresh_token"),
                     )
-                    .requireSuccess()
-            val result = JSONObject(response.text())
-            val existing = credentials.servers().find { it.origin == pending.origin }
-            val server =
-                CloudServer(
-                    existing?.id ?: UUID.randomUUID().toString(),
-                    pending.origin,
-                    result.getString("access_token"),
-                    result.getString("refresh_token"),
-                )
-            credentials.save(server)
-            Folder(root(server.id), Uri.parse(server.origin).authority ?: server.origin)
+                val committed =
+                    synchronized(loginLock) {
+                        if (epoch == loginEpoch) {
+                            credentials.save(server)
+                            true
+                        } else false
+                    }
+                if (!committed) {
+                    runCatching {
+                        CloudHttp.publicPost(
+                            pending.origin,
+                            "/api/auth/logout",
+                            JSONObject().put("refresh_token", server.refresh),
+                        )
+                    }
+                    throw kotlinx.coroutines.CancellationException("Sign-in was cancelled")
+                }
+                Folder(root(server.id), Uri.parse(server.origin).authority ?: server.origin)
+            } catch (failure: Exception) {
+                synchronized(loginLock) {
+                    if (epoch != loginEpoch)
+                        throw kotlinx.coroutines.CancellationException("Sign-in was cancelled")
+                }
+                throw failure
+            }
         }
 
-    suspend fun disconnect(folder: Folder) =
+    suspend fun disconnect(folder: Folder): Unit =
         withContext(Dispatchers.IO) {
             val id = folder.uri.host ?: error("Invalid server")
-            val server = credentials.servers().find { it.id == id } ?: return@withContext
-            try {
-                http
-                    .request(
-                        id,
-                        "/api/auth/logout",
-                        "POST",
-                        JSONObject().put("refresh_token", server.refresh).toString(),
-                        mapOf("Content-Type" to "application/json"),
-                    )
-                    .requireSuccess()
-            } finally {
-                credentials.remove(id)
-            }
+            http.disconnect(id)
         }
 
     fun list(uri: Uri): LibraryListing {
