@@ -8,7 +8,7 @@ import java.nio.ByteBuffer
 import java.security.MessageDigest
 import org.json.JSONObject
 
-internal data class CachedDerivative(val file: File, val inserted: Boolean)
+internal data class CachedDerivative(val file: File, val index: File, val inserted: Boolean)
 
 /** Immutable payloads and an atomic validator index keep concurrent responses paired. */
 internal class CloudDerivativeCache(private val cloud: CloudLibrary, private val folder: File) {
@@ -43,7 +43,7 @@ internal class CloudDerivativeCache(private val cloud: CloudLibrary, private val
             check(file.isFile && file.length() > 0) { "Cloud cache was evicted during validation" }
             file.setLastModified(System.currentTimeMillis())
             index.setLastModified(System.currentTimeMillis())
-            return CachedDerivative(file, false)
+            return CachedDerivative(file, index, false)
         }
         response.requireSuccess()
         check(response.size > 0) { "Cloud derivative is empty" }
@@ -60,7 +60,7 @@ internal class CloudDerivativeCache(private val cloud: CloudLibrary, private val
             )
         }
         payload.setLastModified(System.currentTimeMillis())
-        return CachedDerivative(payload, true)
+        return CachedDerivative(payload, index, true)
     }
 
     private fun publish(target: File, write: (OutputStream) -> Unit) {

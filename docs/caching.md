@@ -338,6 +338,10 @@ and checks cancellation. These durable XMPs have an explicit export. Earlier URI
 remain untouched; their asset identity cannot be safely inferred for migration.
 Original and derivative cache hits update recency without enumerating the cache.
 Cloud derivative indexes pair validators with immutable payloads so concurrent responses cannot mismatch an ETag and image. Missing/evicted bodies trigger an unconditional fetch; previews and thumbnails have separate entries.
+Eviction treats an index and its currently referenced payload as one LRU entry;
+superseded orphan payloads remain independently evictable. A new response protects
+both its returned bytes and index, with their cost reserved before retaining other
+entries, so a cache-limit boundary cannot split the pair.
 Eviction runs after new bytes are published; the original's lease serializes
 staging and use so its file stays protected while Rust reads it.
 

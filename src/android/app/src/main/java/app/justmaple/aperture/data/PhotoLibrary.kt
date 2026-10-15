@@ -150,7 +150,7 @@ class PhotoLibrary(private val context: Context) {
                 originals.withLock {
                     check(temporary.renameTo(staged)) { "Could not stage $name" }
                     staged.setLastModified(System.currentTimeMillis())
-                    trim(folder, 512L * 1024 * 1024, staged)
+                    trim(folder, 512L * 1024 * 1024, setOf(staged))
                 }
                 photo
             } finally {
@@ -201,7 +201,7 @@ class PhotoLibrary(private val context: Context) {
                 } finally {
                     temporary.delete()
                 }
-                trim(folder, 512L * 1024 * 1024, file)
+                trim(folder, 512L * 1024 * 1024, setOf(file))
             }
             file.setLastModified(System.currentTimeMillis())
             file
@@ -219,7 +219,8 @@ class PhotoLibrary(private val context: Context) {
             if (CloudLibrary.isCloud(photo.uri) && android.os.Build.VERSION.SDK_INT >= 31) {
                 val remote = derivatives.load(photo, edge)
                 if (remote != null) {
-                    if (remote.inserted) trim(folder, 64L * 1024 * 1024, remote.file)
+                    if (remote.inserted)
+                        trim(folder, 64L * 1024 * 1024, setOf(remote.file, remote.index))
                     return@withContext remote.file
                 }
             }
@@ -244,23 +245,49 @@ class PhotoLibrary(private val context: Context) {
                 } finally {
                     temporary.delete()
                 }
-                trim(folder, 64L * 1024 * 1024, file)
+                trim(folder, 64L * 1024 * 1024, setOf(file))
             }
             file.setLastModified(System.currentTimeMillis())
             file
         }
 
-    private fun trim(folder: File, limit: Long, keep: File) {
+    private fun trim(folder: File, limit: Long, keep: Set<File>) {
+        val files =
+            folder.listFiles().orEmpty().filter {
+                it.isFile && !it.name.endsWith(".tmp") && !it.name.startsWith("thumb-")
+            }
+        val indexed =
+            files
+                .mapNotNull { file ->
+                    val key =
+                        CLOUD_INDEX.matchEntire(file.name)?.groupValues?.get(1)
+                            ?: return@mapNotNull null
+                    val content = runCatching {
+                        org.json.JSONObject(file.readText()).getString("content")
+                    }.getOrNull()
+                    if (content?.matches(Regex("[0-9a-f]{64}")) == true) key to content else null
+                }
+                .toMap()
         val entries =
-            folder
-                .listFiles()
-                .orEmpty()
-                .filter { it.isFile && !it.name.endsWith(".tmp") && !it.name.startsWith("thumb-") }
-                .sortedByDescending { it.lastModified() }
-        var bytes = 0L
-        for (file in entries) {
-            bytes += file.length()
-            if (bytes > limit && file != keep) file.delete()
+            files
+                .groupBy { file ->
+                    val index = CLOUD_INDEX.matchEntire(file.name)?.groupValues?.get(1)
+                    val payload = CLOUD_PAYLOAD.matchEntire(file.name)
+                    when {
+                        index != null && index in indexed -> "cloud-$index"
+                        payload != null &&
+                            indexed[payload.groupValues[1]] == payload.groupValues[2] ->
+                            "cloud-${payload.groupValues[1]}"
+                        else -> file.name
+                    }
+                }
+                .values
+                .sortedByDescending { entry -> entry.maxOf { it.lastModified() } }
+        val protected = entries.filter { entry -> entry.any { it in keep } }
+        var bytes = protected.sumOf { entry -> entry.sumOf { it.length() } }
+        for (entry in entries.filter { group -> group.none { it in keep } }) {
+            val size = entry.sumOf { it.length() }
+            if (bytes + size <= limit) bytes += size else entry.forEach { it.delete() }
         }
     }
 
@@ -309,6 +336,8 @@ class PhotoLibrary(private val context: Context) {
         }
 
     companion object {
+        private val CLOUD_INDEX = Regex("cloud-([0-9a-f]{64})\\.json")
+        private val CLOUD_PAYLOAD = Regex("cloud-([0-9a-f]{64})-([0-9a-f]{64})\\.avif")
         val EXTENSIONS =
             setOf(
                 "cr2",
