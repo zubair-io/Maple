@@ -193,6 +193,53 @@ class CloudIntegrationTest {
                     compose.waitUntil(30_000) { !model.state.value.rendering }
                     assertEquals(.75f, model.state.value.values.getValue("exposure"))
                 }
+                for (editing in listOf(false, true)) {
+                    if (!editing) {
+                        compose.runOnIdle { model.back() }
+                        compose.waitUntil(30_000) { model.state.value.mode == PhotoMode.Preview }
+                    }
+                    val xml = server.sidecar.readBytes()
+                    val entered = java.util.concurrent.CountDownLatch(1)
+                    val release = java.util.concurrent.CountDownLatch(1)
+                    server.loadEntered = entered
+                    server.releaseLoad = release
+                    try {
+                        compose.runOnIdle { model.open(photo) }
+                        assertTrue(entered.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                        compose.runOnIdle {
+                            assertTrue(model.state.value.loading)
+                            assertTrue(model.state.value.values.isEmpty())
+                            model.setField("exposure", 2f)
+                            model.attribute("xmp:Rating", "5")
+                            model.undo()
+                            model.redo()
+                            model.edit()
+                            assertFalse(model.state.value.dirty)
+                            assertFalse(model.state.value.canUndo)
+                            assertNull(model.state.value.document.attribute("xmp:Rating"))
+                        }
+                        if (!editing)
+                            compose
+                                .onNodeWithContentDescription("Rate 5 stars")
+                                .assertIsNotEnabled()
+                    } finally {
+                        release.countDown()
+                    }
+                    compose.waitUntil(60_000) {
+                        !model.state.value.loading && !model.state.value.rendering
+                    }
+                    assertEquals("0.75", model.state.value.document.attribute("crs:Exposure2012"))
+                    assertArrayEquals(xml, server.sidecar.readBytes())
+                    assertArrayEquals(bytes, server.original.readBytes())
+                    server.loadEntered = null
+                    server.releaseLoad = null
+                    if (!editing) compose.runOnIdle { model.edit() }
+                    compose.waitUntil(60_000) {
+                        model.state.value.values.isNotEmpty() && !model.state.value.rendering
+                    }
+                    compose.waitForIdle()
+                    compose.waitUntil(30_000) { !model.state.value.rendering }
+                }
                 val baseline = runBlocking { library.loadSidecar(photo) }
                 val external =
                     server.sidecar

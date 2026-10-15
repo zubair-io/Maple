@@ -33,6 +33,8 @@ internal class FileCloudServer(private val directory: File) : Closeable {
     @Volatile var saveEntered: java.util.concurrent.CountDownLatch? = null
     @Volatile var releaseSave: java.util.concurrent.CountDownLatch? = null
     @Volatile var saveCount = 0
+    @Volatile var loadEntered: java.util.concurrent.CountDownLatch? = null
+    @Volatile var releaseLoad: java.util.concurrent.CountDownLatch? = null
     @Volatile private var access = "fixture-access-1"
     private var refresh = "fixture-refresh-1"
     val original = File(directory, "photo #😀.png")
@@ -223,13 +225,18 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                         val extra =
                             mapOf("X-Maple-Xmp-Preconditions" to "content-etag-v1") +
                                 if (etag == null) emptyMap() else mapOf("ETag" to etag)
-                        if (request[0] == "GET")
+                        if (request[0] == "GET") {
+                            loadEntered?.countDown()
+                            check(
+                                releaseLoad?.await(10, java.util.concurrent.TimeUnit.SECONDS) !=
+                                    false
+                            )
                             respond(
                                 if (xml == null) 404 else 200,
                                 xml.orEmpty().toByteArray(),
                                 extra,
                             )
-                        else if (
+                        } else if (
                             (xml == null && headers["if-none-match"] == "*") ||
                                 (xml != null && headers["if-match"] == etag)
                         ) {

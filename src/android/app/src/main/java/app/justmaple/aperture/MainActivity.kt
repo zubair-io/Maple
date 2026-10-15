@@ -21,7 +21,11 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
         setContent { MapleTheme { MapleShell(model) } }
-        if (savedInstanceState == null || intent.data?.scheme == "maple-app") openIntent(intent)
+        // A retained model already handled this intent; a restored process has
+        // a fresh model even when Android supplies saved activity state.
+        val firstIntent = !model.initialIntentHandled
+        model.initialIntentHandled = true
+        if (firstIntent || intent.data?.scheme == "maple-app") openIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
