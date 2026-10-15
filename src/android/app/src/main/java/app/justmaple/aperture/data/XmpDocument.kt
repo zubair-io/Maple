@@ -62,10 +62,19 @@ data class XmpDocument(
         val profile =
             attribute("papp:Profile")
                 ?: if (attribute("papp:Look") == "Neutral") "Neutral" else "Auto"
+        val wbScale =
+            attribute("papp:WbScaleVersion")
+                ?: if (attribute("crs:Temperature") != null || attribute("crs:Tint") != null) {
+                    val mapleAuthored = tags.any { (_, scope) ->
+                        scope.values.any { it == NAMESPACES.getValue("papp") || it in LEGACY_PAPP }
+                    }
+                    if (mapleAuthored) "1" else AdjustmentFields.whiteBalanceScaleVersion.toString()
+                } else null
         val owned =
             changes +
                 mapOf(
                     "papp:Profile" to profile,
+                    "papp:WbScaleVersion" to wbScale,
                     "crs:HasSettings" to "True",
                     "crs:Version" to (attribute("crs:Version") ?: "11.0"),
                     "crs:ProcessVersion" to (attribute("crs:ProcessVersion") ?: "11.0"),

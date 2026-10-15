@@ -76,6 +76,8 @@ foreign bytes, resolves RDF and owned attributes by namespace, and rejects
 external-write conflicts. Legacy Maple namespace aliases are read and owned edits
 remove their older spelling. A disposable namespace-normalized copy feeds every
 native preview/editor/validation/export entry; persisted XML remains lexical.
+Unstamped imported temperature/tint keep their foreign or legacy Maple scale
+when unrelated edits add Maple metadata, so rating or picking cannot change color.
 Failed sidecar loads block metadata, editing and export
 until a successful reload confirms that photo’s save baseline. SAF replacement writes a
 temporary sibling before publishing and retains the previous sidecar until the

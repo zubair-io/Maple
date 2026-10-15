@@ -135,6 +135,32 @@ class XmpDocumentTest {
         }
     }
 
+    @Test
+    fun unrelatedEditsPreserveUnstampedForeignAndLegacyWhiteBalanceScales() {
+        val foreign =
+            XmpDocument.EMPTY.replace(
+                "rdf:about=\"\"",
+                "rdf:about=\"\" xmlns:c=\"http://ns.adobe.com/camera-raw-settings/1.0/\" c:Temperature=\"6000\" c:Tint=\"5\"",
+            )
+        val legacy =
+            foreign.replace(
+                "rdf:about=\"\"",
+                "rdf:about=\"\" xmlns:maple=\"https://maple.app/ns/1.0/\"",
+            )
+        for ((source, version) in listOf(foreign to "5", legacy to "1")) {
+            val saved = roundTrip(XmpDocument(source).withAttribute("xmp:Rating", "4"))
+            assertEquals(version, saved.attribute("papp:WbScaleVersion"))
+            assertEquals("6000", saved.attribute("crs:Temperature"))
+            assertEquals("5", saved.attribute("crs:Tint"))
+            assertEquals(
+                version,
+                roundTrip(saved.withAttribute("papp:Flag", "pick")).attribute("papp:WbScaleVersion"),
+            )
+            val explicit = roundTrip(XmpDocument(source).withAttribute("papp:WbScaleVersion", "3"))
+            assertEquals("3", explicit.attribute("papp:WbScaleVersion"))
+        }
+    }
+
     private fun roundTrip(document: XmpDocument): XmpDocument {
         val folder = Files.createTempDirectory("maple-xmp-").toFile()
         return try {

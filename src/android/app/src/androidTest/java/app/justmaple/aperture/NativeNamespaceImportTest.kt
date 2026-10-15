@@ -79,6 +79,21 @@ class NativeNamespaceImportTest {
                 NativeBridge.export(original.absolutePath, canonical, expectedExport.absolutePath)
                 NativeBridge.export(original.absolutePath, loaded, actualExport.absolutePath)
                 assertArrayEquals(expectedExport.readBytes(), actualExport.readBytes())
+                if (extension == ".dng") {
+                    val foreignWb =
+                        """<r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:c="http://ns.adobe.com/camera-raw-settings/1.0/"><r:Description c:Temperature="6000" c:Tint="5"/></r:RDF>"""
+                    val metadataEdit =
+                        XmpDocument(foreignWb).withAttribute("xmp:Rating", "4").serialize()
+                    val beforeWb = File(directory, "before-wb.jpg")
+                    val afterWb = File(directory, "after-wb.jpg")
+                    NativeBridge.export(original.absolutePath, foreignWb, beforeWb.absolutePath)
+                    NativeBridge.export(original.absolutePath, metadataEdit, afterWb.absolutePath)
+                    assertArrayEquals(
+                        "Metadata must retain the imported WB scale",
+                        beforeWb.readBytes(),
+                        afterWb.readBytes(),
+                    )
+                }
                 assertEquals(loaded, library.loadSidecar(photo).baseline)
                 assertArrayEquals(bytes, original.readBytes())
             } finally {
