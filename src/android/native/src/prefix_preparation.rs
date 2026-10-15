@@ -1,6 +1,6 @@
 //! Pure CPU refinement owns immutable source Arcs; it never borrows GPU state.
 use super::*;
-use raw_core::gpu_host::{model::prefix_matches, prepare::develop_prefix_rgba_cancellable};
+use raw_core::gpu_host::{prefix::pixel_prefix_matches, prepare::develop_prefix_rgba_cancellable};
 
 pub struct Preparation {
     raw: Arc<RawImage>,
@@ -29,7 +29,8 @@ impl Session {
         } else {
             self.model.auto_exposure
         };
-        if self.model.profile == self.profile && prefix_matches(&self.model, &self.prefix, ae) {
+        if self.model.profile == self.profile && pixel_prefix_matches(&self.model, &self.prefix, ae)
+        {
             return None;
         }
         Some(Preparation {

@@ -14,6 +14,13 @@ fn interactive_color_controls_reuse_the_prefix_and_match_single_cpu_application(
     std::fs::write(&path, &source).unwrap();
     let xml = "<rdf:Description xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" papp:Profile=\"Neutral\"/>";
     let mut session = Session::open(path.to_str().unwrap(), xml, 2048).unwrap();
+    session.model.perspective_rotate = 2.;
+    assert!(
+        session.preparation().is_none(),
+        "present geometry must not prepare RAW pixels"
+    );
+    assert!(session.geometry().is_active());
+    session.model.perspective_rotate = 0.;
     let prefix = session.prefix.clone();
     let mut baseline = Vec::new();
     for (hue, saturation, defringe, bw) in [

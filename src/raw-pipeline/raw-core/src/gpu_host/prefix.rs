@@ -5,7 +5,7 @@ use crate::types::{
 };
 
 macro_rules! prefix_policy {
-    ($ae:ident; keep [$($keep:ident),* $(,)?]; neutral {$($neutral:ident: $value:expr),* $(,)?}) => {
+    ($ae:ident; keep [$($keep:ident),* $(,)?]; presentation [$($presentation:ident),* $(,)?]; neutral {$($neutral:ident: $value:expr),* $(,)?}) => {
         /// Prepare the owned upstream model. Called when upload preparation is needed.
         pub fn stripped_prefix_model(full: &AdjustmentModel, $ae: AutoExposureMode) -> AdjustmentModel {
             AdjustmentModel { $($neutral: $value,)* ..full.clone() }
@@ -15,8 +15,14 @@ macro_rules! prefix_policy {
         // Legacy radius remains part of AdjustmentModel equality; retain it for parity.
         #[allow(deprecated)]
         pub fn prefix_matches(full: &AdjustmentModel, cached: &AdjustmentModel, $ae: AutoExposureMode) -> bool {
+            pixel_prefix_matches(full, cached, $ae) $(&& full.$presentation == cached.$presentation)*
+        }
+        /// Pixel-only boundary for hosts that update presentation geometry independently.
+        /// Existing hosts retain the conservative comparison and geometry-carrying model.
+        #[allow(deprecated)]
+        pub fn pixel_prefix_matches(full: &AdjustmentModel, cached: &AdjustmentModel, $ae: AutoExposureMode) -> bool {
             // Exhaustive pattern: a schema addition must be classified in this policy.
-            let AdjustmentModel { $($neutral: _,)* $($keep: _,)* } = full;
+            let AdjustmentModel { $($neutral: _,)* $($keep: _,)* $($presentation: _,)* } = full;
             $ae == cached.auto_exposure $(&& full.$keep == cached.$keep)*
         }
     };
@@ -40,8 +46,8 @@ macro_rules! prefix_policy {
 // PINNED in this prefix (`sharpen_amount = 0` short-circuits the sharpen stage at
 // `amount.abs() < 1e-3`; the tone-curve point sets are emptied; WB is pinned
 // neutral so its method is inert), so they have NO effect on the developed buffer
-// here. We pin them to their defaults anyway so the prefix model is a function of
-// ONLY the fields that genuinely shape the buffer. Without this, dragging e.g. the
+// here. Pixel-only comparison ignores the separately carried legacy presentation
+// fields; every GPU-stage field is pinned to its default. Without this, dragging e.g. the
 // sharpen-radius slider (with the default `sharpen_amount = 40` active on the GPU)
 // would change the prefix model and trigger a SPURIOUS re-develop + re-upload
 // every tick in the persistent session — correctness held, but the persistence
@@ -68,22 +74,24 @@ prefix_policy! {
         auto_lateral_ca,
         lens_profile,
     ];
+    presentation [
+        crop,
+        perspective_vertical,
+        perspective_horizontal,
+        perspective_rotate,
+        perspective_scale,
+        perspective_aspect,
+        perspective_x,
+        perspective_y,
+    ];
     neutral {
-        // These stages already run in the GPU chain or present geometry.
+        // These stages already run in the GPU chain.
         // Keeping them upstream both redeveloped the sensor and applied HSL/
         // defringe twice. Their complete controls belong to the resident tick.
         parametric_shadow_split: 25.0,
         parametric_midtone_split: 50.0,
         parametric_highlight_split: 75.0,
         black_white: crate::types::BlackWhiteMode::Off,
-        crop: Default::default(),
-        perspective_vertical: 0.0,
-        perspective_horizontal: 0.0,
-        perspective_rotate: 0.0,
-        perspective_scale: 100.0,
-        perspective_aspect: 0.0,
-        perspective_x: 0.0,
-        perspective_y: 0.0,
         defringe_purple_amount: 0.0,
         defringe_purple_hue_lo: 30.0,
         defringe_purple_hue_hi: 70.0,
