@@ -327,6 +327,11 @@ and `LocalDocuments.kt` own the following state:
 | Folder snapshot           | One parent URI → names, document URIs, types, sizes and mtimes from one provider query                                    | Replaced on folder listing/photo open; refreshed during baseline checks; invalidated after XMP publication/recovery. Sidecar contents are never cached |
 | Decoded RAW / GPU session | Current editor session                                                                                                    | Serialized worker owns one active image; closed on source/photo change or teardown                                                                     |
 
+Single-file edits persist in `filesDir/sidecars/` under the SHA-256 of
+`private-sidecar-v2:` plus `Photo.key` (URI, original size and modification time).
+These durable XMPs have an explicit export. Earlier URI-only private sidecars
+remain untouched; their asset identity cannot be safely inferred for migration.
+
 The navigation tree keeps activity-scoped child-folder listings by URI, fetched
 only when expanded (cloud server library groups load when connected). The current
 Browse listing refreshes its matching branch; changing registered sources clears
