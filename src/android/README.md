@@ -67,6 +67,10 @@ paths into Android vectors. The launcher icon is the existing Maple artwork.
 Original URIs are opened for reading only. Folder grants persist through the
 Storage Access Framework. Folder edits use adjacent stem-swapped XMP files;
 single-file/share intents use private sidecars with an explicit XMP export.
+Private sidecars include the source URI, size and modification time in their
+identity, so a reused share URI with changed metadata gets separate edits.
+Earlier URI-only private sidecars are retained and are not automatically assigned
+to a photo whose identity cannot be verified. Folder-adjacent sidecars are unaffected.
 The XMP writer patches owned attributes in the original XML, retaining untouched
 foreign bytes, and rejects external-write conflicts. SAF replacement writes a
 temporary sibling before publishing and retains the previous sidecar until the

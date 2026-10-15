@@ -246,7 +246,9 @@ class PhotoLibrary(private val context: Context) {
     private fun privateSidecar(photo: Photo) =
         File(
             File(context.filesDir, "sidecars").apply { mkdirs() },
-            "${digest(photo.uri.toString())}.xmp",
+            // URI-only files from the initial #4623 pass remain untouched:
+            // their source identity cannot be safely inferred for migration.
+            "${digest("private-sidecar-v2:${photo.key}")}.xmp",
         )
 
     private fun readSidecar(photo: Photo, fresh: Boolean = false): String? =
