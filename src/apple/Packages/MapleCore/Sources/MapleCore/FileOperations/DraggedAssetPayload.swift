@@ -1,69 +1,45 @@
-// DraggedAssetPayload.swift — the `Transferable` payload carried by a
-// grid-to-source-tree drag (#2646). Net new: this is the first
-// `.draggable`/`.dropDestination` usage anywhere in the SwiftUI app (see
-// the ticket's grep of `.draggable`/`.dropDestination`/`NSItemProvider`
-// across `src/apple/Maple/Views` — zero matches before this file).
-//
-// Carries the dragged selection's `AssetRef.ID`s (UUIDs) as a
-// comma-joined string via `ProxyRepresentation` over `String`'s own
-// built-in `.plainText` transfer representation — no custom `UTType`
-// declaration needed (this payload never needs to interop with another
-// app or Finder; it only ever round-trips within this process, from a
-// `PhotoThumbnailCell`'s `.draggable` to a source-tree row's
-// `.dropDestination`).
-//
-// Lives in MapleCore (alongside `AssetRef` itself) rather than the app
-// target so the drop-target routing in `AppShell+AssetDrop.swift` can
-// decode it without a SwiftUI import — `Transferable` comes from
-// `CoreTransferable`, a system framework with no SwiftUI dependency.
-
 import CoreTransferable
 import Foundation
+import UniformTypeIdentifiers
 
-/// The whole dragged selection, in original grid order. Per the design
-/// doc's "Move / copy via drag-and-drop" section: "multi-select drag
-/// carries the whole selection if the dragged item is part of it" — the
-/// grid decides which IDs to include (either just the one tile, or the
-/// full `selectedIDs` set) before constructing this payload; this type
-/// itself is just the carrier.
+extension UTType {
+  /// Internal selection identity; never advertise asset UUIDs as public text (#4632).
+  public static let mapleAssetSelection = UTType(
+    exportedAs: "app.justmaple.asset-selection", conformingTo: .data)
+}
+
+/// Internal move/copy identity, with lazy original resolution for outgoing file drags.
 public struct DraggedAssetPayload: Transferable, Equatable, Sendable {
-    public let ids: [AssetRef.ID]
+  public let ids: [AssetRef.ID]
+  /// Resolve only when dragging starts, avoiding a library scan per visible tile.
+  public let resolveAssets: (@MainActor @Sendable () -> [AssetRef])?
 
-    public init(ids: [AssetRef.ID]) {
-        self.ids = ids
-    }
+  public init(
+    ids: [AssetRef.ID], resolveAssets: (@MainActor @Sendable () -> [AssetRef])? = nil
+  ) {
+    self.ids = ids
+    self.resolveAssets = resolveAssets
+  }
 
-    public static var transferRepresentation: some TransferRepresentation {
-        ProxyRepresentation(exporting: \.encoded, importing: DraggedAssetPayload.init(encoded:))
-    }
+  public static func == (lhs: Self, rhs: Self) -> Bool { lhs.ids == rhs.ids }
 
-    // `internal`, not `private`, so the round-trip these two halves form is
-    // reachable from the test target — a test that re-implements the
-    // comma-join instead of calling them proves nothing about this type.
-    var encoded: String {
-        ids.map(\.uuidString).joined(separator: ",")
+  public static var transferRepresentation: some TransferRepresentation {
+    DataRepresentation(contentType: .mapleAssetSelection) { payload in
+      Data(payload.encoded.utf8)
+    } importing: { data in
+      DraggedAssetPayload(encoded: String(decoding: data, as: UTF8.self))
     }
+  }
 
-    init(encoded: String) {
-        self.ids = encoded
-            .split(separator: ",")
-            .compactMap { UUID(uuidString: String($0)) }
-    }
+  var encoded: String { ids.map(\.uuidString).joined(separator: ",") }
 
-    /// Count badge text for the drag preview (#2779) — "N Photos", shown
-    /// only when the payload carries more than one asset (the caller
-    /// overlays this on the thumbnail; a single-asset drag shows the bare
-    /// thumbnail, no badge). Pure and platform-independent so it's testable
-    /// without SwiftUI — the preview VIEW itself (thumbnail + overlay
-    /// layout) is not unit-testable and isn't covered here.
-    public var previewBadgeText: String {
-        Self.previewBadgeText(forCount: ids.count)
-    }
+  init(encoded: String) {
+    self.init(ids: encoded.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
+  }
 
-    /// Same text, addressable by a bare count — lets the drag-preview view
-    /// (`AssetDragPreview`, Maple app target) derive the badge string
-    /// without constructing a throwaway payload.
-    public static func previewBadgeText(forCount count: Int) -> String {
-        count == 1 ? "1 Photo" : "\(count) Photos"
-    }
+  public var previewBadgeText: String { Self.previewBadgeText(forCount: ids.count) }
+
+  public static func previewBadgeText(forCount count: Int) -> String {
+    count == 1 ? "1 Photo" : "\(count) Photos"
+  }
 }

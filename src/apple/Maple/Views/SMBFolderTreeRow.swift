@@ -151,15 +151,12 @@ struct SMBFolderTreeRow: View {
           .allowsHitTesting(false)
       )
       .applyingIf(depth == 0) { view in
-        view.dropDestination(
-          for: DraggedAssetPayload.self,
-          action: { payloads, _ in
-            guard let payload = payloads.first, !payload.ids.isEmpty else { return false }
-            onDropAssets(share, Set(payload.ids), MapleDragModifier.isCopyRequested())
-            return true
-          }, isTargeted: { targeted in isDropTargeted = targeted }
+        view.assetOrFileDropDestination(
+          isTargeted: { targeted in isDropTargeted = targeted },
+          assets: { ids in
+            onDropAssets(share, ids, MapleDragModifier.isCopyRequested())
+          }, files: onDropURLs
         )
-        .urlDropDestination(perform: onDropURLs)
       }
       .contextMenu {
         if depth == 0, selectedAssetCount > 0 {
