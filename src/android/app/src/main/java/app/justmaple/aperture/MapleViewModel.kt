@@ -193,70 +193,63 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun openSingle(uri: Uri) {
-        viewModelScope.launch {
-            try {
-                val photo = library.single(uri)
-                mutable.update {
-                    it.copy(
-                        photos = listOf(photo),
-                        folder = null,
-                        folderTrail = emptyList(),
-                        folders = emptyList(),
-                    )
-                }
-                open(photo)
-            } catch (failure: Exception) {
-                fail(failure)
-            }
+    fun openSingle(uri: Uri) = viewModelScope.launch {
+        try {
+            val photo = library.single(uri)
+            open(photo, single = true)
+        } catch (failure: Exception) {
+            fail(failure)
         }
     }
 
-    fun open(photo: Photo) {
-        viewModelScope.launch {
-            if (!flush()) return@launch
-            val nextMode =
-                if (state.value.mode == PhotoMode.Edit) PhotoMode.Edit else PhotoMode.Preview
-            val token = ++generation
-            baseline = null
+    fun open(photo: Photo) = viewModelScope.launch { open(photo, single = false) }
+
+    private suspend fun open(photo: Photo, single: Boolean) {
+        if (!flush()) return
+        val nextMode = if (state.value.mode == PhotoMode.Edit) PhotoMode.Edit else PhotoMode.Preview
+        val token = ++generation
+        baseline = null
+        mutable.update {
+            it.copy(
+                selected = photo,
+                photos = if (single) listOf(photo) else it.photos,
+                folder = if (single) null else it.folder,
+                folderTrail = if (single) emptyList() else it.folderTrail,
+                folders = if (single) emptyList() else it.folders,
+                documentLoaded = false,
+                mode = nextMode,
+                canResetRawOnlySliders = false,
+                loading = true,
+                rendering = false,
+                document = XmpDocument(),
+                values = emptyMap(),
+                canUndo = false,
+                canRedo = false,
+                dirty = false,
+                error = null,
+            )
+        }
+        undo.clear()
+        redo.clear()
+        gesture = null
+        try {
+            renderer.shutdown()
+            val loaded = library.loadSidecar(photo)
+            if (token != generation) return
+            baseline = loaded.baseline
             mutable.update {
                 it.copy(
-                    selected = photo,
-                    documentLoaded = false,
-                    mode = nextMode,
-                    canResetRawOnlySliders = false,
-                    loading = true,
-                    rendering = false,
-                    document = XmpDocument(),
+                    document = loaded.document,
+                    documentLoaded = true,
+                    loading = false,
                     values = emptyMap(),
                     canUndo = false,
                     canRedo = false,
-                    dirty = false,
-                    error = null,
                 )
             }
-            undo.clear()
-            redo.clear()
-            gesture = null
-            try {
-                renderer.shutdown()
-                val loaded = library.loadSidecar(photo)
-                if (token != generation) return@launch
-                baseline = loaded.baseline
-                mutable.update {
-                    it.copy(
-                        document = loaded.document,
-                        documentLoaded = true,
-                        loading = false,
-                        values = emptyMap(),
-                        canUndo = false,
-                        canRedo = false,
-                    )
-                }
-                if (nextMode == PhotoMode.Edit) startEditor(token)
-            } catch (failure: Exception) {
-                if (token == generation) fail(failure)
-            }
+            if (nextMode == PhotoMode.Edit) startEditor(token)
+        } catch (failure: Exception) {
+            if (token == generation) fail(failure)
         }
     }
 
