@@ -75,7 +75,8 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Lens: `no_correction_data`
 - Registry profile bundle: format v1, `blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a`
 - Qualification evidence:
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
+- `color_harness` measured record: commit [c67deb3fcbc13a9f35848d0d3b34b887042d3e79](https://github.com/zubair-io/Maple/commit/c67deb3fcbc13a9f35848d0d3b34b887042d3e79), corpus `blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb`, backend `cpu-reference`, pipeline v24, schema v5
 
 ### Canon EOS 5D Mark IV
 
@@ -87,7 +88,8 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Lens: `no_correction_data`
 - Registry profile bundle: format v1, `blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a`
 - Qualification evidence:
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
+- `color_harness` measured record: commit [c67deb3fcbc13a9f35848d0d3b34b887042d3e79](https://github.com/zubair-io/Maple/commit/c67deb3fcbc13a9f35848d0d3b34b887042d3e79), corpus `blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb`, backend `cpu-reference`, pipeline v24, schema v5
 
 ### Canon EOS 5DS R
 
@@ -99,7 +101,8 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Lens: `no_correction_data`
 - Registry profile bundle: format v1, `blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a`
 - Qualification evidence:
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
+- `color_harness` measured record: commit [c67deb3fcbc13a9f35848d0d3b34b887042d3e79](https://github.com/zubair-io/Maple/commit/c67deb3fcbc13a9f35848d0d3b34b887042d3e79), corpus `blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb`, backend `cpu-reference`, pipeline v24, schema v5
 
 ### Fujifilm GFX 50R
 
@@ -111,7 +114,8 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Lens: `no_correction_data`
 - Registry profile bundle: format v1, `blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a`
 - Qualification evidence:
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
+- `color_harness` measured record: commit [c67deb3fcbc13a9f35848d0d3b34b887042d3e79](https://github.com/zubair-io/Maple/commit/c67deb3fcbc13a9f35848d0d3b34b887042d3e79), corpus `blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb`, backend `cpu-reference`, pipeline v24, schema v5
 
 ### Fujifilm GFX 50S
 
@@ -123,7 +127,8 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Lens: `no_correction_data`
 - Registry profile bundle: format v1, `blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a`
 - Qualification evidence:
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
+- `color_harness` measured record: commit [c67deb3fcbc13a9f35848d0d3b34b887042d3e79](https://github.com/zubair-io/Maple/commit/c67deb3fcbc13a9f35848d0d3b34b887042d3e79), corpus `blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb`, backend `cpu-reference`, pipeline v24, schema v5
 
 ### Fujifilm X-T3 (X-Trans)
 
@@ -135,7 +140,8 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Lens: `no_correction_data`
 - Registry profile bundle: format v1, `blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a`
 - Qualification evidence:
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
+- `color_harness` measured record: commit [c67deb3fcbc13a9f35848d0d3b34b887042d3e79](https://github.com/zubair-io/Maple/commit/c67deb3fcbc13a9f35848d0d3b34b887042d3e79), corpus `blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb`, backend `cpu-reference`, pipeline v24, schema v5
 
 ### Google Pixel 6 Pro (rear main camera)
 
@@ -147,7 +153,8 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Lens: `embedded_correction`
 - Registry profile bundle: format v1, `blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a`
 - Qualification evidence:
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
+- `color_harness` measured record: commit [c67deb3fcbc13a9f35848d0d3b34b887042d3e79](https://github.com/zubair-io/Maple/commit/c67deb3fcbc13a9f35848d0d3b34b887042d3e79), corpus `blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb`, backend `cpu-reference`, pipeline v24, schema v5
 
 ### Hasselblad H2D-39
 
@@ -159,7 +166,8 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Lens: `no_correction_data`
 - Registry profile bundle: format v1, `blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a`
 - Qualification evidence:
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
+- `color_harness` measured record: commit [c67deb3fcbc13a9f35848d0d3b34b887042d3e79](https://github.com/zubair-io/Maple/commit/c67deb3fcbc13a9f35848d0d3b34b887042d3e79), corpus `blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb`, backend `cpu-reference`, pipeline v24, schema v5
 
 ### Hasselblad H5D-40
 
@@ -171,7 +179,8 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Lens: `no_correction_data`
 - Registry profile bundle: format v1, `blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a`
 - Qualification evidence:
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
+- `color_harness` measured record: commit [c67deb3fcbc13a9f35848d0d3b34b887042d3e79](https://github.com/zubair-io/Maple/commit/c67deb3fcbc13a9f35848d0d3b34b887042d3e79), corpus `blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb`, backend `cpu-reference`, pipeline v24, schema v5
 
 ### DJI Mavic 3 Pro (Hasselblad L3D-100c, 100 MP)
 
@@ -183,7 +192,8 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Lens: `embedded_correction`
 - Registry profile bundle: format v1, `blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a`
 - Qualification evidence:
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
+- `color_harness` measured record: commit [c67deb3fcbc13a9f35848d0d3b34b887042d3e79](https://github.com/zubair-io/Maple/commit/c67deb3fcbc13a9f35848d0d3b34b887042d3e79), corpus `blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb`, backend `cpu-reference`, pipeline v24, schema v5
 
 ### Leica M10
 
@@ -195,7 +205,8 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Lens: `no_correction_data`
 - Registry profile bundle: format v1, `blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a`
 - Qualification evidence:
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
+- `color_harness` measured record: commit [c67deb3fcbc13a9f35848d0d3b34b887042d3e79](https://github.com/zubair-io/Maple/commit/c67deb3fcbc13a9f35848d0d3b34b887042d3e79), corpus `blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb`, backend `cpu-reference`, pipeline v24, schema v5
 
 ### Nikon D850
 
@@ -207,7 +218,8 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Lens: `no_correction_data`
 - Registry profile bundle: format v1, `blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a`
 - Qualification evidence:
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
+- `color_harness` measured record: commit [c67deb3fcbc13a9f35848d0d3b34b887042d3e79](https://github.com/zubair-io/Maple/commit/c67deb3fcbc13a9f35848d0d3b34b887042d3e79), corpus `blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb`, backend `cpu-reference`, pipeline v24, schema v5
 
 ### Panasonic Lumix DMC-LX2
 
@@ -219,7 +231,8 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Lens: `no_correction_data`
 - Registry profile bundle: format v1, `blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a`
 - Qualification evidence:
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
+- `color_harness` measured record: commit [c67deb3fcbc13a9f35848d0d3b34b887042d3e79](https://github.com/zubair-io/Maple/commit/c67deb3fcbc13a9f35848d0d3b34b887042d3e79), corpus `blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb`, backend `cpu-reference`, pipeline v24, schema v5
 
 ### Sigma Foveon (X3F)
 
@@ -242,7 +255,8 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Lens: `no_correction_data`
 - Registry profile bundle: format v1, `blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a`
 - Qualification evidence:
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
+- `color_harness` measured record: commit [c67deb3fcbc13a9f35848d0d3b34b887042d3e79](https://github.com/zubair-io/Maple/commit/c67deb3fcbc13a9f35848d0d3b34b887042d3e79), corpus `blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb`, backend `cpu-reference`, pipeline v24, schema v5
 
 ### Apple iPhone 12 Pro (back camera)
 
@@ -254,7 +268,8 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Lens: `no_correction_data`
 - Registry profile bundle: format v1, `blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a`
 - Qualification evidence:
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
+- `color_harness` measured record: commit [c67deb3fcbc13a9f35848d0d3b34b887042d3e79](https://github.com/zubair-io/Maple/commit/c67deb3fcbc13a9f35848d0d3b34b887042d3e79), corpus `blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb`, backend `cpu-reference`, pipeline v24, schema v5
 
 ## Bundled bodies
 

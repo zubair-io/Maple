@@ -112,7 +112,19 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     lens: 'no_correction_data',
     resolution: 'embedded_full',
     profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
-    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
+    qualification: [
+      {
+        source: 'color_harness',
+        status: 'failed',
+        record: {
+          gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
+          corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
+          backend: 'cpu-reference',
+          pipelineVersion: 24,
+          schemaVersion: 5,
+        },
+      },
+    ],
   },
   {
     key: 'Canon EOS 5D Mark IV',
@@ -123,7 +135,19 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
     profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
-    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
+    qualification: [
+      {
+        source: 'color_harness',
+        status: 'failed',
+        record: {
+          gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
+          corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
+          backend: 'cpu-reference',
+          pipelineVersion: 24,
+          schemaVersion: 5,
+        },
+      },
+    ],
   },
   {
     key: 'Canon EOS 5DS R',
@@ -134,7 +158,19 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
     profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
-    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
+    qualification: [
+      {
+        source: 'color_harness',
+        status: 'failed',
+        record: {
+          gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
+          corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
+          backend: 'cpu-reference',
+          pipelineVersion: 24,
+          schemaVersion: 5,
+        },
+      },
+    ],
   },
   {
     key: 'Fujifilm GFX 50R',
@@ -145,7 +181,19 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
     profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
-    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
+    qualification: [
+      {
+        source: 'color_harness',
+        status: 'failed',
+        record: {
+          gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
+          corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
+          backend: 'cpu-reference',
+          pipelineVersion: 24,
+          schemaVersion: 5,
+        },
+      },
+    ],
   },
   {
     key: 'Fujifilm GFX 50S',
@@ -156,7 +204,19 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
     profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
-    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
+    qualification: [
+      {
+        source: 'color_harness',
+        status: 'failed',
+        record: {
+          gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
+          corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
+          backend: 'cpu-reference',
+          pipelineVersion: 24,
+          schemaVersion: 5,
+        },
+      },
+    ],
   },
   {
     key: 'Fujifilm X-T3',
@@ -167,7 +227,19 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
     profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
-    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
+    qualification: [
+      {
+        source: 'color_harness',
+        status: 'failed',
+        record: {
+          gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
+          corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
+          backend: 'cpu-reference',
+          pipelineVersion: 24,
+          schemaVersion: 5,
+        },
+      },
+    ],
   },
   {
     key: 'Google Pixel 6 Pro',
@@ -178,7 +250,19 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     lens: 'embedded_correction',
     resolution: 'bundle_confident',
     profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
-    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
+    qualification: [
+      {
+        source: 'color_harness',
+        status: 'failed',
+        record: {
+          gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
+          corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
+          backend: 'cpu-reference',
+          pipelineVersion: 24,
+          schemaVersion: 5,
+        },
+      },
+    ],
   },
   {
     key: 'Hasselblad H2D-39',
@@ -189,7 +273,19 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
     profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
-    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
+    qualification: [
+      {
+        source: 'color_harness',
+        status: 'failed',
+        record: {
+          gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
+          corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
+          backend: 'cpu-reference',
+          pipelineVersion: 24,
+          schemaVersion: 5,
+        },
+      },
+    ],
   },
   {
     key: 'Hasselblad H5D-40',
@@ -200,7 +296,19 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     lens: 'no_correction_data',
     resolution: 'rawler_fallback',
     profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
-    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
+    qualification: [
+      {
+        source: 'color_harness',
+        status: 'failed',
+        record: {
+          gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
+          corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
+          backend: 'cpu-reference',
+          pipelineVersion: 24,
+          schemaVersion: 5,
+        },
+      },
+    ],
   },
   {
     key: 'Hasselblad L3D-100c',
@@ -211,7 +319,19 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     lens: 'embedded_correction',
     resolution: 'bundle_confident',
     profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
-    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
+    qualification: [
+      {
+        source: 'color_harness',
+        status: 'failed',
+        record: {
+          gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
+          corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
+          backend: 'cpu-reference',
+          pipelineVersion: 24,
+          schemaVersion: 5,
+        },
+      },
+    ],
   },
   {
     key: 'LEICA M10',
@@ -222,7 +342,19 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
     profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
-    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
+    qualification: [
+      {
+        source: 'color_harness',
+        status: 'failed',
+        record: {
+          gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
+          corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
+          backend: 'cpu-reference',
+          pipelineVersion: 24,
+          schemaVersion: 5,
+        },
+      },
+    ],
   },
   {
     key: 'Nikon D850',
@@ -233,7 +365,19 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
     profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
-    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
+    qualification: [
+      {
+        source: 'color_harness',
+        status: 'failed',
+        record: {
+          gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
+          corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
+          backend: 'cpu-reference',
+          pipelineVersion: 24,
+          schemaVersion: 5,
+        },
+      },
+    ],
   },
   {
     key: 'Panasonic DMC-LX2',
@@ -244,7 +388,19 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
     profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
-    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
+    qualification: [
+      {
+        source: 'color_harness',
+        status: 'failed',
+        record: {
+          gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
+          corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
+          backend: 'cpu-reference',
+          pipelineVersion: 24,
+          schemaVersion: 5,
+        },
+      },
+    ],
   },
   {
     key: 'Sigma Foveon X3F',
@@ -266,7 +422,19 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
     profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
-    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
+    qualification: [
+      {
+        source: 'color_harness',
+        status: 'failed',
+        record: {
+          gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
+          corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
+          backend: 'cpu-reference',
+          pipelineVersion: 24,
+          schemaVersion: 5,
+        },
+      },
+    ],
   },
   {
     key: 'iPhone13,3 back camera',
@@ -277,6 +445,18 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
     profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
-    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
+    qualification: [
+      {
+        source: 'color_harness',
+        status: 'failed',
+        record: {
+          gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
+          corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
+          backend: 'cpu-reference',
+          pipelineVersion: 24,
+          schemaVersion: 5,
+        },
+      },
+    ],
   },
 ];
