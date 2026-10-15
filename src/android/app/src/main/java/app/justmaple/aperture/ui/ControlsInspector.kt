@@ -40,8 +40,8 @@ internal fun ControlsInspector(
                 color = MapleColors.muted,
             )
             TextButton(
-                { model.resetFields(group.fields.filter(state::supportsField).map { it.name }) },
-                enabled = !state.rendering,
+                { model.resetGroup(group) },
+                enabled = state.canEdit,
             ) {
                 Text("Reset ${group.label}")
             }

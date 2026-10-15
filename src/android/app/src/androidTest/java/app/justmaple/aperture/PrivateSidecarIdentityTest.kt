@@ -52,7 +52,7 @@ class PrivateSidecarIdentityTest {
             )
             assertArrayEquals(firstBytes, original.readBytes())
             library.withOriginal(first) { assertArrayEquals(firstBytes, it.readBytes()) }
-            val firstThumbnail = library.thumbnail(first).readBytes()
+            val firstThumbnail = library.thumbnailPath(first).readBytes()
 
             // A provider reuses its URI and omits mtime; its replacement has the same byte count.
             original.writeBytes(png(0, 0, 255))
@@ -66,7 +66,7 @@ class PrivateSidecarIdentityTest {
             assertNull(library.loadSidecar(second).baseline)
             library.withOriginal(second) { assertArrayEquals(secondBytes, it.readBytes()) }
             library.withOriginal(first) { assertArrayEquals(firstBytes, it.readBytes()) }
-            assertFalse(firstThumbnail.contentEquals(library.thumbnail(second).readBytes()))
+            assertFalse(firstThumbnail.contentEquals(library.thumbnailPath(second).readBytes()))
             library.save(second, XmpDocument().withAttribute("crs:Exposure2012", "-0.5"), null)
             assertEquals(
                 "-0.5",

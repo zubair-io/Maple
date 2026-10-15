@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.justmaple.aperture.data.*
 import app.justmaple.aperture.generated.AdjustmentFields
+import app.justmaple.aperture.ui.EditorGroup
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -381,25 +382,21 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         history.redo(snapshot())?.let(::restore)
     }
 
-    fun resetFields(names: List<String>) {
+    fun resetFields(names: List<String>) = resetControls(names, emptyList())
+
+    fun resetGroup(group: EditorGroup) =
+        resetControls(group.fields.map { it.name }, group.resetAttributes)
+
+    private fun resetControls(names: List<String>, attributes: List<String>) {
         val current = state.value
         if (!current.canEdit) return
         val fields =
             names.mapNotNull(AdjustmentFields.byName::get).filter {
                 current.values["_raw"] == 1f || it.rasterSupported
             }
-        if (fields.isEmpty()) return
-        val scalar = current.values + fields.associate { it.name to it.initial }
-        val values =
-            if (fields.any { it.name == "temperature" || it.name == "tint" })
-                scalar +
-                    mapOf(
-                        "temperature" to current.values.getValue("_shot_temperature"),
-                        "tint" to current.values.getValue("_shot_tint"),
-                    )
-            else scalar
+        if (fields.isEmpty() && attributes.isEmpty()) return
         beginGesture()
-        restore(EditSnapshot(values, current.document.resetFields(fields)))
+        restore(snapshot().reset(fields, attributes))
         commitGesture()
     }
 

@@ -1,8 +1,27 @@
 package app.justmaple.aperture
 
 import app.justmaple.aperture.data.XmpDocument
+import app.justmaple.aperture.generated.AdjustmentField
 
 internal data class EditSnapshot(val values: Map<String, Float>, val document: XmpDocument)
+
+internal fun EditSnapshot.reset(
+    fields: List<AdjustmentField>,
+    attributes: List<String>,
+): EditSnapshot {
+    val scalar = values + fields.associate { it.name to it.initial }
+    val resetValues =
+        if (fields.any { it.name == "temperature" || it.name == "tint" })
+            scalar +
+                mapOf(
+                    "temperature" to values.getValue("_shot_temperature"),
+                    "tint" to values.getValue("_shot_tint"),
+                )
+        else scalar
+    val resetDocument =
+        attributes.fold(document.resetFields(fields)) { doc, name -> doc.withAttribute(name, null) }
+    return EditSnapshot(resetValues, resetDocument)
+}
 
 internal class EditHistory {
     private val undo = ArrayDeque<EditSnapshot>()

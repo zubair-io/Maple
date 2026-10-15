@@ -22,11 +22,9 @@ import app.justmaple.aperture.data.Photo
 import app.justmaple.aperture.data.PhotoLibrary
 import app.justmaple.aperture.generated.UiTokens
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.withContext
 
 @Composable
 fun MuiIconButton(
@@ -89,9 +87,8 @@ fun PhotoThumbnail(
     var failed by remember(photo.key) { mutableStateOf(false) }
     LaunchedEffect(photo.key, revision, fit) {
         suspend fun load(edge: Int): androidx.compose.ui.graphics.ImageBitmap? {
-            val file = library.thumbnail(photo, edge)
-            return withContext(Dispatchers.IO) {
-                BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+            return library.withThumbnail(photo, edge) { _, input ->
+                BitmapFactory.decodeFileDescriptor(input.fd)?.asImageBitmap()
             }
         }
         while (currentCoroutineContext().isActive) {

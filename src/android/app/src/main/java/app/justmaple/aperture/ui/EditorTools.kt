@@ -51,6 +51,14 @@ enum class EditorGroup(val label: String, val tools: List<EditorTool>) {
         ),
     );
 
+    val resetAttributes: List<String>
+        get() =
+            when (this) {
+                Color -> listOf("crs:ConvertToGrayscale")
+                Effects -> listOf("papp:FilmLook")
+                else -> emptyList()
+            }
+
     val fields: List<AdjustmentField> by lazy {
         AdjustmentFields.all.filter { field ->
             if (field.xmp.isEmpty()) false

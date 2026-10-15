@@ -321,7 +321,7 @@ and `LocalDocuments.kt` own the following state:
 
 | Cache                     | Key / identity                                                                                                                                                                                                  | Invalidation / bound                                                                                                                                   |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Staged original           | SHA-256 of URI, original size and mtime, plus the verified content digest for single-file imports; HEIF/AVIF add `platform-rgb-v2` plus preview edge/full-resolution identity and stage source-gamut float TIFF | 512 MiB plus the currently leased original; lease prevents eviction while Rust reads it                                                                |
+| Staged original           | SHA-256 of URI, original size and mtime, plus the verified content digest for single-file imports; HEIF/AVIF add `platform-rgb-v2` plus preview edge/full-resolution identity and stage source-gamut float TIFF | 512 MiB plus the currently leased original; a process-wide lease protects all library instances while Rust reads it                                    |
 | Local thumbnail / preview | Pipeline output version, Android thumbnail version 4, original identity, requested edge and complete current sidecar text                                                                                       | 64 MiB shared LRU; metadata-only RAW sidecars reuse the embedded preview                                                                               |
 | Cloud derivative          | Pipeline output version, original identity and edge → atomic ETag/content-hash index → immutable payload                                                                                                        | Same 64 MiB bound; conditional authenticated GET revalidates each load, 304 reuses bytes, changed validators replace the index                         |
 | Folder snapshot           | One parent URI → names, document URIs, types, sizes and mtimes from one provider query                                                                                                                          | Replaced on folder listing/photo open; refreshed during baseline checks; invalidated after XMP publication/recovery. Sidecar contents are never cached |
@@ -341,7 +341,13 @@ Cloud derivative indexes pair validators with immutable payloads so concurrent r
 Eviction treats an index and its currently referenced payload as one LRU entry;
 superseded orphan payloads remain independently evictable. A new response protects
 both its returned bytes and index, with their cost reserved before retaining other
-entries, so a cache-limit boundary cannot split the pair.
+entries, so a cache-limit boundary cannot split the pair. Publication, opening the reader,
+and eviction share one short process-wide critical section. A thumbnail reader
+opens its descriptor before eviction can unlink the path and closes it after
+bitmap decoding, including cancellation. The descriptor keeps its original bytes
+readable through eviction and conditional HTTP validation; network requests and
+decoders remain concurrent. Missing bodies before acquisition require a fresh
+fetch; an already-open reader does not redownload bytes that it still owns.
 Eviction runs after new bytes are published; the original's lease serializes
 staging and use so its file stays protected while Rust reads it.
 

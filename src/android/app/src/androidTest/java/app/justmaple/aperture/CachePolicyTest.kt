@@ -25,12 +25,12 @@ class CachePolicyTest {
             }
         val library = PhotoLibrary(context)
         val photo = library.single(Uri.fromFile(first))
-        val warm = library.thumbnail(photo)
+        val warm = library.thumbnailPath(photo)
         val thumbSentinel = oversized(File(context.cacheDir, "thumbnails"), 65)
         val originalSentinel = oversized(File(context.cacheDir, "originals"), 513)
         try {
             repeat(5) {
-                assertEquals(warm, library.thumbnail(photo))
+                assertEquals(warm, library.thumbnailPath(photo))
                 assertTrue(
                     "Hits must not scan and evict the shared thumbnail cache",
                     thumbSentinel.exists(),
@@ -41,7 +41,7 @@ class CachePolicyTest {
                     originalSentinel.exists(),
                 )
             }
-            val added = library.thumbnail(photo, 256)
+            val added = library.thumbnailPath(photo, 256)
             assertTrue(added.isFile)
             assertTrue(warm.isFile)
             assertFalse(
