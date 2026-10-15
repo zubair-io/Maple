@@ -23,7 +23,12 @@ private constructor(
 
     // Scalar revisions share the immutable parse, including across undo/redo.
     private class ParsedSource(val xml: String) {
-        val tags = validate(xml).let { descriptions(xml) }
+        val tags =
+            validate(xml)
+                .let { descriptions(xml) }
+                .also {
+                    require(it.isNotEmpty()) { "XMP has no RDF description" }
+                }
         val attributes = buildMap { tags.forEach { putAll(it.second.attributes) } }
     }
 
@@ -94,7 +99,6 @@ private constructor(
 
     fun serialize(): String {
         val tags = source.tags
-        require(tags.isNotEmpty()) { "XMP has no RDF description" }
         val profile =
             attribute("papp:Profile")
                 ?: if (attribute("papp:Look") == "Neutral") "Neutral" else "Auto"
