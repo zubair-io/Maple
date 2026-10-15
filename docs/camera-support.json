@@ -2,7 +2,7 @@
   "generator": "tools/codegen.sh (codegen --schema support-tiers --target json)",
   "build": {
     "tier_schema_version": 1,
-    "pipeline_output_version": 24,
+    "pipeline_output_version": 25,
     "schema_version": 5,
     "profile_bundle_format": 1,
     "profile_bundle_digest": "blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a"
@@ -86,8 +86,8 @@
       "qualification": [
         {
           "source": "color_harness",
-          "status": "failed",
-          "detail": "92 failed",
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v24, current is v25",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -110,8 +110,8 @@
       "qualification": [
         {
           "source": "color_harness",
-          "status": "failed",
-          "detail": "92 failed",
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v24, current is v25",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -134,8 +134,8 @@
       "qualification": [
         {
           "source": "color_harness",
-          "status": "failed",
-          "detail": "92 failed",
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v24, current is v25",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -158,8 +158,8 @@
       "qualification": [
         {
           "source": "color_harness",
-          "status": "failed",
-          "detail": "92 failed",
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v24, current is v25",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -182,8 +182,8 @@
       "qualification": [
         {
           "source": "color_harness",
-          "status": "failed",
-          "detail": "92 failed",
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v24, current is v25",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -206,8 +206,8 @@
       "qualification": [
         {
           "source": "color_harness",
-          "status": "failed",
-          "detail": "92 failed",
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v24, current is v25",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -230,8 +230,8 @@
       "qualification": [
         {
           "source": "color_harness",
-          "status": "failed",
-          "detail": "92 failed",
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v24, current is v25",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -254,8 +254,8 @@
       "qualification": [
         {
           "source": "color_harness",
-          "status": "failed",
-          "detail": "92 failed",
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v24, current is v25",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -278,8 +278,8 @@
       "qualification": [
         {
           "source": "color_harness",
-          "status": "failed",
-          "detail": "92 failed",
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v24, current is v25",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -302,8 +302,8 @@
       "qualification": [
         {
           "source": "color_harness",
-          "status": "failed",
-          "detail": "92 failed",
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v24, current is v25",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -326,8 +326,8 @@
       "qualification": [
         {
           "source": "color_harness",
-          "status": "failed",
-          "detail": "92 failed",
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v24, current is v25",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -350,8 +350,8 @@
       "qualification": [
         {
           "source": "color_harness",
-          "status": "failed",
-          "detail": "92 failed",
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v24, current is v25",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -374,8 +374,8 @@
       "qualification": [
         {
           "source": "color_harness",
-          "status": "failed",
-          "detail": "92 failed",
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v24, current is v25",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -409,8 +409,8 @@
       "qualification": [
         {
           "source": "color_harness",
-          "status": "failed",
-          "detail": "92 failed",
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v24, current is v25",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -433,8 +433,8 @@
       "qualification": [
         {
           "source": "color_harness",
-          "status": "failed",
-          "detail": "92 failed",
+          "status": "stale_pipeline",
+          "detail": "recorded on pipeline v24, current is v25",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",

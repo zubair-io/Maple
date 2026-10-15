@@ -49,6 +49,8 @@ val stageTestFixtures by tasks.registering(StageTestFixtures::class) {
         rootProject.file("../../test-fixtures/android/portrait.dng"),
         rootProject.file("../apple/MapleUITests/Fixtures/layout/rgb-gradient.png"),
         rootProject.file("../../test-fixtures/raster-metadata/avif-validation/srgb-rgb.avif"),
+        rootProject.file("../../test-fixtures/android/wide-p3.avif"),
+        rootProject.file("../../test-fixtures/raster-metadata/avif-10.avif"),
     )
     outputDirectory.set(layout.buildDirectory.dir("generated/test-fixtures"))
 }

@@ -145,7 +145,9 @@
 ///   without comparing their different channel-to-green ratios (#4596).
 /// - 24 — AMaZE bounds unsupported collapsed-chroma value overshoot only when
 ///   the centre has interpolated same-colour surface support (#4596).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 24;
+/// - 25 — floating-point ICC raster input preserves extended gamut and precision
+///   through the scene-linear Rec.2020 transform (#4624).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 25;
 
 #[cfg(test)]
 mod tests {

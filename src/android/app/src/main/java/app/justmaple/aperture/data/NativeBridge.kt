@@ -1,5 +1,6 @@
 package app.justmaple.aperture.data
 
+import android.graphics.Bitmap
 import android.view.Surface
 
 object NativeBridge {
@@ -26,4 +27,6 @@ object NativeBridge {
     external fun thumbnail(path: String, destination: String, xml: String, edge: Int)
 
     external fun export(path: String, xml: String, destination: String)
+
+    external fun stageBitmap(bitmap: Bitmap, destination: String, profile: FloatArray)
 }

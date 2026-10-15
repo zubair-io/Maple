@@ -1385,11 +1385,14 @@ dependencies = [
 name = "maple-android"
 version = "0.1.0"
 dependencies = [
+ "half",
  "image",
+ "moxcms",
  "raw-core",
  "raw-gpu",
  "roxmltree",
  "serde_json",
+ "tiff",
 ]
 
 [[package]]

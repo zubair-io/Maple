@@ -10,7 +10,7 @@ rawler.workspace = true
 image.workspace = true
 # Already vendored through image; use its ICC engine directly for f32 input
 # transforms so tagged JPEG/TIFF pixels retain precision and wide gamut (#3891).
-moxcms = "0.8.1"
+moxcms = { version = "0.8.1", features = ["extended_range"] }
 # Direct dep so TIFF compression, predictor, bit depth and the IFD0
 # Orientation tag are all reachable — `image`'s TiffEncoder wrapper
 # hard-codes the first three and exposes only an ICC hook (#3506 F5, #3507

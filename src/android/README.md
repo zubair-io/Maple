@@ -52,6 +52,9 @@ truncate/write through that same descriptor. Providers without regular seekable
 descriptors are rejected before writing; JPEG rendering finishes before the
 export destination is touched. See Android’s [file-descriptor API](<https://developer.android.com/reference/android/content/ContentResolver#openFileDescriptor(android.net.Uri,%20java.lang.String)>).
 Editor screenshots are written to `Download/MapleVerification` on the test device.
+Device color tests compare every OS-decoded channel and its source color profile to the staged float TIFF,
+including wide-gamut and 10-bit AVIF fixtures. Cloud persistence tests retain a
+late edit through model teardown and round-trip a 17 MiB opaque sidecar.
 Host native tests check RAW and raster GPU output against the CPU reference
 (maximum two byte levels), generated field access, and stable GPU pool
 allocation. These are functional gates, not physical-device performance
@@ -81,6 +84,9 @@ when unrelated edits add Maple metadata, so rating or picking cannot change colo
 Cloud derivatives use persistent identity/edge/pipeline indexes and conditional
 ETag validation; unchanged loads reuse their image body, and missing cache files
 are rebuilt. Back clears a pending open’s loading state before returning to Browse.
+The stop-time flush remains active through ViewModel teardown, including waits
+behind an earlier save. Cloud XMP responses use the server’s 128 MiB body limit;
+other JSON responses remain bounded at 16 MiB.
 Failed sidecar loads block metadata, editing and export
 until a successful reload confirms that photo’s save baseline. SAF replacement writes a
 temporary sibling before publishing and retains the previous sidecar until the
@@ -135,7 +141,13 @@ when the shared Rust validator accepts the full candidate. Sidecars with
 unsupported structured or enum edits keep their original XMP and error; numeric
 recovery is unavailable rather than saving a partial reset. AVIF
 originals are converted through the OS decoder on Android 12+; older versions
-do not advertise AVIF originals. HEIC/HEIF use the same staging path.
+do not advertise AVIF originals. HEIC/HEIF use the same staging path: the OS
+retains the source gamut and native RGBA8, packed 10-bit or F16 output. JNI
+transports those channels into a float32 TIFF with a matching input ICC profile,
+without a forced sRGB or 8-bit conversion. Profile colorants and parametric
+transfer curves come from the [OS RGB color-space metadata](https://developer.android.com/reference/android/graphics/ColorSpace.Rgb). The shared core converts it to scene-linear Rec.2020. Non-parametric HDR transfer
+curves fail explicitly rather than being reinterpreted as SDR.
+Older PNG stages are excluded by the versioned stage identity.
 
 Tablet editing now uses a floating capsule header, centered collapsible filmstrip,
 a translucent trailing inspector and tool dock over a bounded full canvas. Phone

@@ -92,7 +92,7 @@ export interface SupportedCamera {
 
 export const CAMERA_SUPPORT_BUILD = {
   schemaVersion: 1,
-  pipelineOutputVersion: 24,
+  pipelineOutputVersion: 25,
   bundledModelCount: 1406,
   profileBundleFormat: 1,
   profileBundleDigest: 'blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a',
@@ -115,7 +115,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'failed',
+        status: 'stale_pipeline',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
@@ -138,7 +138,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'failed',
+        status: 'stale_pipeline',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
@@ -161,7 +161,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'failed',
+        status: 'stale_pipeline',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
@@ -184,7 +184,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'failed',
+        status: 'stale_pipeline',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
@@ -207,7 +207,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'failed',
+        status: 'stale_pipeline',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
@@ -230,7 +230,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'failed',
+        status: 'stale_pipeline',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
@@ -253,7 +253,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'failed',
+        status: 'stale_pipeline',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
@@ -276,7 +276,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'failed',
+        status: 'stale_pipeline',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
@@ -299,7 +299,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'failed',
+        status: 'stale_pipeline',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
@@ -322,7 +322,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'failed',
+        status: 'stale_pipeline',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
@@ -345,7 +345,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'failed',
+        status: 'stale_pipeline',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
@@ -368,7 +368,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'failed',
+        status: 'stale_pipeline',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
@@ -391,7 +391,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'failed',
+        status: 'stale_pipeline',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
@@ -425,7 +425,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'failed',
+        status: 'stale_pipeline',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
@@ -448,7 +448,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'failed',
+        status: 'stale_pipeline',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
