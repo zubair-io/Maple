@@ -493,9 +493,14 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun flush(): Boolean {
-        saveJob?.cancel()
-        saveJob = null
-        return persist()
+        while (true) {
+            saveJob?.cancel()
+            saveJob = null
+            if (!persist()) return false
+            // A gesture can arrive while provider I/O is suspended. Navigation
+            // may leave this document only after its newest revision is saved.
+            if (!state.value.dirty) return true
+        }
     }
 
     private suspend fun persist(): Boolean {
