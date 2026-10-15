@@ -1,13 +1,13 @@
 {
   "backend": "bun",
-  "command": "bun --cwd src/api test src/routes/xmp.sidecar-contract.test.ts --timeout 30000",
+  "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts\\ --timeout\\ 30000",
   "corpus_hash": "blake3:a9ed184663114494494af5c644866d163d987ceae7dda1c7a7fd9e78b5f480b6",
   "executed_cases": 3,
   "expected_cases": 3,
   "failed_cases": 0,
-  "git_sha": "fcbeacb7e4abc86e4abb0594ea55d017191d2f04",
-  "pipeline_version": 24,
-  "recorded_at": "2026-10-14T21:45:19Z",
+  "git_sha": "0aac93d7dace41e409d8c6ee7858cedf646ca678",
+  "pipeline_version": 25,
+  "recorded_at": "2026-10-15T16:28:04Z",
   "schema_version": 5,
   "skipped_cases": 0,
   "source": "sidecar_contract_api"
