@@ -75,8 +75,8 @@
         },
         {
           "source": "color_harness",
-          "status": "missing",
-          "detail": "no record"
+          "status": "failed",
+          "detail": "92 failed"
         },
         {
           "source": "gpu_chain_parity_metal",
@@ -174,8 +174,8 @@
         },
         {
           "source": "color_harness",
-          "status": "missing",
-          "detail": "no record"
+          "status": "failed",
+          "detail": "92 failed"
         },
         {
           "source": "gpu_chain_parity_metal",
@@ -300,8 +300,8 @@
         },
         {
           "source": "color_harness",
-          "status": "missing",
-          "detail": "no record"
+          "status": "failed",
+          "detail": "92 failed"
         },
         {
           "source": "gpu_chain_parity_metal",
@@ -403,8 +403,8 @@
         },
         {
           "source": "color_harness",
-          "status": "missing",
-          "detail": "no record"
+          "status": "failed",
+          "detail": "92 failed"
         },
         {
           "source": "gpu_chain_parity_metal",
@@ -837,9 +837,21 @@
         "src/scripts/acr-reference/verify_settings.py",
         "src/scripts/acr-reference/write_xmp.py"
       ],
-      "corpus_hash": null,
-      "status": "missing",
-      "record": null
+      "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
+      "status": "failed",
+      "record": {
+        "backend": "cpu-reference",
+        "pipeline_version": 24,
+        "schema_version": 5,
+        "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
+        "expected_cases": 796,
+        "executed_cases": 796,
+        "failed_cases": 92,
+        "skipped_cases": 0,
+        "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
+        "recorded_at": "2026-10-15T00:43:34Z",
+        "command": "bash src/scripts/test_color_pipeline.sh"
+      }
     },
     {
       "source": "sidecar_contract_apple",

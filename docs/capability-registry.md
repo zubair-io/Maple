@@ -31,7 +31,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `synthetic_grey` — satisfied
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
   - `gpu_chain_parity_metal` — satisfied
   - `apple_canvas_golden` — no record
 
@@ -54,7 +54,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `synthetic_grey` — satisfied
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
   - `gpu_chain_parity_metal` — satisfied
   - `apple_canvas_golden` — no record
 
@@ -77,7 +77,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `synthetic_grey` — satisfied
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
   - `gpu_chain_parity_metal` — satisfied
   - `apple_canvas_golden` — no record
 
@@ -100,7 +100,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `synthetic_grey` — satisfied
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
-  - `color_harness` — no record
+  - `color_harness` — 92 failed
   - `gpu_chain_parity_metal` — satisfied
   - `apple_canvas_golden` — no record
 
@@ -296,7 +296,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 796
 - Corpus: `test-fixtures/budgets.json`, `src/raw-pipeline/raw-core/src/color/profiles/profiles.bin`, `src/scripts/test_color_pipeline.sh`, `src/scripts/compare_images.py`, `src/scripts/acr-reference/verify_settings.py`, `src/scripts/acr-reference/write_xmp.py`
-- Record: no record
+- Record: 92 failed — 796 of 796 executed, 92 failed, 0 skipped, on `cpu-reference`, pipeline v24, schema v5, commit `c67deb3fcbc13a9f35848d0d3b34b887042d3e79`, recorded 2026-10-15T00:43:34Z
 
 ### `sidecar_contract_apple`
 
