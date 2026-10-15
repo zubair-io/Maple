@@ -126,7 +126,7 @@ fn second_render_same_signature_allocates_nothing() {
         ("aggressive", aggressive_case()),
     ] {
         let inputs = case.gpu_inputs_for(&input);
-        // A fresh session per case (reset() clears the prior case's cache).
+        // A fresh session per case has its own signature salt and cache bucket.
         let session = LiveSession::new(&ctx, &input, w, h).expect("session");
 
         // First render: fills the pool (allocations expected).
@@ -335,23 +335,9 @@ fn signature_change_allocates_once_then_zero() {
 /// per-session — must never collide in the frame pool even when their chain
 /// signature SHAPE (active mask + dims) matches.
 ///
-/// Before the fix, `chain_signature` hashed only `(active_mask, dims, cs_iters,
-/// residual_lut_size)`. `LiveSession::new`'s `frame_pool.reset()` only guards
-/// against a stale CLOSED session's leftovers — it does nothing once a SECOND
-/// session opens (which itself calls `reset()`, wiping the FIRST session's
-/// cache) and then renders (repopulating the shared-signature bucket with ITS
-/// OWN ping-pong buffers). A wgpu bind group's buffer bindings are frozen at
-/// creation, so the first session's NEXT render at that same signature would
-/// hit the cache and dispatch against the SECOND session's buffers instead of
-/// its own — silently corrupting output instead of erroring.
-///
-/// Reproduce by interleaving two sessions with DIFFERENT image content (so a
-/// buffer mix-up is visible in the output bytes) but the SAME dims and the SAME
-/// (neutral) inputs (so pre-fix they'd share one chain-signature bucket):
-/// render A once, open+render B (which resets the pool then repopulates the
-/// bucket with B's buffers), then render A again. A's second render must be
-/// byte-identical to its first — same session, same inputs, same dims, a
-/// deterministic chain.
+/// Session identity prevents frozen bind groups from crossing images. Opening
+/// another session must also preserve the first session's warmed bucket: fast
+/// and refined views share one device and alternate without rebuilding resources.
 #[test]
 fn interleaved_sessions_do_not_share_pool_buckets() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
@@ -375,9 +361,8 @@ fn interleaved_sessions_do_not_share_pool_buckets() {
         .expect("render ok")
         .unwrap();
 
-    // Session B: same dims, same (neutral) inputs → same chain-signature SHAPE
-    // as A, pre-#1929. Its `new()` resets the pool (dropping A's cached
-    // bucket), then its render repopulates that bucket with B's OWN buffers.
+    // Session B has the same shape and a different identity; it needs its own
+    // bucket while A's valid resources remain in the bounded LRU.
     let session_b = LiveSession::new(&ctx, &image_b, w, h).expect("session b");
     let _b_first = session_b
         .render_to_buffer(&ctx, &inputs, &cancel)
@@ -388,11 +373,17 @@ fn interleaved_sessions_do_not_share_pool_buckets() {
     // render, so the output MUST be byte-identical. Pre-fix, A's second render
     // would hit the bucket B just populated (no session salt) and dispatch
     // against B's ping-pong buffers, corrupting A's output.
+    let warmed = session_a.pool_alloc_count(&ctx);
     let a_second = session_a
         .render_to_buffer(&ctx, &inputs, &cancel)
         .expect("render ok")
         .unwrap();
 
+    assert_eq!(
+        session_a.pool_alloc_count(&ctx),
+        warmed,
+        "opening B must retain A's warm bucket"
+    );
     assert_eq!(
         a_first, a_second,
         "session A's second render diverged from its first — the frame pool \

@@ -61,7 +61,7 @@ use crate::context::GpuContext;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 /// One cached dispatch's resources: the bind group + the params uniform it
 /// references (so a slider drag can `write_buffer` fresh params into the same
@@ -99,6 +99,7 @@ struct DispatchEntry {
 /// stages draw from. A monotonic cursor over each is rewound at frame start.
 #[derive(Default)]
 struct Bucket {
+    owner: Option<Weak<()>>,
     dispatches: Vec<DispatchEntry>,
     scratch: Vec<ScratchEntry>,
 }
@@ -139,6 +140,32 @@ pub struct FramePool {
 }
 
 impl FramePool {
+    /// Reclaim retired images while preserving every live session's warm bucket.
+    pub(crate) fn retire_sessions(&mut self) {
+        let used = self.buckets.len();
+        let previous = self.recent;
+        self.buckets.retain(|_, bucket| {
+            bucket
+                .owner
+                .as_ref()
+                .is_none_or(|owner| owner.strong_count() > 0)
+        });
+        self.recent = [0; 4];
+        let mut position = 0;
+        for key in previous.into_iter().take(used) {
+            if self.buckets.contains_key(&key) {
+                self.recent[position] = key;
+                position += 1;
+            }
+        }
+    }
+
+    pub(crate) fn begin_session_frame(&mut self, sig: u64, owner: &Arc<()>) {
+        self.retire_sessions();
+        self.begin_frame(sig);
+        self.buckets.get_mut(&sig).unwrap().owner = Some(Arc::downgrade(owner));
+    }
+
     /// Begin a render for chain signature `sig`: select that signature's bucket
     /// and rewind the dispatch + scratch cursors so this render reuses the same
     /// resources the last render of `sig` created. Must be paired with
@@ -168,14 +195,8 @@ impl FramePool {
         self.frame_active = false;
     }
 
-    /// Drop every cached bucket — used when a new [`crate::LiveSession`] is bound
-    /// to this context. STALE-REFERENCE SAFETY: cached bind groups hold internal
-    /// references to the SESSION's ping-pong buffers; a new session at the same
-    /// dims (same signature) allocates fresh ping-pong buffers, so a bind group
-    /// cached against the old (dropped) ones would dangle. Clearing the cache on
-    /// session creation ties cache lifetime to the session's buffer lifetime. The
-    /// hot path is ticks WITHIN one session (where the cache is fully live), not
-    /// new-image churn, so the lost cross-session reuse costs nothing real.
+    /// Explicitly release all cached resources. New sessions retain the bounded
+    /// LRU: their unique signature salt prevents reuse of another image's bindings.
     pub fn reset(&mut self) {
         self.buckets.clear();
         self.frame_active = false;
@@ -416,3 +437,7 @@ mod frame_pool_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "frame_pool_data_tests.rs"]
 mod frame_pool_data_tests;
+
+#[cfg(test)]
+#[path = "frame_pool_lifetime_tests.rs"]
+mod lifetime_tests;

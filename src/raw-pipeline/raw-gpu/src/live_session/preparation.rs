@@ -59,7 +59,9 @@ impl LiveSession {
         let original_tone = inputs.tone;
         inputs.tone[0] = 0.01;
         let signature = chain_signature(inputs, self.image.dims(), self.session_id);
-        ctx.frame_pool.borrow_mut().begin_frame(signature);
+        ctx.frame_pool
+            .borrow_mut()
+            .begin_session_frame(signature, &self.pool_owner);
         let mut encoder = ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
