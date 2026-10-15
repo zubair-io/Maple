@@ -188,7 +188,7 @@ class ReviewRegressionTest {
         compose.onNodeWithContentDescription("Edit").performClick()
         waitForFrame(model)
         val photo = model.state.value.selected!!
-        assertTrue(runBlocking { model.library.thumbnail(photo) }.length() > 0)
+        assertTrue(runBlocking { model.library.thumbnailPath(photo) }.length() > 0)
         val destination = File(context.filesDir, "review-avif.jpg")
         runBlocking { model.export(Uri.fromFile(destination), false) }
         assertTrue(destination.length() > 0)

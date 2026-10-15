@@ -52,7 +52,7 @@ class ThumbnailMemoryTest {
                             .build()
                     val photo = Photo(uri, server.original.name, server.original.length(), 1, null)
                     val original = server.original.readBytes()
-                    val thumbnail = PhotoLibrary(context).thumbnail(photo)
+                    val thumbnail = PhotoLibrary(context).thumbnailPath(photo)
                     assertTrue(thumbnail.length() > 0)
                     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     BitmapFactory.decodeFile(thumbnail.path, bounds)

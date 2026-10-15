@@ -80,7 +80,7 @@ class NativeNamespaceImportTest {
                 )
                 assertArrayEquals(
                     expectedThumb.readBytes(),
-                    library.thumbnail(photo, 512).readBytes(),
+                    library.thumbnailPath(photo, 512).readBytes(),
                 )
                 val expectedExport = File(directory, "expected-export.jpg")
                 val actualExport = File(directory, "actual-export.jpg")

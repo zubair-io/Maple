@@ -118,12 +118,17 @@ Requests count UTF-8 bytes before streaming through a bounded character encoder,
 including supplementary characters split across encoder buffers.
 
 RAW white-balance resets omit the authored pair and provenance and restore the
-camera's as-shot controls from the shared core, as one Undo entry. Thumbnail
+camera's as-shot controls from the shared core, as one Undo entry. Group resets
+also clear their Black & white or Film selector in that same transaction. Thumbnail
 identity hashes stream their prefix and XMP through bounded UTF-8 buffers.
 HEIF/AVIF live previews set the requested edge inside the OS decoder before
 bitmap allocation, and cache separate source-gamut TIFFs by edge. The compressed
 source is reused, and full-resolution staging is deferred to export. Local
 thumbnail version 4 invalidates previews from the earlier full-image path.
+Cache readers open a descriptor atomically with publication/eviction and keep it
+through bitmap decoding, including conditional revalidation and cancellation.
+Eviction can unlink a path without invalidating an active reader; network and
+decoding work remain concurrent. Original-cache leases also span library instances.
 
 The live canvas negotiates managed wide-color display support and Vulkan's float
 surface capability. On that path the shared chain targets Display P3 and the

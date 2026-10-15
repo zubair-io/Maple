@@ -7,6 +7,7 @@ import androidx.documentfile.provider.DocumentFile
 import app.justmaple.aperture.cloud.CloudLibrary
 import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.File
+import java.io.FileInputStream
 import java.io.OutputStream
 import java.io.OutputStreamWriter
 import java.io.StringReader
@@ -48,7 +49,6 @@ class PhotoLibrary(private val context: Context) {
     private val io = Mutex()
     private val local = LocalDocuments(context)
     private val saf = SafSidecars(context, local)
-    private val originals = Mutex()
     private val derivatives = CloudDerivativeCache(cloud, File(context.cacheDir, "thumbnails"))
     val sources: List<Folder>
         get() =
@@ -231,84 +231,106 @@ class PhotoLibrary(private val context: Context) {
         action(file)
     }
 
-    suspend fun thumbnail(photo: Photo, edge: Int = 512): File =
+    suspend fun <T> withThumbnail(
+        photo: Photo,
+        edge: Int = 512,
+        action: suspend (File, FileInputStream) -> T,
+    ): T =
         withContext(Dispatchers.IO) {
-            val folder = File(context.cacheDir, "thumbnails").apply { mkdirs() }
-            if (CloudLibrary.isCloud(photo.uri) && android.os.Build.VERSION.SDK_INT >= 31) {
-                val remote = derivatives.load(photo, edge)
-                if (remote != null) {
-                    if (remote.inserted)
-                        trim(folder, 64L * 1024 * 1024, setOf(remote.file, remote.index))
-                    return@withContext remote.file
-                }
-            }
-            val sidecar = io.withLock { readSidecar(photo) }
-            val file =
-                File(
-                    folder,
-                    "${digestParts("${AdjustmentFields.pipelineOutputVersion}:android-thumb-v4:${photo.key}:$edge:", sidecar.orEmpty())}.jpg",
-                )
-            if (!file.exists()) {
-                val temporary = File.createTempFile("thumb-", ".jpg", folder)
-                try {
-                    withPreview(photo, edge) { input ->
-                        NativeBridge.thumbnail(
-                            input.absolutePath,
-                            temporary.absolutePath,
-                            sidecar.orEmpty(),
-                            edge,
-                        )
-                    }
-                    check(temporary.renameTo(file))
-                } finally {
-                    temporary.delete()
-                }
-                trim(folder, 64L * 1024 * 1024, setOf(file))
-            }
-            file.setLastModified(System.currentTimeMillis())
-            file
+            thumbnail(photo, edge).use { action(it.file, it.input) }
         }
 
-    private fun trim(folder: File, limit: Long, keep: Set<File>) {
-        val files =
-            folder.listFiles().orEmpty().filter {
-                it.isFile && !it.name.endsWith(".tmp") && !it.name.startsWith("thumb-")
+    private suspend fun thumbnail(photo: Photo, edge: Int): OpenThumbnail {
+        val folder = File(context.cacheDir, "thumbnails").apply { mkdirs() }
+        if (CloudLibrary.isCloud(photo.uri) && android.os.Build.VERSION.SDK_INT >= 31) {
+            val remote = derivatives.load(photo, edge)
+            if (remote != null) {
+                try {
+                    if (remote.inserted)
+                        trim(folder, 64L * 1024 * 1024, setOf(remote.image.file, remote.index))
+                    return remote.image
+                } catch (failure: Throwable) {
+                    remote.image.close()
+                    throw failure
+                }
             }
-        val indexed =
-            files
-                .mapNotNull { file ->
-                    val key =
-                        CLOUD_INDEX.matchEntire(file.name)?.groupValues?.get(1)
-                            ?: return@mapNotNull null
-                    val content = runCatching {
-                        org.json.JSONObject(file.readText()).getString("content")
-                    }
-                        .getOrNull()
-                    if (content?.matches(Regex("[0-9a-f]{64}")) == true) key to content else null
-                }
-                .toMap()
-        val entries =
-            files
-                .groupBy { file ->
-                    val index = CLOUD_INDEX.matchEntire(file.name)?.groupValues?.get(1)
-                    val payload = CLOUD_PAYLOAD.matchEntire(file.name)
-                    when {
-                        index != null && index in indexed -> "cloud-$index"
-                        payload != null &&
-                            indexed[payload.groupValues[1]] == payload.groupValues[2] ->
-                            "cloud-${payload.groupValues[1]}"
-                        else -> file.name
-                    }
-                }
-                .values
-                .sortedByDescending { entry -> entry.maxOf { it.lastModified() } }
-        val protected = entries.filter { entry -> entry.any { it in keep } }
-        var bytes = protected.sumOf { entry -> entry.sumOf { it.length() } }
-        for (entry in entries.filter { group -> group.none { it in keep } }) {
-            val size = entry.sumOf { it.length() }
-            if (bytes + size <= limit) bytes += size else entry.forEach { it.delete() }
+        }
+        val sidecar = io.withLock { readSidecar(photo) }
+        val file =
+            File(
+                folder,
+                "${digestParts("${AdjustmentFields.pipelineOutputVersion}:android-thumb-v4:${photo.key}:$edge:", sidecar.orEmpty())}.jpg",
+            )
+        val cached =
+            synchronized(OpenThumbnail.lock) {
+                if (file.isFile) {
+                    file.setLastModified(System.currentTimeMillis())
+                    OpenThumbnail(file)
+                } else null
+            }
+        if (cached != null) return cached
+        val temporary = File.createTempFile("thumb-", ".jpg", folder)
+        try {
+            withPreview(photo, edge) { input ->
+                NativeBridge.thumbnail(
+                    input.absolutePath,
+                    temporary.absolutePath,
+                    sidecar.orEmpty(),
+                    edge,
+                )
+            }
+            return synchronized(OpenThumbnail.lock) {
+                check(temporary.renameTo(file))
+                trim(folder, 64L * 1024 * 1024, setOf(file))
+                OpenThumbnail(file)
+            }
+        } finally {
+            temporary.delete()
         }
     }
+
+    private fun trim(folder: File, limit: Long, keep: Set<File>) =
+        synchronized(OpenThumbnail.lock) {
+            val files =
+                folder.listFiles().orEmpty().filter {
+                    it.isFile && !it.name.endsWith(".tmp") && !it.name.startsWith("thumb-")
+                }
+            val indexed =
+                files
+                    .mapNotNull { file ->
+                        val key =
+                            CLOUD_INDEX.matchEntire(file.name)?.groupValues?.get(1)
+                                ?: return@mapNotNull null
+                        val content = runCatching {
+                            org.json.JSONObject(file.readText()).getString("content")
+                        }
+                            .getOrNull()
+                        if (content?.matches(Regex("[0-9a-f]{64}")) == true) key to content
+                        else null
+                    }
+                    .toMap()
+            val entries =
+                files
+                    .groupBy { file ->
+                        val index = CLOUD_INDEX.matchEntire(file.name)?.groupValues?.get(1)
+                        val payload = CLOUD_PAYLOAD.matchEntire(file.name)
+                        when {
+                            index != null && index in indexed -> "cloud-$index"
+                            payload != null &&
+                                indexed[payload.groupValues[1]] == payload.groupValues[2] ->
+                                "cloud-${payload.groupValues[1]}"
+                            else -> file.name
+                        }
+                    }
+                    .values
+                    .sortedByDescending { entry -> entry.maxOf { it.lastModified() } }
+            val protected = entries.filter { entry -> entry.any { it in keep } }
+            var bytes = protected.sumOf { entry -> entry.sumOf { it.length() } }
+            for (entry in entries.filter { group -> group.none { it in keep } }) {
+                val size = entry.sumOf { it.length() }
+                if (bytes + size <= limit) bytes += size else entry.forEach { it.delete() }
+            }
+        }
 
     private fun privateSidecar(photo: Photo) =
         File(
@@ -355,6 +377,8 @@ class PhotoLibrary(private val context: Context) {
         }
 
     companion object {
+        private val originals = Mutex()
+
         private val CLOUD_INDEX = Regex("cloud-([0-9a-f]{64})\\.json")
         private val CLOUD_PAYLOAD = Regex("cloud-([0-9a-f]{64})-([0-9a-f]{64})\\.avif")
         val EXTENSIONS =

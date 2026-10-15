@@ -44,16 +44,16 @@ class CloudDerivativeCacheTest {
                 val photo = Photo(uri, server.original.name, server.original.length(), 1, null)
                 try {
                     val library = PhotoLibrary(context)
-                    val first = library.thumbnail(photo)
+                    val first = library.thumbnailPath(photo)
                     assertArrayEquals(original, first.readBytes())
                     assertEquals(1, server.derivativeTransfers)
-                    repeat(4) { assertEquals(first, library.thumbnail(photo)) }
+                    repeat(4) { assertEquals(first, library.thumbnailPath(photo)) }
                     assertEquals(1, server.derivativeTransfers)
                     assertEquals(4, server.derivativeNotModified)
-                    assertEquals(first, PhotoLibrary(context).thumbnail(photo))
+                    assertEquals(first, PhotoLibrary(context).thumbnailPath(photo))
                     assertEquals(1, server.derivativeTransfers)
                     assertEquals(5, server.derivativeNotModified)
-                    val preview = library.thumbnail(photo, 2048)
+                    val preview = library.thumbnailPath(photo, 2048)
                     assertNotEquals(first, preview)
                     assertArrayEquals(original, preview.readBytes())
                     assertEquals(2, server.derivativeTransfers)
@@ -74,7 +74,7 @@ class CloudDerivativeCacheTest {
                         RandomAccessFile(stalePayload, "rw").use { it.setLength(65L * 1024 * 1024) }
                         assertTrue(staleIndex.setLastModified(1))
                         assertTrue(stalePayload.setLastModified(1))
-                        val bounded = library.thumbnail(photo, 1024)
+                        val bounded = library.thumbnailPath(photo, 1024)
                         val index =
                             File(
                                 bounded.parentFile,
@@ -86,7 +86,7 @@ class CloudDerivativeCacheTest {
                         assertFalse(staleIndex.exists())
                         assertFalse(stalePayload.exists())
                         assertEquals(3, server.derivativeTransfers)
-                        assertEquals(bounded, PhotoLibrary(context).thumbnail(photo, 1024))
+                        assertEquals(bounded, PhotoLibrary(context).thumbnailPath(photo, 1024))
                         assertEquals(
                             "Reload must keep the validator paired with its image",
                             3,
@@ -98,7 +98,7 @@ class CloudDerivativeCacheTest {
                         staleIndex.delete()
                         stalePayload.delete()
                     }
-                    assertEquals(preview, library.thumbnail(photo, 2048))
+                    assertEquals(preview, library.thumbnailPath(photo, 2048))
                     assertEquals(3, server.derivativeTransfers)
 
                     val bitmap = Bitmap.createBitmap(11, 7, Bitmap.Config.ARGB_8888)
@@ -107,17 +107,17 @@ class CloudDerivativeCacheTest {
                         bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
                     }
                     bitmap.recycle()
-                    val changed = library.thumbnail(photo)
+                    val changed = library.thumbnailPath(photo)
                     assertNotEquals(first, changed)
                     assertArrayEquals(server.derivative.readBytes(), changed.readBytes())
                     assertEquals(4, server.derivativeTransfers)
-                    assertEquals(changed, library.thumbnail(photo))
+                    assertEquals(changed, library.thumbnailPath(photo))
                     assertEquals(4, server.derivativeTransfers)
                     assertTrue(changed.delete())
-                    val repaired = PhotoLibrary(context).thumbnail(photo)
+                    val repaired = PhotoLibrary(context).thumbnailPath(photo)
                     assertArrayEquals(server.derivative.readBytes(), repaired.readBytes())
                     assertEquals(5, server.derivativeTransfers)
-                    assertEquals(repaired, library.thumbnail(photo))
+                    assertEquals(repaired, library.thumbnailPath(photo))
                     assertEquals(5, server.derivativeTransfers)
                     assertArrayEquals(original, server.original.readBytes())
                 } finally {
