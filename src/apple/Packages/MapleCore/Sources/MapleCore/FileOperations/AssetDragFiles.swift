@@ -22,19 +22,33 @@ public actor AssetDragFiles {
       let scope = asset.scopeParentURL ?? source
       let accessing = scope.startAccessingSecurityScopedResource()
       defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-      try FileManager.default.copyItem(at: source, to: destination)
+      try publish(to: destination) { try FileManager.default.copyItem(at: source, to: $0) }
       return
     }
     guard let writer = asset.originalFileWriter else {
       throw ImageSourceError.notFound(asset.displayName)
     }
-    let staging = destination.deletingLastPathComponent().appendingPathComponent(
+    let staging = FileManager.default.temporaryDirectory.appendingPathComponent(
       ".maple-drag-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: false)
     defer { try? FileManager.default.removeItem(at: staging) }
     let temporary = staging.appendingPathComponent(Self.fileName(for: asset))
     try await writer(temporary)
     try Task.checkCancellation()
-    try FileManager.default.moveItem(at: temporary, to: destination)
+    try publish(to: destination) { try FileManager.default.moveItem(at: temporary, to: $0) }
+  }
+
+  /// File-promise destinations can be presented by iCloud / File Provider.
+  /// Finish coordination before the provider reports promise completion.
+  private func publish(to destination: URL, write: (URL) throws -> Void) throws {
+    let coordinator = NSFileCoordinator(filePresenter: nil)
+    var error: NSError?
+    var result: Result<Void, Error>?
+    coordinator.coordinate(writingItemAt: destination, options: [], error: &error) { url in
+      result = Result { try write(url) }
+    }
+    if let error { throw error }
+    guard let result else { throw CocoaError(.fileWriteUnknown) }
+    try result.get()
   }
 }
