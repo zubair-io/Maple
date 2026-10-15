@@ -35,6 +35,10 @@ internal class FileCloudServer(private val directory: File) : Closeable {
     @Volatile var saveCount = 0
     @Volatile var loadEntered: java.util.concurrent.CountDownLatch? = null
     @Volatile var releaseLoad: java.util.concurrent.CountDownLatch? = null
+    @Volatile var previewPendingResponses = 0
+    @Volatile var previewCount = 0
+    @Volatile var previewSuccesses = 0
+    @Volatile var thumbCount = 0
     @Volatile private var access = "fixture-access-1"
     private var refresh = "fixture-refresh-1"
     val original = File(directory, "photo #😀.png")
@@ -209,9 +213,20 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                                 ),
                         )
                     "/api/image/photos/2026/" + original.name -> respond(200, original.readBytes())
-                    "/api/thumb/photos/2026/" + original.name,
-                    "/api/preview/photos/2026/" + original.name ->
+                    "/api/thumb/photos/2026/" + original.name -> {
+                        thumbCount++
                         respond(200, original.readBytes(), mapOf("Content-Type" to "image/png"))
+                    }
+                    "/api/preview/photos/2026/" + original.name -> {
+                        previewCount++
+                        if (previewPendingResponses > 0) {
+                            previewPendingResponses--
+                            respond(202, extra = mapOf("Retry-After" to "1"))
+                        } else {
+                            previewSuccesses++
+                            respond(200, original.readBytes(), mapOf("Content-Type" to "image/png"))
+                        }
+                    }
                     "/api/xmp" -> {
                         check(path.getQueryParameter("path") == original.path)
                         val xml = sidecar.takeIf { it.exists() }?.readText()

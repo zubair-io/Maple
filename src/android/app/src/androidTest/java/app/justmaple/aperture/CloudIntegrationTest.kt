@@ -114,9 +114,21 @@ class CloudIntegrationTest {
                 val photo = model.state.value.photos.single()
                 assertEquals(server.original.name, photo.name)
                 assertEquals(123, photo.modified % 1000)
+                val pendingPreview = android.os.Build.VERSION.SDK_INT >= 31
+                val previewStart = compose.mainClock.currentTime
+                val initialThumbs = server.thumbCount
+                if (pendingPreview) server.previewPendingResponses = 2
                 compose.runOnIdle { model.open(photo) }
                 compose.waitUntil(30_000) {
                     !model.state.value.loading && model.state.value.selected != null
+                }
+                if (pendingPreview) {
+                    compose.waitUntil(30_000) { server.previewSuccesses > 0 }
+                    assertEquals(3, server.previewCount)
+                    assertTrue(server.thumbCount > initialThumbs)
+                    assertTrue(compose.mainClock.currentTime - previewStart >= 2_000)
+                    assertEquals(PhotoMode.Preview, model.state.value.mode)
+                    assertEquals(photo, model.state.value.selected)
                 }
                 compose.runOnIdle { model.edit() }
                 compose.waitUntil(60_000) {

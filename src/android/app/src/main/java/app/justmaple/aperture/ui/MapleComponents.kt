@@ -17,10 +17,15 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.justmaple.aperture.cloud.CloudDerivativePending
 import app.justmaple.aperture.data.Photo
 import app.justmaple.aperture.data.PhotoLibrary
 import app.justmaple.aperture.generated.UiTokens
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -82,16 +87,36 @@ fun PhotoThumbnail(
     var image by
         remember(photo.key) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     var failed by remember(photo.key) { mutableStateOf(false) }
-    LaunchedEffect(photo.key, revision) {
-        try {
-            val file = library.thumbnail(photo, if (fit) 2048 else 512)
-            image =
-                withContext(Dispatchers.IO) {
-                    BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+    LaunchedEffect(photo.key, revision, fit) {
+        suspend fun load(edge: Int): androidx.compose.ui.graphics.ImageBitmap? {
+            val file = library.thumbnail(photo, edge)
+            return withContext(Dispatchers.IO) {
+                BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+            }
+        }
+        while (currentCoroutineContext().isActive) {
+            try {
+                image = load(if (fit) 2048 else 512)
+                failed = image == null
+                break
+            } catch (pending: CloudDerivativePending) {
+                if (image == null && fit) {
+                    try {
+                        image = load(512)
+                        failed = image == null
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        failed = true
+                    }
                 }
-            failed = image == null
-        } catch (_: Exception) {
-            failed = true
+                delay(pending.retryMillis)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                failed = true
+                break
+            }
         }
     }
     Box(modifier.background(MapleColors.raised), contentAlignment = Alignment.Center) {

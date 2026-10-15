@@ -77,7 +77,10 @@ class EditorIntegrationTest {
             if (context.resources.configuration.smallestScreenWidthDp >= 600) "tablet" else "phone"
         val values =
             ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, "maple-$kind-editor.png")
+                put(
+                    MediaStore.Downloads.DISPLAY_NAME,
+                    "maple-$kind-editor-${System.nanoTime()}.png",
+                )
                 put(MediaStore.Downloads.MIME_TYPE, "image/png")
                 put(MediaStore.Downloads.RELATIVE_PATH, "Download/MapleVerification")
                 put(MediaStore.Downloads.IS_PENDING, 1)
