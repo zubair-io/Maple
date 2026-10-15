@@ -46,13 +46,8 @@ data class XmpDocument(
     fun attribute(name: String): String? {
         if (changes.containsKey(name)) return changes[name]
         return descriptions(original)
-            .flatMap { (tag, scope) ->
-                ATTRIBUTE.findAll(tag.value)
-                    .filter { attributeName(it.groupValues[1], scope) == name }
-                    .toList()
-            }
+            .mapNotNull { (_, scope) -> scope.attributes[name] }
             .lastOrNull()
-            ?.let { unescape(it.groupValues[3]) }
     }
 
     fun serialize(): String {
@@ -66,7 +61,9 @@ data class XmpDocument(
             attribute("papp:WbScaleVersion")
                 ?: if (attribute("crs:Temperature") != null || attribute("crs:Tint") != null) {
                     val mapleAuthored = tags.any { (_, scope) ->
-                        scope.values.any { it == NAMESPACES.getValue("papp") || it in LEGACY_PAPP }
+                        scope.bindings.values.any {
+                            it == NAMESPACES.getValue("papp") || it in LEGACY_PAPP
+                        }
                     }
                     if (mapleAuthored) "1" else AdjustmentFields.whiteBalanceScaleVersion.toString()
                 } else null
@@ -79,12 +76,11 @@ data class XmpDocument(
                     "crs:Version" to (attribute("crs:Version") ?: "11.0"),
                     "crs:ProcessVersion" to (attribute("crs:ProcessVersion") ?: "11.0"),
                 )
-        val result = StringBuilder(original)
-        tags.asReversed().forEach { (tag, scope) ->
+        val replacements = tags.map { (tag, scope) ->
             val stripped =
                 ATTRIBUTE.replace(tag.value) { match ->
                     when {
-                        attributeName(match.groupValues[1], scope) in owned -> ""
+                        attributeName(match.groupValues[1], scope.bindings) in owned -> ""
                         match.groupValues[1] == "xmlns:papp" &&
                             match.groupValues[3] in LEGACY_PAPP ->
                             match.value.replace(match.groupValues[3], NAMESPACES.getValue("papp"))
@@ -96,7 +92,7 @@ data class XmpDocument(
                 if (tag == tags.last().first)
                     buildString {
                         for ((prefix, uri) in NAMESPACES) {
-                            val declared = scope[prefix]
+                            val declared = scope.bindings[prefix]
                             require(
                                 declared == null ||
                                     declared == uri ||
@@ -118,20 +114,27 @@ data class XmpDocument(
                             }
                     }
                 else ""
-            result.replace(
-                tag.range.first,
-                tag.range.last + 1,
-                stripped.dropLast(suffix.length) + extra + suffix,
-            )
+            tag to stripped.dropLast(suffix.length) + extra + suffix
         }
-        return result.toString().also(::validate)
+        val size =
+            original.length + replacements.sumOf { (tag, value) -> value.length - tag.value.length }
+        return buildString(size) {
+                for ((index, replacement) in replacements.withIndex()) {
+                    val (tag, value) = replacement
+                    val start = replacements.getOrNull(index - 1)?.first?.range?.last?.plus(1) ?: 0
+                    append(original, start, tag.range.first)
+                    append(value)
+                }
+                append(original, replacements.last().first.range.last + 1, original.length)
+            }
+            .also(::validate)
     }
 
     companion object {
         const val EMPTY =
             "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" /></rdf:RDF></x:xmpmeta>\n<?xpacket end=\"w\"?>"
         private val ATTRIBUTE =
-            Regex("\\s+([\\w.-]+:[\\w.-]+)\\s*=\\s*(['\"])(.*?)\\2", RegexOption.DOT_MATCHES_ALL)
+            Regex("""\s+([^\s=<>/'"?]+)\s*=\s*(['"])(.*?)\2""", RegexOption.DOT_MATCHES_ALL)
         private val LEGACY_PAPP = setOf("http://ns.justmaple.app/1.0/", "https://maple.app/ns/1.0/")
         private val DESCRIPTION =
             Regex(
@@ -145,9 +148,14 @@ data class XmpDocument(
                 "xmp" to "http://ns.adobe.com/xap/1.0/",
             )
 
-        private data class DescriptionScope(val bindings: Map<String, String>, val primary: Boolean)
+        private data class DescriptionScope(
+            val bindings: Map<String, String>,
+            val attributes: Map<String, String>,
+            val primary: Boolean,
+        )
 
         private fun attributeName(name: String, scope: Map<String, String>): String {
+            if (':' !in name) return name
             val prefix = name.substringBefore(':')
             val uri = scope[prefix]
             val canonical =
@@ -160,14 +168,11 @@ data class XmpDocument(
             else if (prefix in NAMESPACES) "" else name
         }
 
-        private fun descriptions(xml: String): List<Pair<MatchResult, Map<String, String>>> {
+        private fun descriptions(xml: String): List<Pair<MatchResult, DescriptionScope>> {
             val tags = DESCRIPTION.findAll(xml).filter { it.groupValues[1].isNotEmpty() }.toList()
             val scopes = descriptionBindings(xml)
             require(tags.size == scopes.size) { "Unsupported RDF description syntax" }
-            return tags
-                .zip(scopes)
-                .filter { it.second.primary }
-                .map { it.first to it.second.bindings }
+            return tags.zip(scopes).filter { it.second.primary }
         }
 
         private fun descriptionBindings(xml: String): List<DescriptionScope> {
@@ -192,13 +197,26 @@ data class XmpDocument(
                     if (
                         parser.eventType == XmlPullParser.START_TAG && parser.name == "Description"
                     ) {
+                        val bindings = buildMap {
+                            for (i in 0 until parser.getNamespaceCount(parser.depth)) {
+                                parser.getNamespacePrefix(i)?.let {
+                                    put(it, parser.getNamespaceUri(i))
+                                }
+                            }
+                        }
                         add(
                             DescriptionScope(
+                                bindings,
                                 buildMap {
-                                    for (i in 0 until parser.getNamespaceCount(parser.depth)) {
-                                        parser.getNamespacePrefix(i)?.let {
-                                            put(it, parser.getNamespaceUri(i))
-                                        }
+                                    for (i in 0 until parser.attributeCount) {
+                                        val prefix = parser.getAttributePrefix(i)
+                                        val local = parser.getAttributeName(i)
+                                        val qualified =
+                                            if (prefix.isNullOrEmpty()) local else "$prefix:$local"
+                                        put(
+                                            attributeName(qualified, bindings),
+                                            parser.getAttributeValue(i),
+                                        )
                                     }
                                 },
                                 insideRdf &&
@@ -231,14 +249,6 @@ data class XmpDocument(
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;")
-
-        private fun unescape(value: String) =
-            value
-                .replace("&quot;", "\"")
-                .replace("&apos;", "'")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&amp;", "&")
 
         private fun validate(xml: String) {
             require(!xml.contains("<!DOCTYPE", ignoreCase = true)) { "DTD is not supported in XMP" }

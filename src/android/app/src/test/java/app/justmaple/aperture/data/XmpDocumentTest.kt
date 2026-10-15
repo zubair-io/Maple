@@ -154,11 +154,39 @@ class XmpDocumentTest {
             assertEquals("5", saved.attribute("crs:Tint"))
             assertEquals(
                 version,
-                roundTrip(saved.withAttribute("papp:Flag", "pick")).attribute("papp:WbScaleVersion"),
+                roundTrip(saved.withAttribute("papp:Flag", "pick"))
+                    .attribute("papp:WbScaleVersion"),
             )
             val explicit = roundTrip(XmpDocument(source).withAttribute("papp:WbScaleVersion", "3"))
             assertEquals("3", explicit.attribute("papp:WbScaleVersion"))
         }
+    }
+
+    @Test
+    fun unicodeAliasesAndEntitiesPreserveUnqualifiedForeignAttributeBytes() {
+        val foreign = "note=\" crs:Exposure2012='9' xmp:Rating='1'\""
+        val source =
+            XmpDocument.EMPTY.replace(
+                "rdf:about=\"\"",
+                "rdf:about=\"\" xmlns:色=\"http://ns.adobe.com/camera-raw-settings/1.0/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" $foreign 色:Exposure2012=\"&#x31;\" xmp:Rating=\"&#52;\" xmp:Label=\"A &#38; B &#x1F600;\" xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" papp:Profile=\"&#78;eutral\"",
+            )
+        val document = XmpDocument(source)
+        assertEquals("1", document.attribute("crs:Exposure2012"))
+        assertEquals(4, document.rating)
+        assertEquals("A & B 😀", document.attribute("xmp:Label"))
+        assertEquals("Neutral", document.attribute("papp:Profile"))
+        val saved =
+            roundTrip(
+                document
+                    .withField(AdjustmentFields.byName.getValue("exposure"), .75f)
+                    .withAttribute("xmp:Rating", "5")
+            )
+        assertEquals("0.75", saved.attribute("crs:Exposure2012"))
+        assertEquals(5, saved.rating)
+        assertEquals("A & B 😀", saved.attribute("xmp:Label"))
+        assertEquals("Neutral", saved.attribute("papp:Profile"))
+        assertTrue(saved.original.contains(foreign))
+        assertFalse(saved.original.contains("色:Exposure2012="))
     }
 
     private fun roundTrip(document: XmpDocument): XmpDocument {
