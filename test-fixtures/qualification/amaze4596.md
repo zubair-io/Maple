@@ -106,6 +106,17 @@ The original defect and both historical regression cases pass in the complete
 run, but the complete colour gate fails. Do not infer physical qualification from
 fixture-free CI success or from the focused improvements.
 
+### Reporting failed evidence in CI
+
+Publishing the full failed record exposed a code-generation error in clean
+checkouts: the evidence loader tried to rehash the gitignored physical corpus
+before it could report the failure. Explicitly failed records now remain failed
+without installing their measured corpus. The recorded corpus hash and source
+revision are preserved; the uncomputed current hash is null. Nonfailed records
+still require complete current inputs and matching hashes before qualification.
+All 28 capability-registry tests pass, including a real file-backed regression
+that rejects a claimed pass when the physical manifest is absent.
+
 ## Adobe reference audit
 
 An audit of all 776 neutral cases found 36 tint cases whose authored
