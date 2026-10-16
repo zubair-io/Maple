@@ -63,14 +63,18 @@ job. Existing Play reviews are never automatically cancelled.
 Tags `v<product-version>` build signed APK/AAB files and attach them, their
 SHA-256 checksums and the public upload certificate to the coordinated GitHub
 release. The release coordinator waits for Android alongside Mac and Windows.
-Tags do not promote a public Play production release. Manual dispatch creates
+Tags do not promote a public Play production release. Manual dispatch on `main` creates
 verified signed artifacts only, including the first bundle needed to create
 the initial Play release in Console.
 
-GitHub repository secrets are `ANDROID_UPLOAD_KEYSTORE_BASE64`,
+The GitHub `android-signing` environment permits only the `main` branch and
+`v*` tags through deployment branch/tag policies. Its environment secrets are
+`ANDROID_UPLOAD_KEYSTORE_BASE64`,
 `ANDROID_UPLOAD_STORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS` and
 `ANDROID_UPLOAD_KEY_PASSWORD`. `scripts/package-release.sh` materializes the
-key in a private temporary directory and removes it on exit. The public
+key in a private temporary directory and removes it on exit. Keep these secrets
+out of repository-wide secrets so feature-branch workflows cannot read them.
+The public
 certificate is `signing/maple-upload.pem` (RSA 4096, expires March 2054,
 SHA-256 `1C:B8:8A:BE:91:9C:0E:2D:92:6B:58:8C:2C:08:16:D6:28:60:DE:E2:39:38:C1:95:D6:E4:79:90:78:04:3D:F7`).
 Keep the encrypted original and its password in the owner's secure backup;
