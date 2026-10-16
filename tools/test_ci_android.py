@@ -70,6 +70,8 @@ class AndroidSelectionTests(unittest.TestCase):
             "app/build.gradle.kts",
             "native/Cargo.lock",
             "app/src/main/cpp/bridge.cpp",
+            "scripts/build-native.sh",
+            "scripts/test-device-ci.sh",
         ):
             self.assertEqual(dependencies("src/android/" + path), {"android"})
         self.assertEqual(
@@ -118,6 +120,7 @@ class AndroidWorkflowTests(unittest.TestCase):
             "assembleDebug assembleDebugAndroidTest testDebugUnitTest lintDebug",
             "-PmapleAbis=arm64-v8a,x86_64",
             "cargo test --locked --manifest-path native/Cargo.toml --lib",
+            "-p raw-gpu --lib present_chain_pipeline::tests -- --test-threads=1",
             "python3 tools/android_test_reports.py",
             "test -r /dev/kvm && test -w /dev/kvm",
         ):

@@ -30,8 +30,9 @@ def dependencies(path):
         return ALL
     if path.startswith(("tools/release_", "tools/test_release_")):
         return frozenset()
-    if path.startswith((".github/workflows/", ".github/actions/")) or any(
-        part in ("scripts", "ci_scripts") for part in parts[:-1]
+    if path.startswith((".github/workflows/", ".github/actions/")) or (
+        not path.startswith("src/android/")
+        and any(part in ("scripts", "ci_scripts") for part in parts[:-1])
     ):
         return ALL
     if path.startswith(("src/raw-pipeline/", "test-fixtures/", "tools/qualification/")):
