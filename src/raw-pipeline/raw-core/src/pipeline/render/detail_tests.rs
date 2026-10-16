@@ -270,3 +270,87 @@ fn detail_keeps_the_exact_auto_pair_and_film_of_the_base() {
 
 #[path = "detail_crop_tests.rs"]
 mod crop_tests;
+
+#[test]
+fn detail_context_retains_resolved_auto_wb_without_changing_import_intent() {
+    use crate::stages::imported_auto_wb;
+    // A distinct source identity avoids the other tests' injected Auto-fit cache.
+    let bytes = SyntheticColorChart {
+        patch_size: 42,
+        guard: 9,
+        encoding: ChartEncoding::Camera,
+        ..Default::default()
+    }
+    .write_to_bytes();
+    let raw = std::sync::Arc::new(crate::decode::decode_bytes(&bytes, "dng").unwrap());
+    let sensor = raw.raw_data.clone();
+    let sidecars = tempfile::tempdir().unwrap();
+    let path = sidecars.path().join("source.xmp");
+    let xml = r#"<x crs:WhiteBalance="Auto"/>"#;
+    std::fs::write(&path, xml).unwrap();
+    let imported = crate::xmp::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let cancelled = std::sync::atomic::AtomicBool::new(true);
+    for profile in [Profile::Neutral, Profile::Auto] {
+        let model = AdjustmentModel {
+            profile,
+            ..imported.clone()
+        };
+        let resolved =
+            imported_auto_wb::resolve(&raw, &model, crate::CancelToken::never()).unwrap();
+        let prepare = |model| {
+            render_detail_base_retained(
+                std::sync::Arc::clone(&raw),
+                model,
+                RawInput::Bytes {
+                    bytes: &bytes,
+                    ext: "dng",
+                },
+                DetailRenderOptions {
+                    quality: RenderQuality::Preview,
+                    max_long_edge: 128,
+                    film_lut: None,
+                },
+                8 * 1024 * 1024,
+                None,
+            )
+            .unwrap()
+        };
+        let (w, h, rgb, context) = prepare(&model);
+        assert_eq!(context.model, model, "retain original import intent");
+        assert!(
+            !imported_auto_wb::needs_resolution(&context.active_model),
+            "detail pans must retain the already resolved camera model"
+        );
+        assert!(matches!(
+            imported_auto_wb::resolve(
+                &raw,
+                &context.active_model,
+                crate::CancelToken::new(&cancelled)
+            )
+            .unwrap(),
+            std::borrow::Cow::Borrowed(_)
+        ));
+        assert_eq!(
+            (context.active_model.temperature, context.active_model.tint),
+            (resolved.temperature, resolved.tint)
+        );
+        let (ew, eh, expected, explicit_context) = prepare(&resolved);
+        assert_eq!((w, h, rgb), (ew, eh, expected));
+        for x in [60, 80] {
+            let rect = TileRect {
+                src_x: x,
+                src_y: 40,
+                src_w: 80,
+                src_h: 60,
+                out_w: 80,
+                out_h: 60,
+            };
+            assert_eq!(
+                render_detail_tile(&raw, &context, rect, None, 8 * 1024 * 1024).unwrap(),
+                render_detail_tile(&raw, &explicit_context, rect, None, 8 * 1024 * 1024).unwrap()
+            );
+        }
+    }
+    assert_eq!(raw.raw_data, sensor);
+    assert_eq!(std::fs::read_to_string(path).unwrap(), xml);
+}

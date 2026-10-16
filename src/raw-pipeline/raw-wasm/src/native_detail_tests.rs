@@ -115,3 +115,87 @@ fn native_detail_preparation_admits_existing_limit_before_native_sampler() {
         .contains("preparation exceeds working-pixel budget"));
     assert_eq!(Arc::strong_count(&session.raw), 1);
 }
+
+#[test]
+fn native_detail_imported_auto_wb_reuses_estimate_across_edits_and_pans() {
+    use raw_core::{cancel::CancelToken, stages::imported_auto_wb};
+    let bytes = SyntheticColorChart {
+        patch_size: 80,
+        guard: 8,
+        ..Default::default()
+    }
+    .write_to_bytes();
+    let mut session = NativeDetailSession::new(&bytes, "dng").unwrap();
+    let sensor = session.raw.raw_data.clone();
+    let source = session.bytes.clone();
+    let cancelled = std::sync::atomic::AtomicBool::new(true);
+    let expected_pair = imported_auto_wb::estimate(&session.raw, CancelToken::never()).unwrap();
+    for exposure in [0.0, 0.5, -0.25] {
+        let xml = format!(
+            r#"<x crs:WhiteBalance="Auto" crs:Exposure2012="{exposure}" papp:Profile="Neutral"/>"#
+        );
+        let first = session
+            .render_tile(Some(xml.clone()), &[133, 117, 101, 101], 128, true, &[])
+            .unwrap();
+        assert_eq!(
+            session.prepared.as_ref().unwrap().xmp.as_deref(),
+            Some(xml.as_str())
+        );
+        let mut resolved = raw_core::xmp::parse(&xml).unwrap();
+        // A fresh estimator call fails with this token. The actual session
+        // must have retained its estimate, including after the unrelated edit.
+        session
+            .imported_wb
+            .resolve_in_place(&session.raw, &mut resolved, CancelToken::new(&cancelled))
+            .unwrap();
+        let pair = (resolved.temperature, resolved.tint);
+        assert_eq!(pair, expected_pair);
+        assert!(!imported_auto_wb::needs_resolution(&resolved));
+        assert_eq!(resolved.exposure, exposure);
+        // Preserve f32 precision and the resolver's WB scale. The UI serializer
+        // intentionally rounds authored numbers, which is a different comparison.
+        let explicit = format!(
+            r#"<x crs:WhiteBalance="Auto" crs:Temperature="{}" crs:Tint="{}" crs:Exposure2012="{exposure}" papp:Profile="Neutral" papp:WbScaleVersion="5"/>"#,
+            pair.0, pair.1
+        );
+        let mut reference = NativeDetailSession::new(&bytes, "dng").unwrap();
+        let expected = reference
+            .render_tile(
+                Some(explicit.clone()),
+                &[133, 117, 101, 101],
+                128,
+                true,
+                &[],
+            )
+            .unwrap();
+        assert!(
+            first.rgb == expected.rgb,
+            "explicit WB differs at exposure {exposure}"
+        );
+        let next = session
+            .render_tile(Some(xml), &[181, 117, 101, 101], 128, true, &[])
+            .unwrap();
+        let expected_pan = reference
+            .render_tile(Some(explicit), &[181, 117, 101, 101], 128, true, &[])
+            .unwrap();
+        assert!(
+            next.rgb == expected_pan.rgb,
+            "explicit WB pan differs at exposure {exposure}"
+        );
+        // Both windows are already bit-identical to explicit-WB windows above.
+        // Their independent floating-point/quantization paths obey the existing
+        // core detail overlap contract (at most one output code).
+        let max_overlap_error = (0..101)
+            .flat_map(|y| {
+                first.rgb[(y * 101 + 48) * 3..(y * 101 + 101) * 3]
+                    .iter()
+                    .zip(&next.rgb[(y * 101) * 3..(y * 101 + 53) * 3])
+                    .map(|(a, b)| a.abs_diff(*b))
+            })
+            .max()
+            .unwrap();
+        assert!(max_overlap_error <= 1, "overlap error={max_overlap_error}");
+    }
+    assert_eq!(session.raw.raw_data, sensor);
+    assert_eq!(session.bytes, source);
+}

@@ -374,6 +374,11 @@ fn render_display_scene_with_context_cancellable(
     } else {
         model
     };
+    // Resolve once at the shared render boundary so retained detail contexts
+    // carry the same camera model as their base (#4669). A later pan must not
+    // re-estimate WB while preparing native highlight evidence or a tile.
+    let resolved_model = crate::stages::imported_auto_wb::resolve(raw, active_model, cancel)?;
+    let active_model = resolved_model.as_ref();
     let (mut scene, ae_gain, prefix) = if capture_prefix {
         let mle = max_long_edge.expect("resident CPU preview always has a viewport cap");
         let (prefix, gain) =

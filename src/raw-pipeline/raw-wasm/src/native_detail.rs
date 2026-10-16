@@ -17,6 +17,7 @@ pub struct NativeDetailSession {
     raw: Arc<RawImage>,
     bytes: Vec<u8>,
     ext: String,
+    imported_wb: raw_core::stages::imported_auto_wb::CachedEstimate,
     prepared: Option<PreparedDetail>,
 }
 
@@ -60,6 +61,7 @@ impl NativeDetailSession {
             raw: Arc::new(raw),
             bytes: bytes.to_vec(),
             ext: ext.to_owned(),
+            imported_wb: Default::default(),
             prepared: None,
         })
     }
@@ -88,7 +90,14 @@ impl NativeDetailSession {
             // Release prior artifacts before creating the new bounded reference,
             // keeping only native frame evidence that remains exact.
             let previous = self.prepared.take().map(|prepared| prepared.context);
-            let model = crate::mask_registry::parse_model(xmp.as_deref()).map_err(js_error)?;
+            let mut model = crate::mask_registry::parse_model(xmp.as_deref()).map_err(js_error)?;
+            self.imported_wb
+                .resolve_in_place(
+                    &self.raw,
+                    &mut model,
+                    raw_core::cancel::CancelToken::never(),
+                )
+                .map_err(js_error)?;
             let film = if film_bytes.is_empty() {
                 None
             } else {
