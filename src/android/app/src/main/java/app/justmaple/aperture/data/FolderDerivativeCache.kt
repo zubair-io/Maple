@@ -137,18 +137,17 @@ internal class FolderDerivativeCache(private val context: Context) {
     }
 
     private suspend fun display(canonical: CachedFolderDerivative): CachedFolderDerivative {
-        if (Build.VERSION.SDK_INT >= 31) return canonical
-        // Android 10/11 use a private JPEG decode bridge AFTER shared AVIF publication.
+        if (Build.VERSION.SDK_INT >= 31 || canonical.image.file.extension != "avif")
+            return canonical
+        // Android 10/11 use a private PNG decode bridge AFTER shared AVIF publication.
         try {
             val decoded =
-                privateFile("legacy-${canonical.image.file.nameWithoutExtension}", "jpg") { output
-                    ->
+                privateFile("legacy-png-${canonical.image.file.nameWithoutExtension}", "png") {
+                    output ->
                     ParcelFileDescriptor.dup(canonical.image.input.fd).use { source ->
-                        NativeBridge.thumbnail(
+                        NativeBridge.cachePng(
                             "/proc/self/fd/${source.fd}",
                             output.absolutePath,
-                            "",
-                            1280,
                         )
                     }
                 }

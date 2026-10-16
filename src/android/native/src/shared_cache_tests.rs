@@ -98,3 +98,52 @@ fn transparent_rasters_cannot_publish_opaque_shared_derivatives() {
     }
     std::fs::remove_dir_all(folder).unwrap();
 }
+
+#[test]
+fn legacy_avif_display_bridge_preserves_decoded_pixels_and_rejects_oversize() {
+    use raw_core::raster_encode::{encode_raster_opts, RasterEncodeOptions};
+    let folder = std::env::temp_dir().join(format!("maple-cache-png-{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let source = folder.join("shared.avif");
+    let destination = folder.join("display.png");
+    let rgba = raw_core::raster::RasterImage::new_rgba(
+        4,
+        2,
+        (0..8).flat_map(|i| [80, 140, 200, i * 32]).collect(),
+    );
+    for primaries in [TargetPrimaries::Srgb, TargetPrimaries::P3] {
+        let original = encode_raster_opts(
+            &rgba,
+            &RasterEncodeOptions {
+                format: ExportFormat::Avif,
+                quality: 70,
+                avif_speed: 10,
+                primaries,
+            },
+        )
+        .unwrap();
+        std::fs::write(&source, &original).unwrap();
+        cache_png(source.to_str().unwrap(), destination.to_str().unwrap()).unwrap();
+        let expected = raw_core::raster::decode_raster(&original, Some("avif")).unwrap();
+        let png = std::fs::read(&destination).unwrap();
+        let decoded = raw_core::raster::decode_raster(&png, Some("png")).unwrap();
+        assert_eq!(
+            (decoded.width, decoded.height),
+            (expected.width, expected.height)
+        );
+        assert_eq!(decoded.channels, 4);
+        assert_eq!(decoded.data, expected.data);
+        assert!(!decoded.is_opaque());
+        assert_eq!(original, std::fs::read(&source).unwrap());
+        std::fs::remove_file(&destination).unwrap();
+    }
+    let oversized =
+        raw_core::export::encode_avif_with_speed(1281, 1, &vec![80; 1281 * 3], 55, 10).unwrap();
+    std::fs::write(&source, oversized).unwrap();
+    assert!(cache_png(source.to_str().unwrap(), destination.to_str().unwrap()).is_err());
+    assert!(!destination.exists());
+    std::fs::write(&source, b"corrupt").unwrap();
+    assert!(cache_png(source.to_str().unwrap(), destination.to_str().unwrap()).is_err());
+    assert!(!destination.exists());
+    std::fs::remove_dir_all(folder).unwrap();
+}

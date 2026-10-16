@@ -132,8 +132,8 @@ Rust/codegen, LUTs, fixtures and the Apple layout/font/icon inputs. The stable
 **Android result** check rejects failed, cancelled or unexpectedly skipped work.
 The complete device suite runs on API 36 with a 1280×800 dp tablet layout and
 SwiftShader Vulkan, exercising the inspector/group resets and HEIF/AVIF cases.
-Reports must contain at least 45 device and 28 JVM passes with no skips. The
-21 native CPU/GPU/cache contract tests and the shared presentation/cache/scRGB tests run against
+Reports must contain at least 46 device and 28 JVM passes with no skips. The
+22 native CPU/GPU/cache contract tests and the shared presentation/cache/scRGB tests run against
 Mesa lavapipe, alongside APK assembly and lint. Reports, native output, logcat,
 device configuration, screenshots and walkthrough captures are uploaded even
 after a test failure. Only SDK setup
@@ -392,5 +392,5 @@ inputs retain the core's explicit rejection before any derivative is created;
 they cannot publish opaque substitutes into the shared cache. Private read-through
 copies remain bounded by the 64 MiB derivative budget. Read-only or unsupported
 providers fall back privately; single-file imports and authenticated cloud caches
-retain their existing behavior. Android 10/11 convert shared AVIFs only for private
+retain their existing behavior. Android 10/11 decode shared AVIFs to private lossless PNGs for
 display; shared files always remain AVIF. See [caching](../../docs/caching.md).

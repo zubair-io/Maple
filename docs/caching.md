@@ -333,7 +333,9 @@ until publication succeeds. Source and sidecar snapshots are rechecked around
 rendering and publication, and descriptor identity checks prevent a provider alias
 from truncating or deleting an original or sidecar. Read-only providers, unknown
 mtimes, and providers without safe regular-descriptor/rename support use a private
-fallback. Android 10/11 use a private JPEG display bridge after AVIF publication.
+fallback. Android 10/11 decode the bounded AVIF with the core decoder into a private,
+sRGB-tagged PNG display bridge after publication. This keeps decoded pixels and
+alpha without applying edits again; JPEG/WebP/PNG candidates display directly.
 Single-file imports retain private caching, and cloud derivatives retain their
 conditional authenticated HTTP cache. `PhotoLibrary.kt` owns the following state:
 
