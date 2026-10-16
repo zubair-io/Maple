@@ -28,7 +28,7 @@ class CacheTestDocumentsProvider : DocumentsProvider() {
     @Volatile private var pausePublication = false
     @Volatile private var pauseSidecarRead: String? = null
     @Volatile private var blocked = false
-    private var release = CountDownLatch(1)
+    @Volatile private var release = CountDownLatch(1)
 
     override fun onCreate() = true
 
@@ -191,9 +191,11 @@ class CacheTestDocumentsProvider : DocumentsProvider() {
         zeroMtime = extras?.getBoolean("zeroMtime") ?: false
         renamed = extras?.getBoolean("renamed") ?: false
         unsafeName = extras?.getBoolean("unsafeName") ?: false
-        pausePublication = extras?.getBoolean("pausePublication") ?: false
-        pauseSidecarRead = extras?.getString("pauseSidecarRead")
-        if (pausePublication || pauseSidecarRead != null) release = CountDownLatch(1)
+        val nextPausePublication = extras?.getBoolean("pausePublication") ?: false
+        val nextPauseSidecarRead = extras?.getString("pauseSidecarRead")
+        if (nextPausePublication || nextPauseSidecarRead != null) release = CountDownLatch(1)
+        pausePublication = nextPausePublication
+        pauseSidecarRead = nextPauseSidecarRead
         return Bundle()
     }
 }
