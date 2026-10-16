@@ -86,6 +86,36 @@ class LayoutWalkthroughTest {
             compose.onNodeWithContentDescription("More photo actions").performClick()
             compose.onNodeWithText("Show adjustments").performClick()
             compose.onNodeWithTag("adjustments-panel").assertIsDisplayed()
+            compose.onNodeWithText("Color").performClick()
+            compose.onNodeWithContentDescription("Temp adjustment").assertIsDisplayed()
+            compose.onNodeWithContentDescription("Tint adjustment").assertIsDisplayed()
+            compose.onNodeWithContentDescription("Gray Mixer Red adjustment").assertDoesNotExist()
+            compose.captureWalkthrough("03-edit-color")
+            compose.onNodeWithText("Detail").performClick()
+            compose.onNodeWithTag("adjustment-sliders").performScrollToNode(
+                hasContentDescription("Defringe Green Hue Hi adjustment")
+            )
+            compose.onNodeWithContentDescription("Defringe Green Hue Hi adjustment").assertIsDisplayed()
+            compose.onNodeWithText("Light").performClick()
+            compose.onNodeWithContentDescription("Exposure adjustment").assertIsDisplayed()
+        } else {
+            compose.onNodeWithText("Color").performClick()
+            compose.onNodeWithContentDescription("All Color controls").performClick()
+            compose.onNodeWithContentDescription("Temp adjustment").assertIsDisplayed()
+            compose.onNodeWithContentDescription("Tint adjustment").assertIsDisplayed()
+            compose.captureWalkthrough("03-edit-color")
+            compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.Dismiss))
+                .performSemanticsAction(SemanticsActions.Dismiss) { it() }
+            compose.onNodeWithTag("adjustment-sliders").assertDoesNotExist()
+            compose.onNodeWithText("Detail").performClick()
+            compose.onNodeWithContentDescription("All Detail controls").performClick()
+            compose.onNodeWithTag("adjustment-sliders").performScrollToNode(
+                hasContentDescription("Defringe Green Hue Hi adjustment")
+            )
+            compose.onNodeWithContentDescription("Defringe Green Hue Hi adjustment").assertIsDisplayed()
+            compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.Dismiss))
+                .performSemanticsAction(SemanticsActions.Dismiss) { it() }
+            compose.onNodeWithText("Light").performClick()
         }
         compose.waitForIdle()
         compose.waitUntil(30_000) { !model.state.value.rendering }

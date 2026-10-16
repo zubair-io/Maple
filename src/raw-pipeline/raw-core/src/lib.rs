@@ -141,6 +141,7 @@ pub use types::{
     PartialAdjustments, Point2, ToneCurveMode, WbSource, WhiteBalancePreset, ADJUSTMENT_SCHEMA,
 };
 
+pub mod ui_slider_gradients;
 pub mod ui_tokens;
 
 /// Capability registry — what the editor can do, where it ships, and the

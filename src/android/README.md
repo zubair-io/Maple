@@ -8,6 +8,10 @@ This is an **incremental port, not full iOS feature parity**. The implemented
 surface opens local photos and writable document-tree folders, browses nested
 folders, previews images, rates/picks, develops the shared scalar adjustments,
 selects Auto/Neutral, supports undo/redo, persists XMP, and exports JPEG/XMP.
+The adjustment inspector lists the existing iOS controls explicitly; loose
+parametric curve and per-band HSL rows are excluded (#4662).
+Slider and phone drag-bar palettes are generated from the
+same Rust catalog as iOS; vertical swipes over tracks scroll the inspector.
 Phone navigation is Library / Search / Settings with a sources drawer. Tablets
 use a sources column, image area, and controls or Info inspector, with a vertical
 filmstrip. Search currently searches names in the open folder. Maple Cloud/self-hosted

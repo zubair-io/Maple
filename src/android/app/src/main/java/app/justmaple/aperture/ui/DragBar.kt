@@ -1,12 +1,14 @@
 package app.justmaple.aperture.ui
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
@@ -27,6 +29,7 @@ fun DragBar(
     var gestureValue by remember { mutableFloatStateOf(value) }
     val range = field.maximum - field.minimum
     val marker = ((value - field.minimum) / range).coerceIn(0f, 1f)
+    val track = remember(field.name) { adjustmentTrack(field) }
     Canvas(
         Modifier.fillMaxWidth()
             .height(44.dp)
@@ -51,7 +54,7 @@ fun DragBar(
                 detectTapGestures(onDoubleTap = { onReset() }, onLongPress = { fine = true })
             }
             .pointerInput(field.name) {
-                detectDragGestures(
+                detectHorizontalDragGestures(
                     onDragStart = { gestureValue = current },
                     onDragEnd = {
                         fine = false
@@ -64,14 +67,19 @@ fun DragBar(
                 ) { event, distance ->
                     event.consume()
                     gestureValue =
-                        (gestureValue + distance.x / size.width * range * if (fine) .25f else 1f)
+                            (gestureValue + distance / size.width * range * if (fine) .25f else 1f)
                             .coerceIn(field.minimum, field.maximum)
                     change(gestureValue)
                 }
             }
     ) {
         val middle = size.height / 2
-        drawLine(MapleColors.border, Offset(0f, middle), Offset(size.width, middle), 1.dp.toPx())
+        drawRoundRect(
+            brush = track,
+            topLeft = Offset(0f, middle - 4.dp.toPx()),
+            size = Size(size.width, 8.dp.toPx()),
+            cornerRadius = CornerRadius(4.dp.toPx()),
+        )
         for (i in 0..20) {
             val height = if (i == 10) 14.dp.toPx() else 6.dp.toPx()
             val x = size.width * i / 20
