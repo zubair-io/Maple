@@ -49,6 +49,7 @@ class PhotoLibrary(private val context: Context) {
     private val io = Mutex()
     private val local = LocalDocuments(context)
     private val saf = SafSidecars(context, local)
+    private val shared = FolderDerivativeCache(context)
     private val derivatives = CloudDerivativeCache(cloud, File(context.cacheDir, "thumbnails"))
     val sources: List<Folder>
         get() =
@@ -242,6 +243,26 @@ class PhotoLibrary(private val context: Context) {
 
     private suspend fun thumbnail(photo: Photo, edge: Int): OpenThumbnail {
         val folder = File(context.cacheDir, "thumbnails").apply { mkdirs() }
+        if (photo.parent != null && !CloudLibrary.isCloud(photo.uri)) {
+            val result =
+                shared.load(edge, { folderCacheSource(photo) }) { source, target, tier ->
+                    withPreview(source.photo, tier.edge) { input ->
+                        NativeBridge.sharedDerivative(
+                            input.absolutePath,
+                            target.absolutePath,
+                            source.xml.orEmpty(),
+                            tier == SharedCacheTier.Preview,
+                        )
+                    }
+                }
+            try {
+                if (result.inserted) trim(folder, 64L * 1024 * 1024, setOf(result.image.file))
+                return result.image
+            } catch (failure: Throwable) {
+                result.image.close()
+                throw failure
+            }
+        }
         if (CloudLibrary.isCloud(photo.uri) && android.os.Build.VERSION.SDK_INT >= 31) {
             val remote = derivatives.load(photo, edge)
             if (remote != null) {
@@ -344,6 +365,25 @@ class PhotoLibrary(private val context: Context) {
         else if (photo.parent == null)
             privateSidecar(photo).takeIf { it.exists() }?.let { XmpEncoding.decode(it.readBytes()) }
         else saf.read(photo, fresh)
+
+    private suspend fun folderCacheSource(photo: Photo): FolderCacheSource = io.withLock {
+        val xml = readSidecar(photo, fresh = true)
+        val entries = local.list(photo.parent!!, fresh = true)
+        val original =
+            entries.singleOrNull { it.uri == photo.uri && !it.directory }
+                ?: error("The photo is no longer in this folder")
+        val sidecars = entries.filter { it.name.equals(photo.sidecarName, ignoreCase = true) }
+        check(sidecars.size <= 1) { "Multiple sidecars match this photo" }
+        val current =
+            if (original.modified <= 0L || original.size <= 0L)
+                single(photo.uri).copy(parent = photo.parent)
+            else photo.copy(size = original.size, modified = original.modified)
+        FolderCacheSource(
+            current,
+            xml,
+            sidecars.singleOrNull(),
+        )
+    }
 
     suspend fun loadSidecar(photo: Photo): LoadedSidecar = io.withLock {
         withContext(Dispatchers.IO) {

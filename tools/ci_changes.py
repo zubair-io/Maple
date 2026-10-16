@@ -79,12 +79,20 @@ def dependencies(path):
         return {"android"} | codegen
     if path == "src/maple/package.json":
         return {"android", "api", "maple", "web"}
+    # Android's shared folder writer pins these API-owned cache tier parameters.
+    if path in ("src/api/src/thumbs/render.ts", "src/api/src/indexer/previewer.ts"):
+        return {"android", "api", "maple", "web"} | codegen
     if path.startswith(("src/api/", "src/maple/")):
         return {"api", "maple", "web"} | codegen
     if path.startswith("src/web/"):
         android = (
             {"android"}
-            if path.startswith("src/web/projects/maple-common/src/lib/icons/")
+            if path.startswith(
+                (
+                    "src/web/projects/maple-common/src/lib/icons/",
+                    "src/web/projects/maple-common/src/lib/maple-cache/",
+                )
+            )
             else set()
         )
         return {"api", "web"} | codegen | android

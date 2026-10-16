@@ -154,7 +154,7 @@ class SafSidecarTest {
                     .use { cursor ->
                         buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
                     }
-            assertEquals(setOf("portrait.dng", canonicalName), names.toSet())
+            assertEquals(setOf("portrait.dng", canonicalName, ".maple"), names.toSet())
             // Replay both process-death boundaries using real provider files and
             // the persisted journal, then read through a fresh library instance.
             for (published in listOf(false, true)) recoverInterruptedReplacement(
@@ -298,7 +298,7 @@ class SafSidecarTest {
                 .use { cursor ->
                     buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
                 }
-        assertEquals(setOf(photo.name, canonicalName), leftovers.toSet())
+        assertEquals(setOf(photo.name, canonicalName, ".maple"), leftovers.toSet())
     }
 
     private fun clickSystem(matches: (AccessibilityNodeInfo) -> Boolean) {

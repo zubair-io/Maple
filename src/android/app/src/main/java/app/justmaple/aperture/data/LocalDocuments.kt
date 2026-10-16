@@ -10,6 +10,7 @@ internal data class LocalDocument(
     val directory: Boolean,
     val size: Long,
     val modified: Long,
+    val flags: Int = 0,
 )
 
 /**
@@ -46,6 +47,7 @@ internal class LocalDocuments(private val context: Context) {
                 DocumentsContract.Document.COLUMN_MIME_TYPE,
                 DocumentsContract.Document.COLUMN_SIZE,
                 DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+                DocumentsContract.Document.COLUMN_FLAGS,
             )
         val query =
             DocumentsContract.buildChildDocumentsUriUsingTree(
@@ -65,6 +67,7 @@ internal class LocalDocuments(private val context: Context) {
                             cursor.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR,
                             cursor.getLong(3),
                             cursor.getLong(4),
+                            cursor.getInt(5),
                         )
                     )
                 }
