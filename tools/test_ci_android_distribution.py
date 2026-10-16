@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import os
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -157,7 +159,8 @@ class DistributionBoundaryTests(unittest.TestCase):
             if "ANDROID_UPLOAD_KEYSTORE_BASE64" in step.get("env", {})
         )
         self.assertEqual(
-            signing["env"]["MAPLE_VERSION_CODE"], "${{ github.run_number }}"
+            signing["env"]["MAPLE_VERSION_CODE"],
+            "${{ steps.version.outputs.version_code }}",
         )
         publish = self.jobs["internal-testing"]
         upload = next(
@@ -165,7 +168,10 @@ class DistributionBoundaryTests(unittest.TestCase):
             for step in publish["steps"]
             if "GOOGLE_PLAY_ACCESS_TOKEN" in step.get("env", {})
         )
-        self.assertEqual(upload["env"]["VERSION_CODE"], "${{ github.run_number }}")
+        self.assertEqual(
+            upload["env"]["VERSION_CODE"],
+            "${{ needs.signed-build.outputs.version_code }}",
+        )
         self.assertIn("sha256sum --check", upload["run"])
         auth = next(step for step in publish["steps"] if step.get("id") == "auth")
         self.assertEqual(auth["with"]["create_credentials_file"], False)
@@ -173,6 +179,49 @@ class DistributionBoundaryTests(unittest.TestCase):
             auth["with"]["access_token_scopes"],
             "https://www.googleapis.com/auth/androidpublisher",
         )
+
+    def test_real_version_step_reserves_bootstrap_and_rejects_invalid_releases(self):
+        step = next(
+            step
+            for step in self.jobs["signed-build"]["steps"]
+            if step.get("id") == "version"
+        )
+        version = json.loads((ROOT / "src/maple/package.json").read_text())["version"]
+        for number, tag, code in (
+            (1, f"v{version}", 2),
+            (2, "", 3),
+            (3, "vwrong", None),
+            (0, "", None),
+            (2100000000, "", None),
+        ):
+            with (
+                self.subTest(number=number, tag=tag),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                output = Path(directory) / "output"
+                result = subprocess.run(
+                    ["bash", "-e", "-c", step["run"]],
+                    check=False,
+                    cwd=ROOT,
+                    env=os.environ
+                    | {
+                        "GITHUB_RUN_NUMBER": str(number),
+                        "TAG": tag,
+                        "GITHUB_OUTPUT": str(output),
+                    },
+                    capture_output=True,
+                    text=True,
+                )
+                if code is None:
+                    self.assertNotEqual(result.returncode, 0)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    values = dict(
+                        line.split("=", 1) for line in output.read_text().splitlines()
+                    )
+                    self.assertEqual(values["version_code"], str(code))
+                    self.assertEqual(values["version"], version)
+                    self.assertRegex(values["sha"], r"^[0-9a-f]{40}$")
 
     def test_release_coordinator_waits_for_apk_bundle_and_checksums(self):
         release = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())

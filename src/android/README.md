@@ -44,8 +44,9 @@ credentials are committed.
 Android reads the canonical product version from `src/maple/package.json`.
 Release packaging requires the upload keystore and an explicit positive
 `-PmapleVersionCode`; an unsigned release fails. `android-distribution.yml`
-uses its own monotonically increasing workflow run number for every signed
-build, across main, tags and manual runs. Keep this workflow/counter when
+uses its own monotonically increasing workflow run number plus one for every
+signed build, across main, tags and manual runs. Code 1 belongs to the initial
+Console upload; CI starts at code 2. Keep this workflow/counter when
 changing delivery, so Play version codes never restart.
 Distribution uses GitHub's [`queue: max`](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
 to keep pending builds instead of cancelling a pending release when another
