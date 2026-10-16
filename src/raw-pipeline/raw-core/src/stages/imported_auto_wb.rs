@@ -26,7 +26,7 @@ pub fn estimate(raw: &RawImage, cancel: CancelToken<'_>) -> Result<(f32, f32)> {
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
-    let probe_model = super::auto_adjustments::probe_model(&AdjustmentModel::default());
+    let probe_model = super::auto_adjustments::auto_probe_model(&AdjustmentModel::default());
     let probe = develop_scene_linear_from_raw_with_quality_cancellable(
         raw,
         &probe_model,

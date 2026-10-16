@@ -1,11 +1,11 @@
 //! Neutral white-balance sampler (#2434): "make the surface I clicked read
 //! neutral", as one committed action with the same shape AUTO has.
 //!
-//! The sample is taken from the SAME probe AUTO analyses — the AE-Off,
-//! WB-pinned, tone-at-rest develop of the RAW at Preview quality
-//! (`auto_adjustments::probe_model`) — so a sampled neutral and an Auto
-//! estimate are two readings of one buffer, judged by one rule
-//! ([`ProbeSpace`]): sensor-clipped channels are rejected, crushed pixels
+//! The sample shares AUTO's calibration — an AE-Off, WB-pinned,
+//! tone-at-rest develop of the RAW at Preview quality
+//! (`auto_adjustments::probe_model`). Its local 5×5 mean retains authored
+//! color NR; AUTO's global robust population omits that filter (#4671).
+//! Both are judged by one rule ([`ProbeSpace`]): sensor-clipped channels are rejected, crushed pixels
 //! are rejected, and the solve runs in the slider frame the develop chain
 //! renders with, so a develop at the returned pair renders the sampled
 //! surface neutral. A 5×5 neighbourhood around the click is averaged first
@@ -25,8 +25,8 @@ use crate::stages::auto_adjustments::{probe_model, LUMA_REC2020};
 use crate::stages::auto_adjustments_awb::{chromaticity_of, schema_range, ProbeSpace};
 use crate::xmp::AdjustmentModel;
 
-/// Version of the neutral → slider-pair derivation shared by the sampler
-/// and AUTO's white balance (#2247's clip-aware, frame-consistent solve).
+/// Version of the point sampler's neutral → slider-pair derivation.
+/// AUTO has separate provenance in `auto_adjustments::AUTO_WB_ALGORITHM_VERSION`.
 pub const WB_ALGORITHM_VERSION: u32 = 2;
 
 /// Half-width of the averaged neighbourhood: 2 → a 5×5 window.

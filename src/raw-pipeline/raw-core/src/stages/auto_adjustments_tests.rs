@@ -90,3 +90,79 @@ fn exposure_protects_highlights_against_median_overdrive() {
         ev
     );
 }
+
+#[test]
+fn auto_recommendation_is_independent_of_authored_color_nr() {
+    let raw = crate::decode::decode(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/batch-transfer/source.dng"),
+    )
+    .unwrap();
+    let expected = compute_auto_adjustments(
+        &raw,
+        &AdjustmentModel {
+            nr_color: 0.0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    for nr_color in [25.0, 100.0] {
+        let authored = AdjustmentModel {
+            nr_color,
+            ..Default::default()
+        };
+        let before = authored.clone();
+        let actual = compute_auto_adjustments(&raw, &authored).unwrap();
+        assert_eq!(authored, before, "analysis mutated authored settings");
+        assert_eq!(actual, expected, "color NR changed the Auto recommendation");
+        assert_eq!(probe_model(&authored).nr_color, nr_color);
+    }
+}
+
+/// Population statistics remain stable without color NLM even when an
+/// individual 5×5 eyedropper sample would be noisy (#4671).
+#[test]
+fn auto_population_handles_independent_sensor_read_noise() {
+    let dng = crate::test_support::synth_dng::SyntheticGreyDng {
+        linear_value: 0.08,
+        width: 128,
+        height: 128,
+        ..Default::default()
+    }
+    .with_hasselblad_dcp();
+    let clean = crate::decode::decode_bytes(&dng.write_to_bytes(), "dng").unwrap();
+    let model = AdjustmentModel::default();
+    let expected = compute_auto_adjustments(&clean, &model).unwrap();
+    let errors: Vec<_> = (1..=12_u32)
+        .map(|seed| {
+            let mut raw = clean.clone();
+            raw.iso = 6400;
+            let mut state = seed;
+            let mut uniform = || {
+                state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+                (state as f64 + 0.5) / 4294967296.0
+            };
+            let sigma = 0.006 * (raw.white_level - raw.black_level[0]) as f64;
+            for value in &mut raw.raw_data {
+                let normal =
+                    (-2.0 * uniform().ln()).sqrt() * (std::f64::consts::TAU * uniform()).cos();
+                let noisy = *value as f64 + normal * sigma;
+                assert!(noisy > 0.0 && noisy < raw.white_level as f64);
+                *value = noisy.round() as u16;
+            }
+            let actual = compute_auto_adjustments(&raw, &model).unwrap();
+            [
+                (1e6 / actual.temperature - 1e6 / expected.temperature) as f64,
+                (actual.tint - expected.tint) as f64,
+            ]
+        })
+        .collect();
+    for channel in 0..2 {
+        let rms =
+            (errors.iter().map(|e| e[channel].powi(2)).sum::<f64>() / errors.len() as f64).sqrt();
+        assert!(
+            rms < 1.0,
+            "noise RMS in mired/tint channel {channel}: {rms}"
+        );
+    }
+}

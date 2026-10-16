@@ -93,6 +93,11 @@ fn imported_estimate_matches_existing_auto_without_applying_tone_or_mutating_inp
     assert_eq!(resolved.auto_exposure, AutoExposureMode::On);
     assert!(!needs_resolution(&resolved));
     assert_eq!(resolved.wb_scale_version, WbScaleVersion::V5);
+    assert_eq!(resolved.wb_source, WbSource::Auto);
+    assert_eq!(
+        resolved.wb_algorithm_version,
+        super::super::auto_adjustments::AUTO_WB_ALGORITHM_VERSION as f32
+    );
     assert!(matches!(
         resolve(&raw, &resolved, CancelToken::never()).unwrap(),
         Cow::Borrowed(_)

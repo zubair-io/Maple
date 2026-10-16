@@ -1,6 +1,96 @@
 # Robust final gray population for Auto white balance — #4671
 
-## Auto Tone population refresh after the WB repair
+## Current checkpoint: Auto population analysis without color NLM (v50)
+
+Global and imported Auto now omit color NLM from their analysis probe. The
+point sampler retains authored color NR: its small 5×5 mean benefits from
+filtering. Actual image rendering retains authored NR, and stored numeric WB
+pairs are not re-estimated. Output version is **50**, Auto-WB provenance **4**,
+point-sampler provenance **2**, and Auto-fit **14**. Generated bindings carry
+the updated versions. There is no separate WGSL estimator.
+
+The decision follows paired noise experiments, rather than timing alone:
+
+- 1,080 point samples over three light levels, three independent sensor-noise
+  levels, twelve seeds, two filtering modes and five positions show that
+  removing color NR worsens point-sampler mired/tint RMS by about 21–23% in all
+  nine light/noise conditions. That shared-probe change was rejected.
+- 216 global estimates over the same light/noise/seed/filter combinations
+  improve mired RMS in all nine conditions without NR. The worst tint RMS
+  improves from `0.80765` to `0.55287`.
+- A real-DNG regression proves that authored color-NR strength no longer
+  changes the Auto recommendation or mutates the caller. It fails on the
+  preceding implementation and passes with this change. A twelve-seed noisy
+  synthetic DNG also keeps both mired and tint RMS below 1.
+
+### Physical and binding evidence
+
+All **18 actual unresolved Auto imports** were rendered with the new code;
+all exactly reproduce the previously measured full-precision prediction
+pixels. **17 pass, one Sony case fails**, with no newly failing or cleared
+comparison relative to v49. Sony red/green bias is
+`+0.0678778843 / +0.0441374368`, above the unchanged `0.0317` ceiling.
+Original RAW, sidecar and reference hashes are unchanged. This checkpoint
+does not claim a full-corpus pass or a merge exception.
+
+| Check | Passed | Failed | Existing exclusions |
+| --- | ---: | ---: | ---: |
+| Core library, `gpu,test-support` | 2,902 | 0 | 105 |
+| Explicit physical Auto WB/Auto Tone domain tests | 6 | 0 | 0 |
+| FFI library with GPU | 302 | 0 | 7 |
+| Native WASM library with GPU | 76 | 0 | 9 |
+| Real Chrome, rebuilt WASM CPU/WebGPU cold-open checks | 7 | 0 | 0 |
+| MapleCore imported/partial-WB tests, rebuilt release framework | 13 | 0 | 0 |
+| Windows portable WB/XMP/ABI classes on macOS arm64 .NET 8 | 303 | 0 | 0 |
+
+All four Apple release targets rebuilt and the 143-symbol guard passed.
+The browser checks cover imported Auto, persisted WB intent and unchanged RAW
+bytes. The portable .NET run includes every previously qualified test plus 28
+additional tests in those classes; it does not execute the Windows UI.
+
+### Cold cost and remaining limits
+
+Three interleaved cold CLI processes per mode and RAW include file read,
+decode and all eight recommendations. The control is the initial v49 median
+implementation; the candidate includes both the already committed traversal
+fusion and this Auto-only NR omission. These shared-host timings do not
+isolate either change's contribution or certify an absolute UI budget.
+
+| RAW | Control median ms | Current median ms |
+| --- | ---: | ---: |
+| test_0000 (100 MP) | 3,754.2 | 1,617.9 |
+| test_0006 | 3,690.1 | 807.6 |
+| test_0008 | 1,687.7 | 931.4 |
+| test_0011 | 1,098.2 | 472.7 |
+
+The reduction is 44–78% across these four samples. The 100 MP case still
+exceeds one second. Controlled cold-open/slider performance and the remaining
+Sony color failure remain unfinished under #4671.
+
+### Evidence and qualification corrections
+
+Evidence is under
+`/Volumes/Projects/maple-color-gate-20261015/auto-population-nr-v50/`;
+the noise experiments and failing control are under
+`auto-wb-detail-attribution-v49/{sampler-noise,auto-noise}/` in the same root.
+The frozen CLI SHA-256 is
+`c2e0dc5f56cd3f310054c4a6f0a3bf2d70e9e6cff1de0c6b21eed4284127cd26`.
+
+Two qualification-wrapper issues are retained explicitly. The concurrent
+xcframework build reordered its tracked plist library array, causing the
+whole-patch equality guard to fail after the physical runs completed. The
+plists were structurally equal; restoring only array order restored the exact
+qualified source patch (`source-revalidation.json`). No color source changed.
+The first .NET attempt could not load xUnit and executed no tests; cleaning
+and restoring the build resolved it. A subsequent wrapper expected the old
+275 count despite all 303 tests passing. Test-name comparison confirmed all
+275 were present; a repeat using coverage and actual execution counts passed.
+Both unsuccessful attempts remain archived with the final successful run.
+
+The sections below record earlier v49 checkpoints; their versions, timings
+and unfinished experiments describe those snapshots.
+
+## Historical v49: Auto Tone population refresh after the WB repair
 
 An explicit run of all six physical Auto WB/Auto Tone fixture tests on the
 unchanged v49 repair found five passes and one failure: the measured pre-tone
@@ -33,7 +123,7 @@ Evidence is in
 `domain-gates/` preserves the failing control; `anchor-refresh/` preserves the
 passing repair, commands, source patch and original-input hashes.
 
-## Analysis-probe detail-cost experiment — not adopted
+## Historical v49: shared analysis-probe detail-cost experiment
 
 A read-only stage profile identified color NR as a large cost in the two slow
 LinearRGB DNG probes. A separate 104-probe experiment compared the unchanged
@@ -61,7 +151,7 @@ the same measured population medians. The shared probe also serves the neutral
 sampler; provenance, sampler behavior and binding qualification remain needed
 before adopting the optimization. Production still uses the original probe.
 
-## Status and scope
+## Historical v49: status and scope
 
 The implemented component median passes **17 of the 18** original name-only
 Auto-WB comparisons. Relative to v48, it clears Fuji `test_0008/wb_auto` and

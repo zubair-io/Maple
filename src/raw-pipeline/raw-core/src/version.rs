@@ -199,7 +199,9 @@
 ///   estimator before camera preparation (#4669).
 /// - 49 — robust final gray-population median for Auto white balance (#4671).
 ///   Explicit pairs and the Auto-profile fit remain unchanged.
-pub const PIPELINE_OUTPUT_VERSION: u32 = 49;
+/// - 50 — omit color NLM from global/imported Auto WB population analysis,
+///   retaining the point sampler's filtering and explicit numeric pairs (#4671).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 50;
 
 #[cfg(test)]
 mod tests {

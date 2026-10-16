@@ -48,7 +48,7 @@ use crate::xmp::AdjustmentModel;
 /// Provenance for the clip-aware, robust slider-frame AWB estimator (#4671).
 /// Bump when this derivation changes; persisted pairs are never re-estimated.
 /// Separate from the point sampler's version: `wb_source` identifies the algorithm.
-pub const AUTO_WB_ALGORITHM_VERSION: u32 = 3;
+pub const AUTO_WB_ALGORITHM_VERSION: u32 = 4;
 
 /// Rec.2020 luma weights — match the working color space of the post-WB
 /// scene-linear buffer. Identical to the same constant in `auto_tone`.
@@ -113,8 +113,8 @@ impl Default for AutoAdjustments {
 /// and white balance pinned to D65 (temperature 6500 / tint 0), then derives
 /// ALL eight output fields from that single buffer. `model` is used read-only
 /// for non-WB/non-exposure fields (e.g. profile); highlight recovery is
-/// disabled so reconstructed pixels cannot masquerade as sensor evidence. It is
-/// never mutated.
+/// disabled so reconstructed pixels cannot masquerade as sensor evidence. Color
+/// NR is also omitted from the population analysis. The model is never mutated.
 ///
 /// # AE-Off probe / exposure-replaces-anchor contract
 ///
@@ -130,8 +130,9 @@ impl Default for AutoAdjustments {
 /// The AE-Off / WB-pinned probe model AUTO analyses: the caller's model so
 /// settings like profile carry through, with highlight recovery disabled, the
 /// three inputs being estimated pinned and every tone slider at rest so the
-/// probe sees the raw scene. Shared with the neutral sampler (#2434), which
-/// must judge pixels in exactly the state AUTO's estimator does.
+/// probe sees the raw scene. Shared calibration with the neutral sampler
+/// (#2434); its small neighbourhood retains authored color NR, while global
+/// AUTO uses [`auto_probe_model`] below.
 pub(crate) fn probe_model(model: &AdjustmentModel) -> AdjustmentModel {
     AdjustmentModel {
         auto_exposure: AutoExposureMode::Off,
@@ -152,11 +153,22 @@ pub(crate) fn probe_model(model: &AdjustmentModel) -> AdjustmentModel {
     }
 }
 
+/// Global AUTO measures a robust population of sensor observations (#4671).
+/// Color NLM adds full-image filtering work and shifts that population's
+/// chromaticities. The estimator already rejects noise/clipping and uses a
+/// median. Keep color NR on the point sampler, whose 5×5 mean benefits from it.
+pub(crate) fn auto_probe_model(model: &AdjustmentModel) -> AdjustmentModel {
+    AdjustmentModel {
+        nr_color: 0.0,
+        ..probe_model(model)
+    }
+}
+
 pub fn compute_auto_adjustments(
     raw: &RawImage,
     model: &AdjustmentModel,
 ) -> crate::error::Result<AutoAdjustments> {
-    let probe_model = probe_model(model);
+    let probe_model = auto_probe_model(model);
 
     // Develop the probe buffer. Use Preview quality for speed — the
     // statistical estimators (percentiles, average) are not sensitive to
