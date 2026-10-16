@@ -10,6 +10,29 @@ import org.junit.Test
 
 class SharedCacheProviderTest {
     @Test
+    fun aStableDocumentIdCannotPublishUnderItsOldBasenameAfterRename() = runBlocking {
+        CacheProviderFixture().use { fixture ->
+            val photo = fixture.library.list(fixture.root).photos.single()
+            fixture.mode("renamed")
+            assertTrue(runCatching { bytes(fixture.library, photo, 512) }.isFailure)
+            assertNull(fixture.find(fixture.root, ".maple"))
+            val renamed = fixture.library.list(fixture.root).photos.single()
+            assertEquals(photo.uri, renamed.uri)
+            assertEquals("renamed.dng", renamed.name)
+            val image = bytes(fixture.library, renamed, 512)
+            val thumbs = fixture.find(fixture.find(fixture.root, ".maple")!!, "thumbs")!!
+            assertNull(fixture.find(thumbs, SharedCacheTier.Thumbnail.filename(photo.name)))
+            assertArrayEquals(
+                image,
+                fixture.read(
+                    fixture.find(thumbs, SharedCacheTier.Thumbnail.filename(renamed.name))!!
+                ),
+            )
+            assertArrayEquals(fixture.original, fixture.read(renamed.uri))
+        }
+    }
+
+    @Test
     fun hostedPreviewFallbackYieldsToNewerCanonicalAvifAndRejectsWrongIdentity() = runBlocking {
         CacheProviderFixture().use { fixture ->
             val photo = fixture.library.list(fixture.root).photos.single()
@@ -29,7 +52,9 @@ class SharedCacheProviderTest {
                         .put("mimeType", "image/jpeg")
                         .put(
                             "source",
-                            JSONObject().put("size", photo.size).put("lastModified", photo.modified),
+                            JSONObject()
+                                .put("size", photo.size)
+                                .put("lastModified", photo.modified),
                         )
                         .put("artifactLastModified", fixture.modified(jpeg))
                 val declaration =
@@ -45,14 +70,32 @@ class SharedCacheProviderTest {
                     fixture.read(avif),
                     bytes(PhotoLibrary(fixture.context), photo, 2048),
                 )
-                android.provider.DocumentsContract.deleteDocument(fixture.resolver, avif)
                 descriptor.getJSONObject("source").put("size", photo.size + 1)
                 fixture.resolver.openOutputStream(declaration, "wt")!!.use {
                     it.write(descriptor.toString().toByteArray())
                 }
                 val regenerated = bytes(fixture.library, photo, 2048)
                 assertFalse(encoded.readBytes().contentEquals(regenerated))
+                assertFalse(fixture.asset("srgb-rgb.avif").contentEquals(regenerated))
                 assertArrayEquals(regenerated, fixture.read(fixture.find(previews, "$stem.avif")!!))
+                assertNull(
+                    "Obsolete Hosted bindings must not shadow a regenerated canonical AVIF",
+                    fixture.find(previews, "$stem.preview.json"),
+                )
+                fixture.write(previews, "$stem.avif", fixture.asset("srgb-rgb.avif"))
+                fixture.write(
+                    previews,
+                    "$stem.avif.source.json",
+                    JSONObject()
+                        .put("size", photo.size + 1)
+                        .put("lastModified", photo.modified)
+                        .toString()
+                        .toByteArray(),
+                )
+                val repaired = bytes(fixture.library, photo, 2048)
+                assertFalse(fixture.asset("srgb-rgb.avif").contentEquals(repaired))
+                assertArrayEquals(repaired, fixture.read(fixture.find(previews, "$stem.avif")!!))
+                assertNull(fixture.find(previews, "$stem.avif.source.json"))
                 assertArrayEquals(fixture.original, fixture.read(photo.uri))
             } finally {
                 source.delete()
@@ -125,7 +168,9 @@ class SharedCacheProviderTest {
             val thumbs = fixture.find(fixture.find(fixture.root, ".maple")!!, "thumbs")!!
             assertArrayEquals(
                 current,
-                fixture.read(fixture.find(thumbs, SharedCacheTier.Thumbnail.filename(photo.name))!!),
+                fixture.read(
+                    fixture.find(thumbs, SharedCacheTier.Thumbnail.filename(photo.name))!!
+                ),
             )
             assertArrayEquals(finalXml, fixture.read(fixture.find(fixture.root, "photo.xmp")!!))
             assertArrayEquals(fixture.original, fixture.read(photo.uri))

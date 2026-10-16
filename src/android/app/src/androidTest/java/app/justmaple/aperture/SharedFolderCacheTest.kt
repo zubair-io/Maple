@@ -162,7 +162,7 @@ class SharedFolderCacheTest {
         val authority = "app.justmaple.aperture.test.cache-documents"
         val tree = DocumentsContract.buildTreeDocumentUri(authority, "root")
         val root = DocumentsContract.buildDocumentUriUsingTree(tree, "root")
-        for (mode in listOf("readOnly", "alias", "failRename", "zeroMtime")) {
+        for (mode in listOf("readOnly", "alias", "failRename", "zeroMtime", "unsafeName")) {
             providerCall(
                 "cache-test-setup",
                 Bundle().apply { putBoolean(mode, true) },
@@ -190,7 +190,8 @@ class SharedFolderCacheTest {
                     )
                 }
                 val cache = find(root, ".maple")
-                if (mode == "readOnly" || mode == "zeroMtime") assertNull(cache)
+                if (mode == "readOnly" || mode == "zeroMtime" || mode == "unsafeName")
+                    assertNull(cache)
                 else
                     cache?.let { directory ->
                         for ((tier, _) in children(directory)) assertFalse(

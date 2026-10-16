@@ -56,7 +56,16 @@ internal class CacheDocuments(private val context: Context) {
         if (!source.canShare || current() != source) return@withLock null
         val directory = directory(source.photo.parent!!, tier, true) ?: return@withLock null
         val name = tier.filename(source.photo.name)
-        val before = find(entries(directory), name)
+        val initial = entries(directory)
+        val before = find(initial, name)
+        val companions =
+            if (tier == SharedCacheTier.Preview)
+                initial.filter {
+                    !it.directory &&
+                        it.name in
+                            setOf(name.removeSuffix(".avif") + ".preview.json", "$name.source.json")
+                }
+            else emptyList()
         // A concurrent client may already have populated the slot. Never replace its newer render.
         if (before != null && before != invalid && before.modified >= source.modified)
             return@withLock null
@@ -129,6 +138,12 @@ internal class CacheDocuments(private val context: Context) {
                 remove(latest, published, identity)
                 published = null
                 return@withLock null
+            }
+            // A newly generated canonical AVIF replaces Hosted-private source bindings.
+            // Retire only the unchanged records observed before this publication.
+            for (companion in companions) {
+                if (find(entries(directory), companion.name) == companion)
+                    remove(source, companion.uri)
             }
             backup?.let { remove(source, it) }
             backup = null

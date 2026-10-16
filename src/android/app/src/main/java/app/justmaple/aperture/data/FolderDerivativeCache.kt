@@ -32,7 +32,9 @@ internal class FolderDerivativeCache(private val context: Context) {
                 }
             }
                 .orEmpty()
-            val entry = documents.find(entries, tier.filename(source.photo.name))
+            val entry =
+                if (source.canShare) documents.find(entries, tier.filename(source.photo.name))
+                else null
             val candidates =
                 if (source.canShare)
                     sharedPreviewCandidates(context, documents, source, tier, entries)
