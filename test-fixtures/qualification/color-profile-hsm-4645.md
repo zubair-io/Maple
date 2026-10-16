@@ -122,8 +122,27 @@ sources were restored afterward. These tests cover the standalone camera
 stage; persistent live sessions and absolute frame-time limits remain separate
 acceptance requirements.
 
-The control and candidate physical runs each require 132 comparisons over all
-129 manifest cases and three Auto baselines, with 489 input hashes each. Those
-runs are still in progress. No current photographic pass or table adoption is
-claimed. Evidence, reproducible extraction and build identity are under
-`/Volumes/Projects/maple-color-gate-20261015/three-camera-hsm-v47/`.
+The control and candidate runs completed all 132 comparisons over 129 manifest
+cases and three Auto baselines. All 489 input hashes remained unchanged in each
+run. Control has 25 failures; the candidate has 12: 24 cleared, eleven newly
+failed, and GFX 50R `whites_max` remained failing. All thirty native-detail
+comparisons and all three Auto baselines pass with the candidate. The eleven
+new failures are the nine listed for the v46 Fujifilm experiment above, plus
+Leica M10 `contrast_min` and `wb_auto`. Selected-white interpolation improves
+Fujifilm cold-WB means (GFX 50S 13.840 to 12.939; GFX 50R 16.504 to 15.288),
+but both remain over budget. The tables remain unadopted.
+
+A read-only response audit compares each edit minus its own baseline against
+the equivalent Adobe difference, using the canonical matched native reduction.
+Across 24 cases, all recorded input hashes stayed unchanged. GFX 50S/R minimum
+contrast has a response error of roughly -0.05 to -0.12 encoded RGB per channel;
+minimum dehaze has roughly -0.11 to -0.22. These errors also exist in the control,
+so the baseline calibration shift exposes separate slider-response differences.
+They do not establish a replacement formula.
+
+The audit also finds byte-identical baseline and `wb_auto` PNGs on all three
+bodies, with both binaries. The parser discards imported `WhiteBalance="Auto"`
+when no numeric pair is present; Adobe's corresponding images differ. Resolution
+of that imported intent is tracked by #4669, preserving explicit numeric pairs.
+Evidence, the paired verdicts, response audit, extraction and build identities
+are under `/Volumes/Projects/maple-color-gate-20261015/three-camera-hsm-v47/`.
