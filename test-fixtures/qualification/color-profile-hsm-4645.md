@@ -147,7 +147,30 @@ of that imported intent is tracked by #4669, preserving explicit numeric pairs.
 Evidence, the paired verdicts, response audit, extraction and build identities
 are under `/Volumes/Projects/maple-color-gate-20261015/three-camera-hsm-v47/`.
 
-## Negative-dehaze sky-mask attribution on output 49
+## Follow-up response diagnostics
+
+### Neutral contrast-response attribution
+
+A separate read-only audit bins near-neutral pixels by each renderer's own
+baseline luminance, then measures their movement under minimum and maximum
+contrast. Using each baseline avoids confusing a baseline brightness error
+with a different response at the same input code. Native pairs use the same
+matched Lanczos reduction as the existing comparison protocol.
+
+For minimum contrast, Adobe's measured zero crossings are approximately
+`0.6445` (GFX 50S), `0.5718` (GFX 50R), and `0.4291` (Leica M10), in encoded
+sRGB luminance. Maximum contrast crosses at `0.6440`, `0.5725`, and `0.4295`.
+Maple's corresponding crossings stay near `0.445–0.457` across the original
+and candidate profile bundles. There are more than a million eligible neutral
+pixels in every measured image; all source image hashes remain unchanged.
+
+The Adobe response varies among these photographs. This does not distinguish
+camera/profile effects from scene adaptation and does not justify substituting
+one fixed pivot or fitting a camera-specific correction. No production change
+is adopted. Binned distributions and hashes are archived in
+`three-camera-hsm-v47/contrast-neutral-response/` under the evidence root above.
+
+### Negative-dehaze mask experiment
 
 A separate diagnostic disables only the sky mask for negative dehaze, retaining
 the forward atmospheric model, transmission estimate and all positive-dehaze

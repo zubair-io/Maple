@@ -30,15 +30,17 @@
 //! Which population supplies each anchor depends on whether the statistic is
 //! sensitive to overall LEVEL. Measured on the same nineteen decodable scenes
 //! (`python3 src/scripts/acr_tone_anchors.py`, and the
-//! `committed_anchors_match_the_reference_population` gate):
+//! `committed_anchors_match_the_reference_population` gate). The ACR column is
+//! the original #1376 measurement; Maple's pre-tone population was remeasured
+//! after the #4671 white-balance repair (see its qualification report):
 //!
 //! ```text
 //! percentile      ACR median   Maple, AUTO's pre-tone state   difference
-//!   p0.5            0.0242              0.0166                 −0.0076
+//!   p0.5            0.0242              0.0132                 −0.0110
 //!   p10             0.1635              0.0680                 −0.0955
-//!   p95             0.8444              0.6773                 −0.1671
-//!   p99.5           0.9100              0.7188                 −0.1912
-//!   p75 − p25       0.3673              0.3346                 −0.0327
+//!   p95             0.8444              0.6658                 −0.1786
+//!   p99.5           0.9100              0.7216                 −0.1884
+//!   p75 − p25       0.3673              0.3526                 −0.0147
 //! ```
 //!
 //! The four endpoint percentiles are LEVEL-SENSITIVE, and the gap at those rows
@@ -59,7 +61,7 @@
 //!
 //! The p75 − p25 midtone spread is LEVEL-INVARIANT — a difference of two
 //! percentiles, so a constant level offset cancels out of it — and there the two
-//! populations agree to 0.033 (≈ 8 code values). That anchor is therefore taken
+//! populations agree to 0.015 (≈ 4 code values). That anchor is therefore taken
 //! from ACR directly: `contrast` gets an externally-grounded target, and because
 //! the two medians are so close, the resulting corrections stay small and
 //! land on both sides of zero.
@@ -166,13 +168,13 @@ const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
 // ---------------------------------------------------------------------------
 
 /// Reference-set median sRGB-encoded luma at p0.5. Drives `blacks`.
-const ANCHOR_P005: f32 = 0.0166;
+const ANCHOR_P005: f32 = 0.0132;
 /// Reference-set median at p10. Drives `shadows`.
 const ANCHOR_P10: f32 = 0.0680;
 /// Reference-set median at p95. Drives `highlights`.
-const ANCHOR_P95: f32 = 0.6773;
+const ANCHOR_P95: f32 = 0.6658;
 /// Reference-set median at p99.5. Drives `whites`.
-const ANCHOR_P995: f32 = 0.7188;
+const ANCHOR_P995: f32 = 0.7216;
 /// ACR's median p75 − p25 midtone spread. Drives `contrast`. This is the one
 /// anchor taken from ACR directly — see the module doc on level-invariance.
 const ANCHOR_MID_SPREAD: f32 = 0.3673;

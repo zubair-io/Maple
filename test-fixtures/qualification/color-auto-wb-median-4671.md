@@ -1,5 +1,66 @@
 # Robust final gray population for Auto white balance — #4671
 
+## Auto Tone population refresh after the WB repair
+
+An explicit run of all six physical Auto WB/Auto Tone fixture tests on the
+unchanged v49 repair found five passes and one failure: the measured pre-tone
+p95 population median is `0.6657919`, while its saved target was `0.6773`.
+The existing `0.01` drift limit correctly rejects that difference.
+
+The four measured endpoint medians are
+`[0.013165161, 0.0679708, 0.6657919, 0.721627]`. The production targets are
+refreshed to their four-decimal values: `[0.0132, 0.0680, 0.6658, 0.7216]`.
+Only three constants change. The ACR-derived contrast spread stays `0.3673`;
+the solver, damping, bounds, test assertions and tolerances are unchanged.
+
+After the refresh, all six physical tests pass with zero skips, including
+the population check, per-scene slider bounds/spread, and improvement toward
+the tone anchors on six rendered photographs. The normal core library suite
+passes 2,900 tests with 105 existing exclusions. Three FFI error-guard tests
+and one native WASM result-layout test also pass; those four checks are not
+physical platform parity evidence. The measured RAW hashes and the source
+patch remain unchanged during qualification.
+
+This changes newly requested Auto Tone recommendations. It does not change
+rendering of an existing stored model or imported Auto WB, so output version
+49 and WB estimator version 3 remain appropriate under the version policy.
+There is no WGSL Auto Tone estimator; all bindings call this Rust function.
+The already-running frozen v49 Adobe corpus remains applicable to stored-model
+rendering. This clears one additional domain failure, not an Adobe corpus row.
+
+Evidence is in
+`/Volumes/Projects/maple-color-gate-20261015/auto-wb-detail-attribution-v49/`:
+`domain-gates/` preserves the failing control; `anchor-refresh/` preserves the
+passing repair, commands, source patch and original-input hashes.
+
+## Analysis-probe detail-cost experiment — not adopted
+
+A read-only stage profile identified color NR as a large cost in the two slow
+LinearRGB DNG probes. A separate 104-probe experiment compared the unchanged
+model, no sharpening, no color NR, and neither. All 18 control pairs exactly
+match the frozen v49 estimates, and original inputs and production sources
+were restored unchanged. Automatic bundled lens matching was disabled for
+this experiment to match the physical comparison protocol.
+
+With only color NR omitted from analysis, three interleaved rounds measured
+median develop-plus-estimate times of `2684 → 690 ms` for test_0000 and
+`2787 → 486 ms` for test_0006. These are shared-host diagnostic timings,
+excluding decode and UI presentation, not an absolute performance pass.
+Actual image sharpening and NR remain authored in all resulting renders.
+
+Applying those full-precision estimated pairs through the frozen v49 renderer
+in disposable sidecars passes 17/18 original comparisons, with no newly failed
+or cleared case. Sony's red/green bias remains `+0.0678779 / +0.0441374`, above
+`0.0317`. All reference, RAW, original XMP, comparator and binary hashes remain
+unchanged. This predicts the effect of the pairs; it is not qualification of
+an adopted implementation.
+
+Both probe variants pass five of the six existing physical domain tests and
+fail the same pre-existing p95 calibration check described above, with exactly
+the same measured population medians. The shared probe also serves the neutral
+sampler; provenance, sampler behavior and binding qualification remain needed
+before adopting the optimization. Production still uses the original probe.
+
 ## Status and scope
 
 The implemented component median passes **17 of the 18** original name-only
