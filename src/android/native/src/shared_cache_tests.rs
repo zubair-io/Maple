@@ -59,3 +59,42 @@ fn shared_avif_tiers_match_the_api_parameters_and_reject_invalid_artifacts() {
     assert_eq!(original, std::fs::read(source).unwrap());
     std::fs::remove_dir_all(folder).unwrap();
 }
+
+#[test]
+fn transparent_rasters_cannot_publish_opaque_shared_derivatives() {
+    let folder = std::env::temp_dir().join(format!("maple-cache-alpha-{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let image = image::RgbaImage::from_fn(4, 2, |x, _| {
+        image::Rgba([80, 140, 200, [0, 64, 128, 255][x as usize]])
+    });
+    let edited = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="0.5" /></rdf:RDF></x:xmpmeta>"#;
+    for (extension, format) in [
+        ("png", image::ImageFormat::Png),
+        ("webp", image::ImageFormat::WebP),
+        ("tiff", image::ImageFormat::Tiff),
+    ] {
+        let source = folder.join(format!("transparent.{extension}"));
+        image.save_with_format(&source, format).unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let decoded = raw_core::raster::decode_raster(&original, Some(extension)).unwrap();
+        assert!(!decoded.is_opaque(), "{extension} fixture lost its alpha");
+        for (label, xml) in [("original", ""), ("edited", edited)] {
+            for preview in [false, true] {
+                let destination = folder.join(format!("{extension}-{label}-{preview}.avif"));
+                // The editor core rejects transparency before rendering. Keep that
+                // error intact: no alpha-stripped file may reach the shared tier.
+                let error = shared_derivative(
+                    source.to_str().unwrap(),
+                    destination.to_str().unwrap(),
+                    xml,
+                    preview,
+                )
+                .unwrap_err();
+                assert!(error.contains("transparency"), "{extension}: {error}");
+                assert!(!destination.exists());
+            }
+        }
+        assert_eq!(original, std::fs::read(&source).unwrap());
+    }
+    std::fs::remove_dir_all(folder).unwrap();
+}
