@@ -100,6 +100,19 @@ runs after the build with an `androidpublisher` scoped, short-lived token.
 The initial Play listing/release and this Cloud/Play access setup are tracked
 in [#4651](https://github.com/zubair-io/Maple/issues/4651).
 
+The configured Cloud project is `just-maple` (`82234956625`), with provider
+`projects/82234956625/locations/global/workloadIdentityPools/maple-play-ci/providers/maple-main`
+and publisher `maple-play-publisher@just-maple.iam.gserviceaccount.com`. The
+service-account binding accepts subject
+`repo:zubair-io/Maple:ref:refs/heads/main`; the provider condition above further
+restricts the workflow and event. Its Play grant is limited to Maple app
+information, inherited app-quality viewing and release-to-testing access.
+The first signed bundle, version `0.1.5` / code `1`, was published through
+Console to bootstrap the app. The owner is on the selected **Maple Internal**
+tester list; join at [the internal test link](https://play.google.com/apps/internaltest/4701614480911697756)
+using `zubair@justmaple.app`. Play shows its temporary package-based name until
+store setup and review are complete.
+
 ```sh
 ./gradlew testDebugUnitTest lintDebug
 ./gradlew connectedDebugAndroidTest    # a running arm64 emulator/device

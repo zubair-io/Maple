@@ -243,7 +243,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          EXPECTED_ASSETS=("Maple-macOS-$VERSION.dmg" "Maple-Android-$VERSION.apk" "Maple-Android-$VERSION.aab" "Maple-Android-SHA256SUMS.txt")
+          EXPECTED_ASSETS=("Maple-macOS-$VERSION.dmg" "Maple-Android-$VERSION.apk" "Maple-Android-$VERSION.aab" "Maple-Android-SHA256SUMS.txt" "Maple-Android-upload-certificate.pem")
           DEADLINE=$((SECONDS + 10800))
 
           while (( SECONDS < DEADLINE )); do
