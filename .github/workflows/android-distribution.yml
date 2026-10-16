@@ -30,6 +30,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       sha: ${{ steps.version.outputs.sha }}
+      version_code: ${{ steps.version.outputs.version_code }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,9 +45,12 @@ jobs:
           version = json.load(open('src/maple/package.json'))['version']
           if os.environ['TAG'] and os.environ['TAG'] != f'v{version}':
               raise SystemExit('Release tag must match the canonical product version')
+          code = int(os.environ['GITHUB_RUN_NUMBER']) + 1
+          if not 2 <= code <= 2100000000:
+              raise SystemExit('Distribution version code is outside the Play range')
           sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write(f'version={version}\nsha={sha}\n')
+              output.write(f'version={version}\nsha={sha}\nversion_code={code}\n')
           PY
       - uses: actions/setup-java@v4
         with:
@@ -66,7 +70,7 @@ jobs:
       - run: bash src/android/scripts/install-ci-sdk.sh
       - name: Build and verify signed APK and app bundle
         env:
-          MAPLE_VERSION_CODE: ${{ github.run_number }}
+          MAPLE_VERSION_CODE: ${{ steps.version.outputs.version_code }}
           ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
           ANDROID_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD }}
           ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
@@ -124,7 +128,7 @@ jobs:
         env:
           GOOGLE_PLAY_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           VERSION: ${{ needs.signed-build.outputs.version }}
-          VERSION_CODE: ${{ github.run_number }}
+          VERSION_CODE: ${{ needs.signed-build.outputs.version_code }}
           BUILD_SHA: ${{ needs.signed-build.outputs.sha }}
         run: |
           cd dist && sha256sum --check Maple-Android-SHA256SUMS.txt && cd ..
