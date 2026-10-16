@@ -121,6 +121,8 @@ class AndroidWorkflowTests(unittest.TestCase):
             "-PmapleAbis=arm64-v8a,x86_64",
             "cargo test --locked --manifest-path native/Cargo.toml --lib",
             "-p raw-gpu --lib present_chain_pipeline::tests -- --test-threads=1",
+            "vulkaninfo --summary",
+            "lvp_icd*.json",
             "python3 tools/android_test_reports.py",
             "test -r /dev/kvm && test -w /dev/kvm",
         ):
