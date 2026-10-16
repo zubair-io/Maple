@@ -147,7 +147,8 @@
 ///   the centre has interpolated same-colour surface support (#4596).
 /// - 25 — floating-point ICC raster input preserves extended gamut and precision
 ///   through the scene-linear Rec.2020 transform (#4624).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 25;
+/// - 26 — external film LUTs cannot contaminate the RAW-keyed Auto fit (#4640).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 26;
 
 #[cfg(test)]
 mod tests {

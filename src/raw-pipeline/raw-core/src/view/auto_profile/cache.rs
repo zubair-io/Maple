@@ -54,7 +54,8 @@ use super::lut::ColorLut;
 
 /// Identity of the Auto curve/residual fitting model (#2441). Bump when
 /// fitting semantics change; both artifact caches share this version.
-pub const AUTO_FIT_MODEL_VERSION: u32 = 2;
+// #4640 excludes externally supplied film looks from the pinned fit input.
+pub const AUTO_FIT_MODEL_VERSION: u32 = 3;
 
 /// Shared capacity, in entries, of BOTH the curve and LUT caches. The two
 /// stores are touched with the same keys in the same order (a fit inserts
