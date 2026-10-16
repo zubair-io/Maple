@@ -100,3 +100,46 @@ physical metrics, exact source/binary identity, matched-lens proof and logs.
 seven interleaved samples per estimator/fixture, input/source identity, rebuilt
 native library hashes, and binding logs. The temporary timing test was restored
 after compilation, with exact source-patch equality verified after execution.
+
+## Follow-up: fuse the final admission and collection passes
+
+The subsequent performance fix collects admitted gray chromaticities and the
+white-patch mean during the last gate, removing one complete probe traversal.
+The first two mean-guided gates, final gate center, white-population denominator,
+ordered white sum and upper component medians are unchanged. One scratch vector
+uses the previous gate's population as a capacity hint; it may grow during cold
+analysis. The retained-request path still performs no estimation.
+
+A single release diagnostic includes both the exact preceding implementation
+and the new production implementation. **All 18 original Auto-WB RAWs return
+exactly equal f32 temperature/tint pairs**. Each pair also matches a fresh
+cached resolver, whose 10,000 subsequent requests succeed with estimation
+cancelled. All 18 input hashes and the source patch remain unchanged. This is
+an output-preserving optimization and keeps version 49 / estimator 3.
+
+Seven interleaved rounds on four representative RAWs give:
+
+| RAW | Separate final pass ms | Fused final pass ms | Reduction |
+| --- | ---: | ---: | ---: |
+| test_0000.DNG | 498.8 | 396.5 | 20.5% |
+| test_0006.DNG | 537.2 | 424.7 | 20.9% |
+| test_0008.RAF | 769.2 | 588.3 | 23.5% |
+| test_0011.ARW | 255.5 | 204.1 | 20.1% |
+
+The optimization reduces the estimator's measured cost by **20–24%**. These are
+same-run ratios; absolute times from earlier runs must not be subtracted because
+host load differed. Cold imports in this run still take 1,898 ms and 1,724 ms
+on the two DNGs, so the complete uncached-open performance target remains unmet.
+No end-to-end slider or Windows UI performance pass is claimed.
+
+The 16 focused unit tests pass (three physical tests excluded in that invocation).
+The physical same-binary diagnostic above supplies all 18 actual RAW witnesses.
+Its first execution on the NAS returned PermissionError before running any test;
+a byte-identical local copy completed successfully. Both attempts and the exact
+control source/executable are preserved under
+`/Volumes/Projects/maple-color-gate-20261015/auto-wb-median-fused/`.
+
+The full normal-profile core suite on current main plus the fused change passes
+**2,900 tests**, with **105 existing exclusions** visible as ignored.
+This matches the earlier fully enabled core suite count. Formatting and file
+headroom checks also pass.

@@ -399,22 +399,31 @@ fn accumulate(probe: &Image, space: &ProbeSpace, center: [f32; 3], gate: f32) ->
     })
 }
 
-/// Cold analysis only; live sessions retain the resulting slider pair. One
-/// allocation holds the admitted chromaticities; two linear-time selections
-/// find their component medians without sorting the complete populations.
-fn median_neutral(
+/// Cold analysis only; live sessions retain the resulting slider pair. The
+/// last admission pass collects the gray chromaticities and white mean together,
+/// avoiding a fourth traversal of the full probe. Two linear-time selections
+/// find component medians in one scratch vector; no complete sort is needed.
+fn final_neutral(
     probe: &Image,
     space: &ProbeSpace,
     center: [f32; 3],
     gate: f32,
-    count: usize,
+    count_hint: usize,
 ) -> Option<[f32; 3]> {
-    let mut chromaticities = Vec::with_capacity(count);
+    let mut chromaticities = Vec::with_capacity(count_hint);
+    let mut white = Sum::default();
+    let mut admitted = 0;
+    let white_min = WHITE_PATCH_FRACTION * space.neutral_clip;
     for p in &probe.pixels {
-        if let Some((c, _)) = space.admit(*p, center, gate) {
-            if c[1] > 0.0 {
-                chromaticities.push([c[0] / c[1], c[2] / c[1]]);
-            }
+        let Some((c, y)) = space.admit(*p, center, gate) else {
+            continue;
+        };
+        admitted += 1;
+        if y >= white_min {
+            white = white.add(c);
+        }
+        if c[1] > 0.0 {
+            chromaticities.push([c[0] / c[1], c[2] / c[1]]);
         }
     }
     if chromaticities.len() < MIN_PIXELS {
@@ -427,30 +436,27 @@ fn median_neutral(
     let b = chromaticities
         .select_nth_unstable_by(middle, |a, b| a[1].total_cmp(&b[1]))
         .1[1];
-    Some([r, 1.0, b])
+    let gray = [r, 1.0, b];
+    let white_votes = white.n >= WHITE_PATCH_MIN_PIXELS
+        && white.n as f32 >= WHITE_PATCH_MIN_SHARE * admitted as f32;
+    if !white_votes {
+        return Some(gray);
+    }
+    let white = white.chromaticity();
+    Some([0, 1, 2].map(|k| GRAY_WORLD_BLEND * gray[k] + (1.0 - GRAY_WORLD_BLEND) * white[k]))
 }
 
 /// The estimated scene neutral (G-normalised, in the judging space), or
 /// `None` when too few pixels survive the gates.
 fn estimate_neutral(probe: &Image, space: &ProbeSpace) -> Option<[f32; 3]> {
     let admitted = |pop: Population| (pop.gray.n >= MIN_PIXELS).then_some(pop);
-    let (first, rest) = GATE_SCHEDULE.split_first()?;
+    let (last, means) = GATE_SCHEDULE.split_last()?;
+    let (first, rest) = means.split_first()?;
     let seed = admitted(accumulate(probe, space, space.prior, *first))?;
-    let (pop, center) = rest
-        .iter()
-        .try_fold((seed, space.prior), |(prev, _), &gate| {
-            let center = prev.gray.chromaticity();
-            admitted(accumulate(probe, space, center, gate)).map(|pop| (pop, center))
-        })?;
-    let gray = median_neutral(probe, space, center, *GATE_SCHEDULE.last()?, pop.gray.n)?;
-    let white_votes = pop.white.n >= WHITE_PATCH_MIN_PIXELS
-        && pop.white.n as f32 >= WHITE_PATCH_MIN_SHARE * pop.gray.n as f32;
-    let white = pop.white.chromaticity();
-    if !white_votes {
-        return Some(gray);
-    }
-    let t = GRAY_WORLD_BLEND;
-    Some([0, 1, 2].map(|k| t * gray[k] + (1.0 - t) * white[k]))
+    let pop = rest.iter().try_fold(seed, |prev, &gate| {
+        admitted(accumulate(probe, space, prev.gray.chromaticity(), gate))
+    })?;
+    final_neutral(probe, space, pop.gray.chromaticity(), *last, pop.gray.n)
 }
 
 /// Clamp `estimate` to within [`MAX_MIRED_MOVE`] / [`MAX_TINT_MOVE`] of the
