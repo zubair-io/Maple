@@ -124,6 +124,7 @@ class AndroidWorkflowTests(unittest.TestCase):
             "vulkaninfo --summary",
             "lvp_icd*.json",
             "python3 tools/android_test_reports.py",
+            "sudo udevadm trigger --settle --name-match=kvm",
             "test -r /dev/kvm && test -w /dev/kvm",
         ):
             self.assertIn(gate, commands)
