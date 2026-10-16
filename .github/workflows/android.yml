@@ -37,18 +37,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/android/native -> target
+          cache-on-failure: true
       - name: Install pinned Android SDK (bounded download recovery)
         run: bash src/android/scripts/install-ci-sdk.sh
       - name: Build arm64 and emulator APKs, JVM contracts and lint
         working-directory: src/android
         run: ./gradlew --no-daemon -PmapleAbis=arm64-v8a,x86_64 assembleDebug assembleDebugAndroidTest testDebugUnitTest lintDebug
       - name: Install software Vulkan for native parity
-        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
+        run: sudo apt-get update && sudo apt-get install -y libvulkan1 mesa-vulkan-drivers vulkan-tools
       - name: Gate Android native CPU/GPU parity
         working-directory: src/android
         env:
           XDG_RUNTIME_DIR: /tmp/maple-android-runtime
-          VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
           # Keep host test symbols/incremental objects from crowding out the AVD.
           CARGO_PROFILE_TEST_DEBUG: '0'
           CARGO_INCREMENTAL: '0'
@@ -57,6 +57,12 @@ jobs:
           set -o pipefail
           mkdir -p "$XDG_RUNTIME_DIR" ci-artifacts
           chmod 700 "$XDG_RUNTIME_DIR"
+          # Select the installed lavapipe ICD; Mesa package filenames vary.
+          drivers=(/usr/share/vulkan/icd.d/lvp_icd*.json)
+          test "${#drivers[@]}" -eq 1 && test -r "${drivers[0]}"
+          export VK_DRIVER_FILES="${drivers[0]}"
+          vulkaninfo --summary 2>&1 | tee ci-artifacts/vulkaninfo.txt
+          grep -q deviceName ci-artifacts/vulkaninfo.txt
           cargo test --locked --manifest-path native/Cargo.toml --lib 2>&1 | tee ci-artifacts/native-tests.txt
           cargo test --locked --manifest-path ../raw-pipeline/Cargo.toml -p raw-gpu --lib present_chain_pipeline::tests -- --test-threads=1 2>&1 | tee ci-artifacts/presentation-tests.txt
       - name: Enable KVM
