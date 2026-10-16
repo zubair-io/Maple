@@ -24,5 +24,5 @@ def verify(directory, minimum):
 
 
 if __name__ == "__main__":
-    verify(ROOT / "outputs/androidTest-results/connected", 45)
+    verify(ROOT / "outputs/androidTest-results/connected", 46)
     verify(ROOT / "test-results/testDebugUnitTest", 28)

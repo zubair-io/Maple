@@ -54,6 +54,8 @@ object NativeBridge {
 
     external fun cacheValid(path: String, edge: Int, format: String): Boolean
 
+    external fun cachePng(path: String, destination: String)
+
     external fun export(path: String, xml: String, destination: String)
 
     external fun stageBitmap(bitmap: Bitmap, destination: String, profile: FloatArray)

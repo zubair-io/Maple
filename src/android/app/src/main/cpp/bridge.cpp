@@ -30,6 +30,7 @@ void maple_android_cancel_free(void *);
 int maple_android_thumbnail(const char *, const char *, const char *, uint32_t);
 int maple_android_shared_derivative(const char *, const char *, const char *, bool);
 bool maple_android_cache_valid(const char *, uint32_t, const char *);
+int maple_android_cache_png(const char *, const char *);
 int maple_android_export(const char *, const char *, const char *);
 int maple_android_stage_bitmap(const uint8_t *, uint32_t, uint32_t, size_t, uint32_t, const float *, const char *);
 }
@@ -177,6 +178,11 @@ extern "C" JNIEXPORT jboolean JNICALL Java_app_justmaple_aperture_data_NativeBri
     Utf8 p(env, path), f(env, format);
     if (env->ExceptionCheck()) return JNI_FALSE;
     return maple_android_cache_valid(p.get(), edge, f.get()) ? JNI_TRUE : JNI_FALSE;
+}
+extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_cachePng(JNIEnv *env, jobject, jstring path, jstring destination) {
+    Utf8 p(env, path), d(env, destination);
+    if (env->ExceptionCheck()) return;
+    check(env, maple_android_cache_png(p.get(), d.get()));
 }
 
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_stageBitmap(JNIEnv *env, jobject, jobject bitmap, jstring destination, jfloatArray profile) {

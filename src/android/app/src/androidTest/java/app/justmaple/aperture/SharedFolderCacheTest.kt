@@ -2,8 +2,10 @@ package app.justmaple.aperture
 
 import android.content.ContentValues
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.view.accessibility.AccessibilityNodeInfo
@@ -32,6 +34,37 @@ class SharedFolderCacheTest {
 
     private val version
         get() = AdjustmentFields.pipelineOutputVersion
+
+    @Test
+    fun legacyAvifDisplayBridgeReadsPinnedBytesWithoutDevelopingAgain() {
+        for (name in listOf("srgb-rgb.avif", "wide-p3.avif")) {
+            val original = asset(name)
+            val source = File.createTempFile("legacy-source-", ".avif", context.cacheDir)
+            val destination = File.createTempFile("legacy-display-", ".png", context.cacheDir)
+            try {
+                source.writeBytes(original)
+                ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY).use { pinned
+                    ->
+                    // Private LRU eviction may unlink this path while its lease is open.
+                    assertTrue(source.delete())
+                    NativeBridge.cachePng("/proc/self/fd/${pinned.fd}", destination.absolutePath)
+                    ParcelFileDescriptor.AutoCloseInputStream(
+                            ParcelFileDescriptor.dup(pinned.fileDescriptor)
+                        )
+                        .use {
+                            assertArrayEquals(original, it.readBytes())
+                        }
+                }
+                assertTrue(NativeBridge.cacheValid(destination.absolutePath, 1280, "png"))
+                val bitmap = BitmapFactory.decodeFile(destination.absolutePath)
+                assertNotNull("The OS must display the private bridge", bitmap)
+                bitmap!!.recycle()
+            } finally {
+                source.delete()
+                destination.delete()
+            }
+        }
+    }
 
     @Test
     fun realSafFolderReusesPortableAvifThenPublishesAndInvalidatesBothTiers() = runBlocking {

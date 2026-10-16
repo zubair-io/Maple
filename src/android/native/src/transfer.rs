@@ -66,9 +66,34 @@ pub fn shared_derivative(
 
 /// Probe before decode so an untrusted shared artifact cannot allocate a full RAW-sized bitmap.
 pub fn cache_valid(path: &str, edge: u32, format: &str) -> Result<bool, String> {
+    Ok(cache_raster(path, edge, format)?.is_some())
+}
+
+/// Android 10/11 cannot display AVIF. Decode the bounded derivative, not the RAW,
+/// into an alpha-preserving, sRGB-tagged private PNG without applying edits again.
+pub fn cache_png(path: &str, destination: &str) -> Result<(), String> {
+    let raster = cache_raster(path, 1280, "avif")?.ok_or("Invalid shared AVIF")?;
+    let bytes = raw_core::raster_encode::encode_raster_opts(
+        &raster,
+        &raw_core::raster_encode::RasterEncodeOptions {
+            format: raw_core::export::ExportFormat::Png,
+            quality: 0,
+            avif_speed: 6,
+            primaries: TargetPrimaries::Srgb,
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::write(destination, bytes).map_err(|e| e.to_string())
+}
+
+fn cache_raster(
+    path: &str,
+    edge: u32,
+    format: &str,
+) -> Result<Option<raw_core::raster::RasterImage>, String> {
     let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
     if metadata.len() == 0 || metadata.len() > 32 * 1024 * 1024 {
-        return Ok(false);
+        return Ok(None);
     }
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
     let probe = raw_core::raster::probe_raster_metadata(&bytes).map_err(|e| e.to_string())?;
@@ -77,11 +102,11 @@ pub fn cache_valid(path: &str, edge: u32, format: &str) -> Result<bool, String> 
         || probe.height == 0
         || probe.width.max(probe.height) > edge
     {
-        return Ok(false);
+        return Ok(None);
     }
     let decoded =
         raw_core::raster::decode_raster(&bytes, Some(format)).map_err(|e| e.to_string())?;
-    Ok(decoded.width == probe.width && decoded.height == probe.height)
+    Ok((decoded.width == probe.width && decoded.height == probe.height).then_some(decoded))
 }
 
 fn needs_develop(xml: &str) -> Result<bool, String> {
