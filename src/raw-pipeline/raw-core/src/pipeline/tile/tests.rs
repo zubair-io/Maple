@@ -127,6 +127,7 @@ fn fake_raw(w: u32, h: u32) -> RawImage {
         iso: 100,
         noise_profile: None,
         linearization_transfer: None,
+        sensor_gain_maps: None,
         opcode_list3: None,
         aperture: None,
         focal_length: None,

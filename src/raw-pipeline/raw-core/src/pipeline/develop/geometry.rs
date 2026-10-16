@@ -145,14 +145,17 @@ pub(in crate::pipeline) fn lateral_ca(
     raw: &RawImage,
     model: &AdjustmentModel,
     cancel: CancelToken<'_>,
-) -> Result<()> {
-    if raw.lens_correction_ca_inert() {
-        super::stage("lateral_ca", || {
+) -> Result<Option<crate::stages::lateral_ca::CaCalibration>> {
+    let calibration = if raw.lens_correction_ca_inert() {
+        let fits = super::stage("lateral_ca", || {
             crate::stages::lateral_ca::apply(mosaic, raw.cfa, model.auto_lateral_ca, cancel)
         });
-    }
+        crate::stages::lateral_ca::CaCalibration::new(mosaic.width, mosaic.height, fits)
+    } else {
+        None
+    };
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
-    Ok(())
+    Ok(calibration)
 }

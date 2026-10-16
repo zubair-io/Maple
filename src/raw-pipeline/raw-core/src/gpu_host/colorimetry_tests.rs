@@ -203,6 +203,10 @@ fn real_camera_calibrations_match_cpu_for_all_wb_intents() {
         "test_0002.dng",
         "test_0006.DNG",
         "test_0013.DNG",
+        "test_0005.RAF",
+        "test_0012.raf",
+        "test_0017.dng",
+        "test_0015.dng",
     ] {
         let raw = crate::decode::decode(&root.join(fixture)).unwrap();
         let cached = GpuCameraColorimetry::resolve(&raw).unwrap();

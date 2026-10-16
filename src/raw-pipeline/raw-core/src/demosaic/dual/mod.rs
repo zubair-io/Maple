@@ -80,9 +80,10 @@ pub(super) fn dual_amaze_vng4_camera(
     mosaic: &Image,
     cfa: CfaPattern,
     neutral: [f32; 3],
+    calibration: Option<crate::linearize::sensor_gains::SensorGains<'_>>,
     cancel: CancelToken<'_>,
 ) -> Image {
-    let detailed = super::amaze::amaze_camera(mosaic, cfa, neutral);
+    let detailed = super::amaze::amaze_calibrated(mosaic, cfa, neutral, calibration);
     blend_vng4_into(detailed, mosaic, cfa, cancel)
 }
 

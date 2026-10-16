@@ -67,6 +67,34 @@ use crate::types::adjustment::AutoLateralCa;
 mod planes;
 use planes::{ChannelSampler, GreenPlane, RadialFrame};
 
+/// The correction actually applied to a Bayer mosaic. Sensor calibration
+/// ceilings must follow this same field before demosaic and recovery (#4647).
+#[derive(Clone, Copy)]
+pub(crate) struct CaCalibration {
+    frame: RadialFrame,
+    fits: [RadialFit; 2],
+}
+
+impl CaCalibration {
+    pub(crate) fn new(width: u32, height: u32, fits: (RadialFit, RadialFit)) -> Option<Self> {
+        (fits != (RadialFit::default(), RadialFit::default())).then(|| Self {
+            frame: RadialFrame::new(width as usize, height as usize),
+            fits: [fits.0, fits.1],
+        })
+    }
+
+    pub(crate) fn source(self, color: u8, x: u32, y: u32) -> Option<(f32, f32)> {
+        if color == 1 {
+            return None;
+        }
+        let fit = self.fits[usize::from(color == 2)];
+        if fit == RadialFit::default() {
+            return None;
+        }
+        self.frame.source(x, y, fit)
+    }
+}
+
 /// Blocks sampled across the frame, per axis. 32 × 24 = 768 candidates —
 /// dense enough that the radial fit still sees every ring after outlier
 /// rejection, cheap enough that estimation is a rounding error against the
@@ -333,12 +361,11 @@ fn resample_channel(
                 if cfa.color_at(x as u32, y as u32) != color {
                     continue;
                 }
-                let Some((ux, uy, rho)) = frame.at(x as f32 + 0.5, y as f32 + 0.5) else {
+                let Some((sx, sy)) = frame.source(x as u32, y as u32, fit) else {
                     continue;
                 };
-                let d = fit.eval(rho);
                 let here = channel.sample(x as f32, y as f32);
-                let there = channel.sample(x as f32 - d * ux, y as f32 - d * uy);
+                let there = channel.sample(sx, sy);
                 px[color as usize] = (px[color as usize] + (there - here)).max(0.0);
             }
         });
@@ -412,3 +439,7 @@ pub fn apply(
 #[cfg(test)]
 #[path = "lateral_ca/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "lateral_ca/gain_map_tests.rs"]
+mod gain_map_tests;

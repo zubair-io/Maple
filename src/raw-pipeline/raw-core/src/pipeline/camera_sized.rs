@@ -32,10 +32,13 @@ pub(crate) fn develop_camera_sized_from_raw(
     // post-demosaic buffer. The Bayer arm overrides this to 2 when it drops to
     // half-res demosaic for a small target (#1637).
     let mut crop_divisor = effective_quality_divisor(quality, raw.cfa);
-    let mut camera_rgb = match raw.cfa {
-        crate::image::CfaPattern::LinearRgb => stage("sized_linearraw_decode", || {
-            linearize::linearraw_to_camera_rgb(raw)
-        })?,
+    let (mut camera_rgb, sensor_gains) = match raw.cfa {
+        crate::image::CfaPattern::LinearRgb => (
+            stage("sized_linearraw_decode", || {
+                linearize::linearraw_to_camera_rgb(raw)
+            })?,
+            None,
+        ),
         crate::image::CfaPattern::XTrans(_) => {
             // X-Trans dispatch — see `develop.rs` for the rationale.
             let mut mosaic = stage("sized_linearize", || linearize::sensor_linearize(raw));
@@ -44,12 +47,13 @@ pub(crate) fn develop_camera_sized_from_raw(
                 hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
             });
             lateral_ca(&mut mosaic, raw, model, cancel)?;
-            stage("sized_demosaic_xtrans", || match quality {
+            let rgb = stage("sized_demosaic_xtrans", || match quality {
                 RenderQuality::Preview => demosaic::xtrans_bilinear(&mosaic, raw.cfa),
                 RenderQuality::Full | RenderQuality::Amaze | RenderQuality::Auto => {
                     demosaic::markesteijn(&mosaic, raw.cfa)
                 }
-            })
+            });
+            (rgb, None)
         }
         _ => {
             let mut mosaic = stage("sized_linearize", || linearize::sensor_linearize(raw));
@@ -57,7 +61,9 @@ pub(crate) fn develop_camera_sized_from_raw(
             stage("sized_hot_pixel", || {
                 hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
             });
-            lateral_ca(&mut mosaic, raw, model, cancel)?;
+            let ca = lateral_ca(&mut mosaic, raw, model, cancel)?;
+            let gains = crate::linearize::sensor_gains::SensorGains::for_raw(raw, (0, 0), 1)
+                .map(|g| g.with_ca(ca));
             // #1637: when the requested long edge is at most half the sensor's,
             // demosaic at HALF resolution (`half_res`, sensor/2) even for
             // Full/Amaze. The full-res RGB buffer (~1.4 GB on a 100 MP sensor)
@@ -79,19 +85,21 @@ pub(crate) fn develop_camera_sized_from_raw(
             // variant. The `demosaic_half` short-circuit above outranks it:
             // once the target is small enough to bin, there is no
             // full-resolution reconstruction left for a kernel to differ on.
-            stage("sized_demosaic", || {
+            let rgb = stage("sized_demosaic", || {
                 if demosaic_half {
                     return demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel);
                 }
                 let algo = crate::pipeline::bayer_kernel(quality, model, raw);
-                demosaic::demosaic_camera_cancellable(
+                demosaic::demosaic_calibrated_cancellable(
                     algo,
                     &mosaic,
                     raw.cfa,
                     raw.as_shot_neutral,
+                    gains,
                     cancel,
                 )
-            })
+            });
+            (rgb, gains)
         }
     };
     if cancel.is_cancelled() {
@@ -126,12 +134,14 @@ pub(crate) fn develop_camera_sized_from_raw(
         raw.as_shot_neutral
     };
     stage("sized_highlight_recovery", || {
-        highlight_recovery::apply_in_region(
+        highlight_recovery::apply_calibrated_in_region(
             &mut camera_rgb,
             model.highlight_recovery,
             hr_neutral,
             raw.baseline_exposure,
             crate::pipeline::develop::highlight_active_area(raw, crop_divisor),
+            None,
+            sensor_gains.map(|g| g.at_resolution(crop_divisor)),
         )
     });
     dump_after("00b_highlight_recovery", &camera_rgb);

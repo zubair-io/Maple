@@ -169,7 +169,17 @@
 /// - 35 — constant-preserving HSM hue interpolation keeps signed half-turns
 ///   from reversing under floating-point rounding; one-shot GPU renders apply
 ///   camera WB before nonlinear DCP and auto exposure (#4629).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 35;
+/// - 36 — calibrated HueSatMap pairs for Fujifilm GFX 50S/50R and Leica M10
+///   complete their existing matrix-only bundled profiles (#4645).
+/// - 37 — diagonal DNG camera calibration cancels against reference-neutral
+///   normalization after camera WB; do not apply its inverse twice (#4646).
+/// - 38 — withdraw the experimental #4645 bundle tables after their complete
+///   fixture qualification exposed regressions; retain #4646 calibration.
+/// - 39 — apply required Bayer DNG gain maps and transport local sensor
+///   saturation ceilings through demosaic and highlight recovery (#4647).
+/// - 40 — transport gain-map saturation ceilings through the actual fitted
+///   automatic lateral-CA resample, including half-size preparation (#4647).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 40;
 
 #[cfg(test)]
 mod tests {

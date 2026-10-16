@@ -72,7 +72,7 @@ use scratch::{Scratch, Tile, BAND, TS};
 /// `sensor_linearize` (single channel populated per pixel, nominal sensor
 /// white at 1). Output is `CameraNativeLinearRgb`; scene range is not clipped.
 pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
-    reconstruct(mosaic, cfa, None)
+    reconstruct(mosaic, cfa, None, None)
 }
 
 /// Balance the camera samples before AMaZE's cross-channel interpolation
@@ -80,13 +80,39 @@ pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
 /// The sampled channel is restored exactly; only reconstructed channels change.
 /// Invalid calibration retains the existing unbalanced fallback.
 pub fn amaze_camera(mosaic: &Image, cfa: CfaPattern, neutral: [f32; 3]) -> Image {
-    if neutral == [1.0; 3] || neutral.iter().any(|v| !v.is_finite() || *v < 1e-6) {
-        return amaze(mosaic, cfa);
-    }
-    reconstruct(mosaic, cfa, Some(neutral.map(|v| 1.0 / v)))
+    amaze_calibrated(mosaic, cfa, neutral, None)
 }
 
-fn reconstruct(mosaic: &Image, cfa: CfaPattern, gain: Option<[f32; 3]>) -> Image {
+pub(crate) fn amaze_calibrated(
+    mosaic: &Image,
+    cfa: CfaPattern,
+    neutral: [f32; 3],
+    calibration: Option<crate::linearize::sensor_gains::SensorGains<'_>>,
+) -> Image {
+    if neutral == [1.0; 3] || neutral.iter().any(|v| !v.is_finite() || *v < 1e-6) {
+        return reconstruct(mosaic, cfa, None, calibration);
+    }
+    reconstruct(mosaic, cfa, Some(neutral.map(|v| 1.0 / v)), calibration)
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct ClipPoints<'a> {
+    base: f32,
+    spatial: Option<&'a [f32]>,
+}
+impl ClipPoints<'_> {
+    #[inline]
+    fn at(self, i: usize) -> f32 {
+        self.spatial.map_or(self.base, |p| p[i])
+    }
+}
+
+fn reconstruct(
+    mosaic: &Image,
+    cfa: CfaPattern,
+    gain: Option<[f32; 3]>,
+    calibration: Option<crate::linearize::sensor_gains::SensorGains<'_>>,
+) -> Image {
     mosaic.assert_space(ColorSpace::CameraNativeMosaic);
     let w = mosaic.width as usize;
     let h = mosaic.height as usize;
@@ -129,6 +155,7 @@ fn reconstruct(mosaic: &Image, cfa: CfaPattern, gain: Option<[f32; 3]>) -> Image
         .for_each(|(band_idx, band)| {
             let top = (band_idx * BAND) as isize - 16;
             let mut s = Scratch::new();
+            let mut clip_tile = calibration.map(|_| vec![0.0; TS * TS]);
             let mut left = -16_isize;
             while left + 16 < w as isize {
                 let bottom = (top + TS as isize).min(h as isize + 16);
@@ -141,13 +168,22 @@ fn reconstruct(mosaic: &Image, cfa: CfaPattern, gain: Option<[f32; 3]>) -> Image
                 };
                 s.reset();
                 scratch::fill_tile(&mut s, &t, &cfa_flat, w, h);
+                if let (Some(cal), Some(tile)) = (calibration, clip_tile.as_mut()) {
+                    let mirror = |v: isize, n: usize| if v < 0 { -v } else if v >= n as isize { 2 * n as isize - 2 - v } else { v } as u32;
+                    for rr in 0..t.rr1 { for cc in 0..t.cc1 {
+                        let g = cal.rgb(mirror(t.left + cc as isize, w), mirror(t.top + rr as isize, h));
+                        let wb = gain.unwrap_or([1.0; 3]);
+                        tile[rr * TS + cc] = (0..3).map(|c| g[c] * wb[c]).fold(f32::INFINITY, f32::min);
+                    }}
+                }
+                let limits = ClipPoints { base: clip_point, spatial: clip_tile.as_deref() };
                 green::compute_dirwts_delhv(&mut s, &t);
-                green::interpolate_green_diffs(&mut s, &t, cfa, clip_point);
+                green::interpolate_green_diffs(&mut s, &t, cfa, limits);
                 green::refine_by_variance(&mut s, &t);
-                green::median_bound(&mut s, &t, cfa, clip_point);
+                green::median_bound(&mut s, &t, cfa, limits);
                 green::adaptive_hvwt(&mut s, &t, cfa);
                 nyquist::reconstruct_green(&mut s, &t, cfa);
-                diag::diagonal_refine(&mut s, &t, cfa, clip_point);
+                diag::diagonal_refine(&mut s, &t, cfa, limits);
                 assemble::finish_tile(band, w, &mut s, &t, cfa);
                 left += BAND as isize;
             }

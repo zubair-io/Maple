@@ -240,6 +240,14 @@ pub(super) struct RadialFrame {
 }
 
 impl RadialFrame {
+    /// The exact source point used by the channel resample and its sensor
+    /// calibration transport. The radial field is evaluated at pixel centers.
+    pub(super) fn source(self, x: u32, y: u32, fit: super::RadialFit) -> Option<(f32, f32)> {
+        let (ux, uy, rho) = self.at(x as f32 + 0.5, y as f32 + 0.5)?;
+        let d = fit.eval(rho);
+        Some((x as f32 - d * ux, y as f32 - d * uy))
+    }
+
     pub(super) fn new(width: usize, height: usize) -> Self {
         let cx = width as f32 * 0.5;
         let cy = height as f32 * 0.5;

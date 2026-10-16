@@ -1,11 +1,15 @@
 use crate::image::{CfaPattern, ColorSpace, Image, RawImage};
 use rayon::prelude::*;
 
+mod gain_map;
 mod polynomial;
+pub use gain_map::GainMaps;
+pub(crate) mod sensor_gains;
 pub use polynomial::PolynomialTransfer;
 
 /// Sensor linearization per spec § 3.2.
-/// `linear = (raw - black) / (white - black)` clamped to [0, 1].
+/// Normalize `(raw - black) / (white - black)` to the sensor interval, then
+/// apply declared Bayer GainMaps without clipping calibrated scene headroom.
 /// Produces a three-channel `Image` where only the CFA-appropriate channel is
 /// populated per pixel; the other two are zero. (Demosaic fills them in.)
 ///
@@ -91,6 +95,7 @@ pub fn sensor_linearize_region(
         return img;
     }
 
+    let calibration = sensor_gains::SensorGains::for_raw(raw, (0, 0), 1);
     let wl = raw.white_level as f32;
     img.pixels
         .par_chunks_mut(rw)
@@ -108,7 +113,8 @@ pub fn sensor_linearize_region(
                 let raw_v = raw_row[abs_x] as f32;
                 let v = ((raw_v - bl) / denom).clamp(0.0, 1.0);
                 let color = raw.cfa.color_at(abs_x as u32, abs_y as u32) as usize;
-                px[color] = v;
+                let gain = calibration.map_or(1.0, |g| g.sample(abs_x as i32, abs_y as i32));
+                px[color] = v * gain;
             }
         });
     img
@@ -215,7 +221,7 @@ mod tests {
     use super::*;
     use crate::image::CfaPattern;
 
-    fn tiny_raw(raw_data: Vec<u16>, w: u32, h: u32) -> RawImage {
+    pub(super) fn tiny_raw(raw_data: Vec<u16>, w: u32, h: u32) -> RawImage {
         RawImage {
             width: w,
             height: h,
@@ -240,6 +246,7 @@ mod tests {
             iso: 100,
             noise_profile: None,
             linearization_transfer: None,
+            sensor_gain_maps: None,
             opcode_list3: None,
             aperture: None,
             focal_length: None,
@@ -350,6 +357,7 @@ mod tests {
             iso: 100,
             noise_profile: None,
             linearization_transfer: None,
+            sensor_gain_maps: None,
             opcode_list3: None,
             aperture: None,
             focal_length: None,
@@ -434,6 +442,7 @@ mod tests {
             iso: 100,
             noise_profile: None,
             linearization_transfer: None,
+            sensor_gain_maps: None,
             opcode_list3: None,
             aperture: None,
             focal_length: None,
@@ -506,6 +515,7 @@ mod tests {
             iso: 100,
             noise_profile: None,
             linearization_transfer: None,
+            sensor_gain_maps: None,
             opcode_list3: None,
             aperture: None,
             focal_length: None,
@@ -524,3 +534,9 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) mod gain_map_tests;
+
+#[cfg(test)]
+mod gain_map_tile_tests;

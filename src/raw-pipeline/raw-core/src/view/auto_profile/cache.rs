@@ -54,8 +54,8 @@ use super::lut::ColorLut;
 
 /// Identity of the Auto curve/residual fitting model (#2441). Bump when
 /// fitting semantics change; both artifact caches share this version.
-// #4629 changes HSM hue interpolation in the scene used to train the fit.
-pub const AUTO_FIT_MODEL_VERSION: u32 = 7;
+// Sensor gain maps and their CA transport change calibrated Auto-fit inputs (#4647).
+pub const AUTO_FIT_MODEL_VERSION: u32 = 12;
 
 /// Shared capacity, in entries, of BOTH the curve and LUT caches. The two
 /// stores are touched with the same keys in the same order (a fit inserts

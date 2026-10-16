@@ -48,6 +48,7 @@
 //! Tile recovery uses the full-frame scene prior and globally phased cell
 //! sampling (#4378); a cropped histogram cannot replace scene evidence.
 
+use crate::linearize::sensor_gains::SensorGains;
 use crate::{
     image::{ColorSpace, CropRect, Image},
     xmp::HighlightRecoveryMode,
@@ -57,10 +58,15 @@ use crate::{
 mod frame;
 #[path = "highlight_recovery/guided.rs"]
 mod guided;
+#[path = "highlight_recovery/mask.rs"]
+mod mask;
 pub(crate) use frame::{FrameAnchor, ScenePrior, SceneSamples};
 #[cfg(test)]
 use guided::chroma_weight;
-use guided::{resolve_deferred, scene_median, CellField, SkipGrid, SKIP_GRID_TRIGGER};
+#[cfg(test)]
+use guided::scene_median;
+use guided::{resolve_deferred, CellField, SkipGrid, SKIP_GRID_TRIGGER};
+use mask::clip_mask_calibrated;
 
 /// Per-channel clip margin in post-WB camera RGB at zero BaselineExposure.
 /// Scale it with the pixels and ceilings when baseline exposure is applied.
@@ -140,7 +146,27 @@ pub(crate) fn apply_in_region_with_anchor(
     as_shot_neutral: [f32; 3],
     baseline_exposure: f32,
     active_area: Option<CropRect>,
-    anchor: Option<FrameAnchor>,
+    anchor: Option<FrameAnchor<'_>>,
+) {
+    apply_calibrated_in_region(
+        img,
+        mode,
+        as_shot_neutral,
+        baseline_exposure,
+        active_area,
+        anchor,
+        None,
+    );
+}
+
+pub(crate) fn apply_calibrated_in_region(
+    img: &mut Image,
+    mode: HighlightRecoveryMode,
+    as_shot_neutral: [f32; 3],
+    baseline_exposure: f32,
+    active_area: Option<CropRect>,
+    anchor: Option<FrameAnchor<'_>>,
+    calibration: Option<SensorGains<'_>>,
 ) {
     img.assert_space(ColorSpace::CameraNativeLinearRgb);
     match mode {
@@ -156,6 +182,7 @@ pub(crate) fn apply_in_region_with_anchor(
                 baseline_exposure,
                 active_area,
                 anchor,
+                calibration,
             );
         }
         HighlightRecoveryMode::ChromaticAdaptation => {
@@ -165,6 +192,7 @@ pub(crate) fn apply_in_region_with_anchor(
                 baseline_exposure,
                 active_area,
                 anchor,
+                calibration,
             );
         }
         HighlightRecoveryMode::OklabChromaReduction => {
@@ -205,55 +233,6 @@ fn lowest_channels(p: &[f32; 3]) -> u8 {
     channels_at_or_above(&p.map(|v| -v), [-lowest; 3])
 }
 
-/// Hard clips plus their ripple band: a lowest channel at or above its ripple
-/// floor with a hard clip of the same channel within [`RIPPLE_RADIUS`] in
-/// `region`.
-fn clip_mask_with_ripple(
-    img: &Image,
-    thresholds: [f32; 3],
-    floors: [f32; 3],
-    (left, top, right, bottom): (i32, i32, i32, i32),
-) -> Vec<u8> {
-    let w = img.width as i32;
-    let hard: Vec<u8> = img
-        .pixels
-        .iter()
-        .map(|p| channels_at_or_above(p, thresholds))
-        .collect();
-    let hard = hard.as_slice();
-    let near_hard = |x: i32, y: i32| {
-        let rows = (y - RIPPLE_RADIUS).max(top)..(y + RIPPLE_RADIUS + 1).min(bottom);
-        let cols = (x - RIPPLE_RADIUS).max(left)..(x + RIPPLE_RADIUS + 1).min(right);
-        rows.flat_map(|ny| cols.clone().map(move |nx| hard[(ny * w + nx) as usize]))
-            .fold(0u8, |m, h| m | h)
-    };
-    img.pixels
-        .iter()
-        .zip(hard)
-        .enumerate()
-        .map(|(i, (p, &h))| {
-            // Most pixels cannot acquire a ripple flag. Test that cheap
-            // condition before comparing channel order or deriving x/y;
-            // both are only needed for a possible new clipped channel.
-            let above_floor = channels_at_or_above(p, floors) & !h;
-            if above_floor == 0 {
-                return h;
-            }
-            let band = above_floor & lowest_channels(p);
-            if band == 0 {
-                return h;
-            }
-            let (x, y) = (i as i32 % w, i as i32 / w);
-            let inside = x >= left && x < right && y >= top && y < bottom;
-            if !inside {
-                h
-            } else {
-                h | (band & near_hard(x, y))
-            }
-        })
-        .collect()
-}
-
 fn baseline_gain(baseline_exposure: f32) -> f32 {
     // Match the baseline-exposure stage's negligible-gain fast path in
     // full, sized, tile and panorama develop, including its exact boundary.
@@ -270,7 +249,8 @@ fn apply_chromatic_adaptation(
     neutral: [f32; 3],
     baseline_exposure: f32,
     active_area: Option<CropRect>,
-    anchor: Option<FrameAnchor>,
+    anchor: Option<FrameAnchor<'_>>,
+    calibration: Option<SensorGains<'_>>,
 ) {
     let w = img.width as i32;
     let h = img.height as i32;
@@ -297,10 +277,7 @@ fn apply_chromatic_adaptation(
     // now that ChromaticAdaptation is the default — see #335 per-fixture
     // diff). Bail out before touching the heap. `any()` short-circuits on
     // the first clipped pixel.
-    let any_clipped = img
-        .pixels
-        .iter()
-        .any(|p| p[0] >= thresholds[0] || p[1] >= thresholds[1] || p[2] >= thresholds[2]);
+    let any_clipped = mask::any_clipped(img, thresholds, calibration);
     if !any_clipped {
         return;
     }
@@ -309,7 +286,13 @@ fn apply_chromatic_adaptation(
     // at its ceiling minus the margin, or inside the demosaic ripple band
     // beside such a clip.
     let floors = ripple_floors(neutral, baseline_exposure);
-    let clip_mask = clip_mask_with_ripple(img, thresholds, floors, (left, top, right, bottom));
+    let clip_mask = clip_mask_calibrated(
+        img,
+        thresholds,
+        floors,
+        (left, top, right, bottom),
+        calibration,
+    );
 
     // Keep this mask frozen: even a reconstructed value below threshold must
     // remain excluded. Every accepted witness is therefore still original.
@@ -341,7 +324,8 @@ fn apply_chromatic_adaptation(
             // answer; we cannot recover scene detail past full sensor
             // saturation, but we can at least stop magenta from leaking in.
             if clipped_count == 3 {
-                let x_val = ceil[0].max(ceil[1]).max(ceil[2]);
+                let local_ceil = calibration.map_or(ceil, |g| g.scale(ceil, x as u32, y as u32));
+                let x_val = local_ceil[0].max(local_ceil[1]).max(local_ceil[2]);
                 img.pixels[idx] = [x_val, x_val, x_val];
                 continue;
             }
@@ -452,7 +436,18 @@ fn apply_chromatic_adaptation(
         // nothing unclipped exists to sample. A tile carries the full frame's
         // prior in its anchor (#4378).
         let scene_chroma = anchor.map_or_else(
-            || scene_median(img, &clip_mask, floors, left, top, right, bottom),
+            || {
+                guided::scene_median_calibrated(
+                    img,
+                    &clip_mask,
+                    floors,
+                    left,
+                    top,
+                    right,
+                    bottom,
+                    calibration,
+                )
+            },
             |a| a.prior.scene(),
         );
         resolve_deferred(

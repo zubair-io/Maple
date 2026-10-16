@@ -84,13 +84,14 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     }
     let (frame_w, frame_h) = crate::pipeline::native_render_dims(raw);
     let model = &*crate::types::with_brush_rasters(model, frame_w, frame_h);
-    let mut camera_rgb = match raw.cfa {
+    let (mut camera_rgb, sensor_gains) = match raw.cfa {
         crate::image::CfaPattern::LinearRgb => {
             // LinearRaw DNG: data is already 3-channel RGB. Skip the
             // mosaic path entirely. See ticket #07.
-            stage("linearraw_decode", || {
+            let rgb = stage("linearraw_decode", || {
                 linearize::linearraw_to_camera_rgb(raw)
-            })?
+            })?;
+            (rgb, None)
         }
         crate::image::CfaPattern::XTrans(_) => {
             // Fuji X-Trans (6×6 CFA): the Bayer kernels above are all
@@ -112,12 +113,13 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
                 hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
             });
             geometry::lateral_ca(&mut mosaic, raw, model, cancel)?; // #3411
-            stage("demosaic_xtrans", || match quality {
+            let rgb = stage("demosaic_xtrans", || match quality {
                 RenderQuality::Preview => demosaic::xtrans_bilinear(&mosaic, raw.cfa),
                 RenderQuality::Full | RenderQuality::Amaze | RenderQuality::Auto => {
                     demosaic::markesteijn(&mosaic, raw.cfa)
                 }
-            })
+            });
+            (rgb, None)
         }
         _ => {
             let mut mosaic = stage("linearize", || linearize::sensor_linearize(raw));
@@ -127,23 +129,27 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
                 hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
             });
             // #3411 — raw-domain, so BEFORE whichever kernel is picked below.
-            geometry::lateral_ca(&mut mosaic, raw, model, cancel)?;
+            let ca = geometry::lateral_ca(&mut mosaic, raw, model, cancel)?;
+            let gains = crate::linearize::sensor_gains::SensorGains::for_raw(raw, (0, 0), 1)
+                .map(|g| g.with_ca(ca));
             // Which kernel is `bayer_kernel`'s call (#3413): the quality
             // level's own default, overridden by the model's `demosaic`
             // field, and noise-adaptive at `Auto`. Kernels with a
             // cancellable entry unwind per band/row; the rest are not on
             // the cold-open interactive path, and the post-demosaic check
             // below bails before any downstream stage runs either way.
-            stage("demosaic", || {
+            let rgb = stage("demosaic", || {
                 let algo = crate::pipeline::bayer_kernel(quality, model, raw);
-                demosaic::demosaic_camera_cancellable(
+                demosaic::demosaic_calibrated_cancellable(
                     algo,
                     &mosaic,
                     raw.cfa,
                     raw.as_shot_neutral,
+                    gains,
                     cancel,
                 )
-            })
+            });
+            (rgb, gains)
         }
     };
     // Post-demosaic bail: catches every demosaic path (incl. X-Trans / AMaZE)
@@ -171,14 +177,10 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     }
     dump_after("00a_baseline_exposure", &camera_rgb);
 
-    // DNG WB pre-gain per spec § 1.4.4.5 step 4: divide camera RGB by
-    // AsShotNeutral so a neutral scene patch reads as (1, 1, 1) going into
-    // DCP. Enabled unconditionally now that the BaselineExposure compose
-    // chain is sourced from DNG tags + bundled-DCP `BaselineExposureOffset`
-    // only — the historical Phase-1.1 per-body BE lookup that previously
-    // gated this step was removed in #370. (The follow-up global Look LUT
-    // #371 was retired in #443.) See
-    // .archived-plans/specs/2026-04-30-color-convergence-design.md.
+    // DNG camera WB divides by AsShotNeutral before DCP. Baseline exposure
+    // comes from file/profile metadata, so there is no per-body gain table.
+    // Sensor GainMap radiance and saturation ceilings receive the same gain.
+    // See DNG §1.4.4.5 and #370.
     //
     // The historical 8-bit LinearRaw fallback skips pre-gain only when
     // there is no declared transfer. OpcodeList2-linearized samples are
@@ -199,7 +201,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
         raw.as_shot_neutral
     };
     stage("highlight_recovery", || {
-        highlight_recovery::apply_in_region(
+        highlight_recovery::apply_calibrated_in_region(
             &mut camera_rgb,
             model.highlight_recovery,
             hr_neutral,
@@ -208,6 +210,8 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
                 raw,
                 effective_quality_divisor(quality, raw.cfa),
             ),
+            None,
+            sensor_gains.map(|g| g.at_resolution(effective_quality_divisor(quality, raw.cfa))),
         )
     });
     dump_after("00b_highlight_recovery", &camera_rgb);

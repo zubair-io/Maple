@@ -185,6 +185,8 @@ pub struct RawImage {
     /// Declared camera-sample transfer for 8-bit lossy LinearRaw DNG (#4629).
     /// Runs after black/white normalization and before white balance.
     pub linearization_transfer: Option<crate::linearize::PolynomialTransfer>,
+    /// Required Bayer sensor calibration, after black normalization (#4647).
+    pub sensor_gain_maps: Option<crate::linearize::GainMaps>,
     pub width: u32,
     pub height: u32,
     pub cfa: CfaPattern,

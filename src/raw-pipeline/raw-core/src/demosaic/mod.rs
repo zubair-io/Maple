@@ -107,10 +107,21 @@ pub fn demosaic_camera_cancellable(
     neutral: [f32; 3],
     cancel: crate::cancel::CancelToken<'_>,
 ) -> Image {
+    demosaic_calibrated_cancellable(algo, mosaic, cfa, neutral, None, cancel)
+}
+
+pub(crate) fn demosaic_calibrated_cancellable(
+    algo: DemosaicAlgorithm,
+    mosaic: &Image,
+    cfa: CfaPattern,
+    neutral: [f32; 3],
+    calibration: Option<crate::linearize::sensor_gains::SensorGains<'_>>,
+    cancel: crate::cancel::CancelToken<'_>,
+) -> Image {
     match algo {
-        DemosaicAlgorithm::Amaze => amaze::amaze_camera(mosaic, cfa, neutral),
+        DemosaicAlgorithm::Amaze => amaze::amaze_calibrated(mosaic, cfa, neutral, calibration),
         DemosaicAlgorithm::DualAmazeVng4 => {
-            dual::dual_amaze_vng4_camera(mosaic, cfa, neutral, cancel)
+            dual::dual_amaze_vng4_camera(mosaic, cfa, neutral, calibration, cancel)
         }
         _ => demosaic_cancellable(algo, mosaic, cfa, cancel),
     }

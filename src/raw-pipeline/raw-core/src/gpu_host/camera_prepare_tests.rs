@@ -70,9 +70,20 @@ fn actual_camera_prefix_and_fused_dcp_match_cpu_photographs() {
         "test_0002.dng",
         "test_0006.DNG",
         "test_0013.DNG",
+        "test_0005.RAF",
+        "test_0012.raf",
+        "test_0017.dng",
+        "test_0015.dng",
     ] {
         let raw = crate::decode::decode(&root.join(name)).unwrap();
-        let model = isolated_model();
+        let model = AdjustmentModel {
+            highlight_recovery: if name == "test_0015.dng" {
+                HighlightRecoveryMode::ChromaticAdaptation
+            } else {
+                HighlightRecoveryMode::Off
+            },
+            ..isolated_model()
+        };
         let (cached, camera) =
             GpuCameraColorimetry::prepare(&raw, &model, 512, crate::CancelToken::never()).unwrap();
         let rgba = camera

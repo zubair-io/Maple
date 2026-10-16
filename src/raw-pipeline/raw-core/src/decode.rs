@@ -39,6 +39,9 @@ use crate::image::{CfaPattern, CropRect, ExifOrientation, RawImage};
 use crate::math::Matrix3;
 use crate::Result;
 
+#[path = "decode_forward_calibration.rs"]
+mod forward_calibration;
+
 /// Decode a RAW file at `path`. Thin `std::fs::read` wrapper over
 /// [`decode_bytes`] — the byte-based entry point used by WASM / non-POSIX
 /// callers. Native / CLI / tests can use whichever is more convenient.
@@ -383,15 +386,10 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // fCameraCalibrationN * fColorMatrixN`). `CameraCalibrationN` maps the
     // reference camera's native space to THIS individual unit's native space,
     // and `AnalogBalance` is the per-channel gain baked into the stored raw
-    // values. For all but a handful of bodies both tags are the identity
-    // matrix — vendors only populate them for per-unit-calibrated backs
-    // (mostly medium-format) — so the fold below is an exact no-op there and
-    // leaves every mass-produced body and every fixture byte-for-byte
-    // unchanged (multiplying by the exact identity in f32 is lossless).
-    //
-    // We read them once and fold them into the per-illuminant ColorMatrix (§8)
-    // and ForwardMatrix (§8b) so the rest of the pipeline keeps operating on a
-    // single "camera→…" matrix per illuminant with no hot-path changes.
+    // values. Adobe's converted Canon LinearRaw files also use these tags
+    // to describe baked channel gains. CM needs the individual calibration
+    // for neutral/CCT resolution. The post-WB FM path handles its separate
+    // reference-neutral normalization below (#4646).
     let analog_balance = root_ifd
         .as_ref()
         .and_then(|ifd| read_analog_balance(ifd.as_ref()))
@@ -510,19 +508,12 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
                     let illum = exif_illuminant_to_core(illum_code);
                     Some((illum, m))
                 };
-            // ForwardMatrix maps *reference* white-balanced camera RGB →
-            // XYZ-D50, but the sensor buffer is *individual* camera RGB. Fold
-            // `individualToReference = inv(diag(AB) × CameraCalibrationN)` into
-            // FM so it consumes this unit's RGB directly — matching the DNG SDK
-            // `fCameraToPCS = forwardMatrix * Invert(refCameraWhite) *
-            // individualToReference`. Exactly `FM` when the calibration is
-            // identity (i.e. every FM-shipping body today — Apple etc.), so no
-            // fixture moves; a singular correction leaves FM untouched.
+            // DCP consumes pixels after AsShotNeutral pre-gain. Diagonal
+            // AB*CC therefore cancels against the SDK's reference-neutral
+            // normalization; applying its inverse again changes neutrals.
+            // Non-diagonal active-WB handling remains tracked by #4646.
             let fold_i2r = |illum: CoreIlluminant, fm: Matrix3| -> Matrix3 {
-                match individual_correction(illum).inverse() {
-                    Some(i2r) => fm.mul_mat(&i2r),
-                    None => fm,
-                }
+                forward_calibration::after_neutral_pre_gain(fm, individual_correction(illum))
             };
             if let Some((illum, m)) =
                 read_fm(DngTag::ForwardMatrix1, DngTag::CalibrationIlluminant1)
@@ -674,6 +665,21 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         None
     };
 
+    let sensor_gain_maps = if cfa.is_bayer_2x2() {
+        decoder
+            .as_ref()
+            .and_then(|dec| dec.ifd(WellKnownIFD::Raw).ok().flatten())
+            .map(|ifd| crate::linearize::GainMaps::from_ifd(ifd.as_ref()))
+            .transpose()
+            .map_err(|reason| Error::Decode {
+                path: std::path::PathBuf::from(&hint_path),
+                reason,
+            })?
+            .flatten()
+    } else {
+        None
+    };
+
     // Assemble first with a placeholder BE, then resolve the bundled-profile
     // contribution against the fully-populated RawImage (§ 1b compose chain).
     // `lookup_profile` gates on `raw.plt`, `raw.color_matrices`, and the
@@ -681,6 +687,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // partial. Cheap: BE is a single f32 mutation post-construction.
     let mut image = RawImage {
         linearization_transfer,
+        sensor_gain_maps,
         width,
         height,
         cfa,
@@ -2320,10 +2327,10 @@ mod tests {
         }
     }
 
-    /// #1947: a per-unit-calibrated body ships non-identity `AnalogBalance`
-    /// and `CameraCalibrationN`. Decode must fold them into the stored matrices
-    /// per the DNG SDK: `CM' = diag(AB) × CC × CM` (individual XYZ→camera) and
-    /// `FM' = FM × inv(diag(AB) × CC)` (individual → reference before FM).
+    /// #1947 compatibility for non-diagonal calibration: CM stores the SDK's
+    /// individual XYZ→camera transform. The legacy FM fold below does not
+    /// include reference-neutral normalization; #4646 tracks its replacement
+    /// through active-WB profile resolution and native frame transport.
     #[test]
     fn decode_folds_analog_balance_and_camera_calibration() {
         use crate::test_support::synth_dng::SyntheticGreyDng;
@@ -2362,10 +2369,9 @@ mod tests {
         assert_matrix_close(got_fm, &want_fm, 1e-3, "folded ForwardMatrix");
     }
 
-    /// #1947 safety: with the calibration tags at their default identity (the
-    /// case for every mass-produced body and every fixture), the fold is an
-    /// exact no-op — the stored matrices equal the file's ColorMatrix /
-    /// ForwardMatrix. This is what guarantees the change moves no fixture.
+    /// With identity calibration tags, stored matrices equal the source
+    /// ColorMatrix / ForwardMatrix. Physical Canon and Pixel DNGs also carry
+    /// non-identity calibration, so this control covers only the identity case.
     #[test]
     fn decode_identity_calibration_is_a_no_op() {
         use crate::test_support::synth_dng::SyntheticGreyDng;
