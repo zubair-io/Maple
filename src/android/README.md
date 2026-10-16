@@ -371,6 +371,10 @@ backup and canonical names before any replacement rename. Recovery restores old
 edits or adopts the completed publication, preserving provider-assigned names and
 changed document IDs. Providers must support create, rename and delete.
 Failures identify the operation and exception and retain a stack trace in logcat.
+Sidecar reads, recovery and saves share one persistence mutex across library
+instances in the app process. `SafRecoveryConcurrencyTest` pauses a real provider
+read at each recovery boundary and verifies that a second library waits, keeps
+the original bytes, and rejects a later external sidecar edit (#4771).
 
 A single batched folder query populates local names/URIs/metadata. Thumbnail
 sidecar lookups reuse that snapshot; open/save/list/recovery refresh or invalidate

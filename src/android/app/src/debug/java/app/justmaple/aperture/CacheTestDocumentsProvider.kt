@@ -26,6 +26,7 @@ class CacheTestDocumentsProvider : DocumentsProvider() {
     @Volatile private var renamed = false
     @Volatile private var unsafeName = false
     @Volatile private var pausePublication = false
+    @Volatile private var pauseSidecarRead: String? = null
     @Volatile private var blocked = false
     private var release = CountDownLatch(1)
 
@@ -109,8 +110,12 @@ class CacheTestDocumentsProvider : DocumentsProvider() {
         signal: CancellationSignal?,
     ): ParcelFileDescriptor {
         if (readOnly && mode != "r") throw FileNotFoundException("Read-only fixture provider")
-        if (pausePublication && mode == "rw" && file(documentId).name.endsWith("tmp.avif")) {
+        if (
+            (pausePublication && mode == "rw" && file(documentId).name.endsWith("tmp.avif")) ||
+                (mode == "r" && file(documentId).name == pauseSidecarRead)
+        ) {
             pausePublication = false
+            pauseSidecarRead = null
             blocked = true
             try {
                 check(release.await(15, TimeUnit.SECONDS)) { "Fixture publication wait timed out" }
@@ -187,7 +192,8 @@ class CacheTestDocumentsProvider : DocumentsProvider() {
         renamed = extras?.getBoolean("renamed") ?: false
         unsafeName = extras?.getBoolean("unsafeName") ?: false
         pausePublication = extras?.getBoolean("pausePublication") ?: false
-        if (pausePublication) release = CountDownLatch(1)
+        pauseSidecarRead = extras?.getString("pauseSidecarRead")
+        if (pausePublication || pauseSidecarRead != null) release = CountDownLatch(1)
         return Bundle()
     }
 }

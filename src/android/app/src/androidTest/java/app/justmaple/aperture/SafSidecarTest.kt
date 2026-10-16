@@ -155,16 +155,6 @@ class SafSidecarTest {
                         buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
                     }
             assertEquals(setOf("portrait.dng", canonicalName, ".maple"), names.toSet())
-            // Replay both process-death boundaries using real provider files and
-            // the persisted journal, then read through a fresh library instance.
-            for (published in listOf(false, true)) recoverInterruptedReplacement(
-                photo,
-                published,
-                canonicalName,
-            )
-            context.contentResolver.openInputStream(photo.uri)!!.use {
-                assertArrayEquals(original, it.readBytes())
-            }
             // MediaStore and DocumentsUI expose this same inode through different
             // authorities. Neither JPEG nor XMP export may truncate either alias.
             for (xmp in listOf(false, true)) {
@@ -189,7 +179,20 @@ class SafSidecarTest {
                     assertArrayEquals(original, it.readBytes())
                 }
             }
+            // Stop live thumbnail readers before manually staging a process-death
+            // boundary. Two simultaneous library recoveries are covered separately
+            // by SafRecoveryConcurrencyTest; fixture setup is not an app transaction.
+            compose.activityRule.scenario.close()
+            for (published in listOf(false, true)) recoverInterruptedReplacement(
+                photo,
+                published,
+                canonicalName,
+            )
+            context.contentResolver.openInputStream(photo.uri)!!.use {
+                assertArrayEquals(original, it.readBytes())
+            }
         } finally {
+            compose.activityRule.scenario.close()
             folder?.let { selected ->
                 val preferences = context.getSharedPreferences("maple-library", 0)
                 preferences
