@@ -51,9 +51,10 @@ Rust/codegen, LUTs, fixtures and the Apple layout/font/icon inputs. The stable
 The complete device suite runs on API 36 with a 1280×800 dp tablet layout and
 SwiftShader Vulkan, exercising the inspector/group resets and HEIF/AVIF cases.
 Reports must contain at least 37 device and 26 JVM passes with no skips. The
-19 native CPU/GPU tests run against Mesa lavapipe, alongside APK assembly and
-lint. Reports, native output, logcat, device configuration, screenshots and
-walkthrough captures are uploaded even after a test failure. Only SDK setup
+19 native CPU/GPU tests and the shared presentation/cache/scRGB tests run against
+Mesa lavapipe, alongside APK assembly and lint. Reports, native output, logcat,
+device configuration, screenshots and walkthrough captures are uploaded even
+after a test failure. Only SDK setup
 downloads have bounded retries; failing tests remain failures. The committed
 48 MP HEIF fixture works on Linux; its regeneration script requires macOS.
 Software rendering proves functional correctness, not physical GPU or frame-time
