@@ -37,9 +37,10 @@
 //! * Source positions outside the active area **clamp to the edge**
 //!   (sticky-edge, exactly dng_sdk's behavior — no black fill; the DNG
 //!   spec leaves it to the reader and the reference clamps). dng_sdk
-//!   resamples with the A=-0.75 cubic kernel; we use the same kernel,
-//!   with its 32-phase lens-warp table. Values
-//!   remain unbounded, including the kernel’s negative lobes (#3633).
+//!   resamples with A=-0.75 cubic. Maple uses Catmull–Rom A=-0.5 for exact
+//!   affine/quadratic reproduction and lower edge ringing (#4650), retaining
+//!   the SDK's 32 fractional phases. Values remain unbounded, including the
+//!   kernel's negative lobes (#3633).
 
 mod cubic;
 mod warp;

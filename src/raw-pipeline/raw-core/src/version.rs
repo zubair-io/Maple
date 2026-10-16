@@ -185,7 +185,9 @@
 ///   diagnostic v25-v40 sequence; the combined output has a fresh identity.
 /// - 42 — uncalibrated raster CPU/export/detail and Windows paths use unknown
 ///   ISO consistently with native raster GPU rendering (#4653).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 42;
+/// - 43 — Catmull–Rom lens resampling reproduces affine/quadratic samples
+///   and reduces negative-lobe edge ringing without scene clipping (#4650).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 43;
 
 #[cfg(test)]
 mod tests {

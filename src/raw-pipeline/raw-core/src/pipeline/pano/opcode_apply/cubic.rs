@@ -1,16 +1,17 @@
 //! Scene-linear DNG warp sampling (#3633).
 //!
-//! Adobe's dng_resample_bicubic uses A=-0.75, support radius two:
-//! https://android.googlesource.com/platform/external/dng_sdk/+/de700ad461e35af50b28b861943a0b0753b10929/source/dng_resample.cpp
-//! Its lens-warp path uses 32 fractional phases, truncating the phase index.
+//! Catmull–Rom (A=-0.5) reproduces affine/quadratic samples and reduces
+//! ringing at high-contrast lens-warp edges (#4650). Adobe's SDK uses A=-0.75;
+//! we retain its 32 fractional phases and truncating phase index, while using
+//! the polynomial-reproducing kernel for Maple's unbounded scene data.
 //! The table is generated at compile time; sampling allocates no memory.
 //! Unlike the SDK's bounded stage buffer, we retain negative and >1 radiance.
 const fn kernel(x: f64) -> f64 {
     let x = if x < 0.0 { -x } else { x };
     if x < 1.0 {
-        (1.25 * x - 2.25) * x * x + 1.0
+        (1.5 * x - 2.5) * x * x + 1.0
     } else if x < 2.0 {
-        ((-0.75 * x + 3.75) * x - 6.0) * x + 3.0
+        ((-0.5 * x + 2.5) * x - 4.0) * x + 2.0
     } else {
         0.0
     }
@@ -133,10 +134,10 @@ mod tests {
     }
 
     #[test]
-    fn half_phase_weights_match_adobe_cubic_and_preserve_constant_radiance() {
+    fn half_phase_weights_match_catmull_rom_and_preserve_constant_radiance() {
         assert_eq!(
             [kernel(1.5), kernel(0.5), kernel(-0.5), kernel(-1.5)],
-            [-0.09375, 0.59375, 0.59375, -0.09375]
+            [-0.0625, 0.5625, 0.5625, -0.0625]
         );
         let pixels = vec![[2.5, -0.25, 0.75]; 36];
         for phase in 0..128 {
@@ -179,7 +180,7 @@ mod tests {
         ];
         assert_eq!(
             sample(&pixels, 4, 0, 0, 4, 1, 1.5, 0.0, [0, 1, 2]),
-            [2.375, -0.09375, 0.0]
+            [2.25, -0.0625, 0.0]
         );
     }
 
@@ -197,5 +198,80 @@ mod tests {
                 [2.0, -0.5, 0.25]
             );
         }
+    }
+
+    fn polynomial(x: f32, y: f32) -> [f32; 3] {
+        [
+            2.0 + x * 0.125 - y * 0.25,
+            x * x * 0.0625 - y * y * 0.03125,
+            -2.0 + x * y * 0.015625,
+        ]
+    }
+
+    #[test]
+    fn every_phase_reconstructs_affine_quadratic_and_mixed_samples() {
+        let (w, h) = (20usize, 18usize);
+        let pixels: Vec<_> = (0..w * h)
+            .map(|i| polynomial((i % w) as f32, (i / w) as f32))
+            .collect();
+        for py in 0..32 {
+            for px in 0..32 {
+                let (x, y) = (7.0 + px as f64 / 32.0, 8.0 + py as f64 / 32.0);
+                let actual = sample(&pixels, w, 0, 0, w, h, x, y, [0, 1, 2]);
+                let expected = polynomial(x as f32, y as f32);
+                for c in 0..3 {
+                    assert!(
+                        (actual[c] - expected[c]).abs() <= 4e-6,
+                        "phase {px}/{py}, channel {c}: {actual:?} != {expected:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn translating_a_source_window_preserves_every_sample_bit() {
+        let (w, h) = (20usize, 18usize);
+        let pixels: Vec<_> = (0..w * h)
+            .map(|i| polynomial((i % w) as f32, (i / w) as f32))
+            .collect();
+        let tile: Vec<_> = (3..15)
+            .flat_map(|y| (4..17).map(move |x| polynomial(x as f32, y as f32)))
+            .collect();
+        for py in 0..32 {
+            for px in 0..32 {
+                let (x, y) = (9.0 + px as f64 / 32.0, 9.0 + py as f64 / 32.0);
+                assert_eq!(
+                    sample(&pixels, w, 0, 0, w, h, x, y, [0, 1, 2]),
+                    sample(&tile, 13, 0, 0, 13, 12, x - 4.0, y - 3.0, [0, 1, 2])
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn unit_step_ringing_follows_the_analytic_negative_lobe() {
+        let pixels = [[0.; 3], [1., 0., 0.], [1., 0., 0.], [1., 1., 0.]];
+        for phase in 0..32 {
+            let actual = sample(
+                &pixels,
+                4,
+                0,
+                0,
+                4,
+                1,
+                1.0 + phase as f64 / 32.0,
+                0.0,
+                [0, 1],
+            );
+            // The minimum of the A=-0.5 outer polynomial is -2/27 at 4/3.
+            assert!(actual[0] <= 1.0 + 2.0 / 27.0 + f32::EPSILON);
+            assert!(actual[1] >= -2.0 / 27.0 - f32::EPSILON);
+        }
+        let middle = sample(&pixels, 4, 0, 0, 4, 1, 1.5, 0.0, [0, 1]);
+        assert!(
+            middle[0] > 1.0 && middle[1] < 0.0,
+            "ringing is reduced, never clipped"
+        );
     }
 }
