@@ -48,6 +48,30 @@ has its real RAW fixture present, including both sized film entry tests.
 This is native binding execution, not a new browser or Apple UI qualification.
 Generation and its repeat, file headroom and whitespace checks pass.
 
+### Fresh CI evidence records
+
+CI detected that the synthetic-grey and API sidecar records still named
+pipeline 25 after this isolated fix moved to 26. Their executed assertions
+passed; the evidence-version check correctly failed. All five CI-recorded
+suites were rerun through `tools/qualification/record.sh`, then independently
+rerun with `--check`:
+
+| Evidence source | Passed | Failed / skipped |
+| --- | ---: | ---: |
+| Synthetic grey | 6 | 0 / 0 |
+| Color chart | 7 | 0 / 0 |
+| Grey adjustments | 41 | 0 / 0 |
+| Grey DCP | 5 | 0 / 0 |
+| API sidecar contract | 3 | 0 / 0 |
+
+The five records now attest to actual runs of pipeline 26. The generated
+capability summaries were regenerated twice with no drift. Production source,
+physical references and budgets were unchanged during these runs. Existing
+physical color, Apple and Metal evidence retains its original version; this
+refresh does not promote those records to current qualification. Logs, records
+and source identities are archived under `qualification-refresh/` in the
+directory below.
+
 The original failure log, fixed results, exact source patch and RAW identity
 are saved in `/Volumes/Projects/maple-color-gate-20261015/film-auto-fit-current-main/`.
 
