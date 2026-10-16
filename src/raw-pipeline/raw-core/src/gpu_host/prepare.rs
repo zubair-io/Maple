@@ -133,6 +133,7 @@ pub fn develop_render_prefix_rgba(
         tint_seen: model.tint_seen,
         wb_scale_version: model.wb_scale_version,
         wb_method: model.wb_method,
+        unresolved_auto_wb: model.unresolved_auto_wb,
         ..stripped_prefix_model(model, effective_ae_mode(model, raw, ext))
     };
     develop_prefix_model_rgba(

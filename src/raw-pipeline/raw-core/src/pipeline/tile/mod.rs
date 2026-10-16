@@ -240,6 +240,8 @@ fn develop_tile_with_frame(
     if cancel.is_cancelled() {
         return Err(crate::error::Error::Cancelled);
     }
+    let resolved_wb = crate::stages::imported_auto_wb::resolve(raw, model, cancel)?;
+    let model = &*resolved_wb;
     let TileRect {
         src_x,
         src_y,

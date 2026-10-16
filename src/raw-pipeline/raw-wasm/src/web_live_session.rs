@@ -78,6 +78,7 @@ pub struct WebLiveSession {
     /// re-decoding (decode is the multi-hundred-ms cost the one-shot path repays
     /// every call).
     raw_img: raw_core::image::RawImage,
+    imported_wb: raw_core::stages::imported_auto_wb::CachedEstimate,
     /// Original RAW bytes + extension — needed for the `auto_will_fit` probe and
     /// the Auto Profile fit (both read the embedded JPEG).
     raw: Vec<u8>,
@@ -118,6 +119,7 @@ pub struct WebLiveSession {
     /// like the one-shot `render_bytes` / `render_bytes_gpu` paths do.
     as_shot_temperature: f32,
     as_shot_tint: f32,
+    imported_white_balance: Option<(f32, f32)>,
     /// UI-only metadata cached once; failure leaves the rendered session usable.
     camera_support_json: Option<String>,
     /// Resolver facts for the imported LCP profile the model names (#3479),
@@ -138,19 +140,6 @@ pub struct WebLiveSession {
     /// a session lands in a fresh GPU pool bucket rather than reusing a bind
     /// group still pointing at the old grid. `0` iff `film_lut` is `None`.
     film_lut_key: u32,
-}
-
-/// Parse the XMP model with the SAME fresh-open contract as `render_bytes` /
-/// `render_bytes_gpu` (#1892): a brand-new import (no XMP) stays at
-/// `AdjustmentModel::default()`, whose untouched `(6500, 0)` WB is both the
-/// As-Shot sentinel for the develop prefix and the cached camera-frame delta
-/// resolver — so a fresh open presents the as-shot-balanced
-/// buffer unshifted. Shared by `open` + `render` so a session behaves
-/// identically to the one-shot path at every tick.
-fn parse_model(xmp: &Option<String>) -> Result<AdjustmentModel, String> {
-    // Bitmap masks resolve against the instance-wide raster registry here
-    // (#3300), so a raster the host registered applies on the next tick.
-    crate::mask_registry::parse_model(xmp.as_deref()).map_err(|e| e.to_string())
 }
 
 #[wasm_bindgen]
@@ -204,7 +193,13 @@ impl WebLiveSession {
         // parse result (default on a fresh open).
         let ((as_shot_temperature, as_shot_tint), camera_support) =
             crate::open_metadata::assess(&raw_img);
-        let model = parse_model(&xmp).map_err(|e| JsError::new(&e))?;
+        let mut model = crate::mask_registry::parse_model(xmp.as_deref())
+            .map_err(|e| JsError::new(&e.to_string()))?;
+        let imported_auto = raw_core::stages::imported_auto_wb::needs_resolution(&model);
+        let mut imported_wb = raw_core::stages::imported_auto_wb::CachedEstimate::default();
+        imported_wb
+            .resolve_in_place(&raw_img, &mut model, raw_core::cancel::CancelToken::never())
+            .map_err(|e| JsError::new(&e.to_string()))?;
         let white_balance = GpuWhiteBalance::resolve(&raw_img).map_err(|e| JsError::new(&e))?;
 
         // Context BEFORE develop: the effective develop target clamps to this
@@ -248,6 +243,7 @@ impl WebLiveSession {
         let handle = WebLiveSession {
             ctx,
             raw_img,
+            imported_wb,
             raw,
             ext,
             present,
@@ -263,6 +259,7 @@ impl WebLiveSession {
             full_height,
             as_shot_temperature,
             as_shot_tint,
+            imported_white_balance: imported_auto.then_some((model.temperature, model.tint)),
             camera_support_json: camera_support.map(|support| support.to_json()),
             lens_profile_json,
             auto_fit: std::cell::Cell::new(None),
@@ -289,7 +286,15 @@ impl WebLiveSession {
     /// (always present after `open`; `None` is treated as a fresh As-Shot import).
     #[wasm_bindgen]
     pub async fn render(&mut self, xmp: Option<String>) -> Result<String, JsError> {
-        let model = parse_model(&xmp).map_err(|e| JsError::new(&e))?;
+        let mut model = crate::mask_registry::parse_model(xmp.as_deref())
+            .map_err(|e| JsError::new(&e.to_string()))?;
+        self.imported_wb
+            .resolve_in_place(
+                &self.raw_img,
+                &mut model,
+                raw_core::cancel::CancelToken::never(),
+            )
+            .map_err(|e| JsError::new(&e.to_string()))?;
 
         // Re-develop + re-upload iff the prefix model changed. The hot-path sliders
         // are zeroed in the prefix, so a WB/tone/vibrance/… tick takes the cheap
@@ -403,16 +408,22 @@ impl WebLiveSession {
         self.film_lut_key = 0;
     }
 
-    /// Camera "As Shot" CCT in Kelvin, in the WB slider frame
-    /// (`dcp::estimate_as_shot_cct_tint`, #1892) — same value the one-shot
-    /// paths return in [`MapleRender`]. Display-only slider seed.
+    #[wasm_bindgen(getter, js_name = importedTemperature)]
+    pub fn imported_temperature(&self) -> Option<f32> {
+        self.imported_white_balance.map(|pair| pair.0)
+    }
+    #[wasm_bindgen(getter, js_name = importedTint)]
+    pub fn imported_tint(&self) -> Option<f32> {
+        self.imported_white_balance.map(|pair| pair.1)
+    }
+
+    /// Camera As Shot CCT for slider reset, independent of imported Auto.
     #[wasm_bindgen(getter, js_name = asShotTemperature)]
     pub fn as_shot_temperature(&self) -> f32 {
         self.as_shot_temperature
     }
 
-    /// Camera "As Shot" tint in slider units (±150), from the same
-    /// frame-consistent estimate. Display-only slider seed.
+    /// Camera As Shot tint for slider reset.
     #[wasm_bindgen(getter, js_name = asShotTint)]
     pub fn as_shot_tint(&self) -> f32 {
         self.as_shot_tint

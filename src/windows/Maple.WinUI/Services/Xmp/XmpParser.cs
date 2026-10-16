@@ -289,9 +289,18 @@ namespace Maple.WinUI.Services.Xmp
             // raw-core supplies at develop time.
             var tempOrTint = applied.Contains("crs:Temperature") || applied.Contains("crs:Tint");
             var sourceVersion = wbStamp ?? (sawPapp && tempOrTint ? 1 : 5);
-            doc.WbScaleVersion = sourceVersion == 1 ? 1 : 5;
+            var temperatureSeen = applied.Contains("crs:Temperature");
+            var tintSeen = applied.Contains("crs:Tint");
+            var hasFixedPair = Maple.WinUI.Generated.WhiteBalancePresets.Pair(state.WhiteBalancePreset) != null;
+            var deferred = (!hasFixedPair && temperatureSeen != tintSeen)
+                || (!tempOrTint && state.WhiteBalancePreset == "Auto");
+            state.ImportedWhiteBalance = deferred
+                ? new ImportedWhiteBalance(temperatureSeen ? state.Temperature : null,
+                    tintSeen ? state.Tint : null, sourceVersion)
+                : null;
+            doc.WbScaleVersion = deferred ? sourceVersion : sourceVersion == 1 ? 1 : 5;
 
-            if (sourceVersion is 2 or 3 or 4 && tempOrTint)
+            if (sourceVersion is 2 or 3 or 4 && tempOrTint && !deferred)
             {
                 var (temperature, tint) = XmpWbScale.AuthoredPairToV5(
                     state.Temperature, state.Tint, sourceVersion);

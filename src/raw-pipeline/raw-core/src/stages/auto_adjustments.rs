@@ -141,6 +141,7 @@ pub(crate) fn probe_model(model: &AdjustmentModel) -> AdjustmentModel {
         highlight_recovery: crate::xmp::HighlightRecoveryMode::Off,
         temperature: 6500.0,
         tint: 0.0,
+        unresolved_auto_wb: false,
         exposure: 0.0,
         contrast: 0.0,
         highlights: 0.0,

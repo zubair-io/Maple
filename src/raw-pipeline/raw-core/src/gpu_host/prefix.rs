@@ -140,6 +140,7 @@ prefix_policy! {
         // axes and scale. The live binding resolves those against its cached frame.
         temperature_seen: false,
         tint_seen: false,
+        unresolved_auto_wb: false,
         wb_scale_version: crate::types::WbScaleVersion::V5,
         // WB method is inert at the neutral short-circuit; pin it so toggling the
         // method doesn't spuriously change the prefix (the GPU chain owns WB).

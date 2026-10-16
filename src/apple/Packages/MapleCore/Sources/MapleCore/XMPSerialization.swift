@@ -72,8 +72,11 @@ public struct XMPParser {
     let unstampedIsV1 = delegate.sawPappNamespace && delegate.sawExplicitWb
     let version = delegate.wbScaleStamp ?? (unstampedIsV1 ? 1 : 5)
     let partial = delegate.temperatureSeen != delegate.tintSeen
-    if partial {
-      // Preserve raw legacy coordinates until the actual camera can fill the missing axis.
+    let unresolvedAuto =
+      m.whiteBalancePreset == .auto
+      && !delegate.temperatureSeen && !delegate.tintSeen
+    if partial || unresolvedAuto {
+      // Missing numeric axes and name-only Auto resolve once against the actual RAW.
       m.wbScaleVersion = version
       m.partialWhiteBalance = PartialWhiteBalance(
         temperature: delegate.temperatureSeen ? m.temperature : nil,

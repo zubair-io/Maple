@@ -300,13 +300,8 @@ function decodeViaCpuRoute(bytes: Uint8Array, req: DecodeRequest): LegacyDecodeR
   return render_bytes(bytes, req.ext, req.xmp ?? null);
 }
 
-// Reads scalars before taking the buffer via `take_rgb()` (#1080: MOVES the bytes out instead of
-// the `rgb` getter's clone-and-leave-alive-until-GC), then `free()`s the wasm-side struct.
-//
-// `req` is typed as just `{ id }` (not `DecodeRequest`) so `handleDevelopNonRaw` (#3039) can share
-// this exact success/error pair with `handleLegacyDecode` — both produce the SAME `MapleRender`
-// shape and the same `decode-success`/`decode-error` reply, differing only in which WASM entry
-// produced the result and which request fields they read to call it.
+// Read metadata before take_rgb moves the frame and free releases its owner.
+// RAW and non-RAW entries share this response contract.
 function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult): void {
   const width = result.width;
   const height = result.height;
@@ -314,6 +309,8 @@ function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult
   const nativeHeight = result.full_height;
   const asShotTemperature = result.as_shot_temperature;
   const asShotTint = result.as_shot_tint;
+  const importedTemperature = result.imported_temperature;
+  const importedTint = result.imported_tint;
   const hasLensCorrections = result.has_lens_corrections; // #3182
   const lensCorrectionCaInert = result.lens_correction_ca_inert;
   const cameraSupport = cameraSupportFromJson(result.camera_support_json);
@@ -332,6 +329,8 @@ function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult
     rgb: buffer,
     asShotTemperature,
     asShotTint,
+    importedTemperature,
+    importedTint,
     hasLensCorrections,
     lensCorrectionCaInert,
     cameraSupport,

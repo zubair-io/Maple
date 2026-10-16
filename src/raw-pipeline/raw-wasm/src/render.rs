@@ -36,6 +36,7 @@ pub struct MapleRender {
     camera_support: Option<raw_core::support_tiers::RenderSupport>,
     lens_profile_json: Option<String>,
     auto_fit: Option<bool>,
+    imported_white_balance: Option<(f32, f32)>,
 }
 
 impl MapleRender {
@@ -78,12 +79,26 @@ impl MapleRender {
             camera_support,
             lens_profile_json,
             auto_fit,
+            imported_white_balance: None,
         }
+    }
+
+    pub(crate) fn with_imported_white_balance(mut self, pair: Option<(f32, f32)>) -> Self {
+        self.imported_white_balance = pair;
+        self
     }
 }
 
 #[wasm_bindgen]
 impl MapleRender {
+    #[wasm_bindgen(getter)]
+    pub fn imported_temperature(&self) -> Option<f32> {
+        self.imported_white_balance.map(|pair| pair.0)
+    }
+    #[wasm_bindgen(getter)]
+    pub fn imported_tint(&self) -> Option<f32> {
+        self.imported_white_balance.map(|pair| pair.1)
+    }
     #[wasm_bindgen(getter)]
     pub fn width(&self) -> u32 {
         self.width
@@ -242,8 +257,9 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
     let has_lens_corrections = raw_img.has_lens_corrections();
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
 
-    let model = crate::mask_registry::parse_model(xmp.as_deref())
+    let mut model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
+    let imported_white_balance = crate::open_metadata::resolve_imported(&raw_img, &mut model)?;
 
     // Export/display path: AMaZE by default (#940) — cost-equivalent to
     // bilinear since the tiled kernel (#1887) and matches the Apple
@@ -269,6 +285,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 camera_support,
                 lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
                 auto_fit,
+                imported_white_balance,
             })
         }
         Some(cap) => {
@@ -295,6 +312,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 camera_support,
                 lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
                 auto_fit,
+                imported_white_balance,
             })
         }
     }
@@ -341,8 +359,9 @@ pub fn render_bytes_sized(
     let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
 
-    let model = crate::mask_registry::parse_model(xmp.as_deref())
+    let mut model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
+    let imported_white_balance = crate::open_metadata::resolve_imported(&raw_img, &mut model)?;
 
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
@@ -383,6 +402,7 @@ pub fn render_bytes_sized(
         camera_support,
         lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
         auto_fit,
+        imported_white_balance,
     })
 }
 
@@ -465,6 +485,7 @@ pub fn develop_non_raw(
         camera_support: None,
         lens_profile_json: None,
         auto_fit: (model.profile == raw_core::xmp::Profile::Auto).then_some(false),
+        imported_white_balance: None,
     })
 }
 

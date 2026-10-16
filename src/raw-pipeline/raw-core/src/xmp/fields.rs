@@ -197,6 +197,7 @@ pub(super) fn set_field(
         "crs:LuminanceAdjustmentPurple" => m.luminance_adjustment_purple = v()?,
         "crs:LuminanceAdjustmentMagenta" => m.luminance_adjustment_magenta = v()?,
         "crs:WhiteBalance" => {
+            m.unresolved_auto_wb = value == "Auto";
             if let Some((temp, tint)) =
                 crate::types::adjustment::WhiteBalancePreset::from_name(value)
                     .and_then(|preset| preset.pair())
@@ -204,7 +205,8 @@ pub(super) fn set_field(
                 m.temperature = temp;
                 m.tint = tint;
             }
-            // Unknown WB names ("As Shot", "Auto", "Custom") leave defaults.
+            // Auto without numbers is resolved after RAW decode (#4669).
+            // As Shot, Custom and unknown names retain the numeric defaults.
         }
         // Local adjustments (ticket #280). Slice 1's wire format — compact
         // JSON in a single attribute — is superseded by the canonical

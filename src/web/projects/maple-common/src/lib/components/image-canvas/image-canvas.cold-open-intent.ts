@@ -10,7 +10,13 @@ import {
  * A user edit made during decode is not part of these pixels (#4101). */
 export function coldOpenRenderedModel(
   opened: AdjustmentModel,
-  metadata: { asShotTemperature: number; asShotTint: number; cameraSupport?: CameraSupport },
+  metadata: {
+    asShotTemperature: number;
+    asShotTint: number;
+    cameraSupport?: CameraSupport;
+    importedTemperature?: number;
+    importedTint?: number;
+  },
 ): AdjustmentModel {
   return seedWhiteBalanceModel(
     opened,
@@ -18,6 +24,7 @@ export function coldOpenRenderedModel(
       metadata.asShotTemperature,
       metadata.asShotTint,
       hasCalibratedWhiteBalance(metadata.cameraSupport),
+      metadata,
     ),
   );
 }

@@ -2,7 +2,8 @@ import type { AdjustmentModel } from './adjustment-model';
 import { authoredPairToV5, authoredTintToV4 } from '../xmp/xmp-wb-scale';
 
 /** Internal import intent (#3434), carried by undo snapshots, never a new XMP field.
- * Raw legacy coordinates stay intact until a camera frame can supply the absent axis. */
+ * Raw legacy coordinates stay intact until a camera frame can supply the absent axis.
+ * Both absent retains name-only Auto for the shared RAW estimator (#4669). */
 export interface PartialWhiteBalance {
   readonly temperature?: number;
   readonly tint?: number;
@@ -19,6 +20,9 @@ export function hydratePartialWhiteBalance(
 ): AdjustmentModel {
   const imported = model.partialWhiteBalance;
   if (!imported || imported.version === 1) return model;
+  // As-shot metadata cannot resolve an Auto request. Keep it in the XMP sent
+  // to the core; its retained RAW session caches the shared estimator's pair.
+  if (imported.temperature === undefined && imported.tint === undefined) return model;
   if (!calibrated) {
     return {
       ...model,

@@ -12,6 +12,7 @@ pub struct CpuLiveSession {
     bytes: Vec<u8>,
     ext: String,
     raw: RawImage,
+    imported_wb: raw_core::stages::imported_auto_wb::CachedEstimate,
     preview: Option<CpuPreview>,
     lens_generation: u64,
     film_bytes: Vec<u8>,
@@ -29,6 +30,7 @@ impl CpuLiveSession {
             bytes,
             ext: ext.to_owned(),
             raw,
+            imported_wb: Default::default(),
             preview: None,
             lens_generation: crate::lens_profile::registry_generation(),
             film_bytes: Vec::new(),
@@ -47,7 +49,15 @@ impl CpuLiveSession {
         if max_long_edge == 0 {
             return Err(JsError::new("CPU viewport cap must be positive"));
         }
-        let model = crate::mask_registry::parse_model(xmp.as_deref())
+        let mut model = crate::mask_registry::parse_model(xmp.as_deref())
+            .map_err(|e| JsError::new(&e.to_string()))?;
+        let imported_auto = raw_core::stages::imported_auto_wb::needs_resolution(&model);
+        self.imported_wb
+            .resolve_in_place(
+                &self.raw,
+                &mut model,
+                raw_core::cancel::CancelToken::never(),
+            )
             .map_err(|e| JsError::new(&e.to_string()))?;
         if film_bytes != self.film_bytes {
             let decoded = if film_bytes.is_empty() {
@@ -84,6 +94,7 @@ impl CpuLiveSession {
         };
         // Metadata is read before moving the model into the retained core.
         let lens = crate::lens_profile::metadata(&self.raw, &model);
+        let imported_white_balance = imported_auto.then_some((model.temperature, model.tint));
         let (temperature, tint) = self.as_shot;
         let (w, h, rgb, fit) = if !quality_preview {
             // Refine keeps its canonical quality/density and cannot evict the
@@ -130,13 +141,38 @@ impl CpuLiveSession {
             self.support.clone(),
             lens,
             fit,
-        ))
+        )
+        .with_imported_white_balance(imported_white_balance))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn imported_auto_metadata_and_pixels_match_one_shot_without_reopening_source() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/batch-transfer/source.dng");
+        let bytes = std::fs::read(path).unwrap();
+        let mut session = CpuLiveSession::open(bytes.clone(), "dng").unwrap();
+        let pointer = session.raw.raw_data.as_ptr();
+        let xml = Some(r#"<x crs:WhiteBalance="Auto" papp:Profile="Neutral"/>"#.to_string());
+        for quality in [true, false, true] {
+            let actual = session.render(xml.clone(), quality, 24, &[]).unwrap();
+            let expected =
+                crate::render::render_bytes_sized(&bytes, "dng", xml.clone(), quality, 24).unwrap();
+            assert_eq!(actual.rgb(), expected.rgb());
+            assert_eq!(
+                actual.imported_temperature(),
+                expected.imported_temperature()
+            );
+            assert_eq!(actual.imported_tint(), expected.imported_tint());
+            assert!(actual.imported_temperature().is_some());
+            assert!(actual.imported_tint().is_some());
+            assert_eq!(pointer, session.raw.raw_data.as_ptr());
+        }
+    }
 
     #[test]
     fn refine_preserves_fast_session_and_matches_legacy_bytes() {

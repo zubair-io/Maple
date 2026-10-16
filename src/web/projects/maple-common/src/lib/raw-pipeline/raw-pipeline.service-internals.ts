@@ -36,6 +36,8 @@ export interface OpenedLiveSession {
   nativeHeight?: number;
   asShotTemperature: number;
   asShotTint: number;
+  importedTemperature?: number;
+  importedTint?: number;
   /**
    * See `DecodeSuccess.hasLensCorrections`/`lensCorrectionCaInert` (#3182).
    * Optional for the same back-compat reason as `nativeWidth` above — a

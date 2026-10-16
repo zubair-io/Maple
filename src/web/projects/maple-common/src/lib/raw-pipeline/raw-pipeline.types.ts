@@ -55,6 +55,8 @@ export interface DecodeSuccess {
   asShotTemperature: number;
   /** Camera "As Shot" tint in slider units (-150..150 — ACR's crs:Tint span, #1870). */
   asShotTint: number;
+  importedTemperature?: number;
+  importedTint?: number;
   /**
    * Whether this RAW carries a DNG `OpcodeList3` (#3182 — mirrors Apple's
    * `EditSession.hasLensCorrections`/`MapleRender.has_lens_corrections`).
@@ -226,6 +228,8 @@ export interface OpenSessionSuccess {
   nativeHeight: number;
   asShotTemperature: number;
   asShotTint: number;
+  importedTemperature?: number;
+  importedTint?: number;
   /** See `DecodeSuccess.hasLensCorrections` (#3182) — same decode-time fact,
    *  read off the session's retained `RawImage` (never changes across
    *  re-develops within the session's lifetime). */
@@ -464,6 +468,8 @@ export interface DecodedImage {
   rgb: Uint8Array; // view over the transferred buffer
   asShotTemperature: number;
   asShotTint: number;
+  importedTemperature?: number;
+  importedTint?: number;
   /**
    * Native oriented dims (see `DecodeSuccess.nativeWidth`). Optional for
    * back-compat with producers that never size down (non-RAW browser decode,

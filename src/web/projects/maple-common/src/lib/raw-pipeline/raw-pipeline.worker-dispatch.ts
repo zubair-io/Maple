@@ -59,6 +59,8 @@ const settleLegacy: Settler<'legacy'> = (msg, handler) => {
       rgb: new Uint8Array(msg.rgb),
       asShotTemperature: msg.asShotTemperature,
       asShotTint: msg.asShotTint,
+      importedTemperature: msg.importedTemperature,
+      importedTint: msg.importedTint,
       hasLensCorrections: msg.hasLensCorrections, // #3182
       lensCorrectionCaInert: msg.lensCorrectionCaInert,
       cameraSupport: msg.cameraSupport,
@@ -103,6 +105,8 @@ const settleOpenSession: Settler<'open-session'> = (msg, handler) => {
       nativeHeight: msg.nativeHeight,
       asShotTemperature: msg.asShotTemperature,
       asShotTint: msg.asShotTint,
+      importedTemperature: msg.importedTemperature,
+      importedTint: msg.importedTint,
       hasLensCorrections: msg.hasLensCorrections, // #3182
       lensCorrectionCaInert: msg.lensCorrectionCaInert,
       cameraSupport: msg.cameraSupport,

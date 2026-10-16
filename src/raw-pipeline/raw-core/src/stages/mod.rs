@@ -24,6 +24,7 @@ pub mod highlight_recovery;
 pub mod highlight_recovery_oklab;
 pub mod hot_pixel;
 pub mod hsl;
+pub mod imported_auto_wb;
 pub mod inpaint_composite;
 pub mod lateral_ca;
 pub mod local_adjustments;

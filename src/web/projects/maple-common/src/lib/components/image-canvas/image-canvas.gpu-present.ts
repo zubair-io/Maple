@@ -318,6 +318,7 @@ export class ImageCanvasGpuPresent {
       info.asShotTemperature,
       info.asShotTint,
       hasCalibratedWhiteBalance(info.cameraSupport),
+      info,
     );
     const support = decodeSupportFrom(info);
     const state: LibraryStateService = this.host.state;

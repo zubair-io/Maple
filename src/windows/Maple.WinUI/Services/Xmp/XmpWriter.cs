@@ -33,7 +33,8 @@ namespace Maple.WinUI.Services.Xmp
             var emittedKeys = AppendNumericFields(parts, doc.Adjustments);
             if (emittedKeys.Contains("crs:Temperature") || emittedKeys.Contains("crs:Tint"))
             {
-                parts.Add($"papp:WbScaleVersion=\"{doc.WbScaleVersion.ToString(CultureInfo.InvariantCulture)}\"");
+                var scale = doc.Adjustments.ImportedWhiteBalance?.Version ?? doc.WbScaleVersion;
+                parts.Add($"papp:WbScaleVersion=\"{scale.ToString(CultureInfo.InvariantCulture)}\"");
             }
 
             AppendEnumFields(parts, doc.Adjustments);
@@ -63,9 +64,16 @@ namespace Maple.WinUI.Services.Xmp
             var emitted = new HashSet<string>();
             foreach (var field in XmpSchema.NumericFields)
             {
-                var wire = XmpSchema.FormatNumber(field.Get(state));
+                var wbAxis = field.Key is "crs:Temperature" or "crs:Tint";
+                var imported = state.ImportedWhiteBalance;
+                var value = wbAxis && imported != null
+                    ? field.Key == "crs:Temperature" ? imported.Temperature : imported.Tint
+                    : field.Get(state);
+                if (value == null) continue;
+                var wire = XmpSchema.FormatNumber(value.Value);
                 var defaultWire = XmpSchema.FormatNumber(field.Get(XmpSchema.Defaults));
-                if (wire == defaultWire) continue;
+                var authoredAxis = wbAxis && (imported != null || state.WhiteBalancePreset == "Auto");
+                if (wire == defaultWire && !authoredAxis) continue;
                 parts.Add($"{field.Key}=\"{wire}\"");
                 emitted.Add(field.Key);
             }

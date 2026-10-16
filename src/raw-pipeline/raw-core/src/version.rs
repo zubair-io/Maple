@@ -195,7 +195,9 @@
 ///   for profiles without ForwardMatrix (#4661, #4665).
 /// - 47 — resolve dual-illuminant HueSatMap calibration at the selected white
 ///   point on CPU and GPU, preserving the As Shot table (#4633).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 47;
+/// - 48 — resolve imported name-only Auto white balance through the shared
+///   estimator before camera preparation (#4669).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 48;
 
 #[cfg(test)]
 mod tests {

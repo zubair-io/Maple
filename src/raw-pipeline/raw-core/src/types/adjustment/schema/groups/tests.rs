@@ -21,6 +21,7 @@ fn all_struct_field_names() -> Vec<&'static str> {
         tint: _,
         temperature_seen: _,
         tint_seen: _,
+        unresolved_auto_wb: _,
         wb_method: _,
         wb_scale_version: _,
         wb_source: _,

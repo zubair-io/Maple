@@ -30,6 +30,8 @@ namespace Maple.WinUI.Services
             var m = model.Clone();
             m.Temperature = d.Temperature;
             m.Tint = d.Tint;
+            m.WhiteBalancePreset = d.WhiteBalancePreset;
+            m.ImportedWhiteBalance = null;
             m.Exposure = 0; m.Brightness = 0; m.Contrast = 0;
             m.Highlights = 0; m.Shadows = 0; m.Whites = 0; m.Blacks = 0;
             m.ParametricHighlights = 0; m.ParametricLights = 0;

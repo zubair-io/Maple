@@ -2,23 +2,9 @@ import {
   hydratePartialWhiteBalance,
   whiteBalanceAuthoredPatch,
 } from '../models/partial-white-balance';
-// Library store — data and adjustment models. Persisted UI prefs live in
-// `BrowsePreferencesService`; ephemeral UI flags are moving out screen-by-
-// screen (ticket #191).
-//
-// Holds the signal-readable state for the browse + editor shells:
-//   - asset list, grid folders, sidebar tree
-//   - current folder handle, registered libraries (Self-Hosted)
-//   - per-asset adjustment models + id ↔ remote-id maps
-//   - transient Self-Hosted bootstrap flags (scheduled for later extraction)
-//
-// **Design call (ticket #122):** stayed on plain Angular signals rather than
-// migrating to NgRx SignalStore. This is a brownfield split — the goal is to
-// shrink the 1,621-LOC monolith with zero behaviour change. SignalStore would
-// drag in @ngrx/signals and rewrite the consumer surface (we'd have to switch
-// every component from `inject(LibraryStateService)` to selectors). Park that
-// migration for a follow-up greenfield ticket.
-//
+// Signal store for library/assets, adjustment models, address mapping and
+// transient editor state. Persisted UI preferences live in BrowsePreferencesService.
+// The #122 split retained Angular signals and the existing injection surface.
 import { Injectable, computed, inject, signal, DestroyRef } from '@angular/core';
 import { Asset, AssetId, Flag, ColorLabel } from '../models/asset';
 import { SidebarEntry, GridFolderItem } from '../models/folder';
@@ -235,8 +221,14 @@ export class LibraryStore {
    * WB sliders reflect the camera's own white-balance reading on first open.
    * No-op if the user has already edited those fields.
    */
-  seedAsShotWhiteBalance(id: AssetId, temperature: number, tint: number, calibrated = false): void {
-    const reading = cameraWhiteBalanceReading(temperature, tint, calibrated);
+  seedAsShotWhiteBalance(
+    id: AssetId,
+    temperature: number,
+    tint: number,
+    calibrated = false,
+    imported?: { importedTemperature?: number; importedTint?: number },
+  ): void {
+    const reading = cameraWhiteBalanceReading(temperature, tint, calibrated, imported);
     this.asShotWb.set(id, reading);
     this.adjustmentModels.update((map) => {
       const current = map.get(id) ?? defaultAdjustmentModel();

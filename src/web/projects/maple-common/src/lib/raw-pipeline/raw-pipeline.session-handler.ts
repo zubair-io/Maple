@@ -144,6 +144,8 @@ function postOpenSessionSuccess(req: OpenSessionRequest, session: WebLiveSession
     nativeHeight: session.fullHeight,
     asShotTemperature: session.asShotTemperature,
     asShotTint: session.asShotTint,
+    importedTemperature: session.importedTemperature,
+    importedTint: session.importedTint,
     // #3182 — decode-time facts, read off the session's retained RawImage.
     hasLensCorrections: session.hasLensCorrections,
     lensCorrectionCaInert: session.lensCorrectionCaInert,

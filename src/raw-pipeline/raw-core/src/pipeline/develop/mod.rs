@@ -82,6 +82,8 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
+    let resolved_wb = crate::stages::imported_auto_wb::resolve(raw, model, cancel)?;
+    let model = &*resolved_wb;
     let (frame_w, frame_h) = crate::pipeline::native_render_dims(raw);
     let model = &*crate::types::with_brush_rasters(model, frame_w, frame_h);
     let (mut camera_rgb, sensor_gains) = match raw.cfa {

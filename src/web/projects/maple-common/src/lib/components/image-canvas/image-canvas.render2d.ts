@@ -210,6 +210,7 @@ function publishColdOpenMetadata(
     decoded.asShotTemperature,
     decoded.asShotTint,
     hasCalibratedWhiteBalance(decoded.cameraSupport),
+    decoded,
   );
   // #3182: record the decode-time lens-correction signal for the Lens
   // Corrections panel. Absent (older stubs / non-updated fakes) reads as

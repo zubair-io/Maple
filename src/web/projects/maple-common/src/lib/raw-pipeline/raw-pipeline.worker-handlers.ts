@@ -92,6 +92,8 @@ export interface WebLiveSessionInstance {
   readonly fullHeight: number;
   readonly asShotTemperature: number;
   readonly asShotTint: number;
+  readonly importedTemperature?: number;
+  readonly importedTint?: number;
   /** See `DecodeSuccess.hasLensCorrections` (#3182) — read off the session's
    *  retained `RawImage`; a decode-time fact, unchanged across re-develops. */
   readonly hasLensCorrections: boolean;

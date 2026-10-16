@@ -22,6 +22,34 @@ function read(xml: string) {
 }
 
 describe('partial white balance import intent (#3434)', () => {
+  it('retains name-only Auto through a real sidecar and unrelated save (#4669)', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'maple-auto-wb-'));
+    try {
+      const path = join(directory, 'photo.xmp');
+      writeFileSync(path, sidecar('').replace('WhiteBalance="Custom"', 'WhiteBalance="Auto"'));
+      const imported = read(readFileSync(path, 'utf8'));
+      expect(imported.partialWhiteBalance).toEqual({ version: 5 });
+      const hydrated = hydratePartialWhiteBalance(imported, 5520, -43.79, true);
+      expect(hydrated).toBe(imported);
+      writeFileSync(path, serializer.serialize({ ...hydrated, exposure: 1 }));
+      const saved = readFileSync(path, 'utf8');
+      expect(saved).toContain('crs:WhiteBalance="Auto"');
+      expect(saved).not.toContain('crs:Temperature=');
+      expect(saved).not.toContain('crs:Tint=');
+      expect(read(saved).partialWhiteBalance).toEqual({ version: 5 });
+      expect(canUseLiveFastPath(hydrated)).toBe(false);
+      const explicit = read(
+        sidecar('crs:Temperature="6500" crs:Tint="0"').replace(
+          'WhiteBalance="Custom"',
+          'WhiteBalance="Auto"',
+        ),
+      );
+      expect(explicit.partialWhiteBalance).toBeNull();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   for (const attrs of [
     'crs:Temperature="8500"',
     'crs:Tint="40"',

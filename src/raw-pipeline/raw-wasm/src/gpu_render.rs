@@ -330,8 +330,9 @@ pub async fn render_bytes_gpu(
     // Same display-only as-shot estimate as the CPU cold-open path (#1892).
     let ((as_shot_temperature, as_shot_tint), camera_support) =
         crate::open_metadata::assess(&raw_img);
-    let model = crate::mask_registry::parse_model(xmp.as_deref())
+    let mut model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
+    let imported_white_balance = crate::open_metadata::resolve_imported(&raw_img, &mut model)?;
 
     let (ow, oh, oriented, auto_fit) =
         render_gpu_core_with_status(&raw_img, &raw, &ext, &model, max_long_edge)
@@ -354,7 +355,8 @@ pub async fn render_bytes_gpu(
         camera_support,
         crate::lens_profile::metadata(&raw_img, &model),
         auto_fit,
-    ))
+    )
+    .with_imported_white_balance(imported_white_balance))
 }
 
 // Native-host tests drive the shared decode/GPU core; browser-only presentation

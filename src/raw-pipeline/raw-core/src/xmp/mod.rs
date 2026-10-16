@@ -157,6 +157,9 @@ fn apply_attributes(
 /// `papp:Look` migration in [`set_field`].
 pub fn serialize(model: &AdjustmentModel) -> String {
     let mut out = String::new();
+    if model.unresolved_auto_wb && !model.temperature_seen && !model.tint_seen {
+        out.push_str(r#" crs:WhiteBalance="Auto""#);
+    }
     // Profile intent is explicit, including the unchanged Auto default (#2441).
     let profile = match model.profile {
         Profile::Auto => "Auto",

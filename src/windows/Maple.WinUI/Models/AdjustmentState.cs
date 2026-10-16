@@ -46,11 +46,21 @@ namespace Maple.WinUI.Models
     /// (see adjustment-model.generated.ts / AdjustmentModel+Generated.swift).
     /// Field defaults are the canonical raw-core defaults.
     /// </summary>
+    public sealed record ResolvedWhiteBalance(double Temperature, double Tint);
+
+    /// <summary>Imported numeric presence and scale. Both absent retains name-only
+    /// Auto. Resolution belongs to the opened RAW; XMP retains the original axes.</summary>
+    public sealed record ImportedWhiteBalance(
+        double? Temperature, double? Tint, int Version, ResolvedWhiteBalance? Resolved = null);
+
     public sealed class AdjustmentState
     {
         // --- White balance ---
         public double Temperature = 6500.0;          // [2000, 12000]
         public double Tint = 0.0;                    // [-150, 150]
+        public ImportedWhiteBalance? ImportedWhiteBalance;
+        // The existing sidecar scale follows the model through edits and undo.
+        public int WhiteBalanceScaleVersion = 5;
         public WbMethod WbMethod = WbMethod.Cat16;
         // White-balance name + provenance (#2434), mirroring
         // `whiteBalancePreset` / `wbSource` / `wbSampleX` / `wbSampleY` /

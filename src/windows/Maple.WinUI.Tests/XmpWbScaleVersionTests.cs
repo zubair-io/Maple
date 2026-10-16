@@ -108,16 +108,28 @@ namespace Maple.WinUI.Tests
         public void ExplicitStampWinsOverHeuristicAndConvertsJointly()
         {
             // A V2 stamp beats the V1 authorship heuristic, then
-            // load-normalizes to 5. No tint was authored (absent-tint
-            // convention: 0), but the pair conversion is JOINT (#1894) — an
-            // authored temperature alone still moves both components.
+            // load-normalizes the explicitly authored pair to 5. An authored
+            // zero tint participates in the JOINT conversion (#1894).
             // Pinned against `authored_pair_to_v5(5700, 0, V2)`.
             var doc = XmpParser.Parse(
-                MapleSidecar("crs:Temperature=\"5700\" papp:WbScaleVersion=\"2\""));
+                MapleSidecar("crs:Temperature=\"5700\" crs:Tint=\"0\" papp:WbScaleVersion=\"2\""));
             Assert.NotNull(doc);
             Assert.Equal(5, doc!.WbScaleVersion);
             AssertClose(5697.007, doc.Adjustments.Temperature, 0.05);
             AssertClose(11.083624, doc.Adjustments.Tint, 0.005);
+        }
+
+        [Fact]
+        public void ExplicitStampWithMissingTintWaitsForTheActualCameraAxis()
+        {
+            var doc = XmpParser.Parse(MapleSidecar("crs:Temperature=\"5700\" papp:WbScaleVersion=\"2\""))!;
+            Assert.Equal(2, doc.WbScaleVersion);
+            Assert.Equal(5700, doc.Adjustments.Temperature);
+            Assert.NotNull(doc.Adjustments.ImportedWhiteBalance);
+            Assert.Null(doc.Adjustments.ImportedWhiteBalance!.Tint);
+            var saved = XmpWriter.Serialize(doc);
+            Assert.Contains("papp:WbScaleVersion=\"2\"", saved);
+            Assert.DoesNotContain("crs:Tint=", saved);
         }
 
         [Fact]

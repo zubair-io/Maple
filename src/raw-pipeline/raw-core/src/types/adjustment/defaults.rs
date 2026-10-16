@@ -22,6 +22,7 @@ impl Default for AdjustmentModel {
             tint: 0.0,
             temperature_seen: false,
             tint_seen: false,
+            unresolved_auto_wb: false,
             wb_method: WbMethod::Cat16,
             wb_scale_version: WbScaleVersion::V5,
             wb_source: WbSource::AsShot,

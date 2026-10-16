@@ -23,6 +23,21 @@ fn from_resolution(
     }
 }
 
+/// One-shot import hydration. Session callers retain the same estimate instead.
+pub(crate) fn resolve_imported(
+    raw: &RawImage,
+    model: &mut raw_core::xmp::AdjustmentModel,
+) -> Result<Option<(f32, f32)>, wasm_bindgen::JsError> {
+    use raw_core::stages::imported_auto_wb;
+    if !imported_auto_wb::needs_resolution(model) {
+        return Ok(None);
+    }
+    let pair = imported_auto_wb::estimate(raw, raw_core::CancelToken::never())
+        .map_err(|e| wasm_bindgen::JsError::new(&e.to_string()))?;
+    imported_auto_wb::apply_estimate(model, pair);
+    Ok(Some(pair))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

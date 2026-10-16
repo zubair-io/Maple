@@ -112,31 +112,21 @@ pub use auto_lateral_ca::AutoLateralCa;
 pub struct AdjustmentModel {
     pub temperature: f32, // 2000..12000, default 6500
     pub tint: f32,        // -150..150 (ACR's crs:Tint span, #1870), default 0
-    /// True when `crs:Temperature` was explicitly present in the parsed XMP
-    /// sidecar. False for the default model (no sidecar) and for sidecars that
-    /// carry `crs:WhiteBalance="Custom"` with only `crs:Tint` set (tint-only
-    /// adjustments). The develop pipeline uses this to substitute the image's
-    /// as-shot CCT when the temperature component was not explicitly authored.
-    /// Not part of the codegen schema — internal parse-state flag. (#1729)
+    /// Authored numeric components; absent axes resolve from the camera's
+    /// as-shot white. Internal parse state, outside codegen (#1729).
     pub temperature_seen: bool,
-    /// True when `crs:Tint` was explicitly present in the parsed XMP sidecar.
-    /// Analogous to `temperature_seen` for the tint component. The develop
-    /// pipeline substitutes the as-shot tint (0.0 — we do not attempt to invert
-    /// the camera's AsShotNeutral tint component) when false. (#1729)
     pub tint_seen: bool,
+    /// Imported `crs:WhiteBalance="Auto"` without either authored numeric
+    /// component (#4669). Resolve against the complete RAW before developing;
+    /// this is parse state, not a new sidecar key or a per-tick estimator.
+    pub unresolved_auto_wb: bool,
     /// User white-balance method (ticket #431). Default `Cat16` performs
     /// proper chromatic adaptation in CAT16 LMS cone space; legacy
     /// `DiagonalRec2020` keeps the pre-#431 von-Kries diagonal gains.
     pub wb_method: WbMethod,
-    /// WB slider-scale version of the sidecar's stored temperature/tint
-    /// (#1780/#1875). `V1` = pre-#1756 post-DCP CAT16 scale (converted on
-    /// use by `stages::wb_camera::resolve_target_versioned`); `V2` = the
-    /// #1756–#1875 scale (tint axis inverted vs ACR — authored tint is
-    /// negated on use); `V3` = ACR calibration-frame scale, ACR tint
-    /// direction (pass-through). Set by the XMP parser from
-    /// `papp:WbScaleVersion` / the Maple-authorship heuristic; default `V3`.
-    /// Not part of the codegen schema — internal parse-state, like
-    /// `temperature_seen`.
+    /// Stored coordinate scale, resolved from the XMP stamp/authorship.
+    /// See [`WbScaleVersion`] for V1–V5 conversion; fresh models use V5.
+    /// Internal parse state, outside codegen.
     pub wb_scale_version: WbScaleVersion,
     /// Provenance of the white balance (#2434) — see [`WbSource`]. Metadata,
     /// never a render input.

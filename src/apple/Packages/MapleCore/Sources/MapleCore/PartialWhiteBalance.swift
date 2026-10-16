@@ -1,6 +1,7 @@
 import Foundation
 
-/// Imported axis presence and original coordinates (#3434). Value semantics let
+/// Imported axis presence and original coordinates (#3434). Both absent means
+/// name-only Auto, resolved by the shared RAW estimator (#4669). Value semantics let
 /// undo restore the intent. Serialization uses existing Temperature/Tint/scale fields.
 public struct PartialWhiteBalance: Codable, Sendable, Equatable, Hashable {
   public let temperature: Double?
@@ -27,6 +28,7 @@ extension AdjustmentModel {
   func hydratingPartialWhiteBalance(in frame: WbSliderFrame?) -> AdjustmentModel {
     guard let imported = partialWhiteBalance, imported.resolvedTarget == nil, let frame,
       frame.isPresent,
+      imported.temperature != nil || imported.tint != nil,
       imported.version != 1
     else { return self }
     let pair = imported.resolved(in: frame)

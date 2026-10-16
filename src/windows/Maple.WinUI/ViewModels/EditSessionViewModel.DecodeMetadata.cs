@@ -35,7 +35,18 @@ namespace Maple.WinUI.ViewModels
         }
 
         private static bool UntouchedWhiteBalance(AdjustmentState state) =>
-            state.WbSource == WbSource.AsShot && Math.Abs(state.Temperature - 6500.0) < 1e-6 && Math.Abs(state.Tint) < 1e-6;
+            state.ImportedWhiteBalance == null && state.WbSource == WbSource.AsShot
+            && Math.Abs(state.Temperature - 6500.0) < 1e-6 && Math.Abs(state.Tint) < 1e-6;
+
+        private void PublishImportedWhiteBalance(AdjustmentState resolved)
+        {
+            foreach (var snapshot in new[] { Adjustments, _undoBaseline, _originalModel }
+                .Concat(_undoStack).Concat(_redoStack))
+            {
+                if (snapshot != null) ImportedWhiteBalanceResolver.ApplyResolved(snapshot, resolved);
+            }
+            SyncSlidersFromModel();
+        }
 
         private void NormalizeWhiteBalanceHistory()
         {

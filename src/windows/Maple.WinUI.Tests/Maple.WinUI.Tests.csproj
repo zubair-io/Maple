@@ -303,6 +303,7 @@
          MainWindow / EditSessionViewModel partials the same way
          SelectionLogic.cs is. -->
     <Compile Include="..\Maple.WinUI\Services\WhiteBalanceSampler.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\ImportedWhiteBalanceResolver.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\ViewModels\WhiteBalancePickLogic.cs" LinkBase="ViewModels" />
     <!-- The bundled-Lensfun profile dropdown (#3564/#3568):
          `ViewModels\LensProfileChoiceLogic.cs` is the WinUI-free option-list/

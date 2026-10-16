@@ -4,6 +4,8 @@ import { hydratePartialWhiteBalance } from '../models/partial-white-balance';
 export interface CameraWhiteBalanceReading {
   readonly temperature: number;
   readonly tint: number;
+  readonly importedTemperature?: number;
+  readonly importedTint?: number;
   readonly frame?: { readonly temperature: number; readonly tint: number };
 }
 
@@ -13,10 +15,13 @@ export function cameraWhiteBalanceReading(
   temperature: number,
   tint: number,
   calibrated: boolean,
+  imported?: { importedTemperature?: number; importedTint?: number },
 ): CameraWhiteBalanceReading {
   return {
     temperature: Math.round(temperature / 50) * 50,
     tint: Math.round(tint),
+    importedTemperature: imported?.importedTemperature,
+    importedTint: imported?.importedTint,
     ...(calibrated ? { frame: { temperature, tint } } : {}),
   };
 }
@@ -25,7 +30,16 @@ export function seedWhiteBalanceModel(
   current: AdjustmentModel,
   reading: CameraWhiteBalanceReading,
 ): AdjustmentModel {
-  if (current.partialWhiteBalance) {
+  const intent = current.partialWhiteBalance;
+  if (intent && intent.temperature === undefined && intent.tint === undefined) {
+    const temperature = reading.importedTemperature;
+    const tint = reading.importedTint;
+    if (temperature === undefined || tint === undefined) return current;
+    return current.temperature === temperature && current.tint === tint
+      ? current
+      : { ...current, temperature, tint, wbScaleVersion: 5 };
+  }
+  if (intent) {
     return hydratePartialWhiteBalance(
       current,
       reading.frame?.temperature ?? 6500,

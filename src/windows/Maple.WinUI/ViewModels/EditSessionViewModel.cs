@@ -314,6 +314,7 @@ namespace Maple.WinUI.ViewModels
             {
                 try
                 {
+                    ImportedWhiteBalanceResolver.ResolveInPlace(photo.EditPath, model);
                     // Cold open always decodes at Preview — the first paint
                     // must never wait on a full AMaZE demosaic (#3417
                     // review). A worthwhile upgrade is scheduled separately

@@ -26,6 +26,7 @@ fn schema_matches_struct() {
         tint,
         temperature_seen,
         tint_seen,
+        unresolved_auto_wb: _,
         wb_method,
         wb_scale_version,
         wb_source,
@@ -494,13 +495,18 @@ fn schema_exemption_allowlist() {
         "crop",
         "temperature_seen",
         "tint_seen",
+        "unresolved_auto_wb",
         "wb_scale_version",
     ];
     assert_eq!(
         ALLOWED.len(),
-        8,
+        9,
         "schema exemption count changed — update this test and the \
          matching note on the module-level doc-comment"
+    );
+    assert!(
+        ALLOWED.contains(&"unresolved_auto_wb"),
+        "unresolved Auto WB is import state, not a codegen slider"
     );
     assert!(
         ALLOWED.contains(&"local_adjustments"),

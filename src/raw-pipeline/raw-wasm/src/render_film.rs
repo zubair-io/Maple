@@ -39,8 +39,9 @@ pub fn render_bytes_with_film(
     let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
 
-    let model = crate::mask_registry::parse_model(xmp.as_deref())
+    let mut model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
+    let imported_white_balance = crate::open_metadata::resolve_imported(&raw_img, &mut model)?;
 
     let film_lut = if film_lut_bytes.is_empty() {
         None
@@ -80,7 +81,8 @@ pub fn render_bytes_with_film(
                 camera_support,
                 crate::lens_profile::metadata(&raw_img, &model),
                 auto_fit,
-            ))
+            )
+            .with_imported_white_balance(imported_white_balance))
         }
         Some(cap) => {
             let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
@@ -106,7 +108,8 @@ pub fn render_bytes_with_film(
                 camera_support,
                 crate::lens_profile::metadata(&raw_img, &model),
                 auto_fit,
-            ))
+            )
+            .with_imported_white_balance(imported_white_balance))
         }
     }
 }
@@ -155,8 +158,9 @@ pub fn render_bytes_sized_with_film(
     let has_lens_corrections = raw_img.has_lens_corrections(); // #3182
     let lens_correction_ca_inert = raw_img.lens_correction_ca_inert();
 
-    let model = crate::mask_registry::parse_model(xmp.as_deref())
+    let mut model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
+    let imported_white_balance = crate::open_metadata::resolve_imported(&raw_img, &mut model)?;
 
     let film_lut = if film_lut_bytes.is_empty() {
         None
@@ -206,5 +210,6 @@ pub fn render_bytes_sized_with_film(
         camera_support,
         crate::lens_profile::metadata(&raw_img, &model),
         auto_fit,
-    ))
+    )
+    .with_imported_white_balance(imported_white_balance))
 }
