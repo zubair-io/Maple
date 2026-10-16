@@ -182,6 +182,7 @@ class DistributionBoundaryTests(unittest.TestCase):
             "Maple-Android-$VERSION.apk",
             "Maple-Android-$VERSION.aab",
             "Maple-Android-SHA256SUMS.txt",
+            "Maple-Android-upload-certificate.pem",
         ):
             self.assertIn(filename, wait)
         self.assertLess(
