@@ -179,7 +179,11 @@
 ///   saturation ceilings through demosaic and highlight recovery (#4647).
 /// - 40 — transport gain-map saturation ceilings through the actual fitted
 ///   automatic lateral-CA resample, including half-size preparation (#4647).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 40;
+/// - 41 — integrate main's extended-range ICC raster decoding (#4624) and
+///   corrected resident GPU-prefix stage ownership with the color repairs.
+///   Main shipped its ICC change as v25 independently of this branch's
+///   diagnostic v25-v40 sequence; the combined output has a fresh identity.
+pub const PIPELINE_OUTPUT_VERSION: u32 = 41;
 
 #[cfg(test)]
 mod tests {

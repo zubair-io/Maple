@@ -80,3 +80,19 @@ Local evidence is under
 
 The pre-rebase source is retained on branch
 `codex/color-gate-before-main-20261015-1936`.
+
+## Current-main integration, pipeline v41
+
+The repair branch is rebased onto main commit
+`3613a6b9cf5e95a9bd1b41103752439088387d3f`. The pre-rebase v40 checkpoint is
+`c85b618a3c` on `codex/color-gate-v40-before-main-3613a6b`.
+Main's extended-range ICC raster decode and GPU-prefix ownership changes are
+retained. Its new Android binding is included in generated output version 41.
+The conflicting module declaration keeps both the shared camera prefix and
+main's crate-visible capture-sharpening helper.
+
+Main independently shipped its ICC behavior as output version 25; this repair
+branch used diagnostic versions 25–40. Version 41 gives the combined runtime a
+new derived-artifact identity. It does not relabel prior physical evidence as
+validation of the rebased code. Fresh domain and physical qualification remain
+required; the separate A=-.5 resampling experiment is still unadopted.
