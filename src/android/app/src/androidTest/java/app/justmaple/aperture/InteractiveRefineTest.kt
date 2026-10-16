@@ -27,10 +27,18 @@ class InteractiveRefineTest {
             compose.waitUntil(30_000) { model.state.value.canChangeMetadata }
             compose.onNodeWithContentDescription("Edit").performClick()
             compose.waitUntil(120_000) { model.state.value.canEdit }
+            compose.waitForIdle()
+            compose.waitUntil(30_000) { model.state.value.canEdit }
+            var baselineSample: Int? = null
             compose.waitUntil(30_000) {
-                (runCatching { Color.red(renderedPixel(compose.activity)) }.getOrNull() ?: 0) > 10
+                val pixel = runCatching { Color.red(renderedPixel(compose.activity)) }.getOrNull()
+                if (pixel != null && pixel > 10) {
+                    baselineSample = pixel
+                    true
+                } else false
             }
-            val baseline = Color.red(renderedPixel(compose.activity))
+            // Keep the successful sample; a second copy can race SurfaceView replacement.
+            val baseline = checkNotNull(baselineSample)
             compose.runOnIdle {
                 for (amount in 5..50 step 5) model.setField(
                     "capture_sharpening_amount",

@@ -162,13 +162,16 @@ class CloudIntegrationTest {
                     val previousSaves = server.saveCount
                     server.saveEntered = entered
                     server.releaseSave = release
-                    try {
-                        compose.runOnIdle {
+                    val navigation = try {
+                        val pendingNavigation = compose.runOnIdle {
                             model.setField("exposure", .5f)
                             model.commitGesture()
                             assertEquals(.5f, model.state.value.values.getValue("exposure"))
                             assertTrue(model.state.value.dirty)
-                            if (back) model.back() else model.open(photo)
+                            if (back) {
+                                model.back()
+                                null
+                            } else model.open(photo)
                         }
                         assertTrue(entered.await(10, java.util.concurrent.TimeUnit.SECONDS))
                         compose.runOnIdle {
@@ -178,11 +181,14 @@ class CloudIntegrationTest {
                             assertEquals(.75f, model.state.value.values.getValue("exposure"))
                             assertTrue(model.state.value.dirty)
                         }
+                        pendingNavigation
                     } finally {
                         release.countDown()
                     }
                     compose.waitUntil(30_000) {
-                        !model.state.value.loading &&
+                        navigation?.isCompleted != false &&
+                            !model.state.value.dirty &&
+                            !model.state.value.loading &&
                             !model.state.value.saving &&
                             model.state.value.mode ==
                                 if (back) PhotoMode.Preview else PhotoMode.Edit
