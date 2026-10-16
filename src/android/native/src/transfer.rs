@@ -91,17 +91,30 @@ fn cache_raster(
     edge: u32,
     format: &str,
 ) -> Result<Option<raw_core::raster::RasterImage>, String> {
-    let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
-    if metadata.len() == 0 || metadata.len() > 32 * 1024 * 1024 {
+    use std::io::{BufReader, Read, Seek, SeekFrom};
+    const MAX_BYTES: u64 = 32 * 1024 * 1024;
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let length = file.metadata().map_err(|e| e.to_string())?.len();
+    if length == 0 || length > MAX_BYTES {
         return Ok(None);
     }
-    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    let probe = raw_core::raster::probe_raster_metadata(&bytes).map_err(|e| e.to_string())?;
+    let mut input = BufReader::new(file);
+    let probe =
+        raw_core::raster::probe_raster_metadata_reader(&mut input).map_err(|e| e.to_string())?;
     if probe.format != format
         || probe.width == 0
         || probe.height == 0
         || probe.width.max(probe.height) > edge
     {
+        return Ok(None);
+    }
+    input.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    input
+        .take(MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 != length {
         return Ok(None);
     }
     let decoded =
