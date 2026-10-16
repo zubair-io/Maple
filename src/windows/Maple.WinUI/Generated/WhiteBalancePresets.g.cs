@@ -43,5 +43,5 @@ public static class WhiteBalancePresets
         _ => null,
     };
 
-    public const double AutoWhiteBalanceAlgorithmVersion = 2.0;
+    public const double AutoWhiteBalanceAlgorithmVersion = 3.0;
 }

@@ -2,7 +2,7 @@
   "generator": "tools/codegen.sh (codegen --schema support-tiers --target json)",
   "build": {
     "tier_schema_version": 1,
-    "pipeline_output_version": 48,
+    "pipeline_output_version": 49,
     "schema_version": 5,
     "profile_bundle_format": 1,
     "profile_bundle_digest": "blake3:8fbbca1a199293eb90e0269ec6d01c33b209912525132f6daeda29bb9c058b11"
@@ -87,7 +87,7 @@
         {
           "source": "color_harness",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v48",
+          "detail": "recorded on pipeline v24, current is v49",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -111,7 +111,7 @@
         {
           "source": "color_harness",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v48",
+          "detail": "recorded on pipeline v24, current is v49",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -135,7 +135,7 @@
         {
           "source": "color_harness",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v48",
+          "detail": "recorded on pipeline v24, current is v49",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -159,7 +159,7 @@
         {
           "source": "color_harness",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v48",
+          "detail": "recorded on pipeline v24, current is v49",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -183,7 +183,7 @@
         {
           "source": "color_harness",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v48",
+          "detail": "recorded on pipeline v24, current is v49",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -207,7 +207,7 @@
         {
           "source": "color_harness",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v48",
+          "detail": "recorded on pipeline v24, current is v49",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -231,7 +231,7 @@
         {
           "source": "color_harness",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v48",
+          "detail": "recorded on pipeline v24, current is v49",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -255,7 +255,7 @@
         {
           "source": "color_harness",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v48",
+          "detail": "recorded on pipeline v24, current is v49",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -279,7 +279,7 @@
         {
           "source": "color_harness",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v48",
+          "detail": "recorded on pipeline v24, current is v49",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -303,7 +303,7 @@
         {
           "source": "color_harness",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v48",
+          "detail": "recorded on pipeline v24, current is v49",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -327,7 +327,7 @@
         {
           "source": "color_harness",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v48",
+          "detail": "recorded on pipeline v24, current is v49",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -351,7 +351,7 @@
         {
           "source": "color_harness",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v48",
+          "detail": "recorded on pipeline v24, current is v49",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -375,7 +375,7 @@
         {
           "source": "color_harness",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v48",
+          "detail": "recorded on pipeline v24, current is v49",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -410,7 +410,7 @@
         {
           "source": "color_harness",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v48",
+          "detail": "recorded on pipeline v24, current is v49",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
@@ -434,7 +434,7 @@
         {
           "source": "color_harness",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v48",
+          "detail": "recorded on pipeline v24, current is v49",
           "record": {
             "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
             "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",

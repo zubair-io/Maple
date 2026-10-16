@@ -197,7 +197,9 @@
 ///   point on CPU and GPU, preserving the As Shot table (#4633).
 /// - 48 — resolve imported name-only Auto white balance through the shared
 ///   estimator before camera preparation (#4669).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 48;
+/// - 49 — robust final gray-population median for Auto white balance (#4671).
+///   Explicit pairs and the Auto-profile fit remain unchanged.
+pub const PIPELINE_OUTPUT_VERSION: u32 = 49;
 
 #[cfg(test)]
 mod tests {

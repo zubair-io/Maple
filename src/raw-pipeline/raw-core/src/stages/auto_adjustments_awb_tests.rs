@@ -61,15 +61,6 @@ fn probe_model() -> AdjustmentModel {
     AdjustmentModel::default()
 }
 
-/// G-normalised chromaticity of the whole image — the gray-world answer when
-/// every pixel survives the gates.
-fn population_chromaticity(img: &Image) -> [f32; 3] {
-    let s = img.pixels.iter().fold([0.0_f64; 3], |a, p| {
-        [a[0] + p[0] as f64, a[1] + p[1] as f64, a[2] + p[2] as f64]
-    });
-    [(s[0] / s[1]) as f32, 1.0, (s[2] / s[1]) as f32]
-}
-
 /// The generic tier converts through `neutral_to_temp_tint`, so an expected
 /// neutral pins the expected pair exactly.
 fn assert_pair_matches_neutral(got: (f32, f32), neutral: [f32; 3], what: &str) {
@@ -188,7 +179,8 @@ fn awb_blends_gray_world_and_white_patch_as_chromaticities() {
     }
     let raw = make_raw([0.5, 1.0, 0.7]);
     let got = compute_awb(&img, &raw, &probe_model());
-    let gray = population_chromaticity(&img);
+    // The 99% neutral population is the exact component median (#4671).
+    let gray = [1.0, 1.0, 1.0];
     let blend = [0, 1, 2].map(|k| 0.6 * gray[k] + 0.4 * [1.2, 1.0, 1.0][k]);
     assert_pair_matches_neutral(got, blend, "normalised blend");
 }
@@ -206,11 +198,7 @@ fn awb_white_patch_needs_a_real_population() {
     }
     let raw = make_raw([0.5, 1.0, 0.7]);
     let got = compute_awb(&img, &raw, &probe_model());
-    assert_pair_matches_neutral(
-        got,
-        population_chromaticity(&img),
-        "white patch below minimum",
-    );
+    assert_pair_matches_neutral(got, [1.0, 1.0, 1.0], "white patch below minimum");
 }
 
 #[test]
@@ -218,7 +206,8 @@ fn awb_chroma_gate_recentres_on_a_strong_cast() {
     // Two neutral surfaces under a strong warm light, both beyond the old
     // fixed 0.25 gate relative to the D65 render (0.31 and 0.29), so the
     // old estimator rejected the entire frame and fell back. The schedule
-    // admits them at 0.5, re-centres, and lands on the mixture.
+    // admits them at 0.5, re-centres, and the final median selects the
+    // dominant (60%) neutral chromaticity rather than a subject-weighted mean.
     let mut img = Image::new(128, 128, ColorSpace::SceneLinearRec2020);
     let split = (img.pixels.len() * 6) / 10;
     for px in img.pixels[..split].iter_mut() {
@@ -229,7 +218,25 @@ fn awb_chroma_gate_recentres_on_a_strong_cast() {
     }
     let raw = make_raw([0.5, 1.0, 0.7]);
     let got = compute_awb(&img, &raw, &probe_model());
-    assert_pair_matches_neutral(got, population_chromaticity(&img), "strong cast");
+    assert_pair_matches_neutral(got, [1.5, 1.0, 0.6], "strong cast");
+}
+
+#[test]
+fn admitted_colored_subjects_do_not_pull_the_majority_neutral() {
+    // Both populations survive the final chroma gate. The colored minority is
+    // brighter, so a luminance-weighted mean shifts the inferred illuminant.
+    // The majority's exact neutral remains the answer, independent of ordering.
+    let mut img = flat_image(0.15, 0.15, 0.15);
+    let minority = img.pixels.len() / 4;
+    img.pixels[..minority].fill([0.26, 0.20, 0.18]);
+    let raw = make_raw([0.5, 1.0, 0.7]);
+    let space = ProbeSpace::resolve(&raw, &probe_model());
+    assert!(space.admit([0.26, 0.20, 0.18], [1.0; 3], 0.25).is_some());
+    for _ in 0..2 {
+        let got = compute_awb(&img, &raw, &probe_model());
+        assert_pair_matches_neutral(got, [1.0; 3], "admitted colored minority");
+        img.pixels.reverse();
+    }
 }
 
 // ---- The as-shot bound ----
