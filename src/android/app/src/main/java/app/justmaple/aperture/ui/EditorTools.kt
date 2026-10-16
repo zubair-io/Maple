@@ -59,31 +59,39 @@ enum class EditorGroup(val label: String, val tools: List<EditorTool>) {
                 else -> emptyList()
             }
 
+    // Audited against iOS ToolModel / ToolSubParam (#4662). Curve and HSL
+    // scalar rows are deliberately excluded; pipeline schema growth must
+    // never automatically add inspector sliders.
     val fields: List<AdjustmentField> by lazy {
-        AdjustmentFields.all.filter { field ->
-            if (field.xmp.isEmpty()) false
-            else
-                when (this) {
-                    Light ->
-                        field.name in tools.map { it.field } || field.name.startsWith("parametric_")
-                    Color ->
-                        field.name in tools.map { it.field } ||
-                            field.name.contains("adjustment_") ||
-                            field.name.startsWith("gray_mixer_")
-                    Effects ->
-                        field.name in tools.map { it.field } ||
-                            field.name.startsWith("vignette_") ||
-                            field.name.startsWith("grain_") ||
-                            field.name.startsWith("color_grade_") ||
-                            field.name.startsWith("split_ton") ||
-                            field.name == "film_strength"
-                    Detail ->
-                        field.name !in Light.fields.map { it.name } &&
-                            field.name !in Color.fields.map { it.name } &&
-                            field.name !in Effects.fields.map { it.name } &&
-                            !field.name.startsWith("wb_")
-                }
-        }
+        val names =
+            when (this) {
+                Light -> tools.map { it.field }
+                Color -> tools.map { it.field } + listOf(
+                    "gray_mixer_red", "gray_mixer_orange", "gray_mixer_yellow", "gray_mixer_green",
+                    "gray_mixer_aqua", "gray_mixer_blue", "gray_mixer_purple", "gray_mixer_magenta",
+                )
+                Effects -> listOf(
+                    "clarity", "texture", "dehaze", "vignette_amount", "vignette_feather",
+                    "grain_amount", "grain_size", "grain_roughness", "film_strength",
+                    "split_tone_shadow_hue", "split_tone_shadow_saturation",
+                    "split_tone_highlight_hue", "split_tone_highlight_saturation", "split_tone_balance",
+                    "color_grade_shadow_luminance", "color_grade_midtone_hue",
+                    "color_grade_midtone_saturation", "color_grade_midtone_luminance",
+                    "color_grade_highlight_luminance", "color_grade_global_hue",
+                    "color_grade_global_saturation", "color_grade_global_luminance",
+                )
+                Detail -> listOf(
+                    "sharpen_amount", "sharpen_radius", "sharpen_detail", "sharpen_masking",
+                    "nr_luminance", "nr_color", "deep_denoise", "chroma_prefilter",
+                    "capture_sharpening_amount", "capture_sharpening_sigma",
+                    "lens_correction_distortion", "lens_correction_ca", "lens_correction_vignetting",
+                    "perspective_vertical", "perspective_horizontal", "perspective_rotate",
+                    "perspective_scale", "perspective_aspect", "perspective_x", "perspective_y",
+                    "defringe_purple_amount", "defringe_purple_hue_lo", "defringe_purple_hue_hi",
+                    "defringe_green_amount", "defringe_green_hue_lo", "defringe_green_hue_hi",
+                )
+            }
+        names.map(AdjustmentFields.byName::getValue)
     }
 }
 

@@ -2,22 +2,20 @@ package app.justmaple.aperture.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import app.justmaple.aperture.generated.AdjustmentField
 
-/** Maple's fine neutral track and circular thumb, with a full 44dp hit target. */
+/** iOS tool-colored track and circular thumb, with a full 44dp hit target. */
 @Composable
 internal fun AdjustmentSlider(
     field: AdjustmentField,
@@ -30,6 +28,7 @@ internal fun AdjustmentSlider(
     val commit by rememberUpdatedState(onCommit)
     val current by rememberUpdatedState(value)
     val range = field.maximum - field.minimum
+    val track = remember(field.name, enabled) { adjustmentTrack(field, if (enabled) 1f else .35f) }
     Canvas(
         Modifier.fillMaxWidth()
             .height(44.dp)
@@ -75,7 +74,7 @@ internal fun AdjustmentSlider(
                 fun scrub(point: Offset) {
                     change(field.minimum + (point.x / size.width).coerceIn(0f, 1f) * range)
                 }
-                detectDragGestures(
+                detectHorizontalDragGestures(
                     onDragStart = ::scrub,
                     onDragEnd = { commit() },
                     onDragCancel = { commit() },
@@ -88,14 +87,7 @@ internal fun AdjustmentSlider(
         val middle = size.height / 2
         val alpha = if (enabled) 1f else .35f
         drawRoundRect(
-            brush =
-                Brush.horizontalGradient(
-                    listOf(
-                        Color.Black.copy(alpha = alpha),
-                        MapleColors.muted.copy(alpha = alpha),
-                        MapleColors.text.copy(alpha = alpha),
-                    )
-                ),
+            brush = track,
             topLeft = Offset(0f, middle - 2.dp.toPx()),
             size = androidx.compose.ui.geometry.Size(size.width, 4.dp.toPx()),
             cornerRadius = CornerRadius(2.dp.toPx()),

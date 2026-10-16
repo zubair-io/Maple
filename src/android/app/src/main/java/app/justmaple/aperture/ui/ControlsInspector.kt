@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import app.justmaple.aperture.*
@@ -95,32 +96,39 @@ internal fun ControlsInspector(
                     }
                 }
             }
-        LazyColumn(Modifier.weight(1f)) {
-            items(group.fields.filter(state::supportsField), key = { it.name }) { field ->
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    Row {
-                        Text(
-                            fieldLabel(field),
-                            Modifier.weight(1f),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(
-                            displayValue(field, state.values[field.name] ?: field.initial),
-                            color = MapleColors.muted,
-                            fontFamily = FontFamily.Monospace,
-                            style = MaterialTheme.typography.labelMedium,
+        key(group) {
+            LazyColumn(Modifier.weight(1f).testTag("adjustment-sliders")) {
+                items(
+                    group.fields.filter {
+                        state.supportsField(it) && (!it.name.startsWith("gray_mixer_") || monochrome)
+                    },
+                    key = { it.name },
+                ) { field ->
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Row {
+                            Text(
+                                fieldLabel(field),
+                                Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                displayValue(field, state.values[field.name] ?: field.initial),
+                                color = MapleColors.muted,
+                                fontFamily = FontFamily.Monospace,
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                        AdjustmentSlider(
+                            field,
+                            state.values[field.name] ?: field.initial,
+                            onChange = { model.setField(field.name, it) },
+                            onCommit = model::commitGesture,
+                            enabled =
+                                state.canEdit &&
+                                    (field.name != "film_strength" || filmId.isNotEmpty()) &&
+                                    (!field.name.startsWith("gray_mixer_") || monochrome),
                         )
                     }
-                    AdjustmentSlider(
-                        field,
-                        state.values[field.name] ?: field.initial,
-                        onChange = { model.setField(field.name, it) },
-                        onCommit = model::commitGesture,
-                        enabled =
-                            state.canEdit &&
-                                (field.name != "film_strength" || filmId.isNotEmpty()) &&
-                                (!field.name.startsWith("gray_mixer_") || monochrome),
-                    )
                 }
             }
         }
