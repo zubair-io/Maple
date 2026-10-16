@@ -387,3 +387,6 @@ SMBCopyOnlyRestoreTests
 # Panorama merge preview (#4579): PanoMergeSession preview/debounce/cancel
 # and alignment hand-off against an in-memory recording stitcher; no FFI.
 PanoMergePreviewTests
+
+# RGB bias precision (#4667): generated large images, no external fixtures.
+CIEDE2000BiasTests

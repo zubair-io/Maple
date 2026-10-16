@@ -50,6 +50,29 @@ Regenerate each expected file with `compare_images.py <directory>/a.png
 `bias-swift-before.log`, `bias-swift-formatted.log` and
 `bias-pr-comparator-review-tests.log` under the investigation's temporary archive.
 
+## Review follow-up: SwiftPM visual harness
+
+A second review found a separate comparator in the `MapleCoreTests` target.
+It now uses the same Float residuals and Double accumulation/average as the
+XCUITest helper. A repository-wide search found these two Swift implementations;
+both are corrected. Formatting and local-variable renames leave the DeltaE
+calculation unchanged.
+
+`CIEDE2000BiasTests` adds two generated 512×512 regressions to the actual package
+test target and to `.github/swift-regressions/run.txt`. They cover three-channel
+repetition versus a single pixel and signed cancellation in both pixel orders.
+The independent oracle averages each distinct Float residual in Double, avoiding
+a second large reduction. Both methods fail against the original package helper
+(12 assertions) and pass after the fix, with zero skips. The CI coverage checker
+confirms the new class is in the executed test list.
+
+The package source and test were first compiled in a temporary isolated control
+target to record that failure. The complete MapleCore target was also built from
+this PR's package sources against a freshly built real `raw-ffi` host archive;
+both new tests passed in that target with zero skips. The staged helper and test
+sources were hash-checked against the PR files. This does not claim
+a full UI run or a physical rendering-gate pass.
+
 ## Reproduction
 
 For candidate RGB 128 and reference RGB 127, the normalized float32 residual
