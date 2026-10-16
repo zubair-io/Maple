@@ -9,7 +9,7 @@ import java.io.IOException
 import java.util.UUID
 import org.json.JSONObject
 
-/** Calls are serialized by PhotoLibrary's persistence lock. Only XMP siblings are writable. */
+/** Calls share PhotoLibrary's process-wide persistence lock. Only XMP siblings are writable. */
 internal class SafSidecars(private val context: Context, private val documents: LocalDocuments) {
     private val resolver = context.contentResolver
 

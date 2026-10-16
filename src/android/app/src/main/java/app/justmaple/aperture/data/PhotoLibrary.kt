@@ -46,7 +46,6 @@ data class LoadedSidecar(val document: XmpDocument, val baseline: String?)
 class PhotoLibrary(private val context: Context) {
     val cloud = CloudLibrary(context)
     private val preferences = context.getSharedPreferences("maple-library", Context.MODE_PRIVATE)
-    private val io = Mutex()
     private val local = LocalDocuments(context)
     private val saf = SafSidecars(context, local)
     private val shared = FolderDerivativeCache(context)
@@ -420,6 +419,9 @@ class PhotoLibrary(private val context: Context) {
         }
 
     companion object {
+        // Journals and sidecar files are shared by every library instance (#4771).
+        // A reader can recover/rename them, so reads and saves need the same lock.
+        private val io = Mutex()
         private val originals = Mutex()
 
         private val CLOUD_INDEX = Regex("cloud-([0-9a-f]{64})\\.json")
