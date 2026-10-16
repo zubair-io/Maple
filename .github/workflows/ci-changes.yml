@@ -3,6 +3,8 @@ name: CI change selection
 on:
   workflow_call:
     outputs:
+      android:
+        value: ${{ jobs.select.outputs.android }}
       api:
         value: ${{ jobs.select.outputs.api }}
       web:
@@ -21,6 +23,7 @@ jobs:
   select:
     runs-on: ubuntu-latest
     outputs:
+      android: ${{ steps.changes.outputs.android }}
       api: ${{ steps.changes.outputs.api }}
       web: ${{ steps.changes.outputs.web }}
       windows: ${{ steps.changes.outputs.windows }}

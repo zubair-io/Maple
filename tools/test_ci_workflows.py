@@ -85,7 +85,7 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn(f"steps.changes.outputs.{component}", internal[component])
 
     def test_workflow_gates_cover_every_job_and_selection(self):
-        for name in ("api", "windows", "web", "maple-types", "cross"):
+        for name in ("android", "api", "windows", "web", "maple-types", "cross"):
             with self.subTest(workflow=name):
                 jobs = workflow(name)["jobs"]
                 self.assertEqual(
@@ -138,7 +138,7 @@ class WorkflowTests(unittest.TestCase):
                         validate(needs, rules, event)
 
     def test_release_names_and_native_trigger_coverage(self):
-        for name in ("api", "windows", "web", "maple-types", "cross"):
+        for name in ("android", "api", "windows", "web", "maple-types", "cross"):
             self.assertIn("pull_request", workflow(name)[True])
             self.assertIsNone(workflow(name)[True]["pull_request"])
         paths = workflow("publish-package")[True]["pull_request"]["paths"]

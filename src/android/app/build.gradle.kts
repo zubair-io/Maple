@@ -3,6 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// CI runs the real JNI renderer on an x86_64 KVM emulator and still builds arm64.
+val nativeAbis = providers.gradleProperty("mapleAbis").orElse("arm64-v8a").get().split(",")
+require(nativeAbis.isNotEmpty() && nativeAbis.all { it in setOf("arm64-v8a", "x86_64") })
+
 android {
     namespace = "app.justmaple.aperture"
     compileSdk = 36
@@ -14,7 +18,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        ndk { abiFilters += "arm64-v8a" }
+        ndk { abiFilters += nativeAbis }
         externalNativeBuild { cmake { arguments += "-DANDROID_STL=c++_shared" } }
     }
     buildFeatures { compose = true }
@@ -71,7 +75,7 @@ androidComponents.onVariants { variant ->
 val buildRust by
     tasks.registering(Exec::class) {
         workingDir(rootProject.projectDir)
-        commandLine("bash", "scripts/build-native.sh")
+        commandLine(listOf("bash", "scripts/build-native.sh") + nativeAbis)
         // Cargo owns dependency/resource freshness; always let it inspect its graph.
     }
 
