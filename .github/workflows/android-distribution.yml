@@ -1,0 +1,156 @@
+name: Android distribution
+
+on:
+  workflow_run:
+    workflows: [Android]
+    types: [completed]
+    branches: [main]
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-distribution
+  cancel-in-progress: false
+
+jobs:
+  signed-build:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha: ${{ steps.version.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Validate product version and immutable source
+        id: version
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          version = json.load(open('src/maple/package.json'))['version']
+          if os.environ['TAG'] and os.environ['TAG'] != f'v{version}':
+              raise SystemExit('Release tag must match the canonical product version')
+          sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'version={version}\nsha={sha}\n')
+          PY
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/android/native -> target
+          cache-on-failure: true
+      - run: bash src/android/scripts/install-ci-sdk.sh
+      - name: Build and verify signed APK and app bundle
+        env:
+          MAPLE_VERSION_CODE: ${{ github.run_number }}
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: bash src/android/scripts/package-release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maple-android-signed
+          path: src/android/out/*
+          if-no-files-found: error
+          retention-days: 30
+
+  internal-testing:
+    needs: signed-build
+    if: github.event_name == 'workflow_run'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.signed-build.outputs.sha }}
+      - name: Keep a newer main commit from being replaced by a delayed run
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_SHA: ${{ needs.signed-build.outputs.sha }}
+        run: |
+          main=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if [[ "$main" == "$BUILD_SHA" ]]; then
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Main has advanced; retaining the newer test build.'
+          fi
+      - uses: actions/download-artifact@v4
+        if: steps.current.outputs.publish == 'true'
+        with:
+          name: maple-android-signed
+          path: dist
+      - name: Obtain a short-lived Google Play token
+        if: steps.current.outputs.publish == 'true'
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GOOGLE_PLAY_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+          export_environment_variables: false
+      - name: Publish the exact signed bundle to internal testing
+        if: steps.current.outputs.publish == 'true'
+        env:
+          GOOGLE_PLAY_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          VERSION: ${{ needs.signed-build.outputs.version }}
+          VERSION_CODE: ${{ github.run_number }}
+          BUILD_SHA: ${{ needs.signed-build.outputs.sha }}
+        run: |
+          cd dist && sha256sum --check Maple-Android-SHA256SUMS.txt && cd ..
+          python3 tools/android_publish.py "dist/Maple-Android-$VERSION.aab" \
+            --version-code "$VERSION_CODE" --name "$VERSION ($VERSION_CODE) ${BUILD_SHA:0:7}"
+
+  release-assets:
+    needs: signed-build
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: maple-android-signed
+          path: dist
+      - name: Create or reuse the coordinated draft release
+        run: |
+          set -euo pipefail
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            args=("$GITHUB_REF_NAME" --repo "$REPOSITORY" --draft --title "Maple $GITHUB_REF_NAME" --generate-notes)
+            case "$GITHUB_REF_NAME" in *-*) args+=(--prerelease);; esac
+            gh release create "${args[@]}" || gh release view "$GITHUB_REF_NAME" --repo "$REPOSITORY" >/dev/null
+          fi
+          cd dist && sha256sum --check Maple-Android-SHA256SUMS.txt && cd ..
+          gh release upload "$GITHUB_REF_NAME" dist/* --repo "$REPOSITORY" --clobber

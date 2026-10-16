@@ -77,6 +77,8 @@ def dependencies(path):
     )
     if path.startswith("src/android/"):
         return {"android"} | codegen
+    if path == "src/maple/package.json":
+        return {"android", "api", "maple", "web"}
     if path.startswith(("src/api/", "src/maple/")):
         return {"api", "maple", "web"} | codegen
     if path.startswith("src/web/"):
