@@ -143,6 +143,12 @@ class DistributionBoundaryTests(unittest.TestCase):
 
     def test_only_successful_main_push_ci_can_supply_a_publication_sha(self):
         condition = self.jobs["signed-build"]["if"]
+        self.assertEqual(self.jobs["signed-build"]["environment"], "android-signing")
+        self.assertIn(
+            "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
+            condition,
+        )
+        self.assertNotIn("github.event_name != 'workflow_run'", condition)
         for required in (
             "conclusion == 'success'",
             "event == 'push'",

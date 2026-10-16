@@ -20,11 +20,14 @@ concurrency:
 jobs:
   signed-build:
     if: >-
-      github.event_name != 'workflow_run' ||
       (github.event.workflow_run.conclusion == 'success' &&
+       github.event_name == 'workflow_run' &&
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_branch == 'main' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
+       github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'push' && github.ref_type == 'tag') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    environment: android-signing
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     outputs:
