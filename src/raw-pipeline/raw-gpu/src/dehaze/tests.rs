@@ -386,3 +386,41 @@ fn wgsl_dehaze_handles_pure_black() {
         "dehaze produced non-finite output"
     );
 }
+
+/// Guided refinement must retain the transmission bound in both CPU-airlight
+/// and resident GPU-airlight paths. Also retain signed and HDR scene samples.
+#[test]
+fn wgsl_dehaze_retains_positive_observations_and_signed_hdr_range() {
+    assert_eq!(OMEGA, raw_core::stages::dehaze::TRANSMISSION_OMEGA);
+    assert_eq!(A_FLOOR, raw_core::stages::dehaze::AIRLIGHT_FLOOR);
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (129usize, 129usize);
+    let witness = (64 * w + 64) * 4;
+    for sample in [[0.2; 3], [-0.25, 0.3, 2.0], [-1e-10, 0.3, 2.0]] {
+        let mut input: Vec<_> = (0..w * h).flat_map(|_| [0.8, 0.8, 0.8, 0.75]).collect();
+        input[witness..witness + 3].copy_from_slice(&sample);
+        for amount in [-100.0, 50.0, 100.0] {
+            let reference = raw_core_dehaze(&input, w as u32, h as u32, amount);
+            let image = GpuImage::upload(&ctx, &input, w as u32, h as u32);
+            let runner = ChainRunner::new(&ctx, &image);
+            for stage in [pass(&input, w, h, amount), DehazePass::new_on_gpu(amount)] {
+                let actual = runner.run_blocking(&[&stage]);
+                let (error, index) = max_diff_at(&reference, &actual);
+                assert!(
+                    error < 1e-4,
+                    "sample={sample:?} amount={amount} error={error} index={index}"
+                );
+                assert!(actual.chunks_exact(4).all(|p| p[3] == 0.75));
+                if sample[0] >= 0.0 {
+                    assert!(actual
+                        .chunks_exact(4)
+                        .all(|p| p[..3].iter().all(|v| *v >= -1e-6)));
+                } else if amount > 0.0 {
+                    for c in 0..3 {
+                        assert_eq!(actual[witness + c].to_bits(), sample[c].to_bits());
+                    }
+                }
+            }
+        }
+    }
+}

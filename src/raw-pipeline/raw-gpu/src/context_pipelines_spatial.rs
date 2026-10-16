@@ -105,10 +105,10 @@ impl GpuContext {
     /// The cached dehaze min-filter pipeline (epic #925 P2 wave 3b / #990).
     /// `dehaze_min.wgsl`: a direct 2D 15×15 window min serving the dark channel
     /// (mode 0) and the transmission map (mode 1), with clamp-to-edge borders.
-    /// Standalone kernel.
+    /// Generated core transmission constants are prepended.
     pub fn dehaze_min_pipeline(&self) -> &wgpu::ComputePipeline {
         self.dehaze_min_pipeline.get_or_init(|| {
-            compile_standalone(&self.device, "dehaze-min", include_str!("dehaze_min.wgsl"))
+            compile_with_matrices(&self.device, "dehaze-min", include_str!("dehaze_min.wgsl"))
         })
     }
 
@@ -167,10 +167,10 @@ impl GpuContext {
     /// The cached dehaze recovery pipeline (epic #925 P2 wave 3b / #990).
     /// `dehaze_recover.wgsl`: the MULTI-INPUT scene recovery (reconstruct
     /// t_refined, `J=(I-A)/t_eff+A`, sky-mask blend). The airlight rides a SECOND
-    /// uniform binding (#1033), so storage stays at 4. Standalone kernel.
+    /// uniform binding (#1033), so storage stays at 4. Generated core constants are prepended.
     pub fn dehaze_recover_pipeline(&self) -> &wgpu::ComputePipeline {
         self.dehaze_recover_pipeline.get_or_init(|| {
-            compile_standalone(
+            compile_with_matrices(
                 &self.device,
                 "dehaze-recover",
                 include_str!("dehaze_recover.wgsl"),

@@ -187,7 +187,9 @@
 ///   ISO consistently with native raster GPU rendering (#4653).
 /// - 43 — Catmull–Rom lens resampling reproduces affine/quadratic samples
 ///   and reduces negative-lobe edge ringing without scene clipping (#4650).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 43;
+/// - 44 — guided dehaze transmission retains its pointwise haze fraction,
+///   preventing negative reconstruction from positive observations (#4654).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 44;
 
 #[cfg(test)]
 mod tests {

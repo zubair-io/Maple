@@ -90,8 +90,15 @@ is introduced. Panorama stitching features are outside this change.
 The v43 source passes all 30 opcode/sampler tests and 40 tile tests; nine
 fixture-gated tile tests remain ignored in that command and are not claimed
 as physical qualification. Code generation completed for all bindings.
-Fresh full-corpus, binding and performance qualification is still required.
-The focused source patch and logs are in the evidence root's `resample-v43/focused/`.
+The integrated v43 source also passes all 19 domain commands, including
+2,857 core tests (104 ignored), 295 GPU tests (five ignored), the physical
+camera/GainMap/HSM checks, Android, WASM and FFI tests, the browser-target
+build, synthetic grey and banding gates, one-shot WB parity, WGSL validation
+and file headroom. The source/input audit reports no changes during this
+run. The ignored tests are not counted as physical qualification. Logs and
+command results are in `resample-v43/domains/`; the focused checks are in
+`resample-v43/focused/` under the parent evidence root. Full-corpus and
+controlled performance qualification remain outstanding.
 
 Evidence directory:
 `/Volumes/Projects/maple-color-gate-20261015/pixel-resample-v40-attribution/`.

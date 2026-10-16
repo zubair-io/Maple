@@ -80,3 +80,6 @@ const SHARPEN_PRESERVED_DARKENING: f32 = 0.4f;
 // Camera-profile HueSatMap guards from color/hsm.rs (#4629).
 const HSM_ACHROMATIC_SATURATION: f32 = 0.01f;
 const HSM_HSV_DELTA_EPSILON: f32 = 1e-9f;
+// Dark-channel transmission guards from stages/dehaze.rs (#4654).
+const DEHAZE_TRANSMISSION_OMEGA: f32 = 0.95f;
+const DEHAZE_AIRLIGHT_FLOOR: f32 = 1e-6f;

@@ -16,7 +16,8 @@
 //   t      = clamp(t_refined, 0, 1)
 //   scale  = clamp(dehaze / 100, -1, 1)
 //   scale >= 0:
-//     t_eff = max(t + (1-t)*(1-scale), t0)
+//     supported_t = max(t, clamp(1 - omega * min(I / max(A, A_floor)), 0, 1))
+//     t_eff = max(supported_t + (1-supported_t)*(1-scale), t0)
 //     J     = (I - A) / t_eff + A
 //   scale < 0:
 //     t_haze = 1 - (-scale)*(1-t)
@@ -73,7 +74,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let a = airlight.value.rgb;       // RAW A.
     var j: vec3<f32>;
     if (scale >= 0.0) {
-        let t_eff = max(t + (1.0 - t) * (1.0 - scale), T0);
+        // Retain the original estimate's haze fraction after guided refinement.
+        // This constrains transmission, never the signed/HDR scene pixels.
+        let ratio = p.rgb / max(a, vec3<f32>(DEHAZE_AIRLIGHT_FLOOR));
+        let point_min = min(min(ratio.r, ratio.g), ratio.b);
+        let point_transmission = clamp(1.0 - DEHAZE_TRANSMISSION_OMEGA * point_min, 0.0, 1.0);
+        let supported_t = max(t, point_transmission);
+        if (supported_t == 1.0) {
+            output_buf[i] = p;
+            return;
+        }
+        let t_eff = max(supported_t + (1.0 - supported_t) * (1.0 - scale), T0);
         j = (p.rgb - a) / t_eff + a;
     } else {
         let t_haze = 1.0 - (-scale) * (1.0 - t);

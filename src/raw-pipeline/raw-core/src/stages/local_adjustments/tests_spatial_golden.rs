@@ -34,6 +34,11 @@
 //! image within 1/65535 per channel. The 128-count tolerance is unchanged.
 //! See test-fixtures/qualification/color-noise-iso-4638.md.
 //!
+//! #4654 refreshes this synthetic golden for the corrected dehaze transmission.
+//! Previous recovery reproduces the old PNG exactly; independent f64 recovery
+//! agrees with the new composition within one 16-bit count. Tolerance is unchanged.
+//! See test-fixtures/qualification/color-dehaze-transmission-4654.md.
+//!
 //! # Tolerance
 //!
 //! Per channel, 128 counts of 65535 (~2e-3). Tight enough that any real
