@@ -14,6 +14,7 @@ permissions:
 
 concurrency:
   group: android-distribution
+  queue: max
   cancel-in-progress: false
 
 jobs:

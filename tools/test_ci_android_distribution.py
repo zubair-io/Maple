@@ -148,6 +148,8 @@ class DistributionBoundaryTests(unittest.TestCase):
         self.assertNotIn("id-token", self.jobs["signed-build"].get("permissions", {}))
 
     def test_one_counter_and_exact_artifact_are_shared_by_all_build_triggers(self):
+        self.assertEqual(self.workflow["concurrency"]["queue"], "max")
+        self.assertFalse(self.workflow["concurrency"]["cancel-in-progress"])
         build = self.jobs["signed-build"]
         signing = next(
             step
