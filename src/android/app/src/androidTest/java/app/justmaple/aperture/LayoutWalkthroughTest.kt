@@ -35,6 +35,9 @@ class LayoutWalkthroughTest {
         }
         compose.captureWalkthrough("01-library")
         compose.onNodeWithContentDescription(source.name).performClick()
+        compose.waitUntil(30_000) {
+            model.state.value.mode == PhotoMode.Preview && !model.state.value.loading
+        }
         compose.onNodeWithContentDescription("Edit").assertIsDisplayed()
         val window = compose.onRoot().fetchSemanticsNode().boundsInRoot
         val edit = compose.onNodeWithContentDescription("Edit").fetchSemanticsNode().boundsInRoot
@@ -107,8 +110,10 @@ class LayoutWalkthroughTest {
         compose.onNodeWithContentDescription("Undo").performClick()
         assertEquals(0f, model.state.value.values.getValue("exposure"))
         compose.onNodeWithContentDescription("Back").performClick()
+        compose.waitUntil(30_000) { model.state.value.mode == PhotoMode.Preview }
         compose.onNodeWithContentDescription("Edit").assertIsDisplayed()
         compose.onNodeWithContentDescription("Back").performClick()
+        compose.waitUntil(30_000) { model.state.value.mode == PhotoMode.Browse }
         compose.onNodeWithContentDescription("Settings").performClick()
         compose.onNodeWithText("Cloud").assertIsDisplayed()
         compose.captureWalkthrough("04-settings")
