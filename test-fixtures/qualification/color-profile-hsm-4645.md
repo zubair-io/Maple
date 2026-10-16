@@ -199,3 +199,29 @@ diagnostic patch. Their only intervening production change is the exact-pair
 Auto-WB pass fusion, which is inactive for these As Shot cases. Complete
 identities, the patch and results are archived under
 `/Volumes/Projects/maple-color-gate-20261015/negative-dehaze-mask-v49/`.
+
+### Controlled Adobe contrast response at three exposures
+
+An additional Adobe Camera Raw experiment renders the same GFX 50S and Sony
+A7R IV photographs at exposure -1, 0 and +1 EV, each with contrast -100, 0
+and +100. The 18 renders use isolated RAW copies and preserve the explicit
+profile/WB controls. All 36 full/down PNG metadata checks pass. Original RAW
+and sidecar hashes, and the copied RAW hashes, are unchanged. The six zero-EV
+controls reproduce the existing canonical reference pixels exactly.
+
+Using the same native-pair Lanczos reduction and neutral-pixel binning, the
+GFX 50S contrast zero crossings stay between `0.6440` and `0.6597` encoded
+sRGB luminance across the three exposures. Sony's supported crossings stay
+between `0.5421` and `0.5450`. Sony at -1 EV, and its zero-EV maximum-contrast
+case, lack sufficiently populated bins around the crossing; no crossing is
+inferred for those cases.
+
+The near-stable crossings under changed manual exposure strengthen the
+evidence that a single replacement contrast pivot is insufficient. They do
+not fully distinguish profile/look mapping from scene adaptation. This is
+diagnostic evidence; no curve, calibration table, budget or reference is
+replaced, and no newly passing required case is claimed.
+
+The render manifest, commands, metadata audits, original-input hashes,
+per-bin distributions and exact-control comparisons are preserved under
+`/Volumes/Projects/maple-color-gate-20261015/contrast-exposure-acr/`.
