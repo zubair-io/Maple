@@ -72,7 +72,7 @@ impl GpuCameraColorimetry {
                 "GPU camera colorimetry requires a colorimetry-only profile".into(),
             ));
         }
-        let (camera_gain, forward_matrix) = match &self.frame {
+        let (camera_gain, forward_matrix, hsm_interpolation) = match &self.frame {
             Some(frame) => {
                 let (temperature, tint) = wb_camera::resolve_target_versioned(
                     model,
@@ -88,13 +88,20 @@ impl GpuCameraColorimetry {
                 (
                     gain,
                     wb_camera::resolved_camera_to_xyz_d50(frame, profile, temperature, tint),
+                    (!wb_camera::is_as_shot_target(frame, temperature, tint))
+                        .then(|| wb_camera::resolved_render_cct(frame, profile, temperature, tint))
+                        .and_then(|cct| profile.hsm_interpolation_for_cct(cct)),
                 )
             }
-            None => ([1.0; 3], profile.forward_matrix),
+            None => ([1.0; 3], profile.forward_matrix, None),
         };
         let entry = dcp::camera_to_prophoto_with_forward(profile, forward_matrix)?;
         let exit = m_pro_to_rec2020();
-        let hsm = profile.hsm.as_ref().map(|table| HueSatMapPass {
+        let table = hsm_interpolation
+            .map(|(cold, _, _)| cold)
+            .or(profile.hsm.as_ref());
+        let hsm_blend = hsm_interpolation.map(|(_, warm, weight)| (warm.data.as_slice(), weight));
+        let hsm = table.map(|table| HueSatMapPass {
             dims: table.dims,
             srgb: table.encoding == HsmEncoding::Srgb,
             data: &table.data,
@@ -109,6 +116,7 @@ impl GpuCameraColorimetry {
             entry: entry.0,
             exit: exit.0,
             hsm,
+            hsm_blend,
         })
     }
 }

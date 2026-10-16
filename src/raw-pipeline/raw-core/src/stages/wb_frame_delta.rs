@@ -342,6 +342,7 @@ impl SliderFrameExport {
             scene_white_xyz: self.render_scene_white_xyz,
             wb_already_baked: self.render_wb_already_baked != 0.0,
             hsm: None,
+            hsm_endpoints: None,
             look_table: None,
             tone_curve: None,
             cm_endpoints,

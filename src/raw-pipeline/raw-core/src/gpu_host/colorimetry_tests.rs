@@ -108,9 +108,14 @@ fn check(
     let runner = ChainRunner::new(ctx, &image);
     let pass = cached.pass(model).unwrap();
     if let Some(hsm) = &pass.hsm {
+        let resident = if pass.hsm_blend.is_some() {
+            &cached.profile.hsm_endpoints.as_ref().unwrap().0
+        } else {
+            cached.profile.hsm.as_ref().unwrap()
+        };
         assert_eq!(
             hsm.data.as_ptr(),
-            cached.profile.hsm.as_ref().unwrap().data.as_ptr(),
+            resident.data.as_ptr(),
             "per-tick table must be borrowed"
         );
     }
@@ -202,6 +207,7 @@ fn real_camera_calibrations_match_cpu_for_all_wb_intents() {
         "test_0000.DNG",
         "test_0002.dng",
         "test_0006.DNG",
+        "test_0007.DNG",
         "test_0013.DNG",
         "test_0005.RAF",
         "test_0012.raf",
@@ -223,6 +229,49 @@ fn real_camera_calibrations_match_cpu_for_all_wb_intents() {
                 maximum < 1e-4,
                 "physical calibration {fixture}: {maximum:e}"
             );
+        }
+    }
+}
+
+#[test]
+fn selected_white_blends_resident_hsm_endpoints_before_gpu_lookup() {
+    let ctx = GpuContext::new_blocking().expect("required GPU adapter");
+    for encoding in [HsmEncoding::Linear, HsmEncoding::Srgb] {
+        let mut cached = calibration();
+        let cm = cached.profile.color_matrix;
+        cached.profile.cm_endpoints = Some(dcp::CmEndpoints {
+            m_cold: cm,
+            cct_cold: 2856.,
+            m_warm: cm,
+            cct_warm: 6504.,
+            fm_cold: cached.profile.forward_matrix,
+            fm_warm: cached.profile.forward_matrix,
+        });
+        let cold = table(encoding);
+        let mut warm = cold.clone();
+        for node in warm.data.chunks_exact_mut(3) {
+            node[0] += 12.;
+            node[1] *= 0.8;
+            node[2] *= 1.1;
+        }
+        cached.profile.hsm_endpoints = Some((cold, warm));
+        let (cold, warm, weight) = cached
+            .profile
+            .hsm_interpolation_for_cct(cached.profile.scene_cct)
+            .unwrap();
+        cached.profile.hsm = crate::color::hsm::lerp_tables(cold, warm, weight);
+        let pointers = {
+            let (cold, warm) = cached.profile.hsm_endpoints.as_ref().unwrap();
+            (cold.data.as_ptr(), warm.data.as_ptr())
+        };
+        for model in models() {
+            let pass = cached.pass(&model).unwrap();
+            if let Some((second, weight)) = pass.hsm_blend {
+                assert_eq!(pass.hsm.as_ref().unwrap().data.as_ptr(), pointers.0);
+                assert_eq!(second.as_ptr(), pointers.1);
+                assert!((0.0..=1.0).contains(&weight));
+            }
+            check(&ctx, &cached, &model, "dual HSM selected white");
         }
     }
 }

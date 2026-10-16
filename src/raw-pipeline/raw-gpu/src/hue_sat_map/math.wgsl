@@ -54,7 +54,7 @@ fn hsv_to_rgb(hue: f32, s: f32, v: f32) -> vec3<f32> {
 
 fn entry(h: u32, s: u32, v: u32) -> vec3<f32> {
     let i = ((h * params.dims.y + s) * params.dims.z + v) * 3u;
-    return vec3<f32>(table[i], table[i + 1u], table[i + 2u]);
+    return table_entry(i);
 }
 
 fn unwrap_entry(v: vec3<f32>, anchor: f32) -> vec3<f32> {

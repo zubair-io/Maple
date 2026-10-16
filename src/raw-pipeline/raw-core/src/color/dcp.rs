@@ -81,6 +81,10 @@ pub struct DcpProfile {
     /// the gamut conversion to Rec.2020 — the same point in the chain
     /// the DNG SDK reference uses (`dng_color_spec.cpp`).
     pub hsm: Option<HsmTable>,
+    /// Original dual-illuminant tables, retained for selected-WB colorimetry
+    /// (#4633). GPU consumers borrow these endpoints instead of allocating a
+    /// blended table during slider updates.
+    pub hsm_endpoints: Option<(HsmTable, HsmTable)>,
     /// DNG ProfileLookTable (3D HSV-indexed lookup table) for camera profile look.
     pub look_table: Option<HsmTable>,
     /// Custom ProfileToneCurve.
@@ -151,6 +155,7 @@ impl DcpProfile {
             hsm: None,
             look_table: None,
             tone_curve: None,
+            hsm_endpoints: None,
             cm_endpoints: None,
         }
     }
@@ -184,6 +189,28 @@ impl DcpProfile {
             (None, Some(fw)) => Some(fw),
             (None, None) => None,
         }
+    }
+}
+
+impl DcpProfile {
+    /// Borrow compatible endpoints and their reciprocal-CCT blend weight.
+    /// Single-table, malformed-pair and coincident-illuminant profiles retain
+    /// their already-resolved table, matching initial profile resolution.
+    pub(crate) fn hsm_interpolation_for_cct(
+        &self,
+        cct: f32,
+    ) -> Option<(&HsmTable, &HsmTable, f32)> {
+        let e = self.cm_endpoints?;
+        let (cold, warm) = self.hsm_endpoints.as_ref()?;
+        if (e.cct_cold - e.cct_warm).abs() < 1.0
+            || cold.dims != warm.dims
+            || cold.encoding != warm.encoding
+        {
+            return None;
+        }
+        let weight = ((1.0 / cct - 1.0 / e.cct_cold) / (1.0 / e.cct_warm - 1.0 / e.cct_cold))
+            .clamp(0.0, 1.0);
+        Some((cold, warm, weight))
     }
 }
 
@@ -582,6 +609,7 @@ pub fn interpolated_profile(
         scene_white_xyz,
         wb_already_baked,
         hsm,
+        hsm_endpoints: hsm_cold.zip(hsm_warm).map(|(c, w)| (c.clone(), w.clone())),
         look_table,
         tone_curve,
         cm_endpoints: Some(CmEndpoints {
@@ -935,6 +963,7 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
             hsm: None,
             look_table: None, // PLT wiring to DNG source deferred (#1691 Phase 2)
             tone_curve: raw.profile_tone_curve.clone(),
+            hsm_endpoints: None,
             cm_endpoints: None,
         },
         ProfileSource::RawlerFallback,
@@ -1185,6 +1214,7 @@ pub(crate) fn single_illuminant_profile(
         hsm,
         look_table,
         tone_curve,
+        hsm_endpoints: None,
         cm_endpoints: None,
     }
 }
@@ -1424,6 +1454,7 @@ mod tests {
             hsm: None,
             look_table: None,
             tone_curve: None,
+            hsm_endpoints: None,
             cm_endpoints: None,
         };
         let mut img = Image::new(2, 2, ColorSpace::CameraNativeLinearRgb);
@@ -1637,6 +1668,7 @@ mod tests {
             hsm: None,
             look_table: None,
             tone_curve: None,
+            hsm_endpoints: None,
             cm_endpoints: None,
         };
 
@@ -2890,6 +2922,7 @@ mod tests {
             hsm: None,
             look_table: None,
             tone_curve: None,
+            hsm_endpoints: None,
             cm_endpoints: None,
         };
         // Profile B: wb_already_baked=true + FM present → takes FM path.

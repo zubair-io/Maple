@@ -23,6 +23,8 @@
 //! and normalizes the resulting white to Y=1 (#4665). Both paths interpolate
 //! in the render calibration's reading of that neutral, while the authored
 //! slider values retain their own calibration frame.
+//! Dual-illuminant HueSatMap tables follow that same selected render white
+//! (#4633); the as-shot and single-table paths retain their exact tables.
 //!
 //! ## Tier split (why this isn't always the code path)
 //!
@@ -437,8 +439,8 @@ pub fn apply_delta(
 
 #[path = "wb_camera_colorimetry.rs"]
 mod colorimetry;
-pub(crate) use colorimetry::resolved_camera_to_xyz_d50;
 pub use colorimetry::retargeted_render_profile;
+pub(crate) use colorimetry::{resolved_camera_to_xyz_d50, resolved_render_cct};
 
 #[cfg(test)]
 #[path = "wb_camera_tests.rs"]
@@ -451,3 +453,7 @@ mod frame_tests;
 #[cfg(test)]
 #[path = "wb_camera_continuity_tests.rs"]
 mod continuity_tests;
+
+#[cfg(test)]
+#[path = "wb_camera_hsm_tests.rs"]
+mod hsm_tests;

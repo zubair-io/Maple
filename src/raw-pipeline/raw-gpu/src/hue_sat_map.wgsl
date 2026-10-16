@@ -14,6 +14,10 @@ struct Params {
 @group(0) @binding(2) var<storage, read_write> output_buf: array<vec4<f32>>;
 @group(0) @binding(3) var<storage, read> table: array<f32>;
 
+fn table_entry(i: u32) -> vec3<f32> {
+    return vec3<f32>(table[i], table[i + 1u], table[i + 2u]);
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
     let i = gid.y * ng.x * 64u + gid.x;

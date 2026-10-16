@@ -29,7 +29,11 @@ fn single_cm_frame(scene_cct: f32) -> SliderFrame {
         cm_as_shot: Matrix3(CANON_5D3_D65_CM),
         scene_cct,
         scene_tint: 0.0,
-        render_cm: Matrix3([[0.6722,-0.0635,-0.0963],[-0.4287,1.2460,0.2028],[-0.0908,0.2162,0.5668]]),
+        render_cm: Matrix3([
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
+        ]),
     }
 }
 
@@ -50,7 +54,11 @@ fn dual_cm_frame(scene_cct: f32) -> SliderFrame {
         ),
         scene_cct,
         scene_tint: 0.0,
-        render_cm: Matrix3([[0.6722,-0.0635,-0.0963],[-0.4287,1.2460,0.2028],[-0.0908,0.2162,0.5668]]),
+        render_cm: Matrix3([
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
+        ]),
     }
 }
 
@@ -74,6 +82,7 @@ fn test_profile(scene_cct: f32, as_shot_neutral: [f32; 3]) -> DcpProfile {
         scene_white_xyz,
         wb_already_baked: true,
         hsm: None,
+        hsm_endpoints: None,
         look_table: None,
         tone_curve: None,
         cm_endpoints: None,
@@ -325,11 +334,8 @@ fn v1_conversion_preserves_the_old_rendered_white() {
         // The V1 value's displacement was `tint × 1e-4` uv; today's CAT16
         // math displaces at the kTintScale, so the historic cast is
         // reproduced by feeding it the V4-rescaled tint (#1893).
-        let w_old = white_balance::wb_cat16_matrix(
-            t1,
-            tint1 * white_balance::TINT_SCALE_V3_TO_V4,
-        )
-        .mul_vec(w);
+        let w_old = white_balance::wb_cat16_matrix(t1, tint1 * white_balance::TINT_SCALE_V3_TO_V4)
+            .mul_vec(w);
         // New rendered white: camera gain for the converted pair, rendered
         // through the same linear DCP transform.
         let g = camera_wb_gain(&frame, asn, t2, tint2);
@@ -388,11 +394,8 @@ fn test_0002_v1_sidecar_converts_to_the_old_interpretations_gain() {
     // G-normalised camera gain through the real profile's D. The V1
     // tint's historic displacement reproduces via the V4 rescale (#1893).
     let d = dcp::camera_to_rec2020_matrix(&profile).expect("D");
-    let w_old = white_balance::wb_cat16_matrix(
-        6282.0,
-        -44.0 * white_balance::TINT_SCALE_V3_TO_V4,
-    )
-    .mul_vec(d.mul_vec([1.0, 1.0, 1.0]));
+    let w_old = white_balance::wb_cat16_matrix(6282.0, -44.0 * white_balance::TINT_SCALE_V3_TO_V4)
+        .mul_vec(d.mul_vec([1.0, 1.0, 1.0]));
     let g_raw = d.inverse().expect("D invertible").mul_vec(w_old);
     let expected = [g_raw[0] / g_raw[1], 1.0, g_raw[2] / g_raw[1]];
 

@@ -193,7 +193,9 @@
 ///   HSL continuity from zero and matching masked GPU controls (#4664).
 /// - 46 — correct L3D-100c calibration and balanced-camera Bradford colorimetry
 ///   for profiles without ForwardMatrix (#4661, #4665).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 46;
+/// - 47 — resolve dual-illuminant HueSatMap calibration at the selected white
+///   point on CPU and GPU, preserving the As Shot table (#4633).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 47;
 
 #[cfg(test)]
 mod tests {

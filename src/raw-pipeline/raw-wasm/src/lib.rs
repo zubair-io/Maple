@@ -242,6 +242,9 @@ pub fn version() -> String {
 #[cfg(test)]
 mod tests;
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod hsm_physical_tests;
+
 // Fit identity checks do not require a GPU adapter; physical input is opt-in.
 #[cfg(all(test, feature = "gpu", not(target_arch = "wasm32")))]
 mod auto_fit_status_tests;

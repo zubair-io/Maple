@@ -57,7 +57,7 @@ export interface CapabilityRecord {
 
 /** The build the release states were computed for. */
 export const CAPABILITY_REGISTRY_BUILD = {
-  pipelineOutputVersion: 46,
+  pipelineOutputVersion: 47,
   schemaVersion: 5,
 } as const;
 

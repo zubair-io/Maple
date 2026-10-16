@@ -69,6 +69,7 @@ fn actual_camera_prefix_and_fused_dcp_match_cpu_photographs() {
         "test_0000.DNG",
         "test_0002.dng",
         "test_0006.DNG",
+        "test_0007.DNG",
         "test_0013.DNG",
         "test_0005.RAF",
         "test_0012.raf",
