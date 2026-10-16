@@ -189,7 +189,9 @@
 ///   and reduces negative-lobe edge ringing without scene clipping (#4650).
 /// - 44 — guided dehaze transmission retains its pointwise haze fraction,
 ///   preventing negative reconstruction from positive observations (#4654).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 44;
+/// - 45 — scene chroma operators engage compression at the soft knee, with
+///   HSL continuity from zero and matching masked GPU controls (#4664).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 45;
 
 #[cfg(test)]
 mod tests {

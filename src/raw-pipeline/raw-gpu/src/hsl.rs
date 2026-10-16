@@ -301,16 +301,23 @@ pub fn apply_hsl(
         let rot_a_hat = a_hat * cos_dh - b_hat * sin_dh;
         let rot_b_hat = a_hat * sin_dh + b_hat * cos_dh;
 
-        // Fast path: rotated + scaled target stays in gamut.
+        // Fast path: rotated + scaled target stays below the compression knee.
         let rgb_target = oklab_to_rec2020([l_new, c_target * rot_a_hat, c_target * rot_b_hat]);
-        let out = if rgb_target[0].min(rgb_target[1]).min(rgb_target[2]) >= -HSL_GAMUT_EPS {
+        // #4664: only skip compression below its knee, not at the hull.
+        let c_probe = c_target / HSL_GAMUT_KNEE_FRACTION;
+        let rgb_probe = oklab_to_rec2020([l_new, rot_a_hat * c_probe, rot_b_hat * c_probe]);
+        let out = if rgb_probe[0].min(rgb_probe[1]).min(rgb_probe[2]) >= -HSL_GAMUT_EPS {
             rgb_target
         } else {
             // Bisect for the hull chroma along the POST-ROTATION hue ray, then
             // Reinhard-soft-compress into it (no `.max(c_floor)` — raw-core's
             // #1748 rationale: rotation can land on a narrower hull section).
-            let c_hull = hsl_bisect_gamut_hull(l_new, rot_a_hat, rot_b_hat, c_target);
-            let c_out = hsl_soft_compress(c_target, c_hull);
+            let c_hull = hsl_bisect_gamut_hull(l_new, rot_a_hat, rot_b_hat, c_probe);
+            let geometry_distance = ((l_new - l0).powi(2)
+                + (rot_a_hat * c - a0).powi(2)
+                + (rot_b_hat * c - b0).powi(2))
+            .sqrt();
+            let c_out = hsl_soft_compress(c_target, c_hull, c, geometry_distance);
             oklab_to_rec2020([l_new, rot_a_hat * c_out, rot_b_hat * c_out])
         };
         px[0] = out[0];
@@ -366,8 +373,10 @@ fn bw_pixel(rgb: [f32; 3], bw_mix: &[f32; NUM_BANDS]) -> [f32; 3] {
 /// Reinhard-style smooth compression — `raw_core::stages::hsl::hsl_soft_compress`
 /// verbatim (the WGSL kernel mirrors the same fn).
 #[inline]
-fn hsl_soft_compress(c_target: f32, c_hull: f32) -> f32 {
-    let c_thresh = HSL_GAMUT_KNEE_FRACTION * c_hull;
+fn hsl_soft_compress(c_target: f32, c_hull: f32, c_input: f32, geometry_distance: f32) -> f32 {
+    let span = ((1.0 - HSL_GAMUT_KNEE_FRACTION) * c_hull)
+        .min((c_hull - c_input).max(0.0) + geometry_distance);
+    let c_thresh = c_hull - span;
     if c_target <= c_thresh {
         return c_target;
     }

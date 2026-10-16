@@ -131,8 +131,8 @@ fn smoothstep_fn(e0: f32, e1: f32, x: f32) -> f32 {
 //
 // Mirrors HSL_GAMUT_EPS / HSL_GAMUT_KNEE_FRACTION / HSL_GAMUT_BISECT_ITERS and
 // the `hsl_soft_compress` / `hsl_bisect_gamut_hull` fns in
-// raw-core/src/stages/hsl.rs verbatim. Same shape as the saturation / vibrance
-// kernels' knee; unlike those there is NO `.max(c_floor)` — hue rotation can
+// raw-core/src/stages/hsl.rs verbatim. The knee width is limited by the input
+// and geometric edit (#4664). There is NO `.max(c_floor)` — hue rotation can
 // land the pixel on a NARROWER part of the hull than the input hue, and a floor
 // at the input chroma would re-emit the negative channel the bisection just
 // solved for (see the raw-core comment).
@@ -150,8 +150,9 @@ fn hsl_min_channel_in_gamut(rgb: vec3<f32>) -> bool {
 
 // Reinhard-style smooth compression — raw-core's `hsl_soft_compress` verbatim,
 // including both early returns.
-fn hsl_soft_compress(c_target: f32, c_hull: f32) -> f32 {
-    let c_thresh = HSL_GAMUT_KNEE_FRACTION * c_hull;
+fn hsl_soft_compress(c_target: f32, c_hull: f32, c_input: f32, geometry_distance: f32) -> f32 {
+    let span = min((1.0 - HSL_GAMUT_KNEE_FRACTION) * c_hull, max(c_hull - c_input, 0.0) + geometry_distance);
+    let c_thresh = c_hull - span;
     if (c_target <= c_thresh) {
         return c_target;
     }
@@ -361,13 +362,16 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let rot_a_hat = a_hat * cos_dh - b_hat * sin_dh;
     let rot_b_hat = a_hat * sin_dh + b_hat * cos_dh;
 
-    // Fast path: rotated + scaled target stays in gamut. NOTE: hue rotation
+    // Fast path: rotated + scaled target stays below the knee. Hue rotation
     // alone can leave gamut (the hull is not hue-invariant), so there is no
     // `c_target <= c` shortcut that skips this check (#1748).
     let a_fast = c_target * rot_a_hat;
     let b_fast = c_target * rot_b_hat;
     let rgb_target = oklab_to_rec2020(vec3<f32>(l_new, a_fast, b_fast));
-    if (hsl_min_channel_in_gamut(rgb_target)) {
+    // #4664: only skip compression below its knee, not at the hull.
+    let c_probe = c_target / HSL_GAMUT_KNEE_FRACTION;
+    let rgb_probe = oklab_to_rec2020(vec3<f32>(l_new, rot_a_hat * c_probe, rot_b_hat * c_probe));
+    if (hsl_min_channel_in_gamut(rgb_probe)) {
         output_buf[i] = vec4<f32>(rgb_target, p.a);
         return;
     }
@@ -375,8 +379,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     // Bisect for the hull chroma along the POST-ROTATION hue ray, then
     // Reinhard-soft-compress into it. No `.max(c_floor)` — see the knee's
     // module comment above.
-    let c_hull = hsl_bisect_gamut_hull(l_new, rot_a_hat, rot_b_hat, c_target);
-    let c_out = hsl_soft_compress(c_target, c_hull);
+    let c_hull = hsl_bisect_gamut_hull(l_new, rot_a_hat, rot_b_hat, c_probe);
+    let geometry_delta = vec3<f32>(l_new - l0, rot_a_hat * c - a0, rot_b_hat * c - b0);
+    let geometry_distance = sqrt(geometry_delta.x * geometry_delta.x + geometry_delta.y * geometry_delta.y + geometry_delta.z * geometry_delta.z);
+    let c_out = hsl_soft_compress(c_target, c_hull, c, geometry_distance);
     let out_rgb = oklab_to_rec2020(vec3<f32>(l_new, rot_a_hat * c_out, rot_b_hat * c_out));
     output_buf[i] = vec4<f32>(out_rgb, p.a);
 }

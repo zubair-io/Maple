@@ -446,10 +446,13 @@ fn saturation_pixel(rgb: vec3<f32>, scale: f32) -> vec3<f32> {
         return oklab_to_rec2020(vec3<f32>(l, a_hat * c_target, b_hat * c_target));
     }
     let rgb_target = oklab_to_rec2020(vec3<f32>(l, a_hat * c_target, b_hat * c_target));
-    if (min(rgb_target.r, min(rgb_target.g, rgb_target.b)) >= -GAMUT_EPS) {
+    // #4664: engage the soft knee before the target crosses the hull.
+    let c_probe = c_target / GAMUT_KNEE_FRACTION;
+    let rgb_probe = oklab_to_rec2020(vec3<f32>(l, a_hat * c_probe, b_hat * c_probe));
+    if (min(rgb_probe.r, min(rgb_probe.g, rgb_probe.b)) >= -GAMUT_EPS) {
         return rgb_target;
     }
-    let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_target);
+    let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_probe);
     let c_out = max(soft_compress(c_target, c_hull), c_in);
     return oklab_to_rec2020(vec3<f32>(l, a_hat * c_out, b_hat * c_out));
 }
@@ -476,10 +479,13 @@ fn vibrance_pixel(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
         return oklab_to_rec2020(vec3<f32>(l, a_hat * c_target, b_hat * c_target));
     }
     let rgb_target = oklab_to_rec2020(vec3<f32>(l, a_hat * c_target, b_hat * c_target));
-    if (min(rgb_target.r, min(rgb_target.g, rgb_target.b)) >= -GAMUT_EPS) {
+    // #4664: engage the soft knee before the target crosses the hull.
+    let c_probe = c_target / GAMUT_KNEE_FRACTION;
+    let rgb_probe = oklab_to_rec2020(vec3<f32>(l, a_hat * c_probe, b_hat * c_probe));
+    if (min(rgb_probe.r, min(rgb_probe.g, rgb_probe.b)) >= -GAMUT_EPS) {
         return rgb_target;
     }
-    let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_target);
+    let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_probe);
     let c_out = max(soft_compress(c_target, c_hull), chroma);
     return oklab_to_rec2020(vec3<f32>(l, a_hat * c_out, b_hat * c_out));
 }
