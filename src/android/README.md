@@ -132,8 +132,8 @@ Rust/codegen, LUTs, fixtures and the Apple layout/font/icon inputs. The stable
 **Android result** check rejects failed, cancelled or unexpectedly skipped work.
 The complete device suite runs on API 36 with a 1280×800 dp tablet layout and
 SwiftShader Vulkan, exercising the inspector/group resets and HEIF/AVIF cases.
-Reports must contain at least 37 device and 26 JVM passes with no skips. The
-19 native CPU/GPU tests and the shared presentation/cache/scRGB tests run against
+Reports must contain at least 44 device and 28 JVM passes with no skips. The
+20 native CPU/GPU/cache contract tests and the shared presentation/cache/scRGB tests run against
 Mesa lavapipe, alongside APK assembly and lint. Reports, native output, logcat,
 device configuration, screenshots and walkthrough captures are uploaded even
 after a test failure. Only SDK setup
@@ -375,3 +375,20 @@ embedded-preview fast path. The local thumbnail cache key includes Android
 thumbnail version 2 to retire earlier unnecessarily developed culling previews.
 Incoming Open/Share MIME filters advertise supported formats only, with an
 Android 12+ AVIF alias; file-picker inputs are validated before opening.
+
+## Shared folder caches
+
+Folder libraries reuse and populate the portable `.maple/` cache through Android
+document providers. Thumbnails use `.maple/thumbs/<sha256-prefix16(basename)>.v<N>.avif`
+at 512 pixels / quality 55; previews use `.maple/previews/<filename.ext>.v<N>.avif`
+at 1280 pixels / quality 70. `<N>` is the generated pipeline output version. Warm
+shared reads do not stage or develop the original. Hosted preview descriptors
+allow JPEG/WebP/PNG reuse, with newer canonical AVIFs taking precedence.
+
+Reads validate actual format, dimensions, original/XMP freshness and source
+identity. Writes use complete synced siblings and safe provider rename, with
+original/sidecar descriptor checks and source revalidation. Private read-through
+copies remain bounded by the 64 MiB derivative budget. Read-only or unsupported
+providers fall back privately; single-file imports and authenticated cloud caches
+retain their existing behavior. Android 10/11 convert shared AVIFs only for private
+display; shared files always remain AVIF. See [caching](../../docs/caching.md).

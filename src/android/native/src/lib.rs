@@ -302,6 +302,30 @@ pub unsafe extern "C" fn maple_android_thumbnail(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn maple_android_shared_derivative(
+    path: *const c_char,
+    destination: *const c_char,
+    xml: *const c_char,
+    preview: bool,
+) -> i32 {
+    guarded(-1, || {
+        transfer::shared_derivative(text(path)?, text(destination)?, text(xml)?, preview)?;
+        Ok(0)
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_cache_valid(
+    path: *const c_char,
+    edge: u32,
+    format: *const c_char,
+) -> bool {
+    guarded(false, || {
+        transfer::cache_valid(text(path)?, edge, text(format)?)
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn maple_android_export(
     path: *const c_char,
     xml: *const c_char,

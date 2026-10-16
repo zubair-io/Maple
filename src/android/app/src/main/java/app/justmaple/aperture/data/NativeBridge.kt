@@ -50,6 +50,10 @@ object NativeBridge {
 
     external fun thumbnail(path: String, destination: String, xml: String, edge: Int)
 
+    external fun sharedDerivative(path: String, destination: String, xml: String, preview: Boolean)
+
+    external fun cacheValid(path: String, edge: Int, format: String): Boolean
+
     external fun export(path: String, xml: String, destination: String)
 
     external fun stageBitmap(bitmap: Bitmap, destination: String, profile: FloatArray)

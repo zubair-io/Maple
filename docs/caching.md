@@ -10,15 +10,15 @@ The one cache that tracks a photo's _edits_ is Apple's rendered-preview cache, a
 
 Every layer agrees on this layout, sitting inside the folder that holds the photos:
 
-| Path                                                  | Contents                                                       | Written by                                      |
-| ----------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------- |
-| `.maple/thumbs/<sha256_prefix16(filename)>.v<N>.avif` | 512-px AVIF grid thumbnail                                     | Apple, Windows, Web, API indexer, pano stitcher |
-| `.maple/previews/<filename.ext>.v<N>.avif`            | 1280-px AVIF display preview                                   | Apple, Web, API indexer, pano stitcher          |
-| `.maple/index.json`                                   | Per-folder file list + culling state (Apple cold-open)         | Apple only                                      |
-| `.maple/id-cache-<writer>.json`                       | `path → maple_id` rows with size/mtime validation              | Apple (`-apple`), Web (`-web`)                  |
-| `.maple/trash/…`                                      | Trashed items plus `<basename>.trashed-YYYY-MM-DD` marker dirs | Apple (local + SMB)                             |
+| Path                                                  | Contents                                                       | Written by                                               |
+| ----------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------- |
+| `.maple/thumbs/<sha256_prefix16(filename)>.v<N>.avif` | 512-px AVIF grid thumbnail                                     | Apple, Android, Windows, Web, API indexer, pano stitcher |
+| `.maple/previews/<filename.ext>.v<N>.avif`            | 1280-px AVIF display preview                                   | Apple, Android, Web, API indexer, pano stitcher          |
+| `.maple/index.json`                                   | Per-folder file list + culling state (Apple cold-open)         | Apple only                                               |
+| `.maple/id-cache-<writer>.json`                       | `path → maple_id` rows with size/mtime validation              | Apple (`-apple`), Web (`-web`)                           |
+| `.maple/trash/…`                                      | Trashed items plus `<basename>.trashed-YYYY-MM-DD` marker dirs | Apple (local + SMB)                                      |
 
-`sha256_prefix16` is the first 16 lowercase hex characters (8 bytes) of `SHA-256` over the **basename with its extension** — UTF-8, no path. Four implementations must agree byte-for-byte, and cross-platform hash vectors pin them: `src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/MapleThumbCacheKey.swift`, `src/api/src/fs/xmp.ts`, `src/web/projects/maple-common/src/lib/maple-cache/sha.ts`, `src/windows/Maple.WinUI/Services/ThumbCachePaths.cs`.
+`sha256_prefix16` is the first 16 lowercase hex characters (8 bytes) of `SHA-256` over the **basename with its extension** — UTF-8, no path. Five implementations must agree byte-for-byte, and cross-platform hash vectors pin them: `src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/MapleThumbCacheKey.swift`, `src/api/src/fs/xmp.ts`, `src/web/projects/maple-common/src/lib/maple-cache/sha.ts`, `src/windows/Maple.WinUI/Services/ThumbCachePaths.cs`, and Android’s `SharedCacheContract.kt`.
 
 Previews preserve the original filename, including its extension, and append the current pipeline version: `IMG_1234.CR2` becomes `IMG_1234.CR2.v6.avif`. Thumbnails use the same `.v<N>` suffix after their frozen basename hash. Readers open only the exact current version; unversioned, older, and future derivatives are misses. A warm shared read needs no companion version-marker request, including over SMB. Path composition lives in `src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/MapleSidecarPaths.swift` and `src/api/src/fs/xmp.ts` (`cachePathFor` / `cachePathForAsset`).
 
@@ -30,19 +30,19 @@ Previews have their own agreed parameters: **1280 px long edge, AVIF quality ~0.
 
 ## Pipeline output version
 
-`PIPELINE_OUTPUT_VERSION` (`src/raw-pipeline/raw-core/src/version.rs`, currently **24**) is the single monotonic counter for the develop pipeline described in [pipeline](pipeline.md). It answers one question: "the pipeline now produces different pixels for the same RAW + sidecar — how does every derived artifact know it's stale?". A raw-core change bumps it by one whenever it alters develop output for any input, or silently reinterprets an already-stored slider value with no load-time converter. Adding a slider at its identity default, or fixing a non-output-visible bug, does not bump it.
+`PIPELINE_OUTPUT_VERSION` (`src/raw-pipeline/raw-core/src/version.rs`, currently **25**) is the single monotonic counter for the develop pipeline described in [pipeline](pipeline.md). It answers one question: "the pipeline now produces different pixels for the same RAW + sidecar — how does every derived artifact know it's stale?". A raw-core change bumps it by one whenever it alters develop output for any input, or silently reinterprets an already-stored slider value with no load-time converter. Adding a slider at its identity default, or fixing a non-output-visible bug, does not bump it.
 
 The `codegen` crate (`tools/codegen.sh`) emits the mirrors, and the `codegen-drift` CI job fails if a hand edit makes them diverge:
 
 - Swift: `AdjustmentModel.pipelineOutputVersion` in `src/apple/Packages/MapleCore/Sources/MapleCore/Generated/AdjustmentModel+Generated.swift`
 - TypeScript: `PIPELINE_OUTPUT_VERSION` in `src/web/projects/maple-common/src/lib/generated/adjustment-model.generated.ts`
 
-The counter reaches every shared derivative reader and writer through generated constants: Apple Core and CloudKit, Angular, the API, the Cloudflare Worker, and Windows. The pano writer uses the Rust constant directly.
+The counter reaches every shared derivative reader and writer through generated constants: Apple Core and CloudKit, Angular, the API, the Cloudflare Worker, Android, and Windows. The pano writer uses the Rust constant directly.
 
 - **Apple's `RenderedPreviewCache`** includes it in its local key (`pv<N>`).
 - **Shared thumb and preview filenames** include `.v<N>` before the actual format extension. Web's JPEG/WebP/PNG fallback artifacts and their preview descriptors and source identities carry the same version. The old `.v` text markers are retired; their presence cannot make an old artifact current.
 - **HTTP clients** request `?pv=<N>`. The origin rejects an explicitly incompatible version with `409`, includes `X-Maple-Pipeline-Version` on successful derivative responses, and versions thumbnail ETags. Preview uploads require the same version header before any cache publication.
-- **Server stages and derivative audit** share `THUMB_TARGET_VERSION` and `PREVIEW_TARGET_VERSION`, each `4 + PIPELINE_OUTPUT_VERSION` (currently 28). A pipeline bump re-arms generation and edge synchronization.
+- **Server stages and derivative audit** share `THUMB_TARGET_VERSION` and `PREVIEW_TARGET_VERSION`, each `4 + PIPELINE_OUTPUT_VERSION` (currently 29). A pipeline bump re-arms generation and edge synchronization.
 
 The cache sweep retires legacy and older-version derivatives, including their markers, while preserving current and newer versions for live originals. Keeping newer files prevents an older app from destroying a newer client's cache. Exact-source cleanup on removal reclaims all recognized versions without matching another filename that shares a prefix.
 
@@ -295,7 +295,7 @@ There is **no in-memory LRU of decoded images or FFI handles in the API**. `src/
 
 Each pipeline stage (see [indexer and enrichment](indexer-enrichment.md)) carries a `targetVersion` (`src/api/src/workers/stage-config.ts`). There is no boolean "done" marker — the marker _is_ the integer `stages.<name>.version`, and the claim query is a `<` comparison against `targetVersion`, so raising the constant makes every previously-complete asset eligible again without deleting anything from the database. A bump on deploy also triggers a dead-row reset at boot.
 
-`thumb` and `preview` use `4 + PIPELINE_OUTPUT_VERSION` (currently 28), sharing those constants with the audit and edge dependency. Their historical bump lineages are recorded in each stage file: thumb v2 baked orientation into the embedded preview, v3 moved JPEG → AVIF, v4 moved the cache key from `maple_id` back to the path-keyed `sha256_prefix16(filename)` every reader actually computes; preview v3 was the path-keyed AVIF migration and v4 collapsed `<filename>.1280.avif` to `<filename>.avif`. Old-scheme files are never renamed — they orphan out through `cache-gc`.
+`thumb` and `preview` use `4 + PIPELINE_OUTPUT_VERSION` (currently 29), sharing those constants with the audit and edge dependency. Their historical bump lineages are recorded in each stage file: thumb v2 baked orientation into the embedded preview, v3 moved JPEG → AVIF, v4 moved the cache key from `maple_id` back to the path-keyed `sha256_prefix16(filename)` every reader actually computes; preview v3 was the path-keyed AVIF migration and v4 collapsed `<filename>.1280.avif` to `<filename>.avif`. Old-scheme files are never renamed — they orphan out through `cache-gc`.
 
 The `thumb` stage also cascades: every successful write resets `cf-thumb-sync` to version 0 (clearing attempts, last error, processed-at, and the dead flag) so a re-rendered thumbnail re-uploads instead of leaving a stale edge copy. That reset is atomic with marking the thumb stage complete.
 
@@ -315,17 +315,35 @@ On Apple, `LocalFileOperations.invalidateDerivedCaches` (and its SMB twin) remov
 
 ## Android
 
-Android caches are app-private and reconstructible; they never write a derived
-image into the photo folder. `src/android/app/src/main/java/app/justmaple/aperture/data/PhotoLibrary.kt`
-and `LocalDocuments.kt` own the following state:
+Android folder libraries read and write the shared `.maple/thumbs/` and
+`.maple/previews/` tiers through the OS document provider, including network
+folders exposed by that provider. `FolderDerivativeCache`, `CacheDocuments` and
+`SharedCacheContract` use the portable basename hash, generated pipeline version,
+512-pixel/quality-55 AVIF thumbnails and 1280-pixel/quality-70 AVIF previews.
+Fresh shared hits are copied byte-for-byte into bounded private read-through
+leases without staging or developing the original. The cache also reads Hosted
+preview descriptors for JPEG/WebP/PNG; a newer canonical AVIF takes precedence.
+Actual format, bounded dimensions, payload completeness, original/XMP mtimes and
+current source identity are validated before reuse. Older/future cache versions
+are not selected. Originals and XMP remain the source of truth.
 
-| Cache                     | Key / identity                                                                                                                                                                                                  | Invalidation / bound                                                                                                                                   |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Staged original           | SHA-256 of URI, original size and mtime, plus the verified content digest for single-file imports; HEIF/AVIF add `platform-rgb-v2` plus preview edge/full-resolution identity and stage source-gamut float TIFF | 512 MiB plus the currently leased original; a process-wide lease protects all library instances while Rust reads it                                    |
-| Local thumbnail / preview | Pipeline output version, Android thumbnail version 4, original identity, requested edge and complete current sidecar text                                                                                       | 64 MiB shared LRU; metadata-only RAW sidecars reuse the embedded preview                                                                               |
-| Cloud derivative          | Pipeline output version, original identity and edge → atomic ETag/content-hash index → immutable payload                                                                                                        | Same 64 MiB bound; conditional authenticated GET revalidates each load, 304 reuses bytes, changed validators replace the index                         |
-| Folder snapshot           | One parent URI → names, document URIs, types, sizes and mtimes from one provider query                                                                                                                          | Replaced on folder listing/photo open; refreshed during baseline checks; invalidated after XMP publication/recovery. Sidecar contents are never cached |
-| Decoded RAW / GPU session | Current photo session plus one GPU context per serial worker                                                                                                                                                    | Photo changes close the active image; worker teardown releases the device, shader caches and frame pool                                                |
+Cold derivatives use the existing core renderer and AVIF encoder. A complete
+provider sibling is synced and renamed into place; replacement retains a backup
+until publication succeeds. Source and sidecar snapshots are rechecked around
+rendering and publication, and descriptor identity checks prevent a provider alias
+from truncating or deleting an original or sidecar. Read-only providers, unknown
+mtimes, and providers without safe regular-descriptor/rename support use a private
+fallback. Android 10/11 use a private JPEG display bridge after AVIF publication.
+Single-file imports retain private caching, and cloud derivatives retain their
+conditional authenticated HTTP cache. `PhotoLibrary.kt` owns the following state:
+
+| Cache                           | Key / identity                                                                                                                                                                                                  | Invalidation / bound                                                                                                                                   |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Staged original                 | SHA-256 of URI, original size and mtime, plus the verified content digest for single-file imports; HEIF/AVIF add `platform-rgb-v2` plus preview edge/full-resolution identity and stage source-gamut float TIFF | 512 MiB plus the currently leased original; a process-wide lease protects all library instances while Rust reads it                                    |
+| Single-file thumbnail / preview | Pipeline output version, Android thumbnail version 4, original identity, requested edge and complete current sidecar text                                                                                       | 64 MiB shared LRU; metadata-only RAW sidecars reuse the embedded preview                                                                               |
+| Cloud derivative                | Pipeline output version, original identity and edge → atomic ETag/content-hash index → immutable payload                                                                                                        | Same 64 MiB bound; conditional authenticated GET revalidates each load, 304 reuses bytes, changed validators replace the index                         |
+| Folder snapshot                 | One parent URI → names, document URIs, types, sizes and mtimes from one provider query                                                                                                                          | Replaced on folder listing/photo open; refreshed during baseline checks; invalidated after XMP publication/recovery. Sidecar contents are never cached |
+| Decoded RAW / GPU session       | Current photo session plus one GPU context per serial worker                                                                                                                                                    | Photo changes close the active image; worker teardown releases the device, shader caches and frame pool                                                |
 
 Single-file edits persist in `filesDir/sidecars/` under the SHA-256 of
 `private-sidecar-v3:` plus `Photo.key` (URI, original size, modification time and
@@ -336,7 +354,7 @@ provider later replaces the URI. A lost snapshot requires reopening; it cannot
 silently read a replacement under the old identity. The import reports progress
 and checks cancellation. These durable XMPs have an explicit export. Earlier URI/metadata-only private sidecars
 remain untouched; their asset identity cannot be safely inferred for migration.
-Original and derivative cache hits update recency without enumerating the cache.
+Private cache hits update recency without enumerating the private cache; shared folder reads revalidate provider metadata and the current XMP snapshot.
 Cloud derivative indexes pair validators with immutable payloads so concurrent responses cannot mismatch an ETag and image. Missing/evicted bodies trigger an unconditional fetch; previews and thumbnails have separate entries.
 Eviction treats an index and its currently referenced payload as one LRU entry;
 superseded orphan payloads remain independently evictable. A new response protects

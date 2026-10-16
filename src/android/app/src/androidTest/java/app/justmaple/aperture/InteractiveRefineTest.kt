@@ -29,9 +29,13 @@ class InteractiveRefineTest {
             compose.waitUntil(120_000) { model.state.value.canEdit }
             compose.waitForIdle()
             compose.waitUntil(30_000) { model.state.value.canEdit }
+            fun redWhenReady() = runCatching {
+                Color.red(renderedPixel(compose.activity))
+            }
+                .getOrNull()
             var baselineSample: Int? = null
             compose.waitUntil(30_000) {
-                val pixel = runCatching { Color.red(renderedPixel(compose.activity)) }.getOrNull()
+                val pixel = redWhenReady()
                 if (pixel != null && pixel > 10) {
                     baselineSample = pixel
                     true
@@ -47,7 +51,7 @@ class InteractiveRefineTest {
                 model.setField("exposure", 1.5f)
                 model.commitGesture()
             }
-            compose.waitUntil(30_000) { Color.red(renderedPixel(compose.activity)) > baseline + 15 }
+            compose.waitUntil(30_000) { redWhenReady()?.let { it > baseline + 15 } == true }
             compose.waitUntil(30_000) { !model.state.value.dirty && !model.state.value.saving }
             val saved = runBlocking {
                 model.library.loadSidecar(model.state.value.selected!!)
@@ -57,10 +61,10 @@ class InteractiveRefineTest {
             assertEquals("1.5", saved.attribute("crs:Exposure2012"))
             compose.runOnIdle { model.undo() }
             compose.waitUntil(30_000) {
-                kotlin.math.abs(Color.red(renderedPixel(compose.activity)) - baseline) <= 2
+                redWhenReady()?.let { kotlin.math.abs(it - baseline) <= 2 } == true
             }
             compose.runOnIdle { model.redo() }
-            compose.waitUntil(30_000) { Color.red(renderedPixel(compose.activity)) > baseline + 15 }
+            compose.waitUntil(30_000) { redWhenReady()?.let { it > baseline + 15 } == true }
             assertEquals(50f, model.state.value.values.getValue("capture_sharpening_amount"), .001f)
             assertNull(model.state.value.error)
             assertArrayEquals(source, original.readBytes())

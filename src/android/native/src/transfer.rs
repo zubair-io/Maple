@@ -28,6 +28,62 @@ pub fn thumbnail(path: &str, destination: &str, xml: &str, edge: u32) -> Result<
     render_jpeg(path, "", destination, Some(edge))
 }
 
+/// The shared folder tiers have fixed parameters, independent of a UI request.
+pub fn shared_derivative(
+    path: &str,
+    destination: &str,
+    xml: &str,
+    preview: bool,
+) -> Result<(), String> {
+    let (edge, quality) = if preview { (1280, 70) } else { (512, 55) };
+    let extension = Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    if !needs_develop(xml)? && super::preview::is_raw(&extension.to_ascii_lowercase()) {
+        if let Some(image) =
+            raw_core::view::auto_profile::preview::extract_preview_display_oriented(path)
+        {
+            let rgb = image.thumbnail(edge, edge).to_rgb8();
+            let bytes = raw_core::export::encode_raster(
+                &raw_core::raster::RasterImage::new_rgb(rgb.width(), rgb.height(), rgb.into_raw()),
+                raw_core::export::ExportFormat::Avif,
+                quality,
+            )
+            .map_err(|e| e.to_string())?;
+            return std::fs::write(destination, bytes).map_err(|e| e.to_string());
+        }
+    }
+    render_encoded(
+        path,
+        xml,
+        destination,
+        Some(edge),
+        raw_core::export::ExportFormat::Avif,
+        quality,
+    )
+}
+
+/// Probe before decode so an untrusted shared artifact cannot allocate a full RAW-sized bitmap.
+pub fn cache_valid(path: &str, edge: u32, format: &str) -> Result<bool, String> {
+    let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
+    if metadata.len() == 0 || metadata.len() > 32 * 1024 * 1024 {
+        return Ok(false);
+    }
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let probe = raw_core::raster::probe_raster_metadata(&bytes).map_err(|e| e.to_string())?;
+    if probe.format != format
+        || probe.width == 0
+        || probe.height == 0
+        || probe.width.max(probe.height) > edge
+    {
+        return Ok(false);
+    }
+    let decoded =
+        raw_core::raster::decode_raster(&bytes, Some(format)).map_err(|e| e.to_string())?;
+    Ok(decoded.width == probe.width && decoded.height == probe.height)
+}
+
 fn needs_develop(xml: &str) -> Result<bool, String> {
     if xml.is_empty() {
         return Ok(false);
@@ -66,6 +122,24 @@ pub fn export(path: &str, xml: &str, destination: &str) -> Result<(), String> {
 }
 
 fn render_jpeg(path: &str, xml: &str, destination: &str, edge: Option<u32>) -> Result<(), String> {
+    render_encoded(
+        path,
+        xml,
+        destination,
+        edge,
+        raw_core::export::ExportFormat::Jpeg,
+        95,
+    )
+}
+
+fn render_encoded(
+    path: &str,
+    xml: &str,
+    destination: &str,
+    edge: Option<u32>,
+    format: raw_core::export::ExportFormat,
+    quality: u8,
+) -> Result<(), String> {
     let model = if xml.is_empty() {
         raw_core::types::AdjustmentModel::default()
     } else {
@@ -84,8 +158,8 @@ fn render_jpeg(path: &str, xml: &str, destination: &str, edge: Option<u32>) -> R
             &model,
             Some(RawInput::Path(Path::new(path))),
             &raw_core::export::ExportOptions {
-                format: raw_core::export::ExportFormat::Jpeg,
-                quality: 95,
+                format,
+                quality,
                 target: TargetPrimaries::Srgb,
                 max_long_edge: edge,
             },
@@ -109,8 +183,8 @@ fn render_jpeg(path: &str, xml: &str, destination: &str, edge: Option<u32>) -> R
         };
         raw_core::export::encode_raster(
             &raw_core::raster::RasterImage::new_rgb(w, h, rgb),
-            raw_core::export::ExportFormat::Jpeg,
-            95,
+            format,
+            quality,
         )
         .map_err(|e| e.to_string())?
     };
@@ -132,3 +206,7 @@ fn render_jpeg(path: &str, xml: &str, destination: &str, edge: Option<u32>) -> R
         .and_then(|_| file.sync_all())
         .map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+#[path = "shared_cache_tests.rs"]
+mod shared_cache_tests;
