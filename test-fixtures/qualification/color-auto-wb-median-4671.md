@@ -67,6 +67,33 @@ The reduction is 44–78% across these four samples. The 100 MP case still
 exceeds one second. Controlled cold-open/slider performance and the remaining
 Sony color failure remain unfinished under #4671.
 
+### Actual cold import operation
+
+A follow-up measures `maple_resolve_imported_white_balance_file` directly
+through the rebuilt release C-FFI library. Each of twelve samples uses a fresh
+process. The timed call includes RAW read/decode, sidecar parsing and WB
+estimation, but excludes library loading, UI presentation, image rendering and
+the seven other fields returned by global Auto. All twelve returned f32 pairs
+exactly match the corresponding qualified CLI recommendation. Source RAW/XMP
+and library hashes remain unchanged.
+
+| RAW | Cold import median ms | Maximum process RSS MB |
+| --- | ---: | ---: |
+| test_0000 (100 MP) | 980.7 | 2,972.9 |
+| test_0006 | 762.1 | 1,304.1 |
+| test_0008 | 812.8 | 1,272.2 |
+| test_0011 | 463.1 | 1,485.2 |
+
+These shared-host results clarify the operation boundary: the earlier
+1,617.9 ms figure measures all eight recommendations. The near-one-second
+import result does not establish an end-to-end UI timing or memory-budget
+pass. Peak RSS covers the whole fresh process, not just the estimator's scratch
+vector. A separate run of the existing stage timers attributes 238 ms of the
+100 MP all-adjustments call to probe development; that call totals 1,119 ms
+under its different host load. No implementation change follows from those
+single-run timings. The complete logs and commands are in `stage-profile/`
+and `import-operation-cost/` beneath the v50 evidence directory.
+
 ### Evidence and qualification corrections
 
 Evidence is under
