@@ -74,6 +74,9 @@ The GitHub `android-signing` environment permits only the `main` branch and
 `ANDROID_UPLOAD_KEY_PASSWORD`. `scripts/package-release.sh` materializes the
 key in a private temporary directory and removes it on exit. Keep these secrets
 out of repository-wide secrets so feature-branch workflows cannot read them.
+The active [Signed release tags ruleset](https://github.com/zubair-io/Maple/rules/25216697)
+restricts creation, updates and deletion of `v*` tags to repository owner
+`zubair-io`; the existing version-sync automation uses that owner's token.
 The public
 certificate is `signing/maple-upload.pem` (RSA 4096, expires March 2054,
 SHA-256 `1C:B8:8A:BE:91:9C:0E:2D:92:6B:58:8C:2C:08:16:D6:28:60:DE:E2:39:38:C1:95:D6:E4:79:90:78:04:3D:F7`).
