@@ -1,3 +1,7 @@
+#[path = "dcp_bradford.rs"]
+mod bradford;
+pub(crate) use bradford::balanced_camera_to_xyz_d50;
+
 use crate::{
     color::{
         hsm::{self, HsmTable},
@@ -26,7 +30,7 @@ pub struct DcpProfile {
     /// The calibration illuminant tag — retained for debugging / profile
     /// identification. **Not** used as the Bradford source: see `scene_cct`.
     pub illuminant: Illuminant,
-    /// Camera RGB → XYZ at the scene illuminant (post-interpolation for dual-
+    /// XYZ → camera RGB at the scene illuminant (post-interpolation for dual-
     /// CM profiles; the raw calibration CM for single-CM profiles). Spec § 3.4
     /// step 1.
     pub color_matrix: Matrix3,
@@ -44,11 +48,12 @@ pub struct DcpProfile {
     /// is the same case. The older non-diagonal fold remains tracked by
     /// #4646 pending active-WB calibration and native frame transport.
     ///
+    /// WB resolution may derive this balanced camera→XYZ-D50 matrix from
+    /// ColorMatrix and Bradford when calibration supplies no FM (#4665).
     /// Optional per DNG spec. When present and `wb_already_baked = true`,
-    /// the FM path runs. When absent OR `wb_already_baked = false` (the
-    /// 8-bit lossy LinearRaw escape hatch), we Bradford from
-    /// `scene_white_xyz` to D50 and fall back to the inverse of
-    /// `M_PRO_TO_XYZ_D50`.
+    /// the FM path runs. When absent, balanced input is restored to the
+    /// ColorMatrix camera basis before Bradford adaptation to D50.
+    /// Pre-gain-skipped input retains the unbalanced Bradford path.
     pub forward_matrix: Option<Matrix3>,
     /// Correlated color temperature of the scene illuminant in Kelvin, derived
     /// iteratively from AsShotNeutral + calibration matrices. Not itself used
@@ -61,11 +66,10 @@ pub struct DcpProfile {
     /// camera reading passed through `apply` renders exactly neutral in D50,
     /// avoiding the McCamy↔Hernández polynomial round-trip residual.
     pub scene_white_xyz: crate::math::Vec3,
-    /// True when the source image already has its white balance baked in by
-    /// the converter (e.g. LinearRaw DNGs, where AsShotNeutral was applied
-    /// at write-time). When set, `scene_white_xyz` is derived from
-    /// `inv(CM) · (1, 1, 1)` instead of `inv(CM) · as_shot_neutral`,
-    /// preventing a double WB application. See ticket #07.
+    /// Whether the DCP input has already been divided by camera neutral.
+    /// FM consumes that basis directly; no-FM colorimetry restores the
+    /// neutral implied by CM and the physical scene white before Bradford.
+    /// Legacy pre-gain-skipped LinearRaw retains the unbalanced path.
     pub wb_already_baked: bool,
     /// Per-illuminant ProfileHueSatMap, already lerped to `scene_cct` when
     /// the source DNG ships both `ProfileHueSatMapData1` and
@@ -232,7 +236,8 @@ fn normalize_to_y1(xyz: crate::math::Vec3) -> crate::math::Vec3 {
 ///   → XYZ-D50 mapping. See the `forward_matrix` field docstring for
 ///   the DNG SDK citations.
 /// * **Bradford fallback** — when FM is absent OR pre-gain was skipped
-///   (the 8-bit lossy LinearRaw escape hatch). Invert CM, Bradford
+///   (the 8-bit lossy LinearRaw escape hatch). Balanced input first restores
+///   its neutral and white-Y normalization. Invert CM, Bradford
 ///   from `scene_white_xyz` to D50, then `inv(M_pro_to_xyz_d50)` to
 ///   reach ProPhoto D50. `scene_white_xyz` is the scene illuminant's
 ///   white point derived from the as-shot neutral, NOT the nearer
@@ -292,7 +297,8 @@ fn soft_floor(p: [f32; 3]) -> [f32; 3] {
 /// The linear camera→ProPhoto-D50 core of [`apply_colorimetry`]: the FM
 /// path (`inv(M_pro_to_xyz_d50) · FM`) when the profile carries a
 /// ForwardMatrix and pre-gain ran upstream, otherwise the Bradford
-/// fallback (`inv(M_pro) · bradford(scene_white → D50) · inv(CM)`). Kept as
+/// fallback (Bradford after inverse CM, with neutral restoration for
+/// balanced input). Kept as
 /// a named helper so [`camera_to_rec2020_matrix`] (the #1780 WB-scale
 /// migration's probe of the develop chain's linear rendering transform)
 /// shares the exact dispatch `apply_with_post_pro` renders with — a second
@@ -312,21 +318,18 @@ pub(crate) fn camera_to_prophoto_with_forward(
         .expect("ProPhoto matrix is invertible");
     match (forward_matrix, profile.wb_already_baked) {
         (Some(fm), true) => Ok(inv_pro.mul_mat(&fm)),
+        (None, true) => {
+            let neutral = profile.color_matrix.mul_vec(profile.scene_white_xyz);
+            let balanced =
+                balanced_camera_to_xyz_d50(profile.color_matrix, neutral).ok_or_else(|| {
+                    crate::Error::Dcp("Invalid balanced-camera ColorMatrix or white".into())
+                })?;
+            Ok(inv_pro.mul_mat(&balanced))
+        }
         _ => {
-            // Non-FM / pre-gain-skipped path: invert CM here (lazily — the
-            // FM path doesn't need it and skipping the inversion saves a 3x3
-            // matrix inverse per image). CM is XYZ→camera per the DNG spec;
-            // we want the forward direction.
-            //
-            // Two reasons to reach here:
-            //   1. `forward_matrix` is `None` — no FM in the profile.
-            //   2. `wb_already_baked = false` — the 8-bit lossy LinearRaw
-            //      escape hatch (see `is_lossy_linearraw`): the converter
-            //      baked WB through gamma decode, so AsShotNeutral was NOT
-            //      pre-applied by the pipeline's `apply_pre_gain`. Applying
-            //      FM here would assume the buffer is WB-divided (FM's
-            //      contract per DNG SDK), which it is not — so we Bradford
-            //      instead of touching FM.
+            // Pre-gain-skipped input is still in the unbalanced camera
+            // basis. An FM assumes WB-divided input, so retain the inverse
+            // CM and Bradford path for this legacy LinearRaw case.
             let cam_to_xyz = profile.color_matrix.inverse().ok_or_else(|| {
                 crate::Error::Dcp("ColorMatrix is singular, cannot invert to camera→XYZ".into())
             })?;
@@ -385,8 +388,9 @@ fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Im
     //     skipped because the source is 8-bit lossy LinearRaw (see
     //     `pipeline::develop::develop_scene_linear_from_raw_with_quality`
     //     comment block; that path leaves WB baked through gamma decode).
-    //     In both cases we invert CM, Bradford-adapt from the scene white
-    //     to D50, then inverse-ProPhoto to enter ProPhoto D50.
+    //     Balanced input first restores the camera neutral and normalizes
+    //     by its physical white's Y (#4665); unbalanced input needs neither.
+    //     Both then invert CM, adapt the scene white to D50, and enter ProPhoto.
     let cam_to_pro = camera_to_prophoto_matrix(profile)?;
 
     if profile.hsm.is_some() || profile.look_table.is_some() {
@@ -561,25 +565,9 @@ pub fn interpolated_profile(
         (None, Some(fw)) => Some(fw),
         (None, None) => None,
     };
-    // Historical no-pre-gain branch: this path is exercised when WB pre-gain
-    // was skipped upstream (currently only the 8-bit lossy LinearRaw
-    // `wb_already_baked = true` route — see develop.rs). The non-LinearRaw
-    // path pre-gains by AsShotNeutral so a neutral patch enters inv(CM) as
-    // (1, 1, 1); without pre-gain, a neutral patch enters inv(CM) as
-    // AsShotNeutral.
-    // In the no-pre-gain world, a neutral scene patch enters inv(CM) as
-    // AsShotNeutral, so the self-consistent Bradford source is
-    // `inv(CM_interp) * AsShotNeutral`, normalized to Y=1. For LinearRaw
-    // sources (wb_already_baked = true) the converter pre-applied WB, so a
-    // neutral patch enters inv(CM) as (1, 1, 1) instead.
-    let neutral_for_white = if wb_already_baked {
-        [1.0, 1.0, 1.0]
-    } else {
-        wb_neutral
-    };
     let scene_white_xyz = cm
         .inverse()
-        .map(|inv| normalize_to_y1(inv.mul_vec(neutral_for_white)))
+        .map(|inv| normalize_to_y1(inv.mul_vec(wb_neutral)))
         .unwrap_or(crate::color::matrices::XYZ_D65);
     let hsm = lerp_hsm_for_cct(hsm_cold, hsm_warm, cct_cold, cct_warm, as_shot_cct);
     DcpProfile {
@@ -1182,14 +1170,9 @@ pub(crate) fn single_illuminant_profile(
     look_table: Option<HsmTable>,
     tone_curve: Option<ProfileToneCurve>,
 ) -> DcpProfile {
-    let neutral_for_white: [f32; 3] = if wb_already_baked {
-        [1.0, 1.0, 1.0]
-    } else {
-        as_shot_neutral
-    };
     let scene_white_xyz = cm
         .inverse()
-        .map(|inv| normalize_to_y1(inv.mul_vec(neutral_for_white)))
+        .map(|inv| normalize_to_y1(inv.mul_vec(as_shot_neutral)))
         .unwrap_or(crate::color::matrices::XYZ_D65);
     let scene_cct = compute_scene_cct_single(cm, as_shot_neutral, illum.cct());
     DcpProfile {

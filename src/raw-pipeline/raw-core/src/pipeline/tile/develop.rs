@@ -270,11 +270,6 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         None
     };
     let camera_wb_applied = camera_wb_target.is_some();
-    // DNG-spec `SetWhiteXY` retarget (#1727) — mirrors `pipeline::develop`:
-    // DCP's rendering matrices track the user's target when camera-space
-    // WB moved off as-shot, keeping a tile bit-consistent with a full
-    // develop of the same model. As-shot targets return the profile
-    // unchanged. See `wb_camera::retargeted_render_profile`.
     let dcp_profile = match &camera_wb_target {
         Some((frame, (target_temperature, target_tint))) => {
             wb_camera::retargeted_render_profile(frame, profile, *target_temperature, *target_tint)

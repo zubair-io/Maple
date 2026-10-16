@@ -55,7 +55,8 @@ use super::lut::ColorLut;
 /// Identity of the Auto curve/residual fitting model (#2441). Bump when
 /// fitting semantics change; both artifact caches share this version.
 // Lens resampling changes the camera-prefix pixels used to fit Auto (#4650).
-pub const AUTO_FIT_MODEL_VERSION: u32 = 13;
+/// Version 14: balanced-camera Bradford and exact L3D-100c calibration (#4665, #4661).
+pub const AUTO_FIT_MODEL_VERSION: u32 = 14;
 
 /// Shared capacity, in entries, of BOTH the curve and LUT caches. The two
 /// stores are touched with the same keys in the same order (a fit inserts

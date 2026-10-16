@@ -114,14 +114,14 @@ public struct SupportedCamera: Sendable {
 
 public enum CameraSupportRegistry {
   public static let schemaVersion: UInt32 = 1
-  public static let pipelineOutputVersion: UInt32 = 45
+  public static let pipelineOutputVersion: UInt32 = 46
   /// Camera bodies the bundled profile table covers. Each is at
   /// least `.profiled`; the full list is in docs/camera-support.json.
-  public static let bundledModelCount: Int = 1406
+  public static let bundledModelCount: Int = 1407
   /// The profile data every tier here was computed against.
   public static let profileBundleFormat: UInt16 = 1
   public static let profileBundleDigest: String =
-    "blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a"
+    "blake3:8fbbca1a199293eb90e0269ec6d01c33b209912525132f6daeda29bb9c058b11"
 
   /// Every body with a physical fixture — the only bodies that can
   /// ever reach `.qualified`.

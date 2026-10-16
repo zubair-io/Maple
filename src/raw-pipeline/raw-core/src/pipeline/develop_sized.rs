@@ -148,38 +148,34 @@ pub(super) fn develop_sized_prefix(
     let (profile, profile_source) = stage("sized_dcp_profile_for", || {
         dcp::profile_for_with_source(raw)
     })?;
+    let frame = (!skip_pre_gain && !matches!(profile_source, dcp::ProfileSource::RawlerFallback))
+        .then(|| wb_camera::SliderFrame::resolve(raw, &profile));
     let whites_anchor_ev = dcp::scene_white_anchor(&camera_rgb, &profile)?;
     // Camera-space user white balance (#1726) — mirrors the full-res
     // develop chain exactly; see `super::develop` and `stages::wb_camera`
     // for the full design writeup and the `RawlerFallback` tier-gate
     // rationale.
-    let camera_wb_target =
-        if !skip_pre_gain && !matches!(profile_source, dcp::ProfileSource::RawlerFallback) {
-            let frame = wb_camera::SliderFrame::resolve(raw, &profile);
-            // `resolve_target_versioned` (#1780): V1 (pre-#1756) sidecar
-            // temperature/tint convert into the slider frame here so the
-            // authored look is preserved; V2 models resolve unchanged.
-            let (target_temperature, target_tint) =
-                wb_camera::resolve_target_versioned(model, &frame, &profile, raw.as_shot_neutral);
-            stage("sized_wb_camera::apply", || {
-                wb_camera::apply(
-                    &mut camera_rgb,
-                    &frame,
-                    raw.as_shot_neutral,
-                    target_temperature,
-                    target_tint,
-                )
-            });
-            Some((frame, target_temperature, target_tint))
-        } else {
-            None
-        };
+    let camera_wb_target = if let Some(frame) = frame {
+        // `resolve_target_versioned` (#1780): V1 (pre-#1756) sidecar
+        // temperature/tint convert into the slider frame here so the
+        // authored look is preserved; V2 models resolve unchanged.
+        let (target_temperature, target_tint) =
+            wb_camera::resolve_target_versioned(model, &frame, &profile, raw.as_shot_neutral);
+        stage("sized_wb_camera::apply", || {
+            wb_camera::apply(
+                &mut camera_rgb,
+                &frame,
+                raw.as_shot_neutral,
+                target_temperature,
+                target_tint,
+            )
+        });
+        Some((frame, target_temperature, target_tint))
+    } else {
+        None
+    };
     let camera_wb_applied = camera_wb_target.is_some();
     dump_after("02b_wb_camera", &camera_rgb);
-    // DNG-spec `SetWhiteXY` retarget (#1727) — mirrors `super::develop`:
-    // DCP's rendering matrices track the user's target when camera-space
-    // WB moved off as-shot; as-shot targets return the profile unchanged
-    // (bit-identical). See `wb_camera::retargeted_render_profile`.
     let dcp_profile = match &camera_wb_target {
         Some((frame, target_temperature, target_tint)) => {
             wb_camera::retargeted_render_profile(frame, profile, *target_temperature, *target_tint)

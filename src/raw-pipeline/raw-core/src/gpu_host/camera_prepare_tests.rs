@@ -74,6 +74,8 @@ fn actual_camera_prefix_and_fused_dcp_match_cpu_photographs() {
         "test_0012.raf",
         "test_0017.dng",
         "test_0015.dng",
+        "test_0018.dng",
+        "test_0020.dng",
     ] {
         let raw = crate::decode::decode(&root.join(name)).unwrap();
         let model = AdjustmentModel {
@@ -96,6 +98,7 @@ fn actual_camera_prefix_and_fused_dcp_match_cpu_photographs() {
         // Reuse one actual decoded/uploaded image across all these WB ticks.
         for (temperature, tint, temperature_seen, tint_seen) in [
             (6500., 0., false, false),
+            (2000., 0., true, true),
             (8500., 150., true, true),
             (8500., -150., true, true),
             (8500., 0., true, false),

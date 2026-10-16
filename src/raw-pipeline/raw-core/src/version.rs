@@ -191,7 +191,9 @@
 ///   preventing negative reconstruction from positive observations (#4654).
 /// - 45 — scene chroma operators engage compression at the soft knee, with
 ///   HSL continuity from zero and matching masked GPU controls (#4664).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 45;
+/// - 46 — correct L3D-100c calibration and balanced-camera Bradford colorimetry
+///   for profiles without ForwardMatrix (#4661, #4665).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 46;
 
 #[cfg(test)]
 mod tests {

@@ -1,0 +1,29 @@
+{
+  "issue": 4661,
+  "source_dcp_name": "DJI Mavic 4 Pro (Hasselblad L3D-100c) Adobe Standard.dcp",
+  "source_dcp_sha256": "35ce0af9828492ca72dfaa3c57ee7ff034ce24b9050feb737a7d82ffe6551e48",
+  "source_ucm": "Hasselblad L3D-100c",
+  "original_profile_count": 1406,
+  "original_bundle_sha256": "2547ce6c134bb8ee7e8b528da5cf6723c321a430760a9c9ef554d1228dcf00b4",
+  "converter_sha256": "32f621144052b021c4e13c893c87454579c121201408b508919db1d364b93b16",
+  "variants": {
+    "matrices": {
+      "profile_count": 1407,
+      "sha256": "cd6425e57fc498f006887a74243cfcc74508e53486914c4523b60011ae35cb7a",
+      "bytes": 263207,
+      "new_record_sha256": "db0b67768c88e4229330e7ab92988626203b25e6f1d6be6a6420540dd408a921",
+      "new_record_bytes": 113,
+      "existing_records_exactly_preserved": true
+    },
+    "colorimetry": {
+      "profile_count": 1407,
+      "sha256": "f5db69979deb3fc0e41455c769d2b7a0aef93374bb85ed7d92ba373ceb71f65c",
+      "bytes": 271847,
+      "new_record_sha256": "7da8a5300273555277d334d6ab448a3a1d02a4544b5bb9b9c98893d0b4f1e1a9",
+      "new_record_bytes": 8753,
+      "existing_records_exactly_preserved": true
+    }
+  },
+  "scope": "Exact one-record addition for #4661; all 1406 existing records remain byte-identical.",
+  "selected_variant": "matrices"
+}

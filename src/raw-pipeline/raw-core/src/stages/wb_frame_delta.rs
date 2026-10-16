@@ -145,8 +145,8 @@ pub struct SliderFrameExport {
     /// dual-illuminant CM pair (distinct from `m_cold`/`cct_cold` above,
     /// which are the VALUE frame's). `render_cct_warm - render_cct_cold <
     /// 1.0` ⇒ no render-profile endpoints (single-illuminant profile —
-    /// `c_at` is then constant across every target/anchor, matching
-    /// `retargeted_render_profile`'s own single-calibration short-circuit).
+    /// a supplied FM remains constant across targets; no-FM profiles derive
+    /// the balanced Bradford transform at each target (#4665).
     pub render_cm_cold: Matrix3,
     pub render_cct_cold: f32,
     pub render_cm_warm: Matrix3,
@@ -305,16 +305,17 @@ impl SliderFrameExport {
             .flatten()
             .all(|v| *v == 0.0);
         let endpoints_present = self.render_cct_warm - self.render_cct_cold >= 1.0;
-        fm_present || endpoints_present
+        let scene_white_present = self.render_scene_white_xyz[1] > 0.
+            && self.render_scene_white_xyz.iter().all(|v| v.is_finite());
+        fm_present || endpoints_present || scene_white_present
     }
 
     /// Reconstruct a minimal [`DcpProfile`] shell carrying only the fields
     /// [`retargeted_render_profile`] and [`dcp::camera_to_rec2020_matrix`]
     /// read (`color_matrix`, `forward_matrix`, `scene_white_xyz`,
-    /// `wb_already_baked`, `cm_endpoints`) — `illuminant`/`scene_cct`/
-    /// `hsm`/`look_table`/`tone_curve` are irrelevant to that linear-core
-    /// computation (neither function reads them) and get harmless
-    /// placeholders.
+    /// `wb_already_baked`, `cm_endpoints`). Without endpoints, the CM is
+    /// independent of scene CCT; HSM and aesthetic tables are outside this
+    /// linear transform.
     fn render_profile_shell(&self) -> DcpProfile {
         let fm_present = !self
             .render_forward_matrix

@@ -275,6 +275,8 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
 
     let (profile, profile_source) =
         stage("dcp::profile_for", || dcp::profile_for_with_source(raw))?;
+    let frame = (!skip_pre_gain && !matches!(profile_source, dcp::ProfileSource::RawlerFallback))
+        .then(|| wb_camera::SliderFrame::resolve(raw, &profile));
     let whites_anchor_ev = dcp::scene_white_anchor(&camera_rgb, &profile)?;
     // Camera-space user white balance (#1726): moves the temperature/tint
     // sliders upstream of DCP, in camera-native linear RGB, matching ACR —
@@ -285,39 +287,27 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     // (`skip_pre_gain`) and `RawlerFallback` cases fall through to the
     // pre-existing post-DCP CAT16 path below unchanged. Full design
     // writeup in `stages::wb_camera`'s module doc.
-    let camera_wb_target =
-        if !skip_pre_gain && !matches!(profile_source, dcp::ProfileSource::RawlerFallback) {
-            let frame = wb_camera::SliderFrame::resolve(raw, &profile);
-            // `resolve_target_versioned` (#1780): V1 (pre-#1756) sidecar
-            // temperature/tint convert into the slider frame here so the
-            // authored look is preserved; V2 models resolve unchanged.
-            let (target_temperature, target_tint) =
-                wb_camera::resolve_target_versioned(model, &frame, &profile, raw.as_shot_neutral);
-            stage("wb_camera::apply", || {
-                wb_camera::apply(
-                    &mut camera_rgb,
-                    &frame,
-                    raw.as_shot_neutral,
-                    target_temperature,
-                    target_tint,
-                )
-            });
-            Some((frame, target_temperature, target_tint))
-        } else {
-            None
-        };
+    let camera_wb_target = if let Some(frame) = frame {
+        // `resolve_target_versioned` (#1780): V1 (pre-#1756) sidecar
+        // temperature/tint convert into the slider frame here so the
+        // authored look is preserved; V2 models resolve unchanged.
+        let (target_temperature, target_tint) =
+            wb_camera::resolve_target_versioned(model, &frame, &profile, raw.as_shot_neutral);
+        stage("wb_camera::apply", || {
+            wb_camera::apply(
+                &mut camera_rgb,
+                &frame,
+                raw.as_shot_neutral,
+                target_temperature,
+                target_tint,
+            )
+        });
+        Some((frame, target_temperature, target_tint))
+    } else {
+        None
+    };
     let camera_wb_applied = camera_wb_target.is_some();
     dump_after("02b_wb_camera", &camera_rgb);
-    // DNG-spec `SetWhiteXY` ForwardMatrix retarget (#1727): when
-    // camera-space WB moved off as-shot, the FM the DCP stage applies
-    // below re-interpolates at the render profile's own CCT reading of the
-    // target camera-neutral — the SDK's camera→PCS weight tracks the user
-    // white point. The non-FM Bradford fallback stays at as-shot (the gain
-    // is the sole carrier of the cast — see `stages::wb_camera`'s module
-    // doc, and `retargeted_render_profile`'s doc for the measured evidence
-    // against retargeting CM/white on that path). As-shot targets (the
-    // `resolve_target` seed) return the profile unchanged, so unedited
-    // renders stay bit-identical.
     let dcp_profile = match &camera_wb_target {
         Some((frame, target_temperature, target_tint)) => {
             wb_camera::retargeted_render_profile(frame, profile, *target_temperature, *target_tint)

@@ -87,7 +87,7 @@ impl GpuCameraColorimetry {
                 };
                 (
                     gain,
-                    wb_camera::retargeted_forward_matrix(frame, profile, temperature, tint),
+                    wb_camera::resolved_camera_to_xyz_d50(frame, profile, temperature, tint),
                 )
             }
             None => ([1.0; 3], profile.forward_matrix),

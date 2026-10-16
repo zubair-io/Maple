@@ -20,7 +20,7 @@ therefore load-bearing.
 - Source: the upstream tooling's externally-calibrated profile set
   under `CameraRaw/CameraProfiles/`, re-encoded by
   `src/scripts/convert_dcps.py` into the Maple binary format.
-- Profile count: ~1,406 distinct UCMs (after dedup by
+- Profile count: 1,407 distinct UCMs (after dedup by
   `dcp_preference`). Includes the upstream `Camera/` subdir of
   per-creative-style variants; UCM dedup keeps one entry per body.
 - Bundled fields: `ColorMatrix1/2`, `ForwardMatrix1/2`,
@@ -36,7 +36,7 @@ The 18 RAW fixtures in `test-fixtures/raws/`:
 
 | Fixture       | Body                       | UCM (rawler-reported)    | Bundle hit  | Notes                                                                                                                                                                         |
 | ------------- | -------------------------- | ------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| test_0000.DNG | DJI Mavic 3 Pro (100 MP)   | `Hasselblad L3D-100c`    | HIT (alias) | Aliased to `DJI FC4382 Mavic3Pro` (drone body code, same Hasselblad sensor).                                                                                                  |
+| test_0000.DNG | DJI Mavic 4 Pro (100 MP)   | `Hasselblad L3D-100c`    | HIT         | Exact Mavic 4 Pro calibration; the former Mavic 3 Pro alias selected a different camera (#4661).                                                                              |
 | test_0001.RAW | Panasonic LX2              | `Panasonic DMC-LX2`      | HIT         |                                                                                                                                                                               |
 | test_0002.dng | Hasselblad H2D-39          | `Hasselblad H2D-39`      | HIT (alias) | Aliased to `Hasselblad 39-Coated` (upstream sensor-naming convention).                                                                                                        |
 | test_0003.CR2 | Canon 5DS R                | `Canon EOS 5DS R`        | HIT         |                                                                                                                                                                               |
@@ -55,7 +55,7 @@ The 18 RAW fixtures in `test-fixtures/raws/`:
 | test_0016.X3F | Sigma Foveon (unsupported) | n/a                      | n/a         | Foveon X3F surfaces as the structured `Error::UnsupportedFormat` per #417 — rawler 0.7's X3F decoder is a stub. No silent fail.                                               |
 | test_0017.dng | Leica M10                  | `LEICA M10`              | HIT         |                                                                                                                                                                               |
 
-Coverage of the renderable fixture set: **16 / 17 HIT** (three of those
+Coverage of the renderable fixture set: **16 / 17 HIT** (two of those
 via the UCM-alias table; test_0004 / Hasselblad H5D-40 is the only
 color-renderable miss — see "Known coverage gaps" below). test_0008
 (Fuji X-Trans) is now renderable end-to-end (#417 decode, #420
@@ -66,7 +66,6 @@ a clear unsupported-format error instead of a silent decode fail.
 
 - **Canon EOS Kiss M / EOS Kiss M**: Japanese domestic release of the `Canon EOS M50` (identical sensor, color patterns, and color matrices). Aliased to `Canon EOS M50`.
 - **Canon EOS Kiss M2 / EOS Kiss M2**: Japanese domestic release of the `Canon EOS M50 Mark II`. Aliased to `Canon EOS M50 Mark II`.
-
 
 ## Known coverage gaps
 

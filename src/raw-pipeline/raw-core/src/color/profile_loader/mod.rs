@@ -422,6 +422,34 @@ mod tests {
         assert_eq!(p.illum2, Some(CoreIlluminant::D65));
     }
 
+    #[test]
+    fn l3d_100c_has_its_own_mavic4_colorimetry() {
+        let table = PROFILE_TABLE.get_or_init(|| parser::parse_bundle(PROFILES_BIN));
+        let profile = table.get(&CameraKey::new("Hasselblad L3D-100c")).unwrap();
+        assert_eq!(
+            profile.cm1,
+            Some(crate::math::Matrix3([
+                [0.7956, -0.3009, -0.0787],
+                [-0.715, 1.593, 0.1169],
+                [-0.0036, 0.0483, 0.8164],
+            ]))
+        );
+        assert_eq!(
+            profile.cm2,
+            Some(crate::math::Matrix3([
+                [0.5759, -0.1185, -0.0818],
+                [-0.7786, 1.6907, 0.0728],
+                [-0.0307, 0.1535, 0.537],
+            ]))
+        );
+        assert_eq!(profile.illum1, Some(CoreIlluminant::StdA));
+        assert_eq!(profile.illum2, Some(CoreIlluminant::D65));
+        assert!(profile.fm1.is_none() && profile.fm2.is_none());
+        let mavic3 = table.get(&CameraKey::new("DJI FC4382 Mavic3Pro")).unwrap();
+        assert_ne!(profile.cm1, mavic3.cm1);
+        assert_ne!(profile.cm2, mavic3.cm2);
+    }
+
     /// Verify all four iPhone 13,3 lens variants are bundled as distinct
     /// keys. The lens-aware lookup story for mobile cameras is the whole
     /// reason the lookup key includes the lens-tagged UCM.

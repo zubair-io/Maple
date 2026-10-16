@@ -262,9 +262,8 @@ fn render_profile_tail_engages_the_exact_c_path() {
 }
 
 #[test]
-fn render_profile_without_endpoints_gives_a_constant_c_across_targets() {
-    // A single-illuminant render profile (`cm_endpoints` absent) makes
-    // `retargeted_render_profile` a no-op for EVERY target/anchor — so
+fn supplied_forward_without_endpoints_gives_a_constant_c_across_targets() {
+    // A supplied single-illuminant ForwardMatrix remains constant, so
     // `c_at` must return the SAME matrix at any CCT, and the delta must
     // collapse to the pure gain ratio conjugated through that one fixed
     // transform (algebraically identical to the fixed-C tier's shape,
@@ -283,6 +282,45 @@ fn render_profile_without_endpoints_gives_a_constant_c_across_targets() {
         c_b.unwrap().0,
         "a single-illuminant render profile's C must not vary with target/anchor"
     );
+}
+
+#[test]
+fn no_forward_export_retains_target_dependent_bradford_for_single_and_dual_cm() {
+    for dual in [false, true] {
+        let mut f = synthetic_frame_with_render_profile();
+        f.render_forward_matrix = Matrix3([[0.; 3]; 3]);
+        f.render_fm_cold = Matrix3([[0.; 3]; 3]);
+        f.render_fm_warm = Matrix3([[0.; 3]; 3]);
+        if !dual {
+            f.render_cct_cold = 0.;
+            f.render_cct_warm = 0.;
+        }
+        let frame = f.to_frame();
+        let target = (3500., 30.);
+        let anchor = (7500., -60.);
+        let c_target = f.c_at(&frame, target.0, target.1).unwrap();
+        let c_anchor = f.c_at(&frame, anchor.0, anchor.1).unwrap();
+        assert_ne!(c_target.0, c_anchor.0);
+        let n_target =
+            super::super::camera_neutral_for(frame.cm_for_cct(target.0), target.0, target.1);
+        let n_anchor =
+            super::super::camera_neutral_for(frame.cm_for_cct(anchor.0), anchor.0, anchor.1);
+        let gain = |n: [f32; 3]| [n[1] / n[0], 1., n[1] / n[2]];
+        let g_target = gain(n_target);
+        let g_anchor = gain(n_anchor);
+        let delta = f.rec2020_delta_matrix(target, anchor);
+        for camera in [[0.2, 0.4, 0.7], [-0.3, 0.5, 1.8], [8., 4., 2.]] {
+            let at_anchor = c_anchor.mul_vec(std::array::from_fn(|c| camera[c] * g_anchor[c]));
+            let expected = c_target.mul_vec(std::array::from_fn(|c| camera[c] * g_target[c]));
+            let actual = delta.mul_vec(at_anchor);
+            for c in 0..3 {
+                assert!(
+                    (actual[c] - expected[c]).abs() < 1e-4,
+                    "dual {dual}: {actual:?} != {expected:?}"
+                );
+            }
+        }
+    }
 }
 
 #[test]

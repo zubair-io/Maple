@@ -207,9 +207,16 @@ fn real_camera_calibrations_match_cpu_for_all_wb_intents() {
         "test_0012.raf",
         "test_0017.dng",
         "test_0015.dng",
+        "test_0018.dng",
+        "test_0020.dng",
     ] {
         let raw = crate::decode::decode(&root.join(fixture)).unwrap();
         let cached = GpuCameraColorimetry::resolve(&raw).unwrap();
+        if matches!(fixture, "test_0018.dng" | "test_0020.dng") {
+            assert!(cached.profile.forward_matrix.is_none());
+            assert!(cached.profile.wb_already_baked);
+            assert!(cached.frame.is_some());
+        }
         for model in models() {
             let maximum = check(&ctx, &cached, &model, fixture);
             assert!(

@@ -15,59 +15,14 @@
 //! physically report per channel, so the same slider extremes no longer
 //! manufacture out-of-gamut scene-linear values.
 //!
-//! ## The gain is the SOLE carrier of the cast — DCP's Bradford source does
-//! ## NOT move
+//! ## Balanced camera input and colorimetry
 //!
-//! Per the design contract: `gain[c] = as_shot_neutral[c] /
-//! target_neutral_camera[c]`, where `target_neutral_camera = G_norm(cm ·
-//! target_xyz)` is the camera-native reading a scene patch that's neutral
-//! UNDER THE TARGET ILLUMINANT would produce through the SLIDER FRAME's
-//! `ColorMatrix` **re-interpolated at the target's own CCT**
-//! ([`SliderFrame::cm_for_cct`] — the DNG spec's xy→neutral direction,
-//! `dng_color_spec.cpp::SetWhiteXY`; #1727) — exactly analogous to how
-//! `as_shot_neutral` is the reading a neutral patch produced under the
-//! scene's actual illuminant. The frame ([`SliderFrame`]) is the
-//! calibration ACR's own slider scale is defined in — the DNG's embedded
-//! dual-CM pair when present, the render profile otherwise; see its doc
-//! for the measured test_0000 evidence (embedded-frame as-shot 5507.7 K vs
-//! bundle-frame 7471.6 K, a ~48-mired anchoring error when conflated).
-//! `white_balance::apply_pre_gain` already divided the buffer by
-//! `as_shot_neutral`, so this gain is what's left to multiply in to make a
-//! reading of `target_neutral_camera` become `(1, 1, 1)` instead.
-//!
-//! This is a DIAGONAL (per-channel scalar) gain — by definition, since
-//! "white balance" means picking which camera reading counts as neutral,
-//! not rotating the color space.
-//!
-//! **The DCP profile passed to `dcp::apply_colorimetry` downstream of
-//! [`apply`] is resolved by [`retargeted_render_profile`]: only the
-//! ForwardMatrix tracks the user's target (the DNG SDK's camera→PCS
-//! interpolation weight follows the white point) — `scene_white_xyz`
-//! (DCP's Bradford-adaptation source, the non-FM path) stays at the
-//! profile's TRUE as-shot chromaticity, never at anything derived from
-//! the user's target.** An earlier version of this module (attempt 1)
-//! introduced a `retarget_profile` step that re-pointed `scene_white_xyz` at
-//! `inv(CM) · gain` — the chromaticity the gain actually left the buffer's
-//! neutral at — on the theory that DCP's Bradford step needed to "know"
-//! where the gain had moved the neutral to. That reasoning was backwards:
-//! Bradford-adapting FROM the exact point the buffer's neutral now sits AT,
-//! TO D50, maps that point back to neutral — which is precisely what
-//! undoes the WB shift [`apply`] just introduced. Probe evidence: a
-//! 50000K retarget-profile probe barely moved off as-shot ([1.868, 1.515,
-//! 0.502] → [2.047, 1.538, 0.483]) and a 2000K probe distorted hue
-//! instead of casting cool. Leaving `scene_white_xyz` fixed at the
-//! as-shot point means Bradford performs the SAME adaptation regardless
-//! of the gain, so the gain's shift survives through DCP into the
-//! rendered cast, exactly like ACR's pre-DCP slider. (A softer
-//! target-white Bradford retarget — `inv(CM_T) · (1,1,1)`, which does NOT
-//! cancel the cast — was also measured against the ACR references in the
-//! #1727 slice and regressed the non-FM body: test_0000 temperature_min
-//! 8.80 → 19.14, wb_tungsten 11.82 → 14.52 mean ΔE. Hence FM-only.)
-//!
-//! `color_matrix` and `wb_already_baked` are likewise left untouched —
-//! the non-FM camera→working colorimetric transform depends only on the
-//! TRUE as-shot illuminant and the sensor's calibration, never on where
-//! the user points the WB sliders.
+//! The camera gain selects the neutral before DCP. A supplied ForwardMatrix
+//! already consumes balanced camera values. Without one, the resolved matrix
+//! restores the selected camera neutral before inverse-CM/Bradford conversion
+//! and normalizes the resulting white to Y=1 (#4665). Both paths interpolate
+//! in the render calibration's reading of that neutral, while the authored
+//! slider values retain their own calibration frame.
 //!
 //! ## Tier split (why this isn't always the code path)
 //!
@@ -480,69 +435,10 @@ pub fn apply_delta(
     }
 }
 
-/// Resolve the DCP profile the develop chain should render with for a
-/// user WB target — the ForwardMatrix half of the DNG-spec `SetWhiteXY`
-/// semantics (#1727), frame-mapped to the render profile.
-///
-/// ACR re-derives its rendering matrices at the user's white point: per
-/// `dng_color_spec.cpp::SetWhiteXY`, the dual-illuminant interpolation
-/// weight for the camera→PCS transform comes from the target xy's own
-/// CCT. On Maple's FM path (`dcp::apply_colorimetry` with
-/// `forward_matrix` present) the camera→PCS transform IS the
-/// ForwardMatrix, so the FM re-interpolates at the target. The non-FM
-/// Bradford fallback deliberately does NOT move: it is Maple's own
-/// construction (the SDK has no FM-absent WB-divided path), its as-shot
-/// Bradford source is what keeps the camera-space gain the SOLE carrier
-/// of the cast (module doc), and retargeting its CM/white was measured
-/// AGAINST the ACR references on the non-FM body (test_0000:
-/// temperature_min 8.80 → 19.14, wb_tungsten 11.82 → 14.52 mean ΔE with
-/// the full CM+white retarget vs FM-only).
-///
-/// The frame mapping: `profile` can sit in a DIFFERENT calibration frame
-/// than the slider ([`SliderFrame`] doc), so re-interpolating at the
-/// literal slider temperature would read a CCT in the wrong frame —
-/// test_0000's "Daylight 5500 K" is near-as-shot in its embedded slider
-/// frame, but 5500 K read in the bundle frame is ~48 mired cool of the
-/// bundle's own 7471.6 K as-shot. The mapping goes through the one
-/// quantity both frames agree on — the physical camera neutral: project
-/// the slider target to `n_T` in the slider frame, then ask the RENDER
-/// profile's own iterative CCT solve (`dcp::compute_as_shot_cct`) what
-/// illuminant it considers `n_T` to be, and interpolate the FM there. A
-/// target at the slider frame's as-shot maps back to (approximately) the
-/// render profile's as-shot; the short-circuit below passes the profile
-/// through untouched for the as-shot case (bit-identical rendering, same
-/// 0.5 K / 0.5-tint tolerance as [`apply`]).
-pub fn retargeted_render_profile(
-    frame: &SliderFrame,
-    profile: DcpProfile,
-    temperature: f32,
-    tint: f32,
-) -> DcpProfile {
-    let forward_matrix = retargeted_forward_matrix(frame, &profile, temperature, tint);
-    DcpProfile {
-        forward_matrix,
-        ..profile
-    }
-}
-
-/// Matrix half of `retargeted_render_profile`, borrowing its resident tables.
-pub(crate) fn retargeted_forward_matrix(
-    frame: &SliderFrame,
-    profile: &DcpProfile,
-    temperature: f32,
-    tint: f32,
-) -> Option<Matrix3> {
-    let Some(e) = profile.cm_endpoints else {
-        return profile.forward_matrix;
-    };
-    if is_as_shot_target(frame, temperature, tint) {
-        return profile.forward_matrix;
-    }
-    let target_neutral = camera_neutral_for(frame.cm_for_cct(temperature), temperature, tint);
-    let render_cct =
-        dcp::compute_as_shot_cct(target_neutral, e.m_cold, e.cct_cold, e.m_warm, e.cct_warm);
-    profile.forward_matrix_for_cct(render_cct)
-}
+#[path = "wb_camera_colorimetry.rs"]
+mod colorimetry;
+pub(crate) use colorimetry::resolved_camera_to_xyz_d50;
+pub use colorimetry::retargeted_render_profile;
 
 #[cfg(test)]
 #[path = "wb_camera_tests.rs"]
