@@ -146,3 +146,33 @@ when no numeric pair is present; Adobe's corresponding images differ. Resolution
 of that imported intent is tracked by #4669, preserving explicit numeric pairs.
 Evidence, the paired verdicts, response audit, extraction and build identities
 are under `/Volumes/Projects/maple-color-gate-20261015/three-camera-hsm-v47/`.
+
+## Negative-dehaze sky-mask attribution on output 49
+
+A separate diagnostic disables only the sky mask for negative dehaze, retaining
+the forward atmospheric model, transmission estimate and all positive-dehaze
+math. It uses the unchanged production profile bundle; it does not adopt the
+three candidate HueSatMap pairs. Both variants run the canonical native-pair
+comparison for the three minimum-dehaze cases, with unchanged budgets.
+
+| Fixture | Control mean ΔE | Mask-disabled mean ΔE | Budget verdicts |
+| --- | ---: | ---: | --- |
+| GFX 50S / test_0005 | 5.336005 | 5.534385 | Both pass |
+| GFX 50R / test_0012 | 9.747875 | 9.067764 | Both pass |
+| Leica M10 / test_0017 | 16.974639 | 16.729460 | Both pass |
+
+The mask suppresses a substantial part of the modeled veil: mean unmasked
+versus retained veil fractions are 0.305/0.110, 0.150/0.093 and 0.082/0.040,
+respectively. Removing it improves two means slightly but worsens GFX 50S.
+This is mixed evidence and does not establish a replacement negative-dehaze
+formula or resolve the calibration candidate's failures. No change is adopted,
+and no newly passing required case is claimed.
+
+All six required comparisons execute with zero errors or missing cells. The
+physical inputs, frozen comparison sources and binaries retain their hashes.
+The diagnostic source and build output are restored before the runs. Control
+is frozen commit `5050bf21f5`; candidate is `a1576383f9` plus the recorded
+diagnostic patch. Their only intervening production change is the exact-pair
+Auto-WB pass fusion, which is inactive for these As Shot cases. Complete
+identities, the patch and results are archived under
+`/Volumes/Projects/maple-color-gate-20261015/negative-dehaze-mask-v49/`.
