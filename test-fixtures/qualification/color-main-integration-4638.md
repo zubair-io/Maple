@@ -94,5 +94,10 @@ main's crate-visible capture-sharpening helper.
 Main independently shipped its ICC behavior as output version 25; this repair
 branch used diagnostic versions 25–40. Version 41 gives the combined runtime a
 new derived-artifact identity. It does not relabel prior physical evidence as
-validation of the rebased code. Fresh domain and physical qualification remain
-required; the separate A=-.5 resampling experiment is still unadopted.
+validation of the rebased code. The fresh 19-gate run passed 18 gates with an
+unchanged source audit. Android raster tests exposed an ISO metadata mismatch,
+now corrected and qualified separately in `color-raster-noise-4653.md` (v42).
+The v41 run passed core (2,853), GPU (295), WASM (74), FFI (301), explicit
+physical camera/HSM/prefix tests, actual browser compilation, gray/domain
+gates, banding, WASM SIMD and file headroom. Complete physical qualification
+remains required; prior diagnostic counts do not establish it.

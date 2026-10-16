@@ -96,10 +96,7 @@ impl RasterDetailImage {
             w,
             h,
             model,
-            &ChainOptions {
-                skip_agx: true,
-                ..Default::default()
-            },
+            &ChainOptions::uncalibrated_raster(),
             film,
             ChainWindow {
                 x,

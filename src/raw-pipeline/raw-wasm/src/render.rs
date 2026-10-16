@@ -434,10 +434,7 @@ pub fn develop_non_raw(
 ) -> Result<MapleRender, JsError> {
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let opts = raw_core::pipeline::ChainOptions {
-        skip_agx: true,
-        ..Default::default()
-    };
+    let opts = raw_core::pipeline::ChainOptions::uncalibrated_raster();
     let chained =
         raw_core::pipeline::apply_scene_linear_chain_f32(in_f32_rgba, width, height, &model, &opts)
             .map_err(|e| JsError::new(&e.to_string()))?;

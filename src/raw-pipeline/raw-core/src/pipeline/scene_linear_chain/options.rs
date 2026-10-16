@@ -58,6 +58,19 @@ pub struct ChainOptions<'a> {
     pub whites_anchor_ev: Option<f32>,
 }
 
+impl ChainOptions<'_> {
+    /// Developed raster pixels carry no scene-linear sensor noise calibration.
+    /// Unknown ISO selects the same fixed NR strength as native raster GPU
+    /// callers; the legacy generic default of ISO 100 is not raster metadata.
+    pub fn uncalibrated_raster() -> Self {
+        Self {
+            skip_agx: true,
+            iso: 0,
+            ..Self::default()
+        }
+    }
+}
+
 impl Default for ChainOptions<'_> {
     fn default() -> Self {
         ChainOptions {

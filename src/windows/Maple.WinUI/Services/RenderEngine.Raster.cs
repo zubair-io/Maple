@@ -33,7 +33,7 @@ public static unsafe partial class RenderEngine
             return new DecodedImage
             {
                 Pixels = pixels, Width = (int)buffer.width, Height = (int)buffer.height,
-                IsRaster = true, NoiseProfile = Array.Empty<float>(), Iso = 100, AeGain = 1,
+                IsRaster = true, NoiseProfile = Array.Empty<float>(), Iso = 0, AeGain = 1,
                 WhitesAnchorEv = float.NaN, DecodedTemperature = 6500, DecodedTint = 0,
                 WbFrame = new float[WbFrameFloatCount],
             };

@@ -183,7 +183,9 @@
 ///   corrected resident GPU-prefix stage ownership with the color repairs.
 ///   Main shipped its ICC change as v25 independently of this branch's
 ///   diagnostic v25-v40 sequence; the combined output has a fresh identity.
-pub const PIPELINE_OUTPUT_VERSION: u32 = 41;
+/// - 42 — uncalibrated raster CPU/export/detail and Windows paths use unknown
+///   ISO consistently with native raster GPU rendering (#4653).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 42;
 
 #[cfg(test)]
 mod tests {
