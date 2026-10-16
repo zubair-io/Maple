@@ -55,6 +55,7 @@ class Publisher:
         base = f"/androidpublisher/v3/applications/{PACKAGE}/edits"
         edit = self.request("POST", base, {})["id"]
         path = f"{base}/{edit}"
+        committed = False
         try:
             track = self.request("GET", f"{path}/tracks/internal")
             codes = {
@@ -102,14 +103,15 @@ class Publisher:
             self.request(
                 "POST", f"{path}:commit?changesInReviewBehavior=ERROR_IF_IN_REVIEW"
             )
+            committed = True
             print(f"Published {name} ({code}) to internal testing; SHA-256 {digest}.")
         finally:
-            # Committed edits expire; abandon only edits that remain open.
-            try:
-                self.request("DELETE", path)
-            except RuntimeError as error:
-                if "(404)" not in str(error):
-                    raise
+            if not committed:
+                try:
+                    self.request("DELETE", path)
+                except RuntimeError as error:
+                    if "(404)" not in str(error):
+                        raise
 
 
 if __name__ == "__main__":

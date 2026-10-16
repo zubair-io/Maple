@@ -28,6 +28,7 @@ class PlayTests(unittest.TestCase):
         self.bundles = []
         self.fail_upload = False
         self.fail_commit = False
+        self.committed = False
         self.upload_digest = self.digest
         owner = self
 
@@ -62,8 +63,10 @@ class PlayTests(unittest.TestCase):
                     )
                     if owner.fail_commit:
                         status, result = 400, {"error": "changes already in review"}
+                    else:
+                        owner.committed = True
                 elif self.command == "DELETE":
-                    status = 404
+                    status = 410 if owner.committed else 404
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
@@ -92,6 +95,7 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(track["releases"][0]["versionCodes"], ["7"])
         self.assertEqual(track["releases"][0]["status"], "completed")
         self.assertTrue(any(":commit?" in path for _, path, _ in self.calls))
+        self.assertFalse(any(method == "DELETE" for method, _, _ in self.calls))
 
     def test_rerun_after_upload_reuses_matching_bundle(self):
         self.bundles = [{"versionCode": 7, "sha256": self.digest}]
@@ -104,6 +108,7 @@ class PlayTests(unittest.TestCase):
         self.releases = [{"versionCodes": ["7"], "status": "completed"}]
         self.publish()
         self.assertFalse(any(method == "PUT" for method, _, _ in self.calls))
+        self.assertTrue(any(method == "DELETE" for method, _, _ in self.calls))
 
     def test_newer_internal_build_is_never_downgraded(self):
         self.releases = [{"versionCodes": ["8"], "status": "completed"}]
@@ -120,11 +125,13 @@ class PlayTests(unittest.TestCase):
                 with self.assertRaises((RuntimeError, ValueError)):
                     self.publish()
                 self.assertFalse(any(":commit?" in path for _, path, _ in self.calls))
+                self.assertTrue(any(method == "DELETE" for method, _, _ in self.calls))
 
     def test_active_review_is_not_cancelled_or_silently_waived(self):
         self.fail_commit = True
         with self.assertRaisesRegex(RuntimeError, "changes already in review"):
             self.publish()
+        self.assertTrue(any(method == "DELETE" for method, _, _ in self.calls))
 
 
 class DistributionBoundaryTests(unittest.TestCase):
