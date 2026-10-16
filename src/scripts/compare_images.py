@@ -109,7 +109,7 @@ def _zone_stats(dE, ref_lab, cand, ref, roi: np.ndarray | None = None) -> dict:
         if n == 0:
             zones[name] = {"n": 0}
             continue
-        b = (cf[m] - rf[m]).mean(axis=0)
+        b = (cf[m] - rf[m]).mean(axis=0, dtype=np.float64)
         zones[name] = {
             "n": n,
             "mean_deltaE": float(dEf[m].mean()),
@@ -236,11 +236,14 @@ def diff(
 
     if roi_mask is not None:
         dE_flat = dE[roi_mask]
-        bias = (cand[roi_mask] - ref[roi_mask]).mean(axis=0)
+        bias = (cand[roi_mask] - ref[roi_mask]).mean(axis=0, dtype=np.float64)
         n_pixels = int(roi_mask.sum())
     else:
         dE_flat = dE.ravel()
-        bias = (cand - ref).mean(axis=(0, 1))
+        # Large interleaved RGB populations accumulate substantial f32 error
+        # even for a constant residual. Retain the pixels and metric, but sum
+        # in f64 so bias does not depend on resolution or pixel order (#4667).
+        bias = (cand - ref).mean(axis=(0, 1), dtype=np.float64)
         n_pixels = int(cand.shape[0] * cand.shape[1])
 
     out = {

@@ -282,6 +282,64 @@ def test_chunking_preserves_all_statistics_and_roi():
                     )
 
 
+def test_bias_is_invariant_under_pixel_repetition():
+    """The same signed error must not drift with the image/ROI population."""
+    with tempfile.TemporaryDirectory() as directory:
+        candidate, reference, roi = [
+            Path(directory) / name for name in ("a.png", "b.png", "roi.png")
+        ]
+        fields = ("bias_r", "bias_g", "bias_b")
+        errors = []
+        for edge in (1, 512):
+            pixels = np.full((edge, edge, 3), (128, 126, 129), dtype=np.uint8)
+            _write(candidate, pixels)
+            _write(reference, np.full_like(pixels, 127))
+            mask = np.full((edge, edge), 255, dtype=np.uint8)
+            mask[1::2] = 0
+            Image.fromarray(mask).save(roi)
+            for masked in (False, True):
+                result = ci.diff(
+                    str(candidate),
+                    str(reference),
+                    zones=True,
+                    roi_path=str(roi) if masked else None,
+                )
+                if edge == 1 and not masked:
+                    expected = np.array([result[key] for key in fields])
+                for label, values in (
+                    ("full/ROI", result),
+                    ("zone", result["zones"]["mid"]),
+                ):
+                    actual = np.array([values[key] for key in fields])
+                    if not np.allclose(actual, expected, atol=1e-12, rtol=0):
+                        errors.append((edge, masked, label, actual, expected))
+        assert not errors, errors
+
+
+def test_bias_preserves_signed_cancellation_and_pixel_order():
+    with tempfile.TemporaryDirectory() as directory:
+        candidate, reference = [Path(directory) / name for name in ("a.png", "b.png")]
+        # Two exact float32 residuals repeated in large spatial blocks. The
+        # oracle adds the two unique values, rather than repeating the reduction.
+        values = np.array([255, 0, 1, 253], dtype=np.float32) / 255.0
+        expected = (float(values[0] - values[2]) + float(values[1] - values[3])) / 2
+        a = np.zeros((512, 512, 3), dtype=np.uint8)
+        b = np.full_like(a, 253)
+        a[:256] = 255
+        b[:256] = 1
+        for flip in (False, True):
+            _write(candidate, a[::-1] if flip else a)
+            _write(reference, b[::-1] if flip else b)
+            result = ci.diff(str(candidate), str(reference))
+            for key in ("bias_r", "bias_g", "bias_b"):
+                assert abs(result[key] - expected) < 1e-12, (
+                    flip,
+                    key,
+                    result[key],
+                    expected,
+                )
+
+
 def main():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
