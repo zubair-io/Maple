@@ -39,6 +39,64 @@ KVM emulator; it does not depend on ARM translation. Install the
 compatible Vulkan GPU; initialization failures are reported in the app. No signing
 credentials are committed.
 
+## Signing and distribution
+
+Android reads the canonical product version from `src/maple/package.json`.
+Release packaging requires the upload keystore and an explicit positive
+`-PmapleVersionCode`; an unsigned release fails. `android-distribution.yml`
+uses its own monotonically increasing workflow run number for every signed
+build, across main, tags and manual runs. Keep this workflow/counter when
+changing delivery, so Play version codes never restart.
+
+After the **Android** push workflow succeeds on main, distribution builds
+the exact tested SHA, verifies signatures, runs release lint, and uploads its
+AAB to **internal testing**. A delayed run checks current main before publishing;
+the publisher also refuses to replace a higher internal version code. Rerunning
+a failed publication reuses the signed artifact and verifies Google's returned
+version code and SHA-256. Permission, upload, review and commit errors fail the
+job. Existing Play reviews are never automatically cancelled.
+
+Tags `v<product-version>` build signed APK/AAB files and attach them, their
+SHA-256 checksums and the public upload certificate to the coordinated GitHub
+release. The release coordinator waits for Android alongside Mac and Windows.
+Tags do not promote a public Play production release. Manual dispatch creates
+verified signed artifacts only, including the first bundle needed to create
+the initial Play release in Console.
+
+GitHub repository secrets are `ANDROID_UPLOAD_KEYSTORE_BASE64`,
+`ANDROID_UPLOAD_STORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS` and
+`ANDROID_UPLOAD_KEY_PASSWORD`. `scripts/package-release.sh` materializes the
+key in a private temporary directory and removes it on exit. The public
+certificate is `signing/maple-upload.pem` (RSA 4096, expires March 2054,
+SHA-256 `1C:B8:8A:BE:91:9C:0E:2D:92:6B:58:8C:2C:08:16:D6:28:60:DE:E2:39:38:C1:95:D6:E4:79:90:78:04:3D:F7`).
+Keep the encrypted original and its password in the owner's secure backup;
+neither belongs in git. Google Play holds its separate app-signing key. Direct
+APK installs use the upload certificate, so they cannot update a Play-installed
+copy signed by Google's different app key (or an existing debug install).
+
+Play API authentication uses Google Workload Identity Federation, with no
+exported service-account JSON key. Repository variables
+`GOOGLE_PLAY_IDENTITY_PROVIDER` (the full provider resource name) and
+`GOOGLE_PLAY_SERVICE_ACCOUNT` select the configured identity. The provider
+must accept GitHub's issuer `https://token.actions.githubusercontent.com`, map
+`google.subject=assertion.sub`, and restrict its attribute condition to:
+
+```text
+assertion.repository_id == '1219479764' &&
+assertion.repository_owner_id == '140374' &&
+assertion.workflow_ref == 'zubair-io/Maple/.github/workflows/android-distribution.yml@refs/heads/main' &&
+assertion.event_name == 'workflow_run' && assertion.ref == 'refs/heads/main'
+```
+
+Grant that federated subject `roles/iam.workloadIdentityUser` on the dedicated
+publisher service account. Enable the Android Publisher API in its Cloud
+project. In Play Console grant that service account **Maple only**, with view
+app information and release-to-testing permissions; production, financial,
+user-management and account-wide admin access are unnecessary. Authentication
+runs after the build with an `androidpublisher` scoped, short-lived token.
+The initial Play listing/release and this Cloud/Play access setup are tracked
+in [#4651](https://github.com/zubair-io/Maple/issues/4651).
+
 ```sh
 ./gradlew testDebugUnitTest lintDebug
 ./gradlew connectedDebugAndroidTest    # a running arm64 emulator/device

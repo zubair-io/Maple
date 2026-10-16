@@ -351,7 +351,14 @@ class MainCITests(GitFixture):
     def runs(self):
         return [
             self.workflow(name)
-            for name in ["API tests", "cross", "web", "windows", "Maple package types"]
+            for name in [
+                "API tests",
+                "cross",
+                "web",
+                "windows",
+                "Maple package types",
+                "Android",
+            ]
         ]
 
     def test_green_main_and_latest_run_wins(self):

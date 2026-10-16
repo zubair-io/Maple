@@ -21,7 +21,7 @@ class ClassificationTests(unittest.TestCase):
             "src/raw-pipeline/raw-core/src/lib.rs": ci.ALL,
             "src/raw-pipeline/Cargo.lock": ci.ALL,
             "src/api/src/routes/assets.ts": {"api", "maple", "web"},
-            "src/maple/package.json": {"api", "maple", "web"},
+            "src/maple/package.json": {"android", "api", "maple", "web"},
             "src/web/package.json": {"api", "web"},
             "src/web/projects/maple/src/main.ts": {"api", "web"},
             "src/windows/Maple.WinUI/App.xaml.cs": {"windows"},

@@ -6,3 +6,6 @@ local.properties
 native/target/
 ci-artifacts/
 *.jks
+*.p12
+*.keystore
+out/

@@ -205,7 +205,14 @@ def require_green_main(repo, sha):
     for page in pages:
         for workflow in page["workflow_runs"]:
             latest.setdefault(workflow["name"], workflow)
-    expected = {"API tests", "cross", "web", "windows", "Maple package types"}
+    expected = {
+        "API tests",
+        "cross",
+        "web",
+        "windows",
+        "Maple package types",
+        "Android",
+    }
     missing = expected - latest.keys()
     if missing:
         raise ValueError(f"Missing main CI: {sorted(missing)}")

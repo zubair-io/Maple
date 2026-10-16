@@ -5,7 +5,7 @@
 # Stable release tags are created by version-sync.yml. Xcode Cloud consumes
 # the same tag and uploads the notarized Mac DMG from its production
 # archive; this workflow builds Windows, maintains the shared draft release,
-# and publishes only after both platforms are present.
+# and publishes only after Apple, Windows and Android assets are present.
 #
 # workflow_dispatch remains a Windows dry run: its artifacts stay on the
 # workflow run and no GitHub Release is created.
@@ -54,6 +54,7 @@ jobs:
           workspaces: src/raw-pipeline -> target
 
       - name: Build native core (raw_ffi.dll + maple-cli.exe)
+        shell: pwsh
         run: |
           cargo build --release --target ${{ matrix.target }} --manifest-path src/raw-pipeline/Cargo.toml -p raw-ffi --features gpu
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -238,24 +239,28 @@ jobs:
       - name: Upload Windows assets
         run: gh release upload "$GITHUB_REF_NAME" dist/* --repo "$REPOSITORY" --clobber
 
-      - name: Wait for Xcode Cloud Mac asset
+      - name: Wait for Xcode Cloud and Android signed assets
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          EXPECTED_ASSET="Maple-macOS-$VERSION.dmg"
+          EXPECTED_ASSETS=("Maple-macOS-$VERSION.dmg" "Maple-Android-$VERSION.apk" "Maple-Android-$VERSION.aab" "Maple-Android-SHA256SUMS.txt")
           DEADLINE=$((SECONDS + 10800))
 
           while (( SECONDS < DEADLINE )); do
-            if gh release view "$GITHUB_REF_NAME" --repo "$REPOSITORY" \
-                --json assets --jq ".assets[].name" | grep -Fxq "$EXPECTED_ASSET"; then
-              echo "Found $EXPECTED_ASSET"
+            ASSETS=$(gh release view "$GITHUB_REF_NAME" --repo "$REPOSITORY" --json assets --jq '.assets[].name')
+            MISSING=()
+            for asset in "${EXPECTED_ASSETS[@]}"; do
+              if ! grep -Fxq "$asset" <<< "$ASSETS"; then MISSING+=("$asset"); fi
+            done
+            if (( ${#MISSING[@]} == 0 )); then
+              echo 'All signed platform assets are present.'
               exit 0
             fi
-            echo "Waiting for Xcode Cloud to upload $EXPECTED_ASSET"
+            echo "Waiting for signed assets: ${MISSING[*]}"
             sleep 30
           done
 
-          echo "::error::Timed out waiting for $EXPECTED_ASSET. The release remains a draft."
+          echo "::error::Timed out waiting for signed platform assets. The release remains a draft."
           exit 1
 
       - name: Publish complete release

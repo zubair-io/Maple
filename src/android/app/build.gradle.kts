@@ -1,3 +1,5 @@
+import groovy.json.JsonSlurper
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -6,6 +8,11 @@ plugins {
 // CI runs the real JNI renderer on an x86_64 KVM emulator and still builds arm64.
 val nativeAbis = providers.gradleProperty("mapleAbis").orElse("arm64-v8a").get().split(",")
 require(nativeAbis.isNotEmpty() && nativeAbis.all { it in setOf("arm64-v8a", "x86_64") })
+val productVersion =
+    (JsonSlurper().parse(rootProject.file("../maple/package.json")) as Map<*, *>)["version"] as String
+val buildNumber = providers.gradleProperty("mapleVersionCode").orElse("1").get().toInt()
+require(buildNumber in 1..2100000000) { "mapleVersionCode must be a positive Play version code" }
+val uploadKeystore = providers.environmentVariable("ANDROID_UPLOAD_KEYSTORE").orNull
 
 android {
     namespace = "app.justmaple.aperture"
@@ -15,13 +22,22 @@ android {
         applicationId = "app.justmaple.aperture"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = buildNumber
+        versionName = productVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += nativeAbis }
         externalNativeBuild { cmake { arguments += "-DANDROID_STL=c++_shared" } }
     }
     buildFeatures { compose = true }
+    if (uploadKeystore != null) {
+        signingConfigs.create("upload") {
+            storeFile = file(uploadKeystore)
+            storePassword = providers.environmentVariable("ANDROID_UPLOAD_STORE_PASSWORD").get()
+            keyAlias = providers.environmentVariable("ANDROID_UPLOAD_KEY_ALIAS").get()
+            keyPassword = providers.environmentVariable("ANDROID_UPLOAD_KEY_PASSWORD").get()
+        }
+        buildTypes.getByName("release").signingConfig = signingConfigs.getByName("upload")
+    }
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
@@ -79,8 +95,20 @@ val buildRust by
         // Cargo owns dependency/resource freshness; always let it inspect its graph.
     }
 
+val requireReleaseSigning by tasks.registering {
+    doLast {
+        require(uploadKeystore != null) { "Release builds require the Maple upload signing key" }
+        require(providers.gradleProperty("mapleVersionCode").isPresent) {
+            "Release builds require an explicit mapleVersionCode"
+        }
+    }
+}
+
 tasks.configureEach {
     if (name.startsWith("configureCMake") || name.startsWith("buildCMake")) dependsOn(buildRust)
+    if (name in setOf("assembleRelease", "bundleRelease", "packageRelease", "packageReleaseBundle")) {
+        dependsOn(requireReleaseSigning)
+    }
 }
 
 dependencies {
