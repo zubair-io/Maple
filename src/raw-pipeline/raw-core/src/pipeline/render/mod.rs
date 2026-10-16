@@ -430,6 +430,7 @@ fn render_display_scene_with_context_cancellable(
                 active_model,
                 quality,
                 max_long_edge,
+                film_lut,
                 preview,
                 auto_cache_key.as_ref(),
                 cached_curve,

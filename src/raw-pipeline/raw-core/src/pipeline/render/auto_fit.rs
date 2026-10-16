@@ -452,11 +452,12 @@ pub fn cached_auto_profile_fit(
 /// Two routes to the artifacts:
 /// * **Render buffer IS the pinned fit buffer** — when the AE-pinned render
 ///   model equals [`fit_develop_model`] (i.e. the caller's model differs from
-///   the default in nothing but possibly `auto_exposure`), the buffer this
+///   the default in nothing but possibly `auto_exposure`) and no external
+///   film LUT was supplied, the buffer this
 ///   render just developed is bit-identical to the pinned fit develop, so the
 ///   fit samples it directly — no second develop. This is the cold-open
 ///   default-model case, and byte-for-byte the pre-#1085 behaviour for it.
-/// * **Caller's model is edited** — fit from a SEPARATE pinned develop
+/// * **Edited model or external film LUT** — fit from a SEPARATE pinned develop
 ///   ([`fit_artifacts_from_pinned_develop`]); only the APPLY touches the
 ///   caller's render. Pre-#1085 this case fit from the edited buffer,
 ///   mapping the user's edits back onto the unchanged JPEG targets —
@@ -469,6 +470,7 @@ pub(super) fn run_auto_profile_stage(
     active_model: &AdjustmentModel,
     quality: RenderQuality,
     max_long_edge: Option<u32>,
+    film_lut: Option<&crate::film::FilmLut>,
     preview: Option<ExtractedPreview>,
     cache_key: Option<&CacheKey>,
     cached_curve: Option<ProfileCurve>,
@@ -476,7 +478,7 @@ pub(super) fn run_auto_profile_stage(
 ) -> (Option<ProfileCurve>, Option<ColorLut>) {
     scene.assert_space(ColorSpace::DisplayEncodedSrgb);
     let (w, h) = (scene.width as usize, scene.height as usize);
-    if *active_model == fit_develop_model(model) {
+    if film_lut.is_none() && *active_model == fit_develop_model(model) {
         let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
         let artifacts = auto_profile::apply_pipeline::fit_auto_profile_artifacts(
             pixels,
