@@ -47,6 +47,9 @@ Release packaging requires the upload keystore and an explicit positive
 uses its own monotonically increasing workflow run number for every signed
 build, across main, tags and manual runs. Keep this workflow/counter when
 changing delivery, so Play version codes never restart.
+Distribution uses GitHub's [`queue: max`](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
+to keep pending builds instead of cancelling a pending release when another
+main build arrives. Publication remains serialized.
 
 After the **Android** push workflow succeeds on main, distribution builds
 the exact tested SHA, verifies signatures, runs release lint, and uploads its
