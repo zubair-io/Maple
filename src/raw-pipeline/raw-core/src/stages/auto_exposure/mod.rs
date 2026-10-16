@@ -75,14 +75,14 @@ use crate::xmp::{AdjustmentModel, AutoExposureMode};
 
 /// Rec.2020 luma weights — match the working color space of the post-DCP
 /// `Image` we sample (see `crate::stages::scene_tone_controls::LUMA_REC2020`).
-const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
+pub const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
 
 /// Target scene-linear value for mid-gray going into AgX. Matches
 /// `AGX_MID_GRAY` in `crate::view::agx::coeffs` (0.18); we duplicate the
 /// constant here to avoid pulling the `view` module into the `stages`
 /// dependency graph, and the literal is the load-bearing scene-referred
 /// constant of the entire pipeline.
-const SCENE_MIDGRAY_TARGET: f32 = 0.18;
+pub const SCENE_MIDGRAY_TARGET: f32 = 0.18;
 
 /// Target scene-linear value for the highlight anchor (#494). Sits just
 /// below the AgX shoulder so a scene whose p95 lands here still has
@@ -91,20 +91,20 @@ const SCENE_MIDGRAY_TARGET: f32 = 0.18;
 /// `max(midtone_gain, highlight_gain)`, so this target is only effective
 /// on scenes where the midtone heuristic under-reports (subject darker
 /// than background).
-const SCENE_HIGHLIGHT_TARGET: f32 = 0.85;
+pub const SCENE_HIGHLIGHT_TARGET: f32 = 0.85;
 
 /// Clip on `anchor_gain` so a near-black scene (midgrey → 0) does not
 /// drive a hyper-multiplier that blows out specular highlights into the
 /// AgX toe. +3 EV (= 8.0) is a conservative ceiling — night scenes
 /// either land at -3 EV after the clip (still a meaningful brighten) or
 /// the user follows up with explicit exposure compensation.
-const MAX_ANCHOR_GAIN: f32 = 8.0;
+pub const MAX_ANCHOR_GAIN: f32 = 8.0;
 
 /// Floor on `scene_midgrey` for the gain division — prevents NaN /
 /// Infinity when the trimmed-mean evaluates to zero. The clamp on
 /// `anchor_gain` already caps the output; this guard is just numerical
 /// safety against the division.
-const MIDGREY_FLOOR: f32 = 1e-6;
+pub const MIDGREY_FLOOR: f32 = 1e-6;
 
 /// Scene-anchor gain for `image`.
 ///

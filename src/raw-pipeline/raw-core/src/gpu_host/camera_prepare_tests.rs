@@ -105,37 +105,46 @@ fn actual_camera_prefix_and_fused_dcp_match_cpu_photographs() {
             (8500., 0., true, false),
             (6500., 150., false, true),
         ] {
-            let model = AdjustmentModel {
-                temperature,
-                tint,
-                temperature_seen,
-                tint_seen,
-                ..model.clone()
-            };
-            let expected = develop_scene_linear_sized_from_raw_with_quality(
-                &raw,
-                &model,
-                RenderQuality::Amaze,
-                512,
-            )
-            .unwrap();
-            assert_eq!(
-                (camera.width, camera.height),
-                (expected.width, expected.height)
-            );
-            assert_eq!(camera.whites_anchor_ev, expected.whites_anchor_ev);
-            assert_eq!(camera.nr_sampling_scale, expected.nr_sampling_scale);
-            let output = runner.run_blocking(&[&cached.pass(&model).unwrap()]);
-            let mut maximum = 0_f32;
-            for (actual, expected) in output.chunks_exact(4).zip(&expected.pixels) {
-                assert_eq!(actual[3], 1.);
-                for c in 0..3 {
-                    let error = (actual[c] - expected[c]).abs();
-                    assert!(error < 1e-4, "{name} {temperature}/{tint}: CPU {expected:?} GPU {actual:?}, error {error:e}");
-                    maximum = maximum.max(error);
+            for ae_mode in [AutoExposureMode::Off, AutoExposureMode::On] {
+                let model = AdjustmentModel {
+                    temperature,
+                    tint,
+                    temperature_seen,
+                    tint_seen,
+                    auto_exposure: ae_mode,
+                    ..model.clone()
+                };
+                let expected = develop_scene_linear_sized_from_raw_with_quality(
+                    &raw,
+                    &model,
+                    RenderQuality::Amaze,
+                    512,
+                )
+                .unwrap();
+                assert_eq!(
+                    (camera.width, camera.height),
+                    (expected.width, expected.height)
+                );
+                assert_eq!(camera.whites_anchor_ev, expected.whites_anchor_ev);
+                assert_eq!(camera.nr_sampling_scale, expected.nr_sampling_scale);
+                let pass = cached.pass(&model).unwrap();
+                let output = match ae_mode {
+                    AutoExposureMode::Off => runner.run_blocking(&[&pass]),
+                    AutoExposureMode::On => {
+                        runner.run_blocking(&[&pass, &raw_gpu::AutoExposurePass])
+                    }
+                };
+                let mut maximum = 0_f32;
+                for (actual, expected) in output.chunks_exact(4).zip(&expected.pixels) {
+                    assert_eq!(actual[3], 1.);
+                    for c in 0..3 {
+                        let error = (actual[c] - expected[c]).abs();
+                        assert!(error < 1e-4, "{name} {temperature}/{tint} AE {ae_mode:?}: CPU {expected:?} GPU {actual:?}, error {error:e}");
+                        maximum = maximum.max(error);
+                    }
                 }
+                eprintln!("Camera prefix {name} {temperature}/{tint} {temperature_seen}/{tint_seen} AE {ae_mode:?}: max {maximum:e}");
             }
-            eprintln!("Camera prefix {name} {temperature}/{tint} {temperature_seen}/{tint_seen}: max {maximum:e}");
         }
     }
 }

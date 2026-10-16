@@ -81,12 +81,23 @@ checked=0
 while IFS= read -r kernel; do
 	# The shared HSM body has caller-owned bindings; validate it in BOTH real
 	# modules below, assembled exactly like context_pipelines.rs (#4629).
-	if [[ "$kernel" == "$WGSL_DIR/hue_sat_map/math.wgsl" ]]; then
+	if [[ "$kernel" == "$WGSL_DIR/hue_sat_map/math.wgsl" || "$kernel" == "$WGSL_DIR/auto_exposure/common.wgsl" ]]; then
 		continue
 	fi
 	checked=$((checked + 1))
 	base="$(basename "$kernel")"
 	assembled="$TMP/assembled.wgsl"
+	if [[ "$kernel" == "$WGSL_DIR/auto_exposure/"* ]]; then
+		cat "$COLOR_MATRICES" "$WGSL_DIR/auto_exposure/common.wgsl" "$kernel" >"$assembled"
+		if validate "$assembled"; then
+			echo "PASS  auto_exposure/$base  (+color_matrices+AE common)"
+		else
+			echo "FAIL  auto_exposure/$base — assembled AE module does not validate:" >&2
+			sed 's/^/    /' "$TMP/err" >&2
+			fail=$((fail + 1))
+		fi
+		continue
+	fi
 	if [[ "$base" == "hue_sat_map.wgsl" || "$base" == "dcp_colorimetry.wgsl" ]]; then
 		cat "$COLOR_MATRICES" "$WGSL_DIR/hue_sat_map/math.wgsl" "$kernel" >"$assembled"
 		if validate "$assembled"; then

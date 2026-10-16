@@ -268,6 +268,7 @@ mod present_web;
 // a WebGPU `OffscreenCanvas` surface, zero readback. wasm-only — `SurfaceTarget::
 // OffscreenCanvas` is wgpu-gated on `#[cfg(any(webgpu, webgl))]`. Shares
 // `present_chain.wgsl` + `present_chain_pipeline` with the Apple path.
+mod auto_exposure;
 mod color_grade;
 mod dcp_colorimetry;
 mod grain;
@@ -292,6 +293,7 @@ mod white_balance;
 
 pub use agx::{apply_agx, AgxPass};
 pub use airlight::{encode_airlight, AIRLIGHT_BINS};
+pub use auto_exposure::AutoExposurePass;
 pub use auto_profile_curve::{
     apply_auto_profile_curve, AutoProfileCurvePass, PROFILE_CURVE_FLAT_LEN,
 };

@@ -83,3 +83,9 @@ const HSM_HSV_DELTA_EPSILON: f32 = 1e-9f;
 // Dark-channel transmission guards from stages/dehaze.rs (#4654).
 const DEHAZE_TRANSMISSION_OMEGA: f32 = 0.95f;
 const DEHAZE_AIRLIGHT_FLOOR: f32 = 1e-6f;
+// Scene-anchor constants from stages/auto_exposure (#4629).
+const AE_LUMA: vec3<f32> = vec3<f32>(0.2627f, 0.678f, 0.0593f);
+const AE_MIDGRAY: f32 = 0.18f;
+const AE_HIGHLIGHT: f32 = 0.85f;
+const AE_MAX_GAIN: f32 = 8.0f;
+const AE_FLOOR: f32 = 1e-6f;

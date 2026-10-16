@@ -222,6 +222,13 @@ pub fn emit_wgsl() -> String {
         wgsl_f(raw_core::stages::dehaze::TRANSMISSION_OMEGA),
         wgsl_f(raw_core::stages::dehaze::AIRLIGHT_FLOOR),
     ));
+    use raw_core::stages::auto_exposure as ae;
+    out.push_str(&format!(
+        "// Scene-anchor constants from stages/auto_exposure (#4629).\nconst AE_LUMA: vec3<f32> = vec3<f32>({}, {}, {});\nconst AE_MIDGRAY: f32 = {};\nconst AE_HIGHLIGHT: f32 = {};\nconst AE_MAX_GAIN: f32 = {};\nconst AE_FLOOR: f32 = {};\n",
+        wgsl_f(ae::LUMA_REC2020[0]), wgsl_f(ae::LUMA_REC2020[1]), wgsl_f(ae::LUMA_REC2020[2]),
+        wgsl_f(ae::SCENE_MIDGRAY_TARGET), wgsl_f(ae::SCENE_HIGHLIGHT_TARGET),
+        wgsl_f(ae::MAX_ANCHOR_GAIN), wgsl_f(ae::MIDGREY_FLOOR),
+    ));
     out
 }
 
@@ -390,6 +397,26 @@ mod tests {
         ] {
             assert!(output.contains(&format!("const {name}: f32 = {};", wgsl_f(value))));
         }
+    }
+
+    #[test]
+    fn auto_exposure_constants_follow_core() {
+        use raw_core::stages::auto_exposure as ae;
+        let output = emit_wgsl();
+        for (name, value) in [
+            ("AE_MIDGRAY", ae::SCENE_MIDGRAY_TARGET),
+            ("AE_HIGHLIGHT", ae::SCENE_HIGHLIGHT_TARGET),
+            ("AE_MAX_GAIN", ae::MAX_ANCHOR_GAIN),
+            ("AE_FLOOR", ae::MIDGREY_FLOOR),
+        ] {
+            assert!(output.contains(&format!("const {name}: f32 = {};", wgsl_f(value))));
+        }
+        assert!(output.contains(&format!(
+            "const AE_LUMA: vec3<f32> = vec3<f32>({}, {}, {});",
+            wgsl_f(ae::LUMA_REC2020[0]),
+            wgsl_f(ae::LUMA_REC2020[1]),
+            wgsl_f(ae::LUMA_REC2020[2]),
+        )));
     }
 
     /// The emitted row consts must equal `Matrix3::mul_vec` semantics: the
