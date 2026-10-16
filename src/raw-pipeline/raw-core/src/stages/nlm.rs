@@ -69,7 +69,10 @@ pub(crate) use chroma::denoise_chroma_pair_cancellable;
 
 #[path = "nlm_exp.rs"]
 mod exp;
-#[cfg(target_arch = "aarch64")]
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "wasm32", target_feature = "simd128")
+))]
 use exp::fast_exp_table;
 use exp::fast_neg_exp;
 
