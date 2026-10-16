@@ -7,11 +7,11 @@ unchanged. This is a measurement correction, not a rendering change.
 
 ## Isolated PR qualification
 
-This fix is extracted onto `main` at
-`22f686ec07e2671912f48a2eca4c56d8aa6566c1`. Only the comparator, its regression
-tests and this report change; the other color-repair commits are absent.
-All **11 comparator tests**, **six primaries self-checks** and **nine
-qualification-accounting tests** pass on this branch. Both new regressions
+The initial fix was extracted onto `main` at
+`22f686ec07e2671912f48a2eca4c56d8aa6566c1`. That first commit changed only the
+comparator, its regression tests and this report; the other color-repair
+commits are absent. All **11 comparator tests**, **six primaries self-checks** and **nine
+qualification-accounting tests** passed on that branch. Both new regressions
 fail when run against that exact base's comparator. Ruff and file-budget
 headroom checks pass. Regeneration with `tools/codegen.sh` changes no files.
 
@@ -19,6 +19,36 @@ The physical audit below records frozen candidates from the broader
 investigation; its 99 failures are not a fresh rendering result for this PR
 or a count for current `main`. This PR neither changes rendering code nor
 claims that the remaining physical color failures are resolved.
+
+## Review follow-up: Apple bias parity
+
+PR #4672 review identified the same Float reduction in the Swift visual-test
+comparator. `CIEDE2000.compare` now preserves Float normalization and subtraction,
+then converts each residual to Double for accumulation and averaging. DeltaE
+math and rendering code are unchanged. The touched Swift files are formatted;
+legacy local variable names were normalized to satisfy the existing lint gate.
+
+Two committed 512×512 calibration pairs cover repeated mixed-channel residuals
+and signed cancellation. Each is compared with Python in forward and reversed
+row order; the repeated case also agrees with a single pixel. Bias tolerance is
+1e-12 and the existing DeltaE tolerance remains 1e-3. The original 64×64 expected
+JSON was regenerated: only its three bias fields changed. The Python suite also
+checks all three committed expected files against the current comparator.
+
+The two new Swift tests fail with the old helper (12 assertions), including
+signed bias 0.00098049768712 instead of 0.00196078419685. After the repair, all
+**three Swift XCTest methods pass with zero skips**, compiled directly from the
+actual helper and test class in a temporary SwiftPM test target. This qualifies
+the comparison code without claiming an app build or a UI screenshot test run.
+The updated Python comparator suite has **12 passing tests**.
+
+The two new PNG pairs are synthetic test data: `bias-repetition` repeats
+candidate RGB (128,126,129) against (127,127,127); `bias-cancellation` has 256 rows
+of candidate 255/reference 1 followed by 256 rows of candidate 0/reference 253.
+Regenerate each expected file with `compare_images.py <directory>/a.png
+<directory>/b.png > <directory>/expected.json`. The logs are
+`bias-swift-before.log`, `bias-swift-formatted.log` and
+`bias-pr-comparator-review-tests.log` under the investigation's temporary archive.
 
 ## Reproduction
 

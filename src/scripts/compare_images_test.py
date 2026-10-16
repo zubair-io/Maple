@@ -8,6 +8,7 @@ Synthetic-image checks:
   * population-weighted mean of zone means reconstructs the global mean
 """
 
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -338,6 +339,25 @@ def test_bias_preserves_signed_cancellation_and_pixel_order():
                     result[key],
                     expected,
                 )
+
+
+def test_swift_calibration_expectations_match_python():
+    calibration = (
+        Path(__file__).resolve().parents[1] / "apple/MapleUITests/Goldens/.calibration"
+    )
+    for name in (".", "bias-repetition", "bias-cancellation"):
+        directory = calibration / name
+        expected = json.loads((directory / "expected.json").read_text())
+        actual = ci.diff(str(directory / "a.png"), str(directory / "b.png"))
+        assert actual.keys() == expected.keys(), name
+        for field, value in expected.items():
+            tolerance = 1e-12 if field.startswith("bias_") else 1e-3
+            assert abs(actual[field] - value) < tolerance, (
+                name,
+                field,
+                actual,
+                expected,
+            )
 
 
 def main():
