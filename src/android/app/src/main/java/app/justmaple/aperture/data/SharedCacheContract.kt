@@ -8,13 +8,16 @@ internal enum class SharedCacheTier(val directory: String, val edge: Int, val qu
     Preview("previews", 1280, 70);
 
     fun filename(name: String): String {
-        require(name.isNotEmpty() && name != "." && name != ".." && '/' !in name && '\\' !in name)
+        require(validBasename(name))
         val stem = if (this == Thumbnail) PhotoLibrary.digest(name).take(16) else name
         return "$stem.v${AdjustmentFields.pipelineOutputVersion}.avif"
     }
 
     companion object {
         fun forEdge(edge: Int) = if (edge <= 512) Thumbnail else Preview
+
+        fun validBasename(name: String) =
+            name.isNotEmpty() && name != "." && name != ".." && '/' !in name && '\\' !in name
     }
 }
 
@@ -28,7 +31,8 @@ internal data class FolderCacheSource(
 
     val canShare
         get() =
-            photo.contentDigest == null &&
+            SharedCacheTier.validBasename(photo.name) &&
+                photo.contentDigest == null &&
                 photo.size > 0 &&
                 photo.modified > 0 &&
                 (sidecar == null || sidecar.modified > 0)

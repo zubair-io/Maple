@@ -23,6 +23,8 @@ class CacheTestDocumentsProvider : DocumentsProvider() {
     @Volatile private var alias = false
     @Volatile private var failRename = false
     @Volatile private var zeroMtime = false
+    @Volatile private var renamed = false
+    @Volatile private var unsafeName = false
     @Volatile private var pausePublication = false
     @Volatile private var blocked = false
     private var release = CountDownLatch(1)
@@ -76,7 +78,10 @@ class CacheTestDocumentsProvider : DocumentsProvider() {
                             columnNames.map { column ->
                                 when (column) {
                                     Document.COLUMN_DOCUMENT_ID -> id(file)
-                                    Document.COLUMN_DISPLAY_NAME -> file.name
+                                    Document.COLUMN_DISPLAY_NAME ->
+                                        if (file.name != "photo.dng") file.name
+                                        else if (unsafeName) "../photo.dng"
+                                        else if (renamed) "renamed.dng" else file.name
                                     Document.COLUMN_MIME_TYPE ->
                                         if (file.isDirectory) Document.MIME_TYPE_DIR
                                         else "application/octet-stream"
@@ -179,6 +184,8 @@ class CacheTestDocumentsProvider : DocumentsProvider() {
         alias = extras?.getBoolean("alias") ?: false
         failRename = extras?.getBoolean("failRename") ?: false
         zeroMtime = extras?.getBoolean("zeroMtime") ?: false
+        renamed = extras?.getBoolean("renamed") ?: false
+        unsafeName = extras?.getBoolean("unsafeName") ?: false
         pausePublication = extras?.getBoolean("pausePublication") ?: false
         if (pausePublication) release = CountDownLatch(1)
         return Bundle()

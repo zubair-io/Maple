@@ -372,6 +372,9 @@ class PhotoLibrary(private val context: Context) {
         val original =
             entries.singleOrNull { it.uri == photo.uri && !it.directory }
                 ?: error("The photo is no longer in this folder")
+        check(original.name == photo.name) {
+            "The photo was renamed. Reopen the folder before loading its preview."
+        }
         val sidecars = entries.filter { it.name.equals(photo.sidecarName, ignoreCase = true) }
         check(sidecars.size <= 1) { "Multiple sidecars match this photo" }
         val current =

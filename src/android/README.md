@@ -132,7 +132,7 @@ Rust/codegen, LUTs, fixtures and the Apple layout/font/icon inputs. The stable
 **Android result** check rejects failed, cancelled or unexpectedly skipped work.
 The complete device suite runs on API 36 with a 1280×800 dp tablet layout and
 SwiftShader Vulkan, exercising the inspector/group resets and HEIF/AVIF cases.
-Reports must contain at least 44 device and 28 JVM passes with no skips. The
+Reports must contain at least 45 device and 28 JVM passes with no skips. The
 20 native CPU/GPU/cache contract tests and the shared presentation/cache/scRGB tests run against
 Mesa lavapipe, alongside APK assembly and lint. Reports, native output, logcat,
 device configuration, screenshots and walkthrough captures are uploaded even

@@ -22,23 +22,20 @@ internal fun sharedPreviewCandidates(
             ?.let { SharedCacheCandidate(it, "avif") }
     if (tier == SharedCacheTier.Thumbnail) return listOfNotNull(canonical)
     val stem = "${source.photo.name}.v${AdjustmentFields.pipelineOutputVersion}"
-    val descriptor =
-        documents.find(entries, "$stem.preview.json") ?: return listOfNotNull(canonical)
+    val descriptors = entries.filter { it.name == "$stem.preview.json" }
+    if (descriptors.isEmpty()) {
+        val receipts = entries.filter { it.name == "$stem.avif.source.json" }
+        if (receipts.isEmpty()) return listOfNotNull(canonical)
+        val receipt = receipts.singleOrNull()?.takeIf { !it.directory } ?: return emptyList()
+        val valid = runCatching {
+            sameSource(readCacheJson(context, receipt), source)
+        }
+            .getOrDefault(false)
+        return if (valid) listOfNotNull(canonical) else emptyList()
+    }
+    val descriptor = descriptors.singleOrNull()?.takeIf { !it.directory } ?: return emptyList()
     val hosted = runCatching {
-        require(descriptor.size in 1..65536)
-        val bytes =
-            context.contentResolver.openInputStream(descriptor.uri)!!.use { input ->
-                val output = ByteArrayOutputStream()
-                val buffer = ByteArray(4096)
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    require(output.size() + count <= 65536)
-                    output.write(buffer, 0, count)
-                }
-                output.toByteArray()
-            }
-        val json = JSONObject(bytes.toString(Charsets.UTF_8))
+        val json = readCacheJson(context, descriptor)
         require(exactNumber(json.get("version"), 1))
         val format = json.getString("format")
         val (extension, mime) =
@@ -50,11 +47,7 @@ internal fun sharedPreviewCandidates(
                 else -> error("Unsupported shared preview format")
             }
         require(json.getString("mimeType") == mime)
-        val identity = json.getJSONObject("source")
-        require(
-            exactNumber(identity.get("size"), source.photo.size) &&
-                exactNumber(identity.get("lastModified"), source.photo.modified)
-        )
+        require(sameSource(json.getJSONObject("source"), source))
         val artifact =
             documents.find(entries, "$stem.$extension") ?: error("Missing shared preview")
         require(
@@ -65,12 +58,35 @@ internal fun sharedPreviewCandidates(
         SharedCacheCandidate(artifact, format)
     }
         .getOrNull()
+    if (hosted == null) return emptyList()
     return if (
-        hosted != null &&
-            (canonical == null || hosted.document.modified >= canonical.document.modified)
+        hosted.format != "avif" &&
+            canonical != null &&
+            canonical.document.modified > hosted.document.modified
     )
-        listOfNotNull(hosted, canonical).distinct()
-    else listOfNotNull(canonical, hosted).distinct()
+        listOf(canonical, hosted)
+    else listOf(hosted)
+}
+
+private fun sameSource(identity: JSONObject, source: FolderCacheSource) =
+    exactNumber(identity.get("size"), source.photo.size) &&
+        exactNumber(identity.get("lastModified"), source.photo.modified)
+
+private fun readCacheJson(context: Context, document: LocalDocument): JSONObject {
+    require(document.size in 1..65536)
+    val bytes =
+        context.contentResolver.openInputStream(document.uri)!!.use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(4096)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                require(output.size() + count <= 65536)
+                output.write(buffer, 0, count)
+            }
+            output.toByteArray()
+        }
+    return JSONObject(bytes.toString(Charsets.UTF_8))
 }
 
 private fun exactNumber(value: Any, expected: Long) =
