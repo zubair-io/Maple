@@ -87,3 +87,43 @@ coverage remains in the GPU tests. No numerical budget changed.
 
 Evidence: `/Volumes/Projects/maple-color-gate-20261015/hsm-coverage-audit/`
 and `/Volumes/Projects/maple-color-gate-20261015/hsm-table-adoption/`.
+
+## Requalification with the corrected bias metric
+
+The subsequent v46 experiment includes only the two Fujifilm bodies. Each
+variant completed all 88 comparisons with 326 unchanged physical input hashes
+and the corrected float64 bias accumulator (#4667). Control had 23 failures;
+the candidate had 10: 22 cleared, nine newly failed, and one remained.
+All 20 Fujifilm native-detail bias failures cleared. The new failures were:
+
+- GFX 50S: `contrast_min`, `dehaze_max`, `dehaze_min`, `temperature_min`.
+- GFX 50R: `contrast_min`, `dehaze_min`, `exposure_min`, `temperature_min`,
+  `wb_auto`.
+
+GFX 50R `whites_max` remained failing. Both Auto baselines passed. This result
+still rejects adoption; it does not qualify Leica or the complete corpus.
+Evidence: `/Volumes/Projects/maple-color-gate-20261015/fuji-hsm-v46/paired-results.json`.
+
+## Selected-white composition on output 47
+
+The next diagnostic composes all three cameras' exact table pairs with #4633's
+selected-white interpolation at commit
+`38abc3b26c0d831dec4f822fd921a43d061f100f`. It preserves all other 1,404 bundle
+records and every non-HSM field. Its frozen CLI SHA256 is
+`eb9822acfcf5477082ad2dff421bc2daf2e531660ce20be6345b5e0ca7b169d2`.
+The source bundle and ordinary v47 CLI were restored after the build.
+
+Both explicit physical GPU tests passed, with no ignored cases. Across eleven
+cameras, 66 photograph/WB-prefix comparisons had maximum absolute scene error
+`1.2397766e-5`; 275 calibration/WB-intent comparisons had maximum error
+`1.9073486e-5`. Both retain the `1e-4` ceiling. All eleven original RAW hashes
+were unchanged, the source patch was unchanged during testing, and production
+sources were restored afterward. These tests cover the standalone camera
+stage; persistent live sessions and absolute frame-time limits remain separate
+acceptance requirements.
+
+The control and candidate physical runs each require 132 comparisons over all
+129 manifest cases and three Auto baselines, with 489 input hashes each. Those
+runs are still in progress. No current photographic pass or table adoption is
+claimed. Evidence, reproducible extraction and build identity are under
+`/Volumes/Projects/maple-color-gate-20261015/three-camera-hsm-v47/`.
