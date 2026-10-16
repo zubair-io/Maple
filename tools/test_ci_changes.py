@@ -95,7 +95,11 @@ class ClassificationTests(unittest.TestCase):
             apple + "MapleUITests/Goldens/.calibration/a.png": ci.ALL,
             apple + "MapleUITests/Goldens/.calibration/expected.json": ci.ALL,
             apple + "MapleUITests/Goldens/other.png": {"codegen"},
-            assets + "LaunchLogo.imageset/launchlogo_2x.png": {"web", "codegen"},
+            assets + "LaunchLogo.imageset/launchlogo_2x.png": {
+                "android",
+                "web",
+                "codegen",
+            },
             assets + "Other.imageset/maple512.png": {"codegen"},
             "docs/design/maple-ui/components/nested/README.md": {"web"},
             "docs/design/maple-ui/components-other/slider.md": set(),
@@ -108,7 +112,11 @@ class ClassificationTests(unittest.TestCase):
         }
         cases.update(
             {
-                assets + f"AppIcon.appiconset/maple{size}.png": {"web", "codegen"}
+                assets + f"AppIcon.appiconset/maple{size}.png": {
+                    "android",
+                    "web",
+                    "codegen",
+                }
                 for size in (16, 32, 64, 128, 256, 512, 1024)
             }
         )

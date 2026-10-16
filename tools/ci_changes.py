@@ -6,7 +6,7 @@ import re
 import subprocess
 from pathlib import Path
 
-CONSUMERS = ("windows", "web", "api", "maple", "codegen")
+CONSUMERS = ("android", "windows", "web", "api", "maple", "codegen")
 ALL = frozenset(CONSUMERS)
 CODEGEN_DOCS = frozenset(
     f"docs/{name}.{extension}"
@@ -38,6 +38,15 @@ def dependencies(path):
         return ALL
     if path.startswith("src/apple/MapleUITests/Goldens/.calibration/"):
         return ALL
+    # Android stages the shared layout raster and exports MapleUI's bundled
+    # fonts/glyphs. Ordinary Swift changes are still codegen-only.
+    if path.startswith(
+        (
+            "src/apple/MapleUITests/Fixtures/",
+            "src/apple/Packages/MapleUI/Sources/MapleUI/Resources/",
+        )
+    ):
+        return {"android", "codegen"}
     if path == (
         "src/apple/Packages/MapleCore/Sources/MapleCore/Resources/builtin-presets.json"
     ):
@@ -48,7 +57,7 @@ def dependencies(path):
             "src/apple/Maple/Assets.xcassets/LaunchLogo.imageset/",
         )
     ):
-        return {"web", "codegen"}
+        return {"android", "web", "codegen"}
     if path.startswith("docs/design/maple-ui/components/"):
         return {"web"}
     generated = "generated" in path.lower().split("/") or path.endswith(
@@ -56,13 +65,26 @@ def dependencies(path):
     )
     codegen = (
         {"codegen"}
-        if generated or path == "src/api/src/routes/xmp.sidecar-contract.test.ts"
+        if generated
+        or path
+        in (
+            "src/api/src/routes/xmp.sidecar-contract.test.ts",
+            "src/android/native/src/fields.rs",
+            "src/android/app/src/main/res/values/maple-tokens.xml",
+        )
         else set()
     )
+    if path.startswith("src/android/"):
+        return {"android"} | codegen
     if path.startswith(("src/api/", "src/maple/")):
         return {"api", "maple", "web"} | codegen
     if path.startswith("src/web/"):
-        return {"api", "web"} | codegen
+        android = (
+            {"android"}
+            if path.startswith("src/web/projects/maple-common/src/lib/icons/")
+            else set()
+        )
+        return {"api", "web"} | codegen | android
     if path.startswith("src/windows/"):
         return (
             {"windows"}

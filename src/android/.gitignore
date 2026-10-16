@@ -4,4 +4,5 @@
 **/build/
 local.properties
 native/target/
+ci-artifacts/
 *.jks

@@ -32,7 +32,10 @@ cd src/android
 
 Gradle builds the release Rust static library before linking the JNI library.
 The APK is `app/build/outputs/apk/debug/app-debug.apk`. Current packaging targets
-arm64 devices/emulators on Android 10 or later. The live editor requires a
+arm64 devices/emulators on Android 10 or later. CI additionally builds x86_64
+with `-PmapleAbis=arm64-v8a,x86_64` and installs that native ABI on an Ubuntu
+KVM emulator; it does not depend on ARM translation. Install the
+`x86_64-linux-android` Rust target when building that ABI. The live editor requires a
 compatible Vulkan GPU; initialization failures are reported in the app. No signing
 credentials are committed.
 
@@ -41,6 +44,20 @@ credentials are committed.
 ./gradlew connectedDebugAndroidTest    # a running arm64 emulator/device
 cargo test --manifest-path native/Cargo.toml --lib
 ```
+
+Android CI uses the central conservative dependency selector, including shared
+Rust/codegen, LUTs, fixtures and the Apple layout/font/icon inputs. The stable
+**Android result** check rejects failed, cancelled or unexpectedly skipped work.
+The complete device suite runs on API 36 with a 1280×800 dp tablet layout and
+SwiftShader Vulkan, exercising the inspector/group resets and HEIF/AVIF cases.
+Reports must contain at least 37 device and 26 JVM passes with no skips. The
+19 native CPU/GPU tests run against Mesa lavapipe, alongside APK assembly and
+lint. Reports, native output, logcat, device configuration, screenshots and
+walkthrough captures are uploaded even after a test failure. Only SDK setup
+downloads have bounded retries; failing tests remain failures. The committed
+48 MP HEIF fixture works on Linux; its regeneration script requires macOS.
+Software rendering proves functional correctness, not physical GPU or frame-time
+qualification, which remains under #4623.
 
 Device tests open a committed RAW and a real raster, render with Vulkan,
 change exposure/white balance, save and undo actual XMP files, recreate the
