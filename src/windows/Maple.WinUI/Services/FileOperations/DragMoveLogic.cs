@@ -23,6 +23,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Maple.WinUI.Services.Xmp;
 
 namespace Maple.WinUI.Services.FileOperations
 {
@@ -87,9 +88,11 @@ namespace Maple.WinUI.Services.FileOperations
         /// the destination are excluded: <see cref="IsAlreadyInDestination"/>
         /// handles those as a separate "Skipped, not a collision" case, and
         /// counting them here would show a spurious collision dialog for a
-        /// plain self-drop. <paramref name="pathExists"/> is injected (real
-        /// callers pass <c>File.Exists(p) || Directory.Exists(p)</c>) so this
-        /// stays testable without touching a real filesystem.</summary>
+        /// plain self-drop. An occupied sidecar name (another same-stem
+        /// photo's, or an orphan) collides the whole asset too (#4758).
+        /// <paramref name="pathExists"/> is injected (real callers pass
+        /// <c>File.Exists(p) || Directory.Exists(p)</c>) so this stays
+        /// testable without touching a real filesystem.</summary>
         public static IReadOnlyList<string> DetectCollisions(
             IReadOnlyList<DragMoveSourceItem> items,
             string destinationDir,
@@ -100,12 +103,14 @@ namespace Maple.WinUI.Services.FileOperations
             {
                 if (IsAlreadyInDestination(item, destinationDir))
                     continue;
-                var candidate = Path.Combine(destinationDir, item.CurrentFileName);
-                if (pathExists(candidate))
+                if (AssetOccupies(Path.Combine(destinationDir, item.CurrentFileName), pathExists))
                     colliding.Add(item.Key);
             }
             return colliding;
         }
+
+        private static bool AssetOccupies(string candidate, Func<string, bool> pathExists) =>
+            pathExists(candidate) || pathExists(SidecarStore.SidecarPathFor(candidate));
 
         /// <summary>Maps a user's collision choice onto the existing
         /// <see cref="CollisionPolicy"/> RelocateAsync understands. Skip has
@@ -217,7 +222,7 @@ namespace Maple.WinUI.Services.FileOperations
             var candidatePath = Path.Combine(destinationDir, item.CurrentFileName);
             var claimedBySibling = claimedThisBatch.Contains(candidatePath);
             var collidesNow = !claimedBySibling
-                && (File.Exists(candidatePath) || Directory.Exists(candidatePath));
+                && AssetOccupies(candidatePath, p => File.Exists(p) || Directory.Exists(p));
             // OrdinalIgnoreCase: Key is a FilePath (Windows paths are
             // case-insensitive-but-case-preserving), matching how callers
             // treat the same keys elsewhere (e.g. EditSessionViewModel.

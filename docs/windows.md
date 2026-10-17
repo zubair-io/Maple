@@ -131,7 +131,7 @@ The live-scopes delivery (#3885) now has a non-blocking collection ABI, `maple_g
 
 `Services/FileOperations/` holds the relocate primitive and everything built on it, all WinUI-free by construction so the test project can link the sources directly:
 
-- `LocalFileOperations.*.cs` — copy-verify-delete relocate, collision handling, case-only rename, folder CRUD, trash, trash restore. Relocation also cleans up the old shared thumbnail entry.
+- `LocalFileOperations.*.cs` — copy-verify-delete relocate, collision handling, case-only rename, folder CRUD, trash, trash restore. Relocation also cleans up the old shared thumbnail entry. Sidecars follow the shared-sidecar rule in [xmp-canonical-format](xmp-canonical-format.md#moving-renaming-and-trashing-a-photo): a `.xmp` a same-stem sibling still reads is copied (or left out of the Recycle Bin call), never taken; an occupied destination sidecar collides the whole asset; an extension-only rename leaves the sidecar where it is.
 - `CollisionResolver.cs` — appends `.N` before the extension until free, bounded to 1000 attempts; mirrors the API's `pickFreePath` and Apple's `CollisionResolver.swift`.
 - `RecycleBinService.cs` — `SHFileOperationW` with `FOF_ALLOWUNDO`. A delete on a **local fixed drive** goes to the real Windows Recycle Bin, primary and sidecar in one call so they can't half-succeed.
 - `TrashPaths.cs` / `MapleTrashListing.cs` — the fallback for network shares and failed Recycle Bin calls: `<libraryRoot>/.maple/trash/<relative-parent>`, preserving position under the root so restore reconstructs the tree. This mirrors the API's `computeTrashPath` and Apple's `trashDestinationDir`. Only these items appear in "Restore from Maple Trash…" — Recycle Bin items are restored from Explorer.

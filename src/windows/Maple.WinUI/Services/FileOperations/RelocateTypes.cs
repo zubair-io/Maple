@@ -64,6 +64,9 @@ namespace Maple.WinUI.Services.FileOperations
     /// `Finalize` must NOT attempt to delete `SourcePrimaryPath` when this is
     /// true: on such a filesystem that path now resolves to the very file
     /// that was just renamed.</param>
+    /// <param name="SourceSidecarStays">True when `Finalize` must keep
+    /// `SourceSidecarPath`: a same-stem sibling still reads it, or it is the
+    /// very file `FinalSidecarPath` names (an extension-only rename, #4758).</param>
     public sealed record RelocatePlan(
         RelocateMode Mode,
         string SourcePrimaryPath,
@@ -72,7 +75,8 @@ namespace Maple.WinUI.Services.FileOperations
         string? FinalSidecarPath,
         bool RenamedDueToCollision,
         IReadOnlyList<string> CreatedPaths,
-        bool SourceAlreadyRelocated = false)
+        bool SourceAlreadyRelocated = false,
+        bool SourceSidecarStays = false)
     {
         /// <summary>True when `Finalize` has nothing left to do — either a
         /// case-only rename already did everything, or (defensively) nothing

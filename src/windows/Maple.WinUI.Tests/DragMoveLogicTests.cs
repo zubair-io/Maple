@@ -164,5 +164,18 @@ namespace Maple.WinUI.Tests
 
             Assert.Equal(new[] { "taken" }, colliding);
         }
+
+        [Fact]
+        public void DetectCollisions_OnlyTheSidecarNameIsOccupied_Flagged()
+        {
+            var src = Path.Combine(Path.GetTempPath(), "src");
+            var dest = Path.Combine(Path.GetTempPath(), "dest");
+            var items = new[] { Item("raw", src, "IMG_1.CR3") };
+            var occupied = new HashSet<string> { Path.Combine(dest, "IMG_1.JPG"), Path.Combine(dest, "IMG_1.xmp") };
+
+            var colliding = DragMoveLogic.DetectCollisions(items, dest, occupied.Contains);
+
+            Assert.Equal(new[] { "raw" }, colliding);
+        }
     }
 }
