@@ -1,5 +1,6 @@
 package app.justmaple.aperture.ui
 
+import android.net.Uri
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
@@ -37,6 +38,7 @@ internal fun BrowseGrid(
     folderPicker: () -> Unit,
 ) {
     var columns by rememberSaveable { mutableIntStateOf(3) }
+    val gridState = rememberFolderGridState(state.folder?.uri)
     val directories = folders.filter { it.name != ".." }
     if (state.loading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -90,6 +92,7 @@ internal fun BrowseGrid(
             LazyVerticalGrid(
                 GridCells.Fixed(columns),
                 Modifier.fillMaxSize().testTag("browse-grid"),
+                state = gridState,
                 contentPadding = PaddingValues(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -119,6 +122,10 @@ internal fun BrowseGrid(
         }
     }
 }
+
+@Composable
+internal fun rememberFolderGridState(folder: Uri?): LazyGridState =
+    rememberSaveable(folder, saver = LazyGridState.Saver) { LazyGridState() }
 
 @Composable
 private fun FolderTile(folder: Folder, onClick: () -> Unit) {
