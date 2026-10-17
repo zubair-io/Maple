@@ -2,23 +2,16 @@
 //
 // The persistent `WebLiveSession` has two re-render entry points:
 //   - `render_with_params(params)` — the hot path: it applies a flat array of 19
-//     scalar sliders onto a CLONE of the cached, stripped develop prefix, skipping
+//     scalar sliders onto the canonical stripped default model, skipping
 //     XML parsing (#1038).
 //   - `render(xmp)` — the full path: it parses the whole model and re-develops when
 //     the prefix changed.
 //
-// The catch: the stripped prefix (raw-wasm `gpu_render/model.rs stripped_prefix_model`)
-// ZEROES every GPU-chain slider the fast path can't carry — HSL, split-tone,
-// parametric tone, sharpen, and noise-reduction — and FREEZES the kept-prefix fields
-// (profile, capture sharpening, decode pre-filters, crop, …) at whatever the session
-// opened with. So `render_with_params` silently drops any of those edits: they never
-// appear on the live canvas until the session reopens.
-//
-// `canUseLiveFastPath` decides, per tick, whether the fast path can faithfully
-// reproduce the model. When it can't, the caller sends no params and the worker
-// routes through the full `render(xmp)` path instead (which re-develops only when the
-// prefix actually changed, so the cost is a small XML parse — not a re-develop — for
-// the common "creative edit + scalar drag" case).
+// The scalar ABI carries no other fields. Rust reconstructs the canonical
+// stripped default model and checks it against the uploaded prefix, re-developing
+// once when a previous full render used different prefix fields (#4736).
+// `canUseLiveFastPath` therefore requires every unsupported edit at its default;
+// other models use `render(xmp)` so the whole edit reaches the GPU chain.
 
 import {
   type AdjustmentModel,
@@ -97,10 +90,9 @@ function canUseScalarWhiteBalance(model: AdjustmentModel): boolean {
  * — have NON-zero defaults (40 and 25), so the prefix's zero differs from a default
  * model: the fast path faithfully reproduces the model only when both are already at
  * the prefix's zero. Every other non-scalar field must be at its default; a
- * kept-prefix field that's merely non-default (HSL, profile, capture sharpening,
- * decode pre-filters, crop, …) is frozen at the open baseline, so — to never risk a
- * dropped or stale edit — it too routes through the (still cheap, no re-develop)
- * full path.
+ * kept-prefix field that's non-default (profile, capture sharpening,
+ * decode pre-filters, crop, …) must use the full path. Returning it to default
+ * can resume scalars: Rust checks and replaces the uploaded prefix first (#4736).
  *
  * Runs on every GPU render tick, so it must not allocate (the CLAUDE.md render-loop
  * invariant): the default model and the key list are module-level constants, and the
@@ -122,12 +114,12 @@ export function canUseLiveFastPath(model: AdjustmentModel): boolean {
   if (model.localAdjustments.length !== 0) return false;
   // Repair spots (#3409) are baked into the DECODE product, so the resident
   // session's already-developed base carries them — but the params path
-  // reuses the session's STORED prefix without re-comparing it, so a spot
-  // the user just placed would not appear until some other tick re-parsed
+  // cannot carry the authored list, so a spot the user just placed needs
   // the sidecar. A non-empty list therefore routes to the full
   // `render(xmp)` path, where the prefix comparison re-develops when (and
   // only when) the spot list actually moved. Same rule, same reason, as the
-  // local-adjustment stack above.
+  // local-adjustment stack above. Clearing the list resumes the scalar ABI;
+  // Rust rebuilds the default model and invalidates that old prefix (#4736).
   if (model.retouchSpots.length !== 0) return false;
   // Point curves (#366) are nested too. An identity (empty) curve is not an edit;
   // an authored one is a prefix field the fast path would freeze, so it routes to

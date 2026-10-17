@@ -122,6 +122,33 @@ describe('canUseLiveFastPath (#1914)', () => {
     expect(canUseLiveFastPath({ ...fastPathBaseline(), nrColor: 40 })).toBe(false);
   });
 
+  it('returns to the scalar ABI after resetting prefix edits (#4736)', () => {
+    const baseline = fastPathBaseline();
+    const edits: AdjustmentModel[] = [
+      { ...baseline, profile: 'Neutral' },
+      { ...baseline, highlightRecovery: 'Off' },
+      {
+        ...baseline,
+        retouchSpots: [
+          {
+            kind: 'clone',
+            center: { x: 0.25, y: 0.5 },
+            source: { x: 0.75, y: 0.5 },
+            radius: 0.05,
+            feather: 0.5,
+            opacity: 1,
+          },
+        ],
+      },
+    ];
+    for (const edited of edits) {
+      expect(canUseLiveFastPath(edited)).toBe(false);
+      // Rust must invalidate the old uploaded prefix when this ABI resumes.
+      expect(canUseLiveFastPath({ ...baseline, exposure: 1.5 })).toBe(true);
+      expect(buildLiveParams({ ...baseline, exposure: 1.5 })[0]).toBe(1.5);
+    }
+  });
+
   it('rejects a profile change', () => {
     expect(canUseLiveFastPath({ ...fastPathBaseline(), profile: 'Neutral' })).toBe(false);
   });

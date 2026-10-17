@@ -50,8 +50,6 @@
 use raw_core::gpu_host::prepare::auto_will_fit;
 #[cfg(test)]
 pub(crate) use raw_core::gpu_host::prepare::fit_profile_artifacts_with_status;
-#[cfg(target_arch = "wasm32")]
-pub(crate) use raw_core::gpu_host::prepare::prefix_model_for;
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) use raw_core::gpu_host::prepare::{chain_inputs_with_status, develop_prefix_rgba};
 #[cfg(any(target_arch = "wasm32", test))]

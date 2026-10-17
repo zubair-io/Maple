@@ -121,6 +121,9 @@ pub mod gpu;
 #[cfg(feature = "gpu")]
 mod gpu_render;
 
+#[cfg(feature = "gpu")]
+mod live_params;
+
 // The persistent, zero-readback web live-render handle (`WebLiveSession`, P4b-web
 // / #1038): keeps the GPU context + uploaded image resident across slider ticks
 // and presents straight to a WebGPU `OffscreenCanvas` surface. wasm-only (it owns
