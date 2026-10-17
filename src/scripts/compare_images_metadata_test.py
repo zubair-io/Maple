@@ -216,6 +216,29 @@ class AuthoringMetadataTests(unittest.TestCase):
                     self.authored, self.with_property(f"<crs:{key}>1</crs:{key}>")
                 )
 
+    def test_dtds_are_rejected_in_authoring_and_captures(self):
+        for declaration in (
+            "<!DOCTYPE x>",
+            '<!DOCTYPE x [<!ENTITY value "7">]>',
+            '<!DOCTYPE x SYSTEM "file:///unused-maple-xmp.dtd">',
+        ):
+            packet = declaration + self.authored
+            for authored, captured in (
+                (packet, self.authored),
+                (self.authored, packet),
+            ):
+                with (
+                    self.subTest(declaration=declaration, authored=authored),
+                    self.assertRaisesRegex(ValueError, "must not declare a DTD"),
+                ):
+                    self.compare(authored, captured)
+
+    def test_plain_xml_character_references_remain_valid(self):
+        packet = self.with_property(
+            "<crs:FutureLabel>Light &amp; Shade</crs:FutureLabel>"
+        )
+        self.assertEqual(self.compare(packet, packet)["max_deltaE"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

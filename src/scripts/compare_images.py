@@ -313,21 +313,23 @@ def diff_manifest_case(
 
         with open(reference_xmp, "rb") as sidecar:
             authoring_packet = sidecar.read()
-        expected = reference_settings(authoring_packet)
-        verify_png(native, expected)
-        verify_png(preferred, expected)
+        authored_settings = camera_raw_settings(authoring_packet)
     with Image.open(preferred) as image:
         comparison_size = image.size
         preferred_settings = _reference_crs(image)
     with Image.open(native) as image:
         native_size = image.size
         native_settings = _reference_crs(image)
+    if reference_xmp is not None:
+        # The complete parser rejects DTDs before the subset verifier parses
+        # any of these same packets. Retain its specific control diagnostics.
+        expected = reference_settings(authoring_packet)
+        verify_png(native, expected)
+        verify_png(preferred, expected)
     if preferred_settings != native_settings:
         raise ValueError("native/down Camera Raw settings differ")
     if reference_xmp is not None:
-        authored_settings = camera_raw_settings(authoring_packet)
         verify_authoring_settings(authored_settings, preferred_settings)
-        verify_authoring_settings(authored_settings, native_settings)
     with Image.open(cand_path) as image:
         if image.size != native_size:
             raise ValueError(
