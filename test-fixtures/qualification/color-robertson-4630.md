@@ -167,3 +167,29 @@ Prior physical-color evidence keeps its original version and status; the
 Evidence, commands, frozen SDK source, source identities and the selected
 manifest are preserved under
 `/Volumes/Projects/maple-color-gate-20261015/robertson-current-main/`.
+
+## Merge integration at output version 28
+
+The branch was integrated with main `23a91c1ed1b1f0b947b767719ae0e9ddb7b699a0`
+to resolve actual merge conflicts. Pipeline output advances from 27 to 28;
+AgX version 9 and Auto-fit model version 4 remain unchanged. The current shared
+derivative policy from main is preserved, including the removed Cloudflare
+pipeline-version artifact. The six Rust/Swift/TypeScript/C# mapping source files
+are byte-identical to the previously reviewed `aee4da8850` revision.
+
+At source revision `ae717a1db91b417ab57b7daae5b029f0b55d4e42`, fresh qualification
+records and independent `--check` reruns each execute 62 cases: synthetic grey 6,
+color chart 7, grey adjustments 41, grey DCP 5, and API sidecar contract 3. All
+pass with zero failures or skips. These records repair the stale output-version
+qualification detected after the AgX merge. The debug raw-core library suite
+with GPU/test-support features passes 2,820 tests with 103 existing ignores.
+
+Platform constants and capability/support summaries are regenerated for version
+28. The full physical corpus has not been rerun on this integrated revision;
+the historical 220-render cohort and 776-sidecar audit above retain their
+original scope. No budgets or original RAW/XMP/reference inputs are changed.
+The user requested merging without repeated updates solely because main moves;
+existing main color failures remain covered by the session exception.
+
+Fresh logs and mapping source hashes are retained under
+`/tmp/maple-color-merge-20261017/` and copied to the session evidence archive.

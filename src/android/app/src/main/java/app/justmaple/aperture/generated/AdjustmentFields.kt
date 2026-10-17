@@ -4,7 +4,7 @@ package app.justmaple.aperture.generated
 data class AdjustmentField(val index: Int, val name: String, val minimum: Float, val maximum: Float, val initial: Float, val xmp: String, val rasterSupported: Boolean)
 
 object AdjustmentFields {
-    const val pipelineOutputVersion = 27
+    const val pipelineOutputVersion = 28
     const val whiteBalanceScaleVersion = 5
     val all = listOf(
         AdjustmentField(0, "temperature", 2000.0f, 12000.0f, 6500.0f, "crs:Temperature", true),
