@@ -458,6 +458,56 @@ final class LocalFileOperationsRelocateTests: XCTestCase {
     )
   }
 
+  func testReplaceWithoutSidecarSkipsPrimaryBackup() throws {
+    let destDir = root.appendingPathComponent("Album")
+    let occupantURL = destDir.appendingPathComponent("IMG_1.dng")
+    let unreadableChild = FileOperationsTestSupport.write(
+      "secret", to: occupantURL.appendingPathComponent("unreadable"))
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o000], ofItemAtPath: unreadableChild.path)
+    let primaryTmp = FileOperationsTestSupport.write(
+      "incoming-pixels", to: destDir.appendingPathComponent("staged-primary"))
+    let sidecarURL = destDir.appendingPathComponent("IMG_1.xmp")
+    defer {
+      try? FileManager.default.setAttributes(
+        [.posixPermissions: 0o644], ofItemAtPath: unreadableChild.path)
+    }
+
+    try LocalFileOperations.publishStagedPair(
+      primaryTmp: primaryTmp, primaryDestination: occupantURL, sidecarTmp: nil,
+      sidecarDestination: sidecarURL, clearStaleSidecar: true, sourcePrimaryURL: occupantURL)
+    XCTAssertEqual(FileOperationsTestSupport.contents(occupantURL), "incoming-pixels")
+  }
+
+  func testPublishStagedPairRetainsBackupWhenRestoreFails() throws {
+    let destDir = root.appendingPathComponent("Album")
+    let occupantURL = FileOperationsTestSupport.write(
+      "occupant-pixels", to: destDir.appendingPathComponent("IMG_1.dng"))
+    let primaryTmpDir = destDir.appendingPathComponent("staged-primary-dir")
+    let lockedChild = FileOperationsTestSupport.write(
+      "locked", to: primaryTmpDir.appendingPathComponent("child"))
+    try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: lockedChild.path)
+    let sidecarDir = destDir.appendingPathComponent("IMG_1.xmp")
+    try FileManager.default.createDirectory(at: sidecarDir, withIntermediateDirectories: true)
+    defer {
+      try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: lockedChild.path)
+      try? FileManager.default.setAttributes(
+        [.immutable: false], ofItemAtPath: occupantURL.appendingPathComponent("child").path)
+    }
+
+    XCTAssertThrowsError(
+      try LocalFileOperations.publishStagedPair(
+        primaryTmp: primaryTmpDir, primaryDestination: occupantURL, sidecarTmp: nil,
+        sidecarDestination: sidecarDir, clearStaleSidecar: true, sourcePrimaryURL: occupantURL)
+    )
+    let listing = try FileManager.default.contentsOfDirectory(atPath: destDir.path)
+    let backupName = try XCTUnwrap(listing.first(where: { $0.hasPrefix("IMG_1.dng.tmp.") }))
+    XCTAssertEqual(
+      FileOperationsTestSupport.contents(destDir.appendingPathComponent(backupName)),
+      "occupant-pixels",
+      "backup must be retained when restoreBackup fails so the previous occupant is not lost")
+  }
+
   // MARK: - Verify (direct coverage of the mismatch branch)
 
   func testVerifyCopyDetectsASizeMismatch() throws {

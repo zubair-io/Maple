@@ -379,7 +379,7 @@ public enum LocalFileOperations {
     }
   }
 
-  private static func publishStagedPair(
+  static func publishStagedPair(
     primaryTmp: URL,
     primaryDestination: URL,
     sidecarTmp: URL?,
@@ -388,11 +388,13 @@ public enum LocalFileOperations {
     sourcePrimaryURL: URL
   ) throws {
     let fm = FileManager.default
+    let hasStaleSidecar = clearStaleSidecar && fm.fileExists(atPath: sidecarDestination.path)
+    let hasSidecarWork = sidecarTmp != nil || hasStaleSidecar
     var primaryBackup: URL?
     var primaryPublished = false
 
     do {
-      if sidecarTmp != nil || clearStaleSidecar, fm.fileExists(atPath: primaryDestination.path) {
+      if hasSidecarWork, fm.fileExists(atPath: primaryDestination.path) {
         let backup = try stageVerifiedCopy(
           from: primaryDestination, forDestination: primaryDestination)
         try? fm.setAttributes([.immutable: false], ofItemAtPath: backup.path)
@@ -401,7 +403,7 @@ public enum LocalFileOperations {
       try publish(primaryTmp, to: primaryDestination)
       primaryPublished = true
 
-      if sidecarTmp != nil || clearStaleSidecar, fm.fileExists(atPath: sidecarDestination.path) {
+      if hasSidecarWork, fm.fileExists(atPath: sidecarDestination.path) {
         var isDirectory: ObjCBool = false
         fm.fileExists(atPath: sidecarDestination.path, isDirectory: &isDirectory)
         guard !isDirectory.boolValue else {
@@ -411,7 +413,7 @@ public enum LocalFileOperations {
       }
       if let sidecarTmp {
         try publish(sidecarTmp, to: sidecarDestination)
-      } else if clearStaleSidecar, fm.fileExists(atPath: sidecarDestination.path) {
+      } else if hasStaleSidecar {
         try fm.removeItem(at: sidecarDestination)
       }
     } catch {
@@ -419,12 +421,20 @@ public enum LocalFileOperations {
       if let sidecarTmp { try? fm.removeItem(at: sidecarTmp) }
       if primaryPublished {
         if let primaryBackup {
-          try? restoreBackup(from: primaryBackup, to: primaryDestination)
+          do {
+            try restoreBackup(from: primaryBackup, to: primaryDestination)
+            try? fm.removeItem(at: primaryBackup)
+          } catch {
+            fileOpsLog.error(
+              "publishStagedPair: failed to restore backup \(primaryBackup.path, privacy: .public) to \(primaryDestination.path, privacy: .public); retaining backup: \(error.localizedDescription, privacy: .public)"
+            )
+          }
         } else {
           try? fm.removeItem(at: primaryDestination)
         }
+      } else if let primaryBackup {
+        try? fm.removeItem(at: primaryBackup)
       }
-      if let primaryBackup { try? fm.removeItem(at: primaryBackup) }
       throw (error as? FileOperationError)
         ?? .underlying(
           "copy \(sourcePrimaryURL.path) -> \(primaryDestination.path) failed: \(error.localizedDescription)"
@@ -437,10 +447,9 @@ public enum LocalFileOperations {
   private static func restoreBackup(from backup: URL, to destination: URL) throws {
     let fm = FileManager.default
     if fm.fileExists(atPath: destination.path) {
-      _ = try fm.replaceItemAt(destination, withItemAt: backup)
-    } else {
-      try fm.moveItem(at: backup, to: destination)
+      try fm.removeItem(at: destination)
     }
+    try fm.moveItem(at: backup, to: destination)
   }
 
   static func copyVerified(from source: URL, to destination: URL) throws {
