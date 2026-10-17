@@ -62,8 +62,9 @@ retains each case's original comparison tiers, original RAW and Maple XMP.
 
 This closes an authoring/measurement defect; it clears no rendering-budget
 failure. The installed manifest remains unchanged while protocol/corpus
-integration proceeds under #3678. The session exception for documented color
-failures already on main does not waive new regressions or pending CI/review.
+integration proceeds under #3678. The physical color corpus still has failures
+on main, and this report does not establish a passing rendering gate. CI and
+review of this authoring-tool change remain pending.
 
 Capture manifests, before/after audits, pixel deltas, both Photoshop logs,
 original/output hashes and `migration-overlay.json` are retained under
