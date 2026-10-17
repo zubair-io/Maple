@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
-import * as nativeFs from 'node:fs/promises';
 import { lstat, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
