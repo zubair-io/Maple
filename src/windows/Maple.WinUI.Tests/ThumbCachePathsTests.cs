@@ -1,11 +1,11 @@
-// ThumbCachePathsTests — the Windows quarter of the #2254 cross-platform
-// hash parity gate (#3083). Identical vectors are pinned in the three
-// sibling implementations:
+// ThumbCachePathsTests — the shared `.maple/thumbs/<filename.ext>.avif`
+// name (#4793) and the legacy `<sha16>.v25.avif` rename-on-miss. The
+// sha256Prefix16 vectors are the #2254 cross-platform pins, still shared with
+// the API, Apple and Web, because every layer must map a legacy hashed file
+// to the same photo during migration:
 //   - API:   src/api/src/fs/xmp.test.ts ("sha256Prefix16 — cross-platform pinned vectors")
 //   - Apple: src/apple/Packages/MapleCore/Tests/MapleCoreTests/ThumbnailDiskCacheKeyTests.swift
 //   - Web:   src/web/projects/maple-common/src/lib/maple-cache/sha.spec.ts
-// All four MUST agree on these exact hex strings, or `.maple/thumbs/`
-// written by one layer becomes unreadable by the others.
 
 using System;
 using System.IO;
@@ -27,7 +27,7 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
-        public void SharedThumbPathFor_HashesTheBasenameOnly_SoTheCacheTravelsWithThePhotos()
+        public void SharedThumbPathFor_IsKeyedByTheFilenameOnly_SoTheCacheTravelsWithThePhotos()
         {
             // Same basename under two different parents ⇒ same filename,
             // sibling `.maple\thumbs` dirs — copy the folder elsewhere and
@@ -35,7 +35,7 @@ namespace Maple.WinUI.Tests
             var a = ThumbCachePaths.SharedThumbPathFor(Path.Combine("C:\\photos", "IMG_1234.dng"));
             var b = ThumbCachePaths.SharedThumbPathFor(Path.Combine("D:\\backup", "IMG_1234.dng"));
             Assert.Equal(
-                Path.Combine("C:\\photos", ".maple", "thumbs", "7ad25b268a071d01.avif"), a);
+                Path.Combine("C:\\photos", ".maple", "thumbs", "IMG_1234.dng.avif"), a);
             Assert.Equal(Path.GetFileName(a), Path.GetFileName(b));
         }
 
@@ -43,10 +43,10 @@ namespace Maple.WinUI.Tests
         public void SharedThumbPathFor_AlwaysEmitsAvif_RegardlessOfSourceExtension()
         {
             // Every layer normalises cached thumbs to AVIF; the source
-            // extension participates in the HASH (basename with extension)
-            // but never in the output extension.
+            // extension stays in the name so IMG_1.CR2 and IMG_1.JPG never
+            // collide.
             var path = ThumbCachePaths.SharedThumbPathFor(Path.Combine("C:\\photos", "photo.HEIC"));
-            Assert.Equal(Path.Combine("C:\\photos", ".maple", "thumbs", "db03400ba7adff45.avif"), path);
+            Assert.Equal(Path.Combine("C:\\photos", ".maple", "thumbs", "photo.HEIC.avif"), path);
         }
 
         [Fact]

@@ -4,7 +4,7 @@
 // cache's unbounded leak — nothing on Windows ever removed the old path's
 // `%LocalAppData%\Maple\thumbs` entry — and instructed its own inversion the
 // day the leak was fixed. #3083 fixed it by moving the grid tier to the
-// cross-app shared cache (`<folder>\.maple\thumbs\<sha256_prefix16(basename)>.avif`,
+// cross-app shared cache (`<folder>\.maple\thumbs\<filename.ext>.avif` since #4793,
 // `ThumbCachePaths`) and wiring the old entry's reclaim into
 // `LocalFileOperations.FinalizeRelocate` — the same synchronous best-effort
 // delete Apple's `LocalFileOperations.invalidateDerivedCaches` performs on
@@ -21,6 +21,7 @@
 
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Maple.WinUI.Services;
 using Maple.WinUI.Services.FileOperations;
@@ -85,14 +86,22 @@ namespace Maple.WinUI.Tests
             // A folder untouched since #4793 still holds `<sha16>.v25.avif`;
             // left behind, a later same-named file would adopt it.
             var source = WriteFile("in\\IMG_4.dng", "raw bytes");
-            var legacyPath = ThumbCachePaths.LegacySharedThumbPathFor(source);
-            Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
-            File.WriteAllBytes(legacyPath, new byte[] { 0x00, 0x00, 0x00, 0x1C });
+            var thumbPath = SeedThumbEntry(source);
+            var legacyPath = SeedLegacyEntry(source);
 
             await LocalFileOperations.RelocateAsync(
                 source, Path.Combine(_dir, "out"), null, RelocateMode.Move, CollisionPolicy.Fail);
 
+            Assert.False(File.Exists(thumbPath), "a move must reclaim the filename-keyed entry");
             Assert.False(File.Exists(legacyPath), "a move must reclaim the legacy-named entry too");
+        }
+
+        private static string SeedLegacyEntry(string photoPath)
+        {
+            var legacyPath = ThumbCachePaths.LegacySharedThumbPathFor(photoPath);
+            Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
+            File.WriteAllBytes(legacyPath, new byte[] { 0x00, 0x00, 0x00, 0x1C });
+            return legacyPath;
         }
 
         [Fact]
@@ -114,25 +123,27 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
-        public async Task CaseOnlyRename_RemovesTheOldCasingsThumbnailCacheEntry()
+        public async Task CaseOnlyRename_KeepsTheThumbUnderTheNewCasing_AndDropsTheLegacyEntry()
         {
-            // sha256_prefix16(basename) is case-sensitive, so `IMG_3.dng` and
-            // `img_3.dng` hash to different entries — the old casing's entry
-            // is orphaned by the rename and must be reclaimed even though the
-            // case-only-rename plan is otherwise a Finalize no-op
-            // (RelocatePlan.SourceAlreadyRelocated).
-            var source = WriteFile("in\\IMG_3.dng", "raw bytes");
-            var oldThumbPath = SeedThumbEntry(source);
-            Assert.NotEqual(
-                oldThumbPath,
-                ThumbCachePaths.SharedThumbPathFor(Path.Combine(Path.GetDirectoryName(source)!, "img_3.dng")));
+            // The same photo keeps its pixels, so its entry is renamed to the
+            // new casing rather than deleted — a case-sensitive reader of the
+            // share (the Linux API) resolves `img_3.dng.avif` only. The legacy
+            // hash is case-sensitive, so the old casing's `.v25` file is
+            // orphaned and reclaimed even though the case-only-rename plan is
+            // otherwise a Finalize no-op (RelocatePlan.SourceAlreadyRelocated).
+            var source = WriteFile(Path.Combine("in", "IMG_3.dng"), "raw bytes");
+            SeedThumbEntry(source);
+            var legacyPath = SeedLegacyEntry(source);
+            var renamed = Path.Combine(Path.GetDirectoryName(source)!, "img_3.dng");
 
             await LocalFileOperations.RelocateAsync(
                 source, Path.GetDirectoryName(source)!, "img_3.dng", RelocateMode.Move, CollisionPolicy.Fail);
 
-            Assert.False(
-                File.Exists(oldThumbPath),
-                "a case-only rename orphans the old casing's hash — its entry must be reclaimed too");
+            var thumbDir = Path.GetDirectoryName(ThumbCachePaths.SharedThumbPathFor(renamed))!;
+            Assert.Equal(
+                new[] { "img_3.dng.avif" },
+                Directory.GetFiles(thumbDir).Select(Path.GetFileName).ToArray());
+            Assert.False(File.Exists(legacyPath), "the old casing's legacy hash must be reclaimed");
         }
     }
 }

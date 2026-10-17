@@ -158,13 +158,12 @@ namespace Maple.WinUI.Services.FileOperations
         /// renamed (on a case-insensitive filesystem the old-cased path
         /// still resolves to it).
         ///
-        /// Every Move — the case-only rename included, since the basename
-        /// hash is case-sensitive — also reclaims the old identity's shared
-        /// thumbnail cache entry (`&lt;old parent&gt;\.maple\thumbs\…`,
-        /// #2710/#3083): the entry is keyed by basename inside the old
-        /// folder, so nothing will ever resolve it again once the source
-        /// leaves. Apple's `invalidateDerivedCaches` semantics — a
-        /// synchronous, best-effort delete on the relocate path itself.
+        /// Every Move also reclaims the old identity's shared thumbnail cache
+        /// entries (`&lt;old parent&gt;\.maple\thumbs\…`, #2710/#3083/#4793)
+        /// through <see cref="ReclaimSharedThumbs"/>: the entry is keyed by
+        /// filename inside the old folder, so nothing will ever resolve it
+        /// again once the source leaves. Apple's `invalidateDerivedCaches`
+        /// semantics — synchronous and best-effort on the relocate path.
         /// </summary>
         public static RelocateOutcome FinalizeRelocate(RelocatePlan plan)
         {
@@ -174,13 +173,7 @@ namespace Maple.WinUI.Services.FileOperations
 
             if (plan.Mode != RelocateMode.Move) return outcome;
 
-            var oldThumbPath = ThumbCachePaths.SharedThumbPathFor(plan.SourcePrimaryPath);
-            if (!string.Equals(oldThumbPath, ThumbCachePaths.SharedThumbPathFor(plan.FinalPrimaryPath),
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                TryDelete(oldThumbPath);
-                TryDelete(ThumbCachePaths.LegacySharedThumbPathFor(plan.SourcePrimaryPath));
-            }
+            ReclaimSharedThumbs(plan.SourcePrimaryPath, plan.FinalPrimaryPath);
 
             if (plan.IsNoop) return outcome;
 
@@ -313,6 +306,30 @@ namespace Maple.WinUI.Services.FileOperations
             try
             {
                 if (File.Exists(path)) File.Delete(path);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+
+        /// <summary>Reclaims the old identity's shared thumbnail entries
+        /// after a move or rename: the legacy hashed `.v25` file, and the
+        /// filename-keyed entry. A case-only rename keeps its entry and only
+        /// fixes the casing, so case-sensitive readers of the share still
+        /// resolve it.</summary>
+        internal static void ReclaimSharedThumbs(string oldAssetPath, string newAssetPath)
+        {
+            var oldThumbPath = ThumbCachePaths.SharedThumbPathFor(oldAssetPath);
+            var newThumbPath = ThumbCachePaths.SharedThumbPathFor(newAssetPath);
+            if (string.Equals(oldThumbPath, newThumbPath, StringComparison.Ordinal)) return;
+            TryDelete(ThumbCachePaths.LegacySharedThumbPathFor(oldAssetPath));
+            if (!string.Equals(oldThumbPath, newThumbPath, StringComparison.OrdinalIgnoreCase))
+            {
+                TryDelete(oldThumbPath);
+                return;
+            }
+            try
+            {
+                if (File.Exists(oldThumbPath)) File.Move(oldThumbPath, newThumbPath);
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }

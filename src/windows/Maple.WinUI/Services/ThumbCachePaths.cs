@@ -1,22 +1,19 @@
-// ThumbCachePaths.cs — the shared `.maple/thumbs/` cache path derivation
-// (#3083), the Windows port of the cross-platform contract:
+// ThumbCachePaths.cs — the shared `.maple/thumbs/` cache path derivation,
+// the Windows port of the cross-platform contract (#4793):
 //
-//     <RAW parent>/.maple/thumbs/<sha256_prefix16(basename)>.avif
+//     <RAW parent>/.maple/thumbs/<filename.ext>.avif
 //
-// Unversioned by contract (#4793): a pipeline bump never invalidates a
-// shared thumbnail. Folders written while the name carried `.v25` migrate by
-// rename on a read miss (AdoptLegacySharedThumb), never by re-render.
+// Named by the asset's filename (basename WITH extension), NOT the absolute
+// path — so `.maple/` travels with the photos when the folder is copied to
+// another drive or machine. Unversioned: a pipeline bump never invalidates a
+// shared thumbnail.
 //
-// The hash input is the asset's filename (basename WITH extension), NOT the
-// absolute path — so `.maple/` travels with the photos when the folder is
-// copied to another drive or machine. All four implementations MUST agree on
-// the encoding for cross-platform thumbnail reads to work:
-//   - Apple:  src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/MapleThumbCacheKey.swift
-//   - API:    src/api/src/fs/xmp.ts (sha256Prefix16 / resolveThumbPath)
-//   - Web:    src/web/projects/maple-common/src/lib/maple-cache/sha.ts
-// The agreement is pinned by the #2254 cross-platform hash vectors —
-// `ThumbCachePathsTests` carries the same four filename→hex pairs as
-// `xmp.test.ts`, `ThumbnailDiskCacheKeyTests.swift`, and `sha.spec.ts`.
+// Folders written before #4793 hold `<sha256_prefix16(basename)>.v25.avif`.
+// A read miss renames that one frozen legacy name into place
+// (AdoptLegacySharedThumb), never re-renders. Sha256Prefix16 exists only for
+// that lookup; its #2254 cross-platform vectors stay pinned in
+// `ThumbCachePathsTests` because the API sweep and the Apple/Web readers
+// must still agree on which legacy file belongs to which photo.
 //
 // On-share WRITE contract (#2690, mirrored from MapleThumbCacheKey.swift):
 // any client that writes to this path must render at exactly 512px long edge,
@@ -41,8 +38,8 @@ namespace Maple.WinUI.Services
     public static class ThumbCachePaths
     {
         /// <summary>First 16 hex chars (8 bytes) of SHA-256 over the UTF-8
-        /// text, lowercase — the exact `sha256Prefix16` every other Maple
-        /// layer uses for `.maple/thumbs/` filenames.</summary>
+        /// text, lowercase — the pre-#4793 `.maple/thumbs/` name stem, kept
+        /// only to find legacy entries.</summary>
         public static string Sha256Prefix16(string text) =>
             Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16]
                 .ToLowerInvariant();
@@ -53,18 +50,17 @@ namespace Maple.WinUI.Services
             Path.Combine(folderPath, ".maple", "thumbs");
 
         /// <summary>The shared on-disk thumbnail path for an asset:
-        /// `&lt;parent&gt;\.maple\thumbs\&lt;sha256_prefix16(basename)&gt;.avif`.
-        /// Always `.avif` regardless of the source extension — every layer
-        /// normalises cached thumbs to AVIF.</summary>
+        /// `&lt;parent&gt;\.maple\thumbs\&lt;filename.ext&gt;.avif`. Always
+        /// `.avif` appended to the full filename — every layer normalises
+        /// cached thumbs to AVIF.</summary>
         public static string SharedThumbPathFor(string assetPath)
         {
             var parent = Path.GetDirectoryName(assetPath) ?? string.Empty;
-            var basename = Path.GetFileName(assetPath);
-            return Path.Combine(SharedThumbDirFor(parent), $"{Sha256Prefix16(basename)}.avif");
+            return Path.Combine(SharedThumbDirFor(parent), $"{Path.GetFileName(assetPath)}.avif");
         }
 
-        /// <summary>The frozen pre-#4793 name, `&lt;sha16&gt;.v25.avif` — the
-        /// only versioned spelling any shipped Windows build wrote.</summary>
+        /// <summary>The frozen pre-#4793 name,
+        /// `&lt;sha256_prefix16(basename)&gt;.v25.avif`.</summary>
         public static string LegacySharedThumbPathFor(string assetPath)
         {
             var parent = Path.GetDirectoryName(assetPath) ?? string.Empty;
@@ -72,11 +68,11 @@ namespace Maple.WinUI.Services
             return Path.Combine(SharedThumbDirFor(parent), $"{Sha256Prefix16(basename)}.v25.avif");
         }
 
-        /// <summary>Call on a miss for the unversioned name: renames a
-        /// legacy `.v25` entry into place (one extra lookup). Returns the
-        /// unversioned path once adopted, the legacy path itself when the
-        /// folder refuses the rename (read-only share), and null when no
-        /// legacy entry exists.</summary>
+        /// <summary>Call on a miss for the current name: renames a legacy
+        /// `.v25` entry into place (one extra lookup). Returns the current
+        /// path once adopted, the legacy path itself when the folder refuses
+        /// the rename (read-only share), and null when no legacy entry
+        /// exists.</summary>
         public static string? AdoptLegacySharedThumb(string assetPath)
         {
             var legacyPath = LegacySharedThumbPathFor(assetPath);
