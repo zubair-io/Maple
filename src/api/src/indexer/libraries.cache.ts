@@ -28,7 +28,7 @@
  * slug → { libraryId, root, label } map so `resolveAddress` can resolve a
  * slug to a library root with zero additional DB round-trips.
  */
-import type { ObjectId } from '../db/object-id.ts';
+import { ObjectId } from '../db/object-id.ts';
 import type { SqliteDb } from '../db/repos/db-handle.ts';
 import { listLibraryRoots, type LibraryRoot } from '../db/repos/folders.repo.ts';
 import { isSqliteOpen } from '../db/sqlite/index.ts';
@@ -49,6 +49,9 @@ interface LibraryCache {
 
 let cached: LibraryCache | null = null;
 let generation = 0;
+let cachedAtMs = 0;
+
+export const UNKNOWN_LIBRARY_RELOAD_MIN_INTERVAL_MS = 5_000;
 const invalidateListeners = new Set<() => void>();
 const NO_LIBRARY_ROOTS: ReadonlyMap<string, string> = new Map();
 
@@ -72,12 +75,55 @@ async function loadCache(): Promise<LibraryCache> {
   const loaded = buildLibraryCache(await listLibraryRoots());
   // An invalidation that landed while this read was in flight means the rows
   // may predate the folder change it announced; serve them once, never cache them.
-  if (loadGeneration === generation) cached = loaded;
+  if (loadGeneration === generation) {
+    cached = loaded;
+    cachedAtMs = Date.now();
+  }
   return loaded;
 }
 
 export async function loadLibraryRoots(): Promise<ReadonlyMap<string, string>> {
   return (await loadCache()).byId;
+}
+
+interface AssetLibraryRefs {
+  fileinfo?: readonly { library_id: ObjectId | string; deleted_at?: string | null }[];
+}
+
+function liveLibraryIds(asset: AssetLibraryRefs): string[] {
+  return (asset.fileinfo ?? [])
+    .filter((entry) => !entry.deleted_at)
+    .map((entry) =>
+      typeof entry.library_id === 'string'
+        ? new ObjectId(entry.library_id).toHexString()
+        : entry.library_id.toHexString(),
+    );
+}
+
+/**
+ * `loadLibraryRoots()` for a caller resolving one asset's on-disk location.
+ * The worker process is never told when the API process registers a library,
+ * so a live location pointing at an id the cache has not seen triggers one
+ * re-read of the folders table (at most once per interval, so an asset whose
+ * library is genuinely gone cannot turn every claim into a query).
+ */
+export async function loadLibraryRootsForAsset(
+  asset: AssetLibraryRefs,
+): Promise<ReadonlyMap<string, string>> {
+  const known = await loadLibraryRoots();
+  const hasUnknown = liveLibraryIds(asset).some((id) => !known.has(id));
+  if (!hasUnknown || Date.now() - cachedAtMs < UNKNOWN_LIBRARY_RELOAD_MIN_INTERVAL_MS) {
+    return known;
+  }
+  invalidateLibraryRoots();
+  return loadLibraryRoots();
+}
+
+export function hasUnregisteredLibrary(
+  asset: AssetLibraryRefs,
+  libs: ReadonlyMap<string, string>,
+): boolean {
+  return liveLibraryIds(asset).some((id) => !libs.has(id));
 }
 
 /**
