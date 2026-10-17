@@ -186,10 +186,22 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
         if (trimmed.length > 0) ingestionKey = trimmed;
       }
 
+      // The key is bound to the endpoint it was saved for (#4744): moving the
+      // endpoint without typing a new key clears the old one rather than
+      // silently re-binding it to the replacement service.
+      const savedEndpoint = resolveObservabilityConfig(await loadObservabilityConfig()).endpoint;
+      const endpointChanged = endpoint !== undefined && endpoint !== savedEndpoint;
+      const keyPatch =
+        ingestionKey !== undefined
+          ? { ingestion_key: ingestionKey }
+          : endpointChanged
+            ? { ingestion_key: null }
+            : {};
+
       await saveObservabilityConfig({
         ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
         ...(endpoint !== undefined ? { endpoint } : {}),
-        ...(ingestionKey !== undefined ? { ingestion_key: ingestionKey } : {}),
+        ...keyPatch,
         ...(body.service_namespace !== undefined
           ? { service_namespace: body.service_namespace }
           : {}),
