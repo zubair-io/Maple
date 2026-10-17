@@ -321,4 +321,48 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
     const restored = await fs.readFile(absPath);
     expect(restored.equals(repairBytes)).toBe(true);
   });
+
+  test('completed upload relocated to a new path still short-circuits at the current live path (#4700)', async () => {
+    const relocatedPhid = 'ABC/L0/RELOCATED-1';
+    const relocatedMapleId = '023978112ca1bbdcafac231b39a23dc9';
+    const payload = Buffer.alloc(128, 0x77);
+    const headers = {
+      'X-Maple-Device-Id': deviceId,
+      'X-Maple-Phasset-Id': relocatedPhid,
+      'X-Maple-Capture-Date': '2024-09-04T10:00:00.000Z',
+      'X-Maple-Filename': 'IMG_MOVED.HEIC',
+      'X-Maple-Total-Bytes': String(payload.byteLength),
+      'X-Maple-Maple-Id': relocatedMapleId,
+      'Content-Range': `bytes 0-${payload.byteLength - 1}/${payload.byteLength}`,
+    };
+
+    const first = await authedHandle(ingest(payload, headers));
+    expect(first.status).toBe(200);
+    const firstBody = await first.json();
+
+    // Simulate relocating the stored file inside the library.
+    const oldAbsPath = path.join(suite.handle.tmpLib, firstBody.target_rel_path);
+    const newRelPath = 'albums/IMG_MOVED.HEIC';
+    const newAbsPath = path.join(suite.handle.tmpLib, newRelPath);
+    await fs.mkdir(path.dirname(newAbsPath), { recursive: true });
+    await fs.rename(oldAbsPath, newAbsPath);
+    suite.handle.db.run(
+      `UPDATE asset_locations SET path = 'albums', filename = 'IMG_MOVED.HEIC'
+        WHERE asset_id = (SELECT id FROM assets WHERE maple_id = ?)`,
+      [relocatedMapleId],
+    );
+
+    // Retry only the first chunk of a multi-chunk upload — if the completed
+    // session short-circuits, it returns 200 immediately with the relocated path
+    // instead of 202 awaiting more chunks.
+    const retry = await authedHandle(
+      ingest(payload.subarray(0, 64), {
+        ...headers,
+        'Content-Range': `bytes 0-63/${payload.byteLength}`,
+      }),
+    );
+    expect(retry.status).toBe(200);
+    const retryBody = await retry.json();
+    expect(retryBody.target_rel_path).toBe(newRelPath);
+  });
 });

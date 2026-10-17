@@ -332,6 +332,25 @@ describe('materialising a second copy in another library', () => {
     ]);
     expect(assetRow(handle.db, 'content-1').live_location_count).toBe(1);
   });
+
+  test('rejects when the target location is already owned by a different asset', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const lib = library(handle.db);
+    await seedUpload(db, lib);
+    const otherId = await seedUpload(db, lib, {
+      mapleId: 'content-other',
+      relPath: '2024/Tokyo/IMG_0002.HEIC',
+    });
+
+    await expect(
+      appendBackupLocation(
+        otherId,
+        { relPath: '2024/Tokyo/IMG_0001.HEIC', libraryId: lib, link: null },
+        db,
+      ),
+    ).rejects.toThrow(/UNIQUE constraint failed/);
+  });
 });
 
 describe('the batch dedup probe', () => {
