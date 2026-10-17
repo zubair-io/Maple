@@ -2,7 +2,7 @@ import * as fs from './mirrored.ts';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import {
   SidecarCollisionError,
-  sameSidecarPath,
+  sameSidecarFile,
   sidecarStemClaimedBySibling,
 } from './sidecar-ownership.ts';
 
@@ -50,7 +50,7 @@ export async function planSidecars(req: SidecarPlanRequest): Promise<SidecarPlan
   for (const source of req.sourceSidecars) {
     const dest = sidecarRenameTarget(req.sourceAbsPath, req.finalDest, source);
     if (!dest) continue; // defensive — mirrors moveSidecarsAlongside
-    const samePath = sameSidecarPath(source, dest);
+    const samePath = await sameSidecarFile(source, dest);
     const occupied = !samePath && (await exists(dest));
     if (occupied && (!req.replace || destinationClaimedBySibling)) {
       throw new SidecarCollisionError(dest);

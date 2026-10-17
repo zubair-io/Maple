@@ -37,6 +37,15 @@ export function sameSidecarPath(a: string, b: string): boolean {
   return comparable(a) === comparable(b);
 }
 
+/** Rule 3 asks whether two names are one file. A case-only difference is the
+ * same file only where the filesystem folds case (APFS, NTFS), not on ext4. */
+export async function sameSidecarFile(a: string, b: string): Promise<boolean> {
+  if (path.resolve(a) === path.resolve(b)) return true;
+  if (!sameSidecarPath(a, b)) return false;
+  const [sa, sb] = await Promise.all([fs.stat(a).catch(() => null), fs.stat(b).catch(() => null)]);
+  return sa !== null && sb !== null && sa.dev === sb.dev && sa.ino === sb.ino;
+}
+
 function stemOf(filename: string): string {
   return path
     .basename(filename, isVideoFilename(filename) ? '' : path.extname(filename))

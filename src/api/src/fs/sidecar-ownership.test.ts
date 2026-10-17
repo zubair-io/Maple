@@ -13,7 +13,11 @@ import { relocateFile } from './relocate.ts';
 import { moveToTrash, moveOutOfTrash } from './trash.ts';
 import { moveToDuplicates } from './duplicates.ts';
 import { serializeSidecarWrite } from './sidecar-write-order.ts';
-import { sidecarStemClaimedBySibling, assetDestinationOccupied } from './sidecar-ownership.ts';
+import {
+  sidecarStemClaimedBySibling,
+  assetDestinationOccupied,
+  sameSidecarFile,
+} from './sidecar-ownership.ts';
 
 let root: string;
 
@@ -67,6 +71,17 @@ describe('sidecarStemClaimedBySibling', () => {
     const mov = await write('a/IMG_1.MOV', 'mov');
     await write('a/IMG_1.HEIC', 'heic');
     expect(await sidecarStemClaimedBySibling(mov)).toBe(false);
+  });
+});
+
+describe('sameSidecarFile', () => {
+  test('a case-only difference is one file only where the filesystem folds case', async () => {
+    const lower = await write('a/photo.xmp', '<x/>');
+    const upper = abs('a/PHOTO.xmp');
+    const foldsCase = await fs.exists(upper);
+    expect(await sameSidecarFile(lower, lower)).toBe(true);
+    expect(await sameSidecarFile(lower, upper)).toBe(foldsCase);
+    expect(await sameSidecarFile(lower, abs('a/other.xmp'))).toBe(false);
   });
 });
 
