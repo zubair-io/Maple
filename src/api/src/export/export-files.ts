@@ -105,29 +105,31 @@ async function exportPaths(target: ExportTarget, recipe: ExportRecipe): Promise<
   return { source, directory, outputPath };
 }
 
-const canonicalRootsCache = new WeakMap<
-  ReadonlyMap<string, string>,
-  Promise<readonly (readonly [string, string])[]>
->();
+// loadLibraryRoots() returns a process-cached ReadonlyMap singleton until invalidateLibraryRoots().
+let cachedRootEntries: {
+  roots: ReadonlyMap<string, string>;
+  entries: Promise<readonly (readonly [string, string])[]>;
+} | null = null;
 
 function libraryRootEntries(
   roots: ReadonlyMap<string, string>,
 ): Promise<readonly (readonly [string, string])[]> {
-  let cached = canonicalRootsCache.get(roots);
-  if (!cached) {
-    cached = (async () => {
-      const entries: [string, string][] = [];
-      for (const [id, root] of roots) {
-        const resolved = resolve(root);
-        entries.push([id, resolved]);
-        const canonical = await realpath(resolved).catch(() => null);
-        if (canonical && canonical !== resolved) entries.push([id, canonical]);
-      }
-      return entries;
-    })();
-    canonicalRootsCache.set(roots, cached);
+  if (cachedRootEntries?.roots !== roots) {
+    cachedRootEntries = {
+      roots,
+      entries: (async () => {
+        const entries: [string, string][] = [];
+        for (const [id, root] of roots) {
+          const resolved = resolve(root);
+          entries.push([id, resolved]);
+          const canonical = await realpath(resolved).catch(() => null);
+          if (canonical && canonical !== resolved) entries.push([id, canonical]);
+        }
+        return entries;
+      })(),
+    };
   }
-  return cached;
+  return cachedRootEntries.entries;
 }
 
 async function isCatalogAssetOrSidecar(candidate: string): Promise<boolean> {
