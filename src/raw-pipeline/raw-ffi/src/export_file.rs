@@ -7,7 +7,7 @@
 //! developed-preview entry. This wraps it with the same string contracts the
 //! wasm entry uses (`format`, `color_space`), so `ExportFormat::from_str`
 //! stays the single parser, plus the file-output convention of
-//! `maple_render_develop_jpeg_to_file` (atomic .tmp + rename, Rust owns every
+//! `maple_render_develop_jpeg_to_file` (exclusive staging + rename, Rust owns every
 //! allocation).
 
 use crate::error::{set_last_error, with_large_stack};
@@ -110,6 +110,14 @@ pub unsafe extern "C" fn maple_export_developed_to_file(
 
     with_large_stack(move || {
         let raw_path = std::path::Path::new(&raw_path_str);
+        let out_path = std::path::Path::new(&out_path_str);
+        let inputs: Vec<&std::path::Path> = std::iter::once(raw_path)
+            .chain(xmp_path_str.as_deref().map(std::path::Path::new))
+            .collect();
+        if let Err(e) = raw_core::output_file::validate_destination(out_path, &inputs) {
+            set_last_error(format!("output: {e}"));
+            return 12;
+        }
         let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
@@ -158,19 +166,9 @@ pub unsafe extern "C" fn maple_export_developed_to_file(
             }
         };
 
-        // Atomic write: .tmp + rename, matching the develop-JPEG entry.
-        let out_path = std::path::Path::new(&out_path_str);
-        let mut tmp_path = std::ffi::OsString::from(out_path);
-        tmp_path.push(".tmp");
-        let tmp_path = std::path::PathBuf::from(tmp_path);
-        if let Err(e) = std::fs::write(&tmp_path, &exported.bytes) {
-            set_last_error(format!("tmp write: {}", e));
+        if let Err(e) = raw_core::output_file::write_derived(out_path, &inputs, &exported.bytes) {
+            set_last_error(format!("output write: {e}"));
             return 12;
-        }
-        if let Err(e) = std::fs::rename(&tmp_path, out_path) {
-            let _ = std::fs::remove_file(&tmp_path);
-            set_last_error(format!("rename: {}", e));
-            return 13;
         }
         0
     })

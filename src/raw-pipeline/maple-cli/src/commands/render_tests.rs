@@ -311,3 +311,16 @@ fn decode_png_rgb8_for_test(path: &Path) -> (Vec<u8>, u32, u32) {
     };
     (rgb, info.width, info.height)
 }
+
+#[cfg(unix)]
+#[test]
+fn output_symlink_never_changes_its_target() {
+    let dir = tempfile::tempdir().unwrap();
+    let sidecar = dir.path().join("original.xmp");
+    let original = b"<x:xmpmeta xmlns:x='adobe:ns:meta/'/>";
+    std::fs::write(&sidecar, original).unwrap();
+    let out = dir.path().join("render.png");
+    std::os::unix::fs::symlink(&sidecar, &out).unwrap();
+    let _ = write_bytes(&out, &[], b"rendered pixels");
+    assert_eq!(std::fs::read(sidecar).unwrap(), original);
+}
