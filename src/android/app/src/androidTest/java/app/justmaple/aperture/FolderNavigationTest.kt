@@ -201,9 +201,14 @@ class FolderNavigationTest {
             if (node.isClickable && matches(node)) return node
             return (0 until node.childCount).firstNotNullOfOrNull { find(node.getChild(it)) }
         }
-        compose.waitUntil(15_000) {
-            find(automation.rootInActiveWindow)
-                ?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+        try {
+            compose.waitUntil(15_000) {
+                find(automation.rootInActiveWindow)
+                    ?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+            }
+        } catch (failure: Throwable) {
+            capturePickerFailure("folder-navigation")
+            throw failure
         }
     }
 }
