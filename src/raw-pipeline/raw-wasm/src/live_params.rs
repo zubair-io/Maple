@@ -1,5 +1,5 @@
 //! The 19-scalar live ABI. Unsupported fields belong to the full XMP path.
-use raw_core::xmp::AdjustmentModel;
+use raw_core::xmp::{AdjustmentModel, AutoExposureMode};
 
 pub(crate) fn model_from_params(params: &[f32]) -> AdjustmentModel {
     // The Web gate permits only canonical prefix fields on this ABI. Deriving
@@ -31,6 +31,20 @@ pub(crate) fn model_from_params(params: &[f32]) -> AdjustmentModel {
     model.grain_roughness = params[18];
 
     model
+}
+
+/// The RAW is fixed for a session; only profile and requested AE affect this probe.
+pub(crate) fn effective_ae_for_tick(
+    model: &AdjustmentModel,
+    prefix: &AdjustmentModel,
+    requested_ae: AutoExposureMode,
+    probe: impl FnOnce() -> AutoExposureMode,
+) -> AutoExposureMode {
+    if model.profile == prefix.profile && model.auto_exposure == requested_ae {
+        prefix.auto_exposure
+    } else {
+        probe()
+    }
 }
 
 #[cfg(test)]
@@ -89,6 +103,68 @@ mod tests {
             "reset must restore pixels and prefix metadata"
         );
         assert!(prefix_matches(&reset, &uploaded.3, ae));
+    }
+
+    #[test]
+    fn scalar_ticks_reuse_both_auto_preview_hit_and_miss_decisions() {
+        for effective in [AutoExposureMode::On, AutoExposureMode::Off] {
+            let model = model_from_params(&params());
+            let prefix = stripped_prefix_model(&model, effective);
+            let mut probes = 0;
+            for exposure in [0.0, 1.0, -1.0] {
+                let tick = AdjustmentModel {
+                    exposure,
+                    ..model.clone()
+                };
+                assert_eq!(
+                    effective_ae_for_tick(&tick, &prefix, model.auto_exposure, || {
+                        probes += 1;
+                        effective
+                    }),
+                    effective
+                );
+            }
+            assert_eq!(probes, 0, "ordinary scalars must not re-probe the RAW");
+        }
+    }
+
+    #[test]
+    fn profile_and_requested_ae_transitions_recompute_the_effective_mode() {
+        let model = model_from_params(&params());
+        let prefix = stripped_prefix_model(&model, AutoExposureMode::Off);
+        for changed in [
+            AdjustmentModel {
+                profile: Profile::Neutral,
+                ..model.clone()
+            },
+            AdjustmentModel {
+                auto_exposure: AutoExposureMode::Off,
+                ..model.clone()
+            },
+        ] {
+            let mut probes = 0;
+            let effective = effective_ae_for_tick(&changed, &prefix, model.auto_exposure, || {
+                probes += 1;
+                changed.auto_exposure
+            });
+            assert_eq!(probes, 1);
+            let uploaded = stripped_prefix_model(&changed, effective);
+            assert_eq!(
+                effective_ae_for_tick(&changed, &uploaded, changed.auto_exposure, || panic!(
+                    "unchanged transitioned state must reuse its decision"
+                )),
+                effective
+            );
+            let mut reset_probes = 0;
+            assert_eq!(
+                effective_ae_for_tick(&model, &uploaded, changed.auto_exposure, || {
+                    reset_probes += 1;
+                    AutoExposureMode::Off
+                }),
+                AutoExposureMode::Off
+            );
+            assert_eq!(reset_probes, 1, "reset must reconsider the Auto decision");
+        }
     }
 
     #[test]

@@ -59,7 +59,7 @@ use crate::gpu_render::{
     resolve_target_color_space, GpuWhiteBalance,
 };
 use raw_core::stages::perspective;
-use raw_core::xmp::AdjustmentModel;
+use raw_core::xmp::{AdjustmentModel, AutoExposureMode};
 use raw_gpu::{GpuContext, LiveSession, WebPresentSurface};
 use wasm_bindgen::prelude::*;
 use web_sys::OffscreenCanvas;
@@ -93,6 +93,8 @@ pub struct WebLiveSession {
     /// The EXACT stripped-prefix model `session`'s uploaded buffer was developed
     /// from. A render re-develops iff its newly-derived prefix model differs.
     prefix_model: AdjustmentModel,
+    /// The requested AE mode can differ from the prefix's effective mode under Auto.
+    requested_auto_exposure: AutoExposureMode,
     /// Pre-AE anchor measured alongside the uploaded prefix, reused on every tick.
     whites_anchor_ev: f32,
     white_balance: GpuWhiteBalance,
@@ -253,6 +255,7 @@ impl WebLiveSession {
             present,
             session,
             prefix_model,
+            requested_auto_exposure: model.auto_exposure,
             whites_anchor_ev,
             white_balance,
             nr_sampling_scale,
@@ -439,7 +442,12 @@ impl WebLiveSession {
         // Re-develop + re-upload iff the prefix model changed. The hot-path sliders
         // are zeroed in the prefix, so a WB/tone/vibrance/… tick takes the cheap
         // branch: same buffer, same LiveSession, zero new GPU buffers.
-        let ae = raw_core::gpu_host::prepare::effective_ae_mode(model, &self.raw, &self.ext);
+        let ae = crate::live_params::effective_ae_for_tick(
+            model,
+            &self.prefix_model,
+            self.requested_auto_exposure,
+            || raw_core::gpu_host::prepare::effective_ae_mode(model, &self.raw, &self.ext),
+        );
         if !raw_core::gpu_host::model::prefix_matches(model, &self.prefix_model, ae) {
             let (rgba, w, h, prefix_model, whites_anchor_ev, nr_sampling_scale) =
                 develop_prefix_rgba(
@@ -466,6 +474,7 @@ impl WebLiveSession {
             self.lens_profile_json = crate::lens_profile::metadata(&self.raw_img, model);
         }
 
+        self.requested_auto_exposure = model.auto_exposure;
         self.present_for_model(model)
             .await
             .map_err(|e| JsError::new(&e))
