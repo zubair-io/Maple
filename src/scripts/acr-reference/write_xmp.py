@@ -110,6 +110,8 @@ REFERENCE_DEFAULTS = {
     "SharpenDetail": "25",
     "SharpenEdgeMasking": "0",
     "LuminanceSmoothing": "0",
+    "LuminanceNoiseReductionDetail": "50",
+    "LuminanceNoiseReductionContrast": "0",
     "ColorNoiseReduction": "25",
     "ColorNoiseReductionDetail": "50",
     "ColorNoiseReductionSmoothness": "50",

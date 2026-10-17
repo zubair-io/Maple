@@ -64,6 +64,13 @@ This includes tone, point curves, white balance, lens/CA, geometry and detail
 settings. Missing white balance is As Shot; derived temperature/tint is not
 an override. Explicit custom curves retain their points and name.
 
+Luminance NR also explicitly authors Detail 50 and Contrast 0 when omitted,
+while preserving any authored override (#4851). Active luminance NR requires
+both controls in the authoring sidecar and saved PNG. Historical sidecars and
+captures may omit them only while the parent `LuminanceSmoothing` is zero.
+Recapturing an active case uses a newly prepared Adobe sidecar; adding metadata
+to an old capture is not evidence that Adobe rendered the authored settings.
+
 CameraProfile is preserved when authored. Otherwise the generator reuses the
 fixture's recorded `acr-xmp/baseline.xmp`, or bootstraps from effective XMP in an
 existing baseline PNG. This preserves camera-specific choices such as Camera
