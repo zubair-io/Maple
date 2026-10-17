@@ -88,7 +88,7 @@ final class AssetRenameFilenameTests: XCTestCase {
     // Pre-rename step from AppShell.commitRename: flush pending edits and
     // disable further writes on the departing session before moving the file.
     await oldSession.flushPendingSidecarWrite()
-    oldSession.setSidecarWritesEnabled(false)
+    await oldSession.setSidecarWritesEnabled(false)
     XCTAssertTrue(fm.fileExists(atPath: oldSidecarURL.path))
 
     let outcome = try await LocalFileOperations.relocate(
@@ -147,13 +147,13 @@ final class AssetRenameFilenameTests: XCTestCase {
     await session.loadSidecar()
 
     await session.flushPendingSidecarWrite()
-    session.setSidecarWritesEnabled(false)
+    await session.setSidecarWritesEnabled(false)
     do {
       _ = try await LocalFileOperations.relocate(
         oldURL, to: tempDir, newBasename: "IMG_0002.dng", mode: .move, collision: .fail)
       XCTFail("Expected collision error")
     } catch {
-      session.setSidecarWritesEnabled(true)
+      await session.setSidecarWritesEnabled(true)
     }
 
     session.model.exposure = 0.75
