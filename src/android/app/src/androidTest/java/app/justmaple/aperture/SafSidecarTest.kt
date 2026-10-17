@@ -322,6 +322,7 @@ class SafSidecarTest {
                 target != null
             }
         } catch (failure: Throwable) {
+            capturePickerFailure("saf-sidecar")
             fun describe(node: AccessibilityNodeInfo): String =
                 "${node.viewIdResourceName} text=${node.text} description=${node.contentDescription}\n" +
                     (0 until node.childCount).mapNotNull(node::getChild).joinToString("") {
