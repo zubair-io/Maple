@@ -16,6 +16,22 @@ import {
 import { runBrowserRecipe } from './browser-recipe-runner';
 import { RecipeDirectoryAccessService } from './recipe-directory-access.service';
 
+async function attachBrowserDirectory(
+  record: RecipeQueueRecord,
+  latest: RecipeQueueRecord | null,
+  directories: RecipeDirectoryAccessService,
+): Promise<void> {
+  record.directoryHandle = await directories.resolve(record.recipe.directory!);
+  await directories.captureSources(record.targets);
+  record.protectedOriginals = record.targets.map((target) => target.sourceHandle ?? null);
+  if (
+    latest?.createdOutputs &&
+    latest.directoryHandle &&
+    (await record.directoryHandle.isSameEntry(latest.directoryHandle))
+  )
+    record.createdOutputs = { ...latest.createdOutputs };
+}
+
 @Injectable({ providedIn: 'root' })
 export class ExportRecipeQueueService {
   private readonly render = inject(ExportRecipeRenderService);
@@ -78,17 +94,8 @@ export class ExportRecipeQueueService {
         serverJobId: recipe.destination === 'directory' && this.server ? id : null,
         cancelled: false,
       };
-      if (recipe.destination === 'directory' && !this.server) {
-        record.directoryHandle = await this.directories.resolve(recipe.directory!);
-        await this.directories.captureSources(targets);
-        record.protectedOriginals = targets.map((target) => target.sourceHandle ?? null);
-        if (
-          latest?.createdOutputs?.length &&
-          latest.directoryHandle &&
-          (await record.directoryHandle.isSameEntry(latest.directoryHandle))
-        )
-          record.createdOutputs = [...latest.createdOutputs];
-      }
+      if (recipe.destination === 'directory' && !this.server)
+        await attachBrowserDirectory(record, latest, this.directories);
       await this.execute(record);
     });
   }

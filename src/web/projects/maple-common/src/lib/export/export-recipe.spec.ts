@@ -246,12 +246,24 @@ describe('export recipe contract and recovery', () => {
     record.entries = [{ id: 'raw-1', status: 'pending' }];
     await run('IMG_1_export.jpg', 'first-export');
     expect(record.entries[0].status).toBe('applied');
-    expect(record.createdOutputs).toEqual(['IMG_1_export.jpg']);
+    expect(Object.keys(record.createdOutputs ?? {})).toEqual(['img_1_export.jpg']);
     expect(files.get('IMG_1_export.jpg')).toBe('first-export');
 
     record.entries = [{ id: 'raw-1', status: 'pending' }];
     await run('IMG_1_export.jpg', 'second-export');
     expect(record.entries[0].status).toBe('applied');
     expect(files.get('IMG_1_export.jpg')).toBe('second-export');
+
+    files.set('IMG_1_export.jpg', 'user-moved-original-photo');
+    record.entries = [{ id: 'raw-1', status: 'pending' }];
+    await run('IMG_1_export.jpg', 'third-export');
+    expect(record.entries[0]).toEqual(
+      expect.objectContaining({
+        id: 'raw-1',
+        status: 'failed',
+        reason: expect.stringContaining('original photo'),
+      }),
+    );
+    expect(files.get('IMG_1_export.jpg')).toBe('user-moved-original-photo');
   });
 });

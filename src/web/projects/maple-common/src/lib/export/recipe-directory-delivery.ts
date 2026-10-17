@@ -21,19 +21,48 @@ const PROTECTED_ORIGINAL_EXTENSIONS = new Set([
   'hdr',
 ]);
 
+const directoryFileCache = new WeakMap<
+  FileSystemDirectoryHandle,
+  Promise<Map<string, FileSystemFileHandle>>
+>();
+
+function directoryFileIndex(
+  directory: FileSystemDirectoryHandle,
+): Promise<Map<string, FileSystemFileHandle>> {
+  let cached = directoryFileCache.get(directory);
+  if (!cached) {
+    cached = (async () => {
+      const map = new Map<string, FileSystemFileHandle>();
+      const iterable = directory as Partial<
+        Record<'values', () => AsyncIterable<FileSystemHandle>>
+      >;
+      if (typeof iterable.values !== 'function') return map;
+      for await (const entry of iterable.values()) {
+        if (entry.kind === 'file') map.set(entry.name.toLowerCase(), entry as FileSystemFileHandle);
+      }
+      return map;
+    })();
+    directoryFileCache.set(directory, cached);
+  }
+  return cached;
+}
+
 function isCreatedByExport(
   record: RecipeQueueRecord,
   filename: string,
   actualName: string,
+  currentHash: string | null,
 ): boolean {
-  const lower = filename.toLowerCase();
-  const actualLower = actualName.toLowerCase();
-  return (
-    record.createdOutputs?.some((entry) => {
-      const candidate = entry.toLowerCase();
-      return candidate === lower || candidate === actualLower;
-    }) ?? false
-  );
+  if (!currentHash || !record.createdOutputs) return false;
+  const expected =
+    record.createdOutputs[filename.toLowerCase()] ??
+    record.createdOutputs[actualName.toLowerCase()];
+  return expected === currentHash;
+}
+
+function extensionOf(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot === -1 ? '' : name.slice(dot + 1).toLowerCase();
 }
 
 async function digest(blob: Blob): Promise<string> {
@@ -58,26 +87,16 @@ async function existing(
     return await directory.getFileHandle(name);
   } catch (error) {
     if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
-    const iterable = directory as Partial<Record<'values', () => AsyncIterable<FileSystemHandle>>>;
-    if (typeof iterable.values !== 'function') return null;
-    const lower = name.toLowerCase();
-    for await (const entry of iterable.values()) {
-      if (entry.kind === 'file' && entry.name.toLowerCase() === lower)
-        return entry as FileSystemFileHandle;
-    }
-    return null;
+    return (await directoryFileIndex(directory)).get(name.toLowerCase()) ?? null;
   }
 }
 async function fileHash(handle: FileSystemFileHandle | null): Promise<string | null> {
   return handle ? digest(await handle.getFile()) : null;
 }
-async function guardOriginal(
-  handle: FileSystemFileHandle | null,
-  record: RecipeQueueRecord,
-  filename: string,
+async function guardSelectedOriginals(
+  handle: FileSystemFileHandle,
+  originals: (FileSystemFileHandle | null)[] | undefined,
 ): Promise<void> {
-  if (!handle) return;
-  const originals = record.protectedOriginals;
   // Legacy records may already be filtered by a retry. Their full identity set is lost.
   if (!originals?.length)
     throw new Error(
@@ -90,11 +109,21 @@ async function guardOriginal(
         'Destination is an original photo. Choose another folder or naming template.',
       );
   }
+}
+async function guardOriginal(
+  handle: FileSystemFileHandle | null,
+  record: RecipeQueueRecord,
+  filename: string,
+  currentHash: string | null,
+): Promise<void> {
+  if (!handle) return;
+  await guardSelectedOriginals(handle, record.protectedOriginals);
   const actualName = handle.name || filename;
-  const ext = actualName.includes('.') ? (actualName.split('.').pop()?.toLowerCase() ?? '') : '';
+  const ext = extensionOf(actualName);
   if (
     ext === 'xmp' ||
-    (PROTECTED_ORIGINAL_EXTENSIONS.has(ext) && !isCreatedByExport(record, filename, actualName))
+    (PROTECTED_ORIGINAL_EXTENSIONS.has(ext) &&
+      !isCreatedByExport(record, filename, actualName, currentHash))
   )
     throw new Error('Destination is an original photo. Choose another folder or naming template.');
 }
@@ -104,8 +133,8 @@ export async function prepareDirectoryEntry(
   filename: string,
 ): Promise<RecipeEntry> {
   const handle = await existing(record.directoryHandle!, filename);
-  await guardOriginal(handle, record, filename);
   const beforeHash = await fileHash(handle);
+  await guardOriginal(handle, record, filename, beforeHash);
   if (handle && record.recipe.overwritePolicy === 'skip')
     return { id, filename, status: 'skipped' };
   if (handle && record.recipe.overwritePolicy === 'error')
@@ -122,13 +151,14 @@ export async function deliverDirectoryEntry(
   const directory = record.directoryHandle!;
   const filename = entry.filename!;
   let handle = await existing(directory, filename);
-  await guardOriginal(handle, record, filename);
-  if ((await fileHash(handle)) !== entry.beforeHash)
+  const currentBefore = await fileHash(handle);
+  await guardOriginal(handle, record, filename, currentBefore);
+  if (currentBefore !== entry.beforeHash)
     throw new Error('Output changed while rendering. Review the destination before retrying.');
+  const afterHash = await digest(blob);
   const previousCreated = record.createdOutputs;
-  if (!handle && entry.beforeHash === null && !isCreatedByExport(record, filename, filename))
-    record.createdOutputs = [...(previousCreated ?? []), filename];
-  const writing: RecipeEntry = { ...entry, status: 'writing', afterHash: await digest(blob) };
+  record.createdOutputs = { ...previousCreated, [filename.toLowerCase()]: afterHash };
+  const writing: RecipeEntry = { ...entry, status: 'writing', afterHash };
   // This marker MUST commit before createWritable or its final close can change any output.
   try {
     await save(writing);
@@ -165,8 +195,11 @@ export async function recoverDirectoryWrites(
     const handle = await existing(record.directoryHandle, entry.filename);
     const current = await fileHash(handle);
     if (current === entry.afterHash) {
-      if (entry.beforeHash === null && !isCreatedByExport(record, entry.filename, entry.filename))
-        record.createdOutputs = [...(record.createdOutputs ?? []), entry.filename];
+      if (entry.afterHash)
+        record.createdOutputs = {
+          ...record.createdOutputs,
+          [entry.filename.toLowerCase()]: entry.afterHash,
+        };
       record.entries[index] = { ...entry, status: 'applied' };
     } else if (current === entry.beforeHash)
       record.entries[index] = { id: entry.id, status: 'pending' };
