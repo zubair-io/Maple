@@ -440,6 +440,8 @@ mod tests_local_adjustments_order;
 #[cfg(test)]
 mod tests_local_adjustments_spatial;
 #[cfg(test)]
+mod tests_look_profile;
+#[cfg(test)]
 mod tests_metadata;
 #[cfg(test)]
 mod tests_modes;
