@@ -149,7 +149,7 @@ export async function readConflictSidecar(
   const allowed = await authorizeSidecarRead(sidecar);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
   try {
-    const content = await readFileWithFailover(sidecar);
+    const content = await readFileWithFailover(allowed.data ?? sidecar);
     return { ok: true, data: content };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

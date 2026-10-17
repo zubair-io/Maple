@@ -72,7 +72,9 @@ export async function readXmp(rawAbsPath: string): Promise<OpResult<string>> {
   const sidecar = xmpSidecarPath(rawAbsPath);
   const allowed = await authorizeSidecarRead(sidecar);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
-  return readFileWithFailover(sidecar).then(
+  // Open the resolved path that passed the check, so a symlink swapped in
+  // between check and read cannot redirect the open (#4749).
+  return readFileWithFailover(allowed.data ?? sidecar).then(
     (content) => ({ ok: true, data: content }),
     (error: unknown) => ({
       ok: false,
