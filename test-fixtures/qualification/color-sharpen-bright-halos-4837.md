@@ -66,13 +66,36 @@ their unchanged ceilings 15.6 and 28.1.
 These are measurements of frozen runtime commit
 `346f9c003e28a191386b94025eaa53bb4da13679`. Its release binary hash is
 `2e480ece6812987911a3fcd1eb78792568fd7c245beb335359918a34700b87f1`.
-The 18-case maximum-amount comparison and complete platform suites are running.
+The 18-case maximum-amount comparison is complete: **13 pass, 5 fail**.
+`test_0004` exceeds p95 (11.027237 > 11.0); `test_0005` and `test_0012`
+exceed red bias; `test_0011` and `test_0014` exceed all three bias channels.
+The unchanged-budget classification is per channel. All candidate and original
+input hashes are preserved. These failures remain under investigation; the
+new Nikon green breach alone already prevents acceptance.
+
+## Local spatial reference and platform checks
+
+The first complete platform run passed 2,832 core tests, 289 Metal tests,
+301 FFI tests and 74 native-WASM tests. Two core tests failed: the composed
+local-sharpness oracle and its Maple-only synthetic golden still described
+the previous unbounded brightening at local amount 55. Ignored fixture counts
+were 103 core, 4 Metal, 6 FFI and 7 WASM.
+
+The independent f64 oracle now evaluates both neighborhood envelopes. Before
+changing the golden, the oracle passes within **one 16-bit channel count**
+and confirms **2,372 exact zero-mask pixels**; the old golden alone still
+fails by 2,710 counts. Its original bytes are archived. The newly rendered
+synthetic golden was inspected, and all four spatial tests now pass with the
+same tolerance. This is a Maple-generated algebra reference, not an Adobe
+color reference. No runtime math changed during this test correction.
+
+The complete core suite still requires a repeat after that test-only update.
 
 ## Still required
 
-Native ACR comparisons, the whole core/GPU/binding suites, any independently
-justified Maple-only synthetic-golden update, current-main/cache integration,
-performance acceptance and PR review remain outstanding. Original RAWs, XMPs,
+Resolving the physical regressions, the complete core repeat,
+current-main/cache integration, performance acceptance and PR review remain
+outstanding. Original RAWs, XMPs,
 Adobe reference pixels and numerical budgets must remain unchanged.
 
 Evidence is retained under

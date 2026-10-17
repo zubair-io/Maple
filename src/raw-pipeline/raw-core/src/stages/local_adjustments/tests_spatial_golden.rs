@@ -28,6 +28,8 @@
 //! The previous golden passed on the unchanged parent. An independent f64
 //! gain oracle checks the composed result and every zero-mask pixel; the
 //! tolerance and all ACR references stay unchanged.
+//! #4837 adds the matching bright envelope above the preserved default; the
+//! independent oracle covers both continuations before the golden is updated.
 //!
 //! # Tolerance
 //!
@@ -251,7 +253,7 @@ fn the_fixture_correction_is_confined_to_its_mask_and_is_not_vacuous() {
     );
 }
 
-/// #4112: independently evaluate the gain law inside the composed local
+/// #4112/#4837: independently evaluate both gain laws inside the composed local
 /// fixture before updating its synthetic golden. Gaussian convolution uses
 /// the existing, separately tested blur; the envelope and gain are f64 here.
 #[test]
@@ -292,7 +294,23 @@ fn local_sharpness_matches_independent_envelope_oracle() {
                     * (3.0 - 2.0 * t)
                     * (((2.0 * li - blurred[i] as f64) / li.max(0.0001)).clamp(0.0, 4.0) - 1.0);
             let gain = if scale >= 1.0 {
-                1.0 + 0.55 * (scale - 1.0)
+                let max = (y.saturating_sub(1)..=(y + 1).min(H as usize - 1))
+                    .flat_map(|ny| {
+                        luma[ny * W as usize + x.saturating_sub(1)
+                            ..=ny * W as usize + (x + 1).min(W as usize - 1)]
+                            .iter()
+                    })
+                    .copied()
+                    .fold(luma[i], f32::max) as f64;
+                let default = 1.0 + 0.4 * (scale - 1.0);
+                let ceiling = (max / li.max(0.0001)).max(default);
+                let headroom = ceiling - default;
+                let excess = 0.15 * (scale - 1.0);
+                if headroom > 0.0 {
+                    default + excess * headroom / (excess + headroom)
+                } else {
+                    default
+                }
             } else {
                 let min = (y.saturating_sub(1)..=(y + 1).min(H as usize - 1))
                     .flat_map(|ny| {
