@@ -99,6 +99,43 @@ final class XMPPassthroughTests: XCTestCase {
         "xmpMM:History",
     ]
 
+    /// `canonicalFixtureModel` plus every field that fixture leaves at its
+    /// default — the omit-on-default attributes a sidecar only carries once
+    /// the user touches the control, which is exactly where a gap in
+    /// `XMPKnownFields` hides (#4686: `papp:FilmLook` / `papp:FilmStrength`
+    /// were emitted and parsed but never claimed, so the second save wrote
+    /// each twice).
+    static func fullyNonDefaultModel() -> AdjustmentModel {
+        var m = XMPCanonicalFormatTests.canonicalFixtureModel()
+        m.look = .neutral
+        m.filmLook = "slide_fuji_velvia_50"
+        m.filmStrength = 65
+        m.lensProfile = "lcp1:0123456789abcdef"
+        m.demosaic = .rcd
+        m.wbSource = .sampled
+        m.wbSampleX = 0.25
+        m.wbSampleY = 0.75
+        m.wbAlgorithmVersion = 2
+        m.lensProfileEnable = .off
+        m.lensCorrectionDistortion = 80
+        m.lensCorrectionCa = 60
+        m.lensCorrectionVignetting = 40
+        m.autoLateralCa = .on
+        m.defringePurpleAmount = 5
+        m.defringePurpleHueLo = 20
+        m.defringePurpleHueHi = 80
+        m.defringeGreenAmount = 7
+        m.defringeGreenHueLo = 35
+        m.defringeGreenHueHi = 65
+        return m
+    }
+
+    static func fullyNonDefaultCulling() -> CullingState {
+        var c = XMPCanonicalFormatTests.canonicalFixtureCulling()
+        c.hidden = true
+        return c
+    }
+
     private func makeTempDirectory() throws -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("maple-xmp-2233-\(UUID().uuidString)")
@@ -241,6 +278,35 @@ final class XMPPassthroughTests: XCTestCase {
         XCTAssertEqual(second, first, "write → parse → write must be a fixed point")
     }
 
+    /// The fixed point must hold with EVERY omit-on-default field set, not
+    /// just the ones `canonicalFixtureModel` happens to touch: an attribute
+    /// the writer emits but the known set does not claim parses into the
+    /// model AND the passthrough bucket, and the next save writes it twice.
+    /// Real file, real store, no mocks (#4686).
+    func testFullyNonDefaultResaveIsAFixedPoint() async throws {
+        let dir = try makeTempDirectory()
+        let rawURL = dir.appendingPathComponent("DSCF1234.dng")
+        let sidecarURL = SidecarPath.sidecarURL(for: rawURL)
+        let first = XMPSerializer.serialize(
+            model: Self.fullyNonDefaultModel(), culling: Self.fullyNonDefaultCulling())
+        try first.write(to: sidecarURL, atomically: true, encoding: .utf8)
+
+        let store = XMPSidecarStore(rawURL: rawURL)
+        let (reloaded, reloadedCulling) = try await store.load()
+        XCTAssertEqual(reloaded.filmLook, "slide_fuji_velvia_50")
+        XCTAssertEqual(reloaded.filmStrength, 65)
+        XCTAssertEqual(reloaded.demosaic, .rcd)
+        await store.update(model: reloaded, culling: reloadedCulling)
+        await store.flush()
+        let second = try String(contentsOf: sidecarURL, encoding: .utf8)
+
+        for attribute in ["papp:FilmLook=", "papp:FilmStrength=", "papp:Demosaic="] {
+            XCTAssertEqual(second.components(separatedBy: attribute).count - 1, 1,
+                           "\(attribute) must be written exactly once")
+        }
+        XCTAssertEqual(second, first, "write → parse → write must be a fixed point")
+    }
+
     // MARK: - No double emission
 
     /// Children the serializer builds from the model must not ALSO ride the
@@ -267,7 +333,10 @@ final class XMPPassthroughTests: XCTestCase {
 
     /// The guard behind the whole known-set design: anything the serializer
     /// emits must be in `XMPKnownFields.attributes`, or the parser would file
-    /// it as passthrough and the next save would emit it twice.
+    /// it as passthrough and the next save would emit it twice. The model is
+    /// `fullyNonDefaultModel` so every omit-on-default attribute is actually
+    /// emitted and checked — the canonical fixture alone left
+    /// `papp:FilmLook` / `papp:FilmStrength` unexercised (#4686).
     func testEverySerializedAttributeIsKnown() {
         var metadata = XmpMetadata()
         metadata.gpsLatitude = 51.5
@@ -292,11 +361,14 @@ final class XMPPassthroughTests: XCTestCase {
         metadata.credit = "Credit"
         metadata.source = "Source"
         let document = XMPSerializer.serialize(
-            model: XMPCanonicalFormatTests.canonicalFixtureModel(),
-            culling: XMPCanonicalFormatTests.canonicalFixtureCulling(),
+            model: Self.fullyNonDefaultModel(),
+            culling: Self.fullyNonDefaultCulling(),
             metadata: metadata)
         let emitted = attributeNames(in: document)
         XCTAssertFalse(emitted.isEmpty)
+        for name in ["papp:FilmLook", "papp:FilmStrength", "papp:Demosaic", "papp:Hidden"] {
+            XCTAssertTrue(emitted.contains(name), "the fixture must actually emit \(name)")
+        }
         for name in emitted {
             XCTAssertTrue(XMPKnownFields.isKnownAttribute(name),
                           "\(name) is written by the serializer but missing from the known set — "
