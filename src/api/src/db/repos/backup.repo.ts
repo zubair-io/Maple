@@ -245,6 +245,9 @@ export async function listBackupState(
   dbOverride?: SqliteDb,
 ): Promise<BackupStateEntry[]> {
   const library = toHex(libraryId);
+  // Both LIVE_REL_PATH_SUBQUERY and the EXISTS guard filter
+  // `l.deleted_at IS NULL AND l.missing_since IS NULL`, so a missing ordinal-0
+  // row is skipped in favour of the first live ordinal (#4700).
   return await sqliteDb(dbOverride).read<BackupStateEntry>(
     `SELECT p.phasset_local_id AS phasset_local_id,
             p.first_seen AS first_seen,
