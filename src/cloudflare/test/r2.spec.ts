@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../src/generated/pipeline-output-version';
 import { describe, it, expect } from 'vitest';
 import { parseThumbPath, thumbR2Key } from '../src/r2';
 
@@ -41,13 +40,13 @@ describe('parseThumbPath', () => {
 describe('thumbR2Key', () => {
 	it('matches the API-side scheme for a root-level file', () => {
 		expect(thumbR2Key({ slug: 'main', relDir: '', filename: 'IMG_001.jpg' })).toBe(
-			`thumbs/main/IMG_001.jpg/v${PIPELINE_OUTPUT_VERSION}`,
+			`thumbs/main/IMG_001.jpg/v25`,
 		);
 	});
 
 	it('matches the API-side scheme for a nested file', () => {
 		expect(thumbR2Key({ slug: 'main', relDir: 'vacation/2024', filename: 'IMG_001.jpg' })).toBe(
-			`thumbs/main/vacation/2024/IMG_001.jpg/v${PIPELINE_OUTPUT_VERSION}`,
+			`thumbs/main/vacation/2024/IMG_001.jpg/v25`,
 		);
 	});
 
