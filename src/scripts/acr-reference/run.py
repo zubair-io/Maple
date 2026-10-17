@@ -29,12 +29,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 from pathlib import Path
 
 from matrix import CASES
-from write_xmp import as_shot_from_png, copy_case_xmp, reference_settings
+from write_xmp import as_shot_from_png, prepare_case_xmp, reference_settings
 
 # The Cowork sandbox mounts the host workspace under /sessions/.../mnt/_Maple/
 # (or whatever the selected folder's basename is). Photoshop runs on the host
@@ -259,9 +258,12 @@ def main(argv: list[str] | None = None) -> int:
     else:
         cases_in_scope = list(CASES)
 
-    # Copy canonical XMPs into each raw's xmp/ dir. Emit manifest entries.
+    # Preflight the entire batch before replacing sidecars or the manifest.
+    # A later fixture may lack the As Shot metadata needed by partial Custom WB.
     out_root_host = detect_mac_path(out_root, mac_root)
     manifest_cases: list[dict] = []
+    prepared_xmps: list[tuple[Path, bytes]] = []
+    output_dirs: list[Path] = []
     total_xmps = 0
     total_outputs = 0
 
@@ -276,28 +278,26 @@ def main(argv: list[str] | None = None) -> int:
         camera_profile = recorded_camera_profile(raw_ref_dir)
         as_shot = recorded_as_shot(raw_ref_dir)
         acr_xmp_dir = raw_ref_dir / "acr-xmp"
-        xmp_dir.mkdir(parents=True, exist_ok=True)
-        acr_xmp_dir.mkdir(parents=True, exist_ok=True)
         for c in cases_in_scope:
             src = canonical_dir / f"{c.name}.xmp"
             if not src.is_file():
                 print(f"ERROR: missing canonical XMP: {src}", file=sys.stderr)
                 return 2
             dst = xmp_dir / f"{c.name}.xmp"
-            if src.resolve() != dst.resolve():
-                shutil.copyfile(src, dst)
+            source_data = src.read_bytes()
             try:
-                copy_case_xmp(
-                    src, acr_xmp_dir / f"{c.name}.xmp", camera_profile, as_shot=as_shot
+                adobe_data = prepare_case_xmp(
+                    source_data, camera_profile, as_shot=as_shot
                 )
             except ValueError as error:
                 print(f"ERROR: {raw_stem}/{c.name}: {error}", file=sys.stderr)
                 return 2
+            if src.resolve() != dst.resolve():
+                prepared_xmps.append((dst, source_data))
+            prepared_xmps.append((acr_xmp_dir / f"{c.name}.xmp", adobe_data))
         total_xmps += len(cases_in_scope)
 
-        # Pre-create output dirs so Photoshop doesn't fail on saveAs.
-        (raw_ref_dir / "down").mkdir(parents=True, exist_ok=True)
-        (raw_ref_dir / "full").mkdir(parents=True, exist_ok=True)
+        output_dirs.extend((raw_ref_dir / "down", raw_ref_dir / "full"))
 
         # Emit manifest entries.
         for c in cases_in_scope:
@@ -314,6 +314,13 @@ def main(argv: list[str] | None = None) -> int:
             entry["acr_xmp"] = detect_mac_path(acr_xmp_dir / f"{c.name}.xmp", mac_root)
             manifest_cases.append(entry)
             total_outputs += len(c.tiers)
+
+    for path, data in prepared_xmps:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    # Pre-create output dirs so Photoshop doesn't fail on saveAs.
+    for directory in output_dirs:
+        directory.mkdir(parents=True, exist_ok=True)
 
     manifest = {"cases": manifest_cases}
     manifest_path = out_root / "manifest.json"

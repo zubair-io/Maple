@@ -21,7 +21,7 @@ XMP is copied to an Adobe sidecar without Temperature. The verifier accepts a
 PNG containing that incomplete expected pair. The assertion requiring both
 axes fails. The original temporary sidecar remains byte-identical.
 
-With the repair, all **12 reference-settings tests** pass. They cover omitted
+With the repair, all **13 reference preparation/settings tests** pass. They cover omitted
 and authored controls, complete and partial white balance, invalid/missing
 recorded settings, unchanged source bytes, effective PNG metadata, manifest
 preparation, and rejecting an incomplete expected pair. The existing **12
@@ -56,6 +56,24 @@ a valid baseline completes the batch, preserves authored tint and source
 bytes, and retains existing unrelated output. The 12 reference tests, all
 12 comparator tests and the 776-sidecar physical settings audit pass again
 after the fix. Generation introduces no changes.
+
+## Multi-photo orchestrator review regression
+
+A second review found the same partial-write problem in `run.py`: invalid
+As Shot metadata in a later fixture was detected after earlier sidecars had
+been replaced, while the old manifest still referenced that mixed batch.
+The failing control reproduced those writes on revision
+`bae4fada68158203338d11917f1d9234c28245eb`.
+
+The orchestrator now prepares every selected case for every photo before
+creating directories, replacing sidecars or writing the manifest. Maple and
+Adobe payloads derive from the same captured source bytes. The regression
+executes the actual command with two photos and all 43 cases each: missing
+or invalid metadata for the second photo leaves every existing byte and
+directory unchanged. Valid per-photo baselines produce all 86 cases with
+the correct distinct temperatures and preserve canonical inputs and RAWs.
+CI discovers this additional batch test. All 13 reference tests, 12 comparator
+tests and the 776-sidecar audit pass after the fix.
 
 The command logs, original failing control, per-case source hashes, complete
 settings comparison and replay scripts are preserved in

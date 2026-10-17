@@ -85,6 +85,10 @@ completed from the same fixture's recorded As Shot baseline before rendering
 manifests must be regenerated before rendering. Reference replacements still
 require geometry and perceptual checks; existing budgets cannot increase.
 
+The orchestrator prepares every case for every selected photo before writing
+sidecars or replacing the manifest. Missing or invalid metadata leaves an
+existing batch untouched, including when only a later photo is invalid.
+
 Run the focused XML, manifest and PNG metadata tests with:
 
 ```bash

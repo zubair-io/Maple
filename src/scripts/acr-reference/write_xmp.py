@@ -219,15 +219,15 @@ def copy_case_xmp(
 ) -> None:
     # Read first: source == destination is safe and makes canonical self-runs
     # explicit too. No normalization or changes to authored controls.
-    data = prepare_case_xmp(source, camera_profile, as_shot=as_shot)
+    data = prepare_case_xmp(source.read_bytes(), camera_profile, as_shot=as_shot)
     destination.write_bytes(data)
 
 
 def prepare_case_xmp(
-    source: Path, camera_profile: str | None = None, *, as_shot: dict | None = None
+    data: bytes, camera_profile: str | None = None, *, as_shot: dict | None = None
 ) -> bytes:
     return complete_custom_white_balance(
-        explicit_reference_defaults(source.read_bytes(), camera_profile), as_shot
+        explicit_reference_defaults(data, camera_profile), as_shot
     )
 
 
@@ -319,7 +319,7 @@ def copy_canonical_xmps(
         (
             target_dir / f"{case.name}.xmp",
             prepare_case_xmp(
-                canonical_dir / f"{case.name}.xmp",
+                (canonical_dir / f"{case.name}.xmp").read_bytes(),
                 (as_shot or {}).get("CameraProfile"),
                 as_shot=as_shot,
             ),

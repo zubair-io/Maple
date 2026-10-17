@@ -618,7 +618,7 @@ jobs:
       - name: Grey adjustments gate (test_grey_adjustments.sh) + evidence check
         run: bash tools/qualification/record.sh --check grey_adjustments cpu-reference -- bash src/scripts/test_grey_adjustments.sh
       - name: ACR reference settings integrity tests
-        run: python3 -m unittest discover -s src/scripts/acr-reference -p test_reference_settings.py
+        run: python3 -m unittest discover -s src/scripts/acr-reference -p 'test_reference*.py'
       - name: ACR one-stop Exposure response gate
         run: bash src/scripts/test_tone_exposure.sh
       - name: Auto and Neutral Whites response gate
