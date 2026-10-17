@@ -254,6 +254,11 @@ All six require a bearer — they write files and reconcile deletions. Resume id
 | POST   | `/api/libraries/:libraryId/backup/sidecar`        | bearer | Write an XMP sidecar next to a previously uploaded asset, addressed by `X-Maple-Target-Rel-Path`                                                                                                           |
 | POST   | `/api/libraries/:libraryId/backup/notify-deleted` | bearer | Body `{ phasset_local_ids }`; marks the cloud copies `deleted_from_photos`. The rows and bytes stay                                                                                                        |
 
+Completed ingest retries send all chunks again before success: a stored session or path
+cannot prove that the original bytes still exist there. The server byte-compares the
+assembled upload before deduplication, returning `202` for intermediate chunks and
+`200` with the current verified path only after the final chunk.
+
 ## Library backup destinations
 
 All configuration/catalog/recovery routes below require an authenticated **owner**. This backs registered server libraries up to destinations, independently of Apple Photos ingestion above. See [Cloud backup](cloud-backup.md) for the portable catalog, Trash/purge contract, setup and release gates.

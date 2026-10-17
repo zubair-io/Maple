@@ -44,6 +44,7 @@ import {
 } from './db-handle.ts';
 import { ALL_STAGE_NAMES } from '../../workers/stages/stage-names.ts';
 import { seedStageRowStatements } from './stage-state.repo.ts';
+import { relocateCacheRearmStatements } from './assets.stage-rearm.ts';
 import { nowIso, placeholders, toHex } from './values.ts';
 
 export type { SqliteDb } from './db-handle.ts';
@@ -328,12 +329,16 @@ export interface AppendBackupLocationInput {
   /** The device link to record alongside it, or `null` when already linked. */
   link: PhassetLink | null;
   ownerId?: ObjectId | string | null;
+  /** Replace this repaired location in place, retaining its ordinal. */
+  replacedRelPath?: string | null;
 }
 
 /**
  * Cross-library dedup or missing-location repair: the content already exists as
  * an asset, so record this upload as a live location on it.
  *
+ * Repair replaces the failed address in place, preserving its ordinal and
+ * rearming path-keyed derivatives. Only reaper-deleted assets are revived.
  * A genuinely new location takes the next free `ordinal`, keeping `ordinal = 0`
  * meaning "the canonical entry". When re-materialising a copy at an existing
  * location row (e.g. one marked `missing_since` after its file was lost on
@@ -349,7 +354,41 @@ export async function appendBackupLocation(
   const hex = toHex(assetId);
   const libHex = toHex(input.libraryId);
   const { dir, filename } = splitRelPath(input.relPath);
+  const replaced = input.replacedRelPath ? splitRelPath(input.replacedRelPath) : null;
   await db.transaction([
+    {
+      sql: `UPDATE assets SET deleted_at = NULL, deleted_reason = NULL
+            WHERE id = ? AND deleted_reason = 'reaped'`,
+      params: [hex],
+    },
+    ...(replaced === null
+      ? []
+      : [
+          {
+            // Coalesce an already-cataloged sibling before preserving the old ordinal.
+            sql: `DELETE FROM asset_locations WHERE asset_id = ? AND library_id = ?
+              AND path = ? AND filename = ? AND NOT (path = ? AND filename = ?)
+              AND EXISTS (SELECT 1 FROM asset_locations old WHERE old.asset_id = ?
+                AND old.library_id = ? AND old.path = ? AND old.filename = ?)`,
+            params: [
+              hex,
+              libHex,
+              dir,
+              filename,
+              replaced.dir,
+              replaced.filename,
+              hex,
+              libHex,
+              replaced.dir,
+              replaced.filename,
+            ],
+          },
+          {
+            sql: `UPDATE asset_locations SET path = ?, filename = ?
+            WHERE asset_id = ? AND library_id = ? AND path = ? AND filename = ?`,
+            params: [dir, filename, hex, libHex, replaced.dir, replaced.filename],
+          },
+        ]),
     {
       sql: `UPDATE asset_locations
                SET deleted_at = NULL, missing_since = NULL, missing_reason = NULL
@@ -366,6 +405,14 @@ export async function appendBackupLocation(
                 WHERE asset_id = ? AND library_id = ? AND path = ? AND filename = ?
              )`,
       params: [hex, hex, libHex, dir, filename, hex, libHex, dir, filename],
+    },
+    ...(replaced === null ? [] : relocateCacheRearmStatements(hex)),
+    {
+      // Match missing-reaper recovery: successful EXIF is still valid.
+      sql: `UPDATE stage_state SET version = 0, attempts = 0, last_error = NULL,
+              processed_at = NULL, dead = 0, next_attempt_at = NULL, claim_token = NULL
+            WHERE asset_id = ? AND stage = 'exif' AND dead = 1`,
+      params: [hex],
     },
     ...(input.link === null ? [] : [linkStatement(hex, input.link)]),
     ...(input.ownerId

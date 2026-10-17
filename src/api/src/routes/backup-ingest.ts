@@ -36,7 +36,7 @@ import type { ObjectId } from '../db/object-id.ts';
 import { uploadSessions } from '../backup/upload-session.ts';
 import { formatBackupPath } from '../backup/path-formatter.ts';
 import { containedJoin } from '../backup/path-safety.ts';
-import { filesIdentical, firstFreeSiblingPath, moveNoClobber } from '../backup/fs-util.ts';
+import { filesIdentical, moveNoClobber } from '../backup/fs-util.ts';
 import { resolveBackupLocation } from '../backup/ingest-geocode.ts';
 import { isScreenshotFilename } from '../indexer/screenshot.ts';
 import { backupSessionsRepo } from '../db/backup-sessions.repo.ts';
@@ -46,14 +46,14 @@ import path from 'node:path';
 
 const log = childLogger('backup-ingest');
 
-async function hasFileOnDisk(libraryRoot: string, relPath: string): Promise<boolean> {
+async function matchesUpload(libraryRoot: string, relPath: string, tmpFile: string) {
   const fullPath = containedJoin(libraryRoot, relPath);
   if (!fullPath) return false;
   try {
-    const stat = await fs.stat(fullPath);
-    return stat.isFile();
-  } catch {
-    return false;
+    return await filesIdentical(fullPath, tmpFile);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
   }
 }
 
@@ -119,24 +119,20 @@ async function placeUploadOnDisk(args: {
     if (!claimedByOther && (await filesIdentical(finalPath, args.tmpFile))) {
       await removeTmpQuietly(args.tmpFile);
       log.debug(
-        { phid: args.phid, mapleId: args.mapleId, targetRelPath: resolvedRelPath },
+        {
+          phid: args.phid,
+          mapleId: args.mapleId,
+          targetRelPath: resolvedRelPath,
+        },
         'ingest recovery (matching bytes already on disk) — adopting',
       );
       return { relPath: resolvedRelPath };
     }
 
-    const free = await firstFreeSiblingPath(args.libraryRoot, args.baseRelPath, isClaimedByOther);
-    log.warn(
-      {
-        phid: args.phid,
-        mapleId: args.mapleId,
-        collidedRelPath: resolvedRelPath,
-        resolvedRelPath: free.relPath,
-      },
-      'ingest path collision — disambiguating',
-    );
-    resolvedRelPath = free.relPath;
-    finalPath = free.absPath;
+    const ext = path.posix.extname(args.baseRelPath);
+    const stem = args.baseRelPath.slice(0, args.baseRelPath.length - ext.length);
+    resolvedRelPath = `${stem}-${attempt + 1}${ext}`;
+    finalPath = containedJoin(args.libraryRoot, resolvedRelPath)!;
   }
   throw new Error(`could not place upload for ${args.baseRelPath} after 10000 attempts`);
 }
@@ -206,7 +202,12 @@ export const backupIngestRoutes = new Elysia().post(
     // Compute the destination relative path.
     let targetRelPath: string;
     try {
-      targetRelPath = formatBackupPath({ captureDate, location, filename, isScreenshot });
+      targetRelPath = formatBackupPath({
+        captureDate,
+        location,
+        filename,
+        isScreenshot,
+      });
     } catch (e: any) {
       set.status = 400;
       return { error: e?.message ?? 'invalid filename' };
@@ -225,47 +226,9 @@ export const backupIngestRoutes = new Elysia().post(
     let { didReset } = opened;
     const { session, alreadyComplete } = opened;
 
-    // Short-circuit when the upload already finished server-side and the
-    // stored copy is still live on disk (#4700). The device is retrying
-    // because something AFTER the original ingest (sidecar / rendered / live
-    // video) failed and re-enqueued the task — re-uploading the same bytes is
-    // wasted work, and the client's downstream steps (sidecar PUT, rendered
-    // POST) only need `maple_id` + `target_rel_path` to proceed. If the asset
-    // was marked missing or its file vanished since completion, reopen the
-    // session and accept the repair upload instead.
+    // A completed session proves publication happened, not that its path still
+    // owns those bytes. Assemble the retry before byte-verified deduplication.
     if (alreadyComplete) {
-      const completedTarget = session.maple_id
-        ? await findIngestDedupTarget({
-            mapleId: session.maple_id,
-            libraryId,
-            deviceId,
-            phassetLocalId: phid,
-          })
-        : null;
-      const completedRelPath = completedTarget?.liveRelPathInLibrary;
-      const stillPresent =
-        completedRelPath != null && (await hasFileOnDisk(folder.path, completedRelPath));
-
-      if (stillPresent) {
-        log.debug(
-          {
-            phid,
-            mapleId: session.maple_id,
-            targetRelPath: completedRelPath,
-          },
-          'ingest short-circuit (already complete)',
-        );
-        set.status = 200;
-        return {
-          maple_id: session.maple_id,
-          // Hand back where the bytes actually live now: the current live
-          // location in this library (which follows relocations/refiles) or
-          // the disambiguated session path. Companions (sidecar / rendered)
-          // must be written next to the real file, not the path that collided.
-          target_rel_path: completedRelPath,
-        };
-      }
-
       await uploadSessions.resetForRestart(session._id);
       session.state = 'open';
       session.received_bytes = 0;
@@ -328,7 +291,8 @@ export const backupIngestRoutes = new Elysia().post(
       // backing a photo up to library Y must leave a usable location
       // referencing Y.
       const liveRelPath = existing.liveRelPathInLibrary;
-      const liveOnDisk = liveRelPath !== null && (await hasFileOnDisk(folder.path, liveRelPath));
+      const liveOnDisk =
+        liveRelPath !== null && (await matchesUpload(folder.path, liveRelPath, tmpFile));
 
       if (liveRelPath !== null && liveOnDisk) {
         // Content already on disk in THIS library — true dedup. Drop the tmp
@@ -393,6 +357,7 @@ export const backupIngestRoutes = new Elysia().post(
         libraryId,
         link: existing.alreadyLinked ? null : link,
         ownerId,
+        replacedRelPath: liveRelPath ?? existing.missingRelPathInLibrary,
       });
 
       await uploadSessions.complete({
