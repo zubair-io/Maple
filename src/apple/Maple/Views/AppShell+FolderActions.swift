@@ -150,7 +150,9 @@ extension AppShell {
     // Same bookkeeping the editor's filmstrip sibling switch uses
     // (`selectFilmstripSibling`, #3402) — only the landing `mode` differs.
     let ensured = AppShellVM.ensureSession(
-      for: asset, in: &sessions, remoteStore: { remoteSidecarStore(for: asset) })
+      for: asset, in: &sessions,
+      remoteStore: { remoteSidecarStore(for: asset) },
+      remotePreviewSink: { remotePreviewSink(for: asset) })
     Task { await ensured.session.loadSidecar() }
     browseVM.selectedID = asset.id
     #if os(iOS)
@@ -323,7 +325,10 @@ extension AppShell {
 
   func browseSession(for asset: AssetRef) -> EditSession {
     AppShellVM.ensureSession(
-      for: asset, in: &sessions, remoteStore: { remoteSidecarStore(for: asset) }
+      for: asset,
+      in: &sessions,
+      remoteStore: { remoteSidecarStore(for: asset) },
+      remotePreviewSink: { remotePreviewSink(for: asset) }
     ).session
   }
 
@@ -343,6 +348,30 @@ extension AppShell {
       )
     }
     return store
+  }
+
+  /// The display-preview sink a cloud-backed asset uploads its edited AVIF
+  /// preview to (#4846), mirroring `prepareCloudSession`'s `CloudDisplayPreviewSink`
+  /// construction so grid-primed, filmstrip-switched, and `openEditor` sessions
+  /// refresh the server's `display`/`preview` cache on edit exit alongside the
+  /// XMP sidecar write.
+  func remotePreviewSink(for asset: AssetRef) -> (any DisplayPreviewSink)? {
+    guard let server = cloudServer(for: asset),
+      let assetPath = AppShellVM.cloudAssetPath(for: asset)
+    else { return nil }
+    return CloudDisplayPreviewSink(
+      server: LocalNetworkResolver.shared.effectiveURL(for: server),
+      assetPath: assetPath,
+      httpClient: makeAuthenticatedHTTPClient(server: server))
+  }
+
+  private func cloudServer(for asset: AssetRef) -> URL? {
+    AppShellVM.cloudServer(
+      for: asset,
+      ambientServer: {
+        guard case .cloudLibrary(let serverID, _) = librarySelection else { return nil }
+        return serverID
+      })
   }
 
   private func resolveRemoteSidecarStore(for asset: AssetRef) -> (any SidecarStoreProtocol)? {
@@ -414,18 +443,11 @@ extension AppShell {
       // keep using XMPSidecarStore via EditSession's primaryURL
       // branch. Cloud refs carry the upstream asset id in stableID
       // (set by BrowseViewModel.loadSource).
-      if let server = asset.catalog?.serverID {
-        return CloudSidecarStore(
-          server: LocalNetworkResolver.shared.effectiveURL(for: server),
-          assetID: assetID,
-          httpClient: makeAuthenticatedHTTPClient(server: server))
-      }
-      guard case .cloudLibrary(let serverID, _) = librarySelection
-      else { return nil }
+      guard let server = cloudServer(for: asset) else { return nil }
       return CloudSidecarStore(
-        server: LocalNetworkResolver.shared.effectiveURL(for: serverID),
+        server: LocalNetworkResolver.shared.effectiveURL(for: server),
         assetID: assetID,
-        httpClient: makeAuthenticatedHTTPClient(server: serverID))
+        httpClient: makeAuthenticatedHTTPClient(server: server))
     }
   }
 

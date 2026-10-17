@@ -113,8 +113,38 @@ final class DisplayPreviewPersistTests: XCTestCase {
       displayName: "y.dng", hintExtension: "dng",
       bytesProvider: { throw CancellationError() })
     let session = EditSession(asset: asset)
+    XCTAssertNil(session.displayPreviewSink)
     XCTAssertFalse(session.previewPersistence.hasDestination)
     session.scheduleDisplayPreviewPersist(solidCIImage(800, 600))
     await session.flushDisplayPreviewPersist()  // must not crash
+  }
+
+  /// #4846: a cloud-provenance sourceless session constructed with a remote
+  /// preview sink exposes `displayPreviewSink` and `persistDisplayPreviewOnExit()`
+  /// flushes the pending rendered frame through it as AVIF.
+  @MainActor
+  func testPersistDisplayPreviewOnExitReachesRemotePreviewSink() async throws {
+    let sink = SpyPreviewSink()
+    let server = URL(string: "https://cloud.example")!
+    let asset = AssetRef(
+      displayName: "cloud.dng", hintExtension: "dng", stableID: "fs:/lib/cloud.dng",
+      thumbnailProvenance: .cloud(server: server),
+      catalog: CatalogRef(
+        serverID: server, folderID: "f1", absPath: "/lib/cloud.dng", address: nil),
+      bytesProvider: { throw CancellationError() })
+    let session = EditSession(asset: asset, remotePreviewSink: sink)
+
+    XCTAssertNotNil(session.displayPreviewSink)
+    session.scheduleDisplayPreviewPersist(solidCIImage(1_600, 1_200))
+    let beforeExit = await sink.count()
+    XCTAssertEqual(beforeExit, 0)
+
+    await session.persistDisplayPreviewOnExit()
+
+    let afterExit = await sink.count()
+    XCTAssertEqual(afterExit, 1, "persistDisplayPreviewOnExit() must flush to the remote sink")
+    let lastWrite = await sink.last()
+    let bytes = try XCTUnwrap(lastWrite)
+    XCTAssertEqual(bytes[4..<8], Data("ftyp".utf8), "persisted preview must be AVIF")
   }
 }

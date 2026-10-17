@@ -43,7 +43,9 @@ extension AppShell {
       Task.detached { await outgoing.flushPendingSidecarWrite() }
     }
     let ensured = AppShellVM.ensureSession(
-      for: asset, in: &sessions, remoteStore: { remoteSidecarStore(for: asset) })
+      for: asset, in: &sessions,
+      remoteStore: { remoteSidecarStore(for: asset) },
+      remotePreviewSink: { remotePreviewSink(for: asset) })
     Task { await ensured.session.loadSidecar() }
     browseVM.selectedID = asset.id
     mode = AppShellVM.filmstripLandingMode(hosting: mode)

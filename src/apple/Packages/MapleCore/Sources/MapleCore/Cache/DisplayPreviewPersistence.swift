@@ -7,7 +7,7 @@ import Foundation
 final class DisplayPreviewPersistence {
   static let idleDebounce: Duration = .milliseconds(1_500)
 
-  private let sink: (any DisplayPreviewSink)?
+  let sink: (any DisplayPreviewSink)?
   private let encode: @Sendable (CIImage) -> Data?
   private var pendingImage: CIImage?
   private var idleTask: Task<Void, Never>?

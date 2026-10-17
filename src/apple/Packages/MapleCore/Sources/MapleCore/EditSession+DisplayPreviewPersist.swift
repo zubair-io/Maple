@@ -18,7 +18,11 @@ import Foundation
 
 @MainActor
 extension EditSession {
-  func scheduleDisplayPreviewPersist(_ rendered: CIImage) {
+  public var displayPreviewSink: (any DisplayPreviewSink)? {
+    previewPersistence.sink
+  }
+
+  public func scheduleDisplayPreviewPersist(_ rendered: CIImage) {
     guard workflow.selectedVariantId == WorkflowContract.primaryVariantID else { return }
     previewPersistence.schedule(rendered)
   }
