@@ -186,15 +186,17 @@ pub unsafe extern "C" fn maple_render_thumbnail_avif_to_file(
     max_px: u32,
     quality: u8,
 ) -> i32 {
-    render_thumbnail_to_file(
-        raw_path,
-        out_path,
-        max_px,
-        quality,
-        55,
-        raw_core::avif::encode,
-        "avif",
-    )
+    crate::error::with_large_stack_borrowed(|| {
+        render_thumbnail_to_file(
+            raw_path,
+            out_path,
+            max_px,
+            quality,
+            55,
+            raw_core::avif::encode,
+            "avif",
+        )
+    })
 }
 
 /// Extract an embedded JPEG preview / thumbnail from `raw_path`, downsample
@@ -213,13 +215,15 @@ pub unsafe extern "C" fn maple_render_thumbnail_preview_jpeg_to_file(
     max_px: u32,
     quality: u8,
 ) -> i32 {
-    render_thumbnail_to_file(
-        raw_path,
-        out_path,
-        max_px,
-        quality,
-        85,
-        raw_core::jpeg::encode,
-        "jpeg",
-    )
+    crate::error::with_large_stack_borrowed(|| {
+        render_thumbnail_to_file(
+            raw_path,
+            out_path,
+            max_px,
+            quality,
+            85,
+            raw_core::jpeg::encode,
+            "jpeg",
+        )
+    })
 }

@@ -52,16 +52,18 @@ impl MapleFilenameResult {
 /// result — nothing was allocated), is a no-op.
 #[no_mangle]
 pub unsafe extern "C" fn maple_free_filename_result(result: *mut MapleFilenameResult) {
-    if result.is_null() {
-        return;
-    }
-    let r = &mut *result;
-    if !r.name_ptr.is_null() {
-        let slice = std::slice::from_raw_parts_mut(r.name_ptr, r.name_len);
-        drop(Box::from_raw(slice as *mut [u8]));
-    }
-    r.name_ptr = std::ptr::null_mut();
-    r.name_len = 0;
+    crate::error::catch_panic("maple_free_filename_result", (), || {
+        if result.is_null() {
+            return;
+        }
+        let r = &mut *result;
+        if !r.name_ptr.is_null() {
+            let slice = std::slice::from_raw_parts_mut(r.name_ptr, r.name_len);
+            drop(Box::from_raw(slice as *mut [u8]));
+        }
+        r.name_ptr = std::ptr::null_mut();
+        r.name_len = 0;
+    })
 }
 
 /// Maps a [`FilenameError`] to the stable positive error code documented on
@@ -134,54 +136,63 @@ pub unsafe extern "C" fn maple_render_filename_template(
     sequence_index: u64,
     sequence_pad_width: usize,
 ) -> MapleFilenameResult {
-    let Some(template) = cstr_to_str(template_ptr) else {
-        set_last_error(
-            "maple_render_filename_template: template is null or not valid UTF-8".into(),
-        );
-        return MapleFilenameResult::err(-1);
-    };
-    let Some(original_stem) = cstr_to_str(original_stem_ptr) else {
-        set_last_error(
-            "maple_render_filename_template: original_stem is null or not valid UTF-8".into(),
-        );
-        return MapleFilenameResult::err(-1);
-    };
-    let Some(ext) = cstr_to_str(ext_ptr) else {
-        set_last_error("maple_render_filename_template: ext is null or not valid UTF-8".into());
-        return MapleFilenameResult::err(-1);
-    };
-    let captured_at = if captured_at_ptr.is_null() {
-        None
-    } else {
-        match cstr_to_str(captured_at_ptr) {
-            Some(s) => Some(s),
-            None => {
+    crate::error::catch_panic(
+        "maple_render_filename_template",
+        MapleFilenameResult::err(crate::error::RC_PANICKED),
+        || {
+            let Some(template) = cstr_to_str(template_ptr) else {
                 set_last_error(
-                    "maple_render_filename_template: captured_at is not valid UTF-8".into(),
+                    "maple_render_filename_template: template is null or not valid UTF-8".into(),
                 );
                 return MapleFilenameResult::err(-1);
+            };
+            let Some(original_stem) = cstr_to_str(original_stem_ptr) else {
+                set_last_error(
+                    "maple_render_filename_template: original_stem is null or not valid UTF-8"
+                        .into(),
+                );
+                return MapleFilenameResult::err(-1);
+            };
+            let Some(ext) = cstr_to_str(ext_ptr) else {
+                set_last_error(
+                    "maple_render_filename_template: ext is null or not valid UTF-8".into(),
+                );
+                return MapleFilenameResult::err(-1);
+            };
+            let captured_at = if captured_at_ptr.is_null() {
+                None
+            } else {
+                match cstr_to_str(captured_at_ptr) {
+                    Some(s) => Some(s),
+                    None => {
+                        set_last_error(
+                            "maple_render_filename_template: captured_at is not valid UTF-8".into(),
+                        );
+                        return MapleFilenameResult::err(-1);
+                    }
+                }
+            };
+
+            let inputs = RenderInputs {
+                original_stem,
+                ext,
+                index: sequence_index,
+                captured_at,
+            };
+            let sequence = SequenceOptions {
+                start: sequence_start,
+                pad_width: sequence_pad_width,
+            };
+
+            match filename::render_filename(template, &inputs, &sequence) {
+                Ok(name) => MapleFilenameResult::ok(name),
+                Err(e) => {
+                    set_last_error(format!("maple_render_filename_template: {}", e));
+                    MapleFilenameResult::err(error_code(&e))
+                }
             }
-        }
-    };
-
-    let inputs = RenderInputs {
-        original_stem,
-        ext,
-        index: sequence_index,
-        captured_at,
-    };
-    let sequence = SequenceOptions {
-        start: sequence_start,
-        pad_width: sequence_pad_width,
-    };
-
-    match filename::render_filename(template, &inputs, &sequence) {
-        Ok(name) => MapleFilenameResult::ok(name),
-        Err(e) => {
-            set_last_error(format!("maple_render_filename_template: {}", e));
-            MapleFilenameResult::err(error_code(&e))
-        }
-    }
+        },
+    )
 }
 
 /// `bun:ffi`-friendly counterpart to [`maple_render_filename_template`].
@@ -223,79 +234,84 @@ pub unsafe extern "C" fn maple_render_filename_template_buf(
     out_cap: usize,
     out_len: *mut usize,
 ) -> i32 {
-    // `out_buf`/`out_len` are the two pointers this function itself
-    // dereferences to write output (`copy_nonoverlapping`, `*out_len = ...`)
-    // — reject a null one up front, matching every other FFI entry point in
-    // this crate that writes through a caller-owned pointer (e.g.
-    // `maple_histogram_file`'s `out_bins.is_null()` guard in `render.rs`).
-    // `-1` is this module's established bad-pointer code, same as every
-    // required-pointer check above.
-    if out_buf.is_null() || out_len.is_null() {
-        set_last_error("maple_render_filename_template_buf: out_buf or out_len is null".into());
-        return -1;
-    }
+    crate::error::catch_panic_rc("maple_render_filename_template_buf", || {
+        // `out_buf`/`out_len` are the two pointers this function itself
+        // dereferences to write output (`copy_nonoverlapping`, `*out_len = ...`)
+        // — reject a null one up front, matching every other FFI entry point in
+        // this crate that writes through a caller-owned pointer (e.g.
+        // `maple_histogram_file`'s `out_bins.is_null()` guard in `render.rs`).
+        // `-1` is this module's established bad-pointer code, same as every
+        // required-pointer check above.
+        if out_buf.is_null() || out_len.is_null() {
+            set_last_error("maple_render_filename_template_buf: out_buf or out_len is null".into());
+            return -1;
+        }
 
-    let Some(template) = cstr_to_str(template_ptr) else {
-        set_last_error(
-            "maple_render_filename_template_buf: template is null or not valid UTF-8".into(),
-        );
-        return -1;
-    };
-    let Some(original_stem) = cstr_to_str(original_stem_ptr) else {
-        set_last_error(
-            "maple_render_filename_template_buf: original_stem is null or not valid UTF-8".into(),
-        );
-        return -1;
-    };
-    let Some(ext) = cstr_to_str(ext_ptr) else {
-        set_last_error("maple_render_filename_template_buf: ext is null or not valid UTF-8".into());
-        return -1;
-    };
-    let captured_at = if captured_at_ptr.is_null() {
-        None
-    } else {
-        match cstr_to_str(captured_at_ptr) {
-            Some(s) => Some(s),
-            None => {
-                set_last_error(
-                    "maple_render_filename_template_buf: captured_at is not valid UTF-8".into(),
-                );
-                return -1;
+        let Some(template) = cstr_to_str(template_ptr) else {
+            set_last_error(
+                "maple_render_filename_template_buf: template is null or not valid UTF-8".into(),
+            );
+            return -1;
+        };
+        let Some(original_stem) = cstr_to_str(original_stem_ptr) else {
+            set_last_error(
+                "maple_render_filename_template_buf: original_stem is null or not valid UTF-8"
+                    .into(),
+            );
+            return -1;
+        };
+        let Some(ext) = cstr_to_str(ext_ptr) else {
+            set_last_error(
+                "maple_render_filename_template_buf: ext is null or not valid UTF-8".into(),
+            );
+            return -1;
+        };
+        let captured_at = if captured_at_ptr.is_null() {
+            None
+        } else {
+            match cstr_to_str(captured_at_ptr) {
+                Some(s) => Some(s),
+                None => {
+                    set_last_error(
+                        "maple_render_filename_template_buf: captured_at is not valid UTF-8".into(),
+                    );
+                    return -1;
+                }
+            }
+        };
+
+        let inputs = RenderInputs {
+            original_stem,
+            ext,
+            index: sequence_index,
+            captured_at,
+        };
+        let sequence = SequenceOptions {
+            start: sequence_start,
+            pad_width: sequence_pad_width,
+        };
+
+        match filename::render_filename(template, &inputs, &sequence) {
+            Ok(name) => {
+                let bytes = name.as_bytes();
+                if bytes.len() > out_cap {
+                    set_last_error(format!(
+                        "maple_render_filename_template_buf: rendered name ({} bytes) exceeds out_cap ({} bytes)",
+                        bytes.len(),
+                        out_cap
+                    ));
+                    return 9;
+                }
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf, bytes.len());
+                *out_len = bytes.len();
+                0
+            }
+            Err(e) => {
+                set_last_error(format!("maple_render_filename_template_buf: {}", e));
+                error_code(&e)
             }
         }
-    };
-
-    let inputs = RenderInputs {
-        original_stem,
-        ext,
-        index: sequence_index,
-        captured_at,
-    };
-    let sequence = SequenceOptions {
-        start: sequence_start,
-        pad_width: sequence_pad_width,
-    };
-
-    match filename::render_filename(template, &inputs, &sequence) {
-        Ok(name) => {
-            let bytes = name.as_bytes();
-            if bytes.len() > out_cap {
-                set_last_error(format!(
-                    "maple_render_filename_template_buf: rendered name ({} bytes) exceeds out_cap ({} bytes)",
-                    bytes.len(),
-                    out_cap
-                ));
-                return 9;
-            }
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf, bytes.len());
-            *out_len = bytes.len();
-            0
-        }
-        Err(e) => {
-            set_last_error(format!("maple_render_filename_template_buf: {}", e));
-            error_code(&e)
-        }
-    }
+    })
 }
 
 /// Validate a filename directly — the same rules
@@ -311,15 +327,17 @@ pub unsafe extern "C" fn maple_render_filename_template_buf(
 /// human-readable reason on any non-zero return.
 #[no_mangle]
 pub unsafe extern "C" fn maple_validate_filename(name_ptr: *const c_char) -> i32 {
-    let Some(name) = cstr_to_str(name_ptr) else {
-        set_last_error("maple_validate_filename: name is null or not valid UTF-8".into());
-        return -1;
-    };
-    match filename::validate_filename(name) {
-        Ok(()) => 0,
-        Err(e) => {
-            set_last_error(format!("maple_validate_filename: {}", e));
-            error_code(&e)
+    crate::error::catch_panic_rc("maple_validate_filename", || {
+        let Some(name) = cstr_to_str(name_ptr) else {
+            set_last_error("maple_validate_filename: name is null or not valid UTF-8".into());
+            return -1;
+        };
+        match filename::validate_filename(name) {
+            Ok(()) => 0,
+            Err(e) => {
+                set_last_error(format!("maple_validate_filename: {}", e));
+                error_code(&e)
+            }
         }
-    }
+    })
 }

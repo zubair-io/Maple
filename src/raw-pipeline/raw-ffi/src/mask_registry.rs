@@ -78,34 +78,36 @@ pub unsafe extern "C" fn maple_mask_raster_register(
     data_ptr: *const u8,
     data_len: usize,
 ) -> i32 {
-    if digest_ptr.is_null() || (data_ptr.is_null() && data_len > 0) {
-        return -1;
-    }
-    let expected_len = (width as usize) * (height as usize);
-    if data_len != expected_len {
-        return -2;
-    }
-    let digest_bytes = unsafe { std::slice::from_raw_parts(digest_ptr, 16) };
-    let Ok(digest) = std::str::from_utf8(digest_bytes) else {
-        return -3;
-    };
-    let is_lowercase_hex = digest.len() == 16
-        && digest
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
-    if !is_lowercase_hex {
-        return -3;
-    }
-    let data: &[u8] = if data_len == 0 {
-        &[]
-    } else {
-        unsafe { std::slice::from_raw_parts(data_ptr, data_len) }
-    };
+    crate::error::catch_panic_rc("maple_mask_raster_register", || {
+        if digest_ptr.is_null() || (data_ptr.is_null() && data_len > 0) {
+            return -1;
+        }
+        let expected_len = (width as usize) * (height as usize);
+        if data_len != expected_len {
+            return -2;
+        }
+        let digest_bytes = unsafe { std::slice::from_raw_parts(digest_ptr, 16) };
+        let Ok(digest) = std::str::from_utf8(digest_bytes) else {
+            return -3;
+        };
+        let is_lowercase_hex = digest.len() == 16
+            && digest
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+        if !is_lowercase_hex {
+            return -3;
+        }
+        let data: &[u8] = if data_len == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(data_ptr, data_len) }
+        };
 
-    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    let raster = Arc::new(MaskRaster::from_u8(id, digest, width, height, data));
-    with_registry(|r| r.insert(id, raster));
-    id as i32
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let raster = Arc::new(MaskRaster::from_u8(id, digest, width, height, data));
+        with_registry(|r| r.insert(id, raster));
+        id as i32
+    })
 }
 
 /// Forget a raster. Renders already holding an `Arc<MaskRaster>` (cloned out
@@ -114,9 +116,11 @@ pub unsafe extern "C" fn maple_mask_raster_register(
 /// reference, so no in-flight render is invalidated.
 #[no_mangle]
 pub extern "C" fn maple_mask_raster_release(id: u32) {
-    with_registry(|r| {
-        r.remove(&id);
-    });
+    crate::error::catch_panic("maple_mask_raster_release", (), || {
+        with_registry(|r| {
+            r.remove(&id);
+        });
+    })
 }
 
 /// Resolve every `Mask::Bitmap` / `Mask::Brush` layer in

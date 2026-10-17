@@ -57,11 +57,13 @@ pub struct MapleCancelFlag {
 /// caller an owning opaque pointer. Free it with [`maple_cancel_flag_free`].
 #[no_mangle]
 pub extern "C" fn maple_cancel_flag_new() -> *mut MapleCancelFlag {
-    let inner = Box::new(Inner {
-        flag: Arc::new(AtomicBool::new(false)),
-    });
-    let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
-    Box::into_raw(Box::new(MapleCancelFlag { inner: inner_ptr }))
+    crate::error::catch_panic("maple_cancel_flag_new", std::ptr::null_mut(), || {
+        let inner = Box::new(Inner {
+            flag: Arc::new(AtomicBool::new(false)),
+        });
+        let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
+        Box::into_raw(Box::new(MapleCancelFlag { inner: inner_ptr }))
+    })
 }
 
 /// Request cancellation of any in-flight render holding this flag. Idempotent;
@@ -69,11 +71,13 @@ pub extern "C" fn maple_cancel_flag_new() -> *mut MapleCancelFlag {
 /// null pointer (or one with a null inner) is a no-op (defensive).
 #[no_mangle]
 pub unsafe extern "C" fn maple_cancel_flag_set(flag: *mut MapleCancelFlag) {
-    if let Some(handle) = flag.as_ref() {
-        if let Some(inner) = (handle.inner as *const Inner).as_ref() {
-            inner.flag.store(true, Ordering::Relaxed);
+    crate::error::catch_panic("maple_cancel_flag_set", (), || {
+        if let Some(handle) = flag.as_ref() {
+            if let Some(inner) = (handle.inner as *const Inner).as_ref() {
+                inner.flag.store(true, Ordering::Relaxed);
+            }
         }
-    }
+    })
 }
 
 /// Free a cancellation flag previously returned by [`maple_cancel_flag_new`].
@@ -81,13 +85,15 @@ pub unsafe extern "C" fn maple_cancel_flag_set(flag: *mut MapleCancelFlag) {
 /// this pointer is still in flight (see the module-level lifecycle note).
 #[no_mangle]
 pub unsafe extern "C" fn maple_cancel_flag_free(flag: *mut MapleCancelFlag) {
-    if flag.is_null() {
-        return;
-    }
-    let handle = Box::from_raw(flag);
-    if !handle.inner.is_null() {
-        drop(Box::from_raw(handle.inner as *mut Inner));
-    }
+    crate::error::catch_panic("maple_cancel_flag_free", (), || {
+        if flag.is_null() {
+            return;
+        }
+        let handle = Box::from_raw(flag);
+        if !handle.inner.is_null() {
+            drop(Box::from_raw(handle.inner as *mut Inner));
+        }
+    })
 }
 
 /// Extract the inner `AtomicBool` pointer from a raw `MapleCancelFlag`

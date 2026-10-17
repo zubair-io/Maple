@@ -86,9 +86,11 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_curves_f32(
     curves: *const MapleToneCurves,
     out_ptr: *mut f32,
 ) -> i32 {
-    chain_with_film(
-        in_ptr, width, height, params, curves, None, 0.0, out_ptr, None,
-    )
+    crate::error::catch_panic_rc("maple_apply_chain_and_encode_display_curves_f32", || {
+        chain_with_film(
+            in_ptr, width, height, params, curves, None, 0.0, out_ptr, None,
+        )
+    })
 }
 
 /// Film-aware sibling for a cached LUT; no LUT decoding/copying per tick.
@@ -106,20 +108,25 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_curves_film_f32(
     strength: f32,
     out_ptr: *mut f32,
 ) -> i32 {
-    if !strength.is_finite() || !(0.0..=100.0).contains(&strength) {
-        set_last_error("film chain: strength must be finite and in 0..100".into());
-        return 4;
-    }
-    chain_with_film(
-        in_ptr,
-        width,
-        height,
-        params,
-        curves,
-        film.as_ref().map(|handle| &handle.lut),
-        strength,
-        out_ptr,
-        None,
+    crate::error::catch_panic_rc(
+        "maple_apply_chain_and_encode_display_curves_film_f32",
+        || {
+            if !strength.is_finite() || !(0.0..=100.0).contains(&strength) {
+                set_last_error("film chain: strength must be finite and in 0..100".into());
+                return 4;
+            }
+            chain_with_film(
+                in_ptr,
+                width,
+                height,
+                params,
+                curves,
+                film.as_ref().map(|handle| &handle.lut),
+                strength,
+                out_ptr,
+                None,
+            )
+        },
     )
 }
 
@@ -145,30 +152,32 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_window_f32(
     window: *const MapleChainWindow,
     out_ptr: *mut f32,
 ) -> i32 {
-    let Some(window) = window.as_ref() else {
-        set_last_error("native detail: null window".into());
-        return 1;
-    };
-    if !strength.is_finite() || !(0.0..=100.0).contains(&strength) {
-        set_last_error("native detail: invalid film strength".into());
-        return 4;
-    }
-    chain_with_film(
-        in_ptr,
-        width,
-        height,
-        params,
-        curves,
-        film.as_ref().map(|f| &f.lut),
-        strength,
-        out_ptr,
-        Some(raw_core::pipeline::ChainWindow {
-            x: window.x,
-            y: window.y,
-            full_width: window.full_width,
-            full_height: window.full_height,
-        }),
-    )
+    crate::error::catch_panic_rc("maple_apply_chain_and_encode_window_f32", || {
+        let Some(window) = window.as_ref() else {
+            set_last_error("native detail: null window".into());
+            return 1;
+        };
+        if !strength.is_finite() || !(0.0..=100.0).contains(&strength) {
+            set_last_error("native detail: invalid film strength".into());
+            return 4;
+        }
+        chain_with_film(
+            in_ptr,
+            width,
+            height,
+            params,
+            curves,
+            film.as_ref().map(|f| &f.lut),
+            strength,
+            out_ptr,
+            Some(raw_core::pipeline::ChainWindow {
+                x: window.x,
+                y: window.y,
+                full_width: window.full_width,
+                full_height: window.full_height,
+            }),
+        )
+    })
 }
 
 unsafe fn chain_with_film(

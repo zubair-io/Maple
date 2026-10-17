@@ -104,44 +104,46 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_with_patches(
     patches_len: usize,
     out_ptr: *mut u16,
 ) -> i32 {
-    const WHO: &str = "apply_scene_linear_chain_with_patches";
-    let (lanes, patches) = match prepare(
-        WHO,
-        in_ptr.is_null() || out_ptr.is_null(),
-        width,
-        height,
-        params,
-        patches_ptr,
-        patches_len,
-    ) {
-        Ok(v) => v,
-        Err(rc) => return rc,
-    };
-    let p = &*params;
-    let ci = chain_inputs_from_params(p);
-    let opts = ci.options(p.skip_agx != 0);
-    let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
-
-    let out_vec = match raw_core::pipeline::apply_scene_linear_chain_with_patches(
-        in_slice, width, height, &ci.model, &opts, &patches,
-    ) {
-        Ok(v) => v,
-        Err(e) => {
-            set_last_error(format!("{}: {}", WHO, e));
-            return 8;
-        }
-    };
-    if out_vec.len() != lanes {
-        set_last_error(format!(
-            "{}: chain returned {} lanes, expected {}",
+    crate::error::catch_panic_rc("maple_apply_scene_linear_chain_with_patches", || {
+        const WHO: &str = "apply_scene_linear_chain_with_patches";
+        let (lanes, patches) = match prepare(
             WHO,
-            out_vec.len(),
-            lanes
-        ));
-        return 9;
-    }
-    std::slice::from_raw_parts_mut(out_ptr, lanes).copy_from_slice(&out_vec);
-    0
+            in_ptr.is_null() || out_ptr.is_null(),
+            width,
+            height,
+            params,
+            patches_ptr,
+            patches_len,
+        ) {
+            Ok(v) => v,
+            Err(rc) => return rc,
+        };
+        let p = &*params;
+        let ci = chain_inputs_from_params(p);
+        let opts = ci.options(p.skip_agx != 0);
+        let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
+
+        let out_vec = match raw_core::pipeline::apply_scene_linear_chain_with_patches(
+            in_slice, width, height, &ci.model, &opts, &patches,
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                set_last_error(format!("{}: {}", WHO, e));
+                return 8;
+            }
+        };
+        if out_vec.len() != lanes {
+            set_last_error(format!(
+                "{}: chain returned {} lanes, expected {}",
+                WHO,
+                out_vec.len(),
+                lanes
+            ));
+            return 9;
+        }
+        std::slice::from_raw_parts_mut(out_ptr, lanes).copy_from_slice(&out_vec);
+        0
+    })
 }
 
 /// f32 sibling of [`maple_apply_scene_linear_chain_with_patches`]. Identical
@@ -160,42 +162,44 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32_with_patches(
     patches_len: usize,
     out_ptr: *mut f32,
 ) -> i32 {
-    const WHO: &str = "apply_scene_linear_chain_f32_with_patches";
-    let (lanes, patches) = match prepare(
-        WHO,
-        in_ptr.is_null() || out_ptr.is_null(),
-        width,
-        height,
-        params,
-        patches_ptr,
-        patches_len,
-    ) {
-        Ok(v) => v,
-        Err(rc) => return rc,
-    };
-    let p = &*params;
-    let ci = chain_inputs_from_params(p);
-    let opts = ci.options(p.skip_agx != 0);
-    let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
-
-    let out_vec = match raw_core::pipeline::apply_scene_linear_chain_f32_with_patches(
-        in_slice, width, height, &ci.model, &opts, &patches,
-    ) {
-        Ok(v) => v,
-        Err(e) => {
-            set_last_error(format!("{}: {}", WHO, e));
-            return 8;
-        }
-    };
-    if out_vec.len() != lanes {
-        set_last_error(format!(
-            "{}: chain returned {} lanes, expected {}",
+    crate::error::catch_panic_rc("maple_apply_scene_linear_chain_f32_with_patches", || {
+        const WHO: &str = "apply_scene_linear_chain_f32_with_patches";
+        let (lanes, patches) = match prepare(
             WHO,
-            out_vec.len(),
-            lanes
-        ));
-        return 9;
-    }
-    std::slice::from_raw_parts_mut(out_ptr, lanes).copy_from_slice(&out_vec);
-    0
+            in_ptr.is_null() || out_ptr.is_null(),
+            width,
+            height,
+            params,
+            patches_ptr,
+            patches_len,
+        ) {
+            Ok(v) => v,
+            Err(rc) => return rc,
+        };
+        let p = &*params;
+        let ci = chain_inputs_from_params(p);
+        let opts = ci.options(p.skip_agx != 0);
+        let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
+
+        let out_vec = match raw_core::pipeline::apply_scene_linear_chain_f32_with_patches(
+            in_slice, width, height, &ci.model, &opts, &patches,
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                set_last_error(format!("{}: {}", WHO, e));
+                return 8;
+            }
+        };
+        if out_vec.len() != lanes {
+            set_last_error(format!(
+                "{}: chain returned {} lanes, expected {}",
+                WHO,
+                out_vec.len(),
+                lanes
+            ));
+            return 9;
+        }
+        std::slice::from_raw_parts_mut(out_ptr, lanes).copy_from_slice(&out_vec);
+        0
+    })
 }

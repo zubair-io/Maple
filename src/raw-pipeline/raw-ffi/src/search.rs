@@ -67,19 +67,16 @@ fn rc(outcome: Result<(), i32>) -> i32 {
 /// `config_json` must be a NUL-terminated string.
 #[no_mangle]
 pub unsafe extern "C" fn maple_search_open(config_json: *const c_char) -> *mut MapleSearchHandle {
-    let opened = std::panic::catch_unwind(|| {
-        let json = utf8(config_json, "config").ok()?;
-        let config = engine_result(SearchConfig::from_json(json)).ok()?;
-        engine_result(SearchEngine::open(&config)).ok()
-    });
-    match opened {
-        Ok(Some(engine)) => Box::into_raw(Box::new(MapleSearchHandle(engine))),
-        Ok(None) => std::ptr::null_mut(),
-        Err(_) => {
-            set_last_error("maple_search_open: panicked".into());
-            std::ptr::null_mut()
-        }
-    }
+    crate::error::catch_panic("maple_search_open", std::ptr::null_mut(), || {
+        let open = || {
+            let json = utf8(config_json, "config").ok()?;
+            let config = engine_result(SearchConfig::from_json(json)).ok()?;
+            engine_result(SearchEngine::open(&config)).ok()
+        };
+        open().map_or(std::ptr::null_mut(), |engine| {
+            Box::into_raw(Box::new(MapleSearchHandle(engine)))
+        })
+    })
 }
 
 /// Frees a handle from `maple_search_open`. Null is a no-op. API-only.
@@ -88,9 +85,11 @@ pub unsafe extern "C" fn maple_search_open(config_json: *const c_char) -> *mut M
 /// `handle` must come from `maple_search_open` and not be used afterwards.
 #[no_mangle]
 pub unsafe extern "C" fn maple_search_close(handle: *mut MapleSearchHandle) {
-    if !handle.is_null() {
-        drop(Box::from_raw(handle));
-    }
+    crate::error::catch_panic("maple_search_close", (), || {
+        if !handle.is_null() {
+            drop(Box::from_raw(handle));
+        }
+    })
 }
 
 /// Replaces the vector matrix: `vectors` is `ids` rows of 1024 little-endian

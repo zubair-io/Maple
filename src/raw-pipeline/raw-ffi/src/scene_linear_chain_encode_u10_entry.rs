@@ -48,70 +48,72 @@ pub unsafe extern "C" fn maple_encode_display_u10(
     target_primaries: u32,
     out_ptr: *mut u16,
 ) -> i32 {
-    let context = "encode_display_u10";
-    if in_ptr.is_null() || out_ptr.is_null() {
-        set_last_error(format!("{context}: null pointer"));
-        return 1;
-    }
-    if width == 0 || height == 0 {
-        set_last_error(format!(
-            "{context}: zero dimension width={width} height={height}"
-        ));
-        return 2;
-    }
-    // Same checked-multiply guards as the f32 entry — the RGBA lane product
-    // overflows 64-bit usize at u32::MAX dims. Input and output lane counts
-    // differ here (4 lanes in, 3 lanes out), so both products are guarded.
-    let in_lanes = match (width as usize)
-        .checked_mul(height as usize)
-        .and_then(|p| p.checked_mul(4))
-    {
-        Some(n) => n,
-        None => {
+    crate::error::catch_panic_rc("maple_encode_display_u10", || {
+        let context = "encode_display_u10";
+        if in_ptr.is_null() || out_ptr.is_null() {
+            set_last_error(format!("{context}: null pointer"));
+            return 1;
+        }
+        if width == 0 || height == 0 {
             set_last_error(format!(
-                "{context}: pixel-count overflow width={width} height={height}"
+                "{context}: zero dimension width={width} height={height}"
             ));
-            return 3;
+            return 2;
         }
-    };
-    let out_lanes = match (width as usize)
-        .checked_mul(height as usize)
-        .and_then(|p| p.checked_mul(3))
-    {
-        Some(n) => n,
-        None => {
+        // Same checked-multiply guards as the f32 entry — the RGBA lane product
+        // overflows 64-bit usize at u32::MAX dims. Input and output lane counts
+        // differ here (4 lanes in, 3 lanes out), so both products are guarded.
+        let in_lanes = match (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|p| p.checked_mul(4))
+        {
+            Some(n) => n,
+            None => {
+                set_last_error(format!(
+                    "{context}: pixel-count overflow width={width} height={height}"
+                ));
+                return 3;
+            }
+        };
+        let out_lanes = match (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|p| p.checked_mul(3))
+        {
+            Some(n) => n,
+            None => {
+                set_last_error(format!(
+                    "{context}: pixel-count overflow width={width} height={height}"
+                ));
+                return 3;
+            }
+        };
+
+        let in_slice = std::slice::from_raw_parts(in_ptr, in_lanes);
+
+        let out_vec = match raw_core::pipeline::encode_display_u10_f32(
+            in_slice,
+            width,
+            height,
+            TargetPrimaries::from_u32(target_primaries),
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                set_last_error(format!("{context}: {e}"));
+                return 8;
+            }
+        };
+        if out_vec.len() != out_lanes {
             set_last_error(format!(
-                "{context}: pixel-count overflow width={width} height={height}"
+                "{context}: encode returned {} lanes, expected {out_lanes}",
+                out_vec.len(),
             ));
-            return 3;
+            return 9;
         }
-    };
 
-    let in_slice = std::slice::from_raw_parts(in_ptr, in_lanes);
-
-    let out_vec = match raw_core::pipeline::encode_display_u10_f32(
-        in_slice,
-        width,
-        height,
-        TargetPrimaries::from_u32(target_primaries),
-    ) {
-        Ok(v) => v,
-        Err(e) => {
-            set_last_error(format!("{context}: {e}"));
-            return 8;
-        }
-    };
-    if out_vec.len() != out_lanes {
-        set_last_error(format!(
-            "{context}: encode returned {} lanes, expected {out_lanes}",
-            out_vec.len(),
-        ));
-        return 9;
-    }
-
-    let out_slice = std::slice::from_raw_parts_mut(out_ptr, out_lanes);
-    out_slice.copy_from_slice(&out_vec);
-    0
+        let out_slice = std::slice::from_raw_parts_mut(out_ptr, out_lanes);
+        out_slice.copy_from_slice(&out_vec);
+        0
+    })
 }
 
 #[cfg(test)]

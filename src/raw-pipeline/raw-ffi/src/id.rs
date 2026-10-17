@@ -19,18 +19,20 @@ pub extern "C" fn maple_blake3_hex(
     bytes_len: usize,
     out_hex: *mut u8,
 ) -> i32 {
-    if bytes_ptr.is_null() || out_hex.is_null() {
-        return -1;
-    }
-    if bytes_len == 0 {
-        return -2;
-    }
-    let bytes = unsafe { std::slice::from_raw_parts(bytes_ptr, bytes_len) };
-    let hex = raw_core::blake3_hex(bytes);
-    unsafe {
-        std::ptr::copy_nonoverlapping(hex.as_ptr(), out_hex, 64);
-    }
-    0
+    crate::error::catch_panic_rc("maple_blake3_hex", || {
+        if bytes_ptr.is_null() || out_hex.is_null() {
+            return -1;
+        }
+        if bytes_len == 0 {
+            return -2;
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(bytes_ptr, bytes_len) };
+        let hex = raw_core::blake3_hex(bytes);
+        unsafe {
+            std::ptr::copy_nonoverlapping(hex.as_ptr(), out_hex, 64);
+        }
+        0
+    })
 }
 
 /// Compute the spec-form **primary** maple_id over a file's leading bytes.
@@ -69,32 +71,35 @@ pub extern "C" fn maple_id_primary(
     shutter_count: u64,
     out_hex: *mut u8,
 ) -> i32 {
-    if head_ptr.is_null() || captured_at_ptr.is_null() || out_hex.is_null() {
-        return -1;
-    }
-    if head_len == 0 || captured_at_len == 0 {
-        return -2;
-    }
-    let head = unsafe { std::slice::from_raw_parts(head_ptr, head_len) };
-    let captured_at_bytes = unsafe { std::slice::from_raw_parts(captured_at_ptr, captured_at_len) };
-    let Ok(captured_at) = std::str::from_utf8(captured_at_bytes) else {
-        return -2;
-    };
-    // Treat null pointer OR zero length OR non-UTF-8 as "no serial". Hashing
-    // ignores serial in that case (matches MapleId::primary(_, _, None, _)).
-    let serial: Option<&str> = if serial_ptr.is_null() || serial_len == 0 {
-        None
-    } else {
-        let bytes = unsafe { std::slice::from_raw_parts(serial_ptr, serial_len) };
-        std::str::from_utf8(bytes).ok()
-    };
-    let id = raw_core::MapleId::primary(head, captured_at, serial, Some(shutter_count));
-    let hex = id.to_hex();
-    let hex_bytes = hex.as_bytes();
-    unsafe {
-        std::ptr::copy_nonoverlapping(hex_bytes.as_ptr(), out_hex, 32);
-    }
-    0
+    crate::error::catch_panic_rc("maple_id_primary", || {
+        if head_ptr.is_null() || captured_at_ptr.is_null() || out_hex.is_null() {
+            return -1;
+        }
+        if head_len == 0 || captured_at_len == 0 {
+            return -2;
+        }
+        let head = unsafe { std::slice::from_raw_parts(head_ptr, head_len) };
+        let captured_at_bytes =
+            unsafe { std::slice::from_raw_parts(captured_at_ptr, captured_at_len) };
+        let Ok(captured_at) = std::str::from_utf8(captured_at_bytes) else {
+            return -2;
+        };
+        // Treat null pointer OR zero length OR non-UTF-8 as "no serial". Hashing
+        // ignores serial in that case (matches MapleId::primary(_, _, None, _)).
+        let serial: Option<&str> = if serial_ptr.is_null() || serial_len == 0 {
+            None
+        } else {
+            let bytes = unsafe { std::slice::from_raw_parts(serial_ptr, serial_len) };
+            std::str::from_utf8(bytes).ok()
+        };
+        let id = raw_core::MapleId::primary(head, captured_at, serial, Some(shutter_count));
+        let hex = id.to_hex();
+        let hex_bytes = hex.as_bytes();
+        unsafe {
+            std::ptr::copy_nonoverlapping(hex_bytes.as_ptr(), out_hex, 32);
+        }
+        0
+    })
 }
 
 /// Compute the spec-form **fallback** maple_id over a file's full bytes.
@@ -118,20 +123,22 @@ pub extern "C" fn maple_id_fallback(
     filesize: u64,
     out_hex: *mut u8,
 ) -> i32 {
-    if bytes_ptr.is_null() || out_hex.is_null() {
-        return -1;
-    }
-    if bytes_len == 0 {
-        return -2;
-    }
-    let bytes = unsafe { std::slice::from_raw_parts(bytes_ptr, bytes_len) };
-    let id = raw_core::MapleId::fallback(bytes, filesize);
-    let hex = id.to_hex();
-    let hex_bytes = hex.as_bytes();
-    unsafe {
-        std::ptr::copy_nonoverlapping(hex_bytes.as_ptr(), out_hex, 32);
-    }
-    0
+    crate::error::catch_panic_rc("maple_id_fallback", || {
+        if bytes_ptr.is_null() || out_hex.is_null() {
+            return -1;
+        }
+        if bytes_len == 0 {
+            return -2;
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(bytes_ptr, bytes_len) };
+        let id = raw_core::MapleId::fallback(bytes, filesize);
+        let hex = id.to_hex();
+        let hex_bytes = hex.as_bytes();
+        unsafe {
+            std::ptr::copy_nonoverlapping(hex_bytes.as_ptr(), out_hex, 32);
+        }
+        0
+    })
 }
 
 /// Opaque streaming fallback-form id hasher (#1995): lets
@@ -173,9 +180,11 @@ pub struct MapleFallbackIdHasher {
 /// (normal completion) or `maple_fallback_id_hasher_free` (early abort).
 #[no_mangle]
 pub extern "C" fn maple_fallback_id_hasher_new() -> *mut MapleFallbackIdHasher {
-    let inner = Box::new(raw_core::FallbackIdHasher::new());
-    let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
-    Box::into_raw(Box::new(MapleFallbackIdHasher { inner: inner_ptr }))
+    crate::error::catch_panic("maple_fallback_id_hasher_new", std::ptr::null_mut(), || {
+        let inner = Box::new(raw_core::FallbackIdHasher::new());
+        let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
+        Box::into_raw(Box::new(MapleFallbackIdHasher { inner: inner_ptr }))
+    })
 }
 
 /// Feed the next chunk of file bytes into the running hash. Chunks must be
@@ -194,23 +203,25 @@ pub unsafe extern "C" fn maple_fallback_id_hasher_update(
     chunk_ptr: *const u8,
     chunk_len: usize,
 ) -> i32 {
-    if handle.is_null() {
-        return -1;
-    }
-    if chunk_ptr.is_null() && chunk_len > 0 {
-        return -1;
-    }
-    let inner_ptr = (*handle).inner as *mut raw_core::FallbackIdHasher;
-    if inner_ptr.is_null() {
-        return -1;
-    }
-    let chunk: &[u8] = if chunk_len == 0 {
-        &[]
-    } else {
-        std::slice::from_raw_parts(chunk_ptr, chunk_len)
-    };
-    (*inner_ptr).update(chunk);
-    0
+    crate::error::catch_panic_rc("maple_fallback_id_hasher_update", || {
+        if handle.is_null() {
+            return -1;
+        }
+        if chunk_ptr.is_null() && chunk_len > 0 {
+            return -1;
+        }
+        let inner_ptr = (*handle).inner as *mut raw_core::FallbackIdHasher;
+        if inner_ptr.is_null() {
+            return -1;
+        }
+        let chunk: &[u8] = if chunk_len == 0 {
+            &[]
+        } else {
+            std::slice::from_raw_parts(chunk_ptr, chunk_len)
+        };
+        (*inner_ptr).update(chunk);
+        0
+    })
 }
 
 /// Finish the hash. **Always** consumes and frees a non-null `handle`
@@ -248,24 +259,26 @@ pub unsafe extern "C" fn maple_fallback_id_hasher_finalize(
     filesize: u64,
     out_hex: *mut u8,
 ) -> i32 {
-    if handle.is_null() {
-        return -1;
-    }
-    let boxed = Box::from_raw(handle);
-    if boxed.inner.is_null() {
-        return -1;
-    }
-    let inner = Box::from_raw(boxed.inner as *mut raw_core::FallbackIdHasher);
-    if out_hex.is_null() {
-        // `inner` (and `boxed`) drop here regardless — the handle is
-        // consumed even though this call reports failure.
-        return -1;
-    }
-    let id = inner.finalize(filesize);
-    let hex = id.to_hex();
-    let hex_bytes = hex.as_bytes();
-    std::ptr::copy_nonoverlapping(hex_bytes.as_ptr(), out_hex, 32);
-    0
+    crate::error::catch_panic_rc("maple_fallback_id_hasher_finalize", || {
+        if handle.is_null() {
+            return -1;
+        }
+        let boxed = Box::from_raw(handle);
+        if boxed.inner.is_null() {
+            return -1;
+        }
+        let inner = Box::from_raw(boxed.inner as *mut raw_core::FallbackIdHasher);
+        if out_hex.is_null() {
+            // `inner` (and `boxed`) drop here regardless — the handle is
+            // consumed even though this call reports failure.
+            return -1;
+        }
+        let id = inner.finalize(filesize);
+        let hex = id.to_hex();
+        let hex_bytes = hex.as_bytes();
+        std::ptr::copy_nonoverlapping(hex_bytes.as_ptr(), out_hex, 32);
+        0
+    })
 }
 
 /// Abandon a streaming hash without finishing it — e.g. the caller cancelled
@@ -274,13 +287,15 @@ pub unsafe extern "C" fn maple_fallback_id_hasher_finalize(
 /// `maple_close_raw_handle`'s null-is-noop convention).
 #[no_mangle]
 pub unsafe extern "C" fn maple_fallback_id_hasher_free(handle: *mut MapleFallbackIdHasher) {
-    if handle.is_null() {
-        return;
-    }
-    let boxed = Box::from_raw(handle);
-    if !boxed.inner.is_null() {
-        drop(Box::from_raw(
-            boxed.inner as *mut raw_core::FallbackIdHasher,
-        ));
-    }
+    crate::error::catch_panic("maple_fallback_id_hasher_free", (), || {
+        if handle.is_null() {
+            return;
+        }
+        let boxed = Box::from_raw(handle);
+        if !boxed.inner.is_null() {
+            drop(Box::from_raw(
+                boxed.inner as *mut raw_core::FallbackIdHasher,
+            ));
+        }
+    })
 }

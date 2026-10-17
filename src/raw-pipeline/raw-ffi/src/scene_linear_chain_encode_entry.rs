@@ -120,14 +120,16 @@ pub unsafe extern "C" fn maple_encode_display_srgb_f32(
     height: u32,
     out_ptr: *mut f32,
 ) -> i32 {
-    encode_display_inner(
-        "encode_display_srgb_f32",
-        in_ptr,
-        width,
-        height,
-        TargetPrimaries::Srgb,
-        out_ptr,
-    )
+    crate::error::catch_panic_rc("maple_encode_display_srgb_f32", || {
+        encode_display_inner(
+            "encode_display_srgb_f32",
+            in_ptr,
+            width,
+            height,
+            TargetPrimaries::Srgb,
+            out_ptr,
+        )
+    })
 }
 
 /// P3-aware sibling of [`maple_encode_display_srgb_f32`] (#3190): identical
@@ -145,12 +147,14 @@ pub unsafe extern "C" fn maple_encode_display_f32(
     target_primaries: u32,
     out_ptr: *mut f32,
 ) -> i32 {
-    encode_display_inner(
-        "encode_display_f32",
-        in_ptr,
-        width,
-        height,
-        TargetPrimaries::from_u32(target_primaries),
-        out_ptr,
-    )
+    crate::error::catch_panic_rc("maple_encode_display_f32", || {
+        encode_display_inner(
+            "encode_display_f32",
+            in_ptr,
+            width,
+            height,
+            TargetPrimaries::from_u32(target_primaries),
+            out_ptr,
+        )
+    })
 }
