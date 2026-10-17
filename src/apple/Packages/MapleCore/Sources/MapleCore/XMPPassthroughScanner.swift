@@ -68,7 +68,9 @@ enum XMPChildElementScanner {
     }
     return
       descriptions
-      .filter { sharesContext($0.source, with: first.source) }
+      .filter {
+        sharesContext($0.source, with: first.source, inherited: envelope.fullRdfNamespaces)
+      }
       .flatMap { description in
         let scope = XMPMaskGroupSources.scope(
           envelope.fullRdfNamespaces,
@@ -145,15 +147,22 @@ enum XMPChildElementScanner {
 
   /// True when two `rdf:Description` elements share `rdf:about`, `xml:lang`,
   /// and `xml:base` context.
-  static func sharesContext(_ source: String, with primary: String) -> Bool {
+  static func sharesContext(
+    _ source: String, with primary: String, inherited: [String: String] = [:]
+  ) -> Bool {
     let lhs = XMPMaskGroupSources.rootAttributes(source)
     let rhs = XMPMaskGroupSources.rootAttributes(primary)
-    let about: ([String: String]) -> String = { attrs in
+    let lhsScope = XMPMaskGroupSources.scope(inherited, attributes: lhs)
+    let rhsScope = XMPMaskGroupSources.scope(inherited, attributes: rhs)
+    let about: ([String: String], [String: String]) -> String = { attrs, scope in
       attrs["rdf:about"]
-        ?? attrs.first { $0.key == "about" || $0.key.hasSuffix(":about") }?.value
+        ?? attrs.first {
+          $0.key == "about"
+            || canonicalQualifiedName($0.key, namespaces: scope) == "rdf:about"
+        }?.value
         ?? ""
     }
-    return about(lhs) == about(rhs)
+    return about(lhs, lhsScope) == about(rhs, rhsScope)
       && (lhs["xml:lang"] ?? "") == (rhs["xml:lang"] ?? "")
       && (lhs["xml:base"] ?? "") == (rhs["xml:base"] ?? "")
   }
@@ -181,7 +190,8 @@ enum XMPChildElementScanner {
             env.fullRdfNamespaces, attributes: XMPMaskGroupSources.rootAttributes(child.source))
           let stripped = withoutModeledFields(
             child.source,
-            sharesPrimaryContext: sharesContext(child.source, with: primary.source),
+            sharesPrimaryContext: sharesContext(
+              child.source, with: primary.source, inherited: env.fullRdfNamespaces),
             namespaces: descNamespaces,
             isPassthroughChild: isPassthroughChild,
             unownedGroupSources: groups.unownedGroupSources)
