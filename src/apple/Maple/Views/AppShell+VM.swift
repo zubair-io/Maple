@@ -47,15 +47,26 @@ enum AppShellVM {
     /// a later editor open share the same instance. `created` tells the
     /// caller a sidecar load is still owed — kept out of here so the helper
     /// stays synchronous, with no side effect beyond the dictionary write.
+    ///
+    /// `remoteStore` is the caller's source-aware sidecar store resolver
+    /// (`AppShell.remoteSidecarStore(for:)`), consulted only when a session
+    /// is actually created. Without it a Cloud / PhotoKit / SMB asset (no
+    /// `primaryURL`) got a session with no store at all, so every edit on
+    /// a filmstrip sibling was session-local and vanished on the next
+    /// selection change (#4712).
     @MainActor
     static func ensureSession(
         for asset: AssetRef,
-        in sessions: inout [AssetRef.ID: EditSession]
+        in sessions: inout [AssetRef.ID: EditSession],
+        remoteStore: () -> (any SidecarStoreProtocol)?
     ) -> (session: EditSession, created: Bool) {
         if let existing = sessions[asset.id] { return (existing, false) }
         // FileProvider observer drives the progress on Files-app picks;
         // local files never call begin() and stay overlay-free.
-        let session = EditSession(asset: asset, downloadProgress: DownloadProgress())
+        let session = EditSession(
+            asset: asset,
+            remoteSidecarStore: remoteStore(),
+            downloadProgress: DownloadProgress())
         sessions[asset.id] = session
         return (session, true)
     }

@@ -56,7 +56,7 @@ final class AppShellVMTests: XCTestCase {
     let primed = EditSession(asset: asset)
     var sessions: [AssetRef.ID: EditSession] = [asset.id: primed]
 
-    let result = AppShellVM.ensureSession(for: asset, in: &sessions)
+    let result = AppShellVM.ensureSession(for: asset, in: &sessions, remoteStore: { nil })
 
     XCTAssertTrue(
       result.session === primed,
@@ -69,7 +69,7 @@ final class AppShellVMTests: XCTestCase {
     let asset = AssetRef.preview(displayName: "IMG_0002.dng")
     var sessions: [AssetRef.ID: EditSession] = [:]
 
-    let result = AppShellVM.ensureSession(for: asset, in: &sessions)
+    let result = AppShellVM.ensureSession(for: asset, in: &sessions, remoteStore: { nil })
 
     XCTAssertTrue(result.created, "an unprimed asset owes the caller a sidecar load")
     XCTAssertTrue(
@@ -86,11 +86,52 @@ final class AppShellVMTests: XCTestCase {
     let firstSession = EditSession(asset: first)
     var sessions: [AssetRef.ID: EditSession] = [first.id: firstSession]
 
-    _ = AppShellVM.ensureSession(for: second, in: &sessions)
+    _ = AppShellVM.ensureSession(for: second, in: &sessions, remoteStore: { nil })
 
     XCTAssertTrue(sessions[first.id] === firstSession)
     XCTAssertNotNil(sessions[second.id])
     XCTAssertEqual(sessions.count, 2)
+  }
+
+  // MARK: - ensureSession wires the source-aware store (#4712)
+
+  /// The bug: filmstrip sibling navigation and `openEditor(for:)` built
+  /// `EditSession(asset:downloadProgress:)` with no remote store, so a
+  /// Cloud / PhotoKit / SMB sibling opened on defaults and every edit to
+  /// it was session-local — gone on the next selection change. The
+  /// helper must hand the caller's store to the session it creates, and
+  /// an edit must reach that store.
+  func testEnsureSessionRoutesEditsOnANewSessionThroughTheRemoteStore() async {
+    let asset = cloudRef(path: "/lib/b.dng")
+    let store = RecordingSidecarStore()
+    var sessions: [AssetRef.ID: EditSession] = [:]
+
+    let result = AppShellVM.ensureSession(for: asset, in: &sessions, remoteStore: { store })
+    var edited = result.session.model
+    edited.exposure = 1.5
+    result.session.model = edited
+    for _ in 0..<5 { await Task.yield() }
+    await result.session.flushPendingSidecarWrite()
+
+    let written = await store.lastModel
+    XCTAssertEqual(
+      written?.exposure, 1.5,
+      "an edit on a sourced sibling must round-trip through its remote sidecar store")
+  }
+
+  func testEnsureSessionDoesNotResolveAStoreForAPrimedSession() {
+    let asset = cloudRef(path: "/lib/c.dng")
+    let primed = EditSession(asset: asset)
+    var sessions: [AssetRef.ID: EditSession] = [asset.id: primed]
+
+    let result = AppShellVM.ensureSession(
+      for: asset, in: &sessions,
+      remoteStore: {
+        XCTFail("a primed session already owns its store — resolving another is wasted work")
+        return nil
+      })
+
+    XCTAssertTrue(result.session === primed)
   }
 
   // MARK: - Search Preview sibling splice (#3551)
@@ -124,4 +165,18 @@ final class AppShellVMTests: XCTestCase {
 
     XCTAssertEqual(spliced.map(\.id), [tapped.id])
   }
+}
+
+/// In-memory `SidecarStoreProtocol` that remembers the last model handed
+/// to it — a round-trip witness for #4712, not a mock of the sidecar
+/// layer (there is no XMP involved in choosing WHICH store a session gets).
+private actor RecordingSidecarStore: SidecarStoreProtocol {
+  private(set) var lastModel: AdjustmentModel?
+
+  func load() async throws -> (AdjustmentModel, CullingState) { (.default, CullingState()) }
+  func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? { nil }
+  func update(model: AdjustmentModel, culling: CullingState) { lastModel = model }
+  func flush() {}
+  func writeConfirmed(model: AdjustmentModel, culling: CullingState) { lastModel = model }
+  func errors() -> AsyncStream<Error> { AsyncStream { _ in } }
 }

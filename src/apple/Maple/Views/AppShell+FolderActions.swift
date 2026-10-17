@@ -25,6 +25,9 @@
 
 import MapleCore
 import SwiftUI
+import os
+
+private let folderActionsLog = Logger(subsystem: "app.justmaple.aperture", category: "appshell")
 
 @MainActor
 extension AppShell {
@@ -146,7 +149,8 @@ extension AppShell {
     // Make sure the session exists (usually pre-created by primeSessions…).
     // Same bookkeeping the editor's filmstrip sibling switch uses
     // (`selectFilmstripSibling`, #3402) — only the landing `mode` differs.
-    let ensured = AppShellVM.ensureSession(for: asset, in: &sessions)
+    let ensured = AppShellVM.ensureSession(
+      for: asset, in: &sessions, remoteStore: { remoteSidecarStore(for: asset) })
     Task { await ensured.session.loadSidecar() }
     browseVM.selectedID = asset.id
     #if os(iOS)
@@ -318,88 +322,100 @@ extension AppShell {
   }
 
   func browseSession(for asset: AssetRef) -> EditSession {
-    if let existing = sessions[asset.id] { return existing }
-    let remoteStore: (any SidecarStoreProtocol)? = {
-      guard let assetID = asset.stableID else { return nil }
-      switch asset.thumbnailProvenance {
-      case .cloud(let server):
-        // Timeline-sourced cloud asset (#2299): the ref itself
-        // carries its owning server — set by the lazy sibling
-        // builder for the unified/single-library Timeline's iPhone
-        // Preview swipe domain, where there's no single
-        // `librarySelection` to fall back on (the unified Timeline
-        // can span several servers at once). Checked FIRST so it
-        // takes priority over the ambient gate below.
-        return CloudSidecarStore(
-          server: LocalNetworkResolver.shared.effectiveURL(for: server),
-          assetID: assetID,
-          httpClient: makeAuthenticatedHTTPClient(server: server))
-      case .photoKit:
-        // PhotoKit-backed asset — NEVER cloud-backed, regardless of
-        // `librarySelection`. Load-bearing: `loadCloudLibrary` sets
-        // `librarySelection = .cloudLibrary(...)` for BOTH its
-        // folder AND timeline view modes, so a PhotoKit-local
-        // sibling swiped to from a single-library cloud Timeline
-        // would otherwise match the ambient gate below and be handed
-        // a bogus `CloudSidecarStore` keyed on its PHAsset
-        // localIdentifier instead of a real server asset id.
-        //
-        // #2555: route through PhotoKitSidecarStore instead of nil
-        // so edits persist into AppSupportSidecarStore (keyed by
-        // this PHAsset's localIdentifier, i.e. `assetID` here — see
-        // AssetRef's PhotoKit init doc). Without this, edits to
-        // Photos-library photos lived only in this session's
-        // in-memory EditSession and BackupEngine's
-        // local-edit-preferred sidecar upload never found anything
-        // to upload. `try?` degrades to session-local (the pre-fix
-        // behaviour) on the same rare failure `PhotoKitSource.init`
-        // already tolerates — an unavailable Application Support
-        // directory.
-        return try? PhotoKitSidecarStore(phassetLocalId: assetID)
-      case .smb:
-        // SMB (network share)-backed asset (#2674). Resolve the
-        // sidecar store via the CONNECTED `SMBSource` actor the
-        // browse session already holds — `connectSMB` sets
-        // `browseVM.currentSource` to the same instance that
-        // enumerated this asset (`images()` populated its
-        // `pathByMapleId` map), so `assetID` (the maple_id) resolves
-        // back to the real share-relative path without a second
-        // connect/re-walk. If the source has since been replaced
-        // (browsed to a different share/folder before this cell's
-        // `.onAppear` fired) there is no live connection to use and
-        // the edit stays session-local — same degrade-to-nil
-        // contract `PhotoKit`'s `try?` above already accepts on its
-        // own rare failure path.
-        guard let smb = browseVM.currentSource as? SMBSource else { return nil }
-        return SMBSidecarStore(
-          source: smb,
-          ref: ImageRef(id: assetID, displayName: asset.displayName))
-      case nil:
-        // No explicit provenance — only the Timeline sibling builder
-        // and the PhotoKit/SMB construction sites set it. Fall back
-        // to the pre-#2299 ambient-selection gate: cloud-backed
-        // asset routes XMP through CloudSidecarStore so edits
-        // round-trip via PUT /api/assets/<id>/xmp; local files keep
-        // using XMPSidecarStore via EditSession's primaryURL branch.
-        // Cloud refs carry the upstream asset id in stableID (set by
-        // BrowseViewModel.loadSource).
-        guard case .cloudLibrary(let serverID, _) = librarySelection
-        else { return nil }
-        return CloudSidecarStore(
-          server: serverID,
-          assetID: assetID,
-          httpClient: makeAuthenticatedHTTPClient(server: serverID))
-      }
-    }()
-    // FileProvider observer is no-op for cloud-library assets (sourceless
-    // — no primaryURL), so passing DownloadProgress here is safe; the
-    // overlay only fires when the observer's begin() runs.
-    let session = EditSession(
-      asset: asset,
-      remoteSidecarStore: remoteStore,
-      downloadProgress: DownloadProgress())
-    sessions[asset.id] = session
-    return session
+    AppShellVM.ensureSession(
+      for: asset, in: &sessions, remoteStore: { remoteSidecarStore(for: asset) }
+    ).session
+  }
+
+  /// The sidecar store a sourceless (no `primaryURL`) asset persists to,
+  /// resolved from its provenance. Every `EditSession` construction site
+  /// in the shell goes through this (#4712) — `browseSession`, the
+  /// filmstrip sibling switch and `openEditor` — so a Cloud / PhotoKit /
+  /// SMB asset can never get a store-less session by taking a different
+  /// door. A `nil` here for a sourced asset is a lost-edits condition, so
+  /// it is logged.
+  func remoteSidecarStore(for asset: AssetRef) -> (any SidecarStoreProtocol)? {
+    let store = resolveRemoteSidecarStore(for: asset)
+    if store == nil, asset.primaryURL == nil, asset.stableID != nil {
+      let provenance = String(describing: asset.thumbnailProvenance)
+      folderActionsLog.error(
+        "no sidecar store for sourced asset \(asset.displayName, privacy: .public) "
+          + "provenance=\(provenance, privacy: .public) — edits will be session-local")
+    }
+    return store
+  }
+
+  private func resolveRemoteSidecarStore(for asset: AssetRef) -> (any SidecarStoreProtocol)? {
+    guard let assetID = asset.stableID else { return nil }
+    switch asset.thumbnailProvenance {
+    case .cloud(let server):
+      // Timeline-sourced cloud asset (#2299): the ref itself
+      // carries its owning server — set by the lazy sibling
+      // builder for the unified/single-library Timeline's iPhone
+      // Preview swipe domain, where there's no single
+      // `librarySelection` to fall back on (the unified Timeline
+      // can span several servers at once). Checked FIRST so it
+      // takes priority over the ambient gate below.
+      return CloudSidecarStore(
+        server: LocalNetworkResolver.shared.effectiveURL(for: server),
+        assetID: assetID,
+        httpClient: makeAuthenticatedHTTPClient(server: server))
+    case .photoKit:
+      // PhotoKit-backed asset — NEVER cloud-backed, regardless of
+      // `librarySelection`. Load-bearing: `loadCloudLibrary` sets
+      // `librarySelection = .cloudLibrary(...)` for BOTH its
+      // folder AND timeline view modes, so a PhotoKit-local
+      // sibling swiped to from a single-library cloud Timeline
+      // would otherwise match the ambient gate below and be handed
+      // a bogus `CloudSidecarStore` keyed on its PHAsset
+      // localIdentifier instead of a real server asset id.
+      //
+      // #2555: route through PhotoKitSidecarStore instead of nil
+      // so edits persist into AppSupportSidecarStore (keyed by
+      // this PHAsset's localIdentifier, i.e. `assetID` here — see
+      // AssetRef's PhotoKit init doc). Without this, edits to
+      // Photos-library photos lived only in this session's
+      // in-memory EditSession and BackupEngine's
+      // local-edit-preferred sidecar upload never found anything
+      // to upload. `try?` degrades to session-local (the pre-fix
+      // behaviour) on the same rare failure `PhotoKitSource.init`
+      // already tolerates — an unavailable Application Support
+      // directory.
+      return try? PhotoKitSidecarStore(phassetLocalId: assetID)
+    case .smb:
+      // SMB (network share)-backed asset (#2674). Resolve the
+      // sidecar store via the CONNECTED `SMBSource` actor the
+      // browse session already holds — `connectSMB` sets
+      // `browseVM.currentSource` to the same instance that
+      // enumerated this asset (`images()` populated its
+      // `pathByMapleId` map), so `assetID` (the maple_id) resolves
+      // back to the real share-relative path without a second
+      // connect/re-walk. If the source has since been replaced
+      // (browsed to a different share/folder before this cell's
+      // `.onAppear` fired) there is no live connection to use and
+      // the edit stays session-local — same degrade-to-nil
+      // contract `PhotoKit`'s `try?` above already accepts on its
+      // own rare failure path.
+      guard let smb = browseVM.currentSource as? SMBSource else { return nil }
+      return SMBSidecarStore(
+        source: smb,
+        ref: ImageRef(id: assetID, displayName: asset.displayName))
+    case nil:
+      // No explicit provenance — only the Timeline sibling builder
+      // and the PhotoKit/SMB construction sites set it. Fall back
+      // to the pre-#2299 ambient-selection gate: cloud-backed
+      // asset routes XMP through CloudSidecarStore so edits
+      // round-trip via PUT /api/assets/<id>/xmp; local files keep
+      // using XMPSidecarStore via EditSession's primaryURL branch.
+      // Cloud refs carry the upstream asset id in stableID (set by
+      // BrowseViewModel.loadSource).
+      guard case .cloudLibrary(let serverID, _) = librarySelection
+      else { return nil }
+      return CloudSidecarStore(
+        server: serverID,
+        assetID: assetID,
+        httpClient: makeAuthenticatedHTTPClient(server: serverID))
+    }
   }
 
   // MARK: - Security scope lifecycle

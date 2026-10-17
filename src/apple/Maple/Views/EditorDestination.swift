@@ -18,6 +18,11 @@
     let filmstripAssets: [AssetRef]
     let filmstripSource: (any ImageSource)?
     let onSelectAsset: (AssetRef) -> Void
+    /// The shell's source-aware session factory (`primeBrowseSession`).
+    /// The fallback below used to build a bare `EditSession(asset:)` with
+    /// no remote store, so a Cloud / PhotoKit / SMB photo that reached the
+    /// editor unprimed lost every edit (#4712).
+    let onPrimeSession: (AssetRef) async -> Void
     @Binding var sessions: [AssetRef.ID: EditSession]
     @Environment(\.dismiss) private var dismiss
 
@@ -100,9 +105,9 @@
           return
         }
         sessions = [:]
-        let session = EditSession(asset: asset)
-        sessions[asset.id] = session
-        self.state = EditorState(session: session)
+        await onPrimeSession(asset)
+        guard let primed = sessions[asset.id] else { return }
+        self.state = EditorState(session: primed)
       }
       .onDisappear {
         // Per S5 spec risk #4b — flush pending XMP write before tear-down
