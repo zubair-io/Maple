@@ -69,6 +69,14 @@ describe('sidecarStemClaimedBySibling', () => {
     expect(await sidecarStemClaimedBySibling(raw, [jpg])).toBe(false);
   });
 
+  test('a real photo whose name contains .tmp. still claims the stem', async () => {
+    const raw = await write('a/IMG.tmp.CR3', 'raw');
+    await write('a/IMG.tmp.CR3.tmp.123-ab12', 'staging');
+    expect(await sidecarStemClaimedBySibling(raw)).toBe(false);
+    await write('a/IMG.tmp.JPG', 'jpg');
+    expect(await sidecarStemClaimedBySibling(raw)).toBe(true);
+  });
+
   test('videos keep their full name, so a same-stem photo is not a sibling', async () => {
     const mov = await write('a/IMG_1.MOV', 'mov');
     await write('a/IMG_1.HEIC', 'heic');
@@ -114,6 +122,17 @@ describe('batch moves', () => {
       'b/IMG_1.JPG': 'jpg',
       'b/IMG_1.xmp': '<shared/>',
     });
+  });
+
+  test('joins through two symlinked aliases of one folder do not deadlock', async () => {
+    const source = await write('a/IMG_1.xmp', '<shared/>');
+    const dest = await write('b/IMG_1.xmp', '<shared/>');
+    await fs.symlink(abs('b'), abs('0-alias'));
+    const results = await Promise.all([
+      joinCarriedSidecar(source, dest),
+      joinCarriedSidecar(abs('0-alias/IMG_1.xmp'), source),
+    ]);
+    expect(results.map((r) => r.toString())).toEqual(['<shared/>', '<shared/>']);
   });
 
   test('a join of a sidecar with itself takes one barrier instead of waiting on itself', async () => {
