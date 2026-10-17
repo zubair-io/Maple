@@ -111,6 +111,78 @@ const ConfigBody = t.Object({
   sample_ratio: t.Optional(t.Union([t.Number(), t.Null()])),
 });
 
+type ConfigBodyInput = typeof ConfigBody.static;
+
+/** Validate the two fields of a PUT that can be malformed. `endpoint`:
+ * omitted = keep, `null`/empty = clear, otherwise an http(s) URL normalised
+ * without trailing slashes (`${endpoint}/v1/traces` must not double up).
+ * `sample_ratio`: omitted = keep, `null` = clear, otherwise finite in [0, 1]. */
+function validateConfigBody(
+  body: ConfigBodyInput,
+):
+  | { endpoint: string | null | undefined; sampleRatio: number | null | undefined }
+  | { error: string } {
+  const endpoint = body.endpoint === undefined ? undefined : validateHttpUrl(body.endpoint);
+  if (endpoint !== null && typeof endpoint === 'object') {
+    return { error: `Invalid endpoint: ${endpoint.error}` };
+  }
+  const sampleRatio = body.sample_ratio;
+  if (
+    typeof sampleRatio === 'number' &&
+    (!Number.isFinite(sampleRatio) ||
+      sampleRatio < MIN_SAMPLE_RATIO ||
+      sampleRatio > MAX_SAMPLE_RATIO)
+  ) {
+    return {
+      error: `Invalid sample_ratio: must be a number between ${MIN_SAMPLE_RATIO} and ${MAX_SAMPLE_RATIO} (got ${sampleRatio})`,
+    };
+  }
+  return { endpoint, sampleRatio };
+}
+
+/** Turn the probe's HTTP answer into the route's verdict. A non-2xx is a
+ * plain failure; a 2xx that does not look like OTLP (an HTML SPA page from
+ * the UI/query port) is NOT a real accept, so it is flagged with the :4318
+ * recommendation. */
+function interpretProbeResponse(res: Response, portHint: string | null) {
+  if (!res.ok) {
+    // A 404 most often means "right host, wrong port" — the endpoint answered
+    // HTTP but has no /v1/traces route. The port hint applies to any non-2xx.
+    const base = `SigNoz returned HTTP ${res.status}`;
+    const error = portHint ? `${base}. ${portHint}` : base;
+    return { ok: false, status: res.status, error, recommendation: portHint ?? undefined };
+  }
+  const contentType = res.headers.get('content-type');
+  if (!looksLikeOtlpResponse(contentType)) {
+    return {
+      ok: false,
+      status: res.status,
+      error:
+        `Endpoint replied ${res.status} but with "${contentType ?? 'no content-type'}", not an OTLP response — this is probably not SigNoz's OTLP/HTTP receiver. ` +
+        (portHint ?? `SigNoz's OTLP/HTTP receiver defaults to :${OTLP_HTTP_DEFAULT_PORT}.`),
+      recommendation: portHint ?? `Use SigNoz's OTLP/HTTP port :${OTLP_HTTP_DEFAULT_PORT}.`,
+    };
+  }
+  return { ok: true, status: res.status };
+}
+
+/** Normalise the write-only `ingestion_key` field of a PUT into a save patch.
+ * `undefined`/blank leaves the saved key alone, `null` clears it, a non-empty
+ * string sets it. The key is bound to the endpoint it was saved for (#4744):
+ * moving `endpoint` without typing a new key clears the old one rather than
+ * silently re-binding it to the replacement service. */
+async function resolveIngestionKeyPatch(
+  typed: string | null | undefined,
+  endpoint: string | null | undefined,
+): Promise<{ ingestion_key?: string | null }> {
+  if (typed === null) return { ingestion_key: null };
+  const trimmed = typeof typed === 'string' ? typed.trim() : '';
+  if (trimmed.length > 0) return { ingestion_key: trimmed };
+  if (endpoint === undefined) return {};
+  const savedEndpoint = resolveObservabilityConfig(await loadObservabilityConfig()).endpoint;
+  return endpoint === savedEndpoint ? {} : { ingestion_key: null };
+}
+
 /** The key a `/test` probe may carry: the typed one as given, else the saved
  * one only for the saved endpoint, else none. */
 async function resolveProbeKey(
@@ -143,60 +215,14 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
   .put(
     '/config',
     async ({ body, set }) => {
-      // ── endpoint ──────────────────────────────────────────────────────
-      // `undefined` = field omitted (keep existing); `null`/empty = clear back
-      // to env/unset; otherwise must be a valid http(s) URL (trailing slashes
-      // stripped on save so `${endpoint}/v1/traces` doesn't double up).
-      let endpoint: string | null | undefined;
-      if (body.endpoint !== undefined) {
-        const validated = validateHttpUrl(body.endpoint);
-        if (validated && typeof validated === 'object' && 'error' in validated) {
-          set.status = 400;
-          return { error: `Invalid endpoint: ${validated.error}` };
-        }
-        endpoint = validated as string | null;
+      const validated = validateConfigBody(body);
+      if ('error' in validated) {
+        set.status = 400;
+        return { error: validated.error };
       }
+      const { endpoint, sampleRatio } = validated;
 
-      // ── sample_ratio ──────────────────────────────────────────────────
-      // `undefined` = keep existing; `null` = clear to env/default; otherwise
-      // must be a finite number in [0, 1].
-      const sampleRatio = body.sample_ratio;
-      if (typeof sampleRatio === 'number') {
-        if (
-          !Number.isFinite(sampleRatio) ||
-          sampleRatio < MIN_SAMPLE_RATIO ||
-          sampleRatio > MAX_SAMPLE_RATIO
-        ) {
-          set.status = 400;
-          return {
-            error: `Invalid sample_ratio: must be a number between ${MIN_SAMPLE_RATIO} and ${MAX_SAMPLE_RATIO} (got ${sampleRatio})`,
-          };
-        }
-      }
-
-      // ── ingestion_key (secret, write-only on input) ───────────────────
-      // `undefined`/empty string = leave the saved key unchanged (a blank
-      // field in the UI must not wipe it); `null` = clear back to env; a
-      // non-empty string sets a new key.
-      let ingestionKey: string | null | undefined;
-      if (body.ingestion_key === null) {
-        ingestionKey = null;
-      } else if (typeof body.ingestion_key === 'string') {
-        const trimmed = body.ingestion_key.trim();
-        if (trimmed.length > 0) ingestionKey = trimmed;
-      }
-
-      // The key is bound to the endpoint it was saved for (#4744): moving the
-      // endpoint without typing a new key clears the old one rather than
-      // silently re-binding it to the replacement service.
-      const savedEndpoint = resolveObservabilityConfig(await loadObservabilityConfig()).endpoint;
-      const endpointChanged = endpoint !== undefined && endpoint !== savedEndpoint;
-      const keyPatch =
-        ingestionKey !== undefined
-          ? { ingestion_key: ingestionKey }
-          : endpointChanged
-            ? { ingestion_key: null }
-            : {};
+      const keyPatch = await resolveIngestionKeyPatch(body.ingestion_key, endpoint);
 
       await saveObservabilityConfig({
         ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
@@ -263,31 +289,7 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
           headers,
           body: JSON.stringify({ resourceSpans: [] }),
         });
-        const contentType = res.headers.get('content-type');
-
-        if (!res.ok) {
-          // Non-2xx. A 404 most often means "right host, wrong port" — the
-          // endpoint answered HTTP but has no /v1/traces route. Append the port
-          // hint when we have one (applies to any non-2xx, 404 included).
-          const base = `SigNoz returned HTTP ${res.status}`;
-          const error = portHint ? `${base}. ${portHint}` : base;
-          return { ok: false, status: res.status, error, recommendation: portHint ?? undefined };
-        }
-
-        // 2xx — but a 2xx from the UI/query port (an HTML SPA page) is NOT a
-        // real OTLP accept. Only treat it as success when the response actually
-        // looks like OTLP (JSON / protobuf). Otherwise flag it + recommend 4318.
-        if (!looksLikeOtlpResponse(contentType)) {
-          return {
-            ok: false,
-            status: res.status,
-            error:
-              `Endpoint replied ${res.status} but with "${contentType ?? 'no content-type'}", not an OTLP response — this is probably not SigNoz's OTLP/HTTP receiver. ` +
-              (portHint ?? `SigNoz's OTLP/HTTP receiver defaults to :${OTLP_HTTP_DEFAULT_PORT}.`),
-            recommendation: portHint ?? `Use SigNoz's OTLP/HTTP port :${OTLP_HTTP_DEFAULT_PORT}.`,
-          };
-        }
-        return { ok: true, status: res.status };
+        return interpretProbeResponse(res, portHint);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         // Connection refused on a wrong port is also a strong signal.
