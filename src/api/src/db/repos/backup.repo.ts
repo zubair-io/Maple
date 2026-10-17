@@ -44,6 +44,7 @@ import {
 } from './db-handle.ts';
 import { ALL_STAGE_NAMES } from '../../workers/stages/stage-names.ts';
 import { seedStageRowStatements } from './stage-state.repo.ts';
+import { relocateCacheRearmStatements } from './assets.stage-rearm.ts';
 import { nowIso, placeholders, toHex } from './values.ts';
 
 export type { SqliteDb } from './db-handle.ts';
@@ -372,6 +373,7 @@ export async function appendBackupLocation(
                 AND deleted_at IS NULL)`,
       params: [hex, library, dir, filename, hex, hex, library, dir, filename],
     },
+    ...(replaced === null ? [] : relocateCacheRearmStatements(hex)),
     ...(input.link === null ? [] : [linkStatement(hex, input.link)]),
     ...(input.ownerId
       ? [

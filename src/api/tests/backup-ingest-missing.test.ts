@@ -93,6 +93,17 @@ describe('backup missing-copy recovery', () => {
   for (const reservedSibling of [false, true]) {
     test(`sibling repair preserves canonical ordinal and catalog ownership (reserved: ${reservedSibling})`, async () => {
       const id = seedMissing(true);
+      const movedStages = ['thumb', 'preview', 'cloud-backup'];
+      for (const stage of movedStages)
+        insertStageState(handle.db, id.toHexString(), stage, {
+          version: 7,
+          attempts: 2,
+          dead: true,
+          lastError: 'missing original',
+          processedAt: '2026-01-01T00:00:00Z',
+          claimToken: 'stale-lease',
+          nextAttemptAt: '2026-10-20T00:00:00Z',
+        });
       const otherLibrary = seedLibrary(handle.db, {
         path: path.join(handle.tmpLib, 'other-library'),
       });
@@ -123,6 +134,28 @@ describe('backup missing-copy recovery', () => {
       expect(repairedPath).not.toBe(relPath);
       expect(await fs.readFile(oldPath)).toEqual(replacement);
       await expectStored(repairedPath);
+      expect(
+        handle.db
+          .query(
+            `SELECT stage, version, attempts, dead, last_error,
+        next_attempt_at, claim_token, processed_at FROM stage_state WHERE asset_id = ?
+        AND stage IN ('thumb', 'preview', 'cloud-backup') ORDER BY stage`,
+          )
+          .all(id.toHexString()),
+      ).toEqual(
+        movedStages
+          .toSorted()
+          .map((stage) => ({
+            stage,
+            version: 0,
+            attempts: 0,
+            dead: 0,
+            last_error: null,
+            next_attempt_at: null,
+            claim_token: null,
+            processed_at: '2026-01-01T00:00:00Z',
+          })),
+      );
       if (reservedSibling)
         expect(await Bun.file(path.join(handle.tmpLib, reservedPath)).exists()).toBe(false);
       await runMissingReaperOnce({ deleteBeforeIso: '2026-10-01T00:00:00Z' });
