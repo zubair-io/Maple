@@ -4,6 +4,7 @@ import { child as childLogger } from '../log.ts';
 import { listPairedSidecars } from './xmp-conflict.ts';
 import {
   SidecarCollisionError,
+  joinCarriedSidecar,
   publishSidecarSnapshot,
   sameSidecarFile,
   sidecarAlreadyCarried,
@@ -126,11 +127,8 @@ export async function carryPlannedSidecars(
     }
     if (entry.joinsCarried) {
       copiedSidecars.push(entry.dest);
-      carried.push({
-        source: entry.source,
-        dest: entry.dest,
-        snapshot: await fs.readFile(entry.dest),
-      });
+      const snapshot = await joinCarriedSidecar(entry.source, entry.dest);
+      carried.push({ source: entry.source, dest: entry.dest, snapshot });
       continue;
     }
     if (entry.replacesOccupant) await fs.unlink(entry.dest).catch(() => {});
