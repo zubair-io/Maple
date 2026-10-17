@@ -49,6 +49,28 @@ export function hasXmlParseError(document: Document): boolean {
   return name === 'parsererror' || name === 'parseerror';
 }
 
+const rdfSubjectAttr = (element: Element, name: 'about' | 'nodeID'): string | null =>
+  element.getAttributeNS(RDF_NAMESPACE, name) ?? element.getAttributeNS(null, name);
+
+const subjectTier = (element: Element): number => {
+  if (rdfSubjectAttr(element, 'nodeID') !== null) return 0;
+  const about = rdfSubjectAttr(element, 'about');
+  return about === '' ? 2 : about === null ? 1 : 0;
+};
+
+/** Moving or merging a description must retain its RDF subject and inherited XML context. */
+export function sharesMaskGroupContext(description: Element, primary: Element): boolean {
+  return (
+    rdfSubjectAttr(description, 'about') === rdfSubjectAttr(primary, 'about') &&
+    rdfSubjectAttr(description, 'nodeID') === rdfSubjectAttr(primary, 'nodeID') &&
+    ['lang', 'base'].every(
+      (name) =>
+        (description.getAttributeNS('http://www.w3.org/XML/1998/namespace', name) ?? '') ===
+        (primary.getAttributeNS('http://www.w3.org/XML/1998/namespace', name) ?? ''),
+    )
+  );
+}
+
 /** Prefer the description carrying modeled XMP data, regardless of RDF sibling order. */
 export function primaryXmpDescription(document: Document): Element | null {
   const descriptions = rdfDescriptions(document);
@@ -57,15 +79,20 @@ export function primaryXmpDescription(document: Document): Element | null {
       const name = managedXmpName(node);
       return name !== null && name !== 'rdf:about';
     }).length;
-  return descriptions.reduce<Element | null>(
-    (best, candidate) => (!best || score(candidate) > score(best) ? candidate : best),
-    null,
-  );
+  return descriptions.reduce<Element | null>((best, candidate) => {
+    if (!best) return candidate;
+    const tierDiff = subjectTier(candidate) - subjectTier(best);
+    if (tierDiff !== 0) return tierDiff > 0 ? candidate : best;
+    return score(candidate) > score(best) ? candidate : best;
+  }, null);
 }
 
 const directDescriptionSiblings = (description: Element): Element[] =>
   Array.from(description.parentElement?.children ?? []).filter(
-    (element) => element.namespaceURI === RDF_NAMESPACE && element.localName === 'Description',
+    (element) =>
+      element.namespaceURI === RDF_NAMESPACE &&
+      element.localName === 'Description' &&
+      sharesMaskGroupContext(element, description),
   );
 
 /**
