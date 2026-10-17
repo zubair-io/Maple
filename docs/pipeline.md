@@ -251,8 +251,8 @@ The staged `RetouchPass` shares CPU spot geometry and Gaussian kernels. It
 gathers both patches before each ordered clone/heal, copies the frame once and
 reuses scratch across spots and warm frames. Twelve physical compositions
 preserve the same WB-dependent stage order within `1e-4`; see
-`test-fixtures/qualification/color-gpu-retouch-4629.md`. Deep denoise and
-persistent-host integration remain required for the full migration.
+`test-fixtures/qualification/color-gpu-retouch-4629.md`. Persistent-host
+integration remains required for the full migration.
 
 BM3D joint block matching is staged under the same issue. Its row-bounded GPU
 output matches the CPU's selected patch order exactly, including distance ties
@@ -260,9 +260,13 @@ and power-of-two group sizes; see
 `test-fixtures/qualification/color-gpu-bm3d-matching-4629.md`. Hard-threshold
 and Wiener filtering plus deterministic overlap aggregation are also staged;
 both passes keep their basic estimate resident and reuse row-sized scratch.
-See `test-fixtures/qualification/color-gpu-bm3d-filtering-4629.md`. GPU noise
-anchoring, RGB conversion/reconstruction and complete deep-denoise qualification
-remain before the persistent prefix can use this stage.
+See `test-fixtures/qualification/color-gpu-bm3d-filtering-4629.md`. The complete
+`Bm3dPass` now adds exact median-derived noise parameters, RGB/opponent conversion,
+high-frequency reinjection and RGB reconstruction, with constants generated from
+the CPU. Its full RGB output passes direct CPU and physical-camera comparisons;
+see `test-fixtures/qualification/color-gpu-bm3d-rgb-4629.md`. It remains staged:
+the warm 512px release diagnostic takes about 135ms, including final readback,
+so performance repair and live-prefix qualification remain before host adoption.
 
 ### Ordered local mask groups (#3408)
 

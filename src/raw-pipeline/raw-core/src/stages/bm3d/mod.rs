@@ -79,6 +79,9 @@ mod gpu_filter_tests;
 #[cfg(all(test, feature = "gpu", not(target_arch = "wasm32")))]
 mod gpu_pass_tests;
 
+#[cfg(all(test, feature = "gpu", not(target_arch = "wasm32")))]
+mod gpu_stage_tests;
+
 use std::sync::RwLock;
 
 use rayon::prelude::*;
@@ -100,20 +103,23 @@ pub const LAMBDA_HT: f32 = 2.7;
 /// Match ceiling: mean-relative per-pixel SSD ≤ `T_MATCH_SQ · σ_Y²`.
 /// 2.5² — two flat patches under iid noise differ by ~2σ² per pixel, so
 /// this keeps genuinely similar content while rejecting structure.
-const T_MATCH_SQ: f32 = 6.25;
+pub const T_MATCH_SQ: f32 = 6.25;
 /// Strength→σ slope: at strength 100, σ_Y = 20 % of the median-luma
 /// anchor. Initial calibration value (the stage ships default-off; the
 /// engaged response is gated by the identity/monotonicity tests and the
 /// slider-matrix harness when cases are added).
-const SIGMA_K: f32 = 0.2;
+pub const SIGMA_K: f32 = 0.2;
 /// Chroma σ multiplier (spec § 3.2: ≈1.8× luma).
-const CHROMA_SIGMA_RATIO: f32 = 1.8;
+pub const CHROMA_SIGMA_RATIO: f32 = 1.8;
 /// Anchor pedestal so a near-black frame still gets a non-zero σ.
-const ANCHOR_PEDESTAL: f32 = 1e-3;
+pub const ANCHOR_PEDESTAL: f32 = 1e-3;
 /// High-frequency re-injection gain at strength 100.
-const HF_K: f32 = 0.15;
+pub const HF_K: f32 = 0.15;
 /// Rec.2020 luma weights (same constants as the sibling stages).
-const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
+pub const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
+
+/// Five-tap high-frequency Gaussian weights, exp(-d²/(2·1.5²)) for d=0..2.
+pub const KW: [f32; 3] = [1.0, 0.800_737_4, 0.411_112_3];
 
 /// Progress sink: `(pass_name, fraction_done)` where `fraction_done` is
 /// the fraction of THAT pass's reference rows completed. Two passes run
@@ -314,9 +320,6 @@ pub fn apply_cancellable(
 /// `v + Σwᵢ(vᵢ − v)/Σwᵢ` (the correction term is an exact zero when all
 /// neighbors equal the center). 5-tap σ≈1.5 kernel.
 fn highpass_luma_delta(y: &[f32], w: usize, h: usize) -> Vec<f32> {
-    // exp(-d²/(2·1.5²)) for d = 0..2.
-    const KW: [f32; 3] = [1.0, 0.800_737_4, 0.411_112_3];
-
     // Horizontal pass.
     let mut tmp = vec![0f32; w * h];
     tmp.par_chunks_mut(w).enumerate().for_each(|(row, out)| {

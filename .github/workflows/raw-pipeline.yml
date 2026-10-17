@@ -447,7 +447,7 @@ jobs:
       - name: Retouch shared geometry and GPU parity
         working-directory: src/raw-pipeline
         run: cargo test -p raw-core --features gpu --lib stages::retouch::gpu -- --test-threads=1
-      - name: BM3D matching and filtering GPU parity
+      - name: Complete BM3D GPU parity
         working-directory: src/raw-pipeline
         run: |
           cargo test -p raw-core --features gpu --lib stages::bm3d:: -- --test-threads=1
@@ -540,7 +540,7 @@ jobs:
       - name: Retouch shared geometry and GPU parity (Metal)
         working-directory: src/raw-pipeline
         run: cargo test -p raw-core --features gpu --lib stages::retouch::gpu -- --test-threads=1
-      - name: BM3D matching and filtering GPU parity (Metal)
+      - name: Complete BM3D GPU parity (Metal)
         working-directory: src/raw-pipeline
         run: |
           cargo test -p raw-core --features gpu --lib stages::bm3d:: -- --test-threads=1

@@ -81,12 +81,23 @@ checked=0
 while IFS= read -r kernel; do
 	# The shared HSM body has caller-owned bindings; validate it in BOTH real
 	# modules below, assembled exactly like context_pipelines.rs (#4629).
-	if [[ "$kernel" == "$WGSL_DIR/hue_sat_map/math.wgsl" || "$kernel" == "$WGSL_DIR/auto_exposure/common.wgsl" || "$kernel" == "$WGSL_DIR/retouch/common.wgsl" || "$kernel" == "$WGSL_DIR/bm3d_types.wgsl" ]]; then
+	if [[ "$kernel" == "$WGSL_DIR/hue_sat_map/math.wgsl" || "$kernel" == "$WGSL_DIR/auto_exposure/common.wgsl" || "$kernel" == "$WGSL_DIR/retouch/common.wgsl" || "$kernel" == "$WGSL_DIR/bm3d_types.wgsl" || "$kernel" == "$WGSL_DIR/bm3d/common.wgsl" ]]; then
 		continue
 	fi
 	checked=$((checked + 1))
 	base="$(basename "$kernel")"
 	assembled="$TMP/assembled.wgsl"
+	if [[ "$kernel" == "$WGSL_DIR/bm3d/"* ]]; then
+		cat "$WGSL_DIR/generated/bm3d.wgsl" "$WGSL_DIR/bm3d/common.wgsl" "$kernel" >"$assembled"
+		if validate "$assembled"; then
+			echo "PASS  bm3d/$base  (+BM3D constants+common)"
+		else
+			echo "FAIL  bm3d/$base — assembled BM3D stage does not validate:" >&2
+			sed 's/^/    /' "$TMP/err" >&2
+			fail=$((fail + 1))
+		fi
+		continue
+	fi
 	if [[ "$kernel" == "$WGSL_DIR/bm3d_matching.wgsl" || "$kernel" == "$WGSL_DIR/bm3d_filter.wgsl" || "$kernel" == "$WGSL_DIR/bm3d_aggregate.wgsl" ]]; then
 		cat "$WGSL_DIR/generated/bm3d.wgsl" "$WGSL_DIR/bm3d_types.wgsl" "$kernel" >"$assembled"
 		if validate "$assembled"; then

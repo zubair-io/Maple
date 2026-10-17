@@ -67,6 +67,7 @@ pub struct GpuContext {
     pub(crate) bm3d_aggregate_pipeline: OnceCell<wgpu::ComputePipeline>,
     pub(crate) bm3d_finish_pipeline: OnceCell<wgpu::ComputePipeline>,
     pub(crate) bm3d_luma_pipeline: OnceCell<wgpu::ComputePipeline>,
+    pub(crate) bm3d_pipelines: crate::bm3d::Pipelines,
     /// Lazily-compiled scene-tone-controls compute pipeline
     /// (`scene_tone_controls.wgsl`). A P2 scene-linear stage (#990); five
     /// luma-coupled tone steps, no Oklab, so no generated color matrices. Built
@@ -432,6 +433,7 @@ impl GpuContext {
             bm3d_aggregate_pipeline: OnceCell::new(),
             bm3d_finish_pipeline: OnceCell::new(),
             bm3d_luma_pipeline: OnceCell::new(),
+            bm3d_pipelines: Default::default(),
             scene_tone_controls_pipeline: OnceCell::new(),
             vignette_pipeline: OnceCell::new(),
             local_adjustments_pipeline: OnceCell::new(),
