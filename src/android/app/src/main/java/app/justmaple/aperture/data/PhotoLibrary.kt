@@ -43,7 +43,7 @@ data class LibraryListing(val folders: List<Folder>, val photos: List<Photo>)
 
 data class LoadedSidecar(val document: XmpDocument, val baseline: String?)
 
-class PhotoLibrary(private val context: Context) : SidecarStore {
+class PhotoLibrary(private val context: Context) {
     val cloud = CloudLibrary(context)
     private val preferences = context.getSharedPreferences("maple-library", Context.MODE_PRIVATE)
     private val local = LocalDocuments(context)
@@ -387,14 +387,14 @@ class PhotoLibrary(private val context: Context) : SidecarStore {
         )
     }
 
-    override suspend fun loadSidecar(photo: Photo): LoadedSidecar = io.withLock {
+    suspend fun loadSidecar(photo: Photo): LoadedSidecar = io.withLock {
         withContext(Dispatchers.IO) {
             val xml = readSidecar(photo, fresh = true)
             LoadedSidecar(XmpDocument(xml ?: XmpDocument.EMPTY), xml)
         }
     }
 
-    override suspend fun save(photo: Photo, document: XmpDocument, baseline: String?): LoadedSidecar =
+    suspend fun save(photo: Photo, document: XmpDocument, baseline: String?): LoadedSidecar =
         io.withLock {
             withContext(Dispatchers.IO) {
                 if (CloudLibrary.isCloud(photo.uri))

@@ -3,12 +3,16 @@ package app.justmaple.aperture
 import android.net.Uri
 import android.view.Surface
 import app.justmaple.aperture.data.*
+import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -20,28 +24,15 @@ import org.robolectric.RuntimeEnvironment
 /**
  * A photo whose storage stops answering must not wedge the app (#4765): a
  * failed "Reload saved edits" keeps the document loaded and saveable, and
- * "Discard unsaved edits" unblocks navigation without any I/O.
+ * "Discard unsaved edits" unblocks navigation without any I/O. The sidecar
+ * layer is the real PhotoLibrary writing real .xmp files under the app's
+ * private storage; the failure is induced at the filesystem by turning the
+ * saved sidecar into a directory, so both read and write throw. Only the
+ * JNI renderer is substituted.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 class MapleViewModelRecoveryTest {
-    private class FlakySidecars : SidecarStore {
-        var failing = false
-        var saves = 0
-
-        override suspend fun loadSidecar(photo: Photo): LoadedSidecar {
-            if (failing) throw IOException("storage went away")
-            return LoadedSidecar(XmpDocument(), XmpDocument.EMPTY)
-        }
-
-        override suspend fun save(photo: Photo, document: XmpDocument, baseline: String?): LoadedSidecar {
-            saves++
-            if (failing) throw IOException("storage went away")
-            val xml = document.serialize()
-            return LoadedSidecar(XmpDocument(xml), xml)
-        }
-    }
-
     private class IdleRenderer : PreviewRenderer {
         override val hasPresented = false
         override var revision = 0
@@ -56,66 +47,92 @@ class MapleViewModelRecoveryTest {
         override fun close() {}
     }
 
-    private val photo = Photo(Uri.parse("content://test/tree/photo.dng"), "photo.dng", 1, 1, null)
-    private val sidecars = FlakySidecars()
+    // parent == null: the sidecar lives in the app's private storage, not SAF.
+    private val photo = Photo(Uri.parse("file:///photos/photo.dng"), "photo.dng", 1, 1, null)
     private lateinit var model: MapleViewModel
+    private lateinit var sidecars: File
+
+    private fun await(what: String, predicate: (MapleState) -> Boolean): MapleState =
+        runBlocking { withTimeout(10_000) { model.state.first(predicate) } }
+            .also { assertTrue(what, predicate(it)) }
+
+    private fun savedSidecar(): File =
+        sidecars.listFiles { file -> file.name.endsWith(".xmp") }?.singleOrNull()
+            ?: fail("expected exactly one saved sidecar in $sidecars") as File
 
     @Before
     fun setUp() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         val application = RuntimeEnvironment.getApplication()
-        model = MapleViewModel(application, PhotoLibrary(application), sidecars, IdleRenderer())
+        sidecars = File(application.filesDir, "sidecars")
+        model = MapleViewModel(application, PhotoLibrary(application), IdleRenderer())
+
         model.open(photo)
-        assertTrue(model.state.value.documentLoaded)
+        await("document loads") { it.documentLoaded && !it.loading }
         model.attribute("xmp:Rating", "3")
+        assertTrue(runBlocking { model.flush() })
+        await("first edit is saved") { !it.dirty }
+        assertTrue(XmpDocument(savedSidecar().readText()).attribute("xmp:Rating") == "3")
+
+        model.attribute("xmp:Rating", "4")
         assertTrue(model.state.value.dirty)
-        sidecars.failing = true
+        // Storage goes away: the sidecar path is now a directory, so reading
+        // and writing it both throw inside PhotoLibrary.
+        val saved = savedSidecar()
+        assertTrue(saved.delete())
+        assertTrue(saved.mkdir())
     }
 
     @After
-    fun tearDown() = Dispatchers.resetMain()
+    fun tearDown() {
+        Dispatchers.resetMain()
+        sidecars.deleteRecursively()
+    }
 
     @Test
     fun failedReloadKeepsTheDocumentLoadedAndDirty() {
         model.reloadSavedEdits()
 
-        val state = model.state.value
+        val state = await("reload reports its failure") { it.error != null }
+        assertTrue(state.error, state.error!!.startsWith("Could not reload saved edits"))
         assertTrue(state.documentLoaded)
         assertTrue(state.dirty)
         assertFalse(state.loading)
-        assertEquals("3", state.document.attribute("xmp:Rating"))
-        assertTrue(state.error.orEmpty().startsWith("Could not reload saved edits"))
+        assertEquals("4", state.document.attribute("xmp:Rating"))
     }
 
     @Test
     fun failedReloadThenFailedSave_IsRecoveredByDiscard() {
         model.reloadSavedEdits()
+        await("reload reports its failure") { it.error != null }
+        model.clearError()
 
         model.back()
-        assertEquals(PhotoMode.Preview, model.state.value.mode)
-        assertTrue(model.state.value.error.orEmpty().startsWith("Could not save edits"))
-        val savesBefore = sidecars.saves
+        val blocked = await("navigation is refused while the save fails") { it.error != null }
+        assertTrue(blocked.error, blocked.error!!.startsWith("Could not save edits"))
+        assertEquals(PhotoMode.Preview, blocked.mode)
 
         model.discardUnsavedEdits()
-        val discarded = model.state.value
-        assertFalse(discarded.dirty)
+        val discarded = await("edits are discarded") { !it.dirty }
         assertTrue(discarded.documentLoaded)
         assertNull(discarded.error)
-        assertNull(discarded.document.attribute("xmp:Rating"))
-        assertEquals(savesBefore, sidecars.saves)
+        assertEquals("3", discarded.document.attribute("xmp:Rating"))
+        assertTrue("discard must not write", savedSidecar().isDirectory)
 
         model.back()
-        assertEquals(PhotoMode.Browse, model.state.value.mode)
+        await("navigation proceeds") { it.mode == PhotoMode.Browse }
     }
 
     @Test
     fun discardIsANoOpWithoutUnsavedEdits() {
         model.discardUnsavedEdits()
-        assertFalse(model.state.value.dirty)
+        await("edits are discarded") { !it.dirty }
 
         model.discardUnsavedEdits()
-        assertTrue(model.state.value.documentLoaded)
-        assertNull(model.state.value.error)
+        val state = model.state.value
+        assertTrue(state.documentLoaded)
+        assertNull(state.error)
+        assertEquals("3", state.document.attribute("xmp:Rating"))
     }
 
     @Test
