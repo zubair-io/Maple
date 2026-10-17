@@ -246,7 +246,7 @@ enum XMPMaskGroupSources {
       child.qName, name, namespaces: scope(inherited, attributes: rootAttributes(child.source)))
   }
 
-  private static func explicitNamespaces(_ source: String, namespaces: [String: String]) -> String {
+  static func explicitNamespaces(_ source: String, namespaces: [String: String]) -> String {
     guard
       let nameEnd = source.firstIndex(where: { $0.isWhitespace || $0 == ">" || $0 == "/" })
     else { return source }
@@ -270,7 +270,7 @@ enum XMPMaskGroupSources {
     attributes.keys.allSatisfy { $0 == "xmlns" || $0.hasPrefix("xmlns:") }
   }
 
-  private static func scope(_ inherited: [String: String], attributes: [String: String]) -> [String:
+  static func scope(_ inherited: [String: String], attributes: [String: String]) -> [String:
     String]
   {
     inherited.merging(
@@ -283,7 +283,7 @@ enum XMPMaskGroupSources {
       }, uniquingKeysWith: { _, local in local })
   }
 
-  private static func rootAttributes(_ xml: String) -> [String: String] {
+  static func rootAttributes(_ xml: String) -> [String: String] {
     let delegate = SourceRootAttributes()
     let parser = XMLParser(data: Data(xml.utf8))
     parser.delegate = delegate
@@ -329,6 +329,7 @@ enum XMPMaskGroupSources {
   }
   private final class SourceNamespaces: NSObject, XMLParserDelegate {
     var namespaces: [String: String] = [:]
+    private var descriptionDepth = 0
     static func atFirstDescription(_ xml: String) -> [String: String] {
       let delegate = SourceNamespaces()
       let parser = XMLParser(data: Data(xml.utf8))
@@ -340,8 +341,18 @@ enum XMPMaskGroupSources {
       _ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
       qualifiedName qName: String?, attributes attributeDict: [String: String]
     ) {
-      namespaces = scope(namespaces, attributes: attributeDict)
-      if local(qName ?? elementName, "Description") { parser.abortParsing() }
+      if descriptionDepth == 0 {
+        namespaces = scope(namespaces, attributes: attributeDict)
+        if local(qName ?? elementName, "Description") { descriptionDepth = 1 }
+      } else {
+        descriptionDepth += 1
+      }
+    }
+    func parser(
+      _ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?,
+      qualifiedName qName: String?
+    ) {
+      if descriptionDepth > 0 { descriptionDepth -= 1 }
     }
   }
 }

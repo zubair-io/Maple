@@ -27,20 +27,25 @@ extension XMPParser {
     guard parser.parse() else { return .empty }
 
     let groups = XMPMaskGroupSources.collect(xml)
-    let nodes = XMPChildElementScanner.descriptionChildren(in: xml)
-      .filter {
-        if LocalAdjustmentXMP.isLocalName($0.qName, "MaskGroupBasedCorrections") {
-          return !groups.groupSources.contains($0.source)
-        }
-        if $0.qName == LocalAdjustmentXMP.brushContainer {
-          return !LocalAdjustmentXMP.isModeledBrushContainer($0.source)
-        }
-        return !XMPKnownFields.isManagedChild($0.qName)
+    let isPassthroughChild: (XMPChildElementScanner.Child) -> Bool = {
+      if LocalAdjustmentXMP.isLocalName($0.qName, "MaskGroupBasedCorrections") {
+        return !groups.groupSources.contains($0.source)
       }
+      if $0.qName == LocalAdjustmentXMP.brushContainer {
+        return !LocalAdjustmentXMP.isModeledBrushContainer($0.source)
+      }
+      return !XMPKnownFields.isManagedChild($0.qName)
+    }
+    let nodes = XMPChildElementScanner.firstDescriptionChildren(in: xml)
+      .filter(isPassthroughChild)
       .map { groups.unownedGroupSources[$0.source] ?? $0.source }
+    let preserved = XMPChildElementScanner.preservedDocumentNodes(
+      in: xml, groups: groups, isPassthroughChild: isPassthroughChild)
     return XMPPassthrough(
       unknownAttributes: delegate.unknownAttributes, unknownNodes: nodes,
       maskGroups: groups.templates,
+      unknownRdfNodes: preserved.rdfNodes,
+      unknownXmpmetaNodes: preserved.xmpmetaNodes,
       authoredRating: delegate.authoredRating, authoredLabel: delegate.authoredLabel,
       authoredColorLabel: (try? parse(xml))?.1.colorLabel)
   }

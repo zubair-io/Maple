@@ -228,3 +228,46 @@ fn legacy_maple_namespace_uri_owns_local_attributes_in_both_readers() {
         assert_eq!(parse_namespaced(&legacy).unwrap(), expected);
     }
 }
+
+#[test]
+fn multi_description_sidecar_hydrates_curves_gradients_and_retouch_across_siblings() {
+    let xml = r#"<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:tiff="http://ns.adobe.com/tiff/1.0/"
+      xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      tiff:Make="Fujifilm"
+      xmp:Rating="4"
+      crs:Exposure2012="+0.35"/>
+    <rdf:Description rdf:about=""
+      xmlns:aux="http://ns.adobe.com/exif/1.0/aux/"
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/"
+      xmlns:stEvt="http://ns.adobe.com/xap/1.0/sType/ResourceEvent#"
+      aux:Lens="XF35mmF1.4 R"
+      crs:Contrast2012="+15">
+      <crs:ToneCurvePV2012>
+        <rdf:Seq><rdf:li>0, 0</rdf:li><rdf:li>128, 140</rdf:li><rdf:li>255, 255</rdf:li></rdf:Seq>
+      </crs:ToneCurvePV2012>
+      <crs:GradientBasedCorrections>
+        <rdf:Seq><rdf:li><rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="True" crs:LocalExposure2012="0.5"><crs:CorrectionMasks><rdf:Seq><rdf:li crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroX="0.2" crs:ZeroY="0.3" crs:FullX="0.8" crs:FullY="0.7"/></rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li></rdf:Seq>
+      </crs:GradientBasedCorrections>
+      <crs:RetouchAreas>
+        <rdf:Seq><rdf:li><rdf:Description crs:SpotType="heal" crs:SourceState="sourceSetExplicitly" crs:Method="circle" crs:SourceX="0.400000" crs:SourceY="0.500000" crs:Opacity="1.000000" crs:Feather="0.250000" crs:Seed="0"><crs:Masks><rdf:Seq><rdf:li crs:What="Mask/CircularGradient" crs:MaskValue="1" crs:X="0.200000" crs:Y="0.300000" crs:Radius="0.020000" crs:Flow="1" crs:CenterWeight="0"/></rdf:Seq></crs:Masks></rdf:Description></rdf:li></rdf:Seq>
+      </crs:RetouchAreas>
+      <xmpMM:History><rdf:Seq><rdf:li stEvt:action="saved"/></rdf:Seq></xmpMM:History>
+    </rdf:Description>
+  </rdf:RDF>
+  <vendor:Audit xmlns:vendor="https://vendor.test/" vendor:Step="ingest"/>
+</x:xmpmeta>
+<?xpacket end="w"?>"#;
+    let parsed = parse(xml).unwrap();
+    assert_eq!(parse_namespaced(xml).unwrap(), parsed);
+    assert!((parsed.exposure - 0.35).abs() < 1e-6);
+    assert!((parsed.contrast - 15.0).abs() < 1e-6);
+    assert_eq!(parsed.display_tone_curve_luma.points.len(), 3);
+    assert_eq!(parsed.local_adjustments.len(), 1);
+    assert_eq!(parsed.retouch_spots.len(), 1);
+}
