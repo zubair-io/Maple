@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import app.justmaple.aperture.cloud.CloudLibrary
-import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.File
 import java.io.FileInputStream
 import java.io.OutputStream
@@ -279,7 +278,7 @@ class PhotoLibrary(private val context: Context) {
         val file =
             File(
                 folder,
-                "${digestParts("${AdjustmentFields.pipelineOutputVersion}:android-thumb-v4:${photo.key}:$edge:", sidecar.orEmpty())}.jpg",
+                "${digestParts("android-thumb-v4:${photo.key}:$edge:", sidecar.orEmpty())}.jpg",
             )
         val cached =
             synchronized(OpenThumbnail.lock) {

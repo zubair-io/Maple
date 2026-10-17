@@ -1,31 +1,40 @@
 package app.justmaple.aperture.data
 
-import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.File
 import org.junit.Assert.*
 import org.junit.Test
 
 class SharedCacheContractTest {
     @Test
-    fun portableBasenameHashesMatchAppleAndApi() {
-        assertEquals(
-            "8fd710b39cdc1a26.v${AdjustmentFields.pipelineOutputVersion}.avif",
-            SharedCacheTier.Thumbnail.filename("IMG_0001.ARW"),
-        )
-        assertEquals(
-            "88bab9b0d022c93c.v${AdjustmentFields.pipelineOutputVersion}.avif",
-            SharedCacheTier.Thumbnail.filename("panorama-test.png"),
-        )
-        assertEquals(
-            "Photo 📷.DNG.v${AdjustmentFields.pipelineOutputVersion}.avif",
-            SharedCacheTier.Preview.filename("Photo 📷.DNG"),
-        )
+    fun bothTiersUseThePlainBasename() {
+        assertEquals("IMG_1234.CR2.avif", SharedCacheTier.Thumbnail.filename("IMG_1234.CR2"))
+        assertEquals("Photo 📷.DNG.avif", SharedCacheTier.Thumbnail.filename("Photo 📷.DNG"))
+        assertEquals("Photo 📷.DNG.avif", SharedCacheTier.Preview.filename("Photo 📷.DNG"))
         assertNotEquals(
             SharedCacheTier.Thumbnail.filename("Photo.dng"),
             SharedCacheTier.Thumbnail.filename("photo.dng"),
         )
         assertThrows(IllegalArgumentException::class.java) {
             SharedCacheTier.Preview.filename("../photo.dng")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            SharedCacheTier.Thumbnail.filename("a/b.dng")
+        }
+    }
+
+    @Test
+    fun legacyNamesAreTheFrozenV25SiblingsWithHashedThumbs() {
+        assertEquals(
+            "8fd710b39cdc1a26.v25.avif",
+            SharedCacheTier.Thumbnail.legacyFilename("IMG_0001.ARW"),
+        )
+        assertEquals(
+            "88bab9b0d022c93c.v25.avif",
+            SharedCacheTier.Thumbnail.legacyFilename("panorama-test.png"),
+        )
+        assertEquals("Photo 📷.DNG.v25.avif", SharedCacheTier.Preview.legacyFilename("Photo 📷.DNG"))
+        assertThrows(IllegalArgumentException::class.java) {
+            SharedCacheTier.Thumbnail.legacyFilename("a/b.dng")
         }
     }
 

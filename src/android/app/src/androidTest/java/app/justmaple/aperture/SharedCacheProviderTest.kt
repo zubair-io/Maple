@@ -1,7 +1,6 @@
 package app.justmaple.aperture
 
 import app.justmaple.aperture.data.*
-import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.File
 import kotlinx.coroutines.*
 import org.json.JSONObject
@@ -37,7 +36,7 @@ class SharedCacheProviderTest {
         CacheProviderFixture().use { fixture ->
             val photo = fixture.library.list(fixture.root).photos.single()
             val previews = fixture.directory(fixture.directory(fixture.root, ".maple"), "previews")
-            val stem = "${photo.name}.v${AdjustmentFields.pipelineOutputVersion}"
+            val stem = photo.name
             val source = File.createTempFile("hosted-preview-", ".png", fixture.context.cacheDir)
             val encoded = File.createTempFile("hosted-preview-", ".jpg", fixture.context.cacheDir)
             try {
@@ -101,6 +100,51 @@ class SharedCacheProviderTest {
                 source.delete()
                 encoded.delete()
             }
+        }
+    }
+
+    @Test
+    fun legacyV25DerivativesAreRenamedIntoPlaceInsteadOfRegenerated() = runBlocking {
+        CacheProviderFixture().use { fixture ->
+            val photo = fixture.library.list(fixture.root).photos.single()
+            val maple = fixture.directory(fixture.root, ".maple")
+            val thumbs = fixture.directory(maple, "thumbs")
+            val previews = fixture.directory(maple, "previews")
+            Thread.sleep(20)
+            val sharedBytes = fixture.asset("srgb-rgb.avif")
+            for ((directory, tier) in
+                listOf(thumbs to SharedCacheTier.Thumbnail, previews to SharedCacheTier.Preview))
+                fixture.write(directory, tier.legacyFilename(photo.name), sharedBytes)
+            assertArrayEquals(sharedBytes, bytes(fixture.library, photo, 512))
+            assertArrayEquals(sharedBytes, bytes(fixture.library, photo, 2048))
+            for ((directory, tier) in
+                listOf(thumbs to SharedCacheTier.Thumbnail, previews to SharedCacheTier.Preview)) {
+                assertEquals(
+                    listOf(tier.filename(photo.name)),
+                    fixture.children(directory).map { it.second },
+                )
+                assertArrayEquals(
+                    sharedBytes,
+                    fixture.read(fixture.find(directory, tier.filename(photo.name))!!),
+                )
+            }
+            assertArrayEquals(fixture.original, fixture.read(photo.uri))
+        }
+    }
+
+    @Test
+    fun readOnlyFoldersServeLegacyV25DerivativesInPlace() = runBlocking {
+        CacheProviderFixture().use { fixture ->
+            val photo = fixture.library.list(fixture.root).photos.single()
+            val thumbs = fixture.directory(fixture.directory(fixture.root, ".maple"), "thumbs")
+            Thread.sleep(20)
+            val sharedBytes = fixture.asset("srgb-rgb.avif")
+            val legacyName = SharedCacheTier.Thumbnail.legacyFilename(photo.name)
+            fixture.write(thumbs, legacyName, sharedBytes)
+            fixture.mode("readOnly")
+            assertArrayEquals(sharedBytes, bytes(fixture.library, photo, 512))
+            assertEquals(listOf(legacyName), fixture.children(thumbs).map { it.second })
+            assertArrayEquals(fixture.original, fixture.read(photo.uri))
         }
     }
 

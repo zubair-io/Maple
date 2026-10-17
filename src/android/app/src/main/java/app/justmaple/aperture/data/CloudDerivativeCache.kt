@@ -1,7 +1,6 @@
 package app.justmaple.aperture.data
 
 import app.justmaple.aperture.cloud.CloudLibrary
-import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.File
 import java.io.OutputStream
 import java.nio.ByteBuffer
@@ -21,10 +20,7 @@ internal class CloudDerivativeCache(private val cloud: CloudLibrary, private val
     fun load(photo: Photo, edge: Int): CachedDerivative? {
         folder.mkdirs()
         val key =
-            digest(
-                "cloud-derivative-v1:${AdjustmentFields.pipelineOutputVersion}:${photo.key}:$edge"
-                    .toByteArray()
-            )
+            digest("cloud-derivative-v1:${photo.key}:$edge".toByteArray())
         val index = File(folder, "cloud-$key.json")
         val cached =
             synchronized(OpenThumbnail.lock) {

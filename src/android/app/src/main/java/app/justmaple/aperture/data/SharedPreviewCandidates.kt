@@ -1,7 +1,6 @@
 package app.justmaple.aperture.data
 
 import android.content.Context
-import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.ByteArrayOutputStream
 import org.json.JSONObject
 
@@ -16,12 +15,13 @@ internal fun sharedPreviewCandidates(
     entries: List<LocalDocument>,
 ): List<SharedCacheCandidate> {
     val canonical =
-        documents
-            .find(entries, tier.filename(source.photo.name))
+        (documents.find(entries, tier.filename(source.photo.name))
+                // Only reached when the provider refused the legacy rename (read-only folders).
+                ?: documents.find(entries, tier.legacyFilename(source.photo.name)))
             ?.takeIf { it.modified > source.modified }
             ?.let { SharedCacheCandidate(it, "avif") }
     if (tier == SharedCacheTier.Thumbnail) return listOfNotNull(canonical)
-    val stem = "${source.photo.name}.v${AdjustmentFields.pipelineOutputVersion}"
+    val stem = source.photo.name
     val descriptors = entries.filter { it.name == "$stem.preview.json" }
     if (descriptors.isEmpty()) {
         val receipts = entries.filter { it.name == "$stem.avif.source.json" }

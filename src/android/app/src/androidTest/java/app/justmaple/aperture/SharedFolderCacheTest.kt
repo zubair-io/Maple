@@ -13,7 +13,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import app.justmaple.aperture.data.*
-import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
@@ -31,9 +30,6 @@ class SharedFolderCacheTest {
 
     private val resolver
         get() = context.contentResolver
-
-    private val version
-        get() = AdjustmentFields.pipelineOutputVersion
 
     @Test
     fun legacyAvifDisplayBridgeReadsPinnedBytesWithoutDevelopingAgain() {
@@ -120,11 +116,13 @@ class SharedFolderCacheTest {
             val maple = directory(root, ".maple")
             val thumbs = directory(maple, "thumbs")
             val previews = directory(maple, "previews")
-            val thumbName = "${PhotoLibrary.digest("photo.dng").take(16)}.v$version.avif"
-            val previewName = "photo.dng.v$version.avif"
+            val thumbName = "photo.dng.avif"
+            val previewName = "photo.dng.avif"
+            val legacyThumbName = "${PhotoLibrary.digest("photo.dng").take(16)}.v25.avif"
             val sharedBytes = asset("srgb-rgb.avif")
-            val thumb = write(thumbs, thumbName, "image/avif", sharedBytes)
-            val preview = write(previews, previewName, "image/avif", sharedBytes)
+            // A folder written before #4793 holds the frozen versioned name; it must be adopted.
+            write(thumbs, legacyThumbName, "image/avif", sharedBytes)
+            write(previews, previewName, "image/avif", sharedBytes)
             val library = PhotoLibrary(context)
             val photo = library.list(root).photos.single()
             val staged = File(context.cacheDir, "originals/${PhotoLibrary.digest(photo.key)}.dng")
@@ -134,6 +132,8 @@ class SharedFolderCacheTest {
                 assertArrayEquals(sharedBytes, bytes(PhotoLibrary(context), photo, 2048))
             }
             assertFalse("A shared hit must not open or stage the RAW", staged.exists())
+            assertNull(find(thumbs, legacyThumbName))
+            assertNotNull(find(thumbs, thumbName))
             val xml = XmpDocument().withAttribute("crs:Exposure2012", "0.5").serialize()
             val xmp = write(root, "photo.xmp", "application/rdf+xml", xml.toByteArray())
             val editedThumb = bytes(library, photo, 128)
