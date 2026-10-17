@@ -29,11 +29,10 @@
  */
 import { promises as nodeFs } from 'node:fs';
 import type { ObjectId } from '../../db/object-id.ts';
-import * as fs from '../../fs/mirrored.ts';
-import { xmpSidecarPath } from '../../fs/xmp.ts';
 import { readExif } from '../../indexer/exif.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { repointLocation, restoreLocation } from '../../db/repos/assets.discover.sweep.ts';
+import { moveSidecarIfPresent } from './rename-reconcile-sidecar.ts';
 import { buildFileinfoEntry } from './types.ts';
 import { child } from '../../log.ts';
 import type { AssetExif, FileInfo } from '../../db/schema.ts';
@@ -242,35 +241,6 @@ export function matchExternalRenameFingerprints(
   return matches;
 }
 
-/** Moves the sidecar (if any) from the old RAW's path to the new one.
- * Same-folder only (the sweeper's per-directory diff never sees a
- * cross-folder pair), so a plain atomic `rename` is safe — both paths sit
- * on the same filesystem, no crash-safe copy+verify is needed the way a
- * cross-volume relocate would (`fs/relocate.ts`).
- *
- * Returns `false` only on a genuine move FAILURE (sidecar present but
- * couldn't be relocated). Returns `true` when there was no sidecar to move
- * at all (never edited) or the move succeeded. */
-async function moveSidecarIfPresent(oldAbsPath: string, newAbsPath: string): Promise<boolean> {
-  const oldSidecar = xmpSidecarPath(oldAbsPath);
-  try {
-    await fs.stat(oldSidecar);
-  } catch {
-    return true; // nothing to move
-  }
-  const newSidecar = xmpSidecarPath(newAbsPath);
-  try {
-    await fs.rename(oldSidecar, newSidecar);
-    return true;
-  } catch (err) {
-    log.warn(
-      { oldSidecar, newSidecar, err: err instanceof Error ? err.message : err },
-      'rename-reconcile: sidecar move failed',
-    );
-    return false;
-  }
-}
-
 /** Reverses the repoint exactly: restores the entry (now sitting at
  * `newEntry`) back to `original`'s path/filename/missing markers. Used ONLY
  * when the repoint itself succeeded but the follow-on sidecar move then
@@ -324,6 +294,7 @@ async function reconcilePair(
   fresh: NewFileCandidate,
   root: string,
   folderId: ObjectId,
+  missingFilenames: ReadonlySet<string>,
 ): Promise<boolean> {
   const newEntry = buildFileinfoEntry(root, fresh.absPath, folderId);
   if (!newEntry) {
@@ -356,7 +327,16 @@ async function reconcilePair(
     return false;
   }
 
-  if (!(await moveSidecarIfPresent(missing.absPath, fresh.absPath))) {
+  if (
+    !(await moveSidecarIfPresent(
+      missing.absPath,
+      fresh.absPath,
+      root,
+      folderId,
+      newEntry.path,
+      missingFilenames,
+    ))
+  ) {
     await rollbackRepoint(missing.docId, newEntry, missing.fileinfo);
     log.warn(
       { docId: missing.docId.toHexString() },
@@ -430,10 +410,11 @@ export async function reconcileRenamesInDirectory(
     else newGroups.set(key, [candidate]);
   }
 
+  const missingFilenames = new Set(missingCandidates.map((c) => c.filename));
   const reconciledNewFilenames = new Set<string>();
   const reconciledMissingFilenames = new Set<string>();
   for (const { missing, fresh } of resolvableBucketPairs(missingGroups, newGroups)) {
-    if (await reconcilePair(missing, fresh, root, folderId)) {
+    if (await reconcilePair(missing, fresh, root, folderId, missingFilenames)) {
       reconciledMissingFilenames.add(missing.filename);
       reconciledNewFilenames.add(fresh.filename);
     }
