@@ -266,8 +266,8 @@ jobs:
 
   allowlist-shrinks-only:
     name: allowlist-shrinks-only
-    # Only meaningful on PRs — needs a merge base to diff against.
-    if: github.event_name == 'pull_request'
+    # Compare PRs with their merge base and groups with their queued base.
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -291,13 +291,22 @@ jobs:
         if: steps.probe.outputs.have_allowlist == 'true'
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
         run: |
           set -euo pipefail
           # Fetch the base branch tip so `git merge-base` can find the true
           # fork point. checkout@v4 with fetch-depth: 0 fetches all branches'
           # commits, but not always the named ref — be explicit.
-          git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
-          merge_base="$(git merge-base "origin/${BASE_REF}" HEAD)"
+          if [ "${{ github.event_name }}" = "merge_group" ]; then
+            [[ "$GROUP_BASE" =~ ^[0-9a-fA-F]{40}$ ]] && [[ "$GROUP_HEAD" = "$(git rev-parse HEAD)" ]]
+            git cat-file -e "${GROUP_BASE}^{commit}"
+            git merge-base --is-ancestor "$GROUP_BASE" "$GROUP_HEAD"
+            merge_base="$GROUP_BASE"
+          else
+            git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+            merge_base="$(git merge-base "origin/${BASE_REF}" HEAD)"
+          fi
           echo "MERGE_BASE=${merge_base}" >> "$GITHUB_ENV"
           echo "merge base: ${merge_base}"
 
@@ -828,7 +837,7 @@ jobs:
           python3 tools/ci_result.py
           ci-selection-tests=ci nlm-exp-tests=codegen release-handoff-tests=release
           format-check=always oxlint-api=api file-budget=always
-          budget-headroom=pr-or-group allowlist-shrinks-only=pr
+          budget-headroom=pr-or-group allowlist-shrinks-only=pr-or-group
           budgets-ratchet-shrinks-only=always codegen-drift=codegen
           maple-ui-contracts=always editor-parity-manifest=always
           fallow-audit-web=web fallow-audit-api=api gitleaks=always
