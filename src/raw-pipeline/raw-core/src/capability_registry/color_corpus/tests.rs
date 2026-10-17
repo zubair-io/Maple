@@ -71,6 +71,8 @@ fn every_measured_file_and_calibration_input_invalidates_old_evidence() {
         "reference.png",
         "test-fixtures/budgets.json",
         "src/raw-pipeline/raw-core/src/color/profiles/profiles.bin",
+        "src/scripts/compare_images_chunks.py",
+        "src/scripts/compare_images_metadata.py",
     ] {
         let dir = fixture(false);
         let before = hash(dir.path()).unwrap();
@@ -91,6 +93,10 @@ fn protocol_changes_and_adobe_authoring_sidecars_count() {
     value["cases"][0]["outputs"][0]["long_edge"] = json!(2048);
     write_manifest(dir.path(), &value);
     assert_ne!(before, hash(dir.path()).unwrap());
+    let legacy = hash(dir.path()).unwrap();
+    value["cases"][0]["reference_protocol"] = json!("native-pair-lanczos-v1");
+    write_manifest(dir.path(), &value);
+    assert_ne!(legacy, hash(dir.path()).unwrap());
     value["cases"][0]["acr_xmp"] = json!("model.xmp");
     write_manifest(dir.path(), &value);
     let with_adobe = hash(dir.path()).unwrap();
