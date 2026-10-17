@@ -293,6 +293,20 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
       );
     });
 
+    it('carries an unindexed video sidecar into Trash with the replaced clip', async () => {
+      const sidecarXml = '<x:xmpmeta><clip-edits /></x:xmpmeta>';
+      await writeFile(nodePath.join(folderPath, 'clip.mov'), PREVIOUS);
+      await writeFile(nodePath.join(folderPath, 'clip.mov.xmp'), sidecarXml);
+
+      expect((await upload('clip.mov', REPLACEMENT)).status).toBe(201);
+      await expectPreviousInTrash('clip.mov');
+      const trashedSidecar = nodePath.join(folderPath, '.maple', 'trash', 'clip.mov.xmp');
+      expect(await readFile(trashedSidecar, 'utf8')).toBe(sidecarXml);
+      await expect(readFile(nodePath.join(folderPath, 'clip.mov.xmp'))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    });
+
     it('refuses to replace an existing sidecar through the raw upload path', async () => {
       const sidecar = nodePath.join(folderPath, 'photo.xmp');
       await writeFile(sidecar, PREVIOUS);
