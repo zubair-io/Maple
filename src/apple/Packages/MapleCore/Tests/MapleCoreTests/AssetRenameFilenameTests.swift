@@ -182,6 +182,8 @@ final class AssetRenameFilenameTests: XCTestCase {
     await oldSession.loadSidecar()
     oldSession.model.exposure = 0.5
     await oldSession.flushPendingSidecarWrite()
+    // Queue an edit in the suspension gap between flush and disabling writes.
+    oldSession.model.contrast = 15
     await oldSession.setSidecarWritesEnabled(false)
 
     // While relocate is in flight, the user makes another edit in the open editor.
@@ -203,6 +205,7 @@ final class AssetRenameFilenameTests: XCTestCase {
     let (persistedModel, persistedCulling) = try XMPParser.parse(
       data: Data(contentsOf: newSidecarURL))
     XCTAssertEqual(persistedModel.exposure, 0.5, accuracy: 0.001)
+    XCTAssertEqual(persistedModel.contrast, 15, accuracy: 0.001)
     XCTAssertEqual(persistedModel.shadows, 32, accuracy: 0.001)
     XCTAssertEqual(persistedCulling.stars, 5)
   }
