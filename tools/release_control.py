@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from release_ci import waiting_for
 from release_handoff import (
     CONTEXT,
     allowed_pr,
@@ -201,27 +202,11 @@ def require_green_main(repo, sha):
             f"repos/{repo}/actions/runs?head_sha={sha}&event=push&per_page=100",
         )
     )
-    latest = {}
-    for page in pages:
-        for workflow in page["workflow_runs"]:
-            latest.setdefault(workflow["name"], workflow)
-    expected = {
-        "API tests",
-        "cross",
-        "web",
-        "windows",
-        "Maple package types",
-        "Android",
-    }
-    missing = expected - latest.keys()
-    if missing:
-        raise ValueError(f"Missing main CI: {sorted(missing)}")
-    for name, workflow in latest.items():
-        # This controller can itself be the current push-triggered run.
-        if name == "release-handoff":
-            continue
-        if workflow["status"] != "completed" or workflow["conclusion"] != "success":
-            raise ValueError(f"main CI is not green: {name}: {workflow['html_url']}")
+    waiting = waiting_for(
+        [workflow for page in pages for workflow in page["workflow_runs"]], "push"
+    )
+    if waiting:
+        raise ValueError(f"main CI is not green: {', '.join(waiting)}")
 
 
 def handoff_issue(repo, tag):

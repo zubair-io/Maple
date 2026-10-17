@@ -37,6 +37,15 @@ The source release is a tag, not a second mutable release branch. The
 The bump PR auto-merges independently of the tagged Apple/store builds; those
 continue building the immutable release tag, not the updated main branch.
 
+Release readiness and the main release controller share the workflow policy in
+`tools/release_ci.py`. Android and every required workflow must complete with
+`success`; `neutral` and `skipped` do not pass. Apple and native packages run as
+pinned reusable validations before tagging main and as direct workflows on the
+release PR. Linux and raw-pipeline use path filters that exclude the version-only
+handoff, so absent runs are allowed; any present run must succeed. The main
+controller also rejects unsuccessful additional push workflows, except its own
+release-handoff run.
+
 ## One-time rollout
 
 The workflow and controller must land on main before requiring their status.
