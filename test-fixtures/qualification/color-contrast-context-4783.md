@@ -105,6 +105,36 @@ the initial calculation by at most `2.22e-16`. Two-parameter logit fits are
 retained as diagnostics only: their errors reach 11.41 code values, so they
 are not accepted as a rendering model.
 
+## Image size, sampling alignment and averaging domain
+
+Another 36 verified renders repeat the same samples at 1024/2048 pixels or
+shift the 512-pixel four-pixel checker. Enlarging every source sample by 2× or
+4× preserves the fine/coarse response split: crossings remain approximately
+0.62 versus 0.51. Native block width alone therefore does not determine the
+response. The central ramp is unchanged before repetition; cross-size analysis
+uses block medians to compare corresponding repeated samples, rather than
+claiming native pixel equality at different dimensions.
+
+Shifting the four-pixel checker horizontally by one or three pixels moves its
+crossing to about 0.60; a two-pixel shift moves it to about 0.62. Offsetting both
+axes produces a similar effect. This is consistent with aligned spatial
+reduction before measurement, although it does not prove an internal kernel.
+
+Fifteen further renders replace the fine checker surround with its arithmetic
+or power-domain mean. Arithmetic averaging of scene-linear values differs from
+the checker response by up to 8.72 code values. Means formed in a gamma 1.8 or
+2.0 domain agree with the measured response within one code value. Coarse
+quarter-mixture bins formed in the gamma 2.0 domain also agree with the shifted
+checker response within one code value. These are response differences
+(`edited − baseline`), measured over the corresponding ramp columns. The
+8-bit evidence does not distinguish the two close gamma hypotheses.
+
+Allowing both slope and offset in the existing AgX log-coordinate transform
+still leaves 3.18–6.13 code-value RMSE across the original six contrast curves.
+Thus these controls support a reduced-image brightness statistic, but neither
+identify a production statistic nor qualify a pivot-only correction. No
+per-camera constant, reference-pixel lookup or rendering change is adopted.
+
 The first chart attempt omitted `NewSubFileType` and produced zero renders.
 The DNG SDK rejects that missing tag in `dng_ifd::IsValidDNG`; adding the explicit
 main-image value zero fixes the generated format without changing its samples.
@@ -124,6 +154,9 @@ The evidence root is `/Volumes/Projects/maple-color-gate-20261015/`:
   Adobe driver, metadata checks, output hashes and per-column responses.
 - `contrast-context-layout/`: identical-population near/far/checker controls.
 - `contrast-context-frequency/`: checker frequency and phase controls.
+- `contrast-context-sampling/`: repeated-source native-size and offset controls.
+- `contrast-context-average-domain/`: averaging-domain controls and response
+  comparisons against the fine and shifted checker patterns.
 
 These controls clear zero canonical physical failures. They narrow the next
 implementation work; the broader color gate remains incomplete.
