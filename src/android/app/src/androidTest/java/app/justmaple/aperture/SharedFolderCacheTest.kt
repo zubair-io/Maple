@@ -345,6 +345,7 @@ class SharedFolderCacheTest {
             }
             Thread.sleep(100)
         }
+        capturePickerFailure("shared-folder-cache")
         error("Missing system action $label")
     }
 }
