@@ -33,6 +33,7 @@ enum XMPChildElementScanner {
     /// its end tag (or of the self-closing tag).
     let source: String
     let byteRange: Range<Int>
+    var inheritedNamespaces: [String: String] = [:]
   }
 
   private static let lt = UInt8(ascii: "<")
@@ -42,6 +43,18 @@ enum XMPChildElementScanner {
   private static let question = UInt8(ascii: "?")
   private static let doubleQuote = UInt8(ascii: "\"")
   private static let singleQuote = UInt8(ascii: "'")
+  private static let canonicalNamespaces: [String: Set<String>] = [
+    "rdf": ["http://www.w3.org/1999/02/22-rdf-syntax-ns#"],
+    "xmp": ["http://ns.adobe.com/xap/1.0/"],
+    "crs": ["http://ns.adobe.com/camera-raw-settings/1.0/"],
+    "papp": ["http://ns.justmaple.app/photo/1.0/", "http://ns.justmaple.app/1.0/"],
+    "maple": ["https://maple.app/ns/1.0/"],
+    "dc": ["http://purl.org/dc/elements/1.1/"],
+    "exif": ["http://ns.adobe.com/exif/1.0/"],
+    "photoshop": ["http://ns.adobe.com/photoshop/1.0/"],
+    "Iptc4xmpCore": ["http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/"],
+    "xmpRights": ["http://ns.adobe.com/xap/1.0/rights/"],
+  ]
 
   /// Scan `xml` and return every direct child element of same-subject
   /// top-level `rdf:Description` elements, in document order (#4690).
@@ -56,7 +69,16 @@ enum XMPChildElementScanner {
     return
       descriptions
       .filter { sharesContext($0.source, with: first.source) }
-      .flatMap { elementChildren(in: $0.source, rootLocalName: "Description") }
+      .flatMap { description in
+        let scope = XMPMaskGroupSources.scope(
+          envelope.fullRdfNamespaces,
+          attributes: XMPMaskGroupSources.rootAttributes(description.source))
+        return elementChildren(in: description.source, rootLocalName: "Description").map {
+          var child = $0
+          child.inheritedNamespaces = scope
+          return child
+        }
+      }
   }
 
   /// Direct child elements of the first `rdf:Description` only.
@@ -68,7 +90,22 @@ enum XMPChildElementScanner {
     guard let first = descriptions.first else {
       return elementChildren(in: xml, rootLocalName: "Description")
     }
-    return elementChildren(in: first.source, rootLocalName: "Description")
+    let scope = XMPMaskGroupSources.scope(
+      envelope.fullRdfNamespaces, attributes: XMPMaskGroupSources.rootAttributes(first.source))
+    return elementChildren(in: first.source, rootLocalName: "Description").map {
+      var child = $0
+      child.inheritedNamespaces = scope
+      return child
+    }
+  }
+
+  static func canonicalQualifiedName(_ qName: String, namespaces: [String: String]) -> String? {
+    let parts = qName.split(separator: ":", maxSplits: 1).map(String.init)
+    guard parts.count == 2 else { return qName }
+    guard let uri = namespaces[parts[0]],
+      let prefix = canonicalNamespaces.first(where: { $0.value.contains(uri) })?.key
+    else { return nil }
+    return prefix + ":" + parts[1]
   }
 
   private static func isRdfElement(
@@ -140,9 +177,12 @@ enum XMPChildElementScanner {
         if isRdfElement(child, localName: "Description", inherited: env.fullRdfNamespaces),
           let primary = firstDescription
         {
+          let descNamespaces = XMPMaskGroupSources.scope(
+            env.fullRdfNamespaces, attributes: XMPMaskGroupSources.rootAttributes(child.source))
           let stripped = withoutModeledFields(
             child.source,
             sharesPrimaryContext: sharesContext(child.source, with: primary.source),
+            namespaces: descNamespaces,
             isPassthroughChild: isPassthroughChild,
             unownedGroupSources: groups.unownedGroupSources)
           return XMPMaskGroupSources.explicitNamespaces(stripped, namespaces: env.rdfNamespaces)
@@ -159,6 +199,7 @@ enum XMPChildElementScanner {
   private static func withoutModeledFields(
     _ source: String,
     sharesPrimaryContext: Bool,
+    namespaces: [String: String],
     isPassthroughChild: (Child) -> Bool,
     unownedGroupSources: [String: String]
   ) -> String {
@@ -169,12 +210,25 @@ enum XMPChildElementScanner {
     var edits: [(range: Range<Int>, replacement: String)] = rootAttributeRanges(
       bytes, openTagEnd: openTag.end
     )
-    .filter { XMPKnownFields.isModeledDescriptionAttribute($0.name) }
+    .filter { attr in
+      guard let canonical = canonicalQualifiedName(attr.name, namespaces: namespaces) else {
+        return false
+      }
+      return XMPKnownFields.isModeledDescriptionAttribute(canonical)
+    }
     .map { (range: $0.range, replacement: "") }
 
     if !openTag.selfClosing {
       for child in elementChildren(in: source, rootLocalName: "Description") {
-        if !isPassthroughChild(child) {
+        let childNamespaces = XMPMaskGroupSources.scope(
+          namespaces, attributes: XMPMaskGroupSources.rootAttributes(child.source))
+        let canonicalQName = canonicalQualifiedName(child.qName, namespaces: childNamespaces)
+        let resolvedChild = canonicalQName.map {
+          Child(
+            qName: $0, source: child.source, byteRange: child.byteRange,
+            inheritedNamespaces: namespaces)
+        }
+        if let resolvedChild, !isPassthroughChild(resolvedChild) {
           var start = child.byteRange.lowerBound
           while start > openTag.end && (bytes[start - 1] == 0x20 || bytes[start - 1] == 0x09) {
             start -= 1
