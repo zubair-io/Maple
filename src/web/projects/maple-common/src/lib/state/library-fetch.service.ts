@@ -1076,14 +1076,7 @@ export class LibraryFetch {
     this.store.markSessionEdited(id);
 
     const fullModel = this.store.adjustmentModels().get(id) ?? defaultAdjustmentModel();
-    const culling: XmpCulling = {
-      rating: asset.rating,
-      flag: asset.flag,
-      colorLabel: asset.colorLabel,
-      // IPTC keywords (#632) — round-tripped through dc:subject. Empty
-      // / undefined writes the same default-no-element sidecar.
-      keywords: asset.keywords ?? [],
-    };
+    const culling = this._cullingFor(asset);
 
     if (this.store.backend === 'self-hosted') {
       if (adjustmentPatch) {
@@ -1101,22 +1094,37 @@ export class LibraryFetch {
       this.singleFileXmp.markEdited(id);
       return;
     }
-    // The sidecar name comes from the asset but the directory from the open
-    // folder, so an asset another folder owns would overwrite that folder's
-    // same-basename sidecar with a foreign model (#4683).
-    const folderSlug = this.slugRegistry.slugFor(folder);
-    if (!folderSlug || `f-${folderSlug}` !== asset.folderId) {
-      const revision = this.sidecarSave.queued(id);
-      this.sidecarSave.failed(
-        id,
-        revision,
-        new Error(
-          `Sidecar for ${asset.filename} belongs to ${asset.folderId}, not the open folder`,
-        ),
-      );
-      return;
-    }
+    if (this._refuseForeignFolderWrite(id, asset, folder)) return;
     this.xmpStore.scheduleWrite(id, folder, asset.filename, fullModel, culling);
+  }
+
+  private _cullingFor(asset: Asset): XmpCulling {
+    return {
+      rating: asset.rating,
+      flag: asset.flag,
+      colorLabel: asset.colorLabel,
+      // IPTC keywords (#632) — round-tripped through dc:subject. Empty
+      // / undefined writes the same default-no-element sidecar.
+      keywords: asset.keywords ?? [],
+    };
+  }
+
+  /**
+   * The sidecar name comes from the asset but the directory from the open
+   * folder, so an asset another folder owns would overwrite that folder's
+   * same-basename sidecar with a foreign model (#4683). Reports the refusal
+   * through the save state and returns true when the write must not happen.
+   */
+  private _refuseForeignFolderWrite(id: AssetId, asset: Asset, folder: MapleFolderHandle): boolean {
+    const folderSlug = this.slugRegistry.slugFor(folder);
+    if (folderSlug && `f-${folderSlug}` === asset.folderId) return false;
+    const revision = this.sidecarSave.queued(id);
+    this.sidecarSave.failed(
+      id,
+      revision,
+      new Error(`Sidecar for ${asset.filename} belongs to ${asset.folderId}, not the open folder`),
+    );
+    return true;
   }
 
   private _scheduleApiXmpWrite(id: AssetId, culling: XmpCulling, model: AdjustmentModel): void {
