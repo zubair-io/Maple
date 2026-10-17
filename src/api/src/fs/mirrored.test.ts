@@ -6,8 +6,9 @@
  * out-of-root paths do NOT, and a mirror failure never breaks the primary op.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import realFs from 'node:fs/promises';
+import * as realFsNs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import * as fs from './mirrored.ts';
@@ -70,6 +71,49 @@ describe('mirrored fs fan-out', () => {
 
     expect(await realFs.readFile(onPrimary('IMG.dng'), 'utf8')).toBe('raw-bytes');
     expect(await realFs.readFile(onMirror('IMG.dng'), 'utf8')).toBe('raw-bytes');
+  });
+
+  // #4694 — a trash move followed by a publish rename of the same live path
+  // must replicate in that order even when the mirror is slow, or the mirror's
+  // trash copy ends up holding the replacement bytes and the live path is lost.
+  test('mirror ops on the same primary path run in issue order', async () => {
+    const live = onPrimary('clip.mov');
+    const trashed = onPrimary('.maple/trash/clip.mov');
+    const tmp = onPrimary('.upload-tmp');
+    await realFs.writeFile(live, 'previous');
+    await fs.flushPendingMirrorOps();
+    await realFs.mkdir(onPrimary('.maple/trash'), { recursive: true });
+    await realFs.writeFile(tmp, 'replacement');
+
+    // Hold the trash move's mirror rename until the publish's replication has
+    // had every chance to land first (or a short grace period passes). Without
+    // per-path ordering the publish copies 'replacement' onto the mirror's
+    // live path and the delayed trash rename then moves THOSE bytes to Trash.
+    const mirrorLiveHoldsReplacement = async () =>
+      (await realFs.readFile(onMirror('clip.mov'), 'utf8').catch(() => '')) === 'replacement';
+    const realRename = realFsNs.rename;
+    let stalled = false;
+    const renameSpy = spyOn(realFsNs, 'rename').mockImplementation(async (from, to) => {
+      if (!stalled && String(from) === onMirror('clip.mov')) {
+        stalled = true;
+        const deadline = Date.now() + 300;
+        while (Date.now() < deadline && !(await mirrorLiveHoldsReplacement())) {
+          await new Promise((r) => setTimeout(r, 5));
+        }
+      }
+      return realRename(from, to);
+    });
+    try {
+      await fs.rename(live, trashed);
+      await fs.rename(tmp, live);
+      await fs.flushPendingMirrorOps();
+    } finally {
+      renameSpy.mockRestore();
+    }
+
+    expect(stalled).toBe(true);
+    expect(await realFs.readFile(onMirror('.maple/trash/clip.mov'), 'utf8')).toBe('previous');
+    expect(await realFs.readFile(onMirror('clip.mov'), 'utf8')).toBe('replacement');
   });
 
   test('copyFile replicates and creates mirror parent dirs', async () => {

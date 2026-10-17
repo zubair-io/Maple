@@ -279,6 +279,20 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
       await expectPreviousInTrash('notes.txt');
     });
 
+    it('leaves a same-stem photo sidecar alone when replacing a plain file', async () => {
+      const sidecarXml = '<x:xmpmeta><edits /></x:xmpmeta>';
+      await writeFile(nodePath.join(folderPath, 'photo.dng'), PREVIOUS);
+      await writeFile(nodePath.join(folderPath, 'photo.xmp'), sidecarXml);
+      await writeFile(nodePath.join(folderPath, 'photo.txt'), PREVIOUS);
+
+      expect((await upload('photo.txt', REPLACEMENT)).status).toBe(201);
+      await expectPreviousInTrash('photo.txt');
+      expect(await readFile(nodePath.join(folderPath, 'photo.xmp'), 'utf8')).toBe(sidecarXml);
+      expect(new Uint8Array(await readFile(nodePath.join(folderPath, 'photo.dng')))).toEqual(
+        PREVIOUS,
+      );
+    });
+
     it('refuses to replace an existing sidecar through the raw upload path', async () => {
       const sidecar = nodePath.join(folderPath, 'photo.xmp');
       await writeFile(sidecar, PREVIOUS);

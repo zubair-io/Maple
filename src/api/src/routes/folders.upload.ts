@@ -4,7 +4,7 @@
  * sidecar is never replaced here — sidecars are written through the XMP routes
  * with their preconditions, so the raw upload answers 409 instead. */
 import * as path from 'node:path';
-import { flushPendingMirrorOps, open, rename, stat, unlink, utimes } from '../fs/mirrored.ts';
+import { open, rename, stat, unlink, utimes } from '../fs/mirrored.ts';
 import {
   RAW_EXTENSIONS,
   BITMAP_EXTENSIONS,
@@ -127,13 +127,8 @@ async function trashExistingUpload(input: UploadTarget): Promise<TrashedReplacem
       directory,
       filename,
     );
-    if (moved.kind === 'ok') {
-      // The Trash move's mirror rename is scheduled, not awaited; let it land
-      // before the replacement's own rename is scheduled for the same path,
-      // or a slow mirror can file the new bytes under the old name in Trash.
-      await flushPendingMirrorOps();
+    if (moved.kind === 'ok')
       return existing ? { docId: existing._id, newAbsPath: moved.newAbsPath } : undefined;
-    }
     // Another actor may have completed the move; it owns the Trash update.
     if (await sourceExists(absPath)) throw new Error(moved.error);
   } catch (error) {

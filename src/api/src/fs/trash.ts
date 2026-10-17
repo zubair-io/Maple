@@ -163,6 +163,21 @@ export async function moveToTrash(
   return toMoveResult(outcome);
 }
 
+/** Move one plain file to Trash on its own. Unlike `moveToTrash` this never
+ * touches `.xmp` files that share the stem — they pair with a photo, not with
+ * `notes.txt` (#4694). */
+export async function moveFileToTrash(absPath: string, folderRoot: string): Promise<MoveResult> {
+  const outcome = await relocateFile({
+    sourceAbsPath: absPath,
+    destAbsPath: computeTrashPath(absPath, folderRoot),
+    mode: 'move',
+    collision: 'auto-suffix',
+    callerTag: 'moveFileToTrash',
+    carrySidecars: false,
+  });
+  return toMoveResult(outcome);
+}
+
 /**
  * Move a trashed RAW (and its paired sidecars) from `trashAbsPath` back
  * to `targetAbsPath`. If the target collides, a `.restored[.N]` suffix is
