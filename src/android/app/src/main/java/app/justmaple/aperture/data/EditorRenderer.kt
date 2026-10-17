@@ -64,11 +64,14 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
         }
 
     private var modelXml = ""
-    @Volatile private var modelStale = false
+    // Counted, not flagged: a draw already running when a restore arrives
+    // reloads for the invalidation it saw and leaves the newer one pending.
+    @Volatile private var invalidations = 0
+    private var reloadedInvalidation = 0
     private var values = emptyMap<String, Float>()
 
     override fun invalidateModel() {
-        modelStale = true
+        invalidations += 1
     }
 
     override suspend fun open(
@@ -83,7 +86,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
             if (renderer == 0L) renderer = NativeBridge.createRenderer()
             handle = NativeBridge.open(path, document, edge, renderer)
             modelXml = document
-            modelStale = false
+            reloadedInvalidation = invalidations
             values = readValues()
             appliedRevision = revision
             applySurface(currentSurface)
@@ -154,17 +157,16 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
     ) =
         withContext(dispatcher) {
             if (handle == 0L || expectedRevision != revision) return@withContext
-            if (EditorDrawPlan.needsReload(xml, modelXml, modelStale, values, next)) {
+            val seenInvalidation = invalidations
+            if (EditorDrawPlan.needsReload(xml, modelXml, seenInvalidation, reloadedInvalidation)) {
                 NativeBridge.setModel(handle, xml)
                 modelXml = xml
-                modelStale = false
+                reloadedInvalidation = seenInvalidation
                 values = readValues()
             }
-            // White balance first: its setter marks the model Manual, which the
-            // remaining fields must not undo.
-            val ordered = AdjustmentFields.all.sortedBy { it.name != "temperature" && it.name != "tint" }
-            for (field in EditorDrawPlan.fieldsToApply(values, next, ordered))
-                NativeBridge.setField(handle, field.index, next.getValue(field.name))
+            EditorDrawPlan.forEachFieldToApply(values, next) { field, value ->
+                NativeBridge.setField(handle, field.index, value)
+            }
             values = next
             appliedRevision = expectedRevision
             renderCurrent(expectedRevision)

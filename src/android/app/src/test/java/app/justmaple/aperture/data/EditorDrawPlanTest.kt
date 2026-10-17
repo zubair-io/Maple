@@ -1,47 +1,57 @@
 package app.justmaple.aperture.data
 
-import app.justmaple.aperture.generated.AdjustmentFields
 import org.junit.Assert.*
 import org.junit.Test
 
 /** Undo back to the original document must reload the native model (#4766). */
 class EditorDrawPlanTest {
     private val original = "<xml original/>"
-    private val shot = mapOf("_shot_temperature" to 7400f, "_shot_tint" to 22f)
-    private val asShot = shot + mapOf("temperature" to 7400f, "tint" to 22f, "exposure" to 0f)
+    private val asShot = mapOf("temperature" to 7400f, "tint" to 22f, "exposure" to 0f)
     private val dragged = asShot + mapOf("temperature" to 4000f)
 
+    private fun pushed(applied: Map<String, Float>, next: Map<String, Float>): List<String> =
+        buildList { EditorDrawPlan.forEachFieldToApply(applied, next) { field, _ -> add(field.name) } }
+
     @Test
-    fun undoToIdenticalXmlAfterAFieldPush_reloadsTheModel() {
-        assertTrue(EditorDrawPlan.needsReload(original, original, modelStale = true, dragged, asShot))
+    fun restoreToIdenticalXmlAfterAFieldPush_reloadsTheModel() {
+        // invalidateModel() ran once since the last reload.
+        assertTrue(EditorDrawPlan.needsReload(original, original, invalidations = 1, reloadedInvalidation = 0))
     }
 
     @Test
     fun sliderTickWithUnchangedXml_doesNotReload() {
-        val tick = dragged + mapOf("temperature" to 4100f)
-        assertFalse(EditorDrawPlan.needsReload(original, original, modelStale = false, dragged, tick))
-        assertEquals(listOf("temperature", "tint"),
-            EditorDrawPlan.fieldsToApply(dragged, tick, AdjustmentFields.all).map { it.name })
-    }
-
-    @Test
-    fun whiteBalanceBackAtAsShot_isAReloadNotAFieldPush() {
-        // The as-shot pair can sit outside the slider range and its setter
-        // would mark the model Manual; the document already says as-shot.
-        assertTrue(EditorDrawPlan.needsReload(original, original, modelStale = false, dragged, asShot))
-        assertTrue(EditorDrawPlan.fieldsToApply(dragged, asShot, AdjustmentFields.all).isEmpty())
-    }
-
-    @Test
-    fun otherFieldsStillPushIncrementally() {
-        val next = asShot + mapOf("exposure" to 0.5f)
-        assertFalse(EditorDrawPlan.needsReload(original, original, modelStale = false, asShot, next))
-        assertEquals(listOf("exposure"),
-            EditorDrawPlan.fieldsToApply(asShot, next, AdjustmentFields.all).map { it.name })
+        assertFalse(EditorDrawPlan.needsReload(original, original, invalidations = 1, reloadedInvalidation = 1))
     }
 
     @Test
     fun aDifferentDocumentAlwaysReloads() {
-        assertTrue(EditorDrawPlan.needsReload("<xml edited/>", original, modelStale = false, asShot, asShot))
+        assertTrue(EditorDrawPlan.needsReload("<xml edited/>", original, invalidations = 1, reloadedInvalidation = 1))
+    }
+
+    @Test
+    fun anInvalidationDuringAnOlderDraw_isNotConsumedByIt() {
+        // The older draw saw invalidation 1 and reloaded for it; a restore
+        // that arrived meanwhile is invalidation 2 and still forces a reload.
+        assertTrue(EditorDrawPlan.needsReload(original, original, invalidations = 2, reloadedInvalidation = 1))
+    }
+
+    @Test
+    fun afterAReloadToAsShot_matchingValuesPushNothing() {
+        // The reloaded model reports the as-shot pair; the restored snapshot
+        // carries the same floats, so no setter runs and nothing turns Manual.
+        assertTrue(pushed(asShot, asShot).isEmpty())
+    }
+
+    @Test
+    fun whiteBalancePushesBothFieldsFirst_otherFieldsIncrementally() {
+        assertEquals(listOf("temperature", "tint"), pushed(asShot, dragged))
+        assertEquals(listOf("exposure"), pushed(asShot, asShot + mapOf("exposure" to 0.5f)))
+        assertEquals(listOf("temperature", "tint", "exposure"), pushed(asShot, dragged + mapOf("exposure" to 0.5f)))
+    }
+
+    @Test
+    fun fieldOrderIsComputedOnce() {
+        assertSame(EditorDrawPlan.orderedFields, EditorDrawPlan.orderedFields)
+        assertEquals(listOf("temperature", "tint"), EditorDrawPlan.orderedFields.take(2).map { it.name })
     }
 }
