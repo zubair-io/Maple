@@ -59,6 +59,7 @@ export class MuiListRowComponent {
   }
 
   onKeydown(event: KeyboardEvent): void {
+    if (event.target !== event.currentTarget) return;
     handleActivationKeydown(event, () => this.onRowClick());
   }
 }
