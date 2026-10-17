@@ -357,7 +357,7 @@
             }
             guard hero?.asset.id != entry.id else { return }
             selectedTileFrame = nil
-            heroPhase = .opening
+            if hero == nil { heroPhase = .opening }
             hero = PreviewHeroSubject(
               asset: entry,
               image: ThumbnailDecoder.cachedImage(forKey: entry.stableID ?? entry.id.uuidString))

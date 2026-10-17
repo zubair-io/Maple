@@ -5,7 +5,8 @@ import Foundation
 @MainActor
 extension EditSession {
   var sidecarStore: (any SidecarStoreProtocol)? {
-    workflow.selectedStore ?? primarySidecarStore
+    guard !sidecarWritesDisabled else { return nil }
+    return workflow.selectedStore ?? primarySidecarStore
   }
   func observeSidecarErrors() {
     sidecarErrorTask?.cancel()

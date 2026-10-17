@@ -87,12 +87,17 @@ extension AppShell {
     }
     renameError = nil
     Task { @MainActor in
+      if let existingSession = sessions[asset.id] {
+        await existingSession.flushPendingSidecarWrite()
+        existingSession.setSidecarWritesEnabled(false)
+      }
       do {
         let newAsset = try await performRename(asset: asset, to: newFilename)
         applyRenamed(oldID: asset.id, newAsset: newAsset)
         renamingAssetID = nil
         renameError = nil
       } catch {
+        sessions[asset.id]?.setSidecarWritesEnabled(true)
         renameError = error.localizedDescription
       }
     }
@@ -192,11 +197,17 @@ extension AppShell {
       browseVM.selectedIDs.remove(oldID)
       browseVM.selectedIDs.insert(newAsset.id)
     }
+    sessions[oldID]?.setSidecarWritesEnabled(false)
     sessions.removeValue(forKey: oldID)
+    ensureSession(for: newAsset)
     if wasSelected {
       browseVM.selectedID = newAsset.id
     }
-    ensureSession(for: newAsset)
+    #if os(iOS)
+      if wasSelected || libraryPath.contains(where: { $0.asset.id == oldID }) {
+        libraryPath = LibraryDestination.replacingAsset(in: libraryPath, with: newAsset)
+      }
+    #endif
   }
 }
 

@@ -54,7 +54,11 @@ final class DisplayPreviewPersistence {
     } while true
   }
 
-  func discardPendingImage() { pendingImage = nil }
+  func discardPendingImage() {
+    idleTask?.cancel()
+    idleTask = nil
+    pendingImage = nil
+  }
 
   /// The caller has accepted the GPU readback. Drain CPU work once more after
   /// cache/thumbnail awaits so an older encode cannot overwrite this frame.

@@ -23,7 +23,9 @@ extension EditSession {
   }
 
   public func scheduleDisplayPreviewPersist(_ rendered: CIImage) {
-    guard workflow.selectedVariantId == WorkflowContract.primaryVariantID else { return }
+    guard !sidecarWritesDisabled,
+      workflow.selectedVariantId == WorkflowContract.primaryVariantID
+    else { return }
     previewPersistence.schedule(rendered)
   }
 
@@ -56,6 +58,7 @@ extension EditSession {
   /// drop the final write if the session deallocated on teardown (jules
   /// review, #2009).
   public func persistDisplayPreviewOnExit() async {
+    guard !sidecarWritesDisabled else { return }
     let exitModel = model
     // Files bookmarks grant access on the resolved parent, not on child URLs.
     // Access extends the process sandbox, including the background writers.

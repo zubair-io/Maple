@@ -372,10 +372,11 @@ public final class EditSession {
   @ObservationIgnored let primarySidecarStore: (any SidecarStoreProtocol)?
   /// Tail of the existing sidecar forwarding tasks, joined by an exit flush.
   @ObservationIgnored var sidecarUpdateTask: Task<Void, Never>?
-
+  /// Flips on when this session's asset is being renamed (#4711), blocking
+  /// further sidecar/preview writes to the pre-rename path.
+  @ObservationIgnored var sidecarWritesDisabled = false
   /// Owns pending preview/debounce/write lifetime; session guards remain here.
   @ObservationIgnored let previewPersistence: DisplayPreviewPersistence
-
   @ObservationIgnored var sidecarErrorTask: Task<Void, Never>?
 
   /// The wgpu live-render driver (epic #925, P4b-apple / #1028). Created
