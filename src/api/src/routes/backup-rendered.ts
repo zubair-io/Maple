@@ -41,6 +41,9 @@ import { backupId, backupChunkRange, backupLibrary, backupLibraryId } from './ba
 import { openChunkSession, takeChunk } from './backup-chunk.ts';
 import { Elysia, t } from 'elysia';
 import { setAppleRenderedPath } from '../db/repos/backup.repo.ts';
+import { assetOwnsRelPath } from '../db/repos/assets.location-owner.ts';
+import { filesIdentical, firstFreeSiblingPath, moveNoClobber } from '../backup/fs-util.ts';
+import type { ObjectId } from '../db/object-id.ts';
 import { uploadSessions } from '../backup/upload-session.ts';
 import { isSafeFilenamePart, containedJoin } from '../backup/path-safety.ts';
 import { child as childLogger } from '../log.ts';
@@ -202,15 +205,19 @@ function unsafeFilenamePart(ext: string | undefined, suffix: string | undefined)
 }
 
 /**
- * Moves the assembled companion into the library.
+ * Moves the assembled companion into the library and returns the rel path it
+ * actually landed at.
  *
- * `EEXIST` is success, not a failure: another device won the race past the
- * cloud-id check and its copy is already at the canonical path. The asset
- * update that follows either already points there or is about to, so the loser
- * drops its temporary copy and reports the same result.
+ * An existing file at the target is adopted only when it holds the same bytes
+ * (another device won the race past the cloud-id check) and no asset owns that
+ * path. Anything else — an unrelated file, or another asset's original under a
+ * case alias — would be recorded as this photo's companion and deleted with it
+ * on a Trash purge (#4695), so the upload takes the first free suffixed name
+ * instead.
  */
 async function placeRenderedFile(
   tmpFile: string,
+  libraryId: ObjectId,
   libraryRoot: string,
   relPath: string,
 ): Promise<Response | string> {
@@ -219,13 +226,27 @@ async function placeRenderedFile(
   const finalPath = containedJoin(libraryRoot, relPath);
   if (!finalPath) return badRequest('resolved path escapes library root');
   await fs.mkdir(path.dirname(finalPath), { recursive: true });
-  try {
-    await atomicMove(tmpFile, finalPath);
-  } catch (e: unknown) {
-    if ((e as { code?: unknown } | null)?.code !== 'EEXIST') throw e;
-    await fs.unlink(tmpFile).catch(() => {});
+  if (!(await assetOwnsRelPath(libraryId, relPath))) {
+    try {
+      await atomicMove(tmpFile, finalPath);
+      return relPath;
+    } catch (e: unknown) {
+      if ((e as { code?: unknown } | null)?.code !== 'EEXIST') throw e;
+      if (await filesIdentical(tmpFile, finalPath)) {
+        await fs.unlink(tmpFile).catch(() => {});
+        return relPath;
+      }
+    }
   }
-  return finalPath;
+  const isTaken = (candidate: string) => assetOwnsRelPath(libraryId, candidate);
+  for (let attempt = 0; attempt < 16; attempt++) {
+    const free = await firstFreeSiblingPath(libraryRoot, relPath, isTaken);
+    if (await moveNoClobber(tmpFile, free.absPath)) {
+      log.warn({ requested: relPath, placed: free.relPath }, 'rendered companion target occupied');
+      return free.relPath;
+    }
+  }
+  throw new Error(`no free name for rendered companion ${relPath}`);
 }
 
 /**
@@ -315,7 +336,7 @@ export const backupRenderedRoutes = new Elysia().post(
     // Final chunk — move assembled file into place + update AssetDoc.
     // -----------------------------------------------------------------------
 
-    const placed = await placeRenderedFile(tmpFile, folder.path, resolvedTargetRelPath);
+    const placed = await placeRenderedFile(tmpFile, libraryId, folder.path, resolvedTargetRelPath);
     if (placed instanceof Response) return placed;
     await uploadSessions.complete({ sessionId: session._id, mapleId });
 
@@ -323,11 +344,11 @@ export const backupRenderedRoutes = new Elysia().post(
     // drop-abs-path-2026-05-21 the per-library pointer is the asset's
     // locations, so the update is scoped by a location in this library plus
     // the content-addressed `maple_id`.
-    await setAppleRenderedPath(libraryId, mapleId, resolvedTargetRelPath);
+    await setAppleRenderedPath(libraryId, mapleId, placed);
 
-    log.debug({ phid, targetRelPath: resolvedTargetRelPath, mapleId }, 'rendered ingest complete');
+    log.debug({ phid, targetRelPath: placed, mapleId }, 'rendered ingest complete');
     set.status = 200;
-    return { target_rel_path: resolvedTargetRelPath };
+    return { target_rel_path: placed };
   },
   {
     params: t.Object({ libraryId: t.String() }),
