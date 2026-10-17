@@ -1,0 +1,66 @@
+@if (visible() && handoff(); as req) {
+  <div
+    class="native-handoff-consent-scrim pointer-events-auto fixed inset-0 z-[210] flex items-center justify-center bg-[rgba(0,0,0,0.55)] p-4"
+    data-testid="native-handoff-consent"
+  >
+    <div
+      class="native-handoff-consent-dialog flex w-[min(400px,calc(100vw-32px))] flex-col gap-3 rounded-lg border border-border bg-surface p-6 text-text-main shadow-[0_12px_28px_rgba(0,0,0,0.35)] outline-none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="native-handoff-consent-title"
+      (keydown.escape)="cancel()"
+    >
+      <mui-text id="native-handoff-consent-title" variant="row-label" [block]="true">
+        Sign in to Maple app?
+      </mui-text>
+      <mui-text variant="body" color="muted" [block]="true">
+        A native Maple app is requesting access to your account. Approve only if you started this
+        sign-in from the app.
+      </mui-text>
+      <dl class="m-0 flex flex-col gap-1.5 rounded-md border border-border bg-bg p-3 text-xs">
+        <div class="flex items-center justify-between gap-3">
+          <dt class="text-text-muted">Account</dt>
+          <dd class="m-0 truncate font-medium text-text-main" data-testid="native-handoff-user">
+            {{ userLabel() }}
+          </dd>
+        </div>
+        <div class="flex items-center justify-between gap-3">
+          <dt class="text-text-muted">Platform</dt>
+          <dd class="m-0 truncate font-medium text-text-main" data-testid="native-handoff-platform">
+            {{ req.platform }}
+          </dd>
+        </div>
+        <div class="flex items-center justify-between gap-3">
+          <dt class="text-text-muted">Device</dt>
+          <dd class="m-0 truncate font-medium text-text-main" data-testid="native-handoff-device">
+            {{ req.device }}
+          </dd>
+        </div>
+      </dl>
+      @if (error(); as err) {
+        <mui-text variant="body" color="error" [block]="true" data-testid="native-handoff-error">
+          {{ err }}
+        </mui-text>
+      }
+      <div class="mt-1 flex justify-end gap-2">
+        <mui-button
+          variant="ghost"
+          testId="native-handoff-cancel"
+          [disabled]="busy()"
+          (pressed)="cancel()"
+        >
+          Cancel
+        </mui-button>
+        <mui-button
+          variant="primary"
+          testId="native-handoff-approve"
+          [loading]="busy()"
+          [disabled]="busy()"
+          (pressed)="approve()"
+        >
+          Approve sign-in
+        </mui-button>
+      </div>
+    </div>
+  </div>
+}

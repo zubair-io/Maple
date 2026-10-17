@@ -208,6 +208,8 @@ export * from './lib/auth/auth.service';
 export * from './lib/auth/auth.guard';
 export * from './lib/auth/auth.interceptor';
 export * from './lib/auth/auth-bootstrap';
+export * from './lib/auth/native-handoff';
+export * from './lib/auth/native-handoff-consent.component';
 
 // Deep links (responsive-program #624) — maple:// scheme + HTTPS
 // shim resolved to Angular Router navigations.

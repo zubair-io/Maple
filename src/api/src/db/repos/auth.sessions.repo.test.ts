@@ -382,6 +382,56 @@ describe('native login handoff', () => {
     const rows = await db.read<Record<string, unknown>>(`SELECT * FROM native_auth_codes`);
     expect(JSON.stringify(rows)).not.toContain(code);
   });
+
+  test('the polling claim is bound to the issuing IP unless the redirect code is presented (#4673)', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const userId = await seedUser(db);
+    const { code } = await issueNativeCode(
+      {
+        userId,
+        codeChallenge: pkceS256(verifier),
+        state: 'state-ip-bound',
+        deviceLabel: 'Mac',
+        issuedIp: '203.0.113.10',
+      },
+      db,
+    );
+
+    // Remote caller on a different IP without the code is refused and does not burn the code.
+    expect(
+      await claimNativeCode('state-ip-bound', verifier, { callerIp: '198.51.100.99' }, db),
+    ).toBeNull();
+
+    // Same-IP caller succeeds.
+    const sameIp = await claimNativeCode(
+      'state-ip-bound',
+      verifier,
+      { callerIp: '203.0.113.10' },
+      db,
+    );
+    expect(sameIp?.userId.toHexString()).toBe(userId.toHexString());
+    expect(code.length).toBeGreaterThan(10);
+
+    // Or a caller holding the redirect-bound code succeeds even if client IP changed.
+    const second = await issueNativeCode(
+      {
+        userId,
+        codeChallenge: pkceS256(verifier),
+        state: 'state-code-bound',
+        deviceLabel: 'Android',
+        issuedIp: '203.0.113.10',
+      },
+      db,
+    );
+    const withCode = await claimNativeCode(
+      'state-code-bound',
+      verifier,
+      { callerIp: '198.51.100.99', code: second.code },
+      db,
+    );
+    expect(withCode?.deviceLabel).toBe('Android');
+  });
 });
 
 describe('LAN handoff', () => {
@@ -410,16 +460,18 @@ describe('LAN handoff', () => {
 describe('the native-code claim lookup is keyed', () => {
   test('polling for a pending code seeks the state index rather than scanning', async () => {
     using handle = await createTestDatabase();
-    // `claimNativeCode` runs this once per poll, and the Apple shell polls in
+    // `claimNativeCode` runs this once per poll, and the native shell polls in
     // a loop while it waits for the browser to finish signing in.
     const rows = handle.db
       .query(
         `EXPLAIN QUERY PLAN
            SELECT id FROM native_auth_codes
-            WHERE state = ? AND code_challenge = ? AND consumed_at IS NULL AND expires_at > ?
+            WHERE state = ? AND code_challenge = ?
+              AND (issued_ip IS NULL OR issued_ip = ?)
+              AND consumed_at IS NULL AND expires_at > ?
             ORDER BY created_at, id LIMIT 1`,
       )
-      .all('s', 'c', NOW) as Array<{ detail: string }>;
+      .all('s', 'c', '203.0.113.10', NOW) as Array<{ detail: string }>;
     const detail = rows.map((row) => row.detail).join('\n');
     expect(detail).toContain('native_auth_codes_state');
     expect(detail).not.toContain('SCAN');
