@@ -48,6 +48,10 @@ test-fixtures/*
 # one small JSON layer stack, cross-checked byte-for-byte by both raw-core's
 # and MapleCore's flat-record writer tests ("one fixture, two writers").
 !test-fixtures/local-adjustments/
+# Exception: the XMP namespace round-trip pair (#4688) IS committed — a small
+# Lightroom sidecar and Apple's resave of it, read by MapleCore's
+# XMPPassthroughNamespaceTests and the web xmp-namespaces spec. No RAWs.
+!test-fixtures/xmp-namespaces/
 # Exception: the committed per-device perf-table rows (#3421) ARE committed —
 # small hand-reviewed JSON, one file per device under test-fixtures/perf/,
 # rendered into docs/performance.md by tools/perf-table.py and gated locally

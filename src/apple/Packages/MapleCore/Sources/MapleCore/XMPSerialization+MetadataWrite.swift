@@ -68,14 +68,8 @@ extension XMPSerializer {
         // order the TS serializer uses: dc, exif, photoshop, Iptc4xmpCore,
         // xmpRights. `dc` is also required by the keyword bag, so the union of
         // the two needs is taken before the lookup.
-        let nsOrder = ["dc", "exif", "photoshop", "Iptc4xmpCore", "xmpRights"]
         let neededPrefixes = culling.keywords.isEmpty ? prefixes : prefixes.union(["dc"])
-        let extraNamespaces = nsOrder
-            .filter { neededPrefixes.contains($0) }
-            .compactMap { p -> (prefix: String, uri: String)? in
-                guard let uri = xmpMetadataNamespaces[p] else { return nil }
-                return (prefix: p, uri: uri)
-            }
+        let extraNamespaces = _conditionalNamespaces(needed: neededPrefixes, passthrough: passthrough)
 
         // Nested content, in the canonical child order the TS serializer also
         // uses: dc:title / dc:creator / dc:description, then the keyword bag,

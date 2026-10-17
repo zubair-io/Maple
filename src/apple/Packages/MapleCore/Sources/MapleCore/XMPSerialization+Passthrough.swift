@@ -109,6 +109,31 @@ extension XMPSerializer {
   static func _passthroughNodesBlock(_ passthrough: XMPPassthrough, indent: String) -> String {
     passthrough.unknownNodes.map { "\(indent)\($0)" }.joined(separator: "\n")
   }
+  /// The conditional namespace declarations a document needs (#4688): the
+  /// prefixes its own payload uses (`needed`) plus any of them a preserved
+  /// attribute or node uses. The passthrough bucket drops a source
+  /// declaration for these prefixes because the envelope owns them, so the
+  /// envelope must emit it whenever preserved content still refers to it.
+  /// Declaring one that turns out unused is harmless; omitting one leaves an
+  /// unbound prefix that namespace-aware readers reject.
+  static func _conditionalNamespaces(
+    needed: Set<String>, passthrough: XMPPassthrough
+  ) -> [(prefix: String, uri: String)] {
+    let order = ["dc", "exif", "photoshop", "Iptc4xmpCore", "xmpRights"]
+    let attributePrefixes = Set(
+      passthrough.unknownAttributes.compactMap {
+        $0.name.split(separator: ":").first.map(String.init)
+      })
+    let preserved = order.filter { prefix in
+      attributePrefixes.contains(prefix)
+        || passthrough.unknownNodes.contains {
+          $0.range(of: "[<\\s/]\(prefix):[A-Za-z_]", options: .regularExpression) != nil
+        }
+    }
+    return order
+      .filter { needed.contains($0) || preserved.contains($0) }
+      .compactMap { prefix in xmpMetadataNamespaces[prefix].map { (prefix: prefix, uri: $0) } }
+  }
 }
 
 // MARK: - Attribute capture
@@ -125,6 +150,10 @@ final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
   private(set) var authoredRating: String?
   private(set) var authoredLabel: String?
   private var captured = false
+  /// Foreign declarations on `x:xmpmeta` / `rdf:RDF` (#4688). The canonical
+  /// envelope rebuilds those elements, so a prefix a preserved node relies on
+  /// rides along on `rdf:Description` instead.
+  private var ancestorDeclarations: [String: String] = [:]
 
   func parser(
     _ parser: XMLParser,
@@ -134,7 +163,13 @@ final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
     attributes attributeDict: [String: String]
   ) {
     let qual = qName ?? elementName
-    guard qual == "Description" || qual.hasSuffix(":Description") else { return }
+    guard qual == "Description" || qual.hasSuffix(":Description") else {
+      if !captured {
+        ancestorDeclarations.merge(
+          attributeDict.filter { $0.key.hasPrefix("xmlns:") }) { _, nearer in nearer }
+      }
+      return
+    }
     authoredRating = authoredRating ?? attributeDict["xmp:Rating"]
     authoredLabel = authoredLabel ?? attributeDict["xmp:Label"]
     guard !captured else { return }
@@ -144,7 +179,7 @@ final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
     // on write anyway — but the list is sorted so the bucket itself is
     // deterministic run to run, which keeps tests and diffs stable.
     unknownAttributes =
-      attributeDict
+      ancestorDeclarations.merging(attributeDict) { _, own in own }
       .filter { !XMPKnownFields.isKnownAttribute($0.key) }
       .map { XMPPassthrough.Attribute(name: $0.key, value: $0.value) }
       .sorted { $0.name < $1.name }
