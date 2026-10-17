@@ -242,12 +242,19 @@ final class AssetRenameFilenameTests: XCTestCase {
 
     let oldSession = EditSession(asset: AssetRef(url: oldURL))
     await oldSession.loadSidecar()
+    // Queue a semantic commit followed immediately by a newer ordinary update
+    // before the semantic commit Task finishes.
+    oldSession.beginEdit(kind: .adjustment, description: "Exposure")
     oldSession.model.exposure = 1.0
-    try await oldSession.flushPendingSidecarWriteConfirmed()
-
-    // Make a new edit, then block sidecar writes by placing a directory at a
-    // sibling path or making the parent directory read-only during pre-rename flush.
+    oldSession.endEdit()
+    oldSession.culling.stars = 5
     oldSession.model.exposure = 2.25
+
+    // Let the semantic commit succeed while the newer update sits in debounce;
+    // the session must still report an unconfirmed update for the newer edit.
+    await oldSession.sidecarUpdateTask?.value
+    XCTAssertTrue(oldSession.hasUnconfirmedSidecarUpdate)
+
     try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: tempDir.path)
 
     do {
@@ -272,7 +279,9 @@ final class AssetRenameFilenameTests: XCTestCase {
     try await newSession.flushPendingSidecarWriteConfirmed()
 
     XCTAssertFalse(fm.fileExists(atPath: oldSidecarURL.path))
-    let (persistedModel, _) = try XMPParser.parse(data: Data(contentsOf: newSidecarURL))
+    let (persistedModel, persistedCulling) = try XMPParser.parse(
+      data: Data(contentsOf: newSidecarURL))
     XCTAssertEqual(persistedModel.exposure, 2.25, accuracy: 0.001)
+    XCTAssertEqual(persistedCulling.stars, 5)
   }
 }
