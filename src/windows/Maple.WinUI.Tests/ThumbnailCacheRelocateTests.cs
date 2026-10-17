@@ -80,6 +80,22 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
+        public async Task Move_AlsoRemovesTheOldLocationsLegacyV25Entry()
+        {
+            // A folder untouched since #4793 still holds `<sha16>.v25.avif`;
+            // left behind, a later same-named file would adopt it.
+            var source = WriteFile("in\\IMG_4.dng", "raw bytes");
+            var legacyPath = ThumbCachePaths.LegacySharedThumbPathFor(source);
+            Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
+            File.WriteAllBytes(legacyPath, new byte[] { 0x00, 0x00, 0x00, 0x1C });
+
+            await LocalFileOperations.RelocateAsync(
+                source, Path.Combine(_dir, "out"), null, RelocateMode.Move, CollisionPolicy.Fail);
+
+            Assert.False(File.Exists(legacyPath), "a move must reclaim the legacy-named entry too");
+        }
+
+        [Fact]
         public async Task Copy_LeavesTheSourcesThumbnailCacheEntry()
         {
             // The source keeps existing after a copy — its thumb entry is

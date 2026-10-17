@@ -8,12 +8,12 @@ using Maple.WinUI.Native;
 
 namespace Maple.WinUI.Services
 {
-    /// <summary>Versioned derivatives, shared at the 512px AVIF grid tier
+    /// <summary>Unversioned derivatives (#4793), shared at the 512px AVIF grid tier
     /// and machine-local at the 2560px JPEG preview tier. Cold writes develop
     /// a present XMP through the Rust recipe renderer, including its film LUT;
     /// absent sidecars use the camera preview. Current shared files are reused
     /// only while newer than the original and sidecar. Read-only libraries
-    /// fall back to the local cache, keyed by both mtimes and pipeline version.
+    /// fall back to the local cache, keyed by both mtimes.
     /// Local entries older than 30 days are swept on construction.</summary>
     public sealed partial class ThumbnailService
     {
@@ -37,16 +37,31 @@ namespace Maple.WinUI.Services
         }
 
         /// <summary>Machine-local cache path for one tier of one file —
-        /// original/sidecar mtimes and pipeline version invalidate naturally
+        /// original/sidecar mtimes invalidate naturally
         /// (the old entry becomes an orphan for the age sweep).</summary>
         private string LocalCachePathFor(string rawPath, int maxPx, string ext)
         {
             var info = new FileInfo(rawPath);
             var sidecarAt = File.GetLastWriteTimeUtc(Xmp.SidecarStore.SidecarPathFor(rawPath)).Ticks;
-            var key = $"{rawPath.ToLowerInvariant()}|{info.LastWriteTimeUtc.Ticks}|{info.Length}|{sidecarAt}|{maxPx}|v{Generated.CapabilityRegistry.PipelineOutputVersion}";
-            var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)))[..32];
-            return Path.Combine(_localCacheDir, $"{hash}.{ext}");
+            var key = $"{rawPath.ToLowerInvariant()}|{info.LastWriteTimeUtc.Ticks}|{info.Length}|{sidecarAt}|{maxPx}";
+            var path = Path.Combine(_localCacheDir, $"{KeyHash(key)}.{ext}");
+            if (File.Exists(path)) return path;
+            // Pre-#4793 entries carried the frozen `|v25` key suffix; adopt by
+            // rename on a miss so the unversioned key never forces a re-render.
+            var legacyPath = Path.Combine(_localCacheDir, $"{KeyHash(key + "|v25")}.{ext}");
+            try
+            {
+                if (File.Exists(legacyPath)) File.Move(legacyPath, path, overwrite: false);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                DiagLog.Write($"[Thumbs] legacy local entry adoption failed: {ex.Message}");
+            }
+            return path;
         }
+
+        private static string KeyHash(string key) =>
+            Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)))[..32];
 
         /// <summary>Returns the cached thumbnail/preview for the given file
         /// at the given size, developing a sidecar or extracting the camera
@@ -78,6 +93,9 @@ namespace Maple.WinUI.Services
             var sharedPath = ThumbCachePaths.SharedThumbPathFor(rawPath);
             if (ThumbnailRenderer.IsFresh(sharedPath, rawPath))
                 return sharedPath;
+            var adoptedPath = File.Exists(sharedPath) ? null : ThumbCachePaths.AdoptLegacySharedThumb(rawPath);
+            if (adoptedPath != null && ThumbnailRenderer.IsFresh(adoptedPath, rawPath))
+                return adoptedPath;
             // A prior fallback render (read-only folder/share) is a cache
             // hit too. Without this check, every grid pass over a read-only
             // library would miss the fast path, queue on the gate, and
