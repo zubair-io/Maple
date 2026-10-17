@@ -87,6 +87,26 @@ pub fn validate_destination(out: &Path, inputs: &[&Path]) -> io::Result<()> {
 /// name for writing, including when either is a symlink or hard link.
 /// As with the native host queues, the containing directory must be trusted.
 pub fn write_derived(out: &Path, inputs: &[&Path], bytes: &[u8]) -> io::Result<()> {
+    // Windows can briefly deny a rename while another publisher is replacing
+    // the same entry. Retry the whole guarded publication so every attempt
+    // rechecks aliases and owns a fresh staging file.
+    #[cfg(windows)]
+    for attempt in 0..20 {
+        match write_derived_once(out, inputs, bytes) {
+            Err(error) if attempt < 19 && matches!(error.raw_os_error(), Some(5 | 32)) => {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            result => return result,
+        }
+    }
+    #[cfg(windows)]
+    unreachable!("the final publication attempt always returns");
+
+    #[cfg(not(windows))]
+    write_derived_once(out, inputs, bytes)
+}
+
+fn write_derived_once(out: &Path, inputs: &[&Path], bytes: &[u8]) -> io::Result<()> {
     validate_destination(out, inputs)?;
     let parent = out
         .parent()
