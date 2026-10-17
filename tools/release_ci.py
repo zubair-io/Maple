@@ -4,6 +4,8 @@ import json
 import re
 import sys
 
+# #4951 adds the twelve merge_group CI triggers; #4614 enables the queue only
+# after that prerequisite and this release gate have landed and been verified.
 # Apple/packages are pinned reusable validations before tagging main, and direct
 # PR runs before merging the version bump. The other consumers run on both.
 REQUIRED_WORKFLOWS = {
