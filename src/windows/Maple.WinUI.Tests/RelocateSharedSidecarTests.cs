@@ -44,6 +44,21 @@ namespace Maple.WinUI.Tests
             Assert.Equal(expected, File.ReadAllText(P(parts)));
 
         [Fact]
+        public async Task Move_PhotoWhoseNameContainsTmp_StillSharesWithItsSibling()
+        {
+            var raw = Write("raw", "src", "IMG.tmp.CR3");
+            Write("jpg", "src", "IMG.tmp.JPG");
+            Write("staging", "src", "IMG.tmp.CR3.tmp.123-0123abcd");
+            Write("<shared/>", "src", "IMG.tmp.xmp");
+
+            await LocalFileOperations.RelocateAsync(
+                raw, P("album"), null, RelocateMode.Move, CollisionPolicy.Fail);
+
+            AssertContent("<shared/>", "album", "IMG.tmp.xmp");
+            AssertContent("<shared/>", "src", "IMG.tmp.xmp");
+        }
+
+        [Fact]
         public async Task Move_SourceSidecarSharedWithJpeg_IsCopiedNotMoved()
         {
             var raw = Write("raw", "src", "IMG_1.CR3");

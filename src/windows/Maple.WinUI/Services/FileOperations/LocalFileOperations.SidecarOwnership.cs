@@ -10,6 +10,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using Maple.WinUI.Services.Xmp;
 
 namespace Maple.WinUI.Services.FileOperations
@@ -18,6 +19,11 @@ namespace Maple.WinUI.Services.FileOperations
     {
         internal static bool SameSidecarPath(string a, string b) =>
             string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+
+        // Generated staging names (`<name>.tmp.<pid>-<guid>`); a real photo
+        // whose name merely contains `.tmp.` still claims its stem.
+        private static readonly Regex StagingName =
+            new(@"\.tmp\.\d+[-.][0-9a-fA-F]+$", RegexOptions.CultureInvariant);
 
         private static string SidecarStemOf(string fileName) =>
             (SidecarStore.IsVideoFilename(fileName) ? fileName : Path.GetFileNameWithoutExtension(fileName))
@@ -40,7 +46,7 @@ namespace Maple.WinUI.Services.FileOperations
                 {
                     var name = Path.GetFileName(path);
                     return !name.StartsWith('.')
-                        && !name.Contains(".tmp.", StringComparison.Ordinal)
+                        && !StagingName.IsMatch(name)
                         && !string.Equals(Path.GetExtension(name), ".xmp", StringComparison.OrdinalIgnoreCase)
                         && !skip.Contains(path, StringComparer.OrdinalIgnoreCase)
                         && string.Equals(SidecarStemOf(name), stem, StringComparison.OrdinalIgnoreCase);
