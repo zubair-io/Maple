@@ -10,6 +10,7 @@
 
 import {
   RemoteError,
+  TruncatedOutputError,
   type DescribeOptions,
   type DescribeProvider,
   type DescribeResult,
@@ -104,9 +105,8 @@ export class OpenAIProvider implements DescribeProvider {
     }
 
     if (firstChoiceFinishReason(parsed.choices) === 'length') {
-      throw new RemoteError(
+      throw new TruncatedOutputError(
         `OpenAI stopped generating before it finished (finish_reason=length, max_tokens=${MAX_OUTPUT_TOKENS})`,
-        false,
       );
     }
     const text = extractFirstChoiceText(parsed.choices);

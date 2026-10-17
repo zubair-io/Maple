@@ -13,6 +13,7 @@
 
 import {
   RemoteError,
+  TruncatedOutputError,
   type DescribeOptions,
   type DescribeProvider,
   type DescribeResult,
@@ -111,9 +112,8 @@ export class GeminiProvider implements DescribeProvider {
     }
 
     if (firstCandidateFinishReason(parsed.candidates) === 'MAX_TOKENS') {
-      throw new RemoteError(
+      throw new TruncatedOutputError(
         `Gemini stopped generating before it finished (finishReason=MAX_TOKENS, maxOutputTokens=${MAX_OUTPUT_TOKENS})`,
-        false,
       );
     }
     const text = extractCandidateText(parsed.candidates);
