@@ -39,10 +39,7 @@ import path from 'node:path';
 import { ObjectId } from '../db/object-id.ts';
 import { child as childLogger } from '../log.ts';
 import { requireAuth, requireOwnerBeforeHandle } from '../auth/middleware.ts';
-import {
-  loadEffectivePanoConfig,
-  rejectExecutablePathsInsideLibraries,
-} from '../pano/pano-config-paths.ts';
+import { jailExecutablePaths, loadEffectivePanoConfig } from '../pano/pano-config-paths.ts';
 import {
   isPanoProvisioned,
   savePanoConfig,
@@ -540,12 +537,12 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
   .put(
     '/config',
     async ({ body, set }) => {
-      const rejected = await rejectExecutablePathsInsideLibraries(body);
-      if (rejected !== null) {
+      const jailed = await jailExecutablePaths(body);
+      if (!jailed.ok) {
         set.status = 400;
-        return { error: rejected };
+        return { error: jailed.error };
       }
-      await savePanoConfig(body);
+      await savePanoConfig({ ...body, ...jailed.canonical });
       invalidatePanoCliProbe();
       const cfg = await withProbedFlags(await loadEffectivePanoConfig());
       log.info({ enabled: cfg.enabled }, 'pano config updated');

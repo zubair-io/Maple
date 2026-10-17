@@ -21,16 +21,19 @@ let live: LiveTestDatabase;
 let tmpDir = '';
 let fakeCli = '';
 let argsLog = '';
+let spawnedPathLog = '';
 let folderId = '';
 let assetIds: string[] = [];
 
 beforeAll(async () => {
-  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-pano-engine-test-'));
+  tmpDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'maple-pano-engine-test-')));
   fakeCli = path.join(tmpDir, 'fake-maple-cli');
   argsLog = path.join(tmpDir, 'args.txt');
+  spawnedPathLog = path.join(tmpDir, 'spawned-path.txt');
   await fs.writeFile(
     fakeCli,
     `#!/bin/sh
+printf '%s\\n' "$0" > "${spawnedPathLog}"
 printf '%s\\n' "$@" > "${argsLog}"
 printf '%s\\n' "MAPLE_PANO_MODELS=$MAPLE_PANO_MODELS" "ORT_DYLIB_PATH=$ORT_DYLIB_PATH" >> "${argsLog}"
 OUT=""
@@ -170,6 +173,19 @@ describe('panoStitchHandler feature engine (#4555)', () => {
       ),
     ).rejects.toThrow('library root');
     await expect(fs.stat(argsLog)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('spawns the canonical binary, not the pathname the payload named', async () => {
+    const aliasDir = path.join(tmpDir, 'alias-outside');
+    await fs.symlink(tmpDir, aliasDir);
+    try {
+      const args = await stitchArgs({ mapleCli: path.join(aliasDir, 'fake-maple-cli') });
+      expect(args.length).toBeGreaterThan(0);
+      const spawned = await fs.readFile(spawnedPathLog, 'utf8');
+      expect(spawned.trim()).toBe(await fs.realpath(fakeCli));
+    } finally {
+      await fs.unlink(aliasDir);
+    }
   });
 
   it('refuses an ML run whose ONNX Runtime path is missing', async () => {
