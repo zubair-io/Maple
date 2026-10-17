@@ -818,7 +818,7 @@ for case in sorted(cases, key=lambda c: c["name"]):
         continue
 
     ref = pick_reference(case.get("outputs", []))
-    if ref is None:
+    if ref is None and case.get("reference_protocol") is None:
         skipped_no_ref += 1
         case_records.append({
             "fixture": fixture,

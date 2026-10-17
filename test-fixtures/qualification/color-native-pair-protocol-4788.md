@@ -56,6 +56,31 @@ also complete without output drift. Logs and metadata-audit results use the
 
 ## Qualification
 
+### Missing native reference in the canonical harness
+
+Review found that the full-detail pass could skip an explicitly migrated
+case before reaching the protocol-aware comparator. With another passing
+case present, a missing native PNG or missing full manifest entry could
+therefore leave the pass green. The comparator itself already rejected
+missing native inputs; the harness was bypassing it.
+
+The full-detail pass now sends declared protocols through the comparator
+even when reference selection fails, recording a per-case error and exiting
+nonzero. Undeclared legacy skip accounting remains unchanged. New tests
+execute the actual embedded detail pass using real temporary PNGs and XMP
+sidecars, including a second valid case. Five rejection scenarios fail
+before the correction and pass after it: missing PNG/entry for sharpening
+and NR, plus an unknown protocol with a missing reference. Positive and
+legacy controls also pass. All four test methods run in the Rust CI workflow.
+The existing 15 comparator tests also pass; comparison math is unchanged.
+All 19 metadata and 28 registry tests pass, and two code-generation runs leave
+generated outputs unchanged. A physical replay through the corrected embedded
+detail pass retains all 100,663,296 pixels and exactly the previous statistics
+for test_0000/sharpen_detail_max. It still reports the existing max breach
+54.710431 versus 52.2; no references are skipped and no comparator errors occur.
+Every input and comparator/harness source hash is unchanged during the replay.
+The evidence directory records these checks under `missing-native-*`.
+
 ### Further review checks
 
 Camera Raw packets now reject DTD declarations before the subset verifier
