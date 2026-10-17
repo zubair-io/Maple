@@ -34,6 +34,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { panoRoutes } from './pano.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 import {
   createLiveTestDatabase,
   insertFolder,
@@ -43,7 +44,8 @@ import {
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { getJob } from '../job-runner/jobs.repo.ts';
 
-const app = new Elysia().use(panoRoutes);
+const app = new Elysia().use(fakeAuth()).use(panoRoutes);
+const memberApp = new Elysia().use(fakeAuth({ role: 'member' })).use(panoRoutes);
 
 let live: LiveTestDatabase;
 
@@ -250,6 +252,46 @@ describe('PUT /api/pano/config', () => {
   it('rejects an unknown matcher value', async () => {
     const res = await putJson('/api/pano/config', { matcher: 'sift' });
     expect(res.status).toBe(422);
+  });
+
+  // #4743 — the saved binary is executed by the server, so only the owner may
+  // repoint it, and never at a file a member could have placed in a library.
+  it('refuses a member with 403 and leaves the saved config untouched', async () => {
+    const res = await memberApp.handle(
+      new Request('http://localhost/api/pano/config', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ maple_cli_path: fakeCli, enabled: true }),
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await (await getReq('/api/pano/config')).json()) as {
+      maple_cli_path: string | null;
+    };
+    expect(body.maple_cli_path).toBeNull();
+  });
+
+  it('members can still read the config', async () => {
+    const res = await memberApp.handle(new Request('http://localhost/api/pano/config'));
+    expect(res.status).toBe(200);
+  });
+
+  it('refuses a maple_cli_path inside a registered library root', async () => {
+    const planted = path.join(tmpDir, 'lib', 'planted-cli');
+    await fs.copyFile(fakeCli, planted);
+    const res = await putJson('/api/pano/config', { maple_cli_path: planted, enabled: true });
+    expect(res.status).toBe(400);
+    const body = (await (await getReq('/api/pano/config')).json()) as {
+      maple_cli_path: string | null;
+    };
+    expect(body.maple_cli_path).toBeNull();
+  });
+
+  it('refuses an ort_dylib_path inside a registered library root', async () => {
+    const planted = path.join(tmpDir, 'lib', 'libonnxruntime.dylib');
+    await fs.writeFile(planted, 'not a dylib');
+    const res = await putJson('/api/pano/config', { ort_dylib_path: planted });
+    expect(res.status).toBe(400);
   });
 });
 

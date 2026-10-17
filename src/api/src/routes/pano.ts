@@ -7,7 +7,8 @@
  *   GET    /api/pano/config        — effective pano config + strategySupported
  *   PUT    /api/pano/config        — save pano config
  *
- * All routes mount behind `requireAuth` in `src/index.ts`.
+ * All routes mount behind `requireAuth` (also embedded here so the module is
+ * self-gating); `PUT /config` is additionally owner-only (#4743).
  *
  * Provisioning: when pano is not provisioned (enabled=false or no binary
  * path), POST returns 409 { error: 'pano_not_provisioned', message: '...' }.
@@ -37,6 +38,8 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { ObjectId } from '../db/object-id.ts';
 import { child as childLogger } from '../log.ts';
+import { requireAuth, requireOwnerBeforeHandle } from '../auth/middleware.ts';
+import { rejectExecutablePathsInsideLibraries } from '../pano/pano-config-paths.ts';
 import {
   isPanoProvisioned,
   loadPanoConfig,
@@ -530,15 +533,21 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
   // GET /api/pano/config — effective config + probed optional flags.
   .get('/config', async () => withProbedFlags(resolvePanoConfig(await loadPanoConfig())))
 
-  // PUT /api/pano/config — upsert pano settings.
+  // PUT /api/pano/config — upsert pano settings. Owner-only (#4743): the saved
+  // binary and dylib are executed by the server.
   .put(
     '/config',
-    async ({ body }) => {
+    async ({ body, set }) => {
+      const rejected = await rejectExecutablePathsInsideLibraries(body);
+      if (rejected !== null) {
+        set.status = 400;
+        return { error: rejected };
+      }
       await savePanoConfig(body);
       invalidatePanoCliProbe();
       const cfg = await withProbedFlags(resolvePanoConfig(await loadPanoConfig()));
       log.info({ enabled: cfg.enabled }, 'pano config updated');
       return { ok: true, ...cfg };
     },
-    { body: ConfigBody },
+    { body: ConfigBody, beforeHandle: requireOwnerBeforeHandle },
   );
