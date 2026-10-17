@@ -6,7 +6,7 @@
  * public, operator-configured for self-hosted). The operator must confirm their
  * Nominatim URL and rate limit in `/settings/workers` before unpausing.
  *
- * Images without GPS coordinates return `{ skip }` — not an error, not
+ * Images without GPS coordinates (user override or EXIF) return `{ skip }` — not an error, not
  * retried. The runtime counts them as successes toward throughput and marks
  * the stage done so the search-blob fan-in is unblocked.
  *
@@ -21,6 +21,7 @@ import { NominatimClient } from '../../enrichment/nominatim-client.ts';
 import { parseNominatimResponse } from '../../enrichment/place-parser.ts';
 import { loadEnrichmentConfig } from '../../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
+import { effectiveMetadata } from '../../metadata/override-resolver.ts';
 import { backupLocationSegments } from '../../backup/location-segments.ts';
 import { placeStatements } from '../../db/repos/assets.stage-patches.ts';
 import type { SqlStatement } from '../../db/sqlite/protocol.ts';
@@ -67,7 +68,7 @@ export function setGeocodeDepsForTests(deps: GeocodeDeps | null): void {
 
 export async function geocodeHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
   const { client, cache } = await getDeps();
-  const gps = image.exif?.gps;
+  const { gps } = effectiveMetadata(image);
   if (!gps || typeof gps.lat !== 'number' || typeof gps.lng !== 'number') {
     return { skip: 'no-gps' };
   }
@@ -96,7 +97,8 @@ const geocodeStage = defineStage({
   name: 'geocode',
   // v2: exif v2 corrects western-hemisphere longitude sign — bump so docs
   // already geocoded with the wrong-sign coords re-run against the fixed gps.
-  targetVersion: 2,
+  // v3: honours metadata_override.gps — re-run docs skipped as no-gps despite an override.
+  targetVersion: 3,
   // Wait for exif v2 specifically — dep on bare "exif" would let geocode
   // run on stale v1 coords if it polls a doc before exif catches up.
   dependsOn: [{ name: 'exif', minVersion: 2 }],
