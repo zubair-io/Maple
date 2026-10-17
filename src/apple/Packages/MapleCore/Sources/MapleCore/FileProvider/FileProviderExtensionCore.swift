@@ -816,7 +816,15 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     async let metaTask = catalog.getAsset(assetID: id)
                     let downloadTask = Task { try await catalog.downloadAsset(assetID: id, to: localURL) }
                     defer { downloadTask.cancel() }
-                    let resolved = try await metaTask
+                    let resolved: AssetMetadata?
+                    do {
+                        resolved = try await metaTask
+                    } catch {
+                        downloadTask.cancel()
+                        _ = try? await downloadTask.value
+                        try? FileManager.default.removeItem(at: localURL)
+                        throw error
+                    }
                     // Same trashed check as `item(for:)` (#4706, #4805): check
                     // metadata BEFORE awaiting the download so a reaped asset
                     // whose on-disk file is gone surfaces `noSuchItem` instead
@@ -873,7 +881,14 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         try await catalog.getXMP(assetID: assetID, conflictBasename: conflictBasename)
                     }
                     defer { bytesTask.cancel() }
-                    let resolved = try await metaTask
+                    let resolved: AssetMetadata?
+                    do {
+                        resolved = try await metaTask
+                    } catch {
+                        bytesTask.cancel()
+                        _ = try? await bytesTask.value
+                        throw error
+                    }
                     guard let resolved, !resolved.isTrashed else {
                         bytesTask.cancel()
                         _ = try? await bytesTask.value
@@ -971,7 +986,14 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     async let metaTask = catalog.getAsset(assetID: assetID)
                     let bytesTask = Task { try await catalog.getThumb(assetID: assetID) }
                     defer { bytesTask.cancel() }
-                    let resolved = try await metaTask
+                    let resolved: AssetMetadata?
+                    do {
+                        resolved = try await metaTask
+                    } catch {
+                        bytesTask.cancel()
+                        _ = try? await bytesTask.value
+                        throw error
+                    }
                     // If the underlying asset is gone (server deleted,
                     // never indexed, or trashed/reaped) there's nothing
                     // meaningful to hand back: surface noSuchItem so the OS
