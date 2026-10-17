@@ -338,9 +338,9 @@ extension AppShell {
     let store = resolveRemoteSidecarStore(for: asset)
     if store == nil, asset.primaryURL == nil, asset.stableID != nil {
       let provenance = String(describing: asset.thumbnailProvenance)
-      let detail = "\(asset.displayName) provenance=\(provenance)"
       folderActionsLog.error(
-        "no sidecar store for sourced asset \(detail, privacy: .public); edits stay session-local")
+        "no sidecar store for sourced asset \(asset.displayName) provenance=\(provenance, privacy: .public); edits stay session-local"
+      )
     }
     return store
   }
@@ -423,7 +423,7 @@ extension AppShell {
       guard case .cloudLibrary(let serverID, _) = librarySelection
       else { return nil }
       return CloudSidecarStore(
-        server: serverID,
+        server: LocalNetworkResolver.shared.effectiveURL(for: serverID),
         assetID: assetID,
         httpClient: makeAuthenticatedHTTPClient(server: serverID))
     }
