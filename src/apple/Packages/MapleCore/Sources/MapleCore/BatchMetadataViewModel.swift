@@ -152,6 +152,15 @@ public final class BatchMetadataViewModel: Identifiable {
         case partialFailure([(AssetRef, Error)])
     }
 
+    /// The batch editor writes local sidecars only; a remote asset is reported
+    /// as a failure rather than silently left unchanged (#4709).
+    public struct UnsupportedSourceError: LocalizedError {
+        public let assetName: String
+        public var errorDescription: String? {
+            "\(assetName) isn't stored locally, so its metadata can't be batch-edited here."
+        }
+    }
+
     public init(assets: [AssetRef], sessions: [AssetRef.ID: EditSession]) {
         self.assets = assets
         self.sessions = sessions
@@ -260,7 +269,9 @@ public final class BatchMetadataViewModel: Identifiable {
     }
 
     private func applyToAsset(_ asset: AssetRef) async throws {
-        guard let url = asset.primaryURL else { return }
+        guard let url = asset.primaryURL else {
+            throw UnsupportedSourceError(assetName: asset.displayName)
+        }
 
         let sidecarURL = SidecarPath.sidecarURL(for: url)
         let existingXml = (try? String(contentsOf: sidecarURL, encoding: .utf8)) ?? ""
@@ -282,38 +293,48 @@ public final class BatchMetadataViewModel: Identifiable {
             return
         }
 
-        // Image/RAW path: preserve model+culling from live session or disk.
-        let store = XMPSidecarStore(rawURL: url)
-        var (model, culling): (AdjustmentModel, CullingState)
-        if let session = sessions[asset.id] {
-            (model, culling) = (session.model, session.culling)
-        } else {
-            (model, culling) = (try? await store.load()) ?? (.default, CullingState())
+        guard let session = sessions[asset.id] else {
+            try await applyToPrimary(XMPSidecarStore(rawURL: url), metadata: merged)
+            return
         }
-        // Apply touched keywords into culling (dc:subject round-trip path).
-        if let kw = touchedMetadata.keywords {
-            culling.keywords = kw ?? []
+        // A live session's state is only trusted once its sidecar has loaded (#4708).
+        await session.loadSidecar()
+        guard session.hasLoadedSidecar else {
+            throw session.sidecarError ?? CancellationError()
         }
-        // Apply touched culling fields (stars + flag). Stars is clamped to the
-        // documented 0...5 range so a bad caller can't write an out-of-range
-        // rating into the sidecar.
-        if let stars = touchedMetadata.stars {
-            culling.stars = min(max(stars, 0), 5)
+        // A session showing a variant holds that variant's model; the batch
+        // targets the Primary sidecar, so Primary keeps its own develop state.
+        guard session.workflow.selectedVariantId == WorkflowContract.primaryVariantID,
+              let store = session.sidecarStore as? XMPSidecarStore
+        else {
+            let primary = (session.primarySidecarStore as? XMPSidecarStore)
+                ?? XMPSidecarStore(rawURL: url)
+            try await applyToPrimary(primary, metadata: merged)
+            return
         }
-        if let flag = touchedMetadata.flag {
-            culling.flag = flag
-        }
-        if let hidden = touchedMetadata.hidden {
-            culling.hidden = hidden
-        }
-        // Color label (#1656). The outer `if let` unwraps "touched"; the
-        // inner value — including nil — is what lands on the sidecar, so an
-        // explicit clear removes `papp:ColorLabel` from every selected asset.
-        if let colorLabel = touchedMetadata.colorLabel {
-            culling.colorLabel = colorLabel
-        }
-        await store.update(model: model, culling: culling, metadata: merged)
+        let culling = applyingTouchedCulling(to: session.culling)
+        session.culling = culling
+        await session.sidecarUpdateTask?.value
+        await store.update(model: session.model, culling: culling, metadata: merged)
         await store.flush()
+    }
+
+    /// A sidecar that exists but can't be read fails this asset; it is never
+    /// replaced with defaults.
+    private func applyToPrimary(_ store: XMPSidecarStore, metadata: XmpMetadata) async throws {
+        let (model, culling) = try await store.loadIfPresent() ?? (.default, CullingState())
+        await store.update(
+            model: model, culling: applyingTouchedCulling(to: culling), metadata: metadata)
+        await store.flush()
+    }
+
+    private func applyingTouchedCulling(to base: CullingState) -> CullingState {
+        CullingState(
+            stars: touchedMetadata.stars.map { min(max($0, 0), 5) } ?? base.stars,
+            flag: touchedMetadata.flag ?? base.flag,
+            keywords: touchedMetadata.keywords.map { $0 ?? [] } ?? base.keywords,
+            hidden: touchedMetadata.hidden ?? base.hidden,
+            colorLabel: touchedMetadata.colorLabel ?? base.colorLabel)
     }
 
     private static func applyTouched(_ t: TouchedMetadata, into merged: inout XmpMetadata) {
