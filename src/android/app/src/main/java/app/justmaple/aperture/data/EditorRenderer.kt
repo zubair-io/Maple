@@ -2,7 +2,6 @@ package app.justmaple.aperture.data
 
 import android.view.Surface
 import app.justmaple.aperture.generated.AdjustmentFields
-import java.io.Closeable
 import java.util.concurrent.Executors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -11,7 +10,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /** The handle, GPU and ANativeWindow belong to exactly one serial worker. */
-class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
+class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
     private val dispatcher =
         Executors.newSingleThreadExecutor { task ->
                 Thread(null, task, "Maple render", 16L * 1024 * 1024)
@@ -40,14 +39,14 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
     private var attachedSurface: SurfaceBinding? = null
     private var epoch = 0
     @Volatile
-    var hasPresented = false
+    override var hasPresented = false
         private set
 
     @Volatile
-    var revision = 0
+    override var revision = 0
         private set
 
-    fun invalidateDraws(): Int =
+    override fun invalidateDraws(): Int =
         synchronized(drawLock) {
             revision += 1
             NativeBridge.setCancellation(cancellation, true)
@@ -67,7 +66,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
     private var modelXml = ""
     private var values = emptyMap<String, Float>()
 
-    suspend fun open(
+    override suspend fun open(
         path: String,
         document: String,
         edge: Int,
@@ -87,13 +86,13 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
 
     // Called synchronously inside SurfaceHolder callbacks, before Android can
     // abandon the old BufferQueue. Pending worker jobs see the new identity.
-    fun recordSurface(next: Surface?, w: Int, h: Int, wideColor: Boolean = false): SurfaceBinding =
+    override fun recordSurface(next: Surface?, w: Int, h: Int, wideColor: Boolean): SurfaceBinding =
         SurfaceBinding(next, w, h, wideColor).also {
             currentSurface = it
             hasPresented = false
         }
 
-    suspend fun attach(binding: SurfaceBinding) =
+    override suspend fun attach(binding: SurfaceBinding) =
         withContext(dispatcher) {
             if (handle != 0L) applySurface(binding)
         }
@@ -142,7 +141,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
         }
     }
 
-    suspend fun draw(
+    override suspend fun draw(
         next: Map<String, Float>,
         expectedRevision: Int,
         xml: String,
@@ -175,7 +174,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
             renderCurrent(expectedRevision)
         }
 
-    suspend fun refine(expectedRevision: Int) {
+    override suspend fun refine(expectedRevision: Int) {
         var work = 0L
         var flag = 0L
         try {
@@ -220,7 +219,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : Closeable {
         }
     }
 
-    suspend fun shutdown() = withContext(dispatcher) { release() }
+    override suspend fun shutdown() = withContext(dispatcher) { release() }
 
     private fun readValues(): Map<String, Float> {
         val objectValues = JSONObject(NativeBridge.values(handle))

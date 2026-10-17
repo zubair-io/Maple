@@ -15,9 +15,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 /** Incremental Android parity work is tracked by #4623. No simulated sources. */
-class MapleViewModel(application: Application) : AndroidViewModel(application) {
-    val library = PhotoLibrary(application)
-    val renderer = EditorRenderer(::framePresented)
+class MapleViewModel
+internal constructor(
+    application: Application,
+    val library: PhotoLibrary,
+    sidecarsOverride: SidecarStore?,
+    rendererOverride: PreviewRenderer?,
+) : AndroidViewModel(application) {
+    constructor(application: Application) : this(application, PhotoLibrary(application), null, null)
+
+    // The seams the recovery tests (#4765) substitute; production uses the library and the JNI renderer.
+    private val sidecars: SidecarStore = sidecarsOverride ?: library
+    val renderer: PreviewRenderer = rendererOverride ?: EditorRenderer(::framePresented)
     private val preferences = application.getSharedPreferences("maple-ui", 0)
     private val mutable =
         MutableStateFlow(
@@ -108,7 +117,12 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
 
     fun disconnectCloud(source: Folder) {
         viewModelScope.launch {
-            if (!flush()) return@launch
+            // Edits on this server cannot be saved once it is gone; a failing
+            // save there must not hold the disconnect hostage (#4765).
+            if (!flush()) {
+                if (state.value.selected?.uri?.host != source.uri.host) return@launch
+                discardUnsavedEdits()
+            }
             val active = state.value.folder?.uri?.host == source.uri.host
             if (active) {
                 ++generation
@@ -222,7 +236,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
         history.clear()
         try {
             renderer.shutdown()
-            val loaded = library.loadSidecar(photo)
+            val loaded = sidecars.loadSidecar(photo)
             if (token != generation) return
             baseline = loaded.baseline
             mutable.update {
@@ -421,32 +435,65 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
             saveLock.lock()
             try {
                 val photo = state.value.selected ?: return@launch
-                baseline = null
-                mutable.update { it.copy(loading = true, documentLoaded = false) }
-                val loaded = library.loadSidecar(photo)
-                val token = ++generation
-                renderer.invalidateDraws()
-                renderer.shutdown()
-                baseline = loaded.baseline
-                history.clear()
-                mutable.update {
-                    it.copy(
-                        document = loaded.document,
-                        documentLoaded = true,
-                        loading = false,
-                        dirty = false,
-                        error = null,
-                        canUndo = false,
-                        canRedo = false,
-                    )
-                }
-                if (state.value.mode == PhotoMode.Edit) startEditor(token)
+                mutable.update { it.copy(loading = true) }
+                // The in-memory document stays loaded and saveable until the
+                // replacement has actually been read (#4765): a failed read
+                // used to leave `dirty` set with nothing that could persist it.
+                val loaded =
+                    try {
+                        sidecars.loadSidecar(photo)
+                    } catch (failure: Exception) {
+                        if (failure is CancellationException) throw failure
+                        fail(failure, "Could not reload saved edits")
+                        return@launch
+                    }
+                replaceDocument(loaded)
             } catch (failure: Exception) {
                 fail(failure)
             } finally {
                 saveLock.unlock()
             }
         }
+    }
+
+    /** Drops unsaved edits without touching storage, so a photo whose sidecar
+     * can no longer be written stops blocking navigation (#4765). */
+    fun discardUnsavedEdits() {
+        viewModelScope.launch {
+            saveJob?.cancel()
+            saveJob = null
+            saveLock.lock()
+            try {
+                val snapshot = state.value
+                if (snapshot.selected == null || !snapshot.dirty) return@launch
+                val saved = runCatching { XmpDocument(baseline ?: XmpDocument.EMPTY) }.getOrDefault(XmpDocument())
+                replaceDocument(LoadedSidecar(saved, baseline))
+            } catch (failure: Exception) {
+                fail(failure, "Could not discard edits")
+            } finally {
+                saveLock.unlock()
+            }
+        }
+    }
+
+    private suspend fun replaceDocument(loaded: LoadedSidecar) {
+        val token = ++generation
+        renderer.invalidateDraws()
+        renderer.shutdown()
+        baseline = loaded.baseline
+        history.clear()
+        mutable.update {
+            it.copy(
+                document = loaded.document,
+                documentLoaded = true,
+                loading = false,
+                dirty = false,
+                error = null,
+                canUndo = false,
+                canRedo = false,
+            )
+        }
+        if (state.value.mode == PhotoMode.Edit) startEditor(token)
     }
 
     fun resetRawOnlySliders() {
@@ -526,7 +573,7 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
             check(snapshot.documentLoaded) { "Reload the photo before saving edits" }
             mutable.update { it.copy(saving = true) }
             withContext(NonCancellable) {
-                val result = library.save(photo, snapshot.document, baseline)
+                val result = sidecars.save(photo, snapshot.document, baseline)
                 baseline = result.baseline
                 mutable.update { current ->
                     if (current.selected == photo)
@@ -542,7 +589,8 @@ class MapleViewModel(application: Application) : AndroidViewModel(application) {
             }
             return true
         } catch (failure: Exception) {
-            fail(failure, "Could not save edits")
+            // A failed background save must not blank the preview (#4765).
+            mutable.update { it.saveFailed(failure) }
             return false
         } finally {
             saveLock.unlock()

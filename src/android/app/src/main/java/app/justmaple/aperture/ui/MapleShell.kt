@@ -103,8 +103,10 @@ fun MapleShell(model: MapleViewModel) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(message, Modifier.weight(1f), color = MapleColors.error)
-                    if (state.dirty)
+                    if (state.dirty) {
                         TextButton({ recovery = "reload" }) { Text("Reload saved edits") }
+                        TextButton({ recovery = "discard" }) { Text("Discard unsaved edits") }
+                    }
                     if (state.canResetRawOnlySliders)
                         TextButton({ recovery = "raster" }) { Text("Reset RAW-only sliders") }
                     TextButton(onClick = model::clearError) { Text("Dismiss") }
@@ -239,20 +241,33 @@ fun MapleShell(model: MapleViewModel) {
         AlertDialog(
             onDismissRequest = { recovery = null },
             title = {
-                Text(if (recovery == "reload") "Reload saved edits?" else "Reset RAW-only sliders?")
+                Text(
+                    when (recovery) {
+                        "reload" -> "Reload saved edits?"
+                        "discard" -> "Discard unsaved edits?"
+                        else -> "Reset RAW-only sliders?"
+                    }
+                )
             },
             text = {
                 Text(
-                    if (recovery == "reload")
-                        "Your unsaved adjustments will be discarded and the saved sidecar will be loaded."
-                    else
-                        "Unsupported numeric RAW adjustments will return to their defaults. Other edits and metadata are retained."
+                    when (recovery) {
+                        "reload" ->
+                            "Your unsaved adjustments will be discarded and the saved sidecar will be loaded."
+                        "discard" ->
+                            "Your unsaved adjustments will be discarded. Nothing is read from or written to storage."
+                        else ->
+                            "Unsupported numeric RAW adjustments will return to their defaults. Other edits and metadata are retained."
+                    }
                 )
             },
             confirmButton = {
                 TextButton({
-                    if (recovery == "reload") model.reloadSavedEdits()
-                    else model.resetRawOnlySliders()
+                    when (recovery) {
+                        "reload" -> model.reloadSavedEdits()
+                        "discard" -> model.discardUnsavedEdits()
+                        else -> model.resetRawOnlySliders()
+                    }
                     recovery = null
                 }) {
                     Text("Continue")
