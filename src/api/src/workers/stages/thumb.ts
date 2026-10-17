@@ -8,7 +8,7 @@
  * maple's .rotate() inline.
  *
  * Cache-path resolution: the ONE path-keyed location every reader computes —
- * `<lib>/<fileinfo[0].path>/.maple/thumbs/<sha256_prefix16(filename)>.avif`,
+ * `<lib>/<fileinfo[0].path>/.maple/thumbs/<filename>.avif`,
  * via `resolveThumbPathForAsset`, which is just `resolveThumbPath` applied to
  * the asset's primary absolute path. Writing anywhere else is what made
  * `/api/fs/thumb` re-decode every source from scratch: it computes the
@@ -80,6 +80,9 @@ const thumbStage = defineStage({
   // The old `<maple_id>.avif` files are deliberately NOT renamed — they orphan
   // out via cache-gc, same as the v3 `.jpg` files did. `resetCfThumbSyncVersion`
   // cascades as before so R2 picks up the re-render.
+  // v29 — frozen (#4793). The thumb name moved to `<filename>.avif` and lost
+  // its pipeline version; cache-gc and readers RENAME the old hashed file into
+  // place, so this must never be bumped for a naming or pipeline change.
   targetVersion: THUMB_TARGET_VERSION,
   dependsOn: ['exif'],
   // Reads the original file — an ENOENT means it vanished from disk, so the

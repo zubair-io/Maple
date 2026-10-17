@@ -25,7 +25,6 @@ import { safeWriteAllowed, type OpResult } from './root.ts';
 import type { AssetDoc } from '../db/schema.ts';
 import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 import { prepareWorkflowWrite } from '../xmp/workflow-write.ts';
 import {
   serializeSidecarWrite,
@@ -34,11 +33,9 @@ import {
 } from './sidecar-write-order';
 
 /**
- * First 16 hex chars of sha256(text) — the cache-key stem used for
- * `.maple/thumbs/<key>.avif`. Matches the web (Hosted) maple-cache
- * convention at `src/web/.../maple-cache/sha.ts` so thumbs written by
- * the API are readable by the browser-FS-Access cache (and vice versa
- * once Apple migrates to a filename-keyed hash too).
+ * First 16 hex chars of sha256(text) — the stem of the RETIRED hashed thumb
+ * name `.maple/thumbs/<key>[.v<N>].avif`. Only legacy migration uses it now
+ * (`legacy-derivative.ts`, `cache-gc.ts`): thumbs are `<filename>.avif` (#4793).
  */
 export function sha256Prefix16(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16);
@@ -217,22 +214,22 @@ export async function updateXmpAtomic(
 /**
  * Resolve the thumbnail cache path for a given RAW file.
  *
- * Convention (aligned with the desktop apps + web Hosted variant):
- *   <folder>/.maple/thumbs/<sha256_prefix16(basename)>.avif
+ * Convention (shared by every platform, #4793):
+ *   <folder>/.maple/thumbs/<basename>.avif
  *
- * - Single thumb per RAW file at the fixed `THUMB_LONG_EDGE_PX` tier; callers
+ * - Single thumb per file at the fixed `THUMB_LONG_EDGE_PX` tier; callers
  *   cannot request another size (#2220), so the mtime stale-check (raw ≥ thumb)
- *   suffices. Matches web `MapleCacheService` / Apple `ThumbnailDiskCache`.
- * - Hash input is the basename (filename with extension) so `.maple/`
- *   travels with the photos: copy the folder elsewhere and the same
- *   thumb hash still resolves. Hashing the absolute path would make
- *   the cache non-portable.
+ *   suffices. No pipeline version and no hash: a pipeline bump never touches it.
+ * - Keyed by the basename (filename with extension), the same way previews
+ *   are, so `.maple/` travels with the photos when the folder is copied.
  */
 export function resolveThumbPath(rawAbsPath: string): string {
-  const folder = path.dirname(rawAbsPath);
-  const basename = path.basename(rawAbsPath);
-  const key = sha256Prefix16(basename);
-  return path.join(folder, '.maple', 'thumbs', `${key}.v${PIPELINE_OUTPUT_VERSION}.avif`);
+  return path.join(
+    path.dirname(rawAbsPath),
+    '.maple',
+    'thumbs',
+    `${path.basename(rawAbsPath)}.avif`,
+  );
 }
 
 /** Trailing args of the `cachePathFor*` resolvers — which derived artefact
@@ -241,24 +238,21 @@ export function resolveThumbPath(rawAbsPath: string): string {
  * `suffix` pair so the requirement is expressed in a single signature. */
 type CacheKindArgs = ['thumbs'] | ['previews', string];
 
-function previewCacheFilename(filename: string, suffix: string): string {
-  return suffix === 'avif'
-    ? `${filename}.v${PIPELINE_OUTPUT_VERSION}.avif`
-    : `${filename}.${suffix}`;
-}
-
 /**
  * Resolve the on-disk cache path for an asset's derived artefact.
  *
  * Thumbs use the unified per-file convention from `resolveThumbPath`; previews
  * are keyed off the source's own filename plus a `suffix`:
  *
- *   thumbs:   <folder>/.maple/thumbs/<sha256_prefix16(basename)>.avif
+ *   thumbs:   <folder>/.maple/thumbs/<basename>.avif
  *   previews: <folder>/.maple/previews/<basename>.<suffix>
  *
- * Canonical AVIF previews include the generated pipeline-output version.
- * Co-located non-render artefacts such as histogram JSON keep their own suffix.
- * Version-aware cleanup recovers the exact original filename from each entry.
+ * Neither tier carries a pipeline version (#4793): a pipeline bump never
+ * renames, regenerates or rejects an existing thumbnail or preview. `suffix`
+ * only distinguishes co-located artefacts of a different kind (the
+ * `histogram.json` sidecar), and MUST keep the
+ * `<basename-with-its-own-extension>.<suffix>` form — cleanup recovers the
+ * exact source filename from it (`preview-cache-cleanup.ts`).
  *
  * `suffix` is REQUIRED for `previews` (#2220): the old `'full.jpg'` default was
  * a tier nothing writes any more, reachable only by mistake and silently.
@@ -271,7 +265,7 @@ export function cachePathFor(assetAbsPath: string, ...[kind, suffix]: CacheKindA
   }
   const folder = path.dirname(assetAbsPath);
   const filename = path.basename(assetAbsPath);
-  return path.join(folder, '.maple', 'previews', previewCacheFilename(filename, suffix));
+  return path.join(folder, '.maple', 'previews', `${filename}.${suffix}`);
 }
 
 /**
@@ -304,7 +298,7 @@ function resolvePrimaryLocation(
  * absolute path. Composes the asset's primary on-disk location into an absolute
  * path, then defers entirely to `resolveThumbPath`:
  *
- *   <library_root>/<fileinfo[0].path>/.maple/thumbs/<sha256_prefix16(filename)>.avif
+ *   <library_root>/<fileinfo[0].path>/.maple/thumbs/<filename>.avif
  *
  * Deliberately path-keyed, NOT `maple_id`-keyed: Maple is a UI over a local
  * filesystem, so a cache entry must resolve from a path alone — no DB lookup,
@@ -329,7 +323,7 @@ export function resolveThumbPathForAsset(
 /**
  * Resolve a thumbnail or preview cache path for an asset. Composes:
  *
- *   thumbs:   <library_root>/<fileinfo[0].path>/.maple/thumbs/<sha256_prefix16(filename)>.avif
+ *   thumbs:   <library_root>/<fileinfo[0].path>/.maple/thumbs/<filename>.avif
  *   previews: <library_root>/<fileinfo[0].path>/.maple/previews/<fileinfo[0].filename>.<suffix>
  *
  * BOTH tiers are keyed off the source's own filename — no EXIF read, no hash of
@@ -353,13 +347,7 @@ export function cachePathForAsset(
   }
   const loc = resolvePrimaryLocation(asset, libraries);
   if (!loc) return null;
-  return path.join(
-    loc.root,
-    ...loc.segments,
-    '.maple',
-    'previews',
-    previewCacheFilename(loc.filename, suffix),
-  );
+  return path.join(loc.root, ...loc.segments, '.maple', 'previews', `${loc.filename}.${suffix}`);
 }
 
 export type XmpWriteOutcome =

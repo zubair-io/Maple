@@ -30,7 +30,7 @@ import { assignedAiPool } from '../../enrichment/ai-assigned-pool.ts';
  * Spec: `.archived-plans/specs/2026-05-19-qwen-vision-ocr-design.md`.
  */
 
-import { readFile } from 'node:fs/promises';
+import { readDerivative } from '../../fs/legacy-derivative.ts';
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
@@ -246,7 +246,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   }
   let avifBytes: Buffer;
   try {
-    avifBytes = await readFile(previewPath);
+    avifBytes = await readDerivative(previewPath);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {

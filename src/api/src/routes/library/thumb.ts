@@ -1,4 +1,3 @@
-import { incompatiblePipelineVersion } from '../../runtime/http-pipeline-version.ts';
 import { Elysia, type Context } from 'elysia';
 import { child as childLogger } from '../../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../../runtime/http-etag.ts';
@@ -9,7 +8,6 @@ import {
   assertDerivativeCacheDirectory,
   isDerivativeCacheFresh,
 } from '../../indexer/derivative-cache.ts';
-import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 import { isUndecodableFilename } from '../../indexer/media-types.ts';
 import { isDecodableRasterExt, lowerExt } from '../fs-jail.ts';
 import {
@@ -68,7 +66,6 @@ async function serveThumb(
       status: unchanged ? 304 : 200,
       headers: {
         'Content-Type': 'image/avif',
-        'X-Maple-Pipeline-Version': String(PIPELINE_OUTPUT_VERSION),
         ETag: etag,
         'Cache-Control': MUTABLE_PREVIEW_CACHE,
         'X-Thumb-Cache': fresh ? 'hit' : 'miss',
@@ -86,9 +83,7 @@ async function serveThumb(
 
 export const thumbRoutes = new Elysia().get(
   '/thumb/:slug/*',
-  async ({ params, headers, query, set }) => {
-    const versionError = incompatiblePipelineVersion(query.pv, set);
-    if (versionError) return versionError;
+  async ({ params, headers, set }) => {
     const segments = parseWildcardSegments((params as Record<string, string>)['*'] ?? '');
     const filename = segments.at(-1) ?? '';
     if (!filename) {

@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 import { describe, expect, it, beforeAll, afterAll, spyOn } from 'bun:test';
 import { mkdtemp, mkdir, rm, writeFile, stat } from 'node:fs/promises';
 import * as os from 'node:os';
@@ -6,7 +5,7 @@ import * as path from 'node:path';
 import { maple } from 'maple';
 import { ObjectId } from '../../db/object-id.ts';
 import thumbStage from './thumb.ts';
-import { resolveThumbPath, resolveThumbPathForAsset, sha256Prefix16 } from '../../fs/xmp.ts';
+import { resolveThumbPath, resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import * as videoPosterModule from '../../thumbs/video-poster.ts';
 import {
   createLiveTestDatabase,
@@ -323,15 +322,7 @@ describe('thumb handler — path-keyed cache path', () => {
     // The thumb must land at the name a path-only reader computes — this is
     // the agreement that was broken while the stage was maple_id-keyed.
     const expected = resolveThumbPath(file);
-    expect(expected).toBe(
-      path.join(
-        dir,
-        'vacation',
-        '.maple',
-        'thumbs',
-        `${sha256Prefix16('IMG_001.jpg')}.v${PIPELINE_OUTPUT_VERSION}.avif`,
-      ),
-    );
+    expect(expected).toBe(path.join(dir, 'vacation', '.maple', 'thumbs', 'IMG_001.jpg.avif'));
     expect((await stat(expected)).size).toBeGreaterThan(0);
     // And explicitly NOT at the old content-addressed name.
     await expect(

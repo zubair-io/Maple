@@ -11,9 +11,8 @@
  * Database access lives in `src/db/assets.repo.ts`.
  */
 
-import { incompatiblePipelineVersion } from '../../runtime/http-pipeline-version.ts';
 import { Elysia } from 'elysia';
-import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
+import { adoptLegacyDerivative } from '../../fs/legacy-derivative.ts';
 import { ObjectId } from '../../db/object-id.ts';
 import { stat } from 'node:fs/promises';
 import * as path from 'node:path';
@@ -244,9 +243,7 @@ export const metadataRoutes = new Elysia()
   })
 
   // Serve thumbnail from .maple/ cache
-  .get('/:id/thumb', async ({ params, headers, query, set }) => {
-    const versionError = incompatiblePipelineVersion(query.pv, set);
-    if (versionError) return versionError;
+  .get('/:id/thumb', async ({ params, headers, set }) => {
     const resolved = await resolveAssetInfoOrRespond(params.id, set);
     if ('error' in resolved) return resolved;
     const { info } = resolved;
@@ -269,8 +266,11 @@ export const metadataRoutes = new Elysia()
     // a cache-hit revalidation is one stat() call.
     let etag: string;
     try {
-      const st = await stat(thumbPath);
-      etag = `"${Math.floor(st.mtimeMs)}-${st.size}-v${PIPELINE_OUTPUT_VERSION}"`;
+      const st = await stat(thumbPath).catch(async (error: unknown) => {
+        if (await adoptLegacyDerivative(thumbPath)) return stat(thumbPath);
+        throw error;
+      });
+      etag = `"${Math.floor(st.mtimeMs)}-${st.size}"`;
     } catch {
       set.status = 404;
       return { error: 'Thumbnail not yet generated' };
@@ -299,6 +299,5 @@ export const metadataRoutes = new Elysia()
     set.headers['ETag'] = etag;
     set.headers['Content-Type'] = 'image/avif';
     set.headers['Cache-Control'] = cacheControl;
-    set.headers['X-Maple-Pipeline-Version'] = String(PIPELINE_OUTPUT_VERSION);
     return result.data;
   });

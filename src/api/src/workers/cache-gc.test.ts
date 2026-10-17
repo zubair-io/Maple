@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 /**
  * Tests for `sweepOrphanedCaches` (#3787).
  *
@@ -84,7 +83,6 @@ describe('sweepOrphanedCaches', () => {
   test('reaps a retired maple_id-keyed thumb and keeps the live path-keyed one', async () => {
     using live = await createLiveTestDatabase();
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
-    const { sha256Prefix16 } = await import('../fs/xmp.ts');
     const root = await mkTree();
     try {
       const libraryId = registerLibrary(live.db, root);
@@ -93,22 +91,19 @@ describe('sweepOrphanedCaches', () => {
       run(live.db, `UPDATE assets SET maple_id = ? WHERE id = ?`, KNOWN_ID, insertAsset(live.db));
 
       const retiredThumb = path.join(root, '.maple', 'thumbs', `${KNOWN_ID}.jpg`);
-      const liveThumb = path.join(
-        root,
-        '.maple',
-        'thumbs',
-        `${sha256Prefix16('live.dng')}.v${PIPELINE_OUTPUT_VERSION}.jpg`,
-      );
+      const liveThumb = path.join(root, '.maple', 'thumbs', 'live.dng.avif');
       const deadKeyThumb = path.join(root, '.maple', 'thumbs', `${LEGACY_KEY}.jpg`);
-      for (const f of [retiredThumb, liveThumb, deadKeyThumb]) {
+      for (const f of [retiredThumb, deadKeyThumb]) {
         await writeJpg(f);
         await agePast(f);
       }
+      await writeAvif(liveThumb);
+      await agePast(liveThumb);
 
       const result = await sweepOrphanedCaches(root);
       expect(result).toEqual({ scanned: 3, deleted: 2, skipped_recent: 0 });
 
-      // The thumb whose stem hashes a live filename in this directory survives.
+      // The thumb named after a live filename in this directory survives.
       expect((await stat(liveThumb)).size).toBeGreaterThan(0);
       // Retired scheme, and a path-key matching no live file, both reaped.
       await expect(stat(retiredThumb)).rejects.toThrow();
@@ -122,18 +117,12 @@ describe('sweepOrphanedCaches', () => {
   test('reaps a retired .avif thumb and keeps the live path-keyed .avif', async () => {
     using live = await createLiveTestDatabase();
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
-    const { sha256Prefix16 } = await import('../fs/xmp.ts');
     const root = await mkTree();
     try {
       const libraryId = registerLibrary(live.db, root);
       insertLiveAsset(live.db, libraryId, '', 'live.dng');
       const retiredThumb = path.join(root, '.maple', 'thumbs', `${KNOWN_ID}.avif`);
-      const liveThumb = path.join(
-        root,
-        '.maple',
-        'thumbs',
-        `${sha256Prefix16('live.dng')}.v${PIPELINE_OUTPUT_VERSION}.avif`,
-      );
+      const liveThumb = path.join(root, '.maple', 'thumbs', 'live.dng.avif');
       for (const f of [retiredThumb, liveThumb]) {
         await writeAvif(f);
         await agePast(f);
@@ -181,12 +170,7 @@ describe('sweepOrphanedCaches', () => {
       const libraryId = registerLibrary(live.db, root);
       // `image.jpg` is live; `image.jpg.bak` is NOT (already deleted).
       insertLiveAsset(live.db, libraryId, '', 'image.jpg');
-      const keep = path.join(
-        root,
-        '.maple',
-        'previews',
-        `image.jpg.v${PIPELINE_OUTPUT_VERSION}.avif`,
-      );
+      const keep = path.join(root, '.maple', 'previews', `image.jpg.avif`);
       const orphan = path.join(root, '.maple', 'previews', 'image.jpg.bak.avif');
       await writeAvif(keep);
       await writeAvif(orphan);
@@ -211,7 +195,7 @@ describe('sweepOrphanedCaches', () => {
     try {
       const libraryId = registerLibrary(live.db, root);
       insertLiveAsset(live.db, libraryId, '', 'a.dng');
-      const keep = path.join(root, '.maple', 'previews', `a.dng.v${PIPELINE_OUTPUT_VERSION}.jpg`);
+      const keep = path.join(root, '.maple', 'previews', `a.dng.jpg`);
       await writeJpg(keep);
       await agePast(keep);
 
@@ -265,7 +249,7 @@ describe('sweepOrphanedCaches', () => {
     try {
       const libraryId = registerLibrary(live.db, root);
       insertLiveAsset(live.db, libraryId, '', 'a.dng');
-      const keep = path.join(root, '.maple', 'previews', `a.dng.v${PIPELINE_OUTPUT_VERSION}.avif`);
+      const keep = path.join(root, '.maple', 'previews', `a.dng.avif`);
       const oldSized = path.join(root, '.maple', 'previews', 'a.dng.1280.avif');
       const oldDev = path.join(root, '.maple', 'previews', 'a.dng.dev_5.jpg');
       await writeAvif(keep);
@@ -363,20 +347,8 @@ describe('sweepOrphanedCaches', () => {
     try {
       const libraryId = registerLibrary(live.db, root);
       insertLiveAsset(live.db, libraryId, 'kept', 'a.dng');
-      const elsewhere = path.join(
-        root,
-        'other',
-        '.maple',
-        'previews',
-        `a.dng.v${PIPELINE_OUTPUT_VERSION}.avif`,
-      );
-      const here = path.join(
-        root,
-        'kept',
-        '.maple',
-        'previews',
-        `a.dng.v${PIPELINE_OUTPUT_VERSION}.avif`,
-      );
+      const elsewhere = path.join(root, 'other', '.maple', 'previews', `a.dng.avif`);
+      const here = path.join(root, 'kept', '.maple', 'previews', `a.dng.avif`);
       for (const f of [elsewhere, here]) {
         await writeAvif(f);
         await agePast(f);

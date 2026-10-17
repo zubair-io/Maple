@@ -12,6 +12,7 @@ import { resolveThumbPathForAsset, cachePathForAsset } from '../../fs/xmp.ts';
 import { PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
 import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-types.ts';
 import { thumbR2Key } from '../../cloudflare/thumb-key.ts';
+import { legacyDerivativePath } from '../../fs/legacy-derivative.ts';
 import { THUMB_TARGET_VERSION, PREVIEW_TARGET_VERSION } from '../derivative-versions.ts';
 
 const DESCRIBE_TARGET = 7;
@@ -44,12 +45,18 @@ function stageVersion(image: ImageDoc, name: string): number {
   return image.stages?.[name]?.version ?? 0;
 }
 
-/** A derivative on disk counts as present only when it exists AND is non-zero —
- * an interrupted write can leave a 0-byte file that must be regenerated. */
-async function presentNonZero(deps: AuditDeps, p: string | null): Promise<boolean> {
+async function nonZero(deps: AuditDeps, p: string | null): Promise<boolean> {
   if (!p) return false;
   const s = await deps.statOrNull(p);
   return s !== null && s.size > 0;
+}
+
+/** A derivative on disk counts as present only when it exists AND is non-zero —
+ * an interrupted write can leave a 0-byte file that must be regenerated. A
+ * not-yet-renamed legacy `<name>.v25.avif` also counts: readers and cache-gc
+ * rename it into place, so it must never re-arm a regeneration (#4793). */
+async function presentNonZero(deps: AuditDeps, p: string | null): Promise<boolean> {
+  return (await nonZero(deps, p)) || (await nonZero(deps, p && legacyDerivativePath(p)));
 }
 
 /** Would the thumb/preview stages actually produce a file? Replicates their

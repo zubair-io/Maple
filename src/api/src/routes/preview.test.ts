@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 /**
  * Tests for PUT /api/preview?path=… — the path-keyed preview upload (#2017).
  *
@@ -70,7 +69,6 @@ describe('PUT /api/preview', () => {
       new Request(`http://localhost/api/preview?path=${encodeURIComponent(path)}`, {
         method: 'PUT',
         headers: {
-          'x-maple-pipeline-version': String(PIPELINE_OUTPUT_VERSION),
           'content-type': 'image/avif',
         },
         body: Buffer.isBuffer(body) ? new Uint8Array(body) : body,
@@ -101,38 +99,30 @@ describe('PUT /api/preview', () => {
     expect(res.status).toBe(204);
 
     // Written to the canonical cache path — filename incl. extension + `.avif`.
-    const previewPath = join(
-      tmp,
-      '.maple',
-      'previews',
-      `IMG_1234.CR2.v${PIPELINE_OUTPUT_VERSION}.avif`,
-    );
+    const previewPath = join(tmp, '.maple', 'previews', `IMG_1234.CR2.avif`);
     const written = await readFile(previewPath);
     expect(written.equals(avif)).toBe(true);
   });
 
-  it.each([undefined, PIPELINE_OUTPUT_VERSION - 1, PIPELINE_OUTPUT_VERSION + 1])(
-    'rejects upload pipeline %s without replacing the current cache',
+  it.each([undefined, '24', '25', '26'])(
+    'accepts an upload with X-Maple-Pipeline-Version %s and never gates on it (#4793)',
     async (version) => {
       const original = join(tmp, 'versioned.dng');
       await writeFile(original, 'original bytes');
-      const current = await validAvif();
-      expect((await put(original, current)).status).toBe(204);
+      const avif = await validAvif();
       const headers: Record<string, string> = { 'content-type': 'image/avif' };
-      if (version !== undefined) headers['x-maple-pipeline-version'] = String(version);
+      if (version !== undefined) headers['x-maple-pipeline-version'] = version;
       const response = await new Elysia().use(previewPathRoutes).handle(
         new Request(`http://localhost/api/preview?path=${encodeURIComponent(original)}`, {
           method: 'PUT',
           headers,
-          body: new Uint8Array([0, 1, 2]),
+          body: new Uint8Array(avif),
         }),
       );
-      expect(response.status).toBe(409);
-      expect(
-        await readFile(
-          join(tmp, '.maple', 'previews', `versioned.dng.v${PIPELINE_OUTPUT_VERSION}.avif`),
-        ),
-      ).toEqual(Buffer.from(current));
+      expect(response.status).toBe(204);
+      expect(await readFile(join(tmp, '.maple', 'previews', 'versioned.dng.avif'))).toEqual(
+        Buffer.from(avif),
+      );
       expect(await readFile(original, 'utf8')).toBe('original bytes');
     },
   );
@@ -147,7 +137,7 @@ describe('PUT /api/preview', () => {
     expect((await put(original, first)).status).toBe(204);
     expect((await put(original, second)).status).toBe(204);
 
-    const previewPath = join(tmp, '.maple', 'previews', `a.dng.v${PIPELINE_OUTPUT_VERSION}.avif`);
+    const previewPath = join(tmp, '.maple', 'previews', `a.dng.avif`);
     expect((await readFile(previewPath)).equals(second)).toBe(true);
   });
 
@@ -156,7 +146,7 @@ describe('PUT /api/preview', () => {
     const res = await put(original, Buffer.from('this is definitely not an AVIF file'));
     expect(res.status).toBe(422);
 
-    const previewPath = join(tmp, '.maple', 'previews', `b.dng.v${PIPELINE_OUTPUT_VERSION}.avif`);
+    const previewPath = join(tmp, '.maple', 'previews', `b.dng.avif`);
     await expect(stat(previewPath)).rejects.toThrow();
   });
 
@@ -170,7 +160,7 @@ describe('PUT /api/preview', () => {
     const res = await put(original, truncated);
     expect(res.status).toBe(422);
 
-    const previewPath = join(tmp, '.maple', 'previews', `c.dng.v${PIPELINE_OUTPUT_VERSION}.avif`);
+    const previewPath = join(tmp, '.maple', 'previews', `c.dng.avif`);
     await expect(stat(previewPath)).rejects.toThrow();
   });
 
@@ -229,7 +219,6 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
       new Request(`http://localhost/api/preview?path=${encodeURIComponent(path)}`, {
         method: 'PUT',
         headers: {
-          'x-maple-pipeline-version': String(PIPELINE_OUTPUT_VERSION),
           'content-type': contentType,
         },
         body: Buffer.isBuffer(body) ? new Uint8Array(body) : body,
@@ -282,12 +271,7 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
     const res = await putBody(original, jpeg);
     expect(res.status).toBe(204);
 
-    const previewPath = join(
-      tmp,
-      '.maple',
-      'previews',
-      `IMG_5555.NEF.v${PIPELINE_OUTPUT_VERSION}.avif`,
-    );
+    const previewPath = join(tmp, '.maple', 'previews', `IMG_5555.NEF.avif`);
     const meta = await maple(previewPath).metadata();
     expect(meta.format).toBe('heif');
     expect(meta.width).toBeLessThanOrEqual(200);
@@ -295,7 +279,7 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
 
     // No leftover JPEG-staging or AVIF-transcode temp files.
     const files = await readdir(join(tmp, '.maple', 'previews'));
-    expect(files).toEqual([`IMG_5555.NEF.v${PIPELINE_OUTPUT_VERSION}.avif`]);
+    expect(files).toEqual([`IMG_5555.NEF.avif`]);
   }, 15_000 /* generous timeout for the transcode + validation */);
 
   it('sniffs JPEG via magic bytes when Content-Type is generic/missing', async () => {
@@ -305,12 +289,7 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
     const res = await putBody(original, jpeg, 'application/octet-stream');
     expect(res.status).toBe(204);
 
-    const previewPath = join(
-      tmp,
-      '.maple',
-      'previews',
-      `sniffed.dng.v${PIPELINE_OUTPUT_VERSION}.avif`,
-    );
+    const previewPath = join(tmp, '.maple', 'previews', `sniffed.dng.avif`);
     const meta = await maple(previewPath).metadata();
     expect(meta.format).toBe('heif');
   }, 15_000);
@@ -324,7 +303,7 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
     const res = await putBody(original, corrupt);
     expect(res.status).toBe(422);
 
-    const previewPath = join(tmp, '.maple', 'previews', `bad.dng.v${PIPELINE_OUTPUT_VERSION}.avif`);
+    const previewPath = join(tmp, '.maple', 'previews', `bad.dng.avif`);
     await expect(stat(previewPath)).rejects.toThrow();
   }, 15_000);
 
@@ -337,12 +316,7 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
     );
     expect(res.status).toBe(422);
 
-    const previewPath = join(
-      tmp,
-      '.maple',
-      'previews',
-      `neither.dng.v${PIPELINE_OUTPUT_VERSION}.avif`,
-    );
+    const previewPath = join(tmp, '.maple', 'previews', `neither.dng.avif`);
     await expect(stat(previewPath)).rejects.toThrow();
   });
 
@@ -357,12 +331,7 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
     const res = await putBody(original, avif, 'image/avif');
     expect(res.status).toBe(204);
 
-    const previewPath = join(
-      tmp,
-      '.maple',
-      'previews',
-      `still-avif.dng.v${PIPELINE_OUTPUT_VERSION}.avif`,
-    );
+    const previewPath = join(tmp, '.maple', 'previews', `still-avif.dng.avif`);
     expect((await readFile(previewPath)).equals(avif)).toBe(true);
   });
 });

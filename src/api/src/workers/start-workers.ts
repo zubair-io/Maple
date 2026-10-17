@@ -105,9 +105,9 @@ export async function startWorkers(): Promise<void> {
       log.info({ roots: discoverRoots }, 'discover sweep started in-process');
     }
 
-    // Fire-and-forget cache-gc sweep per library. Reaps both legacy
-    // sha256_prefix16-keyed thumbs (always orphans post-PR-3) and stale
-    // maple_id-keyed files for hard-deleted or relocated assets. See
+    // Fire-and-forget cache-gc sweep per library. Renames retired hashed and
+    // pipeline-versioned derivatives into place (#4793) and reaps orphans for
+    // hard-deleted or relocated assets. See
     // `workers/cache-gc.ts` for why no migration sentinel.
     for (const root of discoverRoots) {
       void (async (libRoot: string) => {

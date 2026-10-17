@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 /**
  * R2 object key derivation for content-addressed thumbnails.
  *
@@ -16,7 +15,16 @@ import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generate
  * independently in its own TypeScript project (`src/cloudflare/src/r2.ts`)
  * since the two are separate deploy units with no shared import — keep
  * the two in sync by hand if this scheme ever changes.
+ *
+ * The trailing `/v25` is a frozen literal, not a pipeline version (#4793):
+ * it is the suffix every object already in the bucket was uploaded under, so
+ * keeping it leaves the whole edge cache addressable with no mass re-upload.
+ * It must never change with `PIPELINE_OUTPUT_VERSION`.
  */
+
+/** Suffix of every current R2 thumbnail key. `0` addresses the bare key
+ * objects were uploaded under before the suffix existed. */
+export const FROZEN_R2_KEY_VERSION = 25;
 
 /** Segments that make up a thumbnail's address, as already resolved by the
  * `/api/thumb/:slug/*` route (see `routes/library/thumb.ts`): the library
@@ -34,7 +42,7 @@ export interface ThumbAddress {
  * Worker from `new URL(request.url).pathname`. */
 export function thumbR2Key(
   { slug, relDir, filename }: ThumbAddress,
-  version = PIPELINE_OUTPUT_VERSION,
+  version = FROZEN_R2_KEY_VERSION,
 ): string {
   const segments = [slug, ...relDir.split('/').filter(Boolean), filename];
   const base = `thumbs/${segments.map(encodeURIComponent).join('/')}`;

@@ -12,11 +12,11 @@
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
-import { mkdir, mkdtemp, writeFile, rm, realpath } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { thumbRoutes } from './thumb.ts';
-import { resolveThumbPath } from '../../fs/xmp.ts';
+import { resolveThumbPath, sha256Prefix16 } from '../../fs/xmp.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { registerLibrary, seedRouteAsset } from '../../../tests/helpers/assets-route-fixtures.ts';
 import { newObjectIdHex } from '../../db/object-id.ts';
@@ -187,5 +187,36 @@ describe('GET /thumb/:slug/*', () => {
     );
     expect(res.status).toBe(304);
     expect(res.headers.get('ETag')).toBe(etag);
+  });
+
+  test('ignores a pv query param and sends no pipeline-version header (#4793)', async () => {
+    const src = path.join(tmpDir, 'old-client.jpg');
+    await writeFile(src, 'fake-source');
+    const thumbPath = resolveThumbPath(src);
+    await mkdir(path.dirname(thumbPath), { recursive: true });
+    await writeFile(thumbPath, 'thumb-bytes');
+
+    for (const query of ['?pv=24', '?pv=25', '?pv=999']) {
+      const res = await app.handle(
+        new Request(`http://localhost/thumb/thumblib/old-client.jpg${query}`),
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get('X-Maple-Pipeline-Version')).toBeNull();
+    }
+  });
+
+  test('renames the frozen legacy hashed thumb into place on a miss instead of regenerating (#4793)', async () => {
+    const src = path.join(tmpDir, 'IMG_1234.CR2');
+    await writeFile(src, 'fake-raw');
+    const thumbsDir = path.join(tmpDir, '.maple', 'thumbs');
+    await mkdir(thumbsDir, { recursive: true });
+    await writeFile(path.join(thumbsDir, `${sha256Prefix16('IMG_1234.CR2')}.v25.avif`), 'legacy');
+
+    const res = await app.handle(new Request('http://localhost/thumb/thumblib/IMG_1234.CR2'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Thumb-Cache')).toBe('hit');
+    expect(await res.text()).toBe('legacy');
+    expect(resolveThumbPath(src)).toBe(path.join(thumbsDir, 'IMG_1234.CR2.avif'));
+    expect(await readdir(thumbsDir)).toEqual(['IMG_1234.CR2.avif']);
   });
 });

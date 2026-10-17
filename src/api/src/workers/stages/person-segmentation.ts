@@ -9,7 +9,7 @@
  * `pausedOnFirstBoot: true` — starts paused until enabled by the operator.
  */
 
-import { readFile } from 'node:fs/promises';
+import { readDerivative } from '../../fs/legacy-derivative.ts';
 import { maple } from 'maple';
 import type { ImageDoc, RunStageHandle, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage } from '../run-stage.ts';
@@ -56,7 +56,7 @@ export async function personSegmentationHandler(
   const previewPath = cachePathForAsset(image as never, libs, 'previews', PREVIEW_CACHE_SUFFIX);
   if (previewPath) {
     try {
-      imageBytes = await readFile(previewPath);
+      imageBytes = await readDerivative(previewPath);
     } catch {
       imageBytes = null;
     }

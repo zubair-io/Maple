@@ -204,8 +204,8 @@ export async function planAndPlace(args: {
  *
  * Covers BOTH cache-keying schemes so reclamation is robust regardless of which
  * one produced the files:
- *   - path-keyed (current): `thumbs/<sha256Prefix16(filename)>.avif`,
- *     `previews/<basename_no_ext>_<size>.jpg`
+ *   - path-keyed (current): `thumbs/<filename>.avif`; the retired hashed
+ *     `thumbs/<sha256Prefix16(filename)>.avif`, `previews/<basename_no_ext>_<size>.jpg`
  *   - retired content-addressed: `thumbs/<maple_id>.avif`,
  *     `previews/<maple_id>_<size>.jpg`
  * Thumbs also drops the `.jpg` form of each — the thumb stage's v3 format
@@ -220,8 +220,9 @@ async function dropOldCache(
   const thumbsDir = path.join(oldDirAbs, '.maple', 'thumbs');
   const previewsDir = path.join(oldDirAbs, '.maple', 'previews');
 
-  // Thumbs: maple_id-keyed + legacy basename-hash-keyed, both extensions
-  // (AVIF is current; JPEG is the pre-v3 legacy format).
+  // Thumbs: current `<filename>.avif`, plus maple_id-keyed and legacy
+  // basename-hash-keyed in both extensions (JPEG is the pre-v3 legacy format).
+  await fs.unlink(path.join(thumbsDir, `${filename}.avif`)).catch(() => {});
   for (const ext of ['avif', 'jpg']) {
     if (mapleId) await fs.unlink(path.join(thumbsDir, `${mapleId}.${ext}`)).catch(() => {});
     await fs.unlink(path.join(thumbsDir, `${sha256Prefix16(filename)}.${ext}`)).catch(() => {});

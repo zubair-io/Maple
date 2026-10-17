@@ -37,6 +37,8 @@ const previewStage = defineStage({
   // reclaimed by the missing-reaper/dedupe cache-removal hook or cache-gc's
   // backstop sweep. (v3 was the earlier path-keyed + AVIF migration off the
   // `<maple_id>_1280.jpg` scheme.)
+  // v29 — frozen (#4793): previews carry no pipeline version, and the retired
+  // `<filename>.v<N>.avif` names are RENAMED into place, never regenerated.
   targetVersion: PREVIEW_TARGET_VERSION,
   dependsOn: ['thumb'],
   // Reads the original file — an ENOENT means it vanished from disk, so the

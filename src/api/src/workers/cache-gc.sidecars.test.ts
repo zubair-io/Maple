@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 /**
  * Regression tests for `sweepOrphanedCaches`' handling of the LEGACY thumb
  * freshness sidecar (`<key>.avif.meta`). The `.meta` protocol that wrote
@@ -24,7 +23,6 @@ import { mkdtemp, mkdir, writeFile, rm, stat, utimes } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Database } from 'bun:sqlite';
-import { sha256Prefix16 } from '../fs/xmp.ts';
 import {
   createLiveTestDatabase,
   insertAsset,
@@ -94,10 +92,7 @@ describe('sweepOrphanedCaches — legacy thumb .meta sidecars', () => {
       insertLiveAsset(live.db, libraryId, '', 'live.dng');
 
       const orphan = path.join(thumbsDir(root), `${DEAD_KEY}.avif`);
-      const liveThumb = path.join(
-        thumbsDir(root),
-        `${sha256Prefix16('live.dng')}.v${PIPELINE_OUTPUT_VERSION}.avif`,
-      );
+      const liveThumb = path.join(thumbsDir(root), 'live.dng.avif');
       for (const f of [orphan, liveThumb]) {
         await writeAvif(f);
         await writeLegacySidecar(f);
@@ -128,10 +123,7 @@ describe('sweepOrphanedCaches — legacy thumb .meta sidecars', () => {
       const libraryId = registerLibrary(live.db, root);
       insertLiveAsset(live.db, libraryId, '', 'live.dng');
 
-      const liveThumb = path.join(
-        thumbsDir(root),
-        `${sha256Prefix16('live.dng')}.v${PIPELINE_OUTPUT_VERSION}.avif`,
-      );
+      const liveThumb = path.join(thumbsDir(root), 'live.dng.avif');
       await writeAvif(liveThumb);
       await writeLegacySidecar(liveThumb);
       await agePast(liveThumb);
