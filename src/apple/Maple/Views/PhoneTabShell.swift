@@ -466,6 +466,11 @@
         onEdit: { asset in libraryPath.append(.edit(asset)) },
         onSelectionChanged: { asset in
           browseVM.selectedID = asset.id
+          // Follow the page so the hero's subject (and the tile it hides
+          // on close) is the photo actually on screen (#4714).
+          hero = PreviewHeroSubject(
+            asset: asset,
+            image: ThumbnailDecoder.cachedImage(forKey: asset.stableID ?? asset.id.uuidString))
           // Prime the real session the moment a lazily-built sibling
           // becomes the shown asset, so a later Edit tap reuses it
           // (idempotent, matches `onPrimeSession`'s BrowseGrid contract).
