@@ -17,6 +17,7 @@
 import { SignJWT, importPKCS8 } from 'jose';
 import type { ApnsEnvCredentials } from './apns-config.repo.ts';
 import type { ApnsEnvironment } from '../db/schema.ts';
+import { Http2ApnsTransport } from './apns-http2-transport.ts';
 
 /**
  * Push topic for a File Provider wake signal: `<bundle-id>.pushkit.fileprovider`,
@@ -34,6 +35,16 @@ const SANDBOX_HOST = 'https://api.sandbox.push.apple.com';
 // at 50 minutes keeps every send comfortably inside the validity window
 // with no risk of straddling the boundary mid-request.
 const TOKEN_REUSE_SECONDS = 50 * 60;
+
+export interface ApnsTransportResponse {
+  status: number;
+  body: string;
+}
+
+export interface ApnsTransport {
+  post(url: string, headers: Record<string, string>, body: string): Promise<ApnsTransportResponse>;
+  close(): void;
+}
 
 export type ApnsSendResult =
   | { ok: true }
@@ -66,7 +77,7 @@ export class ApnsSender {
 
   constructor(
     private readonly creds: ApnsEnvCredentials,
-    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly transport: ApnsTransport = new Http2ApnsTransport(),
   ) {}
 
   private providerToken(): Promise<string> {
@@ -107,9 +118,9 @@ export class ApnsSender {
   ): Promise<ApnsSendResult> {
     const host = environment === 'production' ? PRODUCTION_HOST : SANDBOX_HOST;
     const token = await this.providerToken();
-    const res = await this.fetchImpl(`${host}/3/device/${deviceToken}`, {
-      method: 'POST',
-      headers: {
+    const res = await this.transport.post(
+      `${host}/3/device/${deviceToken}`,
+      {
         authorization: `bearer ${token}`,
         'apns-topic': APNS_FILE_PROVIDER_TOPIC,
         // PushKit push type for a File Provider wake — not "alert" or
@@ -123,10 +134,10 @@ export class ApnsSender {
       },
       // Minimum valid JSON body — the extension only cares that it woke,
       // not about payload content (it re-pulls via the cursor endpoint).
-      body: '{}',
-    });
-    if (res.ok) return { ok: true };
-    const reason = await readReason(res);
+      '{}',
+    );
+    if (res.status >= 200 && res.status < 300) return { ok: true };
+    const reason = readReason(res);
     return {
       ok: false,
       status: res.status,
@@ -136,9 +147,9 @@ export class ApnsSender {
   }
 }
 
-async function readReason(res: Response): Promise<string> {
+function readReason(res: ApnsTransportResponse): string {
   try {
-    const body = (await res.json()) as { reason?: string };
+    const body = JSON.parse(res.body) as { reason?: string };
     return body.reason ?? `http_${res.status}`;
   } catch {
     return `http_${res.status}`;
