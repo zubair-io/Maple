@@ -320,18 +320,25 @@ export async function appendBackupLocation(
 ): Promise<void> {
   const db = sqliteDb(dbOverride);
   const hex = toHex(assetId);
+  const libHex = toHex(input.libraryId);
   const { dir, filename } = splitRelPath(input.relPath);
   await db.transaction([
     {
+      sql: `UPDATE asset_locations
+               SET deleted_at = NULL, missing_since = NULL, missing_reason = NULL
+             WHERE asset_id = ? AND library_id = ? AND path = ? AND filename = ?`,
+      params: [hex, libHex, dir, filename],
+    },
+    {
       sql: `INSERT INTO asset_locations (asset_id, ordinal, library_id, path, filename)
-            SELECT ?, COALESCE(MAX(ordinal), -1) + 1, ?, ?, ?
-              FROM asset_locations WHERE asset_id = ?
-            ON CONFLICT (library_id, path, filename) DO UPDATE SET
-              deleted_at = NULL,
-              missing_since = NULL,
-              missing_reason = NULL
-            WHERE asset_locations.asset_id = excluded.asset_id`,
-      params: [hex, toHex(input.libraryId), dir, filename, hex],
+            SELECT ?,
+                   (SELECT COALESCE(MAX(ordinal), -1) + 1 FROM asset_locations WHERE asset_id = ?),
+                   ?, ?, ?
+             WHERE NOT EXISTS (
+               SELECT 1 FROM asset_locations
+                WHERE asset_id = ? AND library_id = ? AND path = ? AND filename = ?
+             )`,
+      params: [hex, hex, libHex, dir, filename, hex, libHex, dir, filename],
     },
     ...(input.link === null ? [] : [linkStatement(hex, input.link)]),
     ...(input.ownerId

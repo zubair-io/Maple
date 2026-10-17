@@ -153,7 +153,6 @@ export const backupIngestRoutes = new Elysia().post(
     // was marked missing or its file vanished since completion, reopen the
     // session and accept the repair upload instead.
     if (alreadyComplete) {
-      const completedRelPath = session.resolved_rel_path ?? session.target_rel_path;
       const completedTarget = session.maple_id
         ? await findIngestDedupTarget({
             mapleId: session.maple_id,
@@ -162,6 +161,10 @@ export const backupIngestRoutes = new Elysia().post(
             phassetLocalId: phid,
           })
         : null;
+      const completedRelPath =
+        completedTarget?.liveRelPathInLibrary ??
+        session.resolved_rel_path ??
+        session.target_rel_path;
       const stillPresent =
         completedTarget?.liveRelPathInLibrary !== null &&
         completedTarget?.liveRelPathInLibrary !== undefined &&
@@ -172,17 +175,17 @@ export const backupIngestRoutes = new Elysia().post(
           {
             phid,
             mapleId: session.maple_id,
-            targetRelPath: session.target_rel_path,
+            targetRelPath: completedRelPath,
           },
           'ingest short-circuit (already complete)',
         );
         set.status = 200;
         return {
           maple_id: session.maple_id,
-          // Hand back where the bytes actually landed: a disambiguated collision
-          // stores its real path in `resolved_rel_path` while `target_rel_path`
-          // stays the device-computed key. Companions (sidecar / rendered) must
-          // be written next to the real file, not the path that collided.
+          // Hand back where the bytes actually live now: the current live
+          // location in this library (which follows relocations/refiles) or
+          // the disambiguated session path. Companions (sidecar / rendered)
+          // must be written next to the real file, not the path that collided.
           target_rel_path: completedRelPath,
         };
       }
