@@ -18,7 +18,7 @@ import {
 const ENDPOINT = 'https://api.openai.com/v1/chat/completions';
 const MODELS_ENDPOINT = 'https://api.openai.com/v1/models';
 const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_MAX_TOKENS = 256;
+const MAX_OUTPUT_TOKENS = 2048;
 
 /**
  * Per-million-token USD pricing. Match by prefix so versioned aliases (e.g.
@@ -72,7 +72,7 @@ export class OpenAIProvider implements DescribeProvider {
     requireFrames(jpegFrames);
     const body = JSON.stringify({
       model: opts.model,
-      max_tokens: DEFAULT_MAX_TOKENS,
+      max_tokens: MAX_OUTPUT_TOKENS,
       messages: [
         {
           role: 'user',
@@ -103,6 +103,12 @@ export class OpenAIProvider implements DescribeProvider {
       throw new RemoteError(`Malformed OpenAI JSON: ${msg}`, false);
     }
 
+    if (firstChoiceFinishReason(parsed.choices) === 'length') {
+      throw new RemoteError(
+        `OpenAI stopped generating before it finished (finish_reason=length, max_tokens=${MAX_OUTPUT_TOKENS})`,
+        false,
+      );
+    }
     const text = extractFirstChoiceText(parsed.choices);
     if (text.length === 0) {
       throw new RemoteError('OpenAI returned empty content', false);
@@ -151,6 +157,13 @@ function requireFrames(frames: readonly Buffer[]): void {
   if (frames.length === 0) {
     throw new RemoteError('Describe requires at least one JPEG frame', false);
   }
+}
+
+function firstChoiceFinishReason(choices: unknown): unknown {
+  const first = Array.isArray(choices) ? choices[0] : undefined;
+  return first && typeof first === 'object'
+    ? (first as { finish_reason?: unknown }).finish_reason
+    : undefined;
 }
 
 function extractFirstChoiceText(choices: unknown): string {
