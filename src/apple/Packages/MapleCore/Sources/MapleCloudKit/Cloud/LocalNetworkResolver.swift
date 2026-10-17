@@ -95,7 +95,13 @@ public enum LocalNetworkResolving {
       let report = await fetchReport(
         url: identity.appending(path: "/api/network/local-address"), session: session)
     else { return (identity, LocalNetworkStatus(localURL: nil, isConnectedLocally: false)) }
-    let candidates = report.candidates
+    // The echo probe below only proves that SOMETHING at the advertised
+    // address speaks Maple's report shape, which any host on a hostile
+    // network can fake. For an HTTPS identity the only acceptable LAN proof
+    // is a TLS-validated endpoint, so a cleartext candidate is never used —
+    // the bearer and photo bytes stay under TLS (#4720). An HTTP identity
+    // has nothing to downgrade from and keeps the legacy ip:port path.
+    let candidates = report.candidates.filter { identity.scheme != "https" || $0.scheme == "https" }
     for endpoint in candidates {
       guard let candidate = endpoint.url else { continue }
       // Hostname TLS is validated normally by URLSession; a hostname's

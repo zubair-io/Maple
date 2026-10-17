@@ -374,8 +374,22 @@ public actor AuthenticatedHTTPClient {
 
   private func inject(_ req: URLRequest, tokens: AuthTokens?) -> URLRequest {
     var r = req
-    if let t = tokens { r.setValue("Bearer \(t.access)", forHTTPHeaderField: "Authorization") }
+    guard let t = tokens else { return r }
+    guard Self.mayCarryCredentials(to: req.url, identity: server) else {
+      cloudHTTPLogger.error(
+        "refusing to send a bearer for an HTTPS identity over cleartext to \(req.url?.host ?? "?", privacy: .public)")
+      return r
+    }
+    r.setValue("Bearer \(t.access)", forHTTPHeaderField: "Authorization")
     return r
+  }
+
+  /// A bearer issued by an HTTPS identity rides only TLS requests, whatever
+  /// host they target (#4720): a plain-HTTP LAN candidate is unverifiable, so
+  /// a token sent there is replayable against the real server. An HTTP
+  /// identity (local development) has nothing to downgrade from.
+  static func mayCarryCredentials(to url: URL?, identity: URL) -> Bool {
+    identity.scheme?.lowercased() != "https" || url?.scheme?.lowercased() == "https"
   }
 
   /// Run `block` once with an authenticated request. If the response is

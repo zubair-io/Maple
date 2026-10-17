@@ -29,8 +29,39 @@ final class LocalNetworkResolverTests: XCTestCase {
       return (Data(body.utf8), Self.okResponse(for: req))
     }
     let effective = await LocalNetworkResolving.resolveEffectiveURL(
-      identity: identity, session: session)
+      identity: URL(string: "http://public.example.com")!, session: session)
     XCTAssertEqual(effective, URL(string: "http://192.168.1.42:3000")!)
+  }
+
+  /// #4720 — the plain-HTTP `ip:port` candidate is "verified" only by the
+  /// host at that address echoing the same JSON back, which any host on a
+  /// hostile network can do. For an HTTPS identity the only acceptable LAN
+  /// proof is a TLS-validated endpoint; a cleartext candidate is refused
+  /// even when it answers, so the bearer and photo bytes never leave TLS.
+  func test_resolveEffectiveURL_refusesPlainHTTPCandidate_forHTTPSIdentity() async {
+    let session = URLSession.stubbedSequence { req in
+      let body = #"{"available":true,"ip":"192.168.1.42","port":3000,"scheme":"http"}"#
+      return (Data(body.utf8), Self.okResponse(for: req))
+    }
+    let effective = await LocalNetworkResolving.resolveEffectiveURL(
+      identity: identity, session: session)
+    XCTAssertEqual(effective, identity)
+  }
+
+  func test_unreachableHostnameDoesNotFallBackToPlainHTTP_forHTTPSIdentity() async {
+    let body =
+      #"{"available":true,"ip":"192.168.1.42","port":3000,"scheme":"http","https":{"ip":"local.example.com","port":3443,"scheme":"https"}}"#
+    let session = URLSession.stubbedSequence { req in
+      let status = req.url?.host == "local.example.com" ? 503 : 200
+      return (
+        Data(body.utf8),
+        HTTPURLResponse(
+          url: req.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: [:])!
+      )
+    }
+    let effective = await LocalNetworkResolving.resolveEffectiveURL(
+      identity: identity, session: session)
+    XCTAssertEqual(effective, identity)
   }
 
   func test_resolveEffectiveURL_returnsIdentity_whenProbeUnreachable() async {
@@ -108,6 +139,7 @@ final class LocalNetworkResolverTests: XCTestCase {
       let body = #"{"available":true,"ip":"10.0.0.5","port":3000,"scheme":"http"}"#
       return (Data(body.utf8), Self.okResponse(for: req))
     }
+    let identity = URL(string: "http://public.example.com")!
     let resolver = LocalNetworkResolver()
     await resolver.resolve(identity: identity, session: session)
     XCTAssertEqual(resolver.effectiveURL(for: identity), URL(string: "http://10.0.0.5:3000")!)
@@ -138,6 +170,7 @@ final class LocalNetworkResolverTests: XCTestCase {
           url: req.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: [:])!
       )
     }
+    let identity = URL(string: "http://public.example.com")!
     let resolver = LocalNetworkResolver()
     await resolver.resolve(identity: identity, session: session)
     XCTAssertEqual(
@@ -168,7 +201,7 @@ final class LocalNetworkResolverTests: XCTestCase {
       )
     }
     let effective = await LocalNetworkResolving.resolveEffectiveURL(
-      identity: identity, session: session)
+      identity: URL(string: "http://public.example.com")!, session: session)
     XCTAssertEqual(effective, URL(string: "http://192.168.1.42:3000"))
   }
 
@@ -184,7 +217,7 @@ final class LocalNetworkResolverTests: XCTestCase {
       return (Data(body.utf8), Self.okResponse(for: req))
     }
     let effective = await LocalNetworkResolving.resolveEffectiveURL(
-      identity: identity, session: session)
+      identity: URL(string: "http://public.example.com")!, session: session)
     XCTAssertEqual(effective, URL(string: "http://192.168.1.42:3000"))
   }
 
