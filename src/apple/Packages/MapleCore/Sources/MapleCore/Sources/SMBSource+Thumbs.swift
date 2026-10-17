@@ -10,7 +10,7 @@ import Foundation
 import AMSMB2
 
 extension SMBSource {
-    /// ONE transport read at `<assetDir>/.maple/thumbs/<hash>.avif` (#2690)
+    /// ONE transport read at `<assetDir>/.maple/thumbs/<filename>.avif` (#2690)
     /// — see `SMBThumbCache`'s file header for the full rationale. `nil` on
     /// a miss (not connected, or the entry doesn't exist yet) runs
     /// `ThumbnailLoader`'s existing render-from-bytes fallback unchanged;

@@ -84,7 +84,7 @@ final class CloudSourceTests: XCTestCase {
     XCTAssertEqual(data, Data("AVIFBYTES".utf8))
     XCTAssertEqual(
       urls.values.last?.absoluteString,
-      "https://x/api/thumb/library/Sub%20dir/a.dng?pv=\(AdjustmentModel.pipelineOutputVersion)")
+      "https://x/api/thumb/library/Sub%20dir/a.dng")
     XCTAssertFalse(
       urls.values.contains { $0.path.hasPrefix("/api/fs/") },
       "thumbs must not touch the legacy /api/fs/* surface")
@@ -121,7 +121,7 @@ final class CloudSourceTests: XCTestCase {
     XCTAssertEqual(data, Data("PREVIEW".utf8))
     XCTAssertEqual(
       urls.values.last?.absoluteString,
-      "https://x/api/preview/library/a.dng?pv=\(AdjustmentModel.pipelineOutputVersion)")
+      "https://x/api/preview/library/a.dng")
   }
 
   func test_preview_returnsNilWhileServerIsStillIndexing() async throws {

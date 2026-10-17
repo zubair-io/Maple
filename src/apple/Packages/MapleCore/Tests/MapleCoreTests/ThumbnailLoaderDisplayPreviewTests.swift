@@ -1,7 +1,7 @@
 // ThumbnailLoaderDisplayPreviewTests.swift — the `.maple/previews` 1280 px
 // display tier behind the Preview screen's thumbnail → hi-res swap
 // (ThumbnailLoader+DisplayPreview.swift). Post-#2009: AVIF at the canonical
-// `<filename>.v<current pipeline version>.avif` path, no `_1600` size token, no `.v` version marker.
+// `<filename>.avif` path, no `_1600` size token, no version marker (#4793).
 //
 // Real files in a temp directory throughout — including real `.xmp`
 // sidecars via `XMPSerializer` — per the "no mocks for the sidecar layer"
@@ -82,11 +82,11 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
     XCTAssertLessThanOrEqual(edge, Int(ThumbnailLoader.displayPreviewLongEdge))
     XCTAssertGreaterThanOrEqual(edge, 1_024)
 
-    // Persisted at the canonical `<filename>.v<current pipeline version>.avif` location so the editor
+    // Persisted at the canonical `<filename>.avif` location so the editor
     // cold-open seed + a later Preview open reuse it — no `.v` marker.
     let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
     XCTAssertEqual(
-      previewURL.lastPathComponent, "a.jpg.v\(AdjustmentModel.pipelineOutputVersion).avif")
+      previewURL.lastPathComponent, "a.jpg.avif")
     XCTAssertTrue(FileManager.default.fileExists(atPath: previewURL.path))
   }
 
@@ -104,6 +104,25 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
     let data = await ThumbnailLoader.shared.loadDisplayPreview(
       for: AssetRef(url: assetURL))
     XCTAssertEqual(data, staged)
+  }
+
+  func testServesLegacyV25TierByRenamingItIntoPlace() async throws {
+    let assetURL = try writeJPEG(named: "l.jpg", width: 2400, height: 1600)
+    let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
+    try FileManager.default.createDirectory(
+      at: previewURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let stagedJPEG = try writeJPEG(named: "legacy-staged.jpg", width: 160, height: 96)
+    let staged = try XCTUnwrap(
+      ThumbnailLoader.encodeDisplayPreview(from: try XCTUnwrap(CIImage(contentsOf: stagedJPEG))))
+    let legacyURL = MapleSidecarPaths.legacyPreviewURL(for: assetURL)
+    XCTAssertEqual(legacyURL.lastPathComponent, "l.jpg.v25.avif")
+    try staged.write(to: legacyURL)
+
+    let data = await ThumbnailLoader.shared.loadDisplayPreview(for: AssetRef(url: assetURL))
+
+    XCTAssertEqual(data, staged, "the legacy tier is adopted, never regenerated (#4793)")
+    XCTAssertFalse(FileManager.default.fileExists(atPath: legacyURL.path))
+    XCTAssertEqual(try Data(contentsOf: previewURL), staged)
   }
 
   // MARK: - Edited-photo gate

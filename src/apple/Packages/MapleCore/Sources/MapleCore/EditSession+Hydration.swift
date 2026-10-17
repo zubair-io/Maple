@@ -481,9 +481,10 @@ extension EditSession {
   /// the thread is reused before the outer pool pops.
   nonisolated static func readMapleSidecarPreview(from url: URL) -> CIImage? {
     return autoreleasepool {
-      let preview = MapleSidecarPaths.previewURL(for: url)
-      guard FileManager.default.fileExists(atPath: preview.path),
-        let data = try? Data(contentsOf: preview)
+      guard
+        let data = MapleSidecarPaths.readDerivative(
+          at: MapleSidecarPaths.previewURL(for: url),
+          legacy: MapleSidecarPaths.legacyPreviewURL(for: url))
       else { return nil }
       return CIImage(data: data)
     }

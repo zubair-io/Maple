@@ -190,8 +190,10 @@ public actor ThumbnailLoader {
     // (#1365.) The disk-cache hit at step 1 short-circuits before this,
     // so RAWs in their own folder never pay for it.
     let relThumb = MapleSidecarPaths.thumbURL(for: assetURL)
-    if FileManager.default.fileExists(atPath: relThumb.path) {
-      if let data = try? Data(contentsOf: relThumb), Self.isUsableImageData(data) {
+    if let data = MapleSidecarPaths.readDerivative(
+      at: relThumb, legacy: MapleSidecarPaths.legacyThumbURL(for: assetURL))
+    {
+      if Self.isUsableImageData(data) {
         guard !Task.isCancelled else { return nil }
         await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
         return data

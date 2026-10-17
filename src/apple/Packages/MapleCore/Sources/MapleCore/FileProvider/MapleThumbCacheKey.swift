@@ -1,22 +1,19 @@
 // src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/MapleThumbCacheKey.swift
 //
-// Server-side `.maple/thumbs/` cache filename derivation.
+// Shared `.maple/thumbs/` cache filename derivation.
 //
-// Mirrors the Bun server's `sha256Prefix16(basename)` (see
-// `src/api/src/fs/xmp.ts` `resolveThumbPath`) and the web maple-cache's
-// `sha.ts`. The on-disk filename for a RAW's pre-rendered thumbnail is:
+// The on-disk filename for an asset's pre-rendered thumbnail is its own
+// filename, extension included, plus `.avif` (#4793):
 //
-//     <RAW parent>/.maple/thumbs/<sha256_prefix16(basename)>.avif
+//     <asset parent>/.maple/thumbs/<filename.ext>.avif
 //
-// The hash input is the RAW's filename (basename WITH extension), NOT
-// the absolute path — so `.maple/` travels with the photos when the
-// folder is copied. All three implementations (Apple, Web, API) MUST
-// agree on the encoding for cross-platform thumbnail reads to work.
+// matching `.maple/previews/<filename.ext>.avif`, so `.maple/` travels with
+// the photos when the folder is copied. API, Web, Android, Windows and Apple
+// MUST agree on this name for cross-platform thumbnail reads to work.
 //
-// Existing parity reference: the same hash is used in
-// `Cache/ThumbnailDiskCache.swift`'s private `stableHash` helper. This
-// file lifts the function into a shared, testable surface used by the
-// File Provider enumerator's `.maple/thumbs/` synthesis path.
+// `sha256Prefix16` survives only to find the frozen legacy name
+// `<sha256_prefix16(filename)>.v25.avif` that earlier builds wrote, which
+// readers rename into place on a miss.
 
 import CoreGraphics
 import CryptoKit
@@ -31,23 +28,30 @@ public enum MapleThumbCacheKey {
     return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
   }
 
-  /// Compose the on-disk thumbnail filename the server would write
-  /// for `rawBasename`. `rawBasename` is the RAW's filename with
-  /// extension (e.g. `IMG_0001.ARW`), exactly as `path.basename`
-  /// would return it server-side. Always returns `<hex>.avif`
-  /// regardless of the input extension — the server normalises
-  /// every cached thumb to AVIF.
+  /// `IMG_0001.ARW` → `IMG_0001.ARW.avif`. Every cached thumb is AVIF
+  /// regardless of the asset's own extension.
   public static func thumbFilename(forRawBasename rawBasename: String) -> String {
-    thumbFilename(forKey: sha256Prefix16(rawBasename))
+    thumbFilename(forKey: rawBasename)
   }
 
+  /// `<key>.avif` for an opaque cache key (sourceless assets).
   public static func thumbFilename(forKey key: String) -> String {
-    "\(key).v\(AdjustmentModel.pipelineOutputVersion).avif"
+    "\(key).avif"
+  }
+
+  /// The frozen pre-#4793 name, `<sha256_prefix16(filename)>.v25.avif`.
+  public static func legacyThumbFilename(forRawBasename rawBasename: String) -> String {
+    legacyThumbFilename(forKey: sha256Prefix16(rawBasename))
+  }
+
+  /// The frozen pre-#4793 name for an opaque cache key, `<key>.v25.avif`.
+  public static func legacyThumbFilename(forKey key: String) -> String {
+    "\(key)\(MapleSidecarPaths.legacyDerivativeSuffix)"
   }
 
   // MARK: - On-share render contract (#2690)
   //
-  // Any client that WRITES to the shared `.maple/thumbs/<hash>.avif`
+  // Any client that WRITES to the shared `.maple/thumbs/<filename.ext>.avif`
   // path (not just reads it) must render at exactly these parameters.
   // The API's thumbnailer (`src/api/src/thumbs/render.ts`) guards
   // re-render by mtime freshness — once an entry exists, a fresher

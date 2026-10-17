@@ -109,7 +109,7 @@ final class ThumbnailDiskCacheKeyTests: XCTestCase {
 
   // MARK: - Round-trip lands at the expected on-disk path
 
-  func testStoreWritesFileAtSha256Prefix16Path() async {
+  func testStoreWritesFileAtTheUnhashedFilenamePath() async {
     let cache = ThumbnailDiskCache()
     await cache.configure(folderURL: tmp)
 
@@ -118,19 +118,35 @@ final class ThumbnailDiskCacheKeyTests: XCTestCase {
 
     await cache.storeThumbnailData(payload, for: asset)
 
-    let expectedHash = MapleThumbCacheKey.sha256Prefix16("IMG_1234.dng")
     let expectedFile =
       tmp
       .appendingPathComponent(".maple/thumbs")
-      .appendingPathComponent("\(expectedHash).v\(AdjustmentModel.pipelineOutputVersion).avif")
+      .appendingPathComponent("IMG_1234.dng.avif")
 
     XCTAssertTrue(
       FileManager.default.fileExists(atPath: expectedFile.path),
-      "expected thumb at \(expectedFile.path); cache key drifted from sha256Prefix16(basename)"
+      "expected thumb at \(expectedFile.path); on-disk name drifted from <filename>.avif"
     )
 
     let onDisk = try? Data(contentsOf: expectedFile)
     XCTAssertEqual(onDisk, payload)
+  }
+
+  func testMissAdoptsTheLegacyV25ThumbByRenaming() async throws {
+    let cache = ThumbnailDiskCache()
+    await cache.configure(folderURL: tmp)
+    let asset = URL(fileURLWithPath: "/tmp/library/IMG_1234.dng")
+    let thumbs = tmp.appendingPathComponent(".maple/thumbs")
+    let hash = MapleThumbCacheKey.sha256Prefix16("IMG_1234.dng")
+    let legacy = thumbs.appendingPathComponent("\(hash).v25.avif")
+    let payload = Data([0x0A, 0x0B, 0x0C])
+    try payload.write(to: legacy)
+
+    let fetched = await cache.thumbnailData(for: asset)
+
+    XCTAssertEqual(fetched, payload)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
+    XCTAssertEqual(try Data(contentsOf: thumbs.appendingPathComponent("IMG_1234.dng.avif")), payload)
   }
 
   func testReadByPathMatchesReadByBasename() async {
@@ -186,12 +202,11 @@ final class ThumbnailDiskCacheKeyTests: XCTestCase {
     // Reader: the independently-implemented resolver.
     let readerPath = MapleSidecarPaths.thumbURL(for: assetURL)
 
-    let expectedHash = MapleThumbCacheKey.sha256Prefix16("IMG_1234.dng")
     let expectedPath =
       assetDir
       .appendingPathComponent(".maple")
       .appendingPathComponent("thumbs")
-      .appendingPathComponent("\(expectedHash).v\(AdjustmentModel.pipelineOutputVersion).avif")
+      .appendingPathComponent("IMG_1234.dng.avif")
 
     XCTAssertEqual(
       readerPath.path, expectedPath.path,

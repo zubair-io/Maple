@@ -159,13 +159,13 @@ final class DeferredFolderEnumeratorChangesTests: XCTestCase {
       [
         "one.dng", "one.xmp",
         MapleThumbCacheKey.thumbFilename(forRawBasename: "one.dng"),
-        "one.dng.v\(AdjustmentModel.pipelineOutputVersion).avif",
+        "one.dng.avif",
         "three.dng",
         MapleThumbCacheKey.thumbFilename(forRawBasename: "three.dng"),
-        "three.dng.v\(AdjustmentModel.pipelineOutputVersion).avif",
+        "three.dng.avif",
       ])
     let preview = observer.updated.first {
-      $0.filename == "one.dng.v\(AdjustmentModel.pipelineOutputVersion).avif"
+      $0.filename == "one.dng.avif"
     }
     XCTAssertEqual(
       preview?.parentItemIdentifier.rawValue,

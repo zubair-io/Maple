@@ -8,7 +8,7 @@
 //   - MapleDirEnumerator surfaces `thumbs/` and `previews/` children.
 //   - MapleThumbsEnumerator synthesises one thumb item per indexed
 //     image in the parent folder, with the server's
-//     `<sha256_prefix16(basename)>.v<current pipeline version>.avif` filename.
+//     `<sha256_prefix16(basename)>.avif` filename.
 //   - MapleThumbsEnumerator returns an empty list (no error) when the
 //     parent folder has no indexed images — i.e. a brand-new library
 //     with no thumbs cached yet still produces a valid view.
@@ -241,7 +241,7 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
       ])
   }
 
-  /// #3571 — the previews listing names entries `<filename>.v<current pipeline version>.avif` (the
+  /// #3571 — the previews listing names entries `<filename>.avif` (the
   /// server's on-disk name) and versions each by its sidecar's mtime when
   /// the folder listing carries one, else the RAW's mtime.
   func testMaplePreviewsEnumeratorSurfacesPreviewPerIndexedImageWithSidecarSeed() async throws {
@@ -279,8 +279,8 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
     XCTAssertEqual(
       items.map(\.filename),
       [
-        "A.dng.v\(AdjustmentModel.pipelineOutputVersion).avif",
-        "B.dng.v\(AdjustmentModel.pipelineOutputVersion).avif",
+        "A.dng.avif",
+        "B.dng.avif",
       ], "C is unindexed and must be skipped")
     let ids = items.map { try? FileProviderIdentifier(rawValue: $0.itemIdentifier.rawValue) }
     XCTAssertEqual(

@@ -11,12 +11,12 @@ final class MapleSidecarPreviewReadTests: XCTestCase {
     try fm.createDirectory(at: dir, withIntermediateDirectories: true)
     let panoURL = dir.appendingPathComponent("panorama-test.png")
 
-    // Encode a real 8x4 AVIF at the canonical `<filename>.v<current pipeline version>.avif` path.
+    // Encode a real 8x4 AVIF at the canonical `<filename>.avif` path.
     let ci = CIImage(color: .gray).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 4))
     let previewURL = MapleSidecarPaths.previewURL(for: panoURL)
     XCTAssertTrue(
       previewURL.lastPathComponent
-        == "panorama-test.png.v\(AdjustmentModel.pipelineOutputVersion).avif")
+        == "panorama-test.png.avif")
     try fm.createDirectory(
       at: previewURL.deletingLastPathComponent(), withIntermediateDirectories: true)
     let avif = try XCTUnwrap(ThumbnailEncoder.encode(ci, ctx: CIContext()))

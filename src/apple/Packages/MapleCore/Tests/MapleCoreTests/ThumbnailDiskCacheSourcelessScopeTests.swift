@@ -53,7 +53,7 @@ final class ThumbnailDiskCacheSourcelessScopeTests: XCTestCase {
     let wrongPath =
       folderA
       .appendingPathComponent(".maple/thumbs")
-      .appendingPathComponent("\(hashed).v\(AdjustmentModel.pipelineOutputVersion).avif")
+      .appendingPathComponent("\(hashed).avif")
     XCTAssertFalse(
       FileManager.default.fileExists(atPath: wrongPath.path),
       "a sourceless thumbnail must never land in the configured local folder's .maple/thumbs/"

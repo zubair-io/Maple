@@ -1,16 +1,13 @@
 // ThumbnailDiskCache.swift — .maple/ folder thumbnail cache compatible with
 // Maple Hosted and Maple Self Hosted (spec § 08 / § 05).
 //
-// Key: sha256(basename)[:16] — first 16 hex chars (8 bytes) of the SHA-256
-//   digest of the asset's filename (extension included). Matches:
-//     - Web (Maple Hosted Angular): src/web/projects/maple-common/src/lib/maple-cache/sha.ts
-//     - Server (Bun indexer):       src/api/src/fs/xmp.ts (sha256Prefix16)
-//   Hashing the basename (not the full path) lets `.maple/thumbs/` travel
-//   with the photos — copy the folder elsewhere and the same key resolves.
-//   The shared helper lives in `MapleThumbCacheKey.sha256Prefix16(_:)`
-//   (FileProvider/MapleThumbCacheKey.swift) and is the single source of
-//   truth for all three layers.
-// Value: AVIF bytes stored at .maple/thumbs/<hash>.avif
+// File: .maple/thumbs/<filename.ext>.avif — the asset's own filename,
+//   extension included, matching `.maple/previews/<filename.ext>.avif` and
+//   every other platform (#4793). Naming by basename (not the full path)
+//   lets `.maple/thumbs/` travel with the photos. A miss adopts the frozen
+//   legacy `<sha256Prefix16(basename)>.v25.avif` by rename, never by
+//   regenerating.
+// Memory key: `sha256Prefix16(basename)` (`cacheKey(for:)`), internal only.
 // Eviction: LRU by file mtime; max 500MB or 10,000 entries (configurable).
 //
 // Migration note: pre-2026-05 builds keyed thumbs by `MD5(url.path)`
@@ -115,10 +112,8 @@ public actor ThumbnailDiskCache {
     if let img = memCache[key] { return img }
     // 2. Disk
     guard let dir = cacheDir else { return nil }
-    let fileURL = dir.appendingPathComponent(MapleThumbCacheKey.thumbFilename(forKey: key))
-    guard fm.fileExists(atPath: fileURL.path),
-      let data = try? Data(contentsOf: fileURL),
-      let ci = CIImage(data: data)
+    let fileURL = Self.thumbFileURL(in: dir, for: assetURL)
+    guard let data = readThumb(at: fileURL, legacyKey: key), let ci = CIImage(data: data)
     else { return nil }
     // Promote to memory cache
     evictIfNeeded()
@@ -140,10 +135,8 @@ public actor ThumbnailDiskCache {
     let key = cacheKey(for: assetURL)
     if let d = dataMemCache[key] { return d }
     guard let dir = cacheDir else { return nil }
-    let fileURL = dir.appendingPathComponent(MapleThumbCacheKey.thumbFilename(forKey: key))
-    guard fm.fileExists(atPath: fileURL.path),
-      let data = try? Data(contentsOf: fileURL)
-    else { return nil }
+    let fileURL = Self.thumbFileURL(in: dir, for: assetURL)
+    guard let data = readThumb(at: fileURL, legacyKey: key) else { return nil }
     evictIfNeeded()
     dataMemCache[key] = data
     syncPeekCache.setObject(data as NSData, forKey: key as NSString)
@@ -158,10 +151,14 @@ public actor ThumbnailDiskCache {
     dataMemCache.removeValue(forKey: key)
     syncPeekCache.removeObject(forKey: key as NSString)
     if let dir = cacheDir {
-      try? fm.removeItem(
-        at: dir.appending(path: MapleThumbCacheKey.thumbFilename(forKey: key)))
+      MapleSidecarPaths.removeDerivative(
+        at: Self.thumbFileURL(in: dir, for: assetURL),
+        legacy: dir.appending(path: MapleThumbCacheKey.legacyThumbFilename(forKey: key)),
+        fileManager: fm)
     }
-    try? fm.removeItem(at: MapleSidecarPaths.thumbURL(for: assetURL))
+    MapleSidecarPaths.removeDerivative(
+      at: MapleSidecarPaths.thumbURL(for: assetURL),
+      legacy: MapleSidecarPaths.legacyThumbURL(for: assetURL), fileManager: fm)
   }
 
   /// Return AVIF bytes for an opaque stable key (e.g. an `AssetRef.id` or a
@@ -175,9 +172,7 @@ public actor ThumbnailDiskCache {
     if let d = dataMemCache[hashed] { return d }
     let fileURL = sourcelessCacheDir.appendingPathComponent(
       MapleThumbCacheKey.thumbFilename(forKey: hashed))
-    guard fm.fileExists(atPath: fileURL.path),
-      let data = try? Data(contentsOf: fileURL)
-    else { return nil }
+    guard let data = readThumb(at: fileURL, legacyKey: hashed) else { return nil }
     evictIfNeeded()
     dataMemCache[hashed] = data
     syncPeekCache.setObject(data as NSData, forKey: hashed as NSString)
@@ -209,7 +204,7 @@ public actor ThumbnailDiskCache {
     memCache[key] = image
 
     guard let dir = cacheDir else { return }
-    let fileURL = dir.appendingPathComponent(MapleThumbCacheKey.thumbFilename(forKey: key))
+    let fileURL = Self.thumbFileURL(in: dir, for: assetURL)
     let ctx = CIContext()
     guard let data = ThumbnailEncoder.encode(image, ctx: ctx) else { return }
     dataMemCache[key] = data
@@ -230,7 +225,7 @@ public actor ThumbnailDiskCache {
     dataMemCache[key] = data
     syncPeekCache.setObject(data as NSData, forKey: key as NSString)
     guard let dir = cacheDir else { return }
-    let fileURL = dir.appendingPathComponent(MapleThumbCacheKey.thumbFilename(forKey: key))
+    let fileURL = Self.thumbFileURL(in: dir, for: assetURL)
     try? data.write(to: fileURL, options: .atomic)
   }
 
@@ -246,15 +241,27 @@ public actor ThumbnailDiskCache {
     try? data.write(to: fileURL, options: .atomic)
   }
 
+  /// `<dir>/<filename.ext>.avif`, the shared unhashed thumb name (#4793).
+  private static func thumbFileURL(in dir: URL, for assetURL: URL) -> URL {
+    dir.appendingPathComponent(
+      MapleThumbCacheKey.thumbFilename(forRawBasename: assetURL.lastPathComponent))
+  }
+
+  /// One read on a hit; on a miss, adopts the frozen `<legacyKey>.v25.avif`
+  /// sibling by rename (#4793).
+  private func readThumb(at fileURL: URL, legacyKey: String) -> Data? {
+    MapleSidecarPaths.readDerivative(
+      at: fileURL,
+      legacy: fileURL.deletingLastPathComponent()
+        .appendingPathComponent(MapleThumbCacheKey.legacyThumbFilename(forKey: legacyKey)),
+      fileManager: fm)
+  }
+
   // MARK: - Cache key
 
-  /// Cache key derived from the **filename only** so `.maple/thumbs/`
-  /// travels with the photos: copy the folder elsewhere and the same
-  /// hash still resolves. Delegates to `MapleThumbCacheKey.sha256Prefix16`
-  /// — the single source of truth shared with the API
-  /// (`src/api/src/fs/xmp.ts`) and the web Hosted variant
-  /// (`src/web/projects/maple-common/src/lib/maple-cache/sha.ts`) so
-  /// thumbnails are interchangeable across all three layers.
+  /// In-memory and coalescing key, derived from the **filename only** so
+  /// two URLs sharing a basename resolve to one entry. It also names the
+  /// frozen legacy on-disk thumb (`<key>.v25.avif`).
   public static func cacheKey(for url: URL) -> String {
     return MapleThumbCacheKey.sha256Prefix16(url.lastPathComponent)
   }

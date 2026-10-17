@@ -721,8 +721,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     }
                 case .thumb(let assetID):
                     // Resolve via the asset metadata so we can compute
-                    // the on-disk thumb filename (`sha256_prefix16` of
-                    // the RAW basename) and reattach the item under
+                    // the on-disk thumb filename (`<RAW filename>.avif`) and reattach the item under
                     // its correct `.maple/thumbs/` parent.
                     //
                     // `resolveThumbParent` throws on every failure mode

@@ -39,7 +39,7 @@ final class DisplayPreviewPersistTests: XCTestCase {
     await sink.write(payload)
 
     XCTAssertEqual(
-      previewURL.lastPathComponent, "IMG.CR2.v\(AdjustmentModel.pipelineOutputVersion).avif")
+      previewURL.lastPathComponent, "IMG.CR2.avif")
     XCTAssertEqual(try Data(contentsOf: previewURL), payload)
   }
 
@@ -54,6 +54,9 @@ final class DisplayPreviewPersistTests: XCTestCase {
 
     XCTAssertEqual(req.httpMethod, "PUT")
     XCTAssertEqual(req.value(forHTTPHeaderField: "Content-Type"), "image/avif")
+    XCTAssertNil(
+      req.value(forHTTPHeaderField: "X-Maple-Pipeline-Version"),
+      "preview uploads carry no pipeline version (#4793)")
     XCTAssertEqual(req.httpBody, bytes)
     let url = try XCTUnwrap(req.url)
     XCTAssertEqual(url.path, "/api/preview")

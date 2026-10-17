@@ -24,7 +24,7 @@ public enum MapleSidecarPaths {
     url.standardizedFileURL.pathComponents.contains(derivativeDirectoryName)
   }
 
-  /// `<assetDir>/.maple/thumbs/<sha256prefix16(basename)>.v<N>.avif`
+  /// `<assetDir>/.maple/thumbs/<filename.ext>.avif` (#4793).
   public static func thumbURL(for assetURL: URL) -> URL {
     // Append each component separately (matches ThumbnailDiskCache.configure
     // / RenderedPreviewCache.configure) — avoids slash-in-component edge cases.
@@ -35,7 +35,8 @@ public enum MapleSidecarPaths {
         MapleThumbCacheKey.thumbFilename(forRawBasename: assetURL.lastPathComponent))
   }
 
-  /// The current pipeline's shared display preview, including the original extension.
+  /// `<assetDir>/.maple/previews/<filename.ext>.avif`. Unversioned (#4793):
+  /// a pipeline bump never invalidates a shared derivative.
   public static func previewURL(for assetURL: URL) -> URL {
     // Append each component separately — avoids slash-in-component edge
     // cases (matches `thumbURL`).
@@ -46,6 +47,62 @@ public enum MapleSidecarPaths {
   }
 
   public static func previewFilename(forRawBasename basename: String) -> String {
-    "\(basename).v\(AdjustmentModel.pipelineOutputVersion).avif"
+    "\(basename).avif"
+  }
+
+  // MARK: - Legacy `.v25` adoption (#4793)
+
+  // Builds between b197b1b5db and #4796 wrote `<sha16>.v25.avif` thumbs and
+  // `<filename.ext>.v25.avif` previews. The server's sweep renames those in
+  // folders it indexes; local, SMB and Files folders it never sees are
+  // migrated by readers, one frozen name, on a miss only.
+  static let legacyDerivativeSuffix = ".v25.avif"
+
+  public static func legacyPreviewFilename(forRawBasename basename: String) -> String {
+    "\(basename)\(legacyDerivativeSuffix)"
+  }
+
+  /// `<assetDir>/.maple/thumbs/<sha256prefix16(basename)>.v25.avif`
+  public static func legacyThumbURL(for assetURL: URL) -> URL {
+    thumbURL(for: assetURL).deletingLastPathComponent()
+      .appendingPathComponent(
+        MapleThumbCacheKey.legacyThumbFilename(forRawBasename: assetURL.lastPathComponent))
+  }
+
+  /// `<assetDir>/.maple/previews/<filename.ext>.v25.avif`
+  public static func legacyPreviewURL(for assetURL: URL) -> URL {
+    previewURL(for: assetURL).deletingLastPathComponent()
+      .appendingPathComponent(legacyPreviewFilename(forRawBasename: assetURL.lastPathComponent))
+  }
+
+  /// Renames `legacy` onto `derivativeURL`. The rename attempt doubles as
+  /// the existence check, so a miss with no legacy file costs exactly one
+  /// extra filesystem operation.
+  @discardableResult
+  public static func adoptLegacyDerivative(
+    at derivativeURL: URL, legacy: URL, fileManager fm: FileManager = .default
+  ) -> Bool {
+    (try? fm.moveItem(at: legacy, to: derivativeURL)) != nil
+  }
+
+  /// Bytes of the derivative at `derivativeURL`. A hit is one read; a miss
+  /// adopts `legacy` (if present) and reads once more.
+  public static func readDerivative(
+    at derivativeURL: URL, legacy: URL, fileManager fm: FileManager = .default
+  ) -> Data? {
+    if let data = try? Data(contentsOf: derivativeURL) { return data }
+    guard adoptLegacyDerivative(at: derivativeURL, legacy: legacy, fileManager: fm) else {
+      return nil
+    }
+    return try? Data(contentsOf: derivativeURL)
+  }
+
+  /// Removes the derivative and its legacy name, so a stale legacy file can
+  /// never be adopted for a different asset that later takes this name.
+  public static func removeDerivative(
+    at derivativeURL: URL, legacy: URL, fileManager fm: FileManager = .default
+  ) {
+    try? fm.removeItem(at: derivativeURL)
+    try? fm.removeItem(at: legacy)
   }
 }

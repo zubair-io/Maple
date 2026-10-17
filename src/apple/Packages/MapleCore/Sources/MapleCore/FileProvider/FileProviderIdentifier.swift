@@ -26,7 +26,7 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
     /// Synthetic `.maple/thumbs/` container. Children are one
     /// `.thumb(assetID:)` per indexed image in `parentRelativePath`,
     /// named after the server's on-disk filename convention
-    /// (`<sha256_prefix16(image basename)>.avif`).
+    /// (`<image filename>.avif`).
     case mapleThumbsDir(folderID: String, parentRelativePath: String)
     /// Pre-rendered AVIF thumbnail for an asset, served from the
     /// server-side `.maple/thumbs/` cache via
