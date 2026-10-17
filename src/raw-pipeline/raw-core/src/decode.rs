@@ -29,7 +29,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use rawler::decoders::{RawDecodeParams, WellKnownIFD};
+use rawler::decoders::{FormatHint, RawDecodeParams, WellKnownIFD};
 use rawler::imgop::xyz::Illuminant as RawlerIlluminant;
 use rawler::rawimage::{RawImageData, RawPhotometricInterpretation};
 use rawler::rawsource::RawSource;
@@ -236,7 +236,11 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // DNG anchors `BlackLevel` at the ActiveArea origin while rawler's DNG
     // decoder re-anchors only the CFA by `CFA::shift(left, top)`, which the
     // X-Trans table keying undoes; RAF tables share the CFA origin (#4730).
-    let black_table_cfa_shift = if ext.eq_ignore_ascii_case("dng") {
+    // rawler picks that decoder from the `DNGVersion` tag, not the extension.
+    let decoded_as_dng = decoder
+        .as_ref()
+        .is_some_and(|dec| matches!(dec.format_hint(), FormatHint::DNG));
+    let black_table_cfa_shift = if decoded_as_dng {
         raw.active_area
             .as_ref()
             .map_or((0, 0), |area| (area.p.x as u32, area.p.y as u32))

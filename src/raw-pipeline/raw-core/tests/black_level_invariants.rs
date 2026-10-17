@@ -142,6 +142,36 @@ fn xtrans_black_table_is_grouped_by_the_unshifted_pattern_under_active_area() {
     }
 }
 
+/// rawler selects its DNG decoder from the `DNGVersion` tag, not the file
+/// name, so a DNG saved without (or with the wrong) extension still gets its
+/// CFA shifted; the black-table grouping must follow the same decision.
+#[test]
+fn xtrans_dng_black_table_grouping_does_not_depend_on_the_extension() {
+    let dng = SyntheticGreyDng {
+        width: 48,
+        height: 48,
+        cfa: CfaPattern::XTrans(XTRANS_PATTERN),
+        black_level_table: Some(xtrans_black_table()),
+        active_area: Some([0, 1, 48, 48]),
+        ..Default::default()
+    };
+    let bytes = dng.write_to_bytes();
+    let dir = std::env::temp_dir().join(format!("maple-4730-ext-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    for name in ["no_extension", "renamed.bin"] {
+        let path = dir.join(name);
+        std::fs::write(&path, &bytes).expect("write synthetic DNG");
+        let raw = raw_core::decode::decode(&path).expect("DNG decodes without a .dng name");
+        assert_eq!(
+            raw.black_level,
+            [1000, 1100, 1200, 1200],
+            "{}: black table grouped as if the CFA were unshifted",
+            name
+        );
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 #[test]
 fn xtrans_frame_at_per_colour_black_linearizes_to_zero() {
     let dng = SyntheticGreyDng {
