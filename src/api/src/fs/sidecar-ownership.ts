@@ -128,12 +128,13 @@ export async function requireSidecarBytes(sidecar: string): Promise<Buffer> {
 }
 
 /** Both save barriers, always taken in the same order so two operations
- * touching the same pair from opposite ends cannot deadlock. Aliases of one
- * file share a barrier key, so they take it once rather than wait on
- * themselves. */
+ * touching the same pair from opposite ends cannot deadlock. Barrier keys fold
+ * case on every host (`sidecar-write-order.ts`), so two names that differ only
+ * in case — or two aliases of one file — share a key and take it once rather
+ * than wait on themselves. */
 async function withSidecarBarriers<T>(a: string, b: string, run: () => Promise<T>): Promise<T> {
-  if (await sameSidecarFile(a, b)) return serializeSidecarWrite(a, run);
-  const [first, second] = [path.resolve(a), path.resolve(b)].sort();
+  if (sameSidecarPath(a, b) || (await sameSidecarFile(a, b))) return serializeSidecarWrite(a, run);
+  const [first, second] = [a, b].sort((x, y) => (comparable(x) < comparable(y) ? -1 : 1));
   return serializeSidecarWrite(first!, () => serializeSidecarWrite(second!, run));
 }
 
