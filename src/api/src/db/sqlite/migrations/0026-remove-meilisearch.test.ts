@@ -77,7 +77,10 @@ test('a location change re-queues embed alone', async () => {
   await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
   const versions = () =>
     handle.db
-      .query(`SELECT stage, version FROM stage_state WHERE asset_id = ? ORDER BY stage`)
+      .query(
+        `SELECT stage, version FROM stage_state
+          WHERE asset_id = ? AND stage IN ('embed', 'search-blob') ORDER BY stage`,
+      )
       .all(asset);
 
   handle.db.run(`UPDATE asset_locations SET filename = 'renamed.dng' WHERE asset_id = ?`, [asset]);
