@@ -178,29 +178,36 @@ async function resolveIngestionKeyPatch(
   typed: string | null | undefined,
   endpoint: string | null | undefined,
 ): Promise<Pick<ObservabilityConfig, 'ingestion_key' | 'ingestion_key_endpoint'>> {
-  if (typed === null) return { ingestion_key: null, ingestion_key_endpoint: null };
   const saved = await loadObservabilityConfig();
-  const savedEndpoint = resolveObservabilityConfig(saved).endpoint;
-  const trimmed = typed?.trim() ?? '';
-  return trimmed.length > 0
-    ? {
-        ingestion_key: trimmed,
-        // Omitted endpoint = keep the saved one; an explicit null clears it and
-        // the key must stay bound to "no endpoint", not to the one being cleared.
-        ingestion_key_endpoint: endpoint === undefined ? savedEndpoint : endpoint,
-      }
-    : legacyBindingPatch(saved, endpoint, savedEndpoint);
+  return ingestionKeyPatchFor(typed, endpoint, saved, resolveObservabilityConfig(saved).endpoint);
 }
 
-/** A key saved before bindings existed is pinned to the endpoint it is being
- * moved away from, so the move cannot carry it to the new service. */
-function legacyBindingPatch(
-  saved: ObservabilityConfig | null,
+/** Pure form of `resolveIngestionKeyPatch` over the row that was read. A key
+ * and its binding always land in the same write: a new key carries the
+ * endpoint it is for, and a legacy (unbound) key being moved away from its
+ * endpoint is written back together with that binding — so a save that read
+ * stale state can at worst restore the key it saw, never re-bind one that
+ * landed meanwhile. */
+export function ingestionKeyPatchFor(
+  typed: string | null | undefined,
   endpoint: string | null | undefined,
+  saved: ObservabilityConfig | null,
   savedEndpoint: string | null,
-): Pick<ObservabilityConfig, 'ingestion_key_endpoint'> {
-  const legacyUnbound = saved?.ingestion_key_endpoint === undefined && !!saved?.ingestion_key;
-  return endpoint !== undefined && legacyUnbound ? { ingestion_key_endpoint: savedEndpoint } : {};
+): Pick<ObservabilityConfig, 'ingestion_key' | 'ingestion_key_endpoint'> {
+  if (typed === null) return { ingestion_key: null, ingestion_key_endpoint: null };
+  const trimmed = typed?.trim() ?? '';
+  if (trimmed.length > 0) {
+    return {
+      ingestion_key: trimmed,
+      // Omitted endpoint = keep the saved one; an explicit null clears it and
+      // the key must stay bound to "no endpoint", not to the one being cleared.
+      ingestion_key_endpoint: endpoint === undefined ? savedEndpoint : endpoint,
+    };
+  }
+  const legacyKey = saved?.ingestion_key_endpoint === undefined ? saved?.ingestion_key : undefined;
+  return endpoint !== undefined && typeof legacyKey === 'string' && legacyKey.length > 0
+    ? { ingestion_key: legacyKey, ingestion_key_endpoint: savedEndpoint }
+    : {};
 }
 
 /** The key a `/test` probe may carry: the typed one as given, else the saved

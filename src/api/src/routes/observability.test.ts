@@ -8,7 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { Elysia } from 'elysia';
-import { observabilityRoutes } from './observability.ts';
+import { ingestionKeyPatchFor, observabilityRoutes } from './observability.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 import {
   createLiveTestDatabase,
@@ -93,6 +93,28 @@ describe('owner gate (#4744)', () => {
     });
     expect(res.status).toBe(403);
     expect(calls).toBe(0);
+  });
+});
+
+describe('legacy key migration writes key and binding together (#4744)', () => {
+  it('re-writes the legacy key it read alongside the binding it derives', () => {
+    // A stale save that read a legacy (unbound) row must not leave whatever
+    // key landed meanwhile bound to the old endpoint: it writes back the key it
+    // read together with the binding, so key and binding always agree.
+    const legacy = { endpoint: SAVED_ENDPOINT, ingestion_key: 'legacy-key' };
+    expect(ingestionKeyPatchFor(undefined, SAVED_ENDPOINT, legacy, SAVED_ENDPOINT)).toEqual({
+      ingestion_key: 'legacy-key',
+      ingestion_key_endpoint: SAVED_ENDPOINT,
+    });
+  });
+
+  it('leaves an already-bound row alone when only the endpoint is re-saved', () => {
+    const bound = {
+      endpoint: SAVED_ENDPOINT,
+      ingestion_key: 'bound-key',
+      ingestion_key_endpoint: SAVED_ENDPOINT,
+    };
+    expect(ingestionKeyPatchFor(undefined, SAVED_ENDPOINT, bound, SAVED_ENDPOINT)).toEqual({});
   });
 });
 
