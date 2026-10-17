@@ -73,7 +73,9 @@ public final class CloudServerRegistry {
 
   private static let listKey = "cloud.connectedServers"
   private let defaults: UserDefaults
-  private var pendingRemovalTasks: [URL: (generation: UInt64, task: Task<Void, Never>)] = [:]
+  @ObservationIgnored private let pendingRemovalLock = NSLock()
+  @ObservationIgnored private var pendingRemovalTasks:
+    [URL: (id: UUID, generation: UInt64, task: Task<Void, Never>)] = [:]
 
   public init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
@@ -103,7 +105,10 @@ public final class CloudServerRegistry {
   }
 
   public func register(_ url: URL) {
-    if let pending = pendingRemovalTasks.removeValue(forKey: url) {
+    let pending = pendingRemovalLock.withLock {
+      pendingRemovalTasks.removeValue(forKey: url)
+    }
+    if let pending {
       TokenStore.invalidateMutationGeneration(pending.generation, for: url)
       pending.task.cancel()
     }
@@ -116,18 +121,27 @@ public final class CloudServerRegistry {
   }
 
   public func remove(_ url: URL) {
-    pendingRemovalTasks.removeValue(forKey: url)?.task.cancel()
+    let previous = pendingRemovalLock.withLock {
+      pendingRemovalTasks.removeValue(forKey: url)
+    }
+    previous?.task.cancel()
     servers.removeAll { $0 == url }
     Self.saveList(servers, to: defaults)
     let generation = TokenStore.reserveMutationGeneration(for: url)
     if !TokenStore.tryClearWithoutBlocking(server: url, generation: generation) {
-      let task = Task { @MainActor [weak self] in
+      let taskID = UUID()
+      let task = Task { [weak self] in
         await TokenStore.clearAsync(server: url, generation: generation)
-        if self?.pendingRemovalTasks[url]?.generation == generation {
-          self?.pendingRemovalTasks[url] = nil
+        guard let self else { return }
+        self.pendingRemovalLock.withLock {
+          if self.pendingRemovalTasks[url]?.id == taskID {
+            self.pendingRemovalTasks[url] = nil
+          }
         }
       }
-      pendingRemovalTasks[url] = (generation: generation, task: task)
+      pendingRemovalLock.withLock {
+        pendingRemovalTasks[url] = (id: taskID, generation: generation, task: task)
+      }
     }
     if let host = url.host {
       defaults.removeObject(forKey: "cloud.\(host).viewMode")
