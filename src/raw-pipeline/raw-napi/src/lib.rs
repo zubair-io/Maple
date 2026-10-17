@@ -38,6 +38,8 @@ mod error;
 mod filename;
 #[cfg(test)]
 mod filename_tests;
+#[cfg(test)]
+mod panic_barrier_tests;
 mod pipeline;
 #[cfg(test)]
 mod pipeline_tests;

@@ -30,7 +30,7 @@ use raw_core::raster::{
 };
 use std::path::Path;
 
-use crate::error::error_message;
+use crate::error::{error_message, guarded_compute};
 use crate::raster_render::RasterBufResult;
 
 /// `{ ok, error? }` — matches `rasterResizeToFile`'s return type.
@@ -64,15 +64,17 @@ impl Task for RasterResizeToFileTask {
     type JsValue = RasterFileResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        Ok(match self.run() {
-            Ok(()) => RasterFileResult {
-                ok: true,
-                error: None,
-            },
-            Err(e) => RasterFileResult {
-                ok: false,
-                error: Some(e),
-            },
+        guarded_compute("RasterResizeToFileTask", || {
+            Ok(match self.run() {
+                Ok(()) => RasterFileResult {
+                    ok: true,
+                    error: None,
+                },
+                Err(e) => RasterFileResult {
+                    ok: false,
+                    error: Some(e),
+                },
+            })
         })
     }
 
@@ -188,9 +190,11 @@ impl Task for RasterResizeToBufTask {
     type JsValue = RasterBufResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        Ok(match self.run() {
-            Ok(bytes) => RasterBufResult::ok(bytes),
-            Err(e) => RasterBufResult::err(e),
+        guarded_compute("RasterResizeToBufTask", || {
+            Ok(match self.run() {
+                Ok(bytes) => RasterBufResult::ok(bytes),
+                Err(e) => RasterBufResult::err(e),
+            })
         })
     }
 
@@ -300,74 +304,76 @@ impl Task for RasterExtractTensorTask {
     type JsValue = RasterTensorResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let raster = match decode_raster(&self.bytes, None) {
-            Ok(r) => r,
-            Err(e) => {
-                return Ok(RasterTensorResult {
-                    ok: false,
-                    tensor: None,
-                    error: Some(error_message("failed to decode raster", e)),
-                })
-            }
-        };
-
-        let target_w = if self.target_size == 0 {
-            raster.width
-        } else {
-            self.target_size
-        };
-        let target_h = if self.target_size == 0 {
-            raster.height
-        } else {
-            self.target_size
-        };
-
-        let resized = if target_w != raster.width || target_h != raster.height {
-            let resize_opts = ResizeOptions {
-                width: target_w,
-                height: target_h,
-                fit: ResizeFit::Fill,
-                filter: FilterAlg::Bilinear,
-                without_enlargement: false,
-                ..Default::default()
-            };
-            match resize_raster(&raster, &resize_opts) {
+        guarded_compute("RasterExtractTensorTask", || {
+            let raster = match decode_raster(&self.bytes, None) {
                 Ok(r) => r,
                 Err(e) => {
                     return Ok(RasterTensorResult {
                         ok: false,
                         tensor: None,
-                        error: Some(error_message("tensor resize failed", e)),
+                        error: Some(error_message("failed to decode raster", e)),
                     })
                 }
+            };
+
+            let target_w = if self.target_size == 0 {
+                raster.width
+            } else {
+                self.target_size
+            };
+            let target_h = if self.target_size == 0 {
+                raster.height
+            } else {
+                self.target_size
+            };
+
+            let resized = if target_w != raster.width || target_h != raster.height {
+                let resize_opts = ResizeOptions {
+                    width: target_w,
+                    height: target_h,
+                    fit: ResizeFit::Fill,
+                    filter: FilterAlg::Bilinear,
+                    without_enlargement: false,
+                    ..Default::default()
+                };
+                match resize_raster(&raster, &resize_opts) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        return Ok(RasterTensorResult {
+                            ok: false,
+                            tensor: None,
+                            error: Some(error_message("tensor resize failed", e)),
+                        })
+                    }
+                }
+            } else {
+                raster
+            };
+
+            let t_layout = if self.layout == 1 {
+                TensorLayout::Hwc
+            } else {
+                TensorLayout::Nchw
+            };
+            let t_norm = match self.normalize {
+                1 => TensorNormalize::InsightFace,
+                2 => TensorNormalize::ZeroToOne,
+                _ => TensorNormalize::None,
+            };
+
+            match extract_tensor(&resized, t_layout, t_norm) {
+                Ok(tensor) => Ok(RasterTensorResult {
+                    ok: true,
+                    tensor: Some(tensor.data.into()),
+                    error: None,
+                }),
+                Err(e) => Ok(RasterTensorResult {
+                    ok: false,
+                    tensor: None,
+                    error: Some(error_message("tensor extraction failed", e)),
+                }),
             }
-        } else {
-            raster
-        };
-
-        let t_layout = if self.layout == 1 {
-            TensorLayout::Hwc
-        } else {
-            TensorLayout::Nchw
-        };
-        let t_norm = match self.normalize {
-            1 => TensorNormalize::InsightFace,
-            2 => TensorNormalize::ZeroToOne,
-            _ => TensorNormalize::None,
-        };
-
-        match extract_tensor(&resized, t_layout, t_norm) {
-            Ok(tensor) => Ok(RasterTensorResult {
-                ok: true,
-                tensor: Some(tensor.data.into()),
-                error: None,
-            }),
-            Err(e) => Ok(RasterTensorResult {
-                ok: false,
-                tensor: None,
-                error: Some(error_message("tensor extraction failed", e)),
-            }),
-        }
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {

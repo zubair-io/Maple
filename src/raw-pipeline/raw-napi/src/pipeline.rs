@@ -36,6 +36,8 @@ use raw_core::raster_analyze::{analyze, analyze_reader};
 use raw_core::raster_recipe::parse_recipe;
 use raw_core::raster_recipe_exec::run_recipe;
 
+use crate::error::guarded_compute;
+
 /// Mirrors `RasterPipelineResult` in
 /// `src/maple/src/native-raster-pipeline.ts` (lines 14-21): `{ ok: boolean;
 /// buffer?: Buffer; width?: number; height?: number; channels?: number;
@@ -79,21 +81,23 @@ impl Task for RasterPipelineBufTask {
     type JsValue = RasterPipelineResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let recipe = match parse_recipe(&self.recipe_json) {
-            Ok(r) => r,
-            Err(e) => return Ok(RasterPipelineResult::err(e.to_string())),
-        };
-        let result = match run_recipe(&recipe, &self.input, &self.aux) {
-            Ok(r) => r,
-            Err(e) => return Ok(RasterPipelineResult::err(e.to_string())),
-        };
-        Ok(RasterPipelineResult {
-            ok: true,
-            buffer: Some(result.bytes.into()),
-            width: Some(result.width),
-            height: Some(result.height),
-            channels: Some(result.channels as u32),
-            error: None,
+        guarded_compute("RasterPipelineBufTask", || {
+            let recipe = match parse_recipe(&self.recipe_json) {
+                Ok(r) => r,
+                Err(e) => return Ok(RasterPipelineResult::err(e.to_string())),
+            };
+            let result = match run_recipe(&recipe, &self.input, &self.aux) {
+                Ok(r) => r,
+                Err(e) => return Ok(RasterPipelineResult::err(e.to_string())),
+            };
+            Ok(RasterPipelineResult {
+                ok: true,
+                buffer: Some(result.bytes.into()),
+                width: Some(result.width),
+                height: Some(result.height),
+                channels: Some(result.channels as u32),
+                error: None,
+            })
         })
     }
 
@@ -147,7 +151,9 @@ impl Task for RasterAnalyzeBufTask {
     type JsValue = RasterAnalyzeResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        Ok(analyze_result(analyze(&self.input, &self.request_json)))
+        guarded_compute("RasterAnalyzeBufTask", || {
+            Ok(analyze_result(analyze(&self.input, &self.request_json)))
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -193,20 +199,22 @@ impl Task for RasterAnalyzePathTask {
     type JsValue = RasterAnalyzeResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let file = match std::fs::File::open(&self.path) {
-            Ok(file) => file,
-            Err(e) => {
-                return Ok(RasterAnalyzeResult {
-                    ok: false,
-                    json: None,
-                    error: Some(format!("failed to read file {}: {e}", self.path)),
-                })
-            }
-        };
-        Ok(analyze_result(analyze_reader(
-            &mut std::io::BufReader::new(file),
-            &self.request_json,
-        )))
+        guarded_compute("RasterAnalyzePathTask", || {
+            let file = match std::fs::File::open(&self.path) {
+                Ok(file) => file,
+                Err(e) => {
+                    return Ok(RasterAnalyzeResult {
+                        ok: false,
+                        json: None,
+                        error: Some(format!("failed to read file {}: {e}", self.path)),
+                    })
+                }
+            };
+            Ok(analyze_result(analyze_reader(
+                &mut std::io::BufReader::new(file),
+                &self.request_json,
+            )))
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
