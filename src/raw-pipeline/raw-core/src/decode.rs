@@ -14,7 +14,10 @@
 //!   `cfa.name` is a string like `"RGGB"` / `"BGGR"` / `"GRBG"` / `"GBRG"`.
 //!   Six-character X-Trans names are also possible — those return
 //!   `Error::UnsupportedCfa` per spec §3.3.
-//! - Black/white levels: `blacklevel.as_bayer_array() -> [f32; 4]` and
+//! - Black levels: `blacklevel.{levels, cpp, width, height}` is the full
+//!   per-site table, reduced by `crate::black_level::reduce_black_levels`
+//!   (rawler's own `as_bayer_array()` collapses anything but a 4-entry
+//!   table to `[levels[0]; 4]`, #4730). White levels:
 //!   `whitelevel.as_bayer_array() -> [f32; 4]`.
 //! - WB: `wb_coeffs: [f32; 4]` in RGBE order; index 1 is Green, used as the
 //!   normalising channel.
@@ -230,16 +233,23 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     }
 
     // ── 4. Black / white levels ───────────────────────────────────────────
-    // `as_bayer_array()` returns 4 values in [top-left, top-right, bottom-left, bottom-right]
-    // order matching the 2×2 Bayer tile — i.e. the same per-position indexing
-    // our `RawImage.black_level` uses.
-    let bl = raw.blacklevel.as_bayer_array();
-    let mut black_level = [
-        bl[0].round() as u32,
-        bl[1].round() as u32,
-        bl[2].round() as u32,
-        bl[3].round() as u32,
-    ];
+    // DNG keys `BlackLevel` to the ActiveArea origin while rawler shifts the
+    // CFA to the sensor origin; RAF tables are already sensor-origin (#4730).
+    let black_table_origin = if ext.eq_ignore_ascii_case("dng") {
+        raw.active_area
+            .as_ref()
+            .map_or((0, 0), |area| (area.p.x as u32, area.p.y as u32))
+    } else {
+        (0, 0)
+    };
+    let mut black_level = crate::black_level::reduce_black_levels(
+        &raw.blacklevel.as_vec(),
+        raw.blacklevel.cpp,
+        raw.blacklevel.width,
+        raw.blacklevel.height,
+        cfa,
+        black_table_origin,
+    );
 
     let wl = raw.whitelevel.as_bayer_array();
     // All four positions share the same white level in practice; we take the max

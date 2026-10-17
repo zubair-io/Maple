@@ -185,7 +185,11 @@ pub struct RawImage {
     pub width: u32,
     pub height: u32,
     pub cfa: CfaPattern,
-    pub black_level: [u32; 4], // per CFA position, indexed as [y_even*2 + x_even]
+    /// 2×2 Bayer: per tile position `[TL, TR, BL, BR]`, indexed as
+    /// `(y & 1) * 2 + (x & 1)`. X-Trans and `LinearRgb`: per colour
+    /// `[R, G, B, B]`, indexed by CFA colour or channel. Reduced from
+    /// rawler's full table by `crate::black_level::reduce_black_levels`.
+    pub black_level: [u32; 4],
     pub white_level: u32,
     pub raw_data: Vec<u16>,
     /// Camera RGB reading of a neutral patch in the scene, G-normalized so
