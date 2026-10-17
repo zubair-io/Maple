@@ -59,6 +59,7 @@ import type { SqlStatement } from '../sqlite/protocol.ts';
 import {
   STAGE_CLAIM_ROLLBACK_SQL,
   STAGE_DAMAGED_SQL,
+  STAGE_DEFER_SQL,
   STAGE_FAILURE_SQL,
   STAGE_INVALIDATE_SQL,
   STAGE_REARM_SELF_SQL,
@@ -112,7 +113,7 @@ export interface StageTarget {
   stage: string;
   targetVersion: number;
   /**
-   * The lease the claim stamped — `ClaimedStageRow.next_attempt_at`, or the
+   * The claim token the claim stamped — `ClaimedStageRow.claim_token`, or the
    * value the last `renewStageLease` returned. Every statement that writes the
    * claimed row is fenced on it, so a writeback from an attempt whose lease has
    * already been taken over matches nothing.
@@ -409,8 +410,7 @@ export function stageResultStatements(
   if ('defer' in result) {
     return [
       {
-        sql: `UPDATE stage_state SET attempts=MAX(attempts-1,0),last_error=?,next_attempt_at=?
-      WHERE asset_id=? AND stage=? AND next_attempt_at=?`,
+        sql: STAGE_DEFER_SQL,
         params: [
           result.defer.reason.slice(0, 500),
           result.defer.retryAt.toISOString(),

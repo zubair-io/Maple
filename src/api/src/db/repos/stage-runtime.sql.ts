@@ -354,6 +354,19 @@ export const STAGE_CLAIM_ROLLBACK_SQL = `
    WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
 
 /**
+ * A handler that cannot make progress yet — a Drive destination that is
+ * offline — asks to be retried at a chosen time without spending an attempt.
+ * The lease is cleared and `next_attempt_at` becomes the retry time, so the
+ * asset is claimable exactly then rather than when its lease would have lapsed.
+ *
+ * Parameters: `last_error`, `retry_at`, `asset_id`, `stage`, `lease`.
+ */
+export const STAGE_DEFER_SQL = `
+  UPDATE stage_state
+     SET attempts = MAX(attempts - 1, 0), last_error = ?, next_attempt_at = ?, claim_token = NULL
+   WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
+
+/**
  * Park one row whose attempt budget was consumed without it ever completing —
  * the signature of an uncatchable native death mid-handler (#897).
  *
