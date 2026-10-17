@@ -262,6 +262,76 @@ final class MapleItemTests: XCTestCase {
     XCTAssertEqual((received.error as NSError?)?.code, NSFileProviderError.noSuchItem.rawValue)
   }
 
+  func testReapedAssetFetchContentsResolvesToNoSuchItemEvenWhenRawDownloadReturns403() {
+    let validAssetID = "650a1b2c3d4e5f6071829304"
+    let folderID = "650a1b2c3d4e5f6071829305"
+    let body =
+      #"{"id": "\#(validAssetID)", "folder_id": "\#(folderID)", "filename": "IMG_1.dng", "#
+      + #""abs_path": "/lib/2024/IMG_1.dng", "size": 100, "mtime": 1700000000000, "rating": 0, "#
+      + #""deleted_at": "2026-05-01T12:00:00Z", "deleted_reason": "reaped"}"#
+    let catalog = FPCoreTestSupport.makeCatalog { req in
+      if req.url?.path.hasSuffix("/raw") == true {
+        return (403, Data(#"{"error":"forbidden"}"#.utf8), ["Content-Type": "application/json"])
+      }
+      return (200, Data(body.utf8), ["Content-Type": "application/json"])
+    }
+    let roots = [LibraryRoot(id: folderID, path: "/lib", label: "Lib", fileCount: 1)]
+    let core = FPCoreTestSupport.makeCore(catalog: catalog, roots: roots, test: self)
+    let done = expectation(description: "fetchContents completed")
+    var received: (url: URL?, item: NSFileProviderItem?, error: Error?) = (nil, nil, nil)
+
+    _ = core.fetchContents(
+      for: NSFileProviderItemIdentifier(FileProviderIdentifier.asset(validAssetID).rawValue),
+      version: nil,
+      request: NSFileProviderRequest()
+    ) { url, item, error in
+      received = (url, item, error)
+      done.fulfill()
+    }
+    wait(for: [done], timeout: 5)
+
+    XCTAssertNil(received.url)
+    XCTAssertNil(received.item)
+    XCTAssertEqual(
+      (received.error as NSError?)?.code, NSFileProviderError.noSuchItem.rawValue,
+      "reaped asset whose on-disk RAW is missing (403) must surface noSuchItem, not a download error"
+    )
+  }
+
+  func testReapedAssetInBatchMetaResolvesToDeletionsInsteadOfLiveItems() async {
+    let validAssetID = "650a1b2c3d4e5f6071829304"
+    let folderID = "650a1b2c3d4e5f6071829305"
+    let batchBody =
+      #"{"assets": [{"id": "\#(validAssetID)", "folder_id": "\#(folderID)", "filename": "IMG_1.dng", "#
+      + #""abs_path": "/lib/2024/IMG_1.dng", "size": 100, "mtime": 1700000000000, "rating": 0, "#
+      + #""deleted_at": "2026-05-01T12:00:00Z", "deleted_reason": "reaped"}]}"#
+    let catalog = FPCoreTestSupport.makeCatalog { _ in
+      (200, Data(batchBody.utf8), ["Content-Type": "application/json"])
+    }
+    let changeJSON =
+      #"{"cursor": 42, "kind": "update", "asset_id": "\#(validAssetID)", "#
+      + #""folder_id": "\#(folderID)", "relative_path": "2024/IMG_1.dng", "at": 1700000000000}"#
+    let change = try! JSONDecoder().decode(AssetChange.self, from: Data(changeJSON.utf8))
+
+    let resolved = await FolderChangeMatching.resolve(
+      changes: [change],
+      folderID: folderID,
+      relativePath: "2024",
+      catalog: catalog
+    )
+    XCTAssertTrue(
+      resolved.updates.isEmpty,
+      "trashed/reaped asset in batch-meta must not emit live item updates")
+    XCTAssertEqual(
+      Set(resolved.deletes.map(\.rawValue)),
+      Set([
+        FileProviderIdentifier.asset(validAssetID).rawValue,
+        MapleItem.sidecarIdentifier(assetID: validAssetID).rawValue,
+        FileProviderIdentifier.thumb(assetID: validAssetID).rawValue,
+        FileProviderIdentifier.preview(assetID: validAssetID).rawValue,
+      ]))
+  }
+
   // MARK: - Derived items (#3571)
 
   func testPreviewItemIsReadOnlyAvifNamedAfterTheRawAndVersionedBySeed() {
