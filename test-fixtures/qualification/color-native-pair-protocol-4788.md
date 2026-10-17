@@ -47,9 +47,11 @@ in their authoring sidecars. These cases remain unqualified for migration
 under #3678. This audit neither changes pixels nor clears color failures.
 Original sidecars, references, manifest entries and budgets are unchanged.
 
-The three physical protocol controls below are being replayed after the review
-repair. Their original results remain historical evidence until that replay
-and its input audit finish. Logs and metadata-audit results use the
+The three physical protocol controls below were replayed after the review
+repair. All three preserve their original statistics and pixel populations,
+including all 100,663,296 pixels in the full-detail control. The final audit
+confirms all 15 input hashes are unchanged. Generation and repeat generation
+also complete without output drift. Logs and metadata-audit results use the
 `complete-crs-*` prefix in the evidence directory.
 
 ## Qualification
