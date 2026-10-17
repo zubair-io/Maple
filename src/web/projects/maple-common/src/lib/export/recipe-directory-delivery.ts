@@ -157,16 +157,9 @@ export async function deliverDirectoryEntry(
   if (currentBefore !== entry.beforeHash)
     throw new Error('Output changed while rendering. Review the destination before retrying.');
   const afterHash = await digest(blob);
-  const previousCreated = record.createdOutputs ? { ...record.createdOutputs } : undefined;
-  record.createdOutputs = { ...(record.createdOutputs ?? {}), [filename.toLowerCase()]: afterHash };
   const writing: RecipeEntry = { ...entry, status: 'writing', afterHash };
   // This marker MUST commit before createWritable or its final close can change any output.
-  try {
-    await save(writing);
-  } catch (error) {
-    record.createdOutputs = previousCreated;
-    throw error;
-  }
+  await save(writing);
   // Existing entries were identity-checked above. A new entry remains empty until close.
   handle ??= await directory.getFileHandle(filename, { create: true });
   const writer = await handle.createWritable();
@@ -183,6 +176,7 @@ export async function deliverDirectoryEntry(
     await writer.abort().catch(() => undefined);
     throw error;
   }
+  record.createdOutputs = { ...(record.createdOutputs ?? {}), [filename.toLowerCase()]: afterHash };
   return { ...writing, status: 'applied' };
 }
 
