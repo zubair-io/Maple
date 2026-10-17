@@ -19,7 +19,7 @@ import {
   tagLocationMissingStatement,
   type StageAttempt,
 } from './stage-writeback.ts';
-import { renewStageLease } from './stage-claim.ts';
+import { claimStageBatch, renewStageLease } from './stage-claim.ts';
 import { damagedTag, seedClaimableAsset, stageRow } from './stage-runtime.test-helpers.ts';
 import { createTestDatabase, testSqliteDb } from '../sqlite/test-sqlite.test-helpers.ts';
 
@@ -468,3 +468,93 @@ describe('the lease fence', () => {
 function toArgs(statement: { sql: string; params?: unknown }): [string, never] {
   return [statement.sql, statement.params as never];
 }
+
+describe('a deferred run', () => {
+  const CLAIM_AT = new Date('2026-06-01T12:00:00.000Z');
+  const RETRY_AT = new Date('2026-06-01T12:05:00.000Z');
+  const request = {
+    stage: STAGE,
+    targetVersion: 7,
+    dependsOn: [],
+    limit: 10,
+    maxAttempts: 5,
+    leaseMs: 15 * 60_000,
+  };
+
+  test('gives the attempt back and re-queues the asset at retryAt, not at lease expiry', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const assetId = seedClaimableAsset(handle.db, { stages: { [STAGE]: {} } });
+
+    const claim = await claimStageBatch({ ...request, now: CLAIM_AT }, db);
+    const row = claim.claimed[0];
+    expect(row?.claim_token).toBeTruthy();
+
+    await db.transaction(
+      stageResultStatements(
+        {
+          target: {
+            assetId,
+            stage: STAGE,
+            targetVersion: 7,
+            lease: row?.claim_token ?? '',
+          },
+          attemptNo: 1,
+          maxAttempts: 5,
+          dependsOn: [],
+          at: CLAIM_AT,
+        },
+        { defer: { reason: 'drive offline', retryAt: RETRY_AT } },
+      ),
+    );
+
+    expect(stageRow(handle.db, assetId, STAGE)).toMatchObject({
+      attempts: 0,
+      dead: 0,
+      last_error: 'drive offline',
+      next_attempt_at: RETRY_AT.toISOString(),
+      claim_token: null,
+    });
+    const early = await claimStageBatch(
+      { ...request, now: new Date(RETRY_AT.getTime() - 1000) },
+      db,
+    );
+    const due = await claimStageBatch({ ...request, now: RETRY_AT }, db);
+    expect(early.claimed).toEqual([]);
+    expect(due.claimed.map((claimed) => claimed.asset_id)).toEqual([assetId]);
+  });
+
+  test('a stale claimer cannot defer a row another worker now holds', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const assetId = seedClaimableAsset(handle.db, { stages: { [STAGE]: {} } });
+    const first = await claimStageBatch({ ...request, now: CLAIM_AT }, db);
+    const second = await claimStageBatch(
+      { ...request, now: new Date(CLAIM_AT.getTime() + 16 * 60_000) },
+      db,
+    );
+
+    await db.transaction(
+      stageResultStatements(
+        {
+          target: {
+            assetId,
+            stage: STAGE,
+            targetVersion: 7,
+            lease: first.claimed[0]?.claim_token ?? '',
+          },
+          attemptNo: 1,
+          maxAttempts: 5,
+          dependsOn: [],
+          at: CLAIM_AT,
+        },
+        { defer: { reason: 'drive offline', retryAt: RETRY_AT } },
+      ),
+    );
+
+    expect(stageRow(handle.db, assetId, STAGE)).toMatchObject({
+      attempts: 2,
+      claim_token: second.claimed[0]?.claim_token,
+    });
+  });
+});
