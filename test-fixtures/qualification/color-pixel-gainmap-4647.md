@@ -46,6 +46,9 @@ math and LinearRaw transfer behavior remain those of this branch's base.
   with Bayer GainMaps. The Canon LinearRaw file with three MapPolynomial
   operations also decodes successfully through its existing path.
 - Rust formatting, whitespace and file-headroom checks pass.
+- The full debug core suite passes **2,825 tests**, with 103 explicitly
+  ignored tests (including the three physical tests executed separately).
+  Metal parity passes **287 tests**, with four existing ignores.
 
 ## First physical comparison
 
@@ -84,6 +87,17 @@ main failure**. The two changes need qualification together against main;
 the AMaZE-only branch cannot land on the strength of its passing baseline
 controls. Exact metrics and hashes are in `dehaze_max-three-way.json`.
 
+### Remaining exposure outlier
+
+The maximum error for `test_0015/exposure_max` is 45.303858 on frozen main,
+54.377235 on balanced AMaZE, and 50.456601 with GainMaps. All exceed the
+unchanged maximum ceiling 34. The candidate improves mean/p95 and all channel
+biases, but its maximum is worse than main. This is not accepted as regression
+qualification; #4650 tracks the reconstruction/resampling interaction.
+Exact metrics and unchanged-input identities are in
+`exposure_max-three-way.json`. The complete combined 806-comparison run
+continues as the control for further repairs.
+
 ## Qualification still required
 
 This is a saved implementation checkpoint, not a ready PR or a claim that
@@ -93,7 +107,7 @@ control. Complete the whole-corpus regression and performance checks before
 merging; preserve every input and numerical budget.
 
 Integrate the then-current pipeline output and Auto fit-model versions and
-generated evidence after #4627 lands. No numerical budget, original RAW,
+generated evidence for the qualified combined repair. No numerical budget, original RAW,
 authored sidecar or Adobe reference changes.
 
 Replay patches, adaptation scripts and qualification logs are preserved at
