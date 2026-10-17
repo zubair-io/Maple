@@ -4,8 +4,9 @@
 //! only, as part of the decode product: after DCP colorimetry and post-DCP
 //! highlight recovery, before capture sharpening / auto-exposure / WB-delta
 //! and all user adjustments. Because it lands inside the cached decoded
-//! scene-linear buffer, its per-slider-tick cost is zero. No GPU port —
-//! the stage never runs per tick (spec § 3.1 "Gates").
+//! scene-linear buffer, its per-slider-tick cost is zero. The GPU counterpart
+//! is staged under #4629 for the future pre-DCP resident boundary; shipping
+//! hosts continue to bake this stage into their decode product.
 //!
 //! ## Algorithm (clean-room per the design spec)
 //!
@@ -51,7 +52,7 @@ use crate::image::{ColorSpace, Image};
 
 /// Rec.2020 luma weights — same constants as `stages::scene_tone_controls`
 /// and the WGSL kernels.
-const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
+pub const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
 
 /// The 8 off-center sparse taps (center is implicit, weight 1). Two 4-tap
 /// 90°-rotation orbits: radius √5 ≈ 2.24 px and radius √17 ≈ 4.12 px, so
@@ -60,7 +61,7 @@ const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
 /// offset is (even, even)) and none is ≡ (0, 0) mod 6 (X-Trans period).
 /// Each orbit sums to zero displacement, so the kernel is directionally
 /// unbiased.
-const TAPS: [(i32, i32); 8] = [
+pub const TAPS: [(i32, i32); 8] = [
     (1, -2),
     (-2, -1),
     (2, 1),
@@ -74,7 +75,7 @@ const TAPS: [(i32, i32); 8] = [
 /// Quadratic spatial penalty: `w = 1 / (1 + r² / R0²)` with `R0² = 16`
 /// (≈ the outer-orbit radius squared). Inner orbit (r² = 5) → 16/21;
 /// outer orbit (r² = 17) → 16/33. Indexed in step with [`TAPS`].
-const SPATIAL_W: [f32; 8] = [
+pub const SPATIAL_W: [f32; 8] = [
     16.0 / 21.0,
     16.0 / 21.0,
     16.0 / 21.0,
@@ -91,13 +92,13 @@ const SPATIAL_W: [f32; 8] = [
 /// differs from the center by 50% of the local level still carries half
 /// weight. Relative normalisation keeps the response invariant to the
 /// per-camera post-DCP scale (the stage runs before auto-exposure).
-const SIGMA_MAX_REL: f32 = 0.5;
+pub const SIGMA_MAX_REL: f32 = 0.5;
 
 /// Pedestal added to the local luma scale so deep-shadow noise (where the
 /// *relative* fluctuation is huge but the *absolute* signal is tiny) is
 /// still smoothed: below ~0.01 (≈ −4 EV under mid-grey) differences are
 /// effectively measured against the pedestal instead of the signal.
-const PEDESTAL: f32 = 0.01;
+pub const PEDESTAL: f32 = 0.01;
 
 /// Apply the decode-time chroma pre-filter. `strength` is the
 /// `papp:ChromaPrefilter` slider value in `[0, 100]`; `< 1e-3` (the

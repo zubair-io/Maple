@@ -19,6 +19,26 @@ use crate::context::GpuContext;
 use crate::context_pipelines_helpers::{compile_source, compile_standalone, compile_with_matrices};
 
 impl GpuContext {
+    pub fn oklab_highlight_recovery_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.oklab_highlight_recovery_pipeline.get_or_init(|| {
+            compile_with_matrices(
+                &self.device,
+                "oklab-highlight-recovery",
+                include_str!("camera_post/highlight_recovery.wgsl"),
+            )
+        })
+    }
+
+    pub fn chroma_prefilter_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.chroma_prefilter_pipeline.get_or_init(|| {
+            compile_with_matrices(
+                &self.device,
+                "chroma-prefilter",
+                include_str!("camera_post/chroma_prefilter.wgsl"),
+            )
+        })
+    }
+
     /// The cached exposure compute pipeline, compiling `exposure.wgsl` on first
     /// call. The auto bind-group layout (`layout: None`) is shared by every
     /// `ExposurePass` bind group via `pipeline.get_bind_group_layout(0)`.

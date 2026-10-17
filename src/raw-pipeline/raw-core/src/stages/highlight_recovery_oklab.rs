@@ -67,7 +67,7 @@ use crate::{
 /// noise on the Oklab matrix chain. Matches the `EPSILON` in the sibling
 /// camera-native variant for consistency. NOT a gamut tolerance — the
 /// working space is unbounded scene-linear Rec.2020 (see module docs).
-const CEILING_EPSILON: f32 = 0.005;
+pub const CEILING_EPSILON: f32 = 0.005;
 
 /// Predicate: returns `true` when any Rec.2020 channel exceeds the post-DCP
 /// sensor-clip line (`1.0 + CEILING_EPSILON`). This is **NOT** a gamut
@@ -85,7 +85,7 @@ fn is_post_dcp_sensor_clipped(rgb: [f32; 3]) -> bool {
 /// Number of binary-search iterations. 15 halvings → resolution `~3e-5` on
 /// the `[0, 1]` scale factor, comfortably below the f32 round-trip noise on
 /// the Oklab matrix chain.
-const BISECTION_ITERS: u32 = 15;
+pub const BISECTION_ITERS: u32 = 15;
 
 /// Post-DCP highlight recovery. Asserts scene-linear Rec.2020 D65; early
 /// returns unless the user opted into `OklabChromaReduction`. Identity for

@@ -58,6 +58,8 @@ pub struct GpuContext {
     /// Camera-profile trilinear HueSatMap (#4629).
     pub(crate) hue_sat_map_pipeline: OnceCell<wgpu::ComputePipeline>,
     pub(crate) dcp_colorimetry_pipeline: OnceCell<wgpu::ComputePipeline>,
+    pub(crate) oklab_highlight_recovery_pipeline: OnceCell<wgpu::ComputePipeline>,
+    pub(crate) chroma_prefilter_pipeline: OnceCell<wgpu::ComputePipeline>,
     pub(crate) auto_exposure_pipelines: crate::auto_exposure::Pipelines,
     /// Lazily-compiled scene-tone-controls compute pipeline
     /// (`scene_tone_controls.wgsl`). A P2 scene-linear stage (#990); five
@@ -415,6 +417,8 @@ impl GpuContext {
             white_balance_pipeline: OnceCell::new(),
             hue_sat_map_pipeline: OnceCell::new(),
             dcp_colorimetry_pipeline: OnceCell::new(),
+            oklab_highlight_recovery_pipeline: OnceCell::new(),
+            chroma_prefilter_pipeline: OnceCell::new(),
             auto_exposure_pipelines: Default::default(),
             scene_tone_controls_pipeline: OnceCell::new(),
             vignette_pipeline: OnceCell::new(),

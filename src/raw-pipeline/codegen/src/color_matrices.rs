@@ -222,6 +222,22 @@ pub fn emit_wgsl() -> String {
         wgsl_f(raw_core::stages::dehaze::TRANSMISSION_OMEGA),
         wgsl_f(raw_core::stages::dehaze::AIRLIGHT_FLOOR),
     ));
+    use raw_core::stages::{chroma_prefilter as chroma, highlight_recovery_oklab as recovery};
+    out.push_str(&format!(
+        "// Post-DCP stages from raw-core (#4629).\nconst RECOVERY_CEILING_EPSILON: f32 = {};\nconst RECOVERY_BISECTION_ITERS: u32 = {}u;\nconst CHROMA_SIGMA_MAX_REL: f32 = {};\nconst CHROMA_PEDESTAL: f32 = {};\nconst CHROMA_LUMA: vec3<f32> = vec3<f32>({}, {}, {});\n",
+        wgsl_f(recovery::CEILING_EPSILON), recovery::BISECTION_ITERS,
+        wgsl_f(chroma::SIGMA_MAX_REL), wgsl_f(chroma::PEDESTAL),
+        wgsl_f(chroma::LUMA_REC2020[0]), wgsl_f(chroma::LUMA_REC2020[1]), wgsl_f(chroma::LUMA_REC2020[2]),
+    ));
+    out.push_str("const CHROMA_TAPS: array<vec2<i32>, 8> = array<vec2<i32>, 8>(\n");
+    for (x, y) in chroma::TAPS {
+        out.push_str(&format!("    vec2<i32>({x}, {y}),\n"));
+    }
+    out.push_str(");\nconst CHROMA_SPATIAL_WEIGHTS: array<f32, 8> = array<f32, 8>(\n");
+    for weight in chroma::SPATIAL_W {
+        out.push_str(&format!("    {},\n", wgsl_f(weight)));
+    }
+    out.push_str(");\n");
     use raw_core::stages::auto_exposure as ae;
     out.push_str(&format!(
         "// Scene-anchor constants from stages/auto_exposure (#4629).\nconst AE_LUMA: vec3<f32> = vec3<f32>({}, {}, {});\nconst AE_MIDGRAY: f32 = {};\nconst AE_HIGHLIGHT: f32 = {};\nconst AE_MAX_GAIN: f32 = {};\nconst AE_FLOOR: f32 = {};\n",
@@ -397,6 +413,35 @@ mod tests {
         ] {
             assert!(output.contains(&format!("const {name}: f32 = {};", wgsl_f(value))));
         }
+    }
+
+    #[test]
+    fn camera_post_constants_follow_core() {
+        use raw_core::stages::{chroma_prefilter as chroma, highlight_recovery_oklab as recovery};
+        let output = emit_wgsl();
+        for (name, value) in [
+            ("RECOVERY_CEILING_EPSILON", recovery::CEILING_EPSILON),
+            ("CHROMA_SIGMA_MAX_REL", chroma::SIGMA_MAX_REL),
+            ("CHROMA_PEDESTAL", chroma::PEDESTAL),
+        ] {
+            assert!(output.contains(&format!("const {name}: f32 = {};", wgsl_f(value))));
+        }
+        for (x, y) in chroma::TAPS {
+            assert!(output.contains(&format!("    vec2<i32>({x}, {y}),")));
+        }
+        for weight in chroma::SPATIAL_W {
+            assert!(output.contains(&format!("    {},", wgsl_f(weight))));
+        }
+        assert!(output.contains(&format!(
+            "const CHROMA_LUMA: vec3<f32> = vec3<f32>({}, {}, {});",
+            wgsl_f(chroma::LUMA_REC2020[0]),
+            wgsl_f(chroma::LUMA_REC2020[1]),
+            wgsl_f(chroma::LUMA_REC2020[2]),
+        )));
+        assert!(output.contains(&format!(
+            "const RECOVERY_BISECTION_ITERS: u32 = {}u;",
+            recovery::BISECTION_ITERS
+        )));
     }
 
     #[test]

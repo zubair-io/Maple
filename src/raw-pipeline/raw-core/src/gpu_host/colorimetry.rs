@@ -128,3 +128,7 @@ mod tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "camera_prepare_tests.rs"]
 mod camera_prepare_tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "camera_post_tests.rs"]
+mod camera_post_tests;
