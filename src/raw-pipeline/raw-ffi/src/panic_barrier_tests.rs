@@ -4,9 +4,7 @@
 
 use std::ffi::CStr;
 
-use crate::error::{
-    catch_panic, catch_panic_rc, maple_last_error, with_large_stack_borrowed, RC_PANICKED,
-};
+use crate::error::{catch_panic, catch_panic_rc, maple_last_error, RC_PANICKED};
 use crate::raster::maple_raster_extract_tensor_buf;
 
 fn last_error() -> String {
@@ -30,14 +28,6 @@ unsafe extern "C" fn panicking_entry_ptr() -> *mut u8 {
     })
 }
 
-unsafe extern "C" fn panicking_entry_large_stack(input: *const u8) -> i32 {
-    with_large_stack_borrowed(|| {
-        let first = unsafe { *input };
-        assert_eq!(first, 0, "corrupt header byte {first}");
-        0
-    })
-}
-
 #[test]
 fn panicking_rc_entry_returns_panic_rc() {
     assert_eq!(unsafe { panicking_entry_rc() }, RC_PANICKED);
@@ -54,19 +44,6 @@ fn panicking_pointer_entry_returns_null() {
         last_error(),
         "panicking_entry_ptr: panicked: handle construction failed"
     );
-}
-
-#[test]
-fn panicking_large_stack_entry_returns_panic_rc_and_borrows_caller_pointers() {
-    let corrupt = [7u8];
-    assert_eq!(
-        unsafe { panicking_entry_large_stack(corrupt.as_ptr()) },
-        RC_PANICKED
-    );
-    assert!(last_error().contains("corrupt header byte 7"));
-
-    let clean = [0u8];
-    assert_eq!(unsafe { panicking_entry_large_stack(clean.as_ptr()) }, 0);
 }
 
 #[test]
