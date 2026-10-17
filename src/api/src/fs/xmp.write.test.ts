@@ -128,6 +128,38 @@ test('the sidecar reader refuses to follow a symlink in the final component', as
   });
 });
 
+test('a sidecar symlinked to another in-root .xmp still saves through every write path', async () => {
+  const rawPath = join(root, 'alias-save.dng');
+  const realSidecar = join(root, 'alias-save-real.xmp');
+  await writeFile(rawPath, RAW_BYTES);
+  await writeFile(realSidecar, '<x:xmpmeta />');
+  await symlink(realSidecar, join(root, 'alias-save.xmp'));
+
+  expect((await writeXmpAtomic(rawPath, '<x:xmpmeta><a /></x:xmpmeta>', undefined, root)).ok).toBe(
+    true,
+  );
+  expect(await readFile(realSidecar, 'utf8')).toContain('<a />');
+  const preconditioned = await writeXmpWithPrecondition(
+    rawPath,
+    '<x:xmpmeta><b /></x:xmpmeta>',
+    null,
+    'test-device',
+    false,
+    root,
+  );
+  expect(preconditioned.kind).toBe('ok');
+  expect(await readFile(realSidecar, 'utf8')).toContain('<b />');
+  const merged = await updateXmpAtomic(
+    rawPath,
+    () => '<x:xmpmeta><c /></x:xmpmeta>',
+    undefined,
+    root,
+  );
+  expect(merged).toEqual({ ok: true, data: 'written' });
+  expect(await readFile(realSidecar, 'utf8')).toContain('<c />');
+  expect((await lstat(join(root, 'alias-save.xmp'))).isSymbolicLink()).toBe(true);
+});
+
 test('read opens the path that passed authorization, not the symlink it was asked for', async () => {
   const rawPath = join(root, 'aliased.dng');
   const realSidecar = join(root, 'aliased-real.xmp');

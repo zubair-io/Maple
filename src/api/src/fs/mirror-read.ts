@@ -272,9 +272,12 @@ export async function resolveOriginalReadSource(
 // ---------------------------------------------------------------------------
 
 /** Read a mirror copy under the timeout + health accounting. Null on any miss. */
-async function readMirrorFile(t: MirrorTarget): Promise<string | null> {
+async function readMirrorFile(
+  t: MirrorTarget,
+  read: (absPath: string) => Promise<string>,
+): Promise<string | null> {
   try {
-    const text = await withTimeout(readFile(t.mirrorPath, 'utf-8'));
+    const text = await withTimeout(read(t.mirrorPath));
     markMirrorHealthy(t.mirrorRoot);
     return text;
   } catch (err) {
@@ -302,7 +305,7 @@ export async function readFileWithFailover(
     if (targets.length === 0) throw err;
     if (await isPrimaryRootReachable(targets)) throw err;
     for (const target of targets) {
-      const text = await readMirrorFile(target);
+      const text = await readMirrorFile(target, readPrimary);
       if (text !== null) {
         log.warn({ absPath, mirror: target.mirrorPath }, 'primary unreachable — read from mirror');
         return text;

@@ -96,12 +96,13 @@ export async function preparePrimarySidecarWrite(
   const allowed = await authorizeUnlessAborted(sidecar, signal);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
   try {
-    const existing = await waitForAbortable(readSidecarNoFollow(sidecar), signal).catch(
-      (error: unknown) => {
-        if (isMissingSidecar(error)) return null;
-        throw error;
-      },
-    );
+    const existing = await waitForAbortable(
+      readSidecarNoFollow(allowed.data ?? sidecar),
+      signal,
+    ).catch((error: unknown) => {
+      if (isMissingSidecar(error)) return null;
+      throw error;
+    });
     return {
       ok: true,
       data: await prepareWorkflowWrite(existing, xmlContent, signal),
