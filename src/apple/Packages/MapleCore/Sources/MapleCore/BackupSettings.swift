@@ -11,6 +11,7 @@
 
 import CryptoKit
 import Foundation
+import MapleBackup
 
 public struct BackupSettings: Equatable, Codable, Sendable {
 
@@ -86,21 +87,54 @@ public struct BackupSettings: Equatable, Codable, Sendable {
   }
 
   public static var isStoppedByUser: Bool {
-    get { UserDefaults.standard.bool(forKey: "maple.backup.stoppedByUser") }
-    set { UserDefaults.standard.set(newValue, forKey: "maple.backup.stoppedByUser") }
+    get { sharedDefaults?.bool(forKey: "maple.backup.stoppedByUser") ?? false }
+    set { sharedDefaults?.set(newValue, forKey: "maple.backup.stoppedByUser") }
   }
 
   // MARK: - Persistence
 
   private static let key = "maple.backup.settings.v1"
 
-  public func save(to defaults: UserDefaults = .standard) {
+  private static var sharedDefaults: UserDefaults? {
+    guard let shared = UserDefaults(suiteName: BackupStorage.appGroup) else { return nil }
+    // An unconfigured helper must not initialize shared storage from its empty sandbox.
+    guard shared.data(forKey: key) != nil || UserDefaults.standard.data(forKey: key) != nil else {
+      return shared
+    }
+    do {
+      try BackupStorage.withSettingsLock {
+        try migrate(from: .standard, to: shared) { _ = try BackupStorage.defaultRoot() }
+      }
+      return shared
+    } catch { return nil }
+  }
+
+  // Publish legacy settings only after all file stores are available to the helper.
+  static func migrate(
+    from legacy: UserDefaults, to shared: UserDefaults, prepareStorage: () throws -> Void
+  ) throws {
+    guard shared.data(forKey: key) == nil, let data = legacy.data(forKey: key) else { return }
+    _ = try JSONDecoder().decode(BackupSettings.self, from: data)
+    try prepareStorage()
+    if shared.object(forKey: "maple.backup.stoppedByUser") == nil,
+      let stopped = legacy.object(forKey: "maple.backup.stoppedByUser")
+    {
+      shared.set(stopped, forKey: "maple.backup.stoppedByUser")
+    }
+    shared.set(data, forKey: key)
+  }
+
+  public func save(to defaults: UserDefaults? = nil) {
+    if defaults == nil {
+      guard (try? BackupStorage.defaultRoot()) != nil else { return }
+    }
+    guard let defaults = defaults ?? Self.sharedDefaults else { return }
     guard let data = try? JSONEncoder().encode(self) else { return }
     defaults.set(data, forKey: Self.key)
   }
 
-  public static func load(from defaults: UserDefaults = .standard) -> BackupSettings? {
-    guard let data = defaults.data(forKey: key) else { return nil }
+  public static func load(from defaults: UserDefaults? = nil) -> BackupSettings? {
+    guard let data = (defaults ?? sharedDefaults)?.data(forKey: key) else { return nil }
     return try? JSONDecoder().decode(BackupSettings.self, from: data)
   }
 }

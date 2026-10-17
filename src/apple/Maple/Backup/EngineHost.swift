@@ -114,13 +114,7 @@ public final class EngineHost {
     progress.setPhase(.starting)
 
     do {
-      let appSupport = try FileManager.default.url(
-        for: .applicationSupportDirectory, in: .userDomainMask,
-        appropriateFor: nil, create: true
-      )
-      .appendingPathComponent("Maple", isDirectory: true)
-      try FileManager.default.createDirectory(
-        at: appSupport, withIntermediateDirectories: true)
+      let appSupport = try BackupStorage.defaultRoot()
 
       let deviceId = try DeviceIdentity.current(
         storageURL: try DeviceIdentity.defaultStorageURL())

@@ -63,6 +63,13 @@ Adoption in the app is partial and observable: roughly 22 of the app's ~137 view
 
 `src/apple/Packages/MapleBackup` — the device-side PhotoKit backup engine, its only dependency GRDB. `BackupEngine` runs `queue.dequeue → state.transition(.uploading) → reader.read → upload → sidecars.delete → state.transition(.uploaded)`. `BackupStateStore` persists the queue's state machine to SQLite (one `tasks` table keyed by device id + PHAsset local id) because that shape needs concurrent updates and restart recovery; user-visible sidecars stay `.xmp` files in `AppSupportSidecarStore`, a file-per-PHAsset store. Failures return the task to `.pending` and retry with exponential backoff (1s, 2s, 4s… capped at an hour), giving up as `.failedRetry` after 8 attempts. When Wi-Fi-only is set and the device is on cellular, background-priority tasks are re-enqueued after a 30-second sleep rather than uploaded. Only the primary bytes upload decides success: the sidecar, Apple-rendered twin and Live Photo `.mov` are best-effort companions uploaded after the photo commits, each with its own bounded retry, and a companion failure never burns the photo's retry budget.
 
+Backup settings use the `group.app.justmaple.aperture` defaults suite. Device identity,
+destination-specific state databases, and PhotoKit sidecars live under `Maple/` in that
+App Group container. The first upgrade copies legacy Application Support data under a
+process lock, snapshots SQLite through its backup API (including WAL), and publishes
+settings only after storage migration succeeds. Legacy files remain intact for recovery;
+a completion marker prevents replaying consumed sidecars on subsequent launches.
+
 `PhotoKitAssetReader` (in the app target) supplies the actual PhotoKit bytes; the engine takes it as an injected `AssetReader` so `swift test` can substitute synthetic data.
 
 ## Building the Rust core
