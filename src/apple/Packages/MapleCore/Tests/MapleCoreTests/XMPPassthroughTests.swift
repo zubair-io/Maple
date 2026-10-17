@@ -518,22 +518,18 @@ final class XMPPassthroughTests: XCTestCase {
     XCTAssertEqual(XMPParser.parsePassthrough(""), .empty)
   }
 
-  /// Multi-Description sidecar (#4690): self-closing first Description plus sibling Description
-  /// carrying curves, local adjustments, repair spots, foreign history, and `x:xmpmeta` sibling.
+  /// Multi-Description sidecar (#4690) round-tripped through `XMPSidecarStore`.
   func testMultiDescriptionSidecarSurvivesStoreRoundTrip() async throws {
     let multi = """
-      <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/">
-        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-          <rdf:Description rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" tiff:Make="Fujifilm" xmp:Rating="4" crs:Exposure2012="+0.35"/>
-          <rdf:Description rdf:about="" xmlns:aux="http://ns.adobe.com/exif/1.0/aux/" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/" xmlns:stEvt="http://ns.adobe.com/xap/1.0/sType/ResourceEvent#" aux:Lens="XF35mmF1.4 R" crs:Contrast2012="+15">
-            <crs:ToneCurvePV2012><rdf:Seq><rdf:li>0, 0</rdf:li><rdf:li>128, 140</rdf:li><rdf:li>255, 255</rdf:li></rdf:Seq></crs:ToneCurvePV2012>
-            <crs:GradientBasedCorrections><rdf:Seq><rdf:li><rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="True" crs:LocalExposure2012="0.5"><crs:CorrectionMasks><rdf:Seq><rdf:li crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroX="0.2" crs:ZeroY="0.3" crs:FullX="0.8" crs:FullY="0.7"/></rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li></rdf:Seq></crs:GradientBasedCorrections>
-            <crs:RetouchAreas><rdf:Seq><rdf:li><rdf:Description crs:SpotType="heal" crs:SourceState="sourceSetExplicitly" crs:Method="circle" crs:SourceX="0.400000" crs:SourceY="0.500000" crs:Opacity="1.000000" crs:Feather="0.250000" crs:Seed="0"><crs:Masks><rdf:Seq><rdf:li crs:What="Mask/CircularGradient" crs:MaskValue="1" crs:X="0.200000" crs:Y="0.300000" crs:Radius="0.020000" crs:Flow="1" crs:CenterWeight="0"/></rdf:Seq></crs:Masks></rdf:Description></rdf:li></rdf:Seq></crs:RetouchAreas>
-            <xmpMM:History><rdf:Seq><rdf:li stEvt:action="saved"/></rdf:Seq></xmpMM:History>
-          </rdf:Description>
-        </rdf:RDF>
-        <vendor:Audit xmlns:vendor="https://vendor.test/" vendor:Step="ingest"/>
-      </x:xmpmeta><?xpacket end="w"?>
+      <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+        <rdf:Description rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" tiff:Make="Fujifilm" xmp:Rating="4" crs:Exposure2012="+0.35"/>
+        <rdf:Description rdf:about="" xmlns:aux="http://ns.adobe.com/exif/1.0/aux/" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/" xmlns:stEvt="http://ns.adobe.com/xap/1.0/sType/ResourceEvent#" aux:Lens="XF35mmF1.4 R" crs:Contrast2012="+15">
+          <crs:ToneCurvePV2012><rdf:Seq><rdf:li>0, 0</rdf:li><rdf:li>128, 140</rdf:li><rdf:li>255, 255</rdf:li></rdf:Seq></crs:ToneCurvePV2012>
+          <crs:GradientBasedCorrections><rdf:Seq><rdf:li><rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="True" crs:LocalExposure2012="0.5"><crs:CorrectionMasks><rdf:Seq><rdf:li crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroX="0.2" crs:ZeroY="0.3" crs:FullX="0.8" crs:FullY="0.7"/></rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li></rdf:Seq></crs:GradientBasedCorrections>
+          <crs:RetouchAreas><rdf:Seq><rdf:li><rdf:Description crs:SpotType="heal" crs:SourceState="sourceSetExplicitly" crs:Method="circle" crs:SourceX="0.400000" crs:SourceY="0.500000" crs:Opacity="1.000000" crs:Feather="0.250000" crs:Seed="0"><crs:Masks><rdf:Seq><rdf:li crs:What="Mask/CircularGradient" crs:MaskValue="1" crs:X="0.200000" crs:Y="0.300000" crs:Radius="0.020000" crs:Flow="1" crs:CenterWeight="0"/></rdf:Seq></crs:Masks></rdf:Description></rdf:li></rdf:Seq></crs:RetouchAreas>
+          <xmpMM:History><rdf:Seq><rdf:li stEvt:action="saved"/></rdf:Seq></xmpMM:History>
+        </rdf:Description>
+      </rdf:RDF><vendor:Audit xmlns:vendor="https://vendor.test/" vendor:Step="ingest"/></x:xmpmeta><?xpacket end="w"?>
       """
     let rawURL = try makeTempDirectory().appendingPathComponent("DSCF4690.dng")
     let sidecarURL = SidecarPath.sidecarURL(for: rawURL)
@@ -545,22 +541,21 @@ final class XMPPassthroughTests: XCTestCase {
       [
         model.displayToneCurveLuma.points.count, model.localAdjustments.count,
         model.retouchSpots.count,
-      ],
-      [3, 1, 1])
+      ], [3, 1, 1])
     model.exposure = 1.25
     await store.update(model: model, culling: culling)
     await store.flush()
     let first = try String(contentsOf: sidecarURL, encoding: .utf8)
-    for token in [
+    for t in [
       "tiff:Make=\"Fujifilm\"", "aux:Lens=\"XF35mmF1.4 R\"", "<xmpMM:History>", "<vendor:Audit",
     ] {
-      XCTAssertTrue(first.contains(token), "missing \(token)")
+      XCTAssertTrue(first.contains(t), t)
     }
-    for token in [
+    for t in [
       "crs:Contrast2012=", "<crs:ToneCurvePV2012>", "<crs:GradientBasedCorrections>",
       "<crs:RetouchAreas>",
     ] {
-      XCTAssertEqual(first.components(separatedBy: token).count - 1, 1, "\(token) must appear once")
+      XCTAssertEqual(first.components(separatedBy: t).count - 1, 1, t)
     }
     let reopened = XMPSidecarStore(rawURL: rawURL)
     let (reloaded, reloadedCulling) = try await reopened.load()

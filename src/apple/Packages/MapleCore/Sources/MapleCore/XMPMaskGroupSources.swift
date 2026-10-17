@@ -329,7 +329,6 @@ enum XMPMaskGroupSources {
   }
   private final class SourceNamespaces: NSObject, XMLParserDelegate {
     var namespaces: [String: String] = [:]
-    private var descriptionDepth = 0
     static func atFirstDescription(_ xml: String) -> [String: String] {
       let delegate = SourceNamespaces()
       let parser = XMLParser(data: Data(xml.utf8))
@@ -341,18 +340,8 @@ enum XMPMaskGroupSources {
       _ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
       qualifiedName qName: String?, attributes attributeDict: [String: String]
     ) {
-      if descriptionDepth == 0 {
-        namespaces = scope(namespaces, attributes: attributeDict)
-        if local(qName ?? elementName, "Description") { descriptionDepth = 1 }
-      } else {
-        descriptionDepth += 1
-      }
-    }
-    func parser(
-      _ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?,
-      qualifiedName qName: String?
-    ) {
-      if descriptionDepth > 0 { descriptionDepth -= 1 }
+      namespaces = scope(namespaces, attributes: attributeDict)
+      if local(qName ?? elementName, "Description") { parser.abortParsing() }
     }
   }
 }
