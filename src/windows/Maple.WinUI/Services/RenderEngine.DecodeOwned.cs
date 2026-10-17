@@ -30,6 +30,15 @@ namespace Maple.WinUI.Services
             var m = model.Clone();
             m.Temperature = d.Temperature;
             m.Tint = d.Tint;
+            // The provenance goes with the pair (#4739): raw-core's reader
+            // turns a named `crs:WhiteBalance` back into a temperature/tint
+            // pair, so a preset left here is baked into the base and then
+            // applied again by the chain.
+            m.WhiteBalancePreset = d.WhiteBalancePreset;
+            m.WbSource = d.WbSource;
+            m.WbSampleX = d.WbSampleX;
+            m.WbSampleY = d.WbSampleY;
+            m.WbAlgorithmVersion = d.WbAlgorithmVersion;
             m.Exposure = 0; m.Brightness = 0; m.Contrast = 0;
             m.Highlights = 0; m.Shadows = 0; m.Whites = 0; m.Blacks = 0;
             m.ParametricHighlights = 0; m.ParametricLights = 0;
