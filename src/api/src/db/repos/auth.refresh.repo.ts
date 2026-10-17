@@ -35,6 +35,15 @@
  * version does with a pre-generated id — would be rejected. Inserting first
  * costs nothing and removes the question.
  *
+ * ## No member is ever minted into a revoked family (#4742)
+ *
+ * Logout revokes the rows that exist at that instant, so anything that adds a
+ * row to a family must refuse, in the same statement, when any member already
+ * carries `family_revoked_at`. Normal rotation and the grace re-mint both do:
+ * each is a single conditional `INSERT … SELECT` on the one writer thread, so
+ * a logout either lands before it (nothing is inserted) or after it (the new
+ * row is revoked with the rest).
+ *
  * ## Revoking a family is one statement, not two
  *
  * The Mongo version issues two `updateMany` calls: stamp `family_revoked_at`
@@ -122,6 +131,14 @@ export async function issueRefreshToken(
   return { raw, userId, familyId: toObjectId(family), secure };
 }
 
+/** `true` while no member of `<alias>`'s family carries a revocation stamp.
+ * A token with no family (pre-#858) has no siblings to consult. */
+function familyNotRevoked(alias: string): string {
+  return `NOT EXISTS (SELECT 1 FROM refresh_tokens AS fam
+                       WHERE fam.family_id = ${alias}.family_id
+                         AND fam.family_revoked_at IS NOT NULL)`;
+}
+
 /**
  * The two statements that make up a successful rotation. See the module
  * comment for why the insert comes first.
@@ -134,7 +151,8 @@ function rotationBatch(args: {
   nowIso: string;
   expiresAt: string;
 }) {
-  const live = `token_hash = ? AND revoked_at IS NULL AND expires_at > ?`;
+  const live = `token_hash = ? AND revoked_at IS NULL AND expires_at > ?
+                AND ${familyNotRevoked('refresh_tokens')}`;
   return [
     {
       sql: `INSERT INTO refresh_tokens
@@ -161,10 +179,11 @@ function rotationBatch(args: {
   ];
 }
 
-/** `true` when a member of this family is still live. */
-async function familyHasLiveToken(db: SqliteDb, familyId: string): Promise<boolean> {
+/** `true` when any member of this family carries a revocation stamp. */
+async function familyIsRevoked(db: SqliteDb, familyId: string | null): Promise<boolean> {
+  if (familyId === null) return false;
   const rows = await db.read<{ id: string }>(
-    `SELECT id FROM refresh_tokens WHERE family_id = ? AND revoked_at IS NULL LIMIT 1`,
+    `SELECT id FROM refresh_tokens WHERE family_id = ? AND family_revoked_at IS NOT NULL LIMIT 1`,
     [familyId],
   );
   return rows.length > 0;
@@ -213,7 +232,12 @@ async function issuedSuccessor(
 async function recoverOrReject(db: SqliteDb, oldHash: string, now: Date): Promise<IssuedRefresh> {
   const row = await readByHash(db, oldHash);
   if (!row) throw new RefreshError('unknown_token', 'unknown refresh token');
-  if (row.revoked_at === null) throw new RefreshError('token_expired', 'refresh token expired');
+  if (row.revoked_at === null) {
+    // Still live but refused by rotation: either expired, or a straggler left
+    // inside a family that was already logged out (#4742). Finish that logout.
+    if (await familyIsRevoked(db, row.family_id)) return await revokeAfterReuse(db, row);
+    throw new RefreshError('token_expired', 'refresh token expired');
+  }
 
   const withinGrace = now.getTime() - new Date(row.revoked_at).getTime() <= REFRESH_GRACE_MS;
   if (!withinGrace) return await revokeAfterReuse(db, row);
@@ -221,10 +245,10 @@ async function recoverOrReject(db: SqliteDb, oldHash: string, now: Date): Promis
   if (row.family_revoked_at !== null) {
     throw new RefreshError('reuse_detected', 'refresh token family revoked');
   }
-  if (row.family_id === null || !(await familyHasLiveToken(db, row.family_id))) {
+  if (row.family_id === null) {
     throw new RefreshError('rotation_conflict', 'refresh token rotation conflict');
   }
-  return await remintInFamily(db, row, row.family_id);
+  return await remintInFamily(db, row);
 }
 
 /**
@@ -241,22 +265,43 @@ async function revokeAfterReuse(db: SqliteDb, row: TokenRow): Promise<never> {
 /**
  * Re-mint into an existing lineage, carrying the rotated token's platform
  * marker and cookie-security flag forward so the family stays labelled.
+ *
+ * One conditional statement (#4742): it inserts only while the family still
+ * has a live member and no member carries a revocation stamp. Checking those
+ * first and inserting after let a logout land in between and leave a live
+ * token in a family it had just revoked.
+ *
+ *  - Inserted → the benign retry; hand back the new token.
+ *  - Refused with the family revoked → a logout won; that is reuse.
+ *  - Refused otherwise → no live sibling yet, a racing rotation whose
+ *    successor has not committed. Reject WITHOUT revoking, so the winner
+ *    survives and the client's retry self-heals.
  */
-async function remintInFamily(
-  db: SqliteDb,
-  row: TokenRow,
-  familyId: string,
-): Promise<IssuedRefresh> {
-  return await issueRefreshToken(
-    toObjectId(row.user_id),
-    row.device_label,
-    {
-      familyId: toObjectId(familyId),
-      ...(row.platform === null ? {} : { platform: row.platform }),
-      secure: row.secure === null ? true : toBool(row.secure),
-    },
-    db,
+async function remintInFamily(db: SqliteDb, row: TokenRow): Promise<IssuedRefresh> {
+  const raw = generateRefreshToken();
+  const result = await db.write(
+    `INSERT INTO refresh_tokens
+       (id, user_id, token_hash, issued_at, expires_at, device_label, family_id, platform, secure)
+     SELECT ?, user_id, ?, ?, ?, device_label, family_id, platform, COALESCE(secure, 1)
+       FROM refresh_tokens AS old
+      WHERE old.id = ?
+        AND ${familyNotRevoked('old')}
+        AND EXISTS (SELECT 1 FROM refresh_tokens AS sib
+                     WHERE sib.family_id = old.family_id AND sib.revoked_at IS NULL)`,
+    [newObjectIdHex(), hashRefreshToken(raw), nowIso(), refreshExpiresAt().toISOString(), row.id],
   );
+  if (result.changes === 1) {
+    return {
+      raw,
+      userId: toObjectId(row.user_id),
+      familyId: toObjectId(row.family_id!),
+      secure: row.secure === null ? true : toBool(row.secure),
+    };
+  }
+  if (await familyIsRevoked(db, row.family_id)) {
+    throw new RefreshError('reuse_detected', 'refresh token family revoked');
+  }
+  throw new RefreshError('rotation_conflict', 'refresh token rotation conflict');
 }
 
 /**
