@@ -817,8 +817,12 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     async let downloadTask: Void = catalog.downloadAsset(assetID: id, to: localURL)
                     _ = try await downloadTask
                     let resolved = try await metaTask
-                    guard let resolved else {
-                        log.error("fetchContents asset \(id, privacy: .public) — getAsset returned nil")
+                    // Same trashed check as `item(for:)` (#4706): the user can
+                    // open a cached child before the OS validates it, and the
+                    // server still serves a soft-deleted row's bytes.
+                    guard let resolved, !resolved.isTrashed else {
+                        log.error("fetchContents asset \(id, privacy: .public) — missing or trashed")
+                        try? FileManager.default.removeItem(at: localURL)
                         completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
                                                             code: NSFileProviderError.noSuchItem.rawValue))
                         return
@@ -864,7 +868,8 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     let bytes = try await bytesTask
                     try bytes.write(to: localURL, options: .atomic)
                     let resolved = try await metaTask
-                    guard let resolved else {
+                    guard let resolved, !resolved.isTrashed else {
+                        try? FileManager.default.removeItem(at: localURL)
                         completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
                                                             code: NSFileProviderError.noSuchItem.rawValue))
                         return
