@@ -49,12 +49,10 @@
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) use raw_core::gpu_host::model::prefix_matches;
 #[cfg(test)]
-use raw_core::gpu_host::prepare::auto_will_fit;
-#[cfg(test)]
 pub(crate) use raw_core::gpu_host::prepare::fit_profile_artifacts_with_status;
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) use raw_core::gpu_host::prepare::{
-    chain_inputs_with_status, develop_prefix_rgba, effective_ae_mode,
+    auto_will_fit, chain_inputs_with_status, develop_prefix_rgba,
 };
 #[cfg(any(target_arch = "wasm32", test))]
 use raw_core::xmp::AdjustmentModel;
@@ -195,69 +193,55 @@ pub(crate) fn model_from_live_params(params: &[f32]) -> Result<AdjustmentModel, 
     })
 }
 
-/// Re-develop the stripped prefix and re-upload to `session` when `model`'s
-/// kept-prefix fields differ from `prefix_model` (#4736).
+/// Infer the `auto_will_fit` probe outcome from a freshly-developed `prefix_model`
+/// when `model` used `Profile::Auto` with `AutoExposureMode::On` (#4736).
 #[cfg(any(target_arch = "wasm32", test))]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn redevelop_if_prefix_changed(
-    ctx: &GpuContext,
-    session: &mut LiveSession,
-    raw_img: &raw_core::image::RawImage,
+pub(crate) fn inferred_auto_will_fit(
+    model: &AdjustmentModel,
+    prefix_model: &AdjustmentModel,
+) -> Option<bool> {
+    use raw_core::types::adjustment::{AutoExposureMode, Profile};
+    (model.profile == Profile::Auto && model.auto_exposure != AutoExposureMode::Off)
+        .then_some(prefix_model.auto_exposure == AutoExposureMode::Off)
+}
+
+/// Whether `model`'s kept-prefix fields match `prefix_model`, consulting and
+/// populating `auto_will_fit_cache` at most once so preview-less Auto images
+/// never re-probe `raw` on scalar slider ticks (#4736).
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn session_prefix_matches(
+    model: &AdjustmentModel,
+    prefix_model: &AdjustmentModel,
     raw: &[u8],
     ext: &str,
-    model: &AdjustmentModel,
-    target_long_edge: u32,
-    expected_dims: (u32, u32),
-    prefix_model: &mut AdjustmentModel,
-    whites_anchor_ev: &mut f32,
-    nr_sampling_scale: &mut f32,
-    lens_profile_json: &mut Option<String>,
-) -> Result<bool, String> {
-    let ae_mode = effective_ae_mode(model, raw, ext);
-    if prefix_matches(model, prefix_model, ae_mode) {
-        return Ok(false);
+    auto_will_fit_cache: &mut Option<bool>,
+) -> bool {
+    use raw_core::types::adjustment::{AutoExposureMode, Profile};
+    if !prefix_matches(model, prefix_model, prefix_model.auto_exposure) {
+        return false;
     }
-    let (rgba, w, h, new_prefix, new_anchor_ev, new_nr_scale) =
-        develop_prefix_rgba(raw_img, raw, ext, model, target_long_edge)?;
-    if (w, h) != expected_dims {
-        return Err(format!(
-            "WebLiveSession::render: re-develop dims {w}x{h} != {}x{} (canvas not resized)",
-            expected_dims.0, expected_dims.1
-        ));
-    }
-    session.update_image(ctx, &rgba);
-    *prefix_model = new_prefix;
-    *whites_anchor_ev = new_anchor_ev;
-    *nr_sampling_scale = new_nr_scale;
-    *lens_profile_json = crate::lens_profile::metadata(raw_img, model);
-    Ok(true)
+    let ae_mode = if model.profile != Profile::Auto || model.auto_exposure == AutoExposureMode::Off
+    {
+        model.auto_exposure
+    } else if *auto_will_fit_cache.get_or_insert_with(|| auto_will_fit(model, raw, ext)) {
+        AutoExposureMode::Off
+    } else {
+        AutoExposureMode::On
+    };
+    ae_mode == prefix_model.auto_exposure
 }
 
 #[cfg(test)]
 mod primaries_tests {
     /// #1913: the live present's display-encode primaries must match the canvas
-    /// colour-space tag the surface achieved. Before the fix the chain hardcoded
-    /// sRGB (`target_primaries: 0`) while the canvas was retagged `display-p3`,
-    /// oversaturating every frame. This gates the pure selector (the full present
-    /// is WebGPU-only, exercised on-device) and would have failed on the old
-    /// always-`0` behaviour for the `display-p3` case. Lives here (not in the
-    /// gpu-feature-gated `gpu_render/tests.rs`) so it runs in the default host
-    /// test build.
+    /// colour-space tag the surface achieved.
     #[test]
     fn target_primaries_matches_canvas_color_space() {
         use super::target_primaries_for_color_space as select;
-        assert_eq!(
-            select("display-p3"),
-            1,
-            "display-p3 canvas must encode P3 primaries (1)"
-        );
-        assert_eq!(
-            select("srgb"),
-            0,
-            "srgb canvas must encode sRGB primaries (0)"
-        );
-        assert_eq!(select("unknown"), 0, "unknown tag falls back to sRGB (0)");
-        assert_eq!(select(""), 0, "empty tag falls back to sRGB (0)");
+        assert_eq!(select("display-p3"), 1);
+        assert_eq!(select("srgb"), 0);
+        assert_eq!(select("unknown"), 0);
+        assert_eq!(select(""), 0);
     }
 
     #[test]
@@ -278,103 +262,85 @@ mod primaries_tests {
 
     /// #4736: `render_with_params` must build its `AdjustmentModel` from default
     /// kept-prefix fields (not by cloning a stale `self.prefix_model`) and
-    /// re-develop + re-upload when the session's uploaded prefix was non-default.
+    /// detect when the session's uploaded prefix was non-default, while caching
+    /// `auto_will_fit` so preview-less Auto ticks never re-probe `raw`.
     #[test]
     fn set_then_revert_prefix_redevelops_on_render_with_params() {
-        use raw_core::types::local_adjustment::Point2;
-        use raw_core::types::retouch::{RetouchKind, RetouchSpot};
+        use raw_core::types::{
+            adjustment::AutoExposureMode,
+            local_adjustment::Point2,
+            retouch::{RetouchKind, RetouchSpot},
+        };
         use raw_core::xmp::{HighlightRecoveryMode, Profile};
-        use raw_gpu::{GpuContext, LiveSession};
 
         assert!(super::model_from_live_params(&[0.0; 18]).is_err());
         let params = [
             0.5, 1.0, 10.0, -15.0, 20.0, 5.0, -5.0, 12.0, 8.0, 5200.0, 4.0, 15.0, 10.0, 5.0, -10.0,
             50.0, 0.0, 25.0, 50.0,
         ];
-        let reverted = super::model_from_live_params(&params).expect("19 params valid");
+        let rev = super::model_from_live_params(&params).expect("19 params valid");
         assert_eq!(
-            (reverted.exposure, reverted.temperature, reverted.tint),
+            (rev.exposure, rev.temperature, rev.tint),
             (0.5, 5200.0, 4.0)
         );
-        assert!(reverted.temperature_seen && reverted.tint_seen);
-        assert_eq!((reverted.sharpen_amount, reverted.nr_color), (0.0, 0.0));
+        assert!(rev.temperature_seen && rev.tint_seen);
+        assert_eq!((rev.sharpen_amount, rev.nr_color), (0.0, 0.0));
         assert_eq!(
-            reverted.highlight_recovery,
+            rev.highlight_recovery,
             HighlightRecoveryMode::ChromaticAdaptation
         );
-        assert_eq!(reverted.profile, Profile::Auto);
-        assert!(reverted.retouch_spots.is_empty());
+        assert_eq!(rev.profile, Profile::Auto);
+        assert!(rev.retouch_spots.is_empty());
 
-        let Some(path) = super::tests::synthetic_dng_path() else {
-            return;
+        let spot = RetouchSpot {
+            kind: RetouchKind::Clone,
+            center: Point2 { x: 0.25, y: 0.25 },
+            source: Point2 { x: 0.75, y: 0.75 },
+            radius: 0.15,
+            feather: 0.5,
+            opacity: 1.0,
         };
-        if !super::tests::gpu_available() {
-            return;
-        }
-        let bytes = std::fs::read(&path).expect("read synthetic DNG");
-        let raw_img = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode synthetic DNG");
-        let ctx = pollster::block_on(GpuContext::new_async()).expect("gpu context");
-        let edited_prefix = super::AdjustmentModel {
+        let edited = super::AdjustmentModel {
             highlight_recovery: HighlightRecoveryMode::Off,
             profile: Profile::Neutral,
-            retouch_spots: vec![RetouchSpot {
-                kind: RetouchKind::Clone,
-                center: Point2 { x: 0.25, y: 0.25 },
-                source: Point2 { x: 0.75, y: 0.75 },
-                radius: 0.15,
-                feather: 0.5,
-                opacity: 1.0,
-            }],
-            ..reverted.clone()
+            retouch_spots: vec![spot],
+            ..rev.clone()
         };
-        let (rgba, w, h, mut prefix, mut anchor_ev, mut nr_scale) =
-            super::develop_prefix_rgba(&raw_img, &bytes, "dng", &edited_prefix, 32)
-                .expect("initial non-default prefix develop");
-        let mut session = LiveSession::new(&ctx, &rgba, w, h).expect("session upload");
-        let mut lcp = crate::lens_profile::metadata(&raw_img, &edited_prefix);
-
-        let redeveloped = super::redevelop_if_prefix_changed(
-            &ctx,
-            &mut session,
-            &raw_img,
-            &bytes,
+        let mut prefix = super::stripped_prefix_model(&edited, AutoExposureMode::On);
+        let mut auto_fits = super::inferred_auto_will_fit(&edited, &prefix);
+        assert_eq!(auto_fits, None);
+        assert!(!super::session_prefix_matches(
+            &rev,
+            &prefix,
+            &[],
             "dng",
-            &reverted,
-            32,
-            (w, h),
-            &mut prefix,
-            &mut anchor_ev,
-            &mut nr_scale,
-            &mut lcp,
-        )
-        .expect("redevelop on revert");
-        assert!(redeveloped, "reverting prefix fields must re-develop");
-        assert_eq!(
-            prefix.highlight_recovery,
-            HighlightRecoveryMode::ChromaticAdaptation
-        );
-        assert_eq!(prefix.profile, Profile::Auto);
-        assert!(prefix.retouch_spots.is_empty());
+            &mut auto_fits
+        ));
+
+        prefix = super::stripped_prefix_model(&rev, AutoExposureMode::On);
+        auto_fits = super::inferred_auto_will_fit(&rev, &prefix);
+        assert_eq!(auto_fits, Some(false));
 
         let mut next_params = params;
         next_params[0] = 1.25;
         let next_model = super::model_from_live_params(&next_params).expect("next params");
-        let redeveloped_again = super::redevelop_if_prefix_changed(
-            &ctx,
-            &mut session,
-            &raw_img,
-            &bytes,
-            "dng",
+        assert!(super::session_prefix_matches(
             &next_model,
-            32,
-            (w, h),
-            &mut prefix,
-            &mut anchor_ev,
-            &mut nr_scale,
-            &mut lcp,
-        )
-        .expect("second scalar tick");
-        assert!(!redeveloped_again, "scalar tick must reuse default prefix");
+            &prefix,
+            &[],
+            "dng",
+            &mut auto_fits
+        ));
+
+        let fitted = super::stripped_prefix_model(&rev, AutoExposureMode::Off);
+        assert_eq!(super::inferred_auto_will_fit(&rev, &fitted), Some(true));
+        assert!(!super::session_prefix_matches(
+            &next_model,
+            &fitted,
+            &[],
+            "dng",
+            &mut auto_fits
+        ));
     }
 }
 

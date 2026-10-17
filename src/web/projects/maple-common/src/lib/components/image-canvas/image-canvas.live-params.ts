@@ -108,7 +108,7 @@ function canUseScalarWhiteBalance(model: AdjustmentModel): boolean {
  * slider added to the schema is covered automatically — it routes to the full path
  * rather than being silently dropped, so this class of bug can't recur.
  */
-function hasDefaultNonScalarFields(model: AdjustmentModel): boolean {
+function hasOnlyDefaultNonScalarFields(model: AdjustmentModel): boolean {
   // `crop` is a nested object — compare structurally; a non-identity crop can't ride
   // the fast path.
   if (!isIdentityCrop(model.crop)) return false;
@@ -143,13 +143,13 @@ export function canUseLiveFastPath(
   // The two prefix-zeroed chain sliders whose defaults are non-zero — the fast path
   // renders them at 0 regardless, so it's only faithful when the model wants 0.
   if (model.sharpenAmount !== 0 || model.nrColor !== 0) return false;
-  if (!hasDefaultNonScalarFields(model)) return false;
+  if (!hasOnlyDefaultNonScalarFields(model)) return false;
   // #4736: when the caller supplies the session's uploaded prefix model, a prefix
   // field reverted to default must still route through `render(xmp)` until the
   // session re-develops back to the default prefix.
   if (
     prefixModel !== undefined &&
-    (prefixModel === null || !hasDefaultNonScalarFields(prefixModel))
+    (prefixModel === null || !hasOnlyDefaultNonScalarFields(prefixModel))
   ) {
     return false;
   }

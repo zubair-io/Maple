@@ -56,8 +56,8 @@
 
 use crate::gpu_render::{
     chain_inputs_with_status, develop_prefix_rgba, effective_target_long_edge,
-    model_from_live_params, redevelop_if_prefix_changed, resolve_target_color_space,
-    GpuWhiteBalance,
+    inferred_auto_will_fit, model_from_live_params, resolve_target_color_space,
+    session_prefix_matches, GpuWhiteBalance,
 };
 use raw_core::stages::perspective;
 use raw_core::xmp::AdjustmentModel;
@@ -94,6 +94,9 @@ pub struct WebLiveSession {
     /// The EXACT stripped-prefix model `session`'s uploaded buffer was developed
     /// from. A render re-develops iff its newly-derived prefix model differs.
     prefix_model: AdjustmentModel,
+    /// Session-cached `auto_will_fit` probe outcome for `Profile::Auto` (#4736),
+    /// so preview-less Auto images never re-scan `raw` on scalar slider ticks.
+    auto_will_fit_cache: Option<bool>,
     /// Pre-AE anchor measured alongside the uploaded prefix, reused on every tick.
     whites_anchor_ev: f32,
     white_balance: GpuWhiteBalance,
@@ -246,6 +249,7 @@ impl WebLiveSession {
                 .map_err(|e| JsError::new(&e))?;
 
         let lens_profile_json = crate::lens_profile::metadata(&raw_img, &model);
+        let auto_will_fit_cache = inferred_auto_will_fit(&model, &prefix_model);
         let handle = WebLiveSession {
             ctx,
             raw_img,
@@ -254,6 +258,7 @@ impl WebLiveSession {
             present,
             session,
             prefix_model,
+            auto_will_fit_cache,
             whites_anchor_ev,
             white_balance,
             nr_sampling_scale,
@@ -449,21 +454,37 @@ impl WebLiveSession {
     }
 
     async fn render_model(&mut self, model: &AdjustmentModel) -> Result<String, JsError> {
-        redevelop_if_prefix_changed(
-            &self.ctx,
-            &mut self.session,
-            &self.raw_img,
+        if !session_prefix_matches(
+            model,
+            &self.prefix_model,
             &self.raw,
             &self.ext,
-            model,
-            self.target_long_edge,
-            (self.width, self.height),
-            &mut self.prefix_model,
-            &mut self.whites_anchor_ev,
-            &mut self.nr_sampling_scale,
-            &mut self.lens_profile_json,
-        )
-        .map_err(|e| JsError::new(&e))?;
+            &mut self.auto_will_fit_cache,
+        ) {
+            let (rgba, w, h, prefix_model, whites_anchor_ev, nr_sampling_scale) =
+                develop_prefix_rgba(
+                    &self.raw_img,
+                    &self.raw,
+                    &self.ext,
+                    model,
+                    self.target_long_edge,
+                )
+                .map_err(|e| JsError::new(&e))?;
+            if (w, h) != (self.width, self.height) {
+                return Err(JsError::new(&format!(
+                    "WebLiveSession::render: re-develop dims {w}x{h} != {}x{} (canvas not resized)",
+                    self.width, self.height
+                )));
+            }
+            if let Some(fits) = inferred_auto_will_fit(model, &prefix_model) {
+                self.auto_will_fit_cache = Some(fits);
+            }
+            self.session.update_image(&self.ctx, &rgba);
+            self.prefix_model = prefix_model;
+            self.whites_anchor_ev = whites_anchor_ev;
+            self.nr_sampling_scale = nr_sampling_scale;
+            self.lens_profile_json = crate::lens_profile::metadata(&self.raw_img, model);
+        }
         self.present_for_model(model)
             .await
             .map_err(|e| JsError::new(&e))
