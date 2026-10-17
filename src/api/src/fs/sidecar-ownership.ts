@@ -30,6 +30,11 @@ export class SidecarCollisionError extends Error {
   }
 }
 
+/** The temp names relocate, restore and the XMP writers stage under —
+ * `<name>.tmp.<pid>-<hex>` or `<name>.tmp.<pid>.<hex>`. A real photo whose
+ * name merely contains `.tmp.` (`IMG.tmp.JPG`) still claims its stem. */
+const STAGING_NAME = /\.tmp\.\d+[-.][0-9a-f]+$/;
+
 function comparable(p: string): string {
   return path.resolve(p).normalize('NFC').toLowerCase();
 }
@@ -72,7 +77,7 @@ export async function sidecarStemClaimedBySibling(
     (entry) =>
       !entry.isDirectory() &&
       !entry.name.startsWith('.') &&
-      !entry.name.includes('.tmp.') &&
+      !STAGING_NAME.test(entry.name) &&
       path.extname(entry.name).toLowerCase() !== '.xmp' &&
       !skip.has(exact(path.join(dir, entry.name))) &&
       stemOf(entry.name) === stem,
@@ -122,15 +127,23 @@ export async function requireSidecarBytes(sidecar: string): Promise<Buffer> {
   return bytes;
 }
 
-/** Both save barriers, always taken in the same order so two operations
- * touching the same pair from opposite ends cannot deadlock. Barrier keys fold
- * case on every host (`sidecar-write-order.ts`), so two names that differ only
- * in case — or two aliases of one file — share a key and take it once rather
+/** The form `serializeSidecarWrite` keys on: the parent resolved through
+ * symlinks plus the case-folded name, so two aliases of one sidecar order the
+ * same way and compare equal. */
+async function barrierKey(p: string): Promise<string> {
+  const parent = await fs.realpath(path.dirname(p)).catch(() => path.dirname(p));
+  return comparable(path.join(parent, path.basename(p)));
+}
+
+/** Both save barriers, always taken in canonical order so two operations
+ * touching the same pair — even through different symlinked parents —
+ * cannot deadlock. Two names sharing one barrier key take it once rather
  * than wait on themselves. */
 async function withSidecarBarriers<T>(a: string, b: string, run: () => Promise<T>): Promise<T> {
-  if (sameSidecarPath(a, b) || (await sameSidecarFile(a, b))) return serializeSidecarWrite(a, run);
-  const [first, second] = [a, b].sort((x, y) => (comparable(x) < comparable(y) ? -1 : 1));
-  return serializeSidecarWrite(first!, () => serializeSidecarWrite(second!, run));
+  const [keyA, keyB] = await Promise.all([barrierKey(a), barrierKey(b)]);
+  if (keyA === keyB || (await sameSidecarFile(a, b))) return serializeSidecarWrite(a, run);
+  const [first, second] = keyA < keyB ? [a, b] : [b, a];
+  return serializeSidecarWrite(first, () => serializeSidecarWrite(second, run));
 }
 
 /** Destination occupancy for a whole asset: the primary path itself, or any
