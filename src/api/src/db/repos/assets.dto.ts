@@ -183,6 +183,8 @@ export function toDetailDto(
     hidden: bool(row.hidden),
     hidden_reason: row.hidden_reason as AssetDetailDto['hidden_reason'],
     hidden_ack: bool(row.hidden_ack),
+    deleted_at: row.deleted_at,
+    deleted_reason: row.deleted_reason === 'reaped' ? 'reaped' : null,
     enrichment: toEnrichment(bundle.enrichment),
     owner_id: row.owner_id ?? null,
     owner,

@@ -100,6 +100,10 @@ export interface AssetDetailDto {
   hidden?: boolean;
   hidden_reason?: 'manual' | 'nudity' | 'nudity-burst' | 'folder' | null;
   hidden_ack?: boolean;
+  deleted_at: string | null;
+  /** `'reaped'` when the missing-reaper soft-deleted the row (#2977) — no
+   * trashed file copy exists, so restore/purge must not touch disk. */
+  deleted_reason: 'reaped' | null;
   enrichment: Enrichment;
   owner_id?: string | null;
   owner?: AssetOwnerSummary | null;
