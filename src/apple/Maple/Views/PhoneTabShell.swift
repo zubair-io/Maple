@@ -167,6 +167,9 @@
     let onNavigateFolder: (URL) -> Void
     let onOpenEditor: (AssetRef) -> Void
     let onPrimeSession: (AssetRef) async -> Void
+    /// Synchronous source-aware session factory (`AppShell.browseSession`)
+    /// for the editor's unprimed fallback (#4712).
+    let makeEditSession: (AssetRef) -> EditSession
     let onFullImageFallback: () -> Void
     /// #2299: resolves the iPhone Preview sibling list for a Timeline-opened
     /// asset — forwarded straight through to `PhoneLibraryView`.
@@ -295,6 +298,7 @@
               onSelectedTileFrameChange: { selectedTileFrame = $0 },
               hiddenTileID: hero == nil || heroPhase == .open ? nil : hero?.asset.id,
               onPrimeSession: onPrimeSession,
+              makeEditSession: makeEditSession,
               onFullImageFallback: onFullImageFallback,
               timelinePreviewSiblingAssets: timelinePreviewSiblingAssets,
               onMergePanorama: onMergePanorama,
@@ -387,7 +391,8 @@
               makeSession: makePhoneSearchSession,
               resolveAsset: resolveSearchAsset,
               loadSiblingAssets: searchPreviewSiblingAssets,
-              onPrimeSession: onPrimeSession
+              onPrimeSession: onPrimeSession,
+              makeEditSession: makeEditSession
             )
           }
         }

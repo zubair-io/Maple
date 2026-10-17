@@ -58,6 +58,7 @@
     /// the moment it becomes the shown asset, so a later Edit tap on it
     /// doesn't fall back to `EditorDestination`'s no-remote-store session.
     let onPrimeSession: (AssetRef) async -> Void
+    let makeEditSession: (AssetRef) -> EditSession
 
     @State private var session: PhoneSearchSession?
     @State private var didLoad = false
@@ -124,7 +125,7 @@
                     Task { await onPrimeSession(sibling) }
                     path = LibraryDestination.replacingAsset(in: path, with: sibling)
                   },
-                  onPrimeSession: onPrimeSession,
+                  makeEditSession: makeEditSession,
                   sessions: $sessions
                 )
                 .id(ref.id)

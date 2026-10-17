@@ -18,11 +18,13 @@
     let filmstripAssets: [AssetRef]
     let filmstripSource: (any ImageSource)?
     let onSelectAsset: (AssetRef) -> Void
-    /// The shell's source-aware session factory (`primeBrowseSession`).
+    /// The shell's source-aware session factory (`AppShell.browseSession`).
     /// The fallback below used to build a bare `EditSession(asset:)` with
     /// no remote store, so a Cloud / PhotoKit / SMB photo that reached the
-    /// editor unprimed lost every edit (#4712).
-    let onPrimeSession: (AssetRef) async -> Void
+    /// editor unprimed lost every edit (#4712). Synchronous on purpose:
+    /// the editor mounts immediately and the session hydrates its sidecar
+    /// lazily on first render, exactly as the primed path does.
+    let makeEditSession: (AssetRef) -> EditSession
     @Binding var sessions: [AssetRef.ID: EditSession]
     @Environment(\.dismiss) private var dismiss
 
@@ -105,9 +107,7 @@
           return
         }
         sessions = [:]
-        await onPrimeSession(asset)
-        guard let primed = sessions[asset.id] else { return }
-        self.state = EditorState(session: primed)
+        self.state = EditorState(session: makeEditSession(asset))
       }
       .onDisappear {
         // Per S5 spec risk #4b — flush pending XMP write before tear-down
