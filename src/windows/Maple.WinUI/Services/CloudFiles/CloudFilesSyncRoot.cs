@@ -63,6 +63,7 @@ namespace Maple.WinUI.Services.CloudFiles
     public sealed class CloudFilesSyncRoot : IDisposable
     {
         private static readonly Guid ProviderId = new("8f1e1a5e-70b1-4bda-9d47-1f3b8a2ce589");
+        internal const string ProviderName = "Maple";
 
         private readonly Func<CloudClient?> _client;
         private readonly object _gate = new();
@@ -105,12 +106,12 @@ namespace Maple.WinUI.Services.CloudFiles
                 try
                 {
                     var refusal = CloudFilesSyncRootCleanup.AdoptionRefusal(
-                        SyncRootPath, CloudFilesPlaceholderProbe.IsRegisteredSyncRoot(SyncRootPath));
+                        SyncRootPath, CloudFilesPlaceholderProbe.IsMapleSyncRoot(SyncRootPath));
                     if (refusal != null)
                         return refusal;
                     Directory.CreateDirectory(SyncRootPath);
 
-                    var name = Marshal.StringToHGlobalUni("Maple");
+                    var name = Marshal.StringToHGlobalUni(ProviderName);
                     var version = Marshal.StringToHGlobalUni("1.0");
                     try
                     {
@@ -187,7 +188,12 @@ namespace Maple.WinUI.Services.CloudFiles
         /// would become dead files, so the in-sync ones are deleted; every
         /// other item — Explorer-side writes, edited hydrated copies,
         /// anything whose state can't be read — stays, and the folder is
-        /// removed only once it is empty (#4756).</summary>
+        /// removed only once it is empty (#4756). The sweep runs first,
+        /// while still connected and registered: a never-opened directory
+        /// can only be enumerated while FETCH_PLACEHOLDERS is served, and
+        /// unregistering turns hydrated placeholders into plain files the
+        /// probe would then keep. Unregistration runs whatever the sweep
+        /// did, so a disable never strands a registered root.</summary>
         public void Stop(bool unregister)
         {
             lock (_gate)
@@ -195,6 +201,8 @@ namespace Maple.WinUI.Services.CloudFiles
                 foreach (var cts in _fetches.Values)
                     cts.Cancel();
                 _fetches.Clear();
+                if (unregister)
+                    SweepSafely();
                 if (_connected)
                 {
                     CfApi.CfDisconnectSyncRoot(_connectionKey);
@@ -205,20 +213,28 @@ namespace Maple.WinUI.Services.CloudFiles
                 {
                     try
                     {
-                        // Sweep while still registered: unregistering turns
-                        // hydrated placeholders into plain files, which the
-                        // probe would then (correctly) refuse to delete.
-                        var swept = CloudFilesSyncRootCleanup.Sweep(
-                            SyncRootPath, CloudFilesPlaceholderProbe.IsUnmodifiedPlaceholder);
-                        CfApi.CfUnregisterSyncRoot(SyncRootPath);
-                        DiagLog.Write(
-                            $"[cloudfiles] unregistered sync root: removed {swept.Removed} placeholders, kept {swept.Preserved} local items");
+                        var hr = CfApi.CfUnregisterSyncRoot(SyncRootPath);
+                        DiagLog.Write($"[cloudfiles] unregistered sync root (0x{hr:X8})");
                     }
                     catch (Exception ex)
                     {
-                        DiagLog.Write($"[cloudfiles] unregister cleanup: {ex.Message}");
+                        DiagLog.Write($"[cloudfiles] unregister failed: {ex.Message}");
                     }
                 }
+            }
+        }
+
+        private static void SweepSafely()
+        {
+            try
+            {
+                var swept = CloudFilesSyncRootCleanup.Sweep(SyncRootPath, CloudFilesPlaceholderProbe.Probes);
+                DiagLog.Write(
+                    $"[cloudfiles] swept sync root: removed {swept.Removed} placeholders, kept {swept.Preserved} local items");
+            }
+            catch (Exception ex)
+            {
+                DiagLog.Write($"[cloudfiles] sweep aborted, folder left in place: {ex.Message}");
             }
         }
 
