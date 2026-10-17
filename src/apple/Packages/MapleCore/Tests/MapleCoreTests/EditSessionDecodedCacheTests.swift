@@ -239,10 +239,10 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         + "the decode cache (#950)")
   }
 
-  /// Belt-and-braces on the strip contract: a KEPT *detail* field
-  /// (`sharpenRadius`) invalidates while its STRIPPED sibling
-  /// (`sharpenAmount`) does not — the two live on the same tool but split
-  /// across the strip boundary (`RawCoreBridge` header).
+  /// Belt-and-braces on the strip contract: the sharpen tool's fields
+  /// (`sharpenAmount`, and since #4737 `sharpenRadius` too) are STRIPPED
+  /// and never invalidate, while a KEPT decode-side field
+  /// (`captureSharpeningAmount`) does (`RawCoreBridge` header).
   func testCaptureSharpeningKeptButSharpenFieldsStripped() async throws {
     let (asset, dir) = try makeAsset()
     defer { try? FileManager.default.removeItem(at: dir) }

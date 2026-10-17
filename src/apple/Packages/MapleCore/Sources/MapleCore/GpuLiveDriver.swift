@@ -47,8 +47,8 @@ private let gpuDriverSignposter = OSSignposter(
 ///
 ///   * `decodeGeneration` — the `RenderActor` write-generation the uploaded
 ///     buffer came from. A baked-field edit (highlightRecovery,
-///     captureSharpeningAmount/Sigma, the unsharp sharpenRadius/Detail/
-///     Masking) forces a fresh decode at the SAME target dims; dims alone
+///     captureSharpeningAmount/Sigma) forces a fresh decode at the SAME
+///     target dims; dims alone
 ///     can't detect that, so reusing the session on dims would silently
 ///     present the live chain over the STALE uploaded buffer (#2049).
 ///   * `crop` — the crop actually folded into the uploaded pixels
