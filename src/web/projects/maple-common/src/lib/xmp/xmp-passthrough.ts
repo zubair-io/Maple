@@ -38,6 +38,7 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   'papp:Profile',
   'papp:FilmLook',
   'papp:LensProfile',
+  'papp:Demosaic',
   'papp:HotPixelSuppression',
   'crs:LensProfileEnable',
   'crs:AutoLateralCA',
