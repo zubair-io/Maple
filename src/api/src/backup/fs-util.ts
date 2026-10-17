@@ -123,6 +123,7 @@ export async function fileMatchesBytes(file: string, bytes: Uint8Array): Promise
 export async function firstFreeSiblingPath(
   libRoot: string,
   relPath: string,
+  isReserved?: (candidate: string) => Promise<boolean>,
 ): Promise<{ relPath: string; absPath: string }> {
   const dir = path.posix.dirname(relPath);
   const ext = path.posix.extname(relPath);
@@ -130,6 +131,7 @@ export async function firstFreeSiblingPath(
   for (let i = 1; i <= 9999; i++) {
     const candidateName = `${stem}-${i}${ext}`;
     const candidateRel = dir === '.' ? candidateName : `${dir}/${candidateName}`;
+    if (isReserved && (await isReserved(candidateRel))) continue;
     const candidateAbs = path.join(libRoot, ...candidateRel.split('/'));
     try {
       await fs.stat(candidateAbs);

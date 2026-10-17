@@ -5,7 +5,8 @@ import { insertStageState } from '../src/db/repos/assets.test-helpers.ts';
 import { findAssetAtAddress } from '../src/db/repos/assets.address.ts';
 import { runMissingReaperOnce } from '../src/workers/missing-reaper.ts';
 import { authedHandle } from './helpers/authed-handle.ts';
-import { readLocations, seedBackupAsset } from './helpers/sqlite-fixtures.ts';
+import { insertLocation } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { readLocations, seedBackupAsset, seedLibrary } from './helpers/sqlite-fixtures.ts';
 import { makeIngestRequest, setupBackupIngestSuite } from './backup-ingest-helpers.ts';
 import {
   findIngestDedupTarget,
@@ -52,6 +53,12 @@ function seedMissing(markMissing: boolean) {
   return id;
 }
 
+async function expectStored(storedPath: string) {
+  expect(await fs.readFile(path.join(handle.tmpLib, storedPath))).toEqual(bytes);
+  expect(await findMapleIdsPresentInLibrary([mapleId], handle.libId)).toEqual(new Set([mapleId]));
+  expect(await listBackupState(handle.libId, deviceId, new Date(0))).toHaveLength(1);
+}
+
 describe('backup missing-copy recovery', () => {
   beforeEach(suite.setup);
   afterEach(suite.teardown);
@@ -75,53 +82,77 @@ describe('backup missing-copy recovery', () => {
       const res = await upload();
       expect(res.status).toBe(200);
       expect((await res.json()).target_rel_path).toBe(relPath);
-      expect(await fs.readFile(path.join(handle.tmpLib, relPath))).toEqual(bytes);
+      await expectStored(relPath);
       const locations = readLocations(handle.db, id);
       expect(locations).toHaveLength(1);
       expect(locations[0]?.missing_since).toBeNull();
       expect(locations[0]?.missing_reason).toBeNull();
-      expect(await findMapleIdsPresentInLibrary([mapleId], handle.libId)).toEqual(
-        new Set([mapleId]),
-      );
-      expect(await listBackupState(handle.libId, deviceId, new Date(0))).toHaveLength(1);
     });
   }
 
-  test('repair preserves different bytes now occupying the missing path', async () => {
-    const id = seedMissing(true);
-    const replacement = Buffer.alloc(bytes.length, 0x7a);
-    const oldPath = path.join(handle.tmpLib, relPath);
-    await fs.mkdir(path.dirname(oldPath), { recursive: true });
-    await fs.writeFile(oldPath, replacement);
-    const res = await upload();
-    expect(res.status).toBe(200);
-    const repairedPath = (await res.json()).target_rel_path;
-    expect(repairedPath).not.toBe(relPath);
-    expect(await fs.readFile(oldPath)).toEqual(replacement);
-    expect(await fs.readFile(path.join(handle.tmpLib, repairedPath))).toEqual(bytes);
-    await runMissingReaperOnce({ deleteBeforeIso: '2026-10-01T00:00:00Z' });
-    const locations = readLocations(handle.db, id);
-    expect(locations).toHaveLength(1);
-    expect(locations[0]?.filename).not.toBe('photo.HEIC');
-    expect(await findMapleIdsPresentInLibrary([mapleId], handle.libId)).toEqual(new Set([mapleId]));
-  });
+  for (const reservedSibling of [false, true]) {
+    test(`sibling repair preserves canonical ordinal and catalog ownership (reserved: ${reservedSibling})`, async () => {
+      const id = seedMissing(true);
+      const otherLibrary = seedLibrary(handle.db, {
+        path: path.join(handle.tmpLib, 'other-library'),
+      });
+      insertLocation(handle.db, {
+        assetId: id.toHexString(),
+        libraryId: otherLibrary.toHexString(),
+        ordinal: 1,
+        path: '',
+        filename: 'other.HEIC',
+      });
+      const reservedPath = 'previous-layout/photo-1.HEIC';
+      if (reservedSibling) {
+        const owner = seedBackupAsset(handle.db, {
+          locations: [{ libraryId: handle.libId, relPath: reservedPath }],
+        });
+        handle.db.run(
+          `UPDATE asset_locations SET missing_since = '2026-01-01T00:00:00Z' WHERE asset_id = ?`,
+          [owner.toHexString()],
+        );
+      }
+      const replacement = Buffer.alloc(bytes.length, 0x7a);
+      const oldPath = path.join(handle.tmpLib, relPath);
+      await fs.mkdir(path.dirname(oldPath), { recursive: true });
+      await fs.writeFile(oldPath, replacement);
+      const res = await upload();
+      expect(res.status).toBe(200);
+      const repairedPath = (await res.json()).target_rel_path;
+      expect(repairedPath).not.toBe(relPath);
+      expect(await fs.readFile(oldPath)).toEqual(replacement);
+      await expectStored(repairedPath);
+      if (reservedSibling)
+        expect(await Bun.file(path.join(handle.tmpLib, reservedPath)).exists()).toBe(false);
+      await runMissingReaperOnce({ deleteBeforeIso: '2026-10-01T00:00:00Z' });
+      const locations = readLocations(handle.db, id);
+      expect(locations).toHaveLength(2);
+      expect(locations[0]?.ordinal).toBe(0);
+      expect(locations[0]?.filename).not.toBe('photo.HEIC');
+    });
+  }
 
-  test('completed retry restores bytes when another file occupies its old path', async () => {
-    const first = await upload();
-    expect(first.status).toBe(200);
-    const oldRelPath = (await first.json()).target_rel_path;
-    const oldPath = path.join(handle.tmpLib, oldRelPath);
-    const unrelated = Buffer.alloc(bytes.length, 0x6b);
-    await fs.writeFile(oldPath, unrelated);
-    handle.db.run(`UPDATE asset_locations SET missing_since = '2026-01-01T00:00:00Z'`);
-    const retry = await upload();
-    expect(retry.status).toBe(200);
-    const repairedPath = (await retry.json()).target_rel_path;
-    expect(repairedPath).not.toBe(oldRelPath);
-    expect(await fs.readFile(oldPath)).toEqual(unrelated);
-    expect(await fs.readFile(path.join(handle.tmpLib, repairedPath))).toEqual(bytes);
-    expect(await findMapleIdsPresentInLibrary([mapleId], handle.libId)).toEqual(new Set([mapleId]));
-  });
+  for (const occupied of [false, true]) {
+    test(`completed retry restores a lost copy (old path occupied: ${occupied})`, async () => {
+      const first = await upload();
+      expect(first.status).toBe(200);
+      const originalPath = (await first.json()).target_rel_path;
+      const oldPath = path.join(handle.tmpLib, originalPath);
+      const unrelated = Buffer.alloc(bytes.length, 0x6b);
+      if (occupied) await fs.writeFile(oldPath, unrelated);
+      else await fs.unlink(oldPath);
+      handle.db.run(`UPDATE asset_locations SET missing_since = '2026-01-01T00:00:00Z'`);
+      const retry = await upload();
+      expect(retry.status).toBe(200);
+      const repairedPath = (await retry.json()).target_rel_path;
+      if (occupied) {
+        expect(repairedPath).not.toBe(originalPath);
+        expect(await fs.readFile(oldPath)).toEqual(unrelated);
+      } else expect(repairedPath).toBe(originalPath);
+      await expectStored(repairedPath);
+    });
+  }
 
   for (const reaped of [true, false]) {
     test(`repair revives only reaped assets (reaped: ${reaped})`, async () => {
@@ -165,6 +196,36 @@ describe('backup missing-copy recovery', () => {
     });
   }
 
+  for (const reaped of [false, true]) {
+    test(`verified completed retry reconciles returned bytes (reaped: ${reaped})`, async () => {
+      const first = await upload();
+      const storedPath = (await first.json()).target_rel_path;
+      await fs.unlink(path.join(handle.tmpLib, storedPath));
+      const assetId = (
+        handle.db.query('SELECT id FROM assets WHERE maple_id = ?').get(mapleId) as { id: string }
+      ).id;
+      handle.db.run('UPDATE asset_locations SET ordinal = 1 WHERE asset_id = ?', [assetId]);
+      insertLocation(handle.db, {
+        assetId,
+        libraryId: handle.libId.toHexString(),
+        ordinal: 0,
+        path: '',
+        filename: 'other-missing.HEIC',
+      });
+      handle.db.run(`UPDATE asset_locations SET missing_since = '2026-01-01T00:00:00Z'`);
+      if (reaped) {
+        await fs.writeFile(path.join(handle.tmpLib, 'sentinel.txt'), 'root available');
+        await runMissingReaperOnce({ deleteBeforeIso: '2026-10-01T00:00:00Z' });
+      }
+      await fs.writeFile(path.join(handle.tmpLib, storedPath), bytes);
+      expect((await upload()).status).toBe(200);
+      await expectStored(storedPath);
+      expect(
+        await findAssetAtAddress(handle.libId, path.posix.dirname(storedPath), 'photo.HEIC'),
+      ).not.toBeNull();
+    });
+  }
+
   test('partial completed-session retry consumes every chunk before dedup', async () => {
     const first = await upload();
     const originalPath = (await first.json()).target_rel_path;
@@ -177,18 +238,5 @@ describe('backup missing-copy recovery', () => {
     expect((await lastChunk.json()).target_rel_path).toBe(originalPath);
     expect(await fs.readFile(path.join(handle.tmpLib, originalPath))).toEqual(bytes);
     expect(handle.db.query('SELECT COUNT(*) AS n FROM assets').get()).toEqual({ n: 1 });
-  });
-
-  test('a completed upload session cannot conceal a subsequently lost copy', async () => {
-    const first = await upload();
-    expect(first.status).toBe(200);
-    const originalPath = (await first.json()).target_rel_path;
-    await fs.unlink(path.join(handle.tmpLib, originalPath));
-    handle.db.run(`UPDATE asset_locations SET missing_since = '2026-01-01T00:00:00Z'`);
-    const retry = await upload();
-    expect(retry.status).toBe(200);
-    expect((await retry.json()).target_rel_path).toBe(originalPath);
-    expect(await fs.readFile(path.join(handle.tmpLib, originalPath))).toEqual(bytes);
-    expect(await findMapleIdsPresentInLibrary([mapleId], handle.libId)).toEqual(new Set([mapleId]));
   });
 });

@@ -93,6 +93,29 @@ const LIVE_REL_PATH_SUBQUERY = `
 // reads
 // ---------------------------------------------------------------------------
 
+/** Catalog ownership includes absent and deleted files that still reserve the path. */
+export async function findBackupPathOwner(
+  libraryId: ObjectId,
+  relPath: string,
+): Promise<{
+  asset_id: string;
+  maple_id: string | null;
+  deleted_at: string | null;
+} | null> {
+  const { dir, filename } = splitRelPath(relPath);
+  const rows = await sqliteDb().read<{
+    asset_id: string;
+    maple_id: string | null;
+    deleted_at: string | null;
+  }>(
+    `SELECT l.asset_id, a.maple_id, l.deleted_at FROM asset_locations l
+       JOIN assets a ON a.id = l.asset_id
+      WHERE l.library_id = ? AND l.path = ? AND l.filename = ? LIMIT 1`,
+    [toHex(libraryId), dir, filename],
+  );
+  return rows[0] ?? null;
+}
+
 /**
  * Which of these content ids the library already holds, live.
  *
@@ -294,7 +317,7 @@ export interface AppendBackupLocationInput {
   /** The device link to record alongside it, or `null` when already linked. */
   link: PhassetLink | null;
   ownerId?: ObjectId | string | null;
-  /** Retire a path now occupied by different content after sibling repair. */
+  /** Relocate this replaced path in place, preserving its canonical ordinal. */
   replacedRelPath?: string | null;
 }
 
@@ -328,9 +351,10 @@ export async function appendBackupLocation(
       ? []
       : [
           {
-            sql: `DELETE FROM asset_locations WHERE asset_id = ? AND library_id = ?
-              AND path = ? AND filename = ? AND deleted_at IS NULL`,
-            params: [hex, library, replaced.dir, replaced.filename],
+            sql: `UPDATE asset_locations SET path = ?, filename = ?
+              WHERE asset_id = ? AND library_id = ?
+                AND path = ? AND filename = ? AND deleted_at IS NULL`,
+            params: [dir, filename, hex, library, replaced.dir, replaced.filename],
           },
         ]),
     {

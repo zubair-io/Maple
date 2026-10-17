@@ -28,6 +28,7 @@ import {
   appendBackupLocation,
   findIngestDedupTarget,
   insertBackupAsset,
+  findBackupPathOwner,
   linkPhasset,
   type PhassetLink,
 } from '../db/repos/backup.repo.ts';
@@ -47,6 +48,7 @@ import { backupSessionsRepo } from '../db/backup-sessions.repo.ts';
 import { child as childLogger } from '../log.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { ObjectId } from '../db/object-id.ts';
 
 const log = childLogger('backup-ingest');
 
@@ -155,6 +157,16 @@ export const backupIngestRoutes = new Elysia().post(
           })
         : false;
     if (alreadyComplete && completedCopyPresent) {
+      const completedRelPath = session.resolved_rel_path ?? session.target_rel_path;
+      const storedLocation = await findBackupPathOwner(libraryId, completedRelPath);
+      if (storedLocation?.maple_id === session.maple_id && storedLocation?.deleted_at === null) {
+        await appendBackupLocation(new ObjectId(storedLocation.asset_id), {
+          relPath: completedRelPath,
+          libraryId,
+          link: null,
+          ownerId,
+        });
+      }
       log.debug(
         {
           phid,
@@ -286,8 +298,13 @@ export const backupIngestRoutes = new Elysia().post(
           if (!(await filesIdentical(restorePath, tmpFile))) {
             // A different original may now occupy the lost copy's old path.
             // Preserve it and materialize this upload at a free sibling.
-            resolvedTargetRelPath = (await firstFreeSiblingPath(folder.path, restoreRelPath))
-              .relPath;
+            resolvedTargetRelPath = (
+              await firstFreeSiblingPath(
+                folder.path,
+                restoreRelPath,
+                async (candidate) => (await findBackupPathOwner(libraryId, candidate)) !== null,
+              )
+            ).relPath;
           }
         } catch (e: unknown) {
           if ((e as NodeJS.ErrnoException)?.code !== 'ENOENT') throw e;
