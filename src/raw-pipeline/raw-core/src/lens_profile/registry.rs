@@ -170,6 +170,21 @@ pub fn apply_for_raw(
     image: &mut Image,
     sensor_scale: f32,
 ) -> crate::Result<()> {
+    let full_dims = (image.width, image.height);
+    apply_for_raw_windowed(raw, model, image, sensor_scale, (0, 0), full_dims)
+}
+
+/// Windowed counterpart to [`apply_for_raw`] for native-detail tiles (#4729).
+/// `origin` is the padded tile buffer's top-left in full demosaiced coordinates
+/// (`full_dims`).
+pub fn apply_for_raw_windowed(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    image: &mut Image,
+    sensor_scale: f32,
+    origin: (u32, u32),
+    full_dims: (u32, u32),
+) -> crate::Result<()> {
     let scales = LensCorrectionScales::from_model(model);
     if scales == LensCorrectionScales::NONE {
         return Ok(());
@@ -189,8 +204,38 @@ pub fn apply_for_raw(
         .lens_metadata
         .active_area
         .unwrap_or(ActiveAreaRect::full(raw.width, raw.height));
-    let scaled = scale_active_area(area, sensor_scale, image.width, image.height);
-    super::apply(image, &resolution.calibration, scaled, scales).map_err(crate::Error::Pipeline)
+    let scaled = scale_active_area(area, sensor_scale, full_dims.0, full_dims.1);
+    super::apply_windowed(
+        image,
+        &resolution.calibration,
+        scaled,
+        scales,
+        origin,
+        full_dims,
+    )
+    .map_err(crate::Error::Pipeline)
+}
+
+/// Maximum source-pixel displacement in demosaiced pixels at `divisor` for the
+/// active external lens profile's distortion + CA resample (#4729).
+pub fn reach_for_raw(raw: &RawImage, model: &AdjustmentModel, divisor: u32) -> usize {
+    let scales = LensCorrectionScales::from_model(model);
+    if (scales.distortion <= 0.0 && scales.ca <= 0.0) || !super::applies(raw, model) {
+        return 0;
+    }
+    let Ok(Some(resolution)) = super::auto::resolve_for_model(raw, model) else {
+        return 0;
+    };
+    if super::auto::needs_acknowledgement(&model.lens_profile, &resolution) {
+        return 0;
+    }
+    let qd = divisor.max(1);
+    let area = raw
+        .lens_metadata
+        .active_area
+        .unwrap_or(ActiveAreaRect::full(raw.width, raw.height));
+    let scaled = scale_active_area(area, 1.0 / qd as f32, raw.width / qd, raw.height / qd);
+    super::reach_px(&resolution.calibration, scaled, scales)
 }
 
 impl Resolution {

@@ -283,6 +283,114 @@ fn tile_vs_full_large_blown_region_matches_full_frame() {
     );
 }
 
+fn lensfun_chart_raw() -> crate::image::RawImage {
+    let mut raw = camera_chart_raw();
+    raw.camera_make = "Canon".into();
+    raw.camera_model = "Canon EOS 5D Mark III".into();
+    raw.focal_length = Some(70.0);
+    raw.aperture = Some(4.0);
+    raw.lens_metadata = crate::lens_profile::LensMetadata {
+        camera_make: Some("Canon".into()),
+        camera_model: Some("Canon EOS 5D Mark III".into()),
+        lens_model: Some("Canon EF 70-200mm f/2.8L IS II USM".into()),
+        focus_m: Some(6.6),
+        active_area: None,
+    };
+    raw
+}
+
+#[test]
+fn tile_vs_full_lensfun_and_lcp_lens_correction_parity() {
+    let raw = lensfun_chart_raw();
+    let base = AdjustmentModel {
+        sharpen_amount: 0.0,
+        nr_color: 0.0,
+        nr_luminance: 0.0,
+        auto_exposure: AutoExposureMode::Off,
+        ..AdjustmentModel::default()
+    };
+    assert!(
+        crate::lens_profile::applies(&raw, &base),
+        "bundled Lensfun profile must auto-match Canon 5DIII + EF 70-200mm f/2.8L IS II USM"
+    );
+    let reach = crate::lens_profile::reach_for_raw(&raw, &base, 1);
+    assert!(reach > 0, "expected positive Lensfun warp reach");
+    let off_model = AdjustmentModel {
+        lens_profile_enable: crate::types::adjustment::LensProfileEnable::Off,
+        ..base.clone()
+    };
+    assert!(
+        overlap::tile_overlap_px(Some(&raw), &base, 0, 1)
+            > overlap::tile_overlap_px(Some(&raw), &off_model, 0, 1),
+        "tile overlap must include Lensfun warp reach"
+    );
+
+    let full_on = full_rect_lanes(
+        &develop_scene_linear_from_raw_with_quality(&raw, &base, RenderQuality::Full)
+            .expect("full develop on"),
+    );
+    let full_off = full_rect_lanes(
+        &develop_scene_linear_from_raw_with_quality(&raw, &off_model, RenderQuality::Full)
+            .expect("full develop off"),
+    );
+    let moved = max_abs(&full_on, &full_off);
+    assert!(
+        moved > MIN_CASE_EFFECT,
+        "Lensfun correction moved image by only {moved:.3e}"
+    );
+    let tile_on = tile_lanes(&raw, &base);
+    let diff = max_abs(&full_on, &tile_on);
+    assert!(
+        diff <= 1e-4,
+        "Lensfun tile diverges from full develop: max abs diff {diff:.4e}"
+    );
+
+    // Spatial stages + Lensfun together, plus Preview half-res quality.
+    let spatial = AdjustmentModel {
+        clarity: 20.0,
+        capture_sharpening_amount: 50.0,
+        capture_sharpening_sigma: 1.4,
+        vignette_amount: -35.0,
+        ..base.clone()
+    };
+    let full_spatial = full_rect_lanes(
+        &develop_scene_linear_from_raw_with_quality(&raw, &spatial, RenderQuality::Full)
+            .expect("full spatial"),
+    );
+    let tile_spatial = tile_lanes(&raw, &spatial);
+    assert!(max_abs(&full_spatial, &tile_spatial) <= 1e-4);
+
+    // Imported LCP profile with distortion + CA + vignetting.
+    let lcp_xml = format!(
+        r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:p="http://ns.adobe.com/photoshop/1.0/" xmlns:c="{}">
+        <r:RDF><r:Description><p:CameraProfiles><r:Seq><r:li c:Make="Canon" c:Model="Canon EOS 5D Mark III" c:Lens="Canon EF 70-200mm f/2.8L IS II USM"
+          c:CameraRawProfile="True" c:SensorFormatFactor="1" c:FocalLength="70" c:ApertureValue="4" c:FocusDistance="6.6">
+          <c:PerspectiveModel c:Version="2" c:RadialDistortParam1="0.06" c:RadialDistortParam2="-0.02" c:TangentialDistortParam1="0.002">
+            <c:ChromaticGreenModel c:FocalLengthX="2.0" c:FocalLengthY="2.0"/>
+            <c:ChromaticRedGreenModel c:FocalLengthX="2.0" c:FocalLengthY="2.0" c:ScaleFactor="1.0015" c:RadialDistortParam1="0.004"/>
+            <c:ChromaticBlueGreenModel c:FocalLengthX="2.0" c:FocalLengthY="2.0" c:ScaleFactor="0.9985" c:RadialDistortParam1="-0.004"/>
+            <c:VignetteModel c:FocalLengthX="2.0" c:FocalLengthY="2.0" c:VignetteModelParam1="-0.3"/>
+          </c:PerspectiveModel>
+        </r:li></r:Seq></p:CameraProfiles></r:Description></r:RDF></x:xmpmeta>"#,
+        crate::lens_profile::CAMERA_NS
+    );
+    let lcp_ref = crate::lens_profile::register(&lcp_xml).unwrap()["reference"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let lcp_model = AdjustmentModel {
+        lens_profile: lcp_ref,
+        ..base
+    };
+    let full_lcp = full_rect_lanes(
+        &develop_scene_linear_from_raw_with_quality(&raw, &lcp_model, RenderQuality::Full)
+            .expect("full lcp"),
+    );
+    let tile_lcp = tile_lanes(&raw, &lcp_model);
+    assert!(max_abs(&full_lcp, &full_off) > MIN_CASE_EFFECT);
+    assert!(max_abs(&full_lcp, &tile_lcp) <= 1e-4);
+}
+
 /// `AdjustmentModel` with every stage this file exercises turned off — the
 /// reference the non-vacuity check measures against.
 trait NeutralStages {

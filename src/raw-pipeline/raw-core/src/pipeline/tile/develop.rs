@@ -194,6 +194,19 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
                 });
             }
         }
+    } else if crate::lens_profile::applies(raw, model) {
+        let qd = effective_quality_divisor(quality, raw.cfa);
+        let full_dims = (raw.width / qd, raw.height / qd);
+        stage("tile_lcp_correction", || {
+            crate::lens_profile::apply_for_raw_windowed(
+                raw,
+                model,
+                &mut camera_rgb,
+                1.0 / qd as f32,
+                tile_origin,
+                full_dims,
+            )
+        })?;
     }
 
     if cancel.is_cancelled() {

@@ -337,67 +337,6 @@ pub fn apply_fix_vignette_radial(
         });
 }
 
-/// Bilinear sample at continuous ActiveArea coords, sticky-edge clamped
-/// to the active rect (dng_sdk boundary behavior).
-#[inline]
-pub(crate) fn bilinear_aa(
-    src: &[[f32; 3]],
-    width: usize,
-    aa_top: usize,
-    aa_left: usize,
-    aa_w: usize,
-    aa_h: usize,
-    x: f64,
-    y: f64,
-) -> [f32; 3] {
-    let x = x.clamp(0.0, (aa_w - 1) as f64);
-    let y = y.clamp(0.0, (aa_h - 1) as f64);
-    let x0 = x.floor() as usize;
-    let y0 = y.floor() as usize;
-    let x1 = (x0 + 1).min(aa_w - 1);
-    let y1 = (y0 + 1).min(aa_h - 1);
-    let fx = (x - x0 as f64) as f32;
-    let fy = (y - y0 as f64) as f32;
-    let at = |yy: usize, xx: usize| src[(aa_top + yy) * width + aa_left + xx];
-    let (p00, p01, p10, p11) = (at(y0, x0), at(y0, x1), at(y1, x0), at(y1, x1));
-    let mut out = [0.0f32; 3];
-    for c in 0..3 {
-        let top = p00[c] + (p01[c] - p00[c]) * fx;
-        let bot = p10[c] + (p11[c] - p10[c]) * fx;
-        out[c] = top + (bot - top) * fy;
-    }
-    out
-}
-
-/// Single-channel variant of [`bilinear_aa`] for the per-plane (lateral
-/// CA) warp path, where each channel samples a different position.
-#[inline]
-#[allow(clippy::too_many_arguments)] // mirrors bilinear_aa's geometry args + channel
-pub(crate) fn bilinear_aa_ch(
-    src: &[[f32; 3]],
-    width: usize,
-    aa_top: usize,
-    aa_left: usize,
-    aa_w: usize,
-    aa_h: usize,
-    x: f64,
-    y: f64,
-    c: usize,
-) -> f32 {
-    let x = x.clamp(0.0, (aa_w - 1) as f64);
-    let y = y.clamp(0.0, (aa_h - 1) as f64);
-    let x0 = x.floor() as usize;
-    let y0 = y.floor() as usize;
-    let x1 = (x0 + 1).min(aa_w - 1);
-    let y1 = (y0 + 1).min(aa_h - 1);
-    let fx = (x - x0 as f64) as f32;
-    let fy = (y - y0 as f64) as f32;
-    let at = |yy: usize, xx: usize| src[(aa_top + yy) * width + aa_left + xx][c];
-    let top = at(y0, x0) + (at(y0, x1) - at(y0, x0)) * fx;
-    let bot = at(y1, x0) + (at(y1, x1) - at(y1, x0)) * fx;
-    top + (bot - top) * fy
-}
-
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

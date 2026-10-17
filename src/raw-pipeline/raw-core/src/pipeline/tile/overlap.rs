@@ -75,7 +75,7 @@ pub(super) fn tile_overlap_px(
             }
             0
         })
-        .unwrap_or(0);
+        .unwrap_or_else(|| raw.map_or(0, |r| crate::lens_profile::reach_for_raw(r, model, qd)));
     let sum: usize = PRE_SCENE_REACH_PX
         + crate::stages::highlight_recovery::stencil_reach_px(model.highlight_recovery)
         + warp_reach
