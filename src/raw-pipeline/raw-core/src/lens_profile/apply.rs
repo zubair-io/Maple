@@ -135,8 +135,8 @@ pub fn apply_windowed(
     Ok(())
 }
 
-/// Maximum source-pixel displacement across `area` for the active distortion
-/// and lateral CA warp, plus the bilinear stencil margin (#4729).
+/// Conservative upper bound on source-pixel displacement across `area` for the
+/// active distortion and lateral CA warp, plus the bilinear stencil margin (#4729).
 pub fn reach_px(
     calibration: &Calibration,
     area: ActiveAreaRect,
@@ -148,25 +148,88 @@ pub fn reach_px(
         return 0;
     }
     let (width, height) = (area.width as f64, area.height as f64);
-    let (max_x, max_y) = ((area.width - 1) as f64, (area.height - 1) as f64);
-    let common = calibration.ca.is_none() || scales.ca == 0.0;
-    let channels: &[usize] = if common { &[1] } else { &[0, 1, 2] };
-    const STEPS: usize = 32;
-    let mut max_disp = 0.0_f64;
-    for iy in 0..=STEPS {
-        let y = max_y * (iy as f64 / STEPS as f64);
-        for ix in 0..=STEPS {
-            let x = max_x * (ix as f64 / STEPS as f64);
-            for &ch in channels {
-                let [sx, sy] = source(calibration, scales, width, height, [x, y], ch);
-                if !sx.is_finite() || !sy.is_finite() {
-                    return 0;
-                }
-                max_disp = max_disp.max((sx - x).abs()).max((sy - y).abs());
-            }
+    let mut rect = [0.0, width, 0.0, height];
+    let mut bound = [0.0_f64; 2];
+    if scales.distortion > 0.0 {
+        if let Some(d) = calibration.distortion {
+            let Some([dx, dy]) = model_disp_bound(d.frame, d, rect, width, height) else {
+                return 0;
+            };
+            let s = scales.distortion as f64;
+            bound = [s * dx, s * dy];
+            rect = [-bound[0], width + bound[0], -bound[1], height + bound[1]];
         }
     }
-    max_disp.ceil() as usize + 2
+    if scales.ca > 0.0 {
+        if let Some(ca) = calibration.ca {
+            let mut ca_bound = [0.0_f64; 2];
+            for rel in ca.relative {
+                let Some([dx, dy]) = model_disp_bound(ca.reference, rel, rect, width, height)
+                else {
+                    return 0;
+                };
+                ca_bound = [ca_bound[0].max(dx), ca_bound[1].max(dy)];
+            }
+            let s = scales.ca as f64;
+            bound = [bound[0] + s * ca_bound[0], bound[1] + s * ca_bound[1]];
+        }
+    }
+    bound[0].max(bound[1]).ceil() as usize + 2
+}
+
+/// Upper-bounds `|p.frame.pixels(p.normalized(ref_frame.coordinates(pt))) - pt|`
+/// over `pt in [rect[0], rect[1]] x [rect[2], rect[3]]` by scanning the 1D radial
+/// polynomial on `[0, r_max]` with a Mean-Value-Theorem Lipschitz remainder and
+/// adding the analytical tangential and principal-point bounds.
+fn model_disp_bound(
+    ref_frame: super::model::Frame,
+    p: super::model::Perspective,
+    rect: [f64; 4],
+    width: f64,
+    height: f64,
+) -> Option<[f64; 2]> {
+    let d_max = width.max(height);
+    let [x0, y0] = ref_frame.coordinates(width, height, [rect[0], rect[2]]);
+    let [x1, y1] = ref_frame.coordinates(width, height, [rect[1], rect[3]]);
+    let (x_max, y_max) = (x0.abs().max(x1.abs()), y0.abs().max(y1.abs()));
+    let r_max = x_max.hypot(y_max);
+    if !r_max.is_finite() {
+        return None;
+    }
+    let [k1, k2, k3] = p.radial;
+    let [c1, c3] = p.radial_odd;
+    let [p1, p2] = p.tangential;
+    let r2 = r_max * r_max;
+    let poly_lip = 2.0 * c1.abs() * r_max
+        + 3.0 * k1.abs() * r2
+        + 4.0 * c3.abs() * r2 * r_max
+        + 5.0 * k2.abs() * r2 * r2
+        + 7.0 * k3.abs() * r2 * r2 * r2;
+    let tang = [
+        2.0 * p1.abs() * x_max * y_max + p2.abs() * (3.0 * x_max * x_max + y_max * y_max),
+        p1.abs() * (x_max * x_max + 3.0 * y_max * y_max) + 2.0 * p2.abs() * x_max * y_max,
+    ];
+    let dims = [width, height];
+    const STEPS: usize = 256;
+    let mut out = [0.0_f64; 2];
+    for a in 0..2 {
+        let (alpha, beta) = (p.scale * p.frame.focal[a], ref_frame.focal[a]);
+        let mut max_g = 0.0_f64;
+        for i in 0..=STEPS {
+            let r = r_max * (i as f64 / STEPS as f64);
+            let r_sq = r * r;
+            let radial = 1.0 + r_sq * (k1 + r_sq * (k2 + r_sq * k3)) + r * (c1 + r_sq * c3);
+            max_g = max_g.max((r * (alpha * radial - beta)).abs());
+        }
+        let mvt = (r_max / (2.0 * STEPS as f64)) * ((alpha - beta).abs() + alpha.abs() * poly_lip);
+        let shift = ((p.frame.center[a] - ref_frame.center[a]) * dims[a]).abs();
+        let bound = d_max * (max_g + mvt + alpha.abs() * tang[a]) + shift;
+        if !bound.is_finite() {
+            return None;
+        }
+        out[a] = bound;
+    }
+    Some(out)
 }
 
 struct WindowBounds {
@@ -424,5 +487,30 @@ mod tests {
                 );
             }
         }
+        let interior = Calibration {
+            distortion: Some(Perspective {
+                radial: [10.0, -20.0, 10.0],
+                ..lobe(0.0, 1.0)
+            }),
+            ..calibration()
+        };
+        let rect = ActiveAreaRect::full(200, 200);
+        let bound = reach_px(&interior, rect, LensCorrectionScales::FULL);
+        let mut peak = 0.0_f64;
+        for x in 0..200 {
+            let [sx, _] = source(
+                &interior,
+                LensCorrectionScales::FULL,
+                200.0,
+                200.0,
+                [x as f64, 100.0],
+                1,
+            );
+            peak = peak.max((sx - x as f64).abs());
+        }
+        assert!(
+            bound >= peak.ceil() as usize + 2,
+            "bound {bound} < peak {peak} + 2"
+        );
     }
 }
