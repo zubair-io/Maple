@@ -25,7 +25,7 @@ import { classifySameFile } from './relocate-case-only-rename.ts';
 import { restoreDestinationOccupied, restoreFilePair } from './trash-restore-pair.ts';
 import {
   publishSidecarSnapshot,
-  sameSidecarPath,
+  sameSidecarFile,
   sidecarStemClaimedBySibling,
   unlinkMovedSidecar,
 } from './sidecar-ownership.ts';
@@ -57,7 +57,7 @@ export async function moveSidecarsAlongside(oldAbsPath: string, newAbsPath: stri
     // this function used to inline — shared now so the copy-based relocate
     // primitive and this mover can't drift apart.
     const destPath = sidecarRenameTarget(oldAbsPath, newAbsPath, sidecar);
-    if (!destPath || sameSidecarPath(sidecar, destPath)) continue;
+    if (!destPath || (await sameSidecarFile(sidecar, destPath))) continue;
     try {
       const snapshot = await publishSidecarSnapshot(sidecar, destPath);
       if (!claimedBySibling) await unlinkMovedSidecar(sidecar, destPath, snapshot);
