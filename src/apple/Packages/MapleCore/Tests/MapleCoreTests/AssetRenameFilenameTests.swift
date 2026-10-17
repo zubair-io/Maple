@@ -101,12 +101,15 @@ final class AssetRenameFilenameTests: XCTestCase {
     XCTAssertTrue(fm.fileExists(atPath: newSidecarURL.path))
 
     // Open the replacement session for the renamed asset and verify it
-    // hydrates the pre-rename edits from the relocated sidecar.
+    // preserves both the pre-rename edits and the undo history.
     let newAsset = AssetRef(url: newURL)
     let newSession = EditSession(asset: newAsset)
+    newSession.adoptInFlightRenameEdits(from: oldSession)
     await newSession.loadSidecar()
     XCTAssertEqual(newSession.model.exposure, 1.25, accuracy: 0.001)
     XCTAssertEqual(newSession.culling.stars, 4)
+    XCTAssertTrue(newSession.canUndo)
+    XCTAssertEqual(newSession.undoHistory.map(\.description), ["Exposure"])
 
     // Simulate late edits / editor-exit teardown on the old session AND
     // subsequent user edits on the new session.
@@ -205,6 +208,12 @@ final class AssetRenameFilenameTests: XCTestCase {
 
     let newSession = EditSession(asset: AssetRef(url: newURL))
     newSession.adoptInFlightRenameEdits(from: oldSession)
+    XCTAssertTrue(newSession.canUndo)
+    XCTAssertEqual(newSession.lastCommittedTransaction?.description, "Shadows")
+    newSession.undo()
+    XCTAssertEqual(newSession.model.shadows, 0, accuracy: 0.001)
+    newSession.redo()
+    XCTAssertEqual(newSession.model.shadows, 32, accuracy: 0.001)
     await newSession.flushPendingSidecarWrite()
 
     XCTAssertFalse(fm.fileExists(atPath: oldSidecarURL.path))
