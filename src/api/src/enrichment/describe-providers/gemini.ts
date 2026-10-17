@@ -13,6 +13,7 @@
 
 import {
   RemoteError,
+  TruncatedOutputError,
   type DescribeOptions,
   type DescribeProvider,
   type DescribeResult,
@@ -21,7 +22,8 @@ import {
 const ENDPOINT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const MODELS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_MAX_TOKENS = 256;
+// Thinking tokens count against maxOutputTokens, so this leaves room for them on top of the JSON.
+const MAX_OUTPUT_TOKENS = 8192;
 
 /**
  * Per-million-char USD pricing (Gemini's public rate sheet uses
@@ -92,7 +94,7 @@ export class GeminiProvider implements DescribeProvider {
           ],
         },
       ],
-      generationConfig: { maxOutputTokens: DEFAULT_MAX_TOKENS },
+      generationConfig: { maxOutputTokens: MAX_OUTPUT_TOKENS },
     });
     const res = await this.timedFetch(url, {
       method: 'POST',
@@ -109,6 +111,11 @@ export class GeminiProvider implements DescribeProvider {
       throw new RemoteError(`Malformed Gemini JSON: ${msg}`, false);
     }
 
+    if (firstCandidateFinishReason(parsed.candidates) === 'MAX_TOKENS') {
+      throw new TruncatedOutputError(
+        `Gemini stopped generating before it finished (finishReason=MAX_TOKENS, maxOutputTokens=${MAX_OUTPUT_TOKENS})`,
+      );
+    }
     const text = extractCandidateText(parsed.candidates);
     if (text.length === 0) {
       throw new RemoteError('Gemini returned empty content', false);
@@ -157,6 +164,13 @@ function requireFrames(frames: readonly Buffer[]): void {
   if (frames.length === 0) {
     throw new RemoteError('Describe requires at least one JPEG frame', false);
   }
+}
+
+function firstCandidateFinishReason(candidates: unknown): unknown {
+  const first = Array.isArray(candidates) ? candidates[0] : undefined;
+  return first && typeof first === 'object'
+    ? (first as { finishReason?: unknown }).finishReason
+    : undefined;
 }
 
 function extractCandidateText(candidates: unknown): string {

@@ -95,6 +95,13 @@ export class RemoteError extends Error {
   }
 }
 
+export class TruncatedOutputError extends RemoteError {
+  constructor(message: string) {
+    super(message, false);
+    this.name = 'TruncatedOutputError';
+  }
+}
+
 export interface ProviderFactoryOptions {
   /** Override the provider URL (only meaningful for Ollama; the paid
    * providers hard-code their endpoint). */

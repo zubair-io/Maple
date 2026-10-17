@@ -37,7 +37,11 @@
  * new one (see `describe.ts:resetDescribeDeps`).
  */
 
-import { RemoteError, type DescribeProvider } from './describe-providers/index.ts';
+import {
+  RemoteError,
+  TruncatedOutputError,
+  type DescribeProvider,
+} from './describe-providers/index.ts';
 import { getDescribeProvider } from './describe-providers/index.ts';
 import { totalDescribeCapacity, type DescribeServerConfig } from './describe-servers.ts';
 import { CircuitBreaker, type CircuitBreakerConfig } from './circuit-breaker.ts';
@@ -152,9 +156,15 @@ export class DescribeServerPool {
         slot.breaker.recordSuccess();
         return result;
       } catch (err) {
-        if (!isServerFault(err)) throw err;
-        slot.breaker.recordFailure();
-        lastError = err;
+        if (err instanceof TruncatedOutputError) {
+          slot.breaker.recordSuccess();
+          lastError = err;
+        } else if (isServerFault(err)) {
+          slot.breaker.recordFailure();
+          lastError = err;
+        } else {
+          throw err;
+        }
       } finally {
         this.release(slot);
       }
