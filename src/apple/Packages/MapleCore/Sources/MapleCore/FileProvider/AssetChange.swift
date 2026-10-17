@@ -300,9 +300,10 @@ public struct AssetMetadata: Codable, Sendable, Equatable {
     /// The server soft-deletes by repointing the asset's path into the
     /// library's `.maple/trash/` (see `routes/assets/trash.ts`); the detail
     /// DTO carries no `deleted_at`, so the path is the extension's only
-    /// signal that an asset is in the trash.
+    /// signal that an asset is in the trash. A Windows-hosted server
+    /// composes `abs_path` with backslashes, so split on both separators.
     public var isTrashed: Bool {
-        let parts = (absPath as NSString).pathComponents
+        let parts = absPath.split(whereSeparator: { $0 == "/" || $0 == "\\" })
         return zip(parts, parts.dropFirst()).contains { $0 == ".maple" && $1 == "trash" }
     }
 
