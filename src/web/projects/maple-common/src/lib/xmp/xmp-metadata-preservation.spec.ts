@@ -193,4 +193,27 @@ describe('metadata survives ordinary sidecar edits', () => {
     await edit();
     expect(await fs.readFile(sidecar, 'utf8')).toBe(first);
   });
+
+  it('keeps distinct anonymous rdf:Description elements (no rdf:about or rdf:nodeID) separate (#4690)', async () => {
+    const crs = 'http://ns.adobe.com/camera-raw-settings/1.0/';
+    await fs.writeFile(
+      sidecar,
+      `<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="${RDF}">
+    <rdf:Description xmlns:crs="${crs}" crs:Exposure2012="+0.50" crs:Contrast2012="+10"/>
+    <rdf:Description xmlns:crs="${crs}" crs:Shadows2012="+77">
+      <crs:ToneCurvePV2012Green><rdf:Seq><rdf:li>0, 200</rdf:li></rdf:Seq></crs:ToneCurvePV2012Green>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>`,
+    );
+    await edit();
+    const saved = await fs.readFile(sidecar, 'utf8');
+    const reparsed = parser.parseAdjustmentModel(saved);
+    expect(reparsed.model).toMatchObject({ exposure: 2, contrast: 10 });
+    expect(reparsed.model.shadows).toBeUndefined();
+    expect(reparsed.model.displayToneCurveGreen).toBeUndefined();
+    expect(saved).toContain('crs:Shadows2012="+77"');
+    expect(saved).toContain('ToneCurvePV2012Green');
+  });
 });

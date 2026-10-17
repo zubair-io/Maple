@@ -60,16 +60,14 @@ enum XMPChildElementScanner {
   /// top-level `rdf:Description` elements, in document order (#4690).
   static func descriptionChildren(in xml: String) -> [Child] {
     let envelope = rdfEnvelope(in: xml)
-    let descriptions = envelope.rdfChildren.filter {
-      isRdfElement($0, localName: "Description", inherited: envelope.fullRdfNamespaces)
-    }
-    guard let first = descriptions.first else {
+    guard let primary = primaryDescription(in: envelope) else {
       return elementChildren(in: xml, rootLocalName: "Description")
     }
     return
-      descriptions
+      envelope.rdfChildren
       .filter {
-        sharesContext($0.source, with: first.source, inherited: envelope.fullRdfNamespaces)
+        isRdfElement($0, localName: "Description", inherited: envelope.fullRdfNamespaces)
+          && primary.matches(child: $0, inherited: envelope.fullRdfNamespaces)
       }
       .flatMap { description in
         let scope = XMPMaskGroupSources.scope(
@@ -83,18 +81,15 @@ enum XMPChildElementScanner {
       }
   }
 
-  /// Direct child elements of the first `rdf:Description` only.
+  /// Direct child elements of the primary `rdf:Description` only.
   static func firstDescriptionChildren(in xml: String) -> [Child] {
     let envelope = rdfEnvelope(in: xml)
-    let descriptions = envelope.rdfChildren.filter {
-      isRdfElement($0, localName: "Description", inherited: envelope.fullRdfNamespaces)
-    }
-    guard let first = descriptions.first else {
+    guard let primary = primaryDescription(in: envelope)?.child else {
       return elementChildren(in: xml, rootLocalName: "Description")
     }
     let scope = XMPMaskGroupSources.scope(
-      envelope.fullRdfNamespaces, attributes: XMPMaskGroupSources.rootAttributes(first.source))
-    return elementChildren(in: first.source, rootLocalName: "Description").map {
+      envelope.fullRdfNamespaces, attributes: XMPMaskGroupSources.rootAttributes(primary.source))
+    return elementChildren(in: primary.source, rootLocalName: "Description").map {
       var child = $0
       child.inheritedNamespaces = scope
       return child
@@ -150,6 +145,31 @@ enum XMPChildElementScanner {
     let nodeID: String?
     let lang: String
     let base: String
+
+    var hasExplicitSubject: Bool { about != nil || nodeID != nil }
+    var subjectTier: Int {
+      if nodeID != nil { return 0 }
+      guard let about else { return 1 }
+      return about.isEmpty ? 2 : 0
+    }
+  }
+
+  struct PrimaryDescription {
+    let index: Int
+    let child: Child
+    let context: DescriptionContext
+
+    func matches(index candidateIndex: Int, context candidateContext: DescriptionContext) -> Bool {
+      candidateIndex == index || (context.hasExplicitSubject && candidateContext == context)
+    }
+
+    func matches(child candidate: Child, inherited: [String: String]) -> Bool {
+      if candidate.byteRange == child.byteRange { return true }
+      let attrs = XMPMaskGroupSources.rootAttributes(candidate.source)
+      let scope = XMPMaskGroupSources.scope(inherited, attributes: attrs)
+      return context.hasExplicitSubject
+        && descriptionContext(attributes: attrs, namespaces: scope) == context
+    }
   }
 
   static func descriptionContext(
@@ -168,19 +188,51 @@ enum XMPChildElementScanner {
       base: attributes["xml:base"] ?? "")
   }
 
-  /// True when two `rdf:Description` elements share `rdf:about`, `rdf:nodeID`,
-  /// `xml:lang`, and `xml:base` context.
-  static func sharesContext(
-    _ source: String,
-    with primary: String,
-    inherited: [String: String] = ["rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#"]
-  ) -> Bool {
-    let lhs = XMPMaskGroupSources.rootAttributes(source)
-    let rhs = XMPMaskGroupSources.rootAttributes(primary)
-    let lhsScope = XMPMaskGroupSources.scope(inherited, attributes: lhs)
-    let rhsScope = XMPMaskGroupSources.scope(inherited, attributes: rhs)
-    return descriptionContext(attributes: lhs, namespaces: lhsScope)
-      == descriptionContext(attributes: rhs, namespaces: rhsScope)
+  static func primaryDescription(in xml: String) -> PrimaryDescription? {
+    primaryDescription(in: rdfEnvelope(in: xml))
+  }
+
+  private static func primaryDescription(
+    in env: (
+      xmpmetaChildren: [Child], rdfElement: Child?, rdfChildren: [Child],
+      xmpmetaNamespaces: [String: String], rdfNamespaces: [String: String],
+      fullRdfNamespaces: [String: String]
+    )
+  ) -> PrimaryDescription? {
+    let descriptions = env.rdfChildren.filter {
+      isRdfElement($0, localName: "Description", inherited: env.fullRdfNamespaces)
+    }
+    var best: (index: Int, child: Child, context: DescriptionContext, score: Int)?
+    for (index, candidate) in descriptions.enumerated() {
+      let attrs = XMPMaskGroupSources.rootAttributes(candidate.source)
+      let scope = XMPMaskGroupSources.scope(env.fullRdfNamespaces, attributes: attrs)
+      let context = descriptionContext(attributes: attrs, namespaces: scope)
+      let attrScore = attrs.keys.filter { key in
+        guard key != "xmlns", !key.hasPrefix("xmlns:"),
+          let name = canonicalQualifiedName(key, namespaces: scope)
+        else { return false }
+        return name != "rdf:about"
+      }.count
+      let childScore = elementChildren(in: candidate.source, rootLocalName: "Description")
+        .filter { child in
+          let childScope = XMPMaskGroupSources.scope(
+            scope, attributes: XMPMaskGroupSources.rootAttributes(child.source))
+          guard let name = canonicalQualifiedName(child.qName, namespaces: childScope) else {
+            return false
+          }
+          return name != "rdf:about"
+        }.count
+      let score = attrScore + childScore
+      if let current = best {
+        let tierDiff = context.subjectTier - current.context.subjectTier
+        if tierDiff > 0 || (tierDiff == 0 && score > current.score) {
+          best = (index, candidate, context, score)
+        }
+      } else {
+        best = (index, candidate, context, score)
+      }
+    }
+    return best.map { PrimaryDescription(index: $0.index, child: $0.child, context: $0.context) }
   }
 
   /// Sibling children of `rdf:RDF` (including secondary `rdf:Description`
@@ -192,22 +244,19 @@ enum XMPChildElementScanner {
     isPassthroughChild: (Child) -> Bool
   ) -> (rdfNodes: [String], xmpmetaNodes: [String]) {
     let env = rdfEnvelope(in: xml)
-    let firstDescription = env.rdfChildren.first {
-      isRdfElement($0, localName: "Description", inherited: env.fullRdfNamespaces)
-    }
+    let primary = primaryDescription(in: env)
     let rdfNodes =
       env.rdfChildren
-      .filter { $0.byteRange != firstDescription?.byteRange }
+      .filter { $0.byteRange != primary?.child.byteRange }
       .map { child -> String in
         if isRdfElement(child, localName: "Description", inherited: env.fullRdfNamespaces),
-          let primary = firstDescription
+          let primary
         {
           let descNamespaces = XMPMaskGroupSources.scope(
             env.fullRdfNamespaces, attributes: XMPMaskGroupSources.rootAttributes(child.source))
           let stripped = withoutModeledFields(
             child.source,
-            sharesPrimaryContext: sharesContext(
-              child.source, with: primary.source, inherited: env.fullRdfNamespaces),
+            sharesPrimaryContext: primary.matches(child: child, inherited: env.fullRdfNamespaces),
             namespaces: descNamespaces,
             isPassthroughChild: isPassthroughChild,
             unownedGroupSources: groups.unownedGroupSources)
