@@ -7,7 +7,16 @@ import type {
   BatchTransferSummary,
 } from '../../generated/batch-transfer.generated';
 import type { AdjustmentTransferRequest } from './adjustment-transfer';
+import type { Asset } from '../../models/asset';
+import { PRIMARY_VARIANT_ID } from '../../generated/workflow.generated';
+import { primarySidecarFilename } from '../../xmp/sidecar-binding';
 
+/** The exact sidecar a batch target reads, revalidates and writes (#4682). */
+export interface BatchSidecarTarget {
+  rawFilename: string;
+  filename: string;
+  variantId: string;
+}
 export interface BatchOperation {
   id: string;
   libraryId: string;
@@ -19,8 +28,44 @@ export interface BatchOperation {
   patch?: Partial<AdjustmentModel>;
   assetIds: string[];
   assetNames: Record<string, string>;
+  // Ledgers written before #4682 omit this; they always read the Primary.
+  targets?: Record<string, BatchSidecarTarget>;
   // Directory identity survives repicking (persisted-handle keys do not).
   directory?: FileSystemDirectoryHandle;
+}
+
+export function primaryBatchTarget(rawFilename: string): BatchSidecarTarget {
+  return {
+    rawFilename,
+    filename: primarySidecarFilename(rawFilename),
+    variantId: PRIMARY_VARIANT_ID,
+  };
+}
+export function batchSidecarTarget(operation: BatchOperation, id: string): BatchSidecarTarget {
+  return operation.targets?.[id] ?? primaryBatchTarget(operation.assetNames[id]);
+}
+/** Batch actions are Browse-mode operations on the asset, so they bind to the Primary. */
+export function newBatchOperation(input: {
+  libraryId: string;
+  directory?: FileSystemDirectoryHandle;
+  assets: readonly Pick<Asset, 'id' | 'filename'>[];
+  request?: AdjustmentTransferRequest;
+  patch: Partial<AdjustmentModel>;
+}): BatchOperation & { targets: Record<string, BatchSidecarTarget> } {
+  return {
+    id: crypto.randomUUID(),
+    createdAt: Date.now(),
+    status: 'ready',
+    libraryId: input.libraryId,
+    directory: input.directory,
+    assetIds: input.assets.map((asset) => asset.id),
+    assetNames: Object.fromEntries(input.assets.map((asset) => [asset.id, asset.filename])),
+    targets: Object.fromEntries(
+      input.assets.map((asset) => [asset.id, primaryBatchTarget(asset.filename)]),
+    ),
+    request: input.request,
+    patch: structuredClone(input.patch),
+  };
 }
 export interface PreparedBatchPatch {
   patch: Partial<AdjustmentModel>;
