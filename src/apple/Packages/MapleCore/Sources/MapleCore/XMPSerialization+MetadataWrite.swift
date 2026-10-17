@@ -24,6 +24,20 @@ extension XMPSerializer {
         metadata: XmpMetadata,
         passthrough: XMPPassthrough = .empty
     ) -> String {
+        serialize(
+            model: model, culling: culling, metadata: metadata, omitWhiteBalance: false,
+            passthrough: passthrough)
+    }
+
+    /// `omitWhiteBalance` (#1883) mirrors the base overload's internal form:
+    /// decode-only As-Shot omission, never reachable from a persisted save.
+    static func serialize(
+        model: AdjustmentModel,
+        culling: CullingState,
+        metadata: XmpMetadata,
+        omitWhiteBalance: Bool,
+        passthrough: XMPPassthrough = .empty
+    ) -> String {
         let metaAttrs = metadataAttrParts(metadata)
         let metaBlocks = metadataNestedBlocks(metadata)
         let prefixes = metadataNamespacePrefixes(metadata)
@@ -32,13 +46,17 @@ extension XMPSerializer {
         // carrying the passthrough bucket, since an empty metadata block is no
         // reason to drop the source document's foreign fields (#2233).
         guard !metaAttrs.isEmpty || !metaBlocks.isEmpty else {
-            return serialize(model: model, culling: culling, passthrough: passthrough)
+            return serialize(
+                model: model, culling: culling, omitWhiteBalance: omitWhiteBalance,
+                passthrough: passthrough)
         }
 
         // Build the full attr list: adjustment+culling attrs first, then
         // metadata attrs (values escaped for XML attribute context), then the
         // passthrough attributes. The canonical sort reorders all of them.
-        let attrs = _buildAttrs(model: model, culling: culling)
+        let attrs =
+            _buildAttrs(
+                model: model, culling: culling, omitWhiteBalance: omitWhiteBalance)
             + _ratingAndLabelAttrs(culling: culling, passthrough: passthrough)
             + metaAttrs.map { ($0.0, escapeXMLAttr($0.1)) }
             + _passthroughAttrs(passthrough)
@@ -61,28 +79,22 @@ extension XMPSerializer {
 
         // Nested content, in the canonical child order the TS serializer also
         // uses: dc:title / dc:creator / dc:description, then the keyword bag,
-        // then dc:rights / xmpRights:UsageTerms, then the point tone curves,
-        // then the local-adjustment containers (#358). A metadata-carrying
-        // save must not drop an authored curve or mask — that is exactly the
+        // then dc:rights / xmpRights:UsageTerms, then the develop children
+        // shared with the base overload (#4687) — a metadata-carrying save
+        // must not drop an authored curve, mask, template or spot, the
         // silent-data-loss shape #2191 fixed for the parametric scalars.
-        let toneCurvesBlock = _buildToneCurvesBlock(
-            model: model, indent: XMPCanonical.childIndent)
-        let localAdjustmentsBlock = _buildLocalAdjustmentsBlock(
-            LocalAdjustmentOrder.keyed(model.localAdjustments, around: passthrough),
-            indent: XMPCanonical.childIndent)
         let isRightsBlock: (String) -> Bool = { block in
             block.contains("<dc:rights>") || block.contains("<xmpRights:UsageTerms>")
         }
-        let children = [
+        let metadataChildren = [
             metaBlocks.filter { !isRightsBlock($0) }.joined(separator: "\n"),
             keywordsBlock,
             metaBlocks.filter(isRightsBlock).joined(separator: "\n"),
-            toneCurvesBlock,
-            localAdjustmentsBlock,
-            _passthroughNodesBlock(passthrough, indent: XMPCanonical.childIndent),
         ]
-        .filter { !$0.isEmpty }
-        .joined(separator: "\n")
+        let developChildren = _developChildren(model: model, passthrough: passthrough)
+        let children = (metadataChildren + developChildren)
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
 
         return XMPCanonical.document(
             extraNamespaces: extraNamespaces,
