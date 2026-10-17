@@ -79,12 +79,13 @@ final class AuthenticatedHTTPClientTests: XCTestCase {
     XCTAssertFalse(signedOut)
   }
 
-  /// #4716 — `TokenStore.save` in another process briefly leaves the
-  /// Keychain item absent (delete-then-add). A 401 handler that re-reads
-  /// the provider in that window used to see nil and sign the user out of
-  /// every process. The tokens already loaded for the request are the
-  /// refresh input; a nil re-read must never be a sign-out.
-  func testNilProviderReadDuringRefreshWindowDoesNotSignOut() async throws {
+  /// #4716 — a 401 handler used to re-read the provider BEFORE the refresh
+  /// lock and sign the user out of every process on a nil. Now the only
+  /// nil that matters is the one read under the lock, and it means the
+  /// credentials were deliberately cleared while this request was in
+  /// flight (sign-out, server removed): no sign-out callback, no refresh,
+  /// and above all no re-persisting of the captured token.
+  func testCredentialsClearedInFlightCancelsRefreshWithoutSignOutOrRepersist() async throws {
     StubURLProtocol.register()
     defer { StubURLProtocol.reset() }
     var signedOut = false
@@ -104,9 +105,12 @@ final class AuthenticatedHTTPClientTests: XCTestCase {
       server: URL(string: "https://x.test")!, urlSession: session,
       tokensProvider: {
         reads += 1
-        // First read signs the request; every later read lands in the
-        // other process's delete-then-add window.
-        return reads == 1 ? stored : nil
+        // The first read signs the request; the credentials are then
+        // cleared (sign-out / server removed) while it is in flight.
+        guard reads == 1 else { return stored }
+        let signing = stored
+        stored = nil
+        return signing
       },
       onTokensRefreshed: { stored = $0 },
       onSignOut: { signedOut = true }
@@ -114,9 +118,9 @@ final class AuthenticatedHTTPClientTests: XCTestCase {
 
     let (_, resp) = try await client.data(for: URLRequest(url: URL(string: "https://x.test/api/folders")!))
 
-    XCTAssertFalse(signedOut, "a transient nil Keychain read must not sign the user out")
-    XCTAssertEqual((resp as! HTTPURLResponse).statusCode, 200, "the 401 must be refreshed and retried")
-    XCTAssertEqual(stored?.access, "A2")
+    XCTAssertFalse(signedOut, "credentials are already gone — no sign-out callback")
+    XCTAssertEqual((resp as! HTTPURLResponse).statusCode, 401, "no refresh, no retry")
+    XCTAssertNil(stored, "a refresh must never resurrect cleared credentials")
   }
 
   func testProactivelyRefreshesExpiredAccessTokenBeforeRequest() async throws {
