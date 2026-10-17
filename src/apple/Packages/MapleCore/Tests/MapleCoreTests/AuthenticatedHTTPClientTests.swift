@@ -79,6 +79,46 @@ final class AuthenticatedHTTPClientTests: XCTestCase {
     XCTAssertFalse(signedOut)
   }
 
+  /// #4716 — `TokenStore.save` in another process briefly leaves the
+  /// Keychain item absent (delete-then-add). A 401 handler that re-reads
+  /// the provider in that window used to see nil and sign the user out of
+  /// every process. The tokens already loaded for the request are the
+  /// refresh input; a nil re-read must never be a sign-out.
+  func testNilProviderReadDuringRefreshWindowDoesNotSignOut() async throws {
+    StubURLProtocol.register()
+    defer { StubURLProtocol.reset() }
+    var signedOut = false
+    StubURLProtocol.handler = { req in
+      if req.url!.path == "/api/auth/refresh" {
+        return (200, Data(#"{"access_token":"A2","refresh_token":"R2"}"#.utf8), [:])
+      }
+      let auth = req.value(forHTTPHeaderField: "Authorization")
+      if auth == "Bearer A1" { return (401, Data("{}".utf8), [:]) }
+      if auth == "Bearer A2" { return (200, Data("{}".utf8), [:]) }
+      return (500, Data("{}".utf8), [:])
+    }
+    var reads = 0
+    var stored: AuthTokens? = AuthTokens(access: "A1", refresh: "R1")
+    let session = TestURLSession.make()
+    let client = AuthenticatedHTTPClient(
+      server: URL(string: "https://x.test")!, urlSession: session,
+      tokensProvider: {
+        reads += 1
+        // First read signs the request; every later read lands in the
+        // other process's delete-then-add window.
+        return reads == 1 ? stored : nil
+      },
+      onTokensRefreshed: { stored = $0 },
+      onSignOut: { signedOut = true }
+    )
+
+    let (_, resp) = try await client.data(for: URLRequest(url: URL(string: "https://x.test/api/folders")!))
+
+    XCTAssertFalse(signedOut, "a transient nil Keychain read must not sign the user out")
+    XCTAssertEqual((resp as! HTTPURLResponse).statusCode, 200, "the 401 must be refreshed and retried")
+    XCTAssertEqual(stored?.access, "A2")
+  }
+
   func testProactivelyRefreshesExpiredAccessTokenBeforeRequest() async throws {
     // The access token is already past its exp. The client should refresh
     // BEFORE dispatching the request — so the request carries a fresh token

@@ -56,23 +56,26 @@ public enum TokenStore {
     #endif
   }()
 
+  /// Update in place first, add only when nothing exists yet. The former
+  /// delete-then-add left the item absent for a moment, and any other
+  /// Apple process (File Provider, Quick Look, backup agent) that read the
+  /// Keychain in that window saw "signed out" (#4716).
   public static func save(_ tokens: AuthTokens, server: URL) throws {
     let data = try JSONEncoder().encode(tokens)
     let base = baseQuery(server: server)
-    SecItemDelete(base as CFDictionary)
+    let updated = SecItemUpdate(
+      base as CFDictionary,
+      [kSecValueData as String: data] as CFDictionary
+    )
+    guard updated == errSecItemNotFound else {
+      guard updated == errSecSuccess else { throw NSError(domain: "TokenStore", code: Int(updated)) }
+      return
+    }
     var add = base
     add[kSecValueData as String] = data
     add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-    var status = SecItemAdd(add as CFDictionary, nil)
-    if status == errSecDuplicateItem {
-      // The delete didn't remove the existing item (keychain quirk / race).
-      // Update it in place rather than leaving the stale value behind.
-      status = SecItemUpdate(
-        base as CFDictionary,
-        [kSecValueData as String: data] as CFDictionary
-      )
-    }
-    guard status == errSecSuccess else { throw NSError(domain: "TokenStore", code: Int(status)) }
+    let added = SecItemAdd(add as CFDictionary, nil)
+    guard added == errSecSuccess else { throw NSError(domain: "TokenStore", code: Int(added)) }
   }
 
   public static func load(server: URL) throws -> AuthTokens? {
