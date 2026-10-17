@@ -35,7 +35,11 @@
 // registered, so the platform applies them locally like any normal
 // folder — they simply don't sync). Write-back is a deliberate follow-up,
 // not an oversight: the delete plumbing exists (#2741) but wiring
-// Explorer's semantics onto it deserves its own ticket.
+// Explorer's semantics onto it deserves its own ticket. The corollary
+// (#4756) is that the folder can hold the only copy of a user's file, so
+// disabling the integration removes nothing but in-sync placeholders
+// (CloudFilesSyncRootCleanup.cs) and enabling it never adopts a non-empty
+// folder that is not already a registered sync root.
 //
 // Registration uses the Win32 CfRegisterSyncRoot path (not WinRT
 // StorageProviderSyncRootManager, which requires package identity this
@@ -100,6 +104,10 @@ namespace Maple.WinUI.Services.CloudFiles
                     return null;
                 try
                 {
+                    var refusal = CloudFilesSyncRootCleanup.AdoptionRefusal(
+                        SyncRootPath, CloudFilesPlaceholderProbe.IsRegisteredSyncRoot(SyncRootPath));
+                    if (refusal != null)
+                        return refusal;
                     Directory.CreateDirectory(SyncRootPath);
 
                     var name = Marshal.StringToHGlobalUni("Maple");
@@ -175,9 +183,11 @@ namespace Maple.WinUI.Services.CloudFiles
         }
 
         /// <summary>Disconnects and, when <paramref name="unregister"/>,
-        /// removes the sync-root registration (placeholders left behind
-        /// become dead files, so the folder is deleted too — everything in
-        /// it is re-creatable from the server).</summary>
+        /// removes the sync-root registration. Placeholders left behind
+        /// would become dead files, so the in-sync ones are deleted; every
+        /// other item — Explorer-side writes, edited hydrated copies,
+        /// anything whose state can't be read — stays, and the folder is
+        /// removed only once it is empty (#4756).</summary>
         public void Stop(bool unregister)
         {
             lock (_gate)
@@ -196,8 +206,10 @@ namespace Maple.WinUI.Services.CloudFiles
                     try
                     {
                         CfApi.CfUnregisterSyncRoot(SyncRootPath);
-                        if (Directory.Exists(SyncRootPath))
-                            Directory.Delete(SyncRootPath, recursive: true);
+                        var swept = CloudFilesSyncRootCleanup.Sweep(
+                            SyncRootPath, CloudFilesPlaceholderProbe.IsUnmodifiedPlaceholder);
+                        DiagLog.Write(
+                            $"[cloudfiles] unregistered sync root: removed {swept.Removed} placeholders, kept {swept.Preserved} local items");
                     }
                     catch (Exception ex)
                     {

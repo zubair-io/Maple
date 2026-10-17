@@ -44,6 +44,13 @@ namespace Maple.WinUI.Services.CloudFiles
         internal const uint CF_PLACEHOLDER_CREATE_FLAG_DISABLE_ON_DEMAND_POPULATION = 1;
         internal const uint CF_PLACEHOLDER_CREATE_FLAG_MARK_IN_SYNC = 2;
 
+        // --- CF_PLACEHOLDER_STATE (cfapi.h) ---
+        internal const uint CF_PLACEHOLDER_STATE_PLACEHOLDER = 1;
+        internal const uint CF_PLACEHOLDER_STATE_IN_SYNC = 8;
+        internal const uint CF_PLACEHOLDER_STATE_INVALID = 0xFFFFFFFF;
+
+        internal const int CF_SYNC_ROOT_INFO_BASIC = 0;
+
         internal const int STATUS_SUCCESS = 0;
         internal const int STATUS_UNSUCCESSFUL = unchecked((int)0xC0000001);
 
@@ -206,6 +213,20 @@ namespace Maple.WinUI.Services.CloudFiles
 
         [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
         internal static extern int CfUnregisterSyncRoot(string syncRootPath);
+
+        /// <summary>CF_SYNC_ROOT_INFO_BASIC fills a CF_SYNC_ROOT_BASIC_INFO
+        /// (one LARGE_INTEGER SyncRootFileId). Returns S_OK only when the
+        /// path lies inside a registered sync root.</summary>
+        [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
+        internal static extern int CfGetSyncRootInfoByPath(
+            string filePath,
+            int infoClass,
+            ref long infoBuffer,
+            uint infoBufferLength,
+            out uint returnedLength);
+
+        [DllImport(Dll, ExactSpelling = true)]
+        internal static extern uint CfGetPlaceholderStateFromAttributeTag(uint fileAttributes, uint reparseTag);
 
         [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
         internal static extern int CfConnectSyncRoot(
