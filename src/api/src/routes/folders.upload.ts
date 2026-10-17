@@ -39,9 +39,8 @@ export function isIndexedUpload(filename: string): boolean {
 function isSidecarUpload(filename: string): boolean {
   return path.extname(filename).toLowerCase() === '.xmp';
 }
-export class UploadConflictError extends Error {
-  readonly status = 409;
-}
+/** The target already holds a file this route must not replace; the route answers 409. */
+export class UploadConflictError extends Error {}
 async function removeFailedUpload(filename: string): Promise<void> {
   await unlink(filename).catch(() => {});
 }
