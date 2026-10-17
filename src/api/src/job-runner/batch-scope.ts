@@ -3,8 +3,7 @@ import { realpath } from 'node:fs/promises';
 import { isWithinRoot, safeWriteAllowed } from '../fs/root.ts';
 import { parseRootList } from '../fs/root-list.ts';
 import { xmpSidecarPath } from '../fs/xmp.ts';
-import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { listLibraryRoots } from '../db/repos/folders.repo.ts';
+import { loadSharedLibraryRoots } from '../indexer/libraries.cache.ts';
 import type { SqliteDb } from '../db/repos/db-handle.ts';
 import { resolveAndAuthorizePath, safeWriteAllowedForPath } from '../routes/xmp-path-auth.ts';
 import { parseSyncPayload } from './handlers/batch-sync-payload.ts';
@@ -23,9 +22,7 @@ export async function batchScopes(
   payload: Record<string, unknown>,
   dbOverride?: SqliteDb,
 ): Promise<string[]> {
-  const libraryRoots = dbOverride
-    ? (await listLibraryRoots(dbOverride)).map((root) => root.path)
-    : [...(await loadLibraryRoots()).values()];
+  const libraryRoots = await loadSharedLibraryRoots(dbOverride);
   const roots = dbOverride
     ? await Promise.all(
         [...libraryRoots, ...parseRootList(process.env.MAPLE_ROOTS)].map((root) =>

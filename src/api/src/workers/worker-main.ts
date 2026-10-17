@@ -15,6 +15,7 @@ import {
   loadObservabilityConfig,
 } from '../observability/observability-config.repo.ts';
 import { child as childLogger } from '../log.ts';
+import { installWorkerLibraryRootsSync } from '../indexer/libraries.cache.ts';
 import { installRemoteInProcessSearch } from '../search/remote-search.ts';
 
 installChildHardening('worker');
@@ -58,6 +59,7 @@ async function main(): Promise<void> {
       'initial mirror config load failed — the periodic reload will retry; mirroring inactive until it succeeds',
     );
   }
+  installWorkerLibraryRootsSync();
   installRemoteInProcessSearch();
   await startWorkers();
   log.info('worker tier started');
