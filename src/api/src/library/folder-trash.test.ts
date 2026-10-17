@@ -195,6 +195,43 @@ describe('trashFolderRecursive / restoreFolderRecursive — nested-tree round tr
     expect(assetRow(live.db, id2)?.deleted_at).toBeNull();
     expect(await read('photos2/IMG_2.dng')).toBe('pixels-2');
   });
+
+  test('a case-only sibling directory is untouched by both trash and restore (#4699)', async () => {
+    using live = await createLiveTestDatabase();
+    const folderId = registerLibrary(live.db, root, 'folder-trash-test');
+    await write('trip/day1/IMG_1.dng', 'pixels-lower');
+    await write('trip/day1/IMG_1.xmp', 'edits-lower');
+    await write('Trip/day2/IMG_2.dng', 'pixels-upper');
+    await write('Trip/day2/IMG_2.xmp', 'edits-upper');
+    const idLower = seedAsset(live.db, folderId, 'trip/day1', 'IMG_1.dng');
+    const idUpper = seedAsset(live.db, folderId, 'Trip/day2', 'IMG_2.dng');
+
+    const trashLower = await trashFolderRecursive(folderId, root, 'trip');
+    expect(trashLower.total).toBe(1);
+    expect(trashLower.succeeded).toBe(1);
+    expect(trashLower.items.map((i) => i.assetId)).toEqual([idLower.toHexString()]);
+
+    expect(assetRow(live.db, idLower)?.deleted_at).not.toBeNull();
+    expect(assetRow(live.db, idUpper)?.deleted_at).toBeNull();
+    expect(locations(live.db, idUpper)[0]!.path).toBe('Trip/day2');
+    expect(await read('Trip/day2/IMG_2.dng')).toBe('pixels-upper');
+    expect(await read('Trip/day2/IMG_2.xmp')).toBe('edits-upper');
+
+    const trashUpper = await trashFolderRecursive(folderId, root, 'Trip');
+    expect(trashUpper.total).toBe(1);
+    expect(trashUpper.succeeded).toBe(1);
+
+    const restoreLower = await restoreFolderRecursive(folderId, root, 'trip');
+    expect(restoreLower.total).toBe(1);
+    expect(restoreLower.succeeded).toBe(1);
+    expect(restoreLower.items.map((i) => i.assetId)).toEqual([idLower.toHexString()]);
+
+    expect(assetRow(live.db, idLower)?.deleted_at).toBeNull();
+    expect(await read('trip/day1/IMG_1.dng')).toBe('pixels-lower');
+    expect(await read('trip/day1/IMG_1.xmp')).toBe('edits-lower');
+    expect(assetRow(live.db, idUpper)?.deleted_at).not.toBeNull();
+    expect(await read('.maple/trash/Trip/day2/IMG_2.dng')).toBe('pixels-upper');
+  });
 });
 
 describe('trashFolderRecursive — partial-failure semantics', () => {

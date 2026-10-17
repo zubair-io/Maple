@@ -65,14 +65,12 @@ export interface NearbyAssetCandidate {
 }
 
 /**
- * LIKE-safe form of a stored path, so a directory containing `%` or `_` cannot
- * match its siblings.
- *
- * The backslash is escaped first; escaping it after the wildcards would escape
- * the escapes this function just introduced.
+ * Directory-boundary prefix for a stored path, so a descendant test matches
+ * `value/...` under BINARY collation without matching a sibling whose name
+ * merely starts with `value` or differs only by ASCII case (#4699).
  */
-function likePrefix(value: string): string {
-  return `${value.replace(/[\\%_]/g, (character) => `\\${character}`)}/%`;
+function subtreePrefix(value: string): string {
+  return value.endsWith('/') ? value : `${value}/`;
 }
 
 /**
@@ -146,6 +144,7 @@ export async function listLiveAssetLocationsUnderFolder(
   relPath: string,
   dbOverride?: SqliteDb,
 ): Promise<FolderLocationMatch[]> {
+  const subtree = subtreePrefix(relPath);
   const rows = await sqliteDb(dbOverride).read<{
     asset_id: string;
     path: string;
@@ -156,10 +155,10 @@ export async function listLiveAssetLocationsUnderFolder(
        JOIN assets a ON a.id = l.asset_id
       WHERE l.library_id = ?
         AND l.deleted_at IS NULL
-        AND (l.path = ? OR l.path LIKE ? ESCAPE '\\')
+        AND (l.path = ? OR substr(l.path, 1, length(?)) = ?)
         AND a.deleted_at IS NULL
       ORDER BY l.asset_id, l.ordinal`,
-    [toHex(folderId), relPath, likePrefix(relPath)],
+    [toHex(folderId), relPath, subtree, subtree],
   );
   return firstPerAsset(rows);
 }
@@ -181,6 +180,7 @@ export async function listTrashedAssetLocationsUnderFolder(
   dbOverride?: SqliteDb,
 ): Promise<FolderLocationMatch[]> {
   const absFolderPath = relPath === '' ? folderRoot : path.join(folderRoot, relPath);
+  const subtree = subtreePrefix(absFolderPath);
   const rows = await sqliteDb(dbOverride).read<{
     asset_id: string;
     path: string;
@@ -191,9 +191,9 @@ export async function listTrashedAssetLocationsUnderFolder(
        JOIN assets a ON a.id = l.asset_id
       WHERE l.library_id = ?
         AND a.deleted_at IS NOT NULL
-        AND (a.original_path = ? OR a.original_path LIKE ? ESCAPE '\\')
+        AND (a.original_path = ? OR substr(a.original_path, 1, length(?)) = ?)
       ORDER BY l.asset_id, l.ordinal`,
-    [toHex(folderId), absFolderPath, likePrefix(absFolderPath)],
+    [toHex(folderId), absFolderPath, subtree, subtree],
   );
   return firstPerAsset(rows);
 }
