@@ -241,53 +241,86 @@ export class BatchSyncAssetIO {
     // While the editor holds a sibling variant for this asset, the live model
     // is that sibling's; the Primary is written without touching it.
     const live = sameSidecar(this.xmpStore.bindingFor(currentId, folder, asset.filename), binding);
-    // Flush any edit the user made while the worker was preparing this item.
-    // Then read the authoritative target sidecar, including unknown XML and
-    // culling. An unreadable existing sidecar is a recorded failure, never a
-    // license to write a default document over it.
+    const target = await this.readTarget(currentId, folder, binding.filename, live);
+    assertPreparedStillApplies(target.current, prepared);
+    if (live) this.mergeLiveTarget(currentId, target, prepared.patch);
+    await this.xmpStore.writeBound(
+      currentId,
+      binding,
+      live ? this.library.adjustmentFor(currentId)() : { ...target.current, ...prepared.patch },
+      live ? cullingOf(this.store.findAsset(currentId)!) : (target.culling ?? EMPTY_CULLING),
+      { passthrough: target.parsed?.passthrough, metadata: target.parsed?.metadata },
+    );
+  }
+
+  /** Flush pending edits, then read the authoritative target sidecar. An unreadable
+   * existing sidecar is a recorded failure, never a license to write a default over it. */
+  private async readTarget(
+    currentId: AssetId,
+    folder: MapleFolderHandle,
+    sidecarName: string,
+    live: boolean,
+  ): Promise<TargetDocument> {
     await this.library.flushPendingXmpWrites();
     const beforeRead = structuredClone(this.library.adjustmentFor(currentId)());
-    const xml = await this.readSidecar(folder, binding.filename);
+    const xml = await this.readSidecar(folder, sidecarName);
     const parsed = xml === undefined ? undefined : this.parser.parseAdjustmentModel(xml);
     const model = { ...defaultAdjustmentModel(), ...parsed?.model };
     // A user can keep editing while the filesystem read is in flight. Fold
     // those new fields over the disk base before applying the selected group.
-    const afterRead = this.library.adjustmentFor(currentId)();
     const authoredDuringRead = live
-      ? Object.fromEntries(
-          (Object.keys(afterRead) as (keyof AdjustmentModel)[])
-            .filter((key) => JSON.stringify(beforeRead[key]) !== JSON.stringify(afterRead[key]))
-            .map((key) => [key, structuredClone(afterRead[key])]),
-        )
+      ? changedFields(beforeRead, this.library.adjustmentFor(currentId)())
       : {};
-    const current = { ...model, ...authoredDuringRead };
-    const matches = (expected: Partial<AdjustmentModel>) =>
-      (Object.keys(prepared.patch) as (keyof AdjustmentModel)[]).every(
-        (key) => JSON.stringify(current[key]) === JSON.stringify(expected[key]),
-      );
-    if (!matches(prepared.before) && !matches(prepared.after))
-      throw new Error(
-        'Selected settings changed after this batch was prepared. Copy settings again to replace them.',
-      );
-    const diskCulling = xml === undefined ? undefined : this.parser.parseCulling(xml);
-    if (live) {
-      this.store.mergePersistedAdjustment(currentId, model, authoredDuringRead);
-      if (diskCulling) this.store.mergePersistedCulling(currentId, diskCulling);
-      this.xmpStore.replacePassthroughs(
-        [currentId],
-        parsed ? new Map([[currentId, parsed.passthrough]]) : new Map(),
-        parsed ? new Map([[currentId, parsed.metadata]]) : new Map(),
-      );
-      this.library.updateAdjustment(currentId, prepared.patch);
-    }
-    await this.xmpStore.writeBound(
-      currentId,
-      binding,
-      live ? this.library.adjustmentFor(currentId)() : { ...current, ...prepared.patch },
-      live ? cullingOf(this.store.findAsset(currentId)!) : (diskCulling ?? EMPTY_CULLING),
-      { passthrough: parsed?.passthrough, metadata: parsed?.metadata },
-    );
+    return {
+      parsed,
+      model,
+      authoredDuringRead,
+      current: { ...model, ...authoredDuringRead },
+      culling: xml === undefined ? undefined : this.parser.parseCulling(xml),
+    };
   }
+
+  private mergeLiveTarget(
+    currentId: AssetId,
+    target: TargetDocument,
+    patch: Partial<AdjustmentModel>,
+  ): void {
+    this.store.mergePersistedAdjustment(currentId, target.model, target.authoredDuringRead);
+    if (target.culling) this.store.mergePersistedCulling(currentId, target.culling);
+    this.xmpStore.replacePassthroughs(
+      [currentId],
+      target.parsed ? new Map([[currentId, target.parsed.passthrough]]) : new Map(),
+      target.parsed ? new Map([[currentId, target.parsed.metadata]]) : new Map(),
+    );
+    this.library.updateAdjustment(currentId, patch);
+  }
+}
+
+interface TargetDocument {
+  parsed?: ReturnType<XmpParserService['parseAdjustmentModel']>;
+  model: AdjustmentModel;
+  authoredDuringRead: Partial<AdjustmentModel>;
+  current: AdjustmentModel;
+  culling?: XmpCulling;
+}
+
+function changedFields(before: AdjustmentModel, after: AdjustmentModel): Partial<AdjustmentModel> {
+  return Object.fromEntries(
+    (Object.keys(after) as (keyof AdjustmentModel)[])
+      .filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]))
+      .map((key) => [key, structuredClone(after[key])]),
+  );
+}
+
+function assertPreparedStillApplies(current: AdjustmentModel, prepared: PreparedBatchPatch): void {
+  const matches = (expected: Partial<AdjustmentModel>) =>
+    (Object.keys(prepared.patch) as (keyof AdjustmentModel)[]).every(
+      (key) => JSON.stringify(current[key]) === JSON.stringify(expected[key]),
+    );
+  if (!matches(prepared.before) && !matches(prepared.after))
+    throw new Error(
+      'Selected settings changed after this batch was prepared. Copy settings again to replace them.',
+    );
 }
 
 const EMPTY_CULLING: XmpCulling = { rating: 0, flag: 'unflagged', colorLabel: null, keywords: [] };
