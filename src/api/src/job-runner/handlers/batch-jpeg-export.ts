@@ -4,7 +4,11 @@ import { readFile } from '../../fs/mirrored.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
 import { loadAssetLocationViews } from '../../db/repos/assets.locations.repo.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import {
+  hasTestLibraryRootsOverride,
+  invalidateLibraryRoots,
+  loadLibraryRoots,
+} from '../../indexer/libraries.cache.ts';
 import { DEFAULT_EXPORT_RECIPE } from '../../generated/export-recipe.generated.ts';
 import { parseExportPayload } from '../../export/export-payload.ts';
 import { batchRecipeExportHandler } from './batch-recipe-export.ts';
@@ -28,12 +32,17 @@ async function snapshot(path: string): Promise<string> {
 
 async function recipePayload(raw: Record<string, unknown>): Promise<Record<string, unknown>> {
   const ids = assetIds(raw['assetIds']);
-  const roots = await loadLibraryRoots();
+  let roots = await loadLibraryRoots();
   const byId = await loadAssetLocationViews(ids.map((id) => new ObjectId(id)));
   const targets = [];
   for (const [index, id] of ids.entries()) {
     const view = byId.get(id);
-    const path = view ? assetAbsPath(view, roots) : null;
+    let path = view ? assetAbsPath(view, roots) : null;
+    if (!path && view && !hasTestLibraryRootsOverride()) {
+      invalidateLibraryRoots({ localOnly: true });
+      roots = await loadLibraryRoots();
+      path = assetAbsPath(view, roots);
+    }
     if (!path) throw new Error(`Cannot resolve original ${id}`);
     const xmp = await snapshot(path);
     targets.push({

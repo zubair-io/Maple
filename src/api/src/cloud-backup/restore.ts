@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { mkdir, open, link, unlink, lstat, realpath, readdir, statfs } from '../fs/mirrored.ts';
-import { safeWriteAllowed, registerRoot } from '../fs/root.ts';
+import { safeWriteAllowed } from '../fs/root.ts';
 import { fileHash, relativeBackupPath } from './inventory.ts';
 import { latestManifests, readRemoteCatalog, readEntryPurge } from './catalog.ts';
 import type { BackupProvider, BackupManifest } from './provider.ts';
@@ -368,7 +368,6 @@ async function indexRecovery(
       label: 'Recovered photos',
       slug: `recovered-${journal.jobId}`,
     }));
-  registerRoot(journal.root);
   invalidateLibraryRoots();
   for (const entry of journal.entries) {
     await cancellation.poll();

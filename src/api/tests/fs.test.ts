@@ -47,6 +47,8 @@ describe('safeReadFile', () => {
   });
 
   afterAll(async () => {
+    const { unregisterRoot } = await import('../src/fs/root.ts');
+    unregisterRoot(tmpDir);
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
@@ -111,6 +113,8 @@ describe('writeXmpAtomic', () => {
   });
 
   afterAll(async () => {
+    const { unregisterRoot } = await import('../src/fs/root.ts');
+    unregisterRoot(tmpDir);
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 

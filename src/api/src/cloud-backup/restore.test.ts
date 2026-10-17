@@ -348,3 +348,117 @@ test('preview verifies exact object locator, key, size and checksum and names un
     await f.close();
   }
 });
+
+test('export and batch sync on an existing library still work after a cloud-backup restore with MAPLE_ROOTS unset (#4747)', async () => {
+  const f = await fixture();
+  const originalMapleRoots = process.env.MAPLE_ROOTS;
+  const { mkdtemp, realpath } = await import('../fs/mirrored.ts');
+  const { tmpdir } = await import('node:os');
+  const { createHash, randomUUID } = await import('node:crypto');
+  const { unregisterRoot } = await import('../fs/root.ts');
+  const { insertFolder } = await import('../db/sqlite/test-sqlite.test-helpers.ts');
+  const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+  const { batchAdjustmentSyncHandler } =
+    await import('../job-runner/handlers/batch-adjustment-sync.ts');
+  const { publishExport } = await import('../export/export-files.ts');
+  const { exportOriginals } = await import('../export/export-originals.ts');
+  const { DEFAULT_EXPORT_RECIPE } = await import('../generated/export-recipe.generated.ts');
+
+  const existingRoot = await realpath(await mkdtemp(path.join(tmpdir(), 'maple-existing-lib-')));
+  try {
+    delete process.env.MAPLE_ROOTS;
+    insertFolder(f.live.db, { path: existingRoot, slug: 'existing' });
+    invalidateLibraryRoots();
+
+    const existingPhoto = path.join(existingRoot, 'existing.jpg');
+    const existingSidecar = path.join(existingRoot, 'existing.xmp');
+    await writeFile(existingPhoto, 'existing-original-bytes');
+    await writeFile(
+      existingSidecar,
+      '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about=""/></rdf:RDF>',
+    );
+
+    // Run cloud-backup restore into f.root. Previously this called registerRoot(f.root)
+    // in the worker and locked out every other library root in SQLite.
+    f.provider.manifest(1);
+    expect((await recoverBackup(f.provider, f.request, f.ctx, source)).kind).toBe('done');
+    // Clear the test-fixture's in-memory root registration so authorization relies
+    // exclusively on the shared SQLite `folders` rows for both existingRoot and f.root.
+    unregisterRoot(f.root);
+
+    // 1. Batch adjustment sync on the pre-existing library still succeeds.
+    let syncCheckpoint: Record<string, unknown> | undefined;
+    const syncOutcome = await batchAdjustmentSyncHandler.run(
+      {
+        targets: [{ id: 'existing:existing.jpg', path: existingPhoto }],
+        patch: { attributes: { 'crs:Exposure2012': '0.75' }, elements: {} },
+      },
+      {
+        jobId: f.ctx.jobId,
+        checkpoint: syncCheckpoint,
+        saveCheckpoint: async (value) => {
+          syncCheckpoint = value;
+        },
+        reportProgress: async () => {},
+        shouldCancel: async () => false,
+      },
+    );
+    expect(syncOutcome.kind).toBe('done');
+    expect(syncOutcome.result['applied']).toEqual(['existing:existing.jpg']);
+    expect(await readFile(existingSidecar, 'utf8')).toContain('crs:Exposure2012="0.75"');
+
+    // 2. Export publication into the pre-existing library still succeeds.
+    const exportDir = path.join(existingRoot, 'exports');
+    await mkdir(exportDir, { recursive: true });
+    const jobIdHex = f.ctx.jobId.toHexString();
+    const stagedBytes = 'exported-jpeg-bytes';
+    const tempPath = path.join(exportDir, `.maple-export-${jobIdHex}-${randomUUID()}.tmp`);
+    const outputPath = path.join(exportDir, 'existing.jpg');
+    await writeFile(tempPath, stagedBytes);
+    const afterHash = createHash('sha256').update(stagedBytes).digest('hex');
+
+    const recipe = {
+      ...DEFAULT_EXPORT_RECIPE,
+      destination: 'directory' as const,
+      directory: exportDir,
+      overwritePolicy: 'error' as const,
+    };
+    const originals = await exportOriginals(
+      {
+        targets: [
+          {
+            id: 'existing:existing.jpg',
+            path: existingPhoto,
+            xmp: '',
+            index: 0,
+            capturedAt: null,
+          },
+        ],
+        recipe,
+      },
+      { originalPaths: [existingPhoto] },
+    );
+
+    const published = await publishExport(
+      {
+        id: 'existing:existing.jpg',
+        status: 'prepared',
+        tempPath,
+        outputPath,
+        beforeHash: null,
+        afterHash,
+      },
+      recipe,
+      jobIdHex,
+      originals,
+    );
+    expect(published.status).toBe('applied');
+    expect(await readFile(outputPath, 'utf8')).toBe(stagedBytes);
+  } finally {
+    if (originalMapleRoots === undefined) delete process.env.MAPLE_ROOTS;
+    else process.env.MAPLE_ROOTS = originalMapleRoots;
+    await f.close();
+    await rm(existingRoot, { recursive: true, force: true });
+    invalidateLibraryRoots();
+  }
+});
