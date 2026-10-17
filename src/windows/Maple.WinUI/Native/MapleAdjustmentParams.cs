@@ -143,6 +143,9 @@ namespace Maple.WinUI.Native
                 nr_sampling_scale = nrSamplingScale,
                 temperature = (float)m.Temperature,
                 tint = (float)m.Tint,
+                // #4740: the CPU chain honours the model's WB method like
+                // the live chain (0 = CAT16, 1 = diagonal Rec.2020).
+                wb_method = m.WbMethod == WbMethod.DiagonalRec2020 ? 1u : 0u,
                 exposure = (float)m.Exposure,
                 contrast = (float)m.Contrast,
                 highlights = (float)m.Highlights,
