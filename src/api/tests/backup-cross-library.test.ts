@@ -41,6 +41,7 @@ import {
   seedUser,
 } from './helpers/sqlite-fixtures.ts';
 import { invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';
+import { formatBackupPath } from '../src/backup/path-formatter.ts';
 
 const deviceId = 'test-device-cross-lib';
 const phid = 'XLIB/L0/001';
@@ -205,5 +206,67 @@ describe('cross-library backup: same content already in library A, backing up to
     // Library A's original copy is untouched — dedup never clobbered it.
     const stillInA = await fs.readFile(path.join(tmpLibA, relPathInA));
     expect(stillInA.byteLength).toBe(sharedBytes.byteLength);
+  });
+});
+
+// #4696: library B's computed target is already occupied by an unrelated file.
+// Materializing the copy must neither overwrite that file nor adopt it.
+describe('cross-library backup: the target path in library B is already occupied (#4696)', () => {
+  const captureDate = '2024-07-04T12:00:00Z';
+  const targetInB = formatBackupPath({
+    captureDate: new Date(captureDate),
+    location: null,
+    filename: 'IMG_XLIB.HEIC',
+  });
+
+  async function ingestToB(): Promise<{ maple_id: string; target_rel_path: string }> {
+    const res = await authedHandle(
+      ingest(sharedBytes, {
+        'X-Maple-Device-Id': deviceId,
+        'X-Maple-Phasset-Id': phid,
+        'X-Maple-Capture-Date': captureDate,
+        'X-Maple-Filename': 'IMG_XLIB.HEIC',
+        'X-Maple-Total-Bytes': String(sharedBytes.byteLength),
+        'X-Maple-Maple-Id': sharedMapleId,
+        'Content-Range': `bytes 0-${sharedBytes.byteLength - 1}/${sharedBytes.byteLength}`,
+      }),
+    );
+    expect(res.status).toBe(200);
+    return (await res.json()) as { maple_id: string; target_rel_path: string };
+  }
+
+  for (const [name, occupant] of [
+    ['a different size', Buffer.alloc(sharedBytes.byteLength + 7, 0x11)],
+    ['the same size', Buffer.alloc(sharedBytes.byteLength, 0x11)],
+  ] as const) {
+    test(`an occupant of ${name} is left untouched and the upload lands beside it`, async () => {
+      const occupantPath = path.join(tmpLibB, targetInB);
+      await fs.mkdir(path.dirname(occupantPath), { recursive: true });
+      await fs.writeFile(occupantPath, occupant);
+
+      const body = await ingestToB();
+
+      expect(body.target_rel_path).not.toBe(targetInB);
+      expect(await fs.readFile(occupantPath)).toEqual(occupant);
+      expect(await fs.readFile(path.join(tmpLibB, body.target_rel_path))).toEqual(sharedBytes);
+      const assetId = findAssetIdByMapleId(live.db, sharedMapleId);
+      const inB = readLocations(live.db, assetId!).filter(
+        (location) => location.library_id === libB.toHexString(),
+      );
+      expect(inB).toHaveLength(1);
+      expect(`${inB[0]!.path}/${inB[0]!.filename}`).toBe(body.target_rel_path);
+    });
+  }
+
+  test('an occupant holding the same bytes is adopted without a second copy', async () => {
+    const occupantPath = path.join(tmpLibB, targetInB);
+    await fs.mkdir(path.dirname(occupantPath), { recursive: true });
+    await fs.writeFile(occupantPath, sharedBytes);
+
+    const body = await ingestToB();
+
+    expect(body.target_rel_path).toBe(targetInB);
+    const siblings = await fs.readdir(path.dirname(occupantPath));
+    expect(siblings.filter((name) => name.startsWith('IMG_XLIB'))).toHaveLength(1);
   });
 });
