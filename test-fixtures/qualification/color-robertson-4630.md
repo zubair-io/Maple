@@ -4,7 +4,7 @@
 
 The inverse temperature/tint conversion measured tint displacement from the
 upper bracketing Robertson table row instead of the interpolated locus point.
-The isolated correction updates Rust, Swift and TypeScript while retaining the
+The isolated correction updates Rust, Swift, TypeScript and C# while retaining the
 table, tint scale, forward mapping and sidecar schema. Legacy conversion ports
 also retain the authoritative Rust f32 arithmetic; updated cross-language
 goldens keep their original tolerances.
@@ -45,6 +45,27 @@ The GPU and binding runs use the same committed algorithm revision
 That revision is retained as `codex/qualification-robertson-afdc8ffb` for
 reproduction after the working branch is rebased.
 Native-host WASM tests do not claim browser-WebGPU execution.
+
+## Windows review correction
+
+Review of PR #4804 identified the remaining Windows legacy-sidecar reader.
+It now measures inverse tint from the interpolated locus and evaluates the
+legacy forward map with the same f32 arithmetic as raw-core. The existing
+V2/V3/V4 parser expectations are corrected, and all 24 shared-core legacy
+vectors are checked at the unchanged 0.05 K / 0.005 tint tolerances.
+
+The cross-platform .NET XMP suite passes **223 tests in both Debug and Release,
+zero failures/skips**,
+including the 37 version/mapping tests and legacy save/reload coverage. This
+runs the actual production C# parser, serializer and mapping sources on the
+macOS .NET host; Windows application execution remains a CI gate. The initial
+run retained one stale temperature-only tint expectation, which was corrected
+from 11.083624 to 9.9615898; its failure log is preserved with the passing run.
+
+Rust and other mapping sources are unchanged by this review correction, so
+the physical renderer qualification below remains applicable. Logs and TRX
+results are archived under `robertson-current-main/windows-review/` and
+`robertson-current-main/windows-xmp-review.log`.
 
 ## Physical qualification
 
