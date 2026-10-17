@@ -129,13 +129,16 @@ export const uploadSessions = {
   },
 
   /**
-   * Reset `received_bytes` to 0 when disk and database are out of sync (the tmp
+   * Reset `received_bytes` to 0 and ensure the session is `'open'` when disk
+   * and database are out of sync (the tmp file or previously completed target
    * file was deleted). The client must restart from offset 0.
    */
   async resetForRestart(sessionId: ObjectId, dbOverride?: SqliteDb): Promise<void> {
     const [updatedAt, expiresAt] = stamps();
     await sqliteDb(dbOverride).write(
-      `UPDATE upload_sessions SET received_bytes = 0, updated_at = ?, expires_at = ?
+      `UPDATE upload_sessions
+          SET state = 'open', received_bytes = 0, maple_id = NULL, resolved_rel_path = NULL,
+              updated_at = ?, expires_at = ?
         WHERE id = ?`,
       [updatedAt, expiresAt, toHex(sessionId)],
     );

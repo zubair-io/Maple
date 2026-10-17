@@ -86,7 +86,16 @@ function splitRelPath(relPath: string): { dir: string; filename: string } {
 const LIVE_REL_PATH_SUBQUERY = `
   (SELECT ${REL_PATH_EXPRESSION}
      FROM asset_locations l
-    WHERE l.asset_id = a.id AND l.library_id = ? AND l.deleted_at IS NULL
+    WHERE l.asset_id = a.id AND l.library_id = ?
+      AND l.deleted_at IS NULL AND l.missing_since IS NULL
+    ORDER BY l.ordinal LIMIT 1)`;
+
+/** The library-relative path of an asset's first missing location in a library. */
+const MISSING_REL_PATH_SUBQUERY = `
+  (SELECT ${REL_PATH_EXPRESSION}
+     FROM asset_locations l
+    WHERE l.asset_id = a.id AND l.library_id = ?
+      AND l.deleted_at IS NULL AND l.missing_since IS NOT NULL
     ORDER BY l.ordinal LIMIT 1)`;
 
 // ---------------------------------------------------------------------------
@@ -97,8 +106,9 @@ const LIVE_REL_PATH_SUBQUERY = `
  * Which of these content ids the library already holds, live.
  *
  * Backs the batch dedup probe the device runs before uploading. Scoped to a
- * live location (`deleted_at IS NULL`) so a photo the user trashed is reported
- * absent and gets re-uploaded rather than silently skipped forever.
+ * live location (`deleted_at IS NULL AND missing_since IS NULL`) so a photo
+ * the user trashed or whose on-disk copy was lost is reported absent and gets
+ * re-uploaded rather than silently skipped forever.
  */
 export async function findMapleIdsPresentInLibrary(
   mapleIds: readonly string[],
@@ -111,7 +121,7 @@ export async function findMapleIdsPresentInLibrary(
        FROM assets a
        JOIN asset_locations l ON l.asset_id = a.id
       WHERE a.maple_id IN (${placeholders(mapleIds.length)})
-        AND l.library_id = ? AND l.deleted_at IS NULL`,
+        AND l.library_id = ? AND l.deleted_at IS NULL AND l.missing_since IS NULL`,
     [...mapleIds, toHex(libraryId)],
   );
   return new Set(rows.map((row) => row.maple_id));
@@ -124,23 +134,29 @@ export interface IngestDedupTarget {
   id: ObjectId;
   /**
    * Library-relative path of its first live location *in this library*, or
-   * `null` when the content lives only in some other library. `null` is what
-   * makes the ingest route materialise a second copy here instead of
-   * pure-deduplicating.
+   * `null` when the content has no live location here. `null` is what makes
+   * the ingest route materialise a copy here instead of pure-deduplicating.
    */
   liveRelPathInLibrary: string | null;
+  /**
+   * Library-relative path of its first missing (non-deleted) location *in this
+   * library*, or `null` when none exists. When re-materialising a lost copy,
+   * the ingest route restores the bytes to this path so the existing location
+   * row can be re-activated in place (#4700).
+   */
+  missingRelPathInLibrary: string | null;
   /** Whether this device's PHAsset is already linked to the asset. */
   alreadyLinked: boolean;
 }
 
 /**
  * The asset that already carries this content id, if any, answered together
- * with the two facts the ingest route branches on.
+ * with the facts the ingest route branches on.
  *
  * Deliberately *not* library-scoped, exactly as the `findOne({ maple_id })` it
  * replaces: `maple_id` is a global content hash, and a match in another library
  * is the cross-library case the route materialises a copy for. The library
- * appears only in the sub-select that decides which case this is.
+ * appears only in the sub-selects that decide which case this is.
  */
 export async function findIngestDedupTarget(
   args: {
@@ -151,26 +167,30 @@ export async function findIngestDedupTarget(
   },
   dbOverride?: SqliteDb,
 ): Promise<IngestDedupTarget | null> {
+  const libHex = toHex(args.libraryId);
   const rows = await sqliteDb(dbOverride).read<{
     id: string;
     live_rel_path: string | null;
+    missing_rel_path: string | null;
     already_linked: number;
   }>(
     `SELECT a.id AS id,
             ${LIVE_REL_PATH_SUBQUERY} AS live_rel_path,
+            ${MISSING_REL_PATH_SUBQUERY} AS missing_rel_path,
             EXISTS (SELECT 1 FROM asset_phasset_links p
                      WHERE p.asset_id = a.id AND p.device_id = ? AND p.phasset_local_id = ?)
               AS already_linked
        FROM assets a
       WHERE a.maple_id = ?
       LIMIT 1`,
-    [toHex(args.libraryId), args.deviceId, args.phassetLocalId, args.mapleId],
+    [libHex, libHex, args.deviceId, args.phassetLocalId, args.mapleId],
   );
   const row = rows[0];
   if (row === undefined) return null;
   return {
     id: new ObjectId(row.id),
     liveRelPathInLibrary: row.live_rel_path,
+    missingRelPathInLibrary: row.missing_rel_path,
     alreadyLinked: row.already_linked === 1,
   };
 }
@@ -210,7 +230,8 @@ export async function listBackupState(
        JOIN assets a ON a.id = p.asset_id
       WHERE p.device_id = ? AND p.first_seen >= ?
         AND EXISTS (SELECT 1 FROM asset_locations l
-                     WHERE l.asset_id = a.id AND l.library_id = ? AND l.deleted_at IS NULL)`,
+                     WHERE l.asset_id = a.id AND l.library_id = ?
+                       AND l.deleted_at IS NULL AND l.missing_since IS NULL)`,
     [library, deviceId, since.toISOString(), library],
   );
 }
@@ -283,12 +304,14 @@ export interface AppendBackupLocationInput {
 }
 
 /**
- * Cross-library dedup: the content already exists as an asset, so record this
- * upload as one more location on it.
+ * Cross-library dedup or missing-location repair: the content already exists as
+ * an asset, so record this upload as a live location on it.
  *
- * The new row takes the next free `ordinal`, which is what keeps `ordinal = 0`
- * meaning "the canonical entry" — appending is the `$push` it replaces, not a
- * replacement of the primary.
+ * A genuinely new location takes the next free `ordinal`, keeping `ordinal = 0`
+ * meaning "the canonical entry". When re-materialising a copy at an existing
+ * location row (e.g. one marked `missing_since` after its file was lost on
+ * disk, #4700), the `(library_id, path, filename)` conflict re-activates that
+ * row in place and clears `missing_since` / `missing_reason` / `deleted_at`.
  */
 export async function appendBackupLocation(
   assetId: ObjectId,
@@ -302,7 +325,12 @@ export async function appendBackupLocation(
     {
       sql: `INSERT INTO asset_locations (asset_id, ordinal, library_id, path, filename)
             SELECT ?, COALESCE(MAX(ordinal), -1) + 1, ?, ?, ?
-              FROM asset_locations WHERE asset_id = ?`,
+              FROM asset_locations WHERE asset_id = ?
+            ON CONFLICT (library_id, path, filename) DO UPDATE SET
+              deleted_at = NULL,
+              missing_since = NULL,
+              missing_reason = NULL
+            WHERE asset_locations.asset_id = excluded.asset_id`,
       params: [hex, toHex(input.libraryId), dir, filename, hex],
     },
     ...(input.link === null ? [] : [linkStatement(hex, input.link)]),

@@ -240,4 +240,85 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
     expect(byPhid.get(phidA)?.phasset_cloud_id).toBe(sharedCloudId);
     expect(byPhid.get(phidB)?.phasset_cloud_id).toBe(sharedCloudId);
   });
+
+  test('location marked missing_since + upload → file restored at that path and missing_since cleared (#4700)', async () => {
+    const missingRelPath = 'indexed/IMG_LOST.HEIC';
+    const missingAbsPath = path.join(suite.handle.tmpLib, missingRelPath);
+    const repairBytes = Buffer.alloc(512, 0x42);
+    const capturedAt = '2024-09-02T10:00:00.000Z';
+    const id = deriveId(new Uint8Array(repairBytes), capturedAt, null, null);
+
+    // Seed the asset whose file was lost on disk and marked missing_since by
+    // the watcher.
+    const seededId = seedBackupAsset(suite.handle.db, {
+      mapleId: id.hex,
+      size: repairBytes.byteLength,
+      locations: [
+        {
+          libraryId: suite.handle.libId,
+          relPath: missingRelPath,
+          missingSince: '2026-06-01T00:00:00.000Z',
+        },
+      ],
+      links: [{ deviceId, phassetLocalId: 'ABC/L0/LOST-1' }],
+    });
+
+    const res = await authedHandle(
+      ingest(repairBytes, {
+        'X-Maple-Device-Id': deviceId,
+        'X-Maple-Phasset-Id': 'ABC/L0/LOST-1',
+        'X-Maple-Capture-Date': capturedAt,
+        'X-Maple-Filename': 'IMG_LOST.HEIC',
+        'X-Maple-Total-Bytes': String(repairBytes.byteLength),
+        'X-Maple-Maple-Id': id.hex,
+        'Content-Range': `bytes 0-${repairBytes.byteLength - 1}/${repairBytes.byteLength}`,
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.maple_id).toBe(id.hex);
+    expect(body.target_rel_path).toBe(missingRelPath);
+
+    const onDisk = await fs.readFile(missingAbsPath);
+    expect(onDisk.equals(repairBytes)).toBe(true);
+
+    const loc = suite.handle.db
+      .query(`SELECT path, filename, missing_since FROM asset_locations WHERE asset_id = ?`)
+      .all(seededId.toHexString()) as {
+      path: string;
+      filename: string;
+      missing_since: string | null;
+    }[];
+    expect(loc).toEqual([{ path: 'indexed', filename: 'IMG_LOST.HEIC', missing_since: null }]);
+  });
+
+  test('same-device repair upload after file vanishes on disk (even before watcher marks missing_since) restores the file (#4700)', async () => {
+    const repairPhid = 'ABC/L0/LOST-SAME-DEVICE';
+    const repairMapleId = '023978112ca1bbdcafac231b39a23dc1';
+    const repairBytes = Buffer.alloc(256, 0x55);
+    const headers = {
+      'X-Maple-Device-Id': deviceId,
+      'X-Maple-Phasset-Id': repairPhid,
+      'X-Maple-Capture-Date': '2024-09-03T10:00:00.000Z',
+      'X-Maple-Filename': 'IMG_VANISHED.HEIC',
+      'X-Maple-Total-Bytes': String(repairBytes.byteLength),
+      'X-Maple-Maple-Id': repairMapleId,
+      'Content-Range': `bytes 0-${repairBytes.byteLength - 1}/${repairBytes.byteLength}`,
+    };
+
+    const first = await authedHandle(ingest(repairBytes, headers));
+    expect(first.status).toBe(200);
+    const firstBody = await first.json();
+    const absPath = path.join(suite.handle.tmpLib, firstBody.target_rel_path);
+    await fs.unlink(absPath);
+
+    // Re-upload from the same device while the file is gone on disk.
+    const second = await authedHandle(ingest(repairBytes, headers));
+    expect(second.status).toBe(200);
+    const secondBody = await second.json();
+    expect(secondBody.target_rel_path).toBe(firstBody.target_rel_path);
+
+    const restored = await fs.readFile(absPath);
+    expect(restored.equals(repairBytes)).toBe(true);
+  });
 });

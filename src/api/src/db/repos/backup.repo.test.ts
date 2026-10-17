@@ -188,6 +188,23 @@ describe('the dedup lookup the ingest route branches on', () => {
     expect(found?.liveRelPathInLibrary).toBeNull();
   });
 
+  test('a missing location does not count as a live copy and exposes its path for repair', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const lib = library(handle.db);
+    const id = await seedUpload(db, lib);
+    handle.db.run(`UPDATE asset_locations SET missing_since = ? WHERE asset_id = ?`, [
+      '2026-05-12T00:00:00.000Z',
+      id.toHexString(),
+    ]);
+    const found = await findIngestDedupTarget(
+      { mapleId: 'content-1', libraryId: lib, deviceId: DEVICE, phassetLocalId: 'P1' },
+      db,
+    );
+    expect(found?.liveRelPathInLibrary).toBeNull();
+    expect(found?.missingRelPathInLibrary).toBe('2024/Tokyo/IMG_0001.HEIC');
+  });
+
   test('a link for a different local id on the same device does not count as linked', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
@@ -280,6 +297,41 @@ describe('materialising a second copy in another library', () => {
     );
     expect(assetRow(handle.db, 'content-1').media_kind).toBe('video');
   });
+
+  test('re-materialising an existing missing location clears missing_since in place', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const lib = library(handle.db);
+    const id = await seedUpload(db, lib);
+    handle.db.run(
+      `UPDATE asset_locations SET missing_since = ?, missing_reason = 'watcher' WHERE asset_id = ?`,
+      ['2026-05-12T00:00:00.000Z', id.toHexString()],
+    );
+    expect(assetRow(handle.db, 'content-1').live_location_count).toBe(0);
+
+    await appendBackupLocation(
+      id,
+      { relPath: '2024/Tokyo/IMG_0001.HEIC', libraryId: lib, link: null },
+      db,
+    );
+
+    const loc = handle.db
+      .query(
+        `SELECT ordinal, path, filename, missing_since, missing_reason
+           FROM asset_locations WHERE asset_id = ?`,
+      )
+      .all(id.toHexString());
+    expect(loc).toEqual([
+      {
+        ordinal: 0,
+        path: '2024/Tokyo',
+        filename: 'IMG_0001.HEIC',
+        missing_since: null,
+        missing_reason: null,
+      },
+    ]);
+    expect(assetRow(handle.db, 'content-1').live_location_count).toBe(1);
+  });
 });
 
 describe('the batch dedup probe', () => {
@@ -295,9 +347,14 @@ describe('the batch dedup probe', () => {
       '2026-05-12T00:00:00.000Z',
       trashed.toHexString(),
     ]);
+    const missing = await seedUpload(db, lib, { mapleId: 'missing', relPath: 'd.heic' });
+    handle.db.run(`UPDATE asset_locations SET missing_since = ? WHERE asset_id = ?`, [
+      '2026-05-12T00:00:00.000Z',
+      missing.toHexString(),
+    ]);
 
     const present = await findMapleIdsPresentInLibrary(
-      ['here', 'there', 'trashed', 'never-seen'],
+      ['here', 'there', 'trashed', 'missing', 'never-seen'],
       lib,
       db,
     );
@@ -344,6 +401,18 @@ describe('the device reconciliation feed', () => {
     const lib = library(handle.db);
     const id = await seedUpload(db, lib);
     handle.db.run(`UPDATE asset_locations SET deleted_at = ? WHERE asset_id = ?`, [
+      '2026-05-12T00:00:00.000Z',
+      id.toHexString(),
+    ]);
+    expect(await listBackupState(lib, DEVICE, new Date(0), db)).toEqual([]);
+  });
+
+  test('an asset whose location here is marked missing_since is left out', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const lib = library(handle.db);
+    const id = await seedUpload(db, lib);
+    handle.db.run(`UPDATE asset_locations SET missing_since = ? WHERE asset_id = ?`, [
       '2026-05-12T00:00:00.000Z',
       id.toHexString(),
     ]);
