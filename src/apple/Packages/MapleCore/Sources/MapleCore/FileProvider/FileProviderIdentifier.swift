@@ -14,8 +14,6 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
     /// (`<base> (conflict from <device>).xmp`). The basename excludes the
     /// `.xmp` extension.
     case sidecar(assetID: String, conflictBasename: String?)
-    /// Per-library Trash virtual container. Children = trashed asset items.
-    case trash(folderID: String)
     /// Synthetic `.maple/` container surfaced under every enumerable
     /// folder. The server filters `.maple/` out of `/api/fs/dir` (dotdir
     /// hide), so the FP extension synthesizes the dir client-side from
@@ -43,7 +41,7 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
     case preview(assetID: String)
 
     public enum DecodeError: Error {
-        case invalidPrefix, malformedFolder, malformedFile, malformedSidecar, malformedTrash,
+        case invalidPrefix, malformedFolder, malformedFile, malformedSidecar,
              malformedMapleDir, malformedThumbsDir, malformedThumb, malformedPreviewsDir,
              malformedPreview, badBase64
     }
@@ -61,8 +59,6 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
                 return "sidecar/\(assetID):\(Self.b64urlEncode(conflictBasename))"
             }
             return "sidecar/\(assetID)"
-        case .trash(let folderID):
-            return "trash/\(folderID)"
         case .mapleDir(let folderID, let parentRelativePath):
             return "mapledir/\(folderID):\(Self.b64urlEncode(parentRelativePath))"
         case .mapleThumbsDir(let folderID, let parentRelativePath):
@@ -118,12 +114,6 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
             let assetID = String(body)
             if assetID.isEmpty { throw DecodeError.malformedSidecar }
             self = .sidecar(assetID: assetID, conflictBasename: nil)
-            return
-        }
-        if let body = rawValue.dropPrefixIfPresent("trash/") {
-            let folderID = String(body)
-            if folderID.isEmpty { throw DecodeError.malformedTrash }
-            self = .trash(folderID: folderID)
             return
         }
         // The `mapledirthumbs/` check MUST precede `mapledir/` — both

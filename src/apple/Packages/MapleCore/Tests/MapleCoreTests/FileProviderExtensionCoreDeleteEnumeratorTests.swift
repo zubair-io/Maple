@@ -270,7 +270,6 @@ final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
 
         let unsupported: [NSFileProviderItemIdentifier] = [
             NSFileProviderItemIdentifier(FileProviderIdentifier.folder(folderID: "f1", relativePath: "").rawValue),
-            NSFileProviderItemIdentifier(FileProviderIdentifier.trash(folderID: "f1").rawValue),
             NSFileProviderItemIdentifier(FileProviderIdentifier.mapleDir(folderID: "f1", parentRelativePath: "").rawValue),
             NSFileProviderItemIdentifier(FileProviderIdentifier.mapleThumbsDir(folderID: "f1", parentRelativePath: "").rawValue),
             NSFileProviderItemIdentifier(FileProviderIdentifier.thumb(assetID: validAssetID).rawValue),
@@ -287,6 +286,52 @@ final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
             XCTAssertEqual(ns?.code, NSFeatureUnsupportedError, "for \(identifier.rawValue)")
         }
         XCTAssertEqual(log.requests.count, 0, "none of these kinds should ever reach the network")
+    }
+
+    // MARK: - No Maple Trash in Finder (#4706)
+
+    /// Finder used to list a synthetic "<Library> Trash" next to every
+    /// library root. Its items shared the live asset identifier, so
+    /// `deleteItem` could not tell "trash this photo" from "purge this
+    /// trashed photo" and the only disambiguator was the server's
+    /// dual-mode DELETE — the exact mechanism that purged originals on a
+    /// retried delete. Permanent deletion lives in the app's Trash
+    /// browser; Finder gets no trash container at all.
+    func testRootEnumerationPublishesOnlyLibraryRoots() async {
+        let roots = [
+            LibraryRoot(id: "650a1b2c3d4e5f6071829305", path: "/lib/a", label: "A", fileCount: 1),
+            LibraryRoot(id: "650a1b2c3d4e5f6071829306", path: "/lib/b", label: "B", fileCount: 1),
+        ]
+        let catalog = FPCoreTestSupport.makeCatalog { _ in (500, Data(), [:]) }
+        let rootCache = LibraryRootCache(
+            domainID: "root-test",
+            defaults: UserDefaults(suiteName: "fp-root-test-\(UUID().uuidString)")!,
+            fetcher: { roots })
+        let observer = TestEnumerationObserver()
+
+        RootEnumerator(catalog: catalog, rootCache: rootCache)
+            .enumerateItems(for: observer, startingAt: NSFileProviderPage.initialPageSortedByName as NSFileProviderPage)
+        let finished = await observer.waitUntilFinished(timeoutSeconds: 5)
+
+        XCTAssertTrue(finished)
+        let published = observer.batches.flatMap { $0 }.map(\.itemIdentifier.rawValue)
+        XCTAssertNil(observer.error)
+        XCTAssertEqual(published, roots.map { FileProviderIdentifier.folder(folderID: $0.id, relativePath: "").rawValue })
+    }
+
+    func testTrashContainerIdentifierNoLongerParses() {
+        XCTAssertThrowsError(try FileProviderIdentifier(rawValue: "trash/650a1b2c3d4e5f6071829305")) { error in
+            XCTAssertEqual(error as? FileProviderIdentifier.DecodeError, .invalidPrefix)
+        }
+    }
+
+    func testStaleTrashContainerIdentifierHasNoEnumerator() {
+        let catalog = FPCoreTestSupport.makeCatalog { _ in (500, Data(), [:]) }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+
+        XCTAssertThrowsError(
+            try core.enumerator(for: NSFileProviderItemIdentifier("trash/650a1b2c3d4e5f6071829305"),
+                                request: NSFileProviderRequest()))
     }
 
     // MARK: - enumerator(for:) dispatch

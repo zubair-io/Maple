@@ -93,18 +93,6 @@ final class FileProviderIdentifierTests: XCTestCase {
         XCTAssertEqual(id, .sidecar(assetID: "abc", conflictBasename: nil))
     }
 
-    func testTrashRoundTrip() throws {
-        let id = FileProviderIdentifier.trash(folderID: "650a1b2c3d4e5f6071829304")
-        XCTAssertEqual(id.rawValue, "trash/650a1b2c3d4e5f6071829304")
-        XCTAssertEqual(try FileProviderIdentifier(rawValue: id.rawValue), id)
-    }
-
-    func testTrashWithoutFolderIDRejected() {
-        XCTAssertThrowsError(try FileProviderIdentifier(rawValue: "trash/")) { error in
-            XCTAssertEqual(error as? FileProviderIdentifier.DecodeError, .malformedTrash)
-        }
-    }
-
     // MARK: - .maple/ identifiers (issue #102)
 
     func testMapleDirRootRoundTrip() throws {

@@ -9,17 +9,17 @@ import OSLog
 
 /// Shared cursor <-> `NSFileProviderPage` codec for the enumerators that
 /// paginate through a REST endpoint's own opaque `next_cursor`
-/// (`FolderEnumerator`, `MapleThumbsEnumerator`, `TrashEnumerator`).
+/// (`FolderEnumerator`, `MapleThumbsEnumerator`).
 ///
 /// #2550: `FolderEnumerator`/`MapleThumbsEnumerator` used to ignore the
 /// OS's `startingAt` page entirely and full-drain every server page
 /// internally before calling `finishEnumerating` once — a second,
 /// enumerator-private pagination scheme layered underneath the OS's own.
-/// `TrashEnumerator` already did this correctly (one server page per
-/// `enumerateItems` call, OS page in → OS page out); this type factors
-/// that exact codec out so all three enumerators reconcile against the
-/// OS's page token as the SOLE pagination mechanism, rather than each
-/// maintaining its own.
+/// The since-removed Trash enumerator already did this correctly (one
+/// server page per `enumerateItems` call, OS page in → OS page out); this
+/// type factors that exact codec out so every enumerator reconciles
+/// against the OS's page token as the SOLE pagination mechanism, rather
+/// than each maintaining its own.
 enum FileProviderPageCursor {
     /// Decodes the OS-supplied starting page into a server cursor.
     /// Returns nil for the OS's own "start from the top" sentinels — a
@@ -96,14 +96,15 @@ public final class RootEnumerator: NSObject, NSFileProviderEnumerator {
                     roots = try await catalog.listFolders()
                 }
                 log.notice("root enumerate got \(roots.count, privacy: .public) roots: \(roots.map { $0.label }.joined(separator: ","), privacy: .public)")
-                // Library roots followed by one synthetic Trash item per
-                // library. Phase 3: Finder shows "<Library> Trash" alongside
-                // its photos folder; the .maple/ directory itself stays hidden.
-                var items: [NSFileProviderItem] = roots.map { MapleItem(libraryRoot: $0) }
-                items.append(contentsOf: roots.map {
-                    MapleItem(trashContainer: $0.id, displayName: "\($0.label) Trash")
-                })
-                log.notice("root enumerate published \(items.count, privacy: .public) items (incl. trash)")
+                // Library roots only. Finder gets no Maple Trash container
+                // (#4706): its items shared the live asset identifier, so a
+                // delete could not say whether it meant trash or purge and
+                // the server's dual-mode DELETE decided — the mechanism that
+                // purged originals on a retried delete. Permanent deletion
+                // lives in the app's Trash browser; the .maple/ directory
+                // itself stays hidden.
+                let items: [NSFileProviderItem] = roots.map { MapleItem(libraryRoot: $0) }
+                log.notice("root enumerate published \(items.count, privacy: .public) items")
                 observer.didEnumerate(items)
                 observer.finishEnumerating(upTo: nil)
             } catch {
@@ -343,62 +344,5 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
                 observer.finishEnumeratingWithError(error)
             }
         }
-    }
-}
-
-/// Per-library Trash enumerator. Paginates through `GET /api/folders/:id/trash`
-/// and emits one `MapleItem(trashed:)` per row. The trashed items keep their
-/// asset/<id> identifiers so the OS recognises them as the same item that
-/// disappeared from a folder enumeration.
-public final class TrashEnumerator: NSObject, NSFileProviderEnumerator {
-    private let catalog: RemoteCatalog
-    private let folderID: String
-    private let containerIdentifier: NSFileProviderItemIdentifier
-    private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "enumerator")
-
-    public init(catalog: RemoteCatalog, folderID: String, containerIdentifier: NSFileProviderItemIdentifier) {
-        self.catalog = catalog
-        self.folderID = folderID
-        self.containerIdentifier = containerIdentifier
-    }
-
-    public func invalidate() {}
-
-    public func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
-        Task {
-            do {
-                let cursor = FileProviderPageCursor.decode(page)
-                let resp = try await catalog.listTrash(folderID: folderID, limit: 200, cursor: cursor)
-                // Failable init (#2546) filters out rows with no asset id
-                // (a non-image file the server nonetheless listed as
-                // trashed) rather than letting the whole page's decode —
-                // or, pre-#2546, the whole response's Codable decode —
-                // fail atomically.
-                let items = resp.items.compactMap {
-                    MapleItem(trashed: $0, parentTrashIdentifier: containerIdentifier)
-                }
-                let skipped = resp.items.count - items.count
-                if skipped > 0 {
-                    log.error("trash enumerate: skipped \(skipped, privacy: .public) row(s) with no asset id")
-                }
-                observer.didEnumerate(items)
-                observer.finishEnumerating(upTo: resp.nextCursor.map(FileProviderPageCursor.encode))
-            } catch {
-                log.error("trash enumerate failed: \(error.localizedDescription, privacy: .public)")
-                observer.finishEnumeratingWithError(error)
-            }
-        }
-    }
-
-    public func enumerateChanges(for observer: NSFileProviderChangeObserver, from anchor: NSFileProviderSyncAnchor) {
-        // Intentionally inert (#2547): trashed items come from
-        // `GET /api/folders/:id/trash`, a separate feed the asset change
-        // feed does not describe. Freshness comes from a full
-        // re-enumeration on signal, not from a delta.
-        observer.finishEnumeratingChanges(upTo: anchor, moreComing: false)
-    }
-
-    public func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
-        completionHandler(NSFileProviderSyncAnchor(Data("0".utf8)))
     }
 }

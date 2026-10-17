@@ -752,14 +752,6 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         log.error("thumb item(for:) failed: \(error.localizedDescription, privacy: .public)")
                         completionHandler(nil, error)
                     }
-                case .trash(let folderID):
-                    let roots = try await rootCache.roots()
-                    guard let root = roots.first(where: { $0.id == folderID }) else {
-                        completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
-                                                       code: NSFileProviderError.noSuchItem.rawValue))
-                        return
-                    }
-                    completionHandler(MapleItem(trashContainer: folderID, displayName: "\(root.label) Trash"), nil)
                 }
             } catch {
                 log.error("item(for:) failed id=\(identifier.rawValue, privacy: .public) err=\(String(describing: error), privacy: .public)")
@@ -1036,7 +1028,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                                           relativePath: relativePath,
                                                           parentIdentifier: parentID), nil)
                     return
-                case .folder, .trash, .mapleDir, .mapleThumbsDir, .maplePreviewsDir:
+                case .folder, .mapleDir, .mapleThumbsDir, .maplePreviewsDir:
                     completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
                                                         code: NSFileProviderError.noSuchItem.rawValue))
                     return
@@ -1100,10 +1092,6 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             // Sidecars are leaf items, not containers — cannot be enumerated.
             throw NSError(domain: NSFileProviderErrorDomain,
                           code: NSFileProviderError.noSuchItem.rawValue)
-        case .trash(let folderID):
-            return TrashEnumerator(catalog: catalog,
-                                   folderID: folderID,
-                                   containerIdentifier: containerItemIdentifier)
         case .mapleDir(let folderID, let parentRelativePath):
             return MapleDirEnumerator(folderID: folderID,
                                       parentRelativePath: parentRelativePath,
@@ -1734,77 +1722,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             return progress
         }
 
-        // Restore: the only `modifyItem` shape Phase 3 understands for assets
-        // is reparent FROM a trash container TO a folder, with no other
-        // changes. Anything else (rename + reparent in one shot, in-place
-        // modify) falls through to featureUnsupported.
-        //
-        // Tighten: require .parentItemIdentifier to be the ONLY changed
-        // field. A bare `.contains(.parentItemIdentifier)` check would
-        // let Finder smuggle a rename-during-restore through (out of
-        // Phase 3 scope) — `item.filename` would then be sent to the
-        // server as the target basename.
-        if case .asset(let assetID) = parsed,
-           changedFields == [.parentItemIdentifier] {
-            let newParentID = item.parentItemIdentifier
-            let newParentParsed: FileProviderIdentifier
-            do { newParentParsed = try FileProviderIdentifier(rawValue: newParentID.rawValue) }
-            catch {
-                completionHandler(nil, [], false,
-                    NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
-                return Progress()
-            }
-            // Phase 3 only restores into a normal folder under the SAME library.
-            // The folderID is forwarded to the server so it can reject
-            // cross-library restores (the file is moved using the asset's
-            // original library root; restoring into a different library
-            // would silently land in the wrong place).
-            guard case .folder(let newFolderID, let newRelative) = newParentParsed else {
-                completionHandler(nil, [], false,
-                    NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
-                return Progress()
-            }
-            let progress = Progress(totalUnitCount: 1)
-            Task {
-                defer { progress.completedUnitCount = 1 }
-                do {
-                    let filename = item.filename
-                    let targetRel = newRelative.isEmpty ? filename : "\(newRelative)/\(filename)"
-                    let resp = try await catalog.restoreAsset(
-                        assetID: assetID,
-                        targetRelativePath: targetRel,
-                        targetFolderID: newFolderID,
-                    )
-                    // `resp.absPath` is the SERVER's filesystem path, not
-                    // a path on this Mac — statting it returns nil/throws,
-                    // which is why size + mtime + filename are now returned
-                    // authoritatively in the response.
-                    let ext = (resp.filename as NSString).pathExtension.lowercased()
-                    let image = ImageChild(
-                        name: resp.filename,
-                        path: resp.absPath,
-                        mtime: resp.mtime,
-                        size: resp.size,
-                        ext: ext,
-                        assetID: resp.assetID
-                    )
-                    if let restored = MapleItem(image: image, parentIdentifier: newParentID) {
-                        completionHandler(restored, [], false, nil)
-                    } else {
-                        completionHandler(nil, [], false,
-                            NSError(domain: NSFileProviderErrorDomain,
-                                    code: NSFileProviderError.noSuchItem.rawValue))
-                    }
-                    await self.signalEnumeratorReload(parent: newParentID)
-                } catch {
-                    self.log.error("restore failed: \(error.localizedDescription, privacy: .public)")
-                    completionHandler(nil, [], false, error)
-                }
-            }
-            return progress
-        }
-
-        // Asset, but not a restore: accept benign metadata-only edits
+        // Asset: accept benign metadata-only edits
         // silently. After fetchContents materialises a RAW, the OS often
         // surfaces a modifyItem call carrying `.lastUsedDate`,
         // `.extendedAttributes` (quarantine, Spotlight metadata), Finder
@@ -2005,7 +1923,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         return
                     }
                     completionHandler(nil)
-                case .trash, .mapleDir, .mapleThumbsDir, .thumb, .maplePreviewsDir, .preview:
+                case .mapleDir, .mapleThumbsDir, .thumb, .maplePreviewsDir, .preview:
                     // Synthetic `.maple/` items + thumbs are read-only —
                     // deletes are unsupported.
                     completionHandler(NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))

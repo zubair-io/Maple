@@ -251,7 +251,6 @@ ToneCurveMathTests
 ToneCurveTests
 ToneCurveXMPTests
 TranscribeSettingsFormTests
-TrashEnumeratorTests
 URLPathHierarchyTests
 UploadRetryIdempotencyTests
 WbDngTemperatureTests
