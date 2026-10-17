@@ -52,6 +52,7 @@ pub(super) fn parse_events<'a>(
     // Persisted authoring records are never current development attributes.
     // Their scoped namespace must not reclassify foreign WB as legacy Maple.
     let mut workflow_depth = 0usize;
+    let mut namespaces = local_adjustments::namespaces::Namespaces::default();
     let mut stack: Vec<String> = Vec::new();
     let mut top_desc_depth: Option<usize> = None;
     let mut desc_index = 0usize;
@@ -77,28 +78,31 @@ pub(super) fn parse_events<'a>(
                     workflow_depth += 1;
                     continue;
                 }
+                let (canon_name, _) = namespaces.start(&e)?;
                 if stack.len() == 1
                     && subject::is_xmpmeta_name(&stack[0])
-                    && !subject::is_rdf_name(&name)
+                    && !subject::is_rdf_name(&canon_name)
                 {
+                    namespaces.end(&name);
                     workflow_depth = 1;
                     continue;
                 }
                 if let Some(flags) = eligible {
                     if top_desc_depth.is_none()
                         && stack.last().is_none_or(|p| subject::is_rdf_name(p))
-                        && subject::is_description_name(&name)
+                        && subject::is_description_name(&canon_name)
                     {
                         let keep = flags.get(desc_index).copied().unwrap_or(true);
                         desc_index += 1;
                         if !keep {
+                            namespaces.end(&name);
                             workflow_depth = 1;
                             continue;
                         }
                         top_desc_depth = Some(stack.len());
                     }
                 }
-                stack.push(name.clone());
+                stack.push(canon_name);
                 // Inside a tone-curve or local-adjustments subtree there are
                 // no flat Maple attributes to read, so the attribute walk is
                 // skipped entirely for elements either walker claims.
@@ -113,16 +117,17 @@ pub(super) fn parse_events<'a>(
                 if workflow_depth > 0 || name == "papp:Workflow" {
                     continue;
                 }
+                let (canon_name, _) = namespaces.empty(&e)?;
                 if stack.len() == 1
                     && subject::is_xmpmeta_name(&stack[0])
-                    && !subject::is_rdf_name(&name)
+                    && !subject::is_rdf_name(&canon_name)
                 {
                     continue;
                 }
                 if let Some(flags) = eligible {
                     if top_desc_depth.is_none()
                         && stack.last().is_none_or(|p| subject::is_rdf_name(p))
-                        && subject::is_description_name(&name)
+                        && subject::is_description_name(&canon_name)
                     {
                         let keep = flags.get(desc_index).copied().unwrap_or(true);
                         desc_index += 1;
@@ -148,6 +153,7 @@ pub(super) fn parse_events<'a>(
                     workflow_depth -= 1;
                     continue;
                 }
+                namespaces.end("");
                 stack.pop();
                 if top_desc_depth == Some(stack.len()) {
                     top_desc_depth = None;

@@ -131,7 +131,7 @@ use crate::types::local_adjustment::{
 };
 use quick_xml::events::BytesStart;
 
-mod namespaces;
+pub(in crate::xmp) mod namespaces;
 mod parse;
 mod serialize;
 
