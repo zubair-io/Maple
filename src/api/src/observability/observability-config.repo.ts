@@ -80,6 +80,11 @@ export interface ObservabilityConfig {
   /** SigNoz ingestion key. Secret: persisted but sent only to authenticated
    * clients (Direct-to-SigNoz transport needs it). `null`/missing → unset. */
   ingestion_key?: string | null;
+  /** The endpoint `ingestion_key` was saved for (#4744). The key is only
+   * effective while `endpoint` still equals it, so a later endpoint change
+   * without a new key never carries the old secret to the new service.
+   * Missing on rows saved before bindings existed → treated as bound. */
+  ingestion_key_endpoint?: string | null;
   /** `service.namespace` resource attribute. `null`/missing → default. */
   service_namespace?: string | null;
   /** Per-signal toggles. `null`/missing → resolver default
@@ -123,6 +128,9 @@ export async function saveObservabilityConfig(patch: Partial<ObservabilityConfig
   }
   if (patch.ingestion_key !== undefined) {
     set['config.ingestion_key'] = patch.ingestion_key;
+  }
+  if (patch.ingestion_key_endpoint !== undefined) {
+    set['config.ingestion_key_endpoint'] = patch.ingestion_key_endpoint;
   }
   if (patch.service_namespace !== undefined) {
     set['config.service_namespace'] = patch.service_namespace;
@@ -193,6 +201,18 @@ function resolveStr(dbVal: string | null | undefined): {
   return { value: null, source: 'unset' };
 }
 
+/** The stored key, but only while the endpoint it was saved for (#4744) is
+ * still the effective endpoint. A row without a binding predates bindings and
+ * is treated as bound. */
+function resolveBoundIngestionKey(
+  db: ObservabilityConfig | null,
+  endpoint: string | null,
+): ReturnType<typeof resolveStr> {
+  const bound = db?.ingestion_key_endpoint;
+  const stillBound = bound === undefined || bound === null || validateHttpUrl(bound) === endpoint;
+  return stillBound ? resolveStr(db?.ingestion_key) : { value: null, source: 'unset' };
+}
+
 export function resolveObservabilityConfig(
   db: ObservabilityConfig | null,
 ): ResolvedObservabilityConfig {
@@ -213,7 +233,7 @@ export function resolveObservabilityConfig(
     }
   }
 
-  const ingestionKey = resolveStr(db?.ingestion_key);
+  const ingestionKey = resolveBoundIngestionKey(db, endpoint);
 
   let serviceNamespace = DEFAULT_SERVICE_NAMESPACE;
   let serviceNamespaceSource: ResolvedObservabilityConfig['source']['service_namespace'] =
