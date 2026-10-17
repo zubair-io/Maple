@@ -39,11 +39,12 @@ import path from 'node:path';
 import { ObjectId } from '../db/object-id.ts';
 import { child as childLogger } from '../log.ts';
 import { requireAuth, requireOwnerBeforeHandle } from '../auth/middleware.ts';
-import { rejectExecutablePathsInsideLibraries } from '../pano/pano-config-paths.ts';
+import {
+  loadEffectivePanoConfig,
+  rejectExecutablePathsInsideLibraries,
+} from '../pano/pano-config-paths.ts';
 import {
   isPanoProvisioned,
-  loadPanoConfig,
-  resolvePanoConfig,
   savePanoConfig,
   type PanoConfigResolution,
 } from '../pano/pano-config.repo.ts';
@@ -322,7 +323,7 @@ const NOT_PROVISIONED = {
  * stitch and preview routes — or the 409 body to refuse with.
  */
 export async function planStitch() {
-  const cfg = resolvePanoConfig(await loadPanoConfig());
+  const cfg = await loadEffectivePanoConfig();
   if (!isPanoProvisioned(cfg)) return { refusal: NOT_PROVISIONED };
   const mapleCli = cfg.maple_cli_path!;
   const capabilities = await probePanoCli(mapleCli);
@@ -461,6 +462,7 @@ export async function findPanoJob(
 // ── route group ───────────────────────────────────────────────────────────────
 
 export const panoRoutes = new Elysia({ prefix: '/api/pano' })
+  .use(requireAuth)
 
   // POST /api/pano/stitch — create a pano_stitch job.
   .post(
@@ -531,7 +533,7 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
   })
 
   // GET /api/pano/config — effective config + probed optional flags.
-  .get('/config', async () => withProbedFlags(resolvePanoConfig(await loadPanoConfig())))
+  .get('/config', async () => withProbedFlags(await loadEffectivePanoConfig()))
 
   // PUT /api/pano/config — upsert pano settings. Owner-only (#4743): the saved
   // binary and dylib are executed by the server.
@@ -545,7 +547,7 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
       }
       await savePanoConfig(body);
       invalidatePanoCliProbe();
-      const cfg = await withProbedFlags(resolvePanoConfig(await loadPanoConfig()));
+      const cfg = await withProbedFlags(await loadEffectivePanoConfig());
       log.info({ enabled: cfg.enabled }, 'pano config updated');
       return { ok: true, ...cfg };
     },

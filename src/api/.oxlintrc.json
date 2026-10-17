@@ -217,6 +217,8 @@
         "src/routes/mirror.ts",
         "src/routes/pano.resolve.test.ts",
         "src/routes/pano.test.ts",
+        // #4743: owner-gate tests stage a throwaway fake CLI + library in a temp dir only.
+        "src/routes/pano.config-security.test.ts",
         "src/routes/pano.ts",
         // #4580: preview artifacts and the fake maple-cli live only under os.tmpdir().
         "src/pano/pano-previews.ts",
