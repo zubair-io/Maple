@@ -4,12 +4,13 @@ Everything Apple lives under `src/apple/`: one Xcode project (`Maple.xcodeproj`)
 
 ## The Xcode project
 
-Nine native targets, two committed schemes.
+Ten native targets, three committed schemes.
 
 | Target               | Product           | Bundle id                   | Platforms          | Deployment            |
 | -------------------- | ----------------- | --------------------------- | ------------------ | --------------------- |
 | Maple                | app               | `app.justmaple.aperture`    | macOS, iOS, iPadOS | macOS 14.0 / iOS 26.0 |
-| Maple TV             | app               | `app.justmaple.aperture.tv` | tvOS               | tvOS 17.0             |
+| Maple TV             | app               | `app.justmaple.aperture.tv`    | tvOS               | tvOS 17.0             |
+| Maple Watch          | companion app     | `app.justmaple.aperture.watch` | watchOS            | watchOS 10.0          |
 | MapleFileProvider    | app extension     | `…aperture.FileProvider`    | macOS              | macOS 14.0            |
 | MapleFileProviderIOS | app extension     | `…aperture.FileProviderIOS` | iOS                | iOS 26.0              |
 | MapleQuickLook       | app extension     | `…aperture.QuickLook`       | macOS              | macOS 14.0            |
@@ -296,3 +297,18 @@ The pattern shows up in test code too: `MapleUITests.swift`, `SliderMatrixUITest
 Enable Settings → General → AI Agents to serve MCP at `http://127.0.0.1:49157/mcp` from the running app. Choose **Copy setup prompt** and paste it into an AI tool to configure its connection. The prompt includes the actual URL, Keychain-backed bearer credential, Codex/Cursor configurations, and bundled Claude Desktop extension instructions. Settings shows connection status, startup errors and Retry.
 
 The HTTP transport awaits the existing `AgentEditService`, preserving revision checks, undo, and XMP persistence. Its `maple_export_photo` tool reuses `MapleExporter` with default full-resolution JPEG sRGB settings and saves a uniquely named file in the app's Documents/Exports folder (inside its sandbox container), returning the absolute path. A stale revision, changed photo or cancelled render does not publish a file. Disable access to invalidate queued calls and close all listeners and clients. iOS/tvOS do not link the HTTP product. See [MapleMCP](../src/apple/Packages/MapleMCP/README.md) for client setup, transport limits, and signed distribution qualification.
+
+## Maple Watch
+
+Maple Watch is an iPhone-assisted, read-only client for Self Hosted libraries (#3617). The `Maple Watch` shared scheme builds the watchOS app and its tests. The app target links `Packages/MapleWatch`, which consumes only the `MapleCloudKit` product from MapleCore; it never links RawPipeline. It offers library selection, Recent Photos, Memories, thumbnail lists and Crown-controlled photo viewing.
+
+Setup starts in iPhone Settings → Self Hosted → Connect Apple Watch. The user chooses a server and taps Allow Pairing, then taps Connect to iPhone on the Watch. WatchConnectivity carries an immediate request/reply, not a background credential transfer. The phone mints a distinct `watchos` device session through the existing `/api/auth/device-sessions` endpoint and journals the pending request/grant in its private keychain. An ambiguous mint outcome blocks automatic duplicate minting and offers explicit recovery. The Watch checks request ID and local generation before persisting credentials in its private keychain. A late reply after cancellation or disconnect cannot reconnect it. Matching acknowledgements clear only their pending grant.
+
+An installed Watch session is independent of the iPhone login. Web Settings → Account can revoke it; Disconnect on the Watch removes the local session. The phone must run a server version accepting `watchos` device-session requests. Image reads use existing server derivatives, never original RAWs. Both thumbnail and preview routes currently return AVIF; the larger-preview fallback covers missing/undecodable thumbnails but is not a JPEG codec fallback. Validate ImageIO decoding on physical Watch hardware, as well as pairing, network transitions and token refresh after suspension.
+
+```bash
+xcodebuild -project src/apple/Maple.xcodeproj -scheme "Maple Watch" \
+  -destination 'platform=watchOS Simulator,name=Apple Watch Series 11 (46mm)' test
+```
+
+Watch targets explicitly declare `watchos watchsimulator` to avoid inheriting the universal Apple app's platforms. Embedding and the companion dependency apply only to iOS. The package supports watchOS 10 and later.

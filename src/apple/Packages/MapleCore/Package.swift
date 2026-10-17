@@ -27,6 +27,7 @@ let package = Package(
     .macOS(.v14),
     .iOS(.v17),
     .tvOS(.v17),
+    .watchOS(.v10),
   ],
   products: [
     .library(name: "MapleCore", targets: ["MapleCore"]),

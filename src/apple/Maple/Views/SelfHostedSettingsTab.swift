@@ -48,6 +48,7 @@ struct SelfHostedSettingsTab: View {
   /// `PairSheetTarget`.
   #if os(iOS)
     @State private var pairSheetTarget: PairSheetTarget?
+    @State private var showsWatchPairing = false
   #endif
   /// Per-server signed-in state, derived from Keychain token presence. This
   /// is a separate macOS Settings scene, so it can't observe the app's
@@ -199,6 +200,8 @@ struct SelfHostedSettingsTab: View {
       HStack {
         Spacer()
         #if os(iOS)
+          Button("Connect Apple Watch…") { showsWatchPairing = true }
+            .accessibilityLabel("Connect Apple Watch")
           Button("Pair Apple TV…") { pairSheetTarget = .pairing(PairAppleTVViewModel()) }
             .accessibilityLabel("Pair Apple TV")
         #endif
@@ -243,6 +246,7 @@ struct SelfHostedSettingsTab: View {
       )
     }
     #if os(iOS)
+      .sheet(isPresented: $showsWatchPairing) { WatchPairingSheet() }
       .sheet(item: $pairSheetTarget) { target in
         switch target {
         case .pairing(let viewModel):
