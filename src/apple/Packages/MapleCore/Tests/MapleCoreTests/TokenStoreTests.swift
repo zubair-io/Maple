@@ -2,6 +2,7 @@
 import Security
 import XCTest
 
+@testable import MapleCloudKit
 @testable import MapleCore
 
 final class TokenStoreTests: XCTestCase {
@@ -112,4 +113,67 @@ final class TokenStoreTests: XCTestCase {
       }
     }
   #endif
+
+  func testClearAndSaveWaitForRefreshLockRelease() async throws {
+    let server = URL(string: "https://lock-serialize-\(UUID().uuidString).test")!
+    let lockEntered = expectation(description: "refresh lock held")
+    let clearStarted = expectation(description: "clear task started")
+    let saveStarted = expectation(description: "save task started")
+
+    actor OrderRecorder {
+      var events: [String] = []
+      func append(_ event: String) { events.append(event) }
+      func snapshot() -> [String] { events }
+    }
+    let recorder = OrderRecorder()
+
+    let holder = Task {
+      try await TokenStore.withRefreshLock(server: server) {
+        lockEntered.fulfill()
+        await fulfillment(of: [clearStarted, saveStarted], timeout: 2.0)
+        // Give the contending writers time to hit flock(LOCK_EX | LOCK_NB) and sleep.
+        try await Task.sleep(nanoseconds: 120_000_000)
+        await recorder.append("refresh-persisted")
+      }
+    }
+
+    await fulfillment(of: [lockEntered], timeout: 2.0)
+
+    let clearer = Task.detached {
+      clearStarted.fulfill()
+      TokenStore.clear(server: server)
+      await recorder.append("clear-completed")
+    }
+
+    let saver = Task.detached {
+      saveStarted.fulfill()
+      try? TokenStore.save(AuthTokens(access: "A", refresh: "R"), server: server)
+      await recorder.append("save-completed")
+    }
+
+    try await holder.value
+    await clearer.value
+    await saver.value
+
+    let events = await recorder.snapshot()
+    XCTAssertEqual(events.first, "refresh-persisted")
+    XCTAssertEqual(events.count, 3)
+  }
+
+  func testWithRefreshLockAllowsReentrantSaveAndClearOnSameTask() async throws {
+    let server = URL(string: "https://lock-reentrant-\(UUID().uuidString).test")!
+    var innerCompleted = false
+    try await TokenStore.withRefreshLock(server: server) {
+      TokenStore.clear(server: server)
+      do {
+        try TokenStore.save(AuthTokens(access: "A", refresh: "R"), server: server)
+      } catch let nsErr as NSError
+        where nsErr.domain == "TokenStore" && nsErr.code == Int(errSecMissingEntitlement)
+      {
+        // Expected on unentitled SPM test runners; the lock path already ran.
+      }
+      innerCompleted = true
+    }
+    XCTAssertTrue(innerCompleted)
+  }
 }
