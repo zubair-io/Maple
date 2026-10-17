@@ -37,15 +37,15 @@
 # src/raw-pipeline/raw-wasm/rust-toolchain.toml; rustup honours it
 # automatically.
 # ---------------------------------------------------------------------------
-FROM rust:1.83-slim AS wasm-builder
+FROM rust:1.98.1-slim-bookworm AS wasm-builder
 
 WORKDIR /build
 
-# wasm-pack needs curl + ca-certs to fetch its release bundle; install once.
+# Build the reviewed wasm-pack version using its published dependency lockfile.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && curl -fsSL https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+    && cargo install wasm-pack --version 0.15.0 --locked
 
 COPY src/raw-pipeline/ raw-pipeline/
 
@@ -123,11 +123,11 @@ RUN bun x ng build maple --configuration=production
 #
 # `--features search` compiles the API-only `maple_search_*` symbols (#4462:
 # fastembed + Tantivy), whose tree needs Rust >= 1.86 (tantivy 0.26). The base
-# tracks the workspace's `stable` toolchain (src/raw-pipeline/rust-toolchain.toml,
+# matches the workspace's pinned native toolchain (src/raw-pipeline/rust-toolchain.toml,
 # which rustup honours inside this directory) and stays on bookworm so the .so
 # links against the same glibc as the bookworm-based runtime image.
 # ---------------------------------------------------------------------------
-FROM rust:1.98-slim-bookworm AS rust-builder
+FROM rust:1.98.1-slim-bookworm AS rust-builder
 
 WORKDIR /build
 
