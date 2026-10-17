@@ -24,4 +24,4 @@ export const WHITE_BALANCE_PRESET_VALUES: Readonly<
   Flash: { temperature: 5500, tint: 0 },
 };
 
-export const AUTO_WB_ALGORITHM_VERSION = 2;
+export const AUTO_WB_ALGORITHM_VERSION = 3;
