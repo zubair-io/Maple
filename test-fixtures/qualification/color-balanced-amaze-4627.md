@@ -70,6 +70,15 @@ use the same frozen float64/native-pair protocol and budgets as the ongoing
 
 ## Integration still required
 
+The follow-up Pixel control in #4647 finds one new failure from AMaZE alone:
+`test_0015/dehaze_max` blue bias is -0.073930924 against the unchanged absolute
+ceiling 0.0734; frozen main passes at -0.068169846. Applying the required Bayer
+GainMaps changes that bias to -0.040073069 and passes every metric. This
+interaction requires qualification of the two changes together against main.
+The AMaZE-only branch is not ready to land. Exact three-way metrics and input
+hashes are in `pixel-gainmaps-isolated/dehaze_max-three-way.json` under the
+evidence root; the 806-comparison combined run is in progress.
+
 This checkpoint preserves implementation and evidence before a ready PR.
 Physical results, the complete 806-comparison regression check, performance,
 remaining platform qualification and fresh CI/review are not yet complete.
@@ -81,7 +90,5 @@ and the pinned Auto fit input. Regenerate platform mirrors and evidence on
 the actual integration revision. The frozen algorithm currently retains
 output version 25 and fit-model version 2; it is not the merge revision.
 
-The session exception permits documented failures already present on main.
-It does not permit new regressions, raised budgets or omitted comparisons.
 Full logs, replay commands and immutable-input identities are under
 `/Volumes/Projects/maple-color-gate-20261015/balanced-amaze-current-main/`.
