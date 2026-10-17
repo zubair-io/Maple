@@ -128,17 +128,20 @@ describe('listLiveAssetLocationsUnderFolder', () => {
     expect(matches.map((m) => m.assetId.toHexString()).sort()).toEqual([here, deep].sort());
   });
 
-  test('a sibling whose name starts with the same characters is not a descendant', async () => {
+  test('a sibling whose name starts with the same characters or differs only by case is not matched', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const libraryId = insertFolder(handle.db);
     seedAt(handle, libraryId, { path: 'photos', filename: 'wanted.dng' });
+    seedAt(handle, libraryId, { path: 'photos/day1', filename: 'wanted-deep.dng' });
     seedAt(handle, libraryId, { path: 'photos2', filename: 'unwanted.dng' });
     seedAt(handle, libraryId, { path: 'photos2/inner', filename: 'also-unwanted.dng' });
+    seedAt(handle, libraryId, { path: 'Photos', filename: 'case-sibling.dng' });
+    seedAt(handle, libraryId, { path: 'Photos/day1', filename: 'case-sibling-deep.dng' });
 
     const matches = await listLiveAssetLocationsUnderFolder(oid(libraryId), 'photos', db);
 
-    expect(matches.map((m) => m.filename)).toEqual(['wanted.dng']);
+    expect(matches.map((m) => m.filename).sort()).toEqual(['wanted-deep.dng', 'wanted.dng']);
   });
 
   test('a directory containing LIKE metacharacters matches only itself', async () => {
@@ -244,13 +247,15 @@ describe('listTrashedAssetLocationsUnderFolder', () => {
     return assetId;
   }
 
-  test('matches by the recorded original path, itself or below', async () => {
+  test('matches by the recorded original path, itself or below, and is case-sensitive', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const libraryId = insertFolder(handle.db, { path: ROOT });
     seedTrashed(handle, libraryId, `${ROOT}/photos/a.dng`, 'a.dng');
     seedTrashed(handle, libraryId, `${ROOT}/photos/2024/b.dng`, 'b.dng');
     seedTrashed(handle, libraryId, `${ROOT}/photos2/c.dng`, 'c.dng');
+    seedTrashed(handle, libraryId, `${ROOT}/Photos/d.dng`, 'd.dng');
+    seedTrashed(handle, libraryId, `${ROOT}/Photos/2024/e.dng`, 'e.dng');
 
     const matches = await listTrashedAssetLocationsUnderFolder(oid(libraryId), ROOT, 'photos', db);
 
