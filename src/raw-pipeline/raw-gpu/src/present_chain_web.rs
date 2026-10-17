@@ -33,13 +33,9 @@
 //! variant stores no borrowed handle (`handle_source = None`), so the `Surface` is
 //! `'static`-storable.
 //!
-//! ## Surface dims == image dims (parity invariant)
-//!
-//! `present_chain.wgsl`'s FS recovers each pixel's `(x, y)` from the fragment
-//! position and indexes the f32 buffer `i = y*width + x`, so the surface MUST be
-//! configured at the image's exact dims or the Bayer dither cell + the buffer index
-//! desync. [`WebPresentSurface::create`] sizes the surface to the image dims; the
-//! caller sizes the `OffscreenCanvas` to match (the present never rescales).
+//! Surface dimensions are upright; a transposed EXIF orientation can differ
+//! from the sensor-framed session. The present receives both dimensions and
+//! maps destination coordinates through the display → sensor homography.
 //!
 //! ## Colour-space (requested per session, #3191)
 //!
@@ -86,7 +82,7 @@ pub struct WebPresentSurface {
     pipeline: wgpu::RenderPipeline,
     /// The pipeline's bind-group layout (params uniform @0 + f32 chain buffer @1).
     bind_group_layout: wgpu::BindGroupLayout,
-    /// Image (= surface) dims. Pinned; the present asserts the session matches.
+    /// Upright surface dims, pinned for this session.
     width: u32,
     height: u32,
     /// The colour-space tag the browser reported after the one-time retag to
@@ -104,7 +100,7 @@ pub struct WebPresentSurface {
 }
 
 impl WebPresentSurface {
-    /// Create the persistent present surface for `canvas` at the `LiveSession`'s
+    /// Create the persistent present surface for `canvas` at its upright
     /// dims, on `ctx`'s EXISTING device (the f32 buffer lives there). Configures the
     /// surface, re-tags it to `target_color_space` (e.g. `"display-p3"` or
     /// `"srgb"` — the #3191 request parameter; the achieved tag, read back from
@@ -210,7 +206,7 @@ impl WebPresentSurface {
     /// Present the live chain's resident f32 buffer (`session`'s ping-pong index
     /// `final_idx`, left by [`LiveSession::render_chain_to_f32_async`]) to the held
     /// surface — the dithered/quantized 8-bit display surface, NO CPU readback,
-    /// recompiling NOTHING. Asserts `session` dims == the surface dims.
+    /// recompiling NOTHING. Source dimensions may be transposed by orientation.
     pub fn present(
         &self,
         ctx: &GpuContext,
@@ -218,13 +214,15 @@ impl WebPresentSurface {
         final_idx: usize,
         geometry: crate::PresentGeometry,
     ) -> Result<(), String> {
-        let dims = session.dims();
-        if dims != (self.width, self.height) {
-            return Err(format!(
-                "WebPresentSurface::present: session {}x{} != surface {}x{}",
-                dims.0, dims.1, self.width, self.height
-            ));
-        }
+        let src_dims = if session.dims() == (self.width, self.height) {
+            (0, 0)
+        } else if session.dims() == (self.height, self.width) {
+            session.dims()
+        } else {
+            return Err(
+                "WebPresentSurface: session dimensions must match or transpose the surface".into(),
+            );
+        };
         let chain_buf = session.ping_pong_buffer(final_idx);
         // Get-or-build the present dispatch for THIS chain buffer identity
         // (#1930) — a same-identity re-present (the steady state while
@@ -235,7 +233,7 @@ impl WebPresentSurface {
             &self.bind_group_layout,
             chain_buf,
             (session.identity(), final_idx),
-            ((self.width, self.height), (0, 0)),
+            ((self.width, self.height), src_dims),
             geometry,
         );
         let frame = self
